@@ -9,6 +9,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecAutoPilotState;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Models\RecPosting;
 use Platform\Crm\Models\CrmContact;
 
 class Index extends Component
@@ -29,11 +30,13 @@ class Index extends Component
 
     // Form Data
     public $contact_id = null;
+    public $posting_id = null;
     public $rec_applicant_status_id = null;
     public $applied_at = null;
     public $notes = '';
 
     protected $rules = [
+        'posting_id' => 'nullable|exists:rec_postings,id',
         'rec_applicant_status_id' => 'nullable|exists:rec_applicant_statuses,id',
         'applied_at' => 'nullable|date',
         'notes' => 'nullable|string',
@@ -109,6 +112,16 @@ class Index extends Component
     {
         return RecPosition::forTeam(auth()->user()->currentTeam->id)
             ->active()
+            ->orderBy('title')
+            ->get();
+    }
+
+    #[Computed]
+    public function availablePostings()
+    {
+        return RecPosting::with('position')
+            ->forTeam(auth()->user()->currentTeam->id)
+            ->published()
             ->orderBy('title')
             ->get();
     }
@@ -195,6 +208,12 @@ class Index extends Component
             }
         }
 
+        if ($this->posting_id) {
+            $applicant->postings()->attach($this->posting_id, [
+                'applied_at' => $this->applied_at,
+            ]);
+        }
+
         $this->resetForm();
         $this->modalShow = false;
         session()->flash('message', 'Bewerber erfolgreich erstellt.');
@@ -202,7 +221,7 @@ class Index extends Component
 
     public function resetForm()
     {
-        $this->reset(['contact_id', 'rec_applicant_status_id', 'applied_at', 'notes']);
+        $this->reset(['contact_id', 'posting_id', 'rec_applicant_status_id', 'applied_at', 'notes']);
     }
 
     public function openCreateModal()

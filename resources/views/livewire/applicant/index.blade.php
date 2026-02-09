@@ -55,6 +55,12 @@
                                                         </span>
                                                     @endforeach
                                                 </div>
+                                            @else
+                                                <div class="flex flex-wrap gap-1">
+                                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                                        Initiativ
+                                                    </span>
+                                                </div>
                                             @endif
                                         </div>
                                     @else
@@ -169,6 +175,7 @@
         <x-slot name="header">Neuer Bewerber</x-slot>
         <div class="space-y-4">
             <x-ui-input-select name="contact_id" label="CRM-Kontakt (optional)" :options="$this->availableContacts" optionValue="id" optionLabel="display_name" :nullable="true" nullLabel="Ohne Kontakt" wire:model.live="contact_id" />
+            <x-ui-input-select name="posting_id" label="Ausschreibung (optional)" :options="$this->availablePostings" optionValue="id" optionLabel="title" :nullable="true" nullLabel="Initiativbewerbung" wire:model.live="posting_id" />
             <x-ui-input-select name="rec_applicant_status_id" label="Bewerbungsstatus (optional)" :options="$this->availableStatuses" optionValue="id" optionLabel="name" :nullable="true" nullLabel="Kein Status" wire:model.live="rec_applicant_status_id" />
             <x-ui-input-date name="applied_at" label="Bewerbungsdatum" wire:model.live="applied_at" :nullable="true" />
             <x-ui-input-textarea name="notes" label="Notizen" wire:model.live="notes" placeholder="Zusätzliche Notizen (optional)" rows="3" />

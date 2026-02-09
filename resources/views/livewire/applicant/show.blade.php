@@ -158,6 +158,92 @@
             :definitions="$extraFieldDefinitions"
         />
 
+        <!-- Zugeordnete Stellen -->
+        <x-ui-panel title="Zugeordnete Stellen" subtitle="Ausschreibungen und Stellen, für die sich der Bewerber beworben hat">
+            @if($applicant->postings->count() > 0)
+                <div class="space-y-4">
+                    @foreach($applicant->postings as $posting)
+                        <div class="flex items-center justify-between p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                            <div class="flex items-center gap-4">
+                                <div class="w-10 h-10 bg-blue-600 text-white rounded-lg flex items-center justify-center">
+                                    @svg('heroicon-o-briefcase', 'w-5 h-5')
+                                </div>
+                                <div>
+                                    <h4 class="font-medium text-[var(--ui-secondary)]">{{ $posting->title }}</h4>
+                                    @if($posting->position)
+                                        <p class="text-sm text-[var(--ui-muted)]">Stelle: {{ $posting->position->title }}</p>
+                                    @endif
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <x-ui-badge variant="{{ $posting->status === 'published' ? 'success' : 'secondary' }}" size="sm">{{ $posting->status }}</x-ui-badge>
+                                @if($posting->pivot->applied_at)
+                                    <span class="text-xs text-[var(--ui-muted)]">{{ \Carbon\Carbon::parse($posting->pivot->applied_at)->format('d.m.Y') }}</span>
+                                @endif
+                                <x-ui-button
+                                    size="sm"
+                                    variant="danger-outline"
+                                    wire:click="unlinkPosting({{ $posting->id }})"
+                                    wire:confirm="Ausschreibung-Zuordnung wirklich entfernen?"
+                                >
+                                    @svg('heroicon-o-x-mark', 'w-4 h-4')
+                                </x-ui-button>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <div class="text-center py-8">
+                    @svg('heroicon-o-briefcase', 'w-12 h-12 text-[var(--ui-muted)] mx-auto mb-4')
+                    <h4 class="text-lg font-medium text-[var(--ui-secondary)] mb-2">Initiativbewerbung</h4>
+                    <p class="text-[var(--ui-muted)] mb-4">Dieser Bewerber ist keiner Ausschreibung zugeordnet.</p>
+                    <x-ui-button variant="secondary" wire:click="linkPosting">
+                        @svg('heroicon-o-link', 'w-4 h-4')
+                        Ausschreibung zuordnen
+                    </x-ui-button>
+                </div>
+            @endif
+        </x-ui-panel>
+
+        <!-- Posting Link Modal -->
+        <x-ui-modal
+            size="sm"
+            model="postingLinkModalShow"
+        >
+            <x-slot name="header">
+                Ausschreibung zuordnen
+            </x-slot>
+
+            <div class="space-y-4">
+                <x-ui-input-select
+                    name="postingLinkForm.posting_id"
+                    label="Ausschreibung auswählen"
+                    :options="$this->availablePostings"
+                    optionValue="id"
+                    optionLabel="title"
+                    :nullable="true"
+                    nullLabel="– Ausschreibung auswählen –"
+                    wire:model.live="postingLinkForm.posting_id"
+                    required
+                />
+            </div>
+
+            <x-slot name="footer">
+                <div class="d-flex justify-end gap-2">
+                    <x-ui-button
+                        type="button"
+                        variant="secondary-outline"
+                        wire:click="$set('postingLinkModalShow', false)"
+                    >
+                        Abbrechen
+                    </x-ui-button>
+                    <x-ui-button type="button" variant="primary" wire:click="savePostingLink">
+                        Zuordnen
+                    </x-ui-button>
+                </div>
+            </x-slot>
+        </x-ui-modal>
+
         <!-- Verknüpfte Kontakte -->
         <x-ui-panel title="Verknüpfte Kontakte" subtitle="CRM-Kontakte die mit diesem Bewerber verknüpft sind">
             @if($applicant->crmContactLinks->count() > 0)
@@ -358,6 +444,12 @@
                                 </span>
                             </x-ui-button>
                         @endif
+                        <x-ui-button variant="secondary" size="sm" wire:click="linkPosting" class="w-full">
+                            <span class="inline-flex items-center gap-2">
+                                @svg('heroicon-o-briefcase', 'w-4 h-4')
+                                Ausschreibung zuordnen
+                            </span>
+                        </x-ui-button>
                         <x-ui-button variant="secondary" size="sm" wire:click="linkContact" class="w-full">
                             <span class="inline-flex items-center gap-2">
                                 @svg('heroicon-o-link', 'w-4 h-4')

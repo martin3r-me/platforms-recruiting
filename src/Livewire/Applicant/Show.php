@@ -11,6 +11,7 @@ use Platform\Core\Models\Team;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Models\RecPosting;
 use Platform\Crm\Models\CrmContact;
 
 class Show extends Component
@@ -35,6 +36,9 @@ class Show extends Component
     ];
 
     public $availableContacts = [];
+
+    public $postingLinkModalShow = false;
+    public $postingLinkForm = ['posting_id' => null];
 
     public function mount(RecApplicant $applicant)
     {
@@ -133,6 +137,42 @@ class Show extends Component
             ->orderByDesc('created_at')
             ->limit(20)
             ->get();
+    }
+
+    #[Computed]
+    public function availablePostings()
+    {
+        $linkedPostingIds = $this->applicant->postings->pluck('id');
+        return RecPosting::with('position')
+            ->forTeam(auth()->user()->currentTeam->id)
+            ->published()
+            ->whereNotIn('id', $linkedPostingIds)
+            ->orderBy('title')
+            ->get();
+    }
+
+    public function linkPosting(): void
+    {
+        $this->postingLinkForm = ['posting_id' => null];
+        $this->postingLinkModalShow = true;
+    }
+
+    public function savePostingLink(): void
+    {
+        $this->validate(['postingLinkForm.posting_id' => 'required|exists:rec_postings,id']);
+        $this->applicant->postings()->attach($this->postingLinkForm['posting_id'], [
+            'applied_at' => now(),
+        ]);
+        $this->postingLinkModalShow = false;
+        $this->applicant->load('postings.position');
+        session()->flash('message', 'Ausschreibung verknüpft.');
+    }
+
+    public function unlinkPosting(int $postingId): void
+    {
+        $this->applicant->postings()->detach($postingId);
+        $this->applicant->load('postings.position');
+        session()->flash('message', 'Ausschreibung-Zuordnung entfernt.');
     }
 
     public function linkContact(): void
