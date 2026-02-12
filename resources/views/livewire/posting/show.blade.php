@@ -25,11 +25,64 @@
                 </div>
                 <x-ui-input-select name="posting.status" label="Status" :options="[['value' => 'draft', 'label' => 'Entwurf'], ['value' => 'published', 'label' => 'Veröffentlicht'], ['value' => 'closed', 'label' => 'Geschlossen']]" optionValue="value" optionLabel="label" wire:model.live="posting.status" />
                 <x-ui-input-checkbox model="posting.is_active" name="posting.is_active" label="Aktiv" wire:model.live="posting.is_active" />
-                <x-ui-input-date name="posting.published_at" label="Veröffentlicht am" wire:model.live="posting.published_at" :nullable="true" />
-                <x-ui-input-date name="posting.closes_at" label="Endet am" wire:model.live="posting.closes_at" :nullable="true" />
+                <x-ui-input-date name="posting.published_at" label="Startdatum" wire:model.live="posting.published_at" :nullable="true" />
+                <x-ui-input-date name="posting.closes_at" label="Enddatum" wire:model.live="posting.closes_at" :nullable="true" />
             </div>
-            <div class="mt-6">
-                <x-ui-input-textarea name="posting.description" label="Beschreibung" wire:model.live.debounce.500ms="posting.description" placeholder="Beschreibung..." rows="4" />
+            @if($posting->published_at && $posting->closes_at)
+                @php
+                    $days = \Carbon\Carbon::parse($posting->published_at)->diffInDays(\Carbon\Carbon::parse($posting->closes_at));
+                @endphp
+                <div class="mt-3 text-sm text-[var(--ui-muted)]">
+                    Laufzeit: {{ $days }} Tage
+                </div>
+            @endif
+            <div class="mt-6"
+                x-data="{
+                    editor: null,
+                    debounceTimer: null,
+                    boot() {
+                        const Editor = window.ToastUIEditor;
+                        if (!Editor) return false;
+
+                        if (this.editor && typeof this.editor.destroy === 'function') {
+                            this.editor.destroy();
+                        }
+
+                        this.editor = new Editor({
+                            el: this.$refs.editorEl,
+                            height: '300px',
+                            initialEditType: 'wysiwyg',
+                            hideModeSwitch: true,
+                            usageStatistics: false,
+                            placeholder: 'Beschreibung...',
+                            toolbarItems: [
+                                ['heading', 'bold', 'italic', 'strike'],
+                                ['ul', 'ol', 'task', 'quote'],
+                                ['link', 'code', 'codeblock', 'hr'],
+                            ],
+                            initialValue: @js($description),
+                        });
+
+                        this.editor.on('change', () => {
+                            clearTimeout(this.debounceTimer);
+                            this.debounceTimer = setTimeout(() => {
+                                $wire.set('description', this.editor.getMarkdown());
+                            }, 900);
+                        });
+
+                        return true;
+                    },
+                    init() {
+                        if (!this.boot()) {
+                            window.addEventListener('toastui:ready', () => this.boot(), { once: true });
+                        }
+                    },
+                }"
+            >
+                <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Beschreibung</label>
+                <div class="posting-editor-shell">
+                    <div wire:ignore x-ref="editorEl"></div>
+                </div>
             </div>
         </div>
 
@@ -82,3 +135,48 @@
         </x-ui-page-sidebar>
     </x-slot>
 </x-ui-page>
+
+@push('styles')
+<style>
+    .posting-editor-shell {
+        position: relative;
+        z-index: 1;
+    }
+
+    .posting-editor-shell .toastui-editor-defaultUI {
+        border: 1px solid var(--ui-border);
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
+        z-index: 1;
+    }
+
+    .posting-editor-shell .toastui-editor-toolbar {
+        background: color-mix(in srgb, var(--ui-muted-5) 70%, transparent);
+        border-bottom: 1px solid var(--ui-border);
+        position: relative;
+        z-index: 1;
+    }
+
+    .posting-editor-shell .toastui-editor-popup,
+    .posting-editor-shell .toastui-editor-dropdown,
+    .posting-editor-shell .toastui-editor-contents .toastui-editor-popup,
+    .posting-editor-shell .toastui-editor-contents .toastui-editor-dropdown {
+        z-index: 40 !important;
+    }
+
+    .posting-editor-shell .toastui-editor-contents {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        font-size: 17px;
+        line-height: 1.7;
+    }
+
+    .posting-editor-shell .toastui-editor-defaultUI-toolbar button {
+        border-radius: 8px;
+    }
+
+    .posting-editor-shell .toastui-editor-mode-switch {
+        display: none !important;
+    }
+</style>
+@endpush

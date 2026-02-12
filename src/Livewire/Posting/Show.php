@@ -10,17 +10,19 @@ use Platform\Recruiting\Models\RecPosition;
 class Show extends Component
 {
     public RecPosting $posting;
+    public string $description = '';
 
     public function mount(RecPosting $posting)
     {
         $this->posting = $posting->load(['position', 'applicants.crmContactLinks.contact']);
+        $this->description = $posting->description ?? '';
     }
 
     public function rules(): array
     {
         return [
             'posting.title' => 'required|string|max:255',
-            'posting.description' => 'nullable|string',
+            'description' => 'nullable|string',
             'posting.status' => 'required|in:draft,published,closed',
             'posting.is_active' => 'boolean',
             'posting.published_at' => 'nullable|date',
@@ -31,6 +33,7 @@ class Show extends Component
     public function save(): void
     {
         $this->validate();
+        $this->posting->description = $this->description;
         $this->posting->save();
         session()->flash('message', 'Ausschreibung erfolgreich aktualisiert.');
     }
@@ -60,7 +63,8 @@ class Show extends Component
     #[Computed]
     public function isDirty()
     {
-        return $this->posting->isDirty();
+        return $this->posting->isDirty()
+            || $this->description !== ($this->posting->getOriginal('description') ?? '');
     }
 
     public function render()
