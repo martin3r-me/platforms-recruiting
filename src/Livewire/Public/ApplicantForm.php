@@ -2,7 +2,6 @@
 
 namespace Platform\Recruiting\Livewire\Public;
 
-use Carbon\Carbon;
 use Livewire\Component;
 use Platform\Core\Livewire\Concerns\WithExtraFields;
 use Platform\Core\Models\CoreExtraFieldValue;
@@ -15,8 +14,6 @@ class ApplicantForm extends Component
     public string $publicToken = '';
     public string $state = 'loading';
     public string $applicantName = '';
-    public string $birthDateInput = '';
-    public string $birthDateError = '';
 
     public ?int $applicantId = null;
 
@@ -48,60 +45,8 @@ class ApplicantForm extends Component
         }
 
         $contact = $applicant->getContact();
-
-        if (!$contact || !$contact->birth_date) {
-            $this->state = 'noBirthDate';
-            return;
-        }
-
         $this->applicantName = $contact->full_name ?? 'Bewerber';
         $this->applicantId = $applicant->id;
-        $this->state = 'verify';
-    }
-
-    public function verifyBirthDate(): void
-    {
-        $attempts = session('applicant_verify_attempts_' . $this->publicToken, 0);
-
-        if ($attempts >= 3) {
-            $this->birthDateError = 'Zu viele Fehlversuche. Bitte kontaktieren Sie die Personalabteilung.';
-            return;
-        }
-
-        if (empty($this->birthDateInput)) {
-            $this->birthDateError = 'Bitte geben Sie Ihr Geburtsdatum ein.';
-            return;
-        }
-
-        try {
-            $inputDate = Carbon::parse($this->birthDateInput)->startOfDay();
-        } catch (\Exception $e) {
-            $this->birthDateError = 'Ungültiges Datumsformat.';
-            return;
-        }
-
-        $applicant = $this->getApplicant();
-        if (!$applicant) {
-            $this->state = 'notFound';
-            return;
-        }
-
-        $contact = $applicant->getContact();
-        $contactBirthDate = Carbon::parse($contact->birth_date)->startOfDay();
-
-        if (!$inputDate->equalTo($contactBirthDate)) {
-            $attempts++;
-            session(['applicant_verify_attempts_' . $this->publicToken => $attempts]);
-            $remaining = 3 - $attempts;
-            if ($remaining > 0) {
-                $this->birthDateError = 'Das Geburtsdatum stimmt nicht überein. Noch ' . $remaining . ' Versuch(e).';
-            } else {
-                $this->birthDateError = 'Zu viele Fehlversuche. Bitte kontaktieren Sie die Personalabteilung.';
-            }
-            return;
-        }
-
-        $this->birthDateError = '';
         $this->loadFormFields($applicant);
     }
 

@@ -58,63 +58,6 @@
             </div>
         </div>
 
-    {{-- No Birth Date --}}
-    @elseif($state === 'noBirthDate')
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="applicant-card w-full max-w-md p-10 text-center">
-                <div class="w-20 h-20 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-6">
-                    <svg class="w-10 h-10 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
-                    </svg>
-                </div>
-                <h1 class="text-2xl font-bold text-gray-900 mb-3">Verifikation nicht moeglich</h1>
-                <p class="text-gray-500 text-lg">Fuer Ihre Bewerbung ist kein Geburtsdatum hinterlegt. Bitte kontaktieren Sie die Personalabteilung, damit diese die Daten ergaenzen kann.</p>
-            </div>
-        </div>
-
-    {{-- Verify --}}
-    @elseif($state === 'verify')
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="applicant-card w-full max-w-md p-10">
-                <div class="text-center mb-8">
-                    <div class="w-20 h-20 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-6">
-                        <svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                        </svg>
-                    </div>
-                    <h1 class="text-2xl font-bold text-gray-900 mb-2">Hallo {{ $applicantName }}!</h1>
-                    <p class="text-gray-500">Bitte verifizieren Sie sich mit Ihrem Geburtsdatum, um fortzufahren.</p>
-                </div>
-
-                <form wire:submit="verifyBirthDate" class="space-y-6">
-                    <div>
-                        <label for="birthDate" class="block text-sm font-semibold text-gray-700 mb-2">Geburtsdatum</label>
-                        <input
-                            type="date"
-                            id="birthDate"
-                            wire:model="birthDateInput"
-                            class="applicant-input {{ $birthDateError ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : '' }}"
-                        >
-                        @if($birthDateError)
-                            <p class="mt-2 text-sm text-red-600">{{ $birthDateError }}</p>
-                        @endif
-                    </div>
-
-                    <button
-                        type="submit"
-                        wire:loading.attr="disabled"
-                        class="applicant-btn-primary w-full"
-                    >
-                        <span wire:loading.remove wire:target="verifyBirthDate">Verifizieren</span>
-                        <span wire:loading wire:target="verifyBirthDate" class="inline-flex items-center gap-2">
-                            <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                            Wird geprueft...
-                        </span>
-                    </button>
-                </form>
-            </div>
-        </div>
-
     {{-- Form --}}
     @elseif($state === 'form')
         {{-- Header --}}
