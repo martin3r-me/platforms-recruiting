@@ -101,7 +101,7 @@
                                                 name="contact_{{ $applicant->id }}"
                                                 :options="$this->availableContacts"
                                                 optionValue="id"
-                                                optionLabel="display_name"
+                                                optionLabel="full_name"
                                                 :nullable="true"
                                                 nullLabel="– Kontakt wählen –"
                                                 size="sm"
