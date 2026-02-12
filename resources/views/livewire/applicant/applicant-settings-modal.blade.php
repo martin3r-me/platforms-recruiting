@@ -16,6 +16,14 @@
                     Allgemein
                 </button>
                 <button
+                    @click="$wire.set('activeTab', 'service-hours')"
+                    :class="$wire.activeTab === 'service-hours' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
+                    class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
+                    wire:click="$set('activeTab', 'service-hours')"
+                >
+                    Service-Zeiten
+                </button>
+                <button
                     @click="$wire.set('activeTab', 'channels')"
                     :class="$wire.activeTab === 'channels' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
                     class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
@@ -58,6 +66,18 @@
                         wire:model="settings.default_status_id"
                     />
 
+                    {{-- Standard-Ansprechpartner --}}
+                    <x-ui-input-select
+                        name="settings.default_contact_user_id"
+                        label="Standard-Ansprechpartner"
+                        :options="$teamUsers"
+                        optionValue="id"
+                        optionLabel="name"
+                        :nullable="true"
+                        nullLabel="Kein Standard-Ansprechpartner"
+                        wire:model="settings.default_contact_user_id"
+                    />
+
                     {{-- Auto-Assign Owner --}}
                     <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
                         <label class="flex items-center gap-3 cursor-pointer">
@@ -70,6 +90,150 @@
                             </div>
                         </label>
                     </div>
+                </div>
+            </div>
+
+            @elseif($activeTab === 'service-hours')
+            {{-- Service-Zeiten --}}
+            <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Service Hours</h3>
+                    <x-ui-button variant="primary-outline" size="sm" wire:click="toggleServiceHoursForm">
+                        {{ $showServiceHoursForm ? 'Abbrechen' : '+ Service Hours hinzufügen' }}
+                    </x-ui-button>
+                </div>
+
+                @if($showServiceHoursForm)
+                    <div class="bg-[var(--ui-muted-5)] p-4 rounded-lg space-y-4 border border-[var(--ui-border)]/60">
+                        <x-ui-form-grid :cols="2" :gap="4">
+                            <x-ui-input-text
+                                name="newServiceZeit.name"
+                                label="Name"
+                                wire:model="newServiceZeit.name"
+                                placeholder="z. B. Mo-Fr 9-17 Uhr"
+                                required
+                                :errorKey="'newServiceZeit.name'"
+                            />
+
+                            <x-ui-input-text
+                                name="newServiceZeit.description"
+                                label="Beschreibung"
+                                wire:model="newServiceZeit.description"
+                                placeholder="Optionale Beschreibung"
+                                :errorKey="'newServiceZeit.description'"
+                            />
+                        </x-ui-form-grid>
+
+                        <div class="flex items-center gap-4">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox"
+                                       wire:model="newServiceZeit.is_active"
+                                       class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                                <span class="text-sm text-[var(--ui-secondary)]">Aktiv</span>
+                            </label>
+
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox"
+                                       wire:model="newServiceZeit.use_auto_messages"
+                                       class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                                <span class="text-sm text-[var(--ui-secondary)]">Auto-Nachrichten verwenden</span>
+                            </label>
+                        </div>
+
+                        {{-- Service Hours Zeitplan --}}
+                        <div class="space-y-3">
+                            <h4 class="text-sm font-medium text-[var(--ui-secondary)]">Öffnungszeiten</h4>
+                            <div class="space-y-2">
+                                @foreach(['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'] as $index => $dayName)
+                                    @php
+                                        $dayIndex = $index === 6 ? 0 : $index + 1;
+                                    @endphp
+                                    <div class="flex items-center justify-between p-3 bg-[var(--ui-surface)] border border-[var(--ui-border)]/40">
+                                        <div class="flex items-center gap-3 flex-1">
+                                            <label class="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox"
+                                                       wire:model="newServiceZeit.service_hours.{{ $index }}.enabled"
+                                                       class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                                                <span class="text-sm font-medium text-[var(--ui-secondary)] w-24">{{ $dayName }}</span>
+                                            </label>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <input type="time"
+                                                   wire:model="newServiceZeit.service_hours.{{ $index }}.start"
+                                                   class="px-3 py-1.5 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                                            <span class="text-sm text-[var(--ui-muted)]">bis</span>
+                                            <input type="time"
+                                                   wire:model="newServiceZeit.service_hours.{{ $index }}.end"
+                                                   class="px-3 py-1.5 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                                        </div>
+                                        <input type="hidden"
+                                               wire:model="newServiceZeit.service_hours.{{ $index }}.day"
+                                               value="{{ $dayIndex }}">
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        @if($newServiceZeit['use_auto_messages'])
+                            <div class="space-y-4">
+                                <x-ui-input-textarea
+                                    name="newServiceZeit.auto_message_inside"
+                                    label="Nachricht während Service-Zeit"
+                                    wire:model="newServiceZeit.auto_message_inside"
+                                    rows="2"
+                                    placeholder="z. B. Vielen Dank für Ihre Bewerbung. Wir melden uns innerhalb der nächsten 2 Stunden."
+                                    :errorKey="'newServiceZeit.auto_message_inside'"
+                                />
+
+                                <x-ui-input-textarea
+                                    name="newServiceZeit.auto_message_outside"
+                                    label="Nachricht außerhalb Service-Zeit"
+                                    wire:model="newServiceZeit.auto_message_outside"
+                                    rows="2"
+                                    placeholder="z. B. Vielen Dank für Ihre Bewerbung. Wir bearbeiten sie am nächsten Werktag."
+                                    :errorKey="'newServiceZeit.auto_message_outside'"
+                                />
+                            </div>
+                        @endif
+
+                        <div class="d-flex justify-end">
+                            <x-ui-button variant="success" size="sm" wire:click="addServiceHours">
+                                Service Hours hinzufügen
+                            </x-ui-button>
+                        </div>
+                    </div>
+                @endif
+
+                {{-- Bestehende Service Hours --}}
+                <div class="space-y-2">
+                    @forelse($serviceHours as $serviceHour)
+                        <div class="flex items-center justify-between p-3 bg-[var(--ui-surface)] border border-[var(--ui-border)]/40">
+                            <div class="flex items-center gap-3 flex-1 min-w-0">
+                                <div class="w-3 h-3 rounded-full flex-shrink-0 {{ $serviceHour->is_active ? 'bg-[var(--ui-success)]' : 'bg-[var(--ui-muted)]' }}"></div>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-medium text-[var(--ui-secondary)]">{{ $serviceHour->name }}</div>
+                                    @if($serviceHour->description)
+                                        <div class="text-xs text-[var(--ui-muted)] mt-0.5">{{ $serviceHour->description }}</div>
+                                    @endif
+                                    <div class="text-xs text-[var(--ui-muted)] mt-1">
+                                        {{ $serviceHour->getFormattedSchedule() }}
+                                    </div>
+                                    @if($serviceHour->use_auto_messages)
+                                        <div class="text-xs text-[var(--ui-primary)] mt-1">Auto-Nachrichten aktiv</div>
+                                    @endif
+                                </div>
+                            </div>
+                            <button wire:click="deleteServiceHours({{ $serviceHour->id }})"
+                                    class="text-[var(--ui-danger)] hover:text-[var(--ui-danger)]/80 transition-colors flex-shrink-0 ml-3"
+                                    title="Löschen">
+                                @svg('heroicon-o-trash', 'w-4 h-4')
+                            </button>
+                        </div>
+                    @empty
+                        <div class="text-center py-8 text-[var(--ui-muted)]">
+                            <p class="text-sm">Noch keine Service Hours definiert</p>
+                        </div>
+                    @endforelse
                 </div>
             </div>
 

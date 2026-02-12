@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class RecApplicantSettings extends Model
 {
@@ -21,11 +22,17 @@ class RecApplicantSettings extends Model
         'use_informal_address' => false,
         'default_status_id' => null,
         'auto_assign_owner' => false,
+        'default_contact_user_id' => null,
     ];
 
     public function team(): BelongsTo
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
+    }
+
+    public function serviceHours(): HasMany
+    {
+        return $this->hasMany(RecServiceHours::class, 'rec_applicant_settings_id');
     }
 
     public static function getOrCreateForTeam(int $teamId): self
