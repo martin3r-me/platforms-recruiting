@@ -42,57 +42,77 @@
         </div>
 
         {{-- Eingang --}}
-        <x-ui-panel title="Eingang" subtitle="Neue Bewerber ohne Stelle und ohne Kontakt">
+        <x-ui-panel title="Eingang" subtitle="Bewerber ohne Stelle oder ohne CRM-Kontakt">
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>
                         <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                             <th class="px-4 py-3">Bewerber</th>
+                            <th class="px-4 py-3">Stelle</th>
+                            <th class="px-4 py-3">Kontakt</th>
                             <th class="px-4 py-3">Datum</th>
-                            <th class="px-4 py-3">Stelle zuweisen</th>
-                            <th class="px-4 py-3">Kontakt verknüpfen</th>
                             <th class="px-4 py-3 text-right"></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[var(--ui-border)]/60">
                         @forelse($this->inboxApplicants as $applicant)
+                            @php
+                                $primaryContact = $applicant->crmContactLinks->first()?->contact;
+                                $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
+                            @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
                                 <td class="px-4 py-3">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                            @svg('heroicon-o-inbox-arrow-down', 'w-4 h-4 text-amber-600')
-                                        </div>
-                                        <span class="font-medium text-[var(--ui-secondary)]">Bewerber #{{ $applicant->id }}</span>
+                                        <div class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></div>
+                                        <span class="font-medium text-[var(--ui-secondary)]">
+                                            {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                        </span>
                                     </div>
+                                </td>
+                                <td class="px-4 py-3">
+                                    @if($applicant->postings->isNotEmpty())
+                                        <div class="flex flex-wrap gap-1">
+                                            @foreach($positions as $posTitle)
+                                                <x-ui-badge variant="info" size="xs">{{ $posTitle }}</x-ui-badge>
+                                            @endforeach
+                                        </div>
+                                    @else
+                                        <div x-data="{ val: '' }">
+                                            <x-ui-input-select
+                                                name="posting_{{ $applicant->id }}"
+                                                :options="$this->availablePostings"
+                                                optionValue="id"
+                                                optionLabel="title"
+                                                :nullable="true"
+                                                nullLabel="– Stelle wählen –"
+                                                size="sm"
+                                                x-model="val"
+                                                x-on:change="if (val) { $wire.assignPosting({{ $applicant->id }}, parseInt(val)); val = ''; }"
+                                            />
+                                        </div>
+                                    @endif
+                                </td>
+                                <td class="px-4 py-3">
+                                    @if($primaryContact)
+                                        <span class="text-sm text-[var(--ui-secondary)]">{{ $primaryContact->full_name }}</span>
+                                    @else
+                                        <div x-data="{ val: '' }">
+                                            <x-ui-input-select
+                                                name="contact_{{ $applicant->id }}"
+                                                :options="$this->availableContacts"
+                                                optionValue="id"
+                                                optionLabel="display_name"
+                                                :nullable="true"
+                                                nullLabel="– Kontakt wählen –"
+                                                size="sm"
+                                                x-model="val"
+                                                x-on:change="if (val) { $wire.linkExistingContact({{ $applicant->id }}, parseInt(val)); val = ''; }"
+                                            />
+                                        </div>
+                                    @endif
                                 </td>
                                 <td class="px-4 py-3 text-[var(--ui-muted)]">
                                     {{ $applicant->created_at->format('d.m.Y') }}
-                                </td>
-                                <td class="px-4 py-3" x-data="{ val: '' }">
-                                    <select
-                                        x-model="val"
-                                        x-on:change="if (val) { $wire.assignPosting({{ $applicant->id }}, parseInt(val)); val = ''; }"
-                                        class="w-full text-sm border border-[var(--ui-border)] rounded-lg px-3 py-1.5 bg-white text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/30"
-                                    >
-                                        <option value="">– Stelle wählen –</option>
-                                        @foreach($this->availablePostings as $posting)
-                                            <option value="{{ $posting->id }}">
-                                                {{ $posting->title }}@if($posting->position) ({{ $posting->position->title }})@endif
-                                            </option>
-                                        @endforeach
-                                    </select>
-                                </td>
-                                <td class="px-4 py-3" x-data="{ val: '' }">
-                                    <select
-                                        x-model="val"
-                                        x-on:change="if (val) { $wire.linkExistingContact({{ $applicant->id }}, parseInt(val)); val = ''; }"
-                                        class="w-full text-sm border border-[var(--ui-border)] rounded-lg px-3 py-1.5 bg-white text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/30"
-                                    >
-                                        <option value="">– Kontakt wählen –</option>
-                                        @foreach($this->availableContacts as $contact)
-                                            <option value="{{ $contact->id }}">{{ $contact->full_name }}</option>
-                                        @endforeach
-                                    </select>
                                 </td>
                                 <td class="px-4 py-3 text-right">
                                     <x-ui-button size="sm" variant="secondary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
@@ -116,7 +136,7 @@
         </x-ui-panel>
 
         {{-- Zugeordnete Bewerber --}}
-        <x-ui-panel title="Bewerber" subtitle="Bewerber mit zugeordneter Stelle oder Kontakt">
+        <x-ui-panel title="Bewerber" subtitle="Bewerber mit Stelle und CRM-Kontakt">
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>
@@ -137,9 +157,7 @@
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
                                 <td class="px-4 py-3">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                            @svg('heroicon-o-user', 'w-4 h-4 text-blue-600')
-                                        </div>
+                                        <div class="w-2.5 h-2.5 rounded-full flex-shrink-0 {{ $applicant->progress === 100 ? 'bg-green-500' : 'bg-yellow-500' }}"></div>
                                         <div class="min-w-0">
                                             <div class="font-medium text-[var(--ui-secondary)] truncate">
                                                 {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
@@ -151,15 +169,11 @@
                                     </div>
                                 </td>
                                 <td class="px-4 py-3">
-                                    @if($positions->isNotEmpty())
-                                        <div class="flex flex-wrap gap-1">
-                                            @foreach($positions as $posTitle)
-                                                <x-ui-badge variant="info" size="xs">{{ $posTitle }}</x-ui-badge>
-                                            @endforeach
-                                        </div>
-                                    @else
-                                        <span class="text-xs text-[var(--ui-muted)]">Initiativbewerbung</span>
-                                    @endif
+                                    <div class="flex flex-wrap gap-1">
+                                        @foreach($positions as $posTitle)
+                                            <x-ui-badge variant="info" size="xs">{{ $posTitle }}</x-ui-badge>
+                                        @endforeach
+                                    </div>
                                 </td>
                                 <td class="px-4 py-3">
                                     @if($applicant->applicantStatus)
