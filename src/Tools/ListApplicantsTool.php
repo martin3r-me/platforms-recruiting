@@ -43,6 +43,10 @@ class ListApplicantsTool implements ToolContract, ToolMetadataContract
                         'type' => 'integer',
                         'description' => 'Optional: Filter nach Bewerbungsstatus.',
                     ],
+                    'rec_posting_id' => [
+                        'type' => 'integer',
+                        'description' => 'Optional: Filter nach Posting (Ausschreibung). Nutze "recruiting.postings.GET" um IDs zu finden.',
+                    ],
                     'include_contacts' => [
                         'type' => 'boolean',
                         'description' => 'Optional: CRM-Kontaktdaten mitladen. Default: true.',
@@ -65,7 +69,7 @@ class ListApplicantsTool implements ToolContract, ToolMetadataContract
             $includeContacts = (bool)($arguments['include_contacts'] ?? true);
             $allowedTeamIds = $this->getAllowedTeamIds($teamId);
 
-            $with = ['applicantStatus'];
+            $with = ['applicantStatus', 'postings.position'];
             if ($includeContacts) {
                 $with['crmContactLinks'] = fn ($q) => $q->whereIn('team_id', $allowedTeamIds);
                 $with[] = 'crmContactLinks.contact';
@@ -82,6 +86,10 @@ class ListApplicantsTool implements ToolContract, ToolMetadataContract
             }
             if (isset($arguments['rec_applicant_status_id'])) {
                 $query->where('rec_applicant_status_id', (int)$arguments['rec_applicant_status_id']);
+            }
+            if (isset($arguments['rec_posting_id'])) {
+                $postingId = (int)$arguments['rec_posting_id'];
+                $query->whereHas('postings', fn ($q) => $q->where('rec_postings.id', $postingId));
             }
 
             $this->applyStandardFilters($query, $arguments, [
@@ -129,6 +137,11 @@ class ListApplicantsTool implements ToolContract, ToolMetadataContract
                     'progress' => $a->progress,
                     'applied_at' => $a->applied_at?->toDateString(),
                     'is_active' => (bool)$a->is_active,
+                    'postings' => $a->postings->map(fn ($p) => [
+                        'id' => $p->id,
+                        'title' => $p->title,
+                        'position_title' => $p->position?->title,
+                    ])->values()->toArray(),
                     'crm_contacts' => $contacts,
                     'notes' => $a->notes ? mb_substr($a->notes, 0, 200) : null,
                 ];

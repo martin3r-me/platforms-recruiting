@@ -13,6 +13,7 @@ use Platform\Core\Tools\Concerns\HasStandardizedWriteOperations;
 use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmContactLink;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Tools\Concerns\ResolvesRecruitingTeam;
 
 class CreateApplicantTool implements ToolContract, ToolMetadataContract
@@ -58,6 +59,10 @@ class CreateApplicantTool implements ToolContract, ToolMetadataContract
                 'owned_by_user_id' => [
                     'type' => 'integer',
                     'description' => 'Optional: Owner des Bewerber-Datensatzes. Default: current user.',
+                ],
+                'posting_id' => [
+                    'type' => 'integer',
+                    'description' => 'Optional: Posting (Ausschreibung), auf die sich der Bewerber bewirbt. Nutze "recruiting.postings.GET" um IDs zu finden.',
                 ],
                 'contact_id' => [
                     'type' => 'integer',
@@ -160,14 +165,27 @@ class CreateApplicantTool implements ToolContract, ToolMetadataContract
                     ]
                 );
 
-                return [$applicant, $contact];
+                // Posting verknüpfen (optional)
+                $posting = null;
+                if (!empty($arguments['posting_id'])) {
+                    $posting = RecPosting::where('team_id', $teamId)->find((int)$arguments['posting_id']);
+                    if (!$posting) {
+                        throw new \RuntimeException('Posting nicht gefunden (oder kein Zugriff).');
+                    }
+                    $applicant->postings()->attach($posting->id, [
+                        'applied_at' => $arguments['applied_at'] ?? now()->toDateString(),
+                    ]);
+                }
+
+                return [$applicant, $contact, $posting];
             });
 
             /** @var RecApplicant $applicant */
             /** @var CrmContact $contact */
-            [$applicant, $contact] = $result;
+            /** @var RecPosting|null $posting */
+            [$applicant, $contact, $posting] = $result;
 
-            return ToolResult::success([
+            $response = [
                 'id' => $applicant->id,
                 'uuid' => $applicant->uuid,
                 'rec_applicant_status_id' => $applicant->rec_applicant_status_id,
@@ -180,7 +198,16 @@ class CreateApplicantTool implements ToolContract, ToolMetadataContract
                     'display_name' => $contact->display_name,
                 ],
                 'message' => 'Bewerber erfolgreich erstellt und mit CRM Contact verknuepft.',
-            ]);
+            ];
+
+            if ($posting) {
+                $response['posting'] = [
+                    'id' => $posting->id,
+                    'title' => $posting->title,
+                ];
+            }
+
+            return ToolResult::success($response);
         } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
             return ToolResult::error('ACCESS_DENIED', 'Kein Zugriff auf den CRM Contact.');
         } catch (\Throwable $e) {

@@ -64,7 +64,7 @@ class GetApplicantTool implements ToolContract, ToolMetadataContract
 
             $allowedTeamIds = $this->getAllowedTeamIds($teamId);
 
-            $with = ['applicantStatus', 'autoPilotState'];
+            $with = ['applicantStatus', 'autoPilotState', 'postings.position'];
             if ($includeContacts) {
                 $with['crmContactLinks'] = fn ($q) => $q->whereIn('team_id', $allowedTeamIds);
                 $with[] = 'crmContactLinks.contact';
@@ -129,6 +129,16 @@ class GetApplicantTool implements ToolContract, ToolMetadataContract
                     'name' => $applicant->autoPilotState->name,
                 ] : null,
                 'auto_pilot_completed_at' => $applicant->auto_pilot_completed_at?->toISOString(),
+                'postings' => $applicant->postings->map(fn ($p) => [
+                    'id' => $p->id,
+                    'title' => $p->title,
+                    'status' => $p->status,
+                    'position' => $p->position ? [
+                        'id' => $p->position->id,
+                        'title' => $p->position->title,
+                    ] : null,
+                    'applied_at' => $p->pivot?->applied_at?->toDateString(),
+                ])->values()->toArray(),
                 'extra_fields' => $extraFields,
                 'crm_contacts' => $contacts,
                 'team_id' => $applicant->team_id,

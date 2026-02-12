@@ -3,6 +3,7 @@
 namespace Platform\Recruiting;
 
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -51,6 +52,10 @@ class RecruitingServiceProvider extends ServiceProvider
                 $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
             });
         }
+
+        Route::prefix('recruiting')->middleware(['web'])->group(function () {
+            $this->loadRoutesFrom(__DIR__.'/../routes/public.php');
+        });
 
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
 
@@ -104,6 +109,25 @@ class RecruitingServiceProvider extends ServiceProvider
         try {
             $registry = resolve(\Platform\Core\Tools\ToolRegistry::class);
 
+            // Overview + Lookups
+            $registry->register(new \Platform\Recruiting\Tools\RecruitingOverviewTool());
+            $registry->register(new \Platform\Recruiting\Tools\RecruitingLookupsTool());
+            $registry->register(new \Platform\Recruiting\Tools\GetRecruitingLookupTool());
+
+            // Positions (CRUD)
+            $registry->register(new \Platform\Recruiting\Tools\ListPositionsTool());
+            $registry->register(new \Platform\Recruiting\Tools\GetPositionTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreatePositionTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdatePositionTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeletePositionTool());
+
+            // Postings (CRUD)
+            $registry->register(new \Platform\Recruiting\Tools\ListPostingsTool());
+            $registry->register(new \Platform\Recruiting\Tools\GetPostingTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreatePostingTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdatePostingTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeletePostingTool());
+
             // Applicants (Read + Write)
             $registry->register(new \Platform\Recruiting\Tools\ListApplicantsTool());
             $registry->register(new \Platform\Recruiting\Tools\GetApplicantTool());
@@ -114,6 +138,10 @@ class RecruitingServiceProvider extends ServiceProvider
             // Applicant ↔ CRM Contact Links
             $registry->register(new \Platform\Recruiting\Tools\LinkApplicantContactTool());
             $registry->register(new \Platform\Recruiting\Tools\UnlinkApplicantContactTool());
+
+            // Applicant ↔ Posting Links
+            $registry->register(new \Platform\Recruiting\Tools\LinkApplicantPostingTool());
+            $registry->register(new \Platform\Recruiting\Tools\UnlinkApplicantPostingTool());
         } catch (\Throwable $e) {
             \Log::warning('Recruiting: Tool-Registrierung fehlgeschlagen', ['error' => $e->getMessage()]);
         }

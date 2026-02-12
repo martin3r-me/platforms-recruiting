@@ -17,7 +17,7 @@ class RecApplicant extends Model
     protected $table = 'rec_applicants';
 
     protected $fillable = [
-        'uuid', 'rec_applicant_status_id', 'progress', 'notes', 'applied_at',
+        'uuid', 'public_token', 'rec_applicant_status_id', 'progress', 'notes', 'applied_at',
         'is_active', 'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
@@ -40,6 +40,9 @@ class RecApplicant extends Model
                 } while (self::where('uuid', $uuid)->exists());
                 $model->uuid = $uuid;
             }
+            if (empty($model->public_token)) {
+                $model->public_token = $model->generatePublicToken();
+            }
         });
 
         static::saving(function (self $model) {
@@ -49,6 +52,20 @@ class RecApplicant extends Model
                 }
             }
         });
+    }
+
+    public function generatePublicToken(): string
+    {
+        do {
+            $token = bin2hex(random_bytes(16));
+        } while (self::where('public_token', $token)->exists());
+
+        return $token;
+    }
+
+    public function getPublicUrl(): string
+    {
+        return url('/recruiting/a/' . $this->public_token);
     }
 
     public function getExtraFieldDefinitions(): Collection

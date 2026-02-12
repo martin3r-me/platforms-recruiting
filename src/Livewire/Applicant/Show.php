@@ -102,6 +102,12 @@ class Show extends Component
     }
 
     #[Computed]
+    public function publicUrl(): string
+    {
+        return $this->applicant->getPublicUrl();
+    }
+
+    #[Computed]
     public function availableStatuses()
     {
         return RecApplicantStatus::where('team_id', auth()->user()->currentTeam->id)

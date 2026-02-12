@@ -45,6 +45,21 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
+                    <div
+                        x-data="{ copied: false }"
+                        class="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer transition-colors"
+                        x-on:click="navigator.clipboard.writeText('{{ $this->publicUrl }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                        title="Public-Link kopieren"
+                    >
+                        @svg('heroicon-o-link', 'w-4 h-4 text-gray-500')
+                        <span class="text-xs font-medium text-gray-600">Public-Link</span>
+                        <template x-if="!copied">
+                            @svg('heroicon-o-clipboard-document', 'w-4 h-4 text-gray-400')
+                        </template>
+                        <template x-if="copied">
+                            @svg('heroicon-o-check', 'w-4 h-4 text-emerald-500')
+                        </template>
+                    </div>
                     <x-ui-badge variant="{{ $applicant->is_active ? 'success' : 'secondary' }}" size="lg">
                         {{ $applicant->is_active ? 'Aktiv' : 'Inaktiv' }}
                     </x-ui-badge>
