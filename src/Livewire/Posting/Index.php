@@ -28,7 +28,7 @@ class Index extends Component
     public function postings()
     {
         $query = RecPosting::query()
-            ->with(['position'])
+            ->with(['position', 'commsChannels'])
             ->forTeam(auth()->user()->currentTeam->id);
 
         if (!empty($this->search)) {

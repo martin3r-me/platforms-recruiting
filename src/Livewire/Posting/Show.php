@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Posting;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Platform\Core\Models\CommsChannel;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecPosition;
 
@@ -14,7 +15,7 @@ class Show extends Component
 
     public function mount(RecPosting $posting)
     {
-        $this->posting = $posting->load(['position', 'applicants.crmContactLinks.contact']);
+        $this->posting = $posting->load(['position', 'applicants.crmContactLinks.contact', 'commsChannels']);
         $this->description = $posting->description ?? '';
     }
 
@@ -58,6 +59,40 @@ class Show extends Component
         $this->posting->delete();
         session()->flash('message', 'Ausschreibung gelöscht.');
         $this->redirect(route('recruiting.postings.index'), navigate: true);
+    }
+
+    public function linkChannel(int $channelId): void
+    {
+        $channel = CommsChannel::where('is_active', true)->find($channelId);
+        if (!$channel) {
+            return;
+        }
+
+        $this->posting->commsChannels()->syncWithoutDetaching([$channelId]);
+        $this->posting->load('commsChannels');
+    }
+
+    public function unlinkChannel(int $channelId): void
+    {
+        $this->posting->commsChannels()->detach($channelId);
+        $this->posting->load('commsChannels');
+    }
+
+    #[Computed]
+    public function availableChannels()
+    {
+        $team = auth()->user()->currentTeam;
+        $rootTeam = method_exists($team, 'getRootTeam') ? $team->getRootTeam() : $team;
+
+        $linkedIds = $this->posting->commsChannels->pluck('id')->toArray();
+
+        return CommsChannel::query()
+            ->where('team_id', $rootTeam->id)
+            ->where('is_active', true)
+            ->whereNotIn('id', $linkedIds)
+            ->orderBy('type')
+            ->orderBy('name')
+            ->get();
     }
 
     #[Computed]

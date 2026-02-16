@@ -86,6 +86,73 @@
             </div>
         </div>
 
+        {{-- Comms Channels --}}
+        <x-ui-panel title="Bewerbungs-Channels" subtitle="Verknüpfte Kommunikationskanäle – eingehende Nachrichten erzeugen automatisch Bewerbungen">
+            @if($posting->commsChannels->count() > 0)
+                <div class="space-y-2 mb-4">
+                    @foreach($posting->commsChannels as $channel)
+                        <div class="flex items-center justify-between p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                            <div class="flex items-center gap-3">
+                                @php
+                                    $channelIcon = match($channel->type) {
+                                        'email' => 'heroicon-o-envelope',
+                                        'whatsapp' => 'heroicon-o-chat-bubble-left-ellipsis',
+                                        default => 'heroicon-o-signal',
+                                    };
+                                    $channelColor = match($channel->type) {
+                                        'email' => 'text-blue-600',
+                                        'whatsapp' => 'text-green-600',
+                                        default => 'text-gray-600',
+                                    };
+                                @endphp
+                                @svg($channelIcon, 'w-5 h-5 ' . $channelColor)
+                                <div>
+                                    <div class="font-medium text-sm text-[var(--ui-secondary)]">{{ $channel->name }}</div>
+                                    <div class="text-xs text-[var(--ui-muted)]">{{ ucfirst($channel->type) }} &middot; {{ $channel->sender_identifier }}</div>
+                                </div>
+                                @if($channel->is_active)
+                                    <x-ui-badge variant="success" size="xs">Aktiv</x-ui-badge>
+                                @else
+                                    <x-ui-badge variant="secondary" size="xs">Inaktiv</x-ui-badge>
+                                @endif
+                            </div>
+                            <x-ui-button size="sm" variant="danger-outline" wire:click="unlinkChannel({{ $channel->id }})" wire:confirm="Channel-Verknüpfung entfernen?">
+                                @svg('heroicon-o-x-mark', 'w-3 h-3')
+                            </x-ui-button>
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <div class="text-center py-4 text-[var(--ui-muted)] text-sm mb-4">
+                    Keine Channels verknüpft. Verknüpfe einen Channel, damit eingehende Nachrichten automatisch Bewerbungen erzeugen.
+                </div>
+            @endif
+
+            @if($this->availableChannels->count() > 0)
+                <div class="border-t border-[var(--ui-border)]/40 pt-4">
+                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">Channel hinzufügen</label>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach($this->availableChannels as $ch)
+                            @php
+                                $chIcon = match($ch->type) {
+                                    'email' => 'heroicon-o-envelope',
+                                    'whatsapp' => 'heroicon-o-chat-bubble-left-ellipsis',
+                                    default => 'heroicon-o-signal',
+                                };
+                            @endphp
+                            <button
+                                wire:click="linkChannel({{ $ch->id }})"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-[var(--ui-border)] bg-white hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors"
+                            >
+                                @svg($chIcon, 'w-3.5 h-3.5')
+                                {{ $ch->name }} ({{ ucfirst($ch->type) }})
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+        </x-ui-panel>
+
         {{-- Applicants --}}
         <x-ui-panel title="Bewerber" subtitle="Bewerber auf diese Ausschreibung">
             @if($posting->applicants->count() > 0)

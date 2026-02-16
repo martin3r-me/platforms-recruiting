@@ -18,6 +18,7 @@
                             <th class="px-4 py-3">Titel</th>
                             <th class="px-4 py-3">Stelle</th>
                             <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">Channels</th>
                             <th class="px-4 py-3">Veröffentlicht</th>
                             <th class="px-4 py-3 text-right">Aktionen</th>
                         </tr>
@@ -37,6 +38,32 @@
                                     @endphp
                                     <x-ui-badge variant="{{ $variant }}" size="xs">{{ ucfirst($posting->status) }}</x-ui-badge>
                                 </td>
+                                <td class="px-4 py-3">
+                                    @if($posting->commsChannels->count() > 0)
+                                        <div class="flex flex-wrap gap-1">
+                                            @foreach($posting->commsChannels as $channel)
+                                                @php
+                                                    $chVariant = match($channel->type) {
+                                                        'email' => 'info',
+                                                        'whatsapp' => 'success',
+                                                        default => 'secondary',
+                                                    };
+                                                    $chIcon = match($channel->type) {
+                                                        'email' => 'heroicon-o-envelope',
+                                                        'whatsapp' => 'heroicon-o-chat-bubble-left-ellipsis',
+                                                        default => 'heroicon-o-signal',
+                                                    };
+                                                @endphp
+                                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium {{ $channel->is_active ? 'bg-' . ($channel->type === 'email' ? 'blue' : 'green') . '-50 text-' . ($channel->type === 'email' ? 'blue' : 'green') . '-700' : 'bg-gray-50 text-gray-500' }}">
+                                                    @svg($chIcon, 'w-3 h-3')
+                                                    {{ ucfirst($channel->type) }}
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @else
+                                        <span class="text-[var(--ui-muted)] text-xs">–</span>
+                                    @endif
+                                </td>
                                 <td class="px-4 py-3 text-[var(--ui-muted)]">
                                     {{ $posting->published_at?->format('d.m.Y') ?? '–' }}
                                 </td>
@@ -48,7 +75,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="px-4 py-12 text-center">
+                                <td colspan="6" class="px-4 py-12 text-center">
                                     <div class="flex flex-col items-center justify-center">
                                         @svg('heroicon-o-megaphone', 'w-16 h-16 text-[var(--ui-muted)] mb-4')
                                         <div class="text-lg font-medium text-[var(--ui-secondary)] mb-1">Keine Ausschreibungen gefunden</div>

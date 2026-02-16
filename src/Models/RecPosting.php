@@ -45,6 +45,13 @@ class RecPosting extends Model
             ->withTimestamps();
     }
 
+    public function commsChannels()
+    {
+        return $this->belongsToMany(\Platform\Core\Models\CommsChannel::class, 'rec_posting_comms_channel', 'rec_posting_id', 'comms_channel_id')
+            ->using(RecPostingCommsChannel::class)
+            ->withTimestamps();
+    }
+
     public function team()
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
