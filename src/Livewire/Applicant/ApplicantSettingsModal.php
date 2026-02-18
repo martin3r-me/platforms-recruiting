@@ -8,8 +8,8 @@ use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecServiceHours;
-use Platform\Core\Models\CommsChannel;
-use Platform\Core\Models\CommsChannelContext;
+use Platform\Crm\Models\CommsChannel;
+use Platform\Crm\Models\CommsChannelContext;
 use Illuminate\Support\Facades\Auth;
 
 class ApplicantSettingsModal extends Component

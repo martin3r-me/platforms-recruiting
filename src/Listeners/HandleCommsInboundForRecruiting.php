@@ -3,10 +3,9 @@
 namespace Platform\Recruiting\Listeners;
 
 use Illuminate\Support\Facades\Log;
-use Platform\Core\Events\CommsInboundReceived;
-use Platform\Core\Models\CommsChannel;
-use Platform\Core\Models\CommsEmailInboundMail;
-use Platform\Core\Services\Comms\InboundMailAttachmentService;
+use Platform\Crm\Events\CommsInboundReceived;
+use Platform\Crm\Models\CommsChannel;
+use Platform\Crm\Models\CommsEmailInboundMail;
 use Platform\Recruiting\Services\IncomingApplicationService;
 
 class HandleCommsInboundForRecruiting

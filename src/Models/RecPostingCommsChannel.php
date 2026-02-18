@@ -17,6 +17,6 @@ class RecPostingCommsChannel extends Pivot
 
     public function commsChannel()
     {
-        return $this->belongsTo(\Platform\Core\Models\CommsChannel::class, 'comms_channel_id');
+        return $this->belongsTo(\Platform\Crm\Models\CommsChannel::class, 'comms_channel_id');
     }
 }

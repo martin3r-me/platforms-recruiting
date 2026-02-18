@@ -4,7 +4,7 @@ namespace Platform\Recruiting\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Platform\Core\Models\CommsChannel;
+use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecPosting;

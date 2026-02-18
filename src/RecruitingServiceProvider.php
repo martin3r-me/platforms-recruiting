@@ -108,17 +108,17 @@ class RecruitingServiceProvider extends ServiceProvider
     protected function registerCommsListeners(): void
     {
         // Email inbound → automatic application creation
-        if (class_exists(\Platform\Core\Events\CommsInboundReceived::class)) {
+        if (class_exists(\Platform\Crm\Events\CommsInboundReceived::class)) {
             \Illuminate\Support\Facades\Event::listen(
-                \Platform\Core\Events\CommsInboundReceived::class,
+                \Platform\Crm\Events\CommsInboundReceived::class,
                 \Platform\Recruiting\Listeners\HandleCommsInboundForRecruiting::class
             );
         }
 
         // WhatsApp inbound → automatic application creation
-        if (class_exists(\Platform\Core\Events\CommsWhatsAppInboundReceived::class)) {
+        if (class_exists(\Platform\Crm\Events\CommsWhatsAppInboundReceived::class)) {
             \Illuminate\Support\Facades\Event::listen(
-                \Platform\Core\Events\CommsWhatsAppInboundReceived::class,
+                \Platform\Crm\Events\CommsWhatsAppInboundReceived::class,
                 \Platform\Recruiting\Listeners\HandleWhatsAppInboundForRecruiting::class
             );
         }

@@ -4,7 +4,7 @@ namespace Platform\Recruiting\Livewire\Posting;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
-use Platform\Core\Models\CommsChannel;
+use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecPosition;
 

@@ -3,10 +3,10 @@
 namespace Platform\Recruiting\Listeners;
 
 use Illuminate\Support\Facades\Log;
-use Platform\Core\Events\CommsWhatsAppInboundReceived;
-use Platform\Core\Models\CommsChannel;
-use Platform\Core\Models\CommsWhatsAppMessage;
-use Platform\Core\Models\CommsWhatsAppThread;
+use Platform\Crm\Events\CommsWhatsAppInboundReceived;
+use Platform\Crm\Models\CommsChannel;
+use Platform\Crm\Models\CommsWhatsAppMessage;
+use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Services\IncomingApplicationService;
 
 class HandleWhatsAppInboundForRecruiting
