@@ -184,11 +184,15 @@ class IncomingApplicationService
             ->where(function ($query) use ($normalizedIdentifier) {
                 // Check via CRM contact email addresses
                 $query->whereHas('crmContactLinks.contact.emailAddresses', function ($q) use ($normalizedIdentifier) {
-                    $q->where('email', $normalizedIdentifier);
+                    $q->where('email_address', $normalizedIdentifier);
                 });
-                // Also check via CRM contact phone numbers
-                $query->orWhereHas('crmContactLinks.contact.phoneNumbers', function ($q) use ($normalizedIdentifier) {
-                    $q->where('number', 'like', '%' . preg_replace('/[^0-9]/', '', $normalizedIdentifier));
+                // Also check via CRM contact phone numbers (check international and raw_input)
+                $phoneDigits = preg_replace('/[^0-9]/', '', $normalizedIdentifier);
+                $query->orWhereHas('crmContactLinks.contact.phoneNumbers', function ($q) use ($phoneDigits) {
+                    $q->where(function ($subQ) use ($phoneDigits) {
+                        $subQ->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $phoneDigits])
+                             ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $phoneDigits]);
+                    });
                 });
             })
             ->first();
@@ -222,22 +226,32 @@ class IncomingApplicationService
             // Add email or phone to the contact
             if ($channelType === 'email' && filter_var($senderIdentifier, FILTER_VALIDATE_EMAIL)) {
                 if (method_exists($contact, 'emailAddresses')) {
-                    $contact->emailAddresses()->create([
-                        'email' => $senderIdentifier,
-                        'is_primary' => true,
-                        'is_active' => true,
-                        'team_id' => $teamId,
-                    ]);
+                    // Get default email type (or first available)
+                    $emailTypeId = \Platform\Crm\Models\CrmEmailType::first()?->id;
+                    if ($emailTypeId) {
+                        $contact->emailAddresses()->create([
+                            'email_address' => $senderIdentifier,
+                            'email_type_id' => $emailTypeId,
+                            'is_primary' => true,
+                            'is_active' => true,
+                        ]);
+                    }
                 }
             } elseif ($channelType === 'whatsapp') {
                 if (method_exists($contact, 'phoneNumbers')) {
-                    $contact->phoneNumbers()->create([
-                        'number' => $senderIdentifier,
-                        'type' => 'mobile',
-                        'is_primary' => true,
-                        'is_active' => true,
-                        'team_id' => $teamId,
-                    ]);
+                    // Get mobile phone type (or first available)
+                    $phoneTypeId = \Platform\Crm\Models\CrmPhoneType::where('name', 'like', '%mobil%')->first()?->id
+                        ?? \Platform\Crm\Models\CrmPhoneType::first()?->id;
+                    if ($phoneTypeId) {
+                        $contact->phoneNumbers()->create([
+                            'raw_input' => $senderIdentifier,
+                            'international' => $senderIdentifier,
+                            'phone_type_id' => $phoneTypeId,
+                            'is_primary' => true,
+                            'is_active' => true,
+                            'whatsapp_status' => 'valid',
+                        ]);
+                    }
                 }
             }
 
