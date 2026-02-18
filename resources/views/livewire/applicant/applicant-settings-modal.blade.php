@@ -23,14 +23,6 @@
                 >
                     Service-Zeiten
                 </button>
-                <button
-                    @click="$wire.set('activeTab', 'channels')"
-                    :class="$wire.activeTab === 'channels' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
-                    class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
-                    wire:click="$set('activeTab', 'channels')"
-                >
-                    Kanäle
-                </button>
             </nav>
         </div>
 
@@ -232,50 +224,6 @@
                     @empty
                         <div class="text-center py-8 text-[var(--ui-muted)]">
                             <p class="text-sm">Noch keine Service Hours definiert</p>
-                        </div>
-                    @endforelse
-                </div>
-            </div>
-
-            @elseif($activeTab === 'channels')
-            {{-- Kanäle --}}
-            <div class="space-y-4">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Verknüpfte Kanäle</h3>
-                </div>
-
-                <p class="text-sm text-[var(--ui-muted)]">
-                    Eingehende E-Mails auf verknüpften Kanälen erstellen automatisch einen neuen Bewerber.
-                </p>
-
-                <div class="space-y-2">
-                    @forelse($availableChannels as $channel)
-                        @php
-                            $isLinked = in_array($channel['id'], $linkedChannelIds);
-                        @endphp
-                        <div class="flex items-center justify-between p-3 bg-[var(--ui-surface)] border border-[var(--ui-border)]/40 rounded-lg">
-                            <div class="flex items-center gap-3 flex-1 min-w-0">
-                                <div class="w-3 h-3 rounded-full flex-shrink-0 {{ $isLinked ? 'bg-[var(--ui-success)]' : 'bg-[var(--ui-muted)]' }}"></div>
-                                <div class="flex-1 min-w-0">
-                                    <div class="text-sm font-medium text-[var(--ui-secondary)]">{{ $channel['sender_identifier'] }}</div>
-                                    @if($channel['name'])
-                                        <div class="text-xs text-[var(--ui-muted)] mt-0.5">{{ $channel['name'] }}</div>
-                                    @endif
-                                </div>
-                            </div>
-                            <button
-                                wire:click="toggleChannel({{ $channel['id'] }})"
-                                class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20
-                                    {{ $isLinked ? 'bg-[var(--ui-primary)]' : 'bg-[var(--ui-muted-5)]' }}"
-                            >
-                                <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out
-                                    {{ $isLinked ? 'translate-x-5' : 'translate-x-0' }}"></span>
-                            </button>
-                        </div>
-                    @empty
-                        <div class="text-center py-8 text-[var(--ui-muted)]">
-                            <p class="text-sm">Keine E-Mail-Kanäle verfügbar</p>
-                            <p class="text-xs mt-1">Erstellen Sie zuerst einen E-Mail-Kanal in den Kommunikations-Einstellungen.</p>
                         </div>
                     @endforelse
                 </div>

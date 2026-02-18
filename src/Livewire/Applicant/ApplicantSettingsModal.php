@@ -8,8 +8,6 @@ use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecServiceHours;
-use Platform\Crm\Models\CommsChannel;
-use Platform\Crm\Models\CommsChannelContext;
 use Illuminate\Support\Facades\Auth;
 
 class ApplicantSettingsModal extends Component
@@ -19,9 +17,6 @@ class ApplicantSettingsModal extends Component
 
     public ?RecApplicantSettings $settingsModel = null;
     public array $settings = [];
-
-    public array $availableChannels = [];
-    public array $linkedChannelIds = [];
 
     public $serviceHours = [];
     public $showServiceHoursForm = false;
@@ -47,9 +42,6 @@ class ApplicantSettingsModal extends Component
 
         $this->serviceHours = $this->settingsModel->serviceHours()->orderBy('order')->get();
         $this->newServiceZeit['service_hours'] = RecServiceHours::getDefaultServiceHours();
-
-        $this->loadAvailableChannels();
-        $this->loadLinkedChannels();
 
         $this->activeTab = 'general';
         $this->modalShow = true;
@@ -101,64 +93,6 @@ class ApplicantSettingsModal extends Component
     public function toggleServiceHoursForm(): void
     {
         $this->showServiceHoursForm = !$this->showServiceHoursForm;
-    }
-
-    public function loadAvailableChannels(): void
-    {
-        $team = Auth::user()->currentTeam;
-        if (!$team) {
-            $this->availableChannels = [];
-            return;
-        }
-
-        $rootTeam = method_exists($team, 'getRootTeam') ? $team->getRootTeam() : $team;
-
-        $this->availableChannels = CommsChannel::query()
-            ->where('team_id', $rootTeam->id)
-            ->where('type', 'email')
-            ->where('is_active', true)
-            ->orderBy('sender_identifier')
-            ->get()
-            ->toArray();
-    }
-
-    public function loadLinkedChannels(): void
-    {
-        if (!$this->settingsModel) {
-            $this->linkedChannelIds = [];
-            return;
-        }
-
-        $this->linkedChannelIds = CommsChannelContext::query()
-            ->where('context_model', RecApplicantSettings::class)
-            ->where('context_model_id', $this->settingsModel->id)
-            ->pluck('comms_channel_id')
-            ->toArray();
-    }
-
-    public function toggleChannel(int $channelId): void
-    {
-        if (!$this->settingsModel) {
-            return;
-        }
-
-        $existing = CommsChannelContext::query()
-            ->where('comms_channel_id', $channelId)
-            ->where('context_model', RecApplicantSettings::class)
-            ->where('context_model_id', $this->settingsModel->id)
-            ->first();
-
-        if ($existing) {
-            $existing->delete();
-        } else {
-            CommsChannelContext::create([
-                'comms_channel_id' => $channelId,
-                'context_model' => RecApplicantSettings::class,
-                'context_model_id' => $this->settingsModel->id,
-            ]);
-        }
-
-        $this->loadLinkedChannels();
     }
 
     #[Computed]
