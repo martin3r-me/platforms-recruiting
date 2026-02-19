@@ -80,6 +80,11 @@ class RecruitingServiceProvider extends ServiceProvider
             ->everyMinute()
             ->withoutOverlapping()
             ->runInBackground();
+
+        Schedule::command('recruiting:dispatch-auto-pilot-applicants')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground();
     }
 
     protected function registerLivewireComponents(): void
