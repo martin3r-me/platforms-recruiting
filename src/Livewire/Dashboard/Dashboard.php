@@ -75,6 +75,17 @@ class Dashboard extends Component
             ->get();
     }
 
+    public function refreshDashboard(): void
+    {
+        unset(
+            $this->positionCount,
+            $this->postingCount,
+            $this->applicantCount,
+            $this->inboxApplicants,
+            $this->assignedApplicants,
+        );
+    }
+
     public function assignPosting(int $applicantId, int $postingId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);

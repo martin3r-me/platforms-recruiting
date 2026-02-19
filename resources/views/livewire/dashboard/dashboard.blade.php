@@ -1,4 +1,4 @@
-<x-ui-page wire:poll.15s>
+<x-ui-page wire:poll.15s="refreshDashboard">
     <x-slot name="navbar">
         <x-ui-page-navbar icon="heroicon-o-briefcase">
             <x-slot name="title">
