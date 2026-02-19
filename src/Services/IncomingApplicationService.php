@@ -172,22 +172,26 @@ class IncomingApplicationService
     {
         $normalizedIdentifier = $this->normalizeIdentifier($senderIdentifier);
         $postingIds = $postings->pluck('id')->toArray();
+        $phoneDigits = preg_replace('/[^0-9]/', '', $normalizedIdentifier);
 
         return RecApplicant::query()
             ->forTeam($teamId)
             ->active()
             ->whereHas('postings', fn ($q) => $q->whereIn('rec_postings.id', $postingIds))
-            ->where(function ($query) use ($normalizedIdentifier) {
+            ->where(function ($query) use ($normalizedIdentifier, $phoneDigits) {
+                // Match by email address
                 $query->whereHas('crmContactLinks.contact.emailAddresses', function ($q) use ($normalizedIdentifier) {
                     $q->where('email_address', $normalizedIdentifier);
                 });
-                $phoneDigits = preg_replace('/[^0-9]/', '', $normalizedIdentifier);
-                $query->orWhereHas('crmContactLinks.contact.phoneNumbers', function ($q) use ($phoneDigits) {
-                    $q->where(function ($subQ) use ($phoneDigits) {
-                        $subQ->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $phoneDigits])
-                             ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $phoneDigits]);
+                // Only check phone numbers if we have actual digits (min 6 to be meaningful)
+                if (strlen($phoneDigits) >= 6) {
+                    $query->orWhereHas('crmContactLinks.contact.phoneNumbers', function ($q) use ($phoneDigits) {
+                        $q->where(function ($subQ) use ($phoneDigits) {
+                            $subQ->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $phoneDigits])
+                                 ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $phoneDigits]);
+                        });
                     });
-                });
+                }
             })
             ->first();
     }
