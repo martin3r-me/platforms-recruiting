@@ -138,8 +138,20 @@ class ProcessAutoPilotApplicants extends Command
                 $oldStateId = $applicant->auto_pilot_state_id;
                 $oldStateName = $applicant->autoPilotState?->name ?? '(nicht gesetzt)';
 
-                $scenario = $this->determineScenario($applicant, $extraFields, $threadsSummary);
                 $missingFields = $this->getMissingRequiredFields($extraFields);
+
+                // ===== Early completion check: Prüfe bei JEDEM Durchlauf ob alle Pflichtfelder gefüllt =====
+                if (empty($missingFields)) {
+                    $this->impersonateForTask($owner, $applicant->team);
+                    $applicant->auto_pilot_state_id = $completedStateId;
+                    $applicant->auto_pilot_completed_at = now();
+                    $applicant->save();
+                    $this->logAutoPilot($applicant, 'completed', 'Alle Pflichtfelder ausgefüllt → AutoPilot abgeschlossen.');
+                    $this->info("  ✅ Alle Felder komplett → abgeschlossen.");
+                    continue;
+                }
+
+                $scenario = $this->determineScenario($applicant, $extraFields, $threadsSummary);
                 $this->line("  Scenario: {$scenario} | Fehlende Pflichtfelder: " . count($missingFields));
 
                 $this->logAutoPilot($applicant, 'scenario', "Scenario {$scenario}", [
@@ -147,17 +159,6 @@ class ProcessAutoPilotApplicants extends Command
                     'has_threads' => !empty($threadsSummary),
                     'state' => $applicant->autoPilotState?->code,
                 ]);
-
-                // ===== Scenario A: Komplett → direkt abschließen (kein LLM) =====
-                if ($scenario === 'A') {
-                    $this->impersonateForTask($owner, $applicant->team);
-                    $applicant->auto_pilot_state_id = $completedStateId;
-                    $applicant->auto_pilot_completed_at = now();
-                    $applicant->save();
-                    $this->logAutoPilot($applicant, 'completed', 'Scenario A: Alle Pflichtfelder ausgefüllt.');
-                    $this->info("  ✅ Scenario A → abgeschlossen.");
-                    continue;
-                }
 
                 // ===== Scenario D: Wartend, keine neuen Infos =====
                 if ($scenario === 'D') {
@@ -784,6 +785,7 @@ class ProcessAutoPilotApplicants extends Command
     ): array {
         $contactName = $contactInfo[0]['full_name'] ?? 'Bewerber/in';
         $primaryEmail = $this->findPrimaryEmail($contactInfo);
+        $publicUrl = $applicant->getPublicUrl();
 
         $system = "Du bist {$owner->name}, HR-Verantwortlicher bei {$applicant->team?->name}.\n"
             . "Du bearbeitest die Bewerbung von {$contactName} ({$primaryEmail}).\n"
@@ -798,14 +800,17 @@ class ProcessAutoPilotApplicants extends Command
             . "- Wenn alle Pflichtfelder gefüllt sind, schließe die Bewerbung ab.\n\n";
 
         // Thread-Hinweise
-        if (!empty($threadsSummary)) {
+        $isFirstMessage = empty($threadsSummary);
+        if (!$isFirstMessage) {
             $system .= "KOMMUNIKATION:\n"
                 . "- Es gibt bereits Threads mit dem Bewerber (siehe Daten unten).\n"
                 . "- Für Replies im bestehenden Thread: nur thread_id + body (KEIN to, KEIN subject).\n\n";
         } else {
-            $system .= "KOMMUNIKATION:\n"
+            $system .= "KOMMUNIKATION (ERSTE NACHRICHT):\n"
                 . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
-                . "- Für neue Nachrichten: comms_channel_id + to + subject + body.\n\n";
+                . "- Für neue Nachrichten: comms_channel_id + to + subject + body.\n"
+                . "- WICHTIG: Bei der ERSTEN Nachricht IMMER den Bewerber-Link am Ende einfügen!\n"
+                . "- Formulierung: \"Sie können mir direkt auf diese Nachricht antworten oder Ihre Daten hier ergänzen: {$publicUrl}\"\n\n";
         }
 
         // Bevorzugter Kanal
@@ -822,6 +827,8 @@ class ProcessAutoPilotApplicants extends Command
         // Daten als user message
         $data = [
             'applicant_id' => $applicant->id,
+            'public_url' => $publicUrl,
+            'is_first_message' => $isFirstMessage,
             'crm_contacts' => $contactInfo,
             'extra_fields' => $extraFields,
             'threads_summary' => $threadsSummary,
@@ -832,7 +839,8 @@ class ProcessAutoPilotApplicants extends Command
         }
 
         $user = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-            . "\n\nBearbeite diese Bewerbung. Beginne mit Tool-Calls.";
+            . "\n\nBearbeite diese Bewerbung. Beginne mit Tool-Calls."
+            . ($isFirstMessage ? "\nHINWEIS: Dies ist die ERSTE Nachricht — vergiss nicht den Bewerber-Link am Ende!" : "");
 
         return [
             ['role' => 'system', 'content' => $system],
