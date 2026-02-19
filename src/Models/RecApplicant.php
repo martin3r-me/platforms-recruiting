@@ -19,7 +19,7 @@ class RecApplicant extends Model
     protected $fillable = [
         'uuid', 'public_token', 'rec_applicant_status_id', 'progress', 'notes', 'applied_at',
         'is_active', 'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
-        'enrichment_status',
+        'preferred_comms_channel_id', 'enrichment_status',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
@@ -109,6 +109,11 @@ class RecApplicant extends Model
     public function applicantStatus()
     {
         return $this->belongsTo(RecApplicantStatus::class, 'rec_applicant_status_id');
+    }
+
+    public function preferredCommsChannel(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\Platform\Crm\Models\CommsChannel::class, 'preferred_comms_channel_id');
     }
 
     public function autoPilotState()

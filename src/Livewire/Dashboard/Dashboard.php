@@ -5,10 +5,11 @@ namespace Platform\Recruiting\Livewire\Dashboard;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Platform\Crm\Models\CommsChannel;
+use Platform\Crm\Models\CrmContact;
+use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
-use Platform\Recruiting\Models\RecApplicant;
-use Platform\Crm\Models\CrmContact;
 
 class Dashboard extends Component
 {
@@ -36,7 +37,13 @@ class Dashboard extends Component
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->whereNull('enrichment_status')
-            ->with(['applicantStatus', 'crmContactLinks.contact', 'postings.position'])
+            ->with([
+                'applicantStatus',
+                'crmContactLinks.contact.emailAddresses',
+                'postings.position',
+                'extraFieldValues',
+                'preferredCommsChannel',
+            ])
             ->orderByDesc('created_at')
             ->get();
     }
@@ -47,7 +54,13 @@ class Dashboard extends Component
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->whereNotNull('enrichment_status')
-            ->with(['applicantStatus', 'crmContactLinks.contact', 'postings.position'])
+            ->with([
+                'applicantStatus',
+                'crmContactLinks.contact.emailAddresses',
+                'postings.position',
+                'extraFieldValues',
+                'preferredCommsChannel',
+            ])
             ->orderByDesc('created_at')
             ->get();
     }
@@ -81,6 +94,61 @@ class Dashboard extends Component
             ->toArray();
     }
 
+    #[Computed]
+    public function teamChannels()
+    {
+        return CommsChannel::where('team_id', auth()->user()->currentTeam->id)
+            ->where('is_active', true)
+            ->whereIn('type', ['email', 'whatsapp'])
+            ->orderBy('type')
+            ->get();
+    }
+
+    #[Computed]
+    public function autoPilotProcessingIds()
+    {
+        return $this->assignedApplicants
+            ->filter(fn ($a) => $a->auto_pilot && !$a->auto_pilot_completed_at)
+            ->pluck('id')
+            ->toArray();
+    }
+
+    public function getExtraFieldCounts(RecApplicant $applicant): array
+    {
+        $fields = $applicant->getExtraFieldsWithLabels();
+        $total = count($fields);
+        $filled = collect($fields)->filter(fn ($f) =>
+            $f['value'] !== null && $f['value'] !== '' && $f['value'] !== []
+        )->count();
+        return ['filled' => $filled, 'total' => $total];
+    }
+
+    public function toggleAutoPilot(int $applicantId, string $channelType): void
+    {
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+
+        $currentChannel = $applicant->preferredCommsChannel;
+        if ($applicant->auto_pilot && $currentChannel?->type === $channelType) {
+            $applicant->update([
+                'auto_pilot' => false,
+                'preferred_comms_channel_id' => null,
+            ]);
+        } else {
+            $channel = CommsChannel::where('team_id', auth()->user()->currentTeam->id)
+                ->where('type', $channelType)
+                ->where('is_active', true)
+                ->first();
+            if ($channel) {
+                $applicant->update([
+                    'auto_pilot' => true,
+                    'preferred_comms_channel_id' => $channel->id,
+                ]);
+            }
+        }
+
+        unset($this->inboxApplicants, $this->assignedApplicants, $this->autoPilotProcessingIds);
+    }
+
     public function refreshDashboard(): void
     {
         unset(
@@ -90,6 +158,8 @@ class Dashboard extends Component
             $this->inboxApplicants,
             $this->assignedApplicants,
             $this->enrichingApplicantIds,
+            $this->teamChannels,
+            $this->autoPilotProcessingIds,
         );
     }
 

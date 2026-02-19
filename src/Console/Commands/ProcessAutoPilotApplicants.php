@@ -407,6 +407,21 @@ class ProcessAutoPilotApplicants extends Command
     private function loadPreferredChannel(RecApplicant $applicant): ?array
     {
         try {
+            // 1. Applicant-specific channel (from dashboard toggle)
+            if ($applicant->preferred_comms_channel_id) {
+                $channel = CommsChannel::where('id', $applicant->preferred_comms_channel_id)
+                    ->where('is_active', true)
+                    ->first();
+                if ($channel) {
+                    return [
+                        'comms_channel_id' => $channel->id,
+                        'name' => $channel->name,
+                        'sender_identifier' => $channel->sender_identifier,
+                    ];
+                }
+            }
+
+            // 2. Fallback: Team-Settings
             $teamId = $applicant->team_id;
             if (!$teamId) { return null; }
 

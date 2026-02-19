@@ -59,9 +59,9 @@
                     <thead>
                         <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                             <th class="px-4 py-3">Bewerber</th>
-                            <th class="px-4 py-3">Stelle</th>
+                            <th class="px-4 py-3">Extra-Felder</th>
                             <th class="px-4 py-3">Kontakt</th>
-                            <th class="px-4 py-3">Datum</th>
+                            <th class="px-4 py-3">AutoPilot</th>
                             <th class="px-4 py-3 text-right"></th>
                         </tr>
                     </thead>
@@ -70,51 +70,64 @@
                             @php
                                 $primaryContact = $applicant->crmContactLinks->first()?->contact;
                                 $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
+                                $isEnriching = in_array($applicant->id, $this->enrichingApplicantIds);
+                                $extraCounts = $this->getExtraFieldCounts($applicant);
                             @endphp
-                            @php $isEnriching = in_array($applicant->id, $this->enrichingApplicantIds); @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
-                                <td class="px-4 py-3">
-                                    <div class="flex items-center gap-3">
-                                        @if($isEnriching)
-                                            <span class="relative flex h-2.5 w-2.5 flex-shrink-0" title="Enrichment läuft...">
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
-                                            </span>
-                                        @else
-                                            <div class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></div>
-                                        @endif
-                                        <span class="font-medium text-[var(--ui-secondary)]">
-                                            {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
-                                        </span>
-                                        @if($isEnriching)
-                                            <x-ui-badge variant="warning" size="xs">Enrichment</x-ui-badge>
-                                        @endif
+                                {{-- Bewerber + Stelle --}}
+                                <td class="px-4 py-2.5">
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="mt-1.5 flex-shrink-0">
+                                            @if($isEnriching)
+                                                <span class="relative flex h-2.5 w-2.5" title="Enrichment läuft...">
+                                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                                                </span>
+                                            @else
+                                                <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                                            @endif
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-medium text-[var(--ui-secondary)]">
+                                                    {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                                </span>
+                                                @if($isEnriching)
+                                                    <x-ui-badge variant="warning" size="xs">Enrichment</x-ui-badge>
+                                                @endif
+                                            </div>
+                                            @if($positions->isNotEmpty())
+                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $positions->implode(', ') }}</div>
+                                            @else
+                                                <div x-data="{ val: '' }" class="mt-0.5">
+                                                    <x-ui-input-select
+                                                        name="posting_{{ $applicant->id }}"
+                                                        :options="$this->availablePostings"
+                                                        optionValue="id"
+                                                        optionLabel="title"
+                                                        :nullable="true"
+                                                        nullLabel="– Stelle wählen –"
+                                                        size="sm"
+                                                        x-model="val"
+                                                        x-on:change="if (val) { $wire.assignPosting({{ $applicant->id }}, parseInt(val)); val = ''; }"
+                                                    />
+                                                </div>
+                                            @endif
+                                        </div>
                                     </div>
                                 </td>
-                                <td class="px-4 py-3">
-                                    @if($applicant->postings->isNotEmpty())
-                                        <div class="flex flex-wrap gap-1">
-                                            @foreach($positions as $posTitle)
-                                                <x-ui-badge variant="info" size="xs">{{ $posTitle }}</x-ui-badge>
-                                            @endforeach
-                                        </div>
+                                {{-- Extra-Felder --}}
+                                <td class="px-4 py-2.5">
+                                    @if($extraCounts['total'] > 0)
+                                        <span class="text-xs {{ $extraCounts['filled'] === $extraCounts['total'] ? 'text-green-600 font-medium' : 'text-[var(--ui-muted)]' }}">
+                                            {{ $extraCounts['filled'] }}/{{ $extraCounts['total'] }}
+                                        </span>
                                     @else
-                                        <div x-data="{ val: '' }">
-                                            <x-ui-input-select
-                                                name="posting_{{ $applicant->id }}"
-                                                :options="$this->availablePostings"
-                                                optionValue="id"
-                                                optionLabel="title"
-                                                :nullable="true"
-                                                nullLabel="– Stelle wählen –"
-                                                size="sm"
-                                                x-model="val"
-                                                x-on:change="if (val) { $wire.assignPosting({{ $applicant->id }}, parseInt(val)); val = ''; }"
-                                            />
-                                        </div>
+                                        <span class="text-xs text-[var(--ui-muted)]">&ndash;</span>
                                     @endif
                                 </td>
-                                <td class="px-4 py-3">
+                                {{-- Kontakt --}}
+                                <td class="px-4 py-2.5">
                                     @if($primaryContact)
                                         <span class="text-sm text-[var(--ui-secondary)]">{{ $primaryContact->full_name }}</span>
                                     @else
@@ -133,10 +146,35 @@
                                         </div>
                                     @endif
                                 </td>
-                                <td class="px-4 py-3 text-[var(--ui-muted)]">
-                                    {{ $applicant->created_at->format('d.m.Y') }}
+                                {{-- AutoPilot --}}
+                                <td class="px-4 py-2.5">
+                                    <div class="flex items-center gap-1">
+                                        @foreach(['whatsapp', 'email'] as $type)
+                                            @php
+                                                $isActive = $applicant->auto_pilot
+                                                    && $applicant->preferredCommsChannel?->type === $type;
+                                                $hasChannel = $this->teamChannels->contains(fn ($c) => $c->type === $type);
+                                            @endphp
+                                            @if($hasChannel)
+                                                <button
+                                                    wire:click="toggleAutoPilot({{ $applicant->id }}, '{{ $type }}')"
+                                                    class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors {{ $isActive ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)] hover:bg-[var(--ui-muted-10)] hover:text-[var(--ui-secondary)]' }}"
+                                                    title="{{ $type === 'whatsapp' ? 'WhatsApp AutoPilot' : 'Email AutoPilot' }}"
+                                                >
+                                                    @if($isActive)
+                                                        <span class="relative flex h-2 w-2">
+                                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                                        </span>
+                                                    @endif
+                                                    @svg($type === 'whatsapp' ? 'heroicon-o-chat-bubble-left' : 'heroicon-o-envelope', 'w-3.5 h-3.5')
+                                                </button>
+                                            @endif
+                                        @endforeach
+                                    </div>
                                 </td>
-                                <td class="px-4 py-3 text-right">
+                                {{-- Aktion --}}
+                                <td class="px-4 py-2.5 text-right">
                                     <x-ui-button size="sm" variant="secondary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
                                         @svg('heroicon-o-arrow-right', 'w-4 h-4')
                                     </x-ui-button>
@@ -164,9 +202,9 @@
                     <thead>
                         <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                             <th class="px-4 py-3">Name</th>
-                            <th class="px-4 py-3">Stelle</th>
+                            <th class="px-4 py-3">Extra-Felder</th>
                             <th class="px-4 py-3">Status</th>
-                            <th class="px-4 py-3">Datum</th>
+                            <th class="px-4 py-3">AutoPilot</th>
                             <th class="px-4 py-3 text-right"></th>
                         </tr>
                     </thead>
@@ -175,39 +213,76 @@
                             @php
                                 $primaryContact = $applicant->crmContactLinks->first()?->contact;
                                 $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
+                                $extraCounts = $this->getExtraFieldCounts($applicant);
+                                $primaryEmail = $primaryContact?->emailAddresses?->first()?->email_address;
                             @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
-                                <td class="px-4 py-3">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-2.5 h-2.5 rounded-full flex-shrink-0 {{ $applicant->progress === 100 ? 'bg-green-500' : 'bg-yellow-500' }}"></div>
+                                {{-- Name + Stelle + Email --}}
+                                <td class="px-4 py-2.5">
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="mt-1.5 flex-shrink-0">
+                                            <div class="w-2.5 h-2.5 rounded-full {{ $extraCounts['total'] > 0 && $extraCounts['filled'] === $extraCounts['total'] ? 'bg-green-500' : 'bg-yellow-500' }}"></div>
+                                        </div>
                                         <div class="min-w-0">
                                             <div class="font-medium text-[var(--ui-secondary)] truncate">
                                                 {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
                                             </div>
-                                            @if($primaryContact?->emailAddresses?->first())
-                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $primaryContact->emailAddresses->first()->email_address }}</div>
+                                            @if($positions->isNotEmpty())
+                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $positions->implode(', ') }}</div>
+                                            @endif
+                                            @if($primaryEmail)
+                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $primaryEmail }}</div>
                                             @endif
                                         </div>
                                     </div>
                                 </td>
-                                <td class="px-4 py-3">
-                                    <div class="flex flex-wrap gap-1">
-                                        @foreach($positions as $posTitle)
-                                            <x-ui-badge variant="info" size="xs">{{ $posTitle }}</x-ui-badge>
-                                        @endforeach
-                                    </div>
+                                {{-- Extra-Felder --}}
+                                <td class="px-4 py-2.5">
+                                    @if($extraCounts['total'] > 0)
+                                        <span class="text-xs {{ $extraCounts['filled'] === $extraCounts['total'] ? 'text-green-600 font-medium' : 'text-[var(--ui-muted)]' }}">
+                                            {{ $extraCounts['filled'] }}/{{ $extraCounts['total'] }}
+                                        </span>
+                                    @else
+                                        <span class="text-xs text-[var(--ui-muted)]">&ndash;</span>
+                                    @endif
                                 </td>
-                                <td class="px-4 py-3">
+                                {{-- Status --}}
+                                <td class="px-4 py-2.5">
                                     @if($applicant->applicantStatus)
                                         <x-ui-badge variant="primary" size="xs">{{ $applicant->applicantStatus->name }}</x-ui-badge>
                                     @else
-                                        <span class="text-[var(--ui-muted)]">–</span>
+                                        <span class="text-[var(--ui-muted)]">&ndash;</span>
                                     @endif
                                 </td>
-                                <td class="px-4 py-3 text-[var(--ui-muted)]">
-                                    {{ $applicant->created_at->format('d.m.Y') }}
+                                {{-- AutoPilot --}}
+                                <td class="px-4 py-2.5">
+                                    <div class="flex items-center gap-1">
+                                        @foreach(['whatsapp', 'email'] as $type)
+                                            @php
+                                                $isActive = $applicant->auto_pilot
+                                                    && $applicant->preferredCommsChannel?->type === $type;
+                                                $hasChannel = $this->teamChannels->contains(fn ($c) => $c->type === $type);
+                                            @endphp
+                                            @if($hasChannel)
+                                                <button
+                                                    wire:click="toggleAutoPilot({{ $applicant->id }}, '{{ $type }}')"
+                                                    class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors {{ $isActive ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)] hover:bg-[var(--ui-muted-10)] hover:text-[var(--ui-secondary)]' }}"
+                                                    title="{{ $type === 'whatsapp' ? 'WhatsApp AutoPilot' : 'Email AutoPilot' }}"
+                                                >
+                                                    @if($isActive)
+                                                        <span class="relative flex h-2 w-2">
+                                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                                        </span>
+                                                    @endif
+                                                    @svg($type === 'whatsapp' ? 'heroicon-o-chat-bubble-left' : 'heroicon-o-envelope', 'w-3.5 h-3.5')
+                                                </button>
+                                            @endif
+                                        @endforeach
+                                    </div>
                                 </td>
-                                <td class="px-4 py-3 text-right">
+                                {{-- Aktion --}}
+                                <td class="px-4 py-2.5 text-right">
                                     <x-ui-button size="sm" variant="primary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
                                         Anzeigen
                                     </x-ui-button>
