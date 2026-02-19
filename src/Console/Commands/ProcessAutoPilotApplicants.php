@@ -213,8 +213,11 @@ class ProcessAutoPilotApplicants extends Command
                     }
 
                     if ($whatsAppResult['template_sent']) {
+                        // Set state to waiting_for_applicant so next run knows we're waiting
+                        $applicant->auto_pilot_state_id = $waitingForApplicantStateId;
+                        $applicant->save();
                         $this->logAutoPilot($applicant, 'template_sent', 'WhatsApp Template gesendet (Fenster öffnen).');
-                        $this->info("  📤 WhatsApp Template gesendet.");
+                        $this->info("  📤 WhatsApp Template gesendet → State: waiting_for_applicant");
                         // After sending template, we wait for response - don't run LLM
                         continue;
                     }
