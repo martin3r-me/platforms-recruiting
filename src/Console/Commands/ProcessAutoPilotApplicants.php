@@ -382,9 +382,19 @@ class ProcessAutoPilotApplicants extends Command
                 return [];
             }
 
+            $morphClass = $applicant->getMorphClass();
+            $fullClass = get_class($applicant);
+
             $query = CommsEmailThread::query()
-                ->where('context_model', get_class($applicant))
-                ->where('context_model_id', $applicant->id)
+                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                    $q->where(function ($q2) use ($morphClass, $applicant) {
+                        $q2->where('context_model', $morphClass)
+                            ->where('context_model_id', $applicant->id);
+                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                        $q2->where('context_model', $fullClass)
+                            ->where('context_model_id', $applicant->id);
+                    });
+                })
                 ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
                 ->limit(10)
                 ->get();

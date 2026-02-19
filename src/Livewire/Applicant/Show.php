@@ -290,7 +290,7 @@ class Show extends Component
         }
 
         $this->dispatch('comms', [
-            'model' => get_class($this->applicant),
+            'model' => $this->applicant->getMorphClass(),
             'modelId' => $this->applicant->id,
             'subject' => $subject,
             'description' => $this->applicant->notes ?? '',
