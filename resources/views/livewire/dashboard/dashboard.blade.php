@@ -1,6 +1,16 @@
 <x-ui-page wire:poll.15s>
     <x-slot name="navbar">
-        <x-ui-page-navbar title="Recruiting Dashboard" icon="heroicon-o-briefcase" />
+        <x-ui-page-navbar icon="heroicon-o-briefcase">
+            <x-slot name="title">
+                <span class="flex items-center gap-2">
+                    Recruiting Dashboard
+                    <span class="relative flex h-2.5 w-2.5" title="Live-Updates aktiv">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                </span>
+            </x-slot>
+        </x-ui-page-navbar>
     </x-slot>
 
     <x-ui-page-container spacing="space-y-8">
