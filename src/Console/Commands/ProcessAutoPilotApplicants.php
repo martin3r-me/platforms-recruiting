@@ -279,14 +279,17 @@ class ProcessAutoPilotApplicants extends Command
                 $iterations = (int)($result['iterations'] ?? 0);
                 $allToolCallNames = $result['all_tool_call_names'] ?? [];
                 $emailSent = in_array('core.comms.email_messages.POST', $allToolCallNames);
+                $whatsappSent = in_array('core.comms.whatsapp_messages.POST', $allToolCallNames);
+                $messageSent = $emailSent || $whatsappSent;
 
                 $this->logAutoPilot($applicant, 'run_completed', "Scenario {$scenario}: {$iterations} Iterationen", [
                     'iterations' => $iterations,
                     'all_tool_calls' => $allToolCallNames,
                     'email_sent' => $emailSent,
+                    'whatsapp_sent' => $whatsappSent,
                 ]);
                 $this->line("  Iterationen: {$iterations} | Tools: " . (empty($allToolCallNames) ? '(keine)' : implode(', ', $allToolCallNames)));
-                $this->line("  Email: " . ($emailSent ? 'JA' : 'NEIN'));
+                $this->line("  Nachricht: " . ($messageSent ? ($whatsappSent ? 'WhatsApp' : 'Email') : 'NEIN'));
 
                 // Threads verknüpfen
                 $linkedThreads = $this->linkNewThreadsToApplicant($applicant, $contactInfo, $preferredChannel);
@@ -866,7 +869,9 @@ class ProcessAutoPilotApplicants extends Command
             $system .= "KOMMUNIKATION ({$channelType}):\n"
                 . "- Es gibt bereits Threads mit dem Bewerber (siehe Daten unten).\n"
                 . "- Für Replies im bestehenden Thread: nur thread_id + body (KEIN to" . ($isWhatsAppChannel ? "" : ", KEIN subject") . ").\n"
-                . "- Nutze {$messageToolPost} für Nachrichten.\n\n";
+                . "- Nutze {$messageToolPost} für Nachrichten.\n"
+                . "- WICHTIG: Falls Pflichtfelder fehlen und du eine Nachricht sendest, füge IMMER den Bewerber-Link am Ende ein!\n"
+                . "- Link-Formulierung: \"Oder ergänzen Sie Ihre Daten direkt hier: {$publicUrl}\"\n\n";
         } else {
             if ($isWhatsAppChannel) {
                 $system .= "KOMMUNIKATION (ERSTE WHATSAPP-NACHRICHT):\n"
@@ -912,7 +917,7 @@ class ProcessAutoPilotApplicants extends Command
 
         $user = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\nBearbeite diese Bewerbung. Beginne mit Tool-Calls."
-            . ($isFirstMessage ? "\nHINWEIS: Dies ist die ERSTE Nachricht — vergiss nicht den Bewerber-Link am Ende!" : "");
+            . "\nHINWEIS: Falls du eine Nachricht an den Bewerber sendest, füge IMMER den Bewerber-Link ({$publicUrl}) am Ende ein!";
 
         return [
             ['role' => 'system', 'content' => $system],
