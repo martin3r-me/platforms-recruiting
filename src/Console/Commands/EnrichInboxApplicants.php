@@ -13,8 +13,11 @@ use Platform\Core\Models\CoreAiProvider;
 use Platform\Core\Models\Team;
 use Platform\Core\Models\User;
 use Platform\Core\Services\AiToolLoopRunner;
+use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsEmailThread;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Crm\Models\CrmPhoneNumber;
+use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 
@@ -149,6 +152,11 @@ class EnrichInboxApplicants extends Command
                     $applicant->update(['enrichment_status' => 'enriched']);
                     Cache::forget("enrichment:processing:{$applicant->id}");
                     $this->info("  Enrichment abgeschlossen.");
+
+                    // Try to send initial WhatsApp template if phone number available
+                    if (!$dryRun) {
+                        $this->trySendInitialWhatsAppTemplate($applicant);
+                    }
                 } catch (\Throwable $e) {
                     $this->logEnrichment($applicant, 'error', 'LLM-Fehler: ' . $e->getMessage());
                     $this->error("  Fehler: " . $e->getMessage());
@@ -470,6 +478,89 @@ class EnrichInboxApplicants extends Command
             ]);
         } catch (\Throwable $e) {
             // ignore — logging should never break the run
+        }
+    }
+
+    /**
+     * Try to send an initial WhatsApp template message to the applicant.
+     * This is used to verify the phone number works and to initiate contact.
+     */
+    private function trySendInitialWhatsAppTemplate(RecApplicant $applicant): void
+    {
+        try {
+            // Find a mobile phone number with unknown WhatsApp status
+            $applicant->loadMissing(['crmContactLinks.contact.phoneNumbers', 'postings.commsChannels']);
+
+            $phoneToContact = null;
+            foreach ($applicant->crmContactLinks as $link) {
+                foreach ($link->contact?->phoneNumbers ?? [] as $phone) {
+                    if (!$phone->is_active) {
+                        continue;
+                    }
+                    // Only try if WhatsApp status is unknown (not yet tested)
+                    if ($phone->whatsapp_status !== CrmPhoneNumber::WHATSAPP_UNKNOWN) {
+                        $this->line("  WhatsApp: Status bereits bekannt ({$phone->whatsapp_status})");
+                        continue;
+                    }
+                    $phoneToContact = $phone;
+                    break 2;
+                }
+            }
+
+            if (!$phoneToContact) {
+                $this->line("  WhatsApp: Keine ungeprüfte Telefonnummer gefunden");
+                return;
+            }
+
+            // Find a WhatsApp channel linked to the applicant's postings
+            $whatsAppChannel = null;
+            foreach ($applicant->postings as $posting) {
+                foreach ($posting->commsChannels ?? [] as $channel) {
+                    if ($channel->type === 'whatsapp' && $channel->is_active) {
+                        $whatsAppChannel = $channel;
+                        break 2;
+                    }
+                }
+            }
+
+            if (!$whatsAppChannel) {
+                $this->line("  WhatsApp: Kein WhatsApp-Channel an Posting gefunden");
+                return;
+            }
+
+            // Get the first available template from the channel meta
+            $templateName = $whatsAppChannel->meta['default_template'] ?? 'hello_world';
+            $templateLang = $whatsAppChannel->meta['default_template_lang'] ?? 'en';
+
+            $phoneNumber = $phoneToContact->international ?: $phoneToContact->raw_input;
+            if (!$phoneNumber) {
+                $this->line("  WhatsApp: Keine Telefonnummer im internationalen Format");
+                return;
+            }
+
+            $this->line("  WhatsApp: Sende Template '{$templateName}' an {$phoneNumber}...");
+
+            $whatsAppService = app(WhatsAppMetaService::class);
+            $message = $whatsAppService->sendTemplate(
+                channel: $whatsAppChannel,
+                to: $phoneNumber,
+                templateName: $templateName,
+                components: [],
+                languageCode: $templateLang,
+            );
+
+            $this->logEnrichment($applicant, 'whatsapp_template_sent', "WhatsApp-Template '{$templateName}' gesendet", [
+                'phone' => $phoneNumber,
+                'template' => $templateName,
+                'message_id' => $message->id,
+                'meta_message_id' => $message->meta_message_id,
+            ]);
+
+            $this->info("  WhatsApp: Template gesendet (Message #{$message->id})");
+
+        } catch (\Throwable $e) {
+            $this->logEnrichment($applicant, 'whatsapp_template_error', 'WhatsApp-Template Fehler: ' . $e->getMessage());
+            $this->warn("  WhatsApp: Fehler - " . $e->getMessage());
         }
     }
 

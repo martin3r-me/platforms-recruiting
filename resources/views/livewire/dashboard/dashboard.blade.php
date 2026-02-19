@@ -72,6 +72,7 @@
                                 $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
                                 $isEnriching = in_array($applicant->id, $this->enrichingApplicantIds);
                                 $extraCounts = $this->getExtraFieldCounts($applicant);
+                                $waStatus = $this->getWhatsAppStatus($applicant);
                             @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
                                 {{-- Bewerber + Stelle --}}
@@ -90,6 +91,20 @@
                                                 </span>
                                                 @if($isEnriching)
                                                     <x-ui-badge variant="danger" size="xs">Enrichment</x-ui-badge>
+                                                @endif
+                                                {{-- WhatsApp Status Icon --}}
+                                                @if($waStatus['color'] !== 'none')
+                                                    <span title="{{ $waStatus['window_open'] ? 'WhatsApp Fenster offen' : ($waStatus['color'] === 'yellow' ? 'WhatsApp verfügbar' : 'WhatsApp unbekannt') }}"
+                                                          class="inline-flex items-center {{ $waStatus['color'] === 'green' ? 'text-green-500' : ($waStatus['color'] === 'yellow' ? 'text-yellow-500' : 'text-gray-400') }}">
+                                                        @if($waStatus['color'] === 'green')
+                                                            <span class="relative flex h-3.5 w-3.5">
+                                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                                @svg('heroicon-s-chat-bubble-left', 'relative w-3.5 h-3.5')
+                                                            </span>
+                                                        @else
+                                                            @svg('heroicon-o-chat-bubble-left', 'w-3.5 h-3.5')
+                                                        @endif
+                                                    </span>
                                                 @endif
                                             </div>
                                             @if($positions->isNotEmpty())
@@ -211,6 +226,7 @@
                                 $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
                                 $extraCounts = $this->getExtraFieldCounts($applicant);
                                 $primaryEmail = $primaryContact?->emailAddresses?->first()?->email_address;
+                                $waStatus = $this->getWhatsAppStatus($applicant);
                             @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
                                 {{-- Name + Stelle + Email --}}
@@ -223,8 +239,24 @@
                                             </span>
                                         </div>
                                         <div class="min-w-0">
-                                            <div class="font-medium text-[var(--ui-secondary)] truncate">
-                                                {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-medium text-[var(--ui-secondary)] truncate">
+                                                    {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                                </span>
+                                                {{-- WhatsApp Status Icon --}}
+                                                @if($waStatus['color'] !== 'none')
+                                                    <span title="{{ $waStatus['window_open'] ? 'WhatsApp Fenster offen' : ($waStatus['color'] === 'yellow' ? 'WhatsApp verfügbar' : 'WhatsApp unbekannt') }}"
+                                                          class="inline-flex items-center flex-shrink-0 {{ $waStatus['color'] === 'green' ? 'text-green-500' : ($waStatus['color'] === 'yellow' ? 'text-yellow-500' : 'text-gray-400') }}">
+                                                        @if($waStatus['color'] === 'green')
+                                                            <span class="relative flex h-3.5 w-3.5">
+                                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                                @svg('heroicon-s-chat-bubble-left', 'relative w-3.5 h-3.5')
+                                                            </span>
+                                                        @else
+                                                            @svg('heroicon-o-chat-bubble-left', 'w-3.5 h-3.5')
+                                                        @endif
+                                                    </span>
+                                                @endif
                                             </div>
                                             @if($positions->isNotEmpty())
                                                 <div class="text-xs text-[var(--ui-muted)] truncate">{{ $positions->implode(', ') }}</div>
@@ -316,6 +348,7 @@
                                 $primaryContact = $applicant->crmContactLinks->first()?->contact;
                                 $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
                                 $primaryEmail = $primaryContact?->emailAddresses?->first()?->email_address;
+                                $waStatus = $this->getWhatsAppStatus($applicant);
                             @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
                                 {{-- Name + Email --}}
@@ -325,8 +358,24 @@
                                             <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
                                         </div>
                                         <div class="min-w-0">
-                                            <div class="font-medium text-[var(--ui-secondary)] truncate">
-                                                {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-medium text-[var(--ui-secondary)] truncate">
+                                                    {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                                </span>
+                                                {{-- WhatsApp Status Icon --}}
+                                                @if($waStatus['color'] !== 'none')
+                                                    <span title="{{ $waStatus['window_open'] ? 'WhatsApp Fenster offen' : ($waStatus['color'] === 'yellow' ? 'WhatsApp verfügbar' : 'WhatsApp unbekannt') }}"
+                                                          class="inline-flex items-center flex-shrink-0 {{ $waStatus['color'] === 'green' ? 'text-green-500' : ($waStatus['color'] === 'yellow' ? 'text-yellow-500' : 'text-gray-400') }}">
+                                                        @if($waStatus['color'] === 'green')
+                                                            <span class="relative flex h-3.5 w-3.5">
+                                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                                @svg('heroicon-s-chat-bubble-left', 'relative w-3.5 h-3.5')
+                                                            </span>
+                                                        @else
+                                                            @svg('heroicon-o-chat-bubble-left', 'w-3.5 h-3.5')
+                                                        @endif
+                                                    </span>
+                                                @endif
                                             </div>
                                             @if($primaryEmail)
                                                 <div class="text-xs text-[var(--ui-muted)] truncate">{{ $primaryEmail }}</div>

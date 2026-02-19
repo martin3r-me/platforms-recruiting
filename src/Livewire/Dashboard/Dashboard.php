@@ -6,7 +6,9 @@ use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Crm\Models\CommsChannel;
+use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmContact;
+use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
@@ -40,6 +42,7 @@ class Dashboard extends Component
             ->with([
                 'applicantStatus',
                 'crmContactLinks.contact.emailAddresses',
+                'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
                 'extraFieldValues',
                 'preferredCommsChannel',
@@ -58,6 +61,7 @@ class Dashboard extends Component
             ->with([
                 'applicantStatus',
                 'crmContactLinks.contact.emailAddresses',
+                'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
                 'extraFieldValues',
                 'preferredCommsChannel',
@@ -78,6 +82,7 @@ class Dashboard extends Component
             ->with([
                 'applicantStatus',
                 'crmContactLinks.contact.emailAddresses',
+                'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
                 'extraFieldValues',
                 'preferredCommsChannel',
@@ -170,6 +175,75 @@ class Dashboard extends Component
             $f['value'] !== null && $f['value'] !== '' && $f['value'] !== []
         )->count();
         return ['filled' => $filled, 'total' => $total];
+    }
+
+    /**
+     * Get WhatsApp status for an applicant.
+     * Returns: 'green' (opted_in/available + window open), 'yellow' (opted_in/available, no window), 'gray' (unknown/unavailable)
+     */
+    public function getWhatsAppStatus(RecApplicant $applicant): array
+    {
+        $phoneNumber = null;
+        $whatsappStatus = CrmPhoneNumber::WHATSAPP_UNKNOWN;
+
+        // Find the first phone number with WhatsApp status
+        foreach ($applicant->crmContactLinks as $link) {
+            foreach ($link->contact?->phoneNumbers ?? [] as $phone) {
+                if (!$phone->is_active) continue;
+                $phoneNumber = $phone->international ?: $phone->raw_input;
+                $whatsappStatus = $phone->whatsapp_status ?? CrmPhoneNumber::WHATSAPP_UNKNOWN;
+                // Prefer phones with known WhatsApp status
+                if ($whatsappStatus !== CrmPhoneNumber::WHATSAPP_UNKNOWN) {
+                    break 2;
+                }
+            }
+        }
+
+        if (!$phoneNumber) {
+            return ['color' => 'none', 'status' => 'no_phone', 'window_open' => false];
+        }
+
+        // Check if WhatsApp is available
+        $isWhatsAppAvailable = in_array($whatsappStatus, [
+            CrmPhoneNumber::WHATSAPP_AVAILABLE,
+            CrmPhoneNumber::WHATSAPP_OPTED_IN,
+        ]);
+
+        if (!$isWhatsAppAvailable) {
+            return [
+                'color' => 'gray',
+                'status' => $whatsappStatus,
+                'window_open' => false,
+            ];
+        }
+
+        // Check if 24h window is open by finding a WhatsApp thread
+        $windowOpen = false;
+        $morphClass = $applicant->getMorphClass();
+        $fullClass = get_class($applicant);
+
+        $thread = CommsWhatsAppThread::query()
+            ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                $q->where(function ($q2) use ($morphClass, $applicant) {
+                    $q2->where('context_model', $morphClass)
+                        ->where('context_model_id', $applicant->id);
+                })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                    $q2->where('context_model', $fullClass)
+                        ->where('context_model_id', $applicant->id);
+                });
+            })
+            ->orderByDesc('last_inbound_at')
+            ->first();
+
+        if ($thread && $thread->isWindowOpen()) {
+            $windowOpen = true;
+        }
+
+        return [
+            'color' => $windowOpen ? 'green' : 'yellow',
+            'status' => $whatsappStatus,
+            'window_open' => $windowOpen,
+        ];
     }
 
     public function toggleAutoPilot(int $applicantId, string $channelType): void
