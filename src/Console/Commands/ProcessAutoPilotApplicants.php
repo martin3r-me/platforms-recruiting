@@ -118,7 +118,11 @@ class ProcessAutoPilotApplicants extends Command
                 $contactInfo = $this->loadContactInfo($applicant);
                 $extraFields = $this->loadExtraFields($applicant);
                 $preferredChannel = $this->loadPreferredChannel($applicant);
-                $threadsSummary = $this->loadThreadsSummary($applicant);
+
+                // Determine channel type early for thread loading
+                $channelForCheck = $preferredChannel ? CommsChannel::find($preferredChannel['comms_channel_id']) : null;
+                $isWhatsAppChannel = $channelForCheck && $channelForCheck->type === 'whatsapp';
+                $threadsSummary = $this->loadThreadsSummary($applicant, $isWhatsAppChannel);
 
                 $this->info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 $this->info("🤖 Bewerbung #{$applicant->id} → Owner: {$owner->name} (user_id={$owner->id})");
@@ -433,40 +437,72 @@ class ProcessAutoPilotApplicants extends Command
         }
     }
 
-    private function loadThreadsSummary(RecApplicant $applicant): array
+    private function loadThreadsSummary(RecApplicant $applicant, bool $isWhatsAppChannel = false): array
     {
         try {
-            if (!class_exists(CommsEmailThread::class)) {
-                return [];
-            }
-
             $morphClass = $applicant->getMorphClass();
             $fullClass = get_class($applicant);
+            $threads = collect();
 
-            $query = CommsEmailThread::query()
-                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                    $q->where(function ($q2) use ($morphClass, $applicant) {
-                        $q2->where('context_model', $morphClass)
-                            ->where('context_model_id', $applicant->id);
-                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                        $q2->where('context_model', $fullClass)
-                            ->where('context_model_id', $applicant->id);
-                    });
-                })
-                ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
-                ->limit(10)
-                ->get();
+            // Load WhatsApp threads if WhatsApp channel
+            if ($isWhatsAppChannel && class_exists(CommsWhatsAppThread::class)) {
+                $waThreads = CommsWhatsAppThread::query()
+                    ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                        $q->where(function ($q2) use ($morphClass, $applicant) {
+                            $q2->where('context_model', $morphClass)
+                                ->where('context_model_id', $applicant->id);
+                        })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                            $q2->where('context_model', $fullClass)
+                                ->where('context_model_id', $applicant->id);
+                        });
+                    })
+                    ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
+                    ->limit(10)
+                    ->get();
 
-            return $query->map(fn ($t) => [
-                'thread_id' => $t->id,
-                'channel_id' => $t->comms_channel_id,
-                'subject' => $t->subject,
-                'counterpart' => $t->last_inbound_from_address ?: $t->last_outbound_to_address,
-                'last_message_at' => ($t->last_inbound_at ?: $t->last_outbound_at)?->toIso8601String(),
-                'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
-                'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
-                'is_linked' => true,
-            ])->toArray();
+                $threads = $waThreads->map(fn ($t) => [
+                    'thread_id' => $t->id,
+                    'channel_id' => $t->comms_channel_id,
+                    'channel_type' => 'whatsapp',
+                    'subject' => null,
+                    'counterpart' => $t->remote_phone_number,
+                    'last_message_at' => ($t->last_inbound_at ?: $t->last_outbound_at)?->toIso8601String(),
+                    'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
+                    'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
+                    'is_linked' => true,
+                ]);
+            }
+
+            // Load Email threads if Email channel (or fallback)
+            if (!$isWhatsAppChannel && class_exists(CommsEmailThread::class)) {
+                $emailThreads = CommsEmailThread::query()
+                    ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                        $q->where(function ($q2) use ($morphClass, $applicant) {
+                            $q2->where('context_model', $morphClass)
+                                ->where('context_model_id', $applicant->id);
+                        })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                            $q2->where('context_model', $fullClass)
+                                ->where('context_model_id', $applicant->id);
+                        });
+                    })
+                    ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
+                    ->limit(10)
+                    ->get();
+
+                $threads = $emailThreads->map(fn ($t) => [
+                    'thread_id' => $t->id,
+                    'channel_id' => $t->comms_channel_id,
+                    'channel_type' => 'email',
+                    'subject' => $t->subject,
+                    'counterpart' => $t->last_inbound_from_address ?: $t->last_outbound_to_address,
+                    'last_message_at' => ($t->last_inbound_at ?: $t->last_outbound_at)?->toIso8601String(),
+                    'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
+                    'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
+                    'is_linked' => true,
+                ]);
+            }
+
+            return $threads->toArray();
         } catch (\Throwable $e) {
             return [];
         }
