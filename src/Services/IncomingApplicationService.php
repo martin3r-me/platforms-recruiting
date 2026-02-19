@@ -249,7 +249,7 @@ class IncomingApplicationService
                 \Platform\Crm\Models\CrmContactLink::firstOrCreate(
                     [
                         'contact_id' => $contact->id,
-                        'linkable_type' => RecApplicant::class,
+                        'linkable_type' => $applicant->getMorphClass(),
                         'linkable_id' => $applicant->id,
                     ],
                     [

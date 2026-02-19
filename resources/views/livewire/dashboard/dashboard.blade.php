@@ -1,4 +1,5 @@
-<x-ui-page wire:poll.15s="refreshDashboard">
+<div wire:poll.15s="refreshDashboard">
+<x-ui-page>
     <x-slot name="navbar">
         <x-ui-page-navbar icon="heroicon-o-briefcase">
             <x-slot name="title">
@@ -236,3 +237,4 @@
         </x-ui-page-sidebar>
     </x-slot>
 </x-ui-page>
+</div>
