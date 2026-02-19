@@ -78,6 +78,11 @@ class IncomingApplicationService
             // Ensure applicant is linked to all postings (may have new ones)
             $this->linkApplicantToPostings($existingApplicant, $postings, $channel->type);
 
+            // Mark WhatsApp as opted-in if this message came via WhatsApp
+            if ($channel->type === 'whatsapp') {
+                $this->markPhoneAsWhatsAppOptedIn($existingApplicant, $senderIdentifier);
+            }
+
             return [
                 'applicant' => $existingApplicant,
                 'posting' => $postings->first(),
@@ -238,7 +243,7 @@ class IncomingApplicationService
                             'phone_type_id' => $phoneTypeId,
                             'is_primary' => true,
                             'is_active' => true,
-                            'whatsapp_status' => 'valid',
+                            'whatsapp_status' => \Platform\Crm\Models\CrmPhoneNumber::WHATSAPP_OPTED_IN,
                         ]);
                     }
                 }
@@ -296,6 +301,44 @@ class IncomingApplicationService
             'first_name' => $parts[0] ?? null,
             'last_name' => $parts[1] ?? null,
         ];
+    }
+
+    /**
+     * Mark a phone number as WhatsApp opted-in for an applicant's linked contacts.
+     */
+    private function markPhoneAsWhatsAppOptedIn(RecApplicant $applicant, string $phoneNumber): void
+    {
+        try {
+            $phoneDigits = preg_replace('/[^0-9]/', '', $phoneNumber);
+
+            foreach ($applicant->crmContactLinks as $link) {
+                $contact = $link->contact;
+                if (!$contact || !method_exists($contact, 'phoneNumbers')) {
+                    continue;
+                }
+
+                $matchingPhones = $contact->phoneNumbers()
+                    ->where(function ($q) use ($phoneDigits) {
+                        $q->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $phoneDigits])
+                          ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $phoneDigits]);
+                    })
+                    ->get();
+
+                foreach ($matchingPhones as $phone) {
+                    $phone->markWhatsappOptedIn();
+                    Log::debug('[IncomingApplicationService] Phone marked as WhatsApp opted-in', [
+                        'phone_id' => $phone->id,
+                        'applicant_id' => $applicant->id,
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[IncomingApplicationService] Failed to mark phone as WhatsApp opted-in', [
+                'applicant_id' => $applicant->id,
+                'phone' => $phoneNumber,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
