@@ -197,47 +197,60 @@
                     <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">Suchen</h3>
                     <x-ui-input-text name="search" placeholder="Name, E-Mail suchen…" wire:model.live.debounce.300ms="search" />
                 </div>
-                <div>
-                    <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">Stelle</h3>
-                    <select wire:model.live="positionFilter" class="w-full rounded-md border border-[var(--ui-border)] bg-white px-3 py-2 text-sm">
-                        <option value="">Alle Stellen</option>
-                        @foreach($this->availablePositions as $pos)
-                            <option value="{{ $pos->id }}">{{ $pos->title }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">Status</h3>
-                    <select wire:model.live="statusFilter" class="w-full rounded-md border border-[var(--ui-border)] bg-white px-3 py-2 text-sm">
-                        <option value="">Alle Status</option>
-                        @foreach($this->availableStatuses as $status)
-                            <option value="{{ $status->id }}">{{ $status->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">AutoPilot-State</h3>
-                    <select wire:model.live="autoPilotStateFilter" class="w-full rounded-md border border-[var(--ui-border)] bg-white px-3 py-2 text-sm">
-                        <option value="">Alle States</option>
-                        @foreach($this->availableAutoPilotStates as $state)
-                            <option value="{{ $state->id }}">{{ $state->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">Aktiv/Inaktiv</h3>
-                    <select wire:model.live="activeFilter" class="w-full rounded-md border border-[var(--ui-border)] bg-white px-3 py-2 text-sm">
-                        <option value="">Alle</option>
-                        <option value="1">Aktiv</option>
-                        <option value="0">Inaktiv</option>
-                    </select>
-                </div>
+                <x-ui-input-select
+                    name="positionFilter"
+                    label="Stelle"
+                    :options="$this->availablePositions"
+                    optionValue="id"
+                    optionLabel="title"
+                    :nullable="true"
+                    nullLabel="Alle Stellen"
+                    wire:model.live="positionFilter"
+                />
+                <x-ui-input-select
+                    name="statusFilter"
+                    label="Status"
+                    :options="$this->availableStatuses"
+                    optionValue="id"
+                    optionLabel="name"
+                    :nullable="true"
+                    nullLabel="Alle Status"
+                    wire:model.live="statusFilter"
+                />
+                <x-ui-input-select
+                    name="autoPilotStateFilter"
+                    label="AutoPilot-State"
+                    :options="$this->availableAutoPilotStates"
+                    optionValue="id"
+                    optionLabel="name"
+                    :nullable="true"
+                    nullLabel="Alle States"
+                    wire:model.live="autoPilotStateFilter"
+                />
+                <x-ui-input-select
+                    name="activeFilter"
+                    label="Aktiv/Inaktiv"
+                    :options="[['value' => '1', 'label' => 'Aktiv'], ['value' => '0', 'label' => 'Inaktiv']]"
+                    optionValue="value"
+                    optionLabel="label"
+                    :nullable="true"
+                    nullLabel="Alle"
+                    wire:model.live="activeFilter"
+                />
                 <div>
                     <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">Aktionen</h3>
                     <x-ui-button variant="secondary" size="sm" wire:click="openCreateModal" class="w-full justify-start">
                         @svg('heroicon-o-plus', 'w-4 h-4') <span class="ml-2">Neuer Bewerber</span>
                     </x-ui-button>
                 </div>
+            </div>
+        </x-ui-page-sidebar>
+    </x-slot>
+
+    <x-slot name="activity">
+        <x-ui-page-sidebar title="Aktivitäten" width="w-80" :defaultOpen="false" storeKey="activityOpen" side="right">
+            <div class="p-6 space-y-3 text-sm text-[var(--ui-muted)]">
+                Keine Aktivitäten verfügbar
             </div>
         </x-ui-page-sidebar>
     </x-slot>

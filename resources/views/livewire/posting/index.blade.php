@@ -112,15 +112,24 @@
                     <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">Suchen</h3>
                     <x-ui-input-text name="search" placeholder="Ausschreibung suchen…" wire:model.live.debounce.300ms="search" />
                 </div>
-                <div>
-                    <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">Status</h3>
-                    <select wire:model.live="statusFilter" class="w-full rounded-md border border-[var(--ui-border)] bg-white px-3 py-2 text-sm">
-                        <option value="">Alle</option>
-                        <option value="draft">Entwurf</option>
-                        <option value="published">Veröffentlicht</option>
-                        <option value="closed">Geschlossen</option>
-                    </select>
-                </div>
+                <x-ui-input-select
+                    name="statusFilter"
+                    label="Status"
+                    :options="[['value' => 'draft', 'label' => 'Entwurf'], ['value' => 'published', 'label' => 'Veröffentlicht'], ['value' => 'closed', 'label' => 'Geschlossen']]"
+                    optionValue="value"
+                    optionLabel="label"
+                    :nullable="true"
+                    nullLabel="Alle"
+                    wire:model.live="statusFilter"
+                />
+            </div>
+        </x-ui-page-sidebar>
+    </x-slot>
+
+    <x-slot name="activity">
+        <x-ui-page-sidebar title="Aktivitäten" width="w-80" :defaultOpen="false" storeKey="activityOpen" side="right">
+            <div class="p-6 space-y-3 text-sm text-[var(--ui-muted)]">
+                Keine Aktivitäten verfügbar
             </div>
         </x-ui-page-sidebar>
     </x-slot>
