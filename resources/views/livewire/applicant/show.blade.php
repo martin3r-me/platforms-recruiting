@@ -317,6 +317,17 @@
             @endif
         </x-ui-panel>
 
+        {{-- Inline Kommunikation (Email + WhatsApp) --}}
+        @if(class_exists(\Platform\Crm\Livewire\InlineComms::class))
+            <livewire:crm.inline-comms
+                :context-type="get_class($applicant)"
+                :context-id="$applicant->id"
+                :subject="($primaryContact?->full_name ?? 'Bewerber #' . $applicant->id)"
+                :recipients="$primaryEmail ? [$primaryEmail] : []"
+                :key="'inline-comms-' . $applicant->id"
+            />
+        @endif
+
     <!-- Contact Link Modal -->
     <x-ui-modal
         size="sm"
