@@ -12,6 +12,8 @@ use Platform\Core\Contracts\ToolContext;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsChannelContext;
 use Platform\Crm\Models\CommsEmailThread;
+use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Core\Models\CoreAiProvider;
 use Platform\Core\Models\Team;
 use Platform\Core\Models\User;
@@ -157,16 +159,67 @@ class ProcessAutoPilotApplicants extends Command
                     continue;
                 }
 
-                // ===== Scenario D: Wartend, keine neuen Infos → überspringen (kein LLM) =====
+                // ===== Scenario D: Wartend, keine neuen Infos =====
                 if ($scenario === 'D') {
+                    // For WhatsApp: Check if we should send a template reminder
+                    $channel = $preferredChannel ? CommsChannel::find($preferredChannel['comms_channel_id']) : null;
+                    $isWhatsAppChannel = $channel && $channel->type === 'whatsapp';
+
+                    if ($isWhatsAppChannel) {
+                        $whatsAppResult = $this->handleWhatsAppPreCheck($applicant, $contactInfo);
+
+                        if ($whatsAppResult['template_sent']) {
+                            $this->logAutoPilot($applicant, 'template_sent', 'Scenario D: WhatsApp Template gesendet (Erinnerung).');
+                            $this->info("  📤 Scenario D → WhatsApp Template gesendet.");
+                            continue;
+                        }
+
+                        if ($whatsAppResult['window_open']) {
+                            // Window is open but no new messages - nothing to do
+                            $this->logAutoPilot($applicant, 'skipped', 'Scenario D: WhatsApp-Fenster offen, warte auf Antwort.');
+                            $this->info("  ⏭️ Scenario D → WhatsApp-Fenster offen, warte.");
+                            continue;
+                        }
+
+                        // Window closed, can't send template (max attempts or cooldown)
+                        $this->logAutoPilot($applicant, 'skipped', "Scenario D: {$whatsAppResult['reason']}");
+                        $this->info("  ⏭️ Scenario D → {$whatsAppResult['reason']}");
+                        continue;
+                    }
+
                     $this->logAutoPilot($applicant, 'skipped', 'Scenario D: Warte auf Bewerber, keine neuen Infos.');
                     $this->info("  ⏭️ Scenario D → übersprungen.");
                     continue;
                 }
 
                 // ===== Scenario B + C: LLM-Call =====
+
+                // Check if WhatsApp channel and handle window/template logic
+                $channel = $preferredChannel ? CommsChannel::find($preferredChannel['comms_channel_id']) : null;
+                $isWhatsAppChannel = $channel && $channel->type === 'whatsapp';
+
+                if ($isWhatsAppChannel) {
+                    $whatsAppResult = $this->handleWhatsAppPreCheck($applicant, $contactInfo);
+
+                    if ($whatsAppResult['skip']) {
+                        $this->logAutoPilot($applicant, 'skipped', $whatsAppResult['reason']);
+                        $this->info("  ⏭️ WhatsApp: {$whatsAppResult['reason']}");
+                        continue;
+                    }
+
+                    if ($whatsAppResult['template_sent']) {
+                        $this->logAutoPilot($applicant, 'template_sent', 'WhatsApp Template gesendet (Fenster öffnen).');
+                        $this->info("  📤 WhatsApp Template gesendet.");
+                        // After sending template, we wait for response - don't run LLM
+                        continue;
+                    }
+
+                    // Window is open, proceed with LLM
+                    $this->line("  ✅ WhatsApp-Fenster offen → LLM-Verarbeitung.");
+                }
+
                 $primaryEmail = $this->findPrimaryEmail($contactInfo);
-                if (!$primaryEmail) {
+                if (!$primaryEmail && !$isWhatsAppChannel) {
                     $this->logAutoPilot($applicant, 'warning', 'Keine Email-Adresse vorhanden — übersprungen.');
                     $this->warn("  ⚠️ Keine Email-Adresse → übersprungen.");
                     continue;
@@ -785,5 +838,174 @@ class ProcessAutoPilotApplicants extends Command
             ['role' => 'system', 'content' => $system],
             ['role' => 'user', 'content' => $user],
         ];
+    }
+
+    // ===== WhatsApp Pre-Check =====
+
+    /**
+     * Check WhatsApp conditions before running LLM.
+     * Returns ['skip' => bool, 'reason' => string, 'template_sent' => bool, 'window_open' => bool]
+     */
+    private function handleWhatsAppPreCheck(RecApplicant $applicant, array $contactInfo): array
+    {
+        // Check if 24h window is open
+        $windowOpen = $this->isWhatsAppWindowOpen($applicant);
+
+        if ($windowOpen) {
+            return [
+                'skip' => false,
+                'reason' => '',
+                'template_sent' => false,
+                'window_open' => true,
+            ];
+        }
+
+        // Window is closed - try to send template
+        $phoneNumber = $this->findPrimaryPhoneNumber($applicant, $contactInfo);
+
+        if (!$phoneNumber) {
+            return [
+                'skip' => true,
+                'reason' => 'Keine Telefonnummer vorhanden.',
+                'template_sent' => false,
+                'window_open' => false,
+            ];
+        }
+
+        if (!$phoneNumber->canSendWhatsAppTemplate()) {
+            $remaining = $phoneNumber->remaining_whats_app_template_attempts;
+            $nextAt = $phoneNumber->next_whats_app_template_attempt_at;
+
+            if ($remaining === 0) {
+                return [
+                    'skip' => true,
+                    'reason' => 'Max. Template-Versuche erreicht (3/3).',
+                    'template_sent' => false,
+                    'window_open' => false,
+                ];
+            }
+
+            return [
+                'skip' => true,
+                'reason' => "Nächster Template-Versuch möglich: " . ($nextAt?->format('d.m.Y H:i') ?? '—'),
+                'template_sent' => false,
+                'window_open' => false,
+            ];
+        }
+
+        // Try to send template
+        $templateSent = $this->trySendWhatsAppTemplate($applicant, $phoneNumber);
+
+        if ($templateSent) {
+            $phoneNumber->recordWhatsAppTemplateAttempt();
+            return [
+                'skip' => false,
+                'reason' => '',
+                'template_sent' => true,
+                'window_open' => false,
+            ];
+        }
+
+        return [
+            'skip' => true,
+            'reason' => 'Template-Versand fehlgeschlagen.',
+            'template_sent' => false,
+            'window_open' => false,
+        ];
+    }
+
+    /**
+     * Check if WhatsApp 24h window is open for this applicant.
+     */
+    private function isWhatsAppWindowOpen(RecApplicant $applicant): bool
+    {
+        $morphClass = $applicant->getMorphClass();
+        $fullClass = get_class($applicant);
+
+        $thread = CommsWhatsAppThread::query()
+            ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                $q->where(function ($q2) use ($morphClass, $applicant) {
+                    $q2->where('context_model', $morphClass)
+                        ->where('context_model_id', $applicant->id);
+                })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                    $q2->where('context_model', $fullClass)
+                        ->where('context_model_id', $applicant->id);
+                });
+            })
+            ->orderByDesc('last_inbound_at')
+            ->first();
+
+        return $thread && $thread->isWindowOpen();
+    }
+
+    /**
+     * Find primary phone number for WhatsApp.
+     */
+    private function findPrimaryPhoneNumber(RecApplicant $applicant, array $contactInfo): ?CrmPhoneNumber
+    {
+        // Try to find from contact info
+        foreach ($applicant->crmContactLinks as $link) {
+            $contact = $link->contact;
+            if (!$contact) continue;
+
+            // First try primary phone
+            $primary = $contact->phoneNumbers()
+                ->where('is_active', true)
+                ->where('is_primary', true)
+                ->whereNotNull('international')
+                ->first();
+
+            if ($primary) return $primary;
+
+            // Fallback to any active phone
+            $fallback = $contact->phoneNumbers()
+                ->where('is_active', true)
+                ->whereNotNull('international')
+                ->first();
+
+            if ($fallback) return $fallback;
+        }
+
+        return null;
+    }
+
+    /**
+     * Try to send WhatsApp template to open conversation window.
+     */
+    private function trySendWhatsAppTemplate(RecApplicant $applicant, CrmPhoneNumber $phoneNumber): bool
+    {
+        try {
+            // Get WhatsApp channel for team
+            $channel = CommsChannel::where('team_id', $applicant->team_id)
+                ->where('type', 'whatsapp')
+                ->where('is_active', true)
+                ->first();
+
+            if (!$channel) {
+                return false;
+            }
+
+            // Use the WhatsApp service to send template
+            $service = $channel->getService();
+            if (!$service || !method_exists($service, 'sendTemplate')) {
+                return false;
+            }
+
+            // Send a simple "hello" template to open the window
+            $result = $service->sendTemplate(
+                $phoneNumber->international,
+                'hello_world', // Standard WhatsApp hello template
+                'de',
+                [],
+                [
+                    'context_model' => $applicant->getMorphClass(),
+                    'context_model_id' => $applicant->id,
+                ]
+            );
+
+            return $result !== false;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 }
