@@ -9,7 +9,9 @@
             "email": "team@platform.com"
         }
     ],
-    "require": {},
+    "require": {
+        "martin3r/platform-crm": "*"
+    },
     "autoload": {
         "psr-4": {
             "Platform\\Recruiting\\": "src/",

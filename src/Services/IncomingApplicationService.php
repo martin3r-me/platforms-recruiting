@@ -60,57 +60,36 @@ class IncomingApplicationService
 
         $teamId = $channel->team_id;
 
-        // Process each linked posting
-        $result = null;
-        foreach ($postings as $posting) {
-            $result = $this->processForPosting($posting, $channel, $senderIdentifier, $senderName, $subject, $messageBody, $teamId);
-        }
-
-        return $result;
-    }
-
-    /**
-     * Process an inbound message for a specific posting.
-     * Handles duplicate detection and applicant creation.
-     */
-    private function processForPosting(
-        RecPosting $posting,
-        CommsChannel $channel,
-        string $senderIdentifier,
-        ?string $senderName,
-        ?string $subject,
-        ?string $messageBody,
-        int $teamId,
-    ): array {
-        // Duplicate detection: check if this sender already applied to this posting
-        $existingApplicant = $this->findExistingApplicant($senderIdentifier, $posting, $teamId);
+        // Check if this sender already has an applicant linked to any of these postings
+        $existingApplicant = $this->findExistingApplicantForPostings($senderIdentifier, $postings, $teamId);
 
         if ($existingApplicant) {
             Log::info('[IncomingApplicationService] Existing applicant found, appending to application', [
                 'applicant_id' => $existingApplicant->id,
-                'posting_id' => $posting->id,
+                'posting_ids' => $postings->pluck('id')->toArray(),
                 'sender' => $senderIdentifier,
             ]);
 
-            // Append note about new message
             $notePrefix = now()->format('d.m.Y H:i');
             $appendNote = "[{$notePrefix}] Weitere Nachricht via {$channel->type}: " . ($subject ?? $messageBody ?? 'Nachricht erhalten');
             $existingApplicant->notes = trim(($existingApplicant->notes ?? '') . "\n" . $appendNote);
             $existingApplicant->save();
 
+            // Ensure applicant is linked to all postings (may have new ones)
+            $this->linkApplicantToPostings($existingApplicant, $postings, $channel->type);
+
             return [
                 'applicant' => $existingApplicant,
-                'posting' => $posting,
+                'posting' => $postings->first(),
                 'is_new' => false,
             ];
         }
 
-        // Create new applicant
-        return DB::transaction(function () use ($posting, $channel, $senderIdentifier, $senderName, $subject, $messageBody, $teamId) {
+        // Create one applicant and link to all postings
+        return DB::transaction(function () use ($postings, $channel, $senderIdentifier, $senderName, $subject, $messageBody, $teamId) {
             $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
             $defaultStatusId = $settings->getSetting('default_status_id');
 
-            // Parse sender name
             $firstName = null;
             $lastName = null;
             if ($senderName) {
@@ -119,13 +98,11 @@ class IncomingApplicationService
                 $lastName = $nameParts['last_name'];
             }
 
-            // Build notes from message context
             $notes = "Automatisch erstellt via {$channel->type} ({$channel->name})";
             if ($subject) {
                 $notes .= "\nBetreff: {$subject}";
             }
 
-            // Create the applicant
             $applicant = RecApplicant::create([
                 'rec_applicant_status_id' => $defaultStatusId,
                 'applied_at' => now()->toDateString(),
@@ -137,7 +114,6 @@ class IncomingApplicationService
                 'auto_pilot' => true,
             ]);
 
-            // Create CRM contact and link it
             $this->createAndLinkContact(
                 $applicant,
                 $senderIdentifier,
@@ -147,46 +123,59 @@ class IncomingApplicationService
                 $teamId,
             );
 
-            // Link to posting
-            $applicant->postings()->attach($posting->id, [
-                'applied_at' => now()->toDateString(),
-                'notes' => "Eingegangen via {$channel->type}",
-            ]);
+            $this->linkApplicantToPostings($applicant, $postings, $channel->type);
 
             Log::info('[IncomingApplicationService] New applicant created', [
                 'applicant_id' => $applicant->id,
-                'posting_id' => $posting->id,
+                'posting_ids' => $postings->pluck('id')->toArray(),
                 'channel_type' => $channel->type,
                 'sender' => $senderIdentifier,
             ]);
 
             return [
                 'applicant' => $applicant,
-                'posting' => $posting,
+                'posting' => $postings->first(),
                 'is_new' => true,
             ];
         });
     }
 
     /**
-     * Find an existing applicant by sender identifier on the same posting.
+     * Link an applicant to all given postings (skips already existing links).
+     */
+    private function linkApplicantToPostings(RecApplicant $applicant, $postings, string $channelType): void
+    {
+        $existingPostingIds = $applicant->postings()->pluck('rec_postings.id')->toArray();
+
+        foreach ($postings as $posting) {
+            if (in_array($posting->id, $existingPostingIds)) {
+                continue;
+            }
+
+            $applicant->postings()->attach($posting->id, [
+                'applied_at' => now()->toDateString(),
+                'notes' => "Eingegangen via {$channelType}",
+            ]);
+        }
+    }
+
+    /**
+     * Find an existing applicant by sender identifier on any of the given postings.
      * Uses CRM contact email/phone matching to detect duplicates.
      */
-    private function findExistingApplicant(string $senderIdentifier, RecPosting $posting, int $teamId): ?RecApplicant
+    private function findExistingApplicantForPostings(string $senderIdentifier, $postings, int $teamId): ?RecApplicant
     {
         $normalizedIdentifier = $this->normalizeIdentifier($senderIdentifier);
+        $postingIds = $postings->pluck('id')->toArray();
 
-        // Search for applicants linked to this posting that have the same email or phone
         return RecApplicant::query()
             ->forTeam($teamId)
             ->active()
-            ->whereHas('postings', fn ($q) => $q->where('rec_postings.id', $posting->id))
+            ->whereHas('postings', fn ($q) => $q->whereIn('rec_postings.id', $postingIds))
             ->where(function ($query) use ($normalizedIdentifier) {
-                // Check via CRM contact email addresses
                 $query->whereHas('crmContactLinks.contact.emailAddresses', function ($q) use ($normalizedIdentifier) {
                     $q->where('email_address', $normalizedIdentifier);
                 });
-                // Also check via CRM contact phone numbers (check international and raw_input)
                 $phoneDigits = preg_replace('/[^0-9]/', '', $normalizedIdentifier);
                 $query->orWhereHas('crmContactLinks.contact.phoneNumbers', function ($q) use ($phoneDigits) {
                     $q->where(function ($subQ) use ($phoneDigits) {
