@@ -64,7 +64,7 @@ class HandleWhatsAppInboundForRecruiting
             $this->attachWhatsAppFilesToApplicant($message, $thread, $applicant);
 
             // Link the thread to the applicant for communication tracking
-            if (!$thread->context_model && $result['is_new']) {
+            if (!$thread->context_model) {
                 $thread->context_model = \Platform\Recruiting\Models\RecApplicant::class;
                 $thread->context_model_id = $applicant->id;
                 $thread->save();

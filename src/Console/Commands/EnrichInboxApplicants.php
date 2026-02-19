@@ -268,13 +268,52 @@ class EnrichInboxApplicants extends Command
                 return [];
             }
 
+            $morphClass = $applicant->getMorphClass();
+            $fullClass = get_class($applicant);
+
+            // 1. Threads directly linked via context_model (morph alias or full class)
             $threads = CommsWhatsAppThread::query()
-                ->where('context_model', get_class($applicant))
-                ->where('context_model_id', $applicant->id)
+                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                    $q->where(function ($q2) use ($morphClass, $applicant) {
+                        $q2->where('context_model', $morphClass)
+                            ->where('context_model_id', $applicant->id);
+                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                        $q2->where('context_model', $fullClass)
+                            ->where('context_model_id', $applicant->id);
+                    });
+                })
                 ->with(['messages' => fn ($q) => $q->orderBy('created_at', 'asc')])
                 ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
                 ->limit(10)
                 ->get();
+
+            // 2. If none found, try matching by contact phone numbers
+            if ($threads->isEmpty()) {
+                $phones = $this->getContactPhoneNumbers($applicant);
+                if (! empty($phones)) {
+                    $threads = CommsWhatsAppThread::query()
+                        ->where(function ($q) use ($phones) {
+                            foreach ($phones as $phone) {
+                                $digits = preg_replace('/[^0-9]/', '', $phone);
+                                $q->orWhereRaw("REPLACE(REPLACE(remote_phone_number, '+', ''), ' ', '') LIKE ?", ['%' . $digits]);
+                            }
+                        })
+                        ->with(['messages' => fn ($q) => $q->orderBy('created_at', 'asc')])
+                        ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
+                        ->limit(10)
+                        ->get();
+
+                    // Link found threads to applicant for future lookups
+                    foreach ($threads as $t) {
+                        if (! $t->context_model) {
+                            $t->update([
+                                'context_model' => $fullClass,
+                                'context_model_id' => $applicant->id,
+                            ]);
+                        }
+                    }
+                }
+            }
 
             return $threads->map(fn ($t) => [
                 'thread_id' => $t->id,
@@ -294,6 +333,26 @@ class EnrichInboxApplicants extends Command
         }
     }
 
+    private function getContactPhoneNumbers(RecApplicant $applicant): array
+    {
+        try {
+            $applicant->loadMissing(['crmContactLinks.contact.phoneNumbers']);
+            $phones = [];
+            foreach ($applicant->crmContactLinks as $link) {
+                foreach ($link->contact?->phoneNumbers ?? [] as $p) {
+                    if ($p->international) {
+                        $phones[] = $p->international;
+                    } elseif ($p->raw_input) {
+                        $phones[] = $p->raw_input;
+                    }
+                }
+            }
+            return $phones;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
     private function loadEmailThreads(RecApplicant $applicant): array
     {
         try {
@@ -301,9 +360,19 @@ class EnrichInboxApplicants extends Command
                 return [];
             }
 
+            $morphClass = $applicant->getMorphClass();
+            $fullClass = get_class($applicant);
+
             $threads = CommsEmailThread::query()
-                ->where('context_model', get_class($applicant))
-                ->where('context_model_id', $applicant->id)
+                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                    $q->where(function ($q2) use ($morphClass, $applicant) {
+                        $q2->where('context_model', $morphClass)
+                            ->where('context_model_id', $applicant->id);
+                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                        $q2->where('context_model', $fullClass)
+                            ->where('context_model_id', $applicant->id);
+                    });
+                })
                 ->with([
                     'inboundMails' => fn ($q) => $q->orderBy('received_at', 'asc'),
                     'outboundMails' => fn ($q) => $q->orderBy('created_at', 'asc'),
