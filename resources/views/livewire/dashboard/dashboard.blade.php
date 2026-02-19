@@ -78,14 +78,10 @@
                                 <td class="px-4 py-2.5">
                                     <div class="flex items-start gap-2.5">
                                         <div class="mt-1.5 flex-shrink-0">
-                                            @if($isEnriching)
-                                                <span class="relative flex h-2.5 w-2.5" title="Enrichment läuft...">
-                                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
-                                                </span>
-                                            @else
-                                                <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                                            @endif
+                                            <span class="relative flex h-2.5 w-2.5" title="{{ $isEnriching ? 'Enrichment läuft...' : 'Neu im Eingang' }}">
+                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                                            </span>
                                         </div>
                                         <div class="min-w-0">
                                             <div class="flex items-center gap-2">
@@ -93,7 +89,7 @@
                                                     {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
                                                 </span>
                                                 @if($isEnriching)
-                                                    <x-ui-badge variant="warning" size="xs">Enrichment</x-ui-badge>
+                                                    <x-ui-badge variant="danger" size="xs">Enrichment</x-ui-badge>
                                                 @endif
                                             </div>
                                             @if($positions->isNotEmpty())
@@ -221,7 +217,10 @@
                                 <td class="px-4 py-2.5">
                                     <div class="flex items-start gap-2.5">
                                         <div class="mt-1.5 flex-shrink-0">
-                                            <div class="w-2.5 h-2.5 rounded-full {{ $extraCounts['total'] > 0 && $extraCounts['filled'] === $extraCounts['total'] ? 'bg-green-500' : 'bg-yellow-500' }}"></div>
+                                            <span class="relative flex h-2.5 w-2.5" title="In Bearbeitung">
+                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500"></span>
+                                            </span>
                                         </div>
                                         <div class="min-w-0">
                                             <div class="font-medium text-[var(--ui-secondary)] truncate">
