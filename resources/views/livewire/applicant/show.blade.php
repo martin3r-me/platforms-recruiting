@@ -126,6 +126,7 @@
                     wire:model.live="applicant.is_active"
                 />
 
+                @if($applicant->enrichment_status)
                 <div>
                     <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">AutoPilot</label>
                     <div class="flex items-center gap-3">
@@ -170,6 +171,7 @@
                         @endif
                     </div>
                 </div>
+                @endif
 
                 @if($applicant->auto_pilot_completed_at)
                     <div>

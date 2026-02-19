@@ -61,7 +61,6 @@
                             <th class="px-4 py-3">Bewerber</th>
                             <th class="px-4 py-3">Extra-Felder</th>
                             <th class="px-4 py-3">Kontakt</th>
-                            <th class="px-4 py-3">AutoPilot</th>
                             <th class="px-4 py-3 text-right"></th>
                         </tr>
                     </thead>
@@ -157,33 +156,6 @@
                                         </div>
                                     @endif
                                 </td>
-                                {{-- AutoPilot --}}
-                                <td class="px-4 py-2.5">
-                                    <div class="flex items-center gap-1">
-                                        @foreach(['whatsapp', 'email'] as $type)
-                                            @php
-                                                $isActive = $applicant->auto_pilot
-                                                    && $applicant->preferredCommsChannel?->type === $type;
-                                                $hasChannel = $this->teamChannels->contains(fn ($c) => $c->type === $type);
-                                            @endphp
-                                            @if($hasChannel)
-                                                <button
-                                                    wire:click="toggleAutoPilot({{ $applicant->id }}, '{{ $type }}')"
-                                                    class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors {{ $isActive ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)] hover:bg-[var(--ui-muted-10)] hover:text-[var(--ui-secondary)]' }}"
-                                                    title="{{ $type === 'whatsapp' ? 'WhatsApp AutoPilot' : 'Email AutoPilot' }}"
-                                                >
-                                                    @if($isActive)
-                                                        <span class="relative flex h-2 w-2">
-                                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                                            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                                                        </span>
-                                                    @endif
-                                                    @svg($type === 'whatsapp' ? 'heroicon-o-chat-bubble-left' : 'heroicon-o-envelope', 'w-3.5 h-3.5')
-                                                </button>
-                                            @endif
-                                        @endforeach
-                                    </div>
-                                </td>
                                 {{-- Aktion --}}
                                 <td class="px-4 py-2.5 text-right">
                                     <div class="flex items-center justify-end gap-2">
@@ -203,7 +175,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                <td colspan="4" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                     <div class="flex flex-col items-center gap-2">
                                         @svg('heroicon-o-inbox', 'w-8 h-8 text-[var(--ui-muted)]/50')
                                         <span>Eingang leer — alle Bewerber sind zugeordnet</span>

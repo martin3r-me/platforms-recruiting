@@ -13,6 +13,9 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsChannelContext;
 use Platform\Crm\Models\CommsEmailThread;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Crm\Models\CommsWhatsAppMessage;
+use Platform\Crm\Models\CommsEmailInboundMail;
+use Platform\Crm\Models\CommsEmailOutboundMail;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Core\Models\CoreAiProvider;
 use Platform\Core\Models\Team;
@@ -247,6 +250,7 @@ class ProcessAutoPilotApplicants extends Command
 
                 $preloadTools = array_merge([
                     'core.extra_fields.GET', 'core.extra_fields.PUT',
+                    'core.context.files.GET', 'core.context.files.content.GET',
                     'recruiting.applicants.PUT',
                     'crm.contacts.GET', 'crm.contacts.POST',
                     'recruiting.applicant_contacts.POST',
@@ -466,17 +470,29 @@ class ProcessAutoPilotApplicants extends Command
                     ->limit(10)
                     ->get();
 
-                $threads = $waThreads->map(fn ($t) => [
-                    'thread_id' => $t->id,
-                    'channel_id' => $t->comms_channel_id,
-                    'channel_type' => 'whatsapp',
-                    'subject' => null,
-                    'counterpart' => $t->remote_phone_number,
-                    'last_message_at' => ($t->last_inbound_at ?: $t->last_outbound_at)?->toIso8601String(),
-                    'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
-                    'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
-                    'is_linked' => true,
-                ]);
+                $threads = $waThreads->map(function ($t) {
+                    // Nachrichten laden
+                    $messages = CommsWhatsAppMessage::query()
+                        ->where('comms_whatsapp_thread_id', $t->id)
+                        ->orderBy('created_at', 'asc')
+                        ->get()
+                        ->map(fn ($m) => [
+                            'direction' => $m->direction,  // 'inbound' oder 'outbound'
+                            'body' => $m->body,
+                            'at' => $m->created_at?->toIso8601String(),
+                        ])
+                        ->toArray();
+
+                    return [
+                        'thread_id' => $t->id,
+                        'channel_id' => $t->comms_channel_id,
+                        'channel_type' => 'whatsapp',
+                        'counterpart' => $t->remote_phone_number,
+                        'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
+                        'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
+                        'messages' => $messages,
+                    ];
+                });
             }
 
             // Load Email threads if Email channel (or fallback)
@@ -495,17 +511,44 @@ class ProcessAutoPilotApplicants extends Command
                     ->limit(10)
                     ->get();
 
-                $threads = $emailThreads->map(fn ($t) => [
-                    'thread_id' => $t->id,
-                    'channel_id' => $t->comms_channel_id,
-                    'channel_type' => 'email',
-                    'subject' => $t->subject,
-                    'counterpart' => $t->last_inbound_from_address ?: $t->last_outbound_to_address,
-                    'last_message_at' => ($t->last_inbound_at ?: $t->last_outbound_at)?->toIso8601String(),
-                    'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
-                    'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
-                    'is_linked' => true,
-                ]);
+                $threads = $emailThreads->map(function ($t) {
+                    // Inbound + Outbound laden und zusammenführen
+                    $inbound = CommsEmailInboundMail::query()
+                        ->where('thread_id', $t->id)
+                        ->get()
+                        ->map(fn ($m) => [
+                            'direction' => 'inbound',
+                            'body' => $m->text_body,
+                            'from' => $m->from,
+                            'at' => $m->received_at?->toIso8601String() ?? $m->created_at?->toIso8601String(),
+                        ]);
+
+                    $outbound = CommsEmailOutboundMail::query()
+                        ->where('thread_id', $t->id)
+                        ->get()
+                        ->map(fn ($m) => [
+                            'direction' => 'outbound',
+                            'body' => $m->text_body,
+                            'to' => $m->to,
+                            'at' => $m->sent_at?->toIso8601String() ?? $m->created_at?->toIso8601String(),
+                        ]);
+
+                    $messages = $inbound->concat($outbound)
+                        ->sortBy('at')
+                        ->values()
+                        ->toArray();
+
+                    return [
+                        'thread_id' => $t->id,
+                        'channel_id' => $t->comms_channel_id,
+                        'channel_type' => 'email',
+                        'subject' => $t->subject,
+                        'counterpart' => $t->last_inbound_from_address ?: $t->last_outbound_to_address,
+                        'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
+                        'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
+                        'messages' => $messages,
+                    ];
+                });
             }
 
             return $threads->toArray();
@@ -860,11 +903,18 @@ class ProcessAutoPilotApplicants extends Command
             . "Kommuniziere immer auf Deutsch, persönlich und professionell.\n\n"
             . "DEINE AUFGABE:\n"
             . "Sammle alle fehlenden Pflichtfelder vom Bewerber ein.\n"
-            . "- Lies bestehende Nachrichten-Threads, extrahiere alle verwertbaren Infos.\n"
+            . "- Die Nachrichten-Threads sind unten enthalten (messages-Array mit direction=inbound/outbound). Extrahiere alle verwertbaren Infos aus den Bewerber-Antworten (direction=inbound).\n"
             . "- Schreibe alles was du findest in die Extra-Felder der Bewerbung (core_extra_fields_PUT).\n"
             . "- Du kannst auch den CRM-Kontakt aktualisieren wenn du relevante Daten findest.\n"
             . "- Kommunikation erfolgt über {$channelType}.\n"
-            . "- Wenn alle Pflichtfelder gefüllt sind, schließe die Bewerbung ab.\n\n";
+            . "- Wenn alle Pflichtfelder gefüllt sind, schließe die Bewerbung ab.\n\n"
+            . "CONTEXT FILES (Anhänge, Lebenslauf, Zeugnisse):\n"
+            . "- WICHTIG: Prüfe IMMER zuerst die Context Files des Bewerbers!\n"
+            . "- Nutze core_context_files_GET mit context_type='RecApplicant' und context_id={$applicant->id} um alle Dateien zu sehen.\n"
+            . "- Nutze core_context_files_content_GET mit file_id um den Inhalt einer Datei zu lesen (z.B. Lebenslauf als Text).\n"
+            . "- Extrahiere alle relevanten Informationen aus den Dateien (Berufserfahrung, Ausbildung, Fähigkeiten, Gehaltswunsch, etc.).\n"
+            . "- Schreibe gefundene Infos SOFORT in die Extra-Felder (core_extra_fields_PUT).\n"
+            . "- Bewerber laden oft Lebensläufe hoch — diese enthalten meist alle benötigten Informationen!\n\n";
 
         // Thread-Hinweise
         $isFirstMessage = empty($threadsSummary);
