@@ -195,8 +195,8 @@
             </div>
         </x-ui-panel>
 
-        {{-- Zugeordnete Bewerber --}}
-        <x-ui-panel title="Bewerber" subtitle="Bewerber mit Stelle und CRM-Kontakt">
+        {{-- Zugeordnete Bewerber (in Bearbeitung) --}}
+        <x-ui-panel title="In Bearbeitung" subtitle="Bewerber mit Enrichment, aber noch nicht vollständig">
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>
@@ -290,7 +290,86 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">Keine zugeordneten Bewerber</td>
+                                <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">Keine Bewerber in Bearbeitung</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </x-ui-panel>
+
+        {{-- Abgeschlossene Bewerbungen --}}
+        <x-ui-panel title="Abgeschlossen" subtitle="Kontakt verknüpft, alle Felder gefüllt, Stelle zugeordnet">
+            <div class="overflow-x-auto">
+                <table class="w-full table-auto border-collapse text-sm">
+                    <thead>
+                        <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
+                            <th class="px-4 py-3">Name</th>
+                            <th class="px-4 py-3">Stelle</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">Eingegangen</th>
+                            <th class="px-4 py-3 text-right"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[var(--ui-border)]/60">
+                        @forelse($this->completedApplicants as $applicant)
+                            @php
+                                $primaryContact = $applicant->crmContactLinks->first()?->contact;
+                                $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
+                                $primaryEmail = $primaryContact?->emailAddresses?->first()?->email_address;
+                            @endphp
+                            <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
+                                {{-- Name + Email --}}
+                                <td class="px-4 py-2.5">
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="mt-1.5 flex-shrink-0">
+                                            <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="font-medium text-[var(--ui-secondary)] truncate">
+                                                {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                            </div>
+                                            @if($primaryEmail)
+                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $primaryEmail }}</div>
+                                            @endif
+                                        </div>
+                                    </div>
+                                </td>
+                                {{-- Stelle --}}
+                                <td class="px-4 py-2.5">
+                                    @if($positions->isNotEmpty())
+                                        <span class="text-sm text-[var(--ui-secondary)]">{{ $positions->implode(', ') }}</span>
+                                    @else
+                                        <span class="text-[var(--ui-muted)]">&ndash;</span>
+                                    @endif
+                                </td>
+                                {{-- Status --}}
+                                <td class="px-4 py-2.5">
+                                    @if($applicant->applicantStatus)
+                                        <x-ui-badge variant="success" size="xs">{{ $applicant->applicantStatus->name }}</x-ui-badge>
+                                    @else
+                                        <x-ui-badge variant="success" size="xs">Vollständig</x-ui-badge>
+                                    @endif
+                                </td>
+                                {{-- Eingegangen --}}
+                                <td class="px-4 py-2.5 text-sm text-[var(--ui-muted)]">
+                                    {{ $applicant->created_at?->format('d.m.Y') }}
+                                </td>
+                                {{-- Aktion --}}
+                                <td class="px-4 py-2.5 text-right">
+                                    <x-ui-button size="sm" variant="success" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
+                                        Anzeigen
+                                    </x-ui-button>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                    <div class="flex flex-col items-center gap-2">
+                                        @svg('heroicon-o-check-circle', 'w-8 h-8 text-[var(--ui-muted)]/50')
+                                        <span>Keine abgeschlossenen Bewerbungen</span>
+                                    </div>
+                                </td>
                             </tr>
                         @endforelse
                     </tbody>

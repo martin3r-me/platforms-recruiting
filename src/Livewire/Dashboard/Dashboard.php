@@ -51,7 +51,8 @@ class Dashboard extends Component
     #[Computed]
     public function assignedApplicants()
     {
-        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
+        // Get all enriched applicants, then filter out the completed ones
+        $all = RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->whereNotNull('enrichment_status')
             ->with([
@@ -63,6 +64,54 @@ class Dashboard extends Component
             ])
             ->orderByDesc('created_at')
             ->get();
+
+        // Filter out completed applicants (those with contact, all extra fields, and postings)
+        return $all->filter(fn ($a) => !$this->isApplicantCompleted($a));
+    }
+
+    #[Computed]
+    public function completedApplicants()
+    {
+        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
+            ->active()
+            ->whereNotNull('enrichment_status')
+            ->with([
+                'applicantStatus',
+                'crmContactLinks.contact.emailAddresses',
+                'postings.position',
+                'extraFieldValues',
+                'preferredCommsChannel',
+            ])
+            ->orderByDesc('created_at')
+            ->get()
+            ->filter(fn ($a) => $this->isApplicantCompleted($a));
+    }
+
+    /**
+     * Check if an applicant is "completed":
+     * - Has at least one CRM contact linked
+     * - All extra fields are filled (or no extra fields exist)
+     * - Has at least one posting assigned
+     */
+    private function isApplicantCompleted(RecApplicant $applicant): bool
+    {
+        // Must have at least one contact linked
+        if ($applicant->crmContactLinks->isEmpty()) {
+            return false;
+        }
+
+        // Must have at least one posting
+        if ($applicant->postings->isEmpty()) {
+            return false;
+        }
+
+        // All extra fields must be filled (if any exist)
+        $extraCounts = $this->getExtraFieldCounts($applicant);
+        if ($extraCounts['total'] > 0 && $extraCounts['filled'] !== $extraCounts['total']) {
+            return false;
+        }
+
+        return true;
     }
 
     #[Computed]
@@ -146,7 +195,7 @@ class Dashboard extends Component
             }
         }
 
-        unset($this->inboxApplicants, $this->assignedApplicants, $this->autoPilotProcessingIds);
+        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
     }
 
     public function refreshDashboard(): void
@@ -157,6 +206,7 @@ class Dashboard extends Component
             $this->applicantCount,
             $this->inboxApplicants,
             $this->assignedApplicants,
+            $this->completedApplicants,
             $this->enrichingApplicantIds,
             $this->teamChannels,
             $this->autoPilotProcessingIds,
@@ -167,7 +217,7 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
-        unset($this->inboxApplicants, $this->assignedApplicants);
+        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 
     public function linkExistingContact(int $applicantId, int $contactId): void
@@ -175,7 +225,7 @@ class Dashboard extends Component
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $contact = CrmContact::findOrFail($contactId);
         $applicant->linkContact($contact);
-        unset($this->inboxApplicants, $this->assignedApplicants);
+        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 
     public function render()
