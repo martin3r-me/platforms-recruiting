@@ -96,8 +96,8 @@ class EnrichInboxApplicants extends Command
                     continue;
                 }
 
-                // Mark as processing
-                $applicant->update(['enrichment_status' => 'processing']);
+                // Mark as processing in cache (not in DB — stays in inbox until done)
+                Cache::put("enrichment:processing:{$applicant->id}", true, 600);
 
                 $this->impersonateForTask($admin, $applicant->team);
                 $toolContext = new ToolContext($admin, $applicant->team, [
@@ -145,11 +145,13 @@ class EnrichInboxApplicants extends Command
                     $this->line("  Iterationen: {$iterations} | Tools: " . (empty($allToolCallNames) ? '(keine)' : implode(', ', $allToolCallNames)));
 
                     $applicant->update(['enrichment_status' => 'enriched']);
+                    Cache::forget("enrichment:processing:{$applicant->id}");
                     $this->info("  Enrichment abgeschlossen.");
                 } catch (\Throwable $e) {
                     $this->logEnrichment($applicant, 'error', 'LLM-Fehler: ' . $e->getMessage());
                     $this->error("  Fehler: " . $e->getMessage());
                     $applicant->update(['enrichment_status' => 'failed']);
+                    Cache::forget("enrichment:processing:{$applicant->id}");
                 }
             }
 

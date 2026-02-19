@@ -71,13 +71,24 @@
                                 $primaryContact = $applicant->crmContactLinks->first()?->contact;
                                 $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
                             @endphp
+                            @php $isEnriching = in_array($applicant->id, $this->enrichingApplicantIds); @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
                                 <td class="px-4 py-3">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></div>
+                                        @if($isEnriching)
+                                            <span class="relative flex h-2.5 w-2.5 flex-shrink-0" title="Enrichment läuft...">
+                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                                            </span>
+                                        @else
+                                            <div class="w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0"></div>
+                                        @endif
                                         <span class="font-medium text-[var(--ui-secondary)]">
                                             {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
                                         </span>
+                                        @if($isEnriching)
+                                            <x-ui-badge variant="warning" size="xs">Enrichment</x-ui-badge>
+                                        @endif
                                     </div>
                                 </td>
                                 <td class="px-4 py-3">

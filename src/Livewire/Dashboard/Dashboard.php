@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\Dashboard;
 
+use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecPosition;
@@ -71,6 +72,15 @@ class Dashboard extends Component
             ->get();
     }
 
+    #[Computed]
+    public function enrichingApplicantIds()
+    {
+        return $this->inboxApplicants
+            ->filter(fn ($a) => Cache::has("enrichment:processing:{$a->id}"))
+            ->pluck('id')
+            ->toArray();
+    }
+
     public function refreshDashboard(): void
     {
         unset(
@@ -79,6 +89,7 @@ class Dashboard extends Component
             $this->applicantCount,
             $this->inboxApplicants,
             $this->assignedApplicants,
+            $this->enrichingApplicantIds,
         );
     }
 
