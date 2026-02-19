@@ -107,6 +107,7 @@ class EnrichInboxApplicants extends Command
 
                 $preloadTools = [
                     'core.extra_fields.GET', 'core.extra_fields.PUT',
+                    'core.context.files.GET', 'core.context.files.content.GET',
                     'crm.contacts.GET', 'crm.contacts.PUT',
                     'recruiting.applicants.PUT',
                     'recruiting.applicant_contacts.POST',
@@ -417,11 +418,12 @@ class EnrichInboxApplicants extends Command
                     $messages = \Platform\Crm\Models\CommsWhatsAppMessage::whereIn('comms_whatsapp_thread_id', $threadIds)->get();
                     foreach ($messages as $msg) {
                         foreach ($msg->getOrderedFileReferences() as $ref) {
+                            if (! $ref->contextFile) { continue; }
                             $refs[] = [
                                 'source' => 'whatsapp',
-                                'title' => $ref->contextFile?->original_name ?? $ref->contextFile?->title ?? '(unbekannt)',
-                                'mime_type' => $ref->contextFile?->mime_type ?? null,
-                                'url' => $ref->contextFile?->url ?? null,
+                                'context_file_id' => $ref->contextFile->id,
+                                'title' => $ref->contextFile->original_name ?? $ref->contextFile->title ?? '(unbekannt)',
+                                'mime_type' => $ref->contextFile->mime_type ?? null,
                             ];
                         }
                     }
@@ -435,11 +437,12 @@ class EnrichInboxApplicants extends Command
                     $mails = \Platform\Crm\Models\CommsEmailInboundMail::whereIn('thread_id', $threadIds)->get();
                     foreach ($mails as $mail) {
                         foreach ($mail->getOrderedFileReferences() as $ref) {
+                            if (! $ref->contextFile) { continue; }
                             $refs[] = [
                                 'source' => 'email',
-                                'title' => $ref->contextFile?->original_name ?? $ref->contextFile?->title ?? '(unbekannt)',
-                                'mime_type' => $ref->contextFile?->mime_type ?? null,
-                                'url' => $ref->contextFile?->url ?? null,
+                                'context_file_id' => $ref->contextFile->id,
+                                'title' => $ref->contextFile->original_name ?? $ref->contextFile->title ?? '(unbekannt)',
+                                'mime_type' => $ref->contextFile->mime_type ?? null,
                             ];
                         }
                     }
@@ -489,22 +492,26 @@ class EnrichInboxApplicants extends Command
             . "- Lade KEINE zusätzlichen Tools nach. Du hast alles was du brauchst.\n\n"
             . "VERFÜGBARE TOOLS (bereits geladen):\n"
             . "- core.extra_fields.GET — Extra-Field-Definitionen und Werte laden\n"
-            . "- core.extra_fields.PUT — Extra-Field-Werte schreiben\n"
+            . "- core.extra_fields.PUT — Extra-Field-Werte schreiben (auch für file-Felder: Wert = context_file_id)\n"
+            . "- core.context.files.GET — Dateien am Bewerber-Objekt auflisten\n"
+            . "- core.context.files.content.GET — Datei-Inhalt lesen (Text, PDF-Text, Bilder als URL)\n"
             . "- crm.contacts.GET — CRM-Kontakt laden\n"
             . "- crm.contacts.PUT — CRM-Kontakt aktualisieren\n"
             . "- recruiting.applicants.PUT — Bewerbung aktualisieren (Notes)\n"
             . "- recruiting.applicant_contacts.POST — CRM-Kontakt mit Bewerbung verknüpfen\n\n"
             . "ABLAUF:\n"
-            . "1. Analysiere die bereitgestellten Nachrichten, Kontaktinfos und Datei-Referenzen.\n"
-            . "2. Lade Extra-Field-Definitionen per core.extra_fields.GET um zu sehen was erwartet wird.\n"
-            . "3. Schreibe alle extrahierbaren Werte per core.extra_fields.PUT.\n"
-            . "4. Aktualisiere den CRM-Kontakt per crm.contacts.PUT falls nötig.\n"
-            . "5. Falls kein Kontakt verknüpft: suche oder erstelle einen und verknüpfe per recruiting.applicant_contacts.POST.\n\n"
+            . "1. Lade Extra-Field-Definitionen per core.extra_fields.GET um zu sehen was erwartet wird.\n"
+            . "2. Analysiere die bereitgestellten Nachrichten und Kontaktinfos.\n"
+            . "3. Falls Datei-Referenzen vorhanden: Lies deren Inhalt per core.context.files.content.GET und extrahiere verwertbare Daten.\n"
+            . "4. Schreibe alle extrahierbaren Werte per core.extra_fields.PUT.\n"
+            . "   - Für file-Felder: setze den Wert auf die context_file_id (Integer) der passenden Datei.\n"
+            . "5. Aktualisiere den CRM-Kontakt per crm.contacts.PUT falls nötig.\n"
+            . "6. Falls kein Kontakt verknüpft: suche oder erstelle einen und verknüpfe per recruiting.applicant_contacts.POST.\n\n"
             . "WICHTIG:\n"
             . "- Extrahiere ALLES was verwertbar ist: Name, Geburtsdatum, Adresse, Qualifikationen, "
             . "Berufserfahrung, Verfügbarkeit, Gehaltsvorstellung, etc.\n"
             . "- Wenn du Infos in den Nachrichten findest die zu einem Extra-Feld passen, schreibe sie.\n"
-            . "- Datei-Referenzen (Lebensläufe, Dokumente) sind unten aufgelistet — nutze sie als Kontext.\n"
+            . "- Lies Datei-Anhänge (Lebensläufe, Dokumente) per core.context.files.content.GET — sie enthalten oft die wichtigsten Infos.\n"
             . "- Beginne SOFORT mit Tool-Calls.\n";
 
         $data = [
