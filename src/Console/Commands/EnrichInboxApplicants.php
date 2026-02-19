@@ -194,7 +194,7 @@ class EnrichInboxApplicants extends Command
             return null;
         }
 
-        return $team->members()
+        return $team->users()
             ->wherePivot('role', 'admin')
             ->orderBy('id')
             ->first();
