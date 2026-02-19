@@ -179,6 +179,21 @@ class RecruitingServiceProvider extends ServiceProvider
             // Applicant ↔ Posting Links
             $registry->register(new \Platform\Recruiting\Tools\LinkApplicantPostingTool());
             $registry->register(new \Platform\Recruiting\Tools\UnlinkApplicantPostingTool());
+
+            // Bulk Operations - Applicants
+            $registry->register(new \Platform\Recruiting\Tools\BulkCreateApplicantsTool());
+            $registry->register(new \Platform\Recruiting\Tools\BulkUpdateApplicantsTool());
+            $registry->register(new \Platform\Recruiting\Tools\BulkDeleteApplicantsTool());
+
+            // Bulk Operations - Positions
+            $registry->register(new \Platform\Recruiting\Tools\BulkCreatePositionsTool());
+            $registry->register(new \Platform\Recruiting\Tools\BulkUpdatePositionsTool());
+            $registry->register(new \Platform\Recruiting\Tools\BulkDeletePositionsTool());
+
+            // Bulk Operations - Postings
+            $registry->register(new \Platform\Recruiting\Tools\BulkCreatePostingsTool());
+            $registry->register(new \Platform\Recruiting\Tools\BulkUpdatePostingsTool());
+            $registry->register(new \Platform\Recruiting\Tools\BulkDeletePostingsTool());
         } catch (\Throwable $e) {
             \Log::warning('Recruiting: Tool-Registrierung fehlgeschlagen', ['error' => $e->getMessage()]);
         }
