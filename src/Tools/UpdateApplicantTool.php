@@ -102,18 +102,39 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
             }
 
             $fields = [
-                'rec_applicant_status_id',
                 'progress',
                 'notes',
                 'applied_at',
                 'is_active',
-                'owned_by_user_id',
                 'auto_pilot_state_id',
             ];
 
             foreach ($fields as $field) {
                 if (array_key_exists($field, $arguments)) {
                     $applicant->{$field} = $arguments[$field] === '' ? null : $arguments[$field];
+                }
+            }
+
+            // Handle rec_applicant_status_id separately - only update if valid
+            if (array_key_exists('rec_applicant_status_id', $arguments)) {
+                $statusId = $arguments['rec_applicant_status_id'];
+                if ($statusId && $statusId > 0) {
+                    // Verify status exists
+                    $statusExists = \Platform\Recruiting\Models\RecApplicantStatus::where('id', $statusId)->exists();
+                    if ($statusExists) {
+                        $applicant->rec_applicant_status_id = $statusId;
+                    }
+                    // If status doesn't exist, silently ignore (don't break the update)
+                }
+            }
+
+            // Handle owned_by_user_id - only update if valid (0 means "no owner")
+            if (array_key_exists('owned_by_user_id', $arguments)) {
+                $ownerId = $arguments['owned_by_user_id'];
+                if ($ownerId === 0 || $ownerId === '' || $ownerId === null) {
+                    $applicant->owned_by_user_id = null;
+                } elseif ($ownerId > 0) {
+                    $applicant->owned_by_user_id = $ownerId;
                 }
             }
 
