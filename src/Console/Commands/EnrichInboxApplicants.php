@@ -109,6 +109,8 @@ class EnrichInboxApplicants extends Command
                     'core.extra_fields.GET', 'core.extra_fields.PUT',
                     'core.context.files.GET', 'core.context.files.content.GET',
                     'crm.contacts.GET', 'crm.contacts.PUT',
+                    'crm.lookups.GET', 'crm.lookup.GET',
+                    'crm.postal_addresses.POST',
                     'recruiting.applicants.PUT',
                     'recruiting.applicant_contacts.POST',
                 ];
@@ -498,17 +500,27 @@ class EnrichInboxApplicants extends Command
             . "- core.context.files.GET — Dateien am Bewerber-Objekt auflisten\n"
             . "- core.context.files.content.GET — Datei-Inhalt lesen (Text, PDF-Text, Bilder als URL)\n"
             . "- crm.contacts.GET — CRM-Kontakt laden\n"
-            . "- crm.contacts.PUT — CRM-Kontakt aktualisieren\n"
+            . "- crm.contacts.PUT — CRM-Kontakt aktualisieren (Name, Vorname, Nachname, salutation_id, academic_title_id, gender_id, birth_date)\n"
+            . "- crm.lookups.GET — Lookup-Typen auflisten (z.B. salutation, academic_title, gender, country, address_type)\n"
+            . "- crm.lookup.GET — Einzelnen Lookup mit allen Werten laden (IDs für Anrede, Titel, Geschlecht etc.)\n"
+            . "- crm.postal_addresses.POST — Postadresse an CRM-Kontakt anlegen (street, zip, city, country_id, address_type_id)\n"
             . "- recruiting.applicants.PUT — Bewerbung aktualisieren (Notes)\n"
             . "- recruiting.applicant_contacts.POST — CRM-Kontakt mit Bewerbung verknüpfen\n\n"
             . "ABLAUF:\n"
             . "1. Lade Extra-Field-Definitionen per core.extra_fields.GET um zu sehen was erwartet wird.\n"
-            . "2. Analysiere die bereitgestellten Nachrichten und Kontaktinfos.\n"
-            . "3. Falls Datei-Referenzen vorhanden: Lies deren Inhalt per core.context.files.content.GET und extrahiere verwertbare Daten.\n"
-            . "4. Schreibe alle extrahierbaren Werte per core.extra_fields.PUT.\n"
+            . "2. Lade Lookup-IDs per crm.lookups.GET, dann crm.lookup.GET für: salutation, academic_title, gender.\n"
+            . "   Diese IDs brauchst du, um Anrede, Titel und Geschlecht am CRM-Kontakt zu setzen.\n"
+            . "3. Analysiere die bereitgestellten Nachrichten und Kontaktinfos.\n"
+            . "4. Falls Datei-Referenzen vorhanden: Lies deren Inhalt per core.context.files.content.GET und extrahiere verwertbare Daten.\n"
+            . "5. Schreibe alle extrahierbaren Werte per core.extra_fields.PUT.\n"
             . "   - Für file-Felder: setze den Wert auf die context_file_id (Integer) der passenden Datei.\n"
-            . "5. Aktualisiere den CRM-Kontakt per crm.contacts.PUT falls nötig.\n"
-            . "6. Falls kein Kontakt verknüpft: suche oder erstelle einen und verknüpfe per recruiting.applicant_contacts.POST.\n\n"
+            . "6. Aktualisiere den CRM-Kontakt per crm.contacts.PUT:\n"
+            . "   - Setze salutation_id (Anrede: Herr/Frau), academic_title_id (Titel: Dr., Prof. etc.), gender_id wenn erkennbar.\n"
+            . "   - Setze birth_date (Format: YYYY-MM-DD) wenn verfügbar.\n"
+            . "   - Aktualisiere first_name, last_name falls vollständiger als bisherige Daten.\n"
+            . "7. Falls eine Adresse erkennbar ist: Lade per crm.lookups.GET/crm.lookup.GET die IDs für country und address_type,\n"
+            . "   dann lege die Adresse per crm.postal_addresses.POST am Kontakt an.\n"
+            . "8. Falls kein Kontakt verknüpft: suche oder erstelle einen und verknüpfe per recruiting.applicant_contacts.POST.\n\n"
             . "WICHTIG:\n"
             . "- Extrahiere ALLES was verwertbar ist: Name, Geburtsdatum, Adresse, Qualifikationen, "
             . "Berufserfahrung, Verfügbarkeit, Gehaltsvorstellung, etc.\n"
