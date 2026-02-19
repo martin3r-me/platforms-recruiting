@@ -233,16 +233,21 @@ class ProcessAutoPilotApplicants extends Command
                     'context_model_id' => $applicant->id,
                 ]);
 
-                $preloadTools = [
+                // Choose messaging tools based on channel type
+                $messagingTools = $isWhatsAppChannel
+                    ? ['core.comms.whatsapp_messages.GET', 'core.comms.whatsapp_messages.POST']
+                    : ['core.comms.email_messages.GET', 'core.comms.email_messages.POST'];
+
+                $preloadTools = array_merge([
                     'core.extra_fields.GET', 'core.extra_fields.PUT',
-                    'core.comms.email_messages.GET', 'core.comms.email_messages.POST',
                     'recruiting.applicants.PUT',
                     'crm.contacts.GET', 'crm.contacts.POST',
                     'recruiting.applicant_contacts.POST',
-                ];
+                ], $messagingTools);
                 $messages = $this->buildMessages(
                     $applicant, $owner, $contactInfo, $extraFields, $missingFields,
-                    $threadsSummary, $preferredChannel, $waitingForApplicantStateId, $completedStateId
+                    $threadsSummary, $preferredChannel, $waitingForApplicantStateId, $completedStateId,
+                    $isWhatsAppChannel
                 );
 
                 $this->logAutoPilot($applicant, 'run_started', "Scenario {$scenario}: LLM-Run", [
@@ -776,19 +781,39 @@ class ProcessAutoPilotApplicants extends Command
         return $fallback;
     }
 
+    private function findPrimaryPhoneString(array $contactInfo): ?string
+    {
+        $fallback = null;
+        foreach ($contactInfo as $contact) {
+            foreach ($contact['phones'] ?? [] as $phone) {
+                if ($phone['is_primary'] ?? false) return $phone['number'];
+                if ($fallback === null) $fallback = $phone['number'];
+            }
+        }
+        return $fallback;
+    }
+
     // ===== Unified Prompt =====
 
     private function buildMessages(
         RecApplicant $applicant, User $owner, array $contactInfo,
         array $extraFields, array $missingFields, array $threadsSummary,
-        ?array $preferredChannel, int $waitingStateId, int $completedStateId
+        ?array $preferredChannel, int $waitingStateId, int $completedStateId,
+        bool $isWhatsAppChannel = false
     ): array {
         $contactName = $contactInfo[0]['full_name'] ?? 'Bewerber/in';
         $primaryEmail = $this->findPrimaryEmail($contactInfo);
+        $primaryPhone = $this->findPrimaryPhoneString($contactInfo);
         $publicUrl = $applicant->getPublicUrl();
 
+        // Determine messaging tool names based on channel type
+        $messageToolGet = $isWhatsAppChannel ? 'core.comms.whatsapp_messages.GET' : 'core.comms.email_messages.GET';
+        $messageToolPost = $isWhatsAppChannel ? 'core.comms.whatsapp_messages.POST' : 'core.comms.email_messages.POST';
+        $channelType = $isWhatsAppChannel ? 'WhatsApp' : 'Email';
+        $recipientInfo = $isWhatsAppChannel ? $primaryPhone : $primaryEmail;
+
         $system = "Du bist {$owner->name}, HR-Verantwortlicher bei {$applicant->team?->name}.\n"
-            . "Du bearbeitest die Bewerbung von {$contactName} ({$primaryEmail}).\n"
+            . "Du bearbeitest die Bewerbung von {$contactName} ({$recipientInfo}).\n"
             . "Du arbeitest autonom — handle per Tool-Calls, schreibe keine Reports.\n"
             . "Kommuniziere immer auf Deutsch, persönlich und professionell.\n\n"
             . "DEINE AUFGABE:\n"
@@ -796,26 +821,37 @@ class ProcessAutoPilotApplicants extends Command
             . "- Lies bestehende Nachrichten-Threads, extrahiere alle verwertbaren Infos.\n"
             . "- Schreibe alles was du findest in die Extra-Felder der Bewerbung (core_extra_fields_PUT).\n"
             . "- Du kannst auch den CRM-Kontakt aktualisieren wenn du relevante Daten findest.\n"
-            . "- Wenn du dem Bewerber schreiben musst, nutze den Standardkanal des Bewerberportals.\n"
+            . "- Kommunikation erfolgt über {$channelType}.\n"
             . "- Wenn alle Pflichtfelder gefüllt sind, schließe die Bewerbung ab.\n\n";
 
         // Thread-Hinweise
         $isFirstMessage = empty($threadsSummary);
         if (!$isFirstMessage) {
-            $system .= "KOMMUNIKATION:\n"
+            $system .= "KOMMUNIKATION ({$channelType}):\n"
                 . "- Es gibt bereits Threads mit dem Bewerber (siehe Daten unten).\n"
-                . "- Für Replies im bestehenden Thread: nur thread_id + body (KEIN to, KEIN subject).\n\n";
+                . "- Für Replies im bestehenden Thread: nur thread_id + body (KEIN to" . ($isWhatsAppChannel ? "" : ", KEIN subject") . ").\n"
+                . "- Nutze {$messageToolPost} für Nachrichten.\n\n";
         } else {
-            $system .= "KOMMUNIKATION (ERSTE NACHRICHT):\n"
-                . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
-                . "- Für neue Nachrichten: comms_channel_id + to + subject + body.\n"
-                . "- WICHTIG: Bei der ERSTEN Nachricht IMMER den Bewerber-Link am Ende einfügen!\n"
-                . "- Formulierung: \"Sie können mir direkt auf diese Nachricht antworten oder Ihre Daten hier ergänzen: {$publicUrl}\"\n\n";
+            if ($isWhatsAppChannel) {
+                $system .= "KOMMUNIKATION (ERSTE WHATSAPP-NACHRICHT):\n"
+                    . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
+                    . "- Für neue Nachrichten: comms_channel_id + to (Telefonnummer) + body.\n"
+                    . "- Nutze {$messageToolPost} für WhatsApp-Nachrichten.\n"
+                    . "- WICHTIG: Bei der ERSTEN Nachricht IMMER den Bewerber-Link am Ende einfügen!\n"
+                    . "- Formulierung: \"Sie können mir direkt auf diese Nachricht antworten oder Ihre Daten hier ergänzen: {$publicUrl}\"\n\n";
+            } else {
+                $system .= "KOMMUNIKATION (ERSTE EMAIL):\n"
+                    . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
+                    . "- Für neue Nachrichten: comms_channel_id + to + subject + body.\n"
+                    . "- Nutze {$messageToolPost} für Email-Nachrichten.\n"
+                    . "- WICHTIG: Bei der ERSTEN Nachricht IMMER den Bewerber-Link am Ende einfügen!\n"
+                    . "- Formulierung: \"Sie können mir direkt auf diese Nachricht antworten oder Ihre Daten hier ergänzen: {$publicUrl}\"\n\n";
+            }
         }
 
         // Bevorzugter Kanal
         if ($preferredChannel) {
-            $system .= "STANDARDKANAL: comms_channel_id={$preferredChannel['comms_channel_id']} ({$preferredChannel['sender_identifier']})\n\n";
+            $system .= "STANDARDKANAL ({$channelType}): comms_channel_id={$preferredChannel['comms_channel_id']} ({$preferredChannel['sender_identifier']})\n\n";
         }
 
         // State-IDs

@@ -262,6 +262,7 @@ class Dashboard extends Component
                 $applicant->update([
                     'auto_pilot' => true,
                     'preferred_comms_channel_id' => $channel->id,
+                    'owned_by_user_id' => auth()->user()->id,
                 ]);
             }
         }

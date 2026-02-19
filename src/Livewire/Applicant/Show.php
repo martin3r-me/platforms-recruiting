@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
+use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmContact;
 
 class Show extends Component
@@ -55,6 +56,7 @@ class Show extends Component
             'applicantStatus',
             'autoPilotState',
             'postings.position',
+            'preferredCommsChannel',
         ]);
 
         $this->loadAvailableContacts();
@@ -155,6 +157,42 @@ class Show extends Component
             ->whereNotIn('id', $linkedPostingIds)
             ->orderBy('title')
             ->get();
+    }
+
+    #[Computed]
+    public function teamChannels()
+    {
+        return CommsChannel::where('team_id', auth()->user()->currentTeam->id)
+            ->where('is_active', true)
+            ->whereIn('type', ['email', 'whatsapp'])
+            ->orderBy('type')
+            ->get();
+    }
+
+    public function toggleAutoPilot(string $channelType): void
+    {
+        $currentChannel = $this->applicant->preferredCommsChannel;
+        if ($this->applicant->auto_pilot && $currentChannel?->type === $channelType) {
+            $this->applicant->update([
+                'auto_pilot' => false,
+                'preferred_comms_channel_id' => null,
+            ]);
+        } else {
+            $channel = CommsChannel::where('team_id', auth()->user()->currentTeam->id)
+                ->where('type', $channelType)
+                ->where('is_active', true)
+                ->first();
+            if ($channel) {
+                $this->applicant->update([
+                    'auto_pilot' => true,
+                    'preferred_comms_channel_id' => $channel->id,
+                    'owned_by_user_id' => auth()->user()->id,
+                ]);
+            }
+        }
+
+        $this->applicant->refresh();
+        $this->applicant->load('preferredCommsChannel');
     }
 
     public function linkPosting(): void
