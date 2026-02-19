@@ -1,4 +1,4 @@
-<x-ui-page>
+<x-ui-page wire:poll.15s>
     <x-slot name="navbar">
         <x-ui-page-navbar title="Recruiting Dashboard" icon="heroicon-o-briefcase" />
     </x-slot>
