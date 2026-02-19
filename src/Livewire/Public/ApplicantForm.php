@@ -3,13 +3,17 @@
 namespace Platform\Recruiting\Livewire\Public;
 
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Platform\Core\Livewire\Concerns\WithExtraFields;
+use Platform\Core\Models\ContextFile;
 use Platform\Core\Models\CoreExtraFieldValue;
+use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecApplicant;
 
 class ApplicantForm extends Component
 {
     use WithExtraFields;
+    use WithFileUploads;
 
     public string $publicToken = '';
     public string $state = 'loading';
@@ -19,6 +23,9 @@ class ApplicantForm extends Component
 
     public int $totalFields = 0;
     public int $filledFields = 0;
+
+    public array $pendingFileUploads = [];
+    public array $uploadedFileData = [];
 
     private function getApplicant(): ?RecApplicant
     {
@@ -54,16 +61,12 @@ class ApplicantForm extends Component
     {
         $this->loadExtraFieldValues($applicant);
 
-        // Filter: only show unfilled fields, skip file type fields
+        // Filter: only show unfilled fields
         $filtered = [];
         $this->totalFields = 0;
         $this->filledFields = 0;
 
         foreach ($this->extraFieldDefinitions as $field) {
-            if ($field['type'] === 'file') {
-                continue;
-            }
-
             $this->totalFields++;
             $value = $this->extraFieldValues[$field['id']] ?? null;
             $isFilled = $value !== null && $value !== '' && $value !== [];
@@ -75,7 +78,7 @@ class ApplicantForm extends Component
             }
         }
 
-        // Overwrite definitions with only unfilled, non-file fields
+        // Overwrite definitions with only unfilled fields
         $this->extraFieldDefinitions = $filtered;
 
         // Reset values to only contain filtered field IDs
@@ -86,11 +89,99 @@ class ApplicantForm extends Component
         $this->extraFieldValues = $filteredValues;
         $this->originalExtraFieldValues = $filteredValues;
 
+        $this->loadUploadedFileData();
+
         if (empty($filtered)) {
             $this->state = 'completed';
         } else {
             $this->state = 'form';
         }
+    }
+
+    private function loadUploadedFileData(): void
+    {
+        $fileIds = [];
+        foreach ($this->extraFieldDefinitions as $field) {
+            if ($field['type'] !== 'file') continue;
+            $val = $this->extraFieldValues[$field['id']] ?? null;
+            if (is_array($val)) {
+                $fileIds = array_merge($fileIds, $val);
+            } elseif ($val) {
+                $fileIds[] = $val;
+            }
+        }
+        if (empty($fileIds)) {
+            $this->uploadedFileData = [];
+            return;
+        }
+        $files = ContextFile::whereIn('id', $fileIds)->with('variants')->get()->keyBy('id');
+        $this->uploadedFileData = [];
+        foreach ($files as $file) {
+            $this->uploadedFileData[$file->id] = [
+                'id' => $file->id,
+                'original_name' => $file->original_name,
+                'file_size' => $file->file_size,
+                'mime_type' => $file->mime_type,
+                'is_image' => $file->isImage(),
+                'url' => $file->url,
+                'thumbnail_url' => $file->thumbnail?->url,
+            ];
+        }
+    }
+
+    public function updatedPendingFileUploads(): void
+    {
+        $applicant = $this->getApplicant();
+        if (!$applicant) return;
+
+        $service = app(ContextFileService::class);
+
+        foreach ($this->pendingFileUploads as $fieldId => $file) {
+            if (!$file) continue;
+            $field = collect($this->extraFieldDefinitions)->firstWhere('id', $fieldId);
+            if (!$field || $field['type'] !== 'file') continue;
+
+            $isMultiple = $field['options']['multiple'] ?? false;
+            $files = is_array($file) ? $file : [$file];
+
+            foreach ($files as $uploadedFile) {
+                $result = $service->uploadForContext(
+                    $uploadedFile,
+                    get_class($applicant),
+                    $applicant->id,
+                    ['team_id' => $applicant->team_id, 'user_id' => null]
+                );
+                if ($isMultiple) {
+                    $current = $this->extraFieldValues[$fieldId] ?? [];
+                    $current = is_array($current) ? $current : [];
+                    $current[] = $result['id'];
+                    $this->extraFieldValues[$fieldId] = $current;
+                } else {
+                    $this->extraFieldValues[$fieldId] = $result['id'];
+                }
+            }
+        }
+
+        $this->pendingFileUploads = [];
+        $this->loadUploadedFileData();
+    }
+
+    public function removeFile(int $fieldId, int $fileId): void
+    {
+        $current = $this->extraFieldValues[$fieldId] ?? null;
+        if (is_array($current)) {
+            $this->extraFieldValues[$fieldId] = array_values(array_filter($current, fn($id) => $id != $fileId));
+        } else {
+            $this->extraFieldValues[$fieldId] = null;
+        }
+        unset($this->uploadedFileData[$fileId]);
+    }
+
+    public function formatFileSize(int $bytes): string
+    {
+        if ($bytes >= 1048576) return round($bytes / 1048576, 1) . ' MB';
+        if ($bytes >= 1024) return round($bytes / 1024, 0) . ' KB';
+        return $bytes . ' B';
     }
 
     public function save(): void
@@ -115,9 +206,6 @@ class ApplicantForm extends Component
         $remainingUnfilled = 0;
 
         foreach ($allDefinitions as $field) {
-            if ($field['type'] === 'file') {
-                continue;
-            }
             $this->totalFields++;
             $isFilled = $field['value'] !== null && $field['value'] !== '' && $field['value'] !== [];
             if ($isFilled) {

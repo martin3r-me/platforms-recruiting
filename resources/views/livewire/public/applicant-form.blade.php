@@ -39,8 +39,8 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
                 </div>
-                <h1 class="text-2xl font-bold text-gray-900 mb-3">Link ungueltig</h1>
-                <p class="text-gray-500 text-lg">Dieser Link ist ungueltig oder existiert nicht mehr. Bitte kontaktieren Sie die Personalabteilung.</p>
+                <h1 class="text-2xl font-bold text-gray-900 mb-3">Link ungültig</h1>
+                <p class="text-gray-500 text-lg">Dieser Link ist ungültig oder existiert nicht mehr. Bitte kontaktieren Sie die Personalabteilung.</p>
             </div>
         </div>
 
@@ -75,7 +75,7 @@
                     <div class="flex items-center gap-4 flex-shrink-0 ml-4">
                         @if($totalFields > 0)
                             <span class="text-sm font-medium text-white/50">
-                                {{ $filledFields }}<span class="text-white/30">/</span>{{ $totalFields }} ausgefuellt
+                                {{ $filledFields }}<span class="text-white/30">/</span>{{ $totalFields }} ausgefüllt
                             </span>
                         @endif
                     </div>
@@ -93,12 +93,130 @@
             </div>
         </header>
 
+        @php
+            // Pre-resolve lookup values for visibility conditions (client-side evaluation)
+            $lookupCache = [];
+            $defsForJs = $extraFieldDefinitions;
+            foreach ($defsForJs as &$def) {
+                $vc = $def['visibility_config'] ?? null;
+                if (!$vc || !($vc['enabled'] ?? false)) continue;
+                foreach ($vc['groups'] ?? [] as $gi => $group) {
+                    foreach ($group['conditions'] ?? [] as $ci => $condition) {
+                        if (in_array($condition['operator'] ?? '', ['is_in', 'is_not_in'])) {
+                            $source = $condition['list_source'] ?? 'manual';
+                            if ($source === 'lookup') {
+                                $lookupId = $condition['list_lookup_id'] ?? null;
+                                if ($lookupId) {
+                                    if (!isset($lookupCache[$lookupId])) {
+                                        $lookup = \Platform\Core\Models\CoreLookup::with('activeValues')->find($lookupId);
+                                        $lookupCache[$lookupId] = $lookup ? $lookup->activeValues->pluck('value')->all() : [];
+                                    }
+                                    $def['visibility_config']['groups'][$gi]['conditions'][$ci]['_resolved_list'] = $lookupCache[$lookupId];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            unset($def);
+        @endphp
+
         <main class="max-w-3xl mx-auto px-6 py-8">
-            <form wire:submit="save">
+            <form wire:submit="save"
+                x-data="{
+                    fieldValues: @entangle('extraFieldValues').live,
+                    fieldDefinitions: @js($defsForJs),
+
+                    isFieldVisible(fieldId) {
+                        const field = this.fieldDefinitions.find(f => f.id === fieldId);
+                        if (!field) return true;
+                        const visibility = field.visibility_config;
+                        if (!visibility || !visibility.enabled) return true;
+                        return this.evaluateVisibility(visibility);
+                    },
+
+                    evaluateVisibility(config) {
+                        if (!config.groups || config.groups.length === 0) return true;
+                        const mainLogic = (config.logic || 'AND').toUpperCase();
+                        const groupResults = config.groups.map(group => this.evaluateGroup(group));
+                        if (mainLogic === 'OR') return groupResults.includes(true);
+                        return !groupResults.includes(false);
+                    },
+
+                    evaluateGroup(group) {
+                        if (!group.conditions || group.conditions.length === 0) return true;
+                        const groupLogic = (group.logic || 'AND').toUpperCase();
+                        const conditionResults = group.conditions.map(cond => this.evaluateCondition(cond));
+                        if (groupLogic === 'OR') return conditionResults.includes(true);
+                        return !conditionResults.includes(false);
+                    },
+
+                    evaluateCondition(condition) {
+                        if (!condition.field) return true;
+                        const targetField = this.fieldDefinitions.find(f => f.name === condition.field);
+                        if (!targetField) return true;
+                        const actualValue = this.fieldValues[targetField.id];
+                        const operator = condition.operator || 'equals';
+                        if (operator === 'is_in' || operator === 'is_not_in') {
+                            let comparisonList;
+                            const source = condition.list_source || 'manual';
+                            if (source === 'lookup' && condition._resolved_list) {
+                                comparisonList = condition._resolved_list;
+                            } else {
+                                comparisonList = Array.isArray(condition.value) ? condition.value : (condition.value ? [condition.value] : []);
+                            }
+                            return this.compareValues(actualValue, operator, comparisonList);
+                        }
+                        return this.compareValues(actualValue, operator, condition.value);
+                    },
+
+                    compareValues(actual, operator, expected) {
+                        switch (operator) {
+                            case 'equals': return this.isEqual(actual, expected);
+                            case 'not_equals': return !this.isEqual(actual, expected);
+                            case 'greater_than': return parseFloat(actual) > parseFloat(expected);
+                            case 'greater_or_equal': return parseFloat(actual) >= parseFloat(expected);
+                            case 'less_than': return parseFloat(actual) < parseFloat(expected);
+                            case 'less_or_equal': return parseFloat(actual) <= parseFloat(expected);
+                            case 'is_null': return this.isEmpty(actual);
+                            case 'is_not_null': return !this.isEmpty(actual);
+                            case 'in': case 'is_in': return this.isIn(actual, expected);
+                            case 'not_in': case 'is_not_in': return !this.isIn(actual, expected);
+                            case 'contains': return String(actual || '').toLowerCase().includes(String(expected || '').toLowerCase());
+                            case 'starts_with': return String(actual || '').toLowerCase().startsWith(String(expected || '').toLowerCase());
+                            case 'ends_with': return String(actual || '').toLowerCase().endsWith(String(expected || '').toLowerCase());
+                            case 'is_true': return actual === true || actual === 1 || actual === '1' || String(actual).toLowerCase() === 'true';
+                            case 'is_false': return actual === false || actual === 0 || actual === '0' || String(actual).toLowerCase() === 'false' || this.isEmpty(actual);
+                            default: return true;
+                        }
+                    },
+
+                    isEqual(a, b) {
+                        if (a === b) return true;
+                        if (a === null && b === null) return true;
+                        if (typeof a === 'number' && typeof b === 'number') return a === b;
+                        if (!isNaN(a) && !isNaN(b)) return parseFloat(a) === parseFloat(b);
+                        return String(a || '').toLowerCase() === String(b || '').toLowerCase();
+                    },
+
+                    isEmpty(value) {
+                        if (value === null || value === undefined) return true;
+                        if (typeof value === 'string' && value.trim() === '') return true;
+                        if (Array.isArray(value) && value.length === 0) return true;
+                        return false;
+                    },
+
+                    isIn(actual, expected) {
+                        if (!Array.isArray(expected)) expected = [expected];
+                        if (Array.isArray(actual)) return actual.some(item => expected.includes(item));
+                        return expected.includes(actual);
+                    }
+                }"
+            >
                 <div class="applicant-card p-8">
                     <div class="mb-8">
                         <h2 class="text-xl font-bold text-gray-900 mb-2">Offene Felder</h2>
-                        <p class="text-gray-500">Bitte fuellen Sie die folgenden Felder aus.</p>
+                        <p class="text-gray-500">Bitte füllen Sie die folgenden Felder aus.</p>
                     </div>
 
                     <div class="space-y-6">
@@ -111,7 +229,15 @@
                                 $options = $field['options'] ?? [];
                             @endphp
 
-                            <div>
+                            <div
+                                x-show="isFieldVisible({{ $fieldId }})"
+                                x-transition:enter="transition ease-out duration-200"
+                                x-transition:enter-start="opacity-0 -translate-y-2"
+                                x-transition:enter-end="opacity-100 translate-y-0"
+                                x-transition:leave="transition ease-in duration-150"
+                                x-transition:leave-start="opacity-100 translate-y-0"
+                                x-transition:leave-end="opacity-0 -translate-y-2"
+                            >
                                 <label class="block text-sm font-semibold text-gray-700 mb-2">
                                     {{ $fieldLabel }}
                                     @if($isRequired)
@@ -234,6 +360,141 @@
                                             </div>
                                         @endif
                                         @break
+
+                                    @case('lookup')
+                                        @php
+                                            $isMultiple = $options['multiple'] ?? false;
+                                            $lookupChoices = $field['lookup']['choices'] ?? [];
+                                        @endphp
+                                        @if($isMultiple)
+                                            <div class="space-y-2">
+                                                @foreach($lookupChoices as $choice)
+                                                    @php
+                                                        $currentVal = $extraFieldValues[$fieldId] ?? [];
+                                                        $isSelected = is_array($currentVal) && in_array($choice['value'], $currentVal);
+                                                    @endphp
+                                                    <button
+                                                        type="button"
+                                                        wire:click="$js('
+                                                            let v = $wire.extraFieldValues[{{ $fieldId }}] || [];
+                                                            const idx = v.indexOf({{ json_encode($choice['value']) }});
+                                                            if (idx > -1) { v.splice(idx, 1); } else { v.push({{ json_encode($choice['value']) }}); }
+                                                            $wire.set(\"extraFieldValues.{{ $fieldId }}\", [...v]);
+                                                        ')"
+                                                        class="applicant-option-card {{ $isSelected ? 'applicant-option-active' : '' }}"
+                                                    >
+                                                        <span class="w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border {{ $isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300' }}">
+                                                            @if($isSelected)
+                                                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+                                                            @endif
+                                                        </span>
+                                                        <span class="text-sm font-medium text-gray-700">{{ $choice['label'] }}</span>
+                                                    </button>
+                                                @endforeach
+                                            </div>
+                                        @else
+                                            <div class="space-y-2">
+                                                @foreach($lookupChoices as $choice)
+                                                    @php $isSelected = ($extraFieldValues[$fieldId] ?? null) === $choice['value']; @endphp
+                                                    <button
+                                                        type="button"
+                                                        wire:click="$set('extraFieldValues.{{ $fieldId }}', {{ json_encode($choice['value']) }})"
+                                                        class="applicant-option-card {{ $isSelected ? 'applicant-option-active' : '' }}"
+                                                    >
+                                                        <span class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border {{ $isSelected ? 'border-blue-600' : 'border-gray-300' }}">
+                                                            @if($isSelected)
+                                                                <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                                                            @endif
+                                                        </span>
+                                                        <span class="text-sm font-medium text-gray-700">{{ $choice['label'] }}</span>
+                                                    </button>
+                                                @endforeach
+                                            </div>
+                                        @endif
+                                        @break
+
+                                    @case('file')
+                                        @php
+                                            $isMultiple = $options['multiple'] ?? false;
+                                            $currentFileIds = $extraFieldValues[$fieldId] ?? ($isMultiple ? [] : null);
+                                            $currentFileIds = is_array($currentFileIds) ? $currentFileIds : ($currentFileIds ? [$currentFileIds] : []);
+                                        @endphp
+                                        <div>
+                                            {{-- Uploaded files preview --}}
+                                            @if(!empty($currentFileIds))
+                                                <div class="space-y-2 mb-3">
+                                                    @foreach($currentFileIds as $fileId_item)
+                                                        @php $fileData = $uploadedFileData[$fileId_item] ?? null; @endphp
+                                                        @if($fileData)
+                                                            <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200">
+                                                                @if($fileData['is_image'] && $fileData['thumbnail_url'])
+                                                                    <img src="{{ $fileData['thumbnail_url'] }}" alt="" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
+                                                                @else
+                                                                    <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                                                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                                                        </svg>
+                                                                    </div>
+                                                                @endif
+                                                                <div class="flex-1 min-w-0">
+                                                                    <p class="text-sm font-medium text-gray-700 truncate">{{ $fileData['original_name'] }}</p>
+                                                                    <p class="text-xs text-gray-400">{{ $this->formatFileSize($fileData['file_size'] ?? 0) }}</p>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    wire:click="removeFile({{ $fieldId }}, {{ $fileId_item }})"
+                                                                    class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                                                                >
+                                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                        @endif
+                                                    @endforeach
+                                                </div>
+                                            @endif
+
+                                            {{-- Upload zone --}}
+                                            @if($isMultiple || empty($currentFileIds))
+                                                <div
+                                                    x-data="{ dragging: false }"
+                                                    x-on:dragover.prevent="dragging = true"
+                                                    x-on:dragleave.prevent="dragging = false"
+                                                    x-on:drop.prevent="dragging = false; $refs.fileInput{{ $fieldId }}.files = $event.dataTransfer.files; $refs.fileInput{{ $fieldId }}.dispatchEvent(new Event('change'))"
+                                                    class="relative"
+                                                >
+                                                    <label
+                                                        :class="dragging ? 'border-blue-400 bg-blue-50/50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'"
+                                                        class="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all"
+                                                    >
+                                                        <div wire:loading.remove wire:target="pendingFileUploads.{{ $fieldId }}">
+                                                            <svg class="w-8 h-8 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                                            </svg>
+                                                            <p class="text-sm text-gray-500 text-center">
+                                                                <span class="font-medium text-blue-600">Datei auswählen</span> oder hierher ziehen
+                                                            </p>
+                                                        </div>
+                                                        <div wire:loading wire:target="pendingFileUploads.{{ $fieldId }}" class="flex flex-col items-center">
+                                                            <svg class="animate-spin w-6 h-6 text-blue-500 mb-2" fill="none" viewBox="0 0 24 24">
+                                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                                            </svg>
+                                                            <p class="text-sm text-gray-500">Wird hochgeladen...</p>
+                                                        </div>
+                                                        <input
+                                                            type="file"
+                                                            x-ref="fileInput{{ $fieldId }}"
+                                                            wire:model="pendingFileUploads.{{ $fieldId }}"
+                                                            class="hidden"
+                                                            @if($isMultiple) multiple @endif
+                                                        >
+                                                    </label>
+                                                </div>
+                                            @endif
+                                        </div>
+                                        @break
                                 @endswitch
 
                                 @error("extraFieldValues.{$fieldId}")
@@ -314,7 +575,7 @@
                     </svg>
                 </div>
                 <h1 class="text-2xl font-bold text-gray-900 mb-3">Alles erledigt!</h1>
-                <p class="text-gray-500 text-lg">Vielen Dank! Alle Felder sind ausgefuellt. Sie koennen diese Seite jetzt schliessen.</p>
+                <p class="text-gray-500 text-lg">Vielen Dank! Alle Felder sind ausgefüllt. Sie können diese Seite jetzt schließen.</p>
             </div>
         </div>
     @endif
