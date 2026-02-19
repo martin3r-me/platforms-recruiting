@@ -40,7 +40,6 @@ class Dashboard extends Component
             ->active()
             ->whereNull('enrichment_status')
             ->with([
-                'applicantStatus',
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
@@ -59,7 +58,6 @@ class Dashboard extends Component
             ->active()
             ->whereNotNull('enrichment_status')
             ->with([
-                'applicantStatus',
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
@@ -80,7 +78,6 @@ class Dashboard extends Component
             ->active()
             ->whereNotNull('enrichment_status')
             ->with([
-                'applicantStatus',
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',

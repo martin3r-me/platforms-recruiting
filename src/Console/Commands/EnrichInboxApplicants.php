@@ -187,7 +187,7 @@ class EnrichInboxApplicants extends Command
     private function nextApplicant(?int $applicantId, array $excludeIds = []): ?RecApplicant
     {
         $query = RecApplicant::query()
-            ->with(['applicantStatus', 'team', 'ownedByUser'])
+            ->with(['team', 'ownedByUser'])
             ->whereNull('enrichment_status');
 
         if ($applicantId) {

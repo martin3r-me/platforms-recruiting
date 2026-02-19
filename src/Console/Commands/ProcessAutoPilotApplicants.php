@@ -122,7 +122,6 @@ class ProcessAutoPilotApplicants extends Command
                 $this->info("🤖 Bewerbung #{$applicant->id} → Owner: {$owner->name} (user_id={$owner->id})");
                 $this->line("Team: " . ($applicant->team?->name ?? '—'));
                 $this->line("Model: {$model}");
-                $this->line("Status: " . ($applicant->applicantStatus?->name ?? '—'));
                 $this->line("AutoPilot-State: " . ($applicant->autoPilotState?->name ?? 'nicht gesetzt'));
                 $this->line("Kontakte: " . count($contactInfo));
                 $this->line("Extra-Fields: " . count($extraFields));
@@ -294,7 +293,7 @@ class ProcessAutoPilotApplicants extends Command
     private function nextAutoPilotApplicant(?int $applicantId, array $excludeIds = []): ?RecApplicant
     {
         $query = RecApplicant::query()
-            ->with(['applicantStatus', 'autoPilotState', 'team', 'ownedByUser'])
+            ->with(['autoPilotState', 'team', 'ownedByUser'])
             ->where('auto_pilot', true)
             ->whereNull('auto_pilot_completed_at')
             ->whereNotNull('owned_by_user_id');
@@ -630,10 +629,6 @@ class ProcessAutoPilotApplicants extends Command
             'uuid' => $applicant->uuid,
             'team_id' => $applicant->team_id,
             'team' => $applicant->team?->name,
-            'status' => $applicant->applicantStatus ? [
-                'id' => $applicant->applicantStatus->id,
-                'name' => $applicant->applicantStatus->name,
-            ] : null,
             'auto_pilot_state' => $applicant->autoPilotState ? [
                 'id' => $applicant->autoPilotState->id,
                 'code' => $applicant->autoPilotState->code,

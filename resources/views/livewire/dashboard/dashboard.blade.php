@@ -348,7 +348,6 @@
                         <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                             <th class="px-4 py-3">Name</th>
                             <th class="px-4 py-3">Stelle</th>
-                            <th class="px-4 py-3">Status</th>
                             <th class="px-4 py-3">Eingegangen</th>
                             <th class="px-4 py-3 text-right"></th>
                         </tr>
@@ -402,14 +401,6 @@
                                         <span class="text-[var(--ui-muted)]">&ndash;</span>
                                     @endif
                                 </td>
-                                {{-- Status --}}
-                                <td class="px-4 py-2.5">
-                                    @if($applicant->applicantStatus)
-                                        <x-ui-badge variant="success" size="xs">{{ $applicant->applicantStatus->name }}</x-ui-badge>
-                                    @else
-                                        <x-ui-badge variant="success" size="xs">Vollständig</x-ui-badge>
-                                    @endif
-                                </td>
                                 {{-- Eingegangen --}}
                                 <td class="px-4 py-2.5 text-sm text-[var(--ui-muted)]">
                                     {{ $applicant->created_at?->format('d.m.Y') }}
@@ -423,7 +414,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                <td colspan="4" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                     <div class="flex flex-col items-center gap-2">
                                         @svg('heroicon-o-check-circle', 'w-8 h-8 text-[var(--ui-muted)]/50')
                                         <span>Keine abgeschlossenen Bewerbungen</span>
