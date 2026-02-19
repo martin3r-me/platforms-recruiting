@@ -186,9 +186,19 @@
                                 </td>
                                 {{-- Aktion --}}
                                 <td class="px-4 py-2.5 text-right">
-                                    <x-ui-button size="sm" variant="secondary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
-                                        @svg('heroicon-o-arrow-right', 'w-4 h-4')
-                                    </x-ui-button>
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button
+                                            wire:click="dismissApplicant({{ $applicant->id }})"
+                                            wire:confirm="Bewerber wirklich aussortieren?"
+                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                                            title="Aussortieren"
+                                        >
+                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
+                                        </button>
+                                        <x-ui-button size="sm" variant="secondary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
+                                            @svg('heroicon-o-arrow-right', 'w-4 h-4')
+                                        </x-ui-button>
+                                    </div>
                                 </td>
                             </tr>
                         @empty
@@ -214,7 +224,6 @@
                         <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                             <th class="px-4 py-3">Name</th>
                             <th class="px-4 py-3">Extra-Felder</th>
-                            <th class="px-4 py-3">Status</th>
                             <th class="px-4 py-3">AutoPilot</th>
                             <th class="px-4 py-3 text-right"></th>
                         </tr>
@@ -277,14 +286,6 @@
                                         <span class="text-xs text-[var(--ui-muted)]">&ndash;</span>
                                     @endif
                                 </td>
-                                {{-- Status --}}
-                                <td class="px-4 py-2.5">
-                                    @if($applicant->applicantStatus)
-                                        <x-ui-badge variant="primary" size="xs">{{ $applicant->applicantStatus->name }}</x-ui-badge>
-                                    @else
-                                        <span class="text-[var(--ui-muted)]">&ndash;</span>
-                                    @endif
-                                </td>
                                 {{-- AutoPilot --}}
                                 <td class="px-4 py-2.5">
                                     <div class="flex items-center gap-1">
@@ -314,14 +315,24 @@
                                 </td>
                                 {{-- Aktion --}}
                                 <td class="px-4 py-2.5 text-right">
-                                    <x-ui-button size="sm" variant="primary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
-                                        Anzeigen
-                                    </x-ui-button>
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button
+                                            wire:click="dismissApplicant({{ $applicant->id }})"
+                                            wire:confirm="Bewerber wirklich aussortieren?"
+                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                                            title="Aussortieren"
+                                        >
+                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
+                                        </button>
+                                        <x-ui-button size="sm" variant="primary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
+                                            Anzeigen
+                                        </x-ui-button>
+                                    </div>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">Keine Bewerber in Bearbeitung</td>
+                                <td colspan="4" class="px-4 py-8 text-center text-[var(--ui-muted)]">Keine Bewerber in Bearbeitung</td>
                             </tr>
                         @endforelse
                     </tbody>

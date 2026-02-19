@@ -302,6 +302,16 @@ class Dashboard extends Component
         unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 
+    public function dismissApplicant(int $applicantId): void
+    {
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+        $applicant->update([
+            'is_active' => false,
+            'auto_pilot' => false,
+        ]);
+        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants, $this->applicantCount);
+    }
+
     public function render()
     {
         return view('recruiting::livewire.dashboard.dashboard')
