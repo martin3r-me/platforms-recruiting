@@ -79,6 +79,16 @@ class HandleCommsInboundForRecruiting
             $thread->context_model_id = $applicant->id;
             $thread->save();
 
+            // Reset AutoPilot state when applicant replies (so AutoPilot picks up again)
+            if (!$result['is_new'] && $applicant->auto_pilot && $applicant->auto_pilot_state_id) {
+                $applicant->auto_pilot_state_id = null;
+                $applicant->save();
+
+                Log::info('[Recruiting] AutoPilot state reset due to applicant reply', [
+                    'applicant_id' => $applicant->id,
+                ]);
+            }
+
             Log::info('[Recruiting] Email application processed', [
                 'applicant_id' => $applicant->id,
                 'posting_id' => $result['posting']->id,
