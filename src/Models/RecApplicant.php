@@ -19,6 +19,7 @@ class RecApplicant extends Model
     protected $fillable = [
         'uuid', 'public_token', 'rec_applicant_status_id', 'progress', 'notes', 'applied_at',
         'is_active', 'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
+        'enrichment_status',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 

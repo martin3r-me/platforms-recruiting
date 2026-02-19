@@ -4,6 +4,7 @@ namespace Platform\Recruiting;
 
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -21,6 +22,8 @@ class RecruitingServiceProvider extends ServiceProvider
             $this->commands([
                 \Platform\Recruiting\Console\Commands\ProcessAutoPilotApplicants::class,
                 \Platform\Recruiting\Console\Commands\DispatchAutoPilotApplicants::class,
+                \Platform\Recruiting\Console\Commands\EnrichInboxApplicants::class,
+                \Platform\Recruiting\Console\Commands\DispatchEnrichInboxApplicants::class,
             ]);
         }
     }
@@ -68,6 +71,15 @@ class RecruitingServiceProvider extends ServiceProvider
 
         $this->registerCommsListeners();
         $this->registerTools();
+        $this->registerSchedule();
+    }
+
+    protected function registerSchedule(): void
+    {
+        Schedule::command('recruiting:dispatch-enrich-inbox-applicants')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
     }
 
     protected function registerLivewireComponents(): void

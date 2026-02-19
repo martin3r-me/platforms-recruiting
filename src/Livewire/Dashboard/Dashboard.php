@@ -34,10 +34,7 @@ class Dashboard extends Component
     {
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
-            ->where(function ($q) {
-                $q->whereDoesntHave('postings')
-                  ->orWhereDoesntHave('crmContactLinks');
-            })
+            ->whereNull('enrichment_status')
             ->with(['applicantStatus', 'crmContactLinks.contact', 'postings.position'])
             ->orderByDesc('created_at')
             ->get();
@@ -48,8 +45,7 @@ class Dashboard extends Component
     {
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
-            ->whereHas('postings')
-            ->whereHas('crmContactLinks')
+            ->whereNotNull('enrichment_status')
             ->with(['applicantStatus', 'crmContactLinks.contact', 'postings.position'])
             ->orderByDesc('created_at')
             ->get();
