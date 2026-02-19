@@ -20,8 +20,19 @@ class HandleCommsInboundForRecruiting
         $thread = $event->thread;
         $mail = $event->mail;
 
+        Log::debug('[Recruiting] Email inbound event received', [
+            'channel_id' => $channel->id,
+            'channel_name' => $channel->name,
+            'channel_sender' => $channel->sender_identifier,
+            'thread_id' => $thread->id,
+            'mail_id' => $mail->id,
+        ]);
+
         // Check if this channel is linked to any recruiting postings
         if (!$this->channelHasPostings($channel)) {
+            Log::debug('[Recruiting] Email channel has no open postings, skipping', [
+                'channel_id' => $channel->id,
+            ]);
             return;
         }
 
