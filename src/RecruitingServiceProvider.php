@@ -77,7 +77,7 @@ class RecruitingServiceProvider extends ServiceProvider
     protected function registerSchedule(): void
     {
         Schedule::command('recruiting:dispatch-enrich-inbox-applicants')
-            ->everyFiveMinutes()
+            ->everyMinute()
             ->withoutOverlapping()
             ->runInBackground();
     }
