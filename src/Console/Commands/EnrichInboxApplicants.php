@@ -312,7 +312,7 @@ class EnrichInboxApplicants extends Command
                     foreach ($threads as $t) {
                         if (! $t->context_model) {
                             $t->update([
-                                'context_model' => $fullClass,
+                                'context_model' => $morphClass,
                                 'context_model_id' => $applicant->id,
                             ]);
                         }

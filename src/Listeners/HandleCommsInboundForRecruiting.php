@@ -64,7 +64,7 @@ class HandleCommsInboundForRecruiting
 
             // Link the thread to the applicant for communication tracking
             if (!$thread->context_model) {
-                $thread->context_model = \Platform\Recruiting\Models\RecApplicant::class;
+                $thread->context_model = $applicant->getMorphClass();
                 $thread->context_model_id = $applicant->id;
                 $thread->save();
             }

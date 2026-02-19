@@ -482,7 +482,7 @@ class ProcessAutoPilotApplicants extends Command
                 })
                 ->where('created_at', '>=', now()->subMinutes(30))
                 ->update([
-                    'context_model' => get_class($applicant),
+                    'context_model' => $applicant->getMorphClass(),
                     'context_model_id' => $applicant->id,
                 ]);
 
