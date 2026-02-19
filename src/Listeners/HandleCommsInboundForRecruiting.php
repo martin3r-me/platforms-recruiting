@@ -63,11 +63,10 @@ class HandleCommsInboundForRecruiting
             $this->attachEmailFilesToApplicant($mail, $thread, $applicant);
 
             // Link the thread to the applicant for communication tracking
-            if (!$thread->context_model) {
-                $thread->context_model = $applicant->getMorphClass();
-                $thread->context_model_id = $applicant->id;
-                $thread->save();
-            }
+            // Always override - recruiting channel means recruiting context
+            $thread->context_model = $applicant->getMorphClass();
+            $thread->context_model_id = $applicant->id;
+            $thread->save();
 
             Log::info('[Recruiting] Email application processed', [
                 'applicant_id' => $applicant->id,
