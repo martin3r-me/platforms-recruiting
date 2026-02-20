@@ -314,6 +314,17 @@ class ProcessAutoPilotApplicants extends Command
                     $this->warn("  ⚠️ auto_pilot wurde vom LLM deaktiviert → zurückgesetzt.");
                 }
 
+                // Guard: Nach Nachricht IMMER waiting_for_applicant setzen (verhindert Doppel-Senden)
+                if ($messageSent) {
+                    $currentMissing = $this->getMissingRequiredFields($this->loadExtraFields($applicant));
+                    if (!empty($currentMissing) && $applicant->auto_pilot_state_id !== $waitingForApplicantStateId) {
+                        $applicant->auto_pilot_state_id = $waitingForApplicantStateId;
+                        $applicant->save();
+                        $this->logAutoPilot($applicant, 'state_enforced', 'Nachricht gesendet → State auf waiting_for_applicant gesetzt.');
+                        $this->info("  ℹ️ State erzwungen → waiting_for_applicant");
+                    }
+                }
+
                 // Notes loggen
                 $notes = trim((string)($result['assistant'] ?? ''));
                 if ($notes !== '') {
