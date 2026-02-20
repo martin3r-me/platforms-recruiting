@@ -499,11 +499,32 @@ class ProcessAutoPilotApplicants extends Command
                         ->where('comms_whatsapp_thread_id', $t->id)
                         ->orderBy('created_at', 'asc')
                         ->get()
-                        ->map(fn ($m) => [
-                            'direction' => $m->direction,  // 'inbound' oder 'outbound'
-                            'body' => $m->body,
-                            'at' => $m->created_at?->toIso8601String(),
-                        ])
+                        ->map(function ($m) {
+                            $msg = [
+                                'direction' => $m->direction,  // 'inbound' oder 'outbound'
+                                'message_type' => $m->message_type, // 'text', 'image', 'document', 'audio', 'video', etc.
+                                'body' => $m->body,
+                                'at' => $m->created_at?->toIso8601String(),
+                            ];
+
+                            // Attach file references for media messages
+                            if ($m->message_type && $m->message_type !== 'text' && $m->message_type !== 'template') {
+                                $fileRefs = [];
+                                foreach ($m->getOrderedFileReferences() as $ref) {
+                                    if (!$ref->contextFile) { continue; }
+                                    $fileRefs[] = [
+                                        'context_file_id' => $ref->contextFile->id,
+                                        'title' => $ref->contextFile->original_name ?? $ref->contextFile->title ?? '(Anhang)',
+                                        'mime_type' => $ref->contextFile->mime_type ?? null,
+                                    ];
+                                }
+                                if (!empty($fileRefs)) {
+                                    $msg['attachments'] = $fileRefs;
+                                }
+                            }
+
+                            return $msg;
+                        })
                         ->toArray();
 
                     return [
@@ -973,13 +994,17 @@ class ProcessAutoPilotApplicants extends Command
             . "- Wenn du keinen Wert für ein Feld hast, lasse es komplett weg (nicht mitsenden).\n"
             . "- Die Feld-Keys findest du in den extra_fields unten (das \"key\"-Attribut jedes Feldes).\n"
             . "- Nutze exakt diese Keys, keine eigenen Namen oder Labels.\n\n"
-            . "CONTEXT FILES (Anhänge, Lebenslauf, Zeugnisse):\n"
+            . "CONTEXT FILES & NACHRICHTEN-ANHÄNGE:\n"
             . "- WICHTIG: Prüfe IMMER zuerst die Context Files des Bewerbers!\n"
             . "- Nutze core_context_files_GET mit context_type='RecApplicant' und context_id={$applicant->id} um alle Dateien zu sehen.\n"
             . "- Nutze core_context_files_content_GET mit file_id um den Inhalt einer Datei zu lesen (z.B. Lebenslauf als Text).\n"
             . "- Extrahiere alle relevanten Informationen aus den Dateien (Berufserfahrung, Ausbildung, Fähigkeiten, Gehaltswunsch, etc.).\n"
             . "- Schreibe gefundene Infos SOFORT in die Extra-Felder (core_extra_fields_PUT).\n"
-            . "- Bewerber laden oft Lebensläufe hoch — diese enthalten meist alle benötigten Informationen!\n\n";
+            . "- Bewerber laden oft Lebensläufe hoch — diese enthalten meist alle benötigten Informationen!\n"
+            . "- NACHRICHTEN-ANHÄNGE: WhatsApp-Nachrichten mit message_type 'image', 'document', 'video' etc. haben ein 'attachments'-Array.\n"
+            . "  Jeder Anhang enthält eine context_file_id — lies den Inhalt per core.context.files.content.GET mit dieser file_id.\n"
+            . "  Bilder (Personalausweis, Dokumente etc.) sind so bereits vorhanden — NICHT erneut anfordern!\n"
+            . "- Für file-Typ Extra-Felder: Setze den Wert auf die context_file_id (Integer) des passenden Anhangs.\n\n";
 
         // Thread-Hinweise
         $isFirstMessage = empty($threadsSummary);
