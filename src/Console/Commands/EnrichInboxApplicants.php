@@ -348,13 +348,36 @@ class EnrichInboxApplicants extends Command
                 'remote_phone_number' => $t->remote_phone_number,
                 'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
                 'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
-                'messages' => $t->messages->map(fn ($m) => [
-                    'direction' => $m->direction,
-                    'body' => $m->body,
-                    'message_type' => $m->message_type,
-                    'sent_at' => $m->sent_at?->toIso8601String(),
-                    'created_at' => $m->created_at?->toIso8601String(),
-                ])->toArray(),
+                'messages' => $t->messages->map(function ($m) {
+                    $msg = [
+                        'direction' => $m->direction,
+                        'body' => $m->body,
+                        'message_type' => $m->message_type,
+                        'sent_at' => $m->sent_at?->toIso8601String(),
+                        'created_at' => $m->created_at?->toIso8601String(),
+                    ];
+
+                    if ($m->message_type && $m->message_type !== 'text' && $m->message_type !== 'template') {
+                        $fileRefs = [];
+                        foreach ($m->getOrderedFileReferences() as $ref) {
+                            if (!$ref->contextFile) { continue; }
+                            $entry = [
+                                'context_file_id' => $ref->contextFile->id,
+                                'title' => $ref->contextFile->original_name ?? $ref->contextFile->title ?? '(Anhang)',
+                                'mime_type' => $ref->contextFile->mime_type ?? null,
+                            ];
+                            if ($ref->caption) {
+                                $entry['caption'] = $ref->caption;
+                            }
+                            $fileRefs[] = $entry;
+                        }
+                        if (!empty($fileRefs)) {
+                            $msg['attachments'] = $fileRefs;
+                        }
+                    }
+
+                    return $msg;
+                })->toArray(),
             ])->toArray();
         } catch (\Throwable $e) {
             return [];

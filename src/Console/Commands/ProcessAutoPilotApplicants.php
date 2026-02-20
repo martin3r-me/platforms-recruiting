@@ -512,11 +512,15 @@ class ProcessAutoPilotApplicants extends Command
                                 $fileRefs = [];
                                 foreach ($m->getOrderedFileReferences() as $ref) {
                                     if (!$ref->contextFile) { continue; }
-                                    $fileRefs[] = [
+                                    $entry = [
                                         'context_file_id' => $ref->contextFile->id,
                                         'title' => $ref->contextFile->original_name ?? $ref->contextFile->title ?? '(Anhang)',
                                         'mime_type' => $ref->contextFile->mime_type ?? null,
                                     ];
+                                    if ($ref->caption) {
+                                        $entry['caption'] = $ref->caption;
+                                    }
+                                    $fileRefs[] = $entry;
                                 }
                                 if (!empty($fileRefs)) {
                                     $msg['attachments'] = $fileRefs;
