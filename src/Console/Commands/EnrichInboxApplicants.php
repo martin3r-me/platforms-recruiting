@@ -112,6 +112,7 @@ class EnrichInboxApplicants extends Command
                     'core.extra_fields.GET', 'core.extra_fields.PUT',
                     'core.context.files.GET', 'core.context.files.content.GET',
                     'crm.contacts.GET', 'crm.contacts.PUT',
+                    'crm.phone_numbers.POST', 'crm.email_addresses.POST',
                     'crm.lookups.GET', 'crm.lookup.GET',
                     'crm.postal_addresses.POST',
                     'recruiting.applicants.PUT',
@@ -591,9 +592,11 @@ class EnrichInboxApplicants extends Command
             . "- core.context.files.GET — Dateien am Bewerber-Objekt auflisten\n"
             . "- core.context.files.content.GET — Datei-Inhalt lesen (Text, PDF-Text, Bilder als URL)\n"
             . "- crm.contacts.GET — CRM-Kontakt laden\n"
-            . "- crm.contacts.PUT — CRM-Kontakt aktualisieren (Name, Vorname, Nachname, salutation_id, academic_title_id, gender_id, birth_date)\n"
-            . "- crm.lookups.GET — Lookup-Typen auflisten (z.B. salutation, academic_title, gender, country, address_type)\n"
-            . "- crm.lookup.GET — Einzelnen Lookup mit allen Werten laden (IDs für Anrede, Titel, Geschlecht etc.)\n"
+            . "- crm.contacts.PUT — CRM-Kontakt aktualisieren (first_name, last_name, salutation_id, academic_title_id, gender_id, birth_date)\n"
+            . "- crm.phone_numbers.POST — Telefonnummer an CRM-Kontakt anlegen (contact_id, raw_input, phone_type_id, is_primary)\n"
+            . "- crm.email_addresses.POST — Email-Adresse an CRM-Kontakt anlegen (contact_id, email_address, email_type_id, is_primary)\n"
+            . "- crm.lookups.GET — Lookup-Typen auflisten (z.B. salutation, academic_title, gender, country, address_type, phone_type, email_type)\n"
+            . "- crm.lookup.GET — Einzelnen Lookup mit allen Werten laden (IDs für Anrede, Titel, Geschlecht, Telefon-Typ, Email-Typ etc.)\n"
             . "- crm.postal_addresses.POST — Postadresse an CRM-Kontakt anlegen (street, zip, city, country_id, address_type_id)\n"
             . "- recruiting.applicants.PUT — Bewerbung aktualisieren (Notes)\n"
             . "- recruiting.applicant_contacts.POST — CRM-Kontakt mit Bewerbung verknüpfen\n\n"
@@ -609,9 +612,11 @@ class EnrichInboxApplicants extends Command
             . "   - Setze salutation_id (Anrede: Herr/Frau), academic_title_id (Titel: Dr., Prof. etc.), gender_id wenn erkennbar.\n"
             . "   - Setze birth_date (Format: YYYY-MM-DD) wenn verfügbar.\n"
             . "   - Aktualisiere first_name, last_name falls vollständiger als bisherige Daten.\n"
-            . "7. Falls eine Adresse erkennbar ist: Lade per crm.lookups.GET/crm.lookup.GET die IDs für country und address_type,\n"
+            . "7. Falls Telefonnummer gefunden: Lade phone_type per crm.lookup.GET, dann crm.phone_numbers.POST mit contact_id, raw_input, phone_type_id.\n"
+            . "8. Falls Email-Adresse gefunden: Lade email_type per crm.lookup.GET, dann crm.email_addresses.POST mit contact_id, email_address, email_type_id.\n"
+            . "9. Falls eine Adresse erkennbar ist: Lade per crm.lookups.GET/crm.lookup.GET die IDs für country und address_type,\n"
             . "   dann lege die Adresse per crm.postal_addresses.POST am Kontakt an.\n"
-            . "8. Falls kein Kontakt verknüpft: suche oder erstelle einen und verknüpfe per recruiting.applicant_contacts.POST.\n\n"
+            . "10. Falls kein Kontakt verknüpft: suche oder erstelle einen und verknüpfe per recruiting.applicant_contacts.POST.\n\n"
             . "WICHTIG:\n"
             . "- Extrahiere ALLES was verwertbar ist: Name, Geburtsdatum, Adresse, Qualifikationen, "
             . "Berufserfahrung, Verfügbarkeit, Gehaltsvorstellung, etc.\n"
