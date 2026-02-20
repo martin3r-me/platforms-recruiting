@@ -128,14 +128,14 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 }
             }
 
-            // Handle owned_by_user_id - only update if valid (0 means "no owner")
+            // Handle owned_by_user_id - only update if valid, NEVER set to null (would break AutoPilot)
             if (array_key_exists('owned_by_user_id', $arguments)) {
                 $ownerId = $arguments['owned_by_user_id'];
-                if ($ownerId === 0 || $ownerId === '' || $ownerId === null) {
-                    $applicant->owned_by_user_id = null;
-                } elseif ($ownerId > 0) {
-                    $applicant->owned_by_user_id = $ownerId;
+                // Only set if it's a valid positive integer - ignore 0/null/empty
+                if (is_numeric($ownerId) && (int)$ownerId > 0) {
+                    $applicant->owned_by_user_id = (int)$ownerId;
                 }
+                // Silently ignore 0/null/empty - don't clear the owner
             }
 
             if (array_key_exists('auto_pilot_completed_at', $arguments)) {
