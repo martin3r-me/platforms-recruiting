@@ -135,6 +135,7 @@ class EnrichInboxApplicants extends Command
                         'include_web_search' => false,
                         'reasoning' => ['effort' => 'medium'],
                         'preload_tools' => $preloadTools,
+                        'skip_discovery_tools' => true,
                         'on_iteration' => function (int $iter, array $toolNames, int $textLen) {
                             $this->line("  Iter {$iter}: " . (empty($toolNames) ? '(keine Tools)' : implode(', ', $toolNames)));
                         },

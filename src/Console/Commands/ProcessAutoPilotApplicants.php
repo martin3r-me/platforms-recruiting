@@ -272,6 +272,7 @@ class ProcessAutoPilotApplicants extends Command
                         'include_web_search' => false,
                         'reasoning' => ['effort' => 'medium'],
                         'preload_tools' => $preloadTools,
+                        'skip_discovery_tools' => true,
                         'on_iteration' => function (int $iter, array $toolNames, int $textLen) {
                             $this->line("    Iter {$iter}: " . (empty($toolNames) ? '(keine Tools)' : implode(', ', $toolNames)));
                         },
@@ -711,23 +712,19 @@ class ProcessAutoPilotApplicants extends Command
             . "- Zusammenfassungen des Ist-Zustands als Endprodukt\n"
             . "- Abwarten, Planen oder Analysieren ohne anschließende Tool-Calls\n"
             . "- State auf 'waiting_for_applicant' setzen OHNE vorher eine Nachricht gesendet zu haben\n\n"
-            . "WICHTIG (Tool-Discovery):\n"
-            . "- Du siehst anfangs nur Discovery-Tools (z.B. tools.GET, core.teams.GET).\n"
-            . "- Wenn dir ein Tool fehlt, lade es per tools.GET nach.\n"
-            . "  Beispiel: tools.GET {\"module\":\"recruiting\",\"search\":\"applicants\"}\n"
-            . "  Beispiel: tools.GET {\"module\":\"crm\",\"search\":\"contacts\"}\n"
-            . "  Beispiel: tools.GET {\"module\":\"core\",\"search\":\"extra_fields\"}\n"
-            . "  Beispiel: tools.GET {\"module\":\"communication\",\"search\":\"messages\"}\n\n"
+            . "WICHTIG (Tools):\n"
+            . "- Alle benötigten Tools sind bereits geladen. Du musst KEINE Discovery-Tools aufrufen.\n"
+            . "- Rufe NICHT core.teams.GET, core.user.GET, core.context.GET oder tools.GET auf — der Kontext ist bereits gesetzt.\n"
+            . "- Beginne SOFORT mit der Bearbeitung.\n\n"
             . "DEIN ABLAUF (führe jeden Schritt sofort per Tool-Call aus):\n"
-            . "1. tools.GET — lade alle benötigten Tools\n"
-            . "2. CRM-Kontakt prüfen — falls keiner verknüpft: suchen/erstellen und verknüpfen\n"
-            . "3. Extra-Fields laden — prüfen welche required (is_required=true) und leer sind\n"
-            . "4. Kommunikations-Threads prüfen:\n"
-            . "   → WENN threads_summary LEER ist (keine Threads): Überspringe Schritt 5-6, gehe direkt zu Schritt 7.\n"
+            . "1. CRM-Kontakt prüfen — falls keiner verknüpft: suchen/erstellen und verknüpfen\n"
+            . "2. Extra-Fields laden — prüfen welche required (is_required=true) und leer sind\n"
+            . "3. Kommunikations-Threads prüfen:\n"
+            . "   → WENN threads_summary LEER ist (keine Threads): Überspringe Schritt 4-5, gehe direkt zu Schritt 6.\n"
             . "   → WENN threads_summary Einträge hat: Lade Nachrichten per core.comms.email_messages.GET und prüfe ob neue verwertbare Infos vom Bewerber eingegangen sind.\n"
-            . "5. WENN neue Infos in Nachrichten gefunden → SOFORT per core.extra_fields.PUT in die Felder schreiben. Diesen Schritt NIEMALS überspringen!\n"
-            . "6. Extra-Fields erneut prüfen — nach dem Schreiben: welche Pflichtfelder sind JETZT noch leer?\n"
-            . "7. ENTSCHEIDUNG:\n"
+            . "4. WENN neue Infos in Nachrichten gefunden → SOFORT per core.extra_fields.PUT in die Felder schreiben. Diesen Schritt NIEMALS überspringen!\n"
+            . "5. Extra-Fields erneut prüfen — nach dem Schreiben: welche Pflichtfelder sind JETZT noch leer?\n"
+            . "6. ENTSCHEIDUNG:\n"
             . "   → Alle Pflichtfelder gefüllt? → recruiting.applicants.PUT mit auto_pilot_completed_at='now' UND auto_pilot_state_id={$completedStateId}. FERTIG.\n"
             . "   → Pflichtfelder fehlen, KEIN Thread in threads_summary? → ZWEI PFLICHT-SCHRITTE:\n"
             . "     1. ZUERST: core.comms.email_messages.POST (siehe NEUER THREAD unten) — fehlende Infos anfordern.\n"
@@ -911,7 +908,8 @@ class ProcessAutoPilotApplicants extends Command
         $system = "Du bist {$owner->name}, HR-Verantwortlicher bei {$applicant->team?->name}.\n"
             . "Du bearbeitest die Bewerbung von {$contactName} ({$recipientInfo}).\n"
             . "Du arbeitest autonom — handle per Tool-Calls, schreibe keine Reports.\n"
-            . "Kommuniziere immer auf Deutsch, persönlich und professionell.\n\n"
+            . "Kommuniziere immer auf Deutsch, persönlich und professionell.\n"
+            . "Alle benötigten Tools sind bereits geladen. Beginne SOFORT mit der Bearbeitung.\n\n"
             . "DEINE AUFGABE:\n"
             . "Sammle alle fehlenden Pflichtfelder vom Bewerber ein.\n"
             . "- Die Nachrichten-Threads sind unten enthalten (messages-Array mit direction=inbound/outbound). Extrahiere alle verwertbaren Infos aus den Bewerber-Antworten (direction=inbound).\n"
