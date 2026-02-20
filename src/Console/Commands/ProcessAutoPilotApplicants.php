@@ -127,6 +127,9 @@ class ProcessAutoPilotApplicants extends Command
                 $isWhatsAppChannel = $channelForCheck && $channelForCheck->type === 'whatsapp';
                 $threadsSummary = $this->loadThreadsSummary($applicant, $isWhatsAppChannel);
 
+                // Flag portal threads (email sender is not the applicant's CRM email)
+                $threadsSummary = $this->flagPortalThreads($threadsSummary, $contactInfo);
+
                 $this->info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 $this->info("🤖 Bewerbung #{$applicant->id} → Owner: {$owner->name} (user_id={$owner->id})");
                 $this->line("Team: " . ($applicant->team?->name ?? '—'));
@@ -894,6 +897,34 @@ class ProcessAutoPilotApplicants extends Command
         return $fallback;
     }
 
+    /**
+     * Flag threads where the counterpart email does not belong to the CRM contact (portal threads).
+     */
+    private function flagPortalThreads(array $threadsSummary, array $contactInfo): array
+    {
+        // Collect all CRM contact emails (lowercased)
+        $crmEmails = [];
+        foreach ($contactInfo as $contact) {
+            foreach ($contact['emails'] ?? [] as $email) {
+                $crmEmails[] = strtolower(trim($email['email']));
+            }
+        }
+
+        foreach ($threadsSummary as &$thread) {
+            $counterpart = strtolower(trim($thread['counterpart'] ?? ''));
+
+            if ($counterpart === '' || $thread['channel_type'] !== 'email') {
+                $thread['is_portal_thread'] = false;
+                continue;
+            }
+
+            $thread['is_portal_thread'] = !in_array($counterpart, $crmEmails, true);
+        }
+        unset($thread);
+
+        return $threadsSummary;
+    }
+
     // ===== Unified Prompt =====
 
     private function buildMessages(
@@ -925,6 +956,16 @@ class ProcessAutoPilotApplicants extends Command
             . "- Du kannst auch den CRM-Kontakt aktualisieren wenn du relevante Daten findest.\n"
             . "- Kommunikation erfolgt über {$channelType}.\n"
             . "- Wenn alle Pflichtfelder gefüllt sind, schließe die Bewerbung ab.\n\n"
+            . "CRM-ABGLEICH — VOR DEM KONTAKTIEREN:\n"
+            . "- BEVOR du den Bewerber kontaktierst, gleiche die CRM-Kontaktdaten mit den Extra-Feldern ab!\n"
+            . "- Die crm_contacts unten enthalten bereits Email-Adressen, Telefonnummern, Namen etc.\n"
+            . "- Prüfe ob ein leeres Pflicht-Extra-Feld mit vorhandenen CRM-Daten gefüllt werden kann:\n"
+            . "  z.B. Extra-Feld \"E-Mail\" ← crm_contacts.emails, Extra-Feld \"Telefon\" ← crm_contacts.phones,\n"
+            . "  Extra-Feld \"Vorname\"/\"Nachname\" ← crm_contacts.full_name, etc.\n"
+            . "- Schreibe diese Werte SOFORT per core.extra_fields.PUT in die Extra-Felder.\n"
+            . "- Lade danach die CRM-Kontaktdaten per crm.contacts.GET (contact_id aus crm_contacts) um weitere Felder zu prüfen:\n"
+            . "  Geburtsdatum, Adresse, Anrede, Titel etc. — und schreibe passende Werte in Extra-Felder.\n"
+            . "- Erst NACH diesem Abgleich entscheiden ob noch Pflichtfelder fehlen und der Bewerber kontaktiert werden muss.\n\n"
             . "CONTEXT FILES (Anhänge, Lebenslauf, Zeugnisse):\n"
             . "- WICHTIG: Prüfe IMMER zuerst die Context Files des Bewerbers!\n"
             . "- Nutze core_context_files_GET mit context_type='RecApplicant' und context_id={$applicant->id} um alle Dateien zu sehen.\n"
@@ -958,6 +999,19 @@ class ProcessAutoPilotApplicants extends Command
                     . "- WICHTIG: Bei der ERSTEN Nachricht IMMER den Bewerber-Link am Ende einfügen!\n"
                     . "- Formulierung: \"Sie können mir direkt auf diese Nachricht antworten oder Ihre Daten hier ergänzen: {$publicUrl}\"\n\n";
             }
+        }
+
+        // Portal-Emails Hinweis
+        $hasPortalThreads = !empty(array_filter($threadsSummary, fn ($t) => !empty($t['is_portal_thread'])));
+        if ($hasPortalThreads) {
+            $system .= "PORTAL-EMAILS — WICHTIG:\n"
+                . "- Einige Threads stammen von Job-Portalen (Indeed, eBay Kleinanzeigen, StepStone etc.).\n"
+                . "- Diese Threads haben is_portal_thread=true in den Daten unten.\n"
+                . "- Der Absender (counterpart) ist NICHT der Bewerber, sondern das Portal (z.B. noreply@portal.de).\n"
+                . "- ANTWORTE NIEMALS auf einen Portal-Thread — die Nachricht erreicht den Bewerber nicht!\n"
+                . "- Stattdessen: Öffne einen NEUEN Thread an die primäre CRM-Email des Bewerbers ({$primaryEmail}).\n"
+                . "- Nutze dafür: {$messageToolPost} mit comms_channel_id + to=\"{$primaryEmail}\" + subject + body (wie Scenario B).\n"
+                . "- Werte die Nachrichten im Portal-Thread trotzdem aus — extrahiere verwertbare Infos für die Extra-Felder.\n\n";
         }
 
         // Bevorzugter Kanal
