@@ -10,7 +10,8 @@ trait ResolvesRecruitingTeam
 {
     protected function resolveTeam(array $arguments, ToolContext $context): array
     {
-        $teamId = $arguments['team_id'] ?? $context->team?->id;
+        // Context team takes priority over LLM-provided team_id
+        $teamId = $context->team?->id ?? $arguments['team_id'] ?? null;
         if ($teamId === 0 || $teamId === '0') {
             $teamId = null;
         }
