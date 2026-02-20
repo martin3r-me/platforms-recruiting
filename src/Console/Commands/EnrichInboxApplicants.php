@@ -590,8 +590,8 @@ class EnrichInboxApplicants extends Command
     private function fixPortalThreadAddresses(RecApplicant $applicant): void
     {
         try {
-            // 1. Get primary email from CRM contacts
-            $applicant->loadMissing(['crmContactLinks.contact.emailAddresses']);
+            // 1. Get primary email from CRM contacts (force-reload after enrichment)
+            $applicant->load(['crmContactLinks.contact.emailAddresses']);
 
             $primaryEmail = null;
             foreach ($applicant->crmContactLinks as $link) {
