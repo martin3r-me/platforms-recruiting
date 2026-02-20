@@ -564,12 +564,30 @@ class ProcessAutoPilotApplicants extends Command
                     $inbound = CommsEmailInboundMail::query()
                         ->where('thread_id', $t->id)
                         ->get()
-                        ->map(fn ($m) => [
-                            'direction' => 'inbound',
-                            'body' => $m->text_body,
-                            'from' => $m->from,
-                            'at' => $m->received_at?->toIso8601String() ?? $m->created_at?->toIso8601String(),
-                        ]);
+                        ->map(function ($m) {
+                            $msg = [
+                                'direction' => 'inbound',
+                                'body' => $m->text_body,
+                                'from' => $m->from,
+                                'at' => $m->received_at?->toIso8601String() ?? $m->created_at?->toIso8601String(),
+                            ];
+
+                            // Attach file references (Anhänge)
+                            $fileRefs = [];
+                            foreach ($m->getOrderedFileReferences() as $ref) {
+                                if (!$ref->contextFile) { continue; }
+                                $fileRefs[] = [
+                                    'context_file_id' => $ref->contextFile->id,
+                                    'title' => $ref->contextFile->original_name ?? '(Anhang)',
+                                    'mime_type' => $ref->contextFile->mime_type ?? null,
+                                ];
+                            }
+                            if (!empty($fileRefs)) {
+                                $msg['attachments'] = $fileRefs;
+                            }
+
+                            return $msg;
+                        });
 
                     $outbound = CommsEmailOutboundMail::query()
                         ->where('thread_id', $t->id)
