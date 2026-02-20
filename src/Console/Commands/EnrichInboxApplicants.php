@@ -139,6 +139,14 @@ class EnrichInboxApplicants extends Command
                         'on_iteration' => function (int $iter, array $toolNames, int $textLen) {
                             $this->line("  Iter {$iter}: " . (empty($toolNames) ? '(keine Tools)' : implode(', ', $toolNames)));
                         },
+                        'on_tool_result' => function (string $tool, array $args, array $result) {
+                            $ok = $result['ok'] ?? false;
+                            if (!$ok) {
+                                $errMsg = $result['error']['message'] ?? $result['error']['code'] ?? 'unknown';
+                                $this->warn("    ⚠ {$tool} FEHLER: {$errMsg}");
+                                $this->warn("      Args: " . json_encode($args, JSON_UNESCAPED_UNICODE));
+                            }
+                        },
                     ]);
 
                     $iterations = (int) ($result['iterations'] ?? 0);
