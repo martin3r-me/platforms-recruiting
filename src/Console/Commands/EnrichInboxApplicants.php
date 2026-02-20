@@ -163,6 +163,11 @@ class EnrichInboxApplicants extends Command
                     Cache::forget("enrichment:processing:{$applicant->id}");
                     $this->info("  Enrichment abgeschlossen.");
 
+                    // Fix portal threads: replace portal address with primary CRM email
+                    if (!$dryRun) {
+                        $this->fixPortalThreadAddresses($applicant);
+                    }
+
                     // Try to send initial WhatsApp template if phone number available
                     if (!$dryRun) {
                         $this->trySendInitialWhatsAppTemplate($applicant);
@@ -571,6 +576,85 @@ class EnrichInboxApplicants extends Command
         } catch (\Throwable $e) {
             $this->logEnrichment($applicant, 'whatsapp_template_error', 'WhatsApp-Template Fehler: ' . $e->getMessage());
             $this->warn("  WhatsApp: Fehler - " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Fix portal thread addresses: replace portal sender with primary CRM email.
+     *
+     * After enrichment the CRM contact should have the real email.
+     * If any email thread's counterpart (last_inbound_from_address) differs
+     * from the primary CRM email, we overwrite it so the AutoPilot replies
+     * to the correct address — deterministically, no LLM involved.
+     */
+    private function fixPortalThreadAddresses(RecApplicant $applicant): void
+    {
+        try {
+            // 1. Get primary email from CRM contacts
+            $applicant->loadMissing(['crmContactLinks.contact.emailAddresses']);
+
+            $primaryEmail = null;
+            foreach ($applicant->crmContactLinks as $link) {
+                foreach ($link->contact?->emailAddresses ?? [] as $email) {
+                    if ($email->is_primary) {
+                        $primaryEmail = $email->email_address;
+                        break 2;
+                    }
+                    if ($primaryEmail === null) {
+                        $primaryEmail = $email->email_address;
+                    }
+                }
+            }
+
+            if (!$primaryEmail) {
+                return;
+            }
+
+            // 2. Find email threads linked to this applicant
+            $morphClass = $applicant->getMorphClass();
+            $fullClass = get_class($applicant);
+
+            $threads = CommsEmailThread::query()
+                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
+                    $q->where(function ($q2) use ($morphClass, $applicant) {
+                        $q2->where('context_model', $morphClass)
+                            ->where('context_model_id', $applicant->id);
+                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
+                        $q2->where('context_model', $fullClass)
+                            ->where('context_model_id', $applicant->id);
+                    });
+                })
+                ->get();
+
+            if ($threads->isEmpty()) {
+                return;
+            }
+
+            // 3. Fix threads where counterpart differs from primary email
+            $primaryLower = strtolower(trim($primaryEmail));
+            $fixed = 0;
+
+            foreach ($threads as $thread) {
+                $counterpart = strtolower(trim($thread->last_inbound_from_address ?? ''));
+
+                if ($counterpart === '' || $counterpart === $primaryLower) {
+                    continue;
+                }
+
+                $oldAddress = $thread->last_inbound_from_address;
+                $thread->update([
+                    'last_inbound_from_address' => $primaryEmail,
+                ]);
+                $fixed++;
+
+                $this->line("  Thread #{$thread->id}: Adresse korrigiert ({$oldAddress} → {$primaryEmail})");
+            }
+
+            if ($fixed > 0) {
+                $this->logEnrichment($applicant, 'thread_address_fixed', "{$fixed} Thread(s): Portal-Adresse durch primäre CRM-Email ersetzt ({$primaryEmail})");
+            }
+        } catch (\Throwable $e) {
+            $this->warn("  Thread-Adresskorrektur fehlgeschlagen: " . $e->getMessage());
         }
     }
 
