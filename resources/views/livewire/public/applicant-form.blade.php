@@ -96,8 +96,10 @@
         @php
             // Pre-resolve lookup values for visibility conditions (client-side evaluation)
             $lookupCache = [];
-            $defsForJs = $extraFieldDefinitions;
-            foreach ($defsForJs as &$def) {
+
+            // Resolve lookups for ALL field definitions (needed for condition evaluation on filled fields)
+            $allDefsForJs = $allFieldDefinitions;
+            foreach ($allDefsForJs as &$def) {
                 $vc = $def['visibility_config'] ?? null;
                 if (!$vc || !($vc['enabled'] ?? false)) continue;
                 foreach ($vc['groups'] ?? [] as $gi => $group) {
@@ -119,16 +121,30 @@
                 }
             }
             unset($def);
+
+            // Build the filtered form definitions from allDefsForJs (same IDs as extraFieldDefinitions)
+            $formFieldIds = collect($extraFieldDefinitions)->pluck('id')->all();
+            $defsForJs = array_values(array_filter($allDefsForJs, fn($d) => in_array($d['id'], $formFieldIds)));
         @endphp
 
         <main class="max-w-3xl mx-auto px-6 py-8">
             <form wire:submit="save"
                 x-data="{
                     fieldValues: @entangle('extraFieldValues').live,
+                    allFieldValues: @entangle('allFieldValues').live,
                     fieldDefinitions: @js($defsForJs),
+                    allFieldDefinitions: @js($allDefsForJs),
+
+                    init() {
+                        this.$watch('fieldValues', (values) => {
+                            for (const [key, val] of Object.entries(values)) {
+                                this.allFieldValues[key] = val;
+                            }
+                        });
+                    },
 
                     isFieldVisible(fieldId) {
-                        const field = this.fieldDefinitions.find(f => f.id === fieldId);
+                        const field = this.allFieldDefinitions.find(f => f.id === fieldId);
                         if (!field) return true;
                         const visibility = field.visibility_config;
                         if (!visibility || !visibility.enabled) return true;
@@ -153,9 +169,11 @@
 
                     evaluateCondition(condition) {
                         if (!condition.field) return true;
-                        const targetField = this.fieldDefinitions.find(f => f.name === condition.field);
+                        const targetField = this.allFieldDefinitions.find(f => f.name === condition.field);
                         if (!targetField) return true;
-                        const actualValue = this.fieldValues[targetField.id];
+                        const actualValue = this.allFieldValues[targetField.id] !== undefined
+                            ? this.allFieldValues[targetField.id]
+                            : this.fieldValues[targetField.id];
                         const operator = condition.operator || 'equals';
                         if (operator === 'is_in' || operator === 'is_not_in') {
                             let comparisonList;
@@ -341,23 +359,12 @@
                                                 @endforeach
                                             </div>
                                         @else
-                                            <div class="space-y-2">
+                                            <select wire:model="extraFieldValues.{{ $fieldId }}" class="applicant-input">
+                                                <option value="">— Bitte wählen —</option>
                                                 @foreach($choices as $choice)
-                                                    @php $isSelected = ($extraFieldValues[$fieldId] ?? null) === $choice; @endphp
-                                                    <button
-                                                        type="button"
-                                                        wire:click="$set('extraFieldValues.{{ $fieldId }}', '{{ $choice }}')"
-                                                        class="applicant-option-card {{ $isSelected ? 'applicant-option-active' : '' }}"
-                                                    >
-                                                        <span class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border {{ $isSelected ? 'border-blue-600' : 'border-gray-300' }}">
-                                                            @if($isSelected)
-                                                                <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-                                                            @endif
-                                                        </span>
-                                                        <span class="text-sm font-medium text-gray-700">{{ $choice }}</span>
-                                                    </button>
+                                                    <option value="{{ $choice }}">{{ $choice }}</option>
                                                 @endforeach
-                                            </div>
+                                            </select>
                                         @endif
                                         @break
 
@@ -393,23 +400,12 @@
                                                 @endforeach
                                             </div>
                                         @else
-                                            <div class="space-y-2">
+                                            <select wire:model="extraFieldValues.{{ $fieldId }}" class="applicant-input">
+                                                <option value="">— Bitte wählen —</option>
                                                 @foreach($lookupChoices as $choice)
-                                                    @php $isSelected = ($extraFieldValues[$fieldId] ?? null) === $choice['value']; @endphp
-                                                    <button
-                                                        type="button"
-                                                        wire:click="$set('extraFieldValues.{{ $fieldId }}', {{ json_encode($choice['value']) }})"
-                                                        class="applicant-option-card {{ $isSelected ? 'applicant-option-active' : '' }}"
-                                                    >
-                                                        <span class="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 border {{ $isSelected ? 'border-blue-600' : 'border-gray-300' }}">
-                                                            @if($isSelected)
-                                                                <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
-                                                            @endif
-                                                        </span>
-                                                        <span class="text-sm font-medium text-gray-700">{{ $choice['label'] }}</span>
-                                                    </button>
+                                                    <option value="{{ $choice['value'] }}">{{ $choice['label'] }}</option>
                                                 @endforeach
-                                            </div>
+                                            </select>
                                         @endif
                                         @break
 

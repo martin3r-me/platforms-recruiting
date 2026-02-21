@@ -27,6 +27,12 @@ class ApplicantForm extends Component
     public array $pendingFileUploads = [];
     public array $uploadedFileData = [];
 
+    /** All field values (including already-filled) for condition evaluation */
+    public array $allFieldValues = [];
+
+    /** All field definitions (including already-filled) for condition evaluation */
+    public array $allFieldDefinitions = [];
+
     private function getApplicant(): ?RecApplicant
     {
         if (!$this->applicantId) {
@@ -60,6 +66,10 @@ class ApplicantForm extends Component
     private function loadFormFields(RecApplicant $applicant): void
     {
         $this->loadExtraFieldValues($applicant);
+
+        // Store ALL definitions and values for condition evaluation (before filtering)
+        $this->allFieldDefinitions = $this->extraFieldDefinitions;
+        $this->allFieldValues = $this->extraFieldValues;
 
         // Filter: only show unfilled fields
         $filtered = [];
@@ -195,6 +205,11 @@ class ApplicantForm extends Component
         }
 
         $this->saveExtraFieldValues($applicant);
+
+        // Sync form values into allFieldValues for condition evaluation
+        foreach ($this->extraFieldValues as $fieldId => $value) {
+            $this->allFieldValues[$fieldId] = $value;
+        }
 
         $applicant->progress = $applicant->calculateProgress();
         $applicant->save();
