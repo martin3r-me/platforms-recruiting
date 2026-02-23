@@ -4,15 +4,17 @@ namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Platform\Core\Models\CoreExtraFieldDefinition;
+use Platform\Core\Contracts\InheritsExtraFields;
 use Platform\Core\Traits\HasExtraFields;
+use Platform\Core\Traits\HasPublicFormLink;
 use Platform\Recruiting\Traits\HasApplicantContact;
 use Symfony\Component\Uid\UuidV7;
 
-class RecApplicant extends Model
+class RecApplicant extends Model implements InheritsExtraFields
 {
     use HasApplicantContact;
     use HasExtraFields;
+    use HasPublicFormLink;
 
     protected $table = 'rec_applicants';
 
@@ -66,31 +68,16 @@ class RecApplicant extends Model
 
     public function getPublicUrl(): string
     {
-        return url('/recruiting/a/' . $this->public_token);
+        return $this->getOrCreatePublicFormLink()->getUrl();
     }
 
-    public function getExtraFieldDefinitions(): Collection
+    /**
+     * Parent-Models von denen Extra-Field-Definitionen geerbt werden.
+     * Applicants erben Extra-Felder von den Positionen ihrer Postings.
+     */
+    public function extraFieldParents(): array
     {
-        $teamId = $this->getTeamIdForExtraFields();
-        if (!$teamId) {
-            return collect();
-        }
-
-        $positionIds = $this->postings()
-            ->join('rec_positions', 'rec_positions.id', '=', 'rec_postings.rec_position_id')
-            ->pluck('rec_positions.id')
-            ->unique()->filter()->values();
-
-        return CoreExtraFieldDefinition::query()
-            ->forTeam($teamId)
-            ->where('context_type', RecPosition::class)
-            ->where(function ($q) use ($positionIds) {
-                $q->whereNull('context_id');
-                if ($positionIds->isNotEmpty()) {
-                    $q->orWhereIn('context_id', $positionIds->toArray());
-                }
-            })
-            ->orderBy('order')->orderBy('label')->get();
+        return $this->positions()->all();
     }
 
     public function postings()
