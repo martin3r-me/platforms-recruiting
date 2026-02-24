@@ -21,7 +21,7 @@
             </div>
         </div>
 
-        <x-core-extra-fields-section :definitions="$extraFieldDefinitions" />
+        <x-core-extra-fields-section :definitions="$extraFieldDefinitions" :model="$position" />
 
         {{-- Postings --}}
         <x-ui-panel title="Ausschreibungen" subtitle="Ausschreibungen zu dieser Stelle">
