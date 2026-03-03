@@ -159,9 +159,17 @@ class EnrichInboxApplicants extends Command
 
                     $this->line("  Iterationen: {$iterations} | Tools: " . (empty($allToolCallNames) ? '(keine)' : implode(', ', $allToolCallNames)));
 
-                    $applicant->update(['enrichment_status' => 'enriched']);
+                    // Only mark as enriched if a CRM contact was linked
+                    $applicant->refresh();
+                    $applicant->loadMissing('crmContactLinks');
+                    if ($applicant->crmContactLinks->isNotEmpty()) {
+                        $applicant->update(['enrichment_status' => 'enriched']);
+                        $this->info("  Enrichment abgeschlossen.");
+                    } else {
+                        $this->warn("  Enrichment durchgelaufen, aber kein CRM-Kontakt verknüpft — bleibt im Eingang.");
+                        $this->logEnrichment($applicant, 'no_contact', 'Enrichment abgeschlossen, aber kein CRM-Kontakt verknüpft.');
+                    }
                     Cache::forget("enrichment:processing:{$applicant->id}");
-                    $this->info("  Enrichment abgeschlossen.");
 
                     // Fix portal threads: replace portal address with primary CRM email
                     if (!$dryRun) {
