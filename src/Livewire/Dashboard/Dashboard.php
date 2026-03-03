@@ -315,7 +315,6 @@ class Dashboard extends Component
         $action = new TransferApplicantToOnboarding();
         $onboarding = $action->execute($applicant);
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants, $this->applicantCount);
-        $this->redirect(route('hcm.onboardings.show', $onboarding), navigate: true);
     }
 
     public function dismissApplicant(int $applicantId): void
