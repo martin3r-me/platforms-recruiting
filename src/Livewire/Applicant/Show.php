@@ -14,6 +14,7 @@ use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmContact;
+use Platform\Crm\Models\CrmContactStatus;
 
 class Show extends Component
 {
@@ -256,9 +257,12 @@ class Show extends Component
             'contactForm.notes' => 'nullable|string|max:1000',
         ]);
 
+        $defaultStatus = CrmContactStatus::where('code', 'ACTIVE')->first();
+
         $contact = CrmContact::create(array_merge($this->contactForm, [
             'team_id' => $this->applicant->team_id,
             'created_by_user_id' => auth()->id(),
+            'contact_status_id' => $defaultStatus?->id,
         ]));
 
         $this->applicant->linkContact($contact);
