@@ -111,7 +111,7 @@ class EnrichInboxApplicants extends Command
                 $preloadTools = [
                     'core.extra_fields.GET', 'core.extra_fields.PUT',
                     'core.context.files.GET', 'core.context.files.content.GET',
-                    'crm.contacts.GET', 'crm.contacts.PUT',
+                    'crm.contacts.GET', 'crm.contacts.POST', 'crm.contacts.PUT',
                     'crm.phone_numbers.POST', 'crm.email_addresses.POST',
                     'crm.lookups.GET', 'crm.lookup.GET',
                     'crm.postal_addresses.POST',
@@ -717,6 +717,7 @@ class EnrichInboxApplicants extends Command
             . "- core.context.files.GET — Dateien am Bewerber-Objekt auflisten\n"
             . "- core.context.files.content.GET — Datei-Inhalt lesen (Text, PDF-Text, Bilder als URL)\n"
             . "- crm.contacts.GET — CRM-Kontakt laden\n"
+            . "- crm.contacts.POST — Neuen CRM-Kontakt erstellen (first_name, last_name, contact_status_id)\n"
             . "- crm.contacts.PUT — CRM-Kontakt aktualisieren (first_name, last_name, salutation_id, academic_title_id, gender_id, birth_date)\n"
             . "- crm.phone_numbers.POST — Telefonnummer an CRM-Kontakt anlegen (contact_id, raw_input, phone_type_id, is_primary)\n"
             . "- crm.email_addresses.POST — Email-Adresse an CRM-Kontakt anlegen (contact_id, email_address, email_type_id, is_primary)\n"
@@ -748,7 +749,11 @@ class EnrichInboxApplicants extends Command
             . "   Lege NUR diese eine Adresse an per crm.email_addresses.POST (contact_id, email_address, email_type_id, is_primary=true).\n"
             . "9. Falls eine Adresse erkennbar ist: Lade per crm.lookups.GET/crm.lookup.GET die IDs für country und address_type,\n"
             . "   dann lege die Adresse per crm.postal_addresses.POST am Kontakt an.\n"
-            . "10. Falls kein Kontakt verknüpft: suche oder erstelle einen und verknüpfe per recruiting.applicant_contacts.POST.\n\n"
+            . "10. Falls kein Kontakt verknüpft:\n"
+            . "    a) Suche per crm.contacts.GET ob der Kontakt bereits existiert.\n"
+            . "    b) Falls nicht gefunden: Erstelle per crm.contacts.POST einen neuen Kontakt (first_name, last_name, contact_status_id — lade status_id per crm.lookup.GET für 'contact_status', nutze 'ACTIVE').\n"
+            . "    c) Verknüpfe den Kontakt per recruiting.applicant_contacts.POST (contact_id).\n"
+            . "    WICHTIG: Schritt 10 ist PFLICHT — ohne verknüpften Kontakt ist die Enrichment NICHT abgeschlossen.\n\n"
             . "PORTAL-BEWERBUNGEN:\n"
             . "- Bewerbungen kommen oft über Job-Portale. Der Email-Absender ist dann NICHT der Bewerber.\n"
             . "- Prüfe ob die Absender-Adresse (from) eine persönliche Adresse oder eine System-/Portal-Adresse ist.\n"

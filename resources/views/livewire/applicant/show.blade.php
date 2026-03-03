@@ -571,7 +571,7 @@
                                     </div>
                                     <div class="flex-1 min-w-0">
                                         <p class="text-[var(--ui-secondary)] leading-snug break-words">{{ \Illuminate\Support\Str::limit($log->summary, 120) }}</p>
-                                        <p class="text-xs text-[var(--ui-muted)] mt-0.5">{{ $log->created_at->diffForHumans() }}</p>
+                                        <p class="text-xs text-[var(--ui-muted)] mt-0.5">{{ $log->created_at->timezone(auth()->user()->timezone ?? config('app.timezone', 'Europe/Berlin'))->diffForHumans() }}</p>
                                     </div>
                                 </div>
                             @endforeach
