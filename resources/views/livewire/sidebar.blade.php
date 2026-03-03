@@ -1,4 +1,4 @@
-<div>
+<div wire:poll.30s>
     {{-- Modul Header --}}
     <div x-show="!collapsed" class="p-3 text-sm italic text-[var(--ui-secondary)] uppercase border-b border-[var(--ui-border)] mb-2">
         Recruiting
