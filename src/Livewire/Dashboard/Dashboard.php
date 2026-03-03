@@ -325,17 +325,20 @@ class Dashboard extends Component
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $contact = CrmContact::findOrFail($contactId);
 
-        // Create link directly (bypasses hasContacts() guard in trait)
-        CrmContactLink::firstOrCreate([
-            'contact_id' => $contact->id,
-            'linkable_id' => $applicant->id,
-            'linkable_type' => $applicant->getMorphClass(),
-        ], [
-            'team_id' => $applicant->team_id,
-            'created_by_user_id' => auth()->id(),
-        ]);
+        // Check if link already exists
+        $exists = $applicant->crmContactLinks()
+            ->where('contact_id', $contact->id)
+            ->exists();
 
-        // Manual linking = enrichment done
+        if (! $exists) {
+            $applicant->crmContactLinks()->create([
+                'contact_id' => $contact->id,
+                'team_id' => $applicant->team_id,
+                'created_by_user_id' => auth()->id(),
+            ]);
+        }
+
+        // Manual linking = enrichment done (always update, regardless of link result)
         if (in_array($applicant->enrichment_status, [null, 'no_contact'], true)) {
             $applicant->update(['enrichment_status' => 'enriched']);
         }

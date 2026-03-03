@@ -533,9 +533,10 @@ class EnrichInboxApplicants extends Command
     private function tryAutoLinkContact(RecApplicant $applicant, User $admin): void
     {
         try {
-            $cutoff = Carbon::now()->subMinutes(10);
+            $applicantMorphClass = $applicant->getMorphClass();
 
-            // Find recently created contacts by this admin for this team
+            // Strategy 1: Find recently created contacts by this admin (LLM created but didn't link)
+            $cutoff = Carbon::now()->subMinutes(10);
             $recentContacts = \Platform\Crm\Models\CrmContact::where('team_id', $applicant->team_id)
                 ->where('created_by_user_id', $admin->id)
                 ->where('created_at', '>=', $cutoff)
@@ -543,13 +544,6 @@ class EnrichInboxApplicants extends Command
                 ->limit(5)
                 ->get();
 
-            if ($recentContacts->isEmpty()) {
-                $this->line("  Auto-Link: Keine kürzlich erstellten Kontakte gefunden.");
-                return;
-            }
-
-            // Filter: only contacts not already linked to this applicant
-            $applicantMorphClass = $applicant->getMorphClass();
             $unlinked = $recentContacts->filter(function ($contact) use ($applicant, $applicantMorphClass) {
                 return !\Platform\Crm\Models\CrmContactLink::where('contact_id', $contact->id)
                     ->where('linkable_id', $applicant->id)
@@ -557,26 +551,91 @@ class EnrichInboxApplicants extends Command
                     ->exists();
             });
 
-            if ($unlinked->isEmpty()) {
-                $this->line("  Auto-Link: Alle kürzlich erstellten Kontakte sind bereits verknüpft.");
+            if ($unlinked->isNotEmpty()) {
+                $contact = $unlinked->first();
+                $applicant->crmContactLinks()->create([
+                    'contact_id' => $contact->id,
+                    'team_id' => $applicant->team_id,
+                    'created_by_user_id' => $admin->id,
+                ]);
+                $this->info("  Auto-Link: Kontakt #{$contact->id} ({$contact->full_name}) verknüpft (kürzlich erstellt).");
+                $this->logEnrichment($applicant, 'auto_linked', "CRM-Kontakt #{$contact->id} ({$contact->full_name}) automatisch verknüpft (kürzlich erstellt).");
                 return;
             }
 
-            // Link the most recent unlinked contact
-            $contact = $unlinked->first();
+            // Strategy 2: Search existing CRM contacts by name from extra fields
+            $nameFromFields = $this->extractNameFromExtraFields($applicant);
+            if ($nameFromFields) {
+                $query = \Platform\Crm\Models\CrmContact::where('team_id', $applicant->team_id)
+                    ->where('is_active', true);
 
-            \Platform\Crm\Models\CrmContactLink::create([
-                'contact_id' => $contact->id,
-                'linkable_id' => $applicant->id,
-                'linkable_type' => $applicantMorphClass,
-                'team_id' => $applicant->team_id,
-                'created_by_user_id' => $admin->id,
-            ]);
+                if ($nameFromFields['last_name']) {
+                    $query->where('last_name', $nameFromFields['last_name']);
+                }
+                if ($nameFromFields['first_name']) {
+                    $query->where('first_name', $nameFromFields['first_name']);
+                }
 
-            $this->info("  Auto-Link: Kontakt #{$contact->id} ({$contact->full_name}) automatisch verknüpft.");
-            $this->logEnrichment($applicant, 'auto_linked', "CRM-Kontakt #{$contact->id} ({$contact->full_name}) automatisch verknüpft (LLM hat erstellt aber nicht verlinkt).");
+                // Only auto-link if exactly 1 match (avoid ambiguity)
+                $matches = $query->limit(2)->get();
+
+                if ($matches->count() === 1) {
+                    $contact = $matches->first();
+
+                    // Check not already linked
+                    $alreadyLinked = \Platform\Crm\Models\CrmContactLink::where('contact_id', $contact->id)
+                        ->where('linkable_id', $applicant->id)
+                        ->where('linkable_type', $applicantMorphClass)
+                        ->exists();
+
+                    if (! $alreadyLinked) {
+                        $applicant->crmContactLinks()->create([
+                            'contact_id' => $contact->id,
+                            'team_id' => $applicant->team_id,
+                            'created_by_user_id' => $admin->id,
+                        ]);
+                        $this->info("  Auto-Link: Kontakt #{$contact->id} ({$contact->full_name}) verknüpft (Name-Match aus Extra-Fields).");
+                        $this->logEnrichment($applicant, 'auto_linked', "CRM-Kontakt #{$contact->id} ({$contact->full_name}) automatisch verknüpft (Name-Match).");
+                        return;
+                    }
+                } elseif ($matches->count() > 1) {
+                    $this->line("  Auto-Link: Mehrere Kontakte gefunden für '{$nameFromFields['first_name']} {$nameFromFields['last_name']}' — übersprungen (mehrdeutig).");
+                }
+            }
+
+            $this->line("  Auto-Link: Kein passender Kontakt gefunden.");
         } catch (\Throwable $e) {
             $this->warn("  Auto-Link Fehler: " . $e->getMessage());
+        }
+    }
+
+    private function extractNameFromExtraFields(RecApplicant $applicant): ?array
+    {
+        try {
+            $fields = $applicant->getExtraFieldsWithLabels();
+            $firstName = null;
+            $lastName = null;
+
+            foreach ($fields as $field) {
+                $key = strtolower($field['key'] ?? '');
+                $value = $field['value'] ?? null;
+                if (empty($value) || !is_string($value)) continue;
+
+                if (in_array($key, ['first_name', 'vorname', 'firstname'])) {
+                    $firstName = trim($value);
+                } elseif (in_array($key, ['last_name', 'nachname', 'lastname', 'name'])) {
+                    $lastName = trim($value);
+                }
+            }
+
+            // Need at least last name for a meaningful search
+            if (! $lastName) {
+                return null;
+            }
+
+            return ['first_name' => $firstName, 'last_name' => $lastName];
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 
