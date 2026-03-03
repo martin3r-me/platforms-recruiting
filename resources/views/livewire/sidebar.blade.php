@@ -41,14 +41,6 @@
         </x-ui-sidebar-list>
     @endif
 
-    {{-- Abschnitt: Einstellungen --}}
-    <x-ui-sidebar-list label="Einstellungen">
-        <x-ui-sidebar-item :href="route('recruiting.applicant-statuses.index')">
-            @svg('heroicon-o-tag', 'w-4 h-4 text-[var(--ui-secondary)]')
-            <span class="ml-2 text-sm">Bewerber-Status</span>
-        </x-ui-sidebar-item>
-    </x-ui-sidebar-list>
-
     {{-- Collapsed: Icons-only --}}
     <div x-show="collapsed" class="px-2 py-2 border-b border-[var(--ui-border)]">
         <div class="flex flex-col gap-2">
@@ -63,9 +55,6 @@
             </a>
             <a href="{{ route('recruiting.applicants.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Bewerber">
                 @svg('heroicon-o-user-group', 'w-5 h-5')
-            </a>
-            <a href="{{ route('recruiting.applicant-statuses.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Bewerber-Status">
-                @svg('heroicon-o-tag', 'w-5 h-5')
             </a>
         </div>
     </div>

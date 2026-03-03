@@ -32,11 +32,5 @@ return [
                 ['label' => 'Bewerber',        'route' => 'recruiting.applicants.index',         'icon' => 'heroicon-o-user-group'],
             ],
         ],
-        [
-            'group' => 'Einstellungen',
-            'items' => [
-                ['label' => 'Bewerber-Status', 'route' => 'recruiting.applicant-statuses.index', 'icon' => 'heroicon-o-tag'],
-            ],
-        ],
     ],
 ];

@@ -8,7 +8,7 @@ use Platform\Recruiting\Livewire\Posting\Index as PostingIndex;
 use Platform\Recruiting\Livewire\Posting\Show as PostingShow;
 use Platform\Recruiting\Livewire\Applicant\Index as ApplicantIndex;
 use Platform\Recruiting\Livewire\Applicant\Show as ApplicantShow;
-use Platform\Recruiting\Livewire\ApplicantStatus\Index as ApplicantStatusIndex;
+
 use Platform\Recruiting\Livewire\Position\Dashboard as PositionDashboard;
 
 // Dashboard
@@ -26,6 +26,3 @@ Route::get('/postings/{posting}', PostingShow::class)->name('recruiting.postings
 // Bewerber
 Route::get('/applicants', ApplicantIndex::class)->name('recruiting.applicants.index');
 Route::get('/applicants/{applicant}', ApplicantShow::class)->name('recruiting.applicants.show');
-
-// Lookups
-Route::get('/applicant-statuses', ApplicantStatusIndex::class)->name('recruiting.applicant-statuses.index');
