@@ -18,6 +18,10 @@
             @svg('heroicon-o-briefcase', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Stellen</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.positions.index')">
+            @svg('heroicon-o-squares-2x2', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Stellen-Boards</span>
+        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.postings.index')">
             @svg('heroicon-o-megaphone', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Ausschreibungen</span>
