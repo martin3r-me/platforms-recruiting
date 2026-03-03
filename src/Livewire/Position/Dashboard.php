@@ -8,6 +8,7 @@ use Livewire\Attributes\Computed;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmContact;
+use Platform\Crm\Models\CrmContactLink;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
@@ -337,10 +338,19 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $contact = CrmContact::findOrFail($contactId);
-        $applicant->linkContact($contact);
 
-        // Move out of "Manuelle Prüfung" into normal flow
-        if ($applicant->enrichment_status === 'no_contact') {
+        // Create link directly (bypasses hasContacts() guard in trait)
+        CrmContactLink::firstOrCreate([
+            'contact_id' => $contact->id,
+            'linkable_id' => $applicant->id,
+            'linkable_type' => $applicant->getMorphClass(),
+        ], [
+            'team_id' => $applicant->team_id,
+            'created_by_user_id' => auth()->id(),
+        ]);
+
+        // Manual linking = enrichment done
+        if (in_array($applicant->enrichment_status, [null, 'no_contact'], true)) {
             $applicant->update(['enrichment_status' => 'enriched']);
         }
 
