@@ -721,6 +721,15 @@ class EnrichInboxApplicants extends Command
                 languageCode: $templateLang,
             );
 
+            // Link thread to applicant so isWhatsAppWindowOpen() can find it
+            $thread = $message->thread;
+            if ($thread && ! $thread->context_model) {
+                $thread->update([
+                    'context_model' => $applicant->getMorphClass(),
+                    'context_model_id' => $applicant->id,
+                ]);
+            }
+
             $this->logEnrichment($applicant, 'whatsapp_template_sent', "WhatsApp-Template '{$templateName}' gesendet", [
                 'phone' => $phoneNumber,
                 'template' => $templateName,

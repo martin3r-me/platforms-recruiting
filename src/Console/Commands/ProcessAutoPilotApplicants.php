@@ -17,6 +17,7 @@ use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsEmailInboundMail;
 use Platform\Crm\Models\CommsEmailOutboundMail;
 use Platform\Crm\Models\CrmPhoneNumber;
+use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Core\Models\CoreAiProvider;
 use Platform\Core\Models\Team;
 use Platform\Core\Models\User;
@@ -675,41 +676,70 @@ class ProcessAutoPilotApplicants extends Command
 
     private function linkNewThreadsToApplicant(RecApplicant $applicant, array $contactInfo, ?array $preferredChannel = null): int
     {
-        $emails = [];
-        foreach ($contactInfo as $contact) {
-            foreach ($contact['emails'] ?? [] as $email) {
-                $emails[] = $email['email'];
-            }
-        }
-        if (empty($emails)) { return 0; }
-
         $teamId = $applicant->team_id;
         if (!$teamId) { return 0; }
 
         $channelId = $preferredChannel['comms_channel_id'] ?? null;
         if (!$channelId) { return 0; }
 
-        try {
-            $updated = CommsEmailThread::query()
-                ->where('comms_channel_id', $channelId)
-                ->whereNull('context_model')
-                ->where(function ($q) use ($emails) {
-                    foreach ($emails as $email) {
-                        $q->orWhere('last_outbound_to_address', $email);
-                        $q->orWhere('last_inbound_from_address', $email);
-                    }
-                })
-                ->where('created_at', '>=', now()->subMinutes(30))
-                ->update([
-                    'context_model' => $applicant->getMorphClass(),
-                    'context_model_id' => $applicant->id,
-                ]);
+        $morphClass = $applicant->getMorphClass();
+        $total = 0;
 
-            if ($updated > 0) {
-                $this->logAutoPilot($applicant, 'note', "{$updated} neue(r) Thread(s) mit Bewerber verknüpft");
+        try {
+            // Link email threads
+            $emails = [];
+            foreach ($contactInfo as $contact) {
+                foreach ($contact['emails'] ?? [] as $email) {
+                    $emails[] = $email['email'];
+                }
             }
 
-            return $updated;
+            if (!empty($emails)) {
+                $emailLinked = CommsEmailThread::query()
+                    ->where('comms_channel_id', $channelId)
+                    ->whereNull('context_model')
+                    ->where(function ($q) use ($emails) {
+                        foreach ($emails as $email) {
+                            $q->orWhere('last_outbound_to_address', $email);
+                            $q->orWhere('last_inbound_from_address', $email);
+                        }
+                    })
+                    ->where('created_at', '>=', now()->subMinutes(30))
+                    ->update([
+                        'context_model' => $morphClass,
+                        'context_model_id' => $applicant->id,
+                    ]);
+                $total += $emailLinked;
+            }
+
+            // Link WhatsApp threads
+            $phones = [];
+            foreach ($contactInfo as $contact) {
+                foreach ($contact['phones'] ?? [] as $phone) {
+                    if (!empty($phone['number'])) {
+                        $phones[] = $phone['number'];
+                    }
+                }
+            }
+
+            if (!empty($phones)) {
+                $waLinked = CommsWhatsAppThread::query()
+                    ->where('comms_channel_id', $channelId)
+                    ->whereNull('context_model')
+                    ->whereIn('remote_phone_number', $phones)
+                    ->where('created_at', '>=', now()->subMinutes(30))
+                    ->update([
+                        'context_model' => $morphClass,
+                        'context_model_id' => $applicant->id,
+                    ]);
+                $total += $waLinked;
+            }
+
+            if ($total > 0) {
+                $this->logAutoPilot($applicant, 'note', "{$total} neue(r) Thread(s) mit Bewerber verknüpft");
+            }
+
+            return $total;
         } catch (\Throwable $e) {
             return 0;
         }
@@ -1238,36 +1268,45 @@ class ProcessAutoPilotApplicants extends Command
     private function trySendWhatsAppTemplate(RecApplicant $applicant, CrmPhoneNumber $phoneNumber): bool
     {
         try {
-            // Get WhatsApp channel for team
-            $channel = CommsChannel::where('team_id', $applicant->team_id)
-                ->where('type', 'whatsapp')
-                ->where('is_active', true)
-                ->first();
+            // Get WhatsApp channel — prefer the preferred channel, fallback to any active
+            $channel = $applicant->preferredCommsChannel;
+            if (! $channel || $channel->type !== 'whatsapp' || ! $channel->is_active) {
+                $channel = CommsChannel::where('team_id', $applicant->team_id)
+                    ->where('type', 'whatsapp')
+                    ->where('is_active', true)
+                    ->first();
+            }
 
-            if (!$channel) {
+            if (! $channel) {
+                $this->line("    Template: Kein aktiver WhatsApp-Kanal gefunden.");
                 return false;
             }
 
-            // Use the WhatsApp service to send template
-            $service = $channel->getService();
-            if (!$service || !method_exists($service, 'sendTemplate')) {
-                return false;
-            }
+            $templateName = $channel->meta['default_template'] ?? 'hello_world';
+            $templateLang = $channel->meta['default_template_lang'] ?? 'de';
 
-            // Send a simple "hello" template to open the window
-            $result = $service->sendTemplate(
-                $phoneNumber->international,
-                'hello_world', // Standard WhatsApp hello template
-                'de',
-                [],
-                [
-                    'context_model' => $applicant->getMorphClass(),
-                    'context_model_id' => $applicant->id,
-                ]
+            $service = app(WhatsAppMetaService::class);
+            $message = $service->sendTemplate(
+                channel: $channel,
+                to: $phoneNumber->international,
+                templateName: $templateName,
+                components: [],
+                languageCode: $templateLang,
             );
 
-            return $result !== false;
+            // Link the thread to the applicant so isWhatsAppWindowOpen() can find it
+            $thread = $message->thread;
+            if ($thread && ! $thread->context_model) {
+                $thread->update([
+                    'context_model' => $applicant->getMorphClass(),
+                    'context_model_id' => $applicant->id,
+                ]);
+            }
+
+            $this->info("    Template '{$templateName}' gesendet an {$phoneNumber->international}");
+            return true;
         } catch (\Throwable $e) {
+            $this->warn("    Template-Fehler: " . $e->getMessage());
             return false;
         }
     }
