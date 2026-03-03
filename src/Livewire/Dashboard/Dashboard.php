@@ -7,8 +7,6 @@ use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
-use Platform\Crm\Models\CrmContact;
-use Platform\Crm\Models\CrmContactLink;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
@@ -143,16 +141,6 @@ class Dashboard extends Component
             ->forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->orderBy('title')
-            ->get();
-    }
-
-    #[Computed]
-    public function availableContacts()
-    {
-        return CrmContact::active()
-            ->where('team_id', auth()->user()->currentTeam->id)
-            ->orderBy('last_name')
-            ->orderBy('first_name')
             ->get();
     }
 
@@ -317,32 +305,6 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
-    }
-
-    public function linkExistingContact(int $applicantId, int $contactId): void
-    {
-        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
-        $contact = CrmContact::findOrFail($contactId);
-
-        // Check if link already exists
-        $exists = $applicant->crmContactLinks()
-            ->where('contact_id', $contact->id)
-            ->exists();
-
-        if (! $exists) {
-            $applicant->crmContactLinks()->create([
-                'contact_id' => $contact->id,
-                'team_id' => $applicant->team_id,
-                'created_by_user_id' => auth()->id(),
-            ]);
-        }
-
-        // Manual linking = enrichment done (always update, regardless of link result)
-        if (in_array($applicant->enrichment_status, [null, 'no_contact'], true)) {
-            $applicant->update(['enrichment_status' => 'enriched']);
-        }
-
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 

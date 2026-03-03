@@ -141,19 +141,7 @@
                                     @if($primaryContact)
                                         <span class="text-sm text-[var(--ui-secondary)]">{{ $primaryContact->full_name }}</span>
                                     @else
-                                        <div x-data="{ val: '' }">
-                                            <x-ui-input-select
-                                                name="contact_{{ $applicant->id }}"
-                                                :options="$this->availableContacts"
-                                                optionValue="id"
-                                                optionLabel="full_name"
-                                                :nullable="true"
-                                                nullLabel="– Kontakt wählen –"
-                                                size="sm"
-                                                x-model="val"
-                                                x-on:change="if (val) { $wire.linkExistingContact({{ $applicant->id }}, parseInt(val)); val = ''; }"
-                                            />
-                                        </div>
+                                        <x-ui-badge variant="warning" size="xs">Kein Kontakt</x-ui-badge>
                                     @endif
                                 </td>
                                 {{-- Aktion --}}
@@ -243,19 +231,7 @@
                                     @if($primaryContact)
                                         <span class="text-sm text-[var(--ui-secondary)]">{{ $primaryContact->full_name }}</span>
                                     @else
-                                        <div x-data="{ val: '' }">
-                                            <x-ui-input-select
-                                                name="review_contact_{{ $applicant->id }}"
-                                                :options="$this->availableContacts"
-                                                optionValue="id"
-                                                optionLabel="full_name"
-                                                :nullable="true"
-                                                nullLabel="– Kontakt wählen –"
-                                                size="sm"
-                                                x-model="val"
-                                                x-on:change="if (val) { $wire.linkExistingContact({{ $applicant->id }}, parseInt(val)); val = ''; }"
-                                            />
-                                        </div>
+                                        <x-ui-badge variant="warning" size="xs">Kein Kontakt</x-ui-badge>
                                     @endif
                                 </td>
                                 <td class="px-4 py-2.5 text-right">
