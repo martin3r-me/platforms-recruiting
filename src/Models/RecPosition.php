@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Platform\Core\Traits\HasExtraFields;
+use Platform\Hcm\Models\HcmJobTitle;
 use Symfony\Component\Uid\UuidV7;
 
 class RecPosition extends Model
@@ -14,7 +15,7 @@ class RecPosition extends Model
 
     protected $fillable = [
         'uuid', 'team_id', 'title', 'description', 'department', 'location',
-        'is_active', 'created_by_user_id', 'owned_by_user_id',
+        'hcm_job_title_id', 'is_active', 'created_by_user_id', 'owned_by_user_id',
     ];
 
     protected $casts = [
@@ -31,6 +32,11 @@ class RecPosition extends Model
                 $model->uuid = $uuid;
             }
         });
+    }
+
+    public function jobTitle()
+    {
+        return $this->belongsTo(HcmJobTitle::class, 'hcm_job_title_id');
     }
 
     public function postings()

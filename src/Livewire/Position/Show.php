@@ -6,6 +6,7 @@ use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Core\Livewire\Concerns\WithExtraFields;
 use Illuminate\Support\Facades\Auth;
+use Platform\Hcm\Models\HcmJobTitle;
 use Platform\Recruiting\Models\RecPosition;
 
 class Show extends Component
@@ -16,7 +17,7 @@ class Show extends Component
 
     public function mount(RecPosition $position)
     {
-        $this->position = $position->load(['postings', 'ownedByUser', 'createdByUser']);
+        $this->position = $position->load(['postings', 'ownedByUser', 'createdByUser', 'jobTitle']);
         $this->loadExtraFieldValues($this->position);
     }
 
@@ -27,6 +28,7 @@ class Show extends Component
             'position.description' => 'nullable|string',
             'position.department' => 'nullable|string|max:255',
             'position.location' => 'nullable|string|max:255',
+            'position.hcm_job_title_id' => 'nullable|exists:hcm_job_titles,id',
             'position.is_active' => 'boolean',
             'position.owned_by_user_id' => 'nullable|exists:users,id',
         ], $this->getExtraFieldValidationRules());
@@ -58,6 +60,19 @@ class Show extends Component
             ->map(fn ($user) => [
                 'id' => $user->id,
                 'name' => $user->fullname ?? $user->name,
+            ]);
+    }
+
+    #[Computed]
+    public function jobTitles()
+    {
+        return HcmJobTitle::where('team_id', Auth::user()->currentTeam->id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($jt) => [
+                'id' => $jt->id,
+                'name' => $jt->name,
             ]);
     }
 
