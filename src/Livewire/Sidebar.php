@@ -30,6 +30,23 @@ class Sidebar extends Component
     }
 
     #[Computed]
+    public function positionsWithPostings()
+    {
+        $teamId = auth()->user()->currentTeam->id;
+
+        return RecPosition::forTeam($teamId)
+            ->active()
+            ->whereHas('postings', fn ($q) => $q->active())
+            ->orderBy('title')
+            ->get()
+            ->each(function ($pos) {
+                $pos->applicant_count = RecApplicant::where('is_active', true)
+                    ->whereHas('postings', fn ($q) => $q->where('rec_position_id', $pos->id))
+                    ->count();
+            });
+    }
+
+    #[Computed]
     public function stats()
     {
         $teamId = auth()->user()->currentTeam->id;

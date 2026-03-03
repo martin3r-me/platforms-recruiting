@@ -390,18 +390,17 @@
     </x-ui-page-container>
 
     <x-slot name="sidebar">
-        <x-ui-page-sidebar title="Stellen" width="w-80" :defaultOpen="true" side="left">
-            <div class="p-4 space-y-1">
-                @foreach($this->positionsWithPostings as $pos)
-                    <a href="{{ route('recruiting.positions.dashboard', $pos) }}"
-                       class="flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors {{ $pos->id === $position->id ? 'bg-[var(--ui-primary)]/10 font-semibold text-[var(--ui-secondary)]' : 'text-[var(--ui-muted)] hover:bg-[var(--ui-muted-5)] hover:text-[var(--ui-secondary)]' }}"
-                       wire:navigate>
-                        <span class="truncate">{{ $pos->title }}</span>
-                        <span class="flex-shrink-0 ml-2 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium {{ $pos->id === $position->id ? 'bg-[var(--ui-primary)]/20 text-[var(--ui-primary)]' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)]' }}">
-                            {{ $pos->applicant_count }}
-                        </span>
-                    </a>
-                @endforeach
+        <x-ui-page-sidebar title="Schnellzugriff" width="w-80" :defaultOpen="true" side="left">
+            <div class="p-6 space-y-4">
+                <x-ui-button variant="secondary" size="sm" class="w-full justify-start" href="{{ route('recruiting.dashboard') }}" wire:navigate>
+                    @svg('heroicon-o-home', 'w-4 h-4') <span class="ml-2">Haupt-Dashboard</span>
+                </x-ui-button>
+                <x-ui-button variant="secondary" size="sm" class="w-full justify-start" href="{{ route('recruiting.positions.show', $position) }}" wire:navigate>
+                    @svg('heroicon-o-briefcase', 'w-4 h-4') <span class="ml-2">Stelle bearbeiten</span>
+                </x-ui-button>
+                <x-ui-button variant="secondary" size="sm" class="w-full justify-start" href="{{ route('recruiting.applicants.index') }}" wire:navigate>
+                    @svg('heroicon-o-user-group', 'w-4 h-4') <span class="ml-2">Alle Bewerber</span>
+                </x-ui-button>
             </div>
         </x-ui-page-sidebar>
     </x-slot>

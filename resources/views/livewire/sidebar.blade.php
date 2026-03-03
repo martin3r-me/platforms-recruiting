@@ -18,10 +18,6 @@
             @svg('heroicon-o-briefcase', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Stellen</span>
         </x-ui-sidebar-item>
-        <x-ui-sidebar-item :href="route('recruiting.positions.index')">
-            @svg('heroicon-o-squares-2x2', 'w-4 h-4 text-[var(--ui-secondary)]')
-            <span class="ml-2 text-sm">Stellen-Boards</span>
-        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.postings.index')">
             @svg('heroicon-o-megaphone', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Ausschreibungen</span>
@@ -31,6 +27,19 @@
             <span class="ml-2 text-sm">Bewerber</span>
         </x-ui-sidebar-item>
     </x-ui-sidebar-list>
+
+    {{-- Abschnitt: Stellen-Boards --}}
+    @if($this->positionsWithPostings->isNotEmpty())
+        <x-ui-sidebar-list label="Stellen-Boards">
+            @foreach($this->positionsWithPostings as $pos)
+                <x-ui-sidebar-item :href="route('recruiting.positions.dashboard', $pos)">
+                    @svg('heroicon-o-squares-2x2', 'w-4 h-4 text-[var(--ui-secondary)]')
+                    <span class="ml-2 text-sm truncate">{{ $pos->title }}</span>
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-[var(--ui-muted-5)] text-[var(--ui-muted)]">{{ $pos->applicant_count }}</span>
+                </x-ui-sidebar-item>
+            @endforeach
+        </x-ui-sidebar-list>
+    @endif
 
     {{-- Abschnitt: Einstellungen --}}
     <x-ui-sidebar-list label="Einstellungen">
