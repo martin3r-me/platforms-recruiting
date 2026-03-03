@@ -324,6 +324,12 @@ class Dashboard extends Component
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $contact = CrmContact::findOrFail($contactId);
         $applicant->linkContact($contact);
+
+        // Move out of "Manuelle Prüfung" into normal flow
+        if ($applicant->enrichment_status === 'no_contact') {
+            $applicant->update(['enrichment_status' => 'enriched']);
+        }
+
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 

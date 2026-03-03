@@ -766,7 +766,14 @@ class EnrichInboxApplicants extends Command
             . "Berufserfahrung, Verfügbarkeit, Gehaltsvorstellung, etc.\n"
             . "- Wenn du Infos in den Nachrichten findest die zu einem Extra-Feld passen, schreibe sie.\n"
             . "- Lies Datei-Anhänge (Lebensläufe, Dokumente) per core.context.files.content.GET — sie enthalten oft die wichtigsten Infos.\n"
-            . "- Beginne SOFORT mit Tool-Calls.\n";
+            . "- Beginne SOFORT mit Tool-Calls.\n\n"
+            . "KRITISCH — KONTAKT VERKNÜPFEN:\n"
+            . "- Am Ende MUSS ein CRM-Kontakt mit der Bewerbung verknüpft sein.\n"
+            . "- Prüfe am Anfang ob crm_contacts leer ist. Falls ja:\n"
+            . "  1. crm.contacts.POST → neuen Kontakt erstellen\n"
+            . "  2. recruiting.applicant_contacts.POST → Kontakt mit Bewerbung verknüpfen (contact_id = ID des erstellten Kontakts)\n"
+            . "- Das Erstellen allein reicht NICHT — du MUSST auch recruiting.applicant_contacts.POST aufrufen!\n"
+            . "- Ohne Verknüpfung gilt die Enrichment als gescheitert.\n";
 
         $data = [
             'applicant_id' => $applicant->id,
