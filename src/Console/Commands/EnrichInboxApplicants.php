@@ -161,7 +161,7 @@ class EnrichInboxApplicants extends Command
 
                     // Only mark as enriched if a CRM contact was linked
                     $applicant->refresh();
-                    $applicant->loadMissing('crmContactLinks');
+                    $applicant->load('crmContactLinks');
                     if ($applicant->crmContactLinks->isNotEmpty()) {
                         $applicant->update(['enrichment_status' => 'enriched']);
                         $this->info("  Enrichment abgeschlossen.");
