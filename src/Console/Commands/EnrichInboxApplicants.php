@@ -159,9 +159,15 @@ class EnrichInboxApplicants extends Command
 
                     $this->line("  Iterationen: {$iterations} | Tools: " . (empty($allToolCallNames) ? '(keine)' : implode(', ', $allToolCallNames)));
 
-                    // Only mark as enriched if a CRM contact was linked
+                    // Deterministic post-LLM step: ensure contact is linked
                     $applicant->refresh();
                     $applicant->load('crmContactLinks');
+
+                    if ($applicant->crmContactLinks->isEmpty()) {
+                        $this->tryAutoLinkContact($applicant, $admin);
+                        $applicant->load('crmContactLinks');
+                    }
+
                     if ($applicant->crmContactLinks->isNotEmpty()) {
                         $applicant->update(['enrichment_status' => 'enriched']);
                         $this->info("  Enrichment abgeschlossen.");
@@ -512,6 +518,66 @@ class EnrichInboxApplicants extends Command
         }
 
         return $refs;
+    }
+
+    /**
+     * Deterministic post-LLM step: If the LLM created a CRM contact but didn't link it,
+     * find the contact and link it automatically.
+     *
+     * Strategy:
+     * 1. Find CRM contacts created by the impersonated admin in the last 10 minutes
+     *    for this team that are NOT already linked to any applicant.
+     * 2. Match by name from email threads / WhatsApp threads if possible.
+     * 3. If exactly one unlinked contact was recently created, link it.
+     */
+    private function tryAutoLinkContact(RecApplicant $applicant, User $admin): void
+    {
+        try {
+            $cutoff = Carbon::now()->subMinutes(10);
+
+            // Find recently created contacts by this admin for this team
+            $recentContacts = \Platform\Crm\Models\CrmContact::where('team_id', $applicant->team_id)
+                ->where('created_by_user_id', $admin->id)
+                ->where('created_at', '>=', $cutoff)
+                ->orderByDesc('created_at')
+                ->limit(5)
+                ->get();
+
+            if ($recentContacts->isEmpty()) {
+                $this->line("  Auto-Link: Keine kürzlich erstellten Kontakte gefunden.");
+                return;
+            }
+
+            // Filter: only contacts not already linked to this applicant
+            $applicantMorphClass = $applicant->getMorphClass();
+            $unlinked = $recentContacts->filter(function ($contact) use ($applicant, $applicantMorphClass) {
+                return !\Platform\Crm\Models\CrmContactLink::where('contact_id', $contact->id)
+                    ->where('linkable_id', $applicant->id)
+                    ->where('linkable_type', $applicantMorphClass)
+                    ->exists();
+            });
+
+            if ($unlinked->isEmpty()) {
+                $this->line("  Auto-Link: Alle kürzlich erstellten Kontakte sind bereits verknüpft.");
+                return;
+            }
+
+            // Link the most recent unlinked contact
+            $contact = $unlinked->first();
+
+            \Platform\Crm\Models\CrmContactLink::create([
+                'contact_id' => $contact->id,
+                'linkable_id' => $applicant->id,
+                'linkable_type' => $applicantMorphClass,
+                'team_id' => $applicant->team_id,
+                'created_by_user_id' => $admin->id,
+            ]);
+
+            $this->info("  Auto-Link: Kontakt #{$contact->id} ({$contact->full_name}) automatisch verknüpft.");
+            $this->logEnrichment($applicant, 'auto_linked', "CRM-Kontakt #{$contact->id} ({$contact->full_name}) automatisch verknüpft (LLM hat erstellt aber nicht verlinkt).");
+        } catch (\Throwable $e) {
+            $this->warn("  Auto-Link Fehler: " . $e->getMessage());
+        }
     }
 
     private function logEnrichment(RecApplicant $applicant, string $type, string $summary, ?array $details = null): void
