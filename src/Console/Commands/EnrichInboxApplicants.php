@@ -166,8 +166,9 @@ class EnrichInboxApplicants extends Command
                         $applicant->update(['enrichment_status' => 'enriched']);
                         $this->info("  Enrichment abgeschlossen.");
                     } else {
-                        $this->warn("  Enrichment durchgelaufen, aber kein CRM-Kontakt verknüpft — bleibt im Eingang.");
-                        $this->logEnrichment($applicant, 'no_contact', 'Enrichment abgeschlossen, aber kein CRM-Kontakt verknüpft.');
+                        $applicant->update(['enrichment_status' => 'no_contact']);
+                        $this->warn("  Enrichment durchgelaufen, aber kein CRM-Kontakt verknüpft — manuelle Prüfung nötig.");
+                        $this->logEnrichment($applicant, 'no_contact', 'Enrichment abgeschlossen, aber kein CRM-Kontakt verknüpft. Manuelle Prüfung erforderlich.');
                     }
                     Cache::forget("enrichment:processing:{$applicant->id}");
 

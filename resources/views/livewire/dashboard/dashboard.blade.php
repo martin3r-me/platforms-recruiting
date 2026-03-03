@@ -188,6 +188,106 @@
             </div>
         </x-ui-panel>
 
+        {{-- Manuelle Prüfung --}}
+        @if($this->needsReviewApplicants->isNotEmpty())
+        <x-ui-panel title="Manuelle Prüfung" subtitle="Enrichment durchgelaufen, aber kein CRM-Kontakt verknüpft — manuelle Zuordnung nötig">
+            <div class="overflow-x-auto">
+                <table class="w-full table-auto border-collapse text-sm">
+                    <thead>
+                        <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
+                            <th class="px-4 py-3">Bewerber</th>
+                            <th class="px-4 py-3">Extra-Felder</th>
+                            <th class="px-4 py-3">Kontakt zuordnen</th>
+                            <th class="px-4 py-3 text-right"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[var(--ui-border)]/60">
+                        @foreach($this->needsReviewApplicants as $applicant)
+                            @php
+                                $primaryContact = $applicant->crmContactLinks->first()?->contact;
+                                $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
+                                $extraCounts = $this->getExtraFieldCounts($applicant);
+                            @endphp
+                            <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
+                                <td class="px-4 py-2.5">
+                                    <div class="flex items-start gap-2.5">
+                                        <div class="mt-1.5 flex-shrink-0">
+                                            <span class="relative flex h-2.5 w-2.5" title="Manuelle Prüfung nötig">
+                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500"></span>
+                                            </span>
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <span class="font-medium text-[var(--ui-secondary)]">
+                                                    {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+                                                </span>
+                                                <x-ui-badge variant="warning" size="xs">Kein Kontakt</x-ui-badge>
+                                            </div>
+                                            @if($positions->isNotEmpty())
+                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $positions->implode(', ') }}</div>
+                                            @endif
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-4 py-2.5">
+                                    @if($extraCounts['total'] > 0)
+                                        <span class="text-xs {{ $extraCounts['filled'] === $extraCounts['total'] ? 'text-green-600 font-medium' : 'text-[var(--ui-muted)]' }}">
+                                            {{ $extraCounts['filled'] }}/{{ $extraCounts['total'] }}
+                                        </span>
+                                    @else
+                                        <span class="text-xs text-[var(--ui-muted)]">&ndash;</span>
+                                    @endif
+                                </td>
+                                <td class="px-4 py-2.5">
+                                    @if($primaryContact)
+                                        <span class="text-sm text-[var(--ui-secondary)]">{{ $primaryContact->full_name }}</span>
+                                    @else
+                                        <div x-data="{ val: '' }">
+                                            <x-ui-input-select
+                                                name="review_contact_{{ $applicant->id }}"
+                                                :options="$this->availableContacts"
+                                                optionValue="id"
+                                                optionLabel="full_name"
+                                                :nullable="true"
+                                                nullLabel="– Kontakt wählen –"
+                                                size="sm"
+                                                x-model="val"
+                                                x-on:change="if (val) { $wire.linkExistingContact({{ $applicant->id }}, parseInt(val)); val = ''; }"
+                                            />
+                                        </div>
+                                    @endif
+                                </td>
+                                <td class="px-4 py-2.5 text-right">
+                                    <div class="flex items-center justify-end gap-2">
+                                        <button
+                                            wire:click="retryEnrichment({{ $applicant->id }})"
+                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                                            title="Erneut anreichern"
+                                        >
+                                            @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
+                                        </button>
+                                        <button
+                                            wire:click="dismissApplicant({{ $applicant->id }})"
+                                            wire:confirm="Bewerber wirklich aussortieren?"
+                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                                            title="Aussortieren"
+                                        >
+                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
+                                        </button>
+                                        <x-ui-button size="sm" variant="secondary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
+                                            @svg('heroicon-o-arrow-right', 'w-4 h-4')
+                                        </x-ui-button>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </x-ui-panel>
+        @endif
+
         {{-- Zugeordnete Bewerber (in Bearbeitung) --}}
         <x-ui-panel title="In Bearbeitung" subtitle="Bewerber mit Enrichment, aber noch nicht vollständig">
             <div class="overflow-x-auto">

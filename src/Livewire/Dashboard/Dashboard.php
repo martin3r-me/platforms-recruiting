@@ -51,12 +51,30 @@ class Dashboard extends Component
     }
 
     #[Computed]
+    public function needsReviewApplicants()
+    {
+        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
+            ->active()
+            ->where('enrichment_status', 'no_contact')
+            ->with([
+                'crmContactLinks.contact.emailAddresses',
+                'crmContactLinks.contact.phoneNumbers',
+                'postings.position',
+                'extraFieldValues',
+                'preferredCommsChannel',
+            ])
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
+    #[Computed]
     public function assignedApplicants()
     {
-        // Get all enriched applicants, then filter out the completed ones
+        // Get all enriched applicants, then filter out the completed ones and no_contact
         $all = RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->whereNotNull('enrichment_status')
+            ->where('enrichment_status', '!=', 'no_contact')
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
@@ -77,6 +95,7 @@ class Dashboard extends Component
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->whereNotNull('enrichment_status')
+            ->where('enrichment_status', '!=', 'no_contact')
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
@@ -267,7 +286,14 @@ class Dashboard extends Component
             }
         }
 
-        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
+    }
+
+    public function retryEnrichment(int $applicantId): void
+    {
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+        $applicant->update(['enrichment_status' => null]);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 
     public function refreshDashboard(): void
@@ -277,6 +303,7 @@ class Dashboard extends Component
             $this->postingCount,
             $this->applicantCount,
             $this->inboxApplicants,
+            $this->needsReviewApplicants,
             $this->assignedApplicants,
             $this->completedApplicants,
             $this->enrichingApplicantIds,
@@ -289,7 +316,7 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
-        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 
     public function linkExistingContact(int $applicantId, int $contactId): void
@@ -297,7 +324,7 @@ class Dashboard extends Component
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $contact = CrmContact::findOrFail($contactId);
         $applicant->linkContact($contact);
-        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
     }
 
     public function dismissApplicant(int $applicantId): void
@@ -307,7 +334,7 @@ class Dashboard extends Component
             'is_active' => false,
             'auto_pilot' => false,
         ]);
-        unset($this->inboxApplicants, $this->assignedApplicants, $this->completedApplicants, $this->applicantCount);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants, $this->applicantCount);
     }
 
     public function render()
