@@ -701,7 +701,7 @@ class EnrichInboxApplicants extends Command
             }
 
             // Get the first available template from the channel meta
-            $templateName = $whatsAppChannel->meta['default_template'] ?? 'hello_world';
+            $templateName = $whatsAppChannel->meta['default_template'] ?? 'begruesung_template';
             $templateLang = $whatsAppChannel->meta['default_template_lang'] ?? 'en';
 
             $phoneNumber = $phoneToContact->international ?: $phoneToContact->raw_input;

@@ -1292,7 +1292,7 @@ class ProcessAutoPilotApplicants extends Command
                 return false;
             }
 
-            $templateName = $channel->meta['default_template'] ?? 'hello_world';
+            $templateName = $channel->meta['default_template'] ?? 'begruesung_template';
             $templateLang = $channel->meta['default_template_lang'] ?? 'de';
 
             $service = app(WhatsAppMetaService::class);
