@@ -11,7 +11,7 @@ use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Hcm\Actions\TransferApplicantToOnboarding;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
-use Platform\Recruiting\Livewire\Concerns\ResolvesAutoPilotChannel;
+use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
 
 class Dashboard extends Component

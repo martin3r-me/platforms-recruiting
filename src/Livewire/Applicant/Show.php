@@ -15,7 +15,7 @@ use Platform\Recruiting\Models\RecPosting;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmContactStatus;
-use Platform\Recruiting\Livewire\Concerns\ResolvesAutoPilotChannel;
+use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 
 class Show extends Component
 {
