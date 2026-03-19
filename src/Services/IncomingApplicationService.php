@@ -213,19 +213,30 @@ class IncomingApplicationService
         }
 
         try {
-            $contact = \Platform\Crm\Models\CrmContact::create([
-                'first_name' => $firstName ?? 'Bewerber',
-                'last_name' => $lastName ?? $senderIdentifier,
-                'team_id' => $teamId,
-                'created_by_user_id' => null,
-                'is_active' => true,
-            ]);
+            // Try to find existing CRM contact by email or phone
+            $contact = $this->findExistingCrmContact($senderIdentifier, $channelType, $teamId);
 
-            // Add email or phone to the contact
-            if ($channelType === 'email' && filter_var($senderIdentifier, FILTER_VALIDATE_EMAIL)) {
-                if (method_exists($contact, 'emailAddresses')) {
-                    // Get default email type (or first available)
-                    $emailTypeId = \Platform\Crm\Models\CrmEmailType::first()?->id;
+            if ($contact) {
+                Log::info('[IncomingApplicationService] Existing CRM contact found, reusing', [
+                    'contact_id' => $contact->id,
+                    'applicant_id' => $applicant->id,
+                    'sender' => $senderIdentifier,
+                ]);
+            } else {
+                $contactStatusId = \Platform\Crm\Models\CrmContactStatus::where('code', 'ACTIVE')->first()?->id;
+
+                $contact = \Platform\Crm\Models\CrmContact::create([
+                    'first_name' => $firstName ?? 'Bewerber',
+                    'last_name' => $lastName ?? $senderIdentifier,
+                    'team_id' => $teamId,
+                    'created_by_user_id' => null,
+                    'contact_status_id' => $contactStatusId,
+                    'is_active' => true,
+                ]);
+
+                // Add email or phone to the newly created contact
+                if ($channelType === 'email' && filter_var($senderIdentifier, FILTER_VALIDATE_EMAIL)) {
+                    $emailTypeId = \Platform\Crm\Models\CrmEmailType::where('code', 'PRIVATE')->first()?->id;
                     if ($emailTypeId) {
                         $contact->emailAddresses()->create([
                             'email_address' => $senderIdentifier,
@@ -234,12 +245,8 @@ class IncomingApplicationService
                             'is_active' => true,
                         ]);
                     }
-                }
-            } elseif ($channelType === 'whatsapp') {
-                if (method_exists($contact, 'phoneNumbers')) {
-                    // Get mobile phone type (or first available)
-                    $phoneTypeId = \Platform\Crm\Models\CrmPhoneType::where('name', 'like', '%mobil%')->first()?->id
-                        ?? \Platform\Crm\Models\CrmPhoneType::first()?->id;
+                } elseif ($channelType === 'whatsapp') {
+                    $phoneTypeId = \Platform\Crm\Models\CrmPhoneType::where('code', 'MOBILE')->first()?->id;
                     if ($phoneTypeId) {
                         $contact->phoneNumbers()->create([
                             'raw_input' => $senderIdentifier,
@@ -274,6 +281,33 @@ class IncomingApplicationService
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Find an existing CRM contact by email address or phone number.
+     */
+    private function findExistingCrmContact(string $senderIdentifier, string $channelType, int $teamId): ?\Platform\Crm\Models\CrmContact
+    {
+        if ($channelType === 'email' && filter_var($senderIdentifier, FILTER_VALIDATE_EMAIL)) {
+            return \Platform\Crm\Models\CrmContact::where('team_id', $teamId)
+                ->where('is_active', true)
+                ->whereHas('emailAddresses', fn ($q) => $q->where('email_address', strtolower($senderIdentifier)))
+                ->first();
+        }
+
+        if ($channelType === 'whatsapp') {
+            $digits = preg_replace('/[^0-9]/', '', $senderIdentifier);
+            if (strlen($digits) >= 6) {
+                return \Platform\Crm\Models\CrmContact::where('team_id', $teamId)
+                    ->where('is_active', true)
+                    ->whereHas('phoneNumbers', function ($q) use ($digits) {
+                        $q->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $digits]);
+                    })
+                    ->first();
+            }
+        }
+
+        return null;
     }
 
     /**

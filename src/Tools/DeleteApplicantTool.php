@@ -88,7 +88,7 @@ class DeleteApplicantTool implements ToolContract, ToolMetadataContract
 
             DB::transaction(function () use ($applicant) {
                 CrmContactLink::query()
-                    ->where('linkable_type', RecApplicant::class)
+                    ->where('linkable_type', $applicant->getMorphClass())
                     ->where('linkable_id', $applicant->id)
                     ->delete();
 

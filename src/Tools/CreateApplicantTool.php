@@ -156,7 +156,7 @@ class CreateApplicantTool implements ToolContract, ToolMetadataContract
                 CrmContactLink::firstOrCreate(
                     [
                         'contact_id' => $contact->id,
-                        'linkable_type' => RecApplicant::class,
+                        'linkable_type' => $applicant->getMorphClass(),
                         'linkable_id' => $applicant->id,
                     ],
                     [

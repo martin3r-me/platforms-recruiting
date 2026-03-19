@@ -76,7 +76,7 @@ class UnlinkApplicantContactTool implements ToolContract, ToolMetadataContract
             }
 
             $linksQuery = CrmContactLink::query()
-                ->where('linkable_type', RecApplicant::class)
+                ->where('linkable_type', $applicant->getMorphClass())
                 ->where('linkable_id', $applicant->id)
                 ->where('contact_id', $contactId);
 
@@ -92,7 +92,7 @@ class UnlinkApplicantContactTool implements ToolContract, ToolMetadataContract
 
             // Warnung wenn das die letzte Contact-Verknuepfung waere
             $remainingCount = CrmContactLink::query()
-                ->where('linkable_type', RecApplicant::class)
+                ->where('linkable_type', $applicant->getMorphClass())
                 ->where('linkable_id', $applicant->id)
                 ->count();
 
