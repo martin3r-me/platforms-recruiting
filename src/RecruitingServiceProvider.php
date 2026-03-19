@@ -32,6 +32,7 @@ class RecruitingServiceProvider extends ServiceProvider
     {
         Relation::morphMap([
             'rec_applicant' => \Platform\Recruiting\Models\RecApplicant::class,
+            'rec_position' => \Platform\Recruiting\Models\RecPosition::class,
         ]);
 
         $this->mergeConfigFrom(__DIR__.'/../config/recruiting.php', 'recruiting');
