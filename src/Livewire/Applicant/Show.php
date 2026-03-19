@@ -15,10 +15,12 @@ use Platform\Recruiting\Models\RecPosting;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmContactStatus;
+use Platform\Recruiting\Livewire\Concerns\ResolvesAutoPilotChannel;
 
 class Show extends Component
 {
     use WithExtraFields;
+    use ResolvesAutoPilotChannel;
     public RecApplicant $applicant;
 
     public $contactLinkModalShow = false;
@@ -31,6 +33,8 @@ class Show extends Component
         'nickname' => '',
         'birth_date' => '',
         'notes' => '',
+        'email' => '',
+        'phone' => '',
     ];
 
     public $contactLinkForm = [
@@ -170,19 +174,15 @@ class Show extends Component
             ->get();
     }
 
-    public function toggleAutoPilot(string $channelType): void
+    public function toggleAutoPilot(): void
     {
-        $currentChannel = $this->applicant->preferredCommsChannel;
-        if ($this->applicant->auto_pilot && $currentChannel?->type === $channelType) {
+        if ($this->applicant->auto_pilot) {
             $this->applicant->update([
                 'auto_pilot' => false,
                 'preferred_comms_channel_id' => null,
             ]);
         } else {
-            $channel = CommsChannel::where('team_id', auth()->user()->currentTeam->id)
-                ->where('type', $channelType)
-                ->where('is_active', true)
-                ->first();
+            $channel = $this->resolvePreferredChannel($this->applicant);
             if ($channel) {
                 $this->applicant->update([
                     'auto_pilot' => true,
@@ -232,6 +232,7 @@ class Show extends Component
         $this->contactForm = [
             'first_name' => '', 'last_name' => '', 'middle_name' => '',
             'nickname' => '', 'birth_date' => '', 'notes' => '',
+            'email' => '', 'phone' => '',
         ];
         $this->contactCreateModalShow = true;
     }
@@ -255,19 +256,50 @@ class Show extends Component
             'contactForm.nickname' => 'nullable|string|max:255',
             'contactForm.birth_date' => 'nullable|date',
             'contactForm.notes' => 'nullable|string|max:1000',
+            'contactForm.email' => 'nullable|email|max:255',
+            'contactForm.phone' => 'nullable|string|max:50',
         ]);
 
         $defaultStatus = CrmContactStatus::where('code', 'ACTIVE')->first();
 
-        $contact = CrmContact::create(array_merge($this->contactForm, [
+        $contactData = collect($this->contactForm)->except(['email', 'phone'])->toArray();
+        $contact = CrmContact::create(array_merge($contactData, [
             'team_id' => $this->applicant->team_id,
             'created_by_user_id' => auth()->id(),
             'contact_status_id' => $defaultStatus?->id,
         ]));
 
+        // Email-Adresse anlegen
+        if (!empty($this->contactForm['email'])) {
+            $emailTypeId = \Platform\Crm\Models\CrmEmailType::where('code', 'PRIVATE')->first()?->id;
+            if ($emailTypeId) {
+                $contact->emailAddresses()->create([
+                    'email_address' => $this->contactForm['email'],
+                    'email_type_id' => $emailTypeId,
+                    'is_primary' => true,
+                    'is_active' => true,
+                ]);
+            }
+        }
+
+        // Telefonnummer anlegen
+        if (!empty($this->contactForm['phone'])) {
+            $phoneTypeId = \Platform\Crm\Models\CrmPhoneType::where('code', 'MOBILE')->first()?->id;
+            if ($phoneTypeId) {
+                $contact->phoneNumbers()->create([
+                    'raw_input' => $this->contactForm['phone'],
+                    'international' => $this->contactForm['phone'],
+                    'phone_type_id' => $phoneTypeId,
+                    'is_primary' => true,
+                    'is_active' => true,
+                    'whatsapp_status' => \Platform\Crm\Models\CrmPhoneNumber::WHATSAPP_UNKNOWN,
+                ]);
+            }
+        }
+
         $this->applicant->linkContact($contact);
         $this->closeContactCreateModal();
-        $this->applicant->load('crmContactLinks.contact');
+        $this->applicant->load(['crmContactLinks.contact.emailAddresses', 'crmContactLinks.contact.phoneNumbers']);
         session()->flash('message', 'Kontakt erstellt und verknüpft.');
     }
 
@@ -292,6 +324,7 @@ class Show extends Component
         $this->contactForm = [
             'first_name' => '', 'last_name' => '', 'middle_name' => '',
             'nickname' => '', 'birth_date' => '', 'notes' => '',
+            'email' => '', 'phone' => '',
         ];
     }
 

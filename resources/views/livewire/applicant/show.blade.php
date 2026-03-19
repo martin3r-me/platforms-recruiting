@@ -131,30 +131,25 @@
                     <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">AutoPilot</label>
                     <div class="flex items-center gap-3">
                         <div class="flex items-center gap-2">
-                            @foreach(['email', 'whatsapp'] as $type)
-                                @php
-                                    $isActive = $applicant->auto_pilot
-                                        && $applicant->preferredCommsChannel?->type === $type;
-                                    $hasChannel = $this->teamChannels->contains(fn ($c) => $c->type === $type);
-                                @endphp
-                                @if($hasChannel)
-                                    <button
-                                        type="button"
-                                        wire:click="toggleAutoPilot('{{ $type }}')"
-                                        class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors {{ $isActive ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 ring-1 ring-emerald-200' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)] hover:bg-[var(--ui-muted-10)] hover:text-[var(--ui-secondary)]' }}"
-                                        title="{{ $type === 'whatsapp' ? 'WhatsApp AutoPilot' : 'Email AutoPilot' }}"
-                                    >
-                                        @if($isActive)
-                                            <span class="relative flex h-2.5 w-2.5">
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                                            </span>
-                                        @endif
-                                        @svg($type === 'whatsapp' ? 'heroicon-o-chat-bubble-left' : 'heroicon-o-envelope', 'w-4 h-4')
-                                        <span>{{ $type === 'whatsapp' ? 'WhatsApp' : 'Email' }}</span>
-                                    </button>
+                            @php
+                                $isActive = $applicant->auto_pilot;
+                                $channelType = $applicant->preferredCommsChannel?->type;
+                            @endphp
+                            <button
+                                type="button"
+                                wire:click="toggleAutoPilot()"
+                                class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors {{ $isActive ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 ring-1 ring-emerald-200' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)] hover:bg-[var(--ui-muted-10)] hover:text-[var(--ui-secondary)]' }}"
+                                title="AutoPilot{{ $isActive ? ' (aktiv via ' . ($channelType ?? '?') . ')' : '' }}"
+                            >
+                                @if($isActive)
+                                    <span class="relative flex h-2.5 w-2.5">
+                                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                    </span>
                                 @endif
-                            @endforeach
+                                @svg($channelType === 'whatsapp' ? 'heroicon-o-chat-bubble-left' : 'heroicon-o-envelope', 'w-4 h-4')
+                                <span>AutoPilot</span>
+                            </button>
                         </div>
                         @if($applicant->autoPilotState)
                             @php
@@ -447,6 +442,23 @@
                     label="Spitzname"
                     wire:model.live="contactForm.nickname"
                     placeholder="Spitzname (optional)"
+                />
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <x-ui-input-text
+                    name="contactForm.email"
+                    label="E-Mail"
+                    wire:model.live="contactForm.email"
+                    placeholder="E-Mail-Adresse (optional)"
+                    type="email"
+                />
+
+                <x-ui-input-text
+                    name="contactForm.phone"
+                    label="Mobilnummer"
+                    wire:model.live="contactForm.phone"
+                    placeholder="+49 170 1234567 (optional)"
                 />
             </div>
 

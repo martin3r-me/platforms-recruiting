@@ -1023,12 +1023,23 @@ class ProcessAutoPilotApplicants extends Command
             . "Kommuniziere immer auf Deutsch, persönlich und professionell.\n"
             . "Alle benötigten Tools sind bereits geladen. Beginne SOFORT mit der Bearbeitung.\n\n"
             . "DEINE AUFGABE:\n"
-            . "Sammle alle fehlenden Pflichtfelder vom Bewerber ein.\n"
+            . "Prüfe ob alle Pflichtfelder ausgefüllt sind. Extrahiere Infos aus vorhandenen Daten (CRM, Threads, Dateien).\n"
             . "- Die Nachrichten-Threads sind unten enthalten (messages-Array mit direction=inbound/outbound). Extrahiere alle verwertbaren Infos aus den Bewerber-Antworten (direction=inbound).\n"
             . "- Schreibe alles was du findest in die Extra-Felder der Bewerbung (core_extra_fields_PUT).\n"
             . "- Du kannst auch den CRM-Kontakt aktualisieren wenn du relevante Daten findest.\n"
             . "- Kommunikation erfolgt über {$channelType}.\n"
             . "- Wenn alle Pflichtfelder gefüllt sind, schließe die Bewerbung ab.\n\n"
+            . "WICHTIG — FORMULAR-LINK STATT EINZELFRAGEN:\n"
+            . "- Frage den Bewerber NIEMALS nach einzelnen Feldern in der Nachricht!\n"
+            . "- Stattdessen: Teile dem Bewerber den Link zum Online-Formular mit, wo er alle fehlenden Daten selbst eintragen kann.\n"
+            . "- Formular-Link: {$publicUrl}\n"
+            . "- Die Nachricht soll KURZ und FREUNDLICH sein — kein Verhör, keine Feld-für-Feld-Abfrage.\n"
+            . "- Beispiel für eine gute Nachricht:\n"
+            . "  \"Hallo [Name], vielen Dank für Ihre Bewerbung! Damit wir Ihre Unterlagen vollständig bearbeiten können, "
+            . "bitten wir Sie, noch einige Angaben über unser Online-Formular zu ergänzen: {$publicUrl} — Vielen Dank!\"\n"
+            . "- Bei Follow-ups (wenn der Bewerber schon kontaktiert wurde aber noch Felder fehlen):\n"
+            . "  \"Hallo [Name], uns fehlen noch einige Angaben. Bitte ergänzen Sie diese hier: {$publicUrl} — Danke!\"\n"
+            . "- NIEMALS eine Liste der fehlenden Felder in die Nachricht schreiben!\n\n"
             . "CRM-ABGLEICH — VOR DEM KONTAKTIEREN:\n"
             . "- BEVOR du den Bewerber kontaktierst, gleiche die CRM-Kontaktdaten mit den Extra-Feldern ab!\n"
             . "- Die crm_contacts unten enthalten bereits Email-Adressen, Telefonnummern, Namen etc.\n"
@@ -1065,23 +1076,22 @@ class ProcessAutoPilotApplicants extends Command
                 . "- Es gibt bereits Threads mit dem Bewerber (siehe Daten unten).\n"
                 . "- Für Replies im bestehenden Thread: nur thread_id + body (KEIN to" . ($isWhatsAppChannel ? "" : ", KEIN subject") . ").\n"
                 . "- Nutze {$messageToolPost} für Nachrichten.\n"
-                . "- WICHTIG: Falls Pflichtfelder fehlen und du eine Nachricht sendest, füge IMMER den Bewerber-Link am Ende ein!\n"
-                . "- Link-Formulierung: \"Oder ergänzen Sie Ihre Daten direkt hier: {$publicUrl}\"\n\n";
+                . "- Sende den Formular-Link ({$publicUrl}) — KEINE Auflistung einzelner Felder.\n\n";
         } else {
             if ($isWhatsAppChannel) {
                 $system .= "KOMMUNIKATION (ERSTE WHATSAPP-NACHRICHT):\n"
                     . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
                     . "- Für neue Nachrichten: comms_channel_id + to (Telefonnummer) + body.\n"
                     . "- Nutze {$messageToolPost} für WhatsApp-Nachrichten.\n"
-                    . "- WICHTIG: Bei der ERSTEN Nachricht IMMER den Bewerber-Link am Ende einfügen!\n"
-                    . "- Formulierung: \"Sie können mir direkt auf diese Nachricht antworten oder Ihre Daten hier ergänzen: {$publicUrl}\"\n\n";
+                    . "- Sende eine kurze, freundliche Nachricht mit dem Formular-Link: {$publicUrl}\n"
+                    . "- KEINE einzelnen Felder aufzählen oder abfragen!\n\n";
             } else {
                 $system .= "KOMMUNIKATION (ERSTE EMAIL):\n"
                     . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
                     . "- Für neue Nachrichten: comms_channel_id + to + subject + body.\n"
                     . "- Nutze {$messageToolPost} für Email-Nachrichten.\n"
-                    . "- WICHTIG: Bei der ERSTEN Nachricht IMMER den Bewerber-Link am Ende einfügen!\n"
-                    . "- Formulierung: \"Sie können mir direkt auf diese Nachricht antworten oder Ihre Daten hier ergänzen: {$publicUrl}\"\n\n";
+                    . "- Sende eine kurze, freundliche Nachricht mit dem Formular-Link: {$publicUrl}\n"
+                    . "- KEINE einzelnen Felder aufzählen oder abfragen!\n\n";
             }
         }
 
@@ -1125,7 +1135,7 @@ class ProcessAutoPilotApplicants extends Command
 
         $user = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             . "\n\nBearbeite diese Bewerbung. Beginne mit Tool-Calls."
-            . "\nHINWEIS: Falls du eine Nachricht an den Bewerber sendest, füge IMMER den Bewerber-Link ({$publicUrl}) am Ende ein!";
+            . "\nHINWEIS: Falls du eine Nachricht sendest — kurz und freundlich mit dem Formular-Link ({$publicUrl}). KEINE einzelnen Felder abfragen!";
 
         return [
             ['role' => 'system', 'content' => $system],

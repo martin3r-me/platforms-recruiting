@@ -11,10 +11,12 @@ use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Hcm\Actions\TransferApplicantToOnboarding;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
 
 class Dashboard extends Component
 {
+    use ResolvesAutoPilotChannel;
     public RecPosition $position;
 
     public function mount(RecPosition $position): void
@@ -266,21 +268,17 @@ class Dashboard extends Component
         ];
     }
 
-    public function toggleAutoPilot(int $applicantId, string $channelType): void
+    public function toggleAutoPilot(int $applicantId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
 
-        $currentChannel = $applicant->preferredCommsChannel;
-        if ($applicant->auto_pilot && $currentChannel?->type === $channelType) {
+        if ($applicant->auto_pilot) {
             $applicant->update([
                 'auto_pilot' => false,
                 'preferred_comms_channel_id' => null,
             ]);
         } else {
-            $channel = CommsChannel::where('team_id', auth()->user()->currentTeam->id)
-                ->where('type', $channelType)
-                ->where('is_active', true)
-                ->first();
+            $channel = $this->resolvePreferredChannel($applicant);
             if ($channel) {
                 $applicant->update([
                     'auto_pilot' => true,
