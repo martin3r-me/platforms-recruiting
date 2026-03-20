@@ -8,7 +8,6 @@ use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecServiceHours;
-use Platform\Crm\Models\CommsChannel;
 use Illuminate\Support\Facades\Auth;
 
 class ApplicantSettingsModal extends Component
@@ -108,28 +107,36 @@ class ApplicantSettingsModal extends Component
     #[Computed]
     public function availableWhatsAppTemplates(): array
     {
+        if (!class_exists(\Platform\Comms\ChannelWhatsApp\Models\CommsChannelWhatsAppAccount::class)
+            || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)
+            || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return [];
+        }
+
         $teamId = Auth::user()->currentTeam->id;
 
-        $waChannel = CommsChannel::where('team_id', $teamId)
-            ->where('type', 'whatsapp')
-            ->where('is_active', true)
+        // Find active WA channel for this team
+        $waChannel = \Platform\Comms\ChannelWhatsApp\Models\CommsChannelWhatsAppAccount::query()
+            ->where('team_id', $teamId)
+            ->whereNull('deleted_at')
             ->first();
 
-        if (!$waChannel) {
+        if (!$waChannel || !$waChannel->business_id) {
             return [];
         }
 
-        $accountId = $waChannel->meta['integrations_whatsapp_account_id'] ?? null;
-        if (!$accountId) {
-            return [];
-        }
+        // Bridge: CommsChannelWhatsAppAccount.business_id = IntegrationsWhatsAppAccount.external_id
+        $integrationAccount = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::query()
+            ->where('external_id', $waChannel->business_id)
+            ->where('active', true)
+            ->first();
 
-        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+        if (!$integrationAccount) {
             return [];
         }
 
         return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
-            ->where('whatsapp_account_id', $accountId)
+            ->where('whatsapp_account_id', $integrationAccount->id)
             ->where('status', 'APPROVED')
             ->orderBy('name')
             ->get()
