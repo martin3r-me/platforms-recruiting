@@ -107,36 +107,31 @@ class ApplicantSettingsModal extends Component
     #[Computed]
     public function availableWhatsAppTemplates(): array
     {
-        if (!class_exists(\Platform\Comms\ChannelWhatsApp\Models\CommsChannelWhatsAppAccount::class)
-            || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)
-            || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
             return [];
         }
 
         $teamId = Auth::user()->currentTeam->id;
 
-        // Find active WA channel for this team
-        $waChannel = \Platform\Comms\ChannelWhatsApp\Models\CommsChannelWhatsAppAccount::query()
+        // CommsChannel (type=whatsapp) carries integrations_whatsapp_account_id in meta
+        // (synced by WhatsAppChannelSyncService from IntegrationsWhatsAppAccount)
+        $waChannel = \Platform\Crm\Models\CommsChannel::query()
             ->where('team_id', $teamId)
-            ->whereNull('deleted_at')
+            ->where('type', 'whatsapp')
+            ->where('is_active', true)
             ->first();
 
-        if (!$waChannel || !$waChannel->business_id) {
+        if (!$waChannel) {
             return [];
         }
 
-        // Bridge: CommsChannelWhatsAppAccount.business_id = IntegrationsWhatsAppAccount.external_id
-        $integrationAccount = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::query()
-            ->where('external_id', $waChannel->business_id)
-            ->where('active', true)
-            ->first();
-
-        if (!$integrationAccount) {
+        $accountId = $waChannel->meta['integrations_whatsapp_account_id'] ?? null;
+        if (!$accountId) {
             return [];
         }
 
         return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
-            ->where('whatsapp_account_id', $integrationAccount->id)
+            ->where('whatsapp_account_id', $accountId)
             ->where('status', 'APPROVED')
             ->orderBy('name')
             ->get()

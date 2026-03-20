@@ -7,11 +7,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Contracts\Auth\Authenticatable;
-use Platform\Comms\ChannelWhatsApp\Models\CommsChannelWhatsAppAccount;
-use Platform\Comms\ChannelWhatsApp\Services\WhatsAppChannelService;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Crm\Services\Comms\PostmarkEmailService;
+use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Core\Models\Team;
 use Platform\Core\Models\User;
 use Platform\Recruiting\Models\RecApplicant;
@@ -153,6 +152,7 @@ class ProcessAutoPilotApplicants extends Command
             return;
         }
 
+        $channel = $resolved['channel'];
         $channelType = $resolved['type']; // 'whatsapp' or 'email'
 
         // 3. Get public form link
@@ -161,7 +161,7 @@ class ProcessAutoPilotApplicants extends Command
 
         // 4. First contact (never sent a reminder)
         if ($applicant->auto_pilot_last_reminder_at === null) {
-            $sent = $this->sendMessage($applicant, $resolved, $publicUrl, $formToken, $settings, isReminder: false);
+            $sent = $this->sendMessage($applicant, $channel, $channelType, $publicUrl, $formToken, $settings, isReminder: false);
 
             if ($sent) {
                 $applicant->auto_pilot_reminder_count = 1;
@@ -197,7 +197,7 @@ class ProcessAutoPilotApplicants extends Command
         }
 
         // 5b. Send reminder
-        $sent = $this->sendMessage($applicant, $resolved, $publicUrl, $formToken, $settings, isReminder: true);
+        $sent = $this->sendMessage($applicant, $channel, $channelType, $publicUrl, $formToken, $settings, isReminder: true);
 
         if ($sent) {
             $applicant->auto_pilot_reminder_count = $applicant->auto_pilot_reminder_count + 1;
@@ -213,55 +213,59 @@ class ProcessAutoPilotApplicants extends Command
 
     /**
      * Resolve channel based on settings priority.
-     * Returns ['type' => 'whatsapp'|'email', 'wa_account' => ?CommsChannelWhatsAppAccount, 'email_channel' => ?CommsChannel] or null.
+     * CommsChannel is the unified channel model — WA channels are synced from IntegrationsWhatsAppAccount
+     * by WhatsAppChannelSyncService into comms_channels (type=whatsapp, meta contains credentials).
      */
     private function resolveChannel(RecApplicant $applicant, string $priority): ?array
     {
         $teamId = $applicant->team_id;
         $applicant->loadMissing(['crmContactLinks.contact.phoneNumbers', 'crmContactLinks.contact.emailAddresses']);
 
-        $waAccount = CommsChannelWhatsAppAccount::where('team_id', $teamId)->whereNull('deleted_at')->first();
+        $waChannel = CommsChannel::where('team_id', $teamId)->where('type', 'whatsapp')->where('is_active', true)->first();
         $emailChannel = CommsChannel::where('team_id', $teamId)->where('type', 'email')->where('is_active', true)->first();
 
         $hasPhone = $this->findPrimaryPhoneNumber($applicant) !== null;
         $hasEmail = $this->findPrimaryEmail($applicant) !== null;
 
-        $canWhatsApp = $waAccount && $hasPhone;
+        $canWhatsApp = $waChannel && $hasPhone;
         $canEmail = $emailChannel && $hasEmail;
 
-        $wa = ['type' => 'whatsapp', 'wa_account' => $waAccount, 'email_channel' => null];
-        $em = ['type' => 'email', 'wa_account' => null, 'email_channel' => $emailChannel];
-
         return match ($priority) {
-            'whatsapp_first' => $canWhatsApp ? $wa : ($canEmail ? $em : null),
-            'email_first' => $canEmail ? $em : ($canWhatsApp ? $wa : null),
-            'whatsapp_only' => $canWhatsApp ? $wa : null,
-            'email_only' => $canEmail ? $em : null,
+            'whatsapp_first' => $canWhatsApp
+                ? ['channel' => $waChannel, 'type' => 'whatsapp']
+                : ($canEmail ? ['channel' => $emailChannel, 'type' => 'email'] : null),
+
+            'email_first' => $canEmail
+                ? ['channel' => $emailChannel, 'type' => 'email']
+                : ($canWhatsApp ? ['channel' => $waChannel, 'type' => 'whatsapp'] : null),
+
+            'whatsapp_only' => $canWhatsApp ? ['channel' => $waChannel, 'type' => 'whatsapp'] : null,
+
+            'email_only' => $canEmail ? ['channel' => $emailChannel, 'type' => 'email'] : null,
+
             default => null,
         };
     }
 
-    /**
-     * Send a template (WhatsApp) or email with the public form link.
-     */
     private function sendMessage(
         RecApplicant $applicant,
-        array $resolved,
+        CommsChannel $channel,
+        string $channelType,
         string $publicUrl,
         string $formToken,
         RecApplicantSettings $settings,
         bool $isReminder = false,
     ): bool {
-        if ($resolved['type'] === 'whatsapp') {
-            return $this->sendWhatsAppTemplate($applicant, $resolved['wa_account'], $formToken, $settings, $isReminder);
+        if ($channelType === 'whatsapp') {
+            return $this->sendWhatsAppTemplate($applicant, $channel, $formToken, $settings, $isReminder);
         }
 
-        return $this->sendEmail($applicant, $resolved['email_channel'], $publicUrl, $isReminder);
+        return $this->sendEmail($applicant, $channel, $publicUrl, $isReminder);
     }
 
     private function sendWhatsAppTemplate(
         RecApplicant $applicant,
-        CommsChannelWhatsAppAccount $account,
+        CommsChannel $channel,
         string $formToken,
         RecApplicantSettings $settings,
         bool $isReminder = false,
@@ -291,16 +295,16 @@ class ProcessAutoPilotApplicants extends Command
                 return false;
             }
 
-            $service = app(WhatsAppChannelService::class);
+            $service = app(WhatsAppMetaService::class);
             $service->sendTemplate(
-                account: $account,
+                channel: $channel,
                 to: $phoneNumber->international,
                 templateName: $templateName,
-                languageCode: $templateLang,
                 components: [
                     ['type' => 'button', 'sub_type' => 'url', 'index' => 0,
                      'parameters' => [['type' => 'text', 'text' => $formToken]]],
                 ],
+                languageCode: $templateLang,
             );
 
             return true;
@@ -400,7 +404,6 @@ class ProcessAutoPilotApplicants extends Command
             $query->where('id', $applicantId);
         }
 
-        // Skip applicants in review_needed state
         if ($this->reviewNeededStateId) {
             $query->where(function ($q) {
                 $q->whereNull('auto_pilot_state_id')
