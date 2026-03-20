@@ -8,6 +8,7 @@ use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecServiceHours;
+use Platform\Crm\Models\CommsChannel;
 use Illuminate\Support\Facades\Auth;
 
 class ApplicantSettingsModal extends Component
@@ -102,6 +103,41 @@ class ApplicantSettingsModal extends Component
             ->where('is_active', true)
             ->orderBy('name')
             ->get();
+    }
+
+    #[Computed]
+    public function availableWhatsAppTemplates(): array
+    {
+        $teamId = Auth::user()->currentTeam->id;
+
+        $waChannel = CommsChannel::where('team_id', $teamId)
+            ->where('type', 'whatsapp')
+            ->where('is_active', true)
+            ->first();
+
+        if (!$waChannel) {
+            return [];
+        }
+
+        $accountId = $waChannel->meta['integrations_whatsapp_account_id'] ?? null;
+        if (!$accountId) {
+            return [];
+        }
+
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return [];
+        }
+
+        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->where('whatsapp_account_id', $accountId)
+            ->where('status', 'APPROVED')
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'label' => "{$t->name} ({$t->language})",
+            ])
+            ->toArray();
     }
 
     public function render()

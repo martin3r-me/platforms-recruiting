@@ -9,6 +9,8 @@ use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
 use Platform\Recruiting\Traits\HasApplicantContact;
 use Symfony\Component\Uid\UuidV7;
+use Platform\Recruiting\Models\RecAutoPilotLog;
+use Platform\Recruiting\Models\RecAutoPilotState;
 
 class RecApplicant extends Model implements InheritsExtraFields
 {
@@ -21,6 +23,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     protected $fillable = [
         'uuid', 'public_token', 'rec_applicant_status_id', 'progress', 'notes', 'applied_at',
         'is_active', 'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
+        'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
         'preferred_comms_channel_id', 'enrichment_status',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
@@ -30,6 +33,8 @@ class RecApplicant extends Model implements InheritsExtraFields
         'auto_pilot' => 'boolean',
         'auto_pilot_completed_at' => 'datetime',
         'auto_pilot_state_id' => 'integer',
+        'auto_pilot_reminder_count' => 'integer',
+        'auto_pilot_last_reminder_at' => 'datetime',
         'progress' => 'integer',
         'applied_at' => 'date',
     ];
@@ -136,6 +141,31 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function scopeForTeam($query, $teamId)
     {
         return $query->where('team_id', $teamId);
+    }
+
+    public function checkAutoPilotCompletion(): void
+    {
+        if (!$this->auto_pilot || $this->auto_pilot_completed_at !== null) {
+            return;
+        }
+
+        $progress = $this->calculateProgress();
+
+        if ($progress >= 100) {
+            $completedStateId = RecAutoPilotState::where('code', 'completed')
+                ->whereNull('team_id')
+                ->value('id');
+
+            $this->auto_pilot_state_id = $completedStateId;
+            $this->auto_pilot_completed_at = now();
+            $this->save();
+
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'completed',
+                'summary' => 'Alle Pflichtfelder ausgefüllt (Public Form) — AutoPilot abgeschlossen.',
+            ]);
+        }
     }
 
     public function calculateProgress(): int

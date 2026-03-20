@@ -6,22 +6,13 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\Auth\Authenticatable;
-use Platform\Core\Contracts\ToolContext;
 use Platform\Crm\Models\CommsChannel;
-use Platform\Crm\Models\CommsChannelContext;
-use Platform\Crm\Models\CommsEmailThread;
-use Platform\Crm\Models\CommsWhatsAppThread;
-use Platform\Crm\Models\CommsWhatsAppMessage;
-use Platform\Crm\Models\CommsEmailInboundMail;
-use Platform\Crm\Models\CommsEmailOutboundMail;
 use Platform\Crm\Models\CrmPhoneNumber;
+use Platform\Crm\Services\Comms\PostmarkEmailService;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
-use Platform\Core\Models\CoreAiProvider;
 use Platform\Core\Models\Team;
 use Platform\Core\Models\User;
-use Platform\Core\Services\AiToolLoopRunner;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecAutoPilotLog;
@@ -30,342 +21,90 @@ use Platform\Recruiting\Models\RecAutoPilotState;
 class ProcessAutoPilotApplicants extends Command
 {
     protected $signature = 'recruiting:process-auto-pilot-applicants
-        {--limit=5 : Maximale Anzahl Bewerbungen pro Run}
-        {--max-runtime-seconds=1200 : Maximale Laufzeit pro Run (Sekunden)}
+        {--limit=20 : Maximale Anzahl Bewerbungen pro Run}
+        {--max-runtime-seconds=600 : Maximale Laufzeit pro Run (Sekunden)}
         {--applicant-id= : Optional: einzelne Bewerbung bearbeiten}
-        {--dry-run : Zeigt nur, was bearbeitet würde}
-        {--max-iterations=40 : Max. Tool-Loop Iterationen pro Bewerbung}
-        {--max-output-tokens=2000 : Max. Output Tokens pro LLM Call}
-        {--no-web-search : Deaktiviert web_search Tool}';
+        {--dry-run : Zeigt nur, was bearbeitet würde}';
 
-    protected $description = 'Bearbeitet Bewerbungen mit auto_pilot=true iterativ per LLM+Tools. Agiert im Namen des owned_by_user_id (HR-Verantwortlicher).';
+    protected $description = 'Bearbeitet Bewerbungen mit auto_pilot=true: sendet WA-Template oder Email mit Public-Form-Link. Deterministisch, kein LLM.';
+
+    private ?int $waitingForApplicantStateId = null;
+    private ?int $completedStateId = null;
+    private ?int $reviewNeededStateId = null;
 
     public function handle(): int
     {
-        $dryRun = (bool)$this->option('dry-run');
-        $limit = (int)$this->option('limit');
-        if ($limit < 1) { $limit = 1; }
-        if ($limit > 100) { $limit = 100; }
-
-        $maxRuntimeSeconds = (int)$this->option('max-runtime-seconds');
-        if ($maxRuntimeSeconds < 10) { $maxRuntimeSeconds = 10; }
-        if ($maxRuntimeSeconds > 12 * 60 * 60) { $maxRuntimeSeconds = 12 * 60 * 60; }
+        $dryRun = (bool) $this->option('dry-run');
+        $limit = min(max((int) $this->option('limit'), 1), 100);
+        $maxRuntimeSeconds = min(max((int) $this->option('max-runtime-seconds'), 10), 12 * 60 * 60);
         $deadline = Carbon::now()->addSeconds($maxRuntimeSeconds);
 
         $applicantId = $this->option('applicant-id');
-        $applicantId = is_numeric($applicantId) ? (int)$applicantId : null;
+        $applicantId = is_numeric($applicantId) ? (int) $applicantId : null;
 
-        $maxIterations = (int)$this->option('max-iterations');
-        if ($maxIterations < 1) { $maxIterations = 1; }
-        if ($maxIterations > 200) { $maxIterations = 200; }
-
-        $maxOutputTokens = (int)$this->option('max-output-tokens');
-        if ($maxOutputTokens < 64) { $maxOutputTokens = 64; }
-        if ($maxOutputTokens > 200000) { $maxOutputTokens = 200000; }
-
-        $includeWebSearch = !$this->option('no-web-search');
-
-        $lockTtlSeconds = max(6 * 60 * 60, $maxRuntimeSeconds + 60 * 60);
+        $lockTtlSeconds = max(6 * 60 * 60, $maxRuntimeSeconds + 3600);
         $lockKey = $applicantId
             ? "recruiting:process-auto-pilot-applicant:{$applicantId}"
             : 'recruiting:process-auto-pilot-applicants';
         $lock = Cache::lock($lockKey, $lockTtlSeconds);
+
         if (!$lock->get()) {
-            $this->warn('⏳ Läuft bereits (Lock aktiv).');
+            $this->warn('Läuft bereits (Lock aktiv).');
             return Command::SUCCESS;
         }
 
         try {
             if ($dryRun) {
-                $this->warn('🔍 DRY-RUN – es werden keine Daten geändert.');
+                $this->warn('DRY-RUN — es werden keine Daten geändert.');
             }
 
-            $runner = AiToolLoopRunner::make();
+            $this->waitingForApplicantStateId = RecAutoPilotState::where('code', 'waiting_for_applicant')->whereNull('team_id')->value('id');
+            $this->completedStateId = RecAutoPilotState::where('code', 'completed')->whereNull('team_id')->value('id');
+            $this->reviewNeededStateId = RecAutoPilotState::where('code', 'review_needed')->whereNull('team_id')->value('id');
 
             $processed = 0;
             $seenIds = [];
             $originalAuthUser = Auth::user();
 
-            $waitingForApplicantStateId = RecAutoPilotState::where('code', 'waiting_for_applicant')->whereNull('team_id')->value('id');
-            $completedStateId = RecAutoPilotState::where('code', 'completed')->whereNull('team_id')->value('id');
-
             while ($processed < $limit) {
                 if (Carbon::now()->greaterThanOrEqualTo($deadline)) {
-                    $this->warn("⏱️ Zeitbudget erreicht ({$maxRuntimeSeconds}s). Rest macht der nächste Run.");
+                    $this->warn("Zeitbudget erreicht ({$maxRuntimeSeconds}s). Rest macht der nächste Run.");
                     break;
                 }
 
                 $applicant = $this->nextAutoPilotApplicant($applicantId, $seenIds);
                 if (!$applicant) {
                     if ($processed === 0) {
-                        $this->info('✅ Keine offenen AutoPilot-Bewerbungen gefunden.');
+                        $this->info('Keine offenen AutoPilot-Bewerbungen gefunden.');
                     }
                     break;
                 }
 
-                $seenIds[] = (int)$applicant->id;
+                $seenIds[] = (int) $applicant->id;
                 $processed++;
+
+                $settings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+
+                if (!$settings->getSetting('auto_pilot_enabled', true)) {
+                    $this->line("  #{$applicant->id}: AutoPilot deaktiviert (Team-Setting) — übersprungen.");
+                    continue;
+                }
 
                 $owner = $applicant->ownedByUser;
                 if (!$owner) {
-                    $this->line("• Bewerbung #{$applicant->id}: übersprungen (kein Owner).");
+                    $this->line("  #{$applicant->id}: übersprungen (kein Owner).");
                     continue;
                 }
 
-                if (method_exists($owner, 'isAiUser') && $owner->isAiUser()) {
-                    $this->line("• Bewerbung #{$applicant->id}: übersprungen (Owner ist AI-User).");
-                    continue;
-                }
-
-                $model = $this->determineModel();
-
-                $contactInfo = $this->loadContactInfo($applicant);
-                $extraFields = $this->loadExtraFields($applicant);
-                $preferredChannel = $this->loadPreferredChannel($applicant);
-
-                // Determine channel type early for thread loading
-                $channelForCheck = $preferredChannel ? CommsChannel::find($preferredChannel['comms_channel_id']) : null;
-                $isWhatsAppChannel = $channelForCheck && $channelForCheck->type === 'whatsapp';
-                $threadsSummary = $this->loadThreadsSummary($applicant, $isWhatsAppChannel);
-
-                // Flag portal threads (email sender is not the applicant's CRM email)
-                $threadsSummary = $this->flagPortalThreads($threadsSummary, $contactInfo);
-
-                $this->info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                $this->info("🤖 Bewerbung #{$applicant->id} → Owner: {$owner->name} (user_id={$owner->id})");
-                $this->line("Team: " . ($applicant->team?->name ?? '—'));
-                $this->line("Model: {$model}");
-                $this->line("AutoPilot-State: " . ($applicant->autoPilotState?->name ?? 'nicht gesetzt'));
-                $this->line("Kontakte: " . count($contactInfo));
-                $this->line("Extra-Fields: " . count($extraFields));
-                $this->line("Threads: " . count($threadsSummary));
-                $this->line("Bevorzugter Kanal: " . ($preferredChannel ? "{$preferredChannel['name']} ({$preferredChannel['sender_identifier']})" : '—'));
+                $this->info("--- Bewerbung #{$applicant->id} | Owner: {$owner->name} | Team: " . ($applicant->team?->name ?? '—'));
 
                 if ($dryRun) {
+                    $this->line("  DRY-RUN: würde verarbeitet werden.");
                     continue;
                 }
 
-                // Snapshot state before run
-                $oldStateId = $applicant->auto_pilot_state_id;
-                $oldStateName = $applicant->autoPilotState?->name ?? '(nicht gesetzt)';
-
-                $missingFields = $this->getMissingRequiredFields($extraFields);
-
-                // ===== Early completion check: Prüfe bei JEDEM Durchlauf ob alle Pflichtfelder gefüllt =====
-                if (empty($missingFields)) {
-                    $this->impersonateForTask($owner, $applicant->team);
-                    $applicant->auto_pilot_state_id = $completedStateId;
-                    $applicant->auto_pilot_completed_at = now();
-                    $applicant->save();
-                    $this->logAutoPilot($applicant, 'completed', 'Alle Pflichtfelder ausgefüllt → AutoPilot abgeschlossen.');
-                    $this->info("  ✅ Alle Felder komplett → abgeschlossen.");
-                    continue;
-                }
-
-                $scenario = $this->determineScenario($applicant, $extraFields, $threadsSummary);
-                $this->line("  Scenario: {$scenario} | Fehlende Pflichtfelder: " . count($missingFields));
-
-                $this->logAutoPilot($applicant, 'scenario', "Scenario {$scenario}", [
-                    'missing_required' => count($missingFields),
-                    'has_threads' => !empty($threadsSummary),
-                    'state' => $applicant->autoPilotState?->code,
-                ]);
-
-                // ===== Scenario D: Wartend, keine neuen Infos =====
-                if ($scenario === 'D') {
-                    // For WhatsApp: Check if we should send a template reminder
-                    $channel = $preferredChannel ? CommsChannel::find($preferredChannel['comms_channel_id']) : null;
-                    $isWhatsAppChannel = $channel && $channel->type === 'whatsapp';
-
-                    if ($isWhatsAppChannel) {
-                        $whatsAppResult = $this->handleWhatsAppPreCheck($applicant, $contactInfo);
-
-                        if ($whatsAppResult['template_sent']) {
-                            $this->logAutoPilot($applicant, 'template_sent', 'Scenario D: WhatsApp Template gesendet (Erinnerung).');
-                            $this->info("  📤 Scenario D → WhatsApp Template gesendet.");
-                            continue;
-                        }
-
-                        if ($whatsAppResult['window_open']) {
-                            // Window is open but no new messages - nothing to do
-                            $this->logAutoPilot($applicant, 'skipped', 'Scenario D: WhatsApp-Fenster offen, warte auf Antwort.');
-                            $this->info("  ⏭️ Scenario D → WhatsApp-Fenster offen, warte.");
-                            continue;
-                        }
-
-                        // Window closed, can't send template (max attempts or cooldown)
-                        $this->logAutoPilot($applicant, 'skipped', "Scenario D: {$whatsAppResult['reason']}");
-                        $this->info("  ⏭️ Scenario D → {$whatsAppResult['reason']}");
-                        continue;
-                    }
-
-                    $this->logAutoPilot($applicant, 'skipped', 'Scenario D: Warte auf Bewerber, keine neuen Infos.');
-                    $this->info("  ⏭️ Scenario D → übersprungen.");
-                    continue;
-                }
-
-                // ===== Scenario B + C: LLM-Call =====
-
-                // Check if WhatsApp channel and handle window/template logic
-                $channel = $preferredChannel ? CommsChannel::find($preferredChannel['comms_channel_id']) : null;
-                $isWhatsAppChannel = $channel && $channel->type === 'whatsapp';
-
-                if ($isWhatsAppChannel) {
-                    $whatsAppResult = $this->handleWhatsAppPreCheck($applicant, $contactInfo);
-
-                    if ($whatsAppResult['skip']) {
-                        $this->logAutoPilot($applicant, 'skipped', $whatsAppResult['reason']);
-                        $this->info("  ⏭️ WhatsApp: {$whatsAppResult['reason']}");
-                        continue;
-                    }
-
-                    if ($whatsAppResult['template_sent']) {
-                        // Set state to waiting_for_applicant so next run knows we're waiting
-                        $applicant->auto_pilot_state_id = $waitingForApplicantStateId;
-                        $applicant->save();
-                        $this->logAutoPilot($applicant, 'template_sent', 'WhatsApp Template gesendet (Fenster öffnen).');
-                        $this->info("  📤 WhatsApp Template gesendet → State: waiting_for_applicant");
-                        // After sending template, we wait for response - don't run LLM
-                        continue;
-                    }
-
-                    // Window is open, proceed with LLM
-                    $this->line("  ✅ WhatsApp-Fenster offen → LLM-Verarbeitung.");
-                }
-
-                $primaryEmail = $this->findPrimaryEmail($contactInfo);
-                if (!$primaryEmail && !$isWhatsAppChannel) {
-                    $this->logAutoPilot($applicant, 'warning', 'Keine Email-Adresse vorhanden — übersprungen.');
-                    $this->warn("  ⚠️ Keine Email-Adresse → übersprungen.");
-                    continue;
-                }
-
-                $contextTeam = $applicant->team;
-                $this->impersonateForTask($owner, $contextTeam);
-                $toolContext = new ToolContext($owner, $contextTeam, [
-                    'context_model' => get_class($applicant),
-                    'context_model_id' => $applicant->id,
-                ]);
-
-                // Choose messaging tools based on channel type
-                $messagingTools = $isWhatsAppChannel
-                    ? ['core.comms.whatsapp_messages.GET', 'core.comms.whatsapp_messages.POST']
-                    : ['core.comms.email_messages.GET', 'core.comms.email_messages.POST'];
-
-                $preloadTools = array_merge([
-                    'core.extra_fields.GET', 'core.extra_fields.PUT',
-                    'core.context.files.GET', 'core.context.files.content.GET',
-                    'recruiting.applicants.PUT',
-                    'crm.contacts.GET', 'crm.contacts.POST',
-                    'recruiting.applicant_contacts.POST',
-                ], $messagingTools);
-                $messages = $this->buildMessages(
-                    $applicant, $owner, $contactInfo, $extraFields, $missingFields,
-                    $threadsSummary, $preferredChannel, $waitingForApplicantStateId, $completedStateId,
-                    $isWhatsAppChannel
-                );
-
-                $this->logAutoPilot($applicant, 'run_started', "Scenario {$scenario}: LLM-Run", [
-                    'preload_tools' => $preloadTools,
-                ]);
-
-                try {
-                    $result = $runner->run($messages, $model, $toolContext, [
-                        'max_iterations' => $maxIterations,
-                        'max_output_tokens' => $maxOutputTokens,
-                        'include_web_search' => false,
-                        'reasoning' => ['effort' => 'medium'],
-                        'preload_tools' => $preloadTools,
-                        'skip_discovery_tools' => true,
-                        'on_iteration' => function (int $iter, array $toolNames, int $textLen) {
-                            $this->line("    Iter {$iter}: " . (empty($toolNames) ? '(keine Tools)' : implode(', ', $toolNames)));
-                        },
-                        'on_tool_result' => function (string $tool, array $args, array $result) {
-                            $ok = $result['ok'] ?? false;
-                            if (!$ok) {
-                                $errMsg = $result['error']['message'] ?? $result['error']['code'] ?? 'unknown';
-                                $this->warn("      ⚠ {$tool} FEHLER: {$errMsg}");
-                                $this->warn("        Args: " . json_encode($args, JSON_UNESCAPED_UNICODE));
-                            }
-                        },
-                    ]);
-                } catch (\Throwable $e) {
-                    $this->logAutoPilot($applicant, 'error', 'LLM-Fehler: ' . $e->getMessage());
-                    $this->error("  ❌ " . $e->getMessage());
-                    continue;
-                }
-
-                // --- Ergebnis auswerten ---
-                $iterations = (int)($result['iterations'] ?? 0);
-                $allToolCallNames = $result['all_tool_call_names'] ?? [];
-                $emailSent = in_array('core.comms.email_messages.POST', $allToolCallNames);
-                $whatsappSent = in_array('core.comms.whatsapp_messages.POST', $allToolCallNames);
-                $messageSent = $emailSent || $whatsappSent;
-
-                $this->logAutoPilot($applicant, 'run_completed', "Scenario {$scenario}: {$iterations} Iterationen", [
-                    'iterations' => $iterations,
-                    'all_tool_calls' => $allToolCallNames,
-                    'email_sent' => $emailSent,
-                    'whatsapp_sent' => $whatsappSent,
-                ]);
-                $this->line("  Iterationen: {$iterations} | Tools: " . (empty($allToolCallNames) ? '(keine)' : implode(', ', $allToolCallNames)));
-                $this->line("  Nachricht: " . ($messageSent ? ($whatsappSent ? 'WhatsApp' : 'Email') : 'NEIN'));
-
-                // Threads verknüpfen
-                $linkedThreads = $this->linkNewThreadsToApplicant($applicant, $contactInfo, $preferredChannel);
-                if ($linkedThreads > 0) { $this->line("  Threads verknüpft: {$linkedThreads}"); }
-
-                // Reload
-                $applicant->refresh();
-                $applicant->loadMissing(['autoPilotState']);
-
-                // Guard: LLM darf auto_pilot nicht abschalten
-                if (!$applicant->auto_pilot) {
-                    $applicant->auto_pilot = true;
-                    $applicant->save();
-                    $this->logAutoPilot($applicant, 'warning', 'LLM hat auto_pilot deaktiviert — wurde zurückgesetzt.');
-                    $this->warn("  ⚠️ auto_pilot wurde vom LLM deaktiviert → zurückgesetzt.");
-                }
-
-                // Guard: Nach Nachricht IMMER waiting_for_applicant setzen (verhindert Doppel-Senden)
-                if ($messageSent) {
-                    $currentMissing = $this->getMissingRequiredFields($this->loadExtraFields($applicant));
-                    if (!empty($currentMissing) && $applicant->auto_pilot_state_id !== $waitingForApplicantStateId) {
-                        $applicant->auto_pilot_state_id = $waitingForApplicantStateId;
-                        $applicant->save();
-                        $this->logAutoPilot($applicant, 'state_enforced', 'Nachricht gesendet → State auf waiting_for_applicant gesetzt.');
-                        $this->info("  ℹ️ State erzwungen → waiting_for_applicant");
-                    }
-                }
-
-                // Notes loggen
-                $notes = trim((string)($result['assistant'] ?? ''));
-                if ($notes !== '') {
-                    $this->logAutoPilot($applicant, 'note', $notes);
-                }
-
-                // State-Änderung prüfen
-                if ($applicant->auto_pilot_completed_at !== null) {
-                    // Guard: Prüfe ob Pflichtfelder tatsächlich gefüllt sind
-                    $stillMissing = $this->getMissingRequiredFields($this->loadExtraFields($applicant));
-                    if (!empty($stillMissing)) {
-                        $missingNames = array_column($stillMissing, 'label');
-                        $applicant->auto_pilot_completed_at = null;
-                        $applicant->save();
-                        $this->logAutoPilot($applicant, 'warning',
-                            'LLM hat completed gesetzt, aber Pflichtfelder fehlen noch: ' . implode(', ', $missingNames));
-                        $this->warn("  ⚠️ Completed zurückgesetzt — fehlende Felder: " . implode(', ', $missingNames));
-                    } else {
-                        $this->logAutoPilot($applicant, 'completed', 'AutoPilot abgeschlossen.');
-                        $this->info("  ✅ Abgeschlossen.");
-                    }
-                } elseif ($applicant->auto_pilot_state_id !== $oldStateId) {
-                    $newStateName = $applicant->autoPilotState?->name ?? '?';
-                    $this->logAutoPilot($applicant, 'state_changed', "State: {$oldStateName} → {$newStateName}");
-                    $this->info("  ℹ️ State → {$newStateName}");
-                } else {
-                    $this->warn("  ⚠️ Keine Statusänderung.");
-                }
+                $this->impersonateForTask($owner, $applicant->team);
+                $this->processApplicant($applicant, $settings);
             }
 
             // Restore auth
@@ -376,16 +115,294 @@ class ProcessAutoPilotApplicants extends Command
             }
 
             $this->newLine();
-            $this->info("✅ Fertig. Bearbeitet: {$processed} Bewerbung(en).");
+            $this->info("Fertig. Bearbeitet: {$processed} Bewerbung(en).");
             return Command::SUCCESS;
         } catch (\Throwable $e) {
-            $this->error('❌ Fehler: ' . $e->getMessage());
+            $this->error('Fehler: ' . $e->getMessage());
             return Command::FAILURE;
         } finally {
             try { Auth::guard()->logout(); } catch (\Throwable $e) {}
             try { $lock->release(); } catch (\Throwable $e) {}
         }
     }
+
+    private function processApplicant(RecApplicant $applicant, RecApplicantSettings $settings): void
+    {
+        // 1. Check progress — complete if 100%
+        $progress = $applicant->calculateProgress();
+        $applicant->progress = $progress;
+        $applicant->save();
+
+        if ($progress >= 100) {
+            $applicant->auto_pilot_state_id = $this->completedStateId;
+            $applicant->auto_pilot_completed_at = now();
+            $applicant->save();
+            $this->logAutoPilot($applicant, 'completed', 'Alle Pflichtfelder ausgefüllt — AutoPilot abgeschlossen.');
+            $this->info("  Alle Felder komplett — abgeschlossen.");
+            return;
+        }
+
+        // 2. Resolve channel
+        $channelPriority = $settings->getSetting('auto_pilot_channel_priority', 'whatsapp_first');
+        $resolved = $this->resolveChannel($applicant, $channelPriority);
+
+        if (!$resolved) {
+            $this->logAutoPilot($applicant, 'warning', "Kein Kanal verfügbar (Priorität: {$channelPriority}).");
+            $this->warn("  Kein Kanal verfügbar — übersprungen.");
+            return;
+        }
+
+        $channel = $resolved['channel'];
+        $channelType = $resolved['type']; // 'whatsapp' or 'email'
+
+        // 3. Get public form link
+        $publicUrl = $applicant->getPublicUrl();
+        $formToken = $this->extractFormToken($publicUrl);
+
+        // 4. First contact (never sent a reminder)
+        if ($applicant->auto_pilot_last_reminder_at === null) {
+            $sent = $this->sendMessage($applicant, $channel, $channelType, $publicUrl, $formToken, $settings, isReminder: false);
+
+            if ($sent) {
+                $applicant->auto_pilot_reminder_count = 1;
+                $applicant->auto_pilot_last_reminder_at = now();
+                $applicant->auto_pilot_state_id = $this->waitingForApplicantStateId;
+                $applicant->save();
+                $this->logAutoPilot($applicant, 'template_sent', "Erstkontakt per {$channelType} gesendet.");
+                $this->info("  Erstkontakt per {$channelType} gesendet.");
+            } else {
+                $this->logAutoPilot($applicant, 'warning', "Versand per {$channelType} fehlgeschlagen.");
+                $this->warn("  Versand fehlgeschlagen.");
+            }
+            return;
+        }
+
+        // 5. Reminder check
+        $intervalHours = (int) $settings->getSetting('auto_pilot_reminder_interval_hours', 24);
+        $maxReminders = (int) $settings->getSetting('auto_pilot_max_reminders', 3);
+        $reminderDue = $applicant->auto_pilot_last_reminder_at->addHours($intervalHours)->isPast();
+
+        if (!$reminderDue) {
+            $this->line("  Warten — nächste Erinnerung in " . $applicant->auto_pilot_last_reminder_at->addHours($intervalHours)->diffForHumans());
+            return;
+        }
+
+        // 5a. Max reminders reached?
+        if ($applicant->auto_pilot_reminder_count >= $maxReminders) {
+            $applicant->auto_pilot_state_id = $this->reviewNeededStateId;
+            $applicant->save();
+            $this->logAutoPilot($applicant, 'max_reminders_reached', "Max. Erinnerungen erreicht ({$maxReminders}/{$maxReminders}).");
+            $this->info("  Max. Erinnerungen erreicht — review_needed.");
+            return;
+        }
+
+        // 5b. Send reminder
+        $sent = $this->sendMessage($applicant, $channel, $channelType, $publicUrl, $formToken, $settings, isReminder: true);
+
+        if ($sent) {
+            $applicant->auto_pilot_reminder_count = $applicant->auto_pilot_reminder_count + 1;
+            $applicant->auto_pilot_last_reminder_at = now();
+            $applicant->save();
+            $this->logAutoPilot($applicant, 'reminder_sent', "Erinnerung {$applicant->auto_pilot_reminder_count}/{$maxReminders} per {$channelType} gesendet.");
+            $this->info("  Erinnerung {$applicant->auto_pilot_reminder_count}/{$maxReminders} per {$channelType} gesendet.");
+        } else {
+            $this->logAutoPilot($applicant, 'warning', "Erinnerungs-Versand per {$channelType} fehlgeschlagen.");
+            $this->warn("  Erinnerungs-Versand fehlgeschlagen.");
+        }
+    }
+
+    /**
+     * Resolve channel based on settings priority.
+     * Returns ['channel' => CommsChannel, 'type' => string, 'recipient' => string] or null.
+     */
+    private function resolveChannel(RecApplicant $applicant, string $priority): ?array
+    {
+        $teamId = $applicant->team_id;
+        $applicant->loadMissing(['crmContactLinks.contact.phoneNumbers', 'crmContactLinks.contact.emailAddresses']);
+
+        $waChannel = CommsChannel::where('team_id', $teamId)->where('type', 'whatsapp')->where('is_active', true)->first();
+        $emailChannel = CommsChannel::where('team_id', $teamId)->where('type', 'email')->where('is_active', true)->first();
+
+        $hasPhone = $this->findPrimaryPhoneNumber($applicant) !== null;
+        $hasEmail = $this->findPrimaryEmail($applicant) !== null;
+
+        $canWhatsApp = $waChannel && $hasPhone;
+        $canEmail = $emailChannel && $hasEmail;
+
+        return match ($priority) {
+            'whatsapp_first' => $canWhatsApp
+                ? ['channel' => $waChannel, 'type' => 'whatsapp']
+                : ($canEmail ? ['channel' => $emailChannel, 'type' => 'email'] : null),
+
+            'email_first' => $canEmail
+                ? ['channel' => $emailChannel, 'type' => 'email']
+                : ($canWhatsApp ? ['channel' => $waChannel, 'type' => 'whatsapp'] : null),
+
+            'whatsapp_only' => $canWhatsApp ? ['channel' => $waChannel, 'type' => 'whatsapp'] : null,
+
+            'email_only' => $canEmail ? ['channel' => $emailChannel, 'type' => 'email'] : null,
+
+            default => null,
+        };
+    }
+
+    /**
+     * Send a template (WhatsApp) or email with the public form link.
+     */
+    private function sendMessage(
+        RecApplicant $applicant,
+        CommsChannel $channel,
+        string $channelType,
+        string $publicUrl,
+        string $formToken,
+        RecApplicantSettings $settings,
+        bool $isReminder = false,
+    ): bool {
+        if ($channelType === 'whatsapp') {
+            return $this->sendWhatsAppTemplate($applicant, $channel, $formToken, $settings, $isReminder);
+        }
+
+        return $this->sendEmail($applicant, $channel, $publicUrl, $isReminder);
+    }
+
+    private function sendWhatsAppTemplate(
+        RecApplicant $applicant,
+        CommsChannel $channel,
+        string $formToken,
+        RecApplicantSettings $settings,
+        bool $isReminder = false,
+    ): bool {
+        try {
+            $phoneNumber = $this->findPrimaryPhoneNumber($applicant);
+            if (!$phoneNumber) {
+                return false;
+            }
+
+            // Resolve template from DB by ID (initial vs. reminder)
+            $settingKey = $isReminder ? 'auto_pilot_wa_reminder_template_id' : 'auto_pilot_wa_initial_template_id';
+            $templateId = $settings->getSetting($settingKey);
+            $templateName = null;
+            $templateLang = 'de';
+
+            if ($templateId && class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+                $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
+                if ($template && $template->status === 'APPROVED') {
+                    $templateName = $template->name;
+                    $templateLang = $template->language;
+                }
+            }
+
+            // Fallback to channel default
+            if (!$templateName) {
+                $templateName = $channel->meta['default_template'] ?? 'bewerbung_formular';
+                $templateLang = $channel->meta['default_template_lang'] ?? 'de';
+            }
+
+            $service = app(WhatsAppMetaService::class);
+            $message = $service->sendTemplate(
+                channel: $channel,
+                to: $phoneNumber->international,
+                templateName: $templateName,
+                components: [
+                    ['type' => 'button', 'sub_type' => 'url', 'index' => 0,
+                     'parameters' => [['type' => 'text', 'text' => $formToken]]],
+                ],
+                languageCode: $templateLang,
+            );
+
+            // Link thread to applicant
+            $thread = $message->thread;
+            if ($thread && !$thread->context_model) {
+                $thread->update([
+                    'context_model' => $applicant->getMorphClass(),
+                    'context_model_id' => $applicant->id,
+                ]);
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            $this->logAutoPilot($applicant, 'error', 'WA-Template-Fehler: ' . $e->getMessage());
+            $this->warn("  WA-Fehler: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function sendEmail(RecApplicant $applicant, CommsChannel $channel, string $publicUrl, bool $isReminder = false): bool
+    {
+        try {
+            $email = $this->findPrimaryEmail($applicant);
+            if (!$email) {
+                return false;
+            }
+
+            $contactName = $this->getContactName($applicant);
+            $teamName = $applicant->team?->name ?? '';
+            $owner = $applicant->ownedByUser;
+
+            if ($isReminder) {
+                $subject = 'Erinnerung: Bitte ergänzen Sie Ihre Bewerbungsdaten';
+                $body = "Hallo {$contactName},\n\n"
+                    . "wir haben noch nicht alle Angaben zu Ihrer Bewerbung erhalten. "
+                    . "Bitte ergänzen Sie die fehlenden Daten über unser Online-Formular:\n\n"
+                    . "{$publicUrl}\n\n"
+                    . "Vielen Dank und viele Grüße";
+            } else {
+                $subject = 'Ihre Bewerbung — bitte ergänzen Sie Ihre Daten';
+                $body = "Hallo {$contactName},\n\n"
+                    . "vielen Dank für Ihr Interesse an einer Tätigkeit bei {$teamName}.\n\n"
+                    . "Damit wir Ihre Bewerbung vollständig bearbeiten können, bitten wir Sie, "
+                    . "noch einige Angaben über unser Online-Formular zu ergänzen:\n\n"
+                    . "{$publicUrl}\n\n"
+                    . "Vielen Dank und viele Grüße";
+            }
+
+            $htmlBody = nl2br(e($body));
+
+            $service = app(PostmarkEmailService::class);
+            $service->send(
+                channel: $channel,
+                to: $email,
+                subject: $subject,
+                htmlBody: $htmlBody,
+                textBody: $body,
+                opt: [
+                    'sender' => $owner,
+                    'tag' => 'auto-pilot',
+                ],
+            );
+
+            // Link new email thread to applicant
+            $this->linkNewEmailThread($applicant, $channel, $email);
+
+            return true;
+        } catch (\Throwable $e) {
+            $this->logAutoPilot($applicant, 'error', 'Email-Fehler: ' . $e->getMessage());
+            $this->warn("  Email-Fehler: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function linkNewEmailThread(RecApplicant $applicant, CommsChannel $channel, string $email): void
+    {
+        try {
+            \Platform\Crm\Models\CommsEmailThread::query()
+                ->where('comms_channel_id', $channel->id)
+                ->whereNull('context_model')
+                ->where(function ($q) use ($email) {
+                    $q->where('last_outbound_to_address', $email)
+                      ->orWhere('last_inbound_from_address', $email);
+                })
+                ->where('created_at', '>=', now()->subMinutes(5))
+                ->update([
+                    'context_model' => $applicant->getMorphClass(),
+                    'context_model_id' => $applicant->id,
+                ]);
+        } catch (\Throwable $e) {
+            // ignore
+        }
+    }
+
+    // ===== Helpers =====
 
     private function nextAutoPilotApplicant(?int $applicantId, array $excludeIds = []): ?RecApplicant
     {
@@ -399,28 +416,77 @@ class ProcessAutoPilotApplicants extends Command
             $query->where('id', $applicantId);
         }
 
+        // Skip applicants in review_needed state
+        if ($this->reviewNeededStateId) {
+            $query->where(function ($q) {
+                $q->whereNull('auto_pilot_state_id')
+                  ->orWhere('auto_pilot_state_id', '!=', $this->reviewNeededStateId);
+            });
+        }
+
         if (!empty($excludeIds)) {
             $query->whereNotIn('id', array_map('intval', $excludeIds));
         }
 
-        return $query
-            ->orderBy('updated_at', 'asc')
-            ->first();
+        return $query->orderBy('updated_at', 'asc')->first();
     }
 
-    private function determineModel(): string
+    private function findPrimaryPhoneNumber(RecApplicant $applicant): ?CrmPhoneNumber
     {
-        try {
-            $provider = CoreAiProvider::where('key', 'openai')->where('is_active', true)->with('defaultModel')->first();
-            $fallback = $provider?->defaultModel?->model_id;
-            if (is_string($fallback) && $fallback !== '') {
-                return $fallback;
-            }
-        } catch (\Throwable $e) {
-            // ignore
+        $applicant->loadMissing(['crmContactLinks.contact.phoneNumbers']);
+
+        foreach ($applicant->crmContactLinks as $link) {
+            $contact = $link->contact;
+            if (!$contact) continue;
+
+            $primary = $contact->phoneNumbers
+                ->where('is_active', true)
+                ->where('is_primary', true)
+                ->whereNotNull('international')
+                ->first();
+
+            if ($primary) return $primary;
+
+            $fallback = $contact->phoneNumbers
+                ->where('is_active', true)
+                ->whereNotNull('international')
+                ->first();
+
+            if ($fallback) return $fallback;
         }
 
-        return 'gpt-5.2';
+        return null;
+    }
+
+    private function findPrimaryEmail(RecApplicant $applicant): ?string
+    {
+        $applicant->loadMissing(['crmContactLinks.contact.emailAddresses']);
+
+        $fallback = null;
+        foreach ($applicant->crmContactLinks as $link) {
+            foreach ($link->contact?->emailAddresses ?? [] as $email) {
+                if (!$email->is_active) continue;
+                if ($email->is_primary) return $email->email_address;
+                if ($fallback === null) $fallback = $email->email_address;
+            }
+        }
+
+        return $fallback;
+    }
+
+    private function getContactName(RecApplicant $applicant): string
+    {
+        foreach ($applicant->crmContactLinks as $link) {
+            $name = $link->contact?->full_name;
+            if ($name) return $name;
+        }
+        return 'Bewerber/in';
+    }
+
+    private function extractFormToken(string $publicUrl): string
+    {
+        // Extract token from URL like https://domain/public/form/{token}
+        return basename(parse_url($publicUrl, PHP_URL_PATH));
     }
 
     private function impersonateForTask(User $user, ?Team $team): void
@@ -428,320 +494,8 @@ class ProcessAutoPilotApplicants extends Command
         Auth::setUser($user);
 
         if ($team) {
-            $user->current_team_id = (int)$team->id;
+            $user->current_team_id = (int) $team->id;
             $user->setRelation('currentTeamRelation', $team);
-        }
-    }
-
-    private function loadContactInfo(RecApplicant $applicant): array
-    {
-        try {
-            $applicant->loadMissing([
-                'crmContactLinks.contact.emailAddresses',
-                'crmContactLinks.contact.phoneNumbers',
-            ]);
-
-            return $applicant->crmContactLinks->map(function ($link) {
-                $c = $link->contact;
-                if (!$c) { return null; }
-                return [
-                    'contact_id' => $c->id,
-                    'full_name' => $c->full_name,
-                    'emails' => $c->emailAddresses?->map(fn ($e) => [
-                        'email' => $e->email_address,
-                        'is_primary' => (bool)$e->is_primary,
-                    ])->values()->toArray() ?? [],
-                    'phones' => $c->phoneNumbers?->map(fn ($p) => [
-                        'number' => $p->international,
-                        'is_primary' => (bool)$p->is_primary,
-                    ])->values()->toArray() ?? [],
-                ];
-            })->filter()->values()->toArray();
-        } catch (\Throwable $e) {
-            return [];
-        }
-    }
-
-    private function loadExtraFields(RecApplicant $applicant): array
-    {
-        try {
-            return $applicant->getExtraFieldsWithLabels();
-        } catch (\Throwable $e) {
-            return [];
-        }
-    }
-
-    private function loadThreadsSummary(RecApplicant $applicant, bool $isWhatsAppChannel = false): array
-    {
-        try {
-            $morphClass = $applicant->getMorphClass();
-            $fullClass = get_class($applicant);
-            $threads = collect();
-
-            // Load WhatsApp threads if WhatsApp channel
-            if ($isWhatsAppChannel && class_exists(CommsWhatsAppThread::class)) {
-                $waThreads = CommsWhatsAppThread::query()
-                    ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                        $q->where(function ($q2) use ($morphClass, $applicant) {
-                            $q2->where('context_model', $morphClass)
-                                ->where('context_model_id', $applicant->id);
-                        })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                            $q2->where('context_model', $fullClass)
-                                ->where('context_model_id', $applicant->id);
-                        });
-                    })
-                    ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
-                    ->limit(10)
-                    ->get();
-
-                $threads = $waThreads->map(function ($t) {
-                    // Nachrichten laden
-                    $messages = CommsWhatsAppMessage::query()
-                        ->where('comms_whatsapp_thread_id', $t->id)
-                        ->orderBy('created_at', 'asc')
-                        ->get()
-                        ->map(function ($m) {
-                            $msg = [
-                                'direction' => $m->direction,  // 'inbound' oder 'outbound'
-                                'message_type' => $m->message_type, // 'text', 'image', 'document', 'audio', 'video', etc.
-                                'body' => $m->body,
-                                'at' => $m->created_at?->toIso8601String(),
-                            ];
-
-                            // Attach file references for media messages
-                            if ($m->message_type && $m->message_type !== 'text' && $m->message_type !== 'template') {
-                                $fileRefs = [];
-                                foreach ($m->getOrderedFileReferences() as $ref) {
-                                    if (!$ref->contextFile) { continue; }
-                                    $entry = [
-                                        'context_file_id' => $ref->contextFile->id,
-                                        'title' => $ref->contextFile->original_name ?? $ref->contextFile->title ?? '(Anhang)',
-                                        'mime_type' => $ref->contextFile->mime_type ?? null,
-                                    ];
-                                    if ($ref->caption) {
-                                        $entry['caption'] = $ref->caption;
-                                    }
-                                    $fileRefs[] = $entry;
-                                }
-                                if (!empty($fileRefs)) {
-                                    $msg['attachments'] = $fileRefs;
-                                }
-                            }
-
-                            return $msg;
-                        })
-                        ->toArray();
-
-                    return [
-                        'thread_id' => $t->id,
-                        'channel_id' => $t->comms_channel_id,
-                        'channel_type' => 'whatsapp',
-                        'counterpart' => $t->remote_phone_number,
-                        'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
-                        'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
-                        'messages' => $messages,
-                    ];
-                });
-            }
-
-            // Load Email threads if Email channel (or fallback)
-            if (!$isWhatsAppChannel && class_exists(CommsEmailThread::class)) {
-                $emailThreads = CommsEmailThread::query()
-                    ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                        $q->where(function ($q2) use ($morphClass, $applicant) {
-                            $q2->where('context_model', $morphClass)
-                                ->where('context_model_id', $applicant->id);
-                        })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                            $q2->where('context_model', $fullClass)
-                                ->where('context_model_id', $applicant->id);
-                        });
-                    })
-                    ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
-                    ->limit(10)
-                    ->get();
-
-                $threads = $emailThreads->map(function ($t) {
-                    // Inbound + Outbound laden und zusammenführen
-                    $inbound = CommsEmailInboundMail::query()
-                        ->where('thread_id', $t->id)
-                        ->get()
-                        ->map(function ($m) {
-                            $msg = [
-                                'direction' => 'inbound',
-                                'body' => $m->text_body,
-                                'from' => $m->from,
-                                'at' => $m->received_at?->toIso8601String() ?? $m->created_at?->toIso8601String(),
-                            ];
-
-                            // Attach file references (Anhänge)
-                            $fileRefs = [];
-                            foreach ($m->getOrderedFileReferences() as $ref) {
-                                if (!$ref->contextFile) { continue; }
-                                $fileRefs[] = [
-                                    'context_file_id' => $ref->contextFile->id,
-                                    'title' => $ref->contextFile->original_name ?? '(Anhang)',
-                                    'mime_type' => $ref->contextFile->mime_type ?? null,
-                                ];
-                            }
-                            if (!empty($fileRefs)) {
-                                $msg['attachments'] = $fileRefs;
-                            }
-
-                            return $msg;
-                        });
-
-                    $outbound = CommsEmailOutboundMail::query()
-                        ->where('thread_id', $t->id)
-                        ->get()
-                        ->map(fn ($m) => [
-                            'direction' => 'outbound',
-                            'body' => $m->text_body,
-                            'to' => $m->to,
-                            'at' => $m->sent_at?->toIso8601String() ?? $m->created_at?->toIso8601String(),
-                        ]);
-
-                    $messages = $inbound->concat($outbound)
-                        ->sortBy('at')
-                        ->values()
-                        ->toArray();
-
-                    return [
-                        'thread_id' => $t->id,
-                        'channel_id' => $t->comms_channel_id,
-                        'channel_type' => 'email',
-                        'subject' => $t->subject,
-                        'counterpart' => $t->last_inbound_from_address ?: $t->last_outbound_to_address,
-                        'last_inbound_at' => $t->last_inbound_at?->toIso8601String(),
-                        'last_outbound_at' => $t->last_outbound_at?->toIso8601String(),
-                        'messages' => $messages,
-                    ];
-                });
-            }
-
-            return $threads->toArray();
-        } catch (\Throwable $e) {
-            return [];
-        }
-    }
-
-    private function loadPreferredChannel(RecApplicant $applicant): ?array
-    {
-        try {
-            // 1. Applicant-specific channel (from dashboard toggle)
-            if ($applicant->preferred_comms_channel_id) {
-                $channel = CommsChannel::where('id', $applicant->preferred_comms_channel_id)
-                    ->where('is_active', true)
-                    ->first();
-                if ($channel) {
-                    return [
-                        'comms_channel_id' => $channel->id,
-                        'name' => $channel->name,
-                        'sender_identifier' => $channel->sender_identifier,
-                    ];
-                }
-            }
-
-            // 2. Fallback: Team-Settings
-            $teamId = $applicant->team_id;
-            if (!$teamId) { return null; }
-
-            if (!class_exists(RecApplicantSettings::class) || !class_exists(CommsChannelContext::class)) {
-                return null;
-            }
-
-            $settings = RecApplicantSettings::where('team_id', $teamId)->first();
-            if (!$settings) { return null; }
-
-            $context = CommsChannelContext::where('context_model', get_class($settings))
-                ->where('context_model_id', $settings->id)
-                ->first();
-
-            if (!$context) { return null; }
-
-            $channel = CommsChannel::where('id', $context->comms_channel_id)
-                ->where('is_active', true)
-                ->first();
-
-            if (!$channel) { return null; }
-
-            return [
-                'comms_channel_id' => $channel->id,
-                'name' => $channel->name,
-                'sender_identifier' => $channel->sender_identifier,
-            ];
-        } catch (\Throwable $e) {
-            return null;
-        }
-    }
-
-    private function linkNewThreadsToApplicant(RecApplicant $applicant, array $contactInfo, ?array $preferredChannel = null): int
-    {
-        $teamId = $applicant->team_id;
-        if (!$teamId) { return 0; }
-
-        $channelId = $preferredChannel['comms_channel_id'] ?? null;
-        if (!$channelId) { return 0; }
-
-        $morphClass = $applicant->getMorphClass();
-        $total = 0;
-
-        try {
-            // Link email threads
-            $emails = [];
-            foreach ($contactInfo as $contact) {
-                foreach ($contact['emails'] ?? [] as $email) {
-                    $emails[] = $email['email'];
-                }
-            }
-
-            if (!empty($emails)) {
-                $emailLinked = CommsEmailThread::query()
-                    ->where('comms_channel_id', $channelId)
-                    ->whereNull('context_model')
-                    ->where(function ($q) use ($emails) {
-                        foreach ($emails as $email) {
-                            $q->orWhere('last_outbound_to_address', $email);
-                            $q->orWhere('last_inbound_from_address', $email);
-                        }
-                    })
-                    ->where('created_at', '>=', now()->subMinutes(30))
-                    ->update([
-                        'context_model' => $morphClass,
-                        'context_model_id' => $applicant->id,
-                    ]);
-                $total += $emailLinked;
-            }
-
-            // Link WhatsApp threads
-            $phones = [];
-            foreach ($contactInfo as $contact) {
-                foreach ($contact['phones'] ?? [] as $phone) {
-                    if (!empty($phone['number'])) {
-                        $phones[] = $phone['number'];
-                    }
-                }
-            }
-
-            if (!empty($phones)) {
-                $waLinked = CommsWhatsAppThread::query()
-                    ->where('comms_channel_id', $channelId)
-                    ->whereNull('context_model')
-                    ->whereIn('remote_phone_number', $phones)
-                    ->where('created_at', '>=', now()->subMinutes(30))
-                    ->update([
-                        'context_model' => $morphClass,
-                        'context_model_id' => $applicant->id,
-                    ]);
-                $total += $waLinked;
-            }
-
-            if ($total > 0) {
-                $this->logAutoPilot($applicant, 'note', "{$total} neue(r) Thread(s) mit Bewerber verknüpft");
-            }
-
-            return $total;
-        } catch (\Throwable $e) {
-            return 0;
         }
     }
 
@@ -755,569 +509,7 @@ class ProcessAutoPilotApplicants extends Command
                 'details' => $details,
             ]);
         } catch (\Throwable $e) {
-            // ignore — logging should never break the run
-        }
-    }
-
-    /**
-     * @return array<int, array{role:string, content:string}>
-     */
-    private function buildAgentMessages(
-        RecApplicant $applicant,
-        User $owner,
-        array $contactInfo,
-        array $extraFields,
-        array $threadsSummary,
-        ?array $preferredChannel,
-        ?int $waitingForApplicantStateId = null,
-        ?int $completedStateId = null
-    ): array {
-        $system = "Du bist {$owner->name} und bearbeitest automatisch Bewerbungen.\n"
-            . "Du arbeitest im Namen des HR-Verantwortlichen — Kommunikation soll persönlich wirken.\n"
-            . "Du arbeitest vollständig autonom (kein Rückfragen-Dialog mit einem Menschen).\n"
-            . "Antworte und schreibe Notizen immer auf Deutsch.\n\n"
-            . "GRUNDREGEL — HANDELN, NICHT BESCHREIBEN:\n"
-            . "Du bist ein autonomer Agent. Du FÜHRST Aktionen AUS über Tool-Calls (Function Calling).\n"
-            . "Du schreibst KEINE Reports, KEINE Zusammenfassungen, KEINE Vorschläge.\n"
-            . "Jede deiner Antworten MUSS Tool-Calls enthalten — reiner Text ohne Tool-Call ist ein Fehler.\n"
-            . "Dein Output ist NICHT für einen Menschen gedacht. Dein Output sind Tool-Calls.\n\n"
-            . "ES GIBT VIER MÖGLICHE ERGEBNISSE:\n"
-            . "A) Bewerbung VOLLSTÄNDIG → Alle Pflichtfelder ausgefüllt, CRM-Kontakt verknüpft → State auf 'completed' setzen.\n"
-            . "B) UNVOLLSTÄNDIG, ERSTMALIG → Pflichtfelder fehlen, kein bestehender Thread zum Bewerber\n"
-            . "   → Neue Nachricht an Bewerber SENDEN und fehlende Infos anfordern → State auf 'waiting_for_applicant' setzen.\n"
-            . "C) NEUE INFOS ERHALTEN → State ist 'waiting_for_applicant', Bewerber hat geantwortet mit verwertbaren Infos\n"
-            . "   → ZUERST Infos per core.extra_fields.PUT in die Felder schreiben\n"
-            . "   → DANN prüfen: alle Pflichtfelder gefüllt? → 'completed'. Noch was fehlt? → REPLY im bestehenden Thread und restliche Infos nachfragen.\n"
-            . "D) WEITERHIN WARTEND → State ist 'waiting_for_applicant', keine neuen verwertbaren Infos → NICHTS tun. FERTIG.\n"
-            . "   WICHTIG: Sende NIEMALS eine Nachricht wenn du bereits auf Antwort wartest und keine neue Antwort da ist.\n\n"
-            . "VERBOTEN:\n"
-            . "- Text-Antworten die beschreiben was du tun \"würdest\", \"könntest\" oder \"empfiehlst\"\n"
-            . "- \"Vorgeschlagene Payloads\", \"Empfohlene Aktionen\" oder ähnliche Reports\n"
-            . "- Zusammenfassungen des Ist-Zustands als Endprodukt\n"
-            . "- Abwarten, Planen oder Analysieren ohne anschließende Tool-Calls\n"
-            . "- State auf 'waiting_for_applicant' setzen OHNE vorher eine Nachricht gesendet zu haben\n\n"
-            . "WICHTIG (Tools):\n"
-            . "- Alle benötigten Tools sind bereits geladen. Du musst KEINE Discovery-Tools aufrufen.\n"
-            . "- Rufe NICHT core.teams.GET, core.user.GET, core.context.GET oder tools.GET auf — der Kontext ist bereits gesetzt.\n"
-            . "- Beginne SOFORT mit der Bearbeitung.\n\n"
-            . "DEIN ABLAUF (führe jeden Schritt sofort per Tool-Call aus):\n"
-            . "1. CRM-Kontakt prüfen — falls keiner verknüpft: suchen/erstellen und verknüpfen\n"
-            . "2. Extra-Fields laden — prüfen welche required (is_required=true) und leer sind\n"
-            . "3. Kommunikations-Threads prüfen:\n"
-            . "   → WENN threads_summary LEER ist (keine Threads): Überspringe Schritt 4-5, gehe direkt zu Schritt 6.\n"
-            . "   → WENN threads_summary Einträge hat: Lade Nachrichten per core.comms.email_messages.GET und prüfe ob neue verwertbare Infos vom Bewerber eingegangen sind.\n"
-            . "4. WENN neue Infos in Nachrichten gefunden → SOFORT per core.extra_fields.PUT in die Felder schreiben. Diesen Schritt NIEMALS überspringen!\n"
-            . "5. Extra-Fields erneut prüfen — nach dem Schreiben: welche Pflichtfelder sind JETZT noch leer?\n"
-            . "6. ENTSCHEIDUNG:\n"
-            . "   → Alle Pflichtfelder gefüllt? → recruiting.applicants.PUT mit auto_pilot_completed_at='now' UND auto_pilot_state_id={$completedStateId}. FERTIG.\n"
-            . "   → Pflichtfelder fehlen, KEIN Thread in threads_summary? → ZWEI PFLICHT-SCHRITTE:\n"
-            . "     1. ZUERST: core.comms.email_messages.POST (siehe NEUER THREAD unten) — fehlende Infos anfordern.\n"
-            . "     2. NUR WENN Schritt 1 ERFOLGREICH: recruiting.applicants.PUT {auto_pilot_state_id={$waitingForApplicantStateId}}.\n"
-            . "     OHNE gesendete Nachricht NIEMALS den State setzen!\n"
-            . "   → Pflichtfelder fehlen, Thread vorhanden, neue Infos verarbeitet? → REPLY im bestehenden Thread (nur thread_id + body), restliche fehlende Infos nachfragen. FERTIG.\n"
-            . "   → Pflichtfelder fehlen, Thread vorhanden, KEINE neuen Infos? → Nichts tun. FERTIG.\n\n"
-            . "KOMMUNIKATION / THREADS — WICHTIG:\n"
-            . "- Die unten aufgeführten threads_summary enthalten bereits die richtigen Thread-IDs für diesen Bewerber.\n"
-            . "- Verwende für Replies NUR die angegebenen Thread-IDs (thread_id).\n"
-            . "- Erstelle KEINEN neuen Thread wenn bereits ein passender existiert.\n"
-            . "- Threads mit is_linked=true sind bereits mit diesem Bewerber verknüpft.\n"
-            . "- Der bevorzugte Kanal (Email, WhatsApp, etc.) wird unten angegeben — nutze diesen.\n\n"
-            . "REPLY-WORKFLOW (bestehender Thread):\n"
-            . "- Für Reply NUR diese Parameter: core.comms.email_messages.POST { \"thread_id\": <thread_id aus threads_summary>, \"body\": \"Dein Text\" }\n"
-            . "- 'to' und 'subject' werden AUTOMATISCH aus dem Thread abgeleitet — NICHT mitsenden.\n"
-            . "- NIEMALS einen neuen Thread erstellen wenn threads_summary bereits einen passenden Thread enthält (insb. mit last_outbound_at gesetzt).\n\n"
-            . "NEUER THREAD (nur wenn threads_summary LEER ist — kein einziger Thread):\n"
-            . "- Nimm die Email-Adresse aus crm_contacts → emails (bevorzugt is_primary=true).\n"
-            . "- core.comms.email_messages.POST { \"comms_channel_id\": <bevorzugter Kanal aus preferred_channel>, \"to\": \"<email aus crm_contacts>\", \"subject\": \"<Betreff>\", \"body\": \"...\" }\n"
-            . "- Wenn KEIN bevorzugter Kanal angegeben: erst core.comms.channels.GET aufrufen um einen aktiven Email-Kanal zu finden.\n";
-
-        if ($preferredChannel) {
-            $system .= "\nBEVORZUGTER KOMMUNIKATIONSKANAL:\n"
-                . "- comms_channel_id = {$preferredChannel['comms_channel_id']}\n"
-                . "- Absender: {$preferredChannel['sender_identifier']}\n"
-                . "- Verwende diesen Kanal für neue Nachrichten. Du musst NICHT core.comms.channels.GET aufrufen.\n";
-        }
-
-        $system .= "\nSTATE-IDS (bereits aufgelöst, NICHT per Lookup suchen):\n"
-            . "- waiting_for_applicant = {$waitingForApplicantStateId}\n"
-            . "- completed = {$completedStateId}\n\n"
-            . "ENDZUSTÄNDE — es gibt genau vier:\n"
-            . "A) KOMPLETT: Alle Pflichtfelder ausgefüllt, Kontakt verknüpft.\n"
-            . "   → EIN EINZIGER CALL: recruiting.applicants.PUT {\"applicant_id\": {$applicant->id}, \"auto_pilot_completed_at\": \"now\", \"auto_pilot_state_id\": {$completedStateId}}\n"
-            . "B) WARTE AUF BEWERBER (erstmalig): Pflichtfelder fehlen, KEINE bestehenden Threads.\n"
-            . "   → SCHRITT 1 (PFLICHT): core.comms.email_messages.POST — Nachricht an Bewerber senden.\n"
-            . "   → SCHRITT 2 (NUR nach erfolgreichem Schritt 1): recruiting.applicants.PUT {\"applicant_id\": {$applicant->id}, \"auto_pilot_state_id\": {$waitingForApplicantStateId}}\n"
-            . "   OHNE GESENDETE NACHRICHT DARF DER STATE NICHT GESETZT WERDEN.\n"
-            . "C) NEUE INFOS VERARBEITET: Infos geschrieben, aber noch Felder offen → Reply im Thread gesendet.\n"
-            . "   → State bleibt 'waiting_for_applicant'. FERTIG.\n"
-            . "D) WEITERHIN WARTEND: Keine neuen Infos, nichts zu tun.\n"
-            . "   → Nichts ändern. KEINE Nachricht senden. FERTIG.\n\n"
-            . "VERFÜGBARE TOOLS (per Discovery):\n"
-            . "- recruiting.applicant.GET, recruiting.applicants.PUT\n"
-            . "- recruiting.applicant_contacts.POST\n"
-            . "- crm.contacts.GET, crm.contacts.POST\n"
-            . "- core.extra_fields.GET, core.extra_fields.PUT\n"
-            . "- core.comms.channels.GET, core.comms.email_threads.GET\n"
-            . "- core.comms.email_messages.GET, core.comms.email_messages.POST (Email, WhatsApp, etc.)\n";
-
-        $applicantDump = [
-            'applicant_id' => $applicant->id,
-            'uuid' => $applicant->uuid,
-            'team_id' => $applicant->team_id,
-            'team' => $applicant->team?->name,
-            'auto_pilot_state' => $applicant->autoPilotState ? [
-                'id' => $applicant->autoPilotState->id,
-                'code' => $applicant->autoPilotState->code,
-                'name' => $applicant->autoPilotState->name,
-            ] : null,
-            'progress' => $applicant->progress,
-            'notes' => $applicant->notes,
-            'applied_at' => $applicant->applied_at?->toDateString(),
-            'crm_contacts' => $contactInfo,
-            'extra_fields' => $extraFields,
-            'threads_summary' => $threadsSummary,
-        ];
-
-        if ($preferredChannel) {
-            $applicantDump['preferred_channel'] = $preferredChannel;
-        }
-
-        $user = "Bewerbung (JSON):\n"
-            . json_encode($applicantDump, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n\n"
-            . "Führe jetzt alle notwendigen Schritte aus. Beginne SOFORT mit Tool-Calls.\n"
-            . "Erster Schritt: tools.GET um die benötigten Tools zu laden.\n"
-            . "Entweder ist die Bewerbung vollständig → abschließen. Oder es fehlen Infos → Nachricht senden.\n"
-            . "Schreibe KEINEN Report — handle direkt.\n";
-
-        return [
-            ['role' => 'system', 'content' => $system],
-            ['role' => 'user', 'content' => $user],
-        ];
-    }
-
-    // ===== Scenario Routing Helpers =====
-
-    private function determineScenario(RecApplicant $applicant, array $extraFields, array $threadsSummary): string
-    {
-        $missingRequired = $this->getMissingRequiredFields($extraFields);
-
-        if (empty($missingRequired)) {
-            return 'A'; // Komplett
-        }
-
-        $hasThreads = !empty($threadsSummary);
-        $isWaiting = $applicant->autoPilotState?->code === 'waiting_for_applicant';
-
-        if (!$hasThreads && !$isWaiting) {
-            return 'B'; // Erstmalig: Email senden
-        }
-
-        if ($isWaiting && !$hasThreads) {
-            return 'B'; // Anomal: waiting aber keine Threads → LLM soll nachschauen
-        }
-
-        if ($isWaiting && $hasThreads && $this->hasNewInboundMessages($threadsSummary)) {
-            return 'C'; // Neue Infos: verarbeiten
-        }
-
-        if ($hasThreads && !$isWaiting) {
-            return 'C'; // Threads vorhanden, noch nicht wartend → LLM soll Konversation auswerten
-        }
-
-        return 'D'; // Weiterhin wartend: nichts tun
-    }
-
-    private function getMissingRequiredFields(array $extraFields): array
-    {
-        return array_filter($extraFields, fn(array $f) =>
-            !empty($f['is_required']) && ($f['value'] === null || $f['value'] === '' || $f['value'] === [])
-        );
-    }
-
-    private function hasNewInboundMessages(array $threadsSummary): bool
-    {
-        foreach ($threadsSummary as $thread) {
-            $inbound = $thread['last_inbound_at'] ?? null;
-            $outbound = $thread['last_outbound_at'] ?? null;
-            if ($inbound !== null && ($outbound === null || $inbound > $outbound)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private function findPrimaryEmail(array $contactInfo): ?string
-    {
-        $fallback = null;
-        foreach ($contactInfo as $contact) {
-            foreach ($contact['emails'] ?? [] as $email) {
-                if ($email['is_primary'] ?? false) return $email['email'];
-                if ($fallback === null) $fallback = $email['email'];
-            }
-        }
-        return $fallback;
-    }
-
-    private function findPrimaryPhoneString(array $contactInfo): ?string
-    {
-        $fallback = null;
-        foreach ($contactInfo as $contact) {
-            foreach ($contact['phones'] ?? [] as $phone) {
-                if ($phone['is_primary'] ?? false) return $phone['number'];
-                if ($fallback === null) $fallback = $phone['number'];
-            }
-        }
-        return $fallback;
-    }
-
-    /**
-     * Flag threads where the counterpart email does not belong to the CRM contact (portal threads).
-     */
-    private function flagPortalThreads(array $threadsSummary, array $contactInfo): array
-    {
-        // Collect all CRM contact emails (lowercased)
-        $crmEmails = [];
-        foreach ($contactInfo as $contact) {
-            foreach ($contact['emails'] ?? [] as $email) {
-                $crmEmails[] = strtolower(trim($email['email']));
-            }
-        }
-
-        foreach ($threadsSummary as &$thread) {
-            $counterpart = strtolower(trim($thread['counterpart'] ?? ''));
-
-            if ($counterpart === '' || $thread['channel_type'] !== 'email') {
-                $thread['is_portal_thread'] = false;
-                continue;
-            }
-
-            $thread['is_portal_thread'] = !in_array($counterpart, $crmEmails, true);
-        }
-        unset($thread);
-
-        return $threadsSummary;
-    }
-
-    // ===== Unified Prompt =====
-
-    private function buildMessages(
-        RecApplicant $applicant, User $owner, array $contactInfo,
-        array $extraFields, array $missingFields, array $threadsSummary,
-        ?array $preferredChannel, int $waitingStateId, int $completedStateId,
-        bool $isWhatsAppChannel = false
-    ): array {
-        $contactName = $contactInfo[0]['full_name'] ?? 'Bewerber/in';
-        $primaryEmail = $this->findPrimaryEmail($contactInfo);
-        $primaryPhone = $this->findPrimaryPhoneString($contactInfo);
-        $publicUrl = $applicant->getPublicUrl();
-
-        // Determine messaging tool names based on channel type
-        $messageToolGet = $isWhatsAppChannel ? 'core.comms.whatsapp_messages.GET' : 'core.comms.email_messages.GET';
-        $messageToolPost = $isWhatsAppChannel ? 'core.comms.whatsapp_messages.POST' : 'core.comms.email_messages.POST';
-        $channelType = $isWhatsAppChannel ? 'WhatsApp' : 'Email';
-        $recipientInfo = $isWhatsAppChannel ? $primaryPhone : $primaryEmail;
-
-        $system = "Du bist {$owner->name}, HR-Verantwortlicher bei {$applicant->team?->name}.\n"
-            . "Du bearbeitest die Bewerbung von {$contactName} ({$recipientInfo}).\n"
-            . "Du arbeitest autonom — handle per Tool-Calls, schreibe keine Reports.\n"
-            . "Kommuniziere immer auf Deutsch, persönlich und professionell.\n"
-            . "Alle benötigten Tools sind bereits geladen. Beginne SOFORT mit der Bearbeitung.\n\n"
-            . "DEINE AUFGABE:\n"
-            . "Prüfe ob alle Pflichtfelder ausgefüllt sind. Extrahiere Infos aus vorhandenen Daten (CRM, Threads, Dateien).\n"
-            . "- Die Nachrichten-Threads sind unten enthalten (messages-Array mit direction=inbound/outbound). Extrahiere alle verwertbaren Infos aus den Bewerber-Antworten (direction=inbound).\n"
-            . "- Schreibe alles was du findest in die Extra-Felder der Bewerbung (core_extra_fields_PUT).\n"
-            . "- Du kannst auch den CRM-Kontakt aktualisieren wenn du relevante Daten findest.\n"
-            . "- Kommunikation erfolgt über {$channelType}.\n"
-            . "- Wenn alle Pflichtfelder gefüllt sind, schließe die Bewerbung ab.\n\n"
-            . "WICHTIG — FORMULAR-LINK STATT EINZELFRAGEN:\n"
-            . "- Frage den Bewerber NIEMALS nach einzelnen Feldern in der Nachricht!\n"
-            . "- Stattdessen: Teile dem Bewerber den Link zum Online-Formular mit, wo er alle fehlenden Daten selbst eintragen kann.\n"
-            . "- Formular-Link: {$publicUrl}\n"
-            . "- Die Nachricht soll KURZ und FREUNDLICH sein — kein Verhör, keine Feld-für-Feld-Abfrage.\n"
-            . "- Beispiel für eine gute Nachricht:\n"
-            . "  \"Hallo [Name], vielen Dank für Ihre Bewerbung! Damit wir Ihre Unterlagen vollständig bearbeiten können, "
-            . "bitten wir Sie, noch einige Angaben über unser Online-Formular zu ergänzen: {$publicUrl} — Vielen Dank!\"\n"
-            . "- Bei Follow-ups (wenn der Bewerber schon kontaktiert wurde aber noch Felder fehlen):\n"
-            . "  \"Hallo [Name], uns fehlen noch einige Angaben. Bitte ergänzen Sie diese hier: {$publicUrl} — Danke!\"\n"
-            . "- NIEMALS eine Liste der fehlenden Felder in die Nachricht schreiben!\n\n"
-            . "CRM-ABGLEICH — VOR DEM KONTAKTIEREN:\n"
-            . "- BEVOR du den Bewerber kontaktierst, gleiche die CRM-Kontaktdaten mit den Extra-Feldern ab!\n"
-            . "- Die crm_contacts unten enthalten bereits Email-Adressen, Telefonnummern, Namen etc.\n"
-            . "- Prüfe ob ein leeres Pflicht-Extra-Feld mit vorhandenen CRM-Daten gefüllt werden kann:\n"
-            . "  z.B. Extra-Feld \"E-Mail\" ← crm_contacts.emails, Extra-Feld \"Telefon\" ← crm_contacts.phones,\n"
-            . "  Extra-Feld \"Vorname\"/\"Nachname\" ← crm_contacts.full_name, etc.\n"
-            . "- Lade die CRM-Kontaktdaten per crm.contacts.GET (contact_id aus crm_contacts) um weitere Felder zu prüfen:\n"
-            . "  Geburtsdatum, Adresse, Anrede, Titel etc.\n"
-            . "- Schreibe passende Werte per core.extra_fields.PUT in die Extra-Felder.\n"
-            . "- Erst NACH diesem Abgleich entscheiden ob noch Pflichtfelder fehlen und der Bewerber kontaktiert werden muss.\n\n"
-            . "EXTRA-FIELDS SCHREIBEN — WICHTIGE REGELN:\n"
-            . "- core.extra_fields.PUT erwartet: {\"fields\": {\"feldname\": \"wert\", ...}}\n"
-            . "- Sende NUR Felder mit einem tatsächlichen Wert. NIEMALS null oder \"\" als Wert senden!\n"
-            . "- null oder \"\" LÖSCHT den bestehenden Wert des Feldes — das ist fast nie gewollt.\n"
-            . "- Wenn du keinen Wert für ein Feld hast, lasse es komplett weg (nicht mitsenden).\n"
-            . "- Die Feld-Keys findest du in den extra_fields unten (das \"key\"-Attribut jedes Feldes).\n"
-            . "- Nutze exakt diese Keys, keine eigenen Namen oder Labels.\n\n"
-            . "CONTEXT FILES & NACHRICHTEN-ANHÄNGE:\n"
-            . "- WICHTIG: Prüfe IMMER zuerst die Context Files des Bewerbers!\n"
-            . "- Nutze core_context_files_GET mit context_type='RecApplicant' und context_id={$applicant->id} um alle Dateien zu sehen.\n"
-            . "- Nutze core_context_files_content_GET mit file_id um den Inhalt einer Datei zu lesen (z.B. Lebenslauf als Text).\n"
-            . "- Extrahiere alle relevanten Informationen aus den Dateien (Berufserfahrung, Ausbildung, Fähigkeiten, Gehaltswunsch, etc.).\n"
-            . "- Schreibe gefundene Infos SOFORT in die Extra-Felder (core_extra_fields_PUT).\n"
-            . "- Bewerber laden oft Lebensläufe hoch — diese enthalten meist alle benötigten Informationen!\n"
-            . "- NACHRICHTEN-ANHÄNGE: WhatsApp-Nachrichten mit message_type 'image', 'document', 'video' etc. haben ein 'attachments'-Array.\n"
-            . "  Jeder Anhang enthält eine context_file_id — lies den Inhalt per core.context.files.content.GET mit dieser file_id.\n"
-            . "  Bilder (Personalausweis, Dokumente etc.) sind so bereits vorhanden — NICHT erneut anfordern!\n"
-            . "- Für file-Typ Extra-Felder: Setze den Wert auf die context_file_id (Integer) des passenden Anhangs.\n\n";
-
-        // Thread-Hinweise
-        $isFirstMessage = empty($threadsSummary);
-        if (!$isFirstMessage) {
-            $system .= "KOMMUNIKATION ({$channelType}):\n"
-                . "- Es gibt bereits Threads mit dem Bewerber (siehe Daten unten).\n"
-                . "- Für Replies im bestehenden Thread: nur thread_id + body (KEIN to" . ($isWhatsAppChannel ? "" : ", KEIN subject") . ").\n"
-                . "- Nutze {$messageToolPost} für Nachrichten.\n"
-                . "- Sende den Formular-Link ({$publicUrl}) — KEINE Auflistung einzelner Felder.\n\n";
-        } else {
-            if ($isWhatsAppChannel) {
-                $system .= "KOMMUNIKATION (ERSTE WHATSAPP-NACHRICHT):\n"
-                    . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
-                    . "- Für neue Nachrichten: comms_channel_id + to (Telefonnummer) + body.\n"
-                    . "- Nutze {$messageToolPost} für WhatsApp-Nachrichten.\n"
-                    . "- Sende eine kurze, freundliche Nachricht mit dem Formular-Link: {$publicUrl}\n"
-                    . "- KEINE einzelnen Felder aufzählen oder abfragen!\n\n";
-            } else {
-                $system .= "KOMMUNIKATION (ERSTE EMAIL):\n"
-                    . "- Es gibt noch keinen Thread mit dem Bewerber.\n"
-                    . "- Für neue Nachrichten: comms_channel_id + to + subject + body.\n"
-                    . "- Nutze {$messageToolPost} für Email-Nachrichten.\n"
-                    . "- Sende eine kurze, freundliche Nachricht mit dem Formular-Link: {$publicUrl}\n"
-                    . "- KEINE einzelnen Felder aufzählen oder abfragen!\n\n";
-            }
-        }
-
-        // Portal-Emails Hinweis
-        $hasPortalThreads = !empty(array_filter($threadsSummary, fn ($t) => !empty($t['is_portal_thread'])));
-        if ($hasPortalThreads) {
-            $system .= "PORTAL-EMAILS — WICHTIG:\n"
-                . "- Einige Threads stammen von Job-Portalen (Indeed, eBay Kleinanzeigen, StepStone etc.).\n"
-                . "- Diese Threads haben is_portal_thread=true in den Daten unten.\n"
-                . "- Der Absender (counterpart) ist NICHT der Bewerber, sondern das Portal (z.B. noreply@portal.de).\n"
-                . "- ANTWORTE NIEMALS auf einen Portal-Thread — die Nachricht erreicht den Bewerber nicht!\n"
-                . "- Stattdessen: Öffne einen NEUEN Thread an die primäre CRM-Email des Bewerbers ({$primaryEmail}).\n"
-                . "- Nutze dafür: {$messageToolPost} mit comms_channel_id + to=\"{$primaryEmail}\" + subject + body (wie Scenario B).\n"
-                . "- Werte die Nachrichten im Portal-Thread trotzdem aus — extrahiere verwertbare Infos für die Extra-Felder.\n\n";
-        }
-
-        // Bevorzugter Kanal
-        if ($preferredChannel) {
-            $system .= "STANDARDKANAL ({$channelType}): comms_channel_id={$preferredChannel['comms_channel_id']} ({$preferredChannel['sender_identifier']})\n\n";
-        }
-
-        // State-IDs
-        $system .= "STATE-IDS:\n"
-            . "- waiting_for_applicant = {$waitingStateId} (setzen nachdem du eine Nachricht gesendet hast)\n"
-            . "- completed = {$completedStateId} (setzen wenn alle Pflichtfelder ausgefüllt sind, zusammen mit auto_pilot_completed_at=\"now\")\n"
-            . "- Applicant-ID für recruiting_applicants_PUT: {$applicant->id}\n";
-
-        // Daten als user message
-        $data = [
-            'applicant_id' => $applicant->id,
-            'public_url' => $publicUrl,
-            'is_first_message' => $isFirstMessage,
-            'crm_contacts' => $contactInfo,
-            'extra_fields' => $extraFields,
-            'threads_summary' => $threadsSummary,
-        ];
-
-        if ($preferredChannel) {
-            $data['preferred_channel'] = $preferredChannel;
-        }
-
-        $user = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-            . "\n\nBearbeite diese Bewerbung. Beginne mit Tool-Calls."
-            . "\nHINWEIS: Falls du eine Nachricht sendest — kurz und freundlich mit dem Formular-Link ({$publicUrl}). KEINE einzelnen Felder abfragen!";
-
-        return [
-            ['role' => 'system', 'content' => $system],
-            ['role' => 'user', 'content' => $user],
-        ];
-    }
-
-    // ===== WhatsApp Pre-Check =====
-
-    /**
-     * Check WhatsApp conditions before running LLM.
-     * Returns ['skip' => bool, 'reason' => string, 'template_sent' => bool, 'window_open' => bool]
-     */
-    private function handleWhatsAppPreCheck(RecApplicant $applicant, array $contactInfo): array
-    {
-        // Check if 24h window is open
-        $windowOpen = $this->isWhatsAppWindowOpen($applicant);
-
-        if ($windowOpen) {
-            return [
-                'skip' => false,
-                'reason' => '',
-                'template_sent' => false,
-                'window_open' => true,
-            ];
-        }
-
-        // Window is closed - try to send template
-        $phoneNumber = $this->findPrimaryPhoneNumber($applicant, $contactInfo);
-
-        if (!$phoneNumber) {
-            return [
-                'skip' => true,
-                'reason' => 'Keine Telefonnummer vorhanden.',
-                'template_sent' => false,
-                'window_open' => false,
-            ];
-        }
-
-        if (!$phoneNumber->canSendWhatsAppTemplate()) {
-            $remaining = $phoneNumber->remaining_whats_app_template_attempts;
-            $nextAt = $phoneNumber->next_whats_app_template_attempt_at;
-
-            if ($remaining === 0) {
-                return [
-                    'skip' => true,
-                    'reason' => 'Max. Template-Versuche erreicht (3/3).',
-                    'template_sent' => false,
-                    'window_open' => false,
-                ];
-            }
-
-            return [
-                'skip' => true,
-                'reason' => "Nächster Template-Versuch möglich: " . ($nextAt?->format('d.m.Y H:i') ?? '—'),
-                'template_sent' => false,
-                'window_open' => false,
-            ];
-        }
-
-        // Try to send template
-        $templateSent = $this->trySendWhatsAppTemplate($applicant, $phoneNumber);
-
-        if ($templateSent) {
-            $phoneNumber->recordWhatsAppTemplateAttempt();
-            return [
-                'skip' => false,
-                'reason' => '',
-                'template_sent' => true,
-                'window_open' => false,
-            ];
-        }
-
-        return [
-            'skip' => true,
-            'reason' => 'Template-Versand fehlgeschlagen.',
-            'template_sent' => false,
-            'window_open' => false,
-        ];
-    }
-
-    /**
-     * Check if WhatsApp 24h window is open for this applicant.
-     */
-    private function isWhatsAppWindowOpen(RecApplicant $applicant): bool
-    {
-        $morphClass = $applicant->getMorphClass();
-        $fullClass = get_class($applicant);
-
-        $thread = CommsWhatsAppThread::query()
-            ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                $q->where(function ($q2) use ($morphClass, $applicant) {
-                    $q2->where('context_model', $morphClass)
-                        ->where('context_model_id', $applicant->id);
-                })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                    $q2->where('context_model', $fullClass)
-                        ->where('context_model_id', $applicant->id);
-                });
-            })
-            ->orderByDesc('last_inbound_at')
-            ->first();
-
-        return $thread && $thread->isWindowOpen();
-    }
-
-    /**
-     * Find primary phone number for WhatsApp.
-     */
-    private function findPrimaryPhoneNumber(RecApplicant $applicant, array $contactInfo): ?CrmPhoneNumber
-    {
-        // Try to find from contact info
-        foreach ($applicant->crmContactLinks as $link) {
-            $contact = $link->contact;
-            if (!$contact) continue;
-
-            // First try primary phone
-            $primary = $contact->phoneNumbers()
-                ->where('is_active', true)
-                ->where('is_primary', true)
-                ->whereNotNull('international')
-                ->first();
-
-            if ($primary) return $primary;
-
-            // Fallback to any active phone
-            $fallback = $contact->phoneNumbers()
-                ->where('is_active', true)
-                ->whereNotNull('international')
-                ->first();
-
-            if ($fallback) return $fallback;
-        }
-
-        return null;
-    }
-
-    /**
-     * Try to send WhatsApp template to open conversation window.
-     */
-    private function trySendWhatsAppTemplate(RecApplicant $applicant, CrmPhoneNumber $phoneNumber): bool
-    {
-        try {
-            // Get WhatsApp channel — prefer the preferred channel, fallback to any active
-            $channel = $applicant->preferredCommsChannel;
-            if (! $channel || $channel->type !== 'whatsapp' || ! $channel->is_active) {
-                $channel = CommsChannel::where('team_id', $applicant->team_id)
-                    ->where('type', 'whatsapp')
-                    ->where('is_active', true)
-                    ->first();
-            }
-
-            if (! $channel) {
-                $this->line("    Template: Kein aktiver WhatsApp-Kanal gefunden.");
-                return false;
-            }
-
-            $templateName = $channel->meta['default_template'] ?? 'begruesung_template';
-            $templateLang = $channel->meta['default_template_lang'] ?? 'de';
-
-            $service = app(WhatsAppMetaService::class);
-            $message = $service->sendTemplate(
-                channel: $channel,
-                to: $phoneNumber->international,
-                templateName: $templateName,
-                components: [],
-                languageCode: $templateLang,
-            );
-
-            // Link the thread to the applicant so isWhatsAppWindowOpen() can find it
-            $thread = $message->thread;
-            if ($thread && ! $thread->context_model) {
-                $thread->update([
-                    'context_model' => $applicant->getMorphClass(),
-                    'context_model_id' => $applicant->id,
-                ]);
-            }
-
-            $this->info("    Template '{$templateName}' gesendet an {$phoneNumber->international}");
-            return true;
-        } catch (\Throwable $e) {
-            $this->warn("    Template-Fehler: " . $e->getMessage());
-            return false;
+            // ignore
         }
     }
 }

@@ -23,6 +23,14 @@
                 >
                     Service-Zeiten
                 </button>
+                <button
+                    @click="$wire.set('activeTab', 'auto-pilot')"
+                    :class="$wire.activeTab === 'auto-pilot' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
+                    class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
+                    wire:click="$set('activeTab', 'auto-pilot')"
+                >
+                    AutoPilot
+                </button>
             </nav>
         </div>
 
@@ -226,6 +234,87 @@
                             <p class="text-sm">Noch keine Service Hours definiert</p>
                         </div>
                     @endforelse
+                </div>
+            </div>
+            @elseif($activeTab === 'auto-pilot')
+            {{-- AutoPilot --}}
+            <div class="space-y-4">
+                <h3 class="text-lg font-medium text-[var(--ui-secondary)]">AutoPilot-Einstellungen</h3>
+
+                <div class="space-y-4">
+                    {{-- Enabled --}}
+                    <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model="settings.auto_pilot_enabled"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">AutoPilot aktiviert</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Neue Bewerbungen werden automatisch per Template/Email kontaktiert</p>
+                            </div>
+                        </label>
+                    </div>
+
+                    {{-- Channel Priority --}}
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Kanal-Priorität</label>
+                        <select wire:model="settings.auto_pilot_channel_priority"
+                                class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                            <option value="whatsapp_first">WhatsApp bevorzugt (Fallback Email)</option>
+                            <option value="email_first">Email bevorzugt (Fallback WhatsApp)</option>
+                            <option value="whatsapp_only">Nur WhatsApp</option>
+                            <option value="email_only">Nur Email</option>
+                        </select>
+                    </div>
+
+                    {{-- WA Templates --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            name="settings.auto_pilot_wa_initial_template_id"
+                            label="WhatsApp Template — Erstkontakt"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model="settings.auto_pilot_wa_initial_template_id"
+                        />
+
+                        <x-ui-input-select
+                            name="settings.auto_pilot_wa_reminder_template_id"
+                            label="WhatsApp Template — Erinnerung"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model="settings.auto_pilot_wa_reminder_template_id"
+                        />
+                    @else
+                        <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 text-sm text-[var(--ui-muted)]">
+                            Kein aktiver WhatsApp-Kanal oder keine Templates verfügbar. Templates werden über die WhatsApp-Integration synchronisiert.
+                        </div>
+                    @endif
+
+                    {{-- Reminder Interval --}}
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Erinnerungsintervall (Stunden)</label>
+                        <input type="number"
+                               wire:model="settings.auto_pilot_reminder_interval_hours"
+                               min="1" max="168"
+                               class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Wie viele Stunden zwischen Erinnerungen gewartet wird</p>
+                    </div>
+
+                    {{-- Max Reminders --}}
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Max. Erinnerungen</label>
+                        <input type="number"
+                               wire:model="settings.auto_pilot_max_reminders"
+                               min="1" max="10"
+                               class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Nach Erreichen des Maximums wird der Status auf "Prüfung erforderlich" gesetzt</p>
+                    </div>
                 </div>
             </div>
             @endif
