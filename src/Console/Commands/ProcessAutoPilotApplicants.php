@@ -373,7 +373,7 @@ class ProcessAutoPilotApplicants extends Command
     private function linkNewEmailThread(RecApplicant $applicant, CommsChannel $channel, string $email): void
     {
         try {
-            \Platform\Crm\Models\CommsEmailThread::query()
+            $threads = \Platform\Crm\Models\CommsEmailThread::query()
                 ->where('comms_channel_id', $channel->id)
                 ->whereNull('context_model')
                 ->where(function ($q) use ($email) {
@@ -381,10 +381,17 @@ class ProcessAutoPilotApplicants extends Command
                       ->orWhere('last_inbound_from_address', $email);
                 })
                 ->where('created_at', '>=', now()->subMinutes(5))
-                ->update([
-                    'context_model' => $applicant->getMorphClass(),
-                    'context_model_id' => $applicant->id,
-                ]);
+                ->get();
+
+            foreach ($threads as $thread) {
+                $thread->addContext($applicant->getMorphClass(), $applicant->id, 'autopilot');
+                if (!$thread->context_model) {
+                    $thread->updateQuietly([
+                        'context_model' => $applicant->getMorphClass(),
+                        'context_model_id' => $applicant->id,
+                    ]);
+                }
+            }
         } catch (\Throwable $e) {
             // ignore
         }

@@ -348,8 +348,11 @@ class EnrichInboxApplicants extends Command
 
                     // Link found threads to applicant for future lookups
                     foreach ($threads as $t) {
+                        if (method_exists($t, 'addContext')) {
+                            $t->addContext($morphClass, $applicant->id, 'enrichment');
+                        }
                         if (! $t->context_model) {
-                            $t->update([
+                            $t->updateQuietly([
                                 'context_model' => $morphClass,
                                 'context_model_id' => $applicant->id,
                             ]);
@@ -723,11 +726,16 @@ class EnrichInboxApplicants extends Command
 
             // Link thread to applicant so isWhatsAppWindowOpen() can find it
             $thread = $message->thread;
-            if ($thread && ! $thread->context_model) {
-                $thread->update([
-                    'context_model' => $applicant->getMorphClass(),
-                    'context_model_id' => $applicant->id,
-                ]);
+            if ($thread) {
+                if (method_exists($thread, 'addContext')) {
+                    $thread->addContext($applicant->getMorphClass(), $applicant->id, 'enrichment');
+                }
+                if (! $thread->context_model) {
+                    $thread->updateQuietly([
+                        'context_model' => $applicant->getMorphClass(),
+                        'context_model_id' => $applicant->id,
+                    ]);
+                }
             }
 
             $this->logEnrichment($applicant, 'whatsapp_template_sent', "WhatsApp-Template '{$templateName}' gesendet", [
