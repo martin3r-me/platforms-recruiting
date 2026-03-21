@@ -259,9 +259,9 @@ class EnrichInboxApplicants extends Command
             return null;
         }
 
-        // Prefer admin, fallback to owner, then any team member
-        return $team->users()->wherePivot('role', 'admin')->orderBy('id')->first()
-            ?? $team->users()->wherePivot('role', 'owner')->orderBy('id')->first()
+        // Prefer owner (has all permissions), fallback to admin, then any team member
+        return $team->users()->wherePivot('role', 'owner')->orderBy('id')->first()
+            ?? $team->users()->wherePivot('role', 'admin')->orderBy('id')->first()
             ?? $team->users()->orderBy('id')->first();
     }
 
