@@ -326,15 +326,28 @@ class ProcessAutoPilotApplicants extends Command
                 return false;
             }
 
+            // Build components: only add URL button params if template has a URL button
+            $components = [];
+            if ($template && $formToken) {
+                $hasUrlButton = collect($template->components ?? [])
+                    ->where('type', 'BUTTONS')
+                    ->flatMap(fn ($c) => $c['buttons'] ?? [])
+                    ->contains('type', 'URL');
+
+                if ($hasUrlButton) {
+                    $components[] = [
+                        'type' => 'button', 'sub_type' => 'url', 'index' => 0,
+                        'parameters' => [['type' => 'text', 'text' => $formToken]],
+                    ];
+                }
+            }
+
             $service = app(WhatsAppMetaService::class);
             $message = $service->sendTemplate(
                 channel: $channel,
                 to: $phoneNumber->international,
                 templateName: $templateName,
-                components: [
-                    ['type' => 'button', 'sub_type' => 'url', 'index' => 0,
-                     'parameters' => [['type' => 'text', 'text' => $formToken]]],
-                ],
+                components: $components,
                 languageCode: $templateLang,
             );
 
