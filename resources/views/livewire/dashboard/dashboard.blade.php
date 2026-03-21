@@ -467,6 +467,9 @@
                                             @svg('heroicon-o-arrow-right-circle', 'w-3.5 h-3.5')
                                             Onboarding
                                         </button>
+                                        <x-ui-button size="sm" variant="primary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
+                                            Anzeigen
+                                        </x-ui-button>
                                     </div>
                                 </td>
                             </tr>
