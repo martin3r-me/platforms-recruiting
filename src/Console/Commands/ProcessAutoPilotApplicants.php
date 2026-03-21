@@ -327,7 +327,7 @@ class ProcessAutoPilotApplicants extends Command
             }
 
             $service = app(WhatsAppMetaService::class);
-            $service->sendTemplate(
+            $message = $service->sendTemplate(
                 channel: $channel,
                 to: $phoneNumber->international,
                 templateName: $templateName,
@@ -337,6 +337,21 @@ class ProcessAutoPilotApplicants extends Command
                 ],
                 languageCode: $templateLang,
             );
+
+            // Link thread to applicant so it's visible in the UI
+            $thread = $message->thread ?? null;
+            if ($thread) {
+                $morphClass = $applicant->getMorphClass();
+                if (method_exists($thread, 'addContext')) {
+                    $thread->addContext($morphClass, $applicant->id, 'auto_pilot');
+                }
+                if (!$thread->context_model) {
+                    $thread->updateQuietly([
+                        'context_model' => $morphClass,
+                        'context_model_id' => $applicant->id,
+                    ]);
+                }
+            }
 
             return true;
         } catch (\Throwable $e) {
