@@ -24,6 +24,161 @@
 
         <x-core-extra-fields-section :definitions="$extraFieldDefinitions" :model="$position" />
 
+        {{-- AutoPilot Settings --}}
+        <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
+            <div class="flex items-center gap-2 mb-2">
+                @svg('heroicon-o-paper-airplane', 'w-6 h-6 text-blue-600')
+                <h2 class="text-xl font-bold text-[var(--ui-secondary)]">AutoPilot</h2>
+            </div>
+            <p class="text-sm text-[var(--ui-muted)] mb-6">Stellen-spezifische Overrides. Leere Felder nutzen die Team-Standardwerte.</p>
+
+            <div class="space-y-4">
+                {{-- Enabled Override --}}
+                <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model.live="autoPilotSettings.auto_pilot_enabled"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">AutoPilot aktiviert</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Override: AutoPilot für diese Stelle ein/ausschalten</p>
+                            </div>
+                        </label>
+                        @if(isset($autoPilotSettings['auto_pilot_enabled']))
+                            <button wire:click="clearAutoPilotSetting('auto_pilot_enabled')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                        @endif
+                    </div>
+                </div>
+
+                {{-- Auto-Start Override --}}
+                <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                    <div class="flex items-center justify-between">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model.live="autoPilotSettings.auto_start_auto_pilot"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">AutoPilot automatisch starten</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Override: Auto-Start für diese Stelle ein/ausschalten</p>
+                            </div>
+                        </label>
+                        @if(isset($autoPilotSettings['auto_start_auto_pilot']))
+                            <button wire:click="clearAutoPilotSetting('auto_start_auto_pilot')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                        @endif
+                    </div>
+                </div>
+
+                {{-- Channel Priority --}}
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)]">Kanal-Priorität</label>
+                        @if(isset($autoPilotSettings['auto_pilot_channel_priority']))
+                            <button wire:click="clearAutoPilotSetting('auto_pilot_channel_priority')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                        @endif
+                    </div>
+                    <select wire:model.live="autoPilotSettings.auto_pilot_channel_priority"
+                            class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                        <option value="">Team-Default verwenden</option>
+                        <option value="whatsapp_first">WhatsApp bevorzugt (Fallback Email)</option>
+                        <option value="email_first">Email bevorzugt (Fallback WhatsApp)</option>
+                        <option value="whatsapp_only">Nur WhatsApp</option>
+                        <option value="email_only">Nur Email</option>
+                    </select>
+                </div>
+
+                {{-- WA Account --}}
+                @if(!empty($this->availableWhatsAppAccounts))
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-[var(--ui-secondary)]">WhatsApp Account</label>
+                            @if(isset($autoPilotSettings['auto_pilot_wa_account_id']))
+                                <button wire:click="clearAutoPilotSetting('auto_pilot_wa_account_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                            @endif
+                        </div>
+                        <x-ui-input-select
+                            name="autoPilotSettings.auto_pilot_wa_account_id"
+                            :options="$this->availableWhatsAppAccounts"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="Team-Default verwenden"
+                            wire:model.live="autoPilotSettings.auto_pilot_wa_account_id"
+                        />
+                    </div>
+                @endif
+
+                {{-- WA Templates --}}
+                @if(!empty($this->availableWhatsAppTemplates))
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-[var(--ui-secondary)]">WhatsApp Template — Erstkontakt</label>
+                            @if(isset($autoPilotSettings['auto_pilot_wa_initial_template_id']))
+                                <button wire:click="clearAutoPilotSetting('auto_pilot_wa_initial_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                            @endif
+                        </div>
+                        <x-ui-input-select
+                            name="autoPilotSettings.auto_pilot_wa_initial_template_id"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="Team-Default verwenden"
+                            wire:model="autoPilotSettings.auto_pilot_wa_initial_template_id"
+                        />
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-[var(--ui-secondary)]">WhatsApp Template — Erinnerung</label>
+                            @if(isset($autoPilotSettings['auto_pilot_wa_reminder_template_id']))
+                                <button wire:click="clearAutoPilotSetting('auto_pilot_wa_reminder_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                            @endif
+                        </div>
+                        <x-ui-input-select
+                            name="autoPilotSettings.auto_pilot_wa_reminder_template_id"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="Team-Default verwenden"
+                            wire:model="autoPilotSettings.auto_pilot_wa_reminder_template_id"
+                        />
+                    </div>
+                @endif
+
+                {{-- Reminder Interval --}}
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)]">Erinnerungsintervall (Stunden)</label>
+                        @if(isset($autoPilotSettings['auto_pilot_reminder_interval_hours']) && $autoPilotSettings['auto_pilot_reminder_interval_hours'] !== null)
+                            <button wire:click="clearAutoPilotSetting('auto_pilot_reminder_interval_hours')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                        @endif
+                    </div>
+                    <input type="number"
+                           wire:model="autoPilotSettings.auto_pilot_reminder_interval_hours"
+                           min="1" max="168"
+                           placeholder="Team-Default verwenden"
+                           class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                </div>
+
+                {{-- Max Reminders --}}
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)]">Max. Erinnerungen</label>
+                        @if(isset($autoPilotSettings['auto_pilot_max_reminders']) && $autoPilotSettings['auto_pilot_max_reminders'] !== null)
+                            <button wire:click="clearAutoPilotSetting('auto_pilot_max_reminders')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                        @endif
+                    </div>
+                    <input type="number"
+                           wire:model="autoPilotSettings.auto_pilot_max_reminders"
+                           min="1" max="10"
+                           placeholder="Team-Default verwenden"
+                           class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                </div>
+            </div>
+        </div>
+
         {{-- Postings --}}
         <x-ui-panel title="Ausschreibungen" subtitle="Ausschreibungen zu dieser Stelle">
             @if($position->postings->count() > 0)

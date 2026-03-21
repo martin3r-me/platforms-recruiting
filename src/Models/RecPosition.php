@@ -15,12 +15,36 @@ class RecPosition extends Model
 
     protected $fillable = [
         'uuid', 'team_id', 'title', 'description', 'department', 'location',
-        'hcm_job_title_id', 'is_active', 'created_by_user_id', 'owned_by_user_id',
+        'hcm_job_title_id', 'is_active', 'auto_pilot_settings', 'created_by_user_id', 'owned_by_user_id',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'auto_pilot_settings' => 'array',
     ];
+
+    /**
+     * Position-overridable AutoPilot setting keys.
+     */
+    const AUTO_PILOT_OVERRIDABLE_KEYS = [
+        'auto_pilot_enabled',
+        'auto_pilot_channel_priority',
+        'auto_pilot_wa_account_id',
+        'auto_pilot_wa_initial_template_id',
+        'auto_pilot_wa_reminder_template_id',
+        'auto_pilot_reminder_interval_hours',
+        'auto_pilot_max_reminders',
+        'auto_start_auto_pilot',
+    ];
+
+    /**
+     * Get a single AutoPilot setting from position overrides, or null if not set.
+     */
+    public function getAutoPilotSetting(string $key, $default = null)
+    {
+        $settings = $this->auto_pilot_settings ?? [];
+        return $settings[$key] ?? $default;
+    }
 
     protected static function booted(): void
     {

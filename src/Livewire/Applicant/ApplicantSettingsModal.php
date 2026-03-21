@@ -49,6 +49,15 @@ class ApplicantSettingsModal extends Component
 
     public function save(): void
     {
+        // Validate: auto_start requires both WA templates
+        if (!empty($this->settings['auto_start_auto_pilot'])) {
+            if (empty($this->settings['auto_pilot_wa_initial_template_id']) || empty($this->settings['auto_pilot_wa_reminder_template_id'])) {
+                $this->settings['auto_start_auto_pilot'] = false;
+                $this->addError('settings.auto_start_auto_pilot', 'Beide WhatsApp-Templates müssen konfiguriert sein, um Auto-Start zu aktivieren.');
+                return;
+            }
+        }
+
         $this->settingsModel->settings = $this->settings;
         $this->settingsModel->save();
         $this->modalShow = false;
@@ -111,33 +120,40 @@ class ApplicantSettingsModal extends Component
             return [];
         }
 
-        $teamId = Auth::user()->currentTeam->id;
+        $query = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->with('whatsappAccount:id,title,phone_number')
+            ->where('status', 'APPROVED');
 
-        // CommsChannel (type=whatsapp) carries integrations_whatsapp_account_id in meta
-        // (synced by WhatsAppChannelSyncService from IntegrationsWhatsAppAccount)
-        $waChannel = \Platform\Crm\Models\CommsChannel::query()
-            ->where('team_id', $teamId)
-            ->where('type', 'whatsapp')
-            ->where('is_active', true)
-            ->first();
-
-        if (!$waChannel) {
-            return [];
+        $accountId = $this->settings['auto_pilot_wa_account_id'] ?? null;
+        if ($accountId) {
+            $query->where('whatsapp_account_id', (int) $accountId);
         }
 
-        $accountId = $waChannel->meta['integrations_whatsapp_account_id'] ?? null;
-        if (!$accountId) {
-            return [];
-        }
-
-        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
-            ->where('whatsapp_account_id', $accountId)
-            ->where('status', 'APPROVED')
-            ->orderBy('name')
+        return $query->orderBy('name')
             ->get()
             ->map(fn ($t) => [
                 'id' => $t->id,
-                'label' => "{$t->name} ({$t->language})",
+                'label' => "{$t->name} ({$t->language})" . (!$accountId && $t->whatsappAccount ? " — {$t->whatsappAccount->title}" : ''),
+            ])
+            ->toArray();
+    }
+
+    #[Computed]
+    public function availableWhatsAppAccounts(): array
+    {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+            return [];
+        }
+
+        return \Platform\Integrations\Models\IntegrationsWhatsAppAccount::query()
+            ->withCount('templates')
+            ->orderBy('title')
+            ->get()
+            ->map(fn ($a) => [
+                'id' => $a->id,
+                'label' => "{$a->title} ({$a->phone_number})",
+                'active' => $a->active,
+                'templates_count' => $a->templates_count,
             ])
             ->toArray();
     }

@@ -116,7 +116,7 @@ class IncomingApplicationService
                 'team_id' => $teamId,
                 'created_by_user_id' => null,
                 'is_active' => true,
-                'auto_pilot' => true,
+                'auto_pilot' => false,
             ]);
 
             $this->createAndLinkContact(

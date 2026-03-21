@@ -25,10 +25,12 @@ class RecApplicantSettings extends Model
         'default_contact_user_id' => null,
         'auto_pilot_enabled' => true,
         'auto_pilot_channel_priority' => 'whatsapp_first',
+        'auto_pilot_wa_account_id' => null,
         'auto_pilot_wa_initial_template_id' => null,
         'auto_pilot_wa_reminder_template_id' => null,
         'auto_pilot_reminder_interval_hours' => 24,
         'auto_pilot_max_reminders' => 3,
+        'auto_start_auto_pilot' => false,
     ];
 
     public function team(): BelongsTo

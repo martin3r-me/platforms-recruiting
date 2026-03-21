@@ -183,6 +183,7 @@ class RecruitingServiceProvider extends ServiceProvider
             // Applicant ↔ Posting Links
             $registry->register(new \Platform\Recruiting\Tools\LinkApplicantPostingTool());
             $registry->register(new \Platform\Recruiting\Tools\UnlinkApplicantPostingTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeleteApplicantPostingTool());
 
             // Bulk Operations - Applicants
             $registry->register(new \Platform\Recruiting\Tools\BulkCreateApplicantsTool());

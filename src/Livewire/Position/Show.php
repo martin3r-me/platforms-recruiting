@@ -14,11 +14,13 @@ class Show extends Component
     use WithExtraFields;
 
     public RecPosition $position;
+    public array $autoPilotSettings = [];
 
     public function mount(RecPosition $position)
     {
         $this->position = $position->load(['postings', 'ownedByUser', 'createdByUser', 'jobTitle']);
         $this->loadExtraFieldValues($this->position);
+        $this->autoPilotSettings = $this->position->auto_pilot_settings ?? [];
     }
 
     public function rules(): array
@@ -31,15 +33,51 @@ class Show extends Component
             'position.hcm_job_title_id' => 'nullable|exists:hcm_job_titles,id',
             'position.is_active' => 'boolean',
             'position.owned_by_user_id' => 'nullable|exists:users,id',
+            'autoPilotSettings.auto_pilot_enabled' => 'nullable|boolean',
+            'autoPilotSettings.auto_pilot_channel_priority' => 'nullable|string|in:whatsapp_first,email_first,whatsapp_only,email_only',
+            'autoPilotSettings.auto_pilot_wa_account_id' => 'nullable|integer',
+            'autoPilotSettings.auto_pilot_wa_initial_template_id' => 'nullable|integer',
+            'autoPilotSettings.auto_pilot_wa_reminder_template_id' => 'nullable|integer',
+            'autoPilotSettings.auto_pilot_reminder_interval_hours' => 'nullable|integer|min:1|max:168',
+            'autoPilotSettings.auto_pilot_max_reminders' => 'nullable|integer|min:1|max:10',
+            'autoPilotSettings.auto_start_auto_pilot' => 'nullable|boolean',
         ], $this->getExtraFieldValidationRules());
     }
 
     public function save(): void
     {
         $this->validate();
+
+        // Clean autoPilotSettings: remove keys with null/empty values (= use team default)
+        $cleaned = collect($this->autoPilotSettings)
+            ->filter(fn ($value, $key) => $value !== null && $value !== '')
+            ->all();
+
+        // Validate: if auto_start is set to true, effective templates must exist
+        if (!empty($cleaned['auto_start_auto_pilot'])) {
+            $teamSettings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($this->position->team_id);
+            $initialTemplate = $cleaned['auto_pilot_wa_initial_template_id']
+                ?? $teamSettings->getSetting('auto_pilot_wa_initial_template_id');
+            $reminderTemplate = $cleaned['auto_pilot_wa_reminder_template_id']
+                ?? $teamSettings->getSetting('auto_pilot_wa_reminder_template_id');
+
+            if (empty($initialTemplate) || empty($reminderTemplate)) {
+                $cleaned['auto_start_auto_pilot'] = false;
+                $this->autoPilotSettings['auto_start_auto_pilot'] = false;
+                $this->addError('autoPilotSettings.auto_start_auto_pilot', 'Beide WhatsApp-Templates müssen konfiguriert sein (Team oder Position), um Auto-Start zu aktivieren.');
+                return;
+            }
+        }
+
+        $this->position->auto_pilot_settings = !empty($cleaned) ? $cleaned : null;
         $this->position->save();
         $this->saveExtraFieldValues($this->position);
         session()->flash('message', 'Stelle erfolgreich aktualisiert.');
+    }
+
+    public function clearAutoPilotSetting(string $key): void
+    {
+        unset($this->autoPilotSettings[$key]);
     }
 
     public function deletePosition(): void
@@ -74,6 +112,49 @@ class Show extends Component
                 'id' => $jt->id,
                 'name' => $jt->name,
             ]);
+    }
+
+    #[Computed]
+    public function availableWhatsAppAccounts(): array
+    {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+            return [];
+        }
+
+        return \Platform\Integrations\Models\IntegrationsWhatsAppAccount::query()
+            ->withCount('templates')
+            ->orderBy('title')
+            ->get()
+            ->map(fn ($a) => [
+                'id' => $a->id,
+                'label' => "{$a->title} ({$a->phone_number})",
+            ])
+            ->toArray();
+    }
+
+    #[Computed]
+    public function availableWhatsAppTemplates(): array
+    {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return [];
+        }
+
+        $query = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->with('whatsappAccount:id,title,phone_number')
+            ->where('status', 'APPROVED');
+
+        $accountId = $this->autoPilotSettings['auto_pilot_wa_account_id'] ?? null;
+        if ($accountId) {
+            $query->where('whatsapp_account_id', (int) $accountId);
+        }
+
+        return $query->orderBy('name')
+            ->get()
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'label' => "{$t->name} ({$t->language})" . (!$accountId && $t->whatsappAccount ? " — {$t->whatsappAccount->title}" : ''),
+            ])
+            ->toArray();
     }
 
     #[Computed]

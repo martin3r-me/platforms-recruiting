@@ -19,7 +19,9 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecAutoPilotLog;
+use Platform\Recruiting\Models\RecPosition;
 
 class EnrichInboxApplicants extends Command
 {
@@ -81,6 +83,7 @@ class EnrichInboxApplicants extends Command
                 $model = $this->determineModel();
                 $contactInfo = $this->loadContactInfo($applicant);
                 $extraFields = $this->loadExtraFields($applicant);
+                $postingInfo = $this->loadPostingInfo($applicant);
                 $whatsappThreads = $this->loadWhatsAppThreads($applicant);
                 $emailThreads = $this->loadEmailThreads($applicant);
                 $fileReferences = $this->loadFileReferences($applicant, $whatsappThreads, $emailThreads);
@@ -91,6 +94,7 @@ class EnrichInboxApplicants extends Command
                 $this->line("Model: {$model}");
                 $this->line("Kontakte: " . count($contactInfo));
                 $this->line("Extra-Fields: " . count($extraFields));
+                $this->line("Postings: " . count($postingInfo));
                 $this->line("WhatsApp-Threads: " . count($whatsappThreads));
                 $this->line("Email-Threads: " . count($emailThreads));
                 $this->line("Datei-Referenzen: " . count($fileReferences));
@@ -116,11 +120,13 @@ class EnrichInboxApplicants extends Command
                     'crm.postal_addresses.POST',
                     'recruiting.applicants.PUT',
                     'recruiting.applicant_contacts.POST',
+                    'recruiting.applicant_postings.DELETE',
                 ];
 
                 $messages = $this->buildMessages(
                     $applicant, $contactInfo, $extraFields,
-                    $whatsappThreads, $emailThreads, $fileReferences
+                    $whatsappThreads, $emailThreads, $fileReferences,
+                    $postingInfo
                 );
 
                 $this->logEnrichment($applicant, 'run_started', 'Enrichment-Run gestartet', [
@@ -193,6 +199,12 @@ class EnrichInboxApplicants extends Command
                     if ($applicant->crmContactLinks->isNotEmpty()) {
                         $applicant->update(['enrichment_status' => 'enriched']);
                         $this->info("  Enrichment abgeschlossen.");
+
+                        if ($this->shouldAutoStartAutoPilot($applicant)) {
+                            $applicant->update(['auto_pilot' => true]);
+                            $this->info("  AutoPilot automatisch aktiviert.");
+                            $this->logEnrichment($applicant, 'auto_start', 'AutoPilot automatisch aktiviert');
+                        }
                     } else {
                         $applicant->update(['enrichment_status' => 'no_contact']);
                         $this->warn("  Enrichment durchgelaufen, aber kein CRM-Kontakt verknüpft — manuelle Prüfung nötig.");
@@ -861,6 +873,7 @@ class EnrichInboxApplicants extends Command
         array $whatsappThreads,
         array $emailThreads,
         array $fileReferences,
+        array $postingInfo = [],
     ): array {
         $system = "Du bist ein Datenextraktions-Agent für ein Recruiting-System.\n"
             . "Deine Aufgabe: Analysiere alle bereitgestellten Daten (Nachrichten, Anhänge, Kontaktinfos) "
@@ -892,7 +905,8 @@ class EnrichInboxApplicants extends Command
             . "- crm.email_addresses.POST — Email-Adresse an CRM-Kontakt anlegen. email_type_code: \"PRIVATE\" (Default wenn weggelassen)\n"
             . "- crm.postal_addresses.POST — Postadresse an CRM-Kontakt anlegen (address_type_code: \"PRIVATE\", country_code: \"DE\")\n"
             . "- recruiting.applicants.PUT — Bewerbung aktualisieren (notes, applied_at, etc.)\n"
-            . "- recruiting.applicant_contacts.POST — CRM-Kontakt mit Bewerbung verknüpfen\n\n"
+            . "- recruiting.applicant_contacts.POST — CRM-Kontakt mit Bewerbung verknüpfen\n"
+            . "- recruiting.applicant_postings.DELETE — Posting-Verknüpfung entfernen (posting_id). Mindestens 1 muss bleiben.\n\n"
             . "ABLAUF:\n"
             . "1. Lade Extra-Field-Definitionen per core.extra_fields.GET um zu sehen was erwartet wird.\n"
             . "2. Falls crm_contacts LEER ist → SOFORT Kontakt erstellen und verknüpfen (Schritt 9). Ohne Kontakt können die folgenden Schritte nicht funktionieren.\n"
@@ -939,6 +953,12 @@ class EnrichInboxApplicants extends Command
             . "- Wenn du Infos in den Nachrichten findest die zu einem Extra-Feld passen, schreibe sie.\n"
             . "- Lies Datei-Anhänge (Lebensläufe, Dokumente) per core.context.files.content.GET — sie enthalten oft die wichtigsten Infos.\n"
             . "- Beginne SOFORT mit Tool-Calls.\n\n"
+            . "POSITIONS-MATCHING (nur wenn mehrere Postings verknüpft sind):\n"
+            . "- Wenn der Bewerber mit mehreren Stellen verknüpft ist (siehe postings im JSON),\n"
+            . "  analysiere den Bewerbungsinhalt und entscheide welche Stellen passen.\n"
+            . "- Entferne nicht-passende per recruiting.applicant_postings.DELETE(posting_id).\n"
+            . "- Wenn unklar ob eine Stelle passt → Link belassen.\n"
+            . "- Mindestens 1 Posting muss verknüpft bleiben.\n\n"
             . "KRITISCH — KONTAKT VERKNÜPFEN:\n"
             . "- Am Ende MUSS ein CRM-Kontakt mit der Bewerbung verknüpft sein.\n"
             . "- Prüfe am Anfang ob crm_contacts leer ist. Falls ja:\n"
@@ -954,6 +974,10 @@ class EnrichInboxApplicants extends Command
             'crm_contacts' => $contactInfo,
             'extra_fields' => $extraFields,
         ];
+
+        if (count($postingInfo) > 1) {
+            $data['postings'] = $postingInfo;
+        }
 
         if (! empty($whatsappThreads)) {
             $data['whatsapp_threads'] = $whatsappThreads;
@@ -976,5 +1000,68 @@ class EnrichInboxApplicants extends Command
             ['role' => 'system', 'content' => $system],
             ['role' => 'user', 'content' => $user],
         ];
+    }
+
+    private function loadPostingInfo(RecApplicant $applicant): array
+    {
+        try {
+            $applicant->loadMissing(['postings.position']);
+
+            return $applicant->postings->map(function ($posting) {
+                $position = $posting->position;
+                return [
+                    'posting_id' => $posting->id,
+                    'posting_title' => $posting->title,
+                    'position_title' => $position?->title,
+                    'position_location' => $position?->location,
+                    'position_department' => $position?->department,
+                    'applied_at' => $posting->pivot?->applied_at,
+                ];
+            })->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function shouldAutoStartAutoPilot(RecApplicant $applicant): bool
+    {
+        try {
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+            $position = $this->resolvePrimaryPosition($applicant);
+            $positionSettings = $position?->auto_pilot_settings ?? [];
+
+            // Check if auto_start is enabled
+            if (!$this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_start_auto_pilot', false)) {
+                return false;
+            }
+
+            // Check both WA templates are configured
+            $initialTemplate = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_wa_initial_template_id');
+            $reminderTemplate = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_wa_reminder_template_id');
+
+            return !empty($initialTemplate) && !empty($reminderTemplate);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function resolvePrimaryPosition(RecApplicant $applicant): ?RecPosition
+    {
+        $applicant->loadMissing(['postings.position']);
+
+        $primaryPosting = $applicant->postings
+            ->sortBy('pivot.applied_at')
+            ->first();
+
+        return $primaryPosting?->position;
+    }
+
+    private function getEffectiveSetting(RecApplicantSettings $teamSettings, array $positionSettings, string $key, $default = null)
+    {
+        if (array_key_exists($key, $positionSettings) && $positionSettings[$key] !== null) {
+            return $positionSettings[$key];
+        }
+
+        return $teamSettings->getSetting($key, $default);
     }
 }

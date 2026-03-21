@@ -240,6 +240,7 @@
             {{-- AutoPilot --}}
             <div class="space-y-4">
                 <h3 class="text-lg font-medium text-[var(--ui-secondary)]">AutoPilot-Einstellungen</h3>
+                <p class="text-xs text-[var(--ui-muted)]">Diese Werte gelten als Team-Standard. Einzelne Stellen können eigene Overrides konfigurieren.</p>
 
                 <div class="space-y-4">
                     {{-- Enabled --}}
@@ -255,6 +256,26 @@
                         </label>
                     </div>
 
+                    {{-- Auto-Start AutoPilot --}}
+                    @php
+                        $templatesConfigured = !empty($settings['auto_pilot_wa_initial_template_id']) && !empty($settings['auto_pilot_wa_reminder_template_id']);
+                    @endphp
+                    <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 {{ $templatesConfigured ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed' }}">
+                            <input type="checkbox"
+                                   wire:model="settings.auto_start_auto_pilot"
+                                   {{ $templatesConfigured ? '' : 'disabled' }}
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">AutoPilot automatisch starten</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">AutoPilot wird nach erfolgreicher Enrichment automatisch aktiviert</p>
+                                @if(!$templatesConfigured)
+                                    <p class="text-xs text-[var(--ui-danger)] mt-1">Beide WhatsApp-Templates müssen konfiguriert sein</p>
+                                @endif
+                            </div>
+                        </label>
+                    </div>
+
                     {{-- Channel Priority --}}
                     <div>
                         <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Kanal-Priorität</label>
@@ -266,6 +287,20 @@
                             <option value="email_only">Nur Email</option>
                         </select>
                     </div>
+
+                    {{-- WA Account --}}
+                    @if(!empty($this->availableWhatsAppAccounts))
+                        <x-ui-input-select
+                            name="settings.auto_pilot_wa_account_id"
+                            label="WhatsApp Account"
+                            :options="$this->availableWhatsAppAccounts"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Account wählen –"
+                            wire:model.live="settings.auto_pilot_wa_account_id"
+                        />
+                    @endif
 
                     {{-- WA Templates --}}
                     @if(!empty($this->availableWhatsAppTemplates))
@@ -292,7 +327,7 @@
                         />
                     @else
                         <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 text-sm text-[var(--ui-muted)]">
-                            Kein aktiver WhatsApp-Kanal oder keine Templates verfügbar. Templates werden über die WhatsApp-Integration synchronisiert.
+                            Keine WhatsApp Templates verfügbar. Templates werden über die WhatsApp-Integration synchronisiert.
                         </div>
                     @endif
 
