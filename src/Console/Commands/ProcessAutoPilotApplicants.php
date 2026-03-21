@@ -252,7 +252,7 @@ class ProcessAutoPilotApplicants extends Command
     }
 
     /**
-     * Build a CommsChannel in-memory from a WhatsApp account ID.
+     * Resolve a real CommsChannel from DB by WhatsApp account ID.
      */
     private function resolveWhatsAppChannelById($accountId): ?CommsChannel
     {
@@ -265,23 +265,15 @@ class ProcessAutoPilotApplicants extends Command
         }
 
         $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($accountId);
-        if (!$account) {
+        if (!$account || !$account->active) {
             return null;
         }
 
-        $channel = new CommsChannel();
-        $channel->id = 0;
-        $channel->type = 'whatsapp';
-        $channel->provider = 'whatsapp_meta';
-        $channel->is_active = true;
-        $channel->sender_identifier = $account->phone_number;
-        $channel->meta = [
-            'phone_number_id' => $account->phone_number_id,
-            'access_token' => $account->access_token,
-            'integrations_whatsapp_account_id' => $account->id,
-        ];
-
-        return $channel;
+        // Find the real CommsChannel synced from this WA account
+        return CommsChannel::where('type', 'whatsapp')
+            ->where('is_active', true)
+            ->where('sender_identifier', $account->phone_number)
+            ->first();
     }
 
     private function sendMessageWithOverrides(
