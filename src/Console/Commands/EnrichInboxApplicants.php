@@ -125,7 +125,11 @@ class EnrichInboxApplicants extends Command
 
                 $this->logEnrichment($applicant, 'run_started', 'Enrichment-Run gestartet', [
                     'preload_tools' => $preloadTools,
+                    'model' => $model,
+                    'max_iterations' => $maxIterations,
                 ]);
+
+                $toolCallLog = [];
 
                 try {
                     $result = $runner->run($messages, $model, $toolContext, [
@@ -135,16 +139,34 @@ class EnrichInboxApplicants extends Command
                         'reasoning' => ['effort' => 'medium'],
                         'preload_tools' => $preloadTools,
                         'skip_discovery_tools' => true,
-                        'on_iteration' => function (int $iter, array $toolNames, int $textLen) {
+                        'on_iteration' => function (int $iter, array $toolNames, int $textLen) use ($applicant) {
                             $this->line("  Iter {$iter}: " . (empty($toolNames) ? '(keine Tools)' : implode(', ', $toolNames)));
+                            $this->logEnrichment($applicant, 'iteration', "Iteration {$iter}", [
+                                'iteration' => $iter,
+                                'tools' => $toolNames,
+                                'text_length' => $textLen,
+                            ]);
                         },
-                        'on_tool_result' => function (string $tool, array $args, array $result) {
+                        'on_tool_result' => function (string $tool, array $args, array $result) use ($applicant, &$toolCallLog) {
                             $ok = $result['ok'] ?? false;
-                            if (!$ok) {
+                            $logEntry = [
+                                'tool' => $tool,
+                                'args' => $args,
+                                'ok' => $ok,
+                            ];
+
+                            if ($ok) {
+                                $logEntry['result'] = $result['data'] ?? $result;
+                            } else {
+                                $logEntry['error'] = $result['error'] ?? $result;
                                 $errMsg = $result['error']['message'] ?? $result['error']['code'] ?? 'unknown';
                                 $this->warn("    ⚠ {$tool} FEHLER: {$errMsg}");
                                 $this->warn("      Args: " . json_encode($args, JSON_UNESCAPED_UNICODE));
                             }
+
+                            $toolCallLog[] = $logEntry;
+
+                            $this->logEnrichment($applicant, $ok ? 'tool_call' : 'tool_error', ($ok ? '' : 'FEHLER: ') . $tool, $logEntry);
                         },
                     ]);
 
@@ -154,6 +176,7 @@ class EnrichInboxApplicants extends Command
                     $this->logEnrichment($applicant, 'run_completed', "Enrichment abgeschlossen: {$iterations} Iterationen", [
                         'iterations' => $iterations,
                         'all_tool_calls' => $allToolCallNames,
+                        'tool_call_count' => count($toolCallLog),
                     ]);
 
                     $this->line("  Iterationen: {$iterations} | Tools: " . (empty($allToolCallNames) ? '(keine)' : implode(', ', $allToolCallNames)));

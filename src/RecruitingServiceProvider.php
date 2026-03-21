@@ -173,6 +173,9 @@ class RecruitingServiceProvider extends ServiceProvider
             $registry->register(new \Platform\Recruiting\Tools\UpdateApplicantTool());
             $registry->register(new \Platform\Recruiting\Tools\DeleteApplicantTool());
 
+            // Enrichment Logs
+            $registry->register(new \Platform\Recruiting\Tools\GetEnrichmentLogsTool());
+
             // Applicant ↔ CRM Contact Links
             $registry->register(new \Platform\Recruiting\Tools\LinkApplicantContactTool());
             $registry->register(new \Platform\Recruiting\Tools\UnlinkApplicantContactTool());
