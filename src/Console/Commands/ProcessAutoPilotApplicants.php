@@ -404,6 +404,7 @@ class ProcessAutoPilotApplicants extends Command
         $query = RecApplicant::query()
             ->with(['autoPilotState', 'team', 'ownedByUser'])
             ->where('auto_pilot', true)
+            ->where('is_active', true)
             ->whereNull('auto_pilot_completed_at')
             ->whereNotNull('owned_by_user_id');
 
