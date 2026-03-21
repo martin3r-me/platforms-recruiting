@@ -114,7 +114,6 @@ class EnrichInboxApplicants extends Command
                     'crm.contacts.GET', 'crm.contacts.POST', 'crm.contacts.PUT',
                     'crm.phone_numbers.POST', 'crm.email_addresses.POST',
                     'crm.postal_addresses.POST',
-                    'recruiting.applicants.PUT',
                     'recruiting.applicant_contacts.POST',
                 ];
 
@@ -891,7 +890,6 @@ class EnrichInboxApplicants extends Command
             . "- crm.phone_numbers.POST — Telefonnummer an CRM-Kontakt anlegen. phone_type_code: \"MOBILE\" (Default wenn weggelassen)\n"
             . "- crm.email_addresses.POST — Email-Adresse an CRM-Kontakt anlegen. email_type_code: \"PRIVATE\" (Default wenn weggelassen)\n"
             . "- crm.postal_addresses.POST — Postadresse an CRM-Kontakt anlegen (address_type_code: \"PRIVATE\", country_code: \"DE\")\n"
-            . "- recruiting.applicants.PUT — Bewerbung aktualisieren (Notes)\n"
             . "- recruiting.applicant_contacts.POST — CRM-Kontakt mit Bewerbung verknüpfen\n\n"
             . "ABLAUF:\n"
             . "1. Lade Extra-Field-Definitionen per core.extra_fields.GET um zu sehen was erwartet wird.\n"

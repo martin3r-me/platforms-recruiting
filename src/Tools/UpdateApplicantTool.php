@@ -106,12 +106,24 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 'notes',
                 'applied_at',
                 'is_active',
-                'auto_pilot_state_id',
             ];
 
             foreach ($fields as $field) {
                 if (array_key_exists($field, $arguments)) {
                     $applicant->{$field} = $arguments[$field] === '' ? null : $arguments[$field];
+                }
+            }
+
+            // Handle auto_pilot_state_id separately — only update if valid FK
+            if (array_key_exists('auto_pilot_state_id', $arguments)) {
+                $stateId = $arguments['auto_pilot_state_id'];
+                if (is_numeric($stateId) && (int) $stateId > 0) {
+                    $stateExists = \Platform\Recruiting\Models\RecAutoPilotState::where('id', (int) $stateId)->exists();
+                    if ($stateExists) {
+                        $applicant->auto_pilot_state_id = (int) $stateId;
+                    }
+                } elseif ($stateId === null || $stateId === '' || $stateId === 0) {
+                    $applicant->auto_pilot_state_id = null;
                 }
             }
 
