@@ -185,7 +185,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         $filled = 0;
         foreach ($requiredDefinitions as $def) {
             $val = $values->get($def->id);
-            if ($val !== null && $val->value !== null && $val->value !== '') {
+            if ($val !== null && $val->value !== null && $val->value !== '' && $val->value !== '[]') {
                 $filled++;
             }
         }

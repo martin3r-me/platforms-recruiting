@@ -201,9 +201,10 @@ class Dashboard extends Component
     {
         $fields = $applicant->getExtraFieldsWithLabels();
         $total = count($fields);
-        $filled = collect($fields)->filter(fn ($f) =>
-            $f['value'] !== null && $f['value'] !== '' && $f['value'] !== []
-        )->count();
+        $filled = collect($fields)->filter(function ($f) {
+            $v = $f['value'];
+            return $v !== null && $v !== '' && $v !== [] && $v !== '[]';
+        })->count();
         return ['filled' => $filled, 'total' => $total];
     }
 

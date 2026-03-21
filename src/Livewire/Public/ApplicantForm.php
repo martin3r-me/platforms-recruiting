@@ -79,7 +79,7 @@ class ApplicantForm extends Component
         foreach ($this->extraFieldDefinitions as $field) {
             $this->totalFields++;
             $value = $this->extraFieldValues[$field['id']] ?? null;
-            $isFilled = $value !== null && $value !== '' && $value !== [];
+            $isFilled = $value !== null && $value !== '' && $value !== [] && $value !== '[]';
 
             if ($isFilled) {
                 $this->filledFields++;
