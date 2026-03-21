@@ -15,12 +15,14 @@ class Show extends Component
 
     public RecPosition $position;
     public array $autoPilotSettings = [];
+    public array $autoPilotSettingsOriginal = [];
 
     public function mount(RecPosition $position)
     {
         $this->position = $position->load(['postings', 'ownedByUser', 'createdByUser', 'jobTitle']);
         $this->loadExtraFieldValues($this->position);
         $this->autoPilotSettings = $this->position->auto_pilot_settings ?? [];
+        $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
     }
 
     public function rules(): array
@@ -72,6 +74,7 @@ class Show extends Component
         $this->position->auto_pilot_settings = !empty($cleaned) ? $cleaned : null;
         $this->position->save();
         $this->saveExtraFieldValues($this->position);
+        $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
         session()->flash('message', 'Stelle erfolgreich aktualisiert.');
     }
 
@@ -160,7 +163,7 @@ class Show extends Component
     #[Computed]
     public function isDirty()
     {
-        return $this->position->isDirty() || $this->isExtraFieldsDirty();
+        return $this->position->isDirty() || $this->isExtraFieldsDirty() || $this->autoPilotSettings !== $this->autoPilotSettingsOriginal;
     }
 
     public function rendered(): void
