@@ -36,7 +36,7 @@ class ApplicantSettingsModal extends Component
     {
         $teamId = Auth::user()->currentTeam->id;
         $this->settingsModel = RecApplicantSettings::getOrCreateForTeam($teamId);
-        $this->settings = $this->settingsModel->settings ?? RecApplicantSettings::DEFAULT_SETTINGS;
+        $this->settings = array_merge(RecApplicantSettings::DEFAULT_SETTINGS, $this->settingsModel->settings ?? []);
 
         $this->teamUsers = Auth::user()->currentTeam->users()->orderBy('name')->get()->toArray();
 
