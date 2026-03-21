@@ -101,63 +101,72 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 return ToolResult::error('ACCESS_DENIED', 'Du hast keinen Zugriff auf diesen Bewerber.');
             }
 
-            $fields = [
-                'progress',
-                'notes',
-                'applied_at',
-                'is_active',
-            ];
+            // Simple text fields
+            if (array_key_exists('notes', $arguments)) {
+                $applicant->notes = $arguments['notes'] === '' ? null : $arguments['notes'];
+            }
 
-            foreach ($fields as $field) {
-                if (array_key_exists($field, $arguments)) {
-                    $applicant->{$field} = $arguments[$field] === '' ? null : $arguments[$field];
+            if (array_key_exists('is_active', $arguments)) {
+                $applicant->is_active = (bool) $arguments['is_active'];
+            }
+
+            // Progress: clamp to 0-100
+            if (array_key_exists('progress', $arguments)) {
+                $val = $arguments['progress'];
+                if (is_numeric($val)) {
+                    $applicant->progress = max(0, min(100, (int) $val));
                 }
             }
 
-            // Handle auto_pilot_state_id separately — only update if valid FK
-            if (array_key_exists('auto_pilot_state_id', $arguments)) {
-                $stateId = $arguments['auto_pilot_state_id'];
-                if (is_numeric($stateId) && (int) $stateId > 0) {
-                    $stateExists = \Platform\Recruiting\Models\RecAutoPilotState::where('id', (int) $stateId)->exists();
-                    if ($stateExists) {
-                        $applicant->auto_pilot_state_id = (int) $stateId;
+            // Date fields: validate format, empty/null → null
+            if (array_key_exists('applied_at', $arguments)) {
+                $val = trim((string) ($arguments['applied_at'] ?? ''));
+                if ($val === '') {
+                    $applicant->applied_at = null;
+                } else {
+                    try {
+                        $applicant->applied_at = \Carbon\Carbon::parse($val)->toDateString();
+                    } catch (\Throwable $e) {
+                        // Invalid date format — ignore silently
                     }
-                } elseif ($stateId === null || $stateId === '' || $stateId === 0) {
-                    $applicant->auto_pilot_state_id = null;
                 }
-            }
-
-            // Handle rec_applicant_status_id separately - only update if valid
-            if (array_key_exists('rec_applicant_status_id', $arguments)) {
-                $statusId = $arguments['rec_applicant_status_id'];
-                if ($statusId && $statusId > 0) {
-                    // Verify status exists
-                    $statusExists = \Platform\Recruiting\Models\RecApplicantStatus::where('id', $statusId)->exists();
-                    if ($statusExists) {
-                        $applicant->rec_applicant_status_id = $statusId;
-                    }
-                    // If status doesn't exist, silently ignore (don't break the update)
-                }
-            }
-
-            // Handle owned_by_user_id - only update if valid, NEVER set to null (would break AutoPilot)
-            if (array_key_exists('owned_by_user_id', $arguments)) {
-                $ownerId = $arguments['owned_by_user_id'];
-                // Only set if it's a valid positive integer - ignore 0/null/empty
-                if (is_numeric($ownerId) && (int)$ownerId > 0) {
-                    $applicant->owned_by_user_id = (int)$ownerId;
-                }
-                // Silently ignore 0/null/empty - don't clear the owner
             }
 
             if (array_key_exists('auto_pilot_completed_at', $arguments)) {
-                $val = $arguments['auto_pilot_completed_at'];
+                $val = trim((string) ($arguments['auto_pilot_completed_at'] ?? ''));
                 if ($val === 'now') {
                     $applicant->auto_pilot_completed_at = now();
-                } elseif ($val === '' || $val === null) {
+                } elseif ($val === '') {
                     $applicant->auto_pilot_completed_at = null;
                 } else {
-                    $applicant->auto_pilot_completed_at = $val;
+                    try {
+                        $applicant->auto_pilot_completed_at = \Carbon\Carbon::parse($val);
+                    } catch (\Throwable $e) {
+                        // Invalid datetime — ignore silently
+                    }
+                }
+            }
+
+            // FK fields: validate existence before setting, 0/null/empty → null
+            $fkFields = [
+                'auto_pilot_state_id' => \Platform\Recruiting\Models\RecAutoPilotState::class,
+                'rec_applicant_status_id' => \Platform\Recruiting\Models\RecApplicantStatus::class,
+                'owned_by_user_id' => \Platform\Core\Models\User::class,
+            ];
+
+            foreach ($fkFields as $field => $modelClass) {
+                if (!array_key_exists($field, $arguments)) {
+                    continue;
+                }
+                $val = $arguments[$field];
+                if (is_numeric($val) && (int) $val > 0) {
+                    if ($modelClass::where('id', (int) $val)->exists()) {
+                        $applicant->{$field} = (int) $val;
+                    }
+                    // Invalid FK — ignore silently, don't break the update
+                } elseif ($field !== 'owned_by_user_id') {
+                    // Allow nulling FK fields except owned_by_user_id (would break AutoPilot)
+                    $applicant->{$field} = null;
                 }
             }
 
