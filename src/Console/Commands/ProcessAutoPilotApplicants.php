@@ -272,7 +272,7 @@ class ProcessAutoPilotApplicants extends Command
         $channel = new CommsChannel();
         $channel->id = 0;
         $channel->type = 'whatsapp';
-        $channel->provider = 'meta';
+        $channel->provider = 'whatsapp_meta';
         $channel->is_active = true;
         $channel->sender_identifier = $account->phone_number;
         $channel->meta = [
