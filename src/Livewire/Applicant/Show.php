@@ -455,7 +455,7 @@ class Show extends Component
             ];
         }
 
-        // URL button — auto-fill with form token
+        // URL button — add public form token if template has any URL button
         $hasUrlButton = collect($template->components ?? [])
             ->where('type', 'BUTTONS')
             ->flatMap(fn ($c) => $c['buttons'] ?? [])
@@ -514,7 +514,14 @@ class Show extends Component
             }
 
             $text = $component['text'] ?? '';
-            $example = $component['example']['body_text'][0] ?? [];
+
+            // Build example lookup from named params or positional params
+            $examplesByName = [];
+            $namedParams = $component['example']['body_text_named_params'] ?? [];
+            foreach ($namedParams as $np) {
+                $examplesByName[$np['param_name']] = $np['example'] ?? '';
+            }
+            $positionalExamples = $component['example']['body_text'][0] ?? [];
 
             // Match {{1}}, {{2}}, ... or {{name}} patterns
             preg_match_all('/\{\{(\w+)\}\}/', $text, $matches);
@@ -522,7 +529,7 @@ class Show extends Component
             foreach ($matches[1] as $i => $paramName) {
                 $params[] = [
                     'name' => $paramName,
-                    'example' => $example[$i] ?? '',
+                    'example' => $examplesByName[$paramName] ?? $positionalExamples[$i] ?? '',
                 ];
             }
         }
