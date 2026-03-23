@@ -3,6 +3,25 @@
         <x-ui-page-navbar :title="($applicant->getContact()?->full_name ?? 'Bewerber #' . $applicant->id)" icon="heroicon-o-user-plus" />
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
+            ['label' => 'Bewerber', 'href' => route('recruiting.applicants.index')],
+            ['label' => ($applicant->getContact()?->full_name ?? 'Bewerber #' . $applicant->id)],
+        ]">
+            @if($this->isDirty)
+                <x-ui-button variant="primary" size="sm" wire:click="save">
+                    @svg('heroicon-o-check', 'w-4 h-4')
+                    <span>Speichern</span>
+                </x-ui-button>
+            @endif
+            <x-ui-button variant="danger" size="sm" wire:click="deleteApplicant" wire:confirm="Bewerbung wirklich unwiderruflich löschen?">
+                @svg('heroicon-o-trash', 'w-4 h-4')
+                <span>Löschen</span>
+            </x-ui-button>
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container spacing="space-y-8">
         {{-- Header --}}
         @php
@@ -45,6 +64,10 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-3">
+                    <button wire:click="openTemplateModal" class="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors" title="WhatsApp Template senden">
+                        @svg('heroicon-o-paper-airplane', 'w-4 h-4 text-emerald-600')
+                        <span class="text-xs font-medium text-emerald-700">Template senden</span>
+                    </button>
                     <div
                         x-data="{ copied: false }"
                         class="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer transition-colors"
@@ -492,6 +515,105 @@
                 </x-ui-button>
                 <x-ui-button type="button" variant="primary" wire:click="saveContact">
                     Kontakt erstellen
+                </x-ui-button>
+            </div>
+        </x-slot>
+    </x-ui-modal>
+
+    <!-- WhatsApp Template Modal -->
+    <x-ui-modal
+        size="lg"
+        model="templateModalShow"
+    >
+        <x-slot name="header">
+            <div class="flex items-center gap-2">
+                @svg('heroicon-o-paper-airplane', 'w-5 h-5 text-emerald-600')
+                WhatsApp Template senden
+            </div>
+        </x-slot>
+
+        <div class="space-y-4">
+            <x-ui-input-select
+                name="selectedTemplateId"
+                label="Template auswählen"
+                :options="$this->availableWhatsAppTemplates"
+                optionValue="id"
+                optionLabel="label"
+                :nullable="true"
+                nullLabel="– Template auswählen –"
+                wire:model.live="selectedTemplateId"
+                required
+            />
+
+            @if($selectedTemplateId)
+                @php
+                    $selectedTemplate = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($selectedTemplateId);
+                    $bodyText = '';
+                    $hasUrlBtn = false;
+                    if ($selectedTemplate) {
+                        foreach ($selectedTemplate->components ?? [] as $comp) {
+                            if (($comp['type'] ?? '') === 'BODY') {
+                                $bodyText = $comp['text'] ?? '';
+                            }
+                            if (($comp['type'] ?? '') === 'BUTTONS') {
+                                foreach ($comp['buttons'] ?? [] as $btn) {
+                                    if (($btn['type'] ?? '') === 'URL') {
+                                        $hasUrlBtn = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                @endphp
+
+                @if($bodyText)
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Template-Text</label>
+                        <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg text-sm text-[var(--ui-secondary)] whitespace-pre-wrap border border-[var(--ui-border)]/40">{{ $bodyText }}</div>
+                    </div>
+                @endif
+
+                @if(count($templateBodyParamDefs) > 0)
+                    <div class="space-y-3">
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)]">Parameter</label>
+                        @foreach($templateBodyParamDefs as $param)
+                            <x-ui-input-text
+                                name="templateParams.{{ $param['name'] }}"
+                                label="{{ $param['name'] }}"
+                                wire:model.live="templateParams.{{ $param['name'] }}"
+                                placeholder="{{ $param['example'] ?: $param['name'] }}"
+                                required
+                            />
+                        @endforeach
+                    </div>
+                @endif
+
+                @if($hasUrlBtn)
+                    <div class="flex items-center gap-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        @svg('heroicon-o-link', 'w-4 h-4 text-blue-600')
+                        <span class="text-sm text-blue-700">Der Bewerbungslink wird automatisch eingefügt.</span>
+                    </div>
+                @endif
+            @endif
+        </div>
+
+        <x-slot name="footer">
+            <div class="d-flex justify-end gap-2">
+                <x-ui-button
+                    type="button"
+                    variant="secondary-outline"
+                    wire:click="$set('templateModalShow', false)"
+                >
+                    Abbrechen
+                </x-ui-button>
+                <x-ui-button
+                    type="button"
+                    variant="primary"
+                    wire:click="sendManualTemplate"
+                    :disabled="!$selectedTemplateId || (count($templateBodyParamDefs) > 0 && collect($templateParams)->contains(''))"
+                >
+                    @svg('heroicon-o-paper-airplane', 'w-4 h-4')
+                    Senden
                 </x-ui-button>
             </div>
         </x-slot>

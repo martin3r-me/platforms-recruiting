@@ -16,6 +16,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmContactStatus;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
+use Platform\Crm\Services\Comms\WhatsAppMetaService;
 
 class Show extends Component
 {
@@ -25,6 +26,11 @@ class Show extends Component
 
     public $contactLinkModalShow = false;
     public $contactCreateModalShow = false;
+
+    public bool $templateModalShow = false;
+    public ?int $selectedTemplateId = null;
+    public array $templateParams = [];
+    public array $templateBodyParamDefs = [];
 
     public $contactForm = [
         'first_name' => '',
@@ -339,6 +345,232 @@ class Show extends Component
             ->orderBy('last_name')
             ->orderBy('first_name')
             ->get();
+    }
+
+    #[Computed]
+    public function availableWhatsAppTemplates(): array
+    {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return [];
+        }
+
+        $teamSettings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam(
+            auth()->user()->currentTeam->id
+        );
+        $accountId = $teamSettings->getSetting('auto_pilot_wa_account_id');
+
+        $query = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->with('whatsappAccount:id,title,phone_number')
+            ->where('status', 'APPROVED');
+
+        if ($accountId) {
+            $query->where('whatsapp_account_id', (int) $accountId);
+        }
+
+        return $query->orderBy('name')
+            ->get()
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'label' => "{$t->name} ({$t->language})",
+            ])
+            ->toArray();
+    }
+
+    public function openTemplateModal(): void
+    {
+        $this->selectedTemplateId = null;
+        $this->templateParams = [];
+        $this->templateBodyParamDefs = [];
+        $this->templateModalShow = true;
+    }
+
+    public function updatedSelectedTemplateId($value): void
+    {
+        $this->templateParams = [];
+        $this->templateBodyParamDefs = [];
+
+        if (!$value) {
+            return;
+        }
+
+        $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($value);
+        if (!$template) {
+            return;
+        }
+
+        $this->templateBodyParamDefs = $this->parseTemplateBodyParams($template->components ?? []);
+
+        foreach ($this->templateBodyParamDefs as $param) {
+            $this->templateParams[$param['name']] = '';
+        }
+    }
+
+    public function sendManualTemplate(): void
+    {
+        if (!$this->selectedTemplateId) {
+            session()->flash('error', 'Bitte ein Template auswählen.');
+            return;
+        }
+
+        $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($this->selectedTemplateId);
+        if (!$template || $template->status !== 'APPROVED') {
+            session()->flash('error', 'Template nicht gefunden oder nicht genehmigt.');
+            return;
+        }
+
+        // Find applicant's phone number
+        $phoneNumber = $this->findApplicantPhoneNumber();
+        if (!$phoneNumber) {
+            session()->flash('error', 'Kein Kontakt mit Telefonnummer gefunden. Bitte zuerst einen Kontakt mit Telefonnummer verknüpfen.');
+            return;
+        }
+
+        // Resolve WhatsApp channel
+        $teamSettings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam(
+            auth()->user()->currentTeam->id
+        );
+        $accountId = $teamSettings->getSetting('auto_pilot_wa_account_id');
+        $channel = $this->resolveWhatsAppChannel($accountId);
+
+        if (!$channel) {
+            session()->flash('error', 'Kein aktiver WhatsApp-Kanal konfiguriert. Bitte in den Recruiting-Einstellungen einen WhatsApp-Account auswählen.');
+            return;
+        }
+
+        // Build components
+        $components = [];
+
+        // Body parameters
+        if (!empty($this->templateBodyParamDefs)) {
+            $bodyParameters = [];
+            foreach ($this->templateBodyParamDefs as $param) {
+                $bodyParameters[] = [
+                    'type' => 'text',
+                    'text' => $this->templateParams[$param['name']] ?? '',
+                ];
+            }
+            $components[] = [
+                'type' => 'body',
+                'parameters' => $bodyParameters,
+            ];
+        }
+
+        // URL button — auto-fill with form token
+        $hasUrlButton = collect($template->components ?? [])
+            ->where('type', 'BUTTONS')
+            ->flatMap(fn ($c) => $c['buttons'] ?? [])
+            ->contains('type', 'URL');
+
+        if ($hasUrlButton) {
+            $publicUrl = $this->applicant->getPublicUrl();
+            $formToken = basename(parse_url($publicUrl, PHP_URL_PATH));
+
+            $components[] = [
+                'type' => 'button',
+                'sub_type' => 'url',
+                'index' => 0,
+                'parameters' => [['type' => 'text', 'text' => $formToken]],
+            ];
+        }
+
+        try {
+            $service = app(WhatsAppMetaService::class);
+            $message = $service->sendTemplate(
+                channel: $channel,
+                to: $phoneNumber->international,
+                templateName: $template->name,
+                components: $components,
+                languageCode: $template->language,
+                sender: auth()->user(),
+            );
+
+            // Link thread to applicant
+            $thread = $message->thread ?? null;
+            if ($thread) {
+                if (method_exists($thread, 'addContext')) {
+                    $thread->addContext($this->applicant->getMorphClass(), $this->applicant->id, 'manual_template');
+                }
+                if (!$thread->context_model) {
+                    $thread->updateQuietly([
+                        'context_model' => $this->applicant->getMorphClass(),
+                        'context_model_id' => $this->applicant->id,
+                    ]);
+                }
+            }
+
+            $this->templateModalShow = false;
+            session()->flash('message', "WhatsApp Template \"{$template->name}\" erfolgreich gesendet.");
+        } catch (\Throwable $e) {
+            session()->flash('error', 'Fehler beim Senden: ' . $e->getMessage());
+        }
+    }
+
+    private function parseTemplateBodyParams(array $components): array
+    {
+        $params = [];
+        foreach ($components as $component) {
+            if (($component['type'] ?? '') !== 'BODY') {
+                continue;
+            }
+
+            $text = $component['text'] ?? '';
+            $example = $component['example']['body_text'][0] ?? [];
+
+            // Match {{1}}, {{2}}, ... or {{name}} patterns
+            preg_match_all('/\{\{(\w+)\}\}/', $text, $matches);
+
+            foreach ($matches[1] as $i => $paramName) {
+                $params[] = [
+                    'name' => $paramName,
+                    'example' => $example[$i] ?? '',
+                ];
+            }
+        }
+        return $params;
+    }
+
+    private function findApplicantPhoneNumber(): ?\Platform\Crm\Models\CrmPhoneNumber
+    {
+        $this->applicant->loadMissing(['crmContactLinks.contact.phoneNumbers']);
+
+        foreach ($this->applicant->crmContactLinks as $link) {
+            $contact = $link->contact;
+            if (!$contact) continue;
+
+            $primary = $contact->phoneNumbers
+                ->where('is_active', true)
+                ->where('is_primary', true)
+                ->whereNotNull('international')
+                ->first();
+
+            if ($primary) return $primary;
+
+            $fallback = $contact->phoneNumbers
+                ->where('is_active', true)
+                ->whereNotNull('international')
+                ->first();
+
+            if ($fallback) return $fallback;
+        }
+
+        return null;
+    }
+
+    private function resolveWhatsAppChannel($accountId): ?CommsChannel
+    {
+        if (!$accountId || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+            return null;
+        }
+
+        $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($accountId);
+        if (!$account || !$account->active) {
+            return null;
+        }
+
+        return CommsChannel::where('type', 'whatsapp')
+            ->where('is_active', true)
+            ->where('sender_identifier', $account->phone_number)
+            ->first();
     }
 
     public function rendered(): void
