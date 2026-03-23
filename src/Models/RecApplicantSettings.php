@@ -31,6 +31,7 @@ class RecApplicantSettings extends Model
         'auto_pilot_reminder_interval_hours' => 24,
         'auto_pilot_max_reminders' => 3,
         'auto_start_auto_pilot' => false,
+        'send_initial_whatsapp_template' => false,
     ];
 
     public function team(): BelongsTo

@@ -220,9 +220,12 @@ class EnrichInboxApplicants extends Command
                         $this->fixPortalThreadAddresses($applicant);
                     }
 
-                    // Try to send initial WhatsApp template if phone number available
+                    // Try to send initial WhatsApp template if enabled in settings
                     if (!$dryRun) {
-                        $this->trySendInitialWhatsAppTemplate($applicant);
+                        $teamSettings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+                        if ($teamSettings->getSetting('send_initial_whatsapp_template', false)) {
+                            $this->trySendInitialWhatsAppTemplate($applicant);
+                        }
                     }
                 } catch (\Throwable $e) {
                     $this->logEnrichment($applicant, 'error', 'LLM-Fehler: ' . $e->getMessage());
