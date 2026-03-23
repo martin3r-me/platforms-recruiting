@@ -455,11 +455,18 @@ class Show extends Component
             ];
         }
 
-        // URL button — add public form token if template has any URL button
-        $hasUrlButton = collect($template->components ?? [])
-            ->where('type', 'BUTTONS')
-            ->flatMap(fn ($c) => $c['buttons'] ?? [])
-            ->contains('type', 'URL');
+        // URL button — check if template has any URL button with a dynamic parameter
+        $hasUrlButton = false;
+        foreach ($template->components ?? [] as $comp) {
+            if (($comp['type'] ?? '') === 'BUTTONS') {
+                foreach ($comp['buttons'] ?? [] as $btn) {
+                    if (($btn['type'] ?? '') === 'URL') {
+                        $hasUrlButton = true;
+                        break 2;
+                    }
+                }
+            }
+        }
 
         if ($hasUrlButton) {
             $publicUrl = $this->applicant->getPublicUrl();
@@ -472,6 +479,13 @@ class Show extends Component
                 'parameters' => [['type' => 'text', 'text' => $formToken]],
             ];
         }
+
+        \Illuminate\Support\Facades\Log::info('Manual template send debug', [
+            'template_name' => $template->name,
+            'template_components' => $template->components,
+            'hasUrlButton' => $hasUrlButton,
+            'built_components' => $components,
+        ]);
 
         try {
             $service = app(WhatsAppMetaService::class);
