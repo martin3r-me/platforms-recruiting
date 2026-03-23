@@ -743,9 +743,24 @@ class EnrichInboxApplicants extends Command
                 return;
             }
 
-            // Get the first available template from the channel meta
-            $templateName = $whatsAppChannel->meta['default_template'] ?? 'begruesung_template';
-            $templateLang = $whatsAppChannel->meta['default_template_lang'] ?? 'en';
+            // Resolve template from settings (same pattern as AutoPilot)
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+            $templateId = $teamSettings->getSetting('enrichment_wa_template_id');
+            $templateName = null;
+            $templateLang = 'de';
+
+            if ($templateId && class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+                $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
+                if ($template && $template->status === 'APPROVED') {
+                    $templateName = $template->name;
+                    $templateLang = $template->language;
+                }
+            }
+
+            if (!$templateName) {
+                $this->line("  WhatsApp: Kein gültiges Template in Settings konfiguriert");
+                return;
+            }
 
             $phoneNumber = $phoneToContact->international ?: $phoneToContact->raw_input;
             if (!$phoneNumber) {
