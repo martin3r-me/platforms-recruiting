@@ -3,14 +3,20 @@
         <x-ui-page-navbar title="Stellen" icon="heroicon-o-briefcase" />
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
+            ['label' => 'Stellen'],
+        ]">
+            <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
+                @svg('heroicon-o-plus', 'w-4 h-4')
+                <span>Neue Stelle</span>
+            </x-ui-button>
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container>
         <x-ui-panel title="Übersicht" subtitle="Stellen verwalten">
-            <div class="flex justify-end items-center gap-2 mb-4">
-                <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
-                    @svg('heroicon-o-plus', 'w-4 h-4') Neu
-                </x-ui-button>
-            </div>
-
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>

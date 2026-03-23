@@ -3,17 +3,26 @@
         <x-ui-page-navbar title="Bewerber" icon="heroicon-o-user-group" />
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
+            ['label' => 'Bewerber'],
+        ]">
+            <x-slot name="left">
+                <x-ui-button variant="ghost" size="sm" wire:click="$dispatch('open-applicant-settings')">
+                    @svg('heroicon-o-cog-6-tooth', 'w-4 h-4')
+                    <span>Einstellungen</span>
+                </x-ui-button>
+            </x-slot>
+            <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
+                @svg('heroicon-o-plus', 'w-4 h-4')
+                <span>Neuer Bewerber</span>
+            </x-ui-button>
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container>
         <x-ui-panel title="Übersicht" subtitle="Bewerber verwalten">
-            <div class="flex justify-end items-center gap-2 mb-4">
-                <x-ui-button variant="secondary" size="sm" wire:click="$dispatch('open-applicant-settings')">
-                    @svg('heroicon-o-cog-6-tooth', 'w-4 h-4')
-                </x-ui-button>
-                <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
-                    @svg('heroicon-o-plus', 'w-4 h-4') Neu
-                </x-ui-button>
-            </div>
-
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>

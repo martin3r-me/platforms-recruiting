@@ -14,6 +14,14 @@
         </x-ui-page-navbar>
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'icon' => 'briefcase'],
+            ['label' => 'Dashboard'],
+        ]">
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container spacing="space-y-8">
         {{-- Stats --}}
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">

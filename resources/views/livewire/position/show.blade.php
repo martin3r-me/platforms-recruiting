@@ -3,6 +3,31 @@
         <x-ui-page-navbar :title="$position->title" icon="heroicon-o-briefcase" />
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
+            ['label' => 'Stellen', 'href' => route('recruiting.positions.index')],
+            ['label' => $position->title],
+        ]">
+            <x-slot name="left">
+                <x-ui-button variant="ghost" size="sm" href="{{ route('recruiting.positions.dashboard', $position) }}" wire:navigate>
+                    @svg('heroicon-o-squares-2x2', 'w-4 h-4')
+                    <span>Dashboard</span>
+                </x-ui-button>
+            </x-slot>
+            @if($this->isDirty)
+                <x-ui-button variant="primary" size="sm" wire:click="save">
+                    @svg('heroicon-o-check', 'w-4 h-4')
+                    <span>Speichern</span>
+                </x-ui-button>
+            @endif
+            <x-ui-button variant="danger" size="sm" wire:click="deletePosition" wire:confirm="Stelle wirklich löschen?">
+                @svg('heroicon-o-trash', 'w-4 h-4')
+                <span>Löschen</span>
+            </x-ui-button>
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container spacing="space-y-8">
         <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
             <div class="flex items-center gap-2 mb-6">

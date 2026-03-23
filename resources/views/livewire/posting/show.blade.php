@@ -3,6 +3,37 @@
         <x-ui-page-navbar :title="$posting->title" icon="heroicon-o-megaphone" />
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
+            ['label' => 'Ausschreibungen', 'href' => route('recruiting.postings.index')],
+            ['label' => $posting->title],
+        ]">
+            @if($this->isDirty)
+                <x-ui-button variant="primary" size="sm" wire:click="save">
+                    @svg('heroicon-o-check', 'w-4 h-4')
+                    <span>Speichern</span>
+                </x-ui-button>
+            @endif
+            @if($posting->status === 'draft')
+                <x-ui-button variant="success" size="sm" wire:click="publish">
+                    @svg('heroicon-o-megaphone', 'w-4 h-4')
+                    <span>Veröffentlichen</span>
+                </x-ui-button>
+            @endif
+            @if($posting->status === 'published')
+                <x-ui-button variant="warning" size="sm" wire:click="close">
+                    @svg('heroicon-o-x-mark', 'w-4 h-4')
+                    <span>Schließen</span>
+                </x-ui-button>
+            @endif
+            <x-ui-button variant="danger" size="sm" wire:click="deletePosting" wire:confirm="Ausschreibung wirklich löschen?">
+                @svg('heroicon-o-trash', 'w-4 h-4')
+                <span>Löschen</span>
+            </x-ui-button>
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container spacing="space-y-8">
         <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
             <div class="flex items-center gap-2 mb-6">

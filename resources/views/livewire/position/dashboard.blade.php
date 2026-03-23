@@ -14,6 +14,22 @@
         </x-ui-page-navbar>
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
+            ['label' => 'Stellen', 'href' => route('recruiting.positions.index')],
+            ['label' => $position->title, 'href' => route('recruiting.positions.show', $position)],
+            ['label' => 'Dashboard'],
+        ]">
+            <x-slot name="left">
+                <x-ui-button variant="ghost" size="sm" href="{{ route('recruiting.positions.show', $position) }}" wire:navigate>
+                    @svg('heroicon-o-pencil', 'w-4 h-4')
+                    <span>Bearbeiten</span>
+                </x-ui-button>
+            </x-slot>
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container spacing="space-y-8">
         {{-- Stats --}}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
