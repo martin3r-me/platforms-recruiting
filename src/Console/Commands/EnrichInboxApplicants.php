@@ -197,6 +197,9 @@ class EnrichInboxApplicants extends Command
                     }
 
                     if ($applicant->crmContactLinks->isNotEmpty()) {
+                        // Deterministic: sync CRM contact data back to empty extra fields
+                        $applicant->syncCrmContactToExtraFields();
+
                         $applicant->update(['enrichment_status' => 'enriched']);
                         $this->info("  Enrichment abgeschlossen.");
 
@@ -947,6 +950,10 @@ class EnrichInboxApplicants extends Command
             . "- Lege am CRM-Kontakt AUSSCHLIESSLICH die persönliche Email des Bewerbers an.\n"
             . "- Erkennungsmerkmale für Portal-Adressen: noreply@, notification@, bewerbung@, *@jobs.*, *@stepstone.*, *@indeed.*, *@portal.*\n"
             . "- Im Zweifel: Lieber KEINE Email anlegen als eine Portal-Adresse.\n\n"
+            . "RE-ENRICHMENT:\n"
+            . "- Wenn Extra-Felder bereits Werte haben, überschreibe sie NUR wenn du deutlich bessere/vollständigere Daten findest.\n"
+            . "- Leere Felder haben Priorität — fülle diese zuerst.\n"
+            . "- Überschreibe NIEMALS einen vorhandenen Wert mit einem schlechteren oder unvollständigeren.\n\n"
             . "WICHTIG:\n"
             . "- Extrahiere ALLES was verwertbar ist: Name, Geburtsdatum, Adresse, Qualifikationen, "
             . "Berufserfahrung, Verfügbarkeit, Gehaltsvorstellung, etc.\n"
@@ -991,9 +998,17 @@ class EnrichInboxApplicants extends Command
             $data['file_references'] = $fileReferences;
         }
 
+        $hasExistingValues = collect($extraFields)->contains(fn ($f) => !empty($f['value']));
+
         $user = "Bewerbung (JSON):\n"
-            . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n\n"
-            . "Extrahiere alle verwertbaren Informationen und schreibe sie in die passenden Felder. "
+            . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n\n";
+
+        if ($hasExistingValues) {
+            $user .= "HINWEIS: Dies ist ein Re-Enrichment — einige Extra-Felder haben bereits Werte. "
+                . "Fokussiere dich auf leere Felder und überschreibe bestehende Werte nur wenn du deutlich bessere Daten findest.\n\n";
+        }
+
+        $user .= "Extrahiere alle verwertbaren Informationen und schreibe sie in die passenden Felder. "
             . "Alle Tools sind bereits geladen — beginne SOFORT mit core.extra_fields.GET.";
 
         return [
@@ -1035,7 +1050,13 @@ class EnrichInboxApplicants extends Command
                 return false;
             }
 
-            // Check both WA templates are configured
+            // Email-only/email-first: no WA templates needed for auto-start
+            $channelPriority = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_channel_priority', 'whatsapp_first');
+            if (in_array($channelPriority, ['email_only', 'email_first'])) {
+                return true;
+            }
+
+            // WA-based priorities: both templates must be configured
             $initialTemplate = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_wa_initial_template_id');
             $reminderTemplate = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_wa_reminder_template_id');
 
