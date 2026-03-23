@@ -330,6 +330,21 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
+        // Parse to get national format for raw (UI expects raw without country prefix)
+        $country = $phone->country_code ?: 'DE';
+        $raw = $phone->national ?: $phone->raw_input ?: $phone->international;
+        $e164 = preg_replace('/[^+0-9]/', '', $phone->international);
+
+        try {
+            $phoneUtil = \libphonenumber\PhoneNumberUtil::getInstance();
+            $parsed = $phoneUtil->parse($phone->international, $country);
+            $raw = $phoneUtil->format($parsed, \libphonenumber\PhoneNumberFormat::NATIONAL);
+            $country = $phoneUtil->getRegionCodeForNumber($parsed) ?: $country;
+            $e164 = $phoneUtil->format($parsed, \libphonenumber\PhoneNumberFormat::E164);
+        } catch (\Throwable $e) {
+            // Fallback to stored values
+        }
+
         $value = new \Platform\Core\Models\CoreExtraFieldValue([
             'definition_id' => $def->id,
             'fieldable_type' => $morphClass,
@@ -337,9 +352,9 @@ class RecApplicant extends Model implements InheritsExtraFields
         ]);
         $value->definition = $def;
         $value->setTypedValue([
-            'raw' => $phone->raw_input ?: $phone->international,
-            'country' => $phone->country_code ?: 'DE',
-            'e164' => preg_replace('/[^+0-9]/', '', $phone->international),
+            'raw' => $raw,
+            'country' => $country,
+            'e164' => $e164,
             'international' => $phone->international,
         ]);
         $value->save();
