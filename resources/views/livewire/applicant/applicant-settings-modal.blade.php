@@ -331,6 +331,38 @@
                         </div>
                     @endif
 
+                    {{-- Enrichment Template --}}
+                    <div class="pt-4 mt-4 border-t border-[var(--ui-border)]/40">
+                        <h4 class="text-sm font-medium text-[var(--ui-secondary)] mb-3">Enrichment</h4>
+
+                        <div class="space-y-4">
+                            <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                                <label class="flex items-center gap-3 cursor-pointer">
+                                    <input type="checkbox"
+                                           wire:model.live="settings.send_initial_whatsapp_template"
+                                           class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                                    <div>
+                                        <span class="text-sm font-medium text-[var(--ui-secondary)]">WhatsApp-Template nach Enrichment senden</span>
+                                        <p class="text-xs text-[var(--ui-muted)] mt-0.5">Sendet ein Template direkt nach der Datenextraktion, noch bevor der AutoPilot startet</p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            @if(!empty($settings['send_initial_whatsapp_template']) && !empty($this->availableWhatsAppTemplates))
+                                <x-ui-input-select
+                                    name="settings.enrichment_wa_template_id"
+                                    label="WhatsApp Template — nach Enrichment"
+                                    :options="$this->availableWhatsAppTemplates"
+                                    optionValue="id"
+                                    optionLabel="label"
+                                    :nullable="true"
+                                    nullLabel="– Template wählen –"
+                                    wire:model="settings.enrichment_wa_template_id"
+                                />
+                            @endif
+                        </div>
+                    </div>
+
                     {{-- Reminder Interval --}}
                     <div>
                         <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Erinnerungsintervall (Stunden)</label>
