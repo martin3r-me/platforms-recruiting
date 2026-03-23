@@ -13,7 +13,6 @@ use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Crm\Models\CommsChannel;
-use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmContactStatus;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
@@ -480,32 +479,6 @@ class Show extends Component
                 'parameters' => [['type' => 'text', 'text' => $formToken]],
             ];
         }
-
-        CommsLog::log(
-            event: 'debug_manual_template',
-            status: 'info',
-            summary: "DEBUG: sendManualTemplate() für '{$template->name}'",
-            details: [
-                'template_id' => $template->id,
-                'template_name' => $template->name,
-                'template_components_raw' => $template->components,
-                'template_components_type' => gettype($template->components),
-                'hasUrlButton' => $hasUrlButton,
-                'built_components' => $components,
-                'selectedTemplateId' => $this->selectedTemplateId,
-                'templateBodyParamDefs' => $this->templateBodyParamDefs,
-                'php_class' => static::class,
-                'file_hash' => md5_file(__FILE__),
-            ],
-            extra: [
-                'team_id' => $channel->team_id,
-                'channel_type' => 'whatsapp',
-                'channel_id' => $channel->id,
-                'recipient' => $phoneNumber->international,
-                'triggered_by_user_id' => auth()->id(),
-                'source' => 'debug',
-            ],
-        );
 
         try {
             $service = app(WhatsAppMetaService::class);
