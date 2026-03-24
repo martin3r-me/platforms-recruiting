@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Listeners;
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Events\CommsWhatsAppInboundReceived;
 use Platform\Crm\Models\CommsChannel;
+use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Services\IncomingApplicationService;
@@ -21,8 +22,45 @@ class HandleWhatsAppInboundForRecruiting
         $thread = $event->thread;
         $message = $event->message;
 
+        $logExtra = [
+            'team_id' => $channel->team_id,
+            'channel_type' => 'whatsapp',
+            'channel_id' => $channel->id,
+            'source' => 'recruiting_inbound',
+            'recipient' => $thread->remote_phone_number,
+        ];
+
+        CommsLog::log(
+            event: 'inbound_received',
+            status: 'info',
+            summary: "WhatsApp-Bewerbung empfangen von {$thread->remote_phone_number}",
+            details: ['message_id' => $message->id, 'from' => $thread->remote_phone_number],
+            extra: $logExtra,
+        );
+
+        // Skip if this thread is linked to an HCM onboarding context (e.g. interview reminder reply)
+        if ($thread->context_model === 'hcm_onboarding' || $thread->context_model === \Platform\Hcm\Models\HcmOnboarding::class) {
+            CommsLog::log(
+                event: 'inbound_skipped',
+                status: 'info',
+                summary: "WhatsApp-Thread gehört zu HCM-Onboarding, kein Recruiting-Applicant erstellt",
+                details: ['thread_id' => $thread->id, 'context_model_id' => $thread->context_model_id],
+                extra: $logExtra,
+            );
+
+            return;
+        }
+
         // Check if this channel is linked to any recruiting postings
         if (!$this->channelHasPostings($channel)) {
+            CommsLog::log(
+                event: 'inbound_skipped',
+                status: 'info',
+                summary: "WhatsApp-Kanal hat keine offenen Postings, übersprungen",
+                details: ['channel_name' => $channel->name],
+                extra: $logExtra,
+            );
+
             return;
         }
 
@@ -70,13 +108,31 @@ class HandleWhatsAppInboundForRecruiting
             $thread->save();
 
             // Reset AutoPilot state when applicant replies (so AutoPilot picks up again)
-            if (!$result['is_new'] && $applicant->auto_pilot && $applicant->auto_pilot_state_id) {
-                $applicant->auto_pilot_state_id = null;
-                $applicant->save();
+            // Also trigger re-enrichment so new message data gets extracted into extra fields
+            if (!$result['is_new']) {
+                $changed = false;
 
-                Log::info('[Recruiting] AutoPilot state reset due to applicant reply', [
-                    'applicant_id' => $applicant->id,
-                ]);
+                if ($applicant->auto_pilot && $applicant->auto_pilot_state_id) {
+                    $applicant->auto_pilot_state_id = null;
+                    $changed = true;
+
+                    Log::info('[Recruiting] AutoPilot state reset due to applicant reply', [
+                        'applicant_id' => $applicant->id,
+                    ]);
+                }
+
+                if (in_array($applicant->enrichment_status, ['enriched', 'no_contact', 'failed'])) {
+                    $applicant->enrichment_status = null;
+                    $changed = true;
+
+                    Log::info('[Recruiting] Re-enrichment triggered by applicant reply', [
+                        'applicant_id' => $applicant->id,
+                    ]);
+                }
+
+                if ($changed) {
+                    $applicant->save();
+                }
             }
 
             Log::info('[Recruiting] WhatsApp application processed', [
@@ -84,6 +140,20 @@ class HandleWhatsAppInboundForRecruiting
                 'posting_id' => $result['posting']->id,
                 'is_new' => $result['is_new'],
             ]);
+
+            CommsLog::log(
+                event: $result['is_new'] ? 'inbound_created' : 'inbound_duplicate',
+                status: 'success',
+                summary: $result['is_new']
+                    ? "Neuer Bewerber erstellt aus WhatsApp von {$senderPhone}"
+                    : "Bestehender Bewerber gefunden, Notiz angehängt für {$senderPhone}",
+                details: [
+                    'applicant_id' => $applicant->id,
+                    'posting_id' => $result['posting']->id,
+                    'is_new' => $result['is_new'],
+                ],
+                extra: $logExtra,
+            );
         } catch (\Throwable $e) {
             Log::error('[Recruiting] Failed to process WhatsApp inbound for recruiting', [
                 'channel_id' => $channel->id,
@@ -91,6 +161,14 @@ class HandleWhatsAppInboundForRecruiting
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
+            CommsLog::log(
+                event: 'inbound_failed',
+                status: 'error',
+                summary: "WhatsApp-Bewerbung fehlgeschlagen: {$e->getMessage()}",
+                details: ['error' => $e->getMessage(), 'message_id' => $message->id],
+                extra: $logExtra,
+            );
         }
     }
 

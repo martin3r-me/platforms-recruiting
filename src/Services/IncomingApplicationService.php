@@ -60,6 +60,15 @@ class IncomingApplicationService
 
         $teamId = $channel->team_id;
 
+        // Skip if this sender already has an active HCM onboarding (was already transferred)
+        if ($this->senderHasActiveOnboarding($senderIdentifier, $channel->type, $teamId)) {
+            Log::info('[IncomingApplicationService] Sender has active onboarding, skipping applicant creation', [
+                'sender' => $senderIdentifier,
+                'channel_type' => $channel->type,
+            ]);
+            return null;
+        }
+
         // Check if this sender already has an applicant linked to any of these postings
         $existingApplicant = $this->findExistingApplicantForPostings($senderIdentifier, $postings, $teamId);
 
@@ -377,6 +386,26 @@ class IncomingApplicationService
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Check if the sender already has an active HCM onboarding (transferred from recruiting).
+     */
+    private function senderHasActiveOnboarding(string $senderIdentifier, string $channelType, int $teamId): bool
+    {
+        if (!class_exists(\Platform\Hcm\Models\HcmOnboarding::class)) {
+            return false;
+        }
+
+        $contact = $this->findExistingCrmContact($senderIdentifier, $channelType, $teamId);
+        if (!$contact) {
+            return false;
+        }
+
+        return \Platform\Hcm\Models\HcmOnboarding::where('team_id', $teamId)
+            ->where('is_active', true)
+            ->whereHas('crmContactLinks', fn ($q) => $q->where('contact_id', $contact->id))
+            ->exists();
     }
 
     /**
