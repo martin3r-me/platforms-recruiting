@@ -27,7 +27,7 @@
         @php
             $primaryContact = $applicant->crmContactLinks->first()?->contact;
             $primaryEmail = $primaryContact?->emailAddresses->first()?->email_address;
-            $primaryPhone = $primaryContact?->phoneNumbers->first()?->phone_number;
+            $primaryPhone = $primaryContact?->phoneNumbers->first()?->international;
         @endphp
         <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
             <div class="flex items-start justify-between mb-6">
@@ -365,7 +365,7 @@
                 :context-type="get_class($applicant)"
                 :context-id="$applicant->id"
                 :subject="($primaryContact?->full_name ?? 'Bewerber #' . $applicant->id)"
-                :recipients="$primaryEmail ? [$primaryEmail] : []"
+                :recipients="array_values(array_filter([$primaryEmail, $primaryPhone]))"
                 :key="'inline-comms-' . $applicant->id"
             />
         @endif
