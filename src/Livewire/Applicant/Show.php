@@ -444,10 +444,15 @@ class Show extends Component
         if (!empty($this->templateBodyParamDefs)) {
             $bodyParameters = [];
             foreach ($this->templateBodyParamDefs as $param) {
-                $bodyParameters[] = [
+                $paramEntry = [
                     'type' => 'text',
                     'text' => $this->templateParams[$param['name']] ?? '',
                 ];
+                // Named parameters (non-numeric) need parameter_name for Meta API
+                if (!is_numeric($param['name'])) {
+                    $paramEntry['parameter_name'] = $param['name'];
+                }
+                $bodyParameters[] = $paramEntry;
             }
             $components[] = [
                 'type' => 'body',
