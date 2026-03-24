@@ -60,9 +60,9 @@ class IncomingApplicationService
 
         $teamId = $channel->team_id;
 
-        // Skip if this sender already has an active HCM onboarding (was already transferred)
-        if ($this->senderHasActiveOnboarding($senderIdentifier, $channel->type, $teamId)) {
-            Log::info('[IncomingApplicationService] Sender has active onboarding, skipping applicant creation', [
+        // Skip if this sender already has an active HCM onboarding or is an employee
+        if ($this->senderHasActiveHcmRecord($senderIdentifier, $channel->type, $teamId)) {
+            Log::info('[IncomingApplicationService] Sender has active onboarding or employee record, skipping applicant creation', [
                 'sender' => $senderIdentifier,
                 'channel_type' => $channel->type,
             ]);
@@ -389,23 +389,38 @@ class IncomingApplicationService
     }
 
     /**
-     * Check if the sender already has an active HCM onboarding (transferred from recruiting).
+     * Check if the sender already has an active HCM onboarding or employee record.
      */
-    private function senderHasActiveOnboarding(string $senderIdentifier, string $channelType, int $teamId): bool
+    private function senderHasActiveHcmRecord(string $senderIdentifier, string $channelType, int $teamId): bool
     {
-        if (!class_exists(\Platform\Hcm\Models\HcmOnboarding::class)) {
-            return false;
-        }
-
         $contact = $this->findExistingCrmContact($senderIdentifier, $channelType, $teamId);
         if (!$contact) {
             return false;
         }
 
-        return \Platform\Hcm\Models\HcmOnboarding::where('team_id', $teamId)
-            ->where('is_active', true)
-            ->whereHas('crmContactLinks', fn ($q) => $q->where('contact_id', $contact->id))
-            ->exists();
+        if (class_exists(\Platform\Hcm\Models\HcmOnboarding::class)) {
+            $hasOnboarding = \Platform\Hcm\Models\HcmOnboarding::where('team_id', $teamId)
+                ->where('is_active', true)
+                ->whereHas('crmContactLinks', fn ($q) => $q->where('contact_id', $contact->id))
+                ->exists();
+
+            if ($hasOnboarding) {
+                return true;
+            }
+        }
+
+        if (class_exists(\Platform\Hcm\Models\HcmEmployee::class)) {
+            $hasEmployee = \Platform\Hcm\Models\HcmEmployee::where('team_id', $teamId)
+                ->where('is_active', true)
+                ->whereHas('crmContactLinks', fn ($q) => $q->where('contact_id', $contact->id))
+                ->exists();
+
+            if ($hasEmployee) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
