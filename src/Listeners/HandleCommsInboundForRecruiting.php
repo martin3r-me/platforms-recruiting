@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Platform\Crm\Events\CommsInboundReceived;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsEmailInboundMail;
+use Platform\Crm\Models\CommsLog;
 use Platform\Recruiting\Services\IncomingApplicationService;
 
 class HandleCommsInboundForRecruiting
@@ -28,11 +29,36 @@ class HandleCommsInboundForRecruiting
             'mail_id' => $mail->id,
         ]);
 
+        $logExtra = [
+            'team_id' => $channel->team_id,
+            'channel_type' => 'email',
+            'channel_id' => $channel->id,
+            'source' => 'recruiting_inbound',
+            'recipient' => $mail->from,
+        ];
+
+        CommsLog::log(
+            event: 'inbound_received',
+            status: 'info',
+            summary: "Email-Bewerbung empfangen von {$mail->from}",
+            details: ['subject' => $mail->subject, 'from' => $mail->from, 'mail_id' => $mail->id],
+            extra: $logExtra,
+        );
+
         // Check if this channel is linked to any recruiting postings
         if (!$this->channelHasPostings($channel)) {
             Log::debug('[Recruiting] Email channel has no open postings, skipping', [
                 'channel_id' => $channel->id,
             ]);
+
+            CommsLog::log(
+                event: 'inbound_skipped',
+                status: 'info',
+                summary: "Email-Kanal hat keine offenen Postings, übersprungen",
+                details: ['channel_name' => $channel->name],
+                extra: $logExtra,
+            );
+
             return;
         }
 
@@ -79,14 +105,29 @@ class HandleCommsInboundForRecruiting
             $thread->context_model_id = $applicant->id;
             $thread->save();
 
-            // Reset AutoPilot state when applicant replies (so AutoPilot picks up again)
-            if (!$result['is_new'] && $applicant->auto_pilot && $applicant->auto_pilot_state_id) {
-                $applicant->auto_pilot_state_id = null;
-                $applicant->save();
+            // Reset AutoPilot state and re-enrichment when applicant replies
+            if (!$result['is_new']) {
+                $changed = false;
 
-                Log::info('[Recruiting] AutoPilot state reset due to applicant reply', [
-                    'applicant_id' => $applicant->id,
-                ]);
+                if ($applicant->auto_pilot && $applicant->auto_pilot_state_id) {
+                    $applicant->auto_pilot_state_id = null;
+                    $changed = true;
+                    Log::info('[Recruiting] AutoPilot state reset due to applicant reply', [
+                        'applicant_id' => $applicant->id,
+                    ]);
+                }
+
+                if (in_array($applicant->enrichment_status, ['enriched', 'no_contact', 'failed'])) {
+                    $applicant->enrichment_status = null;
+                    $changed = true;
+                    Log::info('[Recruiting] Re-enrichment triggered by applicant reply (email)', [
+                        'applicant_id' => $applicant->id,
+                    ]);
+                }
+
+                if ($changed) {
+                    $applicant->save();
+                }
             }
 
             Log::info('[Recruiting] Email application processed', [
@@ -94,6 +135,20 @@ class HandleCommsInboundForRecruiting
                 'posting_id' => $result['posting']->id,
                 'is_new' => $result['is_new'],
             ]);
+
+            CommsLog::log(
+                event: $result['is_new'] ? 'inbound_created' : 'inbound_duplicate',
+                status: 'success',
+                summary: $result['is_new']
+                    ? "Neuer Bewerber erstellt aus Email von {$senderEmail}"
+                    : "Bestehender Bewerber gefunden, Notiz angehängt für {$senderEmail}",
+                details: [
+                    'applicant_id' => $applicant->id,
+                    'posting_id' => $result['posting']->id,
+                    'is_new' => $result['is_new'],
+                ],
+                extra: array_merge($logExtra, ['recipient' => $senderEmail]),
+            );
         } catch (\Throwable $e) {
             Log::error('[Recruiting] Failed to process email inbound for recruiting', [
                 'channel_id' => $channel->id,
@@ -101,6 +156,14 @@ class HandleCommsInboundForRecruiting
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
+            CommsLog::log(
+                event: 'inbound_failed',
+                status: 'error',
+                summary: "Email-Bewerbung fehlgeschlagen: {$e->getMessage()}",
+                details: ['error' => $e->getMessage(), 'mail_id' => $mail->id],
+                extra: $logExtra,
+            );
         }
     }
 
