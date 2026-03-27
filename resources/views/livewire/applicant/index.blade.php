@@ -43,6 +43,8 @@
                             @php
                                 $primaryContact = $applicant->crmContactLinks->first()?->contact;
                                 $primaryEmail = $primaryContact?->emailAddresses->first()?->email_address;
+                                $primaryPhone = $primaryContact?->phoneNumbers->first(fn($p) => $p->is_active)?->international
+                                    ?: $primaryContact?->phoneNumbers->first(fn($p) => $p->is_active)?->raw_input;
                                 $positions = $applicant->postings->map(fn($p) => $p->position)->filter()->unique('id');
                                 $apColor = $this->getAutoPilotColor($applicant);
                             @endphp
@@ -77,14 +79,21 @@
                                         <span class="text-[var(--ui-muted)] italic">Kein Kontakt verknüpft</span>
                                     @endif
                                 </td>
-                                {{-- E-Mail --}}
+                                {{-- E-Mail & Telefon --}}
                                 <td class="px-4 py-3">
                                     @if($primaryEmail)
                                         <div class="text-xs text-[var(--ui-muted)] flex items-center gap-1">
                                             @svg('heroicon-o-envelope', 'w-3 h-3')
                                             {{ $primaryEmail }}
                                         </div>
-                                    @else
+                                    @endif
+                                    @if($primaryPhone)
+                                        <div class="text-xs text-[var(--ui-muted)] flex items-center gap-1 {{ $primaryEmail ? 'mt-0.5' : '' }}">
+                                            @svg('heroicon-o-phone', 'w-3 h-3')
+                                            {{ $primaryPhone }}
+                                        </div>
+                                    @endif
+                                    @if(!$primaryEmail && !$primaryPhone)
                                         <span class="text-[var(--ui-muted)]">–</span>
                                     @endif
                                 </td>
