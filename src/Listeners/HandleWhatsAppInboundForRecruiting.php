@@ -38,17 +38,24 @@ class HandleWhatsAppInboundForRecruiting
             extra: $logExtra,
         );
 
-        // Skip if this thread is linked to an HCM onboarding context (e.g. interview reminder reply)
-        if ($thread->context_model === 'hcm_onboarding' || $thread->context_model === \Platform\Hcm\Models\HcmOnboarding::class) {
-            CommsLog::log(
-                event: 'inbound_skipped',
-                status: 'info',
-                summary: "WhatsApp-Thread gehört zu HCM-Onboarding, kein Recruiting-Applicant erstellt",
-                details: ['thread_id' => $thread->id, 'context_model_id' => $thread->context_model_id],
-                extra: $logExtra,
-            );
+        // Skip if this thread is already linked to a non-recruiting context
+        // (e.g. HCM onboarding, helpdesk ticket, sales, etc.)
+        // Only allow threads with no context (new) or rec_applicant context (reply)
+        if ($thread->context_model !== null) {
+            $morphClass = (new \Platform\Recruiting\Models\RecApplicant)->getMorphClass();
+            $fullClass = \Platform\Recruiting\Models\RecApplicant::class;
 
-            return;
+            if ($thread->context_model !== $morphClass && $thread->context_model !== $fullClass) {
+                CommsLog::log(
+                    event: 'inbound_skipped',
+                    status: 'info',
+                    summary: "WhatsApp-Thread gehört zu anderem Kontext ({$thread->context_model}), kein Recruiting-Applicant erstellt",
+                    details: ['thread_id' => $thread->id, 'context_model' => $thread->context_model, 'context_model_id' => $thread->context_model_id],
+                    extra: $logExtra,
+                );
+
+                return;
+            }
         }
 
         // Check if this channel is linked to any recruiting postings
