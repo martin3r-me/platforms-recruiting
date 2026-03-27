@@ -29,6 +29,7 @@
                         <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                             <th class="px-4 py-3">Name</th>
                             <th class="px-4 py-3">E-Mail</th>
+                            <th class="px-4 py-3">Nachrichten</th>
                             <th class="px-4 py-3">Status</th>
                             <th class="px-4 py-3">Verantwortlicher</th>
                             <th class="px-4 py-3">Fortschritt</th>
@@ -83,6 +84,42 @@
                                             @svg('heroicon-o-envelope', 'w-3 h-3')
                                             {{ $primaryEmail }}
                                         </div>
+                                    @else
+                                        <span class="text-[var(--ui-muted)]">–</span>
+                                    @endif
+                                </td>
+                                {{-- Nachrichten --}}
+                                <td class="px-4 py-3">
+                                    @php $waStatus = $this->getWhatsAppStatus($applicant); @endphp
+                                    @if($waStatus['color'] !== 'none')
+                                        <div class="flex items-center gap-1">
+                                            <span title="{{ $waStatus['window_open'] ? '💬 Fenster offen' . ($waStatus['last_message'] ? ' — ' . $waStatus['last_message'] : '') : ($waStatus['color'] === 'yellow' ? 'WhatsApp verfügbar' . ($waStatus['last_message'] ? ' — ' . $waStatus['last_message'] : '') : 'WhatsApp unbekannt') }}"
+                                                  class="inline-flex items-center {{ $waStatus['color'] === 'green' ? 'text-green-500' : ($waStatus['color'] === 'yellow' ? 'text-yellow-500' : 'text-gray-400') }}">
+                                                @if($waStatus['color'] === 'green')
+                                                    <span class="relative flex h-3.5 w-3.5">
+                                                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                        @svg('heroicon-s-chat-bubble-left', 'relative w-3.5 h-3.5')
+                                                    </span>
+                                                @else
+                                                    @svg('heroicon-o-chat-bubble-left', 'w-3.5 h-3.5')
+                                                @endif
+                                            </span>
+                                        </div>
+                                        @if(!empty($waStatus['recent_messages']))
+                                            <div class="mt-1 space-y-0.5">
+                                                @foreach($waStatus['recent_messages'] as $msg)
+                                                    <div class="flex items-center gap-1 text-[10px] leading-tight {{ $msg['direction'] === 'inbound' ? 'text-green-600' : 'text-[var(--ui-muted)]' }}">
+                                                        @if($msg['direction'] === 'inbound')
+                                                            @svg('heroicon-o-arrow-down-left', 'w-2.5 h-2.5 flex-shrink-0')
+                                                        @else
+                                                            @svg('heroicon-o-arrow-up-right', 'w-2.5 h-2.5 flex-shrink-0')
+                                                        @endif
+                                                        <span class="truncate">{{ $msg['body'] ?: '—' }}</span>
+                                                        <span class="flex-shrink-0 text-[var(--ui-muted)]/60">{{ $msg['at'] }}</span>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                     @else
                                         <span class="text-[var(--ui-muted)]">–</span>
                                     @endif
@@ -164,7 +201,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="8" class="px-4 py-12 text-center">
+                                <td colspan="9" class="px-4 py-12 text-center">
                                     <div class="flex flex-col items-center justify-center">
                                         @svg('heroicon-o-user-plus', 'w-16 h-16 text-[var(--ui-muted)] mb-4')
                                         <div class="text-lg font-medium text-[var(--ui-secondary)] mb-1">Keine Bewerber gefunden</div>
