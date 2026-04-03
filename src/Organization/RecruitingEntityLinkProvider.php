@@ -1,0 +1,69 @@
+<?php
+
+namespace Platform\Recruiting\Organization;
+
+use Illuminate\Database\Eloquent\Builder;
+use Platform\Organization\Contracts\EntityLinkProvider;
+
+class RecruitingEntityLinkProvider implements EntityLinkProvider
+{
+    public function morphAliases(): array
+    {
+        return ['rec_applicant', 'rec_position'];
+    }
+
+    public function linkTypeConfig(): array
+    {
+        return [
+            'rec_applicant' => ['label' => 'Bewerber', 'icon' => 'user-plus', 'route' => null],
+            'rec_position' => ['label' => 'Positionen', 'icon' => 'briefcase', 'route' => null],
+        ];
+    }
+
+    public function applyEagerLoading(Builder $query, string $morphAlias, string $fqcn): void
+    {
+        match ($morphAlias) {
+            'rec_applicant' => $query->withCount('postings'),
+            'rec_position' => $query->withCount('postings'),
+            default => null,
+        };
+    }
+
+    public function extractMetadata(string $morphAlias, mixed $model): array
+    {
+        return match ($morphAlias) {
+            'rec_applicant' => [
+                'is_active' => (bool) ($model->is_active ?? false),
+                'progress' => (int) ($model->progress ?? 0),
+                'posting_count' => (int) ($model->postings_count ?? 0),
+                'applied_at' => $model->applied_at?->format('d.m.Y'),
+            ],
+            'rec_position' => [
+                'is_active' => (bool) ($model->is_active ?? false),
+                'posting_count' => (int) ($model->postings_count ?? 0),
+            ],
+            default => [],
+        };
+    }
+
+    public function metadataDisplayRules(): array
+    {
+        return [
+            'rec_applicant' => [
+                ['field' => 'applied_at', 'format' => 'prefixed_text', 'prefix' => 'beworben'],
+                ['field' => 'posting_count', 'format' => 'count', 'suffix' => 'Stellen'],
+                ['field' => 'progress', 'format' => 'percentage', 'suffix' => 'Fortschritt'],
+                ['field' => 'is_active', 'format' => 'boolean_active'],
+            ],
+            'rec_position' => [
+                ['field' => 'posting_count', 'format' => 'count', 'suffix' => 'Ausschreibungen'],
+                ['field' => 'is_active', 'format' => 'boolean_active'],
+            ],
+        ];
+    }
+
+    public function timeTrackableCascades(): array
+    {
+        return [];
+    }
+}

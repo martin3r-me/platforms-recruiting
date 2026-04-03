@@ -35,6 +35,14 @@ class RecruitingServiceProvider extends ServiceProvider
             'rec_position' => \Platform\Recruiting\Models\RecPosition::class,
         ]);
 
+        // EntityLinkProvider registrieren (loose Kopplung mit Organization-Modul)
+        try {
+            resolve(\Platform\Organization\Services\EntityLinkRegistry::class)
+                ->register(new \Platform\Recruiting\Organization\RecruitingEntityLinkProvider());
+        } catch (\Throwable $e) {
+            // Organization-Modul nicht geladen
+        }
+
         $this->mergeConfigFrom(__DIR__.'/../config/recruiting.php', 'recruiting');
 
         if (
@@ -45,6 +53,7 @@ class RecruitingServiceProvider extends ServiceProvider
             PlatformCore::registerModule([
                 'key'        => 'recruiting',
                 'title'      => 'Recruiting',
+                'group'      => 'sales',
                 'routing'    => config('recruiting.routing'),
                 'guard'      => config('recruiting.guard'),
                 'navigation' => config('recruiting.navigation'),
