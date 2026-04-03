@@ -15,8 +15,8 @@ class RecruitingEntityLinkProvider implements EntityLinkProvider
     public function linkTypeConfig(): array
     {
         return [
-            'rec_applicant' => ['label' => 'Bewerber', 'icon' => 'user-plus', 'route' => null],
-            'rec_position' => ['label' => 'Positionen', 'icon' => 'briefcase', 'route' => null],
+            'rec_applicant' => ['label' => 'Bewerber', 'singular' => 'Bewerber', 'icon' => 'user-plus', 'route' => null],
+            'rec_position' => ['label' => 'Positionen', 'singular' => 'Position', 'icon' => 'briefcase', 'route' => null],
         ];
     }
 
@@ -63,6 +63,11 @@ class RecruitingEntityLinkProvider implements EntityLinkProvider
     }
 
     public function timeTrackableCascades(): array
+    {
+        return [];
+    }
+
+    public function activityChildren(string $morphAlias, array $linkableIds): array
     {
         return [];
     }
