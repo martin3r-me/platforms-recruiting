@@ -604,10 +604,7 @@ class Show extends Component
             'context_id' => $this->applicant->id,
         ]);
 
-        $this->dispatch('files', [
-            'context_type' => get_class($this->applicant),
-            'context_id' => $this->applicant->id,
-        ]);
+        $this->dispatch('terminal:app:files');
 
         $primaryContact = $this->applicant->crmContactLinks->first()?->contact;
         $subject = 'Bewerbung #' . $this->applicant->id;
