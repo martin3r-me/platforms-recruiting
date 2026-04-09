@@ -370,13 +370,6 @@
             />
         @endif
 
-        {{-- Inline Dateien --}}
-        <livewire:core.inline-context-files
-            :context-type="get_class($applicant)"
-            :context-id="$applicant->id"
-            :key="'inline-context-files-' . $applicant->id"
-        />
-
     <!-- Contact Link Modal -->
     <x-ui-modal
         size="sm"
