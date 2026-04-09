@@ -74,6 +74,18 @@ class HandleCommsInboundForRecruiting
             $senderEmail = $this->applicationService->extractEmailAddress($senderRaw);
             $senderName = $this->applicationService->extractDisplayName($senderRaw);
 
+            // Detect notification/forwarding emails and extract real applicant email from body
+            $bodyExtraction = $this->applicationService->extractApplicantFromNotification(
+                senderEmail: $senderEmail,
+                subject: $mail->subject,
+                textBody: $mail->text_body,
+            );
+
+            if ($bodyExtraction) {
+                $senderEmail = $bodyExtraction['email'];
+                $senderName = $bodyExtraction['name'] ?? $senderName;
+            }
+
             if (!$senderEmail) {
                 Log::warning('[Recruiting] Could not extract sender email', [
                     'mail_id' => $mail->id,

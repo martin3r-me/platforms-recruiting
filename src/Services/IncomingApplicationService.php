@@ -424,6 +424,67 @@ class IncomingApplicationService
     }
 
     /**
+     * Detect notification/forwarding emails and extract the real applicant email from the body.
+     *
+     * Website forms often send notifications from a fixed sender address (e.g. website@company.com).
+     * This method parses the body for known patterns to find the actual applicant's email and name.
+     *
+     * @return array{email: string, name: string|null}|null
+     */
+    public function extractApplicantFromNotification(
+        ?string $senderEmail,
+        ?string $subject,
+        ?string $textBody,
+    ): ?array {
+        if (!$textBody) {
+            return null;
+        }
+
+        $email = null;
+        $name = null;
+
+        // Format A: Markdown-style "**E-Mail:** address@example.com"
+        if (preg_match('/\*\*E-Mail:\*\*\s*([^\s\n]+@[^\s\n]+)/i', $textBody, $m)) {
+            $email = trim($m[1]);
+            if (preg_match('/\*\*Name:\*\*\s*(.+)/i', $textBody, $nm)) {
+                $name = trim($nm[1]);
+            }
+        }
+
+        // Format B: Plain "E-Mail\n---\naddress@example.com"
+        if (!$email && preg_match('/E-Mail\n-{2,}\n([^\s\n]+@[^\s\n]+)/i', $textBody, $m)) {
+            $email = trim($m[1]);
+            // Extract name parts
+            $firstName = null;
+            $lastName = null;
+            if (preg_match('/Vorname\n-{2,}\n(.+)/i', $textBody, $fn)) {
+                $firstName = trim($fn[1]);
+            }
+            if (preg_match('/(?:^|\n)Name\n-{2,}\n(.+)/i', $textBody, $ln)) {
+                $lastName = trim($ln[1]);
+            }
+            if ($firstName || $lastName) {
+                $name = trim(($firstName ?? '') . ' ' . ($lastName ?? ''));
+            }
+        }
+
+        // Validate extracted email
+        if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return null;
+        }
+
+        // Only use body email if it's different from sender (confirms this is a notification)
+        if ($senderEmail && strtolower($email) === strtolower($senderEmail)) {
+            return null;
+        }
+
+        return [
+            'email' => strtolower($email),
+            'name' => $name,
+        ];
+    }
+
+    /**
      * Extract email address from a raw "From" header value.
      */
     public function extractEmailAddress(string $raw): ?string
