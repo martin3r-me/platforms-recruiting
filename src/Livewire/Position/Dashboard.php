@@ -76,7 +76,7 @@ class Dashboard extends Component
     public function inboxApplicants()
     {
         return $this->applicantBaseQuery()
-            ->whereNull('enrichment_status')
+            ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''))
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
