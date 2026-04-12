@@ -6,10 +6,18 @@
     document.addEventListener('livewire:init', () => {
         const el = document.getElementById('recruiting-events');
         const log = (msg) => { el.innerHTML += msg + '<br>'; };
-        Livewire.on('comms', (data) => log('comms EVENT received by JS'));
-        Livewire.on('terminal:app:tags', () => log('tags EVENT received by JS'));
-        Livewire.on('terminal:app:files', () => log('files EVENT received by JS'));
-        log('Livewire listeners registered');
+
+        // Check all Livewire components on the page
+        const components = Livewire.all();
+        log('Components on page: ' + components.length);
+        components.forEach(c => {
+            log('  → ' + c.name + ' (id: ' + c.id.substring(0,8) + ')');
+        });
+
+        Livewire.on('comms', (data) => log('comms EVENT fired in browser'));
+        Livewire.on('terminal:app:tags', () => log('tags EVENT fired in browser'));
+        Livewire.on('terminal:app:files', () => log('files EVENT fired in browser'));
+        log('Listeners registered');
     });
 </script>
 <x-ui-page>
