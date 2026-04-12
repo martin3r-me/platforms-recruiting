@@ -7,17 +7,24 @@
         const el = document.getElementById('recruiting-events');
         const log = (msg) => { el.innerHTML += msg + '<br>'; };
 
-        // Check all Livewire components on the page
-        const components = Livewire.all();
-        log('Components on page: ' + components.length);
-        components.forEach(c => {
-            log('  → ' + c.name + ' (id: ' + c.id.substring(0,8) + ')');
-        });
+        log('livewire:init — components: ' + Livewire.all().length);
 
-        Livewire.on('comms', (data) => log('comms EVENT fired in browser'));
-        Livewire.on('terminal:app:tags', () => log('tags EVENT fired in browser'));
-        Livewire.on('terminal:app:files', () => log('files EVENT fired in browser'));
-        log('Listeners registered');
+        Livewire.on('comms', (data) => {
+            log('comms EVENT — components now: ' + Livewire.all().length);
+            Livewire.all().forEach(c => log('  → ' + (c.name || c.__name || 'unknown') + ' snapshot: ' + (c.snapshot ? 'yes' : 'no')));
+        });
+        Livewire.on('terminal:app:tags', () => log('tags EVENT — components: ' + Livewire.all().length));
+        Livewire.on('terminal:app:files', () => log('files EVENT — components: ' + Livewire.all().length));
+
+        // Also check after 2 seconds
+        setTimeout(() => {
+            const all = Livewire.all();
+            log('AFTER 2s — components: ' + all.length);
+            all.forEach(c => {
+                const name = c.name || c.__name || c.fingerprint?.name || 'unknown';
+                log('  → ' + name);
+            });
+        }, 2000);
     });
 </script>
 <x-ui-page>
