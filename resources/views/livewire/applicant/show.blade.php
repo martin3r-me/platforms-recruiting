@@ -1,4 +1,4 @@
-<div class="fixed top-[70px] left-0 right-0 z-[9999] bg-blue-900/95 text-blue-100 text-[11px] font-mono px-3 py-1.5 border-b border-blue-500/50">
+<div class="fixed top-[120px] left-0 right-0 z-[9999] bg-blue-900/95 text-blue-100 text-[11px] font-mono px-3 py-1.5 border-b border-blue-500/50">
     RECRUITING SHOW BLADE RENDERED | applicant_id={{ $applicant->id }}
 </div>
 <x-ui-page>
