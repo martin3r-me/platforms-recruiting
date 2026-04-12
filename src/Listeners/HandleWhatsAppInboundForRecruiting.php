@@ -114,6 +114,9 @@ class HandleWhatsAppInboundForRecruiting
             $thread->context_model_id = $applicant->id;
             $thread->save();
 
+            // Also add to pivot table (used by Terminal forContext scope)
+            $thread->addContext($applicant->getMorphClass(), $applicant->id, 'recruiting_inbound');
+
             // Reset AutoPilot state when applicant replies (so AutoPilot picks up again)
             // Also trigger re-enrichment so new message data gets extracted into extra fields
             if (!$result['is_new']) {

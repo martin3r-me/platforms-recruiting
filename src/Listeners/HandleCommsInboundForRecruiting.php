@@ -117,6 +117,9 @@ class HandleCommsInboundForRecruiting
             $thread->context_model_id = $applicant->id;
             $thread->save();
 
+            // Also add to pivot table (used by Terminal forContext scope)
+            $thread->addContext($applicant->getMorphClass(), $applicant->id, 'recruiting_inbound');
+
             // Reset AutoPilot state and re-enrichment when applicant replies
             if (!$result['is_new']) {
                 $changed = false;
