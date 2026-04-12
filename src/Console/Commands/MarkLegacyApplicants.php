@@ -25,10 +25,16 @@ class MarkLegacyApplicants extends Command
         }
 
         $query = RecApplicant::query()
-            ->whereNull('enrichment_status')
+            ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''))
             ->where('created_at', '<', $before);
 
         $count = $query->count();
+
+        // Debug: show total without date filter
+        $totalNoStatus = RecApplicant::query()
+            ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''))
+            ->count();
+        $this->line("(Debug: {$totalNoStatus} total ohne Status, {$count} davon vor {$before})");
 
         if ($count === 0) {
             $this->info('Keine alten Bewerber ohne enrichment_status gefunden.');
