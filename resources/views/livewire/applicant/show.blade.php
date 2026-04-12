@@ -1,3 +1,6 @@
+<div class="fixed top-8 left-0 right-0 z-[9999] bg-blue-900/95 text-blue-100 text-[10px] font-mono px-3 py-1 border-b border-blue-500/50">
+    RECRUITING SHOW BLADE RENDERED | applicant_id={{ $applicant->id }}
+</div>
 <x-ui-page>
     <x-slot name="navbar">
         <x-ui-page-navbar :title="($applicant->getContact()?->full_name ?? 'Bewerber #' . $applicant->id)" icon="heroicon-o-user-plus" />
