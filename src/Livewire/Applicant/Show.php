@@ -603,11 +603,6 @@ class Show extends Component
             $subject .= ' – ' . $primaryContact->full_name;
         }
 
-        \Log::debug('[Recruiting:Show:rendered] dispatching comms event', [
-            'applicant_id' => $this->applicant->id,
-            'morph' => $this->applicant->getMorphClass(),
-        ]);
-
         $this->dispatch('comms', [
             'model' => $this->applicant->getMorphClass(),
             'modelId' => $this->applicant->id,
