@@ -258,7 +258,7 @@ class EnrichInboxApplicants extends Command
     {
         $query = RecApplicant::query()
             ->with(['team', 'ownedByUser'])
-            ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''));
+            ->whereNull('enrichment_status');
 
         if ($applicantId) {
             $query->where('id', $applicantId);

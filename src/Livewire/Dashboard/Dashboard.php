@@ -39,7 +39,7 @@ class Dashboard extends Component
     {
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
-            ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''))
+            ->whereNull('enrichment_status')
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
