@@ -46,7 +46,7 @@ class EnrichInboxApplicants extends Command
         $lockKey = $applicantId
             ? "recruiting:enrich-inbox-applicant:{$applicantId}"
             : 'recruiting:enrich-inbox-applicants';
-        $lock = Cache::lock($lockKey, 3600);
+        $lock = Cache::lock($lockKey, 300);
         if (! $lock->get()) {
             $this->warn('Läuft bereits (Lock aktiv).');
             return Command::SUCCESS;

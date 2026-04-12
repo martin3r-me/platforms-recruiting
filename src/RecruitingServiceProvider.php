@@ -91,12 +91,12 @@ class RecruitingServiceProvider extends ServiceProvider
     {
         Schedule::command('recruiting:dispatch-enrich-inbox-applicants')
             ->everyMinute()
-            ->withoutOverlapping()
+            ->withoutOverlapping(5)
             ->runInBackground();
 
         Schedule::command('recruiting:dispatch-auto-pilot-applicants')
             ->everyMinute()
-            ->withoutOverlapping()
+            ->withoutOverlapping(10)
             ->runInBackground();
     }
 
