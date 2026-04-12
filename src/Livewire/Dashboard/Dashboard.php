@@ -9,7 +9,6 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
-use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
@@ -70,20 +69,13 @@ class Dashboard extends Component
     }
 
     #[Computed]
-    public function phases()
+    public function activeApplicants()
     {
-        $teamId = auth()->user()->currentTeam->id;
-        return RecPhase::forTeam($teamId)->active()->ordered()->get();
-    }
-
-    #[Computed]
-    public function phasedApplicants()
-    {
-        $teamId = auth()->user()->currentTeam->id;
-        $enrichedApplicants = RecApplicant::forTeam($teamId)
+        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
+            ->whereNull('auto_pilot_completed_at')
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
@@ -94,15 +86,6 @@ class Dashboard extends Component
             ])
             ->orderByDesc('created_at')
             ->get();
-
-        $grouped = [];
-        foreach ($this->phases as $phase) {
-            $grouped[$phase->id] = $enrichedApplicants
-                ->filter(fn ($a) => $a->rec_phase_id === $phase->id && !$a->auto_pilot_completed_at)
-                ->values();
-        }
-
-        return $grouped;
     }
 
     #[Computed]
@@ -129,7 +112,7 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->advanceToNextPhase();
-        unset($this->phasedApplicants, $this->completedApplicants);
+        unset($this->activeApplicants, $this->completedApplicants);
     }
 
     #[Computed]
@@ -164,9 +147,8 @@ class Dashboard extends Component
     #[Computed]
     public function autoPilotProcessingIds()
     {
-        return collect($this->phasedApplicants)
-            ->flatten()
-            ->filter(fn ($a) => $a->auto_pilot && !$a->auto_pilot_completed_at)
+        return $this->activeApplicants
+            ->filter(fn ($a) => $a->auto_pilot)
             ->pluck('id')
             ->toArray();
     }
@@ -271,14 +253,14 @@ class Dashboard extends Component
             }
         }
 
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
     }
 
     public function retryEnrichment(int $applicantId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->update(['enrichment_status' => null]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants);
     }
 
     public function refreshDashboard(): void
@@ -289,12 +271,11 @@ class Dashboard extends Component
             $this->applicantCount,
             $this->inboxApplicants,
             $this->needsReviewApplicants,
-            $this->phasedApplicants,
+            $this->activeApplicants,
             $this->completedApplicants,
             $this->enrichingApplicantIds,
             $this->teamChannels,
             $this->autoPilotProcessingIds,
-            $this->phases,
         );
     }
 
@@ -302,7 +283,7 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants);
     }
 
     public function dismissApplicant(int $applicantId): void
@@ -312,7 +293,7 @@ class Dashboard extends Component
             'is_active' => false,
             'auto_pilot' => false,
         ]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants, $this->applicantCount);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount);
     }
 
     public function render()
