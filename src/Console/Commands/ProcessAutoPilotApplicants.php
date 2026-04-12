@@ -87,9 +87,10 @@ class ProcessAutoPilotApplicants extends Command
                 $teamSettings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
                 $position = $this->resolvePrimaryPosition($applicant);
                 $positionSettings = $position?->auto_pilot_settings ?? [];
+                $phaseSettings = $applicant->phase?->auto_pilot_settings ?? [];
 
-                if (!$this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_enabled', true)) {
-                    $source = isset($positionSettings['auto_pilot_enabled']) ? 'Positions-Setting' : 'Team-Setting';
+                if (!$this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_enabled', true, $phaseSettings)) {
+                    $source = isset($phaseSettings['auto_pilot_enabled']) ? 'Phasen-Setting' : (isset($positionSettings['auto_pilot_enabled']) ? 'Positions-Setting' : 'Team-Setting');
                     $this->line("  #{$applicant->id}: AutoPilot deaktiviert ({$source}) — übersprungen.");
                     continue;
                 }
@@ -109,7 +110,7 @@ class ProcessAutoPilotApplicants extends Command
                 }
 
                 $this->impersonateForTask($owner, $applicant->team);
-                $this->processApplicant($applicant, $teamSettings, $positionSettings);
+                $this->processApplicant($applicant, $teamSettings, $positionSettings, $phaseSettings);
             }
 
             // Restore auth
@@ -131,25 +132,30 @@ class ProcessAutoPilotApplicants extends Command
         }
     }
 
-    private function processApplicant(RecApplicant $applicant, RecApplicantSettings $teamSettings, array $positionSettings = []): void
+    private function processApplicant(RecApplicant $applicant, RecApplicantSettings $teamSettings, array $positionSettings = [], array $phaseSettings = []): void
     {
-        // 1. Check progress — complete if 100%
+        // 1. Check progress — complete if 100% → phase advancement or completion
         $progress = $applicant->calculateProgress();
         $applicant->progress = $progress;
         $applicant->save();
 
         if ($progress >= 100) {
-            $applicant->auto_pilot_state_id = $this->completedStateId;
-            $applicant->auto_pilot_completed_at = now();
-            $applicant->save();
-            $this->logAutoPilot($applicant, 'completed', 'Alle Pflichtfelder ausgefüllt — AutoPilot abgeschlossen.');
-            $this->info("  Alle Felder komplett — abgeschlossen.");
+            $applicant->checkAutoPilotCompletion();
+            $applicant->refresh();
+
+            // If applicant advanced to next phase, it's now in a new cycle
+            if (!$applicant->auto_pilot_completed_at) {
+                $phaseName = $applicant->phase?->name ?? '?';
+                $this->info("  Phase abgeschlossen — weiter zu \"{$phaseName}\".");
+            } else {
+                $this->info("  Alle Felder komplett — abgeschlossen.");
+            }
             return;
         }
 
         // 2. Resolve channel (uses effective settings for WA account)
-        $channelPriority = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_channel_priority', 'whatsapp_first');
-        $resolved = $this->resolveChannelWithOverrides($applicant, $channelPriority, $teamSettings, $positionSettings);
+        $channelPriority = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_channel_priority', 'whatsapp_first', $phaseSettings);
+        $resolved = $this->resolveChannelWithOverrides($applicant, $channelPriority, $teamSettings, $positionSettings, $phaseSettings);
 
         if (!$resolved) {
             $this->logAutoPilot($applicant, 'warning', "Kein Kanal verfügbar (Priorität: {$channelPriority}).");
@@ -166,7 +172,7 @@ class ProcessAutoPilotApplicants extends Command
 
         // 4. First contact (never sent a reminder)
         if ($applicant->auto_pilot_last_reminder_at === null) {
-            $sent = $this->sendMessageWithOverrides($applicant, $channel, $channelType, $publicUrl, $formToken, $teamSettings, $positionSettings, isReminder: false);
+            $sent = $this->sendMessageWithOverrides($applicant, $channel, $channelType, $publicUrl, $formToken, $teamSettings, $positionSettings, isReminder: false, phaseSettings: $phaseSettings);
 
             if ($sent) {
                 $applicant->auto_pilot_reminder_count = 1;
@@ -183,8 +189,8 @@ class ProcessAutoPilotApplicants extends Command
         }
 
         // 5. Reminder check
-        $intervalHours = (int) $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_reminder_interval_hours', 24);
-        $maxReminders = (int) $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_max_reminders', 3);
+        $intervalHours = (int) $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_reminder_interval_hours', 24, $phaseSettings);
+        $maxReminders = (int) $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_max_reminders', 3, $phaseSettings);
         $reminderDue = $applicant->auto_pilot_last_reminder_at->addHours($intervalHours)->isPast();
 
         if (!$reminderDue) {
@@ -202,7 +208,7 @@ class ProcessAutoPilotApplicants extends Command
         }
 
         // 5b. Send reminder
-        $sent = $this->sendMessageWithOverrides($applicant, $channel, $channelType, $publicUrl, $formToken, $teamSettings, $positionSettings, isReminder: true);
+        $sent = $this->sendMessageWithOverrides($applicant, $channel, $channelType, $publicUrl, $formToken, $teamSettings, $positionSettings, isReminder: true, phaseSettings: $phaseSettings);
 
         if ($sent) {
             $applicant->auto_pilot_reminder_count = $applicant->auto_pilot_reminder_count + 1;
@@ -219,12 +225,12 @@ class ProcessAutoPilotApplicants extends Command
     /**
      * Resolve channel based on effective settings (position overrides team).
      */
-    private function resolveChannelWithOverrides(RecApplicant $applicant, string $priority, RecApplicantSettings $teamSettings, array $positionSettings): ?array
+    private function resolveChannelWithOverrides(RecApplicant $applicant, string $priority, RecApplicantSettings $teamSettings, array $positionSettings, array $phaseSettings = []): ?array
     {
         $teamId = $applicant->team_id;
         $applicant->loadMissing(['crmContactLinks.contact.phoneNumbers', 'crmContactLinks.contact.emailAddresses']);
 
-        $waAccountId = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_wa_account_id');
+        $waAccountId = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_wa_account_id', null, $phaseSettings);
         $waChannel = $this->resolveWhatsAppChannelById($waAccountId);
         $emailChannel = CommsChannel::where('team_id', $teamId)->where('type', 'email')->where('is_active', true)->first();
 
@@ -285,9 +291,10 @@ class ProcessAutoPilotApplicants extends Command
         RecApplicantSettings $teamSettings,
         array $positionSettings,
         bool $isReminder = false,
+        array $phaseSettings = [],
     ): bool {
         if ($channelType === 'whatsapp') {
-            return $this->sendWhatsAppTemplateWithOverrides($applicant, $channel, $formToken, $teamSettings, $positionSettings, $isReminder);
+            return $this->sendWhatsAppTemplateWithOverrides($applicant, $channel, $formToken, $teamSettings, $positionSettings, $isReminder, $phaseSettings);
         }
 
         return $this->sendEmail($applicant, $channel, $publicUrl, $isReminder);
@@ -300,6 +307,7 @@ class ProcessAutoPilotApplicants extends Command
         RecApplicantSettings $teamSettings,
         array $positionSettings,
         bool $isReminder = false,
+        array $phaseSettings = [],
     ): bool {
         try {
             $phoneNumber = $this->findPrimaryPhoneNumber($applicant);
@@ -307,9 +315,9 @@ class ProcessAutoPilotApplicants extends Command
                 return false;
             }
 
-            // Resolve template from DB by ID (initial vs. reminder) — position overrides team
+            // Resolve template from DB by ID (initial vs. reminder) — phase overrides position overrides team
             $settingKey = $isReminder ? 'auto_pilot_wa_reminder_template_id' : 'auto_pilot_wa_initial_template_id';
-            $templateId = $this->getEffectiveSetting($teamSettings, $positionSettings, $settingKey);
+            $templateId = $this->getEffectiveSetting($teamSettings, $positionSettings, $settingKey, null, $phaseSettings);
             $templateName = null;
             $templateLang = 'de';
 
@@ -473,11 +481,15 @@ class ProcessAutoPilotApplicants extends Command
     }
 
     /**
-     * Get an effective setting value: position override wins over team default.
-     * Only non-null position values override the team setting.
+     * Get an effective setting value: phase → position → team cascade.
+     * Only non-null values at each level override the next.
      */
-    private function getEffectiveSetting(RecApplicantSettings $teamSettings, array $positionSettings, string $key, $default = null)
+    private function getEffectiveSetting(RecApplicantSettings $teamSettings, array $positionSettings, string $key, $default = null, array $phaseSettings = [])
     {
+        if (array_key_exists($key, $phaseSettings) && $phaseSettings[$key] !== null) {
+            return $phaseSettings[$key];
+        }
+
         if (array_key_exists($key, $positionSettings) && $positionSettings[$key] !== null) {
             return $positionSettings[$key];
         }
@@ -490,7 +502,7 @@ class ProcessAutoPilotApplicants extends Command
     private function nextAutoPilotApplicant(?int $applicantId, array $excludeIds = []): ?RecApplicant
     {
         $query = RecApplicant::query()
-            ->with(['autoPilotState', 'team', 'ownedByUser'])
+            ->with(['autoPilotState', 'team', 'ownedByUser', 'phase'])
             ->where('auto_pilot', true)
             ->where('is_active', true)
             ->whereNull('auto_pilot_completed_at')

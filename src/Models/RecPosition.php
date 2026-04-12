@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Models;
 use Illuminate\Database\Eloquent\Model;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Hcm\Models\HcmJobTitle;
+use Platform\Recruiting\Models\RecPhase;
 use Symfony\Component\Uid\UuidV7;
 
 class RecPosition extends Model
@@ -61,6 +62,16 @@ class RecPosition extends Model
     public function jobTitle()
     {
         return $this->belongsTo(HcmJobTitle::class, 'hcm_job_title_id');
+    }
+
+    public function phases()
+    {
+        return $this->hasMany(RecPhase::class, 'rec_position_id')->orderBy('order');
+    }
+
+    public function firstPhase(): ?RecPhase
+    {
+        return $this->phases()->where('is_active', true)->orderBy('order')->first();
     }
 
     public function postings()

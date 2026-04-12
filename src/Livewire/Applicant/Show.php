@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Platform\Core\Models\Team;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantStatus;
+use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Crm\Models\CommsChannel;
@@ -68,6 +69,7 @@ class Show extends Component
             'autoPilotState',
             'postings.position',
             'preferredCommsChannel',
+            'phase',
         ]);
 
         $this->loadAvailableContacts();
@@ -595,7 +597,7 @@ class Show extends Component
     public function rendered(): void
     {
         $this->dispatch('extrafields', [
-            'context_type' => RecPosition::class,
+            'context_type' => RecPhase::class,
             'context_id' => null,
         ]);
 

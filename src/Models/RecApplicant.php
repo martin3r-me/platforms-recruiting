@@ -23,7 +23,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     protected $table = 'rec_applicants';
 
     protected $fillable = [
-        'uuid', 'public_token', 'rec_applicant_status_id', 'progress', 'notes', 'applied_at',
+        'uuid', 'public_token', 'rec_applicant_status_id', 'rec_phase_id', 'progress', 'notes', 'applied_at',
         'is_active', 'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
         'preferred_comms_channel_id', 'enrichment_status',
@@ -80,11 +80,35 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     /**
      * Parent-Models von denen Extra-Field-Definitionen geerbt werden.
-     * Applicants erben Extra-Felder von den Positionen ihrer Postings.
+     * Applicants erben Extra-Felder von der aktuellen Phase.
      */
     public function extraFieldParents(): array
     {
-        return $this->positions()->all();
+        $phase = $this->phase;
+        return $phase ? [$phase] : [];
+    }
+
+    /**
+     * Alle Phasen bis inkl. aktuelle Phase (für Backend-Gesamtansicht).
+     */
+    public function allExtraFieldParents(): array
+    {
+        $phase = $this->phase;
+        if (!$phase) {
+            return [];
+        }
+
+        return RecPhase::where('rec_position_id', $phase->rec_position_id)
+            ->where('order', '<=', $phase->order)
+            ->where('is_active', true)
+            ->orderBy('order')
+            ->get()
+            ->all();
+    }
+
+    public function phase()
+    {
+        return $this->belongsTo(RecPhase::class, 'rec_phase_id');
     }
 
     public function postings()
@@ -153,21 +177,75 @@ class RecApplicant extends Model implements InheritsExtraFields
 
         $progress = $this->calculateProgress();
 
-        if ($progress >= 100) {
-            $completedStateId = RecAutoPilotState::where('code', 'completed')
-                ->whereNull('team_id')
-                ->value('id');
+        if ($progress < 100) {
+            return;
+        }
 
-            $this->auto_pilot_state_id = $completedStateId;
-            $this->auto_pilot_completed_at = now();
+        $phase = $this->phase;
+        $nextPhase = $phase?->nextPhase();
+
+        // Phase has a successor → advance to next phase
+        if ($nextPhase && $phase?->auto_advance) {
+            $this->rec_phase_id = $nextPhase->id;
+            $this->auto_pilot_completed_at = null;
+            $this->auto_pilot_reminder_count = 0;
+            $this->auto_pilot_last_reminder_at = null;
+            $this->progress = 0;
+            $this->clearExtraFieldDefinitionsCache();
             $this->save();
 
             RecAutoPilotLog::create([
                 'rec_applicant_id' => $this->id,
-                'type' => 'completed',
-                'summary' => 'Alle Pflichtfelder ausgefüllt (Public Form) — AutoPilot abgeschlossen.',
+                'type' => 'phase_advanced',
+                'summary' => "Phase \"{$phase->name}\" abgeschlossen — weiter zu \"{$nextPhase->name}\".",
             ]);
+            return;
         }
+
+        // Last phase or manual advance → mark as completed
+        $completedStateId = RecAutoPilotState::where('code', 'completed')
+            ->whereNull('team_id')
+            ->value('id');
+
+        $this->auto_pilot_state_id = $completedStateId;
+        $this->auto_pilot_completed_at = now();
+        $this->save();
+
+        $phaseName = $phase?->name ?? 'Unbekannt';
+        RecAutoPilotLog::create([
+            'rec_applicant_id' => $this->id,
+            'type' => 'completed',
+            'summary' => "Alle Pflichtfelder in Phase \"{$phaseName}\" ausgefüllt — AutoPilot abgeschlossen.",
+        ]);
+    }
+
+    /**
+     * Manually advance applicant to next phase (for auto_advance=false phases).
+     */
+    public function advanceToNextPhase(): bool
+    {
+        $phase = $this->phase;
+        $nextPhase = $phase?->nextPhase();
+
+        if (!$nextPhase) {
+            return false;
+        }
+
+        $this->rec_phase_id = $nextPhase->id;
+        $this->auto_pilot_completed_at = null;
+        $this->auto_pilot_reminder_count = 0;
+        $this->auto_pilot_last_reminder_at = null;
+        $this->progress = 0;
+        $this->clearExtraFieldDefinitionsCache();
+        $this->save();
+
+        RecAutoPilotLog::create([
+            'rec_applicant_id' => $this->id,
+            'type' => 'phase_advanced',
+            'summary' => "Manuell weiter zu Phase \"{$nextPhase->name}\".",
+        ]);
+
+        return true;
     }
 
     public function calculateProgress(): int

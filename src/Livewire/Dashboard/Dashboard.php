@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
@@ -69,10 +70,17 @@ class Dashboard extends Component
     }
 
     #[Computed]
-    public function assignedApplicants()
+    public function phases()
     {
-        // Get all enriched applicants, then filter out the completed ones and no_contact
-        $all = RecApplicant::forTeam(auth()->user()->currentTeam->id)
+        $teamId = auth()->user()->currentTeam->id;
+        return RecPhase::forTeam($teamId)->active()->ordered()->get();
+    }
+
+    #[Computed]
+    public function phasedApplicants()
+    {
+        $teamId = auth()->user()->currentTeam->id;
+        $enrichedApplicants = RecApplicant::forTeam($teamId)
             ->active()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
@@ -82,12 +90,19 @@ class Dashboard extends Component
                 'postings.position',
                 'extraFieldValues',
                 'preferredCommsChannel',
+                'phase',
             ])
             ->orderByDesc('created_at')
             ->get();
 
-        // Filter out completed applicants (those with contact, all extra fields, and postings)
-        return $all->filter(fn ($a) => !$this->isApplicantCompleted($a));
+        $grouped = [];
+        foreach ($this->phases as $phase) {
+            $grouped[$phase->id] = $enrichedApplicants
+                ->filter(fn ($a) => $a->rec_phase_id === $phase->id && !$a->auto_pilot_completed_at)
+                ->values();
+        }
+
+        return $grouped;
     }
 
     #[Computed]
@@ -97,43 +112,24 @@ class Dashboard extends Component
             ->active()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
+            ->whereNotNull('auto_pilot_completed_at')
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
                 'extraFieldValues',
                 'preferredCommsChannel',
+                'phase',
             ])
             ->orderByDesc('created_at')
-            ->get()
-            ->filter(fn ($a) => $this->isApplicantCompleted($a));
+            ->get();
     }
 
-    /**
-     * Check if an applicant is "completed":
-     * - Has at least one CRM contact linked
-     * - All extra fields are filled (or no extra fields exist)
-     * - Has at least one posting assigned
-     */
-    private function isApplicantCompleted(RecApplicant $applicant): bool
+    public function advanceToNextPhase(int $applicantId): void
     {
-        // Must have at least one contact linked
-        if ($applicant->crmContactLinks->isEmpty()) {
-            return false;
-        }
-
-        // Must have at least one posting
-        if ($applicant->postings->isEmpty()) {
-            return false;
-        }
-
-        // All extra fields must be filled (if any exist)
-        $extraCounts = $this->getExtraFieldCounts($applicant);
-        if ($extraCounts['total'] > 0 && $extraCounts['filled'] !== $extraCounts['total']) {
-            return false;
-        }
-
-        return true;
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+        $applicant->advanceToNextPhase();
+        unset($this->phasedApplicants, $this->completedApplicants);
     }
 
     #[Computed]
@@ -168,7 +164,8 @@ class Dashboard extends Component
     #[Computed]
     public function autoPilotProcessingIds()
     {
-        return $this->assignedApplicants
+        return collect($this->phasedApplicants)
+            ->flatten()
             ->filter(fn ($a) => $a->auto_pilot && !$a->auto_pilot_completed_at)
             ->pluck('id')
             ->toArray();
@@ -274,14 +271,14 @@ class Dashboard extends Component
             }
         }
 
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
     }
 
     public function retryEnrichment(int $applicantId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->update(['enrichment_status' => null]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants);
     }
 
     public function refreshDashboard(): void
@@ -292,11 +289,12 @@ class Dashboard extends Component
             $this->applicantCount,
             $this->inboxApplicants,
             $this->needsReviewApplicants,
-            $this->assignedApplicants,
+            $this->phasedApplicants,
             $this->completedApplicants,
             $this->enrichingApplicantIds,
             $this->teamChannels,
             $this->autoPilotProcessingIds,
+            $this->phases,
         );
     }
 
@@ -304,7 +302,7 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants);
     }
 
     public function dismissApplicant(int $applicantId): void
@@ -314,7 +312,7 @@ class Dashboard extends Component
             'is_active' => false,
             'auto_pilot' => false,
         ]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants, $this->applicantCount);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->phasedApplicants, $this->completedApplicants, $this->applicantCount);
     }
 
     public function render()

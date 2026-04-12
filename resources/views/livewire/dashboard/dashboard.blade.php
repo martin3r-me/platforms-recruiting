@@ -272,134 +272,133 @@
         </x-ui-panel>
         @endif
 
-        {{-- Zugeordnete Bewerber (in Bearbeitung) --}}
-        <x-ui-panel title="In Bearbeitung" subtitle="Bewerber mit Enrichment, aber noch nicht vollständig">
-            <div class="overflow-x-auto">
-                <table class="w-full table-auto border-collapse text-sm">
-                    <thead>
-                        <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
-                            <th class="px-4 py-3">Name</th>
-                            <th class="px-4 py-3">Extra-Felder</th>
-                            <th class="px-4 py-3">AutoPilot</th>
-                            <th class="px-4 py-3 text-right"></th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-[var(--ui-border)]/60">
-                        @forelse($this->assignedApplicants as $applicant)
-                            @php
-                                $primaryContact = $applicant->crmContactLinks->first()?->contact;
-                                $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
-                                $extraCounts = $this->getExtraFieldCounts($applicant);
-                                $primaryEmail = $primaryContact?->emailAddresses?->first()?->email_address;
-                                $waStatus = $this->getWhatsAppStatus($applicant);
-                            @endphp
-                            <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
-                                {{-- Name + Stelle + Email --}}
-                                <td class="px-4 py-2.5">
-                                    <div class="flex items-start gap-2.5">
-                                        <div class="mt-1.5 flex-shrink-0">
-                                            <span class="relative flex h-2.5 w-2.5" title="In Bearbeitung">
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-                                                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500"></span>
-                                            </span>
-                                        </div>
-                                        <div class="min-w-0">
-                                            <div class="flex items-center gap-2">
-                                                <span class="font-medium text-[var(--ui-secondary)] truncate">
-                                                    {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
+        {{-- Phasen-basierte Spalten --}}
+        @foreach($this->phases as $phase)
+            @php $phaseApplicants = $this->phasedApplicants[$phase->id] ?? collect(); @endphp
+            <x-ui-panel :title="$phase->name" :subtitle="'Phase ' . $phase->order . ($phase->position ? ' — ' . $phase->position->title : '')">
+                <div class="overflow-x-auto">
+                    <table class="w-full table-auto border-collapse text-sm">
+                        <thead>
+                            <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
+                                <th class="px-4 py-3">Name</th>
+                                <th class="px-4 py-3">Extra-Felder</th>
+                                <th class="px-4 py-3">AutoPilot</th>
+                                <th class="px-4 py-3 text-right"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[var(--ui-border)]/60">
+                            @forelse($phaseApplicants as $applicant)
+                                @php
+                                    $primaryContact = $applicant->crmContactLinks->first()?->contact;
+                                    $positions = $applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique();
+                                    $extraCounts = $this->getExtraFieldCounts($applicant);
+                                    $primaryEmail = $primaryContact?->emailAddresses?->first()?->email_address;
+                                    $waStatus = $this->getWhatsAppStatus($applicant);
+                                @endphp
+                                <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
+                                    <td class="px-4 py-2.5">
+                                        <div class="flex items-start gap-2.5">
+                                            <div class="mt-1.5 flex-shrink-0">
+                                                <span class="relative flex h-2.5 w-2.5" title="{{ $phase->name }}">
+                                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                                                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500"></span>
                                                 </span>
-                                                {{-- WhatsApp Status Icon --}}
-                                                @if($waStatus['color'] !== 'none')
-                                                    <span title="{{ $waStatus['window_open'] ? 'WhatsApp Fenster offen' : ($waStatus['color'] === 'yellow' ? 'WhatsApp verfügbar' : 'WhatsApp unbekannt') }}"
-                                                          class="inline-flex items-center flex-shrink-0 {{ $waStatus['color'] === 'green' ? 'text-green-500' : ($waStatus['color'] === 'yellow' ? 'text-yellow-500' : 'text-gray-400') }}">
-                                                        @if($waStatus['color'] === 'green')
-                                                            <span class="relative flex h-3.5 w-3.5">
-                                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                                                @svg('heroicon-s-chat-bubble-left', 'relative w-3.5 h-3.5')
-                                                            </span>
-                                                        @else
-                                                            @svg('heroicon-o-chat-bubble-left', 'w-3.5 h-3.5')
-                                                        @endif
+                                            </div>
+                                            <div class="min-w-0">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="font-medium text-[var(--ui-secondary)] truncate">
+                                                        {{ $primaryContact?->full_name ?? 'Bewerber #' . $applicant->id }}
                                                     </span>
+                                                    @if($waStatus['color'] !== 'none')
+                                                        <span title="{{ $waStatus['window_open'] ? 'WhatsApp Fenster offen' : ($waStatus['color'] === 'yellow' ? 'WhatsApp verfügbar' : 'WhatsApp unbekannt') }}"
+                                                              class="inline-flex items-center flex-shrink-0 {{ $waStatus['color'] === 'green' ? 'text-green-500' : ($waStatus['color'] === 'yellow' ? 'text-yellow-500' : 'text-gray-400') }}">
+                                                            @if($waStatus['color'] === 'green')
+                                                                <span class="relative flex h-3.5 w-3.5">
+                                                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                                    @svg('heroicon-s-chat-bubble-left', 'relative w-3.5 h-3.5')
+                                                                </span>
+                                                            @else
+                                                                @svg('heroicon-o-chat-bubble-left', 'w-3.5 h-3.5')
+                                                            @endif
+                                                        </span>
+                                                    @endif
+                                                </div>
+                                                @if($positions->isNotEmpty())
+                                                    <div class="text-xs text-[var(--ui-muted)] truncate">{{ $positions->implode(', ') }}</div>
+                                                @endif
+                                                @if($primaryEmail)
+                                                    <div class="text-xs text-[var(--ui-muted)] truncate">{{ $primaryEmail }}</div>
                                                 @endif
                                             </div>
-                                            @if($positions->isNotEmpty())
-                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $positions->implode(', ') }}</div>
-                                            @endif
-                                            @if($primaryEmail)
-                                                <div class="text-xs text-[var(--ui-muted)] truncate">{{ $primaryEmail }}</div>
-                                            @endif
                                         </div>
-                                    </div>
-                                </td>
-                                {{-- Extra-Felder --}}
-                                <td class="px-4 py-2.5">
-                                    @if($extraCounts['total'] > 0)
-                                        <span class="text-xs {{ $extraCounts['filled'] === $extraCounts['total'] ? 'text-green-600 font-medium' : 'text-[var(--ui-muted)]' }}">
-                                            {{ $extraCounts['filled'] }}/{{ $extraCounts['total'] }}
-                                        </span>
-                                    @else
-                                        <span class="text-xs text-[var(--ui-muted)]">&ndash;</span>
-                                    @endif
-                                </td>
-                                {{-- AutoPilot --}}
-                                <td class="px-4 py-2.5">
-                                    @php
-                                        $isActive = $applicant->auto_pilot;
-                                        $channelType = $applicant->preferredCommsChannel?->type;
-                                    @endphp
-                                    <button
-                                        wire:click="toggleAutoPilot({{ $applicant->id }})"
-                                        class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors
-                                            {{ $isActive ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)] hover:bg-[var(--ui-muted-10)] hover:text-[var(--ui-secondary)]' }}"
-                                        title="AutoPilot{{ $isActive ? ' (aktiv via ' . ($channelType ?? '?') . ')' : '' }}"
-                                    >
-                                        @if($isActive)
-                                            <span class="relative flex h-2 w-2">
-                                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                                <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                    </td>
+                                    <td class="px-4 py-2.5">
+                                        @if($extraCounts['total'] > 0)
+                                            <span class="text-xs {{ $extraCounts['filled'] === $extraCounts['total'] ? 'text-green-600 font-medium' : 'text-[var(--ui-muted)]' }}">
+                                                {{ $extraCounts['filled'] }}/{{ $extraCounts['total'] }}
                                             </span>
+                                        @else
+                                            <span class="text-xs text-[var(--ui-muted)]">&ndash;</span>
                                         @endif
-                                        @svg($channelType === 'whatsapp' ? 'heroicon-o-chat-bubble-left' : 'heroicon-o-envelope', 'w-3.5 h-3.5')
-                                    </button>
-                                </td>
-                                {{-- Aktion --}}
-                                <td class="px-4 py-2.5 text-right">
-                                    <div class="flex items-center justify-end gap-2">
+                                    </td>
+                                    <td class="px-4 py-2.5">
+                                        @php
+                                            $isActive = $applicant->auto_pilot;
+                                            $channelType = $applicant->preferredCommsChannel?->type;
+                                        @endphp
                                         <button
-                                            wire:click="retryEnrichment({{ $applicant->id }})"
-                                            wire:confirm="Bewerber zurück in den Eingang verschieben und Enrichment erneut starten?"
-                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-                                            title="Zurück in Eingang (Enrichment wiederholen)"
+                                            wire:click="toggleAutoPilot({{ $applicant->id }})"
+                                            class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors
+                                                {{ $isActive ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-[var(--ui-muted-5)] text-[var(--ui-muted)] hover:bg-[var(--ui-muted-10)] hover:text-[var(--ui-secondary)]' }}"
+                                            title="AutoPilot{{ $isActive ? ' (aktiv via ' . ($channelType ?? '?') . ')' : '' }}"
                                         >
-                                            @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
+                                            @if($isActive)
+                                                <span class="relative flex h-2 w-2">
+                                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                                </span>
+                                            @endif
+                                            @svg($channelType === 'whatsapp' ? 'heroicon-o-chat-bubble-left' : 'heroicon-o-envelope', 'w-3.5 h-3.5')
                                         </button>
-                                        <button
-                                            wire:click="dismissApplicant({{ $applicant->id }})"
-                                            wire:confirm="Bewerber wirklich aussortieren?"
-                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
-                                            title="Aussortieren"
-                                        >
-                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
-                                        </button>
-                                        <x-ui-button size="sm" variant="primary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
-                                            Anzeigen
-                                        </x-ui-button>
-                                    </div>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="4" class="px-4 py-8 text-center text-[var(--ui-muted)]">Keine Bewerber in Bearbeitung</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </x-ui-panel>
+                                    </td>
+                                    <td class="px-4 py-2.5 text-right">
+                                        <div class="flex items-center justify-end gap-2">
+                                            @if(!$phase->auto_advance && $extraCounts['total'] > 0 && $extraCounts['filled'] === $extraCounts['total'])
+                                                <button
+                                                    wire:click="advanceToNextPhase({{ $applicant->id }})"
+                                                    class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                                                    title="Zur nächsten Phase"
+                                                >
+                                                    @svg('heroicon-o-arrow-right-circle', 'w-3.5 h-3.5')
+                                                </button>
+                                            @endif
+                                            <button
+                                                wire:click="dismissApplicant({{ $applicant->id }})"
+                                                wire:confirm="Bewerber wirklich aussortieren?"
+                                                class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                                                title="Aussortieren"
+                                            >
+                                                @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
+                                            </button>
+                                            <x-ui-button size="sm" variant="primary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
+                                                Anzeigen
+                                            </x-ui-button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="4" class="px-4 py-8 text-center text-[var(--ui-muted)]">Keine Bewerber in dieser Phase</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </x-ui-panel>
+        @endforeach
 
         {{-- Abgeschlossene Bewerbungen --}}
-        <x-ui-panel title="Abgeschlossen" subtitle="Kontakt verknüpft, alle Felder gefüllt, Stelle zugeordnet">
+        <x-ui-panel title="Abgeschlossen" subtitle="Alle Phasen durchlaufen">
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>

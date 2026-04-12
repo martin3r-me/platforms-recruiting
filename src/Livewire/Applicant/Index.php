@@ -12,6 +12,7 @@ use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecAutoPilotState;
+use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 
@@ -61,6 +62,7 @@ class Index extends Component
             'autoPilotState',
             'ownedByUser',
             'postings.position',
+            'phase',
         ])->forTeam($teamId);
 
         // Search
@@ -181,7 +183,7 @@ class Index extends Component
     public function rendered(): void
     {
         $this->dispatch('extrafields', [
-            'context_type' => RecPosition::class,
+            'context_type' => RecPhase::class,
             'context_id' => null,
         ]);
     }

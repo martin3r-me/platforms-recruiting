@@ -33,6 +33,7 @@ class RecruitingServiceProvider extends ServiceProvider
         Relation::morphMap([
             'rec_applicant' => \Platform\Recruiting\Models\RecApplicant::class,
             'rec_position' => \Platform\Recruiting\Models\RecPosition::class,
+            'rec_phase' => \Platform\Recruiting\Models\RecPhase::class,
         ]);
 
         // EntityLinkProvider registrieren (loose Kopplung mit Organization-Modul)

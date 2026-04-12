@@ -117,8 +117,13 @@ class IncomingApplicationService
                 $notes .= "\nBetreff: {$subject}";
             }
 
+            // Resolve phase 1 of primary position
+            $primaryPosting = $postings->first();
+            $firstPhase = $primaryPosting?->position?->firstPhase();
+
             $applicant = RecApplicant::create([
                 'rec_applicant_status_id' => $defaultStatusId,
+                'rec_phase_id' => $firstPhase?->id,
                 'applied_at' => now()->toDateString(),
                 'notes' => $notes,
                 'progress' => 0,
