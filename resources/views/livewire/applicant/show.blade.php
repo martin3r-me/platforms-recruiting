@@ -1,6 +1,17 @@
-<div class="fixed top-[120px] left-0 right-0 z-[9999] bg-blue-900/95 text-blue-100 text-[11px] font-mono px-3 py-1.5 border-b border-blue-500/50">
-    RECRUITING SHOW BLADE RENDERED | applicant_id={{ $applicant->id }}
+<div id="recruiting-debug" class="fixed bottom-20 left-4 z-[9999] bg-blue-900/95 text-blue-100 text-[11px] font-mono px-3 py-1.5 rounded border border-blue-500/50 max-w-md">
+    RECRUITING BLADE OK | id={{ $applicant->id }}
+    <div id="recruiting-events" class="mt-1 text-[10px] text-blue-300"></div>
 </div>
+<script>
+    document.addEventListener('livewire:init', () => {
+        const el = document.getElementById('recruiting-events');
+        const log = (msg) => { el.innerHTML += msg + '<br>'; };
+        Livewire.on('comms', (data) => log('comms EVENT received by JS'));
+        Livewire.on('terminal:app:tags', () => log('tags EVENT received by JS'));
+        Livewire.on('terminal:app:files', () => log('files EVENT received by JS'));
+        log('Livewire listeners registered');
+    });
+</script>
 <x-ui-page>
     <x-slot name="navbar">
         <x-ui-page-navbar :title="($applicant->getContact()?->full_name ?? 'Bewerber #' . $applicant->id)" icon="heroicon-o-user-plus" />
