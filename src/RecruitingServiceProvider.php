@@ -24,6 +24,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DispatchAutoPilotApplicants::class,
                 \Platform\Recruiting\Console\Commands\EnrichInboxApplicants::class,
                 \Platform\Recruiting\Console\Commands\DispatchEnrichInboxApplicants::class,
+                \Platform\Recruiting\Console\Commands\SyncPhases::class,
             ]);
         }
     }

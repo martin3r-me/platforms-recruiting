@@ -57,6 +57,18 @@ class RecPosition extends Model
                 $model->uuid = $uuid;
             }
         });
+
+        static::created(function (self $model) {
+            if (!$model->phases()->exists()) {
+                $model->phases()->create([
+                    'team_id' => $model->team_id,
+                    'name' => 'Bewerbung',
+                    'order' => 1,
+                    'is_active' => true,
+                    'auto_advance' => true,
+                ]);
+            }
+        });
     }
 
     public function jobTitle()
