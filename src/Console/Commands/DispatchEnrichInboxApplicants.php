@@ -16,7 +16,7 @@ class DispatchEnrichInboxApplicants extends Command
     {
         $applicants = RecApplicant::query()
             ->where('is_active', true)
-            ->whereNull('enrichment_status')
+            ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''))
             ->orderByDesc('created_at')
             ->limit(10)
             ->pluck('id');
