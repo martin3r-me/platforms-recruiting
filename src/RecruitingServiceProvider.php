@@ -25,6 +25,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\EnrichInboxApplicants::class,
                 \Platform\Recruiting\Console\Commands\DispatchEnrichInboxApplicants::class,
                 \Platform\Recruiting\Console\Commands\SyncPhases::class,
+                \Platform\Recruiting\Console\Commands\MarkLegacyApplicants::class,
             ]);
         }
     }
