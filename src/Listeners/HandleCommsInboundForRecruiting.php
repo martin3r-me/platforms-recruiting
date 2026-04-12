@@ -112,12 +112,7 @@ class HandleCommsInboundForRecruiting
             $this->attachEmailFilesToApplicant($mail, $thread, $applicant);
 
             // Link the thread to the applicant for communication tracking
-            // Always override - recruiting channel means recruiting context
-            $thread->context_model = $applicant->getMorphClass();
-            $thread->context_model_id = $applicant->id;
-            $thread->save();
-
-            // Also add to pivot table (used by Terminal forContext scope)
+            // addContext() writes both pivot table and legacy columns
             $thread->addContext($applicant->getMorphClass(), $applicant->id, 'recruiting_inbound');
 
             // Reset AutoPilot state and re-enrichment when applicant replies
