@@ -501,15 +501,7 @@ class Show extends Component
             // Link thread to applicant
             $thread = $message->thread ?? null;
             if ($thread) {
-                if (method_exists($thread, 'addContext')) {
-                    $thread->addContext($this->applicant->getMorphClass(), $this->applicant->id, 'manual_template');
-                }
-                if (!$thread->context_model) {
-                    $thread->updateQuietly([
-                        'context_model' => $this->applicant->getMorphClass(),
-                        'context_model_id' => $this->applicant->id,
-                    ]);
-                }
+                $thread->addContext($this->applicant->getMorphClass(), $this->applicant->id, 'manual_template');
             }
 
             $this->templateModalShow = false;

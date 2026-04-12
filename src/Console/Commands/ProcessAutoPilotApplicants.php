@@ -362,16 +362,7 @@ class ProcessAutoPilotApplicants extends Command
             // Link thread to applicant so it's visible in the UI
             $thread = $message->thread ?? null;
             if ($thread) {
-                $morphClass = $applicant->getMorphClass();
-                if (method_exists($thread, 'addContext')) {
-                    $thread->addContext($morphClass, $applicant->id, 'auto_pilot');
-                }
-                if (!$thread->context_model) {
-                    $thread->updateQuietly([
-                        'context_model' => $morphClass,
-                        'context_model_id' => $applicant->id,
-                    ]);
-                }
+                $thread->addContext($applicant->getMorphClass(), $applicant->id, 'auto_pilot');
             }
 
             return true;
@@ -452,12 +443,6 @@ class ProcessAutoPilotApplicants extends Command
 
             foreach ($threads as $thread) {
                 $thread->addContext($applicant->getMorphClass(), $applicant->id, 'autopilot');
-                if (!$thread->context_model) {
-                    $thread->updateQuietly([
-                        'context_model' => $applicant->getMorphClass(),
-                        'context_model_id' => $applicant->id,
-                    ]);
-                }
             }
         } catch (\Throwable $e) {
             // ignore
