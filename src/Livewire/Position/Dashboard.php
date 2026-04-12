@@ -8,7 +8,6 @@ use Livewire\Attributes\Computed;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmPhoneNumber;
-use Platform\Hcm\Actions\TransferApplicantToOnboarding;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
@@ -320,14 +319,6 @@ class Dashboard extends Component
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants);
-    }
-
-    public function transferToOnboarding(int $applicantId): void
-    {
-        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
-        $action = new TransferApplicantToOnboarding();
-        $onboarding = $action->execute($applicant);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->assignedApplicants, $this->completedApplicants, $this->applicantCount);
     }
 
     public function dismissApplicant(int $applicantId): void

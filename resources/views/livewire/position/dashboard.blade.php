@@ -471,15 +471,6 @@
                                         >
                                             @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
                                         </button>
-                                        <button
-                                            wire:click="transferToOnboarding({{ $applicant->id }})"
-                                            wire:confirm="Bewerber ins Onboarding überführen? Der Bewerber wird deaktiviert."
-                                            class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 transition-colors"
-                                            title="Ins Onboarding überführen"
-                                        >
-                                            @svg('heroicon-o-arrow-right-circle', 'w-3.5 h-3.5')
-                                            Onboarding
-                                        </button>
                                         <x-ui-button size="sm" variant="primary" href="{{ route('recruiting.applicants.show', $applicant) }}" wire:navigate>
                                             Anzeigen
                                         </x-ui-button>
