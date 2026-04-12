@@ -18,8 +18,11 @@ class SyncPhases extends Command
     {
         $dryRun = $this->option('dry-run');
 
+        $this->newLine();
+        $this->components->info('Recruiting Phase Sync');
+
         if ($dryRun) {
-            $this->info('[DRY-RUN] Keine Änderungen werden vorgenommen.');
+            $this->warn('[DRY-RUN] Keine Änderungen werden vorgenommen.');
         }
 
         // 1. Positionen ohne Phase → Default-Phase "Bewerbung" erstellen
@@ -96,6 +99,9 @@ class SyncPhases extends Command
         } else {
             $this->info('Alle aktiven Bewerber haben bereits eine Phase.');
         }
+
+        $this->newLine();
+        $this->components->info('Sync abgeschlossen.');
 
         return self::SUCCESS;
     }
