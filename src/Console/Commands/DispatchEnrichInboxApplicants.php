@@ -15,8 +15,10 @@ class DispatchEnrichInboxApplicants extends Command
     public function handle(): int
     {
         $applicants = RecApplicant::query()
+            ->where('is_active', true)
             ->whereNull('enrichment_status')
-            ->orderBy('created_at', 'asc')
+            ->orderByDesc('created_at')
+            ->limit(10)
             ->pluck('id');
 
         if ($applicants->isEmpty()) {
