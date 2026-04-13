@@ -450,6 +450,14 @@
                                         </td>
                                         <td class="px-4 py-2.5 text-right">
                                             <div class="flex items-center justify-end gap-2">
+                                                <button
+                                                    wire:click="retryEnrichment({{ $applicant->id }})"
+                                                    wire:confirm="Bewerber zurück in den Eingang verschieben und Enrichment erneut starten?"
+                                                    class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                                                    title="Erneut anreichern"
+                                                >
+                                                    @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
+                                                </button>
                                                 @if(!$phase->auto_advance && $extraCounts['total'] > 0 && $extraCounts['filled'] === $extraCounts['total'])
                                                     <button
                                                         wire:click="advanceToNextPhase({{ $applicant->id }})"
