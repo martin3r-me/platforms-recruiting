@@ -32,6 +32,9 @@ class RecruitingServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Schedule FIRST — before any DB calls that could fail
+        $this->registerSchedule();
+
         Relation::morphMap([
             'rec_applicant' => \Platform\Recruiting\Models\RecApplicant::class,
             'rec_position' => \Platform\Recruiting\Models\RecPosition::class,
@@ -84,7 +87,6 @@ class RecruitingServiceProvider extends ServiceProvider
 
         $this->registerCommsListeners();
         $this->registerTools();
-        $this->registerSchedule();
     }
 
     protected function registerSchedule(): void
