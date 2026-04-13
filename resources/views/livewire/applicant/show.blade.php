@@ -6,7 +6,7 @@
     <x-slot name="actionbar">
         <x-ui-page-actionbar :breadcrumbs="[
             ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
-            ['label' => 'Bewerber', 'href' => route('recruiting.applicants.index')],
+            ['label' => 'Bewerber', 'href' => route('recruiting.dashboard')],
             ['label' => ($applicant->getContact()?->full_name ?? 'Bewerber #' . $applicant->id)],
         ]">
             @if($this->isDirty)
