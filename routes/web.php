@@ -8,6 +8,9 @@ use Platform\Recruiting\Livewire\Posting\Index as PostingIndex;
 use Platform\Recruiting\Livewire\Posting\Show as PostingShow;
 use Platform\Recruiting\Livewire\Applicant\Index as ApplicantIndex;
 use Platform\Recruiting\Livewire\Applicant\Show as ApplicantShow;
+use Platform\Recruiting\Livewire\InterviewTypes\Index as InterviewTypeIndex;
+use Platform\Recruiting\Livewire\InterviewSchedule\Index as InterviewScheduleIndex;
+use Platform\Recruiting\Livewire\InterviewBookings\Index as InterviewBookingsIndex;
 
 // Dashboard
 Route::get('/', Dashboard::class)->name('recruiting.dashboard');
@@ -24,3 +27,8 @@ Route::get('/postings/{posting}', PostingShow::class)->name('recruiting.postings
 // Bewerber
 Route::get('/applicants', ApplicantIndex::class)->name('recruiting.applicants.index');
 Route::get('/applicants/{applicant}', ApplicantShow::class)->name('recruiting.applicants.show');
+
+// Interview-Termine
+Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');
+Route::get('/interview-schedule', InterviewScheduleIndex::class)->name('recruiting.interview-schedule.index');
+Route::get('/interview-bookings/{interview}', InterviewBookingsIndex::class)->name('recruiting.interview-bookings.index');

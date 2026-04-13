@@ -739,6 +739,12 @@
                                 {{-- Aktion --}}
                                 <td class="px-4 py-2.5 text-right">
                                     <div class="flex items-center justify-end gap-2">
+                                        <a href="{{ route('recruiting.interview-schedule.index') }}" wire:navigate
+                                            class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                                            title="Interview buchen"
+                                        >
+                                            @svg('heroicon-o-calendar-days', 'w-3.5 h-3.5')
+                                        </a>
                                         <button
                                             wire:click="retryEnrichment({{ $applicant->id }})"
                                             wire:confirm="Bewerber zurück in den Eingang verschieben und Enrichment erneut starten?"

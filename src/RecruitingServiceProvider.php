@@ -26,6 +26,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DispatchEnrichInboxApplicants::class,
                 \Platform\Recruiting\Console\Commands\SyncPhases::class,
                 \Platform\Recruiting\Console\Commands\MarkLegacyApplicants::class,
+                \Platform\Recruiting\Console\Commands\SendInterviewReminders::class,
             ]);
         }
     }
@@ -99,6 +100,11 @@ class RecruitingServiceProvider extends ServiceProvider
         Schedule::command('recruiting:dispatch-auto-pilot-applicants')
             ->everyMinute()
             ->withoutOverlapping(10)
+            ->runInBackground();
+
+        Schedule::command('recruiting:send-interview-reminders')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(5)
             ->runInBackground();
     }
 

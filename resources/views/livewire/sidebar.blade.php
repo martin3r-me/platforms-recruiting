@@ -34,6 +34,14 @@
             @svg('heroicon-o-user-group', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Bewerber</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.interview-schedule.index')">
+            @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Interview-Termine</span>
+        </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.interview-types.index')">
+            @svg('heroicon-o-chat-bubble-left-right', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Gesprächsarten</span>
+        </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 
     {{-- Collapsed: Icons-only --}}
@@ -50,6 +58,12 @@
             </a>
             <a href="{{ route('recruiting.applicants.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Bewerber">
                 @svg('heroicon-o-user-group', 'w-5 h-5')
+            </a>
+            <a href="{{ route('recruiting.interview-schedule.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Interview-Termine">
+                @svg('heroicon-o-calendar-days', 'w-5 h-5')
+            </a>
+            <a href="{{ route('recruiting.interview-types.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Gesprächsarten">
+                @svg('heroicon-o-chat-bubble-left-right', 'w-5 h-5')
             </a>
         </div>
     </div>
