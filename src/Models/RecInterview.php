@@ -27,6 +27,7 @@ class RecInterview extends Model
         'min_participants',
         'max_participants',
         'status',
+        'language',
         'is_active',
         'team_id',
         'reminder_wa_template_id',

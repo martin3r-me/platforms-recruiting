@@ -29,6 +29,7 @@ class Index extends Component
     public $min_participants = null;
     public $max_participants = null;
     public $status = 'planned';
+    public $language = 'de';
     public $is_active = true;
     public $selectedInterviewers = [];
     public $reminder_wa_template_id = '';
@@ -46,6 +47,7 @@ class Index extends Component
         'min_participants' => 'nullable|integer|min:0',
         'max_participants' => 'nullable|integer|min:1',
         'status' => 'required|in:planned,confirmed,cancelled,completed',
+        'language' => 'required|in:de,en',
         'is_active' => 'boolean',
         'selectedInterviewers' => 'array',
         'reminder_wa_template_id' => 'nullable|integer',
@@ -195,6 +197,7 @@ class Index extends Component
         $this->min_participants = $m->min_participants;
         $this->max_participants = $m->max_participants;
         $this->status = $m->status;
+        $this->language = $m->language ?? 'de';
         $this->is_active = $m->is_active;
         $this->selectedInterviewers = $m->interviewers->pluck('id')->toArray();
         $this->reminder_wa_template_id = $m->reminder_wa_template_id ?? '';
@@ -218,6 +221,7 @@ class Index extends Component
             'min_participants' => $this->min_participants,
             'max_participants' => $this->max_participants,
             'status' => $this->status,
+            'language' => $this->language,
             'is_active' => $this->is_active,
             'reminder_wa_template_id' => $this->reminder_wa_template_id ?: null,
             'reminder_hours_before' => $this->reminder_hours_before,
@@ -268,6 +272,7 @@ class Index extends Component
         $this->min_participants = null;
         $this->max_participants = null;
         $this->status = 'planned';
+        $this->language = 'de';
         $this->is_active = true;
         $this->selectedInterviewers = [];
         $this->reminder_wa_template_id = '';

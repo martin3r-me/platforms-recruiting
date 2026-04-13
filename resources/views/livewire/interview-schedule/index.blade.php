@@ -62,7 +62,10 @@
                                             <span class="text-[var(--ui-muted)]">—</span>
                                         @endif
                                     </td>
-                                    <td class="px-4 py-3 font-medium">{{ $interview->title ?? '—' }}</td>
+                                    <td class="px-4 py-3 font-medium">
+                                        {{ $interview->title ?? '—' }}
+                                        <x-ui-badge variant="secondary" size="xs" class="ml-1">{{ strtoupper($interview->language ?? 'de') }}</x-ui-badge>
+                                    </td>
                                     <td class="px-4 py-3">{{ $interview->position->title ?? '—' }}</td>
                                     <td class="px-4 py-3">{{ $interview->location ?? '—' }}</td>
                                     <td class="px-4 py-3">
@@ -176,7 +179,18 @@
     <x-ui-modal wire:model="showCreateModal">
         <x-slot name="header">Neuen Termin anlegen</x-slot>
         <div class="space-y-4">
-            <x-ui-input-text name="title" label="Titel" wire:model="title" />
+            <div class="grid grid-cols-3 gap-4">
+                <div class="col-span-2">
+                    <x-ui-input-text name="title" label="Titel" wire:model="title" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Sprache</label>
+                    <select wire:model="language" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
+                        <option value="de">Deutsch</option>
+                        <option value="en">Englisch</option>
+                    </select>
+                </div>
+            </div>
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Gesprächsart</label>
@@ -287,7 +301,18 @@
     <x-ui-modal wire:model="showEditModal">
         <x-slot name="header">Termin bearbeiten</x-slot>
         <div class="space-y-4">
-            <x-ui-input-text name="title" label="Titel" wire:model="title" />
+            <div class="grid grid-cols-3 gap-4">
+                <div class="col-span-2">
+                    <x-ui-input-text name="title" label="Titel" wire:model="title" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Sprache</label>
+                    <select wire:model="language" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
+                        <option value="de">Deutsch</option>
+                        <option value="en">Englisch</option>
+                    </select>
+                </div>
+            </div>
             <div class="grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Gesprächsart</label>
