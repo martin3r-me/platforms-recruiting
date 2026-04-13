@@ -3,6 +3,19 @@
         <x-ui-page-navbar title="Interview-Buchungen" icon="heroicon-o-clipboard-document-list" />
     </x-slot>
 
+    <x-slot name="actionbar">
+        <x-ui-page-actionbar :breadcrumbs="[
+            ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
+            ['label' => 'Interview-Termine', 'href' => route('recruiting.interview-schedule.index')],
+            ['label' => 'Buchungen'],
+        ]">
+            <x-ui-button variant="primary" size="sm" wire:click="openBookModal">
+                @svg('heroicon-o-plus', 'w-4 h-4')
+                <span>Kandidat buchen</span>
+            </x-ui-button>
+        </x-ui-page-actionbar>
+    </x-slot>
+
     <x-ui-page-container>
         <div class="px-4 sm:px-6 lg:px-8">
             {{-- Termin-Info --}}
@@ -56,11 +69,6 @@
                             optionLabel="label"
                         />
                         <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.300ms="search" class="flex-1 max-w-xs" />
-                        <div class="ml-auto">
-                            <x-ui-button variant="primary" size="sm" wire:click="openBookModal">
-                                @svg('heroicon-o-plus', 'w-4 h-4') Kandidat buchen
-                            </x-ui-button>
-                        </div>
                     </div>
 
                     @if($this->interview->max_participants)
@@ -167,26 +175,6 @@
     <x-slot name="sidebar">
         <x-ui-page-sidebar title="Übersicht" width="w-80" :defaultOpen="true">
             <div class="p-6 space-y-6">
-                <div>
-                    <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-4">Aktionen</h3>
-                    <div class="space-y-2">
-                        <x-ui-button variant="primary" size="sm" class="w-full" wire:click="openBookModal">
-                            <span class="inline-flex items-center gap-2">
-                                @svg('heroicon-o-plus', 'w-4 h-4')
-                                Kandidat buchen
-                            </span>
-                        </x-ui-button>
-                        <a href="{{ route('recruiting.interview-schedule.index') }}" wire:navigate>
-                            <x-ui-button variant="secondary" size="sm" class="w-full mt-2">
-                                <span class="inline-flex items-center gap-2">
-                                    @svg('heroicon-o-arrow-left', 'w-4 h-4')
-                                    Zurück zu Terminen
-                                </span>
-                            </x-ui-button>
-                        </a>
-                    </div>
-                </div>
-
                 <div>
                     <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-4">Statistiken</h3>
                     <div class="space-y-3">
