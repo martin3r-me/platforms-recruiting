@@ -19,7 +19,7 @@ class RelinkOrphanedThreads extends Command
         {--without-email : Nur Bewerber ohne Email am CRM-Kontakt}
         {--enriched : Nur Bewerber die bereits enriched sind aber keine Daten haben}';
 
-    protected $description = 'Verknüpft verwaiste Email-Threads mit Bewerbern anhand des CRM-Kontaktnamens und extrahiert Kontaktdaten.';
+    protected $description = 'Verknüpft verwaiste Email-Threads mit Bewerbern anhand exakter Betreff-Übereinstimmung und extrahiert Kontaktdaten.';
 
     public function handle(): int
     {
@@ -62,7 +62,7 @@ class RelinkOrphanedThreads extends Command
         $this->info("Prüfe {$applicants->count()} Bewerber...");
         $this->newLine();
 
-        $stats = ['linked' => 0, 'email_added' => 0, 'phone_added' => 0, 'skipped' => 0, 'no_thread' => 0];
+        $stats = ['linked' => 0, 'email_added' => 0, 'phone_added' => 0, 'skipped' => 0, 'no_thread' => 0, 'ambiguous' => 0];
 
         foreach ($applicants as $applicant) {
             $contact = $applicant->crmContactLinks->first()?->contact;
@@ -83,7 +83,6 @@ class RelinkOrphanedThreads extends Command
                 continue;
             }
 
-            // Search for threads by contact name in subject
             $fullName = trim($contact->full_name);
             if (empty($fullName) || $fullName === 'Bewerber') {
                 $this->line("  <fg=yellow>#{$applicant->id}</>: Kein verwertbarer Name, übersprungen.");
@@ -91,15 +90,14 @@ class RelinkOrphanedThreads extends Command
                 continue;
             }
 
-            // Escape LIKE wildcards in name
-            $escapedName = str_replace(['%', '_'], ['\%', '\_'], $fullName);
+            // Exact subject match: "Neue Bewerbung: {Name}"
+            $exactSubject = 'Neue Bewerbung: ' . $fullName;
 
             $threads = CommsEmailThread::query()
                 ->whereHas('channel', fn ($q) => $q->where('team_id', $teamId))
-                ->where('subject', 'LIKE', '%' . $escapedName . '%')
+                ->where('subject', $exactSubject)
                 ->with(['inboundMails' => fn ($q) => $q->orderBy('received_at', 'asc')])
                 ->orderByDesc('last_inbound_at')
-                ->limit(3)
                 ->get();
 
             if ($threads->isEmpty()) {
@@ -108,37 +106,53 @@ class RelinkOrphanedThreads extends Command
                 continue;
             }
 
+            // Extract emails from all threads to check for ambiguity
+            $threadEmails = [];
             foreach ($threads as $thread) {
-                $this->line("  <fg=green>#{$applicant->id}</> {$fullName} → Thread #{$thread->id} \"{$thread->subject}\"");
-
-                if (!$dryRun) {
-                    $thread->addContext($morphClass, $applicant->id, 'relink_orphaned');
-                }
-                $stats['linked']++;
-
-                // Extract contact data from first inbound mail body
                 $mail = $thread->inboundMails->first();
-                if (!$mail || !$mail->text_body) {
-                    continue;
-                }
+                $extracted = ($mail && $mail->text_body) ? $this->extractContactData($mail->text_body) : ['email' => null, 'phone' => null];
+                $threadEmails[$thread->id] = $extracted;
+            }
 
-                $extracted = $this->extractContactData($mail->text_body);
+            // Collect unique non-null emails across threads
+            $uniqueEmails = collect($threadEmails)
+                ->pluck('email')
+                ->filter()
+                ->unique()
+                ->values();
 
-                if ($extracted['email'] && !$contact->emailAddresses->contains('email_address', $extracted['email'])) {
-                    $this->line("    <fg=cyan>+ Email:</> {$extracted['email']}");
-                    if (!$dryRun) {
-                        $this->addEmail($contact, $extracted['email']);
-                    }
-                    $stats['email_added']++;
-                }
+            // If multiple different emails found → ambiguous, skip
+            if ($uniqueEmails->count() > 1) {
+                $this->line("  <fg=red>#{$applicant->id}</> {$fullName}: AMBIG — {$threads->count()} Threads mit unterschiedlichen Emails: {$uniqueEmails->implode(', ')}");
+                $stats['ambiguous']++;
+                continue;
+            }
 
-                if ($extracted['phone'] && $contact->phoneNumbers->isEmpty()) {
-                    $this->line("    <fg=cyan>+ Telefon:</> {$extracted['phone']}");
-                    if (!$dryRun) {
-                        $this->addPhone($contact, $extracted['phone']);
-                    }
-                    $stats['phone_added']++;
+            // Take the most recent thread (already sorted by last_inbound_at desc)
+            $thread = $threads->first();
+            $extracted = $threadEmails[$thread->id];
+
+            $this->line("  <fg=green>#{$applicant->id}</> {$fullName} → Thread #{$thread->id} \"{$thread->subject}\"");
+
+            if (!$dryRun) {
+                $thread->addContext($morphClass, $applicant->id, 'relink_orphaned');
+            }
+            $stats['linked']++;
+
+            if ($extracted['email'] && !$contact->emailAddresses->contains('email_address', $extracted['email'])) {
+                $this->line("    <fg=cyan>+ Email:</> {$extracted['email']}");
+                if (!$dryRun) {
+                    $this->addEmail($contact, $extracted['email']);
                 }
+                $stats['email_added']++;
+            }
+
+            if ($extracted['phone'] && $contact->phoneNumbers->isEmpty()) {
+                $this->line("    <fg=cyan>+ Telefon:</> {$extracted['phone']}");
+                if (!$dryRun) {
+                    $this->addPhone($contact, $extracted['phone']);
+                }
+                $stats['phone_added']++;
             }
 
             // Reset enrichment so pipeline re-processes with thread data
@@ -155,6 +169,7 @@ class RelinkOrphanedThreads extends Command
                 ['Emails ergänzt', $stats['email_added']],
                 ['Telefon ergänzt', $stats['phone_added']],
                 ['Kein Thread gefunden', $stats['no_thread']],
+                ['Mehrdeutig (übersprungen)', $stats['ambiguous']],
                 ['Übersprungen', $stats['skipped']],
             ]
         );
