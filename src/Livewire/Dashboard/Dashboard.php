@@ -216,6 +216,7 @@ class Dashboard extends Component
             'auto_pilot' => false,
         ]);
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->autoPilotProcessingIds, $this->phasedApplicants);
+        $this->dispatch('sidebar-refresh');
     }
 
     public function unparkApplicant(int $applicantId): void
@@ -226,6 +227,7 @@ class Dashboard extends Component
             'parked_at' => null,
         ]);
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+        $this->dispatch('sidebar-refresh');
     }
 
     #[Computed]
@@ -413,6 +415,7 @@ class Dashboard extends Component
             'auto_pilot' => false,
         ]);
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+        $this->dispatch('sidebar-refresh');
     }
 
     public function deleteApplicant(int $applicantId): void
@@ -423,6 +426,7 @@ class Dashboard extends Component
         $applicant->crmContactLinks()->delete();
         $applicant->delete();
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+        $this->dispatch('sidebar-refresh');
     }
 
     public function deleteAndBlacklistApplicant(int $applicantId): void
@@ -440,6 +444,7 @@ class Dashboard extends Component
         $applicant->crmContactLinks()->delete();
         $applicant->delete();
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+        $this->dispatch('sidebar-refresh');
     }
 
     public function render()

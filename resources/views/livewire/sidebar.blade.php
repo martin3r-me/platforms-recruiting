@@ -14,6 +14,9 @@
         <x-ui-sidebar-item :href="route('recruiting.dashboard.parked')">
             @svg('heroicon-o-pause', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Geparkt</span>
+            @if($this->stats['parked_applicants'] > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-600">{{ $this->stats['parked_applicants'] }}</span>
+            @endif
         </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 

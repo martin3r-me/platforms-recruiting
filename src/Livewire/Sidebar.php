@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Platform\Core\Models\Team;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
@@ -41,7 +42,14 @@ class Sidebar extends Component
             'active_postings' => RecPosting::forTeam($teamId)->active()->count(),
             'total_applicants' => RecApplicant::forTeam($teamId)->count(),
             'active_applicants' => RecApplicant::forTeam($teamId)->active()->count(),
+            'parked_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_parked', true)->count(),
         ];
+    }
+
+    #[On('sidebar-refresh')]
+    public function refreshSidebar(): void
+    {
+        unset($this->stats, $this->recentApplicants);
     }
 
     public function render()
