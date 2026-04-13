@@ -42,14 +42,19 @@
             <div class="mt-6">
                 <x-ui-panel title="Buchungen" subtitle="Gebuchte Kandidaten für diesen Termin">
                     <div class="flex gap-2 mb-4">
-                        <select wire:model.live="filterStatus" class="text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                            <option value="all">Alle Status</option>
-                            <option value="registered">Registriert</option>
-                            <option value="confirmed">Bestätigt</option>
-                            <option value="attended">Teilgenommen</option>
-                            <option value="cancelled">Abgesagt</option>
-                            <option value="no_show">Nicht erschienen</option>
-                        </select>
+                        <x-ui-input-select
+                            wire:model.live="filterStatus"
+                            :options="[
+                                ['value' => 'all', 'label' => 'Alle Status'],
+                                ['value' => 'registered', 'label' => 'Registriert'],
+                                ['value' => 'confirmed', 'label' => 'Bestätigt'],
+                                ['value' => 'attended', 'label' => 'Teilgenommen'],
+                                ['value' => 'cancelled', 'label' => 'Abgesagt'],
+                                ['value' => 'no_show', 'label' => 'Nicht erschienen'],
+                            ]"
+                            optionValue="value"
+                            optionLabel="label"
+                        />
                         <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.300ms="search" class="flex-1 max-w-xs" />
                         <div class="ml-auto">
                             <x-ui-button variant="primary" size="sm" wire:click="openBookModal">
@@ -226,17 +231,15 @@
                     Es werden nur abgeschlossene Bewerber für die Stelle <strong>{{ $this->interview->position?->title }}</strong> angezeigt.
                 </div>
             @endif
-            <div>
-                <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Kandidat *</label>
-                <select wire:model="selectedApplicantId" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                    <option value="">— Bitte wählen —</option>
-                    @foreach($this->availableApplicants as $applicant)
-                        <option value="{{ $applicant->id }}">
-                            {{ $applicant->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt' }}
-                        </option>
-                    @endforeach
-                </select>
-            </div>
+            <x-ui-input-select
+                wire:model="selectedApplicantId"
+                label="Kandidat *"
+                :options="$this->availableApplicants->map(fn($a) => ['value' => $a->id, 'label' => $a->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt'])->toArray()"
+                optionValue="value"
+                optionLabel="label"
+                :nullable="true"
+                nullLabel="— Bitte wählen —"
+            />
             <x-ui-input-textarea name="bookingNotes" label="Notizen" wire:model="bookingNotes" />
         </div>
         <x-slot name="footer">

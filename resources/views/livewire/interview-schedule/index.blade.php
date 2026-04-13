@@ -7,25 +7,37 @@
         <div class="px-4 sm:px-6 lg:px-8">
             <x-ui-panel title="Übersicht" subtitle="Alle Bewerbungsgespräch-Termine">
                 <div class="flex gap-2 mb-4">
-                    <select wire:model.live="filterType" class="text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="">Alle Typen</option>
-                        @foreach($this->interviewTypes as $type)
-                            <option value="{{ $type->id }}">{{ $type->name }}</option>
-                        @endforeach
-                    </select>
-                    <select wire:model.live="filterPosition" class="text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="">Alle Stellen</option>
-                        @foreach($this->positions as $pos)
-                            <option value="{{ $pos->id }}">{{ $pos->title }}</option>
-                        @endforeach
-                    </select>
-                    <select wire:model.live="filterStatus" class="text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="all">Alle Status</option>
-                        <option value="planned">Geplant</option>
-                        <option value="confirmed">Bestätigt</option>
-                        <option value="cancelled">Abgesagt</option>
-                        <option value="completed">Abgeschlossen</option>
-                    </select>
+                    <x-ui-input-select
+                        name="filterType"
+                        :options="$this->interviewTypes"
+                        optionValue="id"
+                        optionLabel="name"
+                        :nullable="true"
+                        nullLabel="Alle Typen"
+                        wire:model.live="filterType"
+                    />
+                    <x-ui-input-select
+                        name="filterPosition"
+                        :options="$this->positions"
+                        optionValue="id"
+                        optionLabel="title"
+                        :nullable="true"
+                        nullLabel="Alle Stellen"
+                        wire:model.live="filterPosition"
+                    />
+                    <x-ui-input-select
+                        name="filterStatus"
+                        :options="[
+                            ['value' => 'all', 'label' => 'Alle Status'],
+                            ['value' => 'planned', 'label' => 'Geplant'],
+                            ['value' => 'confirmed', 'label' => 'Bestätigt'],
+                            ['value' => 'cancelled', 'label' => 'Abgesagt'],
+                            ['value' => 'completed', 'label' => 'Abgeschlossen'],
+                        ]"
+                        optionValue="value"
+                        optionLabel="label"
+                        wire:model.live="filterStatus"
+                    />
                     <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.300ms="search" class="flex-1 max-w-xs" />
                 </div>
                 <div class="overflow-x-auto">
@@ -183,33 +195,36 @@
                 <div class="col-span-2">
                     <x-ui-input-text name="title" label="Titel" wire:model="title" />
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Sprache</label>
-                    <select wire:model="language" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="de">Deutsch</option>
-                        <option value="en">Englisch</option>
-                    </select>
-                </div>
+                <x-ui-input-select
+                    name="language"
+                    label="Sprache"
+                    :options="[['value' => 'de', 'label' => 'Deutsch'], ['value' => 'en', 'label' => 'Englisch']]"
+                    optionValue="value"
+                    optionLabel="label"
+                    wire:model="language"
+                />
             </div>
             <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Gesprächsart</label>
-                    <select wire:model="interview_type_id" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="">— Keine —</option>
-                        @foreach($this->interviewTypes as $type)
-                            <option value="{{ $type->id }}">{{ $type->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Stelle</label>
-                    <select wire:model="rec_position_id" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="">— Keine —</option>
-                        @foreach($this->positions as $pos)
-                            <option value="{{ $pos->id }}">{{ $pos->title }}</option>
-                        @endforeach
-                    </select>
-                </div>
+                <x-ui-input-select
+                    name="interview_type_id"
+                    label="Gesprächsart"
+                    :options="$this->interviewTypes"
+                    optionValue="id"
+                    optionLabel="name"
+                    :nullable="true"
+                    nullLabel="— Keine —"
+                    wire:model="interview_type_id"
+                />
+                <x-ui-input-select
+                    name="rec_position_id"
+                    label="Stelle"
+                    :options="$this->positions"
+                    optionValue="id"
+                    optionLabel="title"
+                    :nullable="true"
+                    nullLabel="— Keine —"
+                    wire:model="rec_position_id"
+                />
             </div>
             <x-ui-input-text name="location" label="Ort" wire:model="location" />
             <div class="grid grid-cols-2 gap-4">
@@ -236,15 +251,16 @@
                 <div class="border-t border-[var(--ui-border)]/60 pt-4">
                     <label class="block text-sm font-bold text-[var(--ui-secondary)] mb-2">WhatsApp-Erinnerung</label>
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">WA-Template</label>
-                            <select wire:model.live="reminder_wa_template_id" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                                <option value="">— Keine Erinnerung —</option>
-                                @foreach($this->availableWhatsAppTemplates as $tpl)
-                                    <option value="{{ $tpl->id }}">{{ $tpl->name }} ({{ $tpl->language }})</option>
-                                @endforeach
-                            </select>
-                        </div>
+                        <x-ui-input-select
+                            name="reminder_wa_template_id"
+                            label="WA-Template"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="name"
+                            :nullable="true"
+                            nullLabel="— Keine Erinnerung —"
+                            wire:model.live="reminder_wa_template_id"
+                        />
                         <x-ui-input-text name="reminder_hours_before" label="Stunden vorher" wire:model="reminder_hours_before" type="number" min="1" placeholder="z.B. 24" />
                     </div>
                     @if($this->selectedTemplateInfo && ($this->selectedTemplateInfo['body_var_count'] > 0 || $this->selectedTemplateInfo['has_url_button']))
@@ -280,15 +296,19 @@
                     @endif
                 </div>
             @endif
-            <div>
-                <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Status</label>
-                <select wire:model="status" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                    <option value="planned">Geplant</option>
-                    <option value="confirmed">Bestätigt</option>
-                    <option value="cancelled">Abgesagt</option>
-                    <option value="completed">Abgeschlossen</option>
-                </select>
-            </div>
+            <x-ui-input-select
+                name="status"
+                label="Status"
+                :options="[
+                    ['value' => 'planned', 'label' => 'Geplant'],
+                    ['value' => 'confirmed', 'label' => 'Bestätigt'],
+                    ['value' => 'cancelled', 'label' => 'Abgesagt'],
+                    ['value' => 'completed', 'label' => 'Abgeschlossen'],
+                ]"
+                optionValue="value"
+                optionLabel="label"
+                wire:model="status"
+            />
             <x-ui-input-checkbox model="is_active" name="is_active" wire:model="is_active" checked-label="Aktiv" unchecked-label="Inaktiv" />
         </div>
         <x-slot name="footer">
@@ -305,33 +325,36 @@
                 <div class="col-span-2">
                     <x-ui-input-text name="title" label="Titel" wire:model="title" />
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Sprache</label>
-                    <select wire:model="language" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="de">Deutsch</option>
-                        <option value="en">Englisch</option>
-                    </select>
-                </div>
+                <x-ui-input-select
+                    name="language"
+                    label="Sprache"
+                    :options="[['value' => 'de', 'label' => 'Deutsch'], ['value' => 'en', 'label' => 'Englisch']]"
+                    optionValue="value"
+                    optionLabel="label"
+                    wire:model="language"
+                />
             </div>
             <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Gesprächsart</label>
-                    <select wire:model="interview_type_id" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="">— Keine —</option>
-                        @foreach($this->interviewTypes as $type)
-                            <option value="{{ $type->id }}">{{ $type->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Stelle</label>
-                    <select wire:model="rec_position_id" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                        <option value="">— Keine —</option>
-                        @foreach($this->positions as $pos)
-                            <option value="{{ $pos->id }}">{{ $pos->title }}</option>
-                        @endforeach
-                    </select>
-                </div>
+                <x-ui-input-select
+                    name="interview_type_id"
+                    label="Gesprächsart"
+                    :options="$this->interviewTypes"
+                    optionValue="id"
+                    optionLabel="name"
+                    :nullable="true"
+                    nullLabel="— Keine —"
+                    wire:model="interview_type_id"
+                />
+                <x-ui-input-select
+                    name="rec_position_id"
+                    label="Stelle"
+                    :options="$this->positions"
+                    optionValue="id"
+                    optionLabel="title"
+                    :nullable="true"
+                    nullLabel="— Keine —"
+                    wire:model="rec_position_id"
+                />
             </div>
             <x-ui-input-text name="location" label="Ort" wire:model="location" />
             <div class="grid grid-cols-2 gap-4">
@@ -358,15 +381,16 @@
                 <div class="border-t border-[var(--ui-border)]/60 pt-4">
                     <label class="block text-sm font-bold text-[var(--ui-secondary)] mb-2">WhatsApp-Erinnerung</label>
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">WA-Template</label>
-                            <select wire:model.live="reminder_wa_template_id" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                                <option value="">— Keine Erinnerung —</option>
-                                @foreach($this->availableWhatsAppTemplates as $tpl)
-                                    <option value="{{ $tpl->id }}">{{ $tpl->name }} ({{ $tpl->language }})</option>
-                                @endforeach
-                            </select>
-                        </div>
+                        <x-ui-input-select
+                            name="reminder_wa_template_id"
+                            label="WA-Template"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="name"
+                            :nullable="true"
+                            nullLabel="— Keine Erinnerung —"
+                            wire:model.live="reminder_wa_template_id"
+                        />
                         <x-ui-input-text name="reminder_hours_before" label="Stunden vorher" wire:model="reminder_hours_before" type="number" min="1" placeholder="z.B. 24" />
                     </div>
                     @if($this->selectedTemplateInfo && ($this->selectedTemplateInfo['body_var_count'] > 0 || $this->selectedTemplateInfo['has_url_button']))
@@ -402,15 +426,19 @@
                     @endif
                 </div>
             @endif
-            <div>
-                <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Status</label>
-                <select wire:model="status" class="w-full text-sm border border-[var(--ui-border)] rounded-md px-3 py-2">
-                    <option value="planned">Geplant</option>
-                    <option value="confirmed">Bestätigt</option>
-                    <option value="cancelled">Abgesagt</option>
-                    <option value="completed">Abgeschlossen</option>
-                </select>
-            </div>
+            <x-ui-input-select
+                name="status"
+                label="Status"
+                :options="[
+                    ['value' => 'planned', 'label' => 'Geplant'],
+                    ['value' => 'confirmed', 'label' => 'Bestätigt'],
+                    ['value' => 'cancelled', 'label' => 'Abgesagt'],
+                    ['value' => 'completed', 'label' => 'Abgeschlossen'],
+                ]"
+                optionValue="value"
+                optionLabel="label"
+                wire:model="status"
+            />
             <x-ui-input-checkbox model="is_active" name="is_active" wire:model="is_active" checked-label="Aktiv" unchecked-label="Inaktiv" />
         </div>
         <x-slot name="footer">
