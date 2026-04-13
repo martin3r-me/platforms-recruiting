@@ -779,6 +779,31 @@
                                         >
                                             @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
                                         </button>
+                                        @if($this->showParked)
+                                            <button
+                                                wire:click="unparkApplicant({{ $applicant->id }})"
+                                                class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                                                title="Zurückholen"
+                                            >
+                                                @svg('heroicon-o-play', 'w-3.5 h-3.5')
+                                            </button>
+                                        @else
+                                            <button
+                                                wire:click="parkApplicant({{ $applicant->id }})"
+                                                class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors"
+                                                title="Parken"
+                                            >
+                                                @svg('heroicon-o-pause', 'w-3.5 h-3.5')
+                                            </button>
+                                        @endif
+                                        <button
+                                            wire:click="dismissApplicant({{ $applicant->id }})"
+                                            wire:confirm="Bewerber wirklich aussortieren?"
+                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                                            title="Aussortieren"
+                                        >
+                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
+                                        </button>
                                         <button
                                             wire:click="deleteApplicant({{ $applicant->id }})"
                                             wire:confirm="Bewerber endgültig löschen? Dies kann nicht rückgängig gemacht werden."
