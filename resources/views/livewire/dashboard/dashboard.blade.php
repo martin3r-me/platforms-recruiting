@@ -209,14 +209,6 @@
                                             </button>
                                         @endif
                                         <button
-                                            wire:click="dismissApplicant({{ $applicant->id }})"
-                                            wire:confirm="Bewerber wirklich aussortieren?"
-                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
-                                            title="Aussortieren"
-                                        >
-                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
-                                        </button>
-                                        <button
                                             wire:click="deleteApplicant({{ $applicant->id }})"
                                             wire:confirm="Bewerber endgültig löschen? Dies kann nicht rückgängig gemacht werden."
                                             class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
@@ -337,14 +329,6 @@
                                                 @svg('heroicon-o-pause', 'w-3.5 h-3.5')
                                             </button>
                                         @endif
-                                        <button
-                                            wire:click="dismissApplicant({{ $applicant->id }})"
-                                            wire:confirm="Bewerber wirklich aussortieren?"
-                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
-                                            title="Aussortieren"
-                                        >
-                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
-                                        </button>
                                         <button
                                             wire:click="deleteApplicant({{ $applicant->id }})"
                                             wire:confirm="Bewerber endgültig löschen? Dies kann nicht rückgängig gemacht werden."
@@ -492,14 +476,6 @@
                                                         @svg('heroicon-o-pause', 'w-3.5 h-3.5')
                                                     </button>
                                                 @endif
-                                                <button
-                                                    wire:click="dismissApplicant({{ $applicant->id }})"
-                                                    wire:confirm="Bewerber wirklich aussortieren?"
-                                                    class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
-                                                    title="Aussortieren"
-                                                >
-                                                    @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
-                                                </button>
                                                 <button
                                                     wire:click="deleteApplicant({{ $applicant->id }})"
                                                     wire:confirm="Bewerber endgültig löschen? Dies kann nicht rückgängig gemacht werden."
@@ -658,14 +634,6 @@
                                                 </button>
                                             @endif
                                             <button
-                                                wire:click="dismissApplicant({{ $applicant->id }})"
-                                                wire:confirm="Bewerber wirklich aussortieren?"
-                                                class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
-                                                title="Aussortieren"
-                                            >
-                                                @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
-                                            </button>
-                                            <button
                                                 wire:click="deleteApplicant({{ $applicant->id }})"
                                                 wire:confirm="Bewerber endgültig löschen? Dies kann nicht rückgängig gemacht werden."
                                                 class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
@@ -796,14 +764,6 @@
                                                 @svg('heroicon-o-pause', 'w-3.5 h-3.5')
                                             </button>
                                         @endif
-                                        <button
-                                            wire:click="dismissApplicant({{ $applicant->id }})"
-                                            wire:confirm="Bewerber wirklich aussortieren?"
-                                            class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
-                                            title="Aussortieren"
-                                        >
-                                            @svg('heroicon-o-x-mark', 'w-3.5 h-3.5')
-                                        </button>
                                         <button
                                             wire:click="deleteApplicant({{ $applicant->id }})"
                                             wire:confirm="Bewerber endgültig löschen? Dies kann nicht rückgängig gemacht werden."

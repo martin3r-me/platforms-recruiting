@@ -407,17 +407,6 @@ class Dashboard extends Component
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
     }
 
-    public function dismissApplicant(int $applicantId): void
-    {
-        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
-        $applicant->update([
-            'is_active' => false,
-            'auto_pilot' => false,
-        ]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
-        $this->dispatch('sidebar-refresh');
-    }
-
     public function deleteApplicant(int $applicantId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
