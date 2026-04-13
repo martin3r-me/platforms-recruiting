@@ -16,6 +16,85 @@ use Platform\Recruiting\Models\RecPosting;
 class Dashboard extends Component
 {
     use ResolvesAutoPilotChannel;
+
+    public bool $showParked = false;
+    public ?int $positionFilter = null;
+
+    public function mount(): void
+    {
+        $this->showParked = request()->routeIs('recruiting.dashboard.parked');
+    }
+
+    private function applicantBaseQuery()
+    {
+        $query = RecApplicant::forTeam(auth()->user()->currentTeam->id)
+            ->where('is_active', true)
+            ->where('is_parked', $this->showParked);
+        $this->applyPositionFilter($query);
+        return $query;
+    }
+
+    #[Computed]
+    public function positions()
+    {
+        return RecPosition::forTeam(auth()->user()->currentTeam->id)
+            ->active()
+            ->orderBy('title')
+            ->get();
+    }
+
+    #[Computed]
+    public function phases()
+    {
+        if (!$this->positionFilter) return collect();
+        $position = RecPosition::find($this->positionFilter);
+        return $position?->phases()->active()->ordered()->get() ?? collect();
+    }
+
+    #[Computed]
+    public function phasedApplicants()
+    {
+        if (!$this->positionFilter) return [];
+
+        $enrichedApplicants = $this->applicantBaseQuery()
+            ->whereNotNull('enrichment_status')
+            ->where('enrichment_status', '!=', 'no_contact')
+            ->with([
+                'crmContactLinks.contact.emailAddresses',
+                'crmContactLinks.contact.phoneNumbers',
+                'postings.position',
+                'extraFieldValues',
+                'preferredCommsChannel',
+                'phase',
+            ])
+            ->orderByDesc('created_at')
+            ->get();
+
+        $grouped = [];
+        foreach ($this->phases as $phase) {
+            $grouped[$phase->id] = $enrichedApplicants
+                ->filter(fn ($a) => $a->rec_phase_id === $phase->id)
+                ->values();
+        }
+
+        return $grouped;
+    }
+
+    private function postingIdsForPosition()
+    {
+        if (!$this->positionFilter) return null;
+        return RecPosting::where('rec_position_id', $this->positionFilter)->pluck('id');
+    }
+
+    private function applyPositionFilter($query)
+    {
+        if ($this->positionFilter) {
+            $postingIds = $this->postingIdsForPosition();
+            $query->whereHas('postings', fn ($q) => $q->whereIn('rec_postings.id', $postingIds));
+        }
+        return $query;
+    }
+
     #[Computed]
     public function positionCount()
     {
@@ -25,20 +104,22 @@ class Dashboard extends Component
     #[Computed]
     public function postingCount()
     {
+        if ($this->positionFilter) {
+            return RecPosting::where('rec_position_id', $this->positionFilter)->active()->count();
+        }
         return RecPosting::forTeam(auth()->user()->currentTeam->id)->active()->count();
     }
 
     #[Computed]
     public function applicantCount()
     {
-        return RecApplicant::forTeam(auth()->user()->currentTeam->id)->active()->count();
+        return $this->applicantBaseQuery()->count();
     }
 
     #[Computed]
     public function inboxApplicants()
     {
-        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
-            ->active()
+        return $this->applicantBaseQuery()
             ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''))
             ->with([
                 'crmContactLinks.contact.emailAddresses',
@@ -54,8 +135,7 @@ class Dashboard extends Component
     #[Computed]
     public function needsReviewApplicants()
     {
-        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
-            ->active()
+        return $this->applicantBaseQuery()
             ->where('enrichment_status', 'no_contact')
             ->with([
                 'crmContactLinks.contact.emailAddresses',
@@ -71,8 +151,7 @@ class Dashboard extends Component
     #[Computed]
     public function activeApplicants()
     {
-        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
-            ->active()
+        return $this->applicantBaseQuery()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
             ->whereNull('auto_pilot_completed_at')
@@ -91,8 +170,7 @@ class Dashboard extends Component
     #[Computed]
     public function completedApplicants()
     {
-        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
-            ->active()
+        return $this->applicantBaseQuery()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
             ->whereNotNull('auto_pilot_completed_at')
@@ -112,17 +190,42 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->advanceToNextPhase();
-        unset($this->activeApplicants, $this->completedApplicants);
+        unset($this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
     }
 
     #[Computed]
     public function availablePostings()
     {
+        if ($this->positionFilter) {
+            $position = RecPosition::find($this->positionFilter);
+            return $position?->postings()->with('position')->active()->orderBy('title')->get() ?? collect();
+        }
         return RecPosting::with('position')
             ->forTeam(auth()->user()->currentTeam->id)
             ->active()
             ->orderBy('title')
             ->get();
+    }
+
+    public function parkApplicant(int $applicantId): void
+    {
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+        $applicant->update([
+            'is_parked' => true,
+            'parked_at' => now(),
+            'auto_pilot' => false,
+        ]);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->autoPilotProcessingIds, $this->phasedApplicants);
+    }
+
+    public function unparkApplicant(int $applicantId): void
+    {
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+        $applicant->update([
+            'is_parked' => false,
+            'parked_at' => null,
+        ]);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
     }
 
     #[Computed]
@@ -147,6 +250,13 @@ class Dashboard extends Component
     #[Computed]
     public function autoPilotProcessingIds()
     {
+        if ($this->positionFilter) {
+            return collect($this->phasedApplicants)
+                ->flatten()
+                ->filter(fn ($a) => $a->auto_pilot && !$a->auto_pilot_completed_at)
+                ->pluck('id')
+                ->toArray();
+        }
         return $this->activeApplicants
             ->filter(fn ($a) => $a->auto_pilot)
             ->pluck('id')
@@ -253,14 +363,19 @@ class Dashboard extends Component
             }
         }
 
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->autoPilotProcessingIds);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->autoPilotProcessingIds, $this->phasedApplicants);
     }
 
     public function retryEnrichment(int $applicantId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->update(['enrichment_status' => null]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
+    }
+
+    public function updatedPositionFilter(): void
+    {
+        $this->refreshDashboard();
     }
 
     public function refreshDashboard(): void
@@ -276,6 +391,10 @@ class Dashboard extends Component
             $this->enrichingApplicantIds,
             $this->teamChannels,
             $this->autoPilotProcessingIds,
+            $this->positions,
+            $this->phases,
+            $this->phasedApplicants,
+            $this->availablePostings,
         );
     }
 
@@ -283,7 +402,7 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
     }
 
     public function dismissApplicant(int $applicantId): void
@@ -293,7 +412,7 @@ class Dashboard extends Component
             'is_active' => false,
             'auto_pilot' => false,
         ]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount);
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
     }
 
     public function render()

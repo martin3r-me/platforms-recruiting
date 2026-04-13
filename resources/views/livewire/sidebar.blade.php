@@ -11,20 +11,11 @@
             <span class="ml-2 text-sm">Dashboard</span>
             <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-[var(--ui-muted-5)] text-[var(--ui-muted)]">{{ $this->stats['active_applicants'] }}</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.dashboard.parked')">
+            @svg('heroicon-o-pause', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Geparkt</span>
+        </x-ui-sidebar-item>
     </x-ui-sidebar-list>
-
-    {{-- Abschnitt: Stellen-Boards --}}
-    @if($this->positionsWithPostings->isNotEmpty())
-        <x-ui-sidebar-list label="Stellen-Boards">
-            @foreach($this->positionsWithPostings as $pos)
-                <x-ui-sidebar-item :href="route('recruiting.positions.dashboard', $pos)">
-                    @svg('heroicon-o-squares-2x2', 'w-4 h-4 text-[var(--ui-secondary)]')
-                    <span class="ml-2 text-sm truncate">{{ $pos->title }}</span>
-                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-[var(--ui-muted-5)] text-[var(--ui-muted)]">{{ $pos->applicant_count }}</span>
-                </x-ui-sidebar-item>
-            @endforeach
-        </x-ui-sidebar-list>
-    @endif
 
     {{-- Abschnitt: Recruiting --}}
     <x-ui-sidebar-list label="Recruiting">

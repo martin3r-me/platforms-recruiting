@@ -24,7 +24,8 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     protected $fillable = [
         'uuid', 'public_token', 'rec_applicant_status_id', 'rec_phase_id', 'progress', 'notes', 'applied_at',
-        'is_active', 'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
+        'is_active', 'is_parked', 'parked_at',
+        'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
         'preferred_comms_channel_id', 'enrichment_status',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
@@ -32,6 +33,8 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_parked' => 'boolean',
+        'parked_at' => 'datetime',
         'auto_pilot' => 'boolean',
         'auto_pilot_completed_at' => 'datetime',
         'auto_pilot_state_id' => 'integer',
@@ -161,7 +164,7 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     public function scopeActive($query)
     {
-        return $query->where('is_active', true);
+        return $query->where('is_active', true)->where('is_parked', false);
     }
 
     public function scopeForTeam($query, $teamId)

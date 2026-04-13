@@ -10,10 +10,6 @@
             ['label' => $position->title],
         ]">
             <x-slot name="left">
-                <x-ui-button variant="ghost" size="sm" href="{{ route('recruiting.positions.dashboard', $position) }}" wire:navigate>
-                    @svg('heroicon-o-squares-2x2', 'w-4 h-4')
-                    <span>Dashboard</span>
-                </x-ui-button>
             </x-slot>
             @if($this->isDirty)
                 <x-ui-button variant="primary" size="sm" wire:click="save">
@@ -238,9 +234,6 @@
                 <div>
                     <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-4">Aktionen</h3>
                     <div class="space-y-2">
-                        <x-ui-button variant="primary" size="sm" href="{{ route('recruiting.positions.dashboard', $position) }}" wire:navigate class="w-full">
-                            @svg('heroicon-o-squares-2x2', 'w-4 h-4') Dashboard anzeigen
-                        </x-ui-button>
                         @if($this->isDirty)
                             <x-ui-button variant="primary" size="sm" wire:click="save" class="w-full">
                                 @svg('heroicon-o-check', 'w-4 h-4') Änderungen speichern

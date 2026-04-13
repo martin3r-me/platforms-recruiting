@@ -9,15 +9,13 @@ use Platform\Recruiting\Livewire\Posting\Show as PostingShow;
 use Platform\Recruiting\Livewire\Applicant\Index as ApplicantIndex;
 use Platform\Recruiting\Livewire\Applicant\Show as ApplicantShow;
 
-use Platform\Recruiting\Livewire\Position\Dashboard as PositionDashboard;
-
 // Dashboard
 Route::get('/', Dashboard::class)->name('recruiting.dashboard');
+Route::get('/parked', Dashboard::class)->name('recruiting.dashboard.parked');
 
 // Stellen
 Route::get('/positions', PositionIndex::class)->name('recruiting.positions.index');
 Route::get('/positions/{position}', PositionShow::class)->name('recruiting.positions.show');
-Route::get('/positions/{position}/dashboard', PositionDashboard::class)->name('recruiting.positions.dashboard');
 
 // Ausschreibungen
 Route::get('/postings', PostingIndex::class)->name('recruiting.postings.index');
