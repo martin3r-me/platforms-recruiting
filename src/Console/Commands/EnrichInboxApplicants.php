@@ -352,19 +352,10 @@ class EnrichInboxApplicants extends Command
             }
 
             $morphClass = $applicant->getMorphClass();
-            $fullClass = get_class($applicant);
 
-            // 1. Threads directly linked via context_model (morph alias or full class)
+            // 1. Threads directly linked via context (pivot table + legacy columns)
             $threads = CommsWhatsAppThread::query()
-                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                    $q->where(function ($q2) use ($morphClass, $applicant) {
-                        $q2->where('context_model', $morphClass)
-                            ->where('context_model_id', $applicant->id);
-                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                        $q2->where('context_model', $fullClass)
-                            ->where('context_model_id', $applicant->id);
-                    });
-                })
+                ->forContext($morphClass, $applicant->id)
                 ->with(['messages' => fn ($q) => $q->orderBy('created_at', 'asc')])
                 ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
                 ->limit(10)
@@ -454,6 +445,24 @@ class EnrichInboxApplicants extends Command
         }
     }
 
+    private function getContactEmailAddresses(RecApplicant $applicant): array
+    {
+        try {
+            $applicant->loadMissing(['crmContactLinks.contact.emailAddresses']);
+            $emails = [];
+            foreach ($applicant->crmContactLinks as $link) {
+                foreach ($link->contact?->emailAddresses ?? [] as $e) {
+                    if ($e->email_address) {
+                        $emails[] = strtolower($e->email_address);
+                    }
+                }
+            }
+            return $emails;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
     private function loadEmailThreads(RecApplicant $applicant): array
     {
         try {
@@ -462,18 +471,9 @@ class EnrichInboxApplicants extends Command
             }
 
             $morphClass = $applicant->getMorphClass();
-            $fullClass = get_class($applicant);
 
             $threads = CommsEmailThread::query()
-                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                    $q->where(function ($q2) use ($morphClass, $applicant) {
-                        $q2->where('context_model', $morphClass)
-                            ->where('context_model_id', $applicant->id);
-                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                        $q2->where('context_model', $fullClass)
-                            ->where('context_model_id', $applicant->id);
-                    });
-                })
+                ->forContext($morphClass, $applicant->id)
                 ->with([
                     'inboundMails' => fn ($q) => $q->orderBy('received_at', 'asc'),
                     'outboundMails' => fn ($q) => $q->orderBy('created_at', 'asc'),
@@ -481,6 +481,31 @@ class EnrichInboxApplicants extends Command
                 ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
                 ->limit(10)
                 ->get();
+
+            // Fallback: search by CRM contact email addresses (same pattern as WhatsApp phone fallback)
+            if ($threads->isEmpty()) {
+                $emails = $this->getContactEmailAddresses($applicant);
+                if (! empty($emails)) {
+                    $threads = CommsEmailThread::query()
+                        ->where(function ($q) use ($emails) {
+                            foreach ($emails as $email) {
+                                $q->orWhere('last_inbound_from_address', $email);
+                            }
+                        })
+                        ->with([
+                            'inboundMails' => fn ($q) => $q->orderBy('received_at', 'asc'),
+                            'outboundMails' => fn ($q) => $q->orderBy('created_at', 'asc'),
+                        ])
+                        ->orderByDesc(DB::raw('COALESCE(last_inbound_at, last_outbound_at, updated_at)'))
+                        ->limit(10)
+                        ->get();
+
+                    // Link found threads to applicant for future lookups
+                    foreach ($threads as $t) {
+                        $t->addContext($morphClass, $applicant->id, 'enrichment');
+                    }
+                }
+            }
 
             return $threads->map(fn ($t) => [
                 'thread_id' => $t->id,
@@ -825,18 +850,9 @@ class EnrichInboxApplicants extends Command
 
             // 2. Find email threads linked to this applicant
             $morphClass = $applicant->getMorphClass();
-            $fullClass = get_class($applicant);
 
             $threads = CommsEmailThread::query()
-                ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                    $q->where(function ($q2) use ($morphClass, $applicant) {
-                        $q2->where('context_model', $morphClass)
-                            ->where('context_model_id', $applicant->id);
-                    })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                        $q2->where('context_model', $fullClass)
-                            ->where('context_model_id', $applicant->id);
-                    });
-                })
+                ->forContext($morphClass, $applicant->id)
                 ->get();
 
             if ($threads->isEmpty()) {
