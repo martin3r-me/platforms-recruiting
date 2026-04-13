@@ -415,6 +415,33 @@ class Dashboard extends Component
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
     }
 
+    public function deleteApplicant(int $applicantId): void
+    {
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+        $applicant->postings()->detach();
+        $applicant->extraFieldValues()->delete();
+        $applicant->crmContactLinks()->delete();
+        $applicant->delete();
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+    }
+
+    public function deleteAndBlacklistApplicant(int $applicantId): void
+    {
+        $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
+
+        foreach ($applicant->crmContactLinks as $link) {
+            if ($link->contact) {
+                $link->contact->update(['is_blacklisted' => true]);
+            }
+        }
+
+        $applicant->postings()->detach();
+        $applicant->extraFieldValues()->delete();
+        $applicant->crmContactLinks()->delete();
+        $applicant->delete();
+        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+    }
+
     public function render()
     {
         return view('recruiting::livewire.dashboard.dashboard')
