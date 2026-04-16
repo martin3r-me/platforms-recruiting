@@ -167,6 +167,11 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $this->hasMany(RecInterviewBooking::class, 'rec_applicant_id');
     }
 
+    public function contracts()
+    {
+        return $this->hasMany(RecContract::class, 'rec_applicant_id');
+    }
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true)->where('is_parked', false);

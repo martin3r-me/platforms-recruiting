@@ -41,6 +41,8 @@ class RecruitingServiceProvider extends ServiceProvider
             'rec_applicant' => \Platform\Recruiting\Models\RecApplicant::class,
             'rec_position' => \Platform\Recruiting\Models\RecPosition::class,
             'rec_phase' => \Platform\Recruiting\Models\RecPhase::class,
+            'rec_contract_template' => \Platform\Recruiting\Models\RecContractTemplate::class,
+            'rec_contract' => \Platform\Recruiting\Models\RecContract::class,
         ]);
 
         // EntityLinkProvider registrieren (loose Kopplung mit Organization-Modul)
@@ -220,6 +222,39 @@ class RecruitingServiceProvider extends ServiceProvider
             $registry->register(new \Platform\Recruiting\Tools\BulkCreatePostingsTool());
             $registry->register(new \Platform\Recruiting\Tools\BulkUpdatePostingsTool());
             $registry->register(new \Platform\Recruiting\Tools\BulkDeletePostingsTool());
+
+            // Contract Templates (CRUD)
+            $registry->register(new \Platform\Recruiting\Tools\ListContractTemplatesTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreateContractTemplateTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdateContractTemplateTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeleteContractTemplateTool());
+
+            // Contracts (CRUD + FillFields + RePersonalize)
+            $registry->register(new \Platform\Recruiting\Tools\ListContractsTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreateContractTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdateContractTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeleteContractTool());
+            $registry->register(new \Platform\Recruiting\Tools\FillContractFieldsTool());
+            $registry->register(new \Platform\Recruiting\Tools\RePersonalizeContractsTool());
+
+            // Interview Types (CRUD)
+            $registry->register(new \Platform\Recruiting\Tools\ListInterviewTypesTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreateInterviewTypeTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdateInterviewTypeTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeleteInterviewTypeTool());
+
+            // Interviews (CRUD + Get)
+            $registry->register(new \Platform\Recruiting\Tools\ListInterviewsTool());
+            $registry->register(new \Platform\Recruiting\Tools\GetInterviewTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreateInterviewTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdateInterviewTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeleteInterviewTool());
+
+            // Interview Bookings (CRUD)
+            $registry->register(new \Platform\Recruiting\Tools\ListInterviewBookingsTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreateInterviewBookingTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdateInterviewBookingTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeleteInterviewBookingTool());
         } catch (\Throwable $e) {
             \Log::warning('Recruiting: Tool-Registrierung fehlgeschlagen', ['error' => $e->getMessage()]);
         }

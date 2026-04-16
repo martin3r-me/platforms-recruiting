@@ -23,3 +23,11 @@ Route::get('/a/{publicToken}', function (string $publicToken) {
 
     abort(404);
 })->name('recruiting.public.applicant-form');
+
+// Contract Signing (public, token-based)
+Route::get('/contract/{token}', \Platform\Recruiting\Livewire\Public\ContractSigning::class)
+    ->name('recruiting.public.contract-signing');
+
+// Contract PDF Download (public, token-based)
+Route::get('/applicant/{token}/contract/{contractId}/pdf', [\Platform\Recruiting\Http\Controllers\ContractPdfController::class, '__invoke'])
+    ->name('recruiting.public.contract-pdf');
