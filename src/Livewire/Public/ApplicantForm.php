@@ -230,7 +230,12 @@ class ApplicantForm extends Component
             }
         }
 
-        $this->state = $remainingUnfilled === 0 ? 'completed' : 'saved';
+        if ($remainingUnfilled === 0) {
+            $this->state = 'completed';
+            $applicant->checkAutoPilotCompletion();
+        } else {
+            $this->state = 'saved';
+        }
     }
 
     public function continueEditing(): void

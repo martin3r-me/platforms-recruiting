@@ -36,6 +36,7 @@ class RecPosition extends Model
         'auto_pilot_reminder_interval_hours',
         'auto_pilot_max_reminders',
         'auto_start_auto_pilot',
+        'interview_booking_wa_template_id',
     ];
 
     /**

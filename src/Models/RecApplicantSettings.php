@@ -33,6 +33,7 @@ class RecApplicantSettings extends Model
         'auto_start_auto_pilot' => false,
         'send_initial_whatsapp_template' => false,
         'enrichment_wa_template_id' => null,
+        'interview_booking_wa_template_id' => null,
     ];
 
     public function team(): BelongsTo

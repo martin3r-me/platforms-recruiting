@@ -24,6 +24,10 @@ Route::get('/a/{publicToken}', function (string $publicToken) {
     abort(404);
 })->name('recruiting.public.applicant-form');
 
+// Interview Booking (public, token-based)
+Route::get('/interviews/{publicToken}', \Platform\Recruiting\Livewire\Public\InterviewBooking::class)
+    ->name('recruiting.public.interview-booking');
+
 // Contract Signing (public, token-based)
 Route::get('/contract/{token}', \Platform\Recruiting\Livewire\Public\ContractSigning::class)
     ->name('recruiting.public.contract-signing');

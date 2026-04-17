@@ -222,6 +222,9 @@ class RecApplicant extends Model implements InheritsExtraFields
             'type' => 'completed',
             'summary' => "Alle Pflichtfelder in Phase \"{$phaseName}\" ausgefüllt — AutoPilot abgeschlossen.",
         ]);
+
+        // Send interview booking WA template if configured
+        $this->sendInterviewBookingNotification();
     }
 
     /**
@@ -251,6 +254,174 @@ class RecApplicant extends Model implements InheritsExtraFields
         ]);
 
         return true;
+    }
+
+    /**
+     * Send interview booking link via WhatsApp template (on AutoPilot completion).
+     */
+    public function sendInterviewBookingNotification(): bool
+    {
+        try {
+            $this->loadMissing(['postings.position', 'crmContactLinks.contact.phoneNumbers']);
+
+            // Resolve position settings → team settings cascade
+            $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
+            $positionSettings = $position?->auto_pilot_settings ?? [];
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+
+            $templateId = $positionSettings['interview_booking_wa_template_id']
+                ?? $teamSettings->getSetting('interview_booking_wa_template_id');
+
+            if (!$templateId) {
+                return false;
+            }
+
+            if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+                return false;
+            }
+
+            $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
+            if (!$template || $template->status !== 'APPROVED') {
+                return false;
+            }
+
+            // Resolve WA channel
+            $waAccountId = $positionSettings['auto_pilot_wa_account_id']
+                ?? $teamSettings->getSetting('auto_pilot_wa_account_id');
+
+            if (!$waAccountId || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+                return false;
+            }
+
+            $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($waAccountId);
+            if (!$account || !$account->active) {
+                return false;
+            }
+
+            $channel = \Platform\Crm\Models\CommsChannel::where('type', 'whatsapp')
+                ->where('is_active', true)
+                ->where('sender_identifier', $account->phone_number)
+                ->first();
+
+            if (!$channel) {
+                return false;
+            }
+
+            // Find primary phone number
+            $phoneNumber = null;
+            foreach ($this->crmContactLinks as $link) {
+                $contact = $link->contact;
+                if (!$contact) continue;
+
+                $phoneNumber = $contact->phoneNumbers
+                    ->where('is_active', true)
+                    ->where('is_primary', true)
+                    ->whereNotNull('international')
+                    ->first();
+
+                if (!$phoneNumber) {
+                    $phoneNumber = $contact->phoneNumbers
+                        ->where('is_active', true)
+                        ->whereNotNull('international')
+                        ->first();
+                }
+
+                if ($phoneNumber) break;
+            }
+
+            if (!$phoneNumber) {
+                return false;
+            }
+
+            // Build components
+            $components = [];
+
+            // Body parameters
+            $bodyParams = [];
+            foreach ($template->components ?? [] as $component) {
+                if (($component['type'] ?? '') !== 'BODY') continue;
+
+                $text = $component['text'] ?? '';
+                $examplesByName = [];
+                foreach ($component['example']['body_text_named_params'] ?? [] as $np) {
+                    $examplesByName[$np['param_name']] = $np['example'] ?? '';
+                }
+                $positionalExamples = $component['example']['body_text'][0] ?? [];
+
+                preg_match_all('/\{\{(\w+)\}\}/', $text, $matches);
+                foreach ($matches[1] as $i => $paramName) {
+                    $bodyParams[] = [
+                        'name' => $paramName,
+                        'example' => $examplesByName[$paramName] ?? $positionalExamples[$i] ?? '',
+                    ];
+                }
+            }
+
+            if (!empty($bodyParams)) {
+                $contactName = $this->getContact()?->full_name ?? 'Bewerber/in';
+                $bodyParameters = [];
+                foreach ($bodyParams as $param) {
+                    $value = match (strtolower($param['name'])) {
+                        '1', 'name', 'vorname' => $contactName,
+                        default => $param['example'] ?: $contactName,
+                    };
+                    $paramEntry = ['type' => 'text', 'text' => $value];
+                    if (!is_numeric($param['name'])) {
+                        $paramEntry['parameter_name'] = $param['name'];
+                    }
+                    $bodyParameters[] = $paramEntry;
+                }
+                $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
+            }
+
+            // URL button with interview booking token (public_token)
+            $hasUrlButton = collect($template->components ?? [])
+                ->where('type', 'BUTTONS')
+                ->flatMap(fn ($c) => $c['buttons'] ?? [])
+                ->contains('type', 'URL');
+
+            if ($hasUrlButton && $this->public_token) {
+                $components[] = [
+                    'type' => 'button',
+                    'sub_type' => 'url',
+                    'index' => 0,
+                    'parameters' => [['type' => 'text', 'text' => $this->public_token]],
+                ];
+            }
+
+            // Send
+            $service = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class);
+            $message = $service->sendTemplate(
+                channel: $channel,
+                to: $phoneNumber->international,
+                templateName: $template->name,
+                components: $components,
+                languageCode: $template->language,
+            );
+
+            // Link thread to applicant
+            if ($thread = $message->thread ?? null) {
+                $thread->addContext($this->getMorphClass(), $this->id, 'interview_booking');
+            }
+
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'interview_booking_sent',
+                'summary' => 'Interview-Buchungslink per WhatsApp gesendet.',
+            ]);
+
+            return true;
+        } catch (\Throwable $e) {
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => 'error',
+                    'summary' => 'Interview-Booking WA-Fehler: ' . $e->getMessage(),
+                ]);
+            } catch (\Throwable) {}
+
+            return false;
+        }
     }
 
     public function calculateProgress(): int
