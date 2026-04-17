@@ -215,7 +215,7 @@
                             <div class="flex items-center gap-2 mb-4">
                                 <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-bold rounded-full bg-blue-100 text-blue-700">{{ $phase->order }}</span>
                                 <h3 class="text-base font-semibold text-[var(--ui-secondary)]">{{ $phase->name }}</h3>
-                                <span class="text-xs text-[var(--ui-muted)]">{{ $phase->extraFieldDefinitions()->count() }} Felder</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $phase->getExtraFieldDefinitions()->count() }} Felder</span>
                                 @if($phase->auto_advance)
                                     <x-ui-badge variant="success" size="xs">Auto-Advance</x-ui-badge>
                                 @endif
