@@ -787,12 +787,37 @@ class EnrichInboxApplicants extends Command
 
             $this->line("  WhatsApp: Sende Template '{$templateName}' an {$phoneNumber}...");
 
+            // Build components — body params from applicant context
+            $components = [];
+            if ($template) {
+                $bodyParams = $this->parseTemplateBodyParams($template->components ?? []);
+                if (!empty($bodyParams)) {
+                    $contactName = $this->getContactName($applicant);
+                    $bodyParameters = [];
+                    foreach ($bodyParams as $param) {
+                        $value = match (strtolower($param['name'])) {
+                            '1', 'name', 'vorname' => $contactName,
+                            default => $param['example'] ?: $contactName,
+                        };
+                        $paramEntry = ['type' => 'text', 'text' => $value];
+                        if (!is_numeric($param['name'])) {
+                            $paramEntry['parameter_name'] = $param['name'];
+                        }
+                        $bodyParameters[] = $paramEntry;
+                    }
+                    $components[] = [
+                        'type' => 'body',
+                        'parameters' => $bodyParameters,
+                    ];
+                }
+            }
+
             $whatsAppService = app(WhatsAppMetaService::class);
             $message = $whatsAppService->sendTemplate(
                 channel: $whatsAppChannel,
                 to: $phoneNumber,
                 templateName: $templateName,
-                components: [],
+                components: $components,
                 languageCode: $templateLang,
             );
 
@@ -1102,5 +1127,43 @@ class EnrichInboxApplicants extends Command
         }
 
         return $teamSettings->getSetting($key, $default);
+    }
+
+    private function getContactName(RecApplicant $applicant): string
+    {
+        foreach ($applicant->crmContactLinks as $link) {
+            $name = $link->contact?->full_name;
+            if ($name) return $name;
+        }
+        return 'Bewerber/in';
+    }
+
+    private function parseTemplateBodyParams(array $components): array
+    {
+        $params = [];
+        foreach ($components as $component) {
+            if (($component['type'] ?? '') !== 'BODY') {
+                continue;
+            }
+
+            $text = $component['text'] ?? '';
+
+            $examplesByName = [];
+            $namedParams = $component['example']['body_text_named_params'] ?? [];
+            foreach ($namedParams as $np) {
+                $examplesByName[$np['param_name']] = $np['example'] ?? '';
+            }
+            $positionalExamples = $component['example']['body_text'][0] ?? [];
+
+            preg_match_all('/\{\{(\w+)\}\}/', $text, $matches);
+
+            foreach ($matches[1] as $i => $paramName) {
+                $params[] = [
+                    'name' => $paramName,
+                    'example' => $examplesByName[$paramName] ?? $positionalExamples[$i] ?? '',
+                ];
+            }
+        }
+        return $params;
     }
 }

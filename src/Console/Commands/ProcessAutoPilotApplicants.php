@@ -334,8 +334,34 @@ class ProcessAutoPilotApplicants extends Command
                 return false;
             }
 
-            // Build components: only add URL button params if template has a URL button
+            // Build components
             $components = [];
+
+            // Body parameters — auto-fill from applicant context
+            if ($template) {
+                $bodyParams = $this->parseTemplateBodyParams($template->components ?? []);
+                if (!empty($bodyParams)) {
+                    $contactName = $this->getContactName($applicant);
+                    $bodyParameters = [];
+                    foreach ($bodyParams as $param) {
+                        $value = match (strtolower($param['name'])) {
+                            '1', 'name', 'vorname' => $contactName,
+                            default => $param['example'] ?: $contactName,
+                        };
+                        $paramEntry = ['type' => 'text', 'text' => $value];
+                        if (!is_numeric($param['name'])) {
+                            $paramEntry['parameter_name'] = $param['name'];
+                        }
+                        $bodyParameters[] = $paramEntry;
+                    }
+                    $components[] = [
+                        'type' => 'body',
+                        'parameters' => $bodyParameters,
+                    ];
+                }
+            }
+
+            // URL button params
             if ($template && $formToken) {
                 $hasUrlButton = collect($template->components ?? [])
                     ->where('type', 'BUTTONS')
@@ -566,6 +592,35 @@ class ProcessAutoPilotApplicants extends Command
     private function extractFormToken(string $publicUrl): string
     {
         return basename(parse_url($publicUrl, PHP_URL_PATH));
+    }
+
+    private function parseTemplateBodyParams(array $components): array
+    {
+        $params = [];
+        foreach ($components as $component) {
+            if (($component['type'] ?? '') !== 'BODY') {
+                continue;
+            }
+
+            $text = $component['text'] ?? '';
+
+            $examplesByName = [];
+            $namedParams = $component['example']['body_text_named_params'] ?? [];
+            foreach ($namedParams as $np) {
+                $examplesByName[$np['param_name']] = $np['example'] ?? '';
+            }
+            $positionalExamples = $component['example']['body_text'][0] ?? [];
+
+            preg_match_all('/\{\{(\w+)\}\}/', $text, $matches);
+
+            foreach ($matches[1] as $i => $paramName) {
+                $params[] = [
+                    'name' => $paramName,
+                    'example' => $examplesByName[$paramName] ?? $positionalExamples[$i] ?? '',
+                ];
+            }
+        }
+        return $params;
     }
 
     private function impersonateForTask(User $user, ?Team $team): void
