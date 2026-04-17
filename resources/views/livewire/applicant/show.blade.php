@@ -68,6 +68,22 @@
                         @svg('heroicon-o-paper-airplane', 'w-4 h-4 text-emerald-600')
                         <span class="text-xs font-medium text-emerald-700">Template senden</span>
                     </button>
+                    <button
+                        wire:click="sendInterviewBookingLink"
+                        wire:loading.attr="disabled"
+                        wire:target="sendInterviewBookingLink"
+                        class="flex items-center gap-2 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                        title="Interview-Buchungslink per WhatsApp senden"
+                    >
+                        <span wire:loading.remove wire:target="sendInterviewBookingLink" class="flex items-center gap-2">
+                            @svg('heroicon-o-calendar-days', 'w-4 h-4 text-blue-600')
+                            <span class="text-xs font-medium text-blue-700">Interview-Link</span>
+                        </span>
+                        <span wire:loading wire:target="sendInterviewBookingLink" class="flex items-center gap-2">
+                            <svg class="animate-spin w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            <span class="text-xs font-medium text-blue-700">Senden...</span>
+                        </span>
+                    </button>
                     <div
                         x-data="{ copied: false }"
                         class="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg cursor-pointer transition-colors"

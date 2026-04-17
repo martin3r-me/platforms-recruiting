@@ -378,6 +378,17 @@ class Show extends Component
             ->toArray();
     }
 
+    public function sendInterviewBookingLink(): void
+    {
+        $sent = $this->applicant->sendInterviewBookingNotification();
+
+        if ($sent) {
+            session()->flash('message', 'Interview-Buchungslink per WhatsApp gesendet.');
+        } else {
+            session()->flash('error', 'Interview-Link konnte nicht gesendet werden. Bitte prüfe ob ein Interview-Booking-Template und ein WhatsApp-Account konfiguriert sind.');
+        }
+    }
+
     public function openTemplateModal(): void
     {
         $this->selectedTemplateId = null;
