@@ -32,7 +32,7 @@ class Show extends Component
 
     public function rules(): array
     {
-        return array_merge([
+        return [
             'position.title' => 'required|string|max:255',
             'position.description' => 'nullable|string',
             'position.department' => 'nullable|string|max:255',
