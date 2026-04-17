@@ -402,8 +402,15 @@ class Show extends Component
 
         $this->templateBodyParamDefs = $this->parseTemplateBodyParams($template->components ?? []);
 
+        // Auto-prefill known parameters from CRM contact
+        $contact = $this->applicant->getContact();
+        $contactName = $contact?->full_name ?? '';
+
         foreach ($this->templateBodyParamDefs as $param) {
-            $this->templateParams[$param['name']] = '';
+            $this->templateParams[$param['name']] = match (strtolower($param['name'])) {
+                '1', 'name', 'vorname' => $contactName,
+                default => '',
+            };
         }
     }
 

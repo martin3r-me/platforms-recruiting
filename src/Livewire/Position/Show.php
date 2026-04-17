@@ -48,6 +48,7 @@ class Show extends Component
             'autoPilotSettings.auto_pilot_reminder_interval_hours' => 'nullable|integer|min:1|max:168',
             'autoPilotSettings.auto_pilot_max_reminders' => 'nullable|integer|min:1|max:10',
             'autoPilotSettings.auto_start_auto_pilot' => 'nullable|boolean',
+            'autoPilotSettings.interview_booking_wa_template_id' => 'nullable|integer',
             'phaseAutoPilotSettings.*.auto_pilot_wa_initial_template_id' => 'nullable|integer',
             'phaseAutoPilotSettings.*.auto_pilot_wa_reminder_template_id' => 'nullable|integer',
         ];

@@ -164,6 +164,25 @@
                             wire:model.live="autoPilotSettings.auto_pilot_wa_reminder_template_id"
                         />
                     </div>
+                    {{-- Interview Booking Template --}}
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-[var(--ui-secondary)]">WhatsApp Template — Interview Buchung</label>
+                            @if(isset($autoPilotSettings['interview_booking_wa_template_id']))
+                                <button wire:click="clearAutoPilotSetting('interview_booking_wa_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                            @endif
+                        </div>
+                        <x-ui-input-select
+                            name="autoPilotSettings.interview_booking_wa_template_id"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="Team-Default verwenden"
+                            wire:model.live="autoPilotSettings.interview_booking_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Wird gesendet wenn alle Phasen abgeschlossen sind.</p>
+                    </div>
                 @endif
 
                 {{-- Reminder Interval --}}
