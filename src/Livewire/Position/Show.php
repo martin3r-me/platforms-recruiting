@@ -17,6 +17,8 @@ class Show extends Component
     public RecPosition $position;
     public array $autoPilotSettings = [];
     public array $autoPilotSettingsOriginal = [];
+    public array $phaseAutoPilotSettings = [];
+    public array $phaseAutoPilotSettingsOriginal = [];
 
     public function mount(RecPosition $position)
     {
@@ -28,6 +30,12 @@ class Show extends Component
         }
         $this->autoPilotSettings = $this->position->auto_pilot_settings ?? [];
         $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
+
+        // Load phase-level AutoPilot settings
+        foreach ($this->position->phases as $phase) {
+            $this->phaseAutoPilotSettings[$phase->id] = $phase->auto_pilot_settings ?? [];
+        }
+        $this->phaseAutoPilotSettingsOriginal = $this->phaseAutoPilotSettings;
     }
 
     public function rules(): array
@@ -48,6 +56,8 @@ class Show extends Component
             'autoPilotSettings.auto_pilot_reminder_interval_hours' => 'nullable|integer|min:1|max:168',
             'autoPilotSettings.auto_pilot_max_reminders' => 'nullable|integer|min:1|max:10',
             'autoPilotSettings.auto_start_auto_pilot' => 'nullable|boolean',
+            'phaseAutoPilotSettings.*.auto_pilot_wa_initial_template_id' => 'nullable|integer',
+            'phaseAutoPilotSettings.*.auto_pilot_wa_reminder_template_id' => 'nullable|integer',
         ], $this->getExtraFieldValidationRules());
     }
 
@@ -84,12 +94,32 @@ class Show extends Component
             $this->saveExtraFieldValues($firstPhase);
         }
         $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
+
+        // Save phase-level AutoPilot settings
+        foreach ($this->phaseAutoPilotSettings as $phaseId => $settings) {
+            $phase = RecPhase::find($phaseId);
+            if (!$phase || (int)$phase->rec_position_id !== (int)$this->position->id) {
+                continue;
+            }
+            $cleanedPhase = collect($settings)
+                ->filter(fn ($value) => $value !== null && $value !== '')
+                ->all();
+            $phase->auto_pilot_settings = !empty($cleanedPhase) ? $cleanedPhase : null;
+            $phase->save();
+        }
+        $this->phaseAutoPilotSettingsOriginal = $this->phaseAutoPilotSettings;
+
         session()->flash('message', 'Stelle erfolgreich aktualisiert.');
     }
 
     public function clearAutoPilotSetting(string $key): void
     {
         unset($this->autoPilotSettings[$key]);
+    }
+
+    public function clearPhaseAutoPilotSetting(int $phaseId, string $key): void
+    {
+        unset($this->phaseAutoPilotSettings[$phaseId][$key]);
     }
 
     public function deletePosition(): void
@@ -172,7 +202,7 @@ class Show extends Component
     #[Computed]
     public function isDirty()
     {
-        return $this->position->isDirty() || $this->isExtraFieldsDirty() || $this->autoPilotSettings !== $this->autoPilotSettingsOriginal;
+        return $this->position->isDirty() || $this->isExtraFieldsDirty() || $this->autoPilotSettings !== $this->autoPilotSettingsOriginal || $this->phaseAutoPilotSettings !== $this->phaseAutoPilotSettingsOriginal;
     }
 
     #[Computed]
