@@ -43,8 +43,6 @@
             </div>
         </div>
 
-        <x-core-extra-fields-section :definitions="$extraFieldDefinitions" :model="$position" />
-
         {{-- AutoPilot Settings --}}
         <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
             <div class="flex items-center gap-2 mb-2">
@@ -145,7 +143,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="Team-Default verwenden"
-                            wire:model="autoPilotSettings.auto_pilot_wa_initial_template_id"
+                            wire:model.live="autoPilotSettings.auto_pilot_wa_initial_template_id"
                         />
                     </div>
 
@@ -163,7 +161,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="Team-Default verwenden"
-                            wire:model="autoPilotSettings.auto_pilot_wa_reminder_template_id"
+                            wire:model.live="autoPilotSettings.auto_pilot_wa_reminder_template_id"
                         />
                     </div>
                 @endif
@@ -177,7 +175,7 @@
                         @endif
                     </div>
                     <input type="number"
-                           wire:model="autoPilotSettings.auto_pilot_reminder_interval_hours"
+                           wire:model.live="autoPilotSettings.auto_pilot_reminder_interval_hours"
                            min="1" max="168"
                            placeholder="Team-Default verwenden"
                            class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
@@ -192,7 +190,7 @@
                         @endif
                     </div>
                     <input type="number"
-                           wire:model="autoPilotSettings.auto_pilot_max_reminders"
+                           wire:model.live="autoPilotSettings.auto_pilot_max_reminders"
                            min="1" max="10"
                            placeholder="Team-Default verwenden"
                            class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
@@ -262,7 +260,7 @@
                                                 optionLabel="label"
                                                 :nullable="true"
                                                 nullLabel="Stellen-/Team-Default"
-                                                wire:model="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_initial_template_id"
+                                                wire:model.live="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_initial_template_id"
                                             />
                                         </div>
 
@@ -281,7 +279,7 @@
                                                 optionLabel="label"
                                                 :nullable="true"
                                                 nullLabel="Stellen-/Team-Default"
-                                                wire:model="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_reminder_template_id"
+                                                wire:model.live="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_reminder_template_id"
                                             />
                                         </div>
                                     </div>

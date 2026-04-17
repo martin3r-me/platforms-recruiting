@@ -4,7 +4,6 @@ namespace Platform\Recruiting\Livewire\Position;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
-use Platform\Core\Livewire\Concerns\WithExtraFields;
 use Illuminate\Support\Facades\Auth;
 use Platform\Hcm\Models\HcmJobTitle;
 use Platform\Recruiting\Models\RecPhase;
@@ -12,8 +11,6 @@ use Platform\Recruiting\Models\RecPosition;
 
 class Show extends Component
 {
-    use WithExtraFields;
-
     public RecPosition $position;
     public array $autoPilotSettings = [];
     public array $autoPilotSettingsOriginal = [];
@@ -23,11 +20,6 @@ class Show extends Component
     public function mount(RecPosition $position)
     {
         $this->position = $position->load(['postings', 'ownedByUser', 'createdByUser', 'jobTitle', 'phases']);
-        // Load extra fields from first phase (if exists)
-        $firstPhase = $this->position->firstPhase();
-        if ($firstPhase) {
-            $this->loadExtraFieldValues($firstPhase);
-        }
         $this->autoPilotSettings = $this->position->auto_pilot_settings ?? [];
         $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
 
@@ -58,7 +50,7 @@ class Show extends Component
             'autoPilotSettings.auto_start_auto_pilot' => 'nullable|boolean',
             'phaseAutoPilotSettings.*.auto_pilot_wa_initial_template_id' => 'nullable|integer',
             'phaseAutoPilotSettings.*.auto_pilot_wa_reminder_template_id' => 'nullable|integer',
-        ], $this->getExtraFieldValidationRules());
+        ];
     }
 
     public function save(): void
@@ -88,11 +80,6 @@ class Show extends Component
 
         $this->position->auto_pilot_settings = !empty($cleaned) ? $cleaned : null;
         $this->position->save();
-        // Save extra fields to first phase
-        $firstPhase = $this->position->firstPhase();
-        if ($firstPhase) {
-            $this->saveExtraFieldValues($firstPhase);
-        }
         $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
 
         // Save phase-level AutoPilot settings
@@ -202,21 +189,13 @@ class Show extends Component
     #[Computed]
     public function isDirty()
     {
-        return $this->position->isDirty() || $this->isExtraFieldsDirty() || $this->autoPilotSettings !== $this->autoPilotSettingsOriginal || $this->phaseAutoPilotSettings !== $this->phaseAutoPilotSettingsOriginal;
+        return $this->position->isDirty() || $this->autoPilotSettings !== $this->autoPilotSettingsOriginal || $this->phaseAutoPilotSettings !== $this->phaseAutoPilotSettingsOriginal;
     }
 
     #[Computed]
     public function phases()
     {
         return $this->position->phases()->active()->orderBy('order')->get();
-    }
-
-    public function rendered(): void
-    {
-        $this->dispatch('extrafields', [
-            'context_type' => RecPhase::class,
-            'context_id' => null,
-        ]);
     }
 
     public function render()
