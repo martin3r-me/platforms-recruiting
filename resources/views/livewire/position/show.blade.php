@@ -200,66 +200,93 @@
             </div>
         </div>
 
-        {{-- Phase-spezifische AutoPilot Templates --}}
-        @if($this->phases->count() > 0 && !empty($this->availableWhatsAppTemplates))
+        {{-- Phasen-Übersicht mit Extra-Feldern und Templates --}}
+        @if($this->phases->count() > 0)
             <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
                 <div class="flex items-center gap-2 mb-2">
                     @svg('heroicon-o-queue-list', 'w-6 h-6 text-blue-600')
-                    <h2 class="text-xl font-bold text-[var(--ui-secondary)]">Phasen — WhatsApp Templates</h2>
+                    <h2 class="text-xl font-bold text-[var(--ui-secondary)]">Phasen</h2>
                 </div>
-                <p class="text-sm text-[var(--ui-muted)] mb-6">Pro Phase ein eigenes Template hinterlegen. Leere Felder nutzen die Stellen- oder Team-Standardwerte.</p>
+                <p class="text-sm text-[var(--ui-muted)] mb-6">Phasen dieser Stelle mit Extra-Feldern und optionalen Template-Overrides.</p>
 
                 <div class="space-y-6">
                     @foreach($this->phases as $phase)
+                        @php $phaseFields = $phase->getExtraFieldDefinitions(); @endphp
                         <div class="p-5 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
                             <div class="flex items-center gap-2 mb-4">
                                 <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-bold rounded-full bg-blue-100 text-blue-700">{{ $phase->order }}</span>
                                 <h3 class="text-base font-semibold text-[var(--ui-secondary)]">{{ $phase->name }}</h3>
-                                <span class="text-xs text-[var(--ui-muted)]">{{ $phase->getExtraFieldDefinitions()->count() }} Felder</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $phaseFields->count() }} Felder</span>
                                 @if($phase->auto_advance)
                                     <x-ui-badge variant="success" size="xs">Auto-Advance</x-ui-badge>
                                 @endif
                             </div>
 
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {{-- Initial Template --}}
-                                <div>
-                                    <div class="flex items-center justify-between mb-1">
-                                        <label class="block text-sm font-medium text-[var(--ui-secondary)]">Erstkontakt-Template</label>
-                                        @if(isset($phaseAutoPilotSettings[$phase->id]['auto_pilot_wa_initial_template_id']))
-                                            <button wire:click="clearPhaseAutoPilotSetting({{ $phase->id }}, 'auto_pilot_wa_initial_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Stellen-Default</button>
-                                        @endif
+                            {{-- Extra-Felder Liste --}}
+                            @if($phaseFields->count() > 0)
+                                <div class="mb-4">
+                                    <h4 class="text-xs font-semibold text-[var(--ui-muted)] uppercase tracking-wider mb-2">Extra-Felder</h4>
+                                    <div class="flex flex-wrap gap-1.5">
+                                        @foreach($phaseFields as $field)
+                                            <span class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border {{ $field->is_required ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600' }}">
+                                                {{ $field->label }}
+                                                <span class="text-[10px] opacity-60">({{ $field->type }})</span>
+                                                @if($field->is_required)
+                                                    <span class="text-red-400">*</span>
+                                                @endif
+                                            </span>
+                                        @endforeach
                                     </div>
-                                    <x-ui-input-select
-                                        name="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_initial_template_id"
-                                        :options="$this->availableWhatsAppTemplates"
-                                        optionValue="id"
-                                        optionLabel="label"
-                                        :nullable="true"
-                                        nullLabel="Stellen-/Team-Default verwenden"
-                                        wire:model="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_initial_template_id"
-                                    />
                                 </div>
+                            @else
+                                <p class="text-sm text-[var(--ui-muted)] mb-4">Keine Extra-Felder definiert.</p>
+                            @endif
 
-                                {{-- Reminder Template --}}
-                                <div>
-                                    <div class="flex items-center justify-between mb-1">
-                                        <label class="block text-sm font-medium text-[var(--ui-secondary)]">Erinnerungs-Template</label>
-                                        @if(isset($phaseAutoPilotSettings[$phase->id]['auto_pilot_wa_reminder_template_id']))
-                                            <button wire:click="clearPhaseAutoPilotSetting({{ $phase->id }}, 'auto_pilot_wa_reminder_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Stellen-Default</button>
-                                        @endif
+                            {{-- WA Template Overrides --}}
+                            @if(!empty($this->availableWhatsAppTemplates))
+                                <div class="pt-4 border-t border-[var(--ui-border)]/30">
+                                    <h4 class="text-xs font-semibold text-[var(--ui-muted)] uppercase tracking-wider mb-3">WhatsApp Templates</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {{-- Initial Template --}}
+                                        <div>
+                                            <div class="flex items-center justify-between mb-1">
+                                                <label class="block text-sm font-medium text-[var(--ui-secondary)]">Erstkontakt</label>
+                                                @if(isset($phaseAutoPilotSettings[$phase->id]['auto_pilot_wa_initial_template_id']))
+                                                    <button wire:click="clearPhaseAutoPilotSetting({{ $phase->id }}, 'auto_pilot_wa_initial_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Stellen-Default</button>
+                                                @endif
+                                            </div>
+                                            <x-ui-input-select
+                                                name="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_initial_template_id"
+                                                :options="$this->availableWhatsAppTemplates"
+                                                optionValue="id"
+                                                optionLabel="label"
+                                                :nullable="true"
+                                                nullLabel="Stellen-/Team-Default"
+                                                wire:model="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_initial_template_id"
+                                            />
+                                        </div>
+
+                                        {{-- Reminder Template --}}
+                                        <div>
+                                            <div class="flex items-center justify-between mb-1">
+                                                <label class="block text-sm font-medium text-[var(--ui-secondary)]">Erinnerung</label>
+                                                @if(isset($phaseAutoPilotSettings[$phase->id]['auto_pilot_wa_reminder_template_id']))
+                                                    <button wire:click="clearPhaseAutoPilotSetting({{ $phase->id }}, 'auto_pilot_wa_reminder_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Stellen-Default</button>
+                                                @endif
+                                            </div>
+                                            <x-ui-input-select
+                                                name="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_reminder_template_id"
+                                                :options="$this->availableWhatsAppTemplates"
+                                                optionValue="id"
+                                                optionLabel="label"
+                                                :nullable="true"
+                                                nullLabel="Stellen-/Team-Default"
+                                                wire:model="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_reminder_template_id"
+                                            />
+                                        </div>
                                     </div>
-                                    <x-ui-input-select
-                                        name="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_reminder_template_id"
-                                        :options="$this->availableWhatsAppTemplates"
-                                        optionValue="id"
-                                        optionLabel="label"
-                                        :nullable="true"
-                                        nullLabel="Stellen-/Team-Default verwenden"
-                                        wire:model="phaseAutoPilotSettings.{{ $phase->id }}.auto_pilot_wa_reminder_template_id"
-                                    />
                                 </div>
-                            </div>
+                            @endif
                         </div>
                     @endforeach
                 </div>
