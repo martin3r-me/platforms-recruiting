@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
@@ -19,6 +20,7 @@ class Dashboard extends Component
 
     public bool $showParked = false;
     public ?int $positionFilter = null;
+    public ?int $phaseFilter = null;
     public ?string $filterMonth = null;
 
     public function mount(): void
@@ -32,6 +34,10 @@ class Dashboard extends Component
             ->where('is_active', true)
             ->where('is_parked', $this->showParked);
         $this->applyPositionFilter($query);
+
+        if ($this->phaseFilter) {
+            $query->where('rec_phase_id', $this->phaseFilter);
+        }
 
         if ($this->filterMonth) {
             $start = \Carbon\Carbon::createFromFormat('Y-m', $this->filterMonth)->startOfMonth();
@@ -54,17 +60,22 @@ class Dashboard extends Component
     #[Computed]
     public function phases()
     {
-        if (!$this->positionFilter) return collect();
-        $position = RecPosition::find($this->positionFilter);
-        return $position?->phases()->active()->ordered()->get() ?? collect();
+        if ($this->positionFilter) {
+            $position = RecPosition::find($this->positionFilter);
+            return $position?->phases()->active()->ordered()->get() ?? collect();
+        }
+
+        return RecPhase::forTeam(auth()->user()->currentTeam->id)
+            ->active()
+            ->with('position')
+            ->ordered()
+            ->get();
     }
 
     #[Computed]
     public function phasedApplicants()
     {
-        if (!$this->positionFilter) return [];
-
-        $enrichedApplicants = $this->applicantBaseQuery()
+        $query = $this->applicantBaseQuery()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
             ->with([
@@ -75,8 +86,14 @@ class Dashboard extends Component
                 'preferredCommsChannel',
                 'phase',
             ])
-            ->orderByDesc('created_at')
-            ->get();
+            ->orderByDesc('created_at');
+
+        // Without positionFilter: only include applicants that have NOT completed (same as activeApplicants)
+        if (!$this->positionFilter) {
+            $query->whereNull('auto_pilot_completed_at');
+        }
+
+        $enrichedApplicants = $query->get();
 
         $grouped = [];
         foreach ($this->phases as $phase) {
@@ -361,15 +378,9 @@ class Dashboard extends Component
     #[Computed]
     public function autoPilotProcessingIds()
     {
-        if ($this->positionFilter) {
-            return collect($this->phasedApplicants)
-                ->flatten()
-                ->filter(fn ($a) => $a->auto_pilot && !$a->auto_pilot_completed_at)
-                ->pluck('id')
-                ->toArray();
-        }
-        return $this->activeApplicants
-            ->filter(fn ($a) => $a->auto_pilot)
+        return collect($this->phasedApplicants)
+            ->flatten()
+            ->filter(fn ($a) => $a->auto_pilot && !$a->auto_pilot_completed_at)
             ->pluck('id')
             ->toArray();
     }
@@ -485,6 +496,12 @@ class Dashboard extends Component
     }
 
     public function updatedPositionFilter(): void
+    {
+        $this->phaseFilter = null;
+        $this->refreshDashboard();
+    }
+
+    public function updatedPhaseFilter(): void
     {
         $this->refreshDashboard();
     }
