@@ -32,7 +32,7 @@
                             class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
                         <option value="">Alle Phasen</option>
                         @foreach($this->phases as $phase)
-                            <option value="{{ $phase->id }}">{{ $phase->name }}</option>
+                            <option value="{{ $this->positionFilter ? $phase->id : $phase->order }}">{{ $phase->name }}</option>
                         @endforeach
                     </select>
                 @endif
@@ -463,9 +463,9 @@
 
         {{-- Phasen-Panels (immer gruppiert) --}}
         @foreach($this->phases as $phase)
-            @if(!$this->phaseFilter || $this->phaseFilter == $phase->id)
+            @if(!$this->phaseFilter || $this->phaseFilter == ($this->positionFilter ? $phase->id : $phase->order))
                 @php $phaseApplicants = $this->phasedApplicants[$phase->id] ?? collect(); @endphp
-                <x-ui-panel :title="$phase->name . ($phase->position ? ' — ' . $phase->position->title : '')" :subtitle="'Phase ' . $phase->order . ' · ' . count($phaseApplicants) . ' Bewerber'">
+                <x-ui-panel :title="$phase->name" :subtitle="'Phase ' . $phase->order . ' · ' . count($phaseApplicants) . ' Bewerber'">
                     <div class="overflow-x-auto">
                         <table class="w-full table-auto border-collapse text-sm">
                             <thead>

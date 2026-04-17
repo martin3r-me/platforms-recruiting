@@ -36,7 +36,16 @@ class Dashboard extends Component
         $this->applyPositionFilter($query);
 
         if ($this->phaseFilter) {
-            $query->where('rec_phase_id', $this->phaseFilter);
+            if ($this->positionFilter) {
+                $query->where('rec_phase_id', $this->phaseFilter);
+            } else {
+                // phaseFilter is phase order — resolve all phase IDs with that order
+                $phaseIds = RecPhase::forTeam(auth()->user()->currentTeam->id)
+                    ->active()
+                    ->where('order', $this->phaseFilter)
+                    ->pluck('id');
+                $query->whereIn('rec_phase_id', $phaseIds);
+            }
         }
 
         if ($this->filterMonth) {
@@ -65,11 +74,20 @@ class Dashboard extends Component
             return $position?->phases()->active()->ordered()->get() ?? collect();
         }
 
+        // Without position filter: distinct phase orders across all positions
         return RecPhase::forTeam(auth()->user()->currentTeam->id)
             ->active()
-            ->with('position')
             ->ordered()
-            ->get();
+            ->get()
+            ->groupBy('order')
+            ->map(fn ($group) => (object) [
+                'id' => 'order_' . $group->first()->order,
+                'name' => $group->first()->name,
+                'order' => $group->first()->order,
+                'auto_advance' => $group->first()->auto_advance,
+                'phase_ids' => $group->pluck('id')->toArray(),
+            ])
+            ->values();
     }
 
     #[Computed]
@@ -96,10 +114,20 @@ class Dashboard extends Component
         $enrichedApplicants = $query->get();
 
         $grouped = [];
-        foreach ($this->phases as $phase) {
-            $grouped[$phase->id] = $enrichedApplicants
-                ->filter(fn ($a) => $a->rec_phase_id === $phase->id)
-                ->values();
+        if ($this->positionFilter) {
+            // Group by actual phase ID
+            foreach ($this->phases as $phase) {
+                $grouped[$phase->id] = $enrichedApplicants
+                    ->filter(fn ($a) => $a->rec_phase_id === $phase->id)
+                    ->values();
+            }
+        } else {
+            // Group by phase order (aggregated across positions)
+            foreach ($this->phases as $phase) {
+                $grouped[$phase->id] = $enrichedApplicants
+                    ->filter(fn ($a) => in_array($a->rec_phase_id, $phase->phase_ids))
+                    ->values();
+            }
         }
 
         return $grouped;
