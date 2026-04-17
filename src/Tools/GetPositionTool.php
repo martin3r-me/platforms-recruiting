@@ -56,7 +56,7 @@ class GetPositionTool implements ToolContract, ToolMetadataContract
             }
 
             $position = RecPosition::query()
-                ->with(['postings'])
+                ->with(['postings', 'phases'])
                 ->where('team_id', $teamId)
                 ->find($positionId);
 
@@ -79,6 +79,13 @@ class GetPositionTool implements ToolContract, ToolMetadataContract
                     'is_active' => (bool)$p->is_active,
                     'published_at' => $p->published_at?->toISOString(),
                     'closes_at' => $p->closes_at?->toISOString(),
+                ])->values()->toArray(),
+                'phases' => $position->phases->map(fn ($ph) => [
+                    'id' => $ph->id,
+                    'name' => $ph->name,
+                    'order' => $ph->order,
+                    'is_active' => (bool)$ph->is_active,
+                    'auto_advance' => (bool)$ph->auto_advance,
                 ])->values()->toArray(),
                 'applicant_count' => $position->applicantCount(),
                 'team_id' => $position->team_id,
