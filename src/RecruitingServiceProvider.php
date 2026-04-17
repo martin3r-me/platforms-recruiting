@@ -255,6 +255,13 @@ class RecruitingServiceProvider extends ServiceProvider
             $registry->register(new \Platform\Recruiting\Tools\CreateInterviewBookingTool());
             $registry->register(new \Platform\Recruiting\Tools\UpdateInterviewBookingTool());
             $registry->register(new \Platform\Recruiting\Tools\DeleteInterviewBookingTool());
+
+            // Phases (CRUD + Extra Fields)
+            $registry->register(new \Platform\Recruiting\Tools\ListPhasesTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreatePhaseTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdatePhaseTool());
+            $registry->register(new \Platform\Recruiting\Tools\DeletePhaseTool());
+            $registry->register(new \Platform\Recruiting\Tools\ManagePhaseExtraFieldsTool());
         } catch (\Throwable $e) {
             \Log::warning('Recruiting: Tool-Registrierung fehlgeschlagen', ['error' => $e->getMessage()]);
         }
