@@ -28,11 +28,10 @@
                     @endforeach
                 </select>
                 <div class="flex items-center gap-2">
-                    <input type="date" wire:model.live="dateFrom"
-                           class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]"
-                           placeholder="Ab Datum..." />
-                    @if($this->dateFrom)
-                        <button wire:click="$set('dateFrom', null)"
+                    <input type="month" wire:model.live="filterMonth"
+                           class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]" />
+                    @if($this->filterMonth)
+                        <button wire:click="$set('filterMonth', null)"
                                 class="text-xs text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] transition-colors">
                             @svg('heroicon-o-x-mark', 'w-4 h-4')
                         </button>
@@ -109,7 +108,7 @@
 
         {{-- Statistik nach Standort/Stelle --}}
         @if(!$this->showParked && count($this->positionStats) > 0)
-        <x-ui-panel title="Übersicht nach Stelle" :subtitle="$this->dateFrom ? 'Ab ' . \Carbon\Carbon::parse($this->dateFrom)->format('d.m.Y') : 'Alle Zeiträume'">
+        <x-ui-panel title="Übersicht nach Stelle" :subtitle="$this->filterMonth ? \Carbon\Carbon::createFromFormat('Y-m', $this->filterMonth)->translatedFormat('F Y') : 'Alle Zeiträume'">
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>

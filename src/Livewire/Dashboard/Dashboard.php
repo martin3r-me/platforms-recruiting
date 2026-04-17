@@ -19,7 +19,7 @@ class Dashboard extends Component
 
     public bool $showParked = false;
     public ?int $positionFilter = null;
-    public ?string $dateFrom = null;
+    public ?string $filterMonth = null;
 
     public function mount(): void
     {
@@ -33,8 +33,10 @@ class Dashboard extends Component
             ->where('is_parked', $this->showParked);
         $this->applyPositionFilter($query);
 
-        if ($this->dateFrom) {
-            $query->where('created_at', '>=', $this->dateFrom . ' 00:00:00');
+        if ($this->filterMonth) {
+            $start = \Carbon\Carbon::createFromFormat('Y-m', $this->filterMonth)->startOfMonth();
+            $end = $start->copy()->endOfMonth();
+            $query->whereBetween('created_at', [$start, $end]);
         }
 
         return $query;
@@ -126,8 +128,10 @@ class Dashboard extends Component
             ->where('is_parked', false)
             ->with(['postings.position', 'interviewBookings']);
 
-        if ($this->dateFrom) {
-            $query->where('created_at', '>=', $this->dateFrom . ' 00:00:00');
+        if ($this->filterMonth) {
+            $start = \Carbon\Carbon::createFromFormat('Y-m', $this->filterMonth)->startOfMonth();
+            $end = $start->copy()->endOfMonth();
+            $query->whereBetween('created_at', [$start, $end]);
         }
 
         $applicants = $query->get();
@@ -485,7 +489,7 @@ class Dashboard extends Component
         $this->refreshDashboard();
     }
 
-    public function updatedDateFrom(): void
+    public function updatedFilterMonth(): void
     {
         $this->refreshDashboard();
     }
