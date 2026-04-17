@@ -19,6 +19,7 @@ class Dashboard extends Component
 
     public bool $showParked = false;
     public ?int $positionFilter = null;
+    public ?string $dateFrom = null;
 
     public function mount(): void
     {
@@ -31,6 +32,11 @@ class Dashboard extends Component
             ->where('is_active', true)
             ->where('is_parked', $this->showParked);
         $this->applyPositionFilter($query);
+
+        if ($this->dateFrom) {
+            $query->where('created_at', '>=', $this->dateFrom . ' 00:00:00');
+        }
+
         return $query;
     }
 
@@ -108,6 +114,105 @@ class Dashboard extends Component
             return RecPosting::where('rec_position_id', $this->positionFilter)->active()->count();
         }
         return RecPosting::forTeam(auth()->user()->currentTeam->id)->active()->count();
+    }
+
+    #[Computed]
+    public function positionStats(): array
+    {
+        $teamId = auth()->user()->currentTeam->id;
+
+        $query = RecApplicant::forTeam($teamId)
+            ->where('is_active', true)
+            ->where('is_parked', false)
+            ->with(['postings.position', 'interviewBookings']);
+
+        if ($this->dateFrom) {
+            $query->where('created_at', '>=', $this->dateFrom . ' 00:00:00');
+        }
+
+        $applicants = $query->get();
+
+        $stats = [];
+        $noPosition = [];
+
+        foreach ($applicants as $applicant) {
+            $positions = $applicant->postings->map(fn ($p) => $p->position)->filter()->unique('id');
+
+            if ($positions->isEmpty()) {
+                $noPosition[] = $applicant;
+                continue;
+            }
+
+            foreach ($positions as $position) {
+                if (!isset($stats[$position->id])) {
+                    $stats[$position->id] = [
+                        'position_title' => $position->title,
+                        'total' => 0,
+                        'contacted' => 0,
+                        'completed' => 0,
+                        'booked' => 0,
+                        'confirmed' => 0,
+                    ];
+                }
+
+                $stats[$position->id]['total']++;
+
+                if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
+                    $stats[$position->id]['contacted']++;
+                }
+
+                if ($applicant->auto_pilot_completed_at) {
+                    $stats[$position->id]['completed']++;
+                }
+
+                $bookings = $applicant->interviewBookings;
+                if ($bookings->isNotEmpty()) {
+                    $stats[$position->id]['booked']++;
+
+                    if ($bookings->contains('status', 'confirmed')) {
+                        $stats[$position->id]['confirmed']++;
+                    }
+                }
+            }
+        }
+
+        // Sort by title
+        uasort($stats, fn ($a, $b) => strcasecmp($a['position_title'], $b['position_title']));
+
+        $result = array_values($stats);
+
+        // Add "Ohne Stelle" row if applicable
+        if (!empty($noPosition)) {
+            $row = [
+                'position_title' => 'Ohne Stelle',
+                'total' => 0,
+                'contacted' => 0,
+                'completed' => 0,
+                'booked' => 0,
+                'confirmed' => 0,
+            ];
+
+            foreach ($noPosition as $applicant) {
+                $row['total']++;
+                if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
+                    $row['contacted']++;
+                }
+                if ($applicant->auto_pilot_completed_at) {
+                    $row['completed']++;
+                }
+                $bookings = $applicant->interviewBookings;
+                if ($bookings->isNotEmpty()) {
+                    $row['booked']++;
+                    if ($bookings->contains('status', 'confirmed')) {
+                        $row['confirmed']++;
+                    }
+                }
+            }
+
+            $result[] = $row;
+        }
+
+        return $result;
     }
 
     #[Computed]
@@ -380,6 +485,11 @@ class Dashboard extends Component
         $this->refreshDashboard();
     }
 
+    public function updatedDateFrom(): void
+    {
+        $this->refreshDashboard();
+    }
+
     public function refreshDashboard(): void
     {
         unset(
@@ -397,6 +507,7 @@ class Dashboard extends Component
             $this->phases,
             $this->phasedApplicants,
             $this->availablePostings,
+            $this->positionStats,
         );
     }
 

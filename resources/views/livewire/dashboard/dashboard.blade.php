@@ -27,6 +27,17 @@
                         <option value="{{ $pos->id }}">{{ $pos->title }}</option>
                     @endforeach
                 </select>
+                <div class="flex items-center gap-2">
+                    <input type="date" wire:model.live="dateFrom"
+                           class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]"
+                           placeholder="Ab Datum..." />
+                    @if($this->dateFrom)
+                        <button wire:click="$set('dateFrom', null)"
+                                class="text-xs text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] transition-colors">
+                            @svg('heroicon-o-x-mark', 'w-4 h-4')
+                        </button>
+                    @endif
+                </div>
             </x-slot>
         </x-ui-page-actionbar>
     </x-slot>
@@ -94,6 +105,90 @@
                     </div>
                 </div>
             </div>
+        @endif
+
+        {{-- Statistik nach Standort/Stelle --}}
+        @if(!$this->showParked && count($this->positionStats) > 0)
+        <x-ui-panel title="Übersicht nach Stelle" :subtitle="$this->dateFrom ? 'Ab ' . \Carbon\Carbon::parse($this->dateFrom)->format('d.m.Y') : 'Alle Zeiträume'">
+            <div class="overflow-x-auto">
+                <table class="w-full table-auto border-collapse text-sm">
+                    <thead>
+                        <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
+                            <th class="px-4 py-3">Stelle</th>
+                            <th class="px-4 py-3 text-center">Bewerbungen</th>
+                            <th class="px-4 py-3 text-center">Kontaktdaten</th>
+                            <th class="px-4 py-3 text-center">Registriert</th>
+                            <th class="px-4 py-3 text-center">In Schulung</th>
+                            <th class="px-4 py-3 text-center">Bestätigt</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[var(--ui-border)]/60">
+                        @foreach($this->positionStats as $stat)
+                        <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
+                            <td class="px-4 py-2.5 font-medium text-[var(--ui-secondary)]">
+                                {{ $stat['position_title'] }}
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['total'] > 0 ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-400' }}">
+                                    {{ $stat['total'] }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['contacted'] > 0 ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-50 text-gray-400' }}">
+                                    {{ $stat['contacted'] }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['completed'] > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-gray-400' }}">
+                                    {{ $stat['completed'] }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['booked'] > 0 ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-400' }}">
+                                    {{ $stat['booked'] }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['confirmed'] > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-400' }}">
+                                    {{ $stat['confirmed'] }}
+                                </span>
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot>
+                        <tr class="font-bold border-t-2 border-[var(--ui-border)]">
+                            <td class="px-4 py-2.5 text-[var(--ui-secondary)]">Gesamt</td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-blue-100 text-blue-800">
+                                    {{ collect($this->positionStats)->sum('total') }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-indigo-100 text-indigo-800">
+                                    {{ collect($this->positionStats)->sum('contacted') }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-emerald-100 text-emerald-800">
+                                    {{ collect($this->positionStats)->sum('completed') }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-purple-100 text-purple-800">
+                                    {{ collect($this->positionStats)->sum('booked') }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-green-100 text-green-800">
+                                    {{ collect($this->positionStats)->sum('confirmed') }}
+                                </span>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </x-ui-panel>
         @endif
 
         {{-- Eingang --}}
