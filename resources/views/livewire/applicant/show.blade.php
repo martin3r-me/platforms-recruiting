@@ -99,6 +99,21 @@
                             @svg('heroicon-o-check', 'w-4 h-4 text-emerald-500')
                         </template>
                     </div>
+                    <div
+                        x-data="{ copied: false }"
+                        class="flex items-center gap-2 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg cursor-pointer transition-colors"
+                        x-on:click="navigator.clipboard.writeText('{{ $this->interviewBookingUrl }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                        title="Interview-Buchungslink kopieren"
+                    >
+                        @svg('heroicon-o-calendar-days', 'w-4 h-4 text-blue-500')
+                        <span class="text-xs font-medium text-blue-600">Interview-Link</span>
+                        <template x-if="!copied">
+                            @svg('heroicon-o-clipboard-document', 'w-4 h-4 text-blue-400')
+                        </template>
+                        <template x-if="copied">
+                            @svg('heroicon-o-check', 'w-4 h-4 text-emerald-500')
+                        </template>
+                    </div>
                     <x-ui-badge variant="{{ $applicant->is_active ? 'success' : 'secondary' }}" size="lg">
                         {{ $applicant->is_active ? 'Aktiv' : 'Inaktiv' }}
                     </x-ui-badge>

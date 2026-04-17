@@ -123,6 +123,12 @@ class Show extends Component
     }
 
     #[Computed]
+    public function interviewBookingUrl(): string
+    {
+        return url('/recruiting/interviews/' . $this->applicant->public_token);
+    }
+
+    #[Computed]
     public function availableStatuses()
     {
         return RecApplicantStatus::where('team_id', auth()->user()->currentTeam->id)
