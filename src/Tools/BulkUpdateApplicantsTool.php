@@ -73,9 +73,13 @@ class BulkUpdateApplicantsTool implements ToolContract, ToolMetadataContract
                                 'type' => 'integer',
                                 'description' => 'Optional: AutoPilot-State-ID.',
                             ],
+                            'rec_phase_id' => [
+                                'type' => 'integer',
+                                'description' => 'Optional: Phase-ID.',
+                            ],
                             'auto_pilot_completed_at' => [
                                 'type' => 'string',
-                                'description' => 'Optional: ISO-Datetime oder "now".',
+                                'description' => 'Optional: ISO-Datetime, "now" oder null/leer zum Zurücksetzen.',
                             ],
                         ],
                         'required' => ['applicant_id'],
@@ -152,6 +156,7 @@ class BulkUpdateApplicantsTool implements ToolContract, ToolMetadataContract
 
                     $fields = [
                         'rec_applicant_status_id',
+                        'rec_phase_id',
                         'progress',
                         'notes',
                         'applied_at',
