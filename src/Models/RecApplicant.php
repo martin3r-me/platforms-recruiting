@@ -83,18 +83,10 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     /**
      * Parent-Models von denen Extra-Field-Definitionen geerbt werden.
-     * Applicants erben Extra-Felder von der aktuellen Phase.
+     * Applicants erben Extra-Felder von allen Phasen bis inkl. der aktuellen,
+     * damit im Dashboard/API alle bisher gesammelten Daten sichtbar sind.
      */
     public function extraFieldParents(): array
-    {
-        $phase = $this->phase;
-        return $phase ? [$phase] : [];
-    }
-
-    /**
-     * Alle Phasen bis inkl. aktuelle Phase (für Backend-Gesamtansicht).
-     */
-    public function allExtraFieldParents(): array
     {
         $phase = $this->phase;
         if (!$phase) {
