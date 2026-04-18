@@ -54,6 +54,15 @@ class Show extends Component
         ];
     }
 
+    public function updatedPosition($value, $key): void
+    {
+        // Convert empty strings to null for nullable foreign key fields
+        // (HTML selects send "" for null options, but validation needs null)
+        if ($value === '' && in_array($key, ['hcm_job_title_id', 'owned_by_user_id'])) {
+            $this->position->{$key} = null;
+        }
+    }
+
     public function save(): void
     {
         $this->validate();

@@ -23,6 +23,22 @@
     </x-slot>
 
     <x-ui-page-container spacing="space-y-8">
+        @if(session()->has('message'))
+            <div class="p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
+                {{ session('message') }}
+            </div>
+        @endif
+
+        @if($errors->any())
+            <div class="p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                <ul class="list-disc list-inside space-y-1">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
             <div class="flex items-center gap-2 mb-6">
                 @svg('heroicon-o-briefcase', 'w-6 h-6 text-blue-600')

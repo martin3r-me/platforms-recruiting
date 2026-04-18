@@ -561,15 +561,14 @@
                                                 >
                                                     @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
                                                 </button>
-                                                @if(!$phase->auto_advance && $extraCounts['total'] > 0 && $extraCounts['filled'] === $extraCounts['total'])
-                                                    <button
-                                                        wire:click="advanceToNextPhase({{ $applicant->id }})"
-                                                        class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
-                                                        title="Zur nächsten Phase"
-                                                    >
-                                                        @svg('heroicon-o-arrow-right-circle', 'w-3.5 h-3.5')
-                                                    </button>
-                                                @endif
+                                                <button
+                                                    wire:click="advanceToNextPhase({{ $applicant->id }})"
+                                                    wire:confirm="Bewerber zur nächsten Phase verschieben?"
+                                                    class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                                                    title="Zur nächsten Phase"
+                                                >
+                                                    @svg('heroicon-o-arrow-right-circle', 'w-3.5 h-3.5')
+                                                </button>
                                                 @if($this->showParked)
                                                     <button
                                                         wire:click="unparkApplicant({{ $applicant->id }})"
