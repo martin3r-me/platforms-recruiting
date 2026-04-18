@@ -103,15 +103,19 @@ class CreateInterviewBookingTool implements ToolContract, ToolMetadataContract
                 }
             }
 
-            $booking = RecInterviewBooking::create([
-                'rec_interview_id' => $interviewId,
-                'rec_applicant_id' => $applicantId,
-                'status' => $arguments['status'] ?? 'registered',
-                'notes' => $arguments['notes'] ?? null,
-                'booked_at' => now(),
-                'team_id' => $teamId,
-                'created_by_user_id' => $context->user?->id,
-            ]);
+            $booking = RecInterviewBooking::updateOrCreate(
+                [
+                    'rec_interview_id' => $interviewId,
+                    'rec_applicant_id' => $applicantId,
+                ],
+                [
+                    'status' => $arguments['status'] ?? 'registered',
+                    'notes' => $arguments['notes'] ?? null,
+                    'booked_at' => now(),
+                    'team_id' => $teamId,
+                    'created_by_user_id' => $context->user?->id,
+                ],
+            );
 
             return ToolResult::success([
                 'id' => $booking->id,

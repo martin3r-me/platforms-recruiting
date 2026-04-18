@@ -134,13 +134,17 @@ class InterviewBooking extends Component
             }
         }
 
-        RecInterviewBooking::create([
-            'rec_interview_id' => $interviewId,
-            'rec_applicant_id' => $this->applicantId,
-            'status' => 'registered',
-            'booked_at' => now(),
-            'team_id' => $this->teamId,
-        ]);
+        RecInterviewBooking::updateOrCreate(
+            [
+                'rec_interview_id' => $interviewId,
+                'rec_applicant_id' => $this->applicantId,
+            ],
+            [
+                'status' => 'registered',
+                'booked_at' => now(),
+                'team_id' => $this->teamId,
+            ],
+        );
 
         unset($this->existingBooking, $this->availableInterviews);
         $this->state = 'booked';

@@ -118,15 +118,19 @@ class Index extends Component
             return;
         }
 
-        RecInterviewBooking::create([
-            'rec_interview_id' => $this->interviewId,
-            'rec_applicant_id' => $this->selectedApplicantId,
-            'status' => 'registered',
-            'notes' => $this->bookingNotes ?: null,
-            'booked_at' => now(),
-            'team_id' => auth()->user()->currentTeam->id,
-            'created_by_user_id' => auth()->id(),
-        ]);
+        RecInterviewBooking::updateOrCreate(
+            [
+                'rec_interview_id' => $this->interviewId,
+                'rec_applicant_id' => $this->selectedApplicantId,
+            ],
+            [
+                'status' => 'registered',
+                'notes' => $this->bookingNotes ?: null,
+                'booked_at' => now(),
+                'team_id' => auth()->user()->currentTeam->id,
+                'created_by_user_id' => auth()->id(),
+            ],
+        );
 
         session()->flash('success', 'Kandidat erfolgreich gebucht!');
         $this->showBookModal = false;
