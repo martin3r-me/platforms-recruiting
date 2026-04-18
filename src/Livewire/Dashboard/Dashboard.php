@@ -22,6 +22,7 @@ class Dashboard extends Component
     public ?int $positionFilter = null;
     public ?int $phaseFilter = null;
     public ?string $filterMonth = null;
+    public array $positionStatsUniqueTotals = [];
 
     public function mount(): void
     {
@@ -114,20 +115,32 @@ class Dashboard extends Component
         $enrichedApplicants = $query->get();
 
         $grouped = [];
+        $assignedIds = collect();
+
         if ($this->positionFilter) {
             // Group by actual phase ID
             foreach ($this->phases as $phase) {
-                $grouped[$phase->id] = $enrichedApplicants
+                $phaseApplicants = $enrichedApplicants
                     ->filter(fn ($a) => $a->rec_phase_id === $phase->id)
                     ->values();
+                $grouped[$phase->id] = $phaseApplicants;
+                $assignedIds = $assignedIds->merge($phaseApplicants->pluck('id'));
             }
         } else {
             // Group by phase order (aggregated across positions)
             foreach ($this->phases as $phase) {
-                $grouped[$phase->id] = $enrichedApplicants
+                $phaseApplicants = $enrichedApplicants
                     ->filter(fn ($a) => in_array($a->rec_phase_id, $phase->phase_ids))
                     ->values();
+                $grouped[$phase->id] = $phaseApplicants;
+                $assignedIds = $assignedIds->merge($phaseApplicants->pluck('id'));
             }
+        }
+
+        // Applicants without a phase (or with a phase not matching any active phase)
+        $unassigned = $enrichedApplicants->reject(fn ($a) => $assignedIds->contains($a->id))->values();
+        if ($unassigned->isNotEmpty()) {
+            $grouped['no_phase'] = $unassigned;
         }
 
         return $grouped;
@@ -183,13 +196,45 @@ class Dashboard extends Component
 
         $stats = [];
         $noPosition = [];
+        // Track unique applicant IDs per stat to avoid double-counting in Gesamt
+        $uniqueIds = ['total' => [], 'contacted' => [], 'completed' => [], 'booked' => [], 'confirmed' => []];
 
         foreach ($applicants as $applicant) {
             $positions = $applicant->postings->map(fn ($p) => $p->position)->filter()->unique('id');
 
             if ($positions->isEmpty()) {
                 $noPosition[] = $applicant;
+                $uniqueIds['total'][] = $applicant->id;
+                if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
+                    $uniqueIds['contacted'][] = $applicant->id;
+                }
+                if ($applicant->auto_pilot_completed_at) {
+                    $uniqueIds['completed'][] = $applicant->id;
+                }
+                $bookings = $applicant->interviewBookings;
+                if ($bookings->isNotEmpty()) {
+                    $uniqueIds['booked'][] = $applicant->id;
+                    if ($bookings->contains('status', 'confirmed')) {
+                        $uniqueIds['confirmed'][] = $applicant->id;
+                    }
+                }
                 continue;
+            }
+
+            // Track unique IDs (only once per applicant, even if multiple positions)
+            $uniqueIds['total'][] = $applicant->id;
+            if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
+                $uniqueIds['contacted'][] = $applicant->id;
+            }
+            if ($applicant->auto_pilot_completed_at) {
+                $uniqueIds['completed'][] = $applicant->id;
+            }
+            $bookings = $applicant->interviewBookings;
+            if ($bookings->isNotEmpty()) {
+                $uniqueIds['booked'][] = $applicant->id;
+                if ($bookings->contains('status', 'confirmed')) {
+                    $uniqueIds['confirmed'][] = $applicant->id;
+                }
             }
 
             foreach ($positions as $position) {
@@ -214,7 +259,6 @@ class Dashboard extends Component
                     $stats[$position->id]['completed']++;
                 }
 
-                $bookings = $applicant->interviewBookings;
                 if ($bookings->isNotEmpty()) {
                     $stats[$position->id]['booked']++;
 
@@ -260,6 +304,15 @@ class Dashboard extends Component
 
             $result[] = $row;
         }
+
+        // Add unique totals (deduplicated across positions)
+        $this->positionStatsUniqueTotals = [
+            'total' => count(array_unique($uniqueIds['total'])),
+            'contacted' => count(array_unique($uniqueIds['contacted'])),
+            'completed' => count(array_unique($uniqueIds['completed'])),
+            'booked' => count(array_unique($uniqueIds['booked'])),
+            'confirmed' => count(array_unique($uniqueIds['confirmed'])),
+        ];
 
         return $result;
     }

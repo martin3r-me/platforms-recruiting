@@ -50,7 +50,7 @@ class Index extends Component
                 });
             })
             ->when($this->filterStatus !== 'all', fn($q) => $q->where('status', $this->filterStatus))
-            ->with(['applicant.crmContactLinks.contact'])
+            ->with(['applicant.crmContactLinks.contact', 'applicant.postings.position'])
             ->orderBy('booked_at', 'desc')
             ->get();
     }

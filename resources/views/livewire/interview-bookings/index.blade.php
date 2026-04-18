@@ -103,13 +103,17 @@
                                 @forelse($this->bookings as $booking)
                                     <tr class="hover:bg-gray-50">
                                         <td class="px-4 py-3">
-                                            <a href="{{ route('recruiting.applicants.show', $booking->applicant) }}" wire:navigate class="text-blue-600 hover:underline">
-                                                {{ $booking->applicant->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt' }}
-                                            </a>
+                                            @if($booking->applicant)
+                                                <a href="{{ route('recruiting.applicants.show', $booking->applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
+                                                    {{ $booking->applicant->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt' }}
+                                                </a>
+                                            @else
+                                                <span class="text-[var(--ui-muted)]">Gelöscht</span>
+                                            @endif
                                         </td>
                                         <td class="px-4 py-3">
-                                            @php $positions = $booking->applicant->postings->map(fn ($p) => $p->position?->title)->filter()->unique(); @endphp
-                                            {{ $positions->isNotEmpty() ? $positions->implode(', ') : '—' }}
+                                            @php $positions = $booking->applicant?->postings?->map(fn ($p) => $p->position?->title)->filter()->unique(); @endphp
+                                            {{ $positions && $positions->isNotEmpty() ? $positions->implode(', ') : '—' }}
                                         </td>
                                         <td class="px-4 py-3">{{ $booking->booked_at?->format('d.m.Y H:i') ?? '—' }}</td>
                                         <td class="px-4 py-2">

@@ -147,14 +147,12 @@ class InterviewBooking extends Component
 
     public function cancelAndRebook(): void
     {
-        $existing = RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
+        // Cancel ALL non-cancelled bookings for this applicant (not just the first one)
+        RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
             ->whereNotIn('status', ['cancelled'])
-            ->first();
+            ->update(['status' => 'cancelled']);
 
-        if ($existing) {
-            $existing->update(['status' => 'cancelled']);
-        }
-
+        // Force fresh computed values on next access
         unset($this->existingBooking, $this->availableInterviews);
         $this->state = 'selection';
     }
