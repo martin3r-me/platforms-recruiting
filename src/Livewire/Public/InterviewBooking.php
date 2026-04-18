@@ -71,14 +71,15 @@ class InterviewBooking extends Component
 
         $positionIds = $applicant->positions()->pluck('id')->all();
 
+        if (empty($positionIds)) {
+            return [];
+        }
+
         return RecInterview::forTeam($this->teamId)
             ->active()
             ->where('starts_at', '>', now())
             ->whereIn('status', ['planned', 'confirmed'])
-            ->where(function ($query) use ($positionIds) {
-                $query->whereNull('rec_position_id')
-                    ->orWhereIn('rec_position_id', $positionIds);
-            })
+            ->whereIn('rec_position_id', $positionIds)
             ->withCount(['bookings' => function ($query) {
                 $query->whereNotIn('status', ['cancelled']);
             }])
