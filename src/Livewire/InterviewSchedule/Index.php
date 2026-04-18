@@ -27,7 +27,7 @@ class Index extends Component
     public $starts_at = '';
     public $ends_at = '';
     public $min_participants = null;
-    public $max_participants = null;
+    public $max_participants = '';
     public $status = 'planned';
     public $language = 'de';
     public $is_active = true;
@@ -219,7 +219,7 @@ class Index extends Component
             'starts_at' => $this->starts_at,
             'ends_at' => $this->ends_at ?: null,
             'min_participants' => $this->min_participants,
-            'max_participants' => $this->max_participants,
+            'max_participants' => $this->max_participants !== null && $this->max_participants !== '' ? (int) $this->max_participants : null,
             'status' => $this->status,
             'language' => $this->language,
             'is_active' => $this->is_active,
@@ -270,7 +270,7 @@ class Index extends Component
         $this->starts_at = '';
         $this->ends_at = '';
         $this->min_participants = null;
-        $this->max_participants = null;
+        $this->max_participants = '';
         $this->status = 'planned';
         $this->language = 'de';
         $this->is_active = true;
