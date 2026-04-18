@@ -93,9 +93,16 @@ class Show extends Component
         $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
 
         // Save phase-level AutoPilot settings
+        $phasesSaved = 0;
+        $phaseDetails = [];
         foreach ($this->phaseAutoPilotSettings as $phaseId => $settings) {
             $phase = RecPhase::find($phaseId);
-            if (!$phase || (int)$phase->rec_position_id !== (int)$this->position->id) {
+            if (!$phase) {
+                $phaseDetails[] = "Phase {$phaseId}: nicht gefunden";
+                continue;
+            }
+            if ((int)$phase->rec_position_id !== (int)$this->position->id) {
+                $phaseDetails[] = "Phase {$phaseId}: falsche Position ({$phase->rec_position_id} != {$this->position->id})";
                 continue;
             }
             $cleanedPhase = collect($settings)
@@ -103,10 +110,13 @@ class Show extends Component
                 ->all();
             $phase->auto_pilot_settings = !empty($cleanedPhase) ? $cleanedPhase : null;
             $phase->save();
+            $phasesSaved++;
+            $phaseDetails[] = "Phase {$phaseId} ({$phase->name}): " . json_encode($cleanedPhase);
         }
         $this->phaseAutoPilotSettingsOriginal = $this->phaseAutoPilotSettings;
 
-        session()->flash('message', 'Stelle erfolgreich aktualisiert.');
+        $totalPhases = count($this->phaseAutoPilotSettings);
+        session()->flash('message', "Stelle gespeichert. Phasen: {$phasesSaved}/{$totalPhases} — " . implode(' | ', $phaseDetails));
     }
 
     public function clearAutoPilotSetting(string $key): void
