@@ -76,7 +76,7 @@ class RecruitingServiceProvider extends ServiceProvider
             });
         }
 
-        Route::prefix('recruiting')->middleware(['web'])->group(function () {
+        Route::prefix('recruiting')->middleware(['web', \Platform\Core\Http\Middleware\NoCacheHeaders::class])->group(function () {
             $this->loadRoutesFrom(__DIR__.'/../routes/public.php');
         });
 
