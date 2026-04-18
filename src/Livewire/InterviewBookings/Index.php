@@ -59,7 +59,9 @@ class Index extends Component
     public function availableApplicants()
     {
         $teamId = auth()->user()->currentTeam->id;
-        $bookedIds = RecInterviewBooking::where('rec_interview_id', $this->interviewId)
+
+        // Exclude applicants with any active booking (across all interviews)
+        $bookedIds = RecInterviewBooking::whereNotIn('status', ['cancelled'])
             ->pluck('rec_applicant_id');
 
         $query = RecApplicant::where('team_id', $teamId)
@@ -106,12 +108,13 @@ class Index extends Component
             }
         }
 
-        $existing = RecInterviewBooking::where('rec_interview_id', $this->interviewId)
-            ->where('rec_applicant_id', $this->selectedApplicantId)
+        // Check if applicant already has an active booking in ANY interview
+        $existing = RecInterviewBooking::where('rec_applicant_id', $this->selectedApplicantId)
+            ->whereNotIn('status', ['cancelled'])
             ->exists();
 
         if ($existing) {
-            session()->flash('error', 'Dieser Kandidat ist bereits gebucht!');
+            session()->flash('error', 'Dieser Kandidat ist bereits in einem Termin gebucht!');
             return;
         }
 
