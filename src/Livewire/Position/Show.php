@@ -156,10 +156,10 @@ class Show extends Component
     }
 
     #[Computed]
-    public function availableWhatsAppAccounts(): array
+    public function availableWhatsAppAccounts()
     {
         if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
-            return [];
+            return collect();
         }
 
         return \Platform\Integrations\Models\IntegrationsWhatsAppAccount::query()
@@ -169,15 +169,14 @@ class Show extends Component
             ->map(fn ($a) => [
                 'id' => $a->id,
                 'label' => "{$a->title} ({$a->phone_number})",
-            ])
-            ->toArray();
+            ]);
     }
 
     #[Computed]
-    public function availableWhatsAppTemplates(): array
+    public function availableWhatsAppTemplates()
     {
         if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
-            return [];
+            return collect();
         }
 
         $query = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
@@ -194,8 +193,7 @@ class Show extends Component
             ->map(fn ($t) => [
                 'id' => $t->id,
                 'label' => "{$t->name} ({$t->language})" . (!$accountId && $t->whatsappAccount ? " — {$t->whatsappAccount->title}" : ''),
-            ])
-            ->toArray();
+            ]);
     }
 
     public function checkIsDirty(): bool

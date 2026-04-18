@@ -121,7 +121,7 @@
                 </div>
 
                 {{-- WA Account --}}
-                @if(!empty($this->availableWhatsAppAccounts))
+                @if($this->availableWhatsAppAccounts->isNotEmpty())
                     <div>
                         <div class="flex items-center justify-between mb-1">
                             <label class="block text-sm font-medium text-[var(--ui-secondary)]">WhatsApp Account</label>
@@ -142,7 +142,7 @@
                 @endif
 
                 {{-- WA Templates --}}
-                @if(!empty($this->availableWhatsAppTemplates))
+                @if($this->availableWhatsAppTemplates->isNotEmpty())
                     <div>
                         <div class="flex items-center justify-between mb-1">
                             <label class="block text-sm font-medium text-[var(--ui-secondary)]">WhatsApp Template — Erstkontakt</label>
@@ -274,7 +274,7 @@
                             @endif
 
                             {{-- WA Template Overrides --}}
-                            @if(!empty($this->availableWhatsAppTemplates))
+                            @if($this->availableWhatsAppTemplates->isNotEmpty())
                                 <div class="pt-4 border-t border-[var(--ui-border)]/30">
                                     <h4 class="text-xs font-semibold text-[var(--ui-muted)] uppercase tracking-wider mb-3">WhatsApp Templates</h4>
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
