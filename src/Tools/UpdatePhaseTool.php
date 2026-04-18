@@ -51,7 +51,7 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 ],
                 'auto_pilot_settings' => [
                     'type' => 'object',
-                    'description' => 'Optional: AutoPilot-Einstellungen.',
+                    'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt. Keys: auto_pilot_wa_initial_template_id (int), auto_pilot_wa_reminder_template_id (int). Nutze recruiting.lookup.GET mit lookup=whatsapp_templates um gültige Template-IDs zu finden.',
                 ],
                 'is_active' => [
                     'type' => 'boolean',
@@ -99,6 +99,7 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 'uuid' => $phase->uuid,
                 'name' => $phase->name,
                 'order' => $phase->order,
+                'auto_pilot_settings' => $phase->auto_pilot_settings,
                 'message' => 'Phase erfolgreich aktualisiert.',
             ]);
         } catch (\Throwable $e) {

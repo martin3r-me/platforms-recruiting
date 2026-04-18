@@ -20,7 +20,7 @@ class GetPositionTool implements ToolContract, ToolMetadataContract
 
     public function getDescription(): string
     {
-        return 'GET /recruiting/positions/{id} - Ruft eine einzelne Position ab (inkl. Postings, Bewerber-Anzahl). Parameter: position_id (required), team_id (optional).';
+        return 'GET /recruiting/positions/{id} - Ruft eine einzelne Position ab (inkl. Postings, Phasen mit AutoPilot-Settings, Bewerber-Anzahl). Parameter: position_id (required), team_id (optional).';
     }
 
     public function getSchema(): array
@@ -80,12 +80,14 @@ class GetPositionTool implements ToolContract, ToolMetadataContract
                     'published_at' => $p->published_at?->toISOString(),
                     'closes_at' => $p->closes_at?->toISOString(),
                 ])->values()->toArray(),
+                'auto_pilot_settings' => $position->auto_pilot_settings,
                 'phases' => $position->phases->map(fn ($ph) => [
                     'id' => $ph->id,
                     'name' => $ph->name,
                     'order' => $ph->order,
                     'is_active' => (bool)$ph->is_active,
                     'auto_advance' => (bool)$ph->auto_advance,
+                    'auto_pilot_settings' => $ph->auto_pilot_settings,
                 ])->values()->toArray(),
                 'applicant_count' => $position->applicantCount(),
                 'team_id' => $position->team_id,

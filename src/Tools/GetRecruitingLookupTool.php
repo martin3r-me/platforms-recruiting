@@ -64,6 +64,8 @@ class GetRecruitingLookupTool implements ToolContract, ToolMetadataContract
     private const LOOKUP_KEYS = [
         'applicant_statuses',
         'auto_pilot_states',
+        'whatsapp_templates',
+        'whatsapp_accounts',
     ];
 
     public function execute(array $arguments, ToolContext $context): ToolResult
@@ -77,6 +79,11 @@ class GetRecruitingLookupTool implements ToolContract, ToolMetadataContract
             $cfg = $this->resolveLookup($lookup);
             if ($cfg === null) {
                 return ToolResult::error('VALIDATION_ERROR', 'Unbekannter lookup. Nutze recruiting.lookups.GET.');
+            }
+
+            // Custom lookups (WhatsApp)
+            if (!empty($cfg['custom'])) {
+                return $this->executeCustomLookup($lookup, $arguments);
             }
 
             $teamId = null;
@@ -140,6 +147,59 @@ class GetRecruitingLookupTool implements ToolContract, ToolMetadataContract
         }
     }
 
+    private function executeCustomLookup(string $lookup, array $arguments): ToolResult
+    {
+        if ($lookup === 'whatsapp_templates') {
+            if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+                return ToolResult::error('NOT_AVAILABLE', 'WhatsApp-Integration nicht installiert.');
+            }
+
+            $q = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+                ->with('whatsappAccount:id,title,phone_number')
+                ->where('status', 'APPROVED');
+
+            $search = trim((string)($arguments['search'] ?? ''));
+            if ($search !== '') {
+                $q->where(function ($q2) use ($search) {
+                    $q2->where('name', 'LIKE', "%{$search}%")
+                       ->orWhere('language', 'LIKE', "%{$search}%");
+                });
+            }
+
+            $items = $q->orderBy('name')->limit(100)->get()->map(fn ($t) => [
+                'id' => $t->id,
+                'name' => $t->name,
+                'language' => $t->language,
+                'status' => $t->status,
+                'account' => $t->whatsappAccount ? "{$t->whatsappAccount->title} ({$t->whatsappAccount->phone_number})" : null,
+                'whatsapp_account_id' => $t->whatsapp_account_id,
+            ])->values()->toArray();
+
+            return ToolResult::success(['lookup' => $lookup, 'items' => $items]);
+        }
+
+        if ($lookup === 'whatsapp_accounts') {
+            if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+                return ToolResult::error('NOT_AVAILABLE', 'WhatsApp-Integration nicht installiert.');
+            }
+
+            $items = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::query()
+                ->withCount('templates')
+                ->orderBy('title')
+                ->get()
+                ->map(fn ($a) => [
+                    'id' => $a->id,
+                    'name' => $a->title,
+                    'phone_number' => $a->phone_number,
+                    'templates_count' => $a->templates_count,
+                ])->values()->toArray();
+
+            return ToolResult::success(['lookup' => $lookup, 'items' => $items]);
+        }
+
+        return ToolResult::error('VALIDATION_ERROR', 'Unbekannter custom lookup.');
+    }
+
     private function resolveLookup(string $lookup): ?array
     {
         return match ($lookup) {
@@ -160,6 +220,12 @@ class GetRecruitingLookupTool implements ToolContract, ToolMetadataContract
                 'sort_fields' => ['name', 'code', 'created_at'],
                 'default_sort_field' => 'name',
                 'default_sort_dir' => 'asc',
+            ],
+            'whatsapp_templates' => [
+                'custom' => true,
+            ],
+            'whatsapp_accounts' => [
+                'custom' => true,
             ],
             default => null,
         };

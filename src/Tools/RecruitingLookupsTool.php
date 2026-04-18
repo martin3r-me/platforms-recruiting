@@ -42,6 +42,16 @@ class RecruitingLookupsTool implements ToolContract, ToolMetadataContract
                     'description' => 'AutoPilot-Zustaende fuer Bewerbungen (global/team-optional)',
                     'tool' => 'recruiting.lookup.GET',
                 ],
+                [
+                    'key' => 'whatsapp_templates',
+                    'description' => 'WhatsApp-Templates (APPROVED). Nutze die IDs für AutoPilot-Settings.',
+                    'tool' => 'recruiting.lookup.GET',
+                ],
+                [
+                    'key' => 'whatsapp_accounts',
+                    'description' => 'WhatsApp-Accounts. Nutze die IDs für AutoPilot-Settings.',
+                    'tool' => 'recruiting.lookup.GET',
+                ],
             ],
             'how_to' => [
                 'step_1' => 'Nutze recruiting.lookups.GET um den passenden lookup-key zu finden.',

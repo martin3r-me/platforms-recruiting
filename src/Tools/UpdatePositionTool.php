@@ -22,7 +22,7 @@ class UpdatePositionTool implements ToolContract, ToolMetadataContract
 
     public function getDescription(): string
     {
-        return 'PUT /recruiting/positions/{id} - Aktualisiert eine Position. Parameter: position_id (required).';
+        return 'PUT /recruiting/positions/{id} - Aktualisiert eine Position inkl. AutoPilot-Settings. Parameter: position_id (required).';
     }
 
     public function getSchema(): array
@@ -61,6 +61,10 @@ class UpdatePositionTool implements ToolContract, ToolMetadataContract
                     'type' => 'integer',
                     'description' => 'Optional: Owner der Position.',
                 ],
+                'auto_pilot_settings' => [
+                    'type' => 'object',
+                    'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt. Keys: auto_pilot_enabled (bool), auto_pilot_channel_priority (string: whatsapp_first|email_first|whatsapp_only|email_only), auto_pilot_wa_account_id (int), auto_pilot_wa_initial_template_id (int), auto_pilot_wa_reminder_template_id (int), auto_pilot_reminder_interval_hours (int), auto_pilot_max_reminders (int), auto_start_auto_pilot (bool), interview_booking_wa_template_id (int). Nutze recruiting.lookup.GET mit lookup=whatsapp_templates um gültige Template-IDs zu finden.',
+                ],
             ],
             'required' => ['position_id'],
         ]);
@@ -95,6 +99,10 @@ class UpdatePositionTool implements ToolContract, ToolMetadataContract
                 }
             }
 
+            if (array_key_exists('auto_pilot_settings', $arguments)) {
+                $position->auto_pilot_settings = $arguments['auto_pilot_settings'];
+            }
+
             $position->save();
 
             return ToolResult::success([
@@ -104,6 +112,7 @@ class UpdatePositionTool implements ToolContract, ToolMetadataContract
                 'department' => $position->department,
                 'location' => $position->location,
                 'is_active' => (bool)$position->is_active,
+                'auto_pilot_settings' => $position->auto_pilot_settings,
                 'team_id' => $position->team_id,
                 'message' => 'Position erfolgreich aktualisiert.',
             ]);
