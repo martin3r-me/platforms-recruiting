@@ -56,6 +56,7 @@
                 <x-ui-panel title="Buchungen" subtitle="Gebuchte Kandidaten für diesen Termin">
                     <div class="flex gap-2 mb-4">
                         <x-ui-input-select
+                            name="filterStatus"
                             wire:model.live="filterStatus"
                             :options="[
                                 ['value' => 'all', 'label' => 'Alle Status'],
@@ -224,6 +225,7 @@
                 </div>
             @endif
             <x-ui-input-select
+                name="selectedApplicantId"
                 wire:model="selectedApplicantId"
                 label="Kandidat *"
                 :options="$this->availableApplicants->map(fn($a) => ['value' => $a->id, 'label' => $a->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt'])->toArray()"
