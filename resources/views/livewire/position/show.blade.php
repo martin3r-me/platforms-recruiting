@@ -11,12 +11,10 @@
         ]">
             <x-slot name="left">
             </x-slot>
-            @if($this->checkIsDirty())
-                <x-ui-button variant="primary" size="sm" wire:click="save">
-                    @svg('heroicon-o-check', 'w-4 h-4')
-                    <span>Speichern</span>
-                </x-ui-button>
-            @endif
+            <x-ui-button variant="primary" size="sm" wire:click="save">
+                @svg('heroicon-o-check', 'w-4 h-4')
+                <span>Speichern</span>
+            </x-ui-button>
             <x-ui-button variant="danger" size="sm" wire:click="deletePosition" wire:confirm="Stelle wirklich löschen?">
                 @svg('heroicon-o-trash', 'w-4 h-4')
                 <span>Löschen</span>
@@ -344,11 +342,9 @@
                 <div>
                     <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-4">Aktionen</h3>
                     <div class="space-y-2">
-                        @if($this->checkIsDirty())
-                            <x-ui-button variant="primary" size="sm" wire:click="save" class="w-full">
-                                @svg('heroicon-o-check', 'w-4 h-4') Änderungen speichern
-                            </x-ui-button>
-                        @endif
+                        <x-ui-button variant="primary" size="sm" wire:click="save" class="w-full">
+                            @svg('heroicon-o-check', 'w-4 h-4') Änderungen speichern
+                        </x-ui-button>
                         <x-ui-button variant="danger-outline" size="sm" wire:click="deletePosition" wire:confirm="Stelle wirklich löschen?" class="w-full">
                             @svg('heroicon-o-trash', 'w-4 h-4') Stelle löschen
                         </x-ui-button>
