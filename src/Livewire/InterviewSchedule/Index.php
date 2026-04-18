@@ -45,7 +45,7 @@ class Index extends Component
         'starts_at' => 'required|date',
         'ends_at' => 'nullable|date|after_or_equal:starts_at',
         'min_participants' => 'nullable|integer|min:0',
-        'max_participants' => 'nullable|integer|min:1',
+        'max_participants' => 'nullable|integer|min:0',
         'status' => 'required|in:planned,confirmed,cancelled,completed',
         'language' => 'required|in:de,en',
         'is_active' => 'boolean',

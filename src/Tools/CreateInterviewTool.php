@@ -69,7 +69,7 @@ class CreateInterviewTool implements ToolContract, ToolMetadataContract
                 ],
                 'max_participants' => [
                     'type' => 'integer',
-                    'description' => 'Optional: Max. Teilnehmer.',
+                    'description' => 'Optional: Max. Teilnehmer (0 = unbegrenzt).',
                 ],
                 'status' => [
                     'type' => 'string',
