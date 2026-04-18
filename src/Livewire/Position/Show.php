@@ -187,7 +187,7 @@ class Show extends Component
             ->toArray();
     }
 
-    public function getIsDirtyProperty(): bool
+    public function checkIsDirty(): bool
     {
         return $this->position->isDirty() || $this->autoPilotSettings !== $this->autoPilotSettingsOriginal || $this->phaseAutoPilotSettings !== $this->phaseAutoPilotSettingsOriginal;
     }

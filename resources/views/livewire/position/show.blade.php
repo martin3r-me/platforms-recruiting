@@ -11,7 +11,7 @@
         ]">
             <x-slot name="left">
             </x-slot>
-            @if($this->isDirty)
+            @if($this->checkIsDirty())
                 <x-ui-button variant="primary" size="sm" wire:click="save">
                     @svg('heroicon-o-check', 'w-4 h-4')
                     <span>Speichern</span>
@@ -344,7 +344,7 @@
                 <div>
                     <h3 class="text-sm font-bold text-[var(--ui-secondary)] uppercase tracking-wider mb-4">Aktionen</h3>
                     <div class="space-y-2">
-                        @if($this->isDirty)
+                        @if($this->checkIsDirty())
                             <x-ui-button variant="primary" size="sm" wire:click="save" class="w-full">
                                 @svg('heroicon-o-check', 'w-4 h-4') Änderungen speichern
                             </x-ui-button>
