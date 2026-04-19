@@ -3,6 +3,9 @@
 namespace Platform\Recruiting\Organization;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecPosition;
 use Platform\Organization\Contracts\EntityLinkProvider;
 
 class RecruitingEntityLinkProvider implements EntityLinkProvider
@@ -74,6 +77,108 @@ class RecruitingEntityLinkProvider implements EntityLinkProvider
 
     public function metrics(string $morphAlias, array $linksByEntity): array
     {
-        return [];
+        return match ($morphAlias) {
+            'rec_applicant' => $this->applicantMetrics($linksByEntity),
+            'rec_position' => $this->positionMetrics($linksByEntity),
+            default => [],
+        };
+    }
+
+    protected function applicantMetrics(array $linksByEntity): array
+    {
+        $allIds = [];
+        foreach ($linksByEntity as $ids) {
+            $allIds = array_merge($allIds, $ids);
+        }
+        $allIds = array_values(array_unique($allIds));
+
+        if (empty($allIds)) {
+            return [];
+        }
+
+        $applicants = RecApplicant::whereIn('id', $allIds)
+            ->select('id', 'is_active', 'is_parked')
+            ->get()
+            ->keyBy('id');
+
+        // Applicants that have at least one signed contract
+        $hiredIds = DB::table('rec_contracts')
+            ->whereIn('rec_applicant_id', $allIds)
+            ->whereNotNull('signed_at')
+            ->distinct()
+            ->pluck('rec_applicant_id')
+            ->flip()
+            ->all();
+
+        $result = [];
+        foreach ($linksByEntity as $entityId => $ids) {
+            $total = 0;
+            $active = 0;
+            $hired = 0;
+
+            foreach ($ids as $id) {
+                $applicant = $applicants[$id] ?? null;
+                if (!$applicant) {
+                    continue;
+                }
+                $total++;
+                if ($applicant->is_active && !$applicant->is_parked) {
+                    $active++;
+                }
+                if (isset($hiredIds[$id])) {
+                    $hired++;
+                }
+            }
+
+            $result[$entityId] = [
+                'rec_applicants_total' => $total,
+                'rec_applicants_active' => $active,
+                'rec_applicants_hired' => $hired,
+            ];
+        }
+
+        return $result;
+    }
+
+    protected function positionMetrics(array $linksByEntity): array
+    {
+        $allIds = [];
+        foreach ($linksByEntity as $ids) {
+            $allIds = array_merge($allIds, $ids);
+        }
+        $allIds = array_values(array_unique($allIds));
+
+        if (empty($allIds)) {
+            return [];
+        }
+
+        $positions = RecPosition::whereIn('id', $allIds)
+            ->select('id', 'is_active')
+            ->get()
+            ->keyBy('id');
+
+        $result = [];
+        foreach ($linksByEntity as $entityId => $ids) {
+            $total = 0;
+            $active = 0;
+
+            foreach ($ids as $id) {
+                $position = $positions[$id] ?? null;
+                if (!$position) {
+                    continue;
+                }
+                $total++;
+                if ($position->is_active) {
+                    $active++;
+                }
+            }
+
+            $result[$entityId] = [
+                'rec_positions_total' => $total,
+                'rec_positions_active' => $active,
+            ];
+        }
+
+        return $result;
     }
 }
