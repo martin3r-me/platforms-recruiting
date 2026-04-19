@@ -7,8 +7,9 @@ use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Organization\Contracts\EntityLinkProvider;
+use Platform\Organization\Contracts\HasMetricDefinitions;
 
-class RecruitingEntityLinkProvider implements EntityLinkProvider
+class RecruitingEntityLinkProvider implements EntityLinkProvider, HasMetricDefinitions
 {
     public function morphAliases(): array
     {
@@ -180,5 +181,16 @@ class RecruitingEntityLinkProvider implements EntityLinkProvider
         }
 
         return $result;
+    }
+
+    public function metricDefinitions(): array
+    {
+        return [
+            'rec_applicants_total'  => ['label' => 'Bewerber (gesamt)', 'group' => 'recruiting', 'direction' => 'neutral', 'unit' => 'count'],
+            'rec_applicants_active' => ['label' => 'Bewerber (aktiv)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'pair' => 'rec_applicants_total'],
+            'rec_applicants_hired'  => ['label' => 'Bewerber (eingestellt)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count'],
+            'rec_positions_total'   => ['label' => 'Positionen (gesamt)', 'group' => 'recruiting', 'direction' => 'neutral', 'unit' => 'count'],
+            'rec_positions_active'  => ['label' => 'Positionen (aktiv)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'pair' => 'rec_positions_total'],
+        ];
     }
 }
