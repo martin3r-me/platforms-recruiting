@@ -12,15 +12,18 @@ class CreateArbeitsvertragVariants extends Command
     protected $signature = 'recruiting:create-arbeitsvertrag-variants
         {--dry-run : Nur anzeigen was passieren würde, keine Writes}
         {--base-code=AV : Code der Basis-Vorlage aus der kopiert wird}
-        {--keep-base : Basis-Template nach erfolgreicher Klonung aktiv lassen (default: auf is_active=false setzen)}';
+        {--keep-base : Basis-Template nach erfolgreicher Klonung aktiv lassen (default: auf is_active=false setzen)}
+        {--prune-obsolete : AV-NNN-Varianten die nicht in der aktuellen VARIANTS-Liste stehen werden soft-gelöscht (betrifft nur Templates, signierte Verträge bleiben via personalized_content-Snapshot referenzierbar)}';
 
-    protected $description = 'Klont die Basis-Vertragsvorlage mit Code AV in 4 Varianten mit Zuschlag 0,50 / 1,00 / 1,50 / 2,00 € (Zuschlag im Body via {{zuschlag}}-Placeholder literal ersetzt). Anpasst field_mappings: entfernt zuschlag-Key, mappt stundenlohn auf settings.minimum_wage_hourly. Idempotent via (team_id, code)-Dedup.';
+    protected $description = 'Klont die Basis-Vertragsvorlage mit Code AV in 6 Varianten mit Zuschlag 0,10 / 0,60 / 1,10 / 1,60 / 2,10 / 2,60 € (Zuschlag im Body via {{zuschlag}}-Placeholder literal ersetzt). Anpasst field_mappings: entfernt zuschlag-Key, mappt stundenlohn auf settings.minimum_wage_hourly. Idempotent via (team_id, code)-Dedup. Optional --prune-obsolete für alte AV-NNN-Varianten die nicht mehr in der Liste sind.';
 
     private const VARIANTS = [
-        ['suffix' => '050', 'value' => '0,50', 'label' => '0,50€'],
-        ['suffix' => '100', 'value' => '1,00', 'label' => '1,00€'],
-        ['suffix' => '150', 'value' => '1,50', 'label' => '1,50€'],
-        ['suffix' => '200', 'value' => '2,00', 'label' => '2,00€'],
+        ['suffix' => '010', 'value' => '0,10', 'label' => '0,10€'],
+        ['suffix' => '060', 'value' => '0,60', 'label' => '0,60€'],
+        ['suffix' => '110', 'value' => '1,10', 'label' => '1,10€'],
+        ['suffix' => '160', 'value' => '1,60', 'label' => '1,60€'],
+        ['suffix' => '210', 'value' => '2,10', 'label' => '2,10€'],
+        ['suffix' => '260', 'value' => '2,60', 'label' => '2,60€'],
     ];
 
     public function handle(): int
@@ -28,8 +31,11 @@ class CreateArbeitsvertragVariants extends Command
         $dryRun = (bool) $this->option('dry-run');
         $baseCode = (string) $this->option('base-code');
         $keepBase = (bool) $this->option('keep-base');
+        $pruneObsolete = (bool) $this->option('prune-obsolete');
 
-        $this->components->info('Create Arbeitsvertrag-Varianten (Zuschlag 0,50 / 1,00 / 1,50 / 2,00 €)');
+        $targetSuffixes = array_map(fn ($v) => $v['suffix'], self::VARIANTS);
+        $targetLabels = implode(' / ', array_map(fn ($v) => $v['label'], self::VARIANTS));
+        $this->components->info("Create Arbeitsvertrag-Varianten (Zuschlag {$targetLabels})");
 
         if ($dryRun) {
             $this->warn('[DRY-RUN] Keine Änderungen werden vorgenommen.');
@@ -139,12 +145,51 @@ class CreateArbeitsvertragVariants extends Command
             }
         }
 
+        $pruned = 0;
+        if ($pruneObsolete && $errors === 0) {
+            $this->newLine();
+            $this->components->info('Prune: alte AV-NNN-Varianten deaktivieren die nicht in der aktuellen Liste stehen');
+
+            $targetCodes = array_map(fn ($s) => "{$baseCode}-{$s}", $targetSuffixes);
+
+            $obsolete = DB::table('rec_contract_templates')
+                ->where('code', 'LIKE', "{$baseCode}-%")
+                ->whereNotIn('code', $targetCodes)
+                ->whereNull('deleted_at')
+                ->get();
+
+            foreach ($obsolete as $old) {
+                $contractCount = DB::table('rec_contracts')
+                    ->where('rec_contract_template_id', $old->id)
+                    ->count();
+
+                $suffix = $contractCount > 0 ? " (hat {$contractCount} referenzierende Verträge, Snapshot bleibt erhalten)" : '';
+                $this->line("  🗑 {$old->code} \"{$old->name}\" (#{$old->id}) soft-löschen{$suffix}.");
+
+                if (!$dryRun) {
+                    DB::table('rec_contract_templates')
+                        ->where('id', $old->id)
+                        ->update([
+                            'is_active'  => false,
+                            'deleted_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                }
+                $pruned++;
+            }
+
+            if ($pruned === 0) {
+                $this->line('  Nichts zu prunen.');
+            }
+        }
+
         $this->newLine();
         $this->components->bulletList([
             "Basis-Templates verarbeitet: {$basesProcessed}",
             "Varianten neu angelegt:      {$created}",
             "Bereits da, übersprungen:    {$skipped}",
             "Fehler:                      {$errors}",
+            "Obsolete gepruned:           {$pruned}",
         ]);
 
         if ($errors > 0) {
