@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services;
 
 use Carbon\Carbon;
+use Platform\Crm\Models\CrmAddressType;
 use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmPostalAddress;
 use Platform\Recruiting\Models\RecApplicant;
@@ -76,13 +77,19 @@ class SyncApplicantExtraFieldsToCrm
             ?? $contact->postalAddresses()->first();
 
         if (!$address) {
+            $addressTypeId = $this->resolvePrivateAddressTypeId();
+            if (!$addressTypeId) {
+                $result->skipped[] = 'cannot create postal address: no CrmAddressType PRIVATE seeded';
+                return;
+            }
             $address = $contact->postalAddresses()->create([
-                'street'       => $street,
-                'house_number' => $houseNr,
-                'postal_code'  => $postal,
-                'city'         => $city,
-                'is_primary'   => true,
-                'is_active'    => true,
+                'street'          => $street,
+                'house_number'    => $houseNr,
+                'postal_code'     => $postal,
+                'city'            => $city,
+                'address_type_id' => $addressTypeId,
+                'is_primary'      => true,
+                'is_active'       => true,
             ]);
             $result->changed[] = "created postal address ({$street} {$houseNr}, {$postal} {$city})";
             return;
@@ -102,6 +109,19 @@ class SyncApplicantExtraFieldsToCrm
 
         $address->save();
         $result->changed[] = 'updated postal address (' . implode(', ', $dirty) . ')';
+    }
+
+    private ?int $privateAddressTypeIdCache = null;
+    private bool $privateAddressTypeIdResolved = false;
+
+    private function resolvePrivateAddressTypeId(): ?int
+    {
+        if ($this->privateAddressTypeIdResolved) {
+            return $this->privateAddressTypeIdCache;
+        }
+        $this->privateAddressTypeIdResolved = true;
+        $this->privateAddressTypeIdCache = CrmAddressType::where('code', 'PRIVATE')->value('id');
+        return $this->privateAddressTypeIdCache;
     }
 
     private function cleanString(mixed $value): string
