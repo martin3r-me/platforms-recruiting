@@ -35,6 +35,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\SeedRecContractExtraFields::class,
                 \Platform\Recruiting\Console\Commands\CreateArbeitsvertragVariants::class,
                 \Platform\Recruiting\Console\Commands\DiagnoseContractExtraFields::class,
+                \Platform\Recruiting\Console\Commands\DebugContractFieldResolution::class,
             ]);
         }
     }
