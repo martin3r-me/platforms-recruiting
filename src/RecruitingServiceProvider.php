@@ -30,6 +30,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\RelinkOrphanedThreads::class,
                 \Platform\Recruiting\Console\Commands\MigrateLegalStatusExtraFields::class,
                 \Platform\Recruiting\Console\Commands\CopyHcmContractTemplates::class,
+                \Platform\Recruiting\Console\Commands\DeactivateHcmContractTemplates::class,
             ]);
         }
     }
