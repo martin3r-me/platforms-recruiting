@@ -10,6 +10,7 @@ use Platform\Core\Models\CoreExtraFieldValue;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantLegalStatus;
+use Platform\Recruiting\Services\SyncApplicantExtraFieldsToCrm;
 
 class ApplicantForm extends Component
 {
@@ -334,6 +335,11 @@ class ApplicantForm extends Component
         }
 
         $this->saveExtraFieldValues($applicant);
+
+        // Propagate applicant-form inputs (address, birth date) into canonical
+        // CRM storage so contract templates and downstream consumers can read
+        // them via contact.* mappings instead of the extra-field bucket.
+        app(SyncApplicantExtraFieldsToCrm::class)->sync($applicant->fresh(['crmContactLinks.contact']));
 
         // Save legal status
         if ($this->showLegalStatus && !$this->legalStatusAlreadyFilled) {

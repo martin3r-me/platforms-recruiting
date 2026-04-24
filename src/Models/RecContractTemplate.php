@@ -135,7 +135,21 @@ class RecContractTemplate extends Model
 
             if (str_starts_with($field, 'extra_field.')) {
                 $efName = substr($field, strlen('extra_field.'));
-                return (string) ($applicant->getExtraField($efName) ?? '');
+                $value = $applicant->getExtraField($efName);
+                if ($value === null || $value === '') {
+                    return '';
+                }
+                if ($value instanceof Carbon) {
+                    return $value->format('d.m.Y');
+                }
+                if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}|$)/', $value)) {
+                    try {
+                        return Carbon::parse($value)->format('d.m.Y');
+                    } catch (\Throwable) {
+                        return trim($value);
+                    }
+                }
+                return is_scalar($value) ? trim((string) $value) : (string) $value;
             }
 
             return (string) ($applicant->{$field} ?? '');
