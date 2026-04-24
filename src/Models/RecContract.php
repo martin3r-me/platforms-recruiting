@@ -90,7 +90,11 @@ class RecContract extends Model implements InheritsExtraFields
 
     public static function buildPar15Html(array $data): string
     {
-        if (empty($data['par15_has_previous']) || empty($data['par15_entries'])) {
+        if (empty($data['par15_has_previous'])) {
+            return '<div style="margin-top:12px;margin-bottom:16px;"><p style="font-size:13px;font-weight:600;margin-bottom:4px;">Angaben des Arbeitnehmers:</p><p style="font-size:13px;">Nein, ich war in den letzten 12 Monaten nicht kurzfristig beschäftigt.</p></div>';
+        }
+
+        if (empty($data['par15_entries'])) {
             return '';
         }
 
@@ -116,7 +120,11 @@ class RecContract extends Model implements InheritsExtraFields
 
     public static function buildPar16Html(array $data): string
     {
-        if (empty($data['par16_was_jobseeking']) || empty($data['par16_entries'])) {
+        if (empty($data['par16_was_jobseeking'])) {
+            return '<div style="margin-top:12px;margin-bottom:16px;"><p style="font-size:13px;font-weight:600;margin-bottom:4px;">Angaben des Arbeitnehmers:</p><p style="font-size:13px;">Nein, ich war in den letzten 12 Monaten nicht bei der Arbeitsagentur als arbeitssuchend gemeldet.</p></div>';
+        }
+
+        if (empty($data['par16_entries'])) {
             return '';
         }
 
@@ -143,10 +151,6 @@ class RecContract extends Model implements InheritsExtraFields
     {
         $par15Html = self::buildPar15Html($data);
         $par16Html = self::buildPar16Html($data);
-
-        if (empty($par15Html) && empty($par16Html)) {
-            return $content;
-        }
 
         $par16Pos = self::findSectionPosition($content, '16');
         $par15Pos = self::findSectionPosition($content, '15');

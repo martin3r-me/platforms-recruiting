@@ -11,6 +11,8 @@ use Platform\Recruiting\Livewire\Applicant\Show as ApplicantShow;
 use Platform\Recruiting\Livewire\InterviewTypes\Index as InterviewTypeIndex;
 use Platform\Recruiting\Livewire\InterviewSchedule\Index as InterviewScheduleIndex;
 use Platform\Recruiting\Livewire\InterviewBookings\Index as InterviewBookingsIndex;
+use Platform\Recruiting\Livewire\Contracts\Index as ContractsIndex;
+use Platform\Recruiting\Livewire\ContractTemplates\Index as ContractTemplatesIndex;
 
 // Dashboard
 Route::get('/', Dashboard::class)->name('recruiting.dashboard');
@@ -32,3 +34,7 @@ Route::get('/applicants/{applicant}', ApplicantShow::class)->name('recruiting.ap
 Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');
 Route::get('/interview-schedule', InterviewScheduleIndex::class)->name('recruiting.interview-schedule.index');
 Route::get('/interview-bookings/{interview}', InterviewBookingsIndex::class)->name('recruiting.interview-bookings.index');
+
+// Verträge
+Route::get('/contracts', ContractsIndex::class)->name('recruiting.contracts.index');
+Route::get('/contract-templates', ContractTemplatesIndex::class)->name('recruiting.contract-templates.index');

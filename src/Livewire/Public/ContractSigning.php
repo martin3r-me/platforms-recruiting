@@ -86,9 +86,7 @@ class ContractSigning extends Component
     public function nextStep(): void
     {
         if ($this->step === 1) {
-            $this->validateStep1();
-        } elseif ($this->step === 2) {
-            $this->validateStep2();
+            $this->validatePreSigningData();
         }
 
         $this->step++;
@@ -116,13 +114,21 @@ class ContractSigning extends Component
             return;
         }
 
+        $preSigningData = [
+            'par15_has_previous' => $this->par15HasPrevious,
+            'par15_entries' => $this->par15HasPrevious ? $this->par15Entries : [],
+            'par16_was_jobseeking' => $this->par16WasJobseeking,
+            'par16_entries' => $this->par16WasJobseeking ? $this->par16Entries : [],
+        ];
+
+        $personalizedContent = RecContract::embedPreSigningData(
+            $contract->personalized_content ?? '',
+            $preSigningData
+        );
+
         $contract->update([
-            'pre_signing_data' => [
-                'par15_has_previous' => $this->par15HasPrevious,
-                'par15_entries' => $this->par15HasPrevious ? $this->par15Entries : [],
-                'par16_was_jobseeking' => $this->par16WasJobseeking,
-                'par16_entries' => $this->par16WasJobseeking ? $this->par16Entries : [],
-            ],
+            'pre_signing_data' => $preSigningData,
+            'personalized_content' => $personalizedContent,
             'signature_data' => $this->signatureData,
             'signed_at' => now(),
             'completed_at' => now(),
@@ -132,16 +138,20 @@ class ContractSigning extends Component
         $this->state = 'already_signed';
     }
 
-    private function validateStep1(): void
+    private function validatePreSigningData(): void
     {
+        $rules = [];
+        $messages = [];
+
         if ($this->par15HasPrevious) {
-            $this->validate([
+            $rules = array_merge($rules, [
                 'par15Entries' => 'required|array|min:1',
                 'par15Entries.*.beginn' => 'required|string',
                 'par15Entries.*.ende' => 'required|string',
                 'par15Entries.*.arbeitgeber' => 'required|string',
                 'par15Entries.*.tage' => 'required|integer|min:1',
-            ], [
+            ]);
+            $messages = array_merge($messages, [
                 'par15Entries.required' => 'Bitte mindestens einen Eintrag hinzufuegen.',
                 'par15Entries.min' => 'Bitte mindestens einen Eintrag hinzufuegen.',
                 'par15Entries.*.beginn.required' => 'Beginn ist erforderlich.',
@@ -150,23 +160,25 @@ class ContractSigning extends Component
                 'par15Entries.*.tage.required' => 'Anzahl Tage ist erforderlich.',
             ]);
         }
-    }
 
-    private function validateStep2(): void
-    {
         if ($this->par16WasJobseeking) {
-            $this->validate([
+            $rules = array_merge($rules, [
                 'par16Entries' => 'required|array|min:1',
                 'par16Entries.*.beginn' => 'required|string',
                 'par16Entries.*.ende' => 'required|string',
                 'par16Entries.*.arbeitsagentur' => 'required|string',
-            ], [
+            ]);
+            $messages = array_merge($messages, [
                 'par16Entries.required' => 'Bitte mindestens einen Eintrag hinzufuegen.',
                 'par16Entries.min' => 'Bitte mindestens einen Eintrag hinzufuegen.',
                 'par16Entries.*.beginn.required' => 'Beginn ist erforderlich.',
                 'par16Entries.*.ende.required' => 'Ende ist erforderlich.',
                 'par16Entries.*.arbeitsagentur.required' => 'Arbeitsagentur ist erforderlich.',
             ]);
+        }
+
+        if (! empty($rules)) {
+            $this->validate($rules, $messages);
         }
     }
 
