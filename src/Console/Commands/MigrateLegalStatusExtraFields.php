@@ -55,6 +55,7 @@ class MigrateLegalStatusExtraFields extends Command
 
         $euDefinitions = DB::table('core_extra_field_definitions')
             ->where('name', 'eu_burger')
+            ->where('context_type', 'rec_phase')
             ->get();
 
         if ($euDefinitions->isEmpty()) {
@@ -66,7 +67,7 @@ class MigrateLegalStatusExtraFields extends Command
 
         $euValues = DB::table('core_extra_field_values')
             ->whereIn('definition_id', $euDefinitions->pluck('id'))
-            ->where('fieldable_type', 'Platform\\Recruiting\\Models\\RecApplicant')
+            ->where('fieldable_type', 'rec_applicant')
             ->whereNotNull('value')
             ->where('value', '!=', '')
             ->get();
@@ -138,6 +139,7 @@ class MigrateLegalStatusExtraFields extends Command
         foreach (self::DOCUMENT_FIELD_MAP as $extraFieldName => $column) {
             $defIds = DB::table('core_extra_field_definitions')
                 ->where('name', $extraFieldName)
+                ->where('context_type', 'rec_phase')
                 ->pluck('id')
                 ->all();
 
@@ -147,7 +149,7 @@ class MigrateLegalStatusExtraFields extends Command
 
             $fileValues = DB::table('core_extra_field_values')
                 ->whereIn('definition_id', $defIds)
-                ->where('fieldable_type', 'Platform\\Recruiting\\Models\\RecApplicant')
+                ->where('fieldable_type', 'rec_applicant')
                 ->whereNotNull('value')
                 ->where('value', '!=', '')
                 ->get();
@@ -215,6 +217,7 @@ class MigrateLegalStatusExtraFields extends Command
 
         $definitions = DB::table('core_extra_field_definitions')
             ->whereIn('name', $allNames)
+            ->where('context_type', 'rec_phase')
             ->get(['id', 'name', 'context_type', 'context_id']);
 
         $this->components->info('3. Definitions zum Löschen (per MCP):');
