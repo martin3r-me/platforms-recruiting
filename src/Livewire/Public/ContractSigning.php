@@ -15,6 +15,7 @@ class ContractSigning extends Component
     public ?int $contractId = null;
     public string $contractContent = '';
     public string $contractTemplateName = '';
+    public bool $requiresPreSigningStep = true;
 
     public bool $par15HasPrevious = false;
     public array $par15Entries = [];
@@ -58,6 +59,13 @@ class ContractSigning extends Component
         $this->contractId = $contract->id;
         $this->contractContent = $contract->personalized_content ?? '';
         $this->contractTemplateName = $contract->contractTemplate?->name ?? 'Vertrag';
+
+        // Only the Arbeitsvertrag-variants (AV-*) require the paragraph 15/16 pre-signing step.
+        // IFSG and any other contracts go directly to view-and-sign.
+        $code = $contract->contractTemplate?->code;
+        $this->requiresPreSigningStep = $code !== null && str_starts_with($code, 'AV-');
+        $this->step = $this->requiresPreSigningStep ? 1 : 2;
+
         $this->state = 'form';
     }
 
@@ -114,17 +122,21 @@ class ContractSigning extends Component
             return;
         }
 
-        $preSigningData = [
-            'par15_has_previous' => $this->par15HasPrevious,
-            'par15_entries' => $this->par15HasPrevious ? $this->par15Entries : [],
-            'par16_was_jobseeking' => $this->par16WasJobseeking,
-            'par16_entries' => $this->par16WasJobseeking ? $this->par16Entries : [],
-        ];
-
-        $personalizedContent = RecContract::embedPreSigningData(
-            $contract->personalized_content ?? '',
-            $preSigningData
-        );
+        if ($this->requiresPreSigningStep) {
+            $preSigningData = [
+                'par15_has_previous' => $this->par15HasPrevious,
+                'par15_entries' => $this->par15HasPrevious ? $this->par15Entries : [],
+                'par16_was_jobseeking' => $this->par16WasJobseeking,
+                'par16_entries' => $this->par16WasJobseeking ? $this->par16Entries : [],
+            ];
+            $personalizedContent = RecContract::embedPreSigningData(
+                $contract->personalized_content ?? '',
+                $preSigningData
+            );
+        } else {
+            $preSigningData = null;
+            $personalizedContent = $contract->personalized_content ?? '';
+        }
 
         $contract->update([
             'pre_signing_data' => $preSigningData,

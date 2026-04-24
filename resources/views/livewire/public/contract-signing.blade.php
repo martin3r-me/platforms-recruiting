@@ -26,29 +26,31 @@
                 <p class="text-gray-500">Vertrag wird geladen...</p>
             </div>
         @elseif($state === 'form')
-            {{-- Fortschrittsanzeige --}}
-            <div class="mb-8">
-                <div class="flex items-center justify-between mb-2">
-                    @foreach([1 => '§15/§16 Angaben', 2 => 'Vertrag & Unterschrift'] as $num => $label)
-                        <div class="flex items-center {{ $num < 2 ? 'flex-1' : '' }}">
-                            <div class="flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold
-                                {{ $step >= $num ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500' }}">
-                                @if($step > $num)
-                                    @svg('heroicon-o-check', 'w-5 h-5')
-                                @else
-                                    {{ $num }}
+            {{-- Fortschrittsanzeige (nur wenn Step 1 mit §15/§16 Pre-Signing relevant ist) --}}
+            @if($requiresPreSigningStep)
+                <div class="mb-8">
+                    <div class="flex items-center justify-between mb-2">
+                        @foreach([1 => '§15/§16 Angaben', 2 => 'Vertrag & Unterschrift'] as $num => $label)
+                            <div class="flex items-center {{ $num < 2 ? 'flex-1' : '' }}">
+                                <div class="flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold
+                                    {{ $step >= $num ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500' }}">
+                                    @if($step > $num)
+                                        @svg('heroicon-o-check', 'w-5 h-5')
+                                    @else
+                                        {{ $num }}
+                                    @endif
+                                </div>
+                                <span class="ml-2 text-sm font-medium {{ $step >= $num ? 'text-gray-900' : 'text-gray-400' }} hidden sm:inline">
+                                    {{ $label }}
+                                </span>
+                                @if($num < 2)
+                                    <div class="flex-1 mx-4 h-0.5 {{ $step > $num ? 'bg-blue-600' : 'bg-gray-200' }}"></div>
                                 @endif
                             </div>
-                            <span class="ml-2 text-sm font-medium {{ $step >= $num ? 'text-gray-900' : 'text-gray-400' }} hidden sm:inline">
-                                {{ $label }}
-                            </span>
-                            @if($num < 2)
-                                <div class="flex-1 mx-4 h-0.5 {{ $step > $num ? 'bg-blue-600' : 'bg-gray-200' }}"></div>
-                            @endif
-                        </div>
-                    @endforeach
+                        @endforeach
+                    </div>
                 </div>
-            </div>
+            @endif
 
             {{-- Step 1: §15 + §16 zusammen --}}
             @if($step === 1)
@@ -241,11 +243,13 @@
                             :height="200"
                         />
 
-                        <div class="flex justify-between mt-8">
-                            <button type="button" wire:click="previousStep"
-                                class="inline-flex items-center gap-2 px-6 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition">
-                                @svg('heroicon-o-arrow-left', 'w-4 h-4') Zurück
-                            </button>
+                        <div class="flex {{ $requiresPreSigningStep ? 'justify-between' : 'justify-end' }} mt-8">
+                            @if($requiresPreSigningStep)
+                                <button type="button" wire:click="previousStep"
+                                    class="inline-flex items-center gap-2 px-6 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50 transition">
+                                    @svg('heroicon-o-arrow-left', 'w-4 h-4') Zurück
+                                </button>
+                            @endif
                             <button type="button" wire:click="sign"
                                 class="inline-flex items-center gap-2 px-8 py-3 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition">
                                 @svg('heroicon-o-check', 'w-5 h-5') Vertrag unterschreiben

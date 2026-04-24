@@ -11,11 +11,14 @@ class ApplicantPortal extends Component
     public string $state = 'loading';
 
     public ?int $applicantId = null;
+    public ?string $applicantToken = null;
     public string $applicantName = '';
     public array $contracts = [];
 
     public function mount(string $token): void
     {
+        $this->applicantToken = $token;
+
         $link = CorePublicFormLink::where('token', $token)->first();
 
         if (!$link) {
@@ -48,14 +51,22 @@ class ApplicantPortal extends Component
             ->filter(fn ($c) => $c->status !== 'cancelled')
             ->map(function ($c) {
                 $contractLink = $c->getOrCreatePublicFormLink();
+                $code = $c->contractTemplate?->code;
+                $displayName = match (true) {
+                    $code !== null && str_starts_with($code, 'AV-') => 'Arbeitsvertrag',
+                    $code === 'IFSG' => 'Infektionsschutzgesetz',
+                    default => $c->contractTemplate?->name ?? 'Vertrag',
+                };
                 return [
                     'id' => $c->id,
-                    'template_name' => $c->contractTemplate?->name ?? 'Vertrag',
-                    'template_code' => $c->contractTemplate?->code,
+                    'display_name' => $displayName,
                     'status' => $c->status,
                     'signed_at' => $c->signed_at,
                     'completed_at' => $c->completed_at,
                     'sign_url' => route('recruiting.public.contract-signing', ['token' => $contractLink->token]),
+                    'pdf_url' => $c->status === 'completed'
+                        ? route('recruiting.public.contract-pdf', ['token' => $this->applicantToken, 'contractId' => $c->id])
+                        : null,
                 ];
             })
             ->values()
