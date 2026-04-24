@@ -8,20 +8,47 @@ use Platform\Recruiting\Models\RecContract;
 class DebugContractFieldResolution extends Command
 {
     protected $signature = 'recruiting:debug-contract-resolution
-        {contractId : ID des RecContract zum Debuggen}';
+        {id? : Direkte ID des RecContract zum Debuggen (optional wenn --applicant gesetzt)}
+        {--applicant= : Stattdessen Applicant-ID (aus URL /recruiting/applicants/{id}). Nimmt den jüngsten Vertrag.}
+        {--latest : Nimmt den zuletzt angelegten Vertrag im gesamten System (Schnell-Debug).}';
 
     protected $description = 'Zeigt für einen gegebenen Vertrag: Template-field_mappings, Resolver-Ergebnisse, sowie Applicant-Extra-Fields und CRM-Postal-Adressen — damit klar wird, warum Placeholder leer bleiben.';
 
     public function handle(): int
     {
-        $contractId = (int) $this->argument('contractId');
+        $contractId = $this->argument('id');
+        $applicantId = $this->option('applicant');
+        $latest = (bool) $this->option('latest');
 
-        $contract = RecContract::with([
+        $query = RecContract::with([
             'contractTemplate',
             'applicant.crmContactLinks.contact.postalAddresses',
             'applicant.crmContactLinks.contact.emailAddresses',
             'applicant.crmContactLinks.contact.phoneNumbers',
-        ])->find($contractId);
+        ]);
+
+        if ($contractId) {
+            $contract = $query->find((int) $contractId);
+        } elseif ($applicantId) {
+            $contract = $query->where('rec_applicant_id', (int) $applicantId)
+                ->orderByDesc('id')
+                ->first();
+            if (!$contract) {
+                $this->error("Keine Verträge für Applicant #{$applicantId} gefunden.");
+                return self::FAILURE;
+            }
+            $this->line("→ Jüngster Vertrag für Applicant #{$applicantId}: RecContract #{$contract->id}");
+        } elseif ($latest) {
+            $contract = $query->orderByDesc('id')->first();
+            if (!$contract) {
+                $this->error('Keine Verträge im System.');
+                return self::FAILURE;
+            }
+            $this->line("→ Jüngster Vertrag: RecContract #{$contract->id}");
+        } else {
+            $this->error('Bitte entweder {id}, --applicant=<id> oder --latest angeben.');
+            return self::FAILURE;
+        }
 
         if (!$contract) {
             $this->error("RecContract #{$contractId} nicht gefunden.");
