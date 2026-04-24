@@ -800,21 +800,8 @@ class Show extends Component
     public function sendApplicantPortal(): void
     {
         try {
-            $this->applicant->load('contracts.contractTemplate');
-
-            $activeContracts = $this->applicant->contracts
-                ->filter(fn ($c) => in_array($c->status, ['pending', 'sent', 'in_progress']));
-
-            if ($activeContracts->isEmpty()) {
-                session()->flash('error', 'Keine versendbaren Verträge — bitte zuerst mindestens einen Vertrag zuweisen.');
+            if (!$this->activatePendingContractsForPortal()) {
                 return;
-            }
-
-            foreach ($activeContracts as $contract) {
-                $contract->getOrCreatePublicFormLink();
-                if ($contract->status === 'pending') {
-                    $contract->update(['status' => 'sent', 'sent_at' => now()]);
-                }
             }
 
             $settings = RecApplicantSettings::getOrCreateForTeam($this->applicant->team_id);
@@ -839,10 +826,41 @@ class Show extends Component
 
     public function generateApplicantPortalLink(): void
     {
+        if (!$this->activatePendingContractsForPortal()) {
+            return;
+        }
+
         $link = $this->applicant->getOrCreatePublicFormLink();
         $this->portalLinkUrl = route('recruiting.public.applicant-portal', ['token' => $link->token]);
         $this->applicant->load('contracts.contractTemplate');
-        session()->flash('message', 'Portal-Link erzeugt. Link unten zum Kopieren.');
+        session()->flash('message', 'Portal-Link erzeugt. Alle zugewiesenen Verträge sind über den Link unterschreibbar.');
+    }
+
+    /**
+     * Ensures every active contract has a public form link and is in status 'sent'
+     * so that the portal page can render per-contract sign buttons immediately.
+     * Returns false (and flashes an error) when the applicant has no assignable contracts.
+     */
+    private function activatePendingContractsForPortal(): bool
+    {
+        $this->applicant->load('contracts.contractTemplate');
+
+        $activeContracts = $this->applicant->contracts
+            ->filter(fn ($c) => in_array($c->status, ['pending', 'sent', 'in_progress']));
+
+        if ($activeContracts->isEmpty()) {
+            session()->flash('error', 'Keine versendbaren Verträge — bitte zuerst mindestens einen Vertrag zuweisen.');
+            return false;
+        }
+
+        foreach ($activeContracts as $contract) {
+            $contract->getOrCreatePublicFormLink();
+            if ($contract->status === 'pending') {
+                $contract->update(['status' => 'sent', 'sent_at' => now()]);
+            }
+        }
+
+        return true;
     }
 
     public function generateContractLink(int $contractId): void
