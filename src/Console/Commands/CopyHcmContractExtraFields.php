@@ -14,8 +14,19 @@ class CopyHcmContractExtraFields extends Command
 
     protected $description = 'Kopiert core_extra_field_definitions mit context_type=hcm_onboarding_contract nach context_type=rec_contract. Idempotent (Dedup per Unique-Key team_id+context_type+context_id+name). Skippt Definitions mit context_id != NULL — die referenzieren HCM-spezifische Entities und können nicht blind auf rec_contract übertragen werden.';
 
-    private const HCM_CONTEXT_TYPE = 'hcm_onboarding_contract';
-    private const REC_CONTEXT_TYPE = 'rec_contract';
+    // HasExtraFields-Trait in platforms-core nutzt get_class($this) für den
+    // Definition-Lookup — die echten Definitions stehen also unter dem FQCN.
+    // Der Morph-Alias wird defensiv mitgesucht falls etwas historisch anders
+    // angelegt wurde.
+    private const HCM_CONTEXT_TYPES_SEARCH = [
+        'Platform\\Hcm\\Models\\HcmOnboardingContract', // primary (FQCN)
+        'hcm_onboarding_contract',                      // fallback (morph alias)
+    ];
+    private const REC_CONTEXT_TYPE_WRITE = 'Platform\\Recruiting\\Models\\RecContract';
+    private const REC_CONTEXT_TYPES_DEDUP = [
+        'Platform\\Recruiting\\Models\\RecContract',
+        'rec_contract',
+    ];
 
     public function handle(): int
     {
@@ -35,13 +46,30 @@ class CopyHcmContractExtraFields extends Command
         }
 
         $sources = DB::table('core_extra_field_definitions')
-            ->where('context_type', self::HCM_CONTEXT_TYPE)
+            ->whereIn('context_type', self::HCM_CONTEXT_TYPES_SEARCH)
             ->orderBy('team_id')
             ->orderBy('order')
             ->orderBy('id')
             ->get();
 
-        $this->line("Gefundene HCM-Definitions (context_type={$this->formatContext(self::HCM_CONTEXT_TYPE)}): {$sources->count()}");
+        $searchList = implode(' | ', array_map(fn($t) => "'{$t}'", self::HCM_CONTEXT_TYPES_SEARCH));
+        $this->line("Gefundene HCM-Definitions (context_type IN [{$searchList}]): {$sources->count()}");
+
+        if ($sources->isEmpty()) {
+            $this->newLine();
+            $this->warn('Keine HCM-Definitions gefunden. Kurze Diagnose — alle context_types aktuell in core_extra_field_definitions:');
+            $diag = DB::table('core_extra_field_definitions')
+                ->select('context_type', DB::raw('COUNT(*) as cnt'))
+                ->groupBy('context_type')
+                ->orderByDesc('cnt')
+                ->get();
+            foreach ($diag as $row) {
+                $this->line("    {$row->context_type}  ({$row->cnt})");
+            }
+            if ($diag->isEmpty()) {
+                $this->line('    (Tabelle ist komplett leer)');
+            }
+        }
         $this->newLine();
 
         $copied = 0;
@@ -61,21 +89,21 @@ class CopyHcmContractExtraFields extends Command
 
             $existing = DB::table('core_extra_field_definitions')
                 ->where('team_id', $src->team_id)
-                ->where('context_type', self::REC_CONTEXT_TYPE)
+                ->whereIn('context_type', self::REC_CONTEXT_TYPES_DEDUP)
                 ->whereNull('context_id')
                 ->where('name', $src->name)
                 ->first();
 
             if ($existing) {
-                $this->line("  ⏭ [team={$src->team_id}] \"{$src->name}\" — existiert bereits als rec_contract-Definition #{$existing->id}, übersprungen.");
+                $this->line("  ⏭ [team={$src->team_id}] \"{$src->name}\" — existiert bereits (#{$existing->id}, context_type='{$existing->context_type}'), übersprungen.");
                 $skipped++;
                 continue;
             }
 
-            $this->line("  ✚ [team={$src->team_id}] \"{$src->name}\" (type={$src->type}) — neu anlegen (HCM-Quelle #{$src->id}).");
+            $this->line("  ✚ [team={$src->team_id}] \"{$src->name}\" (type={$src->type}, src_context_type='{$src->context_type}') — neu anlegen (HCM-Quelle #{$src->id}).");
 
             if ($detail) {
-                $this->printDetail($src, self::REC_CONTEXT_TYPE);
+                $this->printDetail($src, self::REC_CONTEXT_TYPE_WRITE);
             }
 
             if ($dryRun) {
@@ -87,7 +115,7 @@ class CopyHcmContractExtraFields extends Command
                 DB::table('core_extra_field_definitions')->insert([
                     'team_id'            => $src->team_id,
                     'created_by_user_id' => $src->created_by_user_id,
-                    'context_type'       => self::REC_CONTEXT_TYPE,
+                    'context_type'       => self::REC_CONTEXT_TYPE_WRITE,
                     'context_id'         => null,
                     'name'               => $src->name,
                     'label'              => $src->label,
@@ -153,8 +181,4 @@ class CopyHcmContractExtraFields extends Command
         $this->newLine();
     }
 
-    private function formatContext(string $type): string
-    {
-        return "'{$type}'";
-    }
 }

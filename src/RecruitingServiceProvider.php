@@ -32,6 +32,8 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\CopyHcmContractTemplates::class,
                 \Platform\Recruiting\Console\Commands\DeactivateHcmContractTemplates::class,
                 \Platform\Recruiting\Console\Commands\CopyHcmContractExtraFields::class,
+                \Platform\Recruiting\Console\Commands\SeedRecContractExtraFields::class,
+                \Platform\Recruiting\Console\Commands\CreateArbeitsvertragVariants::class,
             ]);
         }
     }

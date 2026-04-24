@@ -146,6 +146,22 @@ class RecContractTemplate extends Model
             return (string) ($contract->getExtraField($efName) ?? '');
         }
 
+        if (str_starts_with($source, 'settings.')) {
+            $key = substr($source, strlen('settings.'));
+            $settings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+            $value = $settings->settings[$key] ?? (RecApplicantSettings::DEFAULT_SETTINGS[$key] ?? null);
+            if ($value === null) {
+                return '';
+            }
+            if (is_float($value) || (is_string($value) && is_numeric($value) && str_contains($value, '.'))) {
+                return number_format((float) $value, 2, ',', '.');
+            }
+            if (is_bool($value)) {
+                return $value ? 'ja' : 'nein';
+            }
+            return (string) $value;
+        }
+
         if (str_starts_with($source, 'text:')) {
             return substr($source, strlen('text:'));
         }

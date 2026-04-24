@@ -34,6 +34,7 @@ class RecApplicantSettings extends Model
         'send_initial_whatsapp_template' => false,
         'enrichment_wa_template_id' => null,
         'interview_booking_wa_template_id' => null,
+        'minimum_wage_hourly' => 13.90,
     ];
 
     public function team(): BelongsTo

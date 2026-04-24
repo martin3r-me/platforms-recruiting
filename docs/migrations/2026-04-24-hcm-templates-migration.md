@@ -73,6 +73,89 @@ DELETE FROM rec_contract_templates
 > ```
 > If that returns > 0, only run step 1 (re-activate HCM) and investigate.
 
-## Known follow-up (out of scope for this migration)
+## Known follow-up (addressed in Phase A of the Recruiting contract send flow, see below)
 
-The copied `field_mappings` reference `contract.extra_field.*` for `zuschlag`, `stundenlohn`, `vertragsbeginn`, `vertragsende`. These extra-field **definitions** currently exist on the `hcm_onboarding_contract` morph context. For new contracts created from these templates in Recruiting, the placeholders will render empty until equivalent definitions are created on the `rec_contract` context (`core_extra_field_definitions.context_type = 'rec_contract'`). Existing signed HCM contracts are unaffected (they use the snapshot).
+The copied `field_mappings` reference `contract.extra_field.*` for `zuschlag`, `stundenlohn`, `vertragsbeginn`, `vertragsende`. When we dug into HCM production, we found **zero** `core_extra_field_definitions` rows for the `hcm_onboarding_contract` context — the HCM "Felder bearbeiten" UI was populated with values despite the definitions not living in the shared-table; the previous storage path is not relevant going forward. For Recruiting we built a cleaner model. See Phase A below.
+
+---
+
+# Recruiting-side contract send flow — Phase A (prerequisites)
+
+**Date:** 2026-04-24
+**App:** meingedeck (production)
+
+## Rationale / what changed vs. HCM
+
+Instead of porting 4 extra-field definitions, we restructured how the 4 contract-body values get resolved:
+
+| Value | New location | Why |
+|---|---|---|
+| `zuschlag` | **Baked into the contract body** across 4 template variants (0,50 / 1,00 / 1,50 / 2,00 €) | Recruiter picks the variant matching the negotiated bonus — fewer moving parts, fewer filled-at-runtime fields |
+| `stundenlohn` | Central team-scoped setting `RecApplicantSettings.settings['minimum_wage_hourly']` (default 13.90) | Legally uniform across all employees; changes ~once a year by law; maintained once in the settings modal |
+| `vertragsbeginn` | Extra field on `rec_contract` (`date`, required) | Per-contract; recruiter sets it when assigning |
+| `vertragsende` | Extra field on `rec_contract` (`date`, required), **auto-computed** from `vertragsbeginn` | Always = (start + 1 year).startOfMonth().subDay(). Example: 15.02.2026 → 31.01.2027. Stored so it is editable if needed. |
+
+## Changes shipped in Phase A
+
+1. **`RecApplicantSettings::DEFAULT_SETTINGS`** — added `minimum_wage_hourly => 13.90`. Existing rows pick up the key automatically via the `array_merge(DEFAULT_SETTINGS, …)` in `ApplicantSettingsModal::openSettings()`.
+
+2. **`RecContractTemplate::resolveSource()`** — added new `settings.*` prefix branch: reads `RecApplicantSettings.settings[$key]` for the applicant's team, formats decimals as German number (e.g. `13,90`), booleans as `ja`/`nein`.
+
+3. **New artisan `recruiting:seed-rec-contract-extra-fields`** — creates `vertragsbeginn` and `vertragsende` as `core_extra_field_definitions` with `context_type='Platform\\Recruiting\\Models\\RecContract'`, `context_id=null`, scoped per team that already has `rec_contract_templates`. Idempotent.
+
+4. **New artisan `recruiting:create-arbeitsvertrag-variants`** — clones the base `Arbeitsvertrag` template (code `AV`) into four variants with `{{zuschlag}}` literal-replaced by `0,50` / `1,00` / `1,50` / `2,00`. Strips `zuschlag` from `field_mappings`, remaps `stundenlohn` to `settings.minimum_wage_hourly`. Deactivates the base template (`is_active=false`) by default. Use `--keep-base` to retain it. Idempotent via `(team_id, code)` dedup.
+
+5. **Settings modal UI** — added an input field for `minimum_wage_hourly` in the "Allgemein" tab of `ApplicantSettingsModal`.
+
+## Commands to run on Forge (in order)
+
+```bash
+php artisan recruiting:seed-rec-contract-extra-fields --dry-run
+php artisan recruiting:seed-rec-contract-extra-fields
+
+php artisan recruiting:create-arbeitsvertrag-variants --dry-run
+php artisan recruiting:create-arbeitsvertrag-variants
+```
+
+After running both, the "Infektionsschutzgesetz" template stays as-is; the "Arbeitsvertrag" gets 4 `is_active=true` variants plus the now-deactivated base. The recruiter picks one of the 4 when assigning a contract in Phase B.
+
+## `field_mappings` reference for future templates
+
+The 4 new variants end up with this `field_mappings` shape (inherited from base, minus `zuschlag`, `stundenlohn` remapped):
+
+```json
+{
+  "datum_heute": "meta.datum_heute",
+  "kontakt_ort": "contact.address.city",
+  "kontakt_plz": "contact.address.postal_code",
+  "stundenlohn": "settings.minimum_wage_hourly",
+  "vertragsende": "contract.extra_field.vertragsende",
+  "vertragsbeginn": "contract.extra_field.vertragsbeginn",
+  "kontakt_strasse": "contact.address.street",
+  "kontakt_vorname": "contact.first_name",
+  "kontakt_nachname": "contact.last_name",
+  "kontakt_geburtsdatum": "contact.birth_date"
+}
+```
+
+## Rollback
+
+1. Deactivate variants + re-activate base:
+```sql
+UPDATE rec_contract_templates SET is_active = false, updated_at = NOW()
+ WHERE team_id = 3 AND code IN ('AV-050','AV-100','AV-150','AV-200');
+
+UPDATE rec_contract_templates SET is_active = true, updated_at = NOW()
+ WHERE team_id = 3 AND code = 'AV' AND deleted_at IS NULL;
+```
+
+2. Remove the seeded extra-field definitions (only if no values have been written yet):
+```sql
+DELETE FROM core_extra_field_definitions
+ WHERE team_id = 3
+   AND context_type = 'Platform\\Recruiting\\Models\\RecContract'
+   AND context_id IS NULL
+   AND name IN ('vertragsbeginn','vertragsende');
+```
+
+3. Remove the `minimum_wage_hourly` key from settings via tinker or the settings UI (unset it).
