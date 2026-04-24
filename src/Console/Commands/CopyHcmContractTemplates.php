@@ -10,13 +10,15 @@ use Symfony\Component\Uid\UuidV7;
 class CopyHcmContractTemplates extends Command
 {
     protected $signature = 'recruiting:copy-hcm-templates
-        {--dry-run : Nur anzeigen was passieren würde, keine Writes}';
+        {--dry-run : Nur anzeigen was passieren würde, keine Writes}
+        {--detail : Pro Template alle Scalar-Felder + field_mappings vor/nach Rewrite ausgeben}';
 
     protected $description = 'Kopiert hcm_contract_templates 1:1 nach rec_contract_templates (idempotent; Dedup per team_id+name; field_mappings-Prefix onboarding.→applicant.)';
 
     public function handle(): int
     {
         $dryRun = (bool) $this->option('dry-run');
+        $detail = (bool) $this->option('detail');
 
         $this->components->info('Copy HCM → Recruiting Contract Templates');
 
@@ -64,6 +66,10 @@ class CopyHcmContractTemplates extends Command
 
             $this->line("  ✚ [team={$src->team_id}] \"{$src->name}\" — neu anlegen (HCM-Quelle #{$src->id}).");
 
+            if ($detail) {
+                $this->printDetail($src, $remappedFieldMappings);
+            }
+
             if ($dryRun) {
                 $copied++;
                 continue;
@@ -110,6 +116,43 @@ class CopyHcmContractTemplates extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function printDetail(object $src, ?string $remappedFieldMappings): void
+    {
+        $fmBefore = $src->field_mappings ?? 'NULL';
+        $fmAfter  = $remappedFieldMappings ?? 'NULL';
+        $fmChanged = $fmBefore !== $fmAfter;
+
+        $this->line("      ├─ hcm_id:             #{$src->id}");
+        $this->line("      ├─ hcm_uuid:           {$src->uuid}");
+        $this->line("      ├─ code:               " . ($src->code ?? 'NULL'));
+        $this->line("      ├─ description:        " . ($src->description ?? 'NULL'));
+        $this->line("      ├─ is_active:          " . ($src->is_active ? 'true' : 'false'));
+        $this->line("      ├─ sort_order:         {$src->sort_order}");
+        $this->line("      ├─ requires_signature: " . ($src->requires_signature ? 'true' : 'false'));
+        $this->line("      ├─ created_by_user_id: " . ($src->created_by_user_id ?? 'NULL'));
+        $this->line("      ├─ created_at (kept):  {$src->created_at}");
+        $this->line("      ├─ content_len:        " . strlen($src->content ?? '') . ' bytes');
+        $this->line('      ├─ field_mappings BEFORE:');
+        $this->line('      │    ' . $this->indentJson($fmBefore));
+        $this->line('      ├─ field_mappings AFTER (' . ($fmChanged ? 'rewritten' : 'unchanged') . '):');
+        $this->line('      │    ' . $this->indentJson($fmAfter));
+        $this->line('      └─ new uuid:           <generated at insert>');
+        $this->newLine();
+    }
+
+    private function indentJson(string $raw): string
+    {
+        if ($raw === 'NULL') {
+            return 'NULL';
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return $raw;
+        }
+        $pretty = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+        return str_replace("\n", "\n      │    ", $pretty);
     }
 
     private function remapFieldMappings(?string $rawJson): ?string
