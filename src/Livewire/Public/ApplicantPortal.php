@@ -68,6 +68,6 @@ class ApplicantPortal extends Component
     public function render()
     {
         return view('recruiting::livewire.public.applicant-portal')
-            ->layout('platform::layouts.public');
+            ->layout('platform::layouts.guest');
     }
 }

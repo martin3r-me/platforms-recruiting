@@ -33,7 +33,7 @@ Route::get('/contract/{token}', \Platform\Recruiting\Livewire\Public\ContractSig
     ->name('recruiting.public.contract-signing');
 
 // Applicant Portal — lists all active contracts of the applicant
-Route::get('/applicant/{token}/portal', \Platform\Recruiting\Livewire\Public\ApplicantPortal::class)
+Route::get('/portal/{token}', \Platform\Recruiting\Livewire\Public\ApplicantPortal::class)
     ->name('recruiting.public.applicant-portal');
 
 // Contract PDF Download (public, token-based)
