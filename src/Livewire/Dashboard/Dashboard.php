@@ -33,6 +33,8 @@ class Dashboard extends Component
     {
         $query = RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->where('is_active', true)
+            ->where('is_on_hr_desk', false)
+            ->whereNull('rejected_at')
             ->where('is_parked', $this->showParked);
         $this->applyPositionFilter($query);
 
@@ -184,6 +186,8 @@ class Dashboard extends Component
         $query = RecApplicant::forTeam($teamId)
             ->where('is_active', true)
             ->where('is_parked', false)
+            ->where('is_on_hr_desk', false)
+            ->whereNull('rejected_at')
             ->with(['postings.position', 'interviewBookings']);
 
         if ($this->filterMonth) {
@@ -321,6 +325,14 @@ class Dashboard extends Component
     public function applicantCount()
     {
         return $this->applicantBaseQuery()->count();
+    }
+
+    #[Computed]
+    public function hrDeskCount()
+    {
+        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
+            ->where('is_on_hr_desk', true)
+            ->count();
     }
 
     #[Computed]
@@ -610,6 +622,7 @@ class Dashboard extends Component
             $this->phasedApplicants,
             $this->availablePostings,
             $this->positionStats,
+            $this->hrDeskCount,
         );
     }
 

@@ -24,7 +24,7 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     protected $fillable = [
         'uuid', 'public_token', 'rec_applicant_status_id', 'rec_phase_id', 'progress', 'notes', 'applied_at',
-        'is_active', 'is_parked', 'parked_at',
+        'is_active', 'is_parked', 'parked_at', 'is_on_hr_desk', 'rejected_at',
         'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
         'preferred_comms_channel_id', 'enrichment_status',
@@ -35,6 +35,8 @@ class RecApplicant extends Model implements InheritsExtraFields
         'is_active' => 'boolean',
         'is_parked' => 'boolean',
         'parked_at' => 'datetime',
+        'is_on_hr_desk' => 'boolean',
+        'rejected_at' => 'datetime',
         'auto_pilot' => 'boolean',
         'auto_pilot_completed_at' => 'datetime',
         'auto_pilot_state_id' => 'integer',
@@ -164,9 +166,29 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $this->hasMany(RecContract::class, 'rec_applicant_id');
     }
 
+    public function legalStatus()
+    {
+        return $this->hasOne(RecApplicantLegalStatus::class, 'rec_applicant_id');
+    }
+
+    public function hrDeskCases()
+    {
+        return $this->hasMany(RecHrDeskCase::class, 'rec_applicant_id');
+    }
+
+    public function openHrDeskCase()
+    {
+        return $this->hasOne(RecHrDeskCase::class, 'rec_applicant_id')
+            ->where('status', RecHrDeskCase::STATUS_OPEN)
+            ->latestOfMany();
+    }
+
     public function scopeActive($query)
     {
-        return $query->where('is_active', true)->where('is_parked', false);
+        return $query->where('is_active', true)
+            ->where('is_parked', false)
+            ->where('is_on_hr_desk', false)
+            ->whereNull('rejected_at');
     }
 
     public function scopeForTeam($query, $teamId)
