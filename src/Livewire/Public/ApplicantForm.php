@@ -9,6 +9,7 @@ use Platform\Core\Models\ContextFile;
 use Platform\Core\Models\CoreExtraFieldValue;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecApplicantLegalStatus;
 
 class ApplicantForm extends Component
 {
@@ -32,6 +33,13 @@ class ApplicantForm extends Component
 
     /** All field definitions (including already-filled) for condition evaluation */
     public array $allFieldDefinitions = [];
+
+    /** Legal status fields */
+    public ?bool $isEuCitizen = null;
+    public bool $showLegalStatus = false;
+    public bool $legalStatusAlreadyFilled = false;
+    public array $legalDocumentUploads = [];
+    public array $legalDocumentFileData = [];
 
     private function getApplicant(): ?RecApplicant
     {
@@ -101,10 +109,76 @@ class ApplicantForm extends Component
 
         $this->loadUploadedFileData();
 
-        if (empty($filtered)) {
+        // Legal status
+        $this->loadLegalStatusFields($applicant);
+
+        if (empty($filtered) && (!$this->showLegalStatus || $this->legalStatusAlreadyFilled)) {
             $this->state = 'completed';
         } else {
             $this->state = 'form';
+        }
+    }
+
+    private function loadLegalStatusFields(RecApplicant $applicant): void
+    {
+        $phases = $applicant->extraFieldParents();
+        $this->showLegalStatus = collect($phases)->contains(
+            fn($p) => $p->getAutoPilotSetting('collect_legal_status', false)
+        );
+
+        if (!$this->showLegalStatus) {
+            return;
+        }
+
+        $legalStatus = $applicant->legalStatus;
+
+        if ($legalStatus && $legalStatus->is_eu_citizen !== null) {
+            $this->isEuCitizen = $legalStatus->is_eu_citizen;
+            $this->legalStatusAlreadyFilled = true;
+            $this->totalFields++;
+            $this->filledFields++;
+        } else {
+            $this->totalFields++;
+            $this->isEuCitizen = null;
+        }
+
+        // Load existing document file data
+        if ($legalStatus) {
+            $this->loadLegalDocumentFileData($legalStatus);
+        }
+    }
+
+    private function loadLegalDocumentFileData(RecApplicantLegalStatus $legalStatus): void
+    {
+        $fileIds = [];
+        foreach (RecApplicantLegalStatus::DOCUMENT_FIELDS as $field => $label) {
+            $fileId = $legalStatus->$field;
+            if ($fileId) {
+                $fileIds[$field] = $fileId;
+            }
+        }
+
+        if (empty($fileIds)) {
+            $this->legalDocumentFileData = [];
+            return;
+        }
+
+        $files = ContextFile::whereIn('id', array_values($fileIds))->with('variants')->get()->keyBy('id');
+        $this->legalDocumentFileData = [];
+
+        foreach ($fileIds as $field => $fileId) {
+            $file = $files->get($fileId);
+            if ($file) {
+                $this->legalDocumentFileData[$field] = [
+                    'id' => $file->id,
+                    'original_name' => $file->original_name,
+                    'file_size' => $file->file_size,
+                    'mime_type' => $file->mime_type,
+                    'is_image' => $file->isImage(),
+                    'url' => $file->url,
+                    'thumbnail_url' => $file->thumbnail?->url,
+                ];
+            }
         }
     }
 
@@ -176,6 +250,52 @@ class ApplicantForm extends Component
         $this->loadUploadedFileData();
     }
 
+    public function updatedLegalDocumentUploads(): void
+    {
+        $applicant = $this->getApplicant();
+        if (!$applicant) return;
+
+        $legalStatus = $applicant->legalStatus()->firstOrCreate([
+            'team_id' => $applicant->team_id,
+        ]);
+
+        $service = app(ContextFileService::class);
+
+        foreach ($this->legalDocumentUploads as $field => $file) {
+            if (!$file) continue;
+            if (!array_key_exists($field, RecApplicantLegalStatus::DOCUMENT_FIELDS)) continue;
+
+            $result = $service->uploadForContext(
+                $file,
+                RecApplicantLegalStatus::class,
+                $legalStatus->id,
+                ['team_id' => $applicant->team_id, 'user_id' => null]
+            );
+
+            $legalStatus->$field = $result['id'];
+            $legalStatus->save();
+        }
+
+        $this->legalDocumentUploads = [];
+        $this->loadLegalDocumentFileData($legalStatus);
+    }
+
+    public function removeLegalDocument(string $field): void
+    {
+        if (!array_key_exists($field, RecApplicantLegalStatus::DOCUMENT_FIELDS)) return;
+
+        $applicant = $this->getApplicant();
+        if (!$applicant) return;
+
+        $legalStatus = $applicant->legalStatus;
+        if (!$legalStatus) return;
+
+        $legalStatus->$field = null;
+        $legalStatus->save();
+
+        unset($this->legalDocumentFileData[$field]);
+    }
+
     public function removeFile(int $fieldId, int $fileId): void
     {
         $current = $this->extraFieldValues[$fieldId] ?? null;
@@ -196,7 +316,16 @@ class ApplicantForm extends Component
 
     public function save(): void
     {
-        $this->validate($this->getExtraFieldValidationRules(), $this->getExtraFieldValidationMessages());
+        $rules = $this->getExtraFieldValidationRules();
+        $messages = $this->getExtraFieldValidationMessages();
+
+        // Add legal status validation
+        if ($this->showLegalStatus && !$this->legalStatusAlreadyFilled) {
+            $rules['isEuCitizen'] = 'required|boolean';
+            $messages['isEuCitizen.required'] = 'Bitte geben Sie an, ob Sie EU-Bürger sind.';
+        }
+
+        $this->validate($rules, $messages);
 
         $applicant = $this->getApplicant();
         if (!$applicant) {
@@ -205,6 +334,14 @@ class ApplicantForm extends Component
         }
 
         $this->saveExtraFieldValues($applicant);
+
+        // Save legal status
+        if ($this->showLegalStatus && !$this->legalStatusAlreadyFilled) {
+            $legalStatus = $applicant->legalStatus()->firstOrCreate([
+                'team_id' => $applicant->team_id,
+            ]);
+            $legalStatus->setEuCitizen($this->isEuCitizen);
+        }
 
         // Sync form values into allFieldValues for condition evaluation
         foreach ($this->extraFieldValues as $fieldId => $value) {
@@ -225,6 +362,19 @@ class ApplicantForm extends Component
             $isFilled = $field['value'] !== null && $field['value'] !== '' && $field['value'] !== [];
             if ($isFilled) {
                 $this->filledFields++;
+            } else {
+                $remainingUnfilled++;
+            }
+        }
+
+        // Count legal status field
+        if ($this->showLegalStatus) {
+            $this->totalFields++;
+            $applicant->refresh();
+            $lsNow = $applicant->legalStatus;
+            if ($lsNow && $lsNow->is_eu_citizen !== null) {
+                $this->filledFields++;
+                $this->legalStatusAlreadyFilled = true;
             } else {
                 $remainingUnfilled++;
             }

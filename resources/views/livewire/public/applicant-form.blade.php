@@ -238,6 +238,116 @@
                     </div>
 
                     <div class="space-y-6">
+                        {{-- Legal Status: EU-Bürger --}}
+                        @if($showLegalStatus && !$legalStatusAlreadyFilled)
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                    EU-Bürger <span class="text-rose-500 ml-0.5">*</span>
+                                </label>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        wire:click="$set('isEuCitizen', true)"
+                                        class="applicant-bool-card {{ $isEuCitizen === true ? 'applicant-option-active' : '' }}"
+                                    >
+                                        <svg class="w-8 h-8 {{ $isEuCitizen === true ? 'text-emerald-500' : 'text-gray-300' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <span class="text-sm font-semibold {{ $isEuCitizen === true ? 'text-gray-900' : 'text-gray-400' }}">Ja</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        wire:click="$set('isEuCitizen', false)"
+                                        class="applicant-bool-card {{ $isEuCitizen === false ? 'applicant-option-active' : '' }}"
+                                    >
+                                        <svg class="w-8 h-8 {{ $isEuCitizen === false ? 'text-rose-500' : 'text-gray-300' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <span class="text-sm font-semibold {{ $isEuCitizen === false ? 'text-gray-900' : 'text-gray-400' }}">Nein</span>
+                                    </button>
+                                </div>
+                                @error('isEuCitizen')
+                                    <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            {{-- Nicht-EU Dokumente (alle optional) --}}
+                            @if($isEuCitizen === false)
+                                <div class="space-y-6">
+                                    @foreach(\Platform\Recruiting\Models\RecApplicantLegalStatus::DOCUMENT_FIELDS as $docField => $docLabel)
+                                        <div>
+                                            <label class="block text-sm font-semibold text-gray-700 mb-2">
+                                                {{ $docLabel }}
+                                            </label>
+                                            @php $docFileData = $legalDocumentFileData[$docField] ?? null; @endphp
+
+                                            @if($docFileData)
+                                                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 mb-3">
+                                                    @if($docFileData['is_image'] && $docFileData['thumbnail_url'])
+                                                        <img src="{{ $docFileData['thumbnail_url'] }}" alt="" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
+                                                    @else
+                                                        <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                                                            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                                            </svg>
+                                                        </div>
+                                                    @endif
+                                                    <div class="flex-1 min-w-0">
+                                                        <p class="text-sm font-medium text-gray-700 truncate">{{ $docFileData['original_name'] }}</p>
+                                                        <p class="text-xs text-gray-400">{{ $this->formatFileSize($docFileData['file_size'] ?? 0) }}</p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        wire:click="removeLegalDocument('{{ $docField }}')"
+                                                        class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                                                    >
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            @else
+                                                <div
+                                                    x-data="{ dragging: false }"
+                                                    x-on:dragover.prevent="dragging = true"
+                                                    x-on:dragleave.prevent="dragging = false"
+                                                    x-on:drop.prevent="dragging = false; $refs.legalInput_{{ $docField }}.files = $event.dataTransfer.files; $refs.legalInput_{{ $docField }}.dispatchEvent(new Event('change'))"
+                                                    class="relative"
+                                                >
+                                                    <label
+                                                        :class="dragging ? 'border-blue-400 bg-blue-50/50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'"
+                                                        class="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all"
+                                                    >
+                                                        <div wire:loading.remove wire:target="legalDocumentUploads.{{ $docField }}">
+                                                            <svg class="w-8 h-8 text-gray-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                                            </svg>
+                                                            <p class="text-sm text-gray-500 text-center">
+                                                                <span class="font-medium text-blue-600">Datei auswählen</span> oder hierher ziehen
+                                                            </p>
+                                                        </div>
+                                                        <div wire:loading wire:target="legalDocumentUploads.{{ $docField }}" class="flex flex-col items-center">
+                                                            <svg class="animate-spin w-6 h-6 text-blue-500 mb-2" fill="none" viewBox="0 0 24 24">
+                                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                                                            </svg>
+                                                            <p class="text-sm text-gray-500">Wird hochgeladen...</p>
+                                                        </div>
+                                                        <input
+                                                            type="file"
+                                                            x-ref="legalInput_{{ $docField }}"
+                                                            wire:model="legalDocumentUploads.{{ $docField }}"
+                                                            class="hidden"
+                                                        >
+                                                    </label>
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                        @endif
+
                         @foreach($extraFieldDefinitions as $field)
                             @php
                                 $fieldId = $field['id'];
