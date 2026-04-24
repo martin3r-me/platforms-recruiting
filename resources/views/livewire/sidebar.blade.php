@@ -49,6 +49,14 @@
             @svg('heroicon-o-chat-bubble-left-right', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Gesprächsarten</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.contracts.index')">
+            @svg('heroicon-o-document-text', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Verträge</span>
+        </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.contract-templates.index')">
+            @svg('heroicon-o-document-duplicate', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Vertragsvorlagen</span>
+        </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 
     {{-- Collapsed: Icons-only --}}
@@ -71,6 +79,12 @@
             </a>
             <a href="{{ route('recruiting.interview-types.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Gesprächsarten">
                 @svg('heroicon-o-chat-bubble-left-right', 'w-5 h-5')
+            </a>
+            <a href="{{ route('recruiting.contracts.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Verträge">
+                @svg('heroicon-o-document-text', 'w-5 h-5')
+            </a>
+            <a href="{{ route('recruiting.contract-templates.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Vertragsvorlagen">
+                @svg('heroicon-o-document-duplicate', 'w-5 h-5')
             </a>
         </div>
     </div>
