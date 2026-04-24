@@ -728,6 +728,24 @@ class Show extends Component
     private function createContract(int $templateId): void
     {
         $template = RecContractTemplate::findOrFail($templateId);
+        $this->createSingleContract($template);
+
+        $ifsgAttached = false;
+        if ($template->code && str_starts_with($template->code, 'AV-')) {
+            $ifsgAttached = $this->autoAttachIfsgTemplate();
+        }
+
+        $this->applicant->load('contracts.contractTemplate');
+
+        $msg = "Vertrag \"{$template->name}\" zugewiesen.";
+        if ($ifsgAttached) {
+            $msg .= ' Infektionsschutzgesetz wurde automatisch ebenfalls zugewiesen.';
+        }
+        session()->flash('message', $msg);
+    }
+
+    private function createSingleContract(RecContractTemplate $template): void
+    {
         $personalized = $template->personalizeContent($this->applicant);
 
         RecContract::create([
@@ -738,9 +756,37 @@ class Show extends Component
             'status' => 'pending',
             'created_by_user_id' => auth()->id(),
         ]);
+    }
 
-        $this->applicant->load('contracts.contractTemplate');
-        session()->flash('message', "Vertrag \"{$template->name}\" zugewiesen.");
+    /**
+     * Rule: whenever an Arbeitsvertrag (code AV-*) is assigned, the
+     * Infektionsschutzgesetz (code IFSG) goes with it — unless an active
+     * IFSG contract already exists for the applicant. Returns true if a
+     * new IFSG contract was created.
+     */
+    private function autoAttachIfsgTemplate(): bool
+    {
+        $ifsg = RecContractTemplate::where('team_id', $this->applicant->team_id)
+            ->where('code', 'IFSG')
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (!$ifsg) {
+            return false;
+        }
+
+        $existing = $this->applicant->contracts()
+            ->where('rec_contract_template_id', $ifsg->id)
+            ->whereIn('status', ['pending', 'sent', 'in_progress'])
+            ->exists();
+
+        if ($existing) {
+            return false;
+        }
+
+        $this->createSingleContract($ifsg);
+        return true;
     }
 
     public function openContractFields(int $contractId): void

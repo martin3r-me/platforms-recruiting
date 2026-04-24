@@ -462,6 +462,25 @@
                     required
                     errorKey="selectedContractTemplateId"
                 />
+
+                @php
+                    $selectedTemplate = $selectedContractTemplateId
+                        ? $this->availableContractTemplates->firstWhere('id', (int) $selectedContractTemplateId)
+                        : null;
+                    $willAutoAttachIfsg = $selectedTemplate
+                        && $selectedTemplate->code
+                        && str_starts_with($selectedTemplate->code, 'AV-')
+                        && !$applicant->contracts->contains(fn($c) =>
+                            $c->contractTemplate?->code === 'IFSG'
+                            && in_array($c->status, ['pending', 'sent', 'in_progress'])
+                        );
+                @endphp
+
+                @if($willAutoAttachIfsg)
+                    <div class="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-900">
+                        @svg('heroicon-o-information-circle', 'w-4 h-4 inline') Das Infektionsschutzgesetz (IFSG) wird automatisch ebenfalls zugewiesen.
+                    </div>
+                @endif
             </div>
             <x-slot name="footer">
                 <div class="flex items-center justify-end gap-2">
