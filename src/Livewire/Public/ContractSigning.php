@@ -25,6 +25,9 @@ class ContractSigning extends Component
 
     public ?string $signatureData = null;
 
+    /** URL zurück ins Bewerber-Portal mit allen Verträgen — nach Signieren angezeigt */
+    public ?string $portalUrl = null;
+
     public function mount(string $token): void
     {
         $link = CorePublicFormLink::where('token', $token)->first();
@@ -48,6 +51,7 @@ class ContractSigning extends Component
 
         if ($contract->status === 'completed' || $contract->signed_at) {
             $this->state = 'already_signed';
+            $this->portalUrl = $this->buildPortalUrl($contract);
             return;
         }
 
@@ -147,7 +151,22 @@ class ContractSigning extends Component
             'status' => 'completed',
         ]);
 
+        $this->portalUrl = $this->buildPortalUrl($contract);
         $this->state = 'already_signed';
+    }
+
+    private function buildPortalUrl(RecContract $contract): ?string
+    {
+        $applicant = $contract->applicant;
+        if (!$applicant) {
+            return null;
+        }
+        try {
+            $link = $applicant->getOrCreatePublicFormLink();
+            return route('recruiting.public.applicant-portal', ['token' => $link->token]);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function validatePreSigningData(): void

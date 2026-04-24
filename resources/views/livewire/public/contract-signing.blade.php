@@ -18,7 +18,15 @@
             <div class="bg-white rounded-lg border border-green-200 p-12 text-center">
                 @svg('heroicon-o-check-circle', 'w-16 h-16 text-green-500 mx-auto mb-4')
                 <h2 class="text-xl font-bold text-gray-900 mb-2">Vertrag unterschrieben</h2>
-                <p class="text-gray-500">Dieser Vertrag wurde bereits erfolgreich unterschrieben. Vielen Dank!</p>
+                <p class="text-gray-500 mb-6">Dieser Vertrag wurde erfolgreich unterschrieben. Vielen Dank!</p>
+                @if($portalUrl)
+                    <a href="{{ $portalUrl }}"
+                       class="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--ui-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors">
+                        @svg('heroicon-o-arrow-uturn-left', 'w-4 h-4')
+                        Zurück zu meinen Verträgen
+                    </a>
+                    <p class="text-xs text-gray-400 mt-4">Dort sehen Sie alle weiteren Dokumente, die noch zur Unterschrift anstehen.</p>
+                @endif
             </div>
         @elseif($state === 'loading')
             <div class="bg-white rounded-lg border p-12 text-center">
