@@ -466,9 +466,6 @@
         <x-ui-modal size="lg" model="contractFieldsModalShow">
             <x-slot name="header">Vertragsfelder bearbeiten</x-slot>
             <div class="p-4 space-y-4">
-                <div class="text-[10px] text-[var(--ui-muted)] font-mono">
-                    DEBUG: fields = {{ count($contractFieldDefinitions) }} · names = {{ implode(', ', array_column($contractFieldDefinitions, 'name')) ?: '—' }}
-                </div>
                 @if(count($contractFieldDefinitions) === 0)
                     <p class="text-sm text-[var(--ui-muted)]">Keine Felder für diesen Vertrag definiert.</p>
                 @else
