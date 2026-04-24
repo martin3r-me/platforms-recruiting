@@ -22,6 +22,7 @@ use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmContactStatus;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
+use Platform\Recruiting\Services\SyncApplicantExtraFieldsToCrm;
 
 class Show extends Component
 {
@@ -130,6 +131,12 @@ class Show extends Component
         $this->validate();
         $this->applicant->save();
         $this->saveExtraFieldValues($this->applicant);
+
+        // Same sync as on public form save — admin edits of address/birth date
+        // must also land in canonical CRM storage so contract templates resolve.
+        app(SyncApplicantExtraFieldsToCrm::class)->sync(
+            $this->applicant->fresh(['crmContactLinks.contact'])
+        );
 
         $this->applicant->progress = $this->applicant->calculateProgress();
         $this->applicant->save();
