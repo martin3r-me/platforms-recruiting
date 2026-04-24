@@ -358,6 +358,21 @@
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird automatisch gesendet wenn alle Phasen abgeschlossen sind. Der Interview-Buchungslink wird als URL-Button übergeben.</p>
                     @endif
 
+                    {{-- Contract Send Template --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            name="settings.contract_wa_template_id"
+                            label="WhatsApp Template — Vertragsversand"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model="settings.contract_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird beim Klick auf "Versenden" auf einem Vertrag aus der Bewerber-Detailseite genutzt. Der Signaturlink wird als URL-Button übergeben. Ohne Konfiguration fällt der Versand auf einen Kopier-Link zurück.</p>
+                    @endif
+
                     {{-- Enrichment Template --}}
                     <div class="pt-4 mt-4 border-t border-[var(--ui-border)]/40">
                         <h4 class="text-sm font-medium text-[var(--ui-secondary)] mb-3">Enrichment</h4>

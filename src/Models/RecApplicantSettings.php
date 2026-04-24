@@ -35,6 +35,9 @@ class RecApplicantSettings extends Model
         'enrichment_wa_template_id' => null,
         'interview_booking_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
+        'contract_wa_template_id' => null,
+        'contract_wa_account_id' => null,
+        'contract_wa_template_variables' => [],
     ];
 
     public function team(): BelongsTo

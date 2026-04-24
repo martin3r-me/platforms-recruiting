@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\Applicant;
 
+use Carbon\Carbon;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Core\Livewire\Concerns\WithExtraFields;
@@ -9,7 +10,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Platform\Core\Models\Team;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecApplicantStatus;
+use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
@@ -53,6 +57,21 @@ class Show extends Component
     public $postingLinkModalShow = false;
     public $postingLinkForm = ['posting_id' => null];
 
+    // Contract flow state
+    public bool $assignContractModalShow = false;
+    public ?int $selectedContractTemplateId = null;
+
+    public bool $contractFieldsModalShow = false;
+    public ?int $activeContractId = null;
+    public array $contractFieldDefinitions = [];
+    public array $contractFieldValues = [];
+
+    public ?string $contractLinkUrl = null;
+
+    public bool $duplicateContractModalShow = false;
+    public ?int $duplicateContractExistingId = null;
+    public ?int $duplicateContractPendingTemplateId = null;
+
     public function mount(RecApplicant $applicant)
     {
         $allowedTeamIds = $this->getAllowedTeamIds($applicant->team_id);
@@ -70,6 +89,7 @@ class Show extends Component
             'postings.position',
             'preferredCommsChannel',
             'phase',
+            'contracts.contractTemplate',
         ]);
 
         $this->loadAvailableContacts();
@@ -608,6 +628,311 @@ class Show extends Component
             ->where('is_active', true)
             ->where('sender_identifier', $account->phone_number)
             ->first();
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Contract flow (assign + felder + send)
+    // ────────────────────────────────────────────────────────────
+
+    #[Computed]
+    public function availableContractTemplates()
+    {
+        return RecContractTemplate::where('team_id', $this->applicant->team_id)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+    }
+
+    private function applicantHasContact(): bool
+    {
+        return $this->applicant->crmContactLinks->first()?->contact !== null;
+    }
+
+    public function openAssignContractModal(): void
+    {
+        $this->contractLinkUrl = null;
+        $this->selectedContractTemplateId = null;
+        $this->assignContractModalShow = true;
+    }
+
+    public function closeAssignContractModal(): void
+    {
+        $this->assignContractModalShow = false;
+        $this->selectedContractTemplateId = null;
+    }
+
+    public function assignContract(): void
+    {
+        $this->validate([
+            'selectedContractTemplateId' => 'required|exists:rec_contract_templates,id',
+        ]);
+
+        if (!$this->applicantHasContact()) {
+            $this->addError('selectedContractTemplateId', 'Bewerber hat keinen verknüpften CRM-Kontakt. Bitte zuerst einen Kontakt anlegen oder verknüpfen, sonst bleiben Vertragsfelder leer.');
+            return;
+        }
+
+        $templateId = (int) $this->selectedContractTemplateId;
+
+        $existing = $this->applicant->contracts()
+            ->where('rec_contract_template_id', $templateId)
+            ->whereIn('status', ['pending', 'sent', 'in_progress'])
+            ->first();
+
+        if ($existing) {
+            $this->duplicateContractExistingId = $existing->id;
+            $this->duplicateContractPendingTemplateId = $templateId;
+            $this->assignContractModalShow = false;
+            $this->duplicateContractModalShow = true;
+            return;
+        }
+
+        $this->createContract($templateId);
+        $this->closeAssignContractModal();
+    }
+
+    public function confirmAssignReplaceDuplicate(): void
+    {
+        if (!$this->duplicateContractExistingId || !$this->duplicateContractPendingTemplateId) {
+            $this->duplicateContractModalShow = false;
+            return;
+        }
+
+        RecContract::where('id', $this->duplicateContractExistingId)
+            ->update(['status' => 'cancelled', 'updated_at' => now()]);
+
+        $this->createContract($this->duplicateContractPendingTemplateId);
+
+        $this->duplicateContractModalShow = false;
+        $this->duplicateContractExistingId = null;
+        $this->duplicateContractPendingTemplateId = null;
+        $this->selectedContractTemplateId = null;
+    }
+
+    public function cancelAssignDuplicate(): void
+    {
+        $this->duplicateContractModalShow = false;
+        $this->duplicateContractExistingId = null;
+        $this->duplicateContractPendingTemplateId = null;
+    }
+
+    private function createContract(int $templateId): void
+    {
+        $template = RecContractTemplate::findOrFail($templateId);
+        $personalized = $template->personalizeContent($this->applicant);
+
+        RecContract::create([
+            'rec_applicant_id' => $this->applicant->id,
+            'rec_contract_template_id' => $template->id,
+            'team_id' => $this->applicant->team_id,
+            'personalized_content' => $personalized,
+            'status' => 'pending',
+            'created_by_user_id' => auth()->id(),
+        ]);
+
+        $this->applicant->load('contracts.contractTemplate');
+        session()->flash('message', "Vertrag \"{$template->name}\" zugewiesen.");
+    }
+
+    public function openContractFields(int $contractId): void
+    {
+        $contract = RecContract::where('id', $contractId)
+            ->where('rec_applicant_id', $this->applicant->id)
+            ->firstOrFail();
+
+        $this->activeContractId = $contractId;
+        $this->contractFieldDefinitions = $contract->getExtraFieldsWithLabels();
+        $this->contractFieldValues = [];
+
+        foreach ($this->contractFieldDefinitions as $field) {
+            $this->contractFieldValues[$field['name']] = $field['value'];
+        }
+
+        $this->contractFieldsModalShow = true;
+    }
+
+    public function saveContractFields(): void
+    {
+        $contract = RecContract::where('id', $this->activeContractId)
+            ->where('rec_applicant_id', $this->applicant->id)
+            ->firstOrFail();
+
+        $beginn = $this->contractFieldValues['vertragsbeginn'] ?? null;
+        $ende = $this->contractFieldValues['vertragsende'] ?? null;
+        if ($beginn && !$ende) {
+            try {
+                $computed = Carbon::parse($beginn)->addYear()->startOfMonth()->subDay();
+                $this->contractFieldValues['vertragsende'] = $computed->format('Y-m-d');
+            } catch (\Throwable $e) {
+                // ignore — if beginn is not parseable, leave ende as entered
+            }
+        }
+
+        foreach ($this->contractFieldDefinitions as $field) {
+            $value = $this->contractFieldValues[$field['name']] ?? null;
+            $contract->setExtraField($field['name'], $value);
+        }
+
+        if ($contract->contractTemplate) {
+            $contract->personalized_content = $contract->contractTemplate->personalizeContent(
+                $this->applicant,
+                $contract
+            );
+            $contract->save();
+        }
+
+        $this->closeContractFieldsModal();
+        $this->applicant->load('contracts.contractTemplate');
+        session()->flash('message', 'Vertragsfelder gespeichert.');
+    }
+
+    public function closeContractFieldsModal(): void
+    {
+        $this->contractFieldsModalShow = false;
+        $this->activeContractId = null;
+        $this->contractFieldDefinitions = [];
+        $this->contractFieldValues = [];
+    }
+
+    public function sendContract(int $contractId): void
+    {
+        try {
+            $contract = RecContract::where('id', $contractId)
+                ->where('rec_applicant_id', $this->applicant->id)
+                ->firstOrFail();
+
+            $settings = RecApplicantSettings::getOrCreateForTeam($this->applicant->team_id);
+            $templateId = $settings->getSetting('contract_wa_template_id');
+            $accountId = $settings->getSetting('contract_wa_account_id');
+
+            if ($templateId && !$accountId) {
+                $tmpl = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
+                $accountId = $tmpl?->whatsapp_account_id;
+            }
+
+            if ($templateId && $accountId) {
+                $this->sendContractViaWhatsApp($contract, (int) $templateId, (int) $accountId);
+                return;
+            }
+
+            $this->generateContractLink($contract->id);
+        } catch (\Throwable $e) {
+            session()->flash('error', 'Fehler beim Versenden: ' . $e->getMessage());
+        }
+    }
+
+    public function generateContractLink(int $contractId): void
+    {
+        $contract = RecContract::where('id', $contractId)
+            ->where('rec_applicant_id', $this->applicant->id)
+            ->firstOrFail();
+
+        $link = $contract->getOrCreatePublicFormLink();
+
+        if ($contract->status === 'pending') {
+            $contract->update(['status' => 'sent', 'sent_at' => now()]);
+        }
+
+        $this->contractLinkUrl = route('recruiting.public.contract-signing', ['token' => $link->token]);
+        $this->applicant->load('contracts.contractTemplate');
+        session()->flash('message', 'Signaturlink erzeugt. Link unten zum Kopieren.');
+    }
+
+    private function sendContractViaWhatsApp(RecContract $contract, int $templateId, int $accountId): void
+    {
+        $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
+        if (!$template || $template->status !== 'APPROVED') {
+            session()->flash('error', 'WhatsApp-Template nicht gefunden oder nicht genehmigt.');
+            return;
+        }
+
+        $phoneNumber = $this->findApplicantPhoneNumber();
+        if (!$phoneNumber) {
+            session()->flash('error', 'Kein Kontakt mit Telefonnummer gefunden.');
+            return;
+        }
+
+        $channel = $this->resolveWhatsAppChannel($accountId);
+        if (!$channel) {
+            session()->flash('error', 'Kein aktiver WhatsApp-Kanal für den konfigurierten Account.');
+            return;
+        }
+
+        $link = $contract->getOrCreatePublicFormLink();
+        $signingUrl = route('recruiting.public.contract-signing', ['token' => $link->token]);
+
+        $primaryContact = $this->applicant->crmContactLinks->first()?->contact;
+        $variableValues = [
+            'candidate_name' => $primaryContact?->full_name ?? '',
+            'contract_link' => $signingUrl,
+            'contract_name' => $contract->contractTemplate?->name ?? 'Vertrag',
+        ];
+
+        $components = [];
+        $bodyParams = $this->parseTemplateBodyParams($template->components ?? []);
+        $settings = RecApplicantSettings::getOrCreateForTeam($this->applicant->team_id);
+        $variableMapping = $settings->getSetting('contract_wa_template_variables', []);
+
+        if (!empty($bodyParams)) {
+            $autoMapDefaults = ['candidate_name', 'contract_link', 'contract_name'];
+            $bodyParameters = [];
+            foreach ($bodyParams as $i => $param) {
+                $sourceKey = $variableMapping[$param['name']] ?? ($autoMapDefaults[$i] ?? null);
+                $value = $sourceKey ? ($variableValues[$sourceKey] ?? '') : '';
+                $entry = ['type' => 'text', 'text' => (string) $value];
+                if (!is_numeric($param['name'])) {
+                    $entry['parameter_name'] = $param['name'];
+                }
+                $bodyParameters[] = $entry;
+            }
+            $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
+        }
+
+        $hasUrlButton = false;
+        foreach ($template->components ?? [] as $comp) {
+            if (($comp['type'] ?? '') === 'BUTTONS') {
+                foreach ($comp['buttons'] ?? [] as $btn) {
+                    if (($btn['type'] ?? '') === 'URL') {
+                        $hasUrlButton = true;
+                        break 2;
+                    }
+                }
+            }
+        }
+        if ($hasUrlButton) {
+            $components[] = [
+                'type' => 'button',
+                'sub_type' => 'url',
+                'index' => 0,
+                'parameters' => [['type' => 'text', 'text' => $link->token]],
+            ];
+        }
+
+        try {
+            $service = app(WhatsAppMetaService::class);
+            $message = $service->sendTemplate(
+                channel: $channel,
+                to: $phoneNumber->international,
+                templateName: $template->name,
+                components: $components,
+                languageCode: $template->language,
+                sender: auth()->user(),
+            );
+
+            $thread = $message->thread ?? null;
+            if ($thread) {
+                $thread->addContext($contract->getMorphClass(), $contract->id, 'contract_send');
+            }
+
+            $contract->update(['status' => 'sent', 'sent_at' => now()]);
+            $this->applicant->load('contracts.contractTemplate');
+            $this->contractLinkUrl = $signingUrl;
+            session()->flash('message', "Vertrag per WhatsApp an {$phoneNumber->international} gesendet.");
+        } catch (\Throwable $e) {
+            session()->flash('error', 'WhatsApp-Versand fehlgeschlagen: ' . $e->getMessage());
+        }
     }
 
     public function rendered(): void

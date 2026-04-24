@@ -293,6 +293,205 @@
             @endif
         </x-ui-panel>
 
+        {{-- Verträge --}}
+        <x-ui-panel title="Verträge" subtitle="Zugewiesene Verträge für diesen Bewerber">
+            <x-slot name="actions">
+                <x-ui-button variant="primary" size="xs" wire:click="openAssignContractModal">
+                    @svg('heroicon-o-plus', 'w-4 h-4') Vertrag zuweisen
+                </x-ui-button>
+            </x-slot>
+
+            @if($applicant->contracts->count() > 0)
+                <div class="overflow-x-auto">
+                    <table class="w-full table-auto border-collapse text-sm">
+                        <thead>
+                            <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
+                                <th class="px-4 py-3">Vorlage</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3">Unterschrift</th>
+                                <th class="px-4 py-3">Versendet</th>
+                                <th class="px-4 py-3">Abgeschlossen</th>
+                                <th class="px-4 py-3">Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[var(--ui-border)]/60">
+                            @foreach($applicant->contracts as $contract)
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-4 py-3">
+                                        <span class="font-medium">{{ $contract->contractTemplate?->name ?? '—' }}</span>
+                                        @if($contract->contractTemplate?->code)
+                                            <span class="text-xs text-[var(--ui-muted)] ml-1">({{ $contract->contractTemplate->code }})</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @php
+                                            $statusConfig = match($contract->status) {
+                                                'pending' => ['label' => 'Ausstehend', 'variant' => 'secondary'],
+                                                'sent' => ['label' => 'Versendet', 'variant' => 'info'],
+                                                'in_progress' => ['label' => 'In Bearbeitung', 'variant' => 'warning'],
+                                                'completed' => ['label' => 'Abgeschlossen', 'variant' => 'success'],
+                                                'needs_review' => ['label' => 'Prüfung nötig', 'variant' => 'danger'],
+                                                'cancelled' => ['label' => 'Storniert', 'variant' => 'secondary'],
+                                                default => ['label' => $contract->status, 'variant' => 'secondary'],
+                                            };
+                                        @endphp
+                                        <x-ui-badge variant="{{ $statusConfig['variant'] }}" size="sm">
+                                            {{ $statusConfig['label'] }}
+                                        </x-ui-badge>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        @if($contract->signature_data)
+                                            <span class="text-green-600 flex items-center gap-1">
+                                                @svg('heroicon-o-check-circle', 'w-4 h-4')
+                                                @if($contract->signed_at)
+                                                    <span class="text-xs">{{ $contract->signed_at->format('d.m.Y') }}</span>
+                                                @endif
+                                            </span>
+                                        @elseif($contract->contractTemplate?->requires_signature)
+                                            <span class="text-[var(--ui-muted)] flex items-center gap-1">
+                                                @svg('heroicon-o-pencil', 'w-4 h-4')
+                                                <span class="text-xs">Ausstehend</span>
+                                            </span>
+                                        @else
+                                            <span class="text-[var(--ui-muted)]">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-xs text-[var(--ui-muted)]">
+                                        {{ $contract->sent_at?->format('d.m.Y H:i') ?? '—' }}
+                                    </td>
+                                    <td class="px-4 py-3 text-xs text-[var(--ui-muted)]">
+                                        {{ $contract->completed_at?->format('d.m.Y H:i') ?? '—' }}
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-2">
+                                            <x-ui-button size="xs" variant="secondary-outline" wire:click="openContractFields({{ $contract->id }})">
+                                                @svg('heroicon-o-adjustments-horizontal', 'w-3.5 h-3.5') Felder
+                                            </x-ui-button>
+                                            @if(in_array($contract->status, ['pending', 'sent', 'in_progress']))
+                                                <x-ui-button size="xs" variant="primary" wire:click="sendContract({{ $contract->id }})">
+                                                    @svg('heroicon-o-paper-airplane', 'w-3.5 h-3.5') Versenden
+                                                </x-ui-button>
+                                            @endif
+                                            <x-ui-button size="xs" variant="secondary-outline" wire:click="generateContractLink({{ $contract->id }})">
+                                                @svg('heroicon-o-link', 'w-3.5 h-3.5') Link
+                                            </x-ui-button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                @if($contractLinkUrl)
+                    <div class="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg" x-data="{ copied: false }">
+                        <div class="flex items-center gap-2 mb-2">
+                            @svg('heroicon-o-link', 'w-4 h-4 text-indigo-700')
+                            <span class="text-sm font-medium text-indigo-900">Signaturlink</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="text" value="{{ $contractLinkUrl }}" readonly
+                                   class="flex-1 px-3 py-2 text-xs bg-white border border-indigo-200 rounded font-mono text-indigo-900" />
+                            <x-ui-button size="sm" variant="primary-outline"
+                                x-on:click="navigator.clipboard.writeText('{{ $contractLinkUrl }}'); copied = true; setTimeout(() => copied = false, 2000)">
+                                <span x-show="!copied">Kopieren</span>
+                                <span x-show="copied" x-cloak>Kopiert!</span>
+                            </x-ui-button>
+                        </div>
+                    </div>
+                @endif
+            @else
+                <div class="text-center py-8">
+                    @svg('heroicon-o-document-text', 'w-12 h-12 text-[var(--ui-muted)] mx-auto mb-4')
+                    <h4 class="text-lg font-medium text-[var(--ui-secondary)] mb-2">Keine Verträge zugewiesen</h4>
+                    <p class="text-[var(--ui-muted)] mb-4">Weise eine Vertragsvorlage zu, um einen Vertrag für diesen Bewerber zu erstellen.</p>
+                    <x-ui-button variant="primary" wire:click="openAssignContractModal">
+                        @svg('heroicon-o-plus', 'w-4 h-4') Vertrag zuweisen
+                    </x-ui-button>
+                </div>
+            @endif
+        </x-ui-panel>
+
+        {{-- Assign Contract Modal --}}
+        <x-ui-modal size="sm" model="assignContractModalShow">
+            <x-slot name="header">Vertrag zuweisen</x-slot>
+            <div class="p-4 space-y-4">
+                @if(!$applicant->crmContactLinks->first()?->contact)
+                    <div class="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900">
+                        @svg('heroicon-o-exclamation-triangle', 'w-4 h-4 inline') Bewerber hat keinen verknüpften CRM-Kontakt. Bitte zuerst Kontakt anlegen/verknüpfen — sonst bleiben Kontakt-Felder im Vertrag leer.
+                    </div>
+                @endif
+
+                <x-ui-input-select
+                    name="selectedContractTemplateId"
+                    label="Vertragsvorlage"
+                    :options="$this->availableContractTemplates->map(fn($t) => ['id' => $t->id, 'label' => $t->name . ($t->code ? ' (' . $t->code . ')' : '')])->toArray()"
+                    optionValue="id"
+                    optionLabel="label"
+                    :nullable="true"
+                    nullLabel="— Vorlage wählen —"
+                    wire:model.live="selectedContractTemplateId"
+                    required
+                    errorKey="selectedContractTemplateId"
+                />
+            </div>
+            <x-slot name="footer">
+                <div class="flex items-center justify-end gap-2">
+                    <x-ui-button variant="secondary" wire:click="closeAssignContractModal">Abbrechen</x-ui-button>
+                    <x-ui-button variant="primary" wire:click="assignContract" :disabled="!$selectedContractTemplateId">Zuweisen</x-ui-button>
+                </div>
+            </x-slot>
+        </x-ui-modal>
+
+        {{-- Duplicate Contract Modal --}}
+        <x-ui-modal size="sm" model="duplicateContractModalShow">
+            <x-slot name="header">Vertrag bereits zugewiesen</x-slot>
+            <div class="p-4 space-y-3">
+                <p class="text-sm text-[var(--ui-secondary)]">
+                    Für diese Vorlage existiert bereits ein aktiver Vertrag (Status: ausstehend/versendet/in Bearbeitung). Möchtest du ihn ersetzen?
+                </p>
+                <p class="text-xs text-[var(--ui-muted)]">
+                    Bei "Ersetzen" wird der bestehende Vertrag auf <code>cancelled</code> gesetzt und ein neuer angelegt. Alter Vertrag bleibt referenzierbar.
+                </p>
+            </div>
+            <x-slot name="footer">
+                <div class="flex items-center justify-end gap-2">
+                    <x-ui-button variant="secondary" wire:click="cancelAssignDuplicate">Abbrechen</x-ui-button>
+                    <x-ui-button variant="primary" wire:click="confirmAssignReplaceDuplicate">Alten stornieren, neuen anlegen</x-ui-button>
+                </div>
+            </x-slot>
+        </x-ui-modal>
+
+        {{-- Contract Fields Modal --}}
+        <x-ui-modal size="lg" model="contractFieldsModalShow">
+            <x-slot name="header">Vertragsfelder bearbeiten</x-slot>
+            <div class="p-4 space-y-4">
+                @if(count($contractFieldDefinitions) === 0)
+                    <p class="text-sm text-[var(--ui-muted)]">Keine Felder für diesen Vertrag definiert.</p>
+                @else
+                    <p class="text-xs text-[var(--ui-muted)]">
+                        Wenn du ein Vertragsbeginn-Datum setzt und Vertragsende leer lässt, wird das Ende automatisch berechnet: +1 Jahr, Anfang Monat, −1 Tag.
+                    </p>
+                    @foreach($contractFieldDefinitions as $field)
+                        <x-ui-input-text
+                            name="contractFieldValues.{{ $field['name'] }}"
+                            :label="$field['label']"
+                            wire:model="contractFieldValues.{{ $field['name'] }}"
+                            type="{{ $field['type'] === 'date' ? 'date' : ($field['type'] === 'number' ? 'number' : 'text') }}"
+                            @if($field['type'] === 'number') step="0.01" @endif
+                            :required="$field['is_required'] ?? false"
+                        />
+                    @endforeach
+                @endif
+            </div>
+            <x-slot name="footer">
+                <div class="flex items-center justify-end gap-2">
+                    <x-ui-button variant="secondary" wire:click="closeContractFieldsModal">Abbrechen</x-ui-button>
+                    <x-ui-button variant="primary" wire:click="saveContractFields">Speichern</x-ui-button>
+                </div>
+            </x-slot>
+        </x-ui-modal>
+
         <!-- Posting Link Modal -->
         <x-ui-modal
             size="sm"
