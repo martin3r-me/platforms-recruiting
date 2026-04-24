@@ -295,21 +295,19 @@
 
         {{-- Verträge --}}
         <x-ui-panel title="Verträge" subtitle="Zugewiesene Verträge für diesen Bewerber">
-            <x-slot name="actions">
-                <div class="flex items-center gap-2">
-                    @if($applicant->contracts->whereIn('status', ['pending', 'sent', 'in_progress'])->count() > 0)
-                        <x-ui-button variant="primary" size="xs" wire:click="sendApplicantPortal">
-                            @svg('heroicon-o-paper-airplane', 'w-4 h-4') Portal per WhatsApp senden
-                        </x-ui-button>
-                        <x-ui-button variant="secondary" size="xs" wire:click="generateApplicantPortalLink">
-                            @svg('heroicon-o-link', 'w-4 h-4') Portal-Link
-                        </x-ui-button>
-                    @endif
-                    <x-ui-button variant="secondary" size="xs" wire:click="openAssignContractModal">
-                        @svg('heroicon-o-plus', 'w-4 h-4') Vertrag zuweisen
+            <div class="flex flex-wrap items-center justify-end gap-2 mb-4">
+                @if($applicant->contracts->whereIn('status', ['pending', 'sent', 'in_progress'])->count() > 0)
+                    <x-ui-button variant="primary" size="sm" wire:click="sendApplicantPortal">
+                        @svg('heroicon-o-paper-airplane', 'w-4 h-4') Portal per WhatsApp senden
                     </x-ui-button>
-                </div>
-            </x-slot>
+                    <x-ui-button variant="secondary" size="sm" wire:click="generateApplicantPortalLink">
+                        @svg('heroicon-o-link', 'w-4 h-4') Portal-Link
+                    </x-ui-button>
+                @endif
+                <x-ui-button variant="primary" size="sm" wire:click="openAssignContractModal">
+                    @svg('heroicon-o-plus', 'w-4 h-4') Vertrag zuweisen
+                </x-ui-button>
+            </div>
 
             @if($applicant->contracts->count() > 0)
                 <div class="overflow-x-auto">
