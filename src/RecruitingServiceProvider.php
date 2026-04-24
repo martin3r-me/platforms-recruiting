@@ -37,6 +37,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DiagnoseContractExtraFields::class,
                 \Platform\Recruiting\Console\Commands\DebugContractFieldResolution::class,
                 \Platform\Recruiting\Console\Commands\BackfillApplicantCrmFromExtraFields::class,
+                \Platform\Recruiting\Console\Commands\CancelContract::class,
             ]);
         }
     }
