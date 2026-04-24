@@ -646,6 +646,12 @@ class Show extends Component
             ->get();
     }
 
+    #[Computed]
+    public function applicantPublicToken(): ?string
+    {
+        return $this->applicant->getOrCreatePublicFormLink()?->token;
+    }
+
     private function applicantHasContact(): bool
     {
         return $this->applicant->crmContactLinks->first()?->contact !== null;

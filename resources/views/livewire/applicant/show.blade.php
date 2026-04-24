@@ -375,6 +375,13 @@
                                             <x-ui-button size="xs" variant="secondary-outline" wire:click="openContractFields({{ $contract->id }})">
                                                 @svg('heroicon-o-adjustments-horizontal', 'w-3.5 h-3.5') Felder
                                             </x-ui-button>
+                                            @if($contract->status === 'completed')
+                                                <a href="{{ route('recruiting.public.contract-pdf', ['token' => $this->applicantPublicToken, 'contractId' => $contract->id]) }}"
+                                                   target="_blank"
+                                                   class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors">
+                                                    @svg('heroicon-o-document-arrow-down', 'w-3.5 h-3.5') PDF
+                                                </a>
+                                            @endif
                                             <x-ui-button size="xs" variant="secondary-outline" wire:click="generateContractLink({{ $contract->id }})">
                                                 @svg('heroicon-o-link', 'w-3.5 h-3.5') Einzel-Link
                                             </x-ui-button>
