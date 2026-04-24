@@ -90,8 +90,12 @@ class RecContract extends Model implements InheritsExtraFields
 
     public static function buildPar15Html(array $data): string
     {
+        $header = '<h2 style="margin-top:24px;margin-bottom:8px;">§ 15 Angaben zu kurzfristigen Beschäftigungen</h2>';
+        $intro = '<p style="margin-bottom:8px;">Der Arbeitnehmer erklärt hiermit zu kurzfristigen Beschäftigungsverhältnissen in den letzten 12 Monaten:</p>';
+
         if (empty($data['par15_has_previous'])) {
-            return '<div style="margin-top:12px;margin-bottom:16px;"><p style="font-size:13px;font-weight:600;margin-bottom:4px;">Angaben des Arbeitnehmers:</p><p style="font-size:13px;">Nein, ich war in den letzten 12 Monaten nicht kurzfristig beschäftigt.</p></div>';
+            return $header . $intro
+                . '<p style="margin-bottom:16px;"><strong>Nein</strong>, ich war in den letzten 12 Monaten nicht kurzfristig beschäftigt.</p>';
         }
 
         if (empty($data['par15_entries'])) {
@@ -102,7 +106,8 @@ class RecContract extends Model implements InheritsExtraFields
         $thStyle = 'border:1px solid #d1d5db;padding:6px 10px;background:#f3f4f6;text-align:left;font-size:13px;';
         $tdStyle = 'border:1px solid #d1d5db;padding:6px 10px;font-size:13px;';
 
-        $html = '<div style="margin-top:12px;"><p style="font-size:13px;font-weight:600;margin-bottom:4px;">Angaben des Arbeitnehmers:</p>';
+        $html = $header . $intro
+            . '<p style="margin-bottom:4px;"><strong>Ja</strong>, folgende kurzfristigen Beschäftigungen lagen vor:</p>';
         $html .= '<table style="' . $tableStyle . '">';
         $html .= '<thead><tr><th style="' . $thStyle . '">Beginn</th><th style="' . $thStyle . '">Ende</th><th style="' . $thStyle . '">Arbeitgeber</th><th style="' . $thStyle . '">Tage</th></tr></thead><tbody>';
         foreach ($data['par15_entries'] as $entry) {
@@ -113,15 +118,19 @@ class RecContract extends Model implements InheritsExtraFields
             $html .= '<td style="' . $tdStyle . '">' . e($entry['tage'] ?? '') . '</td>';
             $html .= '</tr>';
         }
-        $html .= '</tbody></table></div>';
+        $html .= '</tbody></table>';
 
         return $html;
     }
 
     public static function buildPar16Html(array $data): string
     {
+        $header = '<h2 style="margin-top:24px;margin-bottom:8px;">§ 16 Angaben zu beschäftigungslosen Zeiten</h2>';
+        $intro = '<p style="margin-bottom:8px;">Der Arbeitnehmer erklärt hiermit zu Meldungen bei der Arbeitsagentur in den letzten 12 Monaten:</p>';
+
         if (empty($data['par16_was_jobseeking'])) {
-            return '<div style="margin-top:12px;margin-bottom:16px;"><p style="font-size:13px;font-weight:600;margin-bottom:4px;">Angaben des Arbeitnehmers:</p><p style="font-size:13px;">Nein, ich war in den letzten 12 Monaten nicht bei der Arbeitsagentur als arbeitssuchend gemeldet.</p></div>';
+            return $header . $intro
+                . '<p style="margin-bottom:16px;"><strong>Nein</strong>, ich war in den letzten 12 Monaten nicht bei der Arbeitsagentur als arbeitssuchend gemeldet.</p>';
         }
 
         if (empty($data['par16_entries'])) {
@@ -132,7 +141,8 @@ class RecContract extends Model implements InheritsExtraFields
         $thStyle = 'border:1px solid #d1d5db;padding:6px 10px;background:#f3f4f6;text-align:left;font-size:13px;';
         $tdStyle = 'border:1px solid #d1d5db;padding:6px 10px;font-size:13px;';
 
-        $html = '<div style="margin-top:12px;"><p style="font-size:13px;font-weight:600;margin-bottom:4px;">Angaben des Arbeitnehmers:</p>';
+        $html = $header . $intro
+            . '<p style="margin-bottom:4px;"><strong>Ja</strong>, folgende Zeiten der Meldung als arbeitssuchend lagen vor:</p>';
         $html .= '<table style="' . $tableStyle . '">';
         $html .= '<thead><tr><th style="' . $thStyle . '">Beginn</th><th style="' . $thStyle . '">Ende</th><th style="' . $thStyle . '">Arbeitsagentur</th></tr></thead><tbody>';
         foreach ($data['par16_entries'] as $entry) {
@@ -142,7 +152,7 @@ class RecContract extends Model implements InheritsExtraFields
             $html .= '<td style="' . $tdStyle . '">' . e($entry['arbeitsagentur'] ?? '') . '</td>';
             $html .= '</tr>';
         }
-        $html .= '</tbody></table></div>';
+        $html .= '</tbody></table>';
 
         return $html;
     }
@@ -152,32 +162,45 @@ class RecContract extends Model implements InheritsExtraFields
         $par15Html = self::buildPar15Html($data);
         $par16Html = self::buildPar16Html($data);
 
-        $par16Pos = self::findSectionPosition($content, '16');
-        $par15Pos = self::findSectionPosition($content, '15');
+        $combined = $par15Html . $par16Html;
+        if ($combined === '') {
+            return $content;
+        }
 
-        if ($par15Html) {
-            if ($par16Pos !== false && $par15Pos !== false) {
-                $content = substr($content, 0, $par16Pos) . $par15Html . substr($content, $par16Pos);
-                $par16Pos = self::findSectionPosition($content, '16');
-            } elseif ($par15Pos !== false) {
+        // Prefer inserting before §17 so §15/§16 slot in between §14 and §17.
+        $par17Pos = self::findSectionPosition($content, '17');
+        if ($par17Pos !== false) {
+            return substr($content, 0, $par17Pos) . $combined . substr($content, $par17Pos);
+        }
+
+        // Next choice: template already has §15/§16 markers (legacy) — insert each
+        // into its own section.
+        $par15Pos = self::findSectionPosition($content, '15');
+        $par16Pos = self::findSectionPosition($content, '16');
+
+        if ($par15Pos !== false || $par16Pos !== false) {
+            if ($par15Html && $par15Pos !== false) {
                 $insertPos = self::findSectionEnd($content, $par15Pos);
                 $content = substr($content, 0, $insertPos) . $par15Html . substr($content, $insertPos);
-            } else {
+            } elseif ($par15Html) {
                 $content .= $par15Html;
             }
-        }
 
-        if ($par16Html) {
-            $par16Pos = self::findSectionPosition($content, '16');
-            if ($par16Pos !== false) {
-                $insertPos = self::findSectionEnd($content, $par16Pos);
-                $content = substr($content, 0, $insertPos) . $par16Html . substr($content, $insertPos);
-            } else {
-                $content .= $par16Html;
+            if ($par16Html) {
+                $par16Pos = self::findSectionPosition($content, '16');
+                if ($par16Pos !== false) {
+                    $insertPos = self::findSectionEnd($content, $par16Pos);
+                    $content = substr($content, 0, $insertPos) . $par16Html . substr($content, $insertPos);
+                } else {
+                    $content .= $par16Html;
+                }
             }
+
+            return $content;
         }
 
-        return $content;
+        // Fallback: append at end.
+        return $content . $combined;
     }
 
     private static function findSectionPosition(string $content, string $number): int|false
