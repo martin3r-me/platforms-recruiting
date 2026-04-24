@@ -92,14 +92,15 @@
                     </div>
 
                     {{-- Mindestlohn --}}
-                    <x-ui-input-number
+                    <x-ui-input-text
                         name="settings.minimum_wage_hourly"
                         label="Gesetzlicher Mindestlohn (€/h)"
                         wire:model="settings.minimum_wage_hourly"
+                        type="number"
                         step="0.01"
                         min="0"
                         placeholder="13.90"
-                        help="Wird in Verträgen als {{ '{{stundenlohn}}' }} eingesetzt. Bei Änderung des Gesetzes hier anpassen — alle neuen Verträge nutzen automatisch den neuen Wert."
+                        hint="Wird in Verträgen als Stundenlohn-Platzhalter eingesetzt. Bei Gesetzesänderung hier anpassen."
                     />
                 </div>
             </div>
