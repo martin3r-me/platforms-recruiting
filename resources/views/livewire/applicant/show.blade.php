@@ -466,6 +466,9 @@
         <x-ui-modal size="lg" model="contractFieldsModalShow">
             <x-slot name="header">Vertragsfelder bearbeiten</x-slot>
             <div class="p-4 space-y-4">
+                <div class="text-[10px] text-[var(--ui-muted)] font-mono">
+                    DEBUG: fields = {{ count($contractFieldDefinitions) }} · names = {{ implode(', ', array_column($contractFieldDefinitions, 'name')) ?: '—' }}
+                </div>
                 @if(count($contractFieldDefinitions) === 0)
                     <p class="text-sm text-[var(--ui-muted)]">Keine Felder für diesen Vertrag definiert.</p>
                 @else
@@ -473,13 +476,18 @@
                         Wenn du ein Vertragsbeginn-Datum setzt und Vertragsende leer lässt, wird das Ende automatisch berechnet: +1 Jahr, Anfang Monat, −1 Tag.
                     </p>
                     @foreach($contractFieldDefinitions as $field)
+                        @php
+                            $inputType = match($field['type'] ?? 'text') {
+                                'date' => 'date',
+                                'number' => 'number',
+                                default => 'text',
+                            };
+                        @endphp
                         <x-ui-input-text
                             name="contractFieldValues.{{ $field['name'] }}"
                             :label="$field['label']"
                             wire:model="contractFieldValues.{{ $field['name'] }}"
-                            type="{{ $field['type'] === 'date' ? 'date' : ($field['type'] === 'number' ? 'number' : 'text') }}"
-                            @if($field['type'] === 'number') step="0.01" @endif
-                            :required="$field['is_required'] ?? false"
+                            type="{{ $inputType }}"
                         />
                     @endforeach
                 @endif
