@@ -67,7 +67,7 @@
                                     <span class="text-sm font-medium text-gray-700">Ja</span>
                                 </label>
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" wire:model.live="par15HasPrevious" value="" class="text-blue-600 focus:ring-blue-500">
+                                    <input type="radio" wire:model.live="par15HasPrevious" value="0" class="text-blue-600 focus:ring-blue-500">
                                     <span class="text-sm font-medium text-gray-700">Nein</span>
                                 </label>
                             </div>
@@ -147,7 +147,7 @@
                                     <span class="text-sm font-medium text-gray-700">Ja</span>
                                 </label>
                                 <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="radio" wire:model.live="par16WasJobseeking" value="" class="text-blue-600 focus:ring-blue-500">
+                                    <input type="radio" wire:model.live="par16WasJobseeking" value="0" class="text-blue-600 focus:ring-blue-500">
                                     <span class="text-sm font-medium text-gray-700">Nein</span>
                                 </label>
                             </div>
