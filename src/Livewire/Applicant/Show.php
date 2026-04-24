@@ -67,6 +67,7 @@ class Show extends Component
     public array $contractFieldValues = [];
 
     public ?string $contractLinkUrl = null;
+    public ?string $portalLinkUrl = null;
 
     public bool $duplicateContractModalShow = false;
     public ?int $duplicateContractExistingId = null;
@@ -796,12 +797,25 @@ class Show extends Component
         $this->contractFieldValues = [];
     }
 
-    public function sendContract(int $contractId): void
+    public function sendApplicantPortal(): void
     {
         try {
-            $contract = RecContract::where('id', $contractId)
-                ->where('rec_applicant_id', $this->applicant->id)
-                ->firstOrFail();
+            $this->applicant->load('contracts.contractTemplate');
+
+            $activeContracts = $this->applicant->contracts
+                ->filter(fn ($c) => in_array($c->status, ['pending', 'sent', 'in_progress']));
+
+            if ($activeContracts->isEmpty()) {
+                session()->flash('error', 'Keine versendbaren Verträge — bitte zuerst mindestens einen Vertrag zuweisen.');
+                return;
+            }
+
+            foreach ($activeContracts as $contract) {
+                $contract->getOrCreatePublicFormLink();
+                if ($contract->status === 'pending') {
+                    $contract->update(['status' => 'sent', 'sent_at' => now()]);
+                }
+            }
 
             $settings = RecApplicantSettings::getOrCreateForTeam($this->applicant->team_id);
             $templateId = $settings->getSetting('contract_wa_template_id');
@@ -813,14 +827,22 @@ class Show extends Component
             }
 
             if ($templateId && $accountId) {
-                $this->sendContractViaWhatsApp($contract, (int) $templateId, (int) $accountId);
+                $this->sendApplicantPortalViaWhatsApp((int) $templateId, (int) $accountId);
                 return;
             }
 
-            $this->generateContractLink($contract->id);
+            $this->generateApplicantPortalLink();
         } catch (\Throwable $e) {
-            session()->flash('error', 'Fehler beim Versenden: ' . $e->getMessage());
+            session()->flash('error', 'Fehler beim Portal-Versand: ' . $e->getMessage());
         }
+    }
+
+    public function generateApplicantPortalLink(): void
+    {
+        $link = $this->applicant->getOrCreatePublicFormLink();
+        $this->portalLinkUrl = route('recruiting.public.applicant-portal', ['token' => $link->token]);
+        $this->applicant->load('contracts.contractTemplate');
+        session()->flash('message', 'Portal-Link erzeugt. Link unten zum Kopieren.');
     }
 
     public function generateContractLink(int $contractId): void
@@ -840,7 +862,7 @@ class Show extends Component
         session()->flash('message', 'Signaturlink erzeugt. Link unten zum Kopieren.');
     }
 
-    private function sendContractViaWhatsApp(RecContract $contract, int $templateId, int $accountId): void
+    private function sendApplicantPortalViaWhatsApp(int $templateId, int $accountId): void
     {
         $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
         if (!$template || $template->status !== 'APPROVED') {
@@ -860,14 +882,19 @@ class Show extends Component
             return;
         }
 
-        $link = $contract->getOrCreatePublicFormLink();
-        $signingUrl = route('recruiting.public.contract-signing', ['token' => $link->token]);
+        $link = $this->applicant->getOrCreatePublicFormLink();
+        $portalUrl = route('recruiting.public.applicant-portal', ['token' => $link->token]);
 
         $primaryContact = $this->applicant->crmContactLinks->first()?->contact;
+        $contractNames = $this->applicant->contracts
+            ->filter(fn ($c) => in_array($c->status, ['sent', 'in_progress']))
+            ->map(fn ($c) => $c->contractTemplate?->name ?? 'Vertrag')
+            ->implode(', ');
+
         $variableValues = [
             'candidate_name' => $primaryContact?->full_name ?? '',
-            'contract_link' => $signingUrl,
-            'contract_name' => $contract->contractTemplate?->name ?? 'Vertrag',
+            'portal_link' => $portalUrl,
+            'contract_names' => $contractNames ?: 'Ihre Verträge',
         ];
 
         $components = [];
@@ -876,7 +903,7 @@ class Show extends Component
         $variableMapping = $settings->getSetting('contract_wa_template_variables', []);
 
         if (!empty($bodyParams)) {
-            $autoMapDefaults = ['candidate_name', 'contract_link', 'contract_name'];
+            $autoMapDefaults = ['candidate_name', 'portal_link', 'contract_names'];
             $bodyParameters = [];
             foreach ($bodyParams as $i => $param) {
                 $sourceKey = $variableMapping[$param['name']] ?? ($autoMapDefaults[$i] ?? null);
@@ -923,13 +950,12 @@ class Show extends Component
 
             $thread = $message->thread ?? null;
             if ($thread) {
-                $thread->addContext($contract->getMorphClass(), $contract->id, 'contract_send');
+                $thread->addContext($this->applicant->getMorphClass(), $this->applicant->id, 'portal_send');
             }
 
-            $contract->update(['status' => 'sent', 'sent_at' => now()]);
             $this->applicant->load('contracts.contractTemplate');
-            $this->contractLinkUrl = $signingUrl;
-            session()->flash('message', "Vertrag per WhatsApp an {$phoneNumber->international} gesendet.");
+            $this->portalLinkUrl = $portalUrl;
+            session()->flash('message', "Portal-Link per WhatsApp an {$phoneNumber->international} gesendet.");
         } catch (\Throwable $e) {
             session()->flash('error', 'WhatsApp-Versand fehlgeschlagen: ' . $e->getMessage());
         }

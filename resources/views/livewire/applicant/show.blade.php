@@ -296,9 +296,19 @@
         {{-- Verträge --}}
         <x-ui-panel title="Verträge" subtitle="Zugewiesene Verträge für diesen Bewerber">
             <x-slot name="actions">
-                <x-ui-button variant="primary" size="xs" wire:click="openAssignContractModal">
-                    @svg('heroicon-o-plus', 'w-4 h-4') Vertrag zuweisen
-                </x-ui-button>
+                <div class="flex items-center gap-2">
+                    @if($applicant->contracts->whereIn('status', ['pending', 'sent', 'in_progress'])->count() > 0)
+                        <x-ui-button variant="primary" size="xs" wire:click="sendApplicantPortal">
+                            @svg('heroicon-o-paper-airplane', 'w-4 h-4') Portal per WhatsApp senden
+                        </x-ui-button>
+                        <x-ui-button variant="secondary" size="xs" wire:click="generateApplicantPortalLink">
+                            @svg('heroicon-o-link', 'w-4 h-4') Portal-Link
+                        </x-ui-button>
+                    @endif
+                    <x-ui-button variant="secondary" size="xs" wire:click="openAssignContractModal">
+                        @svg('heroicon-o-plus', 'w-4 h-4') Vertrag zuweisen
+                    </x-ui-button>
+                </div>
             </x-slot>
 
             @if($applicant->contracts->count() > 0)
@@ -367,13 +377,8 @@
                                             <x-ui-button size="xs" variant="secondary-outline" wire:click="openContractFields({{ $contract->id }})">
                                                 @svg('heroicon-o-adjustments-horizontal', 'w-3.5 h-3.5') Felder
                                             </x-ui-button>
-                                            @if(in_array($contract->status, ['pending', 'sent', 'in_progress']))
-                                                <x-ui-button size="xs" variant="primary" wire:click="sendContract({{ $contract->id }})">
-                                                    @svg('heroicon-o-paper-airplane', 'w-3.5 h-3.5') Versenden
-                                                </x-ui-button>
-                                            @endif
                                             <x-ui-button size="xs" variant="secondary-outline" wire:click="generateContractLink({{ $contract->id }})">
-                                                @svg('heroicon-o-link', 'w-3.5 h-3.5') Link
+                                                @svg('heroicon-o-link', 'w-3.5 h-3.5') Einzel-Link
                                             </x-ui-button>
                                         </div>
                                     </td>
@@ -383,11 +388,29 @@
                     </table>
                 </div>
 
+                @if($portalLinkUrl)
+                    <div class="mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg" x-data="{ copied: false }">
+                        <div class="flex items-center gap-2 mb-2">
+                            @svg('heroicon-o-link', 'w-4 h-4 text-emerald-700')
+                            <span class="text-sm font-medium text-emerald-900">Portal-Link (alle Verträge)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="text" value="{{ $portalLinkUrl }}" readonly
+                                   class="flex-1 px-3 py-2 text-xs bg-white border border-emerald-200 rounded font-mono text-emerald-900" />
+                            <x-ui-button size="sm" variant="primary-outline"
+                                x-on:click="navigator.clipboard.writeText('{{ $portalLinkUrl }}'); copied = true; setTimeout(() => copied = false, 2000)">
+                                <span x-show="!copied">Kopieren</span>
+                                <span x-show="copied" x-cloak>Kopiert!</span>
+                            </x-ui-button>
+                        </div>
+                    </div>
+                @endif
+
                 @if($contractLinkUrl)
                     <div class="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg" x-data="{ copied: false }">
                         <div class="flex items-center gap-2 mb-2">
                             @svg('heroicon-o-link', 'w-4 h-4 text-indigo-700')
-                            <span class="text-sm font-medium text-indigo-900">Signaturlink</span>
+                            <span class="text-sm font-medium text-indigo-900">Einzel-Signaturlink</span>
                         </div>
                         <div class="flex items-center gap-2">
                             <input type="text" value="{{ $contractLinkUrl }}" readonly

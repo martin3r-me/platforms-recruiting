@@ -32,6 +32,10 @@ Route::get('/interviews/{publicToken}', \Platform\Recruiting\Livewire\Public\Int
 Route::get('/contract/{token}', \Platform\Recruiting\Livewire\Public\ContractSigning::class)
     ->name('recruiting.public.contract-signing');
 
+// Applicant Portal — lists all active contracts of the applicant
+Route::get('/applicant/{token}/portal', \Platform\Recruiting\Livewire\Public\ApplicantPortal::class)
+    ->name('recruiting.public.applicant-portal');
+
 // Contract PDF Download (public, token-based)
 Route::get('/applicant/{token}/contract/{contractId}/pdf', [\Platform\Recruiting\Http\Controllers\ContractPdfController::class, '__invoke'])
     ->name('recruiting.public.contract-pdf');
