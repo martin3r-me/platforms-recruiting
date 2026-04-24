@@ -43,6 +43,7 @@ class Sidebar extends Component
             'total_applicants' => RecApplicant::forTeam($teamId)->count(),
             'active_applicants' => RecApplicant::forTeam($teamId)->active()->count(),
             'parked_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_parked', true)->count(),
+            'hr_desk_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_on_hr_desk', true)->count(),
         ];
     }
 

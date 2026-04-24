@@ -17,6 +17,7 @@ use Platform\Recruiting\Livewire\ContractTemplates\Index as ContractTemplatesInd
 // Dashboard
 Route::get('/', Dashboard::class)->name('recruiting.dashboard');
 Route::get('/parked', Dashboard::class)->name('recruiting.dashboard.parked');
+Route::get('/hr-desk', Dashboard::class)->name('recruiting.dashboard.hr-desk');
 
 // Stellen
 Route::get('/positions', PositionIndex::class)->name('recruiting.positions.index');

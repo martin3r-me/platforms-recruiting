@@ -18,6 +18,13 @@
                 <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-600">{{ $this->stats['parked_applicants'] }}</span>
             @endif
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.dashboard.hr-desk')">
+            @svg('heroicon-o-shield-check', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">HR-Schreibtisch</span>
+            @if($this->stats['hr_desk_applicants'] > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600">{{ $this->stats['hr_desk_applicants'] }}</span>
+            @endif
+        </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 
     {{-- Abschnitt: Recruiting --}}

@@ -19,6 +19,7 @@ class Dashboard extends Component
     use ResolvesAutoPilotChannel;
 
     public bool $showParked = false;
+    public bool $showHrDesk = false;
     public ?int $positionFilter = null;
     public ?int $phaseFilter = null;
     public ?string $filterMonth = null;
@@ -27,15 +28,20 @@ class Dashboard extends Component
     public function mount(): void
     {
         $this->showParked = request()->routeIs('recruiting.dashboard.parked');
+        $this->showHrDesk = request()->routeIs('recruiting.dashboard.hr-desk');
     }
 
     private function applicantBaseQuery()
     {
         $query = RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->where('is_active', true)
-            ->where('is_on_hr_desk', false)
-            ->whereNull('rejected_at')
-            ->where('is_parked', $this->showParked);
+            ->whereNull('rejected_at');
+
+        if ($this->showHrDesk) {
+            $query->where('is_on_hr_desk', true)->where('is_parked', false);
+        } else {
+            $query->where('is_on_hr_desk', false)->where('is_parked', $this->showParked);
+        }
         $this->applyPositionFilter($query);
 
         if ($this->phaseFilter) {
