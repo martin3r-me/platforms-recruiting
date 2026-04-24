@@ -66,7 +66,7 @@ class MigrateLegalStatusExtraFields extends Command
 
         $euValues = DB::table('core_extra_field_values')
             ->whereIn('definition_id', $euDefinitions->pluck('id'))
-            ->where('entity_type', 'Platform\\Recruiting\\Models\\RecApplicant')
+            ->where('fieldable_type', 'Platform\\Recruiting\\Models\\RecApplicant')
             ->whereNotNull('value')
             ->where('value', '!=', '')
             ->get();
@@ -78,9 +78,9 @@ class MigrateLegalStatusExtraFields extends Command
         $skipped = 0;
 
         foreach ($euValues as $euValue) {
-            $applicant = DB::table('rec_applicants')->where('id', $euValue->entity_id)->first();
+            $applicant = DB::table('rec_applicants')->where('id', $euValue->fieldable_id)->first();
             if (!$applicant) {
-                $this->warn("   ⚠ Applicant #{$euValue->entity_id} nicht gefunden — übersprungen.");
+                $this->warn("   ⚠ Applicant #{$euValue->fieldable_id} nicht gefunden — übersprungen.");
                 $skipped++;
                 continue;
             }
@@ -147,7 +147,7 @@ class MigrateLegalStatusExtraFields extends Command
 
             $fileValues = DB::table('core_extra_field_values')
                 ->whereIn('definition_id', $defIds)
-                ->where('entity_type', 'Platform\\Recruiting\\Models\\RecApplicant')
+                ->where('fieldable_type', 'Platform\\Recruiting\\Models\\RecApplicant')
                 ->whereNotNull('value')
                 ->where('value', '!=', '')
                 ->get();
@@ -177,22 +177,22 @@ class MigrateLegalStatusExtraFields extends Command
                 }
 
                 $legalStatus = DB::table('rec_applicant_legal_statuses')
-                    ->where('rec_applicant_id', $fileValue->entity_id)
+                    ->where('rec_applicant_id', $fileValue->fieldable_id)
                     ->first();
 
                 if (!$legalStatus) {
-                    $this->warn("     ⚠ Applicant #{$fileValue->entity_id} hat keinen LegalStatus — übersprungen.");
+                    $this->warn("     ⚠ Applicant #{$fileValue->fieldable_id} hat keinen LegalStatus — übersprungen.");
                     $totalSkipped++;
                     continue;
                 }
 
                 if ($legalStatus->$column !== null) {
-                    $this->line("     ⏭ Applicant #{$fileValue->entity_id} {$column} bereits gesetzt.");
+                    $this->line("     ⏭ Applicant #{$fileValue->fieldable_id} {$column} bereits gesetzt.");
                     $totalSkipped++;
                     continue;
                 }
 
-                $this->line("     ✏ Applicant #{$fileValue->entity_id} {$column} = {$fileId}");
+                $this->line("     ✏ Applicant #{$fileValue->fieldable_id} {$column} = {$fileId}");
                 if (!$dryRun) {
                     DB::table('rec_applicant_legal_statuses')
                         ->where('id', $legalStatus->id)
