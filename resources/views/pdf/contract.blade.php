@@ -40,8 +40,12 @@
             font-weight: 600;
         }
 
+        .contract-content p:empty {
+            display: none;
+        }
+
         .signature-section {
-            margin-top: 40px;
+            margin-top: 16px;
             page-break-inside: avoid;
         }
 
@@ -64,7 +68,7 @@
 </head>
 <body>
     <div class="contract-content">
-        {!! $contract->personalized_content !!}
+        {!! $contentForPdf ?? $contract->personalized_content !!}
     </div>
 
     @if($contract->signature_data)
