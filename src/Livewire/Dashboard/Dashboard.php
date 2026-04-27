@@ -3,12 +3,15 @@
 namespace Platform\Recruiting\Livewire\Dashboard;
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
@@ -22,8 +25,11 @@ class Dashboard extends Component
     public bool $showHrDesk = false;
     public ?int $positionFilter = null;
     public ?int $phaseFilter = null;
-    public ?string $filterMonth = null;
+    public ?string $activityFilter = null;
+    public ?string $filterFrom = null; // Y-m-d
+    public ?string $filterTo = null;   // Y-m-d
     public array $positionStatsUniqueTotals = [];
+    public array $activityStatsUniqueTotals = [];
 
     public function mount(): void
     {
@@ -57,10 +63,15 @@ class Dashboard extends Component
             }
         }
 
-        if ($this->filterMonth) {
-            $start = \Carbon\Carbon::createFromFormat('Y-m', $this->filterMonth)->startOfMonth();
-            $end = $start->copy()->endOfMonth();
-            $query->whereBetween('created_at', [$start, $end]);
+        if ($this->filterFrom) {
+            $query->where('applied_at', '>=', $this->filterFrom);
+        }
+        if ($this->filterTo) {
+            $query->where('applied_at', '<=', $this->filterTo);
+        }
+
+        if ($this->activityFilter) {
+            $query->whereHas('postings', fn ($q) => $q->where('activity', $this->activityFilter));
         }
 
         return $query;
@@ -184,8 +195,12 @@ class Dashboard extends Component
         return RecPosting::forTeam(auth()->user()->currentTeam->id)->active()->count();
     }
 
-    #[Computed]
-    public function positionStats(): array
+    /**
+     * Returns the applicants used for both positionStats and activityStats:
+     * the active, non-parked, non-HR-desk, non-rejected pool inside the date range,
+     * eager-loaded with postings.position, interviewBookings and contracts.
+     */
+    private function statsApplicantPool()
     {
         $teamId = auth()->user()->currentTeam->id;
 
@@ -194,44 +209,81 @@ class Dashboard extends Component
             ->where('is_parked', false)
             ->where('is_on_hr_desk', false)
             ->whereNull('rejected_at')
-            ->with(['postings.position', 'interviewBookings']);
+            ->with(['postings.position', 'interviewBookings', 'contracts']);
 
-        if ($this->filterMonth) {
-            $start = \Carbon\Carbon::createFromFormat('Y-m', $this->filterMonth)->startOfMonth();
-            $end = $start->copy()->endOfMonth();
-            $query->whereBetween('created_at', [$start, $end]);
+        if ($this->filterFrom) {
+            $query->where('applied_at', '>=', $this->filterFrom);
+        }
+        if ($this->filterTo) {
+            $query->where('applied_at', '<=', $this->filterTo);
         }
 
-        $applicants = $query->get();
+        if ($this->activityFilter) {
+            $query->whereHas('postings', fn ($q) => $q->where('activity', $this->activityFilter));
+        }
+
+        return $query->get();
+    }
+
+    private function emptyStatRow(string $label): array
+    {
+        return [
+            'label' => $label,
+            'total' => 0,
+            'contacted' => 0,
+            'completed' => 0,
+            'booked' => 0,
+            'confirmed' => 0,
+            'signed' => 0,
+            'conversion' => 0,
+        ];
+    }
+
+    private function bumpStatRow(array $row, RecApplicant $applicant, $bookings, $contracts): array
+    {
+        $row['total']++;
+        if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
+            $row['contacted']++;
+        }
+        if ($applicant->auto_pilot_completed_at) {
+            $row['completed']++;
+        }
+        if ($bookings->isNotEmpty()) {
+            $row['booked']++;
+            if ($bookings->contains('status', 'confirmed')) {
+                $row['confirmed']++;
+            }
+        }
+        if ($contracts->whereNotNull('signed_at')->isNotEmpty()) {
+            $row['signed']++;
+        }
+        return $row;
+    }
+
+    private function finalizeStatRow(array $row): array
+    {
+        $row['conversion'] = $row['total'] > 0
+            ? (int) round(($row['signed'] / $row['total']) * 100)
+            : 0;
+        unset($row['label']); // not used in row output anymore
+        return $row;
+    }
+
+    #[Computed]
+    public function positionStats(): array
+    {
+        $applicants = $this->statsApplicantPool();
 
         $stats = [];
         $noPosition = [];
-        // Track unique applicant IDs per stat to avoid double-counting in Gesamt
-        $uniqueIds = ['total' => [], 'contacted' => [], 'completed' => [], 'booked' => [], 'confirmed' => []];
+        $uniqueIds = ['total' => [], 'contacted' => [], 'completed' => [], 'booked' => [], 'confirmed' => [], 'signed' => []];
 
         foreach ($applicants as $applicant) {
-            $positions = $applicant->postings->map(fn ($p) => $p->position)->filter()->unique('id');
+            $bookings = $applicant->interviewBookings;
+            $contracts = $applicant->contracts;
+            $hasSigned = $contracts->whereNotNull('signed_at')->isNotEmpty();
 
-            if ($positions->isEmpty()) {
-                $noPosition[] = $applicant;
-                $uniqueIds['total'][] = $applicant->id;
-                if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
-                    $uniqueIds['contacted'][] = $applicant->id;
-                }
-                if ($applicant->auto_pilot_completed_at) {
-                    $uniqueIds['completed'][] = $applicant->id;
-                }
-                $bookings = $applicant->interviewBookings;
-                if ($bookings->isNotEmpty()) {
-                    $uniqueIds['booked'][] = $applicant->id;
-                    if ($bookings->contains('status', 'confirmed')) {
-                        $uniqueIds['confirmed'][] = $applicant->id;
-                    }
-                }
-                continue;
-            }
-
-            // Track unique IDs (only once per applicant, even if multiple positions)
+            // Unique-Tracking (ein Bewerber zählt einmal egal auf wie vielen Positionen)
             $uniqueIds['total'][] = $applicant->id;
             if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
                 $uniqueIds['contacted'][] = $applicant->id;
@@ -239,89 +291,147 @@ class Dashboard extends Component
             if ($applicant->auto_pilot_completed_at) {
                 $uniqueIds['completed'][] = $applicant->id;
             }
-            $bookings = $applicant->interviewBookings;
             if ($bookings->isNotEmpty()) {
                 $uniqueIds['booked'][] = $applicant->id;
                 if ($bookings->contains('status', 'confirmed')) {
                     $uniqueIds['confirmed'][] = $applicant->id;
                 }
             }
+            if ($hasSigned) {
+                $uniqueIds['signed'][] = $applicant->id;
+            }
+
+            $positions = $applicant->postings->map(fn ($p) => $p->position)->filter()->unique('id');
+
+            if ($positions->isEmpty()) {
+                $noPosition[] = ['applicant' => $applicant, 'bookings' => $bookings, 'contracts' => $contracts];
+                continue;
+            }
 
             foreach ($positions as $position) {
                 if (!isset($stats[$position->id])) {
-                    $stats[$position->id] = [
-                        'position_title' => $position->title,
-                        'total' => 0,
-                        'contacted' => 0,
-                        'completed' => 0,
-                        'booked' => 0,
-                        'confirmed' => 0,
-                    ];
+                    $stats[$position->id] = $this->emptyStatRow($position->title);
                 }
-
-                $stats[$position->id]['total']++;
-
-                if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
-                    $stats[$position->id]['contacted']++;
-                }
-
-                if ($applicant->auto_pilot_completed_at) {
-                    $stats[$position->id]['completed']++;
-                }
-
-                if ($bookings->isNotEmpty()) {
-                    $stats[$position->id]['booked']++;
-
-                    if ($bookings->contains('status', 'confirmed')) {
-                        $stats[$position->id]['confirmed']++;
-                    }
-                }
+                $stats[$position->id] = $this->bumpStatRow($stats[$position->id], $applicant, $bookings, $contracts);
             }
         }
 
         // Sort by title
-        uasort($stats, fn ($a, $b) => strcasecmp($a['position_title'], $b['position_title']));
+        uasort($stats, fn ($a, $b) => strcasecmp($a['label'], $b['label']));
 
-        $result = array_values($stats);
-
-        // Add "Ohne Stelle" row if applicable
-        if (!empty($noPosition)) {
-            $row = [
-                'position_title' => 'Ohne Stelle',
-                'total' => 0,
-                'contacted' => 0,
-                'completed' => 0,
-                'booked' => 0,
-                'confirmed' => 0,
-            ];
-
-            foreach ($noPosition as $applicant) {
-                $row['total']++;
-                if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
-                    $row['contacted']++;
-                }
-                if ($applicant->auto_pilot_completed_at) {
-                    $row['completed']++;
-                }
-                $bookings = $applicant->interviewBookings;
-                if ($bookings->isNotEmpty()) {
-                    $row['booked']++;
-                    if ($bookings->contains('status', 'confirmed')) {
-                        $row['confirmed']++;
-                    }
-                }
-            }
-
+        $result = [];
+        foreach ($stats as $row) {
+            $title = $row['label'];
+            $row = $this->finalizeStatRow($row);
+            $row['position_title'] = $title;
             $result[] = $row;
         }
 
-        // Add unique totals (deduplicated across positions)
+        // Add "Ohne Stelle" row if applicable
+        if (!empty($noPosition)) {
+            $row = $this->emptyStatRow('Ohne Stelle');
+            foreach ($noPosition as $entry) {
+                $row = $this->bumpStatRow($row, $entry['applicant'], $entry['bookings'], $entry['contracts']);
+            }
+            $row = $this->finalizeStatRow($row);
+            $row['position_title'] = 'Ohne Stelle';
+            $result[] = $row;
+        }
+
+        $totalUnique = count(array_unique($uniqueIds['total']));
+        $signedUnique = count(array_unique($uniqueIds['signed']));
         $this->positionStatsUniqueTotals = [
-            'total' => count(array_unique($uniqueIds['total'])),
+            'total' => $totalUnique,
             'contacted' => count(array_unique($uniqueIds['contacted'])),
             'completed' => count(array_unique($uniqueIds['completed'])),
             'booked' => count(array_unique($uniqueIds['booked'])),
             'confirmed' => count(array_unique($uniqueIds['confirmed'])),
+            'signed' => $signedUnique,
+            'conversion' => $totalUnique > 0 ? (int) round(($signedUnique / $totalUnique) * 100) : 0,
+        ];
+
+        return $result;
+    }
+
+    #[Computed]
+    public function activityStats(): array
+    {
+        $applicants = $this->statsApplicantPool();
+
+        $stats = [];
+        $noActivity = [];
+        $uniqueIds = ['total' => [], 'contacted' => [], 'completed' => [], 'booked' => [], 'confirmed' => [], 'signed' => []];
+
+        foreach ($applicants as $applicant) {
+            $bookings = $applicant->interviewBookings;
+            $contracts = $applicant->contracts;
+            $hasSigned = $contracts->whereNotNull('signed_at')->isNotEmpty();
+
+            $uniqueIds['total'][] = $applicant->id;
+            if ($applicant->enrichment_status && $applicant->enrichment_status !== 'no_contact') {
+                $uniqueIds['contacted'][] = $applicant->id;
+            }
+            if ($applicant->auto_pilot_completed_at) {
+                $uniqueIds['completed'][] = $applicant->id;
+            }
+            if ($bookings->isNotEmpty()) {
+                $uniqueIds['booked'][] = $applicant->id;
+                if ($bookings->contains('status', 'confirmed')) {
+                    $uniqueIds['confirmed'][] = $applicant->id;
+                }
+            }
+            if ($hasSigned) {
+                $uniqueIds['signed'][] = $applicant->id;
+            }
+
+            $activities = $applicant->postings
+                ->pluck('activity')
+                ->filter(fn ($a) => $a !== null && $a !== '')
+                ->unique()
+                ->values();
+
+            if ($activities->isEmpty()) {
+                $noActivity[] = ['applicant' => $applicant, 'bookings' => $bookings, 'contracts' => $contracts];
+                continue;
+            }
+
+            foreach ($activities as $activity) {
+                if (!isset($stats[$activity])) {
+                    $stats[$activity] = $this->emptyStatRow($activity);
+                }
+                $stats[$activity] = $this->bumpStatRow($stats[$activity], $applicant, $bookings, $contracts);
+            }
+        }
+
+        ksort($stats, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $result = [];
+        foreach ($stats as $key => $row) {
+            $row = $this->finalizeStatRow($row);
+            $row['activity'] = $key;
+            $result[] = $row;
+        }
+
+        if (!empty($noActivity)) {
+            $row = $this->emptyStatRow('Ohne Tätigkeit');
+            foreach ($noActivity as $entry) {
+                $row = $this->bumpStatRow($row, $entry['applicant'], $entry['bookings'], $entry['contracts']);
+            }
+            $row = $this->finalizeStatRow($row);
+            $row['activity'] = 'Ohne Tätigkeit';
+            $result[] = $row;
+        }
+
+        $totalUnique = count(array_unique($uniqueIds['total']));
+        $signedUnique = count(array_unique($uniqueIds['signed']));
+        $this->activityStatsUniqueTotals = [
+            'total' => $totalUnique,
+            'contacted' => count(array_unique($uniqueIds['contacted'])),
+            'completed' => count(array_unique($uniqueIds['completed'])),
+            'booked' => count(array_unique($uniqueIds['booked'])),
+            'confirmed' => count(array_unique($uniqueIds['confirmed'])),
+            'signed' => $signedUnique,
+            'conversion' => $totalUnique > 0 ? (int) round(($signedUnique / $totalUnique) * 100) : 0,
         ];
 
         return $result;
@@ -409,6 +519,125 @@ class Dashboard extends Component
             ])
             ->orderByDesc('created_at')
             ->get();
+    }
+
+    #[Computed]
+    public function availableActivities()
+    {
+        return RecPosting::forTeam(auth()->user()->currentTeam->id)
+            ->whereNotNull('activity')
+            ->where('activity', '!=', '')
+            ->distinct()
+            ->orderBy('activity')
+            ->pluck('activity')
+            ->values();
+    }
+
+    /**
+     * Time-to-Hire (median + average) in days, applied_at -> signed_at,
+     * over applicants in the current filter scope whose contract is signed.
+     */
+    #[Computed]
+    public function timeToHire(): array
+    {
+        $teamId = auth()->user()->currentTeam->id;
+
+        $applicantQuery = RecApplicant::forTeam($teamId)
+            ->whereNotNull('applied_at')
+            ->whereHas('contracts', fn ($q) => $q->whereNotNull('signed_at'));
+
+        if ($this->filterFrom) {
+            $applicantQuery->where('applied_at', '>=', $this->filterFrom);
+        }
+        if ($this->filterTo) {
+            $applicantQuery->where('applied_at', '<=', $this->filterTo);
+        }
+        if ($this->positionFilter) {
+            $postingIds = $this->postingIdsForPosition();
+            $applicantQuery->whereHas('postings', fn ($q) => $q->whereIn('rec_postings.id', $postingIds));
+        }
+        if ($this->activityFilter) {
+            $applicantQuery->whereHas('postings', fn ($q) => $q->where('activity', $this->activityFilter));
+        }
+
+        $applicants = $applicantQuery->with(['contracts' => fn ($q) => $q->whereNotNull('signed_at')->orderBy('signed_at')])
+            ->get();
+
+        $days = [];
+        foreach ($applicants as $applicant) {
+            $signedAt = $applicant->contracts->first()?->signed_at;
+            if (!$applicant->applied_at || !$signedAt) continue;
+            $days[] = max(0, $applicant->applied_at->startOfDay()->diffInDays($signedAt->startOfDay()));
+        }
+
+        if (empty($days)) {
+            return ['median' => null, 'avg' => null, 'count' => 0];
+        }
+
+        sort($days);
+        $count = count($days);
+        $median = $count % 2 === 0
+            ? (int) round(($days[$count / 2 - 1] + $days[$count / 2]) / 2)
+            : $days[(int) floor($count / 2)];
+        $avg = (int) round(array_sum($days) / $count);
+
+        return ['median' => $median, 'avg' => $avg, 'count' => $count];
+    }
+
+    /**
+     * Block C — Stuck-Indikatoren.
+     * 1) AutoPilot hängt:    auto_pilot=true, !completed, letzter Reminder > 5 Tage
+     * 2) Booking ohne Vertrag: nicht-cancelled Booking älter als 3 Tage, kein Vertrag
+     * 3) Vertrag versendet:    sent_at gesetzt, signed_at NULL, sent_at > 3 Tage
+     */
+    #[Computed]
+    public function stuckCounts(): array
+    {
+        $teamId = auth()->user()->currentTeam->id;
+        $now = now();
+
+        // 1) AutoPilot stuck
+        $autoPilotStuck = RecApplicant::forTeam($teamId)
+            ->where('is_active', true)
+            ->whereNull('rejected_at')
+            ->where('auto_pilot', true)
+            ->whereNull('auto_pilot_completed_at')
+            ->where(function ($q) use ($now) {
+                $q->where('auto_pilot_last_reminder_at', '<=', $now->copy()->subDays(5))
+                  ->orWhereNull('auto_pilot_last_reminder_at');
+            })
+            ->count();
+
+        // 2) Interview gebucht, kein Vertrag (älter als 3 Tage)
+        $cutoff3 = $now->copy()->subDays(3);
+        $bookingApplicantIds = RecInterviewBooking::query()
+            ->where('team_id', $teamId)
+            ->whereNotIn('status', ['cancelled'])
+            ->where('created_at', '<=', $cutoff3)
+            ->pluck('rec_applicant_id')
+            ->unique();
+
+        $interviewWithoutContract = RecApplicant::forTeam($teamId)
+            ->where('is_active', true)
+            ->whereNull('rejected_at')
+            ->whereIn('id', $bookingApplicantIds)
+            ->whereDoesntHave('contracts')
+            ->count();
+
+        // 3) Vertrag versendet, nicht unterschrieben (sent_at > 3 Tage)
+        $contractSentNotSigned = RecContract::query()
+            ->where('team_id', $teamId)
+            ->whereNotNull('sent_at')
+            ->whereNull('signed_at')
+            ->where('sent_at', '<=', $cutoff3)
+            ->distinct('rec_applicant_id')
+            ->count('rec_applicant_id');
+
+        return [
+            'autopilot_stuck' => $autoPilotStuck,
+            'interview_no_contract' => $interviewWithoutContract,
+            'contract_sent_not_signed' => $contractSentNotSigned,
+        ];
     }
 
     public function advanceToNextPhase(int $applicantId): void
@@ -605,8 +834,56 @@ class Dashboard extends Component
         $this->refreshDashboard();
     }
 
-    public function updatedFilterMonth(): void
+    public function updatedActivityFilter(): void
     {
+        $this->refreshDashboard();
+    }
+
+    public function updatedFilterFrom(): void
+    {
+        $this->refreshDashboard();
+    }
+
+    public function updatedFilterTo(): void
+    {
+        $this->refreshDashboard();
+    }
+
+    /**
+     * Quick-range presets for the date filter. UI calls these via wire:click.
+     * `preset` is one of: this_week, this_month, last_month, q1, q2, q3, q4, clear.
+     */
+    public function applyDatePreset(string $preset): void
+    {
+        $now = now();
+        switch ($preset) {
+            case 'this_week':
+                $this->filterFrom = $now->copy()->startOfWeek()->toDateString();
+                $this->filterTo   = $now->copy()->endOfWeek()->toDateString();
+                break;
+            case 'this_month':
+                $this->filterFrom = $now->copy()->startOfMonth()->toDateString();
+                $this->filterTo   = $now->copy()->endOfMonth()->toDateString();
+                break;
+            case 'last_month':
+                $last = $now->copy()->subMonthNoOverflow();
+                $this->filterFrom = $last->copy()->startOfMonth()->toDateString();
+                $this->filterTo   = $last->copy()->endOfMonth()->toDateString();
+                break;
+            case 'q1':
+            case 'q2':
+            case 'q3':
+            case 'q4':
+                $q = (int) substr($preset, 1);
+                $startMonth = ($q - 1) * 3 + 1;
+                $this->filterFrom = $now->copy()->setMonth($startMonth)->startOfMonth()->toDateString();
+                $this->filterTo   = $now->copy()->setMonth($startMonth + 2)->endOfMonth()->toDateString();
+                break;
+            case 'clear':
+                $this->filterFrom = null;
+                $this->filterTo   = null;
+                break;
+        }
         $this->refreshDashboard();
     }
 
@@ -627,7 +904,11 @@ class Dashboard extends Component
             $this->phases,
             $this->phasedApplicants,
             $this->availablePostings,
+            $this->availableActivities,
             $this->positionStats,
+            $this->activityStats,
+            $this->timeToHire,
+            $this->stuckCounts,
             $this->hrDeskCount,
         );
     }

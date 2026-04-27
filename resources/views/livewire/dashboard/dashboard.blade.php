@@ -27,6 +27,13 @@
                         <option value="{{ $pos->id }}">{{ $pos->title }}</option>
                     @endforeach
                 </select>
+                <select wire:model.live="activityFilter"
+                        class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                    <option value="">Alle Tätigkeiten</option>
+                    @foreach($this->availableActivities as $act)
+                        <option value="{{ $act }}">{{ $act }}</option>
+                    @endforeach
+                </select>
                 @if($this->phases->isNotEmpty())
                     <select wire:model.live="phaseFilter"
                             class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
@@ -36,12 +43,31 @@
                         @endforeach
                     </select>
                 @endif
-                <div class="flex items-center gap-2">
-                    <input type="month" wire:model.live="filterMonth"
-                           class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]" />
-                    @if($this->filterMonth)
-                        <button wire:click="$set('filterMonth', null)"
-                                class="text-xs text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] transition-colors">
+                {{-- Datums-Range mit Quick-Buttons --}}
+                <div class="flex items-center gap-1 flex-wrap">
+                    <button type="button" wire:click="applyDatePreset('this_week')"
+                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Woche</button>
+                    <button type="button" wire:click="applyDatePreset('this_month')"
+                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Monat</button>
+                    <button type="button" wire:click="applyDatePreset('last_month')"
+                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Letzter Monat</button>
+                    <button type="button" wire:click="applyDatePreset('q1')"
+                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q1</button>
+                    <button type="button" wire:click="applyDatePreset('q2')"
+                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q2</button>
+                    <button type="button" wire:click="applyDatePreset('q3')"
+                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q3</button>
+                    <button type="button" wire:click="applyDatePreset('q4')"
+                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q4</button>
+                    <input type="date" wire:model.live="filterFrom" title="Von"
+                           class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]" />
+                    <span class="text-xs text-[var(--ui-muted)]">bis</span>
+                    <input type="date" wire:model.live="filterTo" title="Bis"
+                           class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]" />
+                    @if($this->filterFrom || $this->filterTo)
+                        <button type="button" wire:click="applyDatePreset('clear')"
+                                class="text-xs text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] transition-colors px-1"
+                                title="Zeitraum zurücksetzen">
                             @svg('heroicon-o-x-mark', 'w-4 h-4')
                         </button>
                     @endif
@@ -51,6 +77,49 @@
     </x-slot>
 
     <x-ui-page-container spacing="space-y-8">
+        {{-- Stuck-Indikatoren (Block C): operativ relevant, gehört nach oben --}}
+        @if(!$this->showParked)
+            @php $stuck = $this->stuckCounts; @endphp
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white rounded-lg border {{ $stuck['autopilot_stuck'] > 0 ? 'border-amber-300' : 'border-[var(--ui-border)]/60' }} p-5">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 {{ $stuck['autopilot_stuck'] > 0 ? 'bg-amber-100' : 'bg-gray-100' }} rounded-lg flex items-center justify-center flex-shrink-0">
+                            @svg('heroicon-o-cpu-chip', 'w-5 h-5 ' . ($stuck['autopilot_stuck'] > 0 ? 'text-amber-600' : 'text-gray-400'))
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-2xl font-bold {{ $stuck['autopilot_stuck'] > 0 ? 'text-amber-700' : 'text-[var(--ui-secondary)]' }}">{{ $stuck['autopilot_stuck'] }}</div>
+                            <div class="text-sm font-medium text-[var(--ui-secondary)]">AutoPilot hängt</div>
+                            <div class="text-xs text-[var(--ui-muted)]">letzter Reminder &gt; 5 Tage</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg border {{ $stuck['interview_no_contract'] > 0 ? 'border-orange-300' : 'border-[var(--ui-border)]/60' }} p-5">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 {{ $stuck['interview_no_contract'] > 0 ? 'bg-orange-100' : 'bg-gray-100' }} rounded-lg flex items-center justify-center flex-shrink-0">
+                            @svg('heroicon-o-calendar-days', 'w-5 h-5 ' . ($stuck['interview_no_contract'] > 0 ? 'text-orange-600' : 'text-gray-400'))
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-2xl font-bold {{ $stuck['interview_no_contract'] > 0 ? 'text-orange-700' : 'text-[var(--ui-secondary)]' }}">{{ $stuck['interview_no_contract'] }}</div>
+                            <div class="text-sm font-medium text-[var(--ui-secondary)]">Interview gebucht, kein Vertrag</div>
+                            <div class="text-xs text-[var(--ui-muted)]">Booking &gt; 3 Tage offen</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg border {{ $stuck['contract_sent_not_signed'] > 0 ? 'border-red-300' : 'border-[var(--ui-border)]/60' }} p-5">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 {{ $stuck['contract_sent_not_signed'] > 0 ? 'bg-red-100' : 'bg-gray-100' }} rounded-lg flex items-center justify-center flex-shrink-0">
+                            @svg('heroicon-o-document-text', 'w-5 h-5 ' . ($stuck['contract_sent_not_signed'] > 0 ? 'text-red-600' : 'text-gray-400'))
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-2xl font-bold {{ $stuck['contract_sent_not_signed'] > 0 ? 'text-red-700' : 'text-[var(--ui-secondary)]' }}">{{ $stuck['contract_sent_not_signed'] }}</div>
+                            <div class="text-sm font-medium text-[var(--ui-secondary)]">Vertrag versendet, nicht unterschrieben</div>
+                            <div class="text-xs text-[var(--ui-muted)]">versendet &gt; 3 Tage</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
+
         {{-- Stats --}}
         @if($this->positionFilter)
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -115,9 +184,54 @@
             </div>
         @endif
 
+        {{-- Time-to-Hire (Bewerbung → Vertrag unterschrieben) --}}
+        @php $tth = $this->timeToHire; @endphp
+        @if($tth['count'] > 0)
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-5">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                            @svg('heroicon-o-clock', 'w-5 h-5 text-emerald-600')
+                        </div>
+                        <div>
+                            <div class="text-2xl font-bold text-[var(--ui-secondary)]">{{ $tth['median'] }} <span class="text-sm font-normal text-[var(--ui-muted)]">Tage</span></div>
+                            <div class="text-sm text-[var(--ui-muted)]">Time-to-Hire (Median)</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-5">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
+                            @svg('heroicon-o-chart-bar', 'w-5 h-5 text-emerald-500')
+                        </div>
+                        <div>
+                            <div class="text-2xl font-bold text-[var(--ui-secondary)]">{{ $tth['avg'] }} <span class="text-sm font-normal text-[var(--ui-muted)]">Tage</span></div>
+                            <div class="text-sm text-[var(--ui-muted)]">Time-to-Hire (Ø)</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-5">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                            @svg('heroicon-o-check-badge', 'w-5 h-5 text-blue-500')
+                        </div>
+                        <div>
+                            <div class="text-2xl font-bold text-[var(--ui-secondary)]">{{ $tth['count'] }}</div>
+                            <div class="text-sm text-[var(--ui-muted)]">Verträge unterschrieben (im Zeitraum)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
+
         {{-- Statistik nach Standort/Stelle --}}
+        @php
+            $rangeSubtitle = ($this->filterFrom || $this->filterTo)
+                ? trim(($this->filterFrom ? \Carbon\Carbon::parse($this->filterFrom)->format('d.m.Y') : '…') . ' – ' . ($this->filterTo ? \Carbon\Carbon::parse($this->filterTo)->format('d.m.Y') : '…'))
+                : 'Alle Zeiträume';
+        @endphp
         @if(!$this->showParked && count($this->positionStats) > 0)
-        <x-ui-panel title="Übersicht nach Stelle" :subtitle="$this->filterMonth ? \Carbon\Carbon::createFromFormat('Y-m', $this->filterMonth)->translatedFormat('F Y') : 'Alle Zeiträume'">
+        <x-ui-panel title="Übersicht nach Stelle" :subtitle="$rangeSubtitle">
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>
@@ -128,6 +242,8 @@
                             <th class="px-4 py-3 text-center">Registriert</th>
                             <th class="px-4 py-3 text-center">In Schulung</th>
                             <th class="px-4 py-3 text-center">Bestätigt</th>
+                            <th class="px-4 py-3 text-center">Vertrag unterschrieben</th>
+                            <th class="px-4 py-3 text-center">Conversion</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[var(--ui-border)]/60">
@@ -161,6 +277,14 @@
                                     {{ $stat['confirmed'] }}
                                 </span>
                             </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['signed'] > 0 ? 'bg-teal-50 text-teal-700' : 'bg-gray-50 text-gray-400' }}">
+                                    {{ $stat['signed'] }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center text-xs font-semibold {{ $stat['conversion'] >= 50 ? 'text-emerald-600' : ($stat['conversion'] >= 20 ? 'text-amber-600' : 'text-[var(--ui-muted)]') }}">
+                                {{ $stat['conversion'] }} %
+                            </td>
                         </tr>
                         @endforeach
                     </tbody>
@@ -191,6 +315,90 @@
                                 <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-green-100 text-green-800">
                                     {{ $this->positionStatsUniqueTotals['confirmed'] ?? 0 }}
                                 </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-teal-100 text-teal-800">
+                                    {{ $this->positionStatsUniqueTotals['signed'] ?? 0 }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center text-xs font-bold {{ ($this->positionStatsUniqueTotals['conversion'] ?? 0) >= 50 ? 'text-emerald-700' : (($this->positionStatsUniqueTotals['conversion'] ?? 0) >= 20 ? 'text-amber-700' : 'text-[var(--ui-secondary)]') }}">
+                                {{ $this->positionStatsUniqueTotals['conversion'] ?? 0 }} %
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </x-ui-panel>
+        @endif
+
+        {{-- Statistik nach Tätigkeit --}}
+        @if(!$this->showParked && count($this->activityStats) > 0)
+        <x-ui-panel title="Übersicht nach Tätigkeit" :subtitle="$rangeSubtitle">
+            <div class="overflow-x-auto">
+                <table class="w-full table-auto border-collapse text-sm">
+                    <thead>
+                        <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
+                            <th class="px-4 py-3">Tätigkeit</th>
+                            <th class="px-4 py-3 text-center">Bewerbungen</th>
+                            <th class="px-4 py-3 text-center">Kontaktdaten</th>
+                            <th class="px-4 py-3 text-center">Registriert</th>
+                            <th class="px-4 py-3 text-center">In Schulung</th>
+                            <th class="px-4 py-3 text-center">Bestätigt</th>
+                            <th class="px-4 py-3 text-center">Vertrag unterschrieben</th>
+                            <th class="px-4 py-3 text-center">Conversion</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[var(--ui-border)]/60">
+                        @foreach($this->activityStats as $stat)
+                        <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
+                            <td class="px-4 py-2.5 font-medium text-[var(--ui-secondary)]">{{ $stat['activity'] }}</td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['total'] > 0 ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-400' }}">{{ $stat['total'] }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['contacted'] > 0 ? 'bg-indigo-50 text-indigo-700' : 'bg-gray-50 text-gray-400' }}">{{ $stat['contacted'] }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['completed'] > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-gray-400' }}">{{ $stat['completed'] }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['booked'] > 0 ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-400' }}">{{ $stat['booked'] }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['confirmed'] > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-400' }}">{{ $stat['confirmed'] }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-medium {{ $stat['signed'] > 0 ? 'bg-teal-50 text-teal-700' : 'bg-gray-50 text-gray-400' }}">{{ $stat['signed'] }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center text-xs font-semibold {{ $stat['conversion'] >= 50 ? 'text-emerald-600' : ($stat['conversion'] >= 20 ? 'text-amber-600' : 'text-[var(--ui-muted)]') }}">
+                                {{ $stat['conversion'] }} %
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                    <tfoot>
+                        <tr class="font-bold border-t-2 border-[var(--ui-border)]">
+                            <td class="px-4 py-2.5 text-[var(--ui-secondary)]">Gesamt</td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-blue-100 text-blue-800">{{ $this->activityStatsUniqueTotals['total'] ?? 0 }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-indigo-100 text-indigo-800">{{ $this->activityStatsUniqueTotals['contacted'] ?? 0 }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-emerald-100 text-emerald-800">{{ $this->activityStatsUniqueTotals['completed'] ?? 0 }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-purple-100 text-purple-800">{{ $this->activityStatsUniqueTotals['booked'] ?? 0 }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-green-100 text-green-800">{{ $this->activityStatsUniqueTotals['confirmed'] ?? 0 }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs font-bold bg-teal-100 text-teal-800">{{ $this->activityStatsUniqueTotals['signed'] ?? 0 }}</span>
+                            </td>
+                            <td class="px-4 py-2.5 text-center text-xs font-bold {{ ($this->activityStatsUniqueTotals['conversion'] ?? 0) >= 50 ? 'text-emerald-700' : (($this->activityStatsUniqueTotals['conversion'] ?? 0) >= 20 ? 'text-amber-700' : 'text-[var(--ui-secondary)]') }}">
+                                {{ $this->activityStatsUniqueTotals['conversion'] ?? 0 }} %
                             </td>
                         </tr>
                     </tfoot>
