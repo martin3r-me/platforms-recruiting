@@ -98,10 +98,10 @@ class Index extends Component
         if ($this->appliedFromFilter || $this->appliedToFilter) {
             $query->whereHas('postings', function ($q) {
                 if ($this->appliedFromFilter) {
-                    $q->wherePivot('applied_at', '>=', $this->appliedFromFilter);
+                    $q->where('rec_applicant_posting.applied_at', '>=', $this->appliedFromFilter);
                 }
                 if ($this->appliedToFilter) {
-                    $q->wherePivot('applied_at', '<=', $this->appliedToFilter);
+                    $q->where('rec_applicant_posting.applied_at', '<=', $this->appliedToFilter);
                 }
             });
         }
