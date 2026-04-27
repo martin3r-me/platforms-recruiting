@@ -43,22 +43,8 @@
                         @endforeach
                     </select>
                 @endif
-                {{-- Datums-Range mit Quick-Buttons --}}
-                <div class="flex items-center gap-1 flex-wrap">
-                    <button type="button" wire:click="applyDatePreset('this_week')"
-                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Woche</button>
-                    <button type="button" wire:click="applyDatePreset('this_month')"
-                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Monat</button>
-                    <button type="button" wire:click="applyDatePreset('last_month')"
-                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Letzter Monat</button>
-                    <button type="button" wire:click="applyDatePreset('q1')"
-                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q1</button>
-                    <button type="button" wire:click="applyDatePreset('q2')"
-                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q2</button>
-                    <button type="button" wire:click="applyDatePreset('q3')"
-                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q3</button>
-                    <button type="button" wire:click="applyDatePreset('q4')"
-                            class="text-xs px-2 py-1 rounded border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] transition-colors">Q4</button>
+                {{-- Datums-Range (für einen einzelnen Tag: von=bis setzen) --}}
+                <div class="flex items-center gap-1">
                     <input type="date" wire:model.live="filterFrom" title="Von"
                            class="text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]" />
                     <span class="text-xs text-[var(--ui-muted)]">bis</span>

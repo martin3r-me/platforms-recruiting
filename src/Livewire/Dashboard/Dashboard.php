@@ -596,16 +596,13 @@ class Dashboard extends Component
         $teamId = auth()->user()->currentTeam->id;
         $now = now();
 
-        // 1) AutoPilot stuck
+        // 1) AutoPilot stuck — Bewerber > 5 Tage im AutoPilot ohne Abschluss
         $autoPilotStuck = RecApplicant::forTeam($teamId)
             ->where('is_active', true)
             ->whereNull('rejected_at')
             ->where('auto_pilot', true)
             ->whereNull('auto_pilot_completed_at')
-            ->where(function ($q) use ($now) {
-                $q->where('auto_pilot_last_reminder_at', '<=', $now->copy()->subDays(5))
-                  ->orWhereNull('auto_pilot_last_reminder_at');
-            })
+            ->where('applied_at', '<=', $now->copy()->subDays(5)->toDateString())
             ->count();
 
         // 2) Interview gebucht, kein Vertrag (älter als 3 Tage)
