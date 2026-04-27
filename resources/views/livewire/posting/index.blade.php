@@ -101,6 +101,18 @@
         <div class="space-y-4">
             <x-ui-input-select name="rec_position_id" label="Stelle" :options="$this->availablePositions" optionValue="id" optionLabel="title" wire:model.live="rec_position_id" required />
             <x-ui-input-text name="title" label="Titel" wire:model.live="title" required placeholder="Ausschreibungstitel" />
+            <x-ui-input-text
+                name="activity"
+                label="Tätigkeit"
+                wire:model.live="activity"
+                placeholder="z.B. Servicekraft, Logistiker, Promoter"
+                list="activity-suggestions"
+            />
+            <datalist id="activity-suggestions">
+                @foreach($this->availableActivities as $suggestion)
+                    <option value="{{ $suggestion }}"></option>
+                @endforeach
+            </datalist>
             <x-ui-input-textarea name="description" label="Beschreibung" wire:model.live="description" placeholder="Beschreibung (optional)" rows="3" />
         </div>
         <x-slot name="footer">

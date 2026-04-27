@@ -10,7 +10,7 @@ class RecPosting extends Model
     protected $table = 'rec_postings';
 
     protected $fillable = [
-        'uuid', 'rec_position_id', 'team_id', 'title', 'description',
+        'uuid', 'rec_position_id', 'team_id', 'title', 'description', 'activity',
         'status', 'published_at', 'closes_at', 'is_active', 'created_by_user_id',
     ];
 

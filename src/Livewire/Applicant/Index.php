@@ -27,6 +27,9 @@ class Index extends Component
     public $statusFilter = null;
     public $autoPilotStateFilter = null;
     public $activeFilter = null;
+    public $activityFilter = null;
+    public $appliedFromFilter = null;
+    public $appliedToFilter = null;
 
     // Sorting
     public $sortField = 'created_at';
@@ -84,6 +87,25 @@ class Index extends Component
             });
         }
 
+        // Activity filter (Tätigkeit am Posting)
+        if ($this->activityFilter) {
+            $query->whereHas('postings', function ($q) {
+                $q->where('activity', $this->activityFilter);
+            });
+        }
+
+        // Beworben am - Datumsbereich (Pivot rec_applicant_posting.applied_at)
+        if ($this->appliedFromFilter || $this->appliedToFilter) {
+            $query->whereHas('postings', function ($q) {
+                if ($this->appliedFromFilter) {
+                    $q->wherePivot('applied_at', '>=', $this->appliedFromFilter);
+                }
+                if ($this->appliedToFilter) {
+                    $q->wherePivot('applied_at', '<=', $this->appliedToFilter);
+                }
+            });
+        }
+
         // Status filter
         if ($this->statusFilter) {
             $query->where('rec_applicant_status_id', $this->statusFilter);
@@ -130,6 +152,18 @@ class Index extends Component
             ->published()
             ->orderBy('title')
             ->get();
+    }
+
+    #[Computed]
+    public function availableActivities()
+    {
+        return RecPosting::forTeam(auth()->user()->currentTeam->id)
+            ->whereNotNull('activity')
+            ->where('activity', '!=', '')
+            ->distinct()
+            ->orderBy('activity')
+            ->pluck('activity')
+            ->values();
     }
 
     #[Computed]

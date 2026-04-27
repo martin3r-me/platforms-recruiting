@@ -263,6 +263,31 @@
                     wire:model.live="positionFilter"
                 />
                 <x-ui-input-select
+                    name="activityFilter"
+                    label="Tätigkeit"
+                    :options="$this->availableActivities->map(fn($a) => ['value' => $a, 'label' => $a])->values()"
+                    optionValue="value"
+                    optionLabel="label"
+                    :nullable="true"
+                    nullLabel="Alle Tätigkeiten"
+                    wire:model.live="activityFilter"
+                />
+                <div class="space-y-2">
+                    <label class="text-sm font-medium text-[var(--ui-secondary)]">Beworben am</label>
+                    <x-ui-input-date
+                        name="appliedFromFilter"
+                        placeholder="von"
+                        wire:model.live="appliedFromFilter"
+                        :nullable="true"
+                    />
+                    <x-ui-input-date
+                        name="appliedToFilter"
+                        placeholder="bis"
+                        wire:model.live="appliedToFilter"
+                        :nullable="true"
+                    />
+                </div>
+                <x-ui-input-select
                     name="statusFilter"
                     label="Status"
                     :options="$this->availableStatuses"

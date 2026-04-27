@@ -17,11 +17,13 @@ class Index extends Component
     public $rec_position_id = null;
     public $title = '';
     public $description = '';
+    public $activity = '';
 
     protected $rules = [
         'rec_position_id' => 'required|exists:rec_positions,id',
         'title' => 'required|string|max:255',
         'description' => 'nullable|string',
+        'activity' => 'nullable|string|max:60',
     ];
 
     #[Computed]
@@ -52,6 +54,18 @@ class Index extends Component
             ->get();
     }
 
+    #[Computed]
+    public function availableActivities()
+    {
+        return RecPosting::forTeam(auth()->user()->currentTeam->id)
+            ->whereNotNull('activity')
+            ->where('activity', '!=', '')
+            ->distinct()
+            ->orderBy('activity')
+            ->pluck('activity')
+            ->values();
+    }
+
     public function createPosting()
     {
         $this->validate();
@@ -60,6 +74,7 @@ class Index extends Component
             'rec_position_id' => $this->rec_position_id,
             'title' => $this->title,
             'description' => $this->description,
+            'activity' => $this->activity ?: null,
             'team_id' => auth()->user()->currentTeam->id,
             'created_by_user_id' => auth()->id(),
             'status' => 'draft',
@@ -73,7 +88,7 @@ class Index extends Component
 
     public function resetForm()
     {
-        $this->reset(['rec_position_id', 'title', 'description']);
+        $this->reset(['rec_position_id', 'title', 'description', 'activity']);
     }
 
     public function openCreateModal()
