@@ -63,22 +63,10 @@
     </x-slot>
 
     <x-ui-page-container spacing="space-y-8">
-        {{-- Stuck-Indikatoren (Block C): operativ relevant, gehört nach oben --}}
+        {{-- Stuck-Indikatoren (Block C) --}}
         @if(!$this->showParked)
             @php $stuck = $this->stuckCounts; @endphp
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="bg-white rounded-lg border {{ $stuck['autopilot_stuck'] > 0 ? 'border-amber-300' : 'border-[var(--ui-border)]/60' }} p-5">
-                    <div class="flex items-start gap-3">
-                        <div class="w-10 h-10 {{ $stuck['autopilot_stuck'] > 0 ? 'bg-amber-100' : 'bg-gray-100' }} rounded-lg flex items-center justify-center flex-shrink-0">
-                            @svg('heroicon-o-cpu-chip', 'w-5 h-5 ' . ($stuck['autopilot_stuck'] > 0 ? 'text-amber-600' : 'text-gray-400'))
-                        </div>
-                        <div class="min-w-0">
-                            <div class="text-2xl font-bold {{ $stuck['autopilot_stuck'] > 0 ? 'text-amber-700' : 'text-[var(--ui-secondary)]' }}">{{ $stuck['autopilot_stuck'] }}</div>
-                            <div class="text-sm font-medium text-[var(--ui-secondary)]">AutoPilot hängt</div>
-                            <div class="text-xs text-[var(--ui-muted)]">letzter Reminder &gt; 5 Tage</div>
-                        </div>
-                    </div>
-                </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="bg-white rounded-lg border {{ $stuck['interview_no_contract'] > 0 ? 'border-orange-300' : 'border-[var(--ui-border)]/60' }} p-5">
                     <div class="flex items-start gap-3">
                         <div class="w-10 h-10 {{ $stuck['interview_no_contract'] > 0 ? 'bg-orange-100' : 'bg-gray-100' }} rounded-lg flex items-center justify-center flex-shrink-0">
