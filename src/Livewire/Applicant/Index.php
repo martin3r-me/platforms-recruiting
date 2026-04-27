@@ -94,16 +94,12 @@ class Index extends Component
             });
         }
 
-        // Beworben am - Datumsbereich (Pivot rec_applicant_posting.applied_at)
-        if ($this->appliedFromFilter || $this->appliedToFilter) {
-            $query->whereHas('postings', function ($q) {
-                if ($this->appliedFromFilter) {
-                    $q->where('rec_applicant_posting.applied_at', '>=', $this->appliedFromFilter);
-                }
-                if ($this->appliedToFilter) {
-                    $q->where('rec_applicant_posting.applied_at', '<=', $this->appliedToFilter);
-                }
-            });
+        // Beworben am - Datumsbereich (rec_applicants.applied_at = Erstbewerbungsdatum)
+        if ($this->appliedFromFilter) {
+            $query->where('applied_at', '>=', $this->appliedFromFilter);
+        }
+        if ($this->appliedToFilter) {
+            $query->where('applied_at', '<=', $this->appliedToFilter);
         }
 
         // Status filter
@@ -234,7 +230,7 @@ class Index extends Component
 
         $applicant = RecApplicant::create([
             'rec_applicant_status_id' => $this->rec_applicant_status_id,
-            'applied_at' => $this->applied_at,
+            'applied_at' => $this->applied_at ?: now()->toDateString(),
             'notes' => $this->notes,
             'team_id' => auth()->user()->currentTeam->id,
             'created_by_user_id' => auth()->id(),
