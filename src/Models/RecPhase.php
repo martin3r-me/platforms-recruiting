@@ -15,6 +15,7 @@ class RecPhase extends Model
     protected $fillable = [
         'uuid', 'team_id', 'rec_position_id', 'name', 'order',
         'auto_pilot_settings', 'auto_advance', 'is_active',
+        'completion_type', 'completion_config',
     ];
 
     protected $casts = [
@@ -22,6 +23,7 @@ class RecPhase extends Model
         'order' => 'integer',
         'auto_pilot_settings' => 'array',
         'auto_advance' => 'boolean',
+        'completion_config' => 'array',
     ];
 
     protected static function booted(): void

@@ -202,9 +202,8 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
-        $progress = $this->calculateProgress();
-
-        if ($progress < 100) {
+        // completion_type-aware: respects the phase's setting (fields/booking/manual)
+        if (!$this->isPhaseComplete()) {
             return;
         }
 
@@ -460,14 +459,82 @@ class RecApplicant extends Model implements InheritsExtraFields
             ->get()
             ->keyBy('definition_id');
 
+        // Visibility-aware: build current values map for visibility evaluator
+        $valuesByName = [];
+        foreach ($definitions as $def) {
+            $val = $this->extraFieldValues->firstWhere('definition_id', $def->id);
+            $valuesByName[$def->name] = $val?->value;
+        }
+
+        $evaluator = new \Platform\Core\Services\ExtraFieldConditionEvaluator();
+        $relevant = 0;
         $filled = 0;
+
         foreach ($requiredDefinitions as $def) {
+            $visibility = $def->visibility_config;
+            $isVisible = !$visibility || !($visibility['enabled'] ?? false)
+                || $evaluator->evaluate($visibility, $valuesByName);
+
+            if (!$isVisible) {
+                continue;  // unsichtbares Pflichtfeld zählt nicht
+            }
+
+            $relevant++;
             $val = $values->get($def->id);
             if ($val !== null && $val->value !== null && $val->value !== '' && $val->value !== '[]') {
                 $filled++;
             }
         }
 
-        return (int) round(($filled / $requiredDefinitions->count()) * 100);
+        if ($relevant === 0) {
+            return 100;  // alle Pflichtfelder sind unsichtbar = nichts zu tun
+        }
+
+        return (int) round(($filled / $relevant) * 100);
+    }
+
+    /**
+     * Determine if the applicant's current phase is complete.
+     *
+     * Reads the phase's completion_type setting:
+     *  - 'fields' (default): all visible required fields filled (calculateProgress >= 100)
+     *  - 'booking':          a non-cancelled booking matches the optional completion_config
+     *  - 'manual':           never auto-complete; HR must advance explicitly
+     */
+    public function isPhaseComplete(?RecPhase $phase = null): bool
+    {
+        $phase = $phase ?? $this->phase;
+        if (!$phase) {
+            // No phase context: fall back to the legacy progress check
+            return $this->calculateProgress() >= 100;
+        }
+
+        return match ($phase->completion_type) {
+            'booking' => $this->hasMatchingBooking($phase->completion_config),
+            'manual'  => false,
+            default   => $this->calculateProgress() >= 100,
+        };
+    }
+
+    /**
+     * Check whether the applicant has at least one non-cancelled booking that
+     * matches the optional completion_config (e.g. a specific interview type).
+     *
+     * @param array|null $config Optional config like ['interview_type_code' => 'training']
+     */
+    public function hasMatchingBooking(?array $config = null): bool
+    {
+        $query = $this->interviewBookings()
+            ->whereNotIn('status', ['cancelled'])
+            ->where('is_active', true);
+
+        if ($config && !empty($config['interview_type_code'])) {
+            $query->whereHas(
+                'interview.interviewType',
+                fn ($q) => $q->where('code', $config['interview_type_code'])
+            );
+        }
+
+        return $query->exists();
     }
 }

@@ -134,12 +134,16 @@ class ProcessAutoPilotApplicants extends Command
 
     private function processApplicant(RecApplicant $applicant, RecApplicantSettings $teamSettings, array $positionSettings = [], array $phaseSettings = []): void
     {
-        // 1. Check progress — complete if 100% → phase advancement or completion
+        // 1. Update progress for UI/state, regardless of completion_type
         $progress = $applicant->calculateProgress();
         $applicant->progress = $progress;
         $applicant->save();
 
-        if ($progress >= 100) {
+        // 2. Determine completion via the phase's completion_type:
+        //    'fields'  → progress >= 100 (visibility-aware, default)
+        //    'booking' → matching non-cancelled booking exists
+        //    'manual'  → never auto-complete
+        if ($applicant->isPhaseComplete()) {
             $applicant->checkAutoPilotCompletion();
             $applicant->refresh();
 
