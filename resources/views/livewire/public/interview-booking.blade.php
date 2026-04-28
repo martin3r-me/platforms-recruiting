@@ -77,12 +77,34 @@
 
         <main class="max-w-3xl mx-auto px-6 py-8">
             @if(count($this->availableInterviews) > 0)
-                <div class="space-y-4">
-                    @foreach($this->availableInterviews as $interview)
+                @php
+                    $grouped = collect($this->availableInterviews)->groupBy(fn ($i) => $i->position?->id ?? 0);
+                    $showGroupHeaders = $grouped->count() > 1;
+                @endphp
+                <div class="space-y-8">
+                    @foreach($grouped as $positionId => $interviewsInGroup)
+                        <div>
+                            @if($showGroupHeaders && $interviewsInGroup->first()->position)
+                                @php
+                                    $groupPos = $interviewsInGroup->first()->position;
+                                    $groupName = $groupPos->location ?: $groupPos->title;
+                                    $groupCount = $interviewsInGroup->count();
+                                @endphp
+                                <div class="flex items-center gap-2 mb-4 px-1">
+                                    <svg class="w-5 h-5 text-white/80 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    </svg>
+                                    <h2 class="text-lg font-bold text-white">{{ $groupName }}</h2>
+                                    <span class="text-sm text-white/70">— {{ $groupCount }} {{ $groupCount === 1 ? 'Termin' : 'Termine' }}</span>
+                                </div>
+                            @endif
+                            <div class="space-y-4">
+                    @foreach($interviewsInGroup as $interview)
                         <div class="applicant-card p-6">
                             <div class="flex items-start justify-between gap-4">
                                 <div class="flex-1 min-w-0">
-                                    @if($interview->position)
+                                    @if(!$showGroupHeaders && $interview->position)
                                         <div class="mb-3">
                                             <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold uppercase tracking-wide">
                                                 <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -158,6 +180,9 @@
                                         </span>
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+                    @endforeach
                             </div>
                         </div>
                     @endforeach
