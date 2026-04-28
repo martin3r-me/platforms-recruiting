@@ -54,6 +54,15 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                     'type' => 'object',
                     'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt.',
                 ],
+                'completion_type' => [
+                    'type' => 'string',
+                    'enum' => ['fields', 'booking', 'manual'],
+                    'description' => 'Optional: "fields" (Default) = alle Pflichtfelder, "booking" = Interview gebucht, "manual" = nur HR.',
+                ],
+                'completion_config' => [
+                    'type' => 'object',
+                    'description' => 'Optional: Phasen-Konfig. Keys: switch_position_on_booking (bool), confirm_booking_on_completion (bool).',
+                ],
                 'is_active' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Status. Default: true.',
@@ -105,6 +114,8 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                 'order' => (int)$order,
                 'auto_advance' => (bool)($arguments['auto_advance'] ?? false),
                 'auto_pilot_settings' => $arguments['auto_pilot_settings'] ?? null,
+                'completion_type' => $arguments['completion_type'] ?? 'fields',
+                'completion_config' => $arguments['completion_config'] ?? null,
                 'is_active' => (bool)($arguments['is_active'] ?? true),
             ]);
 
@@ -113,6 +124,8 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                 'uuid' => $phase->uuid,
                 'name' => $phase->name,
                 'order' => $phase->order,
+                'completion_type' => $phase->completion_type,
+                'completion_config' => $phase->completion_config,
                 'position_id' => $positionId,
                 'message' => 'Phase erfolgreich erstellt.',
             ]);

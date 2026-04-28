@@ -86,6 +86,8 @@ class ListPhasesTool implements ToolContract, ToolMetadataContract
                 'is_active' => (bool)$phase->is_active,
                 'auto_advance' => (bool)$phase->auto_advance,
                 'auto_pilot_settings' => $phase->auto_pilot_settings,
+                'completion_type' => $phase->completion_type,
+                'completion_config' => $phase->completion_config,
                 'applicants_count' => $phase->applicants_count,
                 'extra_fields' => $phase->getExtraFieldDefinitions()->map(fn($def) => [
                     'id' => $def->id,

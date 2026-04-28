@@ -53,6 +53,15 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                     'type' => 'object',
                     'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt. Keys: auto_pilot_wa_initial_template_id (int), auto_pilot_wa_reminder_template_id (int). Nutze recruiting.lookup.GET mit lookup=whatsapp_templates um gültige Template-IDs zu finden.',
                 ],
+                'completion_type' => [
+                    'type' => 'string',
+                    'enum' => ['fields', 'booking', 'manual'],
+                    'description' => 'Optional: Wann gilt die Phase als abgeschlossen? "fields" = alle Pflichtfelder ausgefüllt (Default), "booking" = Bewerber hat Interview gebucht, "manual" = nur durch HR/Admin.',
+                ],
+                'completion_config' => [
+                    'type' => 'object',
+                    'description' => 'Optional: Phasen-spezifische Konfiguration. Bekannte Keys: switch_position_on_booking (bool, nur sinnvoll mit completion_type=booking), confirm_booking_on_completion (bool, registriertes Interview wird bei Phasen-Abschluss automatisch auf "confirmed" gesetzt).',
+                ],
                 'is_active' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Status.',
@@ -92,6 +101,15 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 $phase->auto_pilot_settings = $arguments['auto_pilot_settings'];
             }
 
+            if (array_key_exists('completion_type', $arguments)) {
+                $value = $arguments['completion_type'];
+                $phase->completion_type = ($value === '' || $value === null) ? 'fields' : $value;
+            }
+
+            if (array_key_exists('completion_config', $arguments)) {
+                $phase->completion_config = $arguments['completion_config'];
+            }
+
             $phase->save();
 
             return ToolResult::success([
@@ -100,6 +118,8 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 'name' => $phase->name,
                 'order' => $phase->order,
                 'auto_pilot_settings' => $phase->auto_pilot_settings,
+                'completion_type' => $phase->completion_type,
+                'completion_config' => $phase->completion_config,
                 'message' => 'Phase erfolgreich aktualisiert.',
             ]);
         } catch (\Throwable $e) {
