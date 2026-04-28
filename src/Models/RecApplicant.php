@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Platform\Core\Contracts\InheritsExtraFields;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
@@ -514,6 +515,69 @@ class RecApplicant extends Model implements InheritsExtraFields
             'manual'  => false,
             default   => $this->calculateProgress() >= 100,
         };
+    }
+
+    /**
+     * Returns the applicant's primary position — the earliest applied posting's
+     * position. Used as the canonical "current Stelle" for the applicant.
+     */
+    public function primaryPosition(): ?RecPosition
+    {
+        return $this->postings
+            ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
+            ->first()
+            ?->position;
+    }
+
+    /**
+     * Switch the applicant to a new position: replaces the posting links with
+     * a single new one in the target position, and remaps rec_phase_id to
+     * the matching phase (same `order`) in the new position.
+     *
+     * Field-Werte werden NICHT umgehängt — sie bleiben unter den alten
+     * Phase-Definition-IDs. HCM-Export greift via `name`-Join darauf zu.
+     * In-App-UI sieht alte Werte nach Switch leer (siehe TODO 3.5a).
+     */
+    public function switchToPosition(RecPosition $newPosition): void
+    {
+        DB::transaction(function () use ($newPosition) {
+            $currentOrder = $this->phase?->order;
+
+            // 1. Alle bestehenden Posting-Verknüpfungen lösen
+            $this->postings()->detach();
+
+            // 2. Default-Posting der neuen Stelle anhängen
+            $newPosting = $newPosition->postings()->where('is_active', true)->first();
+            if (!$newPosting) {
+                throw new \RuntimeException(
+                    "Stelle '{$newPosition->title}' hat keine aktive Ausschreibung — Switch nicht möglich."
+                );
+            }
+            $this->postings()->attach($newPosting->id, [
+                'applied_at' => now()->toDateString(),
+            ]);
+
+            // 3. Phase auf neue Stelle mappen (gleicher order)
+            if ($currentOrder !== null) {
+                $newPhase = RecPhase::where('rec_position_id', $newPosition->id)
+                    ->where('order', $currentOrder)
+                    ->where('is_active', true)
+                    ->first();
+                if ($newPhase) {
+                    $this->rec_phase_id = $newPhase->id;
+                }
+            }
+            $this->save();
+
+            // 4. Audit-Log
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => 'position_switched',
+                    'summary' => "Stelle gewechselt zu \"{$newPosition->title}\" durch Schulungs-Buchung.",
+                ]);
+            } catch (\Throwable) {}
+        });
     }
 
     /**
