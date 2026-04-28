@@ -251,6 +251,18 @@
                                 @if($phase->auto_advance)
                                     <x-ui-badge variant="success" size="xs">Auto-Advance</x-ui-badge>
                                 @endif
+                                @if($phase->completion_type === 'booking')
+                                    <x-ui-badge variant="info" size="xs">Booking-Trigger</x-ui-badge>
+                                @elseif($phase->completion_type === 'manual')
+                                    <x-ui-badge variant="warning" size="xs">Manuell</x-ui-badge>
+                                @endif
+                                @php $phaseConfig = $phase->completion_config ?? []; @endphp
+                                @if(($phaseConfig['switch_position_on_booking'] ?? false) === true)
+                                    <x-ui-badge variant="primary" size="xs">Stellen-Wechsel</x-ui-badge>
+                                @endif
+                                @if(($phaseConfig['confirm_booking_on_completion'] ?? false) === true)
+                                    <x-ui-badge variant="secondary" size="xs">Booking-Bestätigung</x-ui-badge>
+                                @endif
                             </div>
 
                             {{-- Extra-Felder Liste --}}
