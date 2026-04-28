@@ -77,6 +77,7 @@ class InterviewBooking extends Component
         }
 
         return RecInterview::forTeam($this->teamId)
+            ->with('position')
             ->active()
             ->where('starts_at', '>', now())
             ->whereIn('status', ['planned', 'confirmed'])
