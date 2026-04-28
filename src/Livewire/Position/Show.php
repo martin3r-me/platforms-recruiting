@@ -20,14 +20,47 @@ class Show extends Component
     public function mount(RecPosition $position)
     {
         $this->position = $position->load(['postings', 'ownedByUser', 'createdByUser', 'jobTitle', 'phases']);
-        $this->autoPilotSettings = $this->position->auto_pilot_settings ?? [];
+        $this->autoPilotSettings = ($this->position->auto_pilot_settings ?? []) + $this->positionSettingsDefaults();
         $this->autoPilotSettingsOriginal = $this->autoPilotSettings;
 
         // Load phase-level AutoPilot settings
         foreach ($this->position->phases as $phase) {
-            $this->phaseAutoPilotSettings[$phase->id] = $phase->auto_pilot_settings ?? [];
+            $this->phaseAutoPilotSettings[$phase->id] = ($phase->auto_pilot_settings ?? []) + $this->phaseSettingsDefaults();
         }
         $this->phaseAutoPilotSettingsOriginal = $this->phaseAutoPilotSettings;
+    }
+
+    /**
+     * Default-Schlüssel für position-level autoPilotSettings — alle Felder
+     * die im UI per wire:model gebunden sind müssen mindestens als null
+     * existieren, damit Livewire-Entangle nicht meckert wenn die Position
+     * (oder eine ihrer Phasen) noch keine Settings hat.
+     *
+     * Existierende Werte werden NICHT überschrieben — der Array-Union-Operator
+     * bevorzugt linke Seite. Beim Speichern werden null-Werte ohnehin
+     * rausgefiltert (siehe save()), also kein Effekt auf die DB.
+     */
+    private function positionSettingsDefaults(): array
+    {
+        return [
+            'auto_pilot_enabled' => null,
+            'auto_pilot_channel_priority' => null,
+            'auto_pilot_wa_account_id' => null,
+            'auto_pilot_wa_initial_template_id' => null,
+            'auto_pilot_wa_reminder_template_id' => null,
+            'auto_pilot_reminder_interval_hours' => null,
+            'auto_pilot_max_reminders' => null,
+            'auto_start_auto_pilot' => null,
+            'interview_booking_wa_template_id' => null,
+        ];
+    }
+
+    private function phaseSettingsDefaults(): array
+    {
+        return [
+            'auto_pilot_wa_initial_template_id' => null,
+            'auto_pilot_wa_reminder_template_id' => null,
+        ];
     }
 
     public function rules(): array
