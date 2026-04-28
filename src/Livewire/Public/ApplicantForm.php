@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\Public;
 
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Core\Livewire\Concerns\WithExtraFields;
@@ -402,6 +403,27 @@ class ApplicantForm extends Component
             return;
         }
         $this->loadFormFields($applicant);
+    }
+
+    #[Computed]
+    public function confirmedBooking(): ?array
+    {
+        $applicant = $this->getApplicant();
+        $booking = $applicant?->confirmedBooking();
+        if (!$booking) {
+            return null;
+        }
+        $interview = $booking->interview;
+        return [
+            'starts_at' => $interview?->starts_at,
+            'location' => $interview?->location,
+        ];
+    }
+
+    #[Computed]
+    public function schulungUrl(): string
+    {
+        return $this->getApplicant()?->getSchulungUrl() ?? 'https://rheingedeck.de/schulung';
     }
 
     public function render()

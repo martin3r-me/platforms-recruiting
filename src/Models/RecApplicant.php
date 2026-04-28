@@ -642,4 +642,39 @@ class RecApplicant extends Model implements InheritsExtraFields
 
         return $query->exists();
     }
+
+    /**
+     * Returns the latest non-cancelled confirmed booking, eager-loaded with
+     * its interview (slot) for date/time/location display.
+     */
+    public function confirmedBooking(): ?RecInterviewBooking
+    {
+        return $this->interviewBookings()
+            ->with('interview')
+            ->where('is_active', true)
+            ->where('status', 'confirmed')
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * Resolve the public schulung-URL for this applicant based on the primary
+     * position's location. Falls back to the general overview page when the
+     * location is unknown — never returns a 404 target.
+     */
+    public function getSchulungUrl(): string
+    {
+        $base = 'https://rheingedeck.de/schulung';
+        $location = mb_strtolower($this->primaryPosition()?->location ?? '');
+
+        $slug = match (true) {
+            str_contains($location, 'düsseldorf')      => 'duesseldorf',
+            str_contains($location, 'köln')            => 'koeln',
+            str_contains($location, 'bonn')            => 'bonn',
+            str_contains($location, 'mönchengladbach') => 'moenchengladbach',
+            default                                    => null,
+        };
+
+        return $slug ? "{$base}/{$slug}" : $base;
+    }
 }

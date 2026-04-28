@@ -673,15 +673,47 @@
 
     {{-- Completed --}}
     @elseif($state === 'completed')
+        @php $booking = $this->confirmedBooking; @endphp
         <div class="flex items-center justify-center min-h-screen p-4">
             <div class="applicant-card w-full max-w-md p-10 text-center">
-                <div class="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-6">
-                    <svg class="w-10 h-10 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                </div>
-                <h1 class="text-2xl font-bold text-gray-900 mb-3">Alles erledigt!</h1>
-                <p class="text-gray-500 text-lg">Vielen Dank! Alle Felder sind ausgefüllt. Sie können diese Seite jetzt schließen.</p>
+                @if($booking)
+                    <div class="text-5xl mb-4">🎉</div>
+                    <h1 class="text-2xl font-bold text-gray-900 mb-3">Deine Buchung ist bestätigt</h1>
+                    <p class="text-gray-500 text-base mb-6">Vielen Dank! Wir freuen uns auf dich.</p>
+
+                    @if(!empty($booking['starts_at']))
+                        <div class="bg-emerald-50 border border-emerald-100 rounded-2xl p-5 mb-6 text-left">
+                            <p class="text-xs uppercase tracking-wider text-emerald-700 font-semibold mb-2">Deine Schulung</p>
+                            <p class="text-lg font-semibold text-gray-900">
+                                {{ \Carbon\Carbon::parse($booking['starts_at'])->translatedFormat('l, d. F Y') }}
+                            </p>
+                            <p class="text-base text-gray-700">
+                                {{ \Carbon\Carbon::parse($booking['starts_at'])->format('H:i') }} Uhr
+                            </p>
+                            @if(!empty($booking['location']))
+                                <p class="text-sm text-gray-500 mt-1">{{ $booking['location'] }}</p>
+                            @endif
+                        </div>
+                    @endif
+
+                    <a href="{{ $this->schulungUrl }}"
+                       target="_blank"
+                       rel="noopener"
+                       class="applicant-btn-primary inline-flex items-center justify-center gap-2 w-full">
+                        Alle Infos zur Schulung
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+                        </svg>
+                    </a>
+                @else
+                    <div class="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-6">
+                        <svg class="w-10 h-10 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h1 class="text-2xl font-bold text-gray-900 mb-3">Alles erledigt!</h1>
+                    <p class="text-gray-500 text-lg">Vielen Dank! Alle Felder sind ausgefüllt. Sie können diese Seite jetzt schließen.</p>
+                @endif
             </div>
         </div>
     @endif
