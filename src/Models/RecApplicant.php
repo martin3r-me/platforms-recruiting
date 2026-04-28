@@ -226,6 +226,8 @@ class RecApplicant extends Model implements InheritsExtraFields
                 'type' => 'phase_advanced',
                 'summary' => "Phase \"{$phase->name}\" abgeschlossen — weiter zu \"{$nextPhase->name}\".",
             ]);
+
+            $this->triggerPhaseCompletionHooks($phase);
             return;
         }
 
@@ -275,7 +277,46 @@ class RecApplicant extends Model implements InheritsExtraFields
             'summary' => "Manuell weiter zu Phase \"{$nextPhase->name}\".",
         ]);
 
+        $this->triggerPhaseCompletionHooks($phase);
+
         return true;
+    }
+
+    /**
+     * Triggers configured side-effects that should fire when a phase completes,
+     * based on the phase's completion_config.
+     *
+     * Currently supported flags:
+     *  - confirm_booking_on_completion: bool
+     *      If true, upgrades any active booking from 'registered' to 'confirmed'.
+     *      Use this on the last phase before the actual training (typically
+     *      Onboarding) so that the slot is only marked verbindlich once the
+     *      applicant has supplied all required data.
+     *
+     * Easy to extend with further flags later (notify_hr, set_hr_desk, ...).
+     */
+    protected function triggerPhaseCompletionHooks(?RecPhase $completedPhase): void
+    {
+        if (!$completedPhase) {
+            return;
+        }
+        $config = $completedPhase->completion_config ?? [];
+
+        if (($config['confirm_booking_on_completion'] ?? false) === true) {
+            $updated = $this->interviewBookings()
+                ->where('status', 'registered')
+                ->update(['status' => 'confirmed']);
+
+            if ($updated > 0) {
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->id,
+                        'type' => 'booking_confirmed',
+                        'summary' => "Schulungs-Buchung verbindlich bestätigt durch Abschluss von Phase \"{$completedPhase->name}\".",
+                    ]);
+                } catch (\Throwable) {}
+            }
+        }
     }
 
     /**
