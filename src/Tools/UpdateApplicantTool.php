@@ -73,6 +73,10 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                     'type' => 'integer',
                     'description' => 'Optional: Vertragsvorlage (rec_contract_templates.id), die dem Bewerber zugewiesen ist. Wird vom Schulungsleiter in der Schulungsnachbereitung gewählt — bestimmt welche AV-Variante (Zuschlag) bei "Vertrag versenden" erstellt wird. 0/null/leer = Auswahl entfernen.',
                 ],
+                'rec_phase_id' => [
+                    'type' => 'integer',
+                    'description' => 'Optional: Phasen-ID (rec_phases.id) auf die der Bewerber gesetzt werden soll. Muss zur Stelle des Bewerbers gehören, sonst wird der Wert verworfen. Hauptsächlich für Tests/Migrationen — der normale Flow läuft über AutoPilot/checkAutoPilotCompletion. 0/null/leer = entfernen.',
+                ],
             ],
             'required' => ['applicant_id'],
         ]);
@@ -159,6 +163,26 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 'contract_template_id' => \Platform\Recruiting\Models\RecContractTemplate::class,
             ];
 
+            // rec_phase_id: special handling — must belong to the applicant's
+            // current position, otherwise we drop it silently to avoid
+            // putting the applicant into a foreign phase.
+            if (array_key_exists('rec_phase_id', $arguments)) {
+                $val = $arguments['rec_phase_id'];
+                if (is_numeric($val) && (int) $val > 0) {
+                    $phase = \Platform\Recruiting\Models\RecPhase::where('id', (int) $val)
+                        ->where('team_id', $teamId)
+                        ->first();
+                    if ($phase) {
+                        $applicantPositionIds = $applicant->postings()->pluck('rec_position_id')->unique();
+                        if ($applicantPositionIds->contains($phase->rec_position_id)) {
+                            $applicant->rec_phase_id = $phase->id;
+                        }
+                    }
+                } else {
+                    $applicant->rec_phase_id = null;
+                }
+            }
+
             foreach ($fkFields as $field => $modelClass) {
                 if (!array_key_exists($field, $arguments)) {
                     continue;
@@ -188,6 +212,7 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 'auto_pilot_state_id' => $applicant->auto_pilot_state_id,
                 'auto_pilot_completed_at' => $applicant->auto_pilot_completed_at?->toISOString(),
                 'contract_template_id' => $applicant->contract_template_id,
+                'rec_phase_id' => $applicant->rec_phase_id,
                 'message' => 'Bewerber erfolgreich aktualisiert.',
             ]);
         } catch (\Throwable $e) {
