@@ -29,6 +29,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
         'preferred_comms_channel_id', 'enrichment_status',
+        'source_platform_id',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
@@ -160,6 +161,11 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function interviewBookings()
     {
         return $this->hasMany(RecInterviewBooking::class, 'rec_applicant_id');
+    }
+
+    public function sourcePlatform()
+    {
+        return $this->belongsTo(RecSourcePlatform::class, 'source_platform_id');
     }
 
     public function contracts()

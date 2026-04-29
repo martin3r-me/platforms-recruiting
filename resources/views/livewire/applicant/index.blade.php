@@ -272,6 +272,16 @@
                     nullLabel="Alle Tätigkeiten"
                     wire:model.live="activityFilter"
                 />
+                <x-ui-input-select
+                    name="sourcePlatformFilter"
+                    label="Quelle"
+                    :options="$this->availableSourcePlatforms"
+                    optionValue="id"
+                    optionLabel="name"
+                    :nullable="true"
+                    nullLabel="Alle Quellen"
+                    wire:model.live="sourcePlatformFilter"
+                />
                 <div class="space-y-2">
                     <label class="text-sm font-medium text-[var(--ui-secondary)]">Beworben am</label>
                     <x-ui-input-date

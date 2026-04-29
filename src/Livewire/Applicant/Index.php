@@ -30,6 +30,7 @@ class Index extends Component
     public $activityFilter = null;
     public $appliedFromFilter = null;
     public $appliedToFilter = null;
+    public $sourcePlatformFilter = null;
 
     // Sorting
     public $sortField = 'created_at';
@@ -117,6 +118,11 @@ class Index extends Component
             $query->where('is_active', (bool) $this->activeFilter);
         }
 
+        // Source platform filter
+        if ($this->sourcePlatformFilter) {
+            $query->where('source_platform_id', $this->sourcePlatformFilter);
+        }
+
         $query->orderBy($this->sortField, $this->sortDirection);
 
         return $query->get();
@@ -160,6 +166,15 @@ class Index extends Component
             ->orderBy('activity')
             ->pluck('activity')
             ->values();
+    }
+
+    #[Computed]
+    public function availableSourcePlatforms()
+    {
+        return \Platform\Recruiting\Models\RecSourcePlatform::where('team_id', auth()->user()->currentTeam->id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
     }
 
     #[Computed]

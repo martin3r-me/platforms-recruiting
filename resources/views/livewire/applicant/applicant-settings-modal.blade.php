@@ -31,6 +31,14 @@
                 >
                     AutoPilot
                 </button>
+                <button
+                    @click="$wire.set('activeTab', 'sources')"
+                    :class="$wire.activeTab === 'sources' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
+                    class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
+                    wire:click="$set('activeTab', 'sources')"
+                >
+                    Eingangs-Quellen
+                </button>
             </nav>
         </div>
 
@@ -425,6 +433,135 @@
                         <p class="text-xs text-[var(--ui-muted)] mt-1">Nach Erreichen des Maximums wird der Status auf "Prüfung erforderlich" gesetzt</p>
                     </div>
                 </div>
+            </div>
+
+            @elseif($activeTab === 'sources')
+            {{-- Eingangs-Quellen --}}
+            <div class="space-y-4">
+                <div>
+                    <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Eingangs-Quellen</h3>
+                    <p class="text-sm text-[var(--ui-muted)] mt-1">
+                        Pflege hier von welchen Plattformen Bewerbungen kommen. Beim Eingang wird der Sender automatisch erkannt und der Bewerber der passenden Quelle zugeordnet.
+                    </p>
+                    <p class="text-xs text-[var(--ui-muted)] mt-1">
+                        Pattern-Beispiele: <code>@indeedemail.com</code> (Domain) oder <code>website@mitarbeiter.rheingedeck.de</code> (volle Adresse). Spezifischere Patterns gewinnen.
+                    </p>
+                </div>
+
+                <div class="flex justify-end">
+                    <x-ui-button variant="primary-outline" size="sm" wire:click="toggleSourceForm">
+                        {{ $showSourceForm ? 'Abbrechen' : ($editingSourceId ? 'Bearbeiten abbrechen' : '+ Neue Quelle anlegen') }}
+                    </x-ui-button>
+                </div>
+
+                @if($showSourceForm)
+                    <div class="bg-[var(--ui-muted-5)] p-4 rounded-lg space-y-4 border border-[var(--ui-border)]/60">
+                        <x-ui-form-grid :cols="2" :gap="4">
+                            <x-ui-input-text
+                                name="newSource.name"
+                                label="Name"
+                                wire:model="newSource.name"
+                                placeholder="z.B. INDEED, Webseite, Kleinanzeigen"
+                                required
+                                :errorKey="'newSource.name'"
+                            />
+                            <x-ui-input-text
+                                name="newSource.url"
+                                label="URL (optional)"
+                                wire:model="newSource.url"
+                                placeholder="https://de.indeed.com"
+                                :errorKey="'newSource.url'"
+                            />
+                        </x-ui-form-grid>
+
+                        <x-ui-input-text
+                            name="newSource.match_pattern"
+                            label="Match-Pattern (Sender-Adresse)"
+                            wire:model="newSource.match_pattern"
+                            placeholder="@indeedemail.com  oder  website@mitarbeiter.rheingedeck.de"
+                            required
+                            :errorKey="'newSource.match_pattern'"
+                            hint="Substring-Match auf den FROM-Header. Längere/spezifischere Patterns gewinnen vor kürzeren."
+                        />
+
+                        <div class="flex items-center gap-6">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox"
+                                       wire:model="newSource.is_active"
+                                       class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                                <span class="text-sm text-[var(--ui-secondary)]">Aktiv</span>
+                            </label>
+
+                            <div class="flex items-center gap-2">
+                                <label class="text-sm text-[var(--ui-secondary)]">Priorität</label>
+                                <input type="number"
+                                       wire:model="newSource.priority"
+                                       min="1" max="1000"
+                                       class="w-20 px-2 py-1 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                                <span class="text-xs text-[var(--ui-muted)]">(kleiner = wichtiger)</span>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end">
+                            <x-ui-button variant="success" size="sm" wire:click="saveSource">
+                                {{ $editingSourceId ? 'Änderungen speichern' : 'Quelle anlegen' }}
+                            </x-ui-button>
+                        </div>
+                    </div>
+                @endif
+
+                @if(empty($sourcePlatforms))
+                    <div class="text-center py-8 text-[var(--ui-muted)] text-sm border border-dashed border-[var(--ui-border)]/40 rounded-lg">
+                        Noch keine Eingangs-Quellen definiert. Lege oben eine an, um eingehende Bewerbungen automatisch zuzuordnen.
+                    </div>
+                @else
+                    <div class="border border-[var(--ui-border)]/60 rounded-lg overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-[var(--ui-muted-5)] text-xs uppercase text-[var(--ui-muted)]">
+                                <tr>
+                                    <th class="px-3 py-2 text-left font-medium">Name</th>
+                                    <th class="px-3 py-2 text-left font-medium">URL</th>
+                                    <th class="px-3 py-2 text-left font-medium">Pattern</th>
+                                    <th class="px-3 py-2 text-center font-medium">Prio</th>
+                                    <th class="px-3 py-2 text-center font-medium">Aktiv</th>
+                                    <th class="px-3 py-2 text-right font-medium">Aktionen</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[var(--ui-border)]/40">
+                                @foreach($sourcePlatforms as $source)
+                                    <tr class="hover:bg-[var(--ui-muted-5)]">
+                                        <td class="px-3 py-2 font-medium text-[var(--ui-secondary)]">{{ $source['name'] }}</td>
+                                        <td class="px-3 py-2 text-[var(--ui-muted)]">
+                                            @if(!empty($source['url']))
+                                                <a href="{{ $source['url'] }}" target="_blank" rel="noopener" class="text-[var(--ui-primary)] hover:underline">{{ $source['url'] }}</a>
+                                            @else
+                                                –
+                                            @endif
+                                        </td>
+                                        <td class="px-3 py-2 font-mono text-xs text-[var(--ui-secondary)]">{{ $source['match_pattern'] }}</td>
+                                        <td class="px-3 py-2 text-center text-[var(--ui-muted)]">{{ $source['priority'] }}</td>
+                                        <td class="px-3 py-2 text-center">
+                                            <button wire:click="toggleSourceActive({{ $source['id'] }})" class="inline-flex">
+                                                @if($source['is_active'])
+                                                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                                                @else
+                                                    <span class="inline-block w-2.5 h-2.5 rounded-full bg-gray-300"></span>
+                                                @endif
+                                            </button>
+                                        </td>
+                                        <td class="px-3 py-2 text-right space-x-2">
+                                            <button wire:click="editSource({{ $source['id'] }})"
+                                                    class="text-xs text-[var(--ui-primary)] hover:underline">Bearbeiten</button>
+                                            <button wire:click="deleteSource({{ $source['id'] }})"
+                                                    wire:confirm="Wirklich löschen?"
+                                                    class="text-xs text-red-600 hover:underline">Löschen</button>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
             </div>
             @endif
         </div>

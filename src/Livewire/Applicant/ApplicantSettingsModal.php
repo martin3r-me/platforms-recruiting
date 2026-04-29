@@ -8,6 +8,7 @@ use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecServiceHours;
+use Platform\Recruiting\Models\RecSourcePlatform;
 use Illuminate\Support\Facades\Auth;
 
 class ApplicantSettingsModal extends Component
@@ -31,6 +32,17 @@ class ApplicantSettingsModal extends Component
         'service_hours' => []
     ];
 
+    public $sourcePlatforms = [];
+    public bool $showSourceForm = false;
+    public ?int $editingSourceId = null;
+    public array $newSource = [
+        'name' => '',
+        'url' => '',
+        'match_pattern' => '',
+        'is_active' => true,
+        'priority' => 100,
+    ];
+
     #[On('open-applicant-settings')]
     public function openSettings(): void
     {
@@ -43,8 +55,113 @@ class ApplicantSettingsModal extends Component
         $this->serviceHours = $this->settingsModel->serviceHours()->orderBy('order')->get();
         $this->newServiceZeit['service_hours'] = RecServiceHours::getDefaultServiceHours();
 
+        $this->loadSourcePlatforms($teamId);
+
         $this->activeTab = 'general';
         $this->modalShow = true;
+    }
+
+    private function loadSourcePlatforms(int $teamId): void
+    {
+        $this->sourcePlatforms = RecSourcePlatform::where('team_id', $teamId)
+            ->orderByRaw('LENGTH(match_pattern) DESC')
+            ->orderBy('priority')
+            ->get()
+            ->toArray();
+    }
+
+    public function toggleSourceForm(): void
+    {
+        $this->showSourceForm = !$this->showSourceForm;
+        if (!$this->showSourceForm) {
+            $this->resetSourceForm();
+        }
+    }
+
+    public function editSource(int $sourceId): void
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+        $source = RecSourcePlatform::where('team_id', $teamId)->find($sourceId);
+        if (!$source) {
+            return;
+        }
+        $this->editingSourceId = $source->id;
+        $this->newSource = [
+            'name' => $source->name,
+            'url' => $source->url ?? '',
+            'match_pattern' => $source->match_pattern,
+            'is_active' => (bool) $source->is_active,
+            'priority' => (int) $source->priority,
+        ];
+        $this->showSourceForm = true;
+    }
+
+    public function saveSource(): void
+    {
+        $this->validate([
+            'newSource.name' => 'required|string|max:60',
+            'newSource.url' => 'nullable|string|max:255',
+            'newSource.match_pattern' => 'required|string|max:255',
+            'newSource.is_active' => 'boolean',
+            'newSource.priority' => 'integer|min:1|max:1000',
+        ], [
+            'newSource.name.required' => 'Bitte einen Namen angeben.',
+            'newSource.match_pattern.required' => 'Bitte ein Match-Pattern angeben.',
+        ]);
+
+        $teamId = (int) Auth::user()->currentTeam->id;
+
+        if ($this->editingSourceId) {
+            $source = RecSourcePlatform::where('team_id', $teamId)->find($this->editingSourceId);
+            if (!$source) {
+                $this->resetSourceForm();
+                return;
+            }
+        } else {
+            $source = new RecSourcePlatform();
+            $source->team_id = $teamId;
+        }
+
+        $source->name = trim($this->newSource['name']);
+        $source->url = trim($this->newSource['url']) ?: null;
+        $source->match_pattern = trim($this->newSource['match_pattern']);
+        $source->is_active = (bool) ($this->newSource['is_active'] ?? true);
+        $source->priority = (int) ($this->newSource['priority'] ?? 100);
+        $source->save();
+
+        $this->loadSourcePlatforms($teamId);
+        $this->resetSourceForm();
+        $this->showSourceForm = false;
+    }
+
+    public function deleteSource(int $sourceId): void
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+        RecSourcePlatform::where('team_id', $teamId)->where('id', $sourceId)->delete();
+        $this->loadSourcePlatforms($teamId);
+    }
+
+    public function toggleSourceActive(int $sourceId): void
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+        $source = RecSourcePlatform::where('team_id', $teamId)->find($sourceId);
+        if ($source) {
+            $source->is_active = !$source->is_active;
+            $source->save();
+            $this->loadSourcePlatforms($teamId);
+        }
+    }
+
+    private function resetSourceForm(): void
+    {
+        $this->editingSourceId = null;
+        $this->newSource = [
+            'name' => '',
+            'url' => '',
+            'match_pattern' => '',
+            'is_active' => true,
+            'priority' => 100,
+        ];
     }
 
     public function save(): void

@@ -7,6 +7,7 @@ use Platform\Crm\Events\CommsInboundReceived;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsEmailInboundMail;
 use Platform\Crm\Models\CommsLog;
+use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\IncomingApplicationService;
 
 class HandleCommsInboundForRecruiting
@@ -107,6 +108,19 @@ class HandleCommsInboundForRecruiting
             }
 
             $applicant = $result['applicant'];
+
+            // Detect source platform from the ORIGINAL mail->from (= the
+            // platform-forwarder address, e.g. noreply@indeedmail.com), NOT
+            // from the extracted applicant email. We only set this once on
+            // creation — re-applies on existing applicants would overwrite a
+            // hand-corrected source.
+            if ($result['is_new'] && empty($applicant->source_platform_id)) {
+                $source = RecSourcePlatform::detectFromSender($senderRaw, (int) $channel->team_id);
+                if ($source) {
+                    $applicant->source_platform_id = $source->id;
+                    $applicant->save();
+                }
+            }
 
             // Attach files from the inbound mail to the applicant (CV, cover letter, etc.)
             $this->attachEmailFilesToApplicant($mail, $thread, $applicant);
