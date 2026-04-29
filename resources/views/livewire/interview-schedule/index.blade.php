@@ -288,7 +288,7 @@
                                 @for($i = 1; $i <= $this->selectedTemplateInfo['body_var_count']; $i++)
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs text-blue-700 w-28 shrink-0">
-                                            @{{ {{ $this->selectedTemplateInfo['param_labels'][$i] ?? $i }} }}
+                                            {{ '{{ ' . ($this->selectedTemplateInfo['param_labels'][$i] ?? $i) . ' }}' }}
                                         </span>
                                         <select wire:model="reminder_wa_template_variables.body_{{ $i }}" class="flex-1 text-xs border border-blue-300 rounded px-2 py-1">
                                             <option value="">— Nicht zugeordnet —</option>
@@ -436,7 +436,7 @@
                                 @for($i = 1; $i <= $this->selectedTemplateInfo['body_var_count']; $i++)
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs text-blue-700 w-28 shrink-0">
-                                            @{{ {{ $this->selectedTemplateInfo['param_labels'][$i] ?? $i }} }}
+                                            {{ '{{ ' . ($this->selectedTemplateInfo['param_labels'][$i] ?? $i) . ' }}' }}
                                         </span>
                                         <select wire:model="reminder_wa_template_variables.body_{{ $i }}" class="flex-1 text-xs border border-blue-300 rounded px-2 py-1">
                                             <option value="">— Nicht zugeordnet —</option>
