@@ -8,8 +8,10 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
+use Platform\Recruiting\Services\SendContractsService;
 
 class Index extends Component
 {
@@ -20,6 +22,9 @@ class Index extends Component
     public $showBookModal = false;
     public $selectedApplicantId = '';
     public $bookingNotes = '';
+
+    /** Modes: 'overview' (default) | 'nachbereitung' (post-Schulung HR/SL flow) */
+    public string $mode = 'overview';
 
     public function mount(int $interview)
     {
@@ -50,7 +55,12 @@ class Index extends Component
                 });
             })
             ->when($this->filterStatus !== 'all', fn($q) => $q->where('status', $this->filterStatus))
-            ->with(['applicant.crmContactLinks.contact', 'applicant.postings.position'])
+            ->with([
+                'applicant.crmContactLinks.contact',
+                'applicant.postings.position',
+                'applicant.contractTemplate',
+                'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
+            ])
             ->orderBy('booked_at', 'desc')
             ->get();
     }
@@ -161,6 +171,101 @@ class Index extends Component
         $booking = RecInterviewBooking::findOrFail($bookingId);
         $booking->delete();
         session()->flash('success', 'Buchung erfolgreich gelöscht!');
+    }
+
+    public function setApplicantContractTemplate(int $bookingId, $templateId): void
+    {
+        $booking = RecInterviewBooking::with('applicant')->findOrFail($bookingId);
+        if (!$booking->applicant) {
+            return;
+        }
+
+        $tplId = is_numeric($templateId) && (int) $templateId > 0 ? (int) $templateId : null;
+
+        if ($tplId !== null) {
+            $tpl = RecContractTemplate::where('team_id', $booking->applicant->team_id)
+                ->where('id', $tplId)
+                ->where('is_active', true)
+                ->first();
+            if (!$tpl) {
+                return;
+            }
+        }
+
+        $booking->applicant->contract_template_id = $tplId;
+        $booking->applicant->save();
+    }
+
+    public function sendContractsBulk(): void
+    {
+        $eligible = $this->bookings
+            ->filter(fn ($b) => $b->status === 'attended' && $b->applicant?->contract_template_id);
+
+        if ($eligible->isEmpty()) {
+            session()->flash('error', 'Keine anwesenden Bewerber mit zugewiesener Vertragsvorlage.');
+            return;
+        }
+
+        $service = app(SendContractsService::class);
+        $sent = 0;
+        $errors = 0;
+
+        foreach ($eligible as $booking) {
+            try {
+                $service->send($booking->applicant, auth()->id());
+                $sent++;
+            } catch (\Throwable $e) {
+                $errors++;
+            }
+        }
+
+        unset($this->bookings);
+
+        if ($errors === 0) {
+            session()->flash('success', "Verträge versendet für {$sent} Bewerber.");
+        } else {
+            session()->flash('error', "Versendet: {$sent}, Fehler: {$errors}. Details siehe Logs.");
+        }
+    }
+
+    /**
+     * Computed: returns one of:
+     *  - 'no_attended'         → kein Bewerber als anwesend markiert
+     *  - 'missing_templates'   → mind. 1 anwesender Bewerber ohne Vertragsvorlage
+     *  - 'all_already_sent'    → alle anwesenden haben schon Verträge versendet
+     *  - 'ready'               → mind. 1 anwesender hat Vorlage und keinen versendeten Vertrag
+     */
+    #[Computed]
+    public function bulkSendState(): string
+    {
+        $attended = $this->bookings->filter(fn ($b) => $b->status === 'attended');
+        if ($attended->isEmpty()) {
+            return 'no_attended';
+        }
+        $missingTemplate = $attended->filter(fn ($b) => empty($b->applicant?->contract_template_id));
+        if ($missingTemplate->isNotEmpty()) {
+            return 'missing_templates';
+        }
+        $allAlreadySent = $attended->every(fn ($b) => $b->applicant?->hasAnyContractSent());
+        if ($allAlreadySent) {
+            return 'all_already_sent';
+        }
+        return 'ready';
+    }
+
+    #[Computed]
+    public function availableContractTemplates()
+    {
+        return RecContractTemplate::where('team_id', auth()->user()->currentTeam->id)
+            ->where('is_active', true)
+            ->where(function ($q) {
+                $q->where('code', 'like', 'AV-%')
+                    ->orWhereNull('code')
+                    ->orWhere('code', '');
+            })
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
     }
 
     public function sendReminder(int $bookingId): void
