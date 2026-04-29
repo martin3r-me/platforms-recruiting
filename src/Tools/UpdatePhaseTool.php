@@ -55,8 +55,8 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 ],
                 'completion_type' => [
                     'type' => 'string',
-                    'enum' => ['fields', 'booking', 'manual'],
-                    'description' => 'Optional: Wann gilt die Phase als abgeschlossen? "fields" = alle Pflichtfelder ausgefüllt (Default), "booking" = Bewerber hat Interview gebucht, "manual" = nur durch HR/Admin.',
+                    'enum' => ['fields', 'booking', 'manual', 'contract_sent', 'all_contracts_signed'],
+                    'description' => 'Optional: Wann gilt die Phase als abgeschlossen? "fields" = alle Pflichtfelder ausgefüllt (Default), "booking" = Bewerber hat Interview gebucht, "manual" = nur durch HR/Admin, "contract_sent" = mind. 1 nicht-cancelled Vertrag hat sent_at gesetzt, "all_contracts_signed" = alle nicht-cancelled Verträge haben status=completed.',
                 ],
                 'completion_config' => [
                     'type' => 'object',

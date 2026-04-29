@@ -56,12 +56,16 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                 ],
                 'completion_type' => [
                     'type' => 'string',
-                    'enum' => ['fields', 'booking', 'manual'],
-                    'description' => 'Optional: "fields" (Default) = alle Pflichtfelder, "booking" = Interview gebucht, "manual" = nur HR.',
+                    'enum' => ['fields', 'booking', 'manual', 'contract_sent', 'all_contracts_signed'],
+                    'description' => 'Optional: "fields" (Default) = alle Pflichtfelder, "booking" = Interview gebucht, "manual" = nur HR, "contract_sent" = mind. 1 Vertrag versendet, "all_contracts_signed" = alle Verträge unterschrieben.',
                 ],
                 'completion_config' => [
                     'type' => 'object',
                     'description' => 'Optional: Phasen-Konfig. Keys: switch_position_on_booking (bool), confirm_booking_on_completion (bool).',
+                ],
+                'show_in_dashboard' => [
+                    'type' => 'boolean',
+                    'description' => 'Optional: Soll diese Phase im Dashboard-Pipeline angezeigt werden? Default true.',
                 ],
                 'is_active' => [
                     'type' => 'boolean',
@@ -116,6 +120,9 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                 'auto_pilot_settings' => $arguments['auto_pilot_settings'] ?? null,
                 'completion_type' => $arguments['completion_type'] ?? 'fields',
                 'completion_config' => $arguments['completion_config'] ?? null,
+                'show_in_dashboard' => array_key_exists('show_in_dashboard', $arguments)
+                    ? (bool) $arguments['show_in_dashboard']
+                    : true,
                 'is_active' => (bool)($arguments['is_active'] ?? true),
             ]);
 
