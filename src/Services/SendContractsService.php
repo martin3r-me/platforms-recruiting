@@ -1,0 +1,145 @@
+<?php
+
+namespace Platform\Recruiting\Services;
+
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Models\RecContractTemplate;
+
+/**
+ * Generates and "sends" the applicant's contract bundle:
+ *  - the chosen Arbeitsvertrag-Variante (e.g. AV-060 = 0,60€ Zuschlag)
+ *  - the IFSG (Infektionsschutzgesetz) — auto-attached to every AV-*
+ *
+ * "Versenden" here means: create the RecContract rows + set sent_at, which
+ * (a) marks the contracts as dispatched in our model and (b) satisfies the
+ * 'contract_sent' phase-completion check so the applicant advances to the
+ * "Vertrag unterschreiben" phase. The actual delivery of the signing link
+ * to the applicant runs through the existing AutoPilot phase-entry template
+ * (= Phase 5 "Vertrag" sends WA "Hier sind deine Verträge zum
+ * Unterschreiben").
+ *
+ * This service is intentionally callable from anywhere — UI, MCP tool,
+ * console command — so we can test the flow before the SL-Nachbereitungs-UI
+ * is built.
+ */
+class SendContractsService
+{
+    /**
+     * @return array{
+     *   av_contract: RecContract,
+     *   ifsg_contract: ?RecContract,
+     *   created: int,
+     *   reused: int
+     * }
+     *
+     * @throws \RuntimeException if applicant has no contract_template_id set
+     *                           or the chosen template is invalid
+     */
+    public function send(RecApplicant $applicant, ?int $createdByUserId = null): array
+    {
+        if (!$applicant->contract_template_id) {
+            throw new \RuntimeException(
+                "Bewerber #{$applicant->id} hat keine contract_template_id gesetzt — "
+                . "bitte erst Vertragsvorlage in der Schulungsnachbereitung auswählen."
+            );
+        }
+
+        $avTemplate = RecContractTemplate::where('team_id', $applicant->team_id)
+            ->where('id', $applicant->contract_template_id)
+            ->where('is_active', true)
+            ->first();
+
+        if (!$avTemplate) {
+            throw new \RuntimeException(
+                "Gewählte Vertragsvorlage #{$applicant->contract_template_id} existiert nicht "
+                . "oder ist inaktiv im Team #{$applicant->team_id}."
+            );
+        }
+
+        $ifsgTemplate = RecContractTemplate::where('team_id', $applicant->team_id)
+            ->where('code', 'IFSG')
+            ->where('is_active', true)
+            ->first();
+
+        return DB::transaction(function () use ($applicant, $avTemplate, $ifsgTemplate, $createdByUserId) {
+            $created = 0;
+            $reused = 0;
+
+            // 1) AV-Vertrag — falls schon einer da der nicht cancelled ist und denselben Template referenziert,
+            //    nutzen wir den (idempotent). Sonst neu anlegen.
+            $avContract = $applicant->contracts()
+                ->whereNotIn('status', ['cancelled'])
+                ->where('rec_contract_template_id', $avTemplate->id)
+                ->first();
+
+            if ($avContract) {
+                $reused++;
+            } else {
+                $avContract = RecContract::create([
+                    'rec_applicant_id' => $applicant->id,
+                    'rec_contract_template_id' => $avTemplate->id,
+                    'team_id' => $applicant->team_id,
+                    'personalized_content' => $avTemplate->personalizeContent($applicant),
+                    'status' => 'pending',
+                    'created_by_user_id' => $createdByUserId,
+                ]);
+                $created++;
+            }
+
+            // 2) IFSG-Vertrag automatisch dazu falls Vorlage da und noch keiner aktiv
+            $ifsgContract = null;
+            if ($ifsgTemplate) {
+                $ifsgContract = $applicant->contracts()
+                    ->whereNotIn('status', ['cancelled'])
+                    ->where('rec_contract_template_id', $ifsgTemplate->id)
+                    ->first();
+
+                if ($ifsgContract) {
+                    $reused++;
+                } else {
+                    $ifsgContract = RecContract::create([
+                        'rec_applicant_id' => $applicant->id,
+                        'rec_contract_template_id' => $ifsgTemplate->id,
+                        'team_id' => $applicant->team_id,
+                        'personalized_content' => $ifsgTemplate->personalizeContent($applicant),
+                        'status' => 'pending',
+                        'created_by_user_id' => $createdByUserId,
+                    ]);
+                    $created++;
+                }
+            } else {
+                Log::warning('[SendContractsService] No active IFSG template for team', [
+                    'team_id' => $applicant->team_id,
+                    'applicant_id' => $applicant->id,
+                ]);
+            }
+
+            // 3) Beide Verträge als "verschickt" markieren — das löst die
+            //    'contract_sent' Phase-Completion-Check aus.
+            $now = now();
+            foreach (array_filter([$avContract, $ifsgContract]) as $contract) {
+                if (!$contract->sent_at) {
+                    $contract->sent_at = $now;
+                    if ($contract->status === 'pending') {
+                        $contract->status = 'sent';
+                    }
+                    $contract->save();
+                }
+            }
+
+            // 4) AutoPilot-Phase-Check: Phase wandert nach "Vertrag unterschreiben"
+            $applicant->refresh();
+            $applicant->checkAutoPilotCompletion();
+
+            return [
+                'av_contract' => $avContract->fresh(),
+                'ifsg_contract' => $ifsgContract?->fresh(),
+                'created' => $created,
+                'reused' => $reused,
+            ];
+        });
+    }
+}

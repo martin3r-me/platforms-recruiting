@@ -246,6 +246,7 @@ class RecruitingServiceProvider extends ServiceProvider
             $registry->register(new \Platform\Recruiting\Tools\DeleteContractTool());
             $registry->register(new \Platform\Recruiting\Tools\FillContractFieldsTool());
             $registry->register(new \Platform\Recruiting\Tools\RePersonalizeContractsTool());
+            $registry->register(new \Platform\Recruiting\Tools\SendContractsTool());
 
             // Interview Types (CRUD)
             $registry->register(new \Platform\Recruiting\Tools\ListInterviewTypesTool());

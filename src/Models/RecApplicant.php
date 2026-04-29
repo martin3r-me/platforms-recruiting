@@ -30,6 +30,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
         'preferred_comms_channel_id', 'enrichment_status',
         'source_platform_id', 'is_unrouted',
+        'contract_template_id',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
@@ -167,6 +168,11 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function sourcePlatform()
     {
         return $this->belongsTo(RecSourcePlatform::class, 'source_platform_id');
+    }
+
+    public function contractTemplate()
+    {
+        return $this->belongsTo(RecContractTemplate::class, 'contract_template_id');
     }
 
     public function contracts()
@@ -562,9 +568,11 @@ class RecApplicant extends Model implements InheritsExtraFields
      * Determine if the applicant's current phase is complete.
      *
      * Reads the phase's completion_type setting:
-     *  - 'fields' (default): all visible required fields filled (calculateProgress >= 100)
-     *  - 'booking':          a non-cancelled booking matches the optional completion_config
-     *  - 'manual':           never auto-complete; HR must advance explicitly
+     *  - 'fields' (default):       all visible required fields filled (calculateProgress >= 100)
+     *  - 'booking':                a non-cancelled booking matches the optional completion_config
+     *  - 'manual':                 never auto-complete; HR must advance explicitly
+     *  - 'contract_sent':          at least one non-cancelled contract has sent_at set
+     *  - 'all_contracts_signed':   all non-cancelled contracts have status='completed'
      */
     public function isPhaseComplete(?RecPhase $phase = null): bool
     {
@@ -575,10 +583,48 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
 
         return match ($phase->completion_type) {
-            'booking' => $this->hasMatchingBooking($phase->completion_config),
-            'manual'  => false,
-            default   => $this->calculateProgress() >= 100,
+            'booking'              => $this->hasMatchingBooking($phase->completion_config),
+            'manual'               => false,
+            'contract_sent'        => $this->hasAnyContractSent(),
+            'all_contracts_signed' => $this->allContractsSigned(),
+            default                => $this->calculateProgress() >= 100,
         };
+    }
+
+    /**
+     * True if the applicant has at least one non-cancelled contract with
+     * sent_at set. Used by phases with completion_type='contract_sent' (typ.
+     * "Schulung & Verträge versenden"-Phase: completes the moment the SL
+     * triggers VertragVersenden).
+     */
+    public function hasAnyContractSent(): bool
+    {
+        return $this->contracts()
+            ->whereNotIn('status', ['cancelled'])
+            ->whereNotNull('sent_at')
+            ->exists();
+    }
+
+    /**
+     * True when the applicant has at least one non-cancelled contract AND all
+     * such contracts have status='completed' (= signed by the applicant).
+     * Used by phases with completion_type='all_contracts_signed' (typ.
+     * "Vertrag unterschreiben"-Phase).
+     *
+     * Empty-contracts case returns false on purpose — completing this phase
+     * without ever having a contract makes no semantic sense.
+     */
+    public function allContractsSigned(): bool
+    {
+        $contracts = $this->contracts()
+            ->whereNotIn('status', ['cancelled'])
+            ->get(['status']);
+
+        if ($contracts->isEmpty()) {
+            return false;
+        }
+
+        return $contracts->every(fn ($c) => $c->status === 'completed');
     }
 
     /**

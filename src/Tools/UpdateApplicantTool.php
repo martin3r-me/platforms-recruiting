@@ -69,6 +69,10 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                     'type' => 'string',
                     'description' => 'Optional: ISO-Datetime oder "now" um auto_pilot_completed_at zu setzen.',
                 ],
+                'contract_template_id' => [
+                    'type' => 'integer',
+                    'description' => 'Optional: Vertragsvorlage (rec_contract_templates.id), die dem Bewerber zugewiesen ist. Wird vom Schulungsleiter in der Schulungsnachbereitung gewählt — bestimmt welche AV-Variante (Zuschlag) bei "Vertrag versenden" erstellt wird. 0/null/leer = Auswahl entfernen.',
+                ],
             ],
             'required' => ['applicant_id'],
         ]);
@@ -152,6 +156,7 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 'auto_pilot_state_id' => \Platform\Recruiting\Models\RecAutoPilotState::class,
                 'rec_applicant_status_id' => \Platform\Recruiting\Models\RecApplicantStatus::class,
                 'owned_by_user_id' => \Platform\Core\Models\User::class,
+                'contract_template_id' => \Platform\Recruiting\Models\RecContractTemplate::class,
             ];
 
             foreach ($fkFields as $field => $modelClass) {
@@ -182,6 +187,7 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 'auto_pilot' => (bool)$applicant->auto_pilot,
                 'auto_pilot_state_id' => $applicant->auto_pilot_state_id,
                 'auto_pilot_completed_at' => $applicant->auto_pilot_completed_at?->toISOString(),
+                'contract_template_id' => $applicant->contract_template_id,
                 'message' => 'Bewerber erfolgreich aktualisiert.',
             ]);
         } catch (\Throwable $e) {
