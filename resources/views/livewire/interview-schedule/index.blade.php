@@ -286,9 +286,13 @@
                             <label class="block text-xs font-bold text-blue-800 mb-2">Template-Variablen zuordnen</label>
                             <div class="space-y-2">
                                 @for($i = 1; $i <= $this->selectedTemplateInfo['body_var_count']; $i++)
+                                    @php
+                                        $paramLabel = $this->selectedTemplateInfo['param_labels'][$i] ?? $i;
+                                        $paramDisplay = '{{ ' . $paramLabel . ' }}';
+                                    @endphp
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs text-blue-700 w-28 shrink-0">
-                                            {{ '{{ ' . ($this->selectedTemplateInfo['param_labels'][$i] ?? $i) . ' }}' }}
+                                            {{ $paramDisplay }}
                                         </span>
                                         <select wire:model="reminder_wa_template_variables.body_{{ $i }}" class="flex-1 text-xs border border-blue-300 rounded px-2 py-1">
                                             <option value="">— Nicht zugeordnet —</option>
@@ -434,9 +438,13 @@
                             <label class="block text-xs font-bold text-blue-800 mb-2">Template-Variablen zuordnen</label>
                             <div class="space-y-2">
                                 @for($i = 1; $i <= $this->selectedTemplateInfo['body_var_count']; $i++)
+                                    @php
+                                        $paramLabel = $this->selectedTemplateInfo['param_labels'][$i] ?? $i;
+                                        $paramDisplay = '{{ ' . $paramLabel . ' }}';
+                                    @endphp
                                     <div class="flex items-center gap-2">
                                         <span class="text-xs text-blue-700 w-28 shrink-0">
-                                            {{ '{{ ' . ($this->selectedTemplateInfo['param_labels'][$i] ?? $i) . ' }}' }}
+                                            {{ $paramDisplay }}
                                         </span>
                                         <select wire:model="reminder_wa_template_variables.body_{{ $i }}" class="flex-1 text-xs border border-blue-300 rounded px-2 py-1">
                                             <option value="">— Nicht zugeordnet —</option>
