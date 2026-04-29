@@ -40,6 +40,7 @@ class Dashboard extends Component
     private function applicantBaseQuery()
     {
         $query = RecApplicant::forTeam(auth()->user()->currentTeam->id)
+            ->routed()
             ->where('is_active', true)
             ->whereNull('rejected_at');
 
@@ -205,6 +206,7 @@ class Dashboard extends Component
         $teamId = auth()->user()->currentTeam->id;
 
         $query = RecApplicant::forTeam($teamId)
+            ->routed()
             ->where('is_active', true)
             ->where('is_parked', false)
             ->where('is_on_hr_desk', false)
@@ -447,7 +449,16 @@ class Dashboard extends Component
     public function hrDeskCount()
     {
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
+            ->routed()
             ->where('is_on_hr_desk', true)
+            ->count();
+    }
+
+    #[Computed]
+    public function unroutedCount()
+    {
+        return RecApplicant::forTeam(auth()->user()->currentTeam->id)
+            ->unrouted()
             ->count();
     }
 
@@ -543,6 +554,7 @@ class Dashboard extends Component
         $teamId = auth()->user()->currentTeam->id;
 
         $applicantQuery = RecApplicant::forTeam($teamId)
+            ->routed()
             ->whereNotNull('applied_at')
             ->whereHas('contracts', fn ($q) => $q->whereNotNull('signed_at'));
 
@@ -598,6 +610,7 @@ class Dashboard extends Component
 
         // 1) AutoPilot stuck — Bewerber > 5 Tage im AutoPilot ohne Abschluss
         $autoPilotStuck = RecApplicant::forTeam($teamId)
+            ->routed()
             ->where('is_active', true)
             ->whereNull('rejected_at')
             ->where('auto_pilot', true)
@@ -615,6 +628,7 @@ class Dashboard extends Component
             ->unique();
 
         $interviewWithoutContract = RecApplicant::forTeam($teamId)
+            ->routed()
             ->where('is_active', true)
             ->whereNull('rejected_at')
             ->whereIn('id', $bookingApplicantIds)

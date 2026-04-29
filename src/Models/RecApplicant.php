@@ -29,13 +29,14 @@ class RecApplicant extends Model implements InheritsExtraFields
         'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
         'preferred_comms_channel_id', 'enrichment_status',
-        'source_platform_id',
+        'source_platform_id', 'is_unrouted',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'is_parked' => 'boolean',
+        'is_unrouted' => 'boolean',
         'parked_at' => 'datetime',
         'is_on_hr_desk' => 'boolean',
         'rejected_at' => 'datetime',
@@ -201,6 +202,22 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function scopeForTeam($query, $teamId)
     {
         return $query->where('team_id', $teamId);
+    }
+
+    /**
+     * Only routed applicants — i.e. those whose inbound source matched a
+     * known RecSourcePlatform. Unrouted applicants live in the dedicated
+     * Eingangs-Inbox and are excluded from normal flows (Bewerber-Liste,
+     * Dashboard-KPIs, AutoPilot, Enrichment-Cronjob).
+     */
+    public function scopeRouted($query)
+    {
+        return $query->where('is_unrouted', false);
+    }
+
+    public function scopeUnrouted($query)
+    {
+        return $query->where('is_unrouted', true);
     }
 
     public function checkAutoPilotCompletion(): void

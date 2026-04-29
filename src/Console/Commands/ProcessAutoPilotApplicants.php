@@ -518,6 +518,7 @@ class ProcessAutoPilotApplicants extends Command
     {
         $query = RecApplicant::query()
             ->with(['autoPilotState', 'team', 'ownedByUser', 'phase'])
+            ->where('is_unrouted', false)
             ->where('auto_pilot', true)
             ->where('is_active', true)
             ->whereNull('auto_pilot_completed_at')

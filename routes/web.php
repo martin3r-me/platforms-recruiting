@@ -31,6 +31,9 @@ Route::get('/postings/{posting}', PostingShow::class)->name('recruiting.postings
 Route::get('/applicants', ApplicantIndex::class)->name('recruiting.applicants.index');
 Route::get('/applicants/{applicant}', ApplicantShow::class)->name('recruiting.applicants.show');
 
+// Eingangs-Inbox: Bewerbungen ohne erkannte Quelle (is_unrouted = true)
+Route::get('/inbox', \Platform\Recruiting\Livewire\Inbox\Index::class)->name('recruiting.inbox.index');
+
 // Interview-Termine
 Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');
 Route::get('/interview-schedule', InterviewScheduleIndex::class)->name('recruiting.interview-schedule.index');

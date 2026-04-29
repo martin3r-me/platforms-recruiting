@@ -67,7 +67,7 @@ class Index extends Component
             'ownedByUser',
             'postings.position',
             'phase',
-        ])->forTeam($teamId);
+        ])->forTeam($teamId)->routed();
 
         // Search
         if (!empty($this->search)) {

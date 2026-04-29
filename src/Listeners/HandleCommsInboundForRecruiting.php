@@ -114,12 +114,21 @@ class HandleCommsInboundForRecruiting
             // from the extracted applicant email. We only set this once on
             // creation — re-applies on existing applicants would overwrite a
             // hand-corrected source.
+            //
+            // No match → mark as unrouted so the applicant lands in the
+            // Eingangs-Inbox instead of the normal flow. We also set
+            // enrichment_status='unrouted' so the Enrichment-Cronjob skips it
+            // (Cronjob only processes status IS NULL or empty).
             if ($result['is_new'] && empty($applicant->source_platform_id)) {
                 $source = RecSourcePlatform::detectFromSender($senderRaw, (int) $channel->team_id);
                 if ($source) {
                     $applicant->source_platform_id = $source->id;
-                    $applicant->save();
+                    $applicant->is_unrouted = false;
+                } else {
+                    $applicant->is_unrouted = true;
+                    $applicant->enrichment_status = 'unrouted';
                 }
+                $applicant->save();
             }
 
             // Attach files from the inbound mail to the applicant (CV, cover letter, etc.)
