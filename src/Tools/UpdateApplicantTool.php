@@ -57,6 +57,10 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                     'type' => 'boolean',
                     'description' => 'Optional: Status.',
                 ],
+                'auto_pilot' => [
+                    'type' => 'boolean',
+                    'description' => 'Optional: AutoPilot-Flag aktivieren/deaktivieren. true = Phase-Übergänge greifen automatisch (via checkAutoPilotCompletion); false = Bewerber pausiert, HR muss manuell schalten. Wird bei Production normalerweise vom Enrichment-Cronjob basierend auf Position-Setting auto_start_auto_pilot gesetzt.',
+                ],
                 'owned_by_user_id' => [
                     'type' => 'integer',
                     'description' => 'Optional: Owner des Bewerber-Datensatzes.',
@@ -116,6 +120,10 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
 
             if (array_key_exists('is_active', $arguments)) {
                 $applicant->is_active = (bool) $arguments['is_active'];
+            }
+
+            if (array_key_exists('auto_pilot', $arguments)) {
+                $applicant->auto_pilot = (bool) $arguments['auto_pilot'];
             }
 
             // Progress: clamp to 0-100
