@@ -25,6 +25,13 @@
                 <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600">{{ $this->stats['hr_desk_applicants'] }}</span>
             @endif
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.inbox.index')">
+            @svg('heroicon-o-inbox', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Eingangs-Inbox</span>
+            @if($this->stats['unrouted_applicants'] > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600">{{ $this->stats['unrouted_applicants'] }}</span>
+            @endif
+        </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 
     {{-- Abschnitt: Recruiting --}}
