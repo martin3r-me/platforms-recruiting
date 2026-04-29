@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\InterviewSchedule;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Platform\Recruiting\Models\RecEventLocation;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewType;
 use Platform\Recruiting\Models\RecPosition;
@@ -35,6 +36,9 @@ class Index extends Component
     public $reminder_wa_template_id = '';
     public $reminder_hours_before = null;
     public $reminder_wa_template_variables = [];
+
+    /** Selected event-location id; '' = freier Eingabe-Modus, '0' = (nicht genutzt) */
+    public $selectedEventLocationId = '';
 
     protected $rules = [
         'title' => 'nullable|string|max:255',
@@ -203,7 +207,47 @@ class Index extends Component
         $this->reminder_wa_template_id = $m->reminder_wa_template_id ?? '';
         $this->reminder_hours_before = $m->reminder_hours_before;
         $this->reminder_wa_template_variables = $m->reminder_wa_template_variables ?? [];
+
+        // Match existing location string against known event-locations so the
+        // dropdown reflects the current selection. Free-text/unknown stays as ''.
+        $this->selectedEventLocationId = '';
+        if ($m->location) {
+            $match = RecEventLocation::forTeam($m->team_id)
+                ->where('full_address', $m->location)
+                ->first();
+            if ($match) {
+                $this->selectedEventLocationId = (string) $match->id;
+            }
+        }
+
         $this->showEditModal = true;
+    }
+
+    /**
+     * When the user picks a location from the dropdown, copy its full_address
+     * into the location field. Empty selection leaves the location untouched
+     * (free-text mode).
+     */
+    public function updatedSelectedEventLocationId($value): void
+    {
+        if ($value === '' || $value === null) {
+            return;
+        }
+        $teamId = (int) auth()->user()->currentTeam->id;
+        $loc = RecEventLocation::forTeam($teamId)->find((int) $value);
+        if ($loc) {
+            $this->location = $loc->full_address;
+        }
+    }
+
+    #[Computed]
+    public function availableEventLocations()
+    {
+        return RecEventLocation::forTeam(auth()->user()->currentTeam->id)
+            ->active()
+            ->orderBy('sort_order')
+            ->orderBy('label')
+            ->get(['id', 'label', 'full_address']);
     }
 
     public function save(): void
@@ -278,5 +322,6 @@ class Index extends Component
         $this->reminder_wa_template_id = '';
         $this->reminder_hours_before = null;
         $this->reminder_wa_template_variables = [];
+        $this->selectedEventLocationId = '';
     }
 }

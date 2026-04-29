@@ -248,6 +248,11 @@ class RecruitingServiceProvider extends ServiceProvider
             $registry->register(new \Platform\Recruiting\Tools\RePersonalizeContractsTool());
             $registry->register(new \Platform\Recruiting\Tools\SendContractsTool());
 
+            // Event Locations (CRUD-light)
+            $registry->register(new \Platform\Recruiting\Tools\ListEventLocationsTool());
+            $registry->register(new \Platform\Recruiting\Tools\CreateEventLocationTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdateEventLocationTool());
+
             // Interview Types (CRUD)
             $registry->register(new \Platform\Recruiting\Tools\ListInterviewTypesTool());
             $registry->register(new \Platform\Recruiting\Tools\CreateInterviewTypeTool());

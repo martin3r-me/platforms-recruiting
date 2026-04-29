@@ -226,7 +226,25 @@
                     wire:model="rec_position_id"
                 />
             </div>
-            <x-ui-input-text name="location" label="Ort" wire:model="location" />
+            <div class="space-y-2">
+                @php $eventLocations = $this->availableEventLocations; @endphp
+                @if($eventLocations->isNotEmpty())
+                    <label class="text-sm font-medium text-[var(--ui-secondary)]">Ort</label>
+                    <select wire:model.live="selectedEventLocationId"
+                            class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                        <option value="">— Vordefinierten Ort wählen oder eigene Adresse eingeben —</option>
+                        @foreach($eventLocations as $loc)
+                            <option value="{{ $loc->id }}">{{ $loc->label }} — {{ $loc->full_address }}</option>
+                        @endforeach
+                    </select>
+                    <input type="text"
+                           wire:model="location"
+                           placeholder="Adresse (volle Anschrift, wird im Reminder-Template verwendet)"
+                           class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                @else
+                    <x-ui-input-text name="location" label="Ort" wire:model="location" hint="Tipp: pflege wiederkehrende Veranstaltungsorte unter Recruiting → Veranstaltungsorte." />
+                @endif
+            </div>
             <div class="grid grid-cols-2 gap-4">
                 <x-ui-input-text name="starts_at" label="Start *" wire:model="starts_at" type="datetime-local" required />
                 <x-ui-input-text name="ends_at" label="Ende" wire:model="ends_at" type="datetime-local" />
@@ -356,7 +374,25 @@
                     wire:model="rec_position_id"
                 />
             </div>
-            <x-ui-input-text name="location" label="Ort" wire:model="location" />
+            <div class="space-y-2">
+                @php $eventLocations = $this->availableEventLocations; @endphp
+                @if($eventLocations->isNotEmpty())
+                    <label class="text-sm font-medium text-[var(--ui-secondary)]">Ort</label>
+                    <select wire:model.live="selectedEventLocationId"
+                            class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                        <option value="">— Vordefinierten Ort wählen oder eigene Adresse eingeben —</option>
+                        @foreach($eventLocations as $loc)
+                            <option value="{{ $loc->id }}">{{ $loc->label }} — {{ $loc->full_address }}</option>
+                        @endforeach
+                    </select>
+                    <input type="text"
+                           wire:model="location"
+                           placeholder="Adresse (volle Anschrift, wird im Reminder-Template verwendet)"
+                           class="w-full px-3 py-2 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                @else
+                    <x-ui-input-text name="location" label="Ort" wire:model="location" hint="Tipp: pflege wiederkehrende Veranstaltungsorte unter Recruiting → Veranstaltungsorte." />
+                @endif
+            </div>
             <div class="grid grid-cols-2 gap-4">
                 <x-ui-input-text name="starts_at" label="Start *" wire:model="starts_at" type="datetime-local" required />
                 <x-ui-input-text name="ends_at" label="Ende" wire:model="ends_at" type="datetime-local" />
