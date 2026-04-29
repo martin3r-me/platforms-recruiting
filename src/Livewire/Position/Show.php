@@ -154,18 +154,6 @@ class Show extends Component
         unset($this->phaseAutoPilotSettings[$phaseId][$key]);
     }
 
-    public function togglePhaseShowInDashboard(int $phaseId): void
-    {
-        $phase = RecPhase::find($phaseId);
-        if (!$phase || (int) $phase->rec_position_id !== (int) $this->position->id) {
-            return;
-        }
-        $phase->show_in_dashboard = !$phase->show_in_dashboard;
-        $phase->save();
-        $this->position->load('phases');
-        unset($this->phases);
-    }
-
     public function deletePosition(): void
     {
         $this->position->delete();
