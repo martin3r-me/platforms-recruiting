@@ -62,6 +62,10 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                     'type' => 'object',
                     'description' => 'Optional: Phasen-spezifische Konfiguration. Bekannte Keys: switch_position_on_booking (bool, nur sinnvoll mit completion_type=booking), confirm_booking_on_completion (bool, registriertes Interview wird bei Phasen-Abschluss automatisch auf "confirmed" gesetzt).',
                 ],
+                'show_in_dashboard' => [
+                    'type' => 'boolean',
+                    'description' => 'Optional: Soll diese Phase im Dashboard-Pipeline angezeigt werden? Default true. false = Phase + ihre Bewerber sind im Dashboard ausgeblendet (z.B. für Sandbox-Stellen oder archivierte Phasen).',
+                ],
                 'is_active' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Status.',
@@ -90,7 +94,7 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 return ToolResult::error('ACCESS_DENIED', 'Kein Zugriff auf diese Phase.');
             }
 
-            $fields = ['name', 'order', 'auto_advance', 'is_active'];
+            $fields = ['name', 'order', 'auto_advance', 'is_active', 'show_in_dashboard'];
             foreach ($fields as $field) {
                 if (array_key_exists($field, $arguments)) {
                     $phase->{$field} = $arguments[$field] === '' ? null : $arguments[$field];
@@ -120,6 +124,7 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 'auto_pilot_settings' => $phase->auto_pilot_settings,
                 'completion_type' => $phase->completion_type,
                 'completion_config' => $phase->completion_config,
+                'show_in_dashboard' => (bool) $phase->show_in_dashboard,
                 'message' => 'Phase erfolgreich aktualisiert.',
             ]);
         } catch (\Throwable $e) {

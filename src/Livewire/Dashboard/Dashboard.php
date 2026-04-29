@@ -92,12 +92,15 @@ class Dashboard extends Component
     {
         if ($this->positionFilter) {
             $position = RecPosition::find($this->positionFilter);
-            return $position?->phases()->active()->ordered()->get() ?? collect();
+            return $position?->phases()->active()->where('show_in_dashboard', true)->ordered()->get() ?? collect();
         }
 
         // Without position filter: distinct phase orders across all positions
+        // Only consider phases with show_in_dashboard=true so that hidden
+        // phases (e.g. Sandbox) do not pollute the aggregated pipeline.
         return RecPhase::forTeam(auth()->user()->currentTeam->id)
             ->active()
+            ->where('show_in_dashboard', true)
             ->ordered()
             ->get()
             ->groupBy('order')
@@ -117,6 +120,7 @@ class Dashboard extends Component
         $query = $this->applicantBaseQuery()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
+            ->whereHas('phase', fn ($q) => $q->where('show_in_dashboard', true))
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',

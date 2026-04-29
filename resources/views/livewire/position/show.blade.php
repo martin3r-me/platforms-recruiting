@@ -263,6 +263,14 @@
                                 @if(($phaseConfig['confirm_booking_on_completion'] ?? false) === true)
                                     <x-ui-badge variant="secondary" size="xs">Booking-Bestätigung</x-ui-badge>
                                 @endif
+                                @if(!$phase->show_in_dashboard)
+                                    <x-ui-badge variant="muted" size="xs">Nicht im Dashboard</x-ui-badge>
+                                @endif
+                                <button wire:click="togglePhaseShowInDashboard({{ $phase->id }})"
+                                        class="ml-auto text-xs text-[var(--ui-muted)] hover:text-[var(--ui-primary)] underline-offset-2 hover:underline"
+                                        title="Sichtbarkeit im Dashboard umschalten">
+                                    {{ $phase->show_in_dashboard ? 'Aus Dashboard ausblenden' : 'Im Dashboard anzeigen' }}
+                                </button>
                             </div>
 
                             {{-- Extra-Felder Liste --}}
