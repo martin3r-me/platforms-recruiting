@@ -23,7 +23,6 @@ class Dashboard extends Component
 
     public bool $showParked = false;
     public bool $showHrDesk = false;
-    public string $hrDeskReasonFilter = 'all'; // 'all' | reason-code (z.B. 'non_eu_citizen')
     public ?int $positionFilter = null;
     public ?int $phaseFilter = null;
     public ?string $activityFilter = null;
@@ -47,15 +46,6 @@ class Dashboard extends Component
 
         if ($this->showHrDesk) {
             $query->where('is_on_hr_desk', true)->where('is_parked', false);
-
-            // Optional: Filter auf einen bestimmten Reason des offenen Cases
-            if ($this->hrDeskReasonFilter !== 'all') {
-                $reason = $this->hrDeskReasonFilter;
-                $query->whereHas(
-                    'hrDeskCases',
-                    fn ($q) => $q->where('reason', $reason)->open()
-                );
-            }
         } else {
             $query->where('is_on_hr_desk', false)->where('is_parked', $this->showParked);
         }
@@ -474,34 +464,6 @@ class Dashboard extends Component
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->unrouted()
             ->count();
-    }
-
-    /**
-     * Liefert für jeden bekannten HR-Desk-Reason die Anzahl Bewerber mit
-     * mind. einem offenen Case dieses Reasons. Plus Total.
-     * Format: ['all' => 5, 'non_eu_citizen' => 3, 'no_german_knowledge' => 2, ...]
-     */
-    #[Computed]
-    public function hrDeskReasonCounts(): array
-    {
-        $teamId = (int) auth()->user()->currentTeam->id;
-        $base = RecApplicant::forTeam($teamId)
-            ->routed()
-            ->where('is_active', true)
-            ->where('is_parked', false)
-            ->where('is_on_hr_desk', true)
-            ->whereNull('rejected_at');
-
-        $total = (clone $base)->count();
-
-        $counts = ['all' => $total];
-        foreach (\Platform\Recruiting\Models\RecHrDeskCase::REASON_LABELS as $reason => $label) {
-            $counts[$reason] = (clone $base)
-                ->whereHas('hrDeskCases', fn ($q) => $q->where('reason', $reason)->open())
-                ->count();
-        }
-
-        return $counts;
     }
 
     #[Computed]
