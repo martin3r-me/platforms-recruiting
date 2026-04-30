@@ -2,7 +2,6 @@
 
 namespace Platform\Recruiting\Livewire\Applicant;
 
-use Carbon\Carbon;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Core\Livewire\Concerns\WithExtraFields;
@@ -819,15 +818,12 @@ class Show extends Component
             ->where('rec_applicant_id', $this->applicant->id)
             ->firstOrFail();
 
-        $beginn = $this->contractFieldValues['vertragsbeginn'] ?? null;
-        $ende = $this->contractFieldValues['vertragsende'] ?? null;
-        if ($beginn && !$ende) {
-            try {
-                $computed = Carbon::parse($beginn)->addYear()->startOfMonth()->subDay();
-                $this->contractFieldValues['vertragsende'] = $computed->format('Y-m-d');
-            } catch (\Throwable $e) {
-                // ignore — if beginn is not parseable, leave ende as entered
-            }
+        $resolved = RecContract::resolveContractDates(
+            $this->contractFieldValues['vertragsbeginn'] ?? null,
+            $this->contractFieldValues['vertragsende'] ?? null,
+        );
+        if ($resolved['vertragsende']) {
+            $this->contractFieldValues['vertragsende'] = $resolved['vertragsende'];
         }
 
         foreach ($this->contractFieldDefinitions as $field) {

@@ -8,6 +8,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
@@ -25,6 +26,14 @@ class Index extends Component
 
     /** Modes: 'overview' (default) | 'nachbereitung' (post-Schulung HR/SL flow) */
     public string $mode = 'overview';
+
+    /**
+     * Pro-Bewerber Vertragslaufzeit-Eingaben im Nachbereitungs-Modus.
+     * Shape: [applicantId => ['vertragsbeginn' => 'YYYY-MM-DD', 'vertragsende' => 'YYYY-MM-DD']]
+     * Werden bei sendContractsBulk() an SendContractsService übergeben und auf
+     * die neu erstellten AV+IFSG-Verträge als Extra-Fields geschrieben.
+     */
+    public array $contractDates = [];
 
     public function mount(int $interview)
     {
@@ -196,6 +205,29 @@ class Index extends Component
         $booking->applicant->save();
     }
 
+    /**
+     * Setzt Vertragsbeginn oder -ende für einen Bewerber. Wenn `vertragsbeginn`
+     * gesetzt wird und `vertragsende` leer ist, wird das Ende live mit der
+     * Auto-Calc-Logik vorbelegt (+1y, Anfang Monat, −1d).
+     */
+    public function setContractDate(int $applicantId, string $field, ?string $value): void
+    {
+        if (!in_array($field, ['vertragsbeginn', 'vertragsende'], true)) {
+            return;
+        }
+
+        $value = $value !== '' ? $value : null;
+        $current = $this->contractDates[$applicantId] ?? ['vertragsbeginn' => null, 'vertragsende' => null];
+        $current[$field] = $value;
+
+        if ($field === 'vertragsbeginn' && $value && empty($current['vertragsende'])) {
+            $resolved = RecContract::resolveContractDates($value, null);
+            $current['vertragsende'] = $resolved['vertragsende'];
+        }
+
+        $this->contractDates[$applicantId] = $current;
+    }
+
     public function sendContractsBulk(): void
     {
         $eligible = $this->bookings
@@ -206,13 +238,25 @@ class Index extends Component
             return;
         }
 
+        // Vertragsbeginn ist Pflicht — verhindern dass jemand ohne Datum versendet
+        $missingBeginn = $eligible->filter(function ($b) {
+            $applicantId = $b->applicant->id;
+            return empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
+        });
+        if ($missingBeginn->isNotEmpty()) {
+            session()->flash('error', 'Bei mind. einem anwesenden Bewerber fehlt der Vertragsbeginn.');
+            return;
+        }
+
         $service = app(SendContractsService::class);
         $sent = 0;
         $errors = 0;
 
         foreach ($eligible as $booking) {
             try {
-                $service->send($booking->applicant, auth()->id());
+                $applicantId = $booking->applicant->id;
+                $fields = $this->contractDates[$applicantId] ?? null;
+                $service->send($booking->applicant, auth()->id(), $fields);
                 $sent++;
             } catch (\Throwable $e) {
                 $errors++;
@@ -232,8 +276,9 @@ class Index extends Component
      * Computed: returns one of:
      *  - 'no_attended'         → kein Bewerber als anwesend markiert
      *  - 'missing_templates'   → mind. 1 anwesender Bewerber ohne Vertragsvorlage
+     *  - 'missing_dates'       → mind. 1 anwesender (noch nicht versendet) ohne Vertragsbeginn
      *  - 'all_already_sent'    → alle anwesenden haben schon Verträge versendet
-     *  - 'ready'               → mind. 1 anwesender hat Vorlage und keinen versendeten Vertrag
+     *  - 'ready'               → mind. 1 anwesender hat Vorlage + Datum, kein versendeter Vertrag
      */
     #[Computed]
     public function bulkSendState(): string
@@ -249,6 +294,14 @@ class Index extends Component
         $allAlreadySent = $attended->every(fn ($b) => $b->applicant?->hasAnyContractSent());
         if ($allAlreadySent) {
             return 'all_already_sent';
+        }
+        $pending = $attended->filter(fn ($b) => !$b->applicant?->hasAnyContractSent());
+        $missingBeginn = $pending->filter(function ($b) {
+            $applicantId = $b->applicant?->id;
+            return $applicantId && empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
+        });
+        if ($missingBeginn->isNotEmpty()) {
+            return 'missing_dates';
         }
         return 'ready';
     }

@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Platform\Core\Contracts\InheritsExtraFields;
@@ -78,6 +79,27 @@ class RecContract extends Model implements InheritsExtraFields
     public function scopeForTeam($query, $teamId)
     {
         return $query->where('team_id', $teamId);
+    }
+
+    /**
+     * Wenn `vertragsbeginn` gesetzt ist und `vertragsende` leer, wird das Ende
+     * berechnet: +1 Jahr, Anfang Monat, −1 Tag (z.B. 15.05.2026 → 30.04.2027).
+     * Liefert ['vertragsbeginn' => Y-m-d|null, 'vertragsende' => Y-m-d|null].
+     */
+    public static function resolveContractDates(?string $beginn, ?string $ende): array
+    {
+        $beginn = $beginn !== null && $beginn !== '' ? $beginn : null;
+        $ende = $ende !== null && $ende !== '' ? $ende : null;
+
+        if ($beginn && !$ende) {
+            try {
+                $ende = Carbon::parse($beginn)->addYear()->startOfMonth()->subDay()->format('Y-m-d');
+            } catch (\Throwable) {
+                // beginn nicht parsebar — ende leer lassen
+            }
+        }
+
+        return ['vertragsbeginn' => $beginn, 'vertragsende' => $ende];
     }
 
     /**

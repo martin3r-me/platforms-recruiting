@@ -209,6 +209,7 @@
                                     <th class="px-4 py-3">Bewerber</th>
                                     <th class="px-4 py-3">Anwesenheit</th>
                                     <th class="px-4 py-3">Vertragsvorlage</th>
+                                    <th class="px-4 py-3">Vertragslaufzeit</th>
                                     <th class="px-4 py-3">Vertragsstatus</th>
                                 </tr>
                             </thead>
@@ -258,6 +259,39 @@
                                                 —
                                             @endif
                                         </td>
+                                        <td class="px-4 py-3 align-top">
+                                            @if($applicant)
+                                                @php
+                                                    $beginnVal = $contractDates[$applicant->id]['vertragsbeginn'] ?? '';
+                                                    $endeVal = $contractDates[$applicant->id]['vertragsende'] ?? '';
+                                                @endphp
+                                                <div class="flex flex-col gap-1.5">
+                                                    <input
+                                                        type="date"
+                                                        value="{{ $beginnVal }}"
+                                                        @disabled($hasSent)
+                                                        wire:change="setContractDate({{ $applicant->id }}, 'vertragsbeginn', $event.target.value)"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px]"
+                                                        placeholder="Beginn"
+                                                    />
+                                                    <input
+                                                        type="date"
+                                                        value="{{ $endeVal }}"
+                                                        @disabled($hasSent)
+                                                        wire:change="setContractDate({{ $applicant->id }}, 'vertragsende', $event.target.value)"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px]"
+                                                        placeholder="Ende"
+                                                    />
+                                                </div>
+                                                @if(!$hasSent)
+                                                    <div class="text-[10px] text-[var(--ui-muted)] mt-1 max-w-[200px] leading-snug">
+                                                        Ende leer lassen für Auto-Berechnung (+1 Jahr, Anfang Monat, −1 Tag).
+                                                    </div>
+                                                @endif
+                                            @else
+                                                —
+                                            @endif
+                                        </td>
                                         <td class="px-4 py-3">
                                             @if($hasSent)
                                                 <span class="inline-flex items-center gap-1 text-xs text-emerald-600">
@@ -273,7 +307,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="4" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                        <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                             @svg('heroicon-o-clipboard-document-list', 'w-10 h-10 text-[var(--ui-muted)] mx-auto mb-2')
                                             <div class="text-sm">Keine Buchungen vorhanden</div>
                                         </td>
@@ -300,6 +334,10 @@
                             @elseif($bulkState === 'missing_templates')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern eine Vertragsvorlage zuweisen">
                                     Verträge versenden — Vorlagen fehlen
+                                </button>
+                            @elseif($bulkState === 'missing_dates')
+                                <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern einen Vertragsbeginn setzen">
+                                    Verträge versenden — Vertragsbeginn fehlt
                                 </button>
                             @elseif($bulkState === 'all_already_sent')
                                 <span class="px-4 py-2 text-sm text-emerald-600 inline-flex items-center gap-2">

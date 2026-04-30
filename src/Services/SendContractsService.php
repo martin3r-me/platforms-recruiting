@@ -28,6 +28,11 @@ use Platform\Recruiting\Models\RecContractTemplate;
 class SendContractsService
 {
     /**
+     * @param  array{vertragsbeginn?: ?string, vertragsende?: ?string}|null  $contractFields
+     *         Optional extra-field values, die nach Vertragsanlage auf AV + IFSG
+     *         geschrieben werden. `vertragsbeginn` als YYYY-MM-DD; `vertragsende`
+     *         leer → wird via RecContract::resolveContractDates auto-berechnet.
+     *
      * @return array{
      *   av_contract: RecContract,
      *   ifsg_contract: ?RecContract,
@@ -38,7 +43,7 @@ class SendContractsService
      * @throws \RuntimeException if applicant has no contract_template_id set
      *                           or the chosen template is invalid
      */
-    public function send(RecApplicant $applicant, ?int $createdByUserId = null): array
+    public function send(RecApplicant $applicant, ?int $createdByUserId = null, ?array $contractFields = null): array
     {
         if (!$applicant->contract_template_id) {
             throw new \RuntimeException(
@@ -64,7 +69,12 @@ class SendContractsService
             ->where('is_active', true)
             ->first();
 
-        return DB::transaction(function () use ($applicant, $avTemplate, $ifsgTemplate, $createdByUserId) {
+        $resolvedDates = RecContract::resolveContractDates(
+            $contractFields['vertragsbeginn'] ?? null,
+            $contractFields['vertragsende'] ?? null,
+        );
+
+        return DB::transaction(function () use ($applicant, $avTemplate, $ifsgTemplate, $createdByUserId, $resolvedDates) {
             $created = 0;
             $reused = 0;
 
@@ -117,7 +127,26 @@ class SendContractsService
                 ]);
             }
 
-            // 3) Beide Verträge als "verschickt" markieren — das löst die
+            // 3) Vertragslaufzeit als Extra-Fields auf beide Verträge schreiben
+            //    (sofern übergeben). Auto-Calc für vertragsende ist bereits
+            //    in $resolvedDates erledigt.
+            if ($resolvedDates['vertragsbeginn'] || $resolvedDates['vertragsende']) {
+                foreach (array_filter([$avContract, $ifsgContract]) as $contract) {
+                    if ($resolvedDates['vertragsbeginn']) {
+                        $contract->setExtraField('vertragsbeginn', $resolvedDates['vertragsbeginn']);
+                    }
+                    if ($resolvedDates['vertragsende']) {
+                        $contract->setExtraField('vertragsende', $resolvedDates['vertragsende']);
+                    }
+                    if ($contract->contractTemplate) {
+                        $contract->personalized_content = $contract->contractTemplate
+                            ->personalizeContent($applicant, $contract);
+                        $contract->save();
+                    }
+                }
+            }
+
+            // 4) Beide Verträge als "verschickt" markieren — das löst die
             //    'contract_sent' Phase-Completion-Check aus.
             $now = now();
             foreach (array_filter([$avContract, $ifsgContract]) as $contract) {
@@ -130,7 +159,7 @@ class SendContractsService
                 }
             }
 
-            // 4) WhatsApp-Portal-Notification an den Bewerber. Nutzt das
+            // 5) WhatsApp-Portal-Notification an den Bewerber. Nutzt das
             //    team-weite contract_wa_template_id-Setting aus den
             //    Bewerber-Einstellungen — gleiches Template wie wenn HR
             //    im Bewerber-Show "Portal per WhatsApp senden" klickt.
@@ -141,7 +170,7 @@ class SendContractsService
             $applicant->refresh();
             $applicant->sendContractPortalNotification();
 
-            // 5) AutoPilot-Phase-Check: Phase wandert nach "Vertrag unterschreiben"
+            // 6) AutoPilot-Phase-Check: Phase wandert nach "Vertrag unterschreiben"
             $applicant->checkAutoPilotCompletion();
 
             return [
