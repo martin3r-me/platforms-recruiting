@@ -89,10 +89,15 @@ class Index extends Component
             ->whereNotIn('id', $bookedIds);
 
         if ($this->interview->rec_position_id) {
-            $query->whereHas('postings', function ($q) {
-                $q->whereHas('position', function ($pq) {
-                    $pq->where('rec_positions.id', $this->interview->rec_position_id);
-                });
+            // Stellen-Filter mit Bypass für Importierte: legacy CSV-Imports
+            // haben keine Postings/Positions — sie sollen aber in jede
+            // Schulung buchbar sein, unabhängig von der Termin-Stelle.
+            $query->where(function ($q) {
+                $q->whereHas('postings', function ($q) {
+                    $q->whereHas('position', function ($pq) {
+                        $pq->where('rec_positions.id', $this->interview->rec_position_id);
+                    });
+                })->orWhereNotNull('import_source');
             });
         }
 

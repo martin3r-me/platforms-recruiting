@@ -406,7 +406,7 @@
         <div class="space-y-4">
             @if($this->interview->rec_position_id)
                 <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                    Es werden nur abgeschlossene Bewerber für die Stelle <strong>{{ $this->interview->position?->title }}</strong> angezeigt.
+                    Es werden abgeschlossene Bewerber für die Stelle <strong>{{ $this->interview->position?->title }}</strong> angezeigt — sowie alle importierten Bewerber (Altbestand, ohne Stellen-Bindung).
                 </div>
             @endif
             <x-ui-input-select

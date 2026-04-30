@@ -31,6 +31,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'preferred_comms_channel_id', 'enrichment_status',
         'source_platform_id', 'is_unrouted',
         'contract_template_id',
+        'import_source',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
