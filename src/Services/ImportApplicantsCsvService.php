@@ -8,6 +8,7 @@ use Platform\Core\Models\Team;
 use Platform\Core\Models\User;
 use Platform\Crm\Models\CrmAddressType;
 use Platform\Crm\Models\CrmContact;
+use Platform\Crm\Models\CrmPhoneType;
 use Platform\Recruiting\Models\RecApplicant;
 
 /**
@@ -26,15 +27,16 @@ class ImportApplicantsCsvService
      * (passiert nicht in den realen Files, aber Schutz vor Drift).
      */
     private const FIELD_MAP = [
-        'Vorname'      => 'first_name',
-        'Nachname'     => 'last_name',
-        'Geburtsdatum' => 'birth_date',
-        'Geburtsort'   => 'birth_place',
-        'Straße, Nr.'  => 'street',
-        'Straße'       => 'street',
-        'HNr'          => 'house_number',
-        'Postleitzahl' => 'postal_code',
-        'Wohnort'      => 'city',
+        'Vorname'       => 'first_name',
+        'Nachname'      => 'last_name',
+        'Geburtsdatum'  => 'birth_date',
+        'Geburtsort'    => 'birth_place',
+        'Straße, Nr.'   => 'street',
+        'Straße'        => 'street',
+        'HNr'           => 'house_number',
+        'Postleitzahl'  => 'postal_code',
+        'Wohnort'       => 'city',
+        'Mobiltelefon'  => 'mobile_phone',
     ];
 
     /**
@@ -91,6 +93,12 @@ class ImportApplicantsCsvService
             return $result;
         }
 
+        $mobilePhoneTypeId = CrmPhoneType::where('code', 'MOBILE')->value('id');
+        if (!$mobilePhoneTypeId) {
+            $result['fatal'] = "Kein CrmPhoneType mit code='MOBILE' gefunden — Mobilnummer kann nicht angelegt werden.";
+            return $result;
+        }
+
         $rows = $this->readCsv($filepath, $result);
         if ($rows === null) {
             return $result;
@@ -114,11 +122,13 @@ class ImportApplicantsCsvService
                 continue;
             }
 
-            $birthDate  = $this->parseDate($row['birth_date'] ?? null);
-            $birthPlace = $this->clean($row['birth_place'] ?? '');
-            $street     = $this->clean($row['street'] ?? '');
-            $houseNr    = $this->clean($row['house_number'] ?? '');
-            $city       = $this->clean($row['city'] ?? '');
+            $birthDate    = $this->parseDate($row['birth_date'] ?? null);
+            $birthPlace   = $this->clean($row['birth_place'] ?? '');
+            $street       = $this->clean($row['street'] ?? '');
+            $houseNr      = $this->clean($row['house_number'] ?? '');
+            $city         = $this->clean($row['city'] ?? '');
+            $mobileRaw    = $this->clean($row['mobile_phone'] ?? '');
+            $mobileE164   = $this->normalizePhoneE164($mobileRaw);
 
             $rowNo = $rowIdx + 2; // +1 header +1 1-based
             $displayName = trim("{$first} {$last}");
@@ -177,8 +187,8 @@ class ImportApplicantsCsvService
             try {
                 $newApplicantId = DB::transaction(function () use (
                     $existingContact, $first, $last, $birthDate, $birthPlace,
-                    $street, $houseNr, $postal, $city,
-                    $teamId, $createdByUserId, $addressTypeId
+                    $street, $houseNr, $postal, $city, $mobileRaw, $mobileE164,
+                    $teamId, $createdByUserId, $addressTypeId, $mobilePhoneTypeId
                 ) {
                     $contact = $existingContact ?? CrmContact::create([
                         'first_name'         => $first,
@@ -200,6 +210,23 @@ class ImportApplicantsCsvService
                             'is_primary'      => true,
                             'is_active'       => true,
                         ]);
+                    }
+
+                    // Mobiltelefon: nur anlegen wenn normalisierbar UND der
+                    // Kontakt noch keine primary phone hat. Bestehende
+                    // Nummer wird nicht ueberschrieben — Datenqualitaet
+                    // bestehender CRM-Daten gewinnt.
+                    if ($mobileE164) {
+                        $hasPrimaryPhone = $contact->phoneNumbers()->where('is_primary', true)->exists();
+                        if (!$hasPrimaryPhone) {
+                            $contact->phoneNumbers()->create([
+                                'raw_input'     => $mobileRaw ?: $mobileE164,
+                                'international' => $mobileE164,
+                                'phone_type_id' => $mobilePhoneTypeId,
+                                'is_primary'    => true,
+                                'is_active'     => true,
+                            ]);
+                        }
                     }
 
                     $applicant = RecApplicant::create([
@@ -333,6 +360,54 @@ class ImportApplicantsCsvService
     {
         if ($value === null) return '';
         return trim((string) $value);
+    }
+
+    /**
+     * Normalisiert eine Telefonnummer auf E.164 (z.B. +491766408059).
+     * Für WhatsApp-Versand zwingend nötig.
+     *
+     * Reihenfolge der Regeln (erste passende gewinnt):
+     *   - "+49 176 6408 0594"   → +491766408594  (Leerzeichen/Trennzeichen weg)
+     *   - "0049176..."          → +49176...      (00-Prefix wird zu +)
+     *   - "0176..."             → +49176...      (Deutsche Inlands-Notation, 0 weg)
+     *   - "49176..."            → +49176...      (Ländercode ohne +; in DE
+     *                                              eindeutig, weil keine
+     *                                              Inlandsvorwahl mit 49 beginnt)
+     *   - "176..."              → +49176...      (kein Prefix → default DE)
+     *   - "abc" / leer          → null           (nicht parseable)
+     */
+    private function normalizePhoneE164(string $raw): ?string
+    {
+        $raw = trim($raw);
+        if ($raw === '') return null;
+
+        // Nur Ziffern + führendes + behalten (Leerzeichen, /, -, () weg)
+        $clean = preg_replace('/[^\d+]/', '', $raw);
+        if (!is_string($clean) || $clean === '') return null;
+
+        if (str_starts_with($clean, '+')) {
+            // bereits in E.164-Form (oder fast) — nichts zu tun
+        } elseif (str_starts_with($clean, '00')) {
+            // 0049... → +49...
+            $clean = '+' . substr($clean, 2);
+        } elseif (str_starts_with($clean, '0')) {
+            // Deutsche Inlands-Notation: 0176... → +49176...
+            $clean = '+49' . substr($clean, 1);
+        } elseif (str_starts_with($clean, '49')) {
+            // Ländercode ohne +: 49176... → +49176...
+            // (Kein Konflikt mit Inlandsvorwahlen — die starten in DE alle mit 0)
+            $clean = '+' . $clean;
+        } else {
+            // Kein Prefix → default DE
+            $clean = '+49' . $clean;
+        }
+
+        // Sanity: + gefolgt von 8-15 Ziffern (E.164-Spezifikation)
+        if (!preg_match('/^\+\d{8,15}$/', $clean)) {
+            return null;
+        }
+
+        return $clean;
     }
 
     private function findContact(string $first, string $last, ?string $birthDate, int $teamId): ?CrmContact

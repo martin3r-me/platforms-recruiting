@@ -247,7 +247,8 @@
                 <code class="px-1 bg-gray-100 rounded">Straße</code>/<code class="px-1 bg-gray-100 rounded">Straße, Nr.</code>,
                 <code class="px-1 bg-gray-100 rounded">HNr</code>,
                 <code class="px-1 bg-gray-100 rounded">Postleitzahl</code>,
-                <code class="px-1 bg-gray-100 rounded">Wohnort</code>.
+                <code class="px-1 bg-gray-100 rounded">Wohnort</code>,
+                <code class="px-1 bg-gray-100 rounded">Mobiltelefon</code>.
             </p>
 
             <div>
