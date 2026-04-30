@@ -49,10 +49,15 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                     'type' => 'string',
                     'description' => 'Optional: Notizen zur Bewerbung.',
                 ],
-                'applied_at' => [
-                    'type' => 'string',
-                    'description' => 'Optional: Bewerbungsdatum (YYYY-MM-DD).',
-                ],
+                // applied_at wird BEWUSST NICHT exponiert. Es wird vom
+                // Inbound-Listener auf den Tag unseres Eingangs gesetzt
+                // und ist die Wahrheit für KPIs (Time-to-Hire,
+                // Stuck-Indikatoren, Pipeline-Volumen). Enrichment-LLMs
+                // haben in der Vergangenheit applied_at mit einem aus dem
+                // Mail-Body extrahierten Datum überschrieben (Indeed-
+                // Stamp, Kleinanzeigen-Anfrage-Datum etc.) — was die
+                // KPIs verfälschte. Manuelle HR-Korrekturen passieren
+                // entweder im UI oder über einen dedizierten Admin-Pfad.
                 'is_active' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Status.',
@@ -134,19 +139,9 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 }
             }
 
-            // Date fields: validate format, empty/null → null
-            if (array_key_exists('applied_at', $arguments)) {
-                $val = trim((string) ($arguments['applied_at'] ?? ''));
-                if ($val === '') {
-                    $applicant->applied_at = null;
-                } else {
-                    try {
-                        $applicant->applied_at = \Carbon\Carbon::parse($val)->toDateString();
-                    } catch (\Throwable $e) {
-                        // Invalid date format — ignore silently
-                    }
-                }
-            }
+            // applied_at: BEWUSST NICHT übernommen (siehe Schema-Kommentar).
+            // Wenn das Argument vorhanden ist, wird es ignoriert. Damit
+            // bleibt der vom Inbound-Listener gesetzte Wert die Wahrheit.
 
             if (array_key_exists('auto_pilot_completed_at', $arguments)) {
                 $val = trim((string) ($arguments['auto_pilot_completed_at'] ?? ''));
