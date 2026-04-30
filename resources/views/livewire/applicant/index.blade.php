@@ -372,18 +372,16 @@
                                             @endforeach
                                         </select>
                                     </div>
-                                    <x-ui-button
+                                    <button
                                         type="button"
-                                        variant="primary"
-                                        size="sm"
                                         wire:click="bookImportedIntoInterview"
                                         wire:loading.attr="disabled"
                                         wire:target="bookImportedIntoInterview"
-                                        @disabled(!$importBookingInterviewId)
+                                        class="px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
                                     >
                                         <span wire:loading.remove wire:target="bookImportedIntoInterview">In Schulung buchen</span>
                                         <span wire:loading wire:target="bookImportedIntoInterview">Bucht…</span>
-                                    </x-ui-button>
+                                    </button>
                                 </div>
                             @endif
                         @endif
