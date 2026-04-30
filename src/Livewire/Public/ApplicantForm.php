@@ -321,6 +321,30 @@ class ApplicantForm extends Component
         $rules = $this->getExtraFieldValidationRules();
         $messages = $this->getExtraFieldValidationMessages();
 
+        // Phase-Override: Felder die in der aktuellen Phase via
+        // options.required_in_phase_ids als required gelten, kriegen die
+        // 'required'-Validierung — auch wenn is_required=false ist.
+        $applicant = $this->getApplicant();
+        if ($applicant) {
+            $currentPhaseId = $applicant->rec_phase_id;
+            foreach ($this->extraFieldDefinitions as $def) {
+                if (!is_array($def) || !empty($def['is_required'])) {
+                    continue; // schon required, nichts zu tun
+                }
+                if (!$applicant->isFieldRequiredInCurrentPhase($def, $currentPhaseId)) {
+                    continue;
+                }
+                $key = 'extraFieldValues.' . $def['id'];
+                $existing = $rules[$key] ?? '';
+                if (!str_contains($existing, 'required')) {
+                    $rules[$key] = $existing === ''
+                        ? 'required'
+                        : 'required|' . $existing;
+                }
+                $messages[$key . '.required'] = 'Bitte ' . ($def['label'] ?? 'dieses Feld') . ' ausfüllen.';
+            }
+        }
+
         // Add legal status validation
         if ($this->showLegalStatus && !$this->legalStatusAlreadyFilled) {
             $rules['isEuCitizen'] = 'required|boolean';

@@ -516,10 +516,56 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
     }
 
+    /**
+     * True wenn das Feld in der aktuellen Phase als required gilt — entweder
+     * über das normale is_required-Flag oder über den Phase-Override
+     * options.required_in_phase_ids (Array von rec_phase IDs).
+     *
+     * Beispiel-Nutzung: ein Feld kann in Phase 3 als optional definiert
+     * werden (is_required=false) und gleichzeitig options.required_in_phase_ids
+     * = [16] haben — dann wird's nur in Phase 16 (= "Letzte Daten") als
+     * Pflichtfeld behandelt. Bewerber gibt's einmal ein, der Wert lebt unter
+     * einer einzigen Definition, aber der Phasen-Abschluss-Check zwingt zur
+     * Eingabe spätestens in Phase 16.
+     *
+     * Nimmt sowohl Eloquent-Modelle als auch Arrays/Objekte mit gleicher
+     * Struktur entgegen — damit funktioniert's auch im Form-Loading-Pfad.
+     *
+     * @param mixed $def Field-Definition (Model | object | array)
+     * @param int|null $currentPhaseId Phase-ID des Bewerbers
+     */
+    public function isFieldRequiredInCurrentPhase($def, ?int $currentPhaseId): bool
+    {
+        $isRequired = is_array($def) ? ($def['is_required'] ?? false) : ($def->is_required ?? false);
+        if ($isRequired) {
+            return true;
+        }
+
+        if ($currentPhaseId === null) {
+            return false;
+        }
+
+        $options = is_array($def) ? ($def['options'] ?? null) : ($def->options ?? null);
+        $overridePhaseIds = $options['required_in_phase_ids'] ?? [];
+        if (!is_array($overridePhaseIds) || empty($overridePhaseIds)) {
+            return false;
+        }
+
+        return in_array((int) $currentPhaseId, array_map('intval', $overridePhaseIds), true);
+    }
+
     public function calculateProgress(): int
     {
         $definitions = $this->getExtraFieldDefinitions();
-        $requiredDefinitions = $definitions->where('is_required', true);
+
+        // Required-Felder nach effektivem Required-Status: entweder über das
+        // is_required-Flag oder über den Phase-Override
+        // options.required_in_phase_ids (= optional in früheren Phasen,
+        // required in der aktuell-gewählten).
+        $currentPhaseId = $this->rec_phase_id;
+        $requiredDefinitions = $definitions->filter(
+            fn ($def) => $this->isFieldRequiredInCurrentPhase($def, $currentPhaseId)
+        );
 
         if ($requiredDefinitions->isEmpty()) {
             return 100;
