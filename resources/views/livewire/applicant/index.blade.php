@@ -14,6 +14,10 @@
                     <span>Einstellungen</span>
                 </x-ui-button>
             </x-slot>
+            <x-ui-button variant="secondary-outline" size="sm" wire:click="openImportModal">
+                @svg('heroicon-o-arrow-up-tray', 'w-4 h-4')
+                <span>CSV-Import</span>
+            </x-ui-button>
             <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
                 @svg('heroicon-o-plus', 'w-4 h-4')
                 <span>Neuer Bewerber</span>
@@ -224,6 +228,78 @@
             </div>
         </x-ui-panel>
     </x-ui-page-container>
+
+    {{-- CSV-Import-Modal (Altbestand) --}}
+    <x-ui-modal wire:model="showImportModal" size="md">
+        <x-slot name="header">CSV-Import (Altbestand)</x-slot>
+        <div class="space-y-4">
+            <p class="text-sm text-[var(--ui-muted)] leading-snug">
+                Importiert Bewerber aus dem CSV-Export des bisherigen Dispo-Tools.
+                Erwartete Spalten (Header): <code class="px-1 bg-gray-100 rounded">Vorname</code>,
+                <code class="px-1 bg-gray-100 rounded">Nachname</code>,
+                <code class="px-1 bg-gray-100 rounded">Geburtsdatum</code>,
+                <code class="px-1 bg-gray-100 rounded">Geburtsort</code>,
+                <code class="px-1 bg-gray-100 rounded">Straße</code>/<code class="px-1 bg-gray-100 rounded">Straße, Nr.</code>,
+                <code class="px-1 bg-gray-100 rounded">HNr</code>,
+                <code class="px-1 bg-gray-100 rounded">Postleitzahl</code>,
+                <code class="px-1 bg-gray-100 rounded">Wohnort</code>.
+            </p>
+
+            <div>
+                <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">CSV-Datei *</label>
+                <input
+                    type="file"
+                    wire:model="importFile"
+                    accept=".csv,text/csv,text/plain"
+                    class="block w-full text-sm text-[var(--ui-secondary)] file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-[var(--ui-muted-5)] file:text-[var(--ui-secondary)] hover:file:bg-[var(--ui-muted-10)]"
+                />
+                @error('importFile')
+                    <span class="text-xs text-red-500">{{ $message }}</span>
+                @enderror
+                <div wire:loading wire:target="importFile" class="text-xs text-[var(--ui-muted)] mt-1">Datei wird hochgeladen…</div>
+            </div>
+
+            <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" wire:model.live="importDryRun" class="rounded border-[var(--ui-border)]" />
+                <span>Dry-Run — nur prüfen, nicht schreiben</span>
+            </label>
+
+            @if($importResult)
+                <div class="p-3 rounded-lg border {{ ($importResult['fatal'] ?? null) || !empty($importResult['errors'] ?? []) ? 'border-red-300 bg-red-50' : 'border-emerald-300 bg-emerald-50' }} text-sm">
+                    @if($importResult['fatal'] ?? null)
+                        <p class="font-semibold text-red-700 mb-1">Fehler:</p>
+                        <p class="text-red-700">{{ $importResult['fatal'] }}</p>
+                    @else
+                        <p class="font-semibold mb-2">Ergebnis{{ $importDryRun ? ' (Dry-Run)' : '' }}:</p>
+                        <ul class="space-y-0.5 text-[13px]">
+                            <li>Geparst: <strong>{{ $importResult['parsed'] }}</strong></li>
+                            <li>Importiert: <strong>{{ $importResult['imported'] }}</strong></li>
+                            <li>Übersprungen (existiert schon): {{ $importResult['skipped_existing'] }}</li>
+                            <li>Übersprungen (Dup im Lauf): {{ $importResult['skipped_dup'] }}</li>
+                            <li>Übersprungen (unvollständig / Header-Zeile): {{ $importResult['skipped_incompl'] }}</li>
+                        </ul>
+                        @if(!empty($importResult['errors'] ?? []))
+                            <p class="font-semibold text-red-700 mt-3 mb-1">{{ count($importResult['errors']) }} Fehler:</p>
+                            <ul class="text-[12px] text-red-700 space-y-0.5 max-h-40 overflow-y-auto">
+                                @foreach($importResult['errors'] as $err)
+                                    <li>Zeile {{ $err['row'] }} ({{ $err['name'] }}): {{ $err['message'] }}</li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    @endif
+                </div>
+            @endif
+        </div>
+        <x-slot name="footer">
+            <div class="flex justify-end gap-2">
+                <x-ui-button type="button" variant="secondary-outline" wire:click="closeImportModal">Schließen</x-ui-button>
+                <x-ui-button type="button" variant="primary" wire:click="runImport" wire:loading.attr="disabled" wire:target="runImport,importFile">
+                    <span wire:loading.remove wire:target="runImport">{{ $importDryRun ? 'Dry-Run starten' : 'Importieren' }}</span>
+                    <span wire:loading wire:target="runImport">Läuft…</span>
+                </x-ui-button>
+            </div>
+        </x-slot>
+    </x-ui-modal>
 
     {{-- Create Applicant Modal --}}
     <x-ui-modal wire:model="modalShow" size="md">

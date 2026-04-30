@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\Applicant;
 use Illuminate\Support\Str;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Livewire\WithFileUploads;
 use Platform\Core\Models\Team;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Models\CrmContact;
@@ -15,11 +16,21 @@ use Platform\Recruiting\Models\RecAutoPilotState;
 use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
+use Platform\Recruiting\Services\ImportApplicantsCsvService;
 
 class Index extends Component
 {
+    use WithFileUploads;
+
     // Modal State
     public $modalShow = false;
+
+    // CSV-Import-Modal
+    public bool $showImportModal = false;
+    public $importFile = null;          // Livewire-TemporaryUploadedFile
+    public bool $importDryRun = true;
+    public ?array $importResult = null; // Stats nach Run
+    public bool $importRunning = false;
 
     // Search & Filters
     public $search = '';
@@ -408,5 +419,58 @@ class Index extends Component
             return [$teamId];
         }
         return array_merge([$teamId], $team->getAllAncestors()->pluck('id')->all());
+    }
+
+    public function openImportModal(): void
+    {
+        $this->importFile = null;
+        $this->importDryRun = true;
+        $this->importResult = null;
+        $this->importRunning = false;
+        $this->showImportModal = true;
+    }
+
+    public function closeImportModal(): void
+    {
+        $this->showImportModal = false;
+        $this->importFile = null;
+        $this->importResult = null;
+        $this->importRunning = false;
+    }
+
+    public function runImport(ImportApplicantsCsvService $service): void
+    {
+        $this->validate([
+            'importFile' => 'required|file|mimes:csv,txt|max:10240', // 10 MB
+        ]);
+
+        $teamId = (int) auth()->user()->current_team_id;
+        if ($teamId <= 0) {
+            session()->flash('error', 'Kein aktives Team gefunden.');
+            return;
+        }
+
+        $this->importRunning = true;
+        try {
+            $path = $this->importFile->getRealPath();
+            $this->importResult = $service->importFromFile($path, $teamId, $this->importDryRun);
+        } catch (\Throwable $e) {
+            $this->importResult = [
+                'parsed'           => 0,
+                'imported'         => 0,
+                'skipped_dup'      => 0,
+                'skipped_existing' => 0,
+                'skipped_incompl'  => 0,
+                'errors'           => [],
+                'fatal'            => 'Unerwarteter Fehler: ' . $e->getMessage(),
+            ];
+        } finally {
+            $this->importRunning = false;
+        }
+
+        // Liste nach erfolgreichem echten Run aktualisieren
+        if (!$this->importDryRun && empty($this->importResult['fatal']) && ($this->importResult['imported'] ?? 0) > 0) {
+            unset($this->applicants);
+        }
     }
 }
