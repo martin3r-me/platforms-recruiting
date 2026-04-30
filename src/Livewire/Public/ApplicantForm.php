@@ -387,8 +387,16 @@ class ApplicantForm extends Component
             }
         }
 
+        // Zentrale HR-Schreibtisch-Regeln evaluieren (eu_burger,
+        // grundlegende_deutschkenntnisse, etc.). Muss VOR dem Phase-Advance
+        // laufen, damit ein routed Bewerber (auto_pilot=false) nicht doch
+        // noch in die nächste Phase wandert.
+        app(\Platform\Recruiting\Services\HrDeskRoutingService::class)
+            ->evaluateAndRoute($applicant->fresh(['legalStatus']));
+
         if ($remainingUnfilled === 0) {
             $this->state = 'completed';
+            $applicant->refresh();
             $applicant->checkAutoPilotCompletion();
         } else {
             $this->state = 'saved';

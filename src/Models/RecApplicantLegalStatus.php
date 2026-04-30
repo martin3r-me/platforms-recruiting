@@ -84,16 +84,16 @@ class RecApplicantLegalStatus extends Model
 
     public function setEuCitizen(?bool $value, ?int $userId = null): void
     {
-        $oldValue = $this->is_eu_citizen;
         $this->is_eu_citizen = $value;
         $this->save();
 
-        if ($oldValue !== $value) {
-            app(HrDeskRoutingService::class)->handleEuStatusChange(
-                $this->applicant,
-                $value,
-                $userId,
-            );
-        }
+        // Zentrales Routing — egal ob Wert sich geändert hat oder nicht.
+        // evaluateAndRoute ist idempotent (existingOpenCase-Check), damit
+        // verlieren wir keine Trigger wenn der Bewerber den Wert mehrfach
+        // setzt.
+        app(HrDeskRoutingService::class)->evaluateAndRoute(
+            $this->applicant->fresh(['legalStatus']),
+            $userId,
+        );
     }
 }

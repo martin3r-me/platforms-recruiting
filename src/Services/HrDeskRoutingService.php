@@ -10,19 +10,101 @@ class HrDeskRoutingService
 {
     public function handleEuStatusChange(RecApplicant $applicant, ?bool $isEuCitizen, ?int $userId = null): void
     {
-        if ($isEuCitizen !== false) {
-            return;
+        // Backward-compat shim — alle Routing-Regeln laufen zentral durch
+        // evaluateAndRoute(). Diese Methode bleibt nur damit existierende
+        // Aufrufer (z.B. setEuCitizen) keinen behavioural-break erleben.
+        $this->evaluateAndRoute($applicant, $userId);
+    }
+
+    /**
+     * Zentrale Stelle für ALLE festen HR-Schreibtisch-Routing-Regeln.
+     *
+     * Idempotent — kann jederzeit / mehrfach aufgerufen werden, schreibt
+     * dank routeIfNotAlreadyOpen() keine Duplicate-Cases. Erweitert durch
+     * Hinzufügen weiterer Regel-Blöcke unten.
+     *
+     * Aufruf-Stellen (Stand jetzt):
+     *  - RecApplicantLegalStatus::setEuCitizen() — wenn EU-Status gesetzt wird
+     *  - ApplicantForm::save() — nach jedem Form-Save, vor checkAutoPilotCompletion
+     *  - MCP/Code-Pfade die applicant-Daten ändern können
+     *
+     * Wichtig zur Phase-Stop-Kette: routeToHrDesk setzt auto_pilot=false,
+     * damit checkAutoPilotCompletion() in der gleichen Request-Kette
+     * NICHT mehr Phase-Advance triggert. Reihenfolge im Aufrufer ist
+     * entscheidend (evaluateAndRoute VOR checkAutoPilotCompletion).
+     */
+    public function evaluateAndRoute(RecApplicant $applicant, ?int $userId = null): void
+    {
+        // Regel 1: Nicht-EU-Bürger
+        if ($applicant->legalStatus?->is_eu_citizen === false) {
+            $this->routeIfNotAlreadyOpen(
+                $applicant,
+                RecHrDeskCase::REASON_NON_EU_CITIZEN,
+                $userId
+            );
         }
 
-        // Non-EU: check if there's already an open case for this reason
-        $existingOpenCase = $applicant->hrDeskCases()
-            ->where('reason', RecHrDeskCase::REASON_NON_EU_CITIZEN)
+        // Regel 2: Keine grundlegenden Deutschkenntnisse
+        $deutschkenntnisse = $this->extractBooleanExtraField($applicant, 'grundlegende_deutschkenntnisse');
+        if ($deutschkenntnisse === false) {
+            $this->routeIfNotAlreadyOpen(
+                $applicant,
+                RecHrDeskCase::REASON_NO_GERMAN_KNOWLEDGE,
+                $userId
+            );
+        }
+
+        // Weitere Regeln können hier ergänzt werden, z.B. minderjährig.
+    }
+
+    private function routeIfNotAlreadyOpen(RecApplicant $applicant, string $reason, ?int $userId = null): void
+    {
+        $alreadyOpen = $applicant->hrDeskCases()
+            ->where('reason', $reason)
             ->open()
             ->exists();
 
-        if (!$existingOpenCase) {
-            $this->routeToHrDesk($applicant, RecHrDeskCase::REASON_NON_EU_CITIZEN, $userId);
+        if (!$alreadyOpen) {
+            $this->routeToHrDesk($applicant, $reason, $userId);
         }
+    }
+
+    /**
+     * Liest einen extra_field-Wert nach Feld-Namen aus, normalisiert auf
+     * Bool. Liefert null wenn das Feld nicht existiert oder nicht ausgefüllt
+     * ist (= keine Aussage).
+     *
+     * Nutzt das gleiche Lookup-Pattern wie RecApplicant::calculateProgress():
+     * erst Definition nach Name finden (via getExtraFieldDefinitions(),
+     * was schon Phase-Inheritance handhabt), dann Value nach definition_id.
+     */
+    private function extractBooleanExtraField(RecApplicant $applicant, string $fieldName): ?bool
+    {
+        try {
+            $def = $applicant->getExtraFieldDefinitions()->firstWhere('name', $fieldName);
+            if (!$def) {
+                return null;
+            }
+            $valueRow = $applicant->extraFieldValues()
+                ->where('definition_id', $def->id)
+                ->first();
+            if (!$valueRow) {
+                return null;
+            }
+            $raw = $valueRow->value;
+            if ($raw === null || $raw === '' || $raw === '[]') {
+                return null;
+            }
+            if ($raw === true || $raw === 1 || $raw === '1' || $raw === 'true') {
+                return true;
+            }
+            if ($raw === false || $raw === 0 || $raw === '0' || $raw === 'false') {
+                return false;
+            }
+        } catch (\Throwable) {
+            // Definition fehlt, Phase noch nicht verlinkt, etc.
+        }
+        return null;
     }
 
     public function routeToHrDesk(RecApplicant $applicant, string $reason, ?int $userId = null): RecHrDeskCase
