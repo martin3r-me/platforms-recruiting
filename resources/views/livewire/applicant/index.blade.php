@@ -291,6 +291,38 @@
                                 @endforeach
                             </ul>
                         @endif
+
+                        @if(!empty($importResult['details'] ?? []))
+                            <details class="mt-3">
+                                <summary class="cursor-pointer text-[12px] text-[var(--ui-muted)] hover:text-[var(--ui-secondary)]">Details ({{ count($importResult['details']) }} Zeilen) anzeigen</summary>
+                                <ul class="mt-2 text-[12px] space-y-1 max-h-60 overflow-y-auto">
+                                    @foreach($importResult['details'] as $d)
+                                        @php
+                                            $color = match($d['action']) {
+                                                'imported' => 'text-emerald-700',
+                                                'skipped_existing' => 'text-amber-700',
+                                                'skipped_dup' => 'text-orange-700',
+                                                default => 'text-[var(--ui-muted)]',
+                                            };
+                                            $label = match($d['action']) {
+                                                'imported' => 'Importiert',
+                                                'skipped_existing' => 'Existiert',
+                                                'skipped_dup' => 'Dup',
+                                                default => $d['action'],
+                                            };
+                                        @endphp
+                                        <li class="{{ $color }}">
+                                            <span class="font-mono text-[10px] text-[var(--ui-muted)]">Z.{{ $d['row'] }}</span>
+                                            <strong>[{{ $label }}]</strong>
+                                            {{ $d['name'] }}
+                                            @if(!empty($d['note']))
+                                                <span class="text-[var(--ui-muted)]">— {{ $d['note'] }}</span>
+                                            @endif
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </details>
+                        @endif
                     @endif
                 </div>
             @endif

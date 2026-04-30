@@ -44,9 +44,14 @@ class ImportApplicantsCsvService
      *   skipped_dup: int,
      *   skipped_existing: int,
      *   skipped_incompl: int,
+     *   details: array<int, array{action: string, row: int, name: string, note?: string}>,
      *   errors: array<int, array{row: int, name: string, message: string}>,
      *   fatal: ?string
      * }
+     *
+     * details[].action ∈ {imported, skipped_existing, skipped_dup}
+     * skipped_incompl wird absichtlich nicht in details gelogged — das sind
+     * meist Header-/Marker-/Leerzeilen und würden nur Lärm produzieren.
      */
     public function importFromFile(string $filepath, int $teamId, bool $dryRun = false, int $limit = 0): array
     {
@@ -56,6 +61,7 @@ class ImportApplicantsCsvService
             'skipped_dup'      => 0,
             'skipped_existing' => 0,
             'skipped_incompl'  => 0,
+            'details'          => [],
             'errors'           => [],
             'fatal'            => null,
         ];
@@ -108,10 +114,19 @@ class ImportApplicantsCsvService
             $houseNr    = $this->clean($row['house_number'] ?? '');
             $city       = $this->clean($row['city'] ?? '');
 
+            $rowNo = $rowIdx + 2; // +1 header +1 1-based
+            $displayName = trim("{$first} {$last}");
+
             // Within-Run-Dedup
             $dedupKey = mb_strtolower($first . '|' . $last . '|' . ($birthDate ?: ''));
             if (isset($seenInRun[$dedupKey])) {
                 $result['skipped_dup']++;
+                $result['details'][] = [
+                    'action' => 'skipped_dup',
+                    'row'    => $rowNo,
+                    'name'   => $displayName,
+                    'note'   => 'Gleiche Person bereits weiter oben in dieser CSV.',
+                ];
                 continue;
             }
             $seenInRun[$dedupKey] = true;
@@ -120,18 +135,36 @@ class ImportApplicantsCsvService
             $existingContact = $this->findContact($first, $last, $birthDate, $teamId);
 
             if ($existingContact) {
-                $hasApplicant = RecApplicant::where('team_id', $teamId)
+                $existingApplicant = RecApplicant::where('team_id', $teamId)
                     ->whereHas('crmContactLinks', fn ($q) => $q->where('contact_id', $existingContact->id))
-                    ->exists();
+                    ->first();
 
-                if ($hasApplicant) {
+                if ($existingApplicant) {
+                    $note = "Match: Contact #{$existingContact->id}, bereits Bewerber #{$existingApplicant->id}";
+                    if ($existingApplicant->import_source) {
+                        $note .= ' (früherer Import)';
+                    }
                     $result['skipped_existing']++;
+                    $result['details'][] = [
+                        'action' => 'skipped_existing',
+                        'row'    => $rowNo,
+                        'name'   => $displayName,
+                        'note'   => $note,
+                    ];
                     continue;
                 }
             }
 
             if ($dryRun) {
                 $result['imported']++;
+                $result['details'][] = [
+                    'action' => 'imported',
+                    'row'    => $rowNo,
+                    'name'   => $displayName,
+                    'note'   => $existingContact
+                        ? "Würde Contact #{$existingContact->id} wiederverwenden + neuen Bewerber anlegen"
+                        : 'Würde Contact + Bewerber neu anlegen',
+                ];
                 continue;
             }
 
@@ -186,10 +219,18 @@ class ImportApplicantsCsvService
                 });
 
                 $result['imported']++;
+                $result['details'][] = [
+                    'action' => 'imported',
+                    'row'    => $rowNo,
+                    'name'   => $displayName,
+                    'note'   => $existingContact
+                        ? "Contact #{$existingContact->id} wiederverwendet, neuer Bewerber angelegt"
+                        : 'Contact + Bewerber neu angelegt',
+                ];
             } catch (\Throwable $e) {
                 $result['errors'][] = [
-                    'row'     => $rowIdx + 2, // +1 header +1 1-based
-                    'name'    => trim("{$first} {$last}"),
+                    'row'     => $rowNo,
+                    'name'    => $displayName,
                     'message' => $e->getMessage(),
                 ];
             }

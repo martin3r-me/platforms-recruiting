@@ -47,6 +47,23 @@ class ImportApplicantsCsv extends Command
             return self::FAILURE;
         }
 
+        if (!empty($r['details'])) {
+            $this->newLine();
+            foreach ($r['details'] as $d) {
+                $tag = match ($d['action']) {
+                    'imported'         => 'IMPORT  ',
+                    'skipped_existing' => 'EXISTS  ',
+                    'skipped_dup'      => 'DUP     ',
+                    default            => str_pad(strtoupper($d['action']), 8),
+                };
+                $line = sprintf(' Z.%-4d %s %s', $d['row'], $tag, $d['name']);
+                if (!empty($d['note'])) {
+                    $line .= " — {$d['note']}";
+                }
+                $this->line($line);
+            }
+        }
+
         $this->newLine();
         $this->info("Parsed:                    {$r['parsed']}");
         $this->info("Importiert:                {$r['imported']}" . ($dryRun ? ' (dry-run)' : ''));
