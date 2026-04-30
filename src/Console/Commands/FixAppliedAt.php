@@ -8,15 +8,21 @@ use Platform\Recruiting\Models\RecApplicant;
 
 /**
  * Backfill: korrigiert applicant.applied_at-Werte die vom Enrichment-LLM
- * mit Datum aus dem Mail-Body überschrieben wurden.
+ * mit einem Datum aus dem Mail-Body überschrieben wurden.
  *
  * Wahrheits-Quelle ist das Pivot rec_applicant_posting.applied_at — das wird
- * vom Inbound-Listener auf den Tag unseres Eingangs gesetzt und nie wieder
- * angefasst. Dieser Wert ist die "richtige" Bewerbungs-Eingangs-Daten.
+ * vom Inbound-Listener auf den Tag unseres Eingangs gesetzt und nicht
+ * angefasst.
  *
- * Der Command setzt applicant.applied_at auf das früheste pivot.applied_at
- * (= erste Posting-Verknüpfung = erstes Inbound-Eingang). Bewerber ohne
- * Pivot-Daten werden auf created_at gesetzt als Fallback.
+ * SELEKTIVE LOGIK (Option A):
+ * Nur die typischen Bug-Cases werden korrigiert, um nicht versehentlich
+ * legitime Anpassungen zu überschreiben:
+ *   1. current applied_at IS NULL                     → setzen aus Pivot
+ *   2. current applied_at < earliest_pivot.applied_at → korrigieren
+ *      (= LLM hat auf ein früheres Datum überschrieben — typischer Bug)
+ *   3. current applied_at > earliest_pivot.applied_at → NICHT anfassen
+ *      (unklar, könnte legitime manuelle Anpassung sein)
+ *   4. current applied_at == earliest_pivot.applied_at → no-op
  *
  * Aufruf:
  *   php artisan recruiting:fix-applied-at --dry-run
@@ -56,21 +62,62 @@ class FixAppliedAt extends Command
         $checked = 0;
         $changed = 0;
         $unchanged = 0;
+        $skippedBackwardShift = 0;
+        $skippedNoPivot = 0;
         $fallbackToCreatedAt = 0;
         $errors = 0;
 
         foreach ($query->cursor() as $applicant) {
             $checked++;
 
-            $expected = $this->resolveExpected($applicant);
-            if ($expected === null) {
-                $errors++;
-                continue;
+            $current = $applicant->applied_at?->toDateString();
+            $earliestPivot = $this->resolveEarliestPivotDate($applicant);
+
+            // Entscheidung: was tun?
+            //  - kein Pivot, current null → fallback auf created_at
+            //  - kein Pivot, current gesetzt → skip (kein Wahrheits-Anker)
+            //  - Pivot, current null → setzen
+            //  - Pivot, current < Pivot → korrigieren (Bug-Case: LLM hat zu
+            //                                          früh überschrieben)
+            //  - Pivot, current >= Pivot → skip (unklare Situation, evtl.
+            //                                    legitime HR-Anpassung)
+            $newDate = null;
+            $source = null;
+
+            if ($earliestPivot === null) {
+                if ($current === null) {
+                    $createdAt = $applicant->created_at?->toDateString();
+                    if ($createdAt) {
+                        $newDate = $createdAt;
+                        $source = 'created_at';
+                    }
+                } else {
+                    $skippedNoPivot++;
+                    continue;
+                }
+            } else {
+                if ($current === null) {
+                    $newDate = $earliestPivot;
+                    $source = 'pivot';
+                } elseif ($current < $earliestPivot) {
+                    // Bug-Pattern: applied_at zeigt FRÜHER als Pivot →
+                    // wahrscheinlich LLM hat ein früheres Datum aus dem
+                    // Mail-Body extrahiert.
+                    $newDate = $earliestPivot;
+                    $source = 'pivot';
+                } elseif ($current > $earliestPivot) {
+                    // Unklare Forward-Shift — nicht anfassen.
+                    $skippedBackwardShift++;
+                    continue;
+                } else {
+                    // current === earliestPivot → schon korrekt
+                    $unchanged++;
+                    continue;
+                }
             }
 
-            $current = $applicant->applied_at?->toDateString();
-            if ($current === $expected['date']) {
-                $unchanged++;
+            if ($newDate === null) {
+                $errors++;
                 continue;
             }
 
@@ -81,11 +128,11 @@ class FixAppliedAt extends Command
                 $applicant->id,
                 str_pad($name, 30),
                 $current ?? 'null',
-                $expected['date'],
-                $expected['source']
+                $newDate,
+                $source
             ));
 
-            if ($expected['source'] === 'created_at') {
+            if ($source === 'created_at') {
                 $fallbackToCreatedAt++;
             }
 
@@ -93,7 +140,7 @@ class FixAppliedAt extends Command
                 try {
                     DB::table('rec_applicants')
                         ->where('id', $applicant->id)
-                        ->update(['applied_at' => $expected['date']]);
+                        ->update(['applied_at' => $newDate]);
                     $changed++;
                 } catch (\Throwable $e) {
                     $errors++;
@@ -105,46 +152,43 @@ class FixAppliedAt extends Command
         }
 
         $this->info('');
-        $this->info("Geprüft:           {$checked}");
-        $this->info("Geändert:          {$changed}" . ($dryRun ? ' (dry-run)' : ''));
-        $this->info("Schon korrekt:     {$unchanged}");
-        $this->info("Fallback->created: {$fallbackToCreatedAt}");
+        $this->info("Geprüft:                       {$checked}");
+        $this->info("Geändert:                      {$changed}" . ($dryRun ? ' (dry-run)' : ''));
+        $this->info("Schon korrekt:                 {$unchanged}");
+        $this->info("Skipped (current >= pivot):    {$skippedBackwardShift}");
+        $this->info("Skipped (kein Pivot, gesetzt): {$skippedNoPivot}");
+        $this->info("Fallback -> created_at:        {$fallbackToCreatedAt}");
         if ($errors > 0) {
-            $this->warn("Fehler:            {$errors}");
+            $this->warn("Fehler:                        {$errors}");
         }
 
         return Command::SUCCESS;
     }
 
     /**
-     * @return array{date: string, source: string}|null
-     *   ['date' => 'YYYY-MM-DD', 'source' => 'pivot'|'created_at']
+     * Liefert das früheste Pivot-applied_at-Datum als YYYY-MM-DD-string,
+     * oder null wenn der Bewerber kein Pivot hat.
      */
-    private function resolveExpected(RecApplicant $applicant): ?array
+    private function resolveEarliestPivotDate(RecApplicant $applicant): ?string
     {
-        // Frühestes Pivot-Datum (= unser Inbound-Eingang)
-        $earliestPivot = $applicant->postings
+        $earliest = $applicant->postings
             ->map(fn ($p) => $p->pivot?->applied_at)
             ->filter()
             ->sort()
             ->first();
 
-        if ($earliestPivot) {
-            $date = $earliestPivot instanceof \DateTimeInterface
-                ? $earliestPivot->format('Y-m-d')
-                : (string) $earliestPivot;
-            // sicherheitshalber auf YYYY-MM-DD normalisieren
-            try {
-                $date = \Carbon\Carbon::parse($date)->toDateString();
-                return ['date' => $date, 'source' => 'pivot'];
-            } catch (\Throwable) {}
+        if (!$earliest) {
+            return null;
         }
 
-        // Fallback: created_at
-        if ($applicant->created_at) {
-            return ['date' => $applicant->created_at->toDateString(), 'source' => 'created_at'];
+        try {
+            return \Carbon\Carbon::parse(
+                $earliest instanceof \DateTimeInterface
+                    ? $earliest->format('Y-m-d')
+                    : (string) $earliest
+            )->toDateString();
+        } catch (\Throwable) {
+            return null;
         }
-
-        return null;
     }
 }
