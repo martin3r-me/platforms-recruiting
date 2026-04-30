@@ -41,6 +41,7 @@ class Dashboard extends Component
     {
         $query = RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->routed()
+            ->withoutImports()
             ->where('is_active', true)
             ->whereNull('rejected_at');
 
@@ -211,6 +212,7 @@ class Dashboard extends Component
 
         $query = RecApplicant::forTeam($teamId)
             ->routed()
+            ->withoutImports()
             ->where('is_active', true)
             ->where('is_parked', false)
             ->where('is_on_hr_desk', false)
@@ -454,6 +456,7 @@ class Dashboard extends Component
     {
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->routed()
+            ->withoutImports()
             ->where('is_on_hr_desk', true)
             ->count();
     }
@@ -463,6 +466,7 @@ class Dashboard extends Component
     {
         return RecApplicant::forTeam(auth()->user()->currentTeam->id)
             ->unrouted()
+            ->withoutImports()
             ->count();
     }
 
@@ -559,6 +563,7 @@ class Dashboard extends Component
 
         $applicantQuery = RecApplicant::forTeam($teamId)
             ->routed()
+            ->withoutImports()
             ->whereNotNull('applied_at')
             ->whereHas('contracts', fn ($q) => $q->whereNotNull('signed_at'));
 
@@ -615,6 +620,7 @@ class Dashboard extends Component
         // 1) AutoPilot stuck — Bewerber > 5 Tage im AutoPilot ohne Abschluss
         $autoPilotStuck = RecApplicant::forTeam($teamId)
             ->routed()
+            ->withoutImports()
             ->where('is_active', true)
             ->whereNull('rejected_at')
             ->where('auto_pilot', true)
@@ -633,6 +639,7 @@ class Dashboard extends Component
 
         $interviewWithoutContract = RecApplicant::forTeam($teamId)
             ->routed()
+            ->withoutImports()
             ->where('is_active', true)
             ->whereNull('rejected_at')
             ->whereIn('id', $bookingApplicantIds)
@@ -640,11 +647,14 @@ class Dashboard extends Component
             ->count();
 
         // 3) Vertrag versendet, nicht unterschrieben (sent_at > 3 Tage)
+        //    Imports rausfiltern: Altbestand-Bewerber sollen nicht in den
+        //    Recruiting-Stuck-Indikatoren auftauchen.
         $contractSentNotSigned = RecContract::query()
             ->where('team_id', $teamId)
             ->whereNotNull('sent_at')
             ->whereNull('signed_at')
             ->where('sent_at', '<=', $cutoff3)
+            ->whereHas('applicant', fn ($q) => $q->withoutImports())
             ->distinct('rec_applicant_id')
             ->count('rec_applicant_id');
 

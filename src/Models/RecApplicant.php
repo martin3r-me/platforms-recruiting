@@ -227,6 +227,22 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $query->where('is_unrouted', true);
     }
 
+    /**
+     * Schließt CSV-/Bulk-Importe aus — nutze diesen Scope auf allen
+     * Recruiting-KPI- und Funnel-Queries (Dashboard, Time-to-Hire,
+     * Conversion, Stuck-Indikatoren). Imports waren bereits Mitarbeiter
+     * und durchlaufen den Funnel nicht — sie würden Zahlen verwässern.
+     */
+    public function scopeWithoutImports($query)
+    {
+        return $query->whereNull('import_source');
+    }
+
+    public function scopeOnlyImports($query)
+    {
+        return $query->whereNotNull('import_source');
+    }
+
     public function checkAutoPilotCompletion(): void
     {
         if (!$this->auto_pilot || $this->auto_pilot_completed_at !== null) {

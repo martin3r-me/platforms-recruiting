@@ -62,6 +62,11 @@
                                                 @if($applicant->is_active)
                                                     <span class="w-2 h-2 bg-green-500 rounded-full"></span>
                                                 @endif
+                                                @if($applicant->import_source)
+                                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200" title="Altbestand-Import — fließt nicht in Recruiting-KPIs ein">
+                                                        Import
+                                                    </span>
+                                                @endif
                                             </div>
                                             @if($positions->isNotEmpty())
                                                 <div class="flex flex-wrap gap-1">
