@@ -125,6 +125,21 @@ class HandleCommsInboundForRecruiting
                     $applicant->source_platform_id = $source->id;
                     $applicant->is_unrouted = false;
                 } else {
+                    // TEMP DIAG — entfernen sobald Ursache gefunden
+                    Log::warning('[Recruiting] SourcePlatform-Match fehlgeschlagen', [
+                        'mail_id' => $mail->id,
+                        'applicant_id' => $applicant->id,
+                        'sender_raw' => $senderRaw,
+                        'sender_raw_length' => strlen($senderRaw),
+                        'sender_raw_bytes_hex' => bin2hex($senderRaw),
+                        'channel_id' => $channel->id,
+                        'channel_team_id' => $channel->team_id,
+                        'available_patterns' => RecSourcePlatform::where('team_id', $channel->team_id)
+                            ->where('is_active', true)
+                            ->get(['id', 'name', 'match_pattern', 'priority'])
+                            ->toArray(),
+                    ]);
+
                     $applicant->is_unrouted = true;
                     $applicant->enrichment_status = 'unrouted';
                 }
