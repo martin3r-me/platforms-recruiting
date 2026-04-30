@@ -148,6 +148,7 @@
             ],
             'Bewerber' => [
                 'applicant.source_position_title' => 'Stellenbezeichnung',
+                'applicant.extra_field.geburtsort' => 'Geburtsort',
             ],
             'Meta' => [
                 'meta.datum_heute' => 'Datum heute',
