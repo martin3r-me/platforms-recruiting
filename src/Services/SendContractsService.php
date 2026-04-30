@@ -127,22 +127,20 @@ class SendContractsService
                 ]);
             }
 
-            // 3) Vertragslaufzeit als Extra-Fields auf beide Verträge schreiben
-            //    (sofern übergeben). Auto-Calc für vertragsende ist bereits
-            //    in $resolvedDates erledigt.
+            // 3) Vertragslaufzeit als Extra-Fields nur auf den AV-Vertrag
+            //    schreiben — IFSG ist eine eigenständige Erklärung und hat
+            //    semantisch nichts mit der AV-Laufzeit zu tun.
             if ($resolvedDates['vertragsbeginn'] || $resolvedDates['vertragsende']) {
-                foreach (array_filter([$avContract, $ifsgContract]) as $contract) {
-                    if ($resolvedDates['vertragsbeginn']) {
-                        $contract->setExtraField('vertragsbeginn', $resolvedDates['vertragsbeginn']);
-                    }
-                    if ($resolvedDates['vertragsende']) {
-                        $contract->setExtraField('vertragsende', $resolvedDates['vertragsende']);
-                    }
-                    if ($contract->contractTemplate) {
-                        $contract->personalized_content = $contract->contractTemplate
-                            ->personalizeContent($applicant, $contract);
-                        $contract->save();
-                    }
+                if ($resolvedDates['vertragsbeginn']) {
+                    $avContract->setExtraField('vertragsbeginn', $resolvedDates['vertragsbeginn']);
+                }
+                if ($resolvedDates['vertragsende']) {
+                    $avContract->setExtraField('vertragsende', $resolvedDates['vertragsende']);
+                }
+                if ($avContract->contractTemplate) {
+                    $avContract->personalized_content = $avContract->contractTemplate
+                        ->personalizeContent($applicant, $avContract);
+                    $avContract->save();
                 }
             }
 
