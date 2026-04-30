@@ -45,6 +45,7 @@ class ImportApplicantsCsvService
      *   skipped_existing: int,
      *   skipped_incompl: int,
      *   details: array<int, array{action: string, row: int, name: string, note?: string}>,
+     *   imported_applicant_ids: array<int, int>,
      *   errors: array<int, array{row: int, name: string, message: string}>,
      *   fatal: ?string
      * }
@@ -52,18 +53,23 @@ class ImportApplicantsCsvService
      * details[].action ∈ {imported, skipped_existing, skipped_dup}
      * skipped_incompl wird absichtlich nicht in details gelogged — das sind
      * meist Header-/Marker-/Leerzeilen und würden nur Lärm produzieren.
+     *
+     * imported_applicant_ids enthält nur tatsächlich angelegte Bewerber
+     * (also nicht im Dry-Run-Mode); wird vom Bewerber-Liste-Modal genutzt
+     * um direkt nach dem Import in eine Schulung buchen zu können.
      */
     public function importFromFile(string $filepath, int $teamId, bool $dryRun = false, int $limit = 0): array
     {
         $result = [
-            'parsed'           => 0,
-            'imported'         => 0,
-            'skipped_dup'      => 0,
-            'skipped_existing' => 0,
-            'skipped_incompl'  => 0,
-            'details'          => [],
-            'errors'           => [],
-            'fatal'            => null,
+            'parsed'                 => 0,
+            'imported'               => 0,
+            'skipped_dup'            => 0,
+            'skipped_existing'       => 0,
+            'skipped_incompl'        => 0,
+            'details'                => [],
+            'imported_applicant_ids' => [],
+            'errors'                 => [],
+            'fatal'                  => null,
         ];
 
         if (!is_file($filepath) || !is_readable($filepath)) {
@@ -169,7 +175,7 @@ class ImportApplicantsCsvService
             }
 
             try {
-                DB::transaction(function () use (
+                $newApplicantId = DB::transaction(function () use (
                     $existingContact, $first, $last, $birthDate, $birthPlace,
                     $street, $houseNr, $postal, $city,
                     $teamId, $createdByUserId, $addressTypeId
@@ -216,16 +222,19 @@ class ImportApplicantsCsvService
                     if ($birthPlace !== '') {
                         $applicant->setExtraField('geburtsort', $birthPlace);
                     }
+
+                    return $applicant->id;
                 });
 
                 $result['imported']++;
+                $result['imported_applicant_ids'][] = $newApplicantId;
                 $result['details'][] = [
                     'action' => 'imported',
                     'row'    => $rowNo,
                     'name'   => $displayName,
                     'note'   => $existingContact
-                        ? "Contact #{$existingContact->id} wiederverwendet, neuer Bewerber angelegt"
-                        : 'Contact + Bewerber neu angelegt',
+                        ? "Contact #{$existingContact->id} wiederverwendet, neuer Bewerber #{$newApplicantId} angelegt"
+                        : "Contact + Bewerber #{$newApplicantId} neu angelegt",
                 ];
             } catch (\Throwable $e) {
                 $result['errors'][] = [

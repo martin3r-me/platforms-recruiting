@@ -13,6 +13,8 @@ use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecAutoPilotState;
+use Platform\Recruiting\Models\RecInterview;
+use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
@@ -31,6 +33,11 @@ class Index extends Component
     public bool $importDryRun = true;
     public ?array $importResult = null; // Stats nach Run
     public bool $importRunning = false;
+
+    // Optional Schulungs-Buchung nach Import
+    public ?int $importBookingInterviewId = null;
+    public ?string $importBookingMessage = null;
+    public ?string $importBookingError = null;
 
     // Search & Filters
     public $search = '';
@@ -427,6 +434,9 @@ class Index extends Component
         $this->importDryRun = true;
         $this->importResult = null;
         $this->importRunning = false;
+        $this->importBookingInterviewId = null;
+        $this->importBookingMessage = null;
+        $this->importBookingError = null;
         $this->showImportModal = true;
     }
 
@@ -436,6 +446,9 @@ class Index extends Component
         $this->importFile = null;
         $this->importResult = null;
         $this->importRunning = false;
+        $this->importBookingInterviewId = null;
+        $this->importBookingMessage = null;
+        $this->importBookingError = null;
     }
 
     public function runImport(ImportApplicantsCsvService $service): void
@@ -451,6 +464,9 @@ class Index extends Component
         }
 
         $this->importRunning = true;
+        $this->importBookingMessage = null;
+        $this->importBookingError = null;
+        $this->importBookingInterviewId = null;
         try {
             $path = $this->importFile->getRealPath();
             $this->importResult = $service->importFromFile($path, $teamId, $this->importDryRun);
@@ -472,5 +488,106 @@ class Index extends Component
         if (!$this->importDryRun && empty($this->importResult['fatal']) && ($this->importResult['imported'] ?? 0) > 0) {
             unset($this->applicants);
         }
+    }
+
+    /**
+     * Schulungs-Termine die nach einem Import als Buchungs-Ziel angeboten
+     * werden — aktive Termine im aktuellen Team mit starts_at heute oder
+     * später, sortiert chronologisch. Stelle ist egal weil Imports
+     * ohnehin den Stellen-Filter bypassen (siehe InterviewBookings\Index).
+     */
+    #[Computed]
+    public function availableImportInterviews()
+    {
+        $teamId = (int) auth()->user()->current_team_id;
+        if ($teamId <= 0) {
+            return collect();
+        }
+
+        return RecInterview::where('team_id', $teamId)
+            ->where('is_active', true)
+            ->where('starts_at', '>=', now()->startOfDay())
+            ->orderBy('starts_at')
+            ->with('position')
+            ->get();
+    }
+
+    /**
+     * Bucht alle frisch importierten Bewerber in den ausgewählten
+     * Schulungs-Termin. Schutz gegen max_participants und gegen
+     * Doppel-Buchung (Bewerber hatte unwahrscheinlicherweise schon
+     * eine andere aktive Buchung).
+     */
+    public function bookImportedIntoInterview(): void
+    {
+        $this->importBookingMessage = null;
+        $this->importBookingError = null;
+
+        $ids = $this->importResult['imported_applicant_ids'] ?? [];
+        if (empty($ids)) {
+            $this->importBookingError = 'Keine importierten Bewerber zum Buchen.';
+            return;
+        }
+
+        if (!$this->importBookingInterviewId) {
+            $this->importBookingError = 'Bitte einen Schulungs-Termin auswählen.';
+            return;
+        }
+
+        $teamId = (int) auth()->user()->current_team_id;
+        $interview = RecInterview::where('team_id', $teamId)
+            ->where('is_active', true)
+            ->find($this->importBookingInterviewId);
+
+        if (!$interview) {
+            $this->importBookingError = 'Schulungs-Termin nicht gefunden oder nicht aktiv.';
+            return;
+        }
+
+        // Kapazitäts-Check
+        if ($interview->max_participants) {
+            $current = RecInterviewBooking::where('rec_interview_id', $interview->id)
+                ->whereNotIn('status', ['cancelled'])
+                ->count();
+            $remaining = $interview->max_participants - $current;
+            if ($remaining < count($ids)) {
+                $this->importBookingError = sprintf(
+                    'Termin hat nicht genug Plätze (frei: %d, benötigt: %d). Buchung abgebrochen.',
+                    $remaining,
+                    count($ids),
+                );
+                return;
+            }
+        }
+
+        $booked = 0;
+        $skipped = 0;
+
+        foreach ($ids as $applicantId) {
+            $alreadyBooked = RecInterviewBooking::where('rec_applicant_id', $applicantId)
+                ->whereNotIn('status', ['cancelled'])
+                ->exists();
+            if ($alreadyBooked) {
+                $skipped++;
+                continue;
+            }
+
+            RecInterviewBooking::create([
+                'rec_interview_id'   => $interview->id,
+                'rec_applicant_id'   => $applicantId,
+                'status'             => 'registered',
+                'booked_at'          => now(),
+                'team_id'            => $teamId,
+                'created_by_user_id' => auth()->id(),
+            ]);
+            $booked++;
+        }
+
+        $msg = "{$booked} Bewerber gebucht in Schulung „{$interview->title}".'"';
+        if ($skipped > 0) {
+            $msg .= " ({$skipped} übersprungen — bereits anderweitig gebucht)";
+        }
+        $this->importBookingMessage = $msg;
+        $this->importBookingInterviewId = null;
     }
 }

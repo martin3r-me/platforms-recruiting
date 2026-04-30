@@ -325,6 +325,70 @@
                         @endif
                     @endif
                 </div>
+
+                {{-- Optional: importierte direkt in Schulung buchen --}}
+                @php
+                    $importedIds = $importResult['imported_applicant_ids'] ?? [];
+                    $canBook = !$importDryRun
+                        && empty($importResult['fatal'] ?? null)
+                        && count($importedIds) > 0;
+                @endphp
+                @if($canBook)
+                    <div class="p-3 rounded-lg border border-blue-200 bg-blue-50 text-sm space-y-3">
+                        <p class="font-semibold text-blue-700">
+                            Optional: {{ count($importedIds) }} importierte Bewerber direkt in eine Schulung buchen?
+                        </p>
+
+                        @if($importBookingMessage)
+                            <p class="text-emerald-700 text-[13px]">{{ $importBookingMessage }}</p>
+                        @endif
+                        @if($importBookingError)
+                            <p class="text-red-700 text-[13px]">{{ $importBookingError }}</p>
+                        @endif
+
+                        @if(!$importBookingMessage)
+                            @php
+                                $interviews = $this->availableImportInterviews;
+                            @endphp
+                            @if($interviews->isEmpty())
+                                <p class="text-[var(--ui-muted)] text-[13px]">Keine zukünftigen Schulungs-Termine im Team verfügbar.</p>
+                            @else
+                                <div class="flex items-end gap-2">
+                                    <div class="flex-1">
+                                        <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Schulung</label>
+                                        <select
+                                            wire:model.live="importBookingInterviewId"
+                                            class="w-full rounded-md border border-[var(--ui-border)] px-3 py-2 text-sm bg-white"
+                                        >
+                                            <option value="">— Schulung wählen —</option>
+                                            @foreach($interviews as $iv)
+                                                <option value="{{ $iv->id }}">
+                                                    {{ $iv->starts_at?->format('d.m.Y H:i') }} — {{ $iv->title }}
+                                                    @if($iv->position) ({{ $iv->position->title }}) @endif
+                                                    @if($iv->max_participants)
+                                                        · max {{ $iv->max_participants }}
+                                                    @endif
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <x-ui-button
+                                        type="button"
+                                        variant="primary"
+                                        size="sm"
+                                        wire:click="bookImportedIntoInterview"
+                                        wire:loading.attr="disabled"
+                                        wire:target="bookImportedIntoInterview"
+                                        @disabled(!$importBookingInterviewId)
+                                    >
+                                        <span wire:loading.remove wire:target="bookImportedIntoInterview">In Schulung buchen</span>
+                                        <span wire:loading wire:target="bookImportedIntoInterview">Bucht…</span>
+                                    </x-ui-button>
+                                </div>
+                            @endif
+                        @endif
+                    </div>
+                @endif
             @endif
         </div>
         <x-slot name="footer">
