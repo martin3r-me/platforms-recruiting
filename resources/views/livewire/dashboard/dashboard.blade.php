@@ -4,7 +4,13 @@
         <x-ui-page-navbar icon="heroicon-o-briefcase">
             <x-slot name="title">
                 <span class="flex items-center gap-2">
-                    {{ $this->showParked ? 'Geparkte Bewerber' : 'Recruiting Dashboard' }}
+                    @if($this->showHrDesk)
+                        HR-Schreibtisch
+                    @elseif($this->showParked)
+                        Geparkte Bewerber
+                    @else
+                        Recruiting Dashboard
+                    @endif
                     <span class="relative flex h-2.5 w-2.5" title="Live-Updates aktiv">
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                         <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
@@ -17,7 +23,7 @@
     <x-slot name="actionbar">
         <x-ui-page-actionbar :breadcrumbs="[
             ['label' => 'Recruiting', 'icon' => 'briefcase'],
-            ['label' => $this->showParked ? 'Geparkt' : 'Dashboard'],
+            ['label' => $this->showHrDesk ? 'HR-Schreibtisch' : ($this->showParked ? 'Geparkt' : 'Dashboard')],
         ]">
             <x-slot name="left">
                 <select wire:model.live="positionFilter"
@@ -63,6 +69,37 @@
     </x-slot>
 
     <x-ui-page-container spacing="space-y-8">
+        {{-- HR-Schreibtisch: Filter-Buttons pro Reason --}}
+        @if($this->showHrDesk)
+            @php $hrCounts = $this->hrDeskReasonCounts; @endphp
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm text-[var(--ui-muted)] mr-1">Filter:</span>
+                <button
+                    wire:click="$set('hrDeskReasonFilter', 'all')"
+                    class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors
+                        {{ $this->hrDeskReasonFilter === 'all'
+                            ? 'bg-[var(--ui-primary)] text-white border-[var(--ui-primary)]'
+                            : 'bg-white text-[var(--ui-secondary)] border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]' }}"
+                >
+                    Alle <span class="ml-1 opacity-70">({{ $hrCounts['all'] ?? 0 }})</span>
+                </button>
+                @foreach(\Platform\Recruiting\Models\RecHrDeskCase::REASON_LABELS as $reason => $label)
+                    @php $count = $hrCounts[$reason] ?? 0; @endphp
+                    <button
+                        wire:click="$set('hrDeskReasonFilter', '{{ $reason }}')"
+                        @disabled($count === 0 && $this->hrDeskReasonFilter !== $reason)
+                        class="px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors
+                            {{ $this->hrDeskReasonFilter === $reason
+                                ? 'bg-[var(--ui-primary)] text-white border-[var(--ui-primary)]'
+                                : 'bg-white text-[var(--ui-secondary)] border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]' }}
+                            {{ $count === 0 && $this->hrDeskReasonFilter !== $reason ? 'opacity-50 cursor-not-allowed' : '' }}"
+                    >
+                        {{ $label }} <span class="ml-1 opacity-70">({{ $count }})</span>
+                    </button>
+                @endforeach
+            </div>
+        @endif
+
         {{-- Stuck-Indikatoren (Block C) --}}
         @if(!$this->showParked)
             @php $stuck = $this->stuckCounts; @endphp
