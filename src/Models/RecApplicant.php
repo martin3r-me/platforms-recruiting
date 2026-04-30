@@ -517,6 +517,199 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Schickt das WhatsApp-„Vertrags-Portal"-Template an den Bewerber.
+     *
+     * Nutzt das team-weite Setting `contract_wa_template_id` (+
+     * `contract_wa_account_id`) aus RecApplicantSettings — gleiches Setting
+     * das HR im UI nutzt wenn sie auf „Portal per WhatsApp senden" klicken.
+     *
+     * Wird von zwei Stellen aufgerufen:
+     *  - Show::sendApplicantPortalViaWhatsApp() → manuelle HR-Aktion
+     *  - SendContractsService::send() → automatisch nach Vertrags-Versand
+     *    durch SL in der Schulungsnachbereitung
+     *
+     * Der Portal-Link wird als URL-Button-Parameter (= Token, nicht volle
+     * URL) übergeben — Template enthält im URL eine `{{1}}`-Variable die
+     * dynamisch durch den Token ersetzt wird.
+     *
+     * @return array{ok: bool, message: ?string}
+     */
+    public function sendContractPortalNotification(): array
+    {
+        try {
+            $this->loadMissing(['crmContactLinks.contact.phoneNumbers', 'contracts.contractTemplate']);
+
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+            $templateId = $teamSettings->getSetting('contract_wa_template_id');
+            $accountId = $teamSettings->getSetting('contract_wa_account_id');
+
+            if (!$templateId) {
+                return ['ok' => false, 'message' => 'Kein contract_wa_template_id-Setting konfiguriert.'];
+            }
+
+            if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+                return ['ok' => false, 'message' => 'WhatsApp-Integrations-Modul nicht verfügbar.'];
+            }
+
+            $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
+            if (!$template || $template->status !== 'APPROVED') {
+                return ['ok' => false, 'message' => 'Template nicht gefunden oder nicht genehmigt.'];
+            }
+
+            // Account-Fallback: wenn nicht gesetzt, vom Template ableiten
+            if (!$accountId) {
+                $accountId = $template->whatsapp_account_id;
+            }
+
+            if (!$accountId || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+                return ['ok' => false, 'message' => 'Kein WhatsApp-Account konfiguriert.'];
+            }
+
+            $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($accountId);
+            if (!$account || !$account->active) {
+                return ['ok' => false, 'message' => 'WhatsApp-Account nicht aktiv.'];
+            }
+
+            $channel = \Platform\Crm\Models\CommsChannel::where('type', 'whatsapp')
+                ->where('is_active', true)
+                ->where('sender_identifier', $account->phone_number)
+                ->first();
+
+            if (!$channel) {
+                return ['ok' => false, 'message' => 'Kein aktiver WhatsApp-Kanal für den Account.'];
+            }
+
+            $phoneNumber = null;
+            foreach ($this->crmContactLinks as $link) {
+                $contact = $link->contact;
+                if (!$contact) continue;
+                $phoneNumber = $contact->phoneNumbers
+                    ->where('is_active', true)
+                    ->where('is_primary', true)
+                    ->whereNotNull('international')
+                    ->first();
+                if (!$phoneNumber) {
+                    $phoneNumber = $contact->phoneNumbers
+                        ->where('is_active', true)
+                        ->whereNotNull('international')
+                        ->first();
+                }
+                if ($phoneNumber) break;
+            }
+
+            if (!$phoneNumber) {
+                return ['ok' => false, 'message' => 'Keine Telefonnummer am CRM-Kontakt.'];
+            }
+
+            $portalLink = $this->getOrCreatePublicFormLink();
+            $contactName = $this->getContact()?->full_name ?? 'Bewerber/in';
+
+            $contractNames = $this->contracts
+                ->filter(fn ($c) => in_array($c->status, ['sent', 'in_progress', 'pending']))
+                ->map(fn ($c) => $c->contractTemplate?->name ?? 'Vertrag')
+                ->implode(', ');
+            if ($contractNames === '') {
+                $contractNames = 'Ihre Verträge';
+            }
+
+            $variableValues = [
+                'candidate_name' => $contactName,
+                'name' => $contactName,
+                'vorname' => $contactName,
+                'portal_link' => route('recruiting.public.applicant-portal', ['token' => $portalLink->token]),
+                'contract_names' => $contractNames,
+            ];
+
+            $variableMapping = $teamSettings->getSetting('contract_wa_template_variables', []);
+            $autoMapDefaults = ['candidate_name', 'portal_link', 'contract_names'];
+
+            $components = [];
+            $bodyParams = [];
+            foreach ($template->components ?? [] as $component) {
+                if (($component['type'] ?? '') !== 'BODY') continue;
+                $text = $component['text'] ?? '';
+                $examplesByName = [];
+                foreach ($component['example']['body_text_named_params'] ?? [] as $np) {
+                    $examplesByName[$np['param_name']] = $np['example'] ?? '';
+                }
+                $positionalExamples = $component['example']['body_text'][0] ?? [];
+                preg_match_all('/\{\{(\w+)\}\}/', $text, $matches);
+                foreach ($matches[1] as $i => $paramName) {
+                    $bodyParams[] = [
+                        'name' => $paramName,
+                        'example' => $examplesByName[$paramName] ?? $positionalExamples[$i] ?? '',
+                        'index' => $i,
+                    ];
+                }
+            }
+
+            if (!empty($bodyParams)) {
+                $bodyParameters = [];
+                foreach ($bodyParams as $param) {
+                    $sourceKey = $variableMapping[$param['name']]
+                        ?? ($autoMapDefaults[$param['index']] ?? null);
+                    $value = $sourceKey ? ($variableValues[$sourceKey] ?? '') : '';
+                    if ($value === '') {
+                        // Fallback auf direkten Match nach Variable-Name
+                        $value = $variableValues[strtolower($param['name'])] ?? $param['example'] ?? '';
+                    }
+                    $entry = ['type' => 'text', 'text' => (string) $value];
+                    if (!is_numeric($param['name'])) {
+                        $entry['parameter_name'] = $param['name'];
+                    }
+                    $bodyParameters[] = $entry;
+                }
+                $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
+            }
+
+            $hasUrlButton = collect($template->components ?? [])
+                ->where('type', 'BUTTONS')
+                ->flatMap(fn ($c) => $c['buttons'] ?? [])
+                ->contains('type', 'URL');
+
+            if ($hasUrlButton) {
+                $components[] = [
+                    'type' => 'button',
+                    'sub_type' => 'url',
+                    'index' => 0,
+                    'parameters' => [['type' => 'text', 'text' => $portalLink->token]],
+                ];
+            }
+
+            $service = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class);
+            $message = $service->sendTemplate(
+                channel: $channel,
+                to: $phoneNumber->international,
+                templateName: $template->name,
+                components: $components,
+                languageCode: $template->language,
+            );
+
+            if ($thread = $message->thread ?? null) {
+                $thread->addContext($this->getMorphClass(), $this->id, 'contract_portal_send');
+            }
+
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'contract_portal_sent',
+                'summary' => "Vertrags-Portal per WhatsApp an {$phoneNumber->international} gesendet.",
+            ]);
+
+            return ['ok' => true, 'message' => "An {$phoneNumber->international} gesendet."];
+        } catch (\Throwable $e) {
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => 'error',
+                    'summary' => 'Vertrags-Portal WA-Fehler: ' . $e->getMessage(),
+                ]);
+            } catch (\Throwable) {}
+
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
      * True wenn das Feld in der aktuellen Phase als required gilt — entweder
      * über das normale is_required-Flag oder über den Phase-Override
      * options.required_in_phase_ids (Array von rec_phase IDs).

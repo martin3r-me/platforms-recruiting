@@ -130,8 +130,18 @@ class SendContractsService
                 }
             }
 
-            // 4) AutoPilot-Phase-Check: Phase wandert nach "Vertrag unterschreiben"
+            // 4) WhatsApp-Portal-Notification an den Bewerber. Nutzt das
+            //    team-weite contract_wa_template_id-Setting aus den
+            //    Bewerber-Einstellungen — gleiches Template wie wenn HR
+            //    im Bewerber-Show "Portal per WhatsApp senden" klickt.
+            //    Ergebnis wird nicht hart ausgewertet; Vertragsversand
+            //    soll auch dann durchlaufen wenn die WA-Konfig (z.B. ein
+            //    abgelaufenes Template) gerade nicht greift — HR sieht's
+            //    dann im RecAutoPilotLog.
             $applicant->refresh();
+            $applicant->sendContractPortalNotification();
+
+            // 5) AutoPilot-Phase-Check: Phase wandert nach "Vertrag unterschreiben"
             $applicant->checkAutoPilotCompletion();
 
             return [

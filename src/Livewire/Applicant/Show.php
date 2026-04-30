@@ -941,100 +941,19 @@ class Show extends Component
 
     private function sendApplicantPortalViaWhatsApp(int $templateId, int $accountId): void
     {
-        $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
-        if (!$template || $template->status !== 'APPROVED') {
-            session()->flash('error', 'WhatsApp-Template nicht gefunden oder nicht genehmigt.');
-            return;
-        }
+        // Delegiert an die zentrale Method auf RecApplicant — gleiche Logik
+        // wird auch vom SendContractsService bei SL-„Verträge versenden"
+        // genutzt. Lokale Settings-Lookups in dieser Method werden ignoriert
+        // (passiert eh innerhalb der Model-Method).
+        $result = $this->applicant->sendContractPortalNotification();
 
-        $phoneNumber = $this->findApplicantPhoneNumber();
-        if (!$phoneNumber) {
-            session()->flash('error', 'Kein Kontakt mit Telefonnummer gefunden.');
-            return;
-        }
-
-        $channel = $this->resolveWhatsAppChannel($accountId);
-        if (!$channel) {
-            session()->flash('error', 'Kein aktiver WhatsApp-Kanal für den konfigurierten Account.');
-            return;
-        }
-
-        $link = $this->applicant->getOrCreatePublicFormLink();
-        $portalUrl = route('recruiting.public.applicant-portal', ['token' => $link->token]);
-
-        $primaryContact = $this->applicant->crmContactLinks->first()?->contact;
-        $contractNames = $this->applicant->contracts
-            ->filter(fn ($c) => in_array($c->status, ['sent', 'in_progress']))
-            ->map(fn ($c) => $c->contractTemplate?->name ?? 'Vertrag')
-            ->implode(', ');
-
-        $variableValues = [
-            'candidate_name' => $primaryContact?->full_name ?? '',
-            'portal_link' => $portalUrl,
-            'contract_names' => $contractNames ?: 'Ihre Verträge',
-        ];
-
-        $components = [];
-        $bodyParams = $this->parseTemplateBodyParams($template->components ?? []);
-        $settings = RecApplicantSettings::getOrCreateForTeam($this->applicant->team_id);
-        $variableMapping = $settings->getSetting('contract_wa_template_variables', []);
-
-        if (!empty($bodyParams)) {
-            $autoMapDefaults = ['candidate_name', 'portal_link', 'contract_names'];
-            $bodyParameters = [];
-            foreach ($bodyParams as $i => $param) {
-                $sourceKey = $variableMapping[$param['name']] ?? ($autoMapDefaults[$i] ?? null);
-                $value = $sourceKey ? ($variableValues[$sourceKey] ?? '') : '';
-                $entry = ['type' => 'text', 'text' => (string) $value];
-                if (!is_numeric($param['name'])) {
-                    $entry['parameter_name'] = $param['name'];
-                }
-                $bodyParameters[] = $entry;
-            }
-            $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
-        }
-
-        $hasUrlButton = false;
-        foreach ($template->components ?? [] as $comp) {
-            if (($comp['type'] ?? '') === 'BUTTONS') {
-                foreach ($comp['buttons'] ?? [] as $btn) {
-                    if (($btn['type'] ?? '') === 'URL') {
-                        $hasUrlButton = true;
-                        break 2;
-                    }
-                }
-            }
-        }
-        if ($hasUrlButton) {
-            $components[] = [
-                'type' => 'button',
-                'sub_type' => 'url',
-                'index' => 0,
-                'parameters' => [['type' => 'text', 'text' => $link->token]],
-            ];
-        }
-
-        try {
-            $service = app(WhatsAppMetaService::class);
-            $message = $service->sendTemplate(
-                channel: $channel,
-                to: $phoneNumber->international,
-                templateName: $template->name,
-                components: $components,
-                languageCode: $template->language,
-                sender: auth()->user(),
-            );
-
-            $thread = $message->thread ?? null;
-            if ($thread) {
-                $thread->addContext($this->applicant->getMorphClass(), $this->applicant->id, 'portal_send');
-            }
-
+        if ($result['ok']) {
             $this->applicant->load('contracts.contractTemplate');
-            $this->portalLinkUrl = $portalUrl;
-            session()->flash('message', "Portal-Link per WhatsApp an {$phoneNumber->international} gesendet.");
-        } catch (\Throwable $e) {
-            session()->flash('error', 'WhatsApp-Versand fehlgeschlagen: ' . $e->getMessage());
+            $link = $this->applicant->getOrCreatePublicFormLink();
+            $this->portalLinkUrl = route('recruiting.public.applicant-portal', ['token' => $link->token]);
+            session()->flash('message', 'Portal-Link per WhatsApp gesendet. ' . ($result['message'] ?? ''));
+        } else {
+            session()->flash('error', 'WhatsApp-Versand fehlgeschlagen: ' . ($result['message'] ?? 'unbekannt'));
         }
     }
 
