@@ -96,7 +96,31 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function extraFieldParents(): array
     {
         $phase = $this->phase;
+
         if (!$phase) {
+            // CSV-/Bulk-Imports haben keine Phase, brauchen aber Zugriff auf
+            // alle Team-weit definierten Personenstamm-Extra-Felder
+            // (geburtsort, IBAN, sozialversicherungsnummer, …) — sonst kann
+            // weder der Import-Service setExtraField() schreiben noch der
+            // Vertrags-Resolver applicant.extra_field.X lesen, und HR sieht
+            // die Felder im Bewerber-Detail-Modal nicht.
+            //
+            // Special-Case bewusst eingegrenzt durch import_source IS NOT NULL —
+            // normale phase-lose Bewerber (gibt's eigentlich nicht, aber
+            // defensiv) kriegen weiter ein leeres Array.
+            //
+            // Hinweis: dass alle aktiven Team-Phasen zurueckgegeben werden ist
+            // streng genommen kein "Parent"-Verhaeltnis im Sinne der Phase-
+            // Order-Hierarchie — gerechtfertigt ist's nur weil Imports keinen
+            // Phase-Pfad haben. Sauberer Refactor (Personenstamm-Felder auf
+            // Team-Context) ist als separate Aufgabe geplant.
+            if ($this->import_source) {
+                return RecPhase::forTeam($this->team_id)
+                    ->active()
+                    ->orderBy('order')
+                    ->get()
+                    ->all();
+            }
             return [];
         }
 
