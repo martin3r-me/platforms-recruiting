@@ -39,7 +39,7 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 ],
                 'rec_applicant_status_id' => [
                     'type' => 'integer',
-                    'description' => 'Optional: neuer Bewerbungsstatus. Nutze "recruiting.lookup.GET" mit lookup=applicant_statuses.',
+                    'description' => 'Optional: neuer Bewerbungsstatus (>0). Nutze "recruiting.lookup.GET" mit lookup=applicant_statuses. 0/leer = NICHT geaendert (bestehender Wert bleibt). Zum Loeschen UI verwenden.',
                 ],
                 'progress' => [
                     'type' => 'integer',
@@ -68,23 +68,23 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 ],
                 'owned_by_user_id' => [
                     'type' => 'integer',
-                    'description' => 'Optional: Owner des Bewerber-Datensatzes.',
+                    'description' => 'Optional: Owner des Bewerber-Datensatzes (>0). 0/leer = NICHT geaendert.',
                 ],
                 'auto_pilot_state_id' => [
                     'type' => 'integer',
-                    'description' => 'Optional: AutoPilot-State-ID. Nutze "recruiting.lookup.GET" mit lookup=auto_pilot_states.',
+                    'description' => 'Optional: AutoPilot-State-ID (>0). Nutze "recruiting.lookup.GET" mit lookup=auto_pilot_states. 0/leer = NICHT geaendert.',
                 ],
                 'auto_pilot_completed_at' => [
                     'type' => 'string',
-                    'description' => 'Optional: ISO-Datetime oder "now" um auto_pilot_completed_at zu setzen.',
+                    'description' => 'Optional: ISO-Datetime oder "now" um auto_pilot_completed_at zu setzen. Leerer String = NICHT geaendert (bestehender Wert bleibt).',
                 ],
                 'contract_template_id' => [
                     'type' => 'integer',
-                    'description' => 'Optional: Vertragsvorlage (rec_contract_templates.id), die dem Bewerber zugewiesen ist. Wird vom Schulungsleiter in der Schulungsnachbereitung gewählt — bestimmt welche AV-Variante (Zuschlag) bei "Vertrag versenden" erstellt wird. 0/null/leer = Auswahl entfernen.',
+                    'description' => 'Optional: Vertragsvorlage (rec_contract_templates.id, >0). Wird vom Schulungsleiter in der Schulungsnachbereitung gewählt — bestimmt welche AV-Variante (Zuschlag) bei "Vertrag versenden" erstellt wird. 0/leer = NICHT geaendert.',
                 ],
                 'rec_phase_id' => [
                     'type' => 'integer',
-                    'description' => 'Optional: Phasen-ID (rec_phases.id) auf die der Bewerber gesetzt werden soll. Muss zur Stelle des Bewerbers gehören, sonst wird der Wert verworfen. Hauptsächlich für Tests/Migrationen — der normale Flow läuft über AutoPilot/checkAutoPilotCompletion. 0/null/leer = entfernen.',
+                    'description' => 'Optional: Phasen-ID (rec_phases.id, >0) auf die der Bewerber gesetzt werden soll. Muss zur Stelle des Bewerbers gehören, sonst wird der Wert verworfen. Hauptsächlich für Tests/Migrationen — der normale Flow läuft über AutoPilot/checkAutoPilotCompletion. 0/leer = NICHT geaendert.',
                 ],
             ],
             'required' => ['applicant_id'],
@@ -143,22 +143,41 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
             // Wenn das Argument vorhanden ist, wird es ignoriert. Damit
             // bleibt der vom Inbound-Listener gesetzte Wert die Wahrheit.
 
+            // auto_pilot_completed_at:
+            //  - "now"        → setze auf now()
+            //  - leerer String → IGNORIEREN (OpenAI-Default, nicht eine
+            //    explizite Aufforderung zum Loeschen)
+            //  - sonst        → parse als Datetime und setze
+            //
+            // HR-User die das Feld leeren wollen, machen das ueber die UI —
+            // nicht via LLM-Tool. Das LLM hat keinen legitimen Grund den
+            // AutoPilot-Completed-Marker zu loeschen.
             if (array_key_exists('auto_pilot_completed_at', $arguments)) {
                 $val = trim((string) ($arguments['auto_pilot_completed_at'] ?? ''));
                 if ($val === 'now') {
                     $applicant->auto_pilot_completed_at = now();
-                } elseif ($val === '') {
-                    $applicant->auto_pilot_completed_at = null;
-                } else {
+                } elseif ($val !== '') {
                     try {
                         $applicant->auto_pilot_completed_at = \Carbon\Carbon::parse($val);
                     } catch (\Throwable $e) {
                         // Invalid datetime — ignore silently
                     }
                 }
+                // val === '' → KEINE Aenderung (war frueher null-set, was Bug war)
             }
 
-            // FK fields: validate existence before setting, 0/null/empty → null
+            // FK fields: 0/leer = IGNORIEREN (nicht null setzen).
+            //
+            // Hintergrund: OpenAI's Function-Calling fuellt Schema-Felder mit
+            // Defaults (integer → 0) wenn der LLM keinen expliziten Wert
+            // angibt. Frueher haben wir 0 als "loeschen" interpretiert, was
+            // dazu fuehrte dass jeder LLM-Update unintendiert FK-Felder
+            // genullt hat. Phase, Status, AutoPilot-State, Vertragsvorlage
+            // gingen alle versehentlich verloren.
+            //
+            // Neuer Vertrag: nur >0 = setzen, alles andere = ignorieren.
+            // HR-Manuelle Wegnahme passiert ueber die UI, nicht ueber das
+            // LLM-Tool.
             $fkFields = [
                 'auto_pilot_state_id' => \Platform\Recruiting\Models\RecAutoPilotState::class,
                 'rec_applicant_status_id' => \Platform\Recruiting\Models\RecApplicantStatus::class,
@@ -166,23 +185,17 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 'contract_template_id' => \Platform\Recruiting\Models\RecContractTemplate::class,
             ];
 
-            // rec_phase_id: special handling — must belong to the applicant's
-            // current position, otherwise we drop it silently to avoid
-            // putting the applicant into a foreign phase.
-            if (array_key_exists('rec_phase_id', $arguments)) {
-                $val = $arguments['rec_phase_id'];
-                if (is_numeric($val) && (int) $val > 0) {
-                    $phase = \Platform\Recruiting\Models\RecPhase::where('id', (int) $val)
-                        ->where('team_id', $teamId)
-                        ->first();
-                    if ($phase) {
-                        $applicantPositionIds = $applicant->postings()->pluck('rec_position_id')->unique();
-                        if ($applicantPositionIds->contains($phase->rec_position_id)) {
-                            $applicant->rec_phase_id = $phase->id;
-                        }
+            // rec_phase_id: zusaetzlich Position-Match-Check.
+            if (array_key_exists('rec_phase_id', $arguments) && is_numeric($arguments['rec_phase_id']) && (int) $arguments['rec_phase_id'] > 0) {
+                $val = (int) $arguments['rec_phase_id'];
+                $phase = \Platform\Recruiting\Models\RecPhase::where('id', $val)
+                    ->where('team_id', $teamId)
+                    ->first();
+                if ($phase) {
+                    $applicantPositionIds = $applicant->postings()->pluck('rec_position_id')->unique();
+                    if ($applicantPositionIds->contains($phase->rec_position_id)) {
+                        $applicant->rec_phase_id = $phase->id;
                     }
-                } else {
-                    $applicant->rec_phase_id = null;
                 }
             }
 
@@ -195,11 +208,9 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                     if ($modelClass::where('id', (int) $val)->exists()) {
                         $applicant->{$field} = (int) $val;
                     }
-                    // Invalid FK — ignore silently, don't break the update
-                } elseif ($field !== 'owned_by_user_id') {
-                    // Allow nulling FK fields except owned_by_user_id (would break AutoPilot)
-                    $applicant->{$field} = null;
+                    // Invalid FK (ID existiert nicht) — ignore silently
                 }
+                // 0/null/leer/non-numeric → KEINE Aenderung
             }
 
             $applicant->save();
