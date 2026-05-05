@@ -322,16 +322,17 @@ class ApplicantForm extends Component
         $messages = $this->getExtraFieldValidationMessages();
 
         // Phase-Override: Felder die in der aktuellen Phase via
-        // options.required_in_phase_ids als required gelten, kriegen die
+        // options.required_in_phase_orders als required gelten, kriegen die
         // 'required'-Validierung — auch wenn is_required=false ist.
         $applicant = $this->getApplicant();
         if ($applicant) {
-            $currentPhaseId = $applicant->rec_phase_id;
+            $applicant->loadMissing('phase');
+            $currentPhase = $applicant->phase;
             foreach ($this->extraFieldDefinitions as $def) {
                 if (!is_array($def) || !empty($def['is_required'])) {
                     continue; // schon required, nichts zu tun
                 }
-                if (!$applicant->isFieldRequiredInCurrentPhase($def, $currentPhaseId)) {
+                if (!$applicant->isFieldRequiredInCurrentPhase($def, $currentPhase)) {
                     continue;
                 }
                 $key = 'extraFieldValues.' . $def['id'];

@@ -753,39 +753,47 @@ class RecApplicant extends Model implements InheritsExtraFields
     /**
      * True wenn das Feld in der aktuellen Phase als required gilt — entweder
      * über das normale is_required-Flag oder über den Phase-Override
-     * options.required_in_phase_ids (Array von rec_phase IDs).
+     * options.required_in_phase_orders (Array von Phase-Ordnungszahlen,
+     * 1-basiert innerhalb der Position).
      *
-     * Beispiel-Nutzung: ein Feld kann in Phase 3 als optional definiert
-     * werden (is_required=false) und gleichzeitig options.required_in_phase_ids
-     * = [16] haben — dann wird's nur in Phase 16 (= "Letzte Daten") als
-     * Pflichtfeld behandelt. Bewerber gibt's einmal ein, der Wert lebt unter
-     * einer einzigen Definition, aber der Phasen-Abschluss-Check zwingt zur
-     * Eingabe spätestens in Phase 16.
+     * Beispiel-Nutzung: ein Feld kann in Phase 3 (Onboarding) als optional
+     * definiert werden (is_required=false) und gleichzeitig
+     * options.required_in_phase_orders = [6] haben — dann wird's nur in der
+     * Phase mit order=6 (= "Letzte Daten") als Pflichtfeld behandelt. Bewerber
+     * gibt's einmal ein, der Wert lebt unter einer einzigen Definition, aber
+     * der Phasen-Abschluss-Check zwingt zur Eingabe spätestens in Phase
+     * order=6.
+     *
+     * Warum order und nicht id? Beim Duplizieren einer Position (Stellen-
+     * Klon) werden neue Phase-Records mit neuen DB-IDs angelegt. Die
+     * Phase-Order bleibt aber stabil (Phase 6 in Sandbox = Phase 6 in
+     * Düsseldorf). Damit kann der options-JSON 1:1 mitgeklont werden ohne
+     * dass IDs remapped werden müssen.
      *
      * Nimmt sowohl Eloquent-Modelle als auch Arrays/Objekte mit gleicher
      * Struktur entgegen — damit funktioniert's auch im Form-Loading-Pfad.
      *
      * @param mixed $def Field-Definition (Model | object | array)
-     * @param int|null $currentPhaseId Phase-ID des Bewerbers
+     * @param RecPhase|null $currentPhase Phase des Bewerbers
      */
-    public function isFieldRequiredInCurrentPhase($def, ?int $currentPhaseId): bool
+    public function isFieldRequiredInCurrentPhase($def, ?RecPhase $currentPhase): bool
     {
         $isRequired = is_array($def) ? ($def['is_required'] ?? false) : ($def->is_required ?? false);
         if ($isRequired) {
             return true;
         }
 
-        if ($currentPhaseId === null) {
+        if ($currentPhase === null) {
             return false;
         }
 
         $options = is_array($def) ? ($def['options'] ?? null) : ($def->options ?? null);
-        $overridePhaseIds = $options['required_in_phase_ids'] ?? [];
-        if (!is_array($overridePhaseIds) || empty($overridePhaseIds)) {
+        $overrideOrders = $options['required_in_phase_orders'] ?? [];
+        if (!is_array($overrideOrders) || empty($overrideOrders)) {
             return false;
         }
 
-        return in_array((int) $currentPhaseId, array_map('intval', $overridePhaseIds), true);
+        return in_array((int) $currentPhase->order, array_map('intval', $overrideOrders), true);
     }
 
     public function calculateProgress(): int
@@ -794,11 +802,11 @@ class RecApplicant extends Model implements InheritsExtraFields
 
         // Required-Felder nach effektivem Required-Status: entweder über das
         // is_required-Flag oder über den Phase-Override
-        // options.required_in_phase_ids (= optional in früheren Phasen,
+        // options.required_in_phase_orders (= optional in früheren Phasen,
         // required in der aktuell-gewählten).
-        $currentPhaseId = $this->rec_phase_id;
+        $currentPhase = $this->phase;
         $requiredDefinitions = $definitions->filter(
-            fn ($def) => $this->isFieldRequiredInCurrentPhase($def, $currentPhaseId)
+            fn ($def) => $this->isFieldRequiredInCurrentPhase($def, $currentPhase)
         );
 
         if ($requiredDefinitions->isEmpty()) {
