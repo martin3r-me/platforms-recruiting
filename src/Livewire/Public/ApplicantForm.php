@@ -107,7 +107,17 @@ class ApplicantForm extends Component
             $filteredValues[$field['id']] = $this->extraFieldValues[$field['id']] ?? null;
         }
         $this->extraFieldValues = $filteredValues;
-        $this->originalExtraFieldValues = $filteredValues;
+
+        // Prefill: kanonische Kontaktdaten aus dem CRM-Contact uebernehmen
+        // wenn das jeweilige Extra-Feld leer ist. Aktuell nur "telefonnummer"
+        // — das ist hochzuverlaessig (System hat ja gerade ueber diese
+        // Nummer das WA-Template verschickt). Mail/Vorname/Nachname werden
+        // bewusst NICHT vorbelegt, weil bei Inbound-Mails von Indeed/
+        // Kleinanzeigen oft anonyme Conversation-IDs oder Volltext-Strings
+        // als Sender ankommen — der Bewerber soll das aktiv eingeben.
+        $this->prefillFromContact();
+
+        $this->originalExtraFieldValues = $this->extraFieldValues;
 
         $this->loadUploadedFileData();
 
@@ -118,6 +128,44 @@ class ApplicantForm extends Component
             $this->state = 'completed';
         } else {
             $this->state = 'form';
+        }
+    }
+
+    /**
+     * Prefill leerer Extra-Felder aus den CRM-Contact-Stammdaten. Aktuell nur
+     * "telefonnummer" — die Nummer ist beim Inbound-Listener kanonisch (das
+     * System hat ja darueber das Template verschickt). Mail/Name werden
+     * bewusst nicht vorbelegt, da bei Indeed/Kleinanzeigen-Mails oft
+     * Conversation-IDs/Volltext-Strings als Sender ankommen und der
+     * Bewerber das selbst korrigieren soll.
+     */
+    private function prefillFromContact(): void
+    {
+        $applicant = $this->getApplicant();
+        if (!$applicant) {
+            return;
+        }
+        $contact = $applicant->getContact();
+        if (!$contact) {
+            return;
+        }
+
+        foreach ($this->extraFieldDefinitions as $def) {
+            $fieldId = $def['id'];
+            $name = $def['name'] ?? '';
+            $existing = $this->extraFieldValues[$fieldId] ?? null;
+            if ($existing !== null && $existing !== '' && $existing !== []) {
+                continue;
+            }
+
+            if ($name === 'telefonnummer') {
+                $contact->loadMissing('phoneNumbers');
+                $primary = $contact->phoneNumbers->where('is_primary', true)->first()
+                    ?? $contact->phoneNumbers->first();
+                if ($primary) {
+                    $this->extraFieldValues[$fieldId] = $primary->international ?: $primary->raw_input;
+                }
+            }
         }
     }
 
