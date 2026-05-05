@@ -157,6 +157,19 @@ class ProcessAutoPilotApplicants extends Command
             return;
         }
 
+        // 2a. Phase-Stop-Marker: wenn die aktuelle Phase explizit
+        // auto_pilot_disabled=true gesetzt hat, wird kein Template/Reminder
+        // versendet. Cascade auf Position/Team-Default wird damit bewusst
+        // umgangen — gut für Phasen die durch externe Trigger abgeschlossen
+        // werden (Vertragsversand vom Schulungsleiter, Bewerber-Signatur,
+        // etc.) und kein automatisches Anschreiben brauchen.
+        if (($phaseSettings['auto_pilot_disabled'] ?? false) === true) {
+            $phaseName = $applicant->phase?->name ?? '?';
+            $this->logAutoPilot($applicant, 'silent', "Phase \"{$phaseName}\" ist als auto_pilot_disabled markiert — kein Template-Versand.");
+            $this->info("  Phase still (auto_pilot_disabled) — kein Versand.");
+            return;
+        }
+
         // 2. Resolve channel (uses effective settings for WA account)
         $channelPriority = $this->getEffectiveSetting($teamSettings, $positionSettings, 'auto_pilot_channel_priority', 'whatsapp_first', $phaseSettings);
         $resolved = $this->resolveChannelWithOverrides($applicant, $channelPriority, $teamSettings, $positionSettings, $phaseSettings);

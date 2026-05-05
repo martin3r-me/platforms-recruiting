@@ -51,7 +51,7 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 ],
                 'auto_pilot_settings' => [
                     'type' => 'object',
-                    'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt. Keys: auto_pilot_wa_initial_template_id (int), auto_pilot_wa_reminder_template_id (int). Nutze recruiting.lookup.GET mit lookup=whatsapp_templates um gültige Template-IDs zu finden.',
+                    'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt. Keys: auto_pilot_wa_initial_template_id (int), auto_pilot_wa_reminder_template_id (int), auto_pilot_disabled (bool). Nutze recruiting.lookup.GET mit lookup=whatsapp_templates um gültige Template-IDs zu finden. Mit auto_pilot_disabled=true sendet AutoPilot in dieser Phase NICHTS — kein Erstkontakt, kein Reminder, kein Cascade-Fallback auf Position/Team-Default. Geeignet fuer Phasen die durch externe Trigger abgeschlossen werden (z.B. Vertragsversand vom Schulungsleiter, Bewerber-Signatur).',
                 ],
                 'completion_type' => [
                     'type' => 'string',

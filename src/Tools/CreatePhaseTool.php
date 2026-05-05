@@ -52,7 +52,7 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                 ],
                 'auto_pilot_settings' => [
                     'type' => 'object',
-                    'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt.',
+                    'description' => 'Optional: AutoPilot-Einstellungen als JSON-Objekt. Keys: auto_pilot_wa_initial_template_id (int), auto_pilot_wa_reminder_template_id (int), auto_pilot_disabled (bool, true = Phase sendet nichts und ueberspringt Cascade auf Position/Team-Default — fuer Phasen mit externen Triggern wie Vertragsversand oder Signatur).',
                 ],
                 'completion_type' => [
                     'type' => 'string',

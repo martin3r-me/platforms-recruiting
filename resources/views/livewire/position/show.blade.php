@@ -266,6 +266,13 @@
                                 @if(!$phase->show_in_dashboard)
                                     <x-ui-badge variant="muted" size="xs">Nicht im Dashboard</x-ui-badge>
                                 @endif
+                                @php $autoPilotSettings = $phase->auto_pilot_settings ?? []; @endphp
+                                @if(($autoPilotSettings['auto_pilot_disabled'] ?? false) === true)
+                                    <x-ui-badge variant="muted" size="xs"
+                                        title="AutoPilot bleibt in dieser Phase still — kein Template, kein Reminder. Phase-Übergang erfolgt durch externen Trigger (z.B. Vertrag versenden, Signatur).">
+                                        Kein Template
+                                    </x-ui-badge>
+                                @endif
                             </div>
 
                             {{-- Extra-Felder Liste --}}
