@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Platform\Core\Contracts\InheritsExtraFields;
+use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
 use Platform\Recruiting\Traits\HasApplicantContact;
@@ -970,7 +971,15 @@ class RecApplicant extends Model implements InheritsExtraFields
             }
             $this->save();
 
-            // 4. Audit-Log
+            // 4. Extra-Field-Werte vom alten Definitionen-Set auf das neue
+            // umhaengen. Hintergrund: Definitionen sind position-spezifisch
+            // (jede geklonte Stelle hat eigene Definition-IDs), Werte hängen
+            // an definition_id. Ohne Remapping wirken bereits ausgefuellte
+            // Felder beim Form-Render der neuen Position als leer und
+            // muessen nochmal eingetragen werden.
+            $this->remapExtraFieldValuesToPosition($newPosition);
+
+            // 5. Audit-Log
             try {
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $this->id,
@@ -979,6 +988,71 @@ class RecApplicant extends Model implements InheritsExtraFields
                 ]);
             } catch (\Throwable) {}
         });
+    }
+
+    /**
+     * Hängt alle Extra-Field-Werte vom alten Definitionen-Set (vorherige
+     * Position) auf die Definitionen der neuen Position um, gematcht per
+     * `name`. Behaelt Werte wenn:
+     *  - alte Definition bereits zur neuen Position gehoert (kein Switch nötig)
+     *  - es kein Equivalent in der neuen Position gibt (Wert wird "tot",
+     *    bleibt aber in der DB für Audit/Restore-Zwecke)
+     *
+     * Bei Konflikten (Wert für gleiche Definition existiert bereits in der
+     * neuen Position): alter Wert wird verworfen, neuer Wert behaelt
+     * Vorrang (= juengeres Form-Submit gewinnt).
+     */
+    protected function remapExtraFieldValuesToPosition(RecPosition $newPosition): void
+    {
+        $newPhaseIds = $newPosition->phases()->pluck('id')->all();
+        if (empty($newPhaseIds)) {
+            return;
+        }
+
+        $newDefsByName = CoreExtraFieldDefinition::query()
+            ->where('context_type', RecPhase::class)
+            ->whereIn('context_id', $newPhaseIds)
+            ->get()
+            ->keyBy('name');
+
+        if ($newDefsByName->isEmpty()) {
+            return;
+        }
+
+        $values = $this->extraFieldValues()->with('definition')->get();
+        $valuesByDefId = $values->keyBy('definition_id');
+
+        foreach ($values as $value) {
+            $oldDef = $value->definition;
+            if (!$oldDef || empty($oldDef->name)) {
+                continue;
+            }
+
+            // Alte Definition gehoert bereits zur neuen Position — nichts zu tun
+            if (in_array((int) $oldDef->context_id, array_map('intval', $newPhaseIds), true)) {
+                continue;
+            }
+
+            $newDef = $newDefsByName->get($oldDef->name);
+            if (!$newDef) {
+                // Kein gleichnamiges Feld in neuer Position — Wert bleibt
+                // unter alter definition_id liegen (nicht mehr sichtbar)
+                continue;
+            }
+
+            // Konflikt: Bewerber hat schon einen Wert mit der neuen
+            // definition_id (z.B. weil er nach Switch was eingegeben hat
+            // bevor das Remapping lief). Alten Wert verwerfen.
+            if ($valuesByDefId->has($newDef->id)) {
+                $value->delete();
+                continue;
+            }
+
+            $value->definition_id = $newDef->id;
+            $value->save();
+        }
+
+        $this->clearExtraFieldDefinitionsCache();
     }
 
     /**
