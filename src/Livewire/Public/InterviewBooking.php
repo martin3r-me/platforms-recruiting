@@ -22,21 +22,26 @@ class InterviewBooking extends Component
     {
         $this->publicToken = $publicToken;
 
-        // Lookup über CorePublicFormLink (cross-module Standard, gleiches
-        // Pattern wie ContractSigning + ApplicantPortal). Backwards-Compat:
-        // alte rec_applicants.public_token Werte werden als Fallback erkannt
-        // damit bestehende WhatsApp-Links nicht brechen.
+        // Lookup via CorePublicFormLink — gleiches Pattern wie
+        // ContractSigning und ApplicantPortal. Linkable wird per morph
+        // aufgeloest, instanceof-Check umgeht morph-map-Konfiguration
+        // (linkable_type ist als Kurzkey 'rec_applicant' gespeichert,
+        // nicht als vollqualifizierter Klassenname).
         $link = CorePublicFormLink::where('token', $publicToken)->first();
-        $applicant = null;
 
-        if ($link && $link->linkable_type === RecApplicant::class) {
-            $applicant = $link->linkable;
-        } else {
-            // Fallback für Legacy-Tokens (rec_applicants.public_token)
-            $applicant = RecApplicant::where('public_token', $publicToken)->first();
+        if (!$link) {
+            $this->state = 'notFound';
+            return;
         }
 
-        if (!$applicant) {
+        if (!$link->isValid()) {
+            $this->state = 'notActive';
+            return;
+        }
+
+        $applicant = $link->linkable;
+
+        if (!$applicant instanceof RecApplicant) {
             $this->state = 'notFound';
             return;
         }
