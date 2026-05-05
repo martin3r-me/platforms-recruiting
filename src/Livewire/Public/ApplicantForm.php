@@ -138,6 +138,11 @@ class ApplicantForm extends Component
      * bewusst nicht vorbelegt, da bei Indeed/Kleinanzeigen-Mails oft
      * Conversation-IDs/Volltext-Strings als Sender ankommen und der
      * Bewerber das selbst korrigieren soll.
+     *
+     * Wichtig: Phone-Felder werden vom WithExtraFields-Trait als
+     * ['raw' => string, 'country' => string] strukturiert. Wir muessen
+     * das Array-Format respektieren, sowohl beim "leer"-Check als auch
+     * beim Schreiben.
      */
     private function prefillFromContact(): void
     {
@@ -153,17 +158,23 @@ class ApplicantForm extends Component
         foreach ($this->extraFieldDefinitions as $def) {
             $fieldId = $def['id'];
             $name = $def['name'] ?? '';
-            $existing = $this->extraFieldValues[$fieldId] ?? null;
-            if ($existing !== null && $existing !== '' && $existing !== []) {
-                continue;
-            }
+            $type = $def['type'] ?? '';
 
-            if ($name === 'telefonnummer') {
+            if ($name === 'telefonnummer' && $type === 'phone') {
+                $current = $this->extraFieldValues[$fieldId] ?? null;
+                $hasValue = is_array($current) && !empty($current['raw']);
+                if ($hasValue) {
+                    continue;
+                }
+
                 $contact->loadMissing('phoneNumbers');
                 $primary = $contact->phoneNumbers->where('is_primary', true)->first()
                     ?? $contact->phoneNumbers->first();
                 if ($primary) {
-                    $this->extraFieldValues[$fieldId] = $primary->international ?: $primary->raw_input;
+                    $this->extraFieldValues[$fieldId] = [
+                        'raw' => $primary->international ?: $primary->raw_input,
+                        'country' => $primary->country_code ?: 'DE',
+                    ];
                 }
             }
         }
