@@ -10,8 +10,8 @@ use Platform\Recruiting\Models\RecApplicant;
 
 /**
  * Propagates applicant-form inputs that belong in canonical CRM storage
- * (address, birth date) from the rec_applicant extra-field bucket into
- * the CRM domain.
+ * (first/last name, address, birth date) from the rec_applicant
+ * extra-field bucket into the CRM domain.
  *
  * Deliberately NOT synced:
  *  - geburtsort (CRM has no birth_place column; template mappings keep
@@ -30,10 +30,44 @@ class SyncApplicantExtraFieldsToCrm
             return $result;
         }
 
+        $this->syncFirstName($contact, $applicant, $result);
+        $this->syncLastName($contact, $applicant, $result);
         $this->syncBirthDate($contact, $applicant, $result);
         $this->syncPostalAddress($contact, $applicant, $result);
 
         return $result;
+    }
+
+    private function syncFirstName(CrmContact $contact, RecApplicant $applicant, SyncResult $result): void
+    {
+        $value = $this->cleanString($applicant->getExtraField('vorname'));
+        if ($value === '') {
+            $result->skipped[] = 'vorname empty on applicant';
+            return;
+        }
+        if ($contact->first_name === $value) {
+            $result->unchanged[] = 'first_name already synced';
+            return;
+        }
+        $contact->first_name = $value;
+        $contact->save();
+        $result->changed[] = "first_name → {$value}";
+    }
+
+    private function syncLastName(CrmContact $contact, RecApplicant $applicant, SyncResult $result): void
+    {
+        $value = $this->cleanString($applicant->getExtraField('nachname'));
+        if ($value === '') {
+            $result->skipped[] = 'nachname empty on applicant';
+            return;
+        }
+        if ($contact->last_name === $value) {
+            $result->unchanged[] = 'last_name already synced';
+            return;
+        }
+        $contact->last_name = $value;
+        $contact->save();
+        $result->changed[] = "last_name → {$value}";
     }
 
     private function syncBirthDate(CrmContact $contact, RecApplicant $applicant, SyncResult $result): void
