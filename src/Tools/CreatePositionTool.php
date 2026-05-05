@@ -49,6 +49,10 @@ class CreatePositionTool implements ToolContract, ToolMetadataContract
                     'type' => 'string',
                     'description' => 'Optional: Standort.',
                 ],
+                'beschaftigungsort_lookup_value' => [
+                    'type' => 'string',
+                    'description' => 'Optional: Lookup-Wert (slug) der den Beschäftigungsort dieser Stelle markiert (z.B. "koeln", "duesseldorf"). Wird gegen den Lookup "beschaeftigungsorte" gematcht und entscheidet beim Bewerber-Wunschmapping in Phase 2 (Schulung buchen) ob ein Termin dieser Stelle dem Bewerber angezeigt wird sowie ob Position-Switch beim Booking greift.',
+                ],
                 'is_active' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Status. Default true.',
@@ -77,11 +81,17 @@ class CreatePositionTool implements ToolContract, ToolMetadataContract
                 return ToolResult::error('VALIDATION_ERROR', 'title ist erforderlich.');
             }
 
+            $beschaftigungsortLookup = $arguments['beschaftigungsort_lookup_value'] ?? null;
+            if (is_string($beschaftigungsortLookup) && $beschaftigungsortLookup === '') {
+                $beschaftigungsortLookup = null;
+            }
+
             $position = RecPosition::create([
                 'title' => $title,
                 'description' => $arguments['description'] ?? null,
                 'department' => $arguments['department'] ?? null,
                 'location' => $arguments['location'] ?? null,
+                'beschaftigungsort_lookup_value' => $beschaftigungsortLookup,
                 'is_active' => (bool)($arguments['is_active'] ?? true),
                 'team_id' => $teamId,
                 'created_by_user_id' => $context->user->id,
@@ -94,6 +104,7 @@ class CreatePositionTool implements ToolContract, ToolMetadataContract
                 'title' => $position->title,
                 'department' => $position->department,
                 'location' => $position->location,
+                'beschaftigungsort_lookup_value' => $position->beschaftigungsort_lookup_value,
                 'is_active' => (bool)$position->is_active,
                 'team_id' => $position->team_id,
                 'message' => 'Position erfolgreich erstellt.',

@@ -53,6 +53,10 @@ class UpdatePositionTool implements ToolContract, ToolMetadataContract
                     'type' => 'string',
                     'description' => 'Optional: neuer Standort.',
                 ],
+                'beschaftigungsort_lookup_value' => [
+                    'type' => 'string',
+                    'description' => 'Optional: Lookup-Wert (slug) der den Beschäftigungsort dieser Stelle markiert (z.B. "koeln", "duesseldorf"). Wird gegen den Lookup "beschaeftigungsorte" gematcht und entscheidet beim Bewerber-Wunschmapping in Phase 2 (Schulung buchen) ob ein Termin dieser Stelle dem Bewerber angezeigt wird sowie ob Position-Switch beim Booking greift. Leerer String = NICHT geaendert. Zum entfernen: explicit null.',
+                ],
                 'is_active' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Status.',
@@ -99,6 +103,18 @@ class UpdatePositionTool implements ToolContract, ToolMetadataContract
                 }
             }
 
+            // beschaftigungsort_lookup_value: leerer String = ignorieren
+            // (sonst wuerde jeder Default-Update den Wert nullen). Explizites
+            // null im Argument = entfernen.
+            if (array_key_exists('beschaftigungsort_lookup_value', $arguments)) {
+                $val = $arguments['beschaftigungsort_lookup_value'];
+                if ($val === null) {
+                    $position->beschaftigungsort_lookup_value = null;
+                } elseif (is_string($val) && $val !== '') {
+                    $position->beschaftigungsort_lookup_value = $val;
+                }
+            }
+
             if (array_key_exists('auto_pilot_settings', $arguments)) {
                 $position->auto_pilot_settings = $arguments['auto_pilot_settings'];
             }
@@ -111,6 +127,7 @@ class UpdatePositionTool implements ToolContract, ToolMetadataContract
                 'title' => $position->title,
                 'department' => $position->department,
                 'location' => $position->location,
+                'beschaftigungsort_lookup_value' => $position->beschaftigungsort_lookup_value,
                 'is_active' => (bool)$position->is_active,
                 'auto_pilot_settings' => $position->auto_pilot_settings,
                 'team_id' => $position->team_id,
