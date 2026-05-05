@@ -18,6 +18,10 @@ use Platform\Recruiting\Livewire\ContractTemplates\Index as ContractTemplatesInd
 Route::get('/', Dashboard::class)->name('recruiting.dashboard');
 Route::get('/parked', Dashboard::class)->name('recruiting.dashboard.parked');
 
+// Test-Dashboard fuer Sandbox-Positionen (Direct-URL, nicht im Sidebar)
+Route::get('/testdashboard', \Platform\Recruiting\Livewire\Dashboard\TestDashboard::class)
+    ->name('recruiting.dashboard.test');
+
 // HR-Schreibtisch eigene Komponente (nicht mehr Dashboard-conditional)
 Route::get('/hr-desk', \Platform\Recruiting\Livewire\HrDesk\Index::class)
     ->name('recruiting.dashboard.hr-desk');
