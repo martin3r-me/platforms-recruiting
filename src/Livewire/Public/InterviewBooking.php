@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Public;
 
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Platform\Core\Models\CorePublicFormLink;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
@@ -21,7 +22,19 @@ class InterviewBooking extends Component
     {
         $this->publicToken = $publicToken;
 
-        $applicant = RecApplicant::where('public_token', $publicToken)->first();
+        // Lookup über CorePublicFormLink (cross-module Standard, gleiches
+        // Pattern wie ContractSigning + ApplicantPortal). Backwards-Compat:
+        // alte rec_applicants.public_token Werte werden als Fallback erkannt
+        // damit bestehende WhatsApp-Links nicht brechen.
+        $link = CorePublicFormLink::where('token', $publicToken)->first();
+        $applicant = null;
+
+        if ($link && $link->linkable_type === RecApplicant::class) {
+            $applicant = $link->linkable;
+        } else {
+            // Fallback für Legacy-Tokens (rec_applicants.public_token)
+            $applicant = RecApplicant::where('public_token', $publicToken)->first();
+        }
 
         if (!$applicant) {
             $this->state = 'notFound';

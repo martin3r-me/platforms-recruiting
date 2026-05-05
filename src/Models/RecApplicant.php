@@ -507,18 +507,21 @@ class RecApplicant extends Model implements InheritsExtraFields
                 $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
             }
 
-            // URL button with interview booking token (public_token)
+            // URL button with PublicFormLink-Token (kanonischer Bewerber-
+            // Public-Token, gleiche Quelle wie /form/, /portal/, /contract/
+            // und /recruiting/interviews/ — siehe InterviewBooking::mount).
             $hasUrlButton = collect($template->components ?? [])
                 ->where('type', 'BUTTONS')
                 ->flatMap(fn ($c) => $c['buttons'] ?? [])
                 ->contains('type', 'URL');
 
-            if ($hasUrlButton && $this->public_token) {
+            if ($hasUrlButton) {
+                $formLinkToken = $this->getOrCreatePublicFormLink()->token;
                 $components[] = [
                     'type' => 'button',
                     'sub_type' => 'url',
                     'index' => 0,
-                    'parameters' => [['type' => 'text', 'text' => $this->public_token]],
+                    'parameters' => [['type' => 'text', 'text' => $formLinkToken]],
                 ];
             }
 
