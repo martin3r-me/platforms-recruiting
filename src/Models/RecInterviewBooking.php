@@ -59,4 +59,41 @@ class RecInterviewBooking extends Model
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
     }
+
+    /**
+     * Wahr wenn diese Buchung "abgesagt" wurde, der Bewerber aber spaeter
+     * eine andere (nicht-cancelled) Buchung gemacht hat — er hat also
+     * umgebucht statt komplett abzusagen. Wird im UI verwendet um
+     * "Umgebucht" vs. "Abgesagt" sauber zu unterscheiden.
+     */
+    public function getIsRebookedAttribute(): bool
+    {
+        if ($this->status !== 'cancelled') {
+            return false;
+        }
+        return self::query()
+            ->where('rec_applicant_id', $this->rec_applicant_id)
+            ->where('id', '>', $this->id)
+            ->whereNotIn('status', ['cancelled'])
+            ->exists();
+    }
+
+    /**
+     * UI-Label fuer den effektiven Status. Mappt 'cancelled' auf
+     * 'Umgebucht' wenn eine spaetere aktive Buchung existiert.
+     */
+    public function getStatusLabelAttribute(): string
+    {
+        if ($this->is_rebooked) {
+            return 'Umgebucht';
+        }
+        return match ($this->status) {
+            'registered' => 'Registriert',
+            'confirmed'  => 'Bestätigt',
+            'attended'   => 'Teilgenommen',
+            'cancelled'  => 'Abgesagt',
+            'no_show'    => 'Nicht erschienen',
+            default      => (string) $this->status,
+        };
+    }
 }

@@ -84,6 +84,7 @@
                                 ['value' => 'confirmed', 'label' => 'Bestätigt'],
                                 ['value' => 'attended', 'label' => 'Teilgenommen'],
                                 ['value' => 'cancelled', 'label' => 'Abgesagt'],
+                                ['value' => 'rebooked', 'label' => 'Umgebucht'],
                                 ['value' => 'no_show', 'label' => 'Nicht erschienen'],
                             ]"
                             optionValue="value"
@@ -169,13 +170,20 @@
                                             @endif
                                         </td>
                                         <td class="px-4 py-3">
-                                            <select wire:change="updateStatus({{ $booking->id }}, $event.target.value)" class="text-xs border border-[var(--ui-border)] rounded px-2 py-1">
-                                                <option value="registered" @selected($booking->status === 'registered')>Registriert</option>
-                                                <option value="confirmed" @selected($booking->status === 'confirmed')>Bestätigt</option>
-                                                <option value="attended" @selected($booking->status === 'attended')>Teilgenommen</option>
-                                                <option value="cancelled" @selected($booking->status === 'cancelled')>Abgesagt</option>
-                                                <option value="no_show" @selected($booking->status === 'no_show')>Nicht erschienen</option>
-                                            </select>
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <select wire:change="updateStatus({{ $booking->id }}, $event.target.value)" class="text-xs border border-[var(--ui-border)] rounded px-2 py-1">
+                                                    <option value="registered" @selected($booking->status === 'registered')>Registriert</option>
+                                                    <option value="confirmed" @selected($booking->status === 'confirmed')>Bestätigt</option>
+                                                    <option value="attended" @selected($booking->status === 'attended')>Teilgenommen</option>
+                                                    <option value="cancelled" @selected($booking->status === 'cancelled')>Abgesagt</option>
+                                                    <option value="no_show" @selected($booking->status === 'no_show')>Nicht erschienen</option>
+                                                </select>
+                                                @if($booking->is_rebooked)
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200" title="Bewerber hat danach eine andere Schulung gebucht">
+                                                        Umgebucht
+                                                    </span>
+                                                @endif
+                                            </div>
                                         </td>
                                         <td class="px-4 py-3">
                                             <x-ui-button variant="danger-outline" size="xs" wire:click="deleteBooking({{ $booking->id }})">

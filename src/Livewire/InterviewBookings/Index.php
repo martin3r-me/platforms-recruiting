@@ -56,22 +56,48 @@ class Index extends Component
     #[Computed]
     public function bookings()
     {
-        return RecInterviewBooking::where('rec_interview_id', $this->interviewId)
+        $query = RecInterviewBooking::where('rec_interview_id', $this->interviewId)
             ->when($this->search, function ($q) {
                 $q->whereHas('applicant.crmContactLinks.contact', function ($query) {
                     $query->where('first_name', 'like', '%' . $this->search . '%')
                         ->orWhere('last_name', 'like', '%' . $this->search . '%');
                 });
             })
-            ->when($this->filterStatus !== 'all', fn($q) => $q->where('status', $this->filterStatus))
             ->with([
                 'applicant.crmContactLinks.contact',
                 'applicant.postings.position',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
             ])
-            ->orderBy('booked_at', 'desc')
-            ->get();
+            ->orderBy('booked_at', 'desc');
+
+        // Filter-Logik:
+        //  - 'cancelled' = echte Stornierung (keine spaetere aktive Buchung beim Bewerber)
+        //  - 'rebooked'  = umgebucht (cancelled + spaetere aktive Buchung)
+        //  - sonst       = direkter status-Match
+        if ($this->filterStatus === 'cancelled') {
+            $query->where('status', 'cancelled')
+                ->whereNotExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('rec_interview_bookings as later')
+                        ->whereColumn('later.rec_applicant_id', 'rec_interview_bookings.rec_applicant_id')
+                        ->whereColumn('later.id', '>', 'rec_interview_bookings.id')
+                        ->whereNotIn('later.status', ['cancelled']);
+                });
+        } elseif ($this->filterStatus === 'rebooked') {
+            $query->where('status', 'cancelled')
+                ->whereExists(function ($sub) {
+                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                        ->from('rec_interview_bookings as later')
+                        ->whereColumn('later.rec_applicant_id', 'rec_interview_bookings.rec_applicant_id')
+                        ->whereColumn('later.id', '>', 'rec_interview_bookings.id')
+                        ->whereNotIn('later.status', ['cancelled']);
+                });
+        } elseif ($this->filterStatus !== 'all') {
+            $query->where('status', $this->filterStatus);
+        }
+
+        return $query->get();
     }
 
     #[Computed]
