@@ -5,13 +5,20 @@ namespace Platform\Recruiting\Services;
 use Carbon\Carbon;
 use Platform\Crm\Models\CrmAddressType;
 use Platform\Crm\Models\CrmContact;
+use Platform\Crm\Models\CrmEmailType;
+use Platform\Crm\Models\CrmPhoneType;
 use Platform\Crm\Models\CrmPostalAddress;
 use Platform\Recruiting\Models\RecApplicant;
 
 /**
  * Propagates applicant-form inputs that belong in canonical CRM storage
- * (first/last name, address, birth date) from the rec_applicant
+ * (first/last name, email, phone, address, birth date) from the rec_applicant
  * extra-field bucket into the CRM domain.
+ *
+ * Replaces the HCM SyncsCrmContactFields-Trait fuer Recruiting-Bewerber:
+ * der Trait setzt bei Email-Inserts kein email_type_id (NOT NULL ohne
+ * Default → SQLSTATE 1364) — Recruiting-internes Find-or-Update mit
+ * korrektem Type-Resolver verhindert das.
  *
  * Deliberately NOT synced:
  *  - geburtsort (CRM has no birth_place column; template mappings keep
@@ -33,6 +40,8 @@ class SyncApplicantExtraFieldsToCrm
         $this->syncFirstName($contact, $applicant, $result);
         $this->syncLastName($contact, $applicant, $result);
         $this->syncBirthDate($contact, $applicant, $result);
+        $this->syncEmail($contact, $applicant, $result);
+        $this->syncPhone($contact, $applicant, $result);
         $this->syncPostalAddress($contact, $applicant, $result);
 
         return $result;
@@ -143,6 +152,200 @@ class SyncApplicantExtraFieldsToCrm
 
         $address->save();
         $result->changed[] = 'updated postal address (' . implode(', ', $dirty) . ')';
+    }
+
+    private function syncEmail(CrmContact $contact, RecApplicant $applicant, SyncResult $result): void
+    {
+        $value = $this->extractEmail($applicant->getExtraField('email'));
+        if ($value === '') {
+            $result->skipped[] = 'email empty on applicant';
+            return;
+        }
+
+        // Find-or-update: existiert die Mail bereits am Contact?
+        $existing = $contact->emailAddresses()
+            ->where('email_address', $value)
+            ->first();
+
+        if ($existing) {
+            if (!$existing->is_primary) {
+                // Andere primary entwerten, neuen primary setzen
+                $contact->emailAddresses()
+                    ->where('is_primary', true)
+                    ->where('id', '!=', $existing->id)
+                    ->update(['is_primary' => false]);
+                $existing->is_primary = true;
+                $existing->is_active = true;
+                $existing->save();
+                $result->changed[] = "email {$value} → primary";
+                return;
+            }
+            $result->unchanged[] = "email {$value} already primary";
+            return;
+        }
+
+        $emailTypeId = $this->resolveEmailTypeId();
+        if (!$emailTypeId) {
+            $result->skipped[] = 'cannot create email: no CrmEmailType seeded';
+            return;
+        }
+
+        $contact->emailAddresses()
+            ->where('is_primary', true)
+            ->update(['is_primary' => false]);
+
+        $contact->emailAddresses()->create([
+            'email_address' => $value,
+            'is_primary'    => true,
+            'is_active'     => true,
+            'email_type_id' => $emailTypeId,
+        ]);
+        $result->changed[] = "created primary email: {$value}";
+    }
+
+    private function syncPhone(CrmContact $contact, RecApplicant $applicant, SyncResult $result): void
+    {
+        $extracted = $this->extractPhone($applicant->getExtraField('telefonnummer'));
+        if ($extracted === null) {
+            $result->skipped[] = 'telefonnummer empty/invalid on applicant';
+            return;
+        }
+
+        // Find-or-update: bestehender Eintrag mit gleichem international/raw?
+        $existing = null;
+        if ($extracted['international'] !== '') {
+            $existing = $contact->phoneNumbers()
+                ->where('international', $extracted['international'])
+                ->first();
+        }
+        if (!$existing && $extracted['raw'] !== '') {
+            $existing = $contact->phoneNumbers()
+                ->where('raw_input', $extracted['raw'])
+                ->first();
+        }
+
+        if ($existing) {
+            if (!$existing->is_primary) {
+                $contact->phoneNumbers()
+                    ->where('is_primary', true)
+                    ->where('id', '!=', $existing->id)
+                    ->update(['is_primary' => false]);
+                $existing->is_primary = true;
+                $existing->is_active = true;
+                $existing->save();
+                $result->changed[] = "phone " . ($extracted['international'] ?: $extracted['raw']) . " → primary";
+                return;
+            }
+            $result->unchanged[] = "phone already primary";
+            return;
+        }
+
+        $phoneTypeId = $this->resolvePhoneTypeId();
+        if (!$phoneTypeId) {
+            $result->skipped[] = 'cannot create phone: no CrmPhoneType seeded';
+            return;
+        }
+
+        $contact->phoneNumbers()
+            ->where('is_primary', true)
+            ->update(['is_primary' => false]);
+
+        $contact->phoneNumbers()->create([
+            'raw_input'     => $extracted['raw'] !== '' ? $extracted['raw'] : $extracted['international'],
+            'international' => $extracted['international'] ?: null,
+            'country_code'  => $extracted['country'] !== '' ? $extracted['country'] : null,
+            'phone_type_id' => $phoneTypeId,
+            'is_primary'    => true,
+            'is_active'     => true,
+        ]);
+        $result->changed[] = "created primary phone: " . ($extracted['international'] ?: $extracted['raw']);
+    }
+
+    /**
+     * Akzeptiert string ('mail@example.com') oder array (['email' => '...']).
+     */
+    private function extractEmail(mixed $value): string
+    {
+        if (is_string($value)) {
+            return trim($value);
+        }
+        if (is_array($value)) {
+            return trim((string) ($value['email'] ?? ''));
+        }
+        return '';
+    }
+
+    /**
+     * Akzeptiert string ('+4915112345678' oder '0151...') oder das CRM-typed
+     * Phone-Array {raw, country, e164, international}. Liefert immer
+     * {international, raw, country} oder null wenn leer.
+     */
+    private function extractPhone(mixed $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_array($value)) {
+            $international = trim((string) ($value['international'] ?? $value['e164'] ?? ''));
+            $raw           = trim((string) ($value['raw'] ?? ''));
+            $country       = trim((string) ($value['country'] ?? ''));
+            if ($international === '' && $raw === '') {
+                return null;
+            }
+            return ['international' => $international, 'raw' => $raw, 'country' => $country];
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return null;
+            }
+            // Best effort via libphonenumber (PHP-Lib via vendor) — Fallback: raw only
+            try {
+                $phoneUtil = \libphonenumber\PhoneNumberUtil::getInstance();
+                $parsed    = $phoneUtil->parse($value, 'DE');
+                return [
+                    'international' => $phoneUtil->format($parsed, \libphonenumber\PhoneNumberFormat::E164),
+                    'raw'           => $value,
+                    'country'       => $phoneUtil->getRegionCodeForNumber($parsed) ?: 'DE',
+                ];
+            } catch (\Throwable) {
+                return ['international' => '', 'raw' => $value, 'country' => ''];
+            }
+        }
+
+        return null;
+    }
+
+    private ?int $emailTypeIdCache = null;
+    private bool $emailTypeIdResolved = false;
+
+    private function resolveEmailTypeId(): ?int
+    {
+        if ($this->emailTypeIdResolved) {
+            return $this->emailTypeIdCache;
+        }
+        $this->emailTypeIdResolved = true;
+        $this->emailTypeIdCache = CrmEmailType::where('code', 'PRIVATE')->value('id')
+            ?? CrmEmailType::where('is_active', true)->value('id')
+            ?? CrmEmailType::query()->value('id');
+        return $this->emailTypeIdCache;
+    }
+
+    private ?int $phoneTypeIdCache = null;
+    private bool $phoneTypeIdResolved = false;
+
+    private function resolvePhoneTypeId(): ?int
+    {
+        if ($this->phoneTypeIdResolved) {
+            return $this->phoneTypeIdCache;
+        }
+        $this->phoneTypeIdResolved = true;
+        $this->phoneTypeIdCache = CrmPhoneType::where('code', 'MOBILE')->value('id')
+            ?? CrmPhoneType::where('is_active', true)->value('id')
+            ?? CrmPhoneType::query()->value('id');
+        return $this->phoneTypeIdCache;
     }
 
     private ?int $privateAddressTypeIdCache = null;

@@ -21,9 +21,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     use HasApplicantContact;
     use HasExtraFields;
     use HasPublicFormLink;
-    use SyncsCrmContactFields {
-        syncExtraFieldsToCrmContact as private syncExtraFieldsToCrmContactFromTrait;
-    }
+    use SyncsCrmContactFields;
     use UsesAccordionPublicForm;
 
     protected $table = 'rec_applicants';
@@ -94,16 +92,28 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
-     * Diagnose-Wrapper um den HCM-Trait-Sync. Faengt Throwables, schreibt eine
-     * critical-Log-Zeile (kommt durch jeden Level-Filter durch und wird auch
-     * geschrieben falls Laravel den Fehler aus anderen Gruenden nicht reported)
-     * und re-throwed damit der eigentliche 500er nicht stillschweigend
-     * verschluckt wird.
+     * Override: Recruiting nutzt den eigenen SyncApplicantExtraFieldsToCrm-
+     * Service statt der HCM-Trait-Implementierung. Hintergrund: der
+     * HCM-Trait fuegt CrmEmailAddress ohne email_type_id ein, das ist
+     * NOT NULL ohne Default → SQLSTATE 1364 beim Form-Save.
+     *
+     * Unser Service:
+     *  - resolved CrmEmailType/CrmPhoneType (PRIVATE/MOBILE als Default)
+     *  - find-or-update auf bestehende Eintraege (kein Duplikat-Spam)
+     *  - promotet Bewerber-eingegebene Mail/Phone zur primary
+     *
+     * HCM-Trait `syncCrmContactToExtraFields` (Reverse-Direction) bleibt
+     * weiterhin via SyncsCrmContactFields verfuegbar — wird in
+     * EnrichInboxApplicants genutzt. HCM-Module unberuehrt.
+     *
+     * Diagnose-Log via Log::critical bleibt als Sicherheitsnetz erhalten —
+     * jeder ungefangene Sync-Fehler wird sofort sichtbar im Log.
      */
     public function syncExtraFieldsToCrmContact(): void
     {
         try {
-            $this->syncExtraFieldsToCrmContactFromTrait();
+            app(\Platform\Recruiting\Services\SyncApplicantExtraFieldsToCrm::class)
+                ->sync($this);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::critical(
                 '[RecApplicant.syncExtraFieldsToCrmContact] ' . $e->getMessage(),
