@@ -21,7 +21,9 @@ class RecApplicant extends Model implements InheritsExtraFields
     use HasApplicantContact;
     use HasExtraFields;
     use HasPublicFormLink;
-    use SyncsCrmContactFields;
+    use SyncsCrmContactFields {
+        syncExtraFieldsToCrmContact as private syncExtraFieldsToCrmContactFromTrait;
+    }
     use UsesAccordionPublicForm;
 
     protected $table = 'rec_applicants';
@@ -89,6 +91,31 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function getPublicUrl(): string
     {
         return $this->getOrCreatePublicFormLink()->getUrl();
+    }
+
+    /**
+     * Diagnose-Wrapper um den HCM-Trait-Sync. Faengt Throwables, schreibt eine
+     * critical-Log-Zeile (kommt durch jeden Level-Filter durch und wird auch
+     * geschrieben falls Laravel den Fehler aus anderen Gruenden nicht reported)
+     * und re-throwed damit der eigentliche 500er nicht stillschweigend
+     * verschluckt wird.
+     */
+    public function syncExtraFieldsToCrmContact(): void
+    {
+        try {
+            $this->syncExtraFieldsToCrmContactFromTrait();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::critical(
+                '[RecApplicant.syncExtraFieldsToCrmContact] ' . $e->getMessage(),
+                [
+                    'class'        => get_class($e),
+                    'file'         => $e->getFile() . ':' . $e->getLine(),
+                    'applicant_id' => $this->id,
+                    'trace'        => $e->getTraceAsString(),
+                ]
+            );
+            throw $e;
+        }
     }
 
     /**
