@@ -21,9 +21,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     use HasApplicantContact;
     use HasExtraFields;
     use HasPublicFormLink;
-    use SyncsCrmContactFields {
-        syncExtraFieldsToCrmContact as private syncExtraFieldsToCrmContactFromTrait;
-    }
+    use SyncsCrmContactFields;
     use UsesAccordionPublicForm;
 
     protected $table = 'rec_applicants';
@@ -145,30 +143,6 @@ class RecApplicant extends Model implements InheritsExtraFields
         unset($field);
 
         return $fields;
-    }
-
-    /**
-     * Diagnose-Wrapper um den HCM-Trait-Sync. Faengt Throwables, schreibt eine
-     * critical-Log-Zeile (kommt durch jeden Level-Filter durch) und re-throwed
-     * damit der eigentliche Fehler nicht still verschluckt wird.
-     *
-     * Sobald die Ursache der 500er beim Form-Save bekannt ist, kann dieser
-     * Wrapper entweder durch eine recruiting-spezifische Sync-Implementierung
-     * ersetzt oder durch einen kontrollierten Fix-und-Continue ergaenzt werden.
-     */
-    public function syncExtraFieldsToCrmContact(): void
-    {
-        try {
-            $this->syncExtraFieldsToCrmContactFromTrait();
-        } catch (\Throwable $e) {
-            \Log::critical('[RecApplicant.syncExtraFieldsToCrmContact] ' . $e->getMessage(), [
-                'file'         => $e->getFile() . ':' . $e->getLine(),
-                'class'        => get_class($e),
-                'applicant_id' => $this->id,
-                'trace'        => $e->getTraceAsString(),
-            ]);
-            throw $e;
-        }
     }
 
     /**
