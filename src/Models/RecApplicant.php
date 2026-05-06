@@ -21,7 +21,9 @@ class RecApplicant extends Model implements InheritsExtraFields
     use HasApplicantContact;
     use HasExtraFields;
     use HasPublicFormLink;
-    use SyncsCrmContactFields;
+    use SyncsCrmContactFields {
+        syncExtraFieldsToCrmContact as private syncExtraFieldsToCrmContactFromTrait;
+    }
     use UsesAccordionPublicForm;
 
     protected $table = 'rec_applicants';
@@ -89,6 +91,84 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function getPublicUrl(): string
     {
         return $this->getOrCreatePublicFormLink()->getUrl();
+    }
+
+    /**
+     * Override des Trait-Defaults: das options.always_show_in_form Flag soll
+     * nur in der DEFINITIONS-Phase greifen (= dort wo das Feld angelegt
+     * wurde). Wenn das Feld via extraFieldParents()-Inheritance in eine
+     * spaetere Phase wandert (z.B. vorname Phase 1 → sichtbar in Phase 3),
+     * soll das Flag dort NICHT mehr greifen — der normale "filled"-Filter
+     * im Form blendet das Feld dann aus weil schon ausgefuellt.
+     *
+     * Konkret: Phase 1 fragt vorname/nachname/email/telefonnummer mit
+     * Bestaetigungs-Anzeige. Sobald in Phase 3 vererbt: nicht mehr nochmal
+     * im Form zeigen weil Bewerber sie schon in Phase 1 ausgefuellt hat.
+     *
+     * Modifikation nur am Output-Array — die Definition in der DB bleibt
+     * unangetastet. Andere Module (HCM-Onboarding etc.) nutzen die Trait-
+     * Variante ohne Override und sehen das Default-Verhalten.
+     */
+    public function getExtraFieldsWithLabels(): array
+    {
+        $fields = parent::getExtraFieldsWithLabels();
+
+        $currentPhaseId = $this->rec_phase_id;
+        if (!$currentPhaseId || empty($fields)) {
+            return $fields;
+        }
+
+        // context_id pro Field-ID nachladen (eine Query)
+        $fieldIds = array_column($fields, 'id');
+        $contextMap = \Platform\Core\Models\CoreExtraFieldDefinition::query()
+            ->whereIn('id', $fieldIds)
+            ->pluck('context_id', 'id');
+
+        foreach ($fields as &$field) {
+            $contextId = $contextMap[$field['id']] ?? null;
+            if ($contextId === null) {
+                continue;
+            }
+
+            // Nur fuer geerbte Felder das always_show_in_form Flag im
+            // Output-Array entfernen — nicht in der DB-Definition.
+            if ((int) $contextId !== (int) $currentPhaseId) {
+                if (is_array($field['options'] ?? null)
+                    && array_key_exists('always_show_in_form', $field['options'])) {
+                    unset($field['options']['always_show_in_form']);
+                    if (empty($field['options'])) {
+                        $field['options'] = null;
+                    }
+                }
+            }
+        }
+        unset($field);
+
+        return $fields;
+    }
+
+    /**
+     * Diagnose-Wrapper um den HCM-Trait-Sync. Faengt Throwables, schreibt eine
+     * critical-Log-Zeile (kommt durch jeden Level-Filter durch) und re-throwed
+     * damit der eigentliche Fehler nicht still verschluckt wird.
+     *
+     * Sobald die Ursache der 500er beim Form-Save bekannt ist, kann dieser
+     * Wrapper entweder durch eine recruiting-spezifische Sync-Implementierung
+     * ersetzt oder durch einen kontrollierten Fix-und-Continue ergaenzt werden.
+     */
+    public function syncExtraFieldsToCrmContact(): void
+    {
+        try {
+            $this->syncExtraFieldsToCrmContactFromTrait();
+        } catch (\Throwable $e) {
+            \Log::critical('[RecApplicant.syncExtraFieldsToCrmContact] ' . $e->getMessage(), [
+                'file'         => $e->getFile() . ':' . $e->getLine(),
+                'class'        => get_class($e),
+                'applicant_id' => $this->id,
+                'trace'        => $e->getTraceAsString(),
+            ]);
+            throw $e;
+        }
     }
 
     /**
