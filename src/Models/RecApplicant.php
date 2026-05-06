@@ -322,9 +322,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         // Geburtsdatum/Adresse). Idempotent — laeuft bei jedem Phase-
         // Uebergang. Stellt sicher dass Vertragsvorlagen die per
         // contact.first_name / contact.address.* mappen, korrekt
-        // personalisiert werden — auch wenn die alte recruiting
-        // ApplicantForm (die diesen Sync historisch trigerte) durch die
-        // generische Core-PublicExtraFieldForm abgeloest wurde.
+        // personalisiert werden.
         try {
             app(\Platform\Recruiting\Services\SyncApplicantExtraFieldsToCrm::class)
                 ->sync($this->fresh(['crmContactLinks.contact', 'extraFieldValues.definition']));

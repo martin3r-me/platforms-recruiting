@@ -25,7 +25,7 @@ class HrDeskRoutingService
      *
      * Aufruf-Stellen (Stand jetzt):
      *  - RecApplicantLegalStatus::setEuCitizen() — wenn EU-Status gesetzt wird
-     *  - ApplicantForm::save() — nach jedem Form-Save, vor checkAutoPilotCompletion
+     *  - PublicExtraFieldForm.save() (core) — nach jedem Form-Save, vor checkAutoPilotCompletion
      *  - MCP/Code-Pfade die applicant-Daten ändern können
      *
      * Wichtig zur Phase-Stop-Kette: routeToHrDesk setzt auto_pilot=false,
