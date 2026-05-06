@@ -20,7 +20,9 @@ use Platform\Recruiting\Models\RecAutoPilotState;
 class RecApplicant extends Model implements InheritsExtraFields
 {
     use HasApplicantContact;
-    use HasExtraFields;
+    use HasExtraFields {
+        getExtraFieldsWithLabels as private getExtraFieldsWithLabelsBase;
+    }
     use HasPublicFormLink;
     use SyncsCrmContactFields;
     use UsesAccordionPublicForm;
@@ -91,6 +93,64 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function getPublicUrl(): string
     {
         return $this->getOrCreatePublicFormLink()->getUrl();
+    }
+
+    /**
+     * Override des Trait-Defaults: das options.always_show_in_form Flag soll
+     * nur in der Defining-Phase greifen (= dort wo das Feld angelegt wurde).
+     * Wenn das Feld via extraFieldParents()-Inheritance in eine spaetere
+     * Phase wandert (z.B. vorname Phase 1 → sichtbar in Phase 3 + 6), soll
+     * das Flag dort NICHT mehr greifen — der normale "filled"-Filter im
+     * Form blendet das Feld dann aus weil schon ausgefuellt.
+     *
+     * Konkret: Phase 1 fragt vorname/nachname/email/telefonnummer mit
+     * Bestaetigungs-Anzeige (always_show greift). Sobald das Feld in
+     * Phase 3/6 vererbt wird: dort verschwindet es im Form, weil
+     * Bewerber sie schon in Phase 1 ausgefuellt hat.
+     *
+     * Modifikation nur am Output-Array — die Definition in der DB bleibt
+     * unangetastet. Andere Module (HCM-Onboarding etc.) nutzen die
+     * Trait-Variante ohne Override und sehen das Default-Verhalten.
+     *
+     * Implementations-Detail: getExtraFieldsWithLabelsBase ist die
+     * via Trait-Aliasing zugaengliche Trait-Original-Methode. parent::
+     * geht hier nicht weil HasExtraFields ein Trait ist und die Methode
+     * nicht auf Eloquent\Model existiert.
+     */
+    public function getExtraFieldsWithLabels(): array
+    {
+        $fields = $this->getExtraFieldsWithLabelsBase();
+
+        $currentPhaseId = $this->rec_phase_id;
+        if (!$currentPhaseId || empty($fields)) {
+            return $fields;
+        }
+
+        $fieldIds = array_column($fields, 'id');
+        $contextMap = \Platform\Core\Models\CoreExtraFieldDefinition::query()
+            ->whereIn('id', $fieldIds)
+            ->pluck('context_id', 'id');
+
+        foreach ($fields as &$field) {
+            $contextId = $contextMap[$field['id']] ?? null;
+            if ($contextId === null) {
+                continue;
+            }
+            // Nur fuer geerbte Felder (nicht in der Defining-Phase) das
+            // always_show_in_form Flag aus dem Output-Array entfernen.
+            if ((int) $contextId !== (int) $currentPhaseId) {
+                if (is_array($field['options'] ?? null)
+                    && array_key_exists('always_show_in_form', $field['options'])) {
+                    unset($field['options']['always_show_in_form']);
+                    if (empty($field['options'])) {
+                        $field['options'] = null;
+                    }
+                }
+            }
+        }
+        unset($field);
+
+        return $fields;
     }
 
     /**
