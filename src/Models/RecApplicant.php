@@ -431,8 +431,19 @@ class RecApplicant extends Model implements InheritsExtraFields
             'summary' => "Alle Pflichtfelder in Phase \"{$phaseName}\" ausgefüllt — AutoPilot abgeschlossen.",
         ]);
 
-        // Send interview booking WA template if configured
-        $this->sendInterviewBookingNotification();
+        // Phase entscheidet selbst ueber den Schulungs-Buchungs-Link am
+        // Phase-Ende via completion_config.send_booking_notification_on_completion.
+        // Legacy-Fallback: nicht konfiguriert + keine Folge-Phase → senden
+        // (entspricht dem alten 2-Phasen-Verhalten in Duesseldorf/Koeln/Bonn/MGL,
+        // wo Phase 2 = letzte Phase = Schulungs-Buchungs-Trigger).
+        $config = $phase?->completion_config ?? [];
+        $shouldSendBooking = array_key_exists('send_booking_notification_on_completion', $config)
+            ? (bool) $config['send_booking_notification_on_completion']
+            : (!$nextPhase);
+
+        if ($shouldSendBooking) {
+            $this->sendInterviewBookingNotification();
+        }
     }
 
     /**

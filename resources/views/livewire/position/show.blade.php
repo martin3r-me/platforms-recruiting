@@ -263,6 +263,12 @@
                                 @if(($phaseConfig['confirm_booking_on_completion'] ?? false) === true)
                                     <x-ui-badge variant="secondary" size="xs">Booking-Bestätigung</x-ui-badge>
                                 @endif
+                                @if(($phaseConfig['send_booking_notification_on_completion'] ?? false) === true)
+                                    <x-ui-badge variant="accent" size="xs"
+                                        title="Am Ende dieser Phase wird der Schulungs-Buchungs-Link per WhatsApp verschickt — z.B. nach Onboarding wenn die Schulung der nächste Schritt ist.">
+                                        Buchungs-Link senden
+                                    </x-ui-badge>
+                                @endif
                                 @if(!$phase->show_in_dashboard)
                                     <x-ui-badge variant="muted" size="xs">Nicht im Dashboard</x-ui-badge>
                                 @endif
