@@ -10,6 +10,7 @@ use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
 use Platform\Recruiting\Traits\HasApplicantContact;
+use Platform\Recruiting\Traits\UsesAccordionPublicForm;
 use Platform\Hcm\Traits\SyncsCrmContactFields;
 use Symfony\Component\Uid\UuidV7;
 use Platform\Recruiting\Models\RecAutoPilotLog;
@@ -21,6 +22,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     use HasExtraFields;
     use HasPublicFormLink;
     use SyncsCrmContactFields;
+    use UsesAccordionPublicForm;
 
     protected $table = 'rec_applicants';
 
