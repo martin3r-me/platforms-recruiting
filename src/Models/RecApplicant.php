@@ -39,6 +39,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'source_platform_id', 'is_unrouted',
         'contract_template_id',
         'import_source',
+        'export_changed_at',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
@@ -56,6 +57,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'auto_pilot_last_reminder_at' => 'datetime',
         'progress' => 'integer',
         'applied_at' => 'date',
+        'export_changed_at' => 'datetime',
     ];
 
     protected static function booted(): void

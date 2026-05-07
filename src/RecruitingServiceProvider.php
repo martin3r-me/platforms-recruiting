@@ -42,8 +42,19 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\FixApplicantPhase::class,
                 \Platform\Recruiting\Console\Commands\DuplicatePosition::class,
                 \Platform\Recruiting\Console\Commands\ImportApplicantsCsv::class,
+                \Platform\Recruiting\Console\Commands\ZasExportBackfill::class,
             ]);
         }
+
+        // ZAS-Signed-URL-Generator: braucht Sekret + TTL aus der Config,
+        // deshalb explizit gebunden statt Auto-Resolution.
+        $this->app->singleton(
+            \Platform\Recruiting\Services\Zas\ZasSignedUrlGenerator::class,
+            fn ($app) => new \Platform\Recruiting\Services\Zas\ZasSignedUrlGenerator(
+                secret:  (string) config('recruiting.zas.signed_url_secret', ''),
+                ttlDays: (int) config('recruiting.zas.signed_url_ttl_days', 7),
+            )
+        );
     }
 
     public function boot(): void
@@ -94,6 +105,12 @@ class RecruitingServiceProvider extends ServiceProvider
             $this->loadRoutesFrom(__DIR__.'/../routes/public.php');
         });
 
+        // ZAS-Export: eigene Route-Gruppe ohne `web`-Middleware
+        // (kein Session, kein CSRF). Auth via ZasBearerAuth bzw. signed URL.
+        Route::prefix('recruiting/zas')->group(function () {
+            $this->loadRoutesFrom(__DIR__.'/../routes/zas.php');
+        });
+
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
 
         $this->publishes([
@@ -105,6 +122,11 @@ class RecruitingServiceProvider extends ServiceProvider
 
         $this->registerCommsListeners();
         $this->registerTools();
+
+        // ZAS-Bewerber-Export: Observer markiert export_changed_at bei
+        // relevanten Aenderungen. Der Endpoint liefert markierte Datensaetze
+        // aus und nullt den Marker. Siehe docs/meingedeck/zas-applicant-export.md
+        \Platform\Recruiting\Observers\RecApplicantExportObserver::register();
     }
 
     protected function registerSchedule(): void

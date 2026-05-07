@@ -76,4 +76,36 @@ return [
             'active' => true,
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | ZAS Bewerber-Export
+    |--------------------------------------------------------------------------
+    |
+    | Konfiguration fuer den ZAS-Pull-Endpoint (externes IBEI-HR-System).
+    | Siehe docs/meingedeck/zas-applicant-export.md
+    |
+    | - token:                Bearer-Token fuer Authorization-Header. Pflicht.
+    |                         Lange Zufallsstring (>= 32 Zeichen). Niemals per
+    |                         Klartext-Mail uebergeben — Bitwarden o. ä.
+    | - signed_url_secret:    HMAC-Sekret fuer die Datei-URLs. Pflicht.
+    |                         Bei Rotation werden alle bestehenden Foto-Links
+    |                         in ZAS sofort ungueltig — also nur rotieren
+    |                         wenn man weiss was man tut.
+    | - signed_url_ttl_days:  Lebensdauer der Foto-Links. ZAS sollte die
+    |                         Dateien beim Pull sofort lokal kopieren —
+    |                         URLs sind nicht fuer Langzeit-Persistenz.
+    | - export_min_phase_order:
+    |                         Optional zusaetzliches Phase-Gate. NULL =
+    |                         deaktiviert; primaerer Filter ist sowieso
+    |                         "Bewerber hat versendeten Vertrag". Falls
+    |                         spaeter strenger gefiltert werden soll
+    |                         (z. B. nur Phase >= 4 in der neuen Logik).
+    */
+    'zas' => [
+        'token'                  => env('RECRUITING_ZAS_TOKEN'),
+        'signed_url_secret'      => env('RECRUITING_ZAS_SIGNED_URL_SECRET'),
+        'signed_url_ttl_days'    => (int) env('RECRUITING_ZAS_SIGNED_URL_TTL_DAYS', 7),
+        'export_min_phase_order' => env('RECRUITING_ZAS_EXPORT_MIN_PHASE_ORDER'),
+    ],
 ];
