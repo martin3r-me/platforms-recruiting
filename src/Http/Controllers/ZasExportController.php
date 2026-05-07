@@ -43,6 +43,33 @@ class ZasExportController extends Controller
     public function __invoke(Request $request): Response
     {
         $isDryRun = $request->boolean('dry_run');
+
+        try {
+            return $this->buildResponse($isDryRun);
+        } catch (\Throwable $e) {
+            // Im Dry-Run-Modus: Klartext-Fehler im Body, damit Debugging
+            // ohne APP_DEBUG-Toggle moeglich ist. Im echten Pull bleibt
+            // das Standard-500-Verhalten von Laravel (= Hr. Michel sieht
+            // keine Stack-Traces).
+            if ($isDryRun) {
+                $payload = sprintf(
+                    "ZAS-EXPORT-FEHLER (dry_run debug)\n\n%s: %s\nin %s:%d\n\nStack:\n%s",
+                    get_class($e),
+                    $e->getMessage(),
+                    $e->getFile(),
+                    $e->getLine(),
+                    $e->getTraceAsString()
+                );
+                return response($payload, 500)
+                    ->header('Content-Type', 'text/plain; charset=utf-8')
+                    ->header('Cache-Control', 'no-store');
+            }
+            throw $e;
+        }
+    }
+
+    protected function buildResponse(bool $isDryRun): Response
+    {
         $minPhaseOrder = config('recruiting.zas.export_min_phase_order');
 
         $applicants = $this->fetchChangedApplicants(
