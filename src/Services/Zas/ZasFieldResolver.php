@@ -154,14 +154,34 @@ class ZasFieldResolver
 
     /**
      * Liefert den ersten nicht-leeren Wert aus dem Fallback-Pfad.
+     *
+     * Phone-Felder werden als JSON-Objekt gespeichert
+     * ({"raw":"...","e164":"+49...","international":"+49 ..."}). Wir
+     * geben den E.164-String aus — das ist das Format das Hr. Michel
+     * im Bestands-CSV hatte.
      */
     protected function getStringField(RecApplicant $applicant, array $fieldNames): ?string
     {
         foreach ($fieldNames as $name) {
             $value = $this->getRawExtraField($applicant, $name);
-            if ($value !== null && $value !== '') {
-                return is_array($value) ? json_encode($value) : (string) $value;
+            if ($value === null || $value === '') {
+                continue;
             }
+            if (is_array($value)) {
+                // Phone-Object → bevorzugt e164, dann international, dann raw
+                if (isset($value['e164'])) {
+                    return (string) $value['e164'];
+                }
+                if (isset($value['international'])) {
+                    return (string) $value['international'];
+                }
+                if (isset($value['raw'])) {
+                    return (string) $value['raw'];
+                }
+                // Sonstiges Multi-Value → comma-separiert
+                return implode(', ', array_map(fn ($v) => (string) $v, $value));
+            }
+            return (string) $value;
         }
         return null;
     }
@@ -334,11 +354,14 @@ class ZasFieldResolver
         if ($value === null) {
             return null;
         }
-        // Multi-File / Multi-Select sind als JSON-Array gespeichert
-        if (is_string($value) && str_starts_with($value, '[') && str_ends_with($value, ']')) {
-            $decoded = json_decode($value, true);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                return $decoded;
+        // Multi-File / Multi-Select als JSON-Array, Phone/Address als JSON-Object
+        if (is_string($value)) {
+            if ((str_starts_with($value, '[') && str_ends_with($value, ']'))
+                || (str_starts_with($value, '{') && str_ends_with($value, '}'))) {
+                $decoded = json_decode($value, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    return $decoded;
+                }
             }
         }
         return $value;
