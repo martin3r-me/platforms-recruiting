@@ -28,7 +28,8 @@ class ZasExportBackfill extends Command
 {
     protected $signature = 'recruiting:zas-export-backfill
         {--team-id= : Optional auf ein Team beschraenken}
-        {--dry-run : Nur anzeigen wieviele Bewerber markiert wuerden}';
+        {--dry-run : Nur anzeigen wieviele Bewerber markiert wuerden}
+        {--force : Confirmation ueberspringen (fuer non-interaktive Runs)}';
 
     protected $description = 'Markiert Bestandsbewerber mit versendetem Vertrag fuer den initialen ZAS-Export';
 
@@ -69,7 +70,7 @@ class ZasExportBackfill extends Command
             return self::SUCCESS;
         }
 
-        if (!$this->confirm('Markierung jetzt schreiben?', true)) {
+        if (!$this->option('force') && !$this->confirm('Markierung jetzt schreiben?', true)) {
             $this->warn('Abgebrochen.');
             return self::SUCCESS;
         }
