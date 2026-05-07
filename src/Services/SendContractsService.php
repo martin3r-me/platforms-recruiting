@@ -146,7 +146,11 @@ class SendContractsService
 
             // 4) Beide Verträge als "verschickt" markieren — das löst die
             //    'contract_sent' Phase-Completion-Check aus.
+            //    $nowSentCount zaehlt nur Vertraege die in DIESEM Run ihr
+            //    sent_at neu bekommen — fuer die Idempotenz-Logik beim
+            //    Notification-Versand unten.
             $now = now();
+            $nowSentCount = 0;
             foreach (array_filter([$avContract, $ifsgContract]) as $contract) {
                 if (!$contract->sent_at) {
                     $contract->sent_at = $now;
@@ -154,6 +158,7 @@ class SendContractsService
                         $contract->status = 'sent';
                     }
                     $contract->save();
+                    $nowSentCount++;
                 }
             }
 
@@ -165,8 +170,14 @@ class SendContractsService
             //    soll auch dann durchlaufen wenn die WA-Konfig (z.B. ein
             //    abgelaufenes Template) gerade nicht greift — HR sieht's
             //    dann im RecAutoPilotLog.
-            $applicant->refresh();
-            $applicant->sendContractPortalNotification();
+            //    Idempotenz: nur senden wenn in diesem Run wirklich
+            //    mindestens ein Vertrag JETZT erstmalig als gesendet
+            //    markiert wurde — verhindert doppelte Notification beim
+            //    Bulk-Re-Send fuer schon abgeschlossene Bewerber.
+            if ($nowSentCount > 0) {
+                $applicant->refresh();
+                $applicant->sendContractPortalNotification();
+            }
 
             // 6) AutoPilot-Phase-Check: Phase wandert nach "Vertrag unterschreiben"
             $applicant->checkAutoPilotCompletion();
