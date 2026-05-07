@@ -261,11 +261,19 @@ class Index extends Component
 
     public function sendContractsBulk(): void
     {
-        $eligible = $this->bookings
-            ->filter(fn ($b) => $b->status === 'attended' && $b->applicant?->contract_template_id);
+        // Eligible = anwesend + Template zugewiesen + noch KEIN Vertrag versendet.
+        // Schon-versendete (hasAnyContractSent) werden geskippt — verhindert
+        // dass leere Vertragsbeginn-Felder den ganzen Run blockieren UND dass
+        // bestehende Vertragsdaten ungewollt ueberschrieben werden. Service-
+        // Layer hat zusaetzlich Idempotenz-Schutz fuer Notification-Versand.
+        $eligible = $this->bookings->filter(function ($b) {
+            return $b->status === 'attended'
+                && $b->applicant?->contract_template_id
+                && !$b->applicant->hasAnyContractSent();
+        });
 
         if ($eligible->isEmpty()) {
-            session()->flash('error', 'Keine anwesenden Bewerber mit zugewiesener Vertragsvorlage.');
+            session()->flash('error', 'Keine anwesenden Bewerber mit Vertragsvorlage und noch nicht versendet.');
             return;
         }
 
@@ -275,7 +283,7 @@ class Index extends Component
             return empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
         });
         if ($missingBeginn->isNotEmpty()) {
-            session()->flash('error', 'Bei mind. einem anwesenden Bewerber fehlt der Vertragsbeginn.');
+            session()->flash('error', 'Bei mind. einem zu versendenden Bewerber fehlt der Vertragsbeginn.');
             return;
         }
 
