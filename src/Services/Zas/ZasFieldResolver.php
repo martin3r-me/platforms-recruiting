@@ -232,8 +232,13 @@ class ZasFieldResolver
     }
 
     /**
-     * Schulungs-Standort aus dem letzten Interview-Booking. Joint via
-     * rec_interview_bookings → rec_interviews → rec_event_locations.
+     * Schulungs-Standort aus dem letzten Interview-Booking.
+     *
+     * Bevorzugt das `label` aus rec_event_locations (kurzer Anzeigename
+     * wie "Koeln / Bonn"). Fallback auf den Free-Text rec_interviews.location
+     * — die UI speichert dort die full_address des gewaehlten Standorts,
+     * und aeltere Interviews ohne rec_event_location_id haben sowieso nur
+     * den Free-Text.
      */
     protected function getSchulungsStandort(RecApplicant $applicant): ?string
     {
@@ -243,10 +248,20 @@ class ZasFieldResolver
             ->where('b.rec_applicant_id', $applicant->id)
             ->whereNull('b.deleted_at')
             ->orderByDesc('b.booked_at')
-            ->select('l.name')
+            ->select('l.label as location_label', 'i.location as location_text')
             ->first();
 
-        return $row?->name;
+        if (!$row) {
+            return null;
+        }
+
+        $label = trim((string) ($row->location_label ?? ''));
+        if ($label !== '') {
+            return $label;
+        }
+
+        $text = trim((string) ($row->location_text ?? ''));
+        return $text === '' ? null : $text;
     }
 
     /**
