@@ -109,6 +109,7 @@ class ZasExportController extends Controller
     {
         $query = RecApplicant::query()
             ->whereNotNull('export_changed_at')
+            ->where('is_test', false)
             ->whereExists(function ($q) {
                 $q->select(DB::raw(1))
                     ->from('rec_contracts')

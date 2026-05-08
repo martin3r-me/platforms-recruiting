@@ -40,6 +40,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'contract_template_id',
         'import_source',
         'export_changed_at',
+        'is_test',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
@@ -58,6 +59,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'progress' => 'integer',
         'applied_at' => 'date',
         'export_changed_at' => 'datetime',
+        'is_test' => 'boolean',
     ];
 
     protected static function booted(): void

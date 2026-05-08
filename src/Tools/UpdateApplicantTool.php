@@ -62,6 +62,10 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                     'type' => 'boolean',
                     'description' => 'Optional: Status.',
                 ],
+                'is_test' => [
+                    'type' => 'boolean',
+                    'description' => 'Optional: Test-Bewerber-Flag. true = Bewerber wird vom ZAS-Export ausgeschlossen (taucht nicht im CSV auf, wird nicht vom Backfill markiert). Fuer manuell angelegte Test-/Demo-Datensaetze. Default false.',
+                ],
                 'auto_pilot' => [
                     'type' => 'boolean',
                     'description' => 'Optional: AutoPilot-Flag aktivieren/deaktivieren. true = Phase-Übergänge greifen automatisch (via checkAutoPilotCompletion); false = Bewerber pausiert, HR muss manuell schalten. Wird bei Production normalerweise vom Enrichment-Cronjob basierend auf Position-Setting auto_start_auto_pilot gesetzt.',
@@ -125,6 +129,10 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
 
             if (array_key_exists('is_active', $arguments)) {
                 $applicant->is_active = (bool) $arguments['is_active'];
+            }
+
+            if (array_key_exists('is_test', $arguments)) {
+                $applicant->is_test = (bool) $arguments['is_test'];
             }
 
             if (array_key_exists('auto_pilot', $arguments)) {
@@ -222,6 +230,7 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 'progress' => $applicant->progress,
                 'team_id' => $applicant->team_id,
                 'is_active' => (bool)$applicant->is_active,
+                'is_test' => (bool)$applicant->is_test,
                 'auto_pilot' => (bool)$applicant->auto_pilot,
                 'auto_pilot_state_id' => $applicant->auto_pilot_state_id,
                 'auto_pilot_completed_at' => $applicant->auto_pilot_completed_at?->toISOString(),

@@ -41,6 +41,7 @@ class ZasExportBackfill extends Command
         // 1. Kandidaten zaehlen
         $countQuery = DB::table('rec_applicants as a')
             ->whereNull('a.export_changed_at')
+            ->where('a.is_test', false)
             ->whereExists(function ($q) {
                 $q->select(DB::raw(1))
                     ->from('rec_contracts')
@@ -80,6 +81,7 @@ class ZasExportBackfill extends Command
         //    Observer auf saved-Events laeuft, aber explizit halten).
         $updateQuery = DB::table('rec_applicants')
             ->whereNull('export_changed_at')
+            ->where('is_test', false)
             ->whereExists(function ($q) {
                 $q->select(DB::raw(1))
                     ->from('rec_contracts')
