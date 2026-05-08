@@ -10,7 +10,11 @@ namespace Platform\Recruiting\Services\Zas;
  *
  *   - Encoding: UTF-8 mit BOM (\xEF\xBB\xBF)
  *   - Trenner: `;` (Semikolon)
- *   - Zeilenende: `|;\n` (Pipe + Semikolon + LF)
+ *   - Zeilenende: `;|;\n` — extra Separator nach dem letzten Spaltenwert,
+ *     dann `|;` als Marker, dann LF. Wichtig damit das `|` NICHT an den
+ *     letzten Cell-Wert klebt — bei UplVertrag-URLs hat das sonst die
+ *     Signatur kaputt gemacht (sig=XXX| statt sig=XXX → hash_equals
+ *     scheitert). Format matcht Hr. Michels Beispiel-CSV (`...;Immabis;|;`).
  *   - Leere Werte: leerer String zwischen den Trennern
  *   - Werte werden roh ausgegeben — keine Quoting-Logik. Deshalb
  *     muessen Werte vorher von Semikolons / Newlines / |-Zeichen
@@ -23,7 +27,7 @@ class ZasCsvBuilder
 {
     public const BOM = "\xEF\xBB\xBF";
     public const SEPARATOR = ';';
-    public const LINE_END = "|;\n";
+    public const LINE_END = ";|;\n";
 
     /**
      * Baut das vollstaendige CSV-Dokument inklusive BOM + Header-Zeile.
