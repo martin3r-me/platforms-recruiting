@@ -7,6 +7,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Platform\Core\Models\ContextFile;
+use Platform\Recruiting\Http\Controllers\Concerns\RendersContractPdf;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Services\Zas\ZasFieldResolver;
 use Platform\Recruiting\Services\Zas\ZasSignedUrlGenerator;
@@ -33,6 +34,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ZasFileController extends Controller
 {
+    use RendersContractPdf;
+
     public function __construct(
         protected ZasSignedUrlGenerator $signedUrlGenerator,
     ) {}
@@ -143,13 +146,16 @@ class ZasFileController extends Controller
         $applicant = \Platform\Recruiting\Models\RecApplicant::find($contract->rec_applicant_id);
         $candidateName = $applicant?->crmContactLinks?->first()?->contact?->full_name;
 
-        $content = $contract->personalized_content ?? '';
-        $content = preg_replace('/\n{3,}/', "\n\n", $content);
+        // Wichtig: dieselbe prepareContractContentForPdf wie der
+        // ContractPdfController nutzen (Trait), damit der Stempel bei
+        // AV-* Vertraegen identisch injiziert wird. Sonst sieht der
+        // Bewerber einen Vertrag MIT Stempel und ZAS einen OHNE.
+        $contentForPdf = $this->prepareContractContentForPdf($contract);
 
         $html = view('recruiting::pdf.contract', [
             'contract'       => $contract,
             'candidateName'  => $candidateName,
-            'contentForPdf'  => $content,
+            'contentForPdf'  => $contentForPdf,
         ])->render();
 
         $filename = \Illuminate\Support\Str::slug(
