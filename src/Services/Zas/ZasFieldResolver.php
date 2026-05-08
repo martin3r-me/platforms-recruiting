@@ -102,8 +102,10 @@ class ZasFieldResolver
     protected function resolveColumn(RecApplicant $applicant, string $column): ?string
     {
         return match ($column) {
-            'Name'               => $this->getStringField($applicant, ['nachname']),
-            'Vorname'            => $this->getStringField($applicant, ['vorname']),
+            'Name'               => $this->getStringField($applicant, ['nachname'])
+                                     ?: $this->crmFallbackName($applicant, 'last_name'),
+            'Vorname'            => $this->getStringField($applicant, ['vorname'])
+                                     ?: $this->crmFallbackName($applicant, 'first_name'),
             'Strasse'            => $this->getStrasseConcat($applicant),
             'PLZ'                => $this->getStringField($applicant, ['plz']),
             'Ort'                => $this->getStringField($applicant, ['stadt']),
@@ -125,8 +127,10 @@ class ZasFieldResolver
             'BIC'                => $this->getStringField($applicant, ['bic']),
             'Fuehrerschein'      => $this->getStringField($applicant, ['fuhrerschein_klasse']),
             'PKW'                => $this->getBooleanField($applicant, ['pkw_vorhanden']),
-            'Telefon'            => $this->getStringField($applicant, ['telefonnummer']),
-            'Email'              => $this->getStringField($applicant, ['email']),
+            'Telefon'            => $this->getStringField($applicant, ['telefonnummer'])
+                                     ?: $this->crmFallbackPhone($applicant),
+            'Email'              => $this->getStringField($applicant, ['email'])
+                                     ?: $this->crmFallbackEmail($applicant),
             'Krankenkasse'       => $this->getLookupField($applicant, ['krankenkasse']),
             'Geburtsort'         => $this->getStringField($applicant, ['geburtsort']),
             'Impfschutz'         => null, // nicht erfasst
@@ -409,5 +413,85 @@ class ZasFieldResolver
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    // ------------------------------------------------------------------
+    // CRM-Fallbacks (fuer Legacy-Bewerber ohne extra_fields)
+    // ------------------------------------------------------------------
+    //
+    // Hintergrund: manche Bewerber kamen vor der neuen Phase-Logik per
+    // Forward-Mail aus alten Quform-Registrierungen rein. Der Inbound-
+    // Listener legt einen CRM-Contact mit Name/Email/Telefon an, aber
+    // die extra_field_values bleiben leer weil das Self-Service-
+    // Onboarding nie durchlaufen wurde. Wenn so ein Bewerber spaeter
+    // einen Vertrag bekommt, taucht er im ZAS-Export auf — ohne diese
+    // Fallbacks waeren Name/Vorname/Tel/Email leer.
+    //
+    // Fallback-Regel: extra_field gewinnt; nur wenn leer, CRM-Contact.
+    // Andere Felder (Adresse, Geburtsdatum, IBAN, ...) liegen nicht
+    // im CRM-Kontakt und bleiben dann eben leer — Hr. Michel kann
+    // den Datensatz dann immer noch matchen wenn Name/Vorname da sind.
+
+    /**
+     * Liefert den first_name oder last_name aus dem ersten verlinkten
+     * CRM-Contact des Bewerbers. NULL wenn kein Contact verlinkt ist
+     * oder das Feld leer ist.
+     */
+    protected function crmFallbackName(RecApplicant $applicant, string $field): ?string
+    {
+        $contact = $this->getPrimaryCrmContact($applicant);
+        if (!$contact) {
+            return null;
+        }
+        $value = (string) ($contact->{$field} ?? '');
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * Primaere Telefon-Nummer aus dem CRM-Contact in E.164 (analog zum
+     * Phone-Field aus extra_fields). CrmPhoneNumber speichert
+     * `international` als bereits-formatierten String.
+     */
+    protected function crmFallbackPhone(RecApplicant $applicant): ?string
+    {
+        $contact = $this->getPrimaryCrmContact($applicant);
+        if (!$contact) {
+            return null;
+        }
+        $phone = $contact->phoneNumbers()->where('is_primary', true)->first()
+              ?? $contact->phoneNumbers()->first();
+        $value = (string) ($phone?->international ?? '');
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * Primaere Email-Adresse aus dem CRM-Contact.
+     */
+    protected function crmFallbackEmail(RecApplicant $applicant): ?string
+    {
+        $contact = $this->getPrimaryCrmContact($applicant);
+        if (!$contact) {
+            return null;
+        }
+        $email = $contact->emailAddresses()->where('is_primary', true)->first()
+              ?? $contact->emailAddresses()->first();
+        $value = (string) ($email?->email_address ?? '');
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * Holt den ersten verlinkten CRM-Contact des Bewerbers (mit Eager-
+     * Load-Cache). Mehrere Contacts sind theoretisch moeglich, aber
+     * fuer ZAS reicht der erste — Hr. Michel will eh nur einen
+     * Datensatz pro Bewerber.
+     */
+    protected function getPrimaryCrmContact(RecApplicant $applicant): ?\Platform\Crm\Models\CrmContact
+    {
+        // Verwendet die crmContactLinks-Relation analog zu
+        // ContractPdfController::__invoke.
+        $link = $applicant->crmContactLinks()
+            ->with('contact')
+            ->first();
+        return $link?->contact;
     }
 }
