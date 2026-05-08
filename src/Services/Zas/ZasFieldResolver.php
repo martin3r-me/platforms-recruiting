@@ -106,10 +106,14 @@ class ZasFieldResolver
                                      ?: $this->crmFallbackName($applicant, 'last_name'),
             'Vorname'            => $this->getStringField($applicant, ['vorname'])
                                      ?: $this->crmFallbackName($applicant, 'first_name'),
-            'Strasse'            => $this->getStrasseConcat($applicant),
-            'PLZ'                => $this->getStringField($applicant, ['plz']),
-            'Ort'                => $this->getStringField($applicant, ['stadt']),
-            'Geburtsdatum'       => $this->getDateField($applicant, ['geburtsdatum']),
+            'Strasse'            => $this->getStrasseConcat($applicant)
+                                     ?: $this->crmFallbackStrasse($applicant),
+            'PLZ'                => $this->getStringField($applicant, ['plz'])
+                                     ?: $this->crmFallbackAddressField($applicant, 'postal_code'),
+            'Ort'                => $this->getStringField($applicant, ['stadt'])
+                                     ?: $this->crmFallbackAddressField($applicant, 'city'),
+            'Geburtsdatum'       => $this->getDateField($applicant, ['geburtsdatum'])
+                                     ?: $this->crmFallbackBirthDate($applicant),
             'Familienstand'      => $this->getLookupField($applicant, ['familienstand']),
             'EUBuerger'          => $this->getBooleanField($applicant, ['eu_burger']),
             'Ichbin'             => $this->getLookupField($applicant, ['ich_bin']),
@@ -512,5 +516,68 @@ class ZasFieldResolver
             ->with('contact')
             ->first();
         return $link?->contact;
+    }
+
+    /**
+     * Geburtsdatum-Fallback: viele Bewerber pflegen ihr Geburtsdatum
+     * im CRM-Contact (vom Onboarding-Formular oder von HR direkt),
+     * nicht als extra_field. Vertrags-Templates greifen ohnehin auf
+     * `contact.birth_date` zu.
+     *
+     * Liefert TT.MM.JJJJ-formatiert oder null wenn weder extra_field
+     * noch CRM ein Datum haben.
+     */
+    protected function crmFallbackBirthDate(RecApplicant $applicant): ?string
+    {
+        $contact = $this->getPrimaryCrmContact($applicant);
+        if (!$contact || !$contact->birth_date) {
+            return null;
+        }
+        return $this->formatDate($contact->birth_date);
+    }
+
+    /**
+     * Strasse-Fallback aus CRM. Concateniert street + house_number wie
+     * der getStrasseConcat-Helper aus extra_fields.
+     */
+    protected function crmFallbackStrasse(RecApplicant $applicant): ?string
+    {
+        $address = $this->getPrimaryCrmAddress($applicant);
+        if (!$address) {
+            return null;
+        }
+        $strasse = trim((string) ($address->street ?? ''));
+        $hausnr  = trim((string) ($address->house_number ?? ''));
+        $combined = trim($strasse . ' ' . $hausnr);
+        return $combined !== '' ? $combined : null;
+    }
+
+    /**
+     * PLZ / Ort aus CRM. `field` darf 'postal_code' oder 'city' sein
+     * (oder andere CrmPostalAddress-Spalten — additional_info, country,
+     * state — falls jemand das spaeter braucht).
+     */
+    protected function crmFallbackAddressField(RecApplicant $applicant, string $field): ?string
+    {
+        $address = $this->getPrimaryCrmAddress($applicant);
+        if (!$address) {
+            return null;
+        }
+        $value = (string) ($address->{$field} ?? '');
+        return $value !== '' ? $value : null;
+    }
+
+    /**
+     * Holt die primaere postal_address des CRM-Contacts. Bevorzugt
+     * `is_primary=true`, Fallback auf erste vorhandene.
+     */
+    protected function getPrimaryCrmAddress(RecApplicant $applicant): ?\Platform\Crm\Models\CrmPostalAddress
+    {
+        $contact = $this->getPrimaryCrmContact($applicant);
+        if (!$contact) {
+            return null;
+        }
+        return $contact->postalAddresses()->where('is_primary', true)->first()
+            ?? $contact->postalAddresses()->first();
     }
 }
