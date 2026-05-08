@@ -56,7 +56,10 @@ class ZasFileController extends Controller
 
         // 3. Slot aufloesen
         if ($slot === 'upl-vertrag') {
-            return $this->streamLatestSignedContract($applicant);
+            return $this->streamLatestSignedContract($applicant, 'arbeitsvertrag');
+        }
+        if ($slot === 'upl-ifsg') {
+            return $this->streamLatestSignedContract($applicant, 'ifsg');
         }
 
         return $this->streamExtraFieldFile($applicant, $slot);
@@ -87,15 +90,30 @@ class ZasFileController extends Controller
     }
 
     /**
-     * Streamt das juengste unterschriebene Vertrags-PDF des Bewerbers.
+     * Streamt das juengste unterschriebene Vertrags-PDF des Bewerbers
+     * fuer den angegebenen Typ:
+     *   - 'arbeitsvertrag' → templates mit code LIKE 'AV%'
+     *   - 'ifsg'           → templates mit code = 'IFSG'
+     *
+     * Pro Bewerber gibt es typischerweise einen AV (irgendeine Zuschlag-
+     * Variante) und einen IFSG. Wenn ein Bewerber irrtuemlich mehrere AV
+     * unterschrieben hat, gewinnt der juengste signed_at.
      */
-    protected function streamLatestSignedContract(RecApplicant $applicant): Response
+    protected function streamLatestSignedContract(RecApplicant $applicant, string $type): Response
     {
-        $contract = DB::table('rec_contracts')
-            ->where('rec_applicant_id', $applicant->id)
-            ->whereNotNull('signed_at')
-            ->orderByDesc('signed_at')
-            ->first();
+        $query = DB::table('rec_contracts')
+            ->join('rec_contract_templates', 'rec_contracts.rec_contract_template_id', '=', 'rec_contract_templates.id')
+            ->where('rec_contracts.rec_applicant_id', $applicant->id)
+            ->whereNotNull('rec_contracts.signed_at')
+            ->select('rec_contracts.id', 'rec_contracts.signed_at');
+
+        $query = match ($type) {
+            'arbeitsvertrag' => $query->where('rec_contract_templates.code', 'like', 'AV%'),
+            'ifsg'           => $query->where('rec_contract_templates.code', '=', 'IFSG'),
+            default          => $query,
+        };
+
+        $contract = $query->orderByDesc('rec_contracts.signed_at')->first();
 
         if (!$contract) {
             return response('No signed contract', 404)->header('Cache-Control', 'no-store');

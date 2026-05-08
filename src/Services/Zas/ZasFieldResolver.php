@@ -47,7 +47,7 @@ class ZasFieldResolver
         'UplAusw2', 'UplSelfie', 'UplArbErl2', 'UplZusatzblatt', 'UplFiktion',
         'Immabis',
         // Erweiterungen (Hr. Michel ergaenzt am Ende seiner DB)
-        'UplFiktion2', 'UplVisum', 'UplVertrag',
+        'UplFiktion2', 'UplVisum', 'UplVertrag', 'UplIfsg',
     ];
 
     /**
@@ -148,7 +148,8 @@ class ZasFieldResolver
             'Immabis'            => null, // nicht erfasst
             'UplFiktion2'        => $this->getFileUrl($applicant, 'upl-fiktion2'),
             'UplVisum'           => $this->getFileUrl($applicant, 'upl-visum'),
-            'UplVertrag'         => $this->getContractUrl($applicant),
+            'UplVertrag'         => $this->getContractUrl($applicant, 'arbeitsvertrag'),
+            'UplIfsg'            => $this->getContractUrl($applicant, 'ifsg'),
         };
     }
 
@@ -307,21 +308,39 @@ class ZasFieldResolver
     }
 
     /**
-     * UplVertrag-URL: nur wenn der Bewerber mindestens einen
-     * unterschriebenen Vertrag hat. Stream-Pfad geht im ZasFileController
-     * an den ContractPdfController.
+     * Vertrag-URL fuer einen bestimmten Typ:
+     *   - 'arbeitsvertrag' → unterschriebene Vertraege mit code LIKE 'AV%'
+     *     (alle Zuschlag-Varianten AV-010, AV-060, AV-110, AV-160, AV-210,
+     *     AV-260; plus alter `AV` ohne Suffix)
+     *   - 'ifsg'           → unterschriebene Vertraege mit code = 'IFSG'
+     *
+     * Pro Bewerber gehen typischerweise BEIDE raus (Arbeitsvertrag +
+     * IfSG-Belehrung gekoppelt). ZAS bekommt sie als zwei separate
+     * Spalten/URLs.
+     *
+     * URL nur generiert wenn der entsprechende Typ unterschrieben ist —
+     * sonst leer (z. B. wenn Bewerber nur einen der zwei zurueckgeschickt
+     * hat).
      */
-    protected function getContractUrl(RecApplicant $applicant): ?string
+    protected function getContractUrl(RecApplicant $applicant, string $type): ?string
     {
-        $hasSignedContract = DB::table('rec_contracts')
-            ->where('rec_applicant_id', $applicant->id)
-            ->whereNotNull('signed_at')
-            ->exists();
+        $query = DB::table('rec_contracts')
+            ->join('rec_contract_templates', 'rec_contracts.rec_contract_template_id', '=', 'rec_contract_templates.id')
+            ->where('rec_contracts.rec_applicant_id', $applicant->id)
+            ->whereNotNull('rec_contracts.signed_at');
 
-        if (!$hasSignedContract) {
+        $query = match ($type) {
+            'arbeitsvertrag' => $query->where('rec_contract_templates.code', 'like', 'AV%'),
+            'ifsg'           => $query->where('rec_contract_templates.code', '=', 'IFSG'),
+            default          => $query,
+        };
+
+        if (!$query->exists()) {
             return null;
         }
-        return $this->signedUrlGenerator->generate((string) $applicant->uuid, 'upl-vertrag');
+
+        $slot = $type === 'ifsg' ? 'upl-ifsg' : 'upl-vertrag';
+        return $this->signedUrlGenerator->generate((string) $applicant->uuid, $slot);
     }
 
     // ------------------------------------------------------------------
