@@ -44,8 +44,22 @@ class ZasExportController extends Controller
     {
         $isDryRun = $request->boolean('dry_run');
 
+        // Optional: gestaffelter Rollout fuer ZAS-Anbieter.
+        // Bei ?limit=N wird die Auslieferung auf N Datensaetze begrenzt
+        // (aelteste export_changed_at zuerst). Im Live-Modus werden auch
+        // nur diese N Marker konsumiert — die restlichen bleiben markiert
+        // fuer einen spaeteren Pull. Hauptanwendung: Erstpull = 1
+        // Datensatz testweise, Kunde validiert im UI, dann restliche.
+        $limit = null;
+        if ($request->has('limit')) {
+            $rawLimit = $request->query('limit');
+            if (is_numeric($rawLimit) && (int) $rawLimit > 0) {
+                $limit = (int) $rawLimit;
+            }
+        }
+
         try {
-            return $this->buildResponse($isDryRun);
+            return $this->buildResponse($isDryRun, $limit);
         } catch (\Throwable $e) {
             // Im Dry-Run-Modus: Klartext-Fehler im Body, damit Debugging
             // ohne APP_DEBUG-Toggle moeglich ist. Im echten Pull bleibt
@@ -68,12 +82,13 @@ class ZasExportController extends Controller
         }
     }
 
-    protected function buildResponse(bool $isDryRun): Response
+    protected function buildResponse(bool $isDryRun, ?int $limit = null): Response
     {
         $minPhaseOrder = config('recruiting.zas.export_min_phase_order');
 
         $applicants = $this->fetchChangedApplicants(
             minPhaseOrder: $minPhaseOrder !== null ? (int) $minPhaseOrder : null,
+            limit: $limit,
         );
 
         $rows = [];
@@ -105,7 +120,7 @@ class ZasExportController extends Controller
     /**
      * Zieht alle Bewerber, die ausgeliefert werden sollen.
      */
-    protected function fetchChangedApplicants(?int $minPhaseOrder): \Illuminate\Support\Collection
+    protected function fetchChangedApplicants(?int $minPhaseOrder, ?int $limit = null): \Illuminate\Support\Collection
     {
         $query = RecApplicant::query()
             ->whereNotNull('export_changed_at')
@@ -126,6 +141,14 @@ class ZasExportController extends Controller
                     ->whereColumn('rec_phases.id', 'rec_applicants.rec_phase_id')
                     ->where('rec_phases.order', '>=', $minPhaseOrder);
             });
+        }
+
+        // Gestaffelter Rollout: nur N Datensaetze ausliefern (siehe
+        // __invoke-Kommentar). Sortierung bleibt ASC nach
+        // export_changed_at — also kommen die aeltesten Aenderungen zuerst,
+        // konsistent zwischen Pulls.
+        if ($limit !== null && $limit > 0) {
+            $query->limit($limit);
         }
 
         return $query->get();
