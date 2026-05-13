@@ -43,6 +43,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DuplicatePosition::class,
                 \Platform\Recruiting\Console\Commands\ImportApplicantsCsv::class,
                 \Platform\Recruiting\Console\Commands\ZasExportBackfill::class,
+                \Platform\Recruiting\Console\Commands\BackfillImageVariants::class,
             ]);
         }
 

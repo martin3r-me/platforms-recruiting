@@ -175,14 +175,38 @@ class ZasFileController extends Controller
      */
     protected function streamContextFile(ContextFile $file): Response
     {
-        $disk = Storage::disk($file->disk ?? 'local');
-        if (!$disk->exists($file->path)) {
+        // Bevorzuge medium-Variante: ~50-100 KB statt 1-3 MB beim Original.
+        // Spart bei 82 Bewerbern × ~8 Bildern grob 1-2 GB Bandbreite pro
+        // Erst-Pull. Wenn keine medium-Variante existiert (z. B. Legacy-
+        // Uploads ohne Backfill, oder Originale die zu klein zum
+        // Skalieren waren), Fallback auf das Original.
+        $variant = $file->variants()
+            ->where('variant_type', 'like', 'medium_%')
+            ->first();
+
+        if ($variant) {
+            $disk = Storage::disk($variant->disk ?? 'local');
+            $path = $variant->path;
+            $mime = 'image/webp';                       // Variants sind immer webp
+            $size = $variant->file_size ?: '';
+            $filename = $this->variantFilename($file, 'medium');
+            $servedAs = $variant->variant_type;
+        } else {
+            $disk = Storage::disk($file->disk ?? 'local');
+            $path = $file->path;
+            $mime = $file->mime_type ?: 'application/octet-stream';
+            $size = $file->file_size ?: '';
+            $filename = $file->original_name ?: $file->file_name;
+            $servedAs = 'original';
+        }
+
+        if (!$disk->exists($path)) {
             return response('File missing on disk', 404)->header('Cache-Control', 'no-store');
         }
 
         return new StreamedResponse(
-            function () use ($disk, $file) {
-                $stream = $disk->readStream($file->path);
+            function () use ($disk, $path) {
+                $stream = $disk->readStream($path);
                 if ($stream === null) {
                     return;
                 }
@@ -193,12 +217,31 @@ class ZasFileController extends Controller
             },
             200,
             [
-                'Content-Type'        => $file->mime_type ?: 'application/octet-stream',
-                'Content-Length'      => $file->file_size ?: '',
-                'Content-Disposition' => 'inline; filename="' . addslashes($file->original_name ?: $file->file_name) . '"',
+                'Content-Type'        => $mime,
+                'Content-Length'      => $size,
+                'Content-Disposition' => 'inline; filename="' . addslashes($filename) . '"',
                 'Cache-Control'       => 'no-store',
+                'X-Variant-Served'    => $servedAs,   // medium_4_3 / medium_1_1 / original
             ]
         );
+    }
+
+    /**
+     * Erzeugt einen sprechenden Filename fuer die Variante, basierend auf
+     * dem Original-Namen plus "-medium"-Suffix vor der Extension.
+     */
+    protected function variantFilename(ContextFile $file, string $sizeName): string
+    {
+        $base = $file->original_name ?: $file->file_name;
+        if ($base === '') {
+            return $sizeName . '.webp';
+        }
+        $dot = strrpos($base, '.');
+        if ($dot === false) {
+            return $base . '-' . $sizeName . '.webp';
+        }
+        $name = substr($base, 0, $dot);
+        return $name . '-' . $sizeName . '.webp';
     }
 
     /**
