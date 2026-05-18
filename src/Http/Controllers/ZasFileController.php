@@ -175,11 +175,9 @@ class ZasFileController extends Controller
      */
     protected function streamContextFile(ContextFile $file): Response
     {
-        // Bevorzuge medium-Variante: ~50-100 KB statt 1-3 MB beim Original.
-        // Spart bei 82 Bewerbern × ~8 Bildern grob 1-2 GB Bandbreite pro
-        // Erst-Pull. Wenn keine medium-Variante existiert (z. B. Legacy-
-        // Uploads ohne Backfill, oder Originale die zu klein zum
-        // Skalieren waren), Fallback auf das Original.
+        // Bevorzuge medium-Variante: ~30-160 KB statt 1-3 MB beim Original.
+        // Wenn keine medium-Variante existiert (z. B. Legacy-Uploads, oder
+        // Originale die zu klein zum Skalieren waren), Fallback aufs Original.
         $variant = $file->variants()
             ->where('variant_type', 'like', 'medium_%')
             ->first();
@@ -187,22 +185,37 @@ class ZasFileController extends Controller
         if ($variant) {
             $disk = Storage::disk($variant->disk ?? 'local');
             $path = $variant->path;
-            $mime = 'image/webp';                       // Variants sind immer webp
-            $size = $variant->file_size ?: '';
-            $filename = $this->variantFilename($file, 'medium');
+            $sourceMime = 'image/webp';                  // Variants sind immer webp
             $servedAs = $variant->variant_type;
         } else {
             $disk = Storage::disk($file->disk ?? 'local');
             $path = $file->path;
-            $mime = $file->mime_type ?: 'application/octet-stream';
-            $size = $file->file_size ?: '';
-            $filename = $file->original_name ?: $file->file_name;
+            $sourceMime = $file->mime_type ?: 'application/octet-stream';
             $servedAs = 'original';
         }
 
         if (!$disk->exists($path)) {
             return response('File missing on disk', 404)->header('Cache-Control', 'no-store');
         }
+
+        // WebP wird von MS Access (Picture-Control) nicht angezeigt. ZAS
+        // braucht JPG. Wir konvertieren on-the-fly: Variant-WebP einlesen,
+        // mit Intervention Image zu JPG, als image/jpeg streamen. Originale
+        // die schon ein gaengiges Format haben (jpg/png) gehen unveraendert
+        // raus.
+        //
+        // Pro Request +100-300ms. Bei ~640 Image-Requests im Erst-Pull also
+        // ~2-3 Min zusaetzliche Server-Zeit — vertretbar fuer die Volumen.
+        $needsJpegConversion = str_starts_with($sourceMime, 'image/')
+            && !in_array($sourceMime, ['image/jpeg', 'image/jpg'], true);
+
+        if ($needsJpegConversion) {
+            return $this->streamAsJpeg($disk, $path, $file, $servedAs, $sourceMime);
+        }
+
+        // Original ist schon JPG/PNG → direkt durchstreamen
+        $filename = $file->original_name ?: $file->file_name;
+        $size = $variant?->file_size ?: ($file->file_size ?: '');
 
         return new StreamedResponse(
             function () use ($disk, $path) {
@@ -217,31 +230,81 @@ class ZasFileController extends Controller
             },
             200,
             [
-                'Content-Type'        => $mime,
-                'Content-Length'      => $size,
+                'Content-Type'        => $sourceMime,
+                'Content-Length'      => (string) $size,
                 'Content-Disposition' => 'inline; filename="' . addslashes($filename) . '"',
                 'Cache-Control'       => 'no-store',
-                'X-Variant-Served'    => $servedAs,   // medium_4_3 / medium_1_1 / original
+                'X-Variant-Served'    => $servedAs,
             ]
         );
     }
 
     /**
-     * Erzeugt einen sprechenden Filename fuer die Variante, basierend auf
-     * dem Original-Namen plus "-medium"-Suffix vor der Extension.
+     * Liest die Quell-Datei (WebP-Variante oder anderes Bildformat) aus
+     * dem Storage, konvertiert mit Intervention Image zu JPG (Quality 90),
+     * gibt das Resultat als image/jpeg-Response zurueck.
+     *
+     * Speicher: laedt das komplette Bild in Memory. Bei medium-Variants
+     * (~30-160 KB) unkritisch. Bei Originalen (1-5 MB) ist's noch ok,
+     * passiert aber nur wenn keine Variant existiert.
+     */
+    protected function streamAsJpeg(
+        \Illuminate\Contracts\Filesystem\Filesystem $disk,
+        string $path,
+        ContextFile $file,
+        string $servedAs,
+        string $sourceMime,
+    ): Response {
+        $sourceBytes = $disk->get($path);
+        if ($sourceBytes === null) {
+            return response('File missing on disk', 404)->header('Cache-Control', 'no-store');
+        }
+
+        try {
+            $manager = new \Intervention\Image\ImageManager(
+                new \Intervention\Image\Drivers\Gd\Driver()
+            );
+            $image = $manager->read($sourceBytes);
+            $jpegBytes = (string) $image->toJpeg(90);
+        } catch (\Throwable $e) {
+            // Konvertierung fehlgeschlagen → Fallback: Original-Bytes
+            // unkonvertiert ausgeben. Besser kaputt-anzeigen als 500er.
+            \Log::warning('[ZAS-FileController] WebP-JPG-Konvertierung fehlgeschlagen', [
+                'context_file_id' => $file->id,
+                'error' => $e->getMessage(),
+            ]);
+            $jpegBytes = $sourceBytes;
+        }
+
+        $filename = $this->variantFilename($file, 'medium');
+
+        return response($jpegBytes, 200, [
+            'Content-Type'        => 'image/jpeg',
+            'Content-Length'      => (string) strlen($jpegBytes),
+            'Content-Disposition' => 'inline; filename="' . addslashes($filename) . '"',
+            'Cache-Control'       => 'no-store',
+            'X-Variant-Served'    => $servedAs,
+            'X-Format-Converted'  => $sourceMime . '->image/jpeg',
+        ]);
+    }
+
+    /**
+     * Erzeugt einen sprechenden Filename fuer die Variante. Wir liefern
+     * an ZAS immer JPG aus (MS Access kann WebP nicht anzeigen), daher
+     * immer .jpg-Endung.
      */
     protected function variantFilename(ContextFile $file, string $sizeName): string
     {
         $base = $file->original_name ?: $file->file_name;
         if ($base === '') {
-            return $sizeName . '.webp';
+            return $sizeName . '.jpg';
         }
         $dot = strrpos($base, '.');
         if ($dot === false) {
-            return $base . '-' . $sizeName . '.webp';
+            return $base . '-' . $sizeName . '.jpg';
         }
         $name = substr($base, 0, $dot);
-        return $name . '-' . $sizeName . '.webp';
+        return $name . '-' . $sizeName . '.jpg';
     }
 
     /**
