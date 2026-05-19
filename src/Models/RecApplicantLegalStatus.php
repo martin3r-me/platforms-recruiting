@@ -30,6 +30,8 @@ class RecApplicantLegalStatus extends Model
         'visumsblatt_file_id',
         'zusatzblatt_file_id',
         'immatrikulation_file_id',
+        'legal_status_checked_at',
+        'additional_contract_template_id',
     ];
 
     protected $casts = [
@@ -40,6 +42,8 @@ class RecApplicantLegalStatus extends Model
         'visumsblatt_file_id' => 'integer',
         'zusatzblatt_file_id' => 'integer',
         'immatrikulation_file_id' => 'integer',
+        'legal_status_checked_at' => 'datetime',
+        'additional_contract_template_id' => 'integer',
     ];
 
     public function applicant(): BelongsTo
@@ -80,6 +84,30 @@ class RecApplicantLegalStatus extends Model
     public function immatrikulationFile(): BelongsTo
     {
         return $this->belongsTo(ContextFile::class, 'immatrikulation_file_id');
+    }
+
+    /**
+     * Optionaler Zusatzvertrag fuer nicht-EU-Buerger (typisch AT-* Codes,
+     * z.B. Arbeitsgenehmigung-Zusatz, Aufenthaltstitel-bezogenes Doc).
+     * HR waehlt ihn beim Pruefen auf dem HR-Schreibtisch. SendContractsService
+     * laed ihn beim Vertragsversand zusaetzlich zu AV + IFSG.
+     */
+    public function additionalContractTemplate(): BelongsTo
+    {
+        return $this->belongsTo(RecContractTemplate::class, 'additional_contract_template_id');
+    }
+
+    /**
+     * True wenn der Rechtsstatus von HR explizit geprueft wurde
+     * (legal_status_checked_at gesetzt). Wird im Schulungs-Index fuer die
+     * rot/gruen-Markierung und im Bulk-Send-Filter verwendet.
+     *
+     * Nur sinnvoll fuer is_eu_citizen=false — EU-Buerger brauchen keine
+     * Pruefung. Der Caller muss die EU-Frage separat checken.
+     */
+    public function isChecked(): bool
+    {
+        return $this->legal_status_checked_at !== null;
     }
 
     public function setEuCitizen(?bool $value, ?int $userId = null): void
