@@ -76,6 +76,16 @@
         </header>
 
         <main class="max-w-3xl mx-auto px-6 py-8">
+            {{-- Info-Banner: Ortswahl-Hinweis --}}
+            <div class="mb-6 bg-blue-50/95 border border-blue-200 rounded-2xl p-4 flex items-start gap-3">
+                <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <p class="text-sm text-blue-900 leading-snug">
+                    Nimm den Ort der für dich am besten passt, danach kannst du dich nur noch innerhalb des Standortes umbuchen.
+                </p>
+            </div>
+
             @if(count($this->availableInterviews) > 0)
                 @php
                     $grouped = collect($this->availableInterviews)->groupBy(fn ($i) => $i->position?->id ?? 0);
@@ -198,6 +208,23 @@
                     <p class="text-gray-500 text-lg">Aktuell sind keine freien Termine verfügbar. Bitte versuchen Sie es später erneut.</p>
                 </div>
             @endif
+
+            {{-- Schulung absagen (auch im selection-State erreichbar) --}}
+            <div class="mt-8 text-center">
+                <button
+                    type="button"
+                    x-data
+                    @click="if (confirm('Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.')) $wire.cancelSchulung()"
+                    wire:loading.attr="disabled"
+                    class="text-sm font-medium text-white/60 hover:text-white/80 underline underline-offset-2 transition-colors"
+                >
+                    <span wire:loading.remove wire:target="cancelSchulung">Schulung absagen</span>
+                    <span wire:loading wire:target="cancelSchulung" class="inline-flex items-center gap-2">
+                        <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        Wird abgesagt...
+                    </span>
+                </button>
+            </div>
         </main>
 
         <footer class="max-w-3xl mx-auto px-6 pb-8 text-center">
@@ -262,6 +289,35 @@
                         Wird umgebucht...
                     </span>
                 </button>
+
+                {{-- Schulung absagen (auch im booked-State erreichbar) --}}
+                <button
+                    type="button"
+                    x-data
+                    @click="if (confirm('Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.')) $wire.cancelSchulung()"
+                    wire:loading.attr="disabled"
+                    class="text-sm font-medium text-red-500/70 hover:text-red-600 underline underline-offset-2 transition-colors"
+                >
+                    <span wire:loading.remove wire:target="cancelSchulung">Schulung absagen</span>
+                    <span wire:loading wire:target="cancelSchulung" class="inline-flex items-center gap-2">
+                        <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        Wird abgesagt...
+                    </span>
+                </button>
+            </div>
+        </div>
+
+    {{-- Cancelled (Bewerber hat selbst abgesagt) --}}
+    @elseif($state === 'cancelled')
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="applicant-card w-full max-w-md p-10 text-center">
+                <div class="w-20 h-20 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-6">
+                    <svg class="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-900 mb-3">Absage erhalten</h1>
+                <p class="text-gray-500 text-lg">Schade, dass du nicht teilnehmen kannst. Unser HR-Team wird sich in Kürze bei dir melden um die nächsten Schritte zu besprechen.</p>
             </div>
         </div>
     @endif

@@ -264,13 +264,62 @@ class InterviewBooking extends Component
     public function cancelAndRebook(): void
     {
         // Cancel ALL non-cancelled bookings for this applicant (not just the first one)
+        // cancelled_by='applicant' weil Bewerber aktiv umbucht (kein HR-Eingriff)
         RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
             ->whereNotIn('status', ['cancelled'])
-            ->update(['status' => 'cancelled']);
+            ->update([
+                'status'        => 'cancelled',
+                'cancelled_by'  => 'applicant',
+                'cancelled_at'  => now(),
+            ]);
 
         // Force fresh computed values on next access
         unset($this->existingBooking, $this->availableInterviews);
         $this->state = 'selection';
+    }
+
+    /**
+     * Bewerber sagt die Schulung dauerhaft ab (nicht nur umbuchen). Anders
+     * als cancelAndRebook landet er danach NICHT im selection-State sondern
+     * in einem cancelled-State + wird auf HR-Schreibtisch geroutet.
+     */
+    public function cancelSchulung(): void
+    {
+        $applicant = RecApplicant::find($this->applicantId);
+        if (!$applicant) {
+            $this->state = 'notFound';
+            return;
+        }
+
+        // 1) Alle aktiven Buchungen des Bewerbers cancellen mit Quellen-Info
+        RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
+            ->whereNotIn('status', ['cancelled'])
+            ->update([
+                'status'        => 'cancelled',
+                'cancelled_by'  => 'applicant',
+                'cancelled_at'  => now(),
+            ]);
+
+        // 2) HR-Schreibtisch markieren — HR entscheidet was passiert
+        //    (Auto-Rebook absichtlich nicht; siehe Spec-Diskussion zur
+        //     Reminder-Nein-Logik — gleiche Begruendung)
+        $applicant->is_on_hr_desk = true;
+        $applicant->auto_pilot    = false;
+        $applicant->save();
+
+        // 3) AutoPilotLog fuer HR-Sichtbarkeit
+        try {
+            \Platform\Recruiting\Models\RecAutoPilotLog::create([
+                'rec_applicant_id' => $applicant->id,
+                'type'             => 'cancelled_by_applicant',
+                'summary'           => 'Bewerber hat die Schulung aktiv ueber den Public-Form-Link abgesagt.',
+            ]);
+        } catch (\Throwable) {
+            // Log-Fehler darf den Cancel nicht blockieren
+        }
+
+        unset($this->existingBooking, $this->availableInterviews);
+        $this->state = 'cancelled';
     }
 
     public function render()
