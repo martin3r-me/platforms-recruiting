@@ -196,7 +196,7 @@ class Index extends Component
 
     public function updateStatus(int $bookingId, string $status): void
     {
-        $validStatuses = ['registered', 'confirmed', 'attended', 'cancelled', 'no_show'];
+        $validStatuses = ['booked', 'registered', 'confirmed', 'attended', 'cancelled', 'no_show'];
         if (!in_array($status, $validStatuses)) {
             return;
         }

@@ -23,6 +23,8 @@ class RecInterviewBooking extends Model
         'is_active',
         'team_id',
         'reminder_sent_at',
+        'cancelled_by',
+        'cancelled_at',
         'created_by_user_id',
         'owned_by_user_id',
     ];
@@ -30,6 +32,7 @@ class RecInterviewBooking extends Model
     protected $casts = [
         'booked_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
+        'cancelled_at' => 'datetime',
         'is_active' => 'boolean',
     ];
 
@@ -88,6 +91,7 @@ class RecInterviewBooking extends Model
             return 'Umgebucht';
         }
         return match ($this->status) {
+            'booked'     => 'Gebucht',
             'registered' => 'Registriert',
             'confirmed'  => 'Bestätigt',
             'attended'   => 'Teilgenommen',

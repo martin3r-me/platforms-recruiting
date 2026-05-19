@@ -80,6 +80,7 @@
                             wire:model.live="filterStatus"
                             :options="[
                                 ['value' => 'all', 'label' => 'Alle Status'],
+                                ['value' => 'booked', 'label' => 'Gebucht'],
                                 ['value' => 'registered', 'label' => 'Registriert'],
                                 ['value' => 'confirmed', 'label' => 'Bestätigt'],
                                 ['value' => 'attended', 'label' => 'Teilgenommen'],
@@ -172,6 +173,7 @@
                                         <td class="px-4 py-3">
                                             <div class="flex items-center gap-2 flex-wrap">
                                                 <select wire:change="updateStatus({{ $booking->id }}, $event.target.value)" class="text-xs border border-[var(--ui-border)] rounded px-2 py-1">
+                                                    <option value="booked" @selected($booking->status === 'booked')>Gebucht</option>
                                                     <option value="registered" @selected($booking->status === 'registered')>Registriert</option>
                                                     <option value="confirmed" @selected($booking->status === 'confirmed')>Bestätigt</option>
                                                     <option value="attended" @selected($booking->status === 'attended')>Teilgenommen</option>
@@ -240,6 +242,7 @@
                                         </td>
                                         <td class="px-4 py-3">
                                             <select wire:change="updateStatus({{ $booking->id }}, $event.target.value)" class="text-xs border border-[var(--ui-border)] rounded px-2 py-1">
+                                                <option value="booked" @selected($booking->status === 'booked')>Gebucht</option>
                                                 <option value="registered" @selected($booking->status === 'registered')>Registriert</option>
                                                 <option value="confirmed" @selected($booking->status === 'confirmed')>Bestätigt</option>
                                                 <option value="attended" @selected($booking->status === 'attended')>Teilgenommen</option>

@@ -70,7 +70,7 @@ class UpdateInterviewBookingTool implements ToolContract, ToolMetadataContract
             }
 
             if (isset($arguments['status'])) {
-                $validStatuses = ['registered', 'confirmed', 'attended', 'cancelled', 'no_show'];
+                $validStatuses = ['booked', 'registered', 'confirmed', 'attended', 'cancelled', 'no_show'];
                 if (!in_array($arguments['status'], $validStatuses)) {
                     return ToolResult::error('VALIDATION_ERROR', 'Ungültiger Status. Erlaubt: ' . implode(', ', $validStatuses));
                 }
