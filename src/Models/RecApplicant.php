@@ -487,9 +487,12 @@ class RecApplicant extends Model implements InheritsExtraFields
      *
      * Currently supported flags:
      *  - confirm_booking_on_completion: bool
-     *      If true, upgrades any active booking from 'registered' to 'confirmed'.
+     *      If true, upgrades any active booking from 'booked' to 'registered'.
+     *      (Status-Workflow seit Schritt 3 der finalen Phasen-Logik:
+     *       booked → registered → confirmed. Phase-Hook macht den ersten
+     *       Schritt; Reminder-Ja-Antwort macht den zweiten.)
      *      Use this on the last phase before the actual training (typically
-     *      Onboarding) so that the slot is only marked verbindlich once the
+     *      Onboarding) so that the slot is only marked registriert once the
      *      applicant has supplied all required data.
      *
      * Easy to extend with further flags later (notify_hr, set_hr_desk, ...).
@@ -503,15 +506,15 @@ class RecApplicant extends Model implements InheritsExtraFields
 
         if (($config['confirm_booking_on_completion'] ?? false) === true) {
             $updated = $this->interviewBookings()
-                ->where('status', 'registered')
-                ->update(['status' => 'confirmed']);
+                ->where('status', 'booked')
+                ->update(['status' => 'registered']);
 
             if ($updated > 0) {
                 try {
                     RecAutoPilotLog::create([
                         'rec_applicant_id' => $this->id,
                         'type' => 'booking_confirmed',
-                        'summary' => "Schulungs-Buchung verbindlich bestätigt durch Abschluss von Phase \"{$completedPhase->name}\".",
+                        'summary' => "Schulungs-Buchung registriert durch Abschluss von Phase \"{$completedPhase->name}\".",
                     ]);
                 } catch (\Throwable) {}
             }

@@ -201,15 +201,25 @@ class InterviewBooking extends Component
             }
         }
 
+        // Status 'booked' (NEU mit Schritt 3): Initial-Status fuer eine
+        // frische Buchung. Wird beim Phase-3-Hook auf 'registered'
+        // hochgestuft (sofern die Phase confirm_booking_on_completion=true
+        // setzt). Reminder-Ja-Antwort hebt dann auf 'confirmed'.
+        // Cancelled-Felder werden explizit zurueckgesetzt fuer den Fall
+        // dass die Row via updateOrCreate auf einer alten cancelled-Buchung
+        // landet — sonst bleiben Storno-Metadaten an einer wieder aktiven
+        // Buchung haengen.
         RecInterviewBooking::updateOrCreate(
             [
                 'rec_interview_id' => $interviewId,
                 'rec_applicant_id' => $this->applicantId,
             ],
             [
-                'status' => 'registered',
-                'booked_at' => now(),
-                'team_id' => $this->teamId,
+                'status'        => 'booked',
+                'booked_at'     => now(),
+                'team_id'       => $this->teamId,
+                'cancelled_by'  => null,
+                'cancelled_at'  => null,
             ],
         );
 

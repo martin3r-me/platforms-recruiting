@@ -9,11 +9,13 @@ use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Services\IncomingApplicationService;
+use Platform\Recruiting\Services\ReminderResponseHandler;
 
 class HandleWhatsAppInboundForRecruiting
 {
     public function __construct(
         private IncomingApplicationService $applicationService,
+        private ReminderResponseHandler $reminderResponseHandler,
     ) {}
 
     public function handle(CommsWhatsAppInboundReceived $event): void
@@ -111,6 +113,18 @@ class HandleWhatsAppInboundForRecruiting
             // Link the thread to the applicant for communication tracking
             // addContext() writes both pivot table and legacy columns
             $thread->addContext($applicant->getMorphClass(), $applicant->id, 'recruiting_inbound');
+
+            // Versuche Inbound als Reminder-Antwort (Ja/Nein) zu interpretieren.
+            // Wenn ja: Booking-Status wird gesetzt + ggf. HR-Schreibtisch markiert.
+            // Wenn nein: false zurueck, normaler Inbound-Flow laeuft unveraendert weiter.
+            $wasReminderReply = $this->reminderResponseHandler->handle($applicant, (string) $message->body);
+            if ($wasReminderReply) {
+                Log::info('[Recruiting] Inbound als Reminder-Antwort verarbeitet', [
+                    'applicant_id' => $applicant->id,
+                    'message_id'   => $message->id,
+                    'body'         => $message->body,
+                ]);
+            }
 
             // Reset AutoPilot state when applicant replies (so AutoPilot picks up again)
             // Also trigger re-enrichment so new message data gets extracted into extra fields

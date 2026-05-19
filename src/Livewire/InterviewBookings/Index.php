@@ -168,17 +168,22 @@ class Index extends Component
             return;
         }
 
+        // Status 'booked' (NEU mit Schritt 3): konsistent zum Public-Form-Pfad.
+        // HR bucht hier manuell einen Kandidaten in eine Schulung — gleiche
+        // Initial-Semantik wie wenn der Bewerber sich selbst gebucht haette.
         RecInterviewBooking::updateOrCreate(
             [
                 'rec_interview_id' => $this->interviewId,
                 'rec_applicant_id' => $this->selectedApplicantId,
             ],
             [
-                'status' => 'registered',
-                'notes' => $this->bookingNotes ?: null,
-                'booked_at' => now(),
-                'team_id' => auth()->user()->currentTeam->id,
+                'status'             => 'booked',
+                'notes'              => $this->bookingNotes ?: null,
+                'booked_at'          => now(),
+                'team_id'            => auth()->user()->currentTeam->id,
                 'created_by_user_id' => auth()->id(),
+                'cancelled_by'       => null,
+                'cancelled_at'       => null,
             ],
         );
 
@@ -202,7 +207,22 @@ class Index extends Component
         }
 
         $booking = RecInterviewBooking::findOrFail($bookingId);
-        $booking->update(['status' => $status]);
+
+        // Storno-Metadaten setzen wenn HR manuell auf cancelled umstellt
+        // (cancelled_by='hr' damit der HR-Schreibtisch zwischen
+        // "Bewerber hat selbst abgesagt" und "HR hat abgesagt" unterscheiden
+        // kann). Wenn der Status von cancelled WEG geht, Storno-Metadaten
+        // wieder zuruecksetzen damit alte Storno-Info nicht haengen bleibt.
+        $updates = ['status' => $status];
+        if ($status === 'cancelled' && $booking->status !== 'cancelled') {
+            $updates['cancelled_by'] = 'hr';
+            $updates['cancelled_at'] = now();
+        } elseif ($status !== 'cancelled' && $booking->status === 'cancelled') {
+            $updates['cancelled_by'] = null;
+            $updates['cancelled_at'] = null;
+        }
+
+        $booking->update($updates);
         session()->flash('success', 'Status aktualisiert!');
     }
 
