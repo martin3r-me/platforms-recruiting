@@ -126,6 +126,67 @@
                                         Notiz: {{ $case->notes }}
                                     </div>
                                 @endif
+
+                                {{-- Rechtsstatus-Pruefung: nur fuer nicht-EU oder unklar --}}
+                                @php
+                                    $legalStatus = $applicant?->legalStatus;
+                                    $showLegalSection = $applicant && (
+                                        $case->reason === \Platform\Recruiting\Models\RecHrDeskCase::REASON_NON_EU_CITIZEN
+                                        || ($legalStatus && $legalStatus->is_eu_citizen === false)
+                                    );
+                                @endphp
+                                @if($showLegalSection && $legalStatus)
+                                    <div class="mt-4 p-3 rounded-md border border-amber-200 bg-amber-50/60">
+                                        <div class="text-xs font-semibold text-amber-900 uppercase tracking-wide mb-2">
+                                            Rechtsstatus-Prüfung
+                                        </div>
+
+                                        <div class="flex flex-wrap items-center gap-3">
+                                            {{-- Geprueft-Toggle --}}
+                                            <button
+                                                type="button"
+                                                wire:click="toggleLegalStatusChecked({{ $applicant->id }})"
+                                                wire:loading.attr="disabled"
+                                                class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors
+                                                    {{ $legalStatus->legal_status_checked_at
+                                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
+                                                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' }}"
+                                            >
+                                                @if($legalStatus->legal_status_checked_at)
+                                                    @svg('heroicon-o-check-circle', 'w-4 h-4')
+                                                    <span>Geprüft am {{ $legalStatus->legal_status_checked_at->format('d.m.Y') }}</span>
+                                                @else
+                                                    @svg('heroicon-o-clock', 'w-4 h-4')
+                                                    <span>Als geprüft markieren</span>
+                                                @endif
+                                            </button>
+
+                                            {{-- Zusatzvertrag-Dropdown --}}
+                                            <div class="flex items-center gap-2">
+                                                <label class="text-xs font-medium text-gray-700">Zusatzvertrag:</label>
+                                                <select
+                                                    wire:change="setAdditionalContractTemplate({{ $applicant->id }}, $event.target.value)"
+                                                    class="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                                >
+                                                    <option value="0" @selected(!$legalStatus->additional_contract_template_id)>
+                                                        — kein Zusatzvertrag —
+                                                    </option>
+                                                    @foreach($this->availableAdditionalContractTemplates as $tpl)
+                                                        <option value="{{ $tpl->id }}" @selected($legalStatus->additional_contract_template_id === $tpl->id)>
+                                                            {{ $tpl->code }} — {{ $tpl->name }}
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        @if(!$legalStatus->legal_status_checked_at)
+                                            <p class="text-[11px] text-amber-800 mt-2">
+                                                Solange der Rechtsstatus nicht geprüft ist, kann diesem Bewerber im Schulungs-Index keine Vertragsvorlage zugewiesen werden — und der Bulk-Send überspringt ihn.
+                                            </p>
+                                        @endif
+                                    </div>
+                                @endif
                             </div>
 
                             <div class="flex flex-col gap-2 flex-shrink-0">

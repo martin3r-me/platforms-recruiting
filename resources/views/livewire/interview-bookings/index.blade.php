@@ -229,13 +229,41 @@
                                         $applicant = $booking->applicant;
                                         $hasSent = $applicant && $applicant->hasAnyContractSent();
                                         $rowDimmed = $hasSent;
+
+                                        // Rechtsstatus-Pruefung Block B:
+                                        //  - EU (is_eu_citizen=true) → neutral, kein Marker
+                                        //  - nicht-EU geprueft → gruener Background
+                                        //  - nicht-EU ungeprueft → roter Background + Disable
+                                        //  - is_eu_citizen=null (unbeantwortet, legalStatus existiert) → wie ungeprueft
+                                        //  - kein legalStatus → neutral (Bestandsbewerber ohne Phase-3-Antwort)
+                                        $legalStatus = $applicant?->legalStatus;
+                                        $isNonEuChecked = $legalStatus
+                                            && $legalStatus->is_eu_citizen === false
+                                            && $legalStatus->legal_status_checked_at !== null;
+                                        $isLegalCheckPending = $legalStatus
+                                            && $legalStatus->is_eu_citizen !== true
+                                            && $legalStatus->legal_status_checked_at === null;
+
+                                        $rowBgClass = '';
+                                        if ($isLegalCheckPending) {
+                                            $rowBgClass = 'bg-red-50';
+                                        } elseif ($isNonEuChecked) {
+                                            $rowBgClass = 'bg-emerald-50';
+                                        }
+
+                                        $blockContracts = $hasSent || $isLegalCheckPending;
                                     @endphp
-                                    <tr class="hover:bg-gray-50 {{ $rowDimmed ? 'opacity-60' : '' }}">
+                                    <tr class="hover:bg-gray-50 {{ $rowDimmed ? 'opacity-60' : '' }} {{ $rowBgClass }}">
                                         <td class="px-4 py-3">
                                             @if($applicant)
                                                 <a href="{{ route('recruiting.applicants.show', $applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
                                                     {{ $applicant->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt' }}
                                                 </a>
+                                                @if($isLegalCheckPending)
+                                                    <div class="text-[10px] text-red-700 mt-0.5 font-medium">Rechtsstatus ungeprüft</div>
+                                                @elseif($isNonEuChecked)
+                                                    <div class="text-[10px] text-emerald-700 mt-0.5">Rechtsstatus geprüft</div>
+                                                @endif
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
                                             @endif
@@ -253,8 +281,9 @@
                                             @if($applicant)
                                                 <select
                                                     wire:change="setApplicantContractTemplate({{ $booking->id }}, $event.target.value)"
-                                                    @disabled($hasSent)
-                                                    class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px]"
+                                                    @disabled($blockContracts)
+                                                    title="{{ $isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '' }}"
+                                                    class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
                                                 >
                                                     <option value="">— keine Vorlage —</option>
                                                     @foreach($templates as $tpl)
@@ -263,7 +292,9 @@
                                                         </option>
                                                     @endforeach
                                                 </select>
-                                                @if($booking->status !== 'attended')
+                                                @if($isLegalCheckPending)
+                                                    <div class="text-[10px] text-red-700 mt-1 leading-snug">Erst auf HR-Schreibtisch prüfen.</div>
+                                                @elseif($booking->status !== 'attended')
                                                     <div class="text-[10px] text-[var(--ui-muted)] mt-1">Wirksam ab Status „Teilgenommen"</div>
                                                 @endif
                                             @else
@@ -280,21 +311,23 @@
                                                     <input
                                                         type="date"
                                                         value="{{ $beginnVal }}"
-                                                        @disabled($hasSent)
+                                                        @disabled($blockContracts)
+                                                        title="{{ $isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '' }}"
                                                         wire:change="setContractDate({{ $applicant->id }}, 'vertragsbeginn', $event.target.value)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px]"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
                                                         placeholder="Beginn"
                                                     />
                                                     <input
                                                         type="date"
                                                         value="{{ $endeVal }}"
-                                                        @disabled($hasSent)
+                                                        @disabled($blockContracts)
+                                                        title="{{ $isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '' }}"
                                                         wire:change="setContractDate({{ $applicant->id }}, 'vertragsende', $event.target.value)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px]"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
                                                         placeholder="Ende"
                                                     />
                                                 </div>
-                                                @if(!$hasSent)
+                                                @if(!$hasSent && !$isLegalCheckPending)
                                                     <div class="text-[10px] text-[var(--ui-muted)] mt-1 max-w-[200px] leading-snug">
                                                         Ende leer lassen für Auto-Berechnung (+1 Jahr, Anfang Monat, −1 Tag).
                                                     </div>
@@ -308,6 +341,11 @@
                                                 <span class="inline-flex items-center gap-1 text-xs text-emerald-600">
                                                     @svg('heroicon-o-check-circle', 'w-3.5 h-3.5')
                                                     Verträge versendet
+                                                </span>
+                                            @elseif($isLegalCheckPending)
+                                                <span class="inline-flex items-center gap-1 text-xs text-red-600 font-medium" title="Bewerber muss zuerst auf HR-Schreibtisch geprüft werden">
+                                                    @svg('heroicon-o-exclamation-triangle', 'w-3.5 h-3.5')
+                                                    Rechtsstatus offen
                                                 </span>
                                             @elseif($booking->status === 'attended' && $applicant?->contract_template_id)
                                                 <span class="text-xs text-[var(--ui-muted)]">bereit zum Versand</span>

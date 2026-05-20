@@ -127,6 +127,35 @@ class SendContractsService
                 ]);
             }
 
+            // 2b) Optionaler Zusatzvertrag (typisch AT-* fuer Aufenthaltstitel-
+            //     bezogene Doks) — HR weist ihn auf dem HR-Schreibtisch zu fuer
+            //     nicht-EU-Buerger. Idempotent: existierender Vertrag mit gleichem
+            //     Template wird reused. Wenn HR den Zusatzvertrag entfernt
+            //     (additional_contract_template_id=null) wird hier nichts
+            //     versendet — bestehende Vertraege bleiben aber unangetastet.
+            $additionalContract = null;
+            $additionalTemplate = $applicant->legalStatus?->additionalContractTemplate;
+            if ($additionalTemplate && $additionalTemplate->is_active) {
+                $additionalContract = $applicant->contracts()
+                    ->whereNotIn('status', ['cancelled'])
+                    ->where('rec_contract_template_id', $additionalTemplate->id)
+                    ->first();
+
+                if ($additionalContract) {
+                    $reused++;
+                } else {
+                    $additionalContract = RecContract::create([
+                        'rec_applicant_id'         => $applicant->id,
+                        'rec_contract_template_id' => $additionalTemplate->id,
+                        'team_id'                  => $applicant->team_id,
+                        'personalized_content'     => $additionalTemplate->personalizeContent($applicant),
+                        'status'                   => 'pending',
+                        'created_by_user_id'       => $createdByUserId,
+                    ]);
+                    $created++;
+                }
+            }
+
             // 3) Vertragslaufzeit als Extra-Fields nur auf den AV-Vertrag
             //    schreiben — IFSG ist eine eigenständige Erklärung und hat
             //    semantisch nichts mit der AV-Laufzeit zu tun.
@@ -151,7 +180,7 @@ class SendContractsService
             //    Notification-Versand unten.
             $now = now();
             $nowSentCount = 0;
-            foreach (array_filter([$avContract, $ifsgContract]) as $contract) {
+            foreach (array_filter([$avContract, $ifsgContract, $additionalContract]) as $contract) {
                 if (!$contract->sent_at) {
                     $contract->sent_at = $now;
                     if ($contract->status === 'pending') {
@@ -183,10 +212,11 @@ class SendContractsService
             $applicant->checkAutoPilotCompletion();
 
             return [
-                'av_contract' => $avContract->fresh(),
-                'ifsg_contract' => $ifsgContract?->fresh(),
-                'created' => $created,
-                'reused' => $reused,
+                'av_contract'         => $avContract->fresh(),
+                'ifsg_contract'       => $ifsgContract?->fresh(),
+                'additional_contract' => $additionalContract?->fresh(),
+                'created'             => $created,
+                'reused'              => $reused,
             ];
         });
     }

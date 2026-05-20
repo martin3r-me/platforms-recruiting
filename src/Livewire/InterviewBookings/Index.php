@@ -235,8 +235,16 @@ class Index extends Component
 
     public function setApplicantContractTemplate(int $bookingId, $templateId): void
     {
-        $booking = RecInterviewBooking::with('applicant')->findOrFail($bookingId);
+        $booking = RecInterviewBooking::with('applicant.legalStatus')->findOrFail($bookingId);
         if (!$booking->applicant) {
+            return;
+        }
+
+        // Server-seitiger Block (Schritt 5/6 Doppel-Schutz): bei ungepruefte
+        // Nicht-EU darf keine Vertragsvorlage gesetzt werden — UI-Disable ist
+        // primaerer Schutz, dieser Check faengt manipulierte POSTs ab.
+        if ($this->isLegalStatusUnchecked($booking->applicant)) {
+            session()->flash('error', 'Rechtsstatus offen — Vertragsvorlage kann erst nach HR-Schreibtisch-Pruefung zugewiesen werden.');
             return;
         }
 
@@ -286,14 +294,31 @@ class Index extends Component
         // dass leere Vertragsbeginn-Felder den ganzen Run blockieren UND dass
         // bestehende Vertragsdaten ungewollt ueberschrieben werden. Service-
         // Layer hat zusaetzlich Idempotenz-Schutz fuer Notification-Versand.
-        $eligible = $this->bookings->filter(function ($b) {
-            return $b->status === 'attended'
-                && $b->applicant?->contract_template_id
-                && !$b->applicant->hasAnyContractSent();
+        //
+        // ZUSAETZLICH (Block B): Nicht-EU-Bewerber muessen rechtsstatus-
+        // gepruefte sein. Ungepruefte werden vom Bulk-Send ausgenommen damit
+        // HR sie zuerst auf dem HR-Schreibtisch durchgehen muss.
+        $blockedByLegalStatus = collect();
+        $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus) {
+            if ($b->status !== 'attended') return false;
+            if (!$b->applicant?->contract_template_id) return false;
+            if ($b->applicant->hasAnyContractSent()) return false;
+            if ($this->isLegalStatusUnchecked($b->applicant)) {
+                $blockedByLegalStatus->push($b);
+                return false;
+            }
+            return true;
         });
 
         if ($eligible->isEmpty()) {
-            session()->flash('error', 'Keine anwesenden Bewerber mit Vertragsvorlage und noch nicht versendet.');
+            $msg = 'Keine anwesenden Bewerber mit Vertragsvorlage und noch nicht versendet.';
+            if ($blockedByLegalStatus->isNotEmpty()) {
+                $msg .= sprintf(
+                    ' (%d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte zuerst auf HR-Schreibtisch pruefen.)',
+                    $blockedByLegalStatus->count(),
+                );
+            }
+            session()->flash('error', $msg);
             return;
         }
 
@@ -325,19 +350,48 @@ class Index extends Component
         unset($this->bookings);
 
         if ($errors === 0) {
-            session()->flash('success', "Verträge versendet für {$sent} Bewerber.");
+            $msg = "Verträge versendet für {$sent} Bewerber.";
+            if ($blockedByLegalStatus->isNotEmpty()) {
+                $msg .= sprintf(
+                    ' %d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte auf HR-Schreibtisch pruefen.',
+                    $blockedByLegalStatus->count(),
+                );
+            }
+            session()->flash('success', $msg);
         } else {
             session()->flash('error', "Versendet: {$sent}, Fehler: {$errors}. Details siehe Logs.");
         }
     }
 
     /**
+     * True wenn der Bewerber rechtsstatus-pruefung-pflichtig ist (nicht-EU
+     * oder unbeantwortet) und der Pruefen-Toggle auf dem HR-Schreibtisch
+     * NICHT gesetzt ist. EU-Buerger sind nie unchecked → kein Block.
+     */
+    private function isLegalStatusUnchecked($applicant): bool
+    {
+        $legal = $applicant?->legalStatus;
+        if (!$legal) {
+            // Kein legalStatus-Record vorhanden → eu_burger-Frage noch nie
+            // beantwortet. Production-Bewerber im Bestand haben das oft nicht
+            // — wir blockieren sie nicht (sonst Versand-Regression).
+            return false;
+        }
+        if ($legal->is_eu_citizen === true) {
+            return false; // EU-Buerger: keine Pruefung noetig
+        }
+        // is_eu_citizen=false ODER null → Pruefung relevant
+        return $legal->legal_status_checked_at === null;
+    }
+
+    /**
      * Computed: returns one of:
-     *  - 'no_attended'         → kein Bewerber als anwesend markiert
-     *  - 'missing_templates'   → mind. 1 anwesender Bewerber ohne Vertragsvorlage
-     *  - 'missing_dates'       → mind. 1 anwesender (noch nicht versendet) ohne Vertragsbeginn
-     *  - 'all_already_sent'    → alle anwesenden haben schon Verträge versendet
-     *  - 'ready'               → mind. 1 anwesender hat Vorlage + Datum, kein versendeter Vertrag
+     *  - 'no_attended'           → kein Bewerber als anwesend markiert
+     *  - 'missing_templates'     → mind. 1 anwesender Bewerber ohne Vertragsvorlage
+     *  - 'missing_dates'         → mind. 1 anwesender (noch nicht versendet) ohne Vertragsbeginn
+     *  - 'all_already_sent'      → alle anwesenden haben schon Verträge versendet
+     *  - 'pending_legal_check'   → die nicht-versendeten warten alle auf HR-Schreibtisch-Pruefung
+     *  - 'ready'                 → mind. 1 anwesender hat Vorlage + Datum + Rechtsstatus-pruefung-ok
      */
     #[Computed]
     public function bulkSendState(): string
@@ -355,6 +409,16 @@ class Index extends Component
             return 'all_already_sent';
         }
         $pending = $attended->filter(fn ($b) => !$b->applicant?->hasAnyContractSent());
+
+        // Block B Filter: pending muss durch die Rechtsstatus-Pruefung —
+        // wenn alle pending ungepruefte Nicht-EU sind, bleibt nichts zum
+        // Senden ueber → eigener State der HR direkt zum HR-Schreibtisch
+        // verweist.
+        $pendingAfterLegal = $pending->filter(fn ($b) => !$this->isLegalStatusUnchecked($b->applicant));
+        if ($pendingAfterLegal->isEmpty()) {
+            return 'pending_legal_check';
+        }
+        $pending = $pendingAfterLegal;
         $missingBeginn = $pending->filter(function ($b) {
             $applicantId = $b->applicant?->id;
             return $applicantId && empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
