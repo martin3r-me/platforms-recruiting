@@ -24,15 +24,24 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /**
+     * MySQL-Identifier-Limit: max. 64 Zeichen. Auto-generierter Name
+     * 'rec_applicant_legal_statuses_additional_contract_template_id_foreign'
+     * waere 67 Zeichen → expliziter kuerzerer Constraint-Name noetig.
+     */
+    private const FK_NAME = 'rec_legalstatus_addl_tpl_fk';
+
     public function up(): void
     {
         Schema::table('rec_applicant_legal_statuses', function (Blueprint $table) {
             $table->timestamp('legal_status_checked_at')->nullable()
                 ->after('immatrikulation_file_id');
 
-            $table->foreignId('additional_contract_template_id')->nullable()
-                ->after('legal_status_checked_at')
-                ->constrained('rec_contract_templates')
+            $table->unsignedBigInteger('additional_contract_template_id')->nullable()
+                ->after('legal_status_checked_at');
+
+            $table->foreign('additional_contract_template_id', self::FK_NAME)
+                ->references('id')->on('rec_contract_templates')
                 ->nullOnDelete();
         });
     }
@@ -40,7 +49,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('rec_applicant_legal_statuses', function (Blueprint $table) {
-            $table->dropForeign(['additional_contract_template_id']);
+            $table->dropForeign(self::FK_NAME);
             $table->dropColumn([
                 'additional_contract_template_id',
                 'legal_status_checked_at',
