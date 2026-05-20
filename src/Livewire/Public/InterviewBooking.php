@@ -303,7 +303,22 @@ class InterviewBooking extends Component
             return;
         }
 
-        // 1) Alle aktiven Buchungen des Bewerbers cancellen mit Quellen-Info
+        // 1) Aktive Buchungen einsammeln BEVOR wir sie cancellen — wir brauchen
+        //    Termin + Ort fuer die HR-Schreibtisch-Notes. Bei mehreren aktiven
+        //    Buchungen nehmen wir die naechste (frueheste starts_at) als
+        //    Referenz fuer den Notes-Kontext.
+        $activeBookings = RecInterviewBooking::with('interview')
+            ->where('rec_applicant_id', $this->applicantId)
+            ->whereNotIn('status', ['cancelled'])
+            ->get();
+
+        $referenceInterview = $activeBookings
+            ->map(fn ($b) => $b->interview)
+            ->filter()
+            ->sortBy('starts_at')
+            ->first();
+
+        // 2) Alle aktiven Buchungen cancellen mit Quellen-Info
         RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
             ->whereNotIn('status', ['cancelled'])
             ->update([
@@ -312,13 +327,25 @@ class InterviewBooking extends Component
                 'cancelled_at'  => now(),
             ]);
 
-        // 2) HR-Schreibtisch-Case anlegen + Flag setzen ueber den zentralen
+        // 3) Notes-Kontext fuer den HR-Schreibtisch-Case zusammenbauen
+        $notes = 'Bewerber hat die Schulung uber den Public-Form-Link abgesagt.';
+        if ($referenceInterview) {
+            $dateLabel = $referenceInterview->starts_at?->format('d.m.Y H:i') ?? '—';
+            $location = trim((string) ($referenceInterview->location ?? ''));
+            $notes = "Schulung am {$dateLabel}"
+                . ($location !== '' ? " in {$location}" : '')
+                . ' wurde vom Bewerber uber den Public-Form-Link abgesagt.';
+        }
+
+        // 4) HR-Schreibtisch-Case anlegen + Flag setzen ueber den zentralen
         //    Service. Idempotent: existiert schon ein offener Case fuer den
         //    gleichen Reason (z.B. Bewerber sagt zweimal hintereinander ab),
         //    wird kein Duplicate angelegt.
         app(HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
             $applicant,
-            RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING
+            RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING,
+            null,
+            $notes
         );
 
         // 3) Zusaetzlicher AutoPilotLog mit semantischem Type fuer die

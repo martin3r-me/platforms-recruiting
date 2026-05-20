@@ -65,8 +65,12 @@ class HrDeskRoutingService
      * Public weil ein-off-Pfade wie cancelSchulung() / cancelBooking() darauf
      * zugreifen — die laufen NICHT durch evaluateAndRoute() weil ihre Reasons
      * nicht aus Bewerber-Daten ableitbar sind sondern aus User-Aktion.
+     *
+     * $notes wird als Freitext auf den RecHrDeskCase geschrieben (z.B.
+     * "Schulung am 25.05. in Koeln abgesagt" beim Cancel-Pfad). Bleibt
+     * unter dem Reason-Badge auf der HR-Schreibtisch-Card sichtbar.
      */
-    public function routeIfNotAlreadyOpen(RecApplicant $applicant, string $reason, ?int $userId = null): void
+    public function routeIfNotAlreadyOpen(RecApplicant $applicant, string $reason, ?int $userId = null, ?string $notes = null): void
     {
         $alreadyOpen = $applicant->hrDeskCases()
             ->where('reason', $reason)
@@ -74,7 +78,7 @@ class HrDeskRoutingService
             ->exists();
 
         if (!$alreadyOpen) {
-            $this->routeToHrDesk($applicant, $reason, $userId);
+            $this->routeToHrDesk($applicant, $reason, $userId, $notes);
         }
     }
 
@@ -116,7 +120,7 @@ class HrDeskRoutingService
         return null;
     }
 
-    public function routeToHrDesk(RecApplicant $applicant, string $reason, ?int $userId = null): RecHrDeskCase
+    public function routeToHrDesk(RecApplicant $applicant, string $reason, ?int $userId = null, ?string $notes = null): RecHrDeskCase
     {
         $applicant->update([
             'is_on_hr_desk' => true,
@@ -128,6 +132,7 @@ class HrDeskRoutingService
             'team_id' => $applicant->team_id,
             'reason' => $reason,
             'status' => RecHrDeskCase::STATUS_OPEN,
+            'notes' => $notes,
             'opened_at' => now(),
             'opened_by_user_id' => $userId,
         ]);

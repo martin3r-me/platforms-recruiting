@@ -90,6 +90,8 @@
                                             bg-orange-100 text-orange-700
                                         @elseif($case->reason === \Platform\Recruiting\Models\RecHrDeskCase::REASON_NO_GERMAN_KNOWLEDGE)
                                             bg-purple-100 text-purple-700
+                                        @elseif($case->reason === \Platform\Recruiting\Models\RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING)
+                                            bg-red-100 text-red-700
                                         @else
                                             bg-gray-100 text-gray-700
                                         @endif

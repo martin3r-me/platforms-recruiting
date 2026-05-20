@@ -113,12 +113,25 @@ class ReminderResponseHandler
             'cancelled_at'  => now(),
         ]);
 
+        // Notes-Kontext fuer den HR-Schreibtisch-Case
+        $booking->loadMissing('interview');
+        $notes = 'Bewerber hat den Schulungs-Reminder per WhatsApp mit "Nein" beantwortet.';
+        if ($booking->interview) {
+            $dateLabel = $booking->interview->starts_at?->format('d.m.Y H:i') ?? '—';
+            $location = trim((string) ($booking->interview->location ?? ''));
+            $notes = "Schulung am {$dateLabel}"
+                . ($location !== '' ? " in {$location}" : '')
+                . ' — Bewerber hat den WhatsApp-Reminder mit "Nein" beantwortet.';
+        }
+
         // Bewerber auf HR-Schreibtisch — analog zum Public-Form-Absagen-Pfad.
         // Legt zentral den RecHrDeskCase an + setzt is_on_hr_desk/auto_pilot.
         // Idempotent gegen Mehrfach-Nein-Antworten.
         app(HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
             $applicant,
-            RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING
+            RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING,
+            null,
+            $notes
         );
 
         try {
