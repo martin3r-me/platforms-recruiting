@@ -112,13 +112,25 @@ class RecApplicantLegalStatus extends Model
 
     public function setEuCitizen(?bool $value, ?int $userId = null): void
     {
+        $previousValue = $this->is_eu_citizen;
         $this->is_eu_citizen = $value;
+
+        // Wechselt der EU-Status, wird die alte HR-Pruefung + ein eventuell
+        // zugewiesener Zusatzvertrag obsolet — beide Felder sind an den
+        // konkreten Status gebunden. HR muss bei Aenderung neu pruefen
+        // bzw. ggf. einen anderen AT-Vertrag zuweisen. Initial-Setzen
+        // (vorher null) ist hier ein No-Op, weil beide Felder dann eh
+        // schon null sind.
+        if ($previousValue !== $value) {
+            $this->legal_status_checked_at = null;
+            $this->additional_contract_template_id = null;
+        }
+
         $this->save();
 
         // Zentrales Routing — egal ob Wert sich geändert hat oder nicht.
-        // evaluateAndRoute ist idempotent (existingOpenCase-Check), damit
-        // verlieren wir keine Trigger wenn der Bewerber den Wert mehrfach
-        // setzt.
+        // evaluateAndRoute ist idempotent (existingOpenCase-Check) und
+        // schliesst obsolete Cases auto wenn die Bedingung wegfaellt.
         app(HrDeskRoutingService::class)->evaluateAndRoute(
             $this->applicant->fresh(['legalStatus']),
             $userId,

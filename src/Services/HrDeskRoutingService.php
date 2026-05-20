@@ -42,6 +42,16 @@ class HrDeskRoutingService
                 RecHrDeskCase::REASON_NON_EU_CITIZEN,
                 $userId
             );
+        } elseif ($applicant->legalStatus?->is_eu_citizen === true) {
+            // Korrektur: Bewerber war non-EU, ist jetzt EU → obsoleten Case
+            // automatisch schliessen damit er nicht orphaned auf dem
+            // HR-Schreibtisch haengt. is_eu_citizen=null ist BEWUSST kein
+            // Auto-Close (unklar, HR soll's noch sehen).
+            $this->autoCloseObsoleteCases(
+                $applicant,
+                RecHrDeskCase::REASON_NON_EU_CITIZEN,
+                'Automatisch geschlossen: Bewerber ist jetzt als EU-Buerger gekennzeichnet.'
+            );
         }
 
         // Regel 2: Keine grundlegenden Deutschkenntnisse
@@ -52,9 +62,59 @@ class HrDeskRoutingService
                 RecHrDeskCase::REASON_NO_GERMAN_KNOWLEDGE,
                 $userId
             );
+        } elseif ($deutschkenntnisse === true) {
+            $this->autoCloseObsoleteCases(
+                $applicant,
+                RecHrDeskCase::REASON_NO_GERMAN_KNOWLEDGE,
+                'Automatisch geschlossen: Bewerber hat jetzt grundlegende Deutschkenntnisse angegeben.'
+            );
         }
 
         // Weitere Regeln können hier ergänzt werden, z.B. minderjährig.
+    }
+
+    /**
+     * Schliesst offene Cases fuer einen Reason, wenn die Routing-Bedingung
+     * dieses Reasons nicht mehr zutrifft (z.B. Bewerber korrigiert
+     * EU-Status). Setzt is_on_hr_desk=false NUR wenn danach kein anderer
+     * offener Case mehr existiert — analog zu approveCase().
+     *
+     * Wichtig: das ist ein Auto-Resolution-Pfad, kein HR-Approve. Cases
+     * fuer User-Aktionen (z.B. applicant_cancelled_training) bleiben
+     * unangetastet — die brauchen menschliche HR-Entscheidung.
+     */
+    private function autoCloseObsoleteCases(RecApplicant $applicant, string $reason, string $notes): void
+    {
+        $openCases = $applicant->hrDeskCases()
+            ->where('reason', $reason)
+            ->open()
+            ->get();
+
+        if ($openCases->isEmpty()) {
+            return;
+        }
+
+        foreach ($openCases as $case) {
+            $case->update([
+                'status'           => RecHrDeskCase::STATUS_APPROVED,
+                'resolved_at'      => now(),
+                'resolution_notes' => $notes,
+            ]);
+
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $applicant->id,
+                'type'             => 'hr_desk_auto_resolved',
+                'summary'           => "HR-Schreibtisch-Fall automatisch geschlossen (Reason: {$reason}). {$notes}",
+            ]);
+        }
+
+        $hasOtherOpenCases = $applicant->hrDeskCases()
+            ->open()
+            ->exists();
+
+        if (!$hasOtherOpenCases && $applicant->is_on_hr_desk) {
+            $applicant->update(['is_on_hr_desk' => false]);
+        }
     }
 
     /**
