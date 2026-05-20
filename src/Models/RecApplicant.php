@@ -734,6 +734,14 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function sendContractPortalNotification(): array
     {
         try {
+            // Hinweis: auch wenn schon ein RecEmployee fuer diesen Bewerber
+            // existiert, laeuft hier weiterhin der alte Applicant-Portal-
+            // Pfad. Der explizite "MA-Portal aktivieren"-Button (separate
+            // Iteration) ruft RecEmployee::sendPortalNotification mit
+            // eigenem Template auf. Bis zur Verkabelung des neuen Buttons
+            // bleibt der alte Link der einzige Comms-Pfad — ApplicantPortal
+            // funktioniert weiterhin auch fuer konvertierte MAs.
+
             $this->loadMissing(['crmContactLinks.contact.phoneNumbers', 'contracts.contractTemplate']);
 
             $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);

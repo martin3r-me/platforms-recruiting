@@ -148,65 +148,88 @@
                 @endif
             </div>
 
-            {{-- DATEN-NACHPFLEGE SECTION --}}
-            <div class="mb-6">
-                <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">Daten nachpflegen</h2>
-                @if(empty($missing))
-                    <div class="p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex items-center gap-2">
-                        @svg('heroicon-o-check-circle', 'w-5 h-5')
-                        Alle wichtigen Daten sind bereits hinterlegt. Danke!
+            {{-- "FEHLT NOCH"-HIGHLIGHT-BANNER --}}
+            @if(!empty($missing))
+                <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start gap-2">
+                    @svg('heroicon-o-exclamation-triangle', 'w-5 h-5 mt-0.5 flex-shrink-0')
+                    <div>
+                        <strong>Diese Daten fehlen noch:</strong>
+                        {{ implode(', ', array_values($missing)) }}.
                     </div>
-                @else
-                    <div class="space-y-2">
-                        @if($editFlash)
-                            <div class="p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
-                                {{ $editFlash }}
-                            </div>
-                        @endif
+                </div>
+            @endif
 
-                        @foreach($missing as $field => $label)
-                            <div class="p-3 bg-white border border-[var(--ui-border)] rounded-lg flex items-center justify-between gap-3">
-                                @if($editField === $field)
-                                    <div class="flex-1 flex items-center gap-2">
-                                        <input
-                                            type="text"
-                                            wire:model.defer="editValue"
-                                            placeholder="{{ $label }}"
-                                            class="flex-1 border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
-                                        />
-                                        <button
-                                            wire:click="saveField"
-                                            wire:loading.attr="disabled"
-                                            class="px-3 py-1.5 bg-[var(--ui-primary)] text-white text-xs font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors"
-                                        >
-                                            Speichern
-                                        </button>
+            @if($editFlash)
+                <div class="mb-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800 flex items-center gap-2">
+                    @svg('heroicon-o-check-circle', 'w-4 h-4')
+                    {{ $editFlash }}
+                </div>
+            @endif
+
+            {{-- STAMMDATEN — alle editierbaren Felder, dauerhaft aenderbar --}}
+            <div class="mb-6">
+                <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">Meine Daten</h2>
+                <p class="text-xs text-[var(--ui-muted)] mb-3">Diese Daten kannst du jederzeit ändern. Bei Fragen wende dich an deine Ansprechperson.</p>
+
+                @foreach($this->editableGroups as $section => $entries)
+                    <div class="mb-4">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)] mb-2">{{ $section }}</h3>
+                        <div class="bg-white border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)]">
+                            @foreach($entries as $entry)
+                                <div class="p-3 flex items-center justify-between gap-3">
+                                    @if($editField === $entry['key'])
+                                        <div class="flex-1 flex items-center gap-2">
+                                            <div class="flex-1">
+                                                <div class="text-xs text-[var(--ui-muted)] mb-1">{{ $entry['label'] }}</div>
+                                                <input
+                                                    type="text"
+                                                    wire:model.defer="editValue"
+                                                    placeholder="{{ $entry['label'] }}"
+                                                    class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                                />
+                                            </div>
+                                            <div class="flex items-end gap-2">
+                                                <button
+                                                    wire:click="saveField"
+                                                    wire:loading.attr="disabled"
+                                                    class="px-3 py-1.5 bg-[var(--ui-primary)] text-white text-xs font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors"
+                                                >
+                                                    Speichern
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    wire:click="cancelEdit"
+                                                    class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md hover:bg-[var(--ui-muted-5)]"
+                                                >
+                                                    Abbrechen
+                                                </button>
+                                            </div>
+                                        </div>
+                                    @else
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-xs text-[var(--ui-muted)]">{{ $entry['label'] }}</div>
+                                            <div class="text-sm @if($entry['is_missing']) text-amber-700 italic @else text-[var(--ui-secondary)] @endif truncate">
+                                                @if($entry['is_missing'])
+                                                    — noch nicht eingetragen —
+                                                @else
+                                                    {{ $entry['value'] }}
+                                                @endif
+                                            </div>
+                                        </div>
                                         <button
                                             type="button"
-                                            wire:click="cancelEdit"
-                                            class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md hover:bg-[var(--ui-muted-5)]"
+                                            wire:click="startEdit('{{ $entry['key'] }}')"
+                                            class="flex-shrink-0 px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] inline-flex items-center gap-1.5"
                                         >
-                                            Abbrechen
+                                            @svg('heroicon-o-pencil', 'w-3.5 h-3.5')
+                                            @if($entry['is_missing']) Eintragen @else Bearbeiten @endif
                                         </button>
-                                    </div>
-                                @else
-                                    <div class="flex-1 text-sm">
-                                        <span class="text-[var(--ui-secondary)]">{{ $label }}</span>
-                                        <span class="text-xs text-[var(--ui-muted)] ml-2">— fehlt noch</span>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        wire:click="startEdit('{{ $field }}')"
-                                        class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] inline-flex items-center gap-1.5"
-                                    >
-                                        @svg('heroicon-o-pencil', 'w-3.5 h-3.5')
-                                        Eintragen
-                                    </button>
-                                @endif
-                            </div>
-                        @endforeach
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
-                @endif
+                @endforeach
             </div>
 
             <div class="text-center mt-8">

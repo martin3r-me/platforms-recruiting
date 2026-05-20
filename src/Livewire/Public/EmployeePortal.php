@@ -132,12 +132,14 @@ class EmployeePortal extends Component
         if (!$employee) {
             return;
         }
-        $allowed = $employee->missingFields();
+        $allowed = $employee->editableFieldsFlat();
         if (!array_key_exists($field, $allowed)) {
             return;
         }
         $this->editField = $field;
-        $this->editValue = '';
+        // Vor-Belegung mit aktuellem Wert damit MA seine Daten nicht
+        // neu tippen muss (wenn er nur korrigieren will).
+        $this->editValue = (string) ($employee->getAttribute($field) ?? '');
         $this->editFlash = null;
     }
 
@@ -157,31 +159,63 @@ class EmployeePortal extends Component
             return;
         }
 
-        // Whitelist (Defense-in-Depth: erneut pruefen, falls der Frontend-
-        // State alt ist). Nur Felder die aktuell als 'missing' gelten
-        // duerfen geschrieben werden — einmal gepflegt fallen sie aus
-        // der Liste raus.
-        $allowed = $employee->missingFields();
+        // Whitelist (Defense-in-Depth): nur Felder aus editableFieldGroups
+        // duerfen geschrieben werden. Schuetzt vor manipulated POSTs die
+        // versuchen z.B. identity_card_number oder is_eu_citizen zu setzen.
+        $allowed = $employee->editableFieldsFlat();
         if (!array_key_exists($this->editField, $allowed)) {
             $this->cancelEdit();
             return;
         }
 
         $value = trim($this->editValue);
-        if ($value === '') {
-            $this->editFlash = 'Bitte einen Wert eingeben.';
-            return;
-        }
-
-        $employee->update([$this->editField => $value]);
+        // Leerstring → Feld zuruecksetzen (User wollte den Wert loeschen).
+        // null erlaubt damit "Daten nachpflegen" wieder anzeigt.
+        $employee->update([$this->editField => $value !== '' ? $value : null]);
 
         $this->editFlash = "{$allowed[$this->editField]} gespeichert.";
         $this->editField = '';
         $this->editValue = '';
 
-        // Cache der Computed-Properties invalidieren, damit missingFields
-        // neu berechnet wird
-        unset($this->employee, $this->missingFields);
+        // Cache der Computed-Properties invalidieren, damit aktuelle
+        // Werte + missingFields neu berechnet werden
+        unset($this->employee, $this->missingFields, $this->editableGroups);
+    }
+
+    /**
+     * Computed: Feldgruppen mit aktuellen Werten — fuer die Stammdaten-
+     * Sektion im Portal. Struktur:
+     *   [
+     *     'Kontakt' => [
+     *       ['key' => 'email', 'label' => 'Email', 'value' => 'a@b.com', 'is_missing' => false],
+     *       ...
+     *     ],
+     *     ...
+     *   ]
+     */
+    #[Computed]
+    public function editableGroups(): array
+    {
+        $employee = $this->employee();
+        if (!$employee) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($employee->editableFieldGroups() as $section => $fields) {
+            $entries = [];
+            foreach ($fields as $key => $label) {
+                $value = $employee->getAttribute($key);
+                $entries[] = [
+                    'key'        => $key,
+                    'label'      => $label,
+                    'value'      => $value,
+                    'is_missing' => ($value === null || $value === ''),
+                ];
+            }
+            $out[$section] = $entries;
+        }
+        return $out;
     }
 
     #[Computed]

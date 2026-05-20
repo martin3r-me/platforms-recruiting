@@ -137,29 +137,260 @@ class RecEmployee extends Model
     }
 
     /**
-     * Liste der wichtigsten Felder die noch leer sind — fuer den
-     * "fehlt noch"-Indikator im Portal-Dashboard. Liefert Pairs
-     * [field_key => human_label].
+     * Editierbare Feldgruppen fuer das MA-Portal. Strukturierte Pairs
+     * [section_label => [field_key => human_label]]. Felder die HIER
+     * fehlen sind nicht ueber's Portal editierbar.
+     *
+     * BEWUSST AUSGESCHLOSSEN — Login-stabile Felder:
+     *  - first_name, last_name (Identitaet → HR muss aendern)
+     *  - birth_date (Login-Faktor 1)
+     *  - identity_card_number (Login-Faktor 2 → Aenderung wuerde
+     *    Bewerber aussperren)
+     *  - is_eu_citizen, alle file_ids (Legal-Status → HR/HR-Schreibtisch)
+     *  - zas_id (Backoffice-Feld)
+     */
+    public function editableFieldGroups(): array
+    {
+        return [
+            'Kontakt' => [
+                'email' => 'Email',
+                'phone' => 'Telefon',
+            ],
+            'Adresse' => [
+                'street'       => 'Strasse',
+                'zip'          => 'PLZ',
+                'city'         => 'Ort',
+                'country_code' => 'Land (z.B. DE)',
+            ],
+            'Bankdaten' => [
+                'iban' => 'IBAN',
+                'bic'  => 'BIC',
+            ],
+            'Steuer & Versicherung' => [
+                'steuer_id'                 => 'Steuer-ID',
+                'sozialversicherungsnummer' => 'Sozialversicherungsnummer',
+            ],
+        ];
+    }
+
+    /**
+     * Flat-Liste aller editierbaren Felder [field_key => label] —
+     * fuer Whitelist-Checks im saveField()-Pfad.
+     */
+    public function editableFieldsFlat(): array
+    {
+        $flat = [];
+        foreach ($this->editableFieldGroups() as $group => $fields) {
+            foreach ($fields as $key => $label) {
+                $flat[$key] = $label;
+            }
+        }
+        return $flat;
+    }
+
+    /**
+     * Liste der Felder die aktuell leer sind — fuer "fehlt noch"-Highlight
+     * im Portal-Dashboard. Filtert auf editierbare Felder.
      */
     public function missingFields(): array
     {
-        $checks = [
-            'iban'                       => 'IBAN',
-            'bic'                        => 'BIC',
-            'steuer_id'                  => 'Steuer-ID',
-            'sozialversicherungsnummer'  => 'Sozialversicherungsnummer',
-            'street'                     => 'Strasse',
-            'zip'                        => 'PLZ',
-            'city'                       => 'Ort',
-        ];
-
         $missing = [];
-        foreach ($checks as $field => $label) {
+        foreach ($this->editableFieldsFlat() as $field => $label) {
             $value = $this->getAttribute($field);
             if ($value === null || $value === '') {
                 $missing[$field] = $label;
             }
         }
         return $missing;
+    }
+
+    /**
+     * Schickt das WhatsApp-"Mitarbeiter-Portal aktivieren"-Template an
+     * den frisch angelegten Mitarbeiter — analog zu
+     * RecApplicant::sendContractPortalNotification aber:
+     *
+     *  - Nutzt eigene Settings (employee_portal_wa_template_id +
+     *    employee_portal_wa_account_id) damit HR eigenes Wording
+     *    konfigurieren kann ("Willkommen im Team — ...")
+     *  - Uebergibt den portal_token als URL-Button-Parameter, der zur
+     *    Mitarbeiter-Portal-Route /mitarbeiter/{token} fuehrt
+     *  - Telefonnummer kommt aus crmContactLinks-Mirror, die der
+     *    CreateEmployeeFromApplicantService beim MA-Anlegen dupliziert hat
+     *
+     * Wird automatisch aufgerufen am Ende von
+     * CreateEmployeeFromApplicantService::createOrUpdate(). Idempotenz:
+     * wird beim Service nur einmal pro Anlage getriggert (Service ist
+     * selber idempotent), HR kann via Re-Send-Button im UI nachsenden.
+     *
+     * @return array{ok: bool, message: ?string}
+     */
+    public function sendPortalNotification(): array
+    {
+        try {
+            $this->loadMissing(['crmContactLinks.contact.phoneNumbers', 'applicant.contracts.contractTemplate']);
+
+            $teamSettings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($this->team_id);
+            $templateId = $teamSettings->getSetting('employee_portal_wa_template_id');
+            $accountId  = $teamSettings->getSetting('employee_portal_wa_account_id');
+
+            if (!$templateId) {
+                return ['ok' => false, 'message' => 'Kein employee_portal_wa_template_id-Setting konfiguriert.'];
+            }
+
+            if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+                return ['ok' => false, 'message' => 'WhatsApp-Integrations-Modul nicht verfuegbar.'];
+            }
+
+            $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
+            if (!$template || $template->status !== 'APPROVED') {
+                return ['ok' => false, 'message' => 'Template nicht gefunden oder nicht genehmigt.'];
+            }
+
+            if (!$accountId) {
+                $accountId = $template->whatsapp_account_id;
+            }
+
+            if (!$accountId || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
+                return ['ok' => false, 'message' => 'Kein WhatsApp-Account konfiguriert.'];
+            }
+
+            $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($accountId);
+            if (!$account || !$account->active) {
+                return ['ok' => false, 'message' => 'WhatsApp-Account nicht aktiv.'];
+            }
+
+            $channel = \Platform\Crm\Models\CommsChannel::where('type', 'whatsapp')
+                ->where('is_active', true)
+                ->where('sender_identifier', $account->phone_number)
+                ->first();
+
+            if (!$channel) {
+                return ['ok' => false, 'message' => 'Kein aktiver WhatsApp-Kanal fuer den Account.'];
+            }
+
+            $phoneNumber = null;
+            foreach ($this->crmContactLinks as $link) {
+                $contact = $link->contact;
+                if (!$contact) continue;
+                $phoneNumber = $contact->phoneNumbers
+                    ->where('is_active', true)
+                    ->where('is_primary', true)
+                    ->whereNotNull('international')
+                    ->first();
+                if (!$phoneNumber) {
+                    $phoneNumber = $contact->phoneNumbers
+                        ->where('is_active', true)
+                        ->whereNotNull('international')
+                        ->first();
+                }
+                if ($phoneNumber) break;
+            }
+
+            if (!$phoneNumber) {
+                return ['ok' => false, 'message' => 'Keine Telefonnummer am CRM-Kontakt.'];
+            }
+
+            $employeeName = trim(($this->first_name ?? '') . ' ' . ($this->last_name ?? '')) ?: 'Mitarbeiter/in';
+            $portalUrl    = route('recruiting.public.employee-portal', ['token' => $this->portal_token]);
+
+            $variableValues = [
+                'employee_name' => $employeeName,
+                'candidate_name' => $employeeName,
+                'name'           => $employeeName,
+                'vorname'        => $this->first_name ?? $employeeName,
+                'portal_link'    => $portalUrl,
+                'token'          => $this->portal_token,
+            ];
+
+            // Body-Param-Mapping — wir benutzen den gleichen Mechanismus
+            // wie sendContractPortalNotification (positional + named).
+            $autoMapDefaults = ['employee_name', 'portal_link'];
+            $components = [];
+            $bodyParams = [];
+            foreach ($template->components ?? [] as $component) {
+                if (($component['type'] ?? '') !== 'BODY') continue;
+                preg_match_all('/\{\{(\w+)\}\}/', $component['text'] ?? '', $matches);
+                $examplesByName = [];
+                foreach ($component['example']['body_text_named_params'] ?? [] as $np) {
+                    $examplesByName[$np['param_name']] = $np['example'] ?? '';
+                }
+                $positionalExamples = $component['example']['body_text'][0] ?? [];
+                foreach ($matches[1] as $i => $paramName) {
+                    $bodyParams[] = [
+                        'name'    => $paramName,
+                        'example' => $examplesByName[$paramName] ?? $positionalExamples[$i] ?? '',
+                        'index'   => $i,
+                    ];
+                }
+            }
+
+            if (!empty($bodyParams)) {
+                $bodyParameters = [];
+                foreach ($bodyParams as $param) {
+                    $sourceKey = $autoMapDefaults[$param['index']] ?? null;
+                    $value = $sourceKey ? ($variableValues[$sourceKey] ?? '') : '';
+                    if ($value === '') {
+                        $value = $variableValues[strtolower($param['name'])] ?? $param['example'] ?? '';
+                    }
+                    $entry = ['type' => 'text', 'text' => (string) $value];
+                    if (!is_numeric($param['name'])) {
+                        $entry['parameter_name'] = $param['name'];
+                    }
+                    $bodyParameters[] = $entry;
+                }
+                $components[] = ['type' => 'body', 'parameters' => $bodyParameters];
+            }
+
+            $hasUrlButton = collect($template->components ?? [])
+                ->where('type', 'BUTTONS')
+                ->flatMap(fn ($c) => $c['buttons'] ?? [])
+                ->contains('type', 'URL');
+
+            if ($hasUrlButton) {
+                $components[] = [
+                    'type'       => 'button',
+                    'sub_type'   => 'url',
+                    'index'      => 0,
+                    'parameters' => [['type' => 'text', 'text' => $this->portal_token]],
+                ];
+            }
+
+            $service = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class);
+            $message = $service->sendTemplate(
+                channel:      $channel,
+                to:           $phoneNumber->international,
+                templateName: $template->name,
+                components:   $components,
+                languageCode: $template->language,
+            );
+
+            if ($thread = $message->thread ?? null) {
+                $thread->addContext($this->getMorphClass(), $this->id, 'employee_portal_send');
+            }
+
+            // AutoPilot-Log am rec_applicant_id (RecAutoPilotLog FK).
+            if ($this->rec_applicant_id) {
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->rec_applicant_id,
+                        'type'             => 'employee_portal_sent',
+                        'summary'          => "MA-Portal-Link per WhatsApp an {$phoneNumber->international} gesendet (Employee #{$this->id}).",
+                    ]);
+                } catch (\Throwable) {}
+            }
+
+            return ['ok' => true, 'message' => "An {$phoneNumber->international} gesendet."];
+        } catch (\Throwable $e) {
+            if ($this->rec_applicant_id) {
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->rec_applicant_id,
+                        'type'             => 'error',
+                        'summary'          => 'MA-Portal WA-Fehler: ' . $e->getMessage(),
+                    ]);
+                } catch (\Throwable) {}
+            }
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
     }
 }

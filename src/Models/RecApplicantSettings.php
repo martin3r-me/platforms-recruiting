@@ -38,6 +38,11 @@ class RecApplicantSettings extends Model
         'contract_wa_template_id' => null,
         'contract_wa_account_id' => null,
         'contract_wa_template_variables' => [],
+        // Mitarbeiter-Portal — eigenes Template (Wording: "Willkommen
+        // im Team, hier dein Portal-Zugang"). Greift wenn ein RecEmployee
+        // angelegt wurde (Phase-Config-Flag creates_employee_on_completion).
+        'employee_portal_wa_template_id' => null,
+        'employee_portal_wa_account_id' => null,
     ];
 
     public function team(): BelongsTo

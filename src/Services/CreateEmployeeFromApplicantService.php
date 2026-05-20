@@ -117,6 +117,16 @@ class CreateEmployeeFromApplicantService
                 ]);
             }
 
+            // Hinweis: RecEmployee::sendPortalNotification() ist verfuegbar
+            // aber wird hier BEWUSST nicht automatisch getriggert. Der
+            // explizite "MA-Portal aktivieren"-Button im Schulungs-Index
+            // (eigene Iteration) wird das spaeter aufrufen. Bis dahin
+            // laeuft der alte Notification-Pfad ueber
+            // RecApplicant::sendContractPortalNotification weiter wie
+            // bisher (alter Portal-Link funktioniert weiterhin auch fuer
+            // bereits konvertierte MAs, weil ApplicantPortal kein
+            // is_active-Check hat).
+
             return $employee->fresh();
         });
     }
