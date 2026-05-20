@@ -31,29 +31,47 @@ return new class extends Migration
      */
     private const FK_NAME = 'rec_legalstatus_addl_tpl_fk';
 
+    /**
+     * Idempotent: Die erste Variante dieser Migration ist auf einigen
+     * Umgebungen halb durchgelaufen (MySQL ist nicht transaktional bei
+     * DDL — wenn der lange FK-Name Fehler 1059 wirft, ist die vorherige
+     * ADD COLUMN bereits committed). Beim Retry darf der ADD-COLUMN nicht
+     * nochmal versuchen sonst Fehler 1060 Duplicate column. Daher pro
+     * Spalte ein Schema::hasColumn-Check.
+     */
     public function up(): void
     {
         Schema::table('rec_applicant_legal_statuses', function (Blueprint $table) {
-            $table->timestamp('legal_status_checked_at')->nullable()
-                ->after('immatrikulation_file_id');
+            if (!Schema::hasColumn('rec_applicant_legal_statuses', 'legal_status_checked_at')) {
+                $table->timestamp('legal_status_checked_at')->nullable()
+                    ->after('immatrikulation_file_id');
+            }
 
-            $table->unsignedBigInteger('additional_contract_template_id')->nullable()
-                ->after('legal_status_checked_at');
+            if (!Schema::hasColumn('rec_applicant_legal_statuses', 'additional_contract_template_id')) {
+                $table->unsignedBigInteger('additional_contract_template_id')->nullable()
+                    ->after('legal_status_checked_at');
 
-            $table->foreign('additional_contract_template_id', self::FK_NAME)
-                ->references('id')->on('rec_contract_templates')
-                ->nullOnDelete();
+                $table->foreign('additional_contract_template_id', self::FK_NAME)
+                    ->references('id')->on('rec_contract_templates')
+                    ->nullOnDelete();
+            }
         });
     }
 
     public function down(): void
     {
         Schema::table('rec_applicant_legal_statuses', function (Blueprint $table) {
-            $table->dropForeign(self::FK_NAME);
-            $table->dropColumn([
-                'additional_contract_template_id',
-                'legal_status_checked_at',
-            ]);
+            if (Schema::hasColumn('rec_applicant_legal_statuses', 'additional_contract_template_id')) {
+                try {
+                    $table->dropForeign(self::FK_NAME);
+                } catch (\Throwable) {
+                    // FK existiert moeglicherweise nicht — Rollback soll trotzdem die Column dropen
+                }
+                $table->dropColumn('additional_contract_template_id');
+            }
+            if (Schema::hasColumn('rec_applicant_legal_statuses', 'legal_status_checked_at')) {
+                $table->dropColumn('legal_status_checked_at');
+            }
         });
     }
 };
