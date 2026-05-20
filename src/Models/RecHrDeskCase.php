@@ -35,11 +35,13 @@ class RecHrDeskCase extends Model
 
     public const REASON_NON_EU_CITIZEN = 'non_eu_citizen';
     public const REASON_NO_GERMAN_KNOWLEDGE = 'no_german_knowledge';
+    public const REASON_APPLICANT_CANCELLED_TRAINING = 'applicant_cancelled_training';
 
     /** Map reason-codes auf sprechende deutsche Labels für UI-Anzeige. */
     public const REASON_LABELS = [
         self::REASON_NON_EU_CITIZEN => 'Nicht-EU-Bürger',
         self::REASON_NO_GERMAN_KNOWLEDGE => 'Keine grundlegenden Deutschkenntnisse',
+        self::REASON_APPLICANT_CANCELLED_TRAINING => 'Schulung vom Bewerber abgesagt',
     ];
 
     public function reasonLabel(): string

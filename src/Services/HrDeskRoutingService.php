@@ -57,7 +57,16 @@ class HrDeskRoutingService
         // Weitere Regeln können hier ergänzt werden, z.B. minderjährig.
     }
 
-    private function routeIfNotAlreadyOpen(RecApplicant $applicant, string $reason, ?int $userId = null): void
+    /**
+     * Routet einen Bewerber auf den HR-Schreibtisch wenn fuer den gegebenen
+     * Reason nicht bereits ein offener Case existiert. Verhindert Duplicate-
+     * Cases bei wiederholtem Aufruf desselben Pfads (z.B. mehrfach abgesagt).
+     *
+     * Public weil ein-off-Pfade wie cancelSchulung() / cancelBooking() darauf
+     * zugreifen — die laufen NICHT durch evaluateAndRoute() weil ihre Reasons
+     * nicht aus Bewerber-Daten ableitbar sind sondern aus User-Aktion.
+     */
+    public function routeIfNotAlreadyOpen(RecApplicant $applicant, string $reason, ?int $userId = null): void
     {
         $alreadyOpen = $applicant->hrDeskCases()
             ->where('reason', $reason)

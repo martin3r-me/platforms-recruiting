@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
+use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterviewBooking;
 
 /**
@@ -112,10 +113,13 @@ class ReminderResponseHandler
             'cancelled_at'  => now(),
         ]);
 
-        // Bewerber auf HR-Schreibtisch — analog zum Public-Form-Absagen-Pfad
-        $applicant->is_on_hr_desk = true;
-        $applicant->auto_pilot    = false;
-        $applicant->save();
+        // Bewerber auf HR-Schreibtisch — analog zum Public-Form-Absagen-Pfad.
+        // Legt zentral den RecHrDeskCase an + setzt is_on_hr_desk/auto_pilot.
+        // Idempotent gegen Mehrfach-Nein-Antworten.
+        app(HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
+            $applicant,
+            RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING
+        );
 
         try {
             RecAutoPilotLog::create([

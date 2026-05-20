@@ -6,9 +6,11 @@ use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Core\Models\CorePublicFormLink;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Services\HrDeskRoutingService;
 
 class InterviewBooking extends Component
 {
@@ -310,14 +312,17 @@ class InterviewBooking extends Component
                 'cancelled_at'  => now(),
             ]);
 
-        // 2) HR-Schreibtisch markieren — HR entscheidet was passiert
-        //    (Auto-Rebook absichtlich nicht; siehe Spec-Diskussion zur
-        //     Reminder-Nein-Logik — gleiche Begruendung)
-        $applicant->is_on_hr_desk = true;
-        $applicant->auto_pilot    = false;
-        $applicant->save();
+        // 2) HR-Schreibtisch-Case anlegen + Flag setzen ueber den zentralen
+        //    Service. Idempotent: existiert schon ein offener Case fuer den
+        //    gleichen Reason (z.B. Bewerber sagt zweimal hintereinander ab),
+        //    wird kein Duplicate angelegt.
+        app(HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
+            $applicant,
+            RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING
+        );
 
-        // 3) AutoPilotLog fuer HR-Sichtbarkeit
+        // 3) Zusaetzlicher AutoPilotLog mit semantischem Type fuer die
+        //    Bewerber-Timeline (Service-Log ist generisch 'hr_desk_routed').
         try {
             \Platform\Recruiting\Models\RecAutoPilotLog::create([
                 'rec_applicant_id' => $applicant->id,
