@@ -36,6 +36,11 @@ Route::get('/contract/{token}', \Platform\Recruiting\Livewire\Public\ContractSig
 Route::get('/portal/{token}', \Platform\Recruiting\Livewire\Public\ApplicantPortal::class)
     ->name('recruiting.public.applicant-portal');
 
+// Mitarbeiter-Portal — Login-geschuetzter Bereich nach Phase-4-Konvertierung.
+// Verifizierung mit Geburtsdatum + letzte 4 Ziffern Ausweisnummer.
+Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\EmployeePortal::class)
+    ->name('recruiting.public.employee-portal');
+
 // Contract PDF Download (public, token-based)
 Route::get('/applicant/{token}/contract/{contractId}/pdf', [\Platform\Recruiting\Http\Controllers\ContractPdfController::class, '__invoke'])
     ->name('recruiting.public.contract-pdf');

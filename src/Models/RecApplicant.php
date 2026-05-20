@@ -519,6 +519,27 @@ class RecApplicant extends Model implements InheritsExtraFields
                 } catch (\Throwable) {}
             }
         }
+
+        // Bewerber → Mitarbeiter Konvertierung (opt-in pro Phase). Trigger
+        // wird typischerweise auf Phase 4 (Schulung + Verträge versenden)
+        // gesetzt. Production-Phasen ohne den Flag bleiben unberuehrt.
+        // Service ist idempotent (mehrfaches Triggern erzeugt kein Duplikat).
+        if (($config['creates_employee_on_completion'] ?? false) === true) {
+            try {
+                app(\Platform\Recruiting\Services\CreateEmployeeFromApplicantService::class)
+                    ->createOrUpdate($this);
+            } catch (\Throwable $e) {
+                // Anlage-Fehler darf den Phase-Advance nicht hart blockieren —
+                // HR sieht's im RecAutoPilotLog und kann manuell nachziehen.
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->id,
+                        'type'             => 'employee_create_failed',
+                        'summary'          => "Mitarbeiter-Anlage fehlgeschlagen bei Phase \"{$completedPhase->name}\": " . $e->getMessage(),
+                    ]);
+                } catch (\Throwable) {}
+            }
+        }
     }
 
     /**
