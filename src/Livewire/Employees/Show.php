@@ -93,9 +93,11 @@ class Show extends Component
 
         $legalStatusFields = [
             'is_eu_citizen' => ['type' => 'bool', 'label' => 'EU-Buerger'],
-            'nationalpass_file_id' => ['type' => 'file', 'label' => 'Nationalpass'],
         ];
+        // Nationalpass (Reisepass aus Herkunftsland) ist semantisch ein
+        // non-EU-Feld — EU-Buerger nutzen den Personalausweis (identity_card_*).
         if ($showNonEuFields) {
+            $legalStatusFields['nationalpass_file_id']           = ['type' => 'file', 'label' => 'Nationalpass'];
             $legalStatusFields['aufenthaltstitel_front_file_id'] = ['type' => 'file', 'label' => 'Aufenthaltstitel Vorderseite'];
             $legalStatusFields['aufenthaltstitel_back_file_id']  = ['type' => 'file', 'label' => 'Aufenthaltstitel Rueckseite'];
             $legalStatusFields['visumsblatt_file_id']            = ['type' => 'file', 'label' => 'Visum'];
