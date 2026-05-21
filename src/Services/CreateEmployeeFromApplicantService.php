@@ -103,6 +103,10 @@ class CreateEmployeeFromApplicantService
                 'visumsblatt_file_id'            => $legalStatus?->visumsblatt_file_id,
                 'zusatzblatt_file_id'            => $legalStatus?->zusatzblatt_file_id,
                 'immatrikulation_file_id'        => $legalStatus?->immatrikulation_file_id,
+                // Fiktionsbescheinigung: nicht in rec_applicant_legal_statuses,
+                // sondern als extra_field_value am Bewerber gespeichert (P3 optional).
+                'fiktionsbescheinigung_front_file_id' => $this->normalizeFileId($extraValues['fiktionsbescheinigung_vorderseite'] ?? null),
+                'fiktionsbescheinigung_back_file_id'  => $this->normalizeFileId($extraValues['fiktionsbescheinigung_ruckseite'] ?? null),
 
                 // Lifecycle
                 'is_active'            => true,

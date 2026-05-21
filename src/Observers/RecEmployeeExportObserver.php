@@ -67,6 +67,7 @@ class RecEmployeeExportObserver
         'immatrikulation_file_id', 'nationalpass_file_id',
         'aufenthaltstitel_front_file_id', 'aufenthaltstitel_back_file_id',
         'visumsblatt_file_id', 'zusatzblatt_file_id',
+        'fiktionsbescheinigung_front_file_id', 'fiktionsbescheinigung_back_file_id',
 
         // Date-Felder
         'residence_permit_valid_until', 'work_permit_valid_until',

@@ -62,12 +62,16 @@ class ZasEmployeeFieldResolver
         // Kleidung
         'HemdGroesse', 'HosenGroesse', 'SchuhGroesse',
 
-        // Files (Signed-URLs)
-        'UplAusweisVorn', 'UplAusweisBack', 'UplSelfie',
-        'UplVersichertenKarte', 'UplImma',
-        'UplNationalpass', 'UplAufenthaltVorn', 'UplAufenthaltBack',
+        // Files (Signed-URLs) — Spalten-Namen aus dem Bewerber-Endpunkt
+        // bewusst beibehalten damit Hr. Michel nur EINE Spalten-Konvention
+        // im Importer pflegen muss. Neu: UplNationalpass (im Bewerber-
+        // Endpunkt nicht vorhanden, MA-spezifisch).
+        'UplAuweis', 'UplAusw2', 'UplSelfie',
+        'UplVersicher', 'UplImma',
+        'UplNationalpass', 'UplArbErl', 'UplArbErl2',
         'UplVisum', 'UplZusatzblatt',
-        'UplArbVertrag', 'UplIfsg',
+        'UplFiktion', 'UplFiktion2',
+        'UplVertrag', 'UplIfsg',
 
         // Date-Felder Aufenthalt / Bescheinigungen
         'AufenthaltsErlaubnisBis', 'ArbeitsGenehmigungBis',
@@ -95,17 +99,19 @@ class ZasEmployeeFieldResolver
      * ZasEmployeeFileController genutzt um den Slot aufzuloesen.
      */
     public const FILE_SLOT_FIELD_MAP = [
-        'emp-ausweis-vorn'       => 'identity_card_front_file_id',
-        'emp-ausweis-back'       => 'identity_card_back_file_id',
+        'emp-auweis'             => 'identity_card_front_file_id',
+        'emp-ausw2'              => 'identity_card_back_file_id',
         'emp-selfie'             => 'selfie_file_id',
-        'emp-versicherten-karte' => 'health_insurance_card_file_id',
+        'emp-versicher'          => 'health_insurance_card_file_id',
         'emp-imma'               => 'immatrikulation_file_id',
         'emp-pass'               => 'nationalpass_file_id',
-        'emp-aufenthalt-vorn'    => 'aufenthaltstitel_front_file_id',
-        'emp-aufenthalt-back'    => 'aufenthaltstitel_back_file_id',
+        'emp-arberl'             => 'aufenthaltstitel_front_file_id',
+        'emp-arberl2'            => 'aufenthaltstitel_back_file_id',
         'emp-visum'              => 'visumsblatt_file_id',
         'emp-zusatzblatt'        => 'zusatzblatt_file_id',
-        // emp-arbvertrag + emp-ifsg sind contract-PDFs, nicht file_id-basiert
+        'emp-fiktion'            => 'fiktionsbescheinigung_front_file_id',
+        'emp-fiktion2'           => 'fiktionsbescheinigung_back_file_id',
+        // emp-vertrag + emp-ifsg sind contract-PDFs, nicht file_id-basiert
     ];
 
     /**
@@ -174,18 +180,20 @@ class ZasEmployeeFieldResolver
             'HosenGroesse'        => $employee->pants_size !== null ? (string) $employee->pants_size : null,
             'SchuhGroesse'        => $employee->shoe_size !== null ? (string) $employee->shoe_size : null,
 
-            // Files
-            'UplAusweisVorn'         => $this->fileUrl($employee, 'emp-ausweis-vorn', $employee->identity_card_front_file_id),
-            'UplAusweisBack'         => $this->fileUrl($employee, 'emp-ausweis-back', $employee->identity_card_back_file_id),
+            // Files — Spalten-Namen identisch zum Bewerber-Endpunkt
+            'UplAuweis'              => $this->fileUrl($employee, 'emp-auweis', $employee->identity_card_front_file_id),
+            'UplAusw2'               => $this->fileUrl($employee, 'emp-ausw2', $employee->identity_card_back_file_id),
             'UplSelfie'              => $this->fileUrl($employee, 'emp-selfie', $employee->selfie_file_id),
-            'UplVersichertenKarte'   => $this->fileUrl($employee, 'emp-versicherten-karte', $employee->health_insurance_card_file_id),
+            'UplVersicher'           => $this->fileUrl($employee, 'emp-versicher', $employee->health_insurance_card_file_id),
             'UplImma'                => $this->fileUrl($employee, 'emp-imma', $employee->immatrikulation_file_id),
             'UplNationalpass'        => $this->fileUrl($employee, 'emp-pass', $employee->nationalpass_file_id),
-            'UplAufenthaltVorn'      => $this->fileUrl($employee, 'emp-aufenthalt-vorn', $employee->aufenthaltstitel_front_file_id),
-            'UplAufenthaltBack'      => $this->fileUrl($employee, 'emp-aufenthalt-back', $employee->aufenthaltstitel_back_file_id),
+            'UplArbErl'              => $this->fileUrl($employee, 'emp-arberl', $employee->aufenthaltstitel_front_file_id),
+            'UplArbErl2'             => $this->fileUrl($employee, 'emp-arberl2', $employee->aufenthaltstitel_back_file_id),
             'UplVisum'               => $this->fileUrl($employee, 'emp-visum', $employee->visumsblatt_file_id),
             'UplZusatzblatt'         => $this->fileUrl($employee, 'emp-zusatzblatt', $employee->zusatzblatt_file_id),
-            'UplArbVertrag'          => $this->contractUrl($employee, 'arbeitsvertrag'),
+            'UplFiktion'             => $this->fileUrl($employee, 'emp-fiktion', $employee->fiktionsbescheinigung_front_file_id),
+            'UplFiktion2'            => $this->fileUrl($employee, 'emp-fiktion2', $employee->fiktionsbescheinigung_back_file_id),
+            'UplVertrag'             => $this->contractUrl($employee, 'arbeitsvertrag'),
             'UplIfsg'                => $this->contractUrl($employee, 'ifsg'),
 
             // Date-Felder Aufenthalt / Bescheinigungen
@@ -322,7 +330,7 @@ class ZasEmployeeFieldResolver
         if (!$query->exists()) {
             return null;
         }
-        $slot = $type === 'ifsg' ? 'emp-ifsg' : 'emp-arbvertrag';
+        $slot = $type === 'ifsg' ? 'emp-ifsg' : 'emp-vertrag';
         return $this->signedUrlGenerator->generate((string) $employee->uuid, $slot);
     }
 

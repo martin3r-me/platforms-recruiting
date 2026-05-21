@@ -90,6 +90,8 @@ class RecEmployee extends Model
         'visumsblatt_file_id',
         'zusatzblatt_file_id',
         'immatrikulation_file_id',
+        'fiktionsbescheinigung_front_file_id',
+        'fiktionsbescheinigung_back_file_id',
 
         'portal_token',
         'portal_verified_at',

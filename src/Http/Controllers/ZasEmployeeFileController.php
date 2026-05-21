@@ -57,7 +57,7 @@ class ZasEmployeeFileController extends Controller
         }
 
         // 3. Slot aufloesen
-        if ($slot === 'emp-arbvertrag') {
+        if ($slot === 'emp-vertrag') {
             return $this->streamLatestSignedContract($employee, 'arbeitsvertrag');
         }
         if ($slot === 'emp-ifsg') {

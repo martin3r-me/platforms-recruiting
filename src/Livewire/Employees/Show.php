@@ -39,6 +39,8 @@ class Show extends Component
     public $uploadVisumsblatt = null;
     public $uploadZusatzblatt = null;
     public $uploadImmatrikulation = null;
+    public $uploadFiktionFront = null;
+    public $uploadFiktionBack = null;
 
     private const FILE_UPLOAD_MAP = [
         'identity_card_front_file_id'   => 'uploadIdentityFront',
@@ -51,6 +53,8 @@ class Show extends Component
         'visumsblatt_file_id'           => 'uploadVisumsblatt',
         'zusatzblatt_file_id'           => 'uploadZusatzblatt',
         'immatrikulation_file_id'       => 'uploadImmatrikulation',
+        'fiktionsbescheinigung_front_file_id' => 'uploadFiktionFront',
+        'fiktionsbescheinigung_back_file_id'  => 'uploadFiktionBack',
     ];
 
     public function mount(int $employee): void
@@ -102,6 +106,8 @@ class Show extends Component
             $legalStatusFields['aufenthaltstitel_back_file_id']  = ['type' => 'file', 'label' => 'Aufenthaltstitel Rueckseite'];
             $legalStatusFields['visumsblatt_file_id']            = ['type' => 'file', 'label' => 'Visum'];
             $legalStatusFields['zusatzblatt_file_id']            = ['type' => 'file', 'label' => 'Zusatzblatt'];
+            $legalStatusFields['fiktionsbescheinigung_front_file_id'] = ['type' => 'file', 'label' => 'Fiktionsbescheinigung Vorderseite'];
+            $legalStatusFields['fiktionsbescheinigung_back_file_id']  = ['type' => 'file', 'label' => 'Fiktionsbescheinigung Rueckseite'];
             $legalStatusFields['residence_permit_valid_until']   = ['type' => 'date', 'label' => 'Aufenthaltserlaubnis bis'];
             $legalStatusFields['work_permit_valid_until']        = ['type' => 'date', 'label' => 'Arbeitsgenehmigung bis'];
         }
@@ -353,6 +359,8 @@ class Show extends Component
     public function updatedUploadVisumsblatt(): void { $this->handleFileUpload('visumsblatt_file_id', 'uploadVisumsblatt'); }
     public function updatedUploadZusatzblatt(): void { $this->handleFileUpload('zusatzblatt_file_id', 'uploadZusatzblatt'); }
     public function updatedUploadImmatrikulation(): void { $this->handleFileUpload('immatrikulation_file_id', 'uploadImmatrikulation'); }
+    public function updatedUploadFiktionFront(): void { $this->handleFileUpload('fiktionsbescheinigung_front_file_id', 'uploadFiktionFront'); }
+    public function updatedUploadFiktionBack(): void { $this->handleFileUpload('fiktionsbescheinigung_back_file_id', 'uploadFiktionBack'); }
 
     private function handleFileUpload(string $employeeField, string $propertyName): void
     {
