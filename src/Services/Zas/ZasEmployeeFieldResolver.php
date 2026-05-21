@@ -37,7 +37,7 @@ class ZasEmployeeFieldResolver
     public const COLUMNS = [
         // Stammdaten
         'Name', 'Vorname', 'Geburtsname', 'Geburtsdatum', 'Geburtsort',
-        'Geburtsland', 'Geschlecht', 'Familienstand',
+        'Nation', 'Geschlecht', 'Familienstand',
         'AusweisNr', 'AusweisBis',
         'Religion', 'KinderAnzahl',
 
@@ -140,7 +140,7 @@ class ZasEmployeeFieldResolver
             'Geburtsname'         => $employee->birth_name,
             'Geburtsdatum'        => $this->formatDate($employee->birth_date),
             'Geburtsort'          => $employee->birth_place,
-            'Geburtsland'         => $this->lookupLabel('geburtsland', $employee->birth_country),
+            'Nation'              => $this->lookupLabel('geburtsland', $employee->birth_country),
             'Geschlecht'          => $this->lookupLabel('geschlecht', $employee->gender),
             'Familienstand'       => $this->lookupLabel('familienstand', $employee->marital_status),
             'AusweisNr'           => $employee->identity_card_number,
