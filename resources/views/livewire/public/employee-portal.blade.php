@@ -211,18 +211,19 @@
                                     $label = $entry['label'];
                                     $isMissing = $entry['is_missing'];
                                 @endphp
+                                @php
+                                    // Roter Border bei leerem Feld als dezenter "fehlt noch"-Indikator
+                                    $inputBorder = $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]';
+                                @endphp
                                 <div class="p-3">
                                     <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1.5">
                                         {{ $label }}
-                                        @if($isMissing && $type !== 'file')
-                                            <span class="ml-1.5 text-amber-600 text-[10px] font-normal italic">noch nicht eingetragen</span>
-                                        @endif
                                     </label>
 
                                     @if($type === 'lookup')
                                         <select
                                             wire:model.defer="fieldValues.{{ $key }}"
-                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white"
                                         >
                                             <option value="">— bitte wählen —</option>
                                             @foreach($this->lookupOptionsFor($entry['lookup']) as $optValue => $optLabel)
@@ -233,7 +234,7 @@
                                     @elseif($type === 'bool')
                                         <select
                                             wire:model.defer="fieldValues.{{ $key }}"
-                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white"
                                         >
                                             <option value="">— bitte wählen —</option>
                                             <option value="1">Ja</option>
@@ -244,15 +245,15 @@
                                         <input
                                             type="date"
                                             wire:model.defer="fieldValues.{{ $key }}"
-                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm"
                                         />
 
                                     @elseif($type === 'file')
                                         @php $uploadProp = $fileUploadProps[$key] ?? null; @endphp
-                                        <div class="flex items-center gap-3">
+                                        <div class="flex items-center gap-3 p-2 rounded-md border {{ $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]' }}">
                                             <div class="flex-1 text-sm">
                                                 @if($isMissing)
-                                                    <span class="text-amber-700 italic text-xs">— noch nicht hochgeladen —</span>
+                                                    <span class="text-[var(--ui-muted)] text-xs">Keine Datei hochgeladen</span>
                                                 @else
                                                     <span class="inline-flex items-center gap-1.5 text-[var(--ui-secondary)]">
                                                         @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600')
@@ -282,7 +283,7 @@
                                             type="text"
                                             wire:model.defer="fieldValues.{{ $key }}"
                                             placeholder="{{ $label }}"
-                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm"
                                         />
                                     @endif
                                 </div>

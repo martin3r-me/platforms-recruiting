@@ -187,7 +187,7 @@ class RecEmployee extends Model
                 'house_number' => ['type' => 'text', 'label' => 'Hausnummer'],
                 'zip'          => ['type' => 'text', 'label' => 'PLZ'],
                 'city'         => ['type' => 'text', 'label' => 'Ort'],
-                'country_code' => ['type' => 'text', 'label' => 'Land (z.B. DE)'],
+                'country_code' => ['type' => 'text', 'label' => 'Land'],
                 'birth_country' => ['type' => 'lookup', 'label' => 'Geburtsland', 'lookup' => 'geburtsland'],
             ],
             'Persoenliches' => [
