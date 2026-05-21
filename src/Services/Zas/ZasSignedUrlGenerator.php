@@ -38,17 +38,22 @@ class ZasSignedUrlGenerator
     }
 
     /**
-     * Generiert eine signierte URL fuer einen bestimmten Bewerber-Slot.
-     * Slot-Konvention: kebab-case ZAS-Spaltenname, z. B. "upl-versicher".
+     * Generiert eine signierte URL fuer einen Slot. Slot-Prefix entscheidet
+     * den Endpoint-Pfad:
+     *   - `upl-*` → /recruiting/zas/files/        (Bewerber)
+     *   - `emp-*` → /recruiting/zas/employee-files/  (Mitarbeiter)
      */
-    public function generate(string $applicantUuid, string $slot): string
+    public function generate(string $uuid, string $slot): string
     {
         $expires = now()->addDays($this->ttlDays)->timestamp;
-        $sig = $this->sign($applicantUuid, $slot, $expires);
+        $sig = $this->sign($uuid, $slot, $expires);
+
+        $pathSegment = str_starts_with($slot, 'emp-') ? 'employee-files' : 'files';
 
         return URL::to(sprintf(
-            '/recruiting/zas/files/%s/%s?expires=%d&sig=%s',
-            urlencode($applicantUuid),
+            '/recruiting/zas/%s/%s/%s?expires=%d&sig=%s',
+            $pathSegment,
+            urlencode($uuid),
             urlencode($slot),
             $expires,
             $sig,
