@@ -74,7 +74,7 @@
                     <button
                         type="submit"
                         wire:loading.attr="disabled"
-                        class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-[var(--ui-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors disabled:opacity-50"
+                        class="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-[var(--ui-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--ui-primary)]/90 transition-colors disabled:opacity-50"
                     >
                         @svg('heroicon-o-lock-open', 'w-4 h-4')
                         Anmelden
@@ -135,7 +135,7 @@
                                     <div class="flex-shrink-0">
                                         @if(!$c['signed_at'] && in_array($c['status'], ['sent', 'in_progress']))
                                             <a href="{{ $c['sign_url'] }}"
-                                               class="inline-flex items-center gap-2 px-4 py-2 bg-[var(--ui-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors">
+                                               class="inline-flex items-center gap-2 px-4 py-2 bg-[var(--ui-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--ui-primary)]/90 transition-colors">
                                                 @svg('heroicon-o-pencil', 'w-4 h-4')
                                                 Jetzt unterschreiben
                                             </a>
@@ -261,7 +261,7 @@
                                                     wire:click="saveField"
                                                     wire:loading.attr="disabled"
                                                     wire:target="saveField,editFile"
-                                                    class="px-3 py-1.5 bg-[var(--ui-primary)] text-white text-xs font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors disabled:opacity-50"
+                                                    class="px-3 py-1.5 bg-[var(--ui-primary)] text-white text-xs font-medium rounded-md hover:bg-[var(--ui-primary)]/90 transition-colors disabled:opacity-50"
                                                 >
                                                     Speichern
                                                 </button>
