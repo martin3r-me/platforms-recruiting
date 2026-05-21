@@ -127,6 +127,16 @@ class CreateEmployeeFromApplicantService
                 'auto_pilot' => false,
             ]);
 
+            // ZAS-Doppel-Datensatz-Vermeidung: sobald der Bewerber zum MA
+            // wird, soll er NICHT mehr im alten Bewerber-Update-Endpoint
+            // erscheinen (sonst kriegt ZAS auf gleichen Match-Identifier
+            // doppelte UPDATE-Operationen mit teils alten Daten). Direkt
+            // per DB::update damit der RecApplicantExportObserver nicht
+            // getriggert wird.
+            DB::table('rec_applicants')
+                ->where('id', $applicant->id)
+                ->update(['export_changed_at' => null]);
+
             // AutoPilot-Log fuer HR-Sichtbarkeit
             try {
                 RecAutoPilotLog::create([

@@ -98,6 +98,10 @@ class RecEmployee extends Model
         'employed_since',
         'employment_ended_at',
 
+        // ZAS-Export-Marker
+        'zas_initial_exported_at',
+        'zas_changed_at',
+
         'created_by_user_id',
     ];
 
@@ -120,6 +124,9 @@ class RecEmployee extends Model
         'number_of_children'                    => 'integer',
         'pants_size'                            => 'integer',
         'shoe_size'                             => 'integer',
+        // ZAS-Export-Marker
+        'zas_initial_exported_at'               => 'datetime',
+        'zas_changed_at'                        => 'datetime',
     ];
 
     protected static function booted(): void

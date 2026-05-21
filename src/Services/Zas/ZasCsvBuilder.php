@@ -32,17 +32,23 @@ class ZasCsvBuilder
     /**
      * Baut das vollstaendige CSV-Dokument inklusive BOM + Header-Zeile.
      *
-     * @param  array<int, array<string, string>>  $rows  Liste von Bewerber-Arrays
-     *                                                   (Spalte → Wert), Reihenfolge
-     *                                                   muss zu COLUMNS passen.
+     * @param  array<int, array<string, string>>  $rows     Liste von Datensatz-Arrays
+     *                                                     (Spalte → Wert)
+     * @param  array<int, string>|null            $columns  Spalten-Reihenfolge; wenn
+     *                                                     null wird die Bewerber-Default-
+     *                                                     Reihenfolge (ZasFieldResolver::COLUMNS)
+     *                                                     verwendet. MA-Export uebergibt
+     *                                                     hier ZasEmployeeFieldResolver::COLUMNS.
      */
-    public function build(array $rows): string
+    public function build(array $rows, ?array $columns = null): string
     {
+        $cols = $columns ?? ZasFieldResolver::COLUMNS;
+
         $output = self::BOM;
-        $output .= $this->buildHeaderLine();
+        $output .= $this->buildHeaderLine($cols);
 
         foreach ($rows as $row) {
-            $output .= $this->buildRow($row);
+            $output .= $this->buildRow($row, $cols);
         }
 
         return $output;
@@ -51,19 +57,21 @@ class ZasCsvBuilder
     /**
      * Header-Zeile aus den Spaltennamen.
      */
-    public function buildHeaderLine(): string
+    public function buildHeaderLine(?array $columns = null): string
     {
-        return implode(self::SEPARATOR, ZasFieldResolver::COLUMNS) . self::LINE_END;
+        $cols = $columns ?? ZasFieldResolver::COLUMNS;
+        return implode(self::SEPARATOR, $cols) . self::LINE_END;
     }
 
     /**
      * Eine Datensatz-Zeile. Spalten-Reihenfolge muss exakt der
      * Header-Reihenfolge entsprechen.
      */
-    public function buildRow(array $row): string
+    public function buildRow(array $row, ?array $columns = null): string
     {
+        $cols = $columns ?? ZasFieldResolver::COLUMNS;
         $cells = [];
-        foreach (ZasFieldResolver::COLUMNS as $column) {
+        foreach ($cols as $column) {
             $cells[] = $this->sanitize((string) ($row[$column] ?? ''));
         }
         return implode(self::SEPARATOR, $cells) . self::LINE_END;

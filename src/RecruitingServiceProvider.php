@@ -43,6 +43,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DuplicatePosition::class,
                 \Platform\Recruiting\Console\Commands\ImportApplicantsCsv::class,
                 \Platform\Recruiting\Console\Commands\ZasExportBackfill::class,
+                \Platform\Recruiting\Console\Commands\ZasEmployeeExportBackfill::class,
                 \Platform\Recruiting\Console\Commands\BackfillImageVariants::class,
             ]);
         }
@@ -128,6 +129,7 @@ class RecruitingServiceProvider extends ServiceProvider
         // relevanten Aenderungen. Der Endpoint liefert markierte Datensaetze
         // aus und nullt den Marker. Siehe docs/meingedeck/zas-applicant-export.md
         \Platform\Recruiting\Observers\RecApplicantExportObserver::register();
+        \Platform\Recruiting\Observers\RecEmployeeExportObserver::register();
     }
 
     protected function registerSchedule(): void

@@ -1,33 +1,47 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Platform\Recruiting\Http\Controllers\ZasEmployeeFileController;
+use Platform\Recruiting\Http\Controllers\ZasEmployeeInitialExportController;
+use Platform\Recruiting\Http\Controllers\ZasEmployeeUpdateExportController;
 use Platform\Recruiting\Http\Controllers\ZasExportController;
 use Platform\Recruiting\Http\Controllers\ZasFileController;
 use Platform\Recruiting\Http\Middleware\ZasBearerAuth;
 
 /*
 |--------------------------------------------------------------------------
-| ZAS Bewerber-Export (externe IBEI-Schnittstelle)
+| ZAS Bewerber- + Mitarbeiter-Export (externe IBEI-Schnittstelle)
 |--------------------------------------------------------------------------
 |
 | Eigene Route-Gruppe ohne `web`-Middleware (kein Session, kein CSRF —
 | ZAS spricht maschinell auf den Endpoint).
 |
 | Auth-Strategie:
-|   - /zas/applicants/export.csv → Bearer-Token via ZasBearerAuth
-|   - /zas/files/{uuid}/{slot}   → signierte URL (Signatur ist die Auth)
-|
-| Siehe docs/meingedeck/zas-applicant-export.md
+|   - CSV-Endpoints                 → Bearer-Token via ZasBearerAuth
+|   - File-Streams (/files, /employee-files) → signierte URL (Signatur ist die Auth)
 */
 
-// CSV-Export-Endpoint
+// CSV-Export-Endpoints (Bewerber + Mitarbeiter)
 Route::middleware([ZasBearerAuth::class])->group(function () {
+    // Bewerber-Export (alter Pfad, unangetastet)
     Route::get('/applicants/export.csv', ZasExportController::class)
         ->name('recruiting.zas.applicants.export');
+
+    // Mitarbeiter-Initial-Export — frisch angelegte MAs, einmalig
+    Route::get('/employees/initial.csv', ZasEmployeeInitialExportController::class)
+        ->name('recruiting.zas.employees.initial');
+
+    // Mitarbeiter-Update-Export — Delta-Sync bei Aenderungen
+    Route::get('/employees/updates.csv', ZasEmployeeUpdateExportController::class)
+        ->name('recruiting.zas.employees.updates');
 });
 
-// Datei-Stream (Signatur statt Bearer — sonst koennte ZAS die URL nicht
-// einfach im Importer aufrufen).
+// Bewerber-Datei-Stream (Slot-Prefix `upl-*`)
 Route::get('/files/{applicantUuid}/{slot}', ZasFileController::class)
     ->name('recruiting.zas.files')
     ->where('slot', 'upl-[a-z0-9-]+');
+
+// Mitarbeiter-Datei-Stream (Slot-Prefix `emp-*`)
+Route::get('/employee-files/{employeeUuid}/{slot}', ZasEmployeeFileController::class)
+    ->name('recruiting.zas.employee-files')
+    ->where('slot', 'emp-[a-z0-9-]+');
