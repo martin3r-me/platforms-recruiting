@@ -186,114 +186,104 @@
                 </div>
             @endif
 
-            {{-- STAMMDATEN — alle editierbaren Felder, dauerhaft aenderbar --}}
+            {{-- STAMMDATEN — Direct-Edit fuer alle editierbaren Felder --}}
             <div class="mb-6">
                 <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">Meine Daten</h2>
-                <p class="text-xs text-[var(--ui-muted)] mb-3">Diese Daten kannst du jederzeit ändern. Bei Fragen wende dich an deine Ansprechperson.</p>
+                <p class="text-xs text-[var(--ui-muted)] mb-4">Diese Daten kannst du jederzeit ändern. Anpassungen werden mit dem Button "Speichern" unten übernommen. Dateien werden direkt beim Hochladen gespeichert.</p>
+
+                @php
+                    $fileUploadProps = [
+                        'identity_card_front_file_id'   => 'uploadIdentityFront',
+                        'identity_card_back_file_id'    => 'uploadIdentityBack',
+                        'selfie_file_id'                => 'uploadSelfie',
+                        'health_insurance_card_file_id' => 'uploadHealthInsuranceCard',
+                    ];
+                @endphp
 
                 @foreach($this->editableGroups as $section => $entries)
-                    <div class="mb-4">
+                    <div class="mb-5">
                         <h3 class="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)] mb-2">{{ $section }}</h3>
                         <div class="bg-white border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)]">
                             @foreach($entries as $entry)
-                                <div class="p-3 flex items-center justify-between gap-3">
-                                    @if($editField === $entry['key'])
-                                        {{-- EDIT-MODE: Input je nach type --}}
-                                        <div class="flex-1 flex items-end gap-2">
-                                            <div class="flex-1">
-                                                <div class="text-xs text-[var(--ui-muted)] mb-1">{{ $entry['label'] }}</div>
+                                @php
+                                    $key = $entry['key'];
+                                    $type = $entry['type'];
+                                    $label = $entry['label'];
+                                    $isMissing = $entry['is_missing'];
+                                @endphp
+                                <div class="p-3">
+                                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1.5">
+                                        {{ $label }}
+                                        @if($isMissing && $type !== 'file')
+                                            <span class="ml-1.5 text-amber-600 text-[10px] font-normal italic">noch nicht eingetragen</span>
+                                        @endif
+                                    </label>
 
-                                                @if($entry['type'] === 'lookup')
-                                                    <select
-                                                        wire:model.defer="editValue"
-                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
-                                                    >
-                                                        <option value="">— bitte waehlen —</option>
-                                                        @foreach($this->lookupOptionsFor($entry['lookup']) as $optValue => $optLabel)
-                                                            <option value="{{ $optValue }}">{{ $optLabel }}</option>
-                                                        @endforeach
-                                                    </select>
+                                    @if($type === 'lookup')
+                                        <select
+                                            wire:model.defer="fieldValues.{{ $key }}"
+                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white"
+                                        >
+                                            <option value="">— bitte wählen —</option>
+                                            @foreach($this->lookupOptionsFor($entry['lookup']) as $optValue => $optLabel)
+                                                <option value="{{ $optValue }}">{{ $optLabel }}</option>
+                                            @endforeach
+                                        </select>
 
-                                                @elseif($entry['type'] === 'bool')
-                                                    <select
-                                                        wire:model.defer="editValue"
-                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
-                                                    >
-                                                        <option value="">— bitte waehlen —</option>
-                                                        <option value="1">Ja</option>
-                                                        <option value="0">Nein</option>
-                                                    </select>
+                                    @elseif($type === 'bool')
+                                        <select
+                                            wire:model.defer="fieldValues.{{ $key }}"
+                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white"
+                                        >
+                                            <option value="">— bitte wählen —</option>
+                                            <option value="1">Ja</option>
+                                            <option value="0">Nein</option>
+                                        </select>
 
-                                                @elseif($entry['type'] === 'date')
-                                                    <input
-                                                        type="date"
-                                                        wire:model.defer="editValue"
-                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
-                                                    />
+                                    @elseif($type === 'date')
+                                        <input
+                                            type="date"
+                                            wire:model.defer="fieldValues.{{ $key }}"
+                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                        />
 
-                                                @elseif($entry['type'] === 'file')
+                                    @elseif($type === 'file')
+                                        @php $uploadProp = $fileUploadProps[$key] ?? null; @endphp
+                                        <div class="flex items-center gap-3">
+                                            <div class="flex-1 text-sm">
+                                                @if($isMissing)
+                                                    <span class="text-amber-700 italic text-xs">— noch nicht hochgeladen —</span>
+                                                @else
+                                                    <span class="inline-flex items-center gap-1.5 text-[var(--ui-secondary)]">
+                                                        @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600')
+                                                        {{ $entry['display'] }}
+                                                    </span>
+                                                @endif
+                                            </div>
+                                            @if($uploadProp)
+                                                <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--ui-secondary)] text-white text-xs font-medium rounded-md hover:opacity-90 transition cursor-pointer">
+                                                    @svg('heroicon-o-arrow-up-tray', 'w-3.5 h-3.5')
+                                                    @if($isMissing) Hochladen @else Ersetzen @endif
                                                     <input
                                                         type="file"
-                                                        wire:model="editFile"
+                                                        wire:model="{{ $uploadProp }}"
                                                         accept="image/*,.pdf"
-                                                        class="w-full text-sm"
+                                                        class="hidden"
                                                     />
-                                                    <div wire:loading wire:target="editFile" class="text-xs text-[var(--ui-muted)] mt-1">
-                                                        Lade hoch...
-                                                    </div>
-                                                    @if(!$entry['is_missing'])
-                                                        <div class="text-xs text-[var(--ui-muted)] mt-1">
-                                                            Aktuell: {{ $entry['display'] ?: 'Datei vorhanden' }}
-                                                        </div>
-                                                    @endif
+                                                </label>
+                                                <div wire:loading wire:target="{{ $uploadProp }}" class="text-xs text-[var(--ui-muted)]">
+                                                    Lade hoch...
+                                                </div>
+                                            @endif
+                                        </div>
 
-                                                @else
-                                                    <input
-                                                        type="text"
-                                                        wire:model.defer="editValue"
-                                                        placeholder="{{ $entry['label'] }}"
-                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
-                                                    />
-                                                @endif
-                                            </div>
-                                            <div class="flex items-end gap-2">
-                                                <button
-                                                    wire:click="saveField"
-                                                    wire:loading.attr="disabled"
-                                                    wire:target="saveField,editFile"
-                                                    class="px-3 py-1.5 bg-[var(--ui-primary)] text-white text-xs font-medium rounded-md hover:bg-[var(--ui-primary)]/90 transition-colors disabled:opacity-50"
-                                                >
-                                                    Speichern
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    wire:click="cancelEdit"
-                                                    class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md hover:bg-[var(--ui-muted-5)]"
-                                                >
-                                                    Abbrechen
-                                                </button>
-                                            </div>
-                                        </div>
                                     @else
-                                        {{-- DISPLAY-MODE --}}
-                                        <div class="flex-1 min-w-0">
-                                            <div class="text-xs text-[var(--ui-muted)]">{{ $entry['label'] }}</div>
-                                            <div class="text-sm @if($entry['is_missing']) text-amber-700 italic @else text-[var(--ui-secondary)] @endif truncate">
-                                                @if($entry['is_missing'])
-                                                    — noch nicht eingetragen —
-                                                @else
-                                                    {{ $entry['display'] }}
-                                                @endif
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            wire:click="startEdit('{{ $entry['key'] }}')"
-                                            class="flex-shrink-0 px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md hover:bg-[var(--ui-muted-5)] text-[var(--ui-secondary)] inline-flex items-center gap-1.5"
-                                        >
-                                            @svg('heroicon-o-pencil', 'w-3.5 h-3.5')
-                                            @if($entry['is_missing']) Eintragen @else Bearbeiten @endif
-                                        </button>
+                                        <input
+                                            type="text"
+                                            wire:model.defer="fieldValues.{{ $key }}"
+                                            placeholder="{{ $label }}"
+                                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                        />
                                     @endif
                                 </div>
                             @endforeach
@@ -302,12 +292,23 @@
                 @endforeach
             </div>
 
-            <div class="text-center mt-8">
+            {{-- GLOBALER SPEICHER-BUTTON --}}
+            <div class="sticky bottom-0 bg-[var(--ui-surface)] pt-4 pb-2 mt-6 flex items-center justify-between gap-3 border-t border-[var(--ui-border)]">
                 <button
                     wire:click="logout"
                     class="text-xs text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] underline"
                 >
                     Abmelden
+                </button>
+                <button
+                    wire:click="saveAll"
+                    wire:loading.attr="disabled"
+                    wire:target="saveAll"
+                    class="inline-flex items-center gap-2 px-5 py-2 bg-[var(--ui-primary)] text-white text-sm font-semibold rounded-md hover:bg-[var(--ui-primary)]/90 transition-colors disabled:opacity-50"
+                >
+                    @svg('heroicon-o-check', 'w-4 h-4')
+                    <span wire:loading.remove wire:target="saveAll">Änderungen speichern</span>
+                    <span wire:loading wire:target="saveAll">Speichere...</span>
                 </button>
             </div>
         @endif

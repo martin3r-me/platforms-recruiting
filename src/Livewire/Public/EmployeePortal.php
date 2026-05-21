@@ -36,13 +36,33 @@ class EmployeePortal extends Component
     public string $idCardLast4Input = '';
     public ?string $loginError = null;
 
-    // Daten-nachpflege Edit-State
-    public string $editField = '';
-    public string $editValue = '';
+    /**
+     * Assoc-Array aller editierbaren Text/Lookup/Bool/Date-Felder.
+     * Wird in mount/loadFieldValues mit current values vorbefuellt.
+     * Bei saveAll() wird der Diff zum Employee-Record geschrieben.
+     */
+    public array $fieldValues = [];
+
+    /** Flash-Message nach saveAll oder File-Upload */
     public ?string $editFlash = null;
 
-    // File-Upload-State (Livewire WithFileUploads)
-    public $editFile = null;
+    /**
+     * File-Upload-Properties — pro File-Field eine eigene Property weil
+     * Livewire WithFileUploads keine assoc-Arrays sauber handhabt.
+     * Wird bei Datei-Auswahl sofort hochgeladen (kein Buffer).
+     */
+    public $uploadIdentityFront = null;
+    public $uploadIdentityBack = null;
+    public $uploadSelfie = null;
+    public $uploadHealthInsuranceCard = null;
+
+    /** Map File-Field-Key → property-Name fuer dynamische Zugriffe */
+    private const FILE_FIELDS = [
+        'identity_card_front_file_id'   => 'uploadIdentityFront',
+        'identity_card_back_file_id'    => 'uploadIdentityBack',
+        'selfie_file_id'                => 'uploadSelfie',
+        'health_insurance_card_file_id' => 'uploadHealthInsuranceCard',
+    ];
 
     private const MAX_ATTEMPTS = 5;
     private const LOCKOUT_MINUTES = 15;
@@ -60,6 +80,9 @@ class EmployeePortal extends Component
 
         $this->employeeId = $employee->id;
         $this->displayName = trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) ?: 'Mitarbeiter';
+
+        // Initial-Werte fuer alle editierbaren Felder laden (Direct-Edit-UX)
+        $this->loadFieldValues($employee);
 
         // Bereits verifiziert in dieser Session? (Session-Flag basiert
         // auf employeeId — kein dauerhaftes Login, nur fuer aktuellen
@@ -112,6 +135,7 @@ class EmployeePortal extends Component
         // Verifikation erfolgreich — Session-Flag setzen + Audit
         session()->put($this->sessionKey(), true);
         $employee->update(['portal_verified_at' => now()]);
+        $this->loadFieldValues($employee->fresh());
         $this->clearFailedAttempts();
         $this->loginError = null;
         $this->state = 'verified';
@@ -127,11 +151,35 @@ class EmployeePortal extends Component
     }
 
     /**
-     * Beginnt das Editieren eines fehlenden Stammdaten-Feldes. Whitelist
-     * ist missingFields() — andere Spalten koennen nicht ueber's Portal
-     * editiert werden (Schutz gegen manipulated POSTs).
+     * Laedt aktuelle Werte aus dem Employee-Record in $fieldValues.
+     * Wird in mount() aufgerufen sowie nach saveAll() um den State zu
+     * refreshen.
      */
-    public function startEdit(string $field): void
+    private function loadFieldValues(RecEmployee $employee): void
+    {
+        $values = [];
+        foreach ($employee->editableFieldsFlat() as $field => $meta) {
+            $type = $meta['type'] ?? 'text';
+            if ($type === 'file') {
+                continue; // Files werden separat ueber upload-Properties gehandhabt
+            }
+            $raw = $employee->getAttribute($field);
+            if ($raw instanceof \DateTimeInterface) {
+                $raw = $raw->format('Y-m-d');
+            } elseif (is_bool($raw)) {
+                $raw = $raw ? '1' : '0';
+            }
+            $values[$field] = $raw === null ? '' : (string) $raw;
+        }
+        $this->fieldValues = $values;
+    }
+
+    /**
+     * Globaler Speicher-Button — committed alle Text/Lookup/Bool/Date-
+     * Aenderungen auf einmal. File-Uploads laufen separat sofort bei
+     * Datei-Auswahl (siehe updatedUpload*-Hooks).
+     */
+    public function saveAll(): void
     {
         if ($this->state !== 'verified') {
             return;
@@ -140,97 +188,110 @@ class EmployeePortal extends Component
         if (!$employee) {
             return;
         }
+
         $allowed = $employee->editableFieldsFlat();
-        if (!array_key_exists($field, $allowed)) {
+        $updates = [];
+        foreach ($this->fieldValues as $field => $value) {
+            if (!array_key_exists($field, $allowed)) {
+                continue; // Schutz gegen manipulated POST
+            }
+            $meta = $allowed[$field];
+            $type = $meta['type'] ?? 'text';
+            $value = is_string($value) ? trim($value) : $value;
+
+            if ($type === 'bool') {
+                $updates[$field] = match ((string) $value) {
+                    '1', 'true', 'ja' => true,
+                    '0', 'false', 'nein' => false,
+                    default => null,
+                };
+            } else {
+                // text, lookup, date — alle als string-or-null
+                $updates[$field] = ($value === '' || $value === null) ? null : $value;
+            }
+        }
+
+        if (empty($updates)) {
+            $this->editFlash = 'Keine Aenderungen.';
             return;
         }
-        $this->editField = $field;
-        // Vor-Belegung mit aktuellem Wert (fuer Text/Lookup/Bool/Date).
-        // File-Felder werden separat ueber $editFile gehandhabt.
-        $rawValue = $employee->getAttribute($field);
-        if (is_object($rawValue) && method_exists($rawValue, 'format')) {
-            $rawValue = $rawValue->format('Y-m-d');
-        } elseif (is_bool($rawValue)) {
-            $rawValue = $rawValue ? '1' : '0';
-        }
-        $this->editValue = (string) ($rawValue ?? '');
-        $this->editFile = null;
-        $this->editFlash = null;
+
+        $employee->update($updates);
+        $this->editFlash = 'Aenderungen gespeichert.';
+
+        // State refreshen damit die Anzeige der gespeicherten Werte
+        // sofort konsistent ist
+        $this->loadFieldValues($employee->fresh());
+        unset($this->employee, $this->missingFields, $this->editableGroups);
     }
 
-    public function cancelEdit(): void
+    /**
+     * Livewire-Hook: feuert automatisch wenn $uploadIdentityFront sich
+     * aendert (= Datei wurde im Browser ausgewaehlt). Triggert sofort
+     * den Upload — kein "Speichern"-Button noetig fuer Files.
+     */
+    public function updatedUploadIdentityFront(): void
     {
-        $this->editField = '';
-        $this->editValue = '';
-        $this->editFile = null;
+        $this->handleFileUpload('identity_card_front_file_id', 'uploadIdentityFront');
     }
 
-    public function saveField(): void
+    public function updatedUploadIdentityBack(): void
     {
-        if ($this->state !== 'verified' || $this->editField === '') {
+        $this->handleFileUpload('identity_card_back_file_id', 'uploadIdentityBack');
+    }
+
+    public function updatedUploadSelfie(): void
+    {
+        $this->handleFileUpload('selfie_file_id', 'uploadSelfie');
+    }
+
+    public function updatedUploadHealthInsuranceCard(): void
+    {
+        $this->handleFileUpload('health_insurance_card_file_id', 'uploadHealthInsuranceCard');
+    }
+
+    /**
+     * Generischer File-Upload-Handler. Whitelist-checked, faengt
+     * Service-Fehler ab, setzt FileId auf den Employee + reset
+     * Upload-Property damit das File-Input wieder leer ist.
+     */
+    private function handleFileUpload(string $employeeField, string $propertyName): void
+    {
+        if ($this->state !== 'verified') {
             return;
         }
         $employee = $this->employee();
         if (!$employee) {
             return;
         }
-
-        // Whitelist (Defense-in-Depth): nur Felder aus editableFieldGroups
-        // duerfen geschrieben werden. Schuetzt vor manipulated POSTs die
-        // versuchen z.B. identity_card_number oder is_eu_citizen zu setzen.
-        $allowed = $employee->editableFieldsFlat();
-        if (!array_key_exists($this->editField, $allowed)) {
-            $this->cancelEdit();
+        $file = $this->{$propertyName};
+        if (!$file) {
             return;
         }
 
-        $meta = $allowed[$this->editField];
-        $fieldType = $meta['type'] ?? 'text';
-        $label = $meta['label'] ?? $this->editField;
-
-        // Type-spezifischer Save-Pfad
-        if ($fieldType === 'file') {
-            if (!$this->editFile) {
-                $this->editFlash = 'Bitte eine Datei auswaehlen.';
-                return;
-            }
-            try {
-                $result = app(ContextFileService::class)->uploadForContext(
-                    $this->editFile,
-                    'rec_employee',
-                    $employee->id,
-                    [
-                        'team_id' => $employee->team_id,
-                        'user_id' => null,
-                    ]
-                );
-                $employee->update([$this->editField => (int) $result['id']]);
-            } catch (\Throwable $e) {
-                $this->editFlash = 'Upload-Fehler: ' . $e->getMessage();
-                return;
-            }
-        } elseif ($fieldType === 'bool') {
-            $bool = match ($this->editValue) {
-                '1', 'true', 'ja' => true,
-                '0', 'false', 'nein' => false,
-                default => null,
-            };
-            $employee->update([$this->editField => $bool]);
-        } elseif ($fieldType === 'date') {
-            $value = trim($this->editValue);
-            $employee->update([$this->editField => $value !== '' ? $value : null]);
-        } else {
-            // text, lookup
-            $value = trim($this->editValue);
-            $employee->update([$this->editField => $value !== '' ? $value : null]);
+        $allowed = $employee->editableFieldsFlat();
+        if (!array_key_exists($employeeField, $allowed) || ($allowed[$employeeField]['type'] ?? '') !== 'file') {
+            return;
         }
 
-        $this->editFlash = "{$label} gespeichert.";
-        $this->editField = '';
-        $this->editValue = '';
-        $this->editFile = null;
+        try {
+            $result = app(ContextFileService::class)->uploadForContext(
+                $file,
+                'rec_employee',
+                $employee->id,
+                [
+                    'team_id' => $employee->team_id,
+                    'user_id' => null,
+                ]
+            );
+            $employee->update([$employeeField => (int) $result['id']]);
+            $this->editFlash = "{$allowed[$employeeField]['label']} hochgeladen.";
+        } catch (\Throwable $e) {
+            $this->editFlash = 'Upload-Fehler: ' . $e->getMessage();
+        }
 
-        // Cache der Computed-Properties invalidieren
+        // Upload-Property reset damit das File-Input clean ist
+        $this->{$propertyName} = null;
         unset($this->employee, $this->missingFields, $this->editableGroups);
     }
 
