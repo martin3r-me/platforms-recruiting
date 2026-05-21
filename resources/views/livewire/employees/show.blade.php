@@ -65,12 +65,12 @@
                 </div>
             @endif
 
-            {{-- Felder --}}
+            {{-- Felder — responsive grid (1 col mobile, 2 col md, 3 col xl) --}}
             <div class="mt-4 space-y-5">
                 @foreach($this->fieldGroups() as $section => $fields)
                     <div>
                         <h3 class="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)] mb-2">{{ $section }}</h3>
-                        <div class="bg-white border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)]">
+                        <div class="bg-white border border-[var(--ui-border)] rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-3">
                             @foreach($fields as $key => $meta)
                                 @php
                                     $type = $meta['type'];
@@ -78,9 +78,11 @@
                                     $currentValue = $employee->getAttribute($key);
                                     $isMissing = ($currentValue === null || $currentValue === '' || $currentValue === []);
                                     $inputBorder = $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]';
+                                    // File-Felder + lange Selects bekommen 2 Spalten auf xl-Screens
+                                    $spanClass = in_array($type, ['file', 'position'], true) ? 'xl:col-span-2' : '';
                                 @endphp
-                                <div class="p-3">
-                                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1.5">{{ $label }}</label>
+                                <div class="{{ $spanClass }}">
+                                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">{{ $label }}</label>
 
                                     @if($type === 'lookup')
                                         <select wire:model.defer="fieldValues.{{ $key }}"
@@ -119,24 +121,24 @@
                                     @elseif($type === 'file')
                                         @php $uploadProp = $this->uploadPropertyFor($key); @endphp
                                         <div class="flex items-center gap-3 p-2 rounded-md border {{ $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]' }}">
-                                            <div class="flex-1 text-sm">
+                                            <div class="flex-1 min-w-0 text-sm">
                                                 @if($isMissing)
                                                     <span class="text-[var(--ui-muted)] text-xs">Keine Datei hochgeladen</span>
                                                 @else
-                                                    <span class="inline-flex items-center gap-1.5 text-[var(--ui-secondary)]">
-                                                        @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600')
-                                                        {{ $this->fileNameFor($currentValue) ?? 'Datei #' . $currentValue }}
+                                                    <span class="inline-flex items-center gap-1.5 text-[var(--ui-secondary)] truncate">
+                                                        @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600 flex-shrink-0')
+                                                        <span class="truncate">{{ $this->fileNameFor($currentValue) ?? 'Datei #' . $currentValue }}</span>
                                                     </span>
                                                 @endif
                                             </div>
                                             @if($uploadProp)
-                                                <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--ui-secondary)] text-white text-xs font-medium rounded-md hover:opacity-90 transition cursor-pointer">
+                                                <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--ui-secondary)] text-white text-xs font-medium rounded-md hover:opacity-90 transition cursor-pointer flex-shrink-0">
                                                     @svg('heroicon-o-arrow-up-tray', 'w-3.5 h-3.5')
                                                     @if($isMissing) Hochladen @else Ersetzen @endif
                                                     <input type="file" wire:model="{{ $uploadProp }}"
                                                            accept="image/*,.pdf" class="hidden" />
                                                 </label>
-                                                <div wire:loading wire:target="{{ $uploadProp }}" class="text-xs text-[var(--ui-muted)]">
+                                                <div wire:loading wire:target="{{ $uploadProp }}" class="text-xs text-[var(--ui-muted)] flex-shrink-0">
                                                     Lade hoch...
                                                 </div>
                                             @endif
