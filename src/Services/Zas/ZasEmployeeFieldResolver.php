@@ -64,11 +64,10 @@ class ZasEmployeeFieldResolver
 
         // Files (Signed-URLs) — Spalten-Namen aus dem Bewerber-Endpunkt
         // bewusst beibehalten damit Hr. Michel nur EINE Spalten-Konvention
-        // im Importer pflegen muss. Neu: UplNationalpass (im Bewerber-
-        // Endpunkt nicht vorhanden, MA-spezifisch).
+        // im Importer pflegen muss.
         'UplAuweis', 'UplAusw2', 'UplSelfie',
         'UplVersicher', 'UplImma', 'UplSchule',
-        'UplNationalpass', 'UplArbErl', 'UplArbErl2',
+        'UplArbErl', 'UplArbErl2',
         'UplVisum', 'UplZusatzblatt',
         'UplFiktion', 'UplFiktion2',
         'UplVertrag', 'UplIfsg',
@@ -188,7 +187,6 @@ class ZasEmployeeFieldResolver
             'UplVersicher'           => $this->fileUrl($employee, 'emp-versicher', $employee->health_insurance_card_file_id),
             'UplImma'                => $this->fileUrl($employee, 'emp-imma', $employee->immatrikulation_file_id),
             'UplSchule'              => $this->fileUrl($employee, 'emp-schule', $employee->schulbescheinigung_file_id),
-            'UplNationalpass'        => $this->fileUrl($employee, 'emp-pass', $employee->nationalpass_file_id),
             'UplArbErl'              => $this->fileUrl($employee, 'emp-arberl', $employee->aufenthaltstitel_front_file_id),
             'UplArbErl2'             => $this->fileUrl($employee, 'emp-arberl2', $employee->aufenthaltstitel_back_file_id),
             'UplVisum'               => $this->fileUrl($employee, 'emp-visum', $employee->visumsblatt_file_id),
