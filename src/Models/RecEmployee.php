@@ -331,11 +331,16 @@ class RecEmployee extends Model
     /**
      * Read-only-Felder die im Portal angezeigt (nicht editiert) werden
      * koennen. Returnt nur Felder mit Wert — leere werden ausgeblendet.
+     *
+     * Felder die HIER stehen sind im Portal sichtbar aber nicht editierbar:
+     *  - identity_card_number: Login-Faktor 2 → Aenderung wuerde MA aussperren
+     *  - recruited_by_personnel_number: einmalig bei Bewerbung gesetzt
      */
     public function readOnlyDisplayFields(): array
     {
         $candidates = [
-            'recruited_by_personnel_number' => 'Geworben von (Personalnummer)',
+            'identity_card_number'           => 'Ausweisnummer',
+            'recruited_by_personnel_number'  => 'Geworben von (Personalnummer)',
         ];
         $out = [];
         foreach ($candidates as $field => $label) {
