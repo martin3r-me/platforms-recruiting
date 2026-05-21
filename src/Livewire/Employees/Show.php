@@ -147,7 +147,7 @@ class Show extends Component
             ],
             'Stelle & Taetigkeit' => [
                 'rec_position_id' => ['type' => 'position', 'label' => 'Stelle'],
-                'beschaftigungsort' => ['type' => 'text', 'label' => 'Beschaeftigungsort'],
+                'beschaftigungsort' => ['type' => 'lookup', 'label' => 'Beschaeftigungsort', 'lookup' => 'beschaeftigungsort'],
                 'employment_type' => ['type' => 'lookup', 'label' => 'Ich bin (MA-Self-Deklaration)', 'lookup' => 'beschaeftigung_art'],
             ],
             'Bankdaten' => [
