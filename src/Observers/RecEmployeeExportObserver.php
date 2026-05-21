@@ -78,7 +78,7 @@ class RecEmployeeExportObserver
         'infection_protection_first_issued_at',
 
         // Lifecycle
-        'is_eu_citizen', 'employed_since', 'employment_ended_at',
+        'is_eu_citizen', 'employment_ended_at',
         'is_active',
     ];
 

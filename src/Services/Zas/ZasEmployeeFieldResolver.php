@@ -81,7 +81,7 @@ class ZasEmployeeFieldResolver
         'InfekErstbescheinigung',
 
         // Lifecycle
-        'EUBuerger', 'BeschaeftigtSeit',
+        'EUBuerger',
 
         // HR-only
         'VertragVersendetAm', 'VertragZurueckAm', 'BefristetBis',
@@ -204,7 +204,6 @@ class ZasEmployeeFieldResolver
             'InfekErstbescheinigung'  => $this->formatDate($employee->infection_protection_first_issued_at),
 
             'EUBuerger'               => $this->boolLabel($employee->is_eu_citizen),
-            'BeschaeftigtSeit'        => $this->formatDate($employee->employed_since),
 
             // HR-only
             'VertragVersendetAm'      => $this->formatDate($hr?->contract_sent_date),
