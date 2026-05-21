@@ -176,7 +176,7 @@
                                 $label = $meta['label'];
                                 $isReadonly = ($meta['readonly'] ?? false) === true;
                                 $hrValue = $employee->ensureHrData()->getAttribute($key);
-                                $isMissing = !$isReadonly && ($hrValue === null || $hrValue === '');
+                                $isMissing = !$isReadonly && ($hrValue === null || $hrValue === '' || $hrValue === []);
                                 $inputBorder = $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]';
                             @endphp
                             <div>
@@ -208,6 +208,19 @@
                                             <option value="{{ $opt }}">{{ $opt }}</option>
                                         @endforeach
                                     </select>
+
+                                @elseif($type === 'multi_lookup')
+                                    <div class="border {{ $inputBorder }} rounded-md px-3 py-2 text-sm bg-white flex flex-wrap gap-x-4 gap-y-1.5">
+                                        @foreach($this->lookupOptionsFor($meta['lookup']) as $optValue => $optLabel)
+                                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                                <input type="checkbox"
+                                                       wire:model.defer="hrFieldValues.{{ $key }}"
+                                                       value="{{ $optValue }}"
+                                                       class="rounded border-[var(--ui-border)]" />
+                                                <span>{{ $optLabel }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
 
                                 @else
                                     <input type="text" wire:model.defer="hrFieldValues.{{ $key }}"

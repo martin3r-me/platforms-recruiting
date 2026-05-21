@@ -27,12 +27,19 @@ class RecEmployeeHrData extends Model
         'contract_end_date',
         'export_status',
         'employment_classification',
+        // Iteration 4
+        'linen_package_items',
+        'star_rating',
+        'qualifications',
     ];
 
     protected $casts = [
-        'contract_signed_at' => 'date',
-        'contract_sent_date' => 'date',
-        'contract_end_date'  => 'date',
+        'contract_signed_at'  => 'date',
+        'contract_sent_date'  => 'date',
+        'contract_end_date'   => 'date',
+        'linen_package_items' => 'array',
+        'qualifications'      => 'array',
+        'star_rating'         => 'integer',
     ];
 
     protected static function booted(): void

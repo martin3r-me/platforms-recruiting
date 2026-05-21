@@ -198,6 +198,13 @@ class Show extends Component
                 'contract_end_date'    => ['type' => 'date', 'label' => 'Befristet bis'],
                 'employment_classification' => ['type' => 'lookup', 'label' => 'Anstellungsart', 'lookup' => 'anstellungsart'],
             ],
+            'Ausstattung' => [
+                'linen_package_items' => ['type' => 'multi_lookup', 'label' => 'Waeschepaket erhalten', 'lookup' => 'waeschepaket'],
+            ],
+            'Bewertung & Qualifikation' => [
+                'star_rating'    => ['type' => 'inline_select', 'label' => 'Sternebewertung', 'options' => ['1','2','3','4','5']],
+                'qualifications' => ['type' => 'multi_lookup', 'label' => 'Qualifikation', 'lookup' => 'qualifikation'],
+            ],
         ];
     }
 
@@ -245,6 +252,12 @@ class Show extends Component
         $hrValues = [];
         foreach ($this->hrFieldsFlat() as $field => $meta) {
             $raw = $hrData->getAttribute($field);
+            $type = $meta['type'] ?? 'text';
+
+            if ($type === 'multi_lookup') {
+                $hrValues[$field] = is_array($raw) ? $raw : [];
+                continue;
+            }
             if ($raw instanceof \DateTimeInterface) {
                 $raw = $raw->format('Y-m-d');
             } elseif (is_bool($raw)) {
@@ -296,6 +309,13 @@ class Show extends Component
             $meta = $hrAllowed[$field];
             // readonly-Felder (z.B. export_status) nicht durchschleifen
             if (($meta['readonly'] ?? false) === true) {
+                continue;
+            }
+            $type = $meta['type'] ?? 'text';
+            if ($type === 'multi_lookup') {
+                $hrUpdates[$field] = (is_array($value) && !empty($value))
+                    ? array_values(array_filter($value, fn ($v) => $v !== '' && $v !== null))
+                    : null;
                 continue;
             }
             $value = is_string($value) ? trim($value) : $value;
