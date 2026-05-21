@@ -114,6 +114,11 @@ class CreateEmployeeFromApplicantService
             // CRM-Link duplizieren: gleicher Contact, neuer linkable_type
             $this->mirrorCrmContactLinks($applicant, $employee, $createdByUserId);
 
+            // HR-only-Datenrow anlegen — physisch getrennt vom MA-Portal-
+            // sichtbaren rec_employees. Leerer Skeleton, HR fuellt im
+            // Backend.
+            $employee->ensureHrData();
+
             // Bewerber deaktivieren — raus aus default Dashboard, Statistiken
             // greifen weiter via rec_applicants ohne is_active-Filter.
             $applicant->update([

@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Platform\Crm\Models\CrmContactLink;
 use Symfony\Component\Uid\UuidV7;
@@ -133,6 +134,29 @@ class RecEmployee extends Model
     public function crmContactLinks(): MorphMany
     {
         return $this->morphMany(CrmContactLink::class, 'linkable');
+    }
+
+    /**
+     * HR-only-Daten (separate Entity, 1:1). MA-Portal liest diese
+     * Relation NIE — sie ist nur fuer's HR-Backend gedacht. Boolean-
+     * Test ueber Authorization-Safety: $employee->toArray() leakt
+     * kein HR-Feld weil sie eine Relation sind, kein Direkt-Attribut.
+     */
+    public function hrData(): HasOne
+    {
+        return $this->hasOne(RecEmployeeHrData::class, 'rec_employee_id');
+    }
+
+    /**
+     * Lazy-Get der hrData-Row mit firstOrCreate-Fallback. Sicherstellung
+     * dass die HR-Backend-View nie auf null-hrData stoesst.
+     */
+    public function ensureHrData(): RecEmployeeHrData
+    {
+        return $this->hrData()->firstOrCreate(
+            ['rec_employee_id' => $this->id],
+            ['team_id' => $this->team_id]
+        );
     }
 
     /**

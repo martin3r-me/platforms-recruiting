@@ -38,6 +38,12 @@ Route::get('/postings/{posting}', PostingShow::class)->name('recruiting.postings
 Route::get('/applicants', ApplicantIndex::class)->name('recruiting.applicants.index');
 Route::get('/applicants/{applicant}', ApplicantShow::class)->name('recruiting.applicants.show');
 
+// Mitarbeiter (HR-Backend, getrennt vom Bewerber-Funnel)
+Route::get('/employees', \Platform\Recruiting\Livewire\Employees\Index::class)
+    ->name('recruiting.employees.index');
+Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show::class)
+    ->name('recruiting.employees.show');
+
 // Eingangs-Inbox: Bewerbungen ohne erkannte Quelle (is_unrouted = true)
 Route::get('/inbox', \Platform\Recruiting\Livewire\Inbox\Index::class)->name('recruiting.inbox.index');
 

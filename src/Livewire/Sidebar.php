@@ -7,6 +7,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Platform\Core\Models\Team;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 
@@ -45,6 +46,7 @@ class Sidebar extends Component
             'parked_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_parked', true)->count(),
             'hr_desk_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_on_hr_desk', true)->count(),
             'unrouted_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_unrouted', true)->count(),
+            'active_employees' => RecEmployee::where('team_id', $teamId)->where('is_active', true)->count(),
         ];
     }
 

@@ -48,6 +48,13 @@
             @svg('heroicon-o-user-group', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Bewerber</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.employees.index')">
+            @svg('heroicon-o-identification', 'w-4 h-4 text-emerald-600')
+            <span class="ml-2 text-sm">Mitarbeiter</span>
+            @if($this->stats['active_employees'] > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">{{ $this->stats['active_employees'] }}</span>
+            @endif
+        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.interview-schedule.index')">
             @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Interview-Termine</span>
@@ -80,6 +87,9 @@
             </a>
             <a href="{{ route('recruiting.applicants.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Bewerber">
                 @svg('heroicon-o-user-group', 'w-5 h-5')
+            </a>
+            <a href="{{ route('recruiting.employees.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-emerald-600 hover:bg-[var(--ui-muted-5)]" title="Mitarbeiter">
+                @svg('heroicon-o-identification', 'w-5 h-5')
             </a>
             <a href="{{ route('recruiting.interview-schedule.index') }}" wire:navigate class="flex items-center justify-center p-2 rounded-md text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-5)]" title="Interview-Termine">
                 @svg('heroicon-o-calendar-days', 'w-5 h-5')
