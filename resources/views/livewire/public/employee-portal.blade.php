@@ -166,6 +166,26 @@
                 </div>
             @endif
 
+            {{-- READ-ONLY DISPLAY (z.B. Geworben-von) --}}
+            @if(!empty($this->readOnlyDisplay))
+                <div class="mb-6">
+                    <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">Eintraege bei Bewerbung</h2>
+                    <div class="bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)]">
+                        @foreach($this->readOnlyDisplay as $field => $entry)
+                            <div class="p-3 flex items-center justify-between gap-3">
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-xs text-[var(--ui-muted)]">{{ $entry['label'] }}</div>
+                                    <div class="text-sm text-[var(--ui-secondary)] truncate">{{ $entry['value'] }}</div>
+                                </div>
+                                <span class="flex-shrink-0 px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--ui-muted)] bg-white border border-[var(--ui-border)] rounded">
+                                    nicht aenderbar
+                                </span>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             {{-- STAMMDATEN — alle editierbaren Felder, dauerhaft aenderbar --}}
             <div class="mb-6">
                 <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">Meine Daten</h2>
@@ -178,21 +198,70 @@
                             @foreach($entries as $entry)
                                 <div class="p-3 flex items-center justify-between gap-3">
                                     @if($editField === $entry['key'])
-                                        <div class="flex-1 flex items-center gap-2">
+                                        {{-- EDIT-MODE: Input je nach type --}}
+                                        <div class="flex-1 flex items-end gap-2">
                                             <div class="flex-1">
                                                 <div class="text-xs text-[var(--ui-muted)] mb-1">{{ $entry['label'] }}</div>
-                                                <input
-                                                    type="text"
-                                                    wire:model.defer="editValue"
-                                                    placeholder="{{ $entry['label'] }}"
-                                                    class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
-                                                />
+
+                                                @if($entry['type'] === 'lookup')
+                                                    <select
+                                                        wire:model.defer="editValue"
+                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                                    >
+                                                        <option value="">— bitte waehlen —</option>
+                                                        @foreach($this->lookupOptionsFor($entry['lookup']) as $optValue => $optLabel)
+                                                            <option value="{{ $optValue }}">{{ $optLabel }}</option>
+                                                        @endforeach
+                                                    </select>
+
+                                                @elseif($entry['type'] === 'bool')
+                                                    <select
+                                                        wire:model.defer="editValue"
+                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                                    >
+                                                        <option value="">— bitte waehlen —</option>
+                                                        <option value="1">Ja</option>
+                                                        <option value="0">Nein</option>
+                                                    </select>
+
+                                                @elseif($entry['type'] === 'date')
+                                                    <input
+                                                        type="date"
+                                                        wire:model.defer="editValue"
+                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                                    />
+
+                                                @elseif($entry['type'] === 'file')
+                                                    <input
+                                                        type="file"
+                                                        wire:model="editFile"
+                                                        accept="image/*,.pdf"
+                                                        class="w-full text-sm"
+                                                    />
+                                                    <div wire:loading wire:target="editFile" class="text-xs text-[var(--ui-muted)] mt-1">
+                                                        Lade hoch...
+                                                    </div>
+                                                    @if(!$entry['is_missing'])
+                                                        <div class="text-xs text-[var(--ui-muted)] mt-1">
+                                                            Aktuell: {{ $entry['display'] ?: 'Datei vorhanden' }}
+                                                        </div>
+                                                    @endif
+
+                                                @else
+                                                    <input
+                                                        type="text"
+                                                        wire:model.defer="editValue"
+                                                        placeholder="{{ $entry['label'] }}"
+                                                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                                    />
+                                                @endif
                                             </div>
                                             <div class="flex items-end gap-2">
                                                 <button
                                                     wire:click="saveField"
                                                     wire:loading.attr="disabled"
-                                                    class="px-3 py-1.5 bg-[var(--ui-primary)] text-white text-xs font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors"
+                                                    wire:target="saveField,editFile"
+                                                    class="px-3 py-1.5 bg-[var(--ui-primary)] text-white text-xs font-medium rounded-md hover:bg-[var(--ui-primary-dark)] transition-colors disabled:opacity-50"
                                                 >
                                                     Speichern
                                                 </button>
@@ -206,13 +275,14 @@
                                             </div>
                                         </div>
                                     @else
+                                        {{-- DISPLAY-MODE --}}
                                         <div class="flex-1 min-w-0">
                                             <div class="text-xs text-[var(--ui-muted)]">{{ $entry['label'] }}</div>
                                             <div class="text-sm @if($entry['is_missing']) text-amber-700 italic @else text-[var(--ui-secondary)] @endif truncate">
                                                 @if($entry['is_missing'])
                                                     — noch nicht eingetragen —
                                                 @else
-                                                    {{ $entry['value'] }}
+                                                    {{ $entry['display'] }}
                                                 @endif
                                             </div>
                                         </div>

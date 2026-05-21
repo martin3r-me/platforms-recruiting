@@ -5,6 +5,9 @@ namespace Platform\Recruiting\Livewire\Public;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Livewire\WithFileUploads;
+use Platform\Core\Models\CoreLookup;
+use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 
 /**
@@ -21,6 +24,8 @@ use Platform\Recruiting\Models\RecEmployee;
  */
 class EmployeePortal extends Component
 {
+    use WithFileUploads;
+
     public string $state = 'loading';
     public ?int $employeeId = null;
     public string $token = '';
@@ -35,6 +40,9 @@ class EmployeePortal extends Component
     public string $editField = '';
     public string $editValue = '';
     public ?string $editFlash = null;
+
+    // File-Upload-State (Livewire WithFileUploads)
+    public $editFile = null;
 
     private const MAX_ATTEMPTS = 5;
     private const LOCKOUT_MINUTES = 15;
@@ -137,9 +145,16 @@ class EmployeePortal extends Component
             return;
         }
         $this->editField = $field;
-        // Vor-Belegung mit aktuellem Wert damit MA seine Daten nicht
-        // neu tippen muss (wenn er nur korrigieren will).
-        $this->editValue = (string) ($employee->getAttribute($field) ?? '');
+        // Vor-Belegung mit aktuellem Wert (fuer Text/Lookup/Bool/Date).
+        // File-Felder werden separat ueber $editFile gehandhabt.
+        $rawValue = $employee->getAttribute($field);
+        if (is_object($rawValue) && method_exists($rawValue, 'format')) {
+            $rawValue = $rawValue->format('Y-m-d');
+        } elseif (is_bool($rawValue)) {
+            $rawValue = $rawValue ? '1' : '0';
+        }
+        $this->editValue = (string) ($rawValue ?? '');
+        $this->editFile = null;
         $this->editFlash = null;
     }
 
@@ -147,6 +162,7 @@ class EmployeePortal extends Component
     {
         $this->editField = '';
         $this->editValue = '';
+        $this->editFile = null;
     }
 
     public function saveField(): void
@@ -168,29 +184,68 @@ class EmployeePortal extends Component
             return;
         }
 
-        $value = trim($this->editValue);
-        // Leerstring → Feld zuruecksetzen (User wollte den Wert loeschen).
-        // null erlaubt damit "Daten nachpflegen" wieder anzeigt.
-        $employee->update([$this->editField => $value !== '' ? $value : null]);
+        $meta = $allowed[$this->editField];
+        $fieldType = $meta['type'] ?? 'text';
+        $label = $meta['label'] ?? $this->editField;
 
-        $this->editFlash = "{$allowed[$this->editField]} gespeichert.";
+        // Type-spezifischer Save-Pfad
+        if ($fieldType === 'file') {
+            if (!$this->editFile) {
+                $this->editFlash = 'Bitte eine Datei auswaehlen.';
+                return;
+            }
+            try {
+                $result = app(ContextFileService::class)->uploadForContext(
+                    $this->editFile,
+                    'rec_employee',
+                    $employee->id,
+                    [
+                        'team_id' => $employee->team_id,
+                        'user_id' => null,
+                    ]
+                );
+                $employee->update([$this->editField => (int) $result['id']]);
+            } catch (\Throwable $e) {
+                $this->editFlash = 'Upload-Fehler: ' . $e->getMessage();
+                return;
+            }
+        } elseif ($fieldType === 'bool') {
+            $bool = match ($this->editValue) {
+                '1', 'true', 'ja' => true,
+                '0', 'false', 'nein' => false,
+                default => null,
+            };
+            $employee->update([$this->editField => $bool]);
+        } elseif ($fieldType === 'date') {
+            $value = trim($this->editValue);
+            $employee->update([$this->editField => $value !== '' ? $value : null]);
+        } else {
+            // text, lookup
+            $value = trim($this->editValue);
+            $employee->update([$this->editField => $value !== '' ? $value : null]);
+        }
+
+        $this->editFlash = "{$label} gespeichert.";
         $this->editField = '';
         $this->editValue = '';
+        $this->editFile = null;
 
-        // Cache der Computed-Properties invalidieren, damit aktuelle
-        // Werte + missingFields neu berechnet werden
+        // Cache der Computed-Properties invalidieren
         unset($this->employee, $this->missingFields, $this->editableGroups);
     }
 
     /**
-     * Computed: Feldgruppen mit aktuellen Werten — fuer die Stammdaten-
-     * Sektion im Portal. Struktur:
+     * Computed: Feldgruppen mit Meta-Info + aktuellen Werten. Strukturiert
+     * fuer's Blade-Render:
      *   [
      *     'Kontakt' => [
-     *       ['key' => 'email', 'label' => 'Email', 'value' => 'a@b.com', 'is_missing' => false],
+     *       [
+     *         'key' => 'email', 'label' => 'Email', 'type' => 'text',
+     *         'value' => 'a@b.com', 'display' => 'a@b.com',
+     *         'is_missing' => false,
+     *       ],
      *       ...
      *     ],
-     *     ...
      *   ]
      */
     #[Computed]
@@ -204,18 +259,109 @@ class EmployeePortal extends Component
         $out = [];
         foreach ($employee->editableFieldGroups() as $section => $fields) {
             $entries = [];
-            foreach ($fields as $key => $label) {
+            foreach ($fields as $key => $meta) {
                 $value = $employee->getAttribute($key);
+                $type = $meta['type'] ?? 'text';
+                $display = $this->formatDisplayValue($value, $type, $meta);
+                $isMissing = ($value === null || $value === '' || $value === []);
                 $entries[] = [
                     'key'        => $key,
-                    'label'      => $label,
+                    'label'      => $meta['label'] ?? $key,
+                    'type'       => $type,
+                    'lookup'     => $meta['lookup'] ?? null,
                     'value'      => $value,
-                    'is_missing' => ($value === null || $value === ''),
+                    'display'    => $display,
+                    'is_missing' => $isMissing,
                 ];
             }
             $out[$section] = $entries;
         }
         return $out;
+    }
+
+    /**
+     * Formatiert den Anzeigewert fuer's Read-only-Display je nach Type.
+     * - bool   → "Ja" / "Nein" / leer
+     * - lookup → human-readable Label statt code-Wert
+     * - date   → d.m.Y
+     * - file   → Dateiname falls hochgeladen, sonst leer
+     * - text   → raw
+     */
+    private function formatDisplayValue($value, string $type, array $meta): string
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return '';
+        }
+        return match ($type) {
+            'bool'   => $value ? 'Ja' : 'Nein',
+            'lookup' => $this->lookupLabel($meta['lookup'] ?? '', (string) $value) ?? (string) $value,
+            'date'   => $this->formatDate($value),
+            'file'   => $this->fileNameForId((int) $value) ?? "Datei #{$value}",
+            default  => (string) $value,
+        };
+    }
+
+    private function formatDate($value): string
+    {
+        try {
+            if (is_object($value) && method_exists($value, 'format')) {
+                return $value->format('d.m.Y');
+            }
+            return \Carbon\Carbon::parse((string) $value)->format('d.m.Y');
+        } catch (\Throwable) {
+            return (string) $value;
+        }
+    }
+
+    private function fileNameForId(?int $fileId): ?string
+    {
+        if (!$fileId) {
+            return null;
+        }
+        try {
+            $file = \Platform\Core\Models\ContextFile::find($fileId);
+            return $file?->original_name;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function lookupLabel(string $lookupName, string $value): ?string
+    {
+        if ($lookupName === '' || $value === '') {
+            return null;
+        }
+        $options = $this->lookupOptionsFor($lookupName);
+        return $options[$value] ?? null;
+    }
+
+    /** Caches Lookup-Options per request, key = lookup-name */
+    private array $lookupCache = [];
+
+    /**
+     * Lookup-Options ['value' => 'label'] fuer einen Lookup-Namen.
+     * Returnt leeres Array wenn Lookup nicht existiert.
+     */
+    public function lookupOptionsFor(string $lookupName): array
+    {
+        if (!isset($this->lookupCache[$lookupName])) {
+            try {
+                $lookup = CoreLookup::where('name', $lookupName)->first();
+                $this->lookupCache[$lookupName] = $lookup ? $lookup->getOptionsArray() : [];
+            } catch (\Throwable) {
+                $this->lookupCache[$lookupName] = [];
+            }
+        }
+        return $this->lookupCache[$lookupName];
+    }
+
+    /**
+     * Computed: Read-only-Display-Felder (z.B. recruited_by_personnel_number).
+     */
+    #[Computed]
+    public function readOnlyDisplay(): array
+    {
+        return $this->employee()?->readOnlyDisplayFields() ?? [];
     }
 
     #[Computed]

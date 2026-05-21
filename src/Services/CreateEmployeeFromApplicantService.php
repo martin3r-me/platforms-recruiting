@@ -55,26 +55,45 @@ class CreateEmployeeFromApplicantService
                 // Stammdaten — Fallback-Kette extra_field → crm_contact
                 'first_name'           => $extraValues['vorname']   ?? $primaryContact?->first_name,
                 'last_name'            => $extraValues['nachname']  ?? $primaryContact?->last_name,
+                'birth_name'           => $extraValues['geburtsname'] ?? null,
                 'birth_date'           => $extraValues['geburtsdatum'] ?? null,
-                'identity_card_number' => $extraValues['ausweisnummer'] ?? null,
+                'birth_place'          => $extraValues['geburtsort'] ?? null,
+                'birth_country'        => $extraValues['geburtsland'] ?? null,
+                'identity_card_number'      => $extraValues['ausweisnummer'] ?? null,
+                'identity_card_valid_until' => $this->normalizeDateValue($extraValues['ausweis_gultig_bis'] ?? null),
+                'identity_card_front_file_id' => $this->normalizeFileId($extraValues['ausweis_reisepass_foto_vorderseite'] ?? null),
+                'identity_card_back_file_id'  => $this->normalizeFileId($extraValues['ausweis_reisepass_foto_ruckseite'] ?? null),
+                'selfie_file_id'              => $this->normalizeFileId($extraValues['selfie_upload'] ?? null),
                 'email'                => $extraValues['email']     ?? $primaryContact?->emailAddresses?->first()?->email_address,
                 'phone'                => $extraValues['telefonnummer'] ?? $primaryContact?->phoneNumbers?->first()?->raw_input,
 
                 // Adresse (extra_fields — wenn in P3 erfasst)
                 'street'               => $extraValues['strasse'] ?? null,
+                'house_number'         => $extraValues['hausnummer'] ?? null,
                 'zip'                  => $extraValues['plz']     ?? null,
-                'city'                 => $extraValues['ort']     ?? null,
+                'city'                 => $extraValues['stadt'] ?? $extraValues['ort'] ?? null,
                 'country_code'         => $extraValues['land']    ?? null,
 
                 // Stelle/Taetigkeit
                 'beschaftigungsort'    => $extraValues['beschaftigungsort'] ?? null,
                 'art_der_tatigkeit'    => $this->normalizeArrayValue($extraValues['art_der_tatigkeit'] ?? null),
+                'employment_type'      => $extraValues['ich_bin'] ?? null,
 
                 // Bankdaten — typischerweise leer bei Anlage, kommen via Portal
                 'iban'                       => $extraValues['iban'] ?? null,
                 'bic'                        => $extraValues['bic'] ?? null,
+                'bank_institute'             => $extraValues['geldinstitut'] ?? null,
                 'steuer_id'                  => $extraValues['steuer_id'] ?? null,
                 'sozialversicherungsnummer'  => $extraValues['sozialversicherungsnummer'] ?? null,
+
+                // Persoenliches + Versicherung
+                'gender'                          => $extraValues['geschlecht'] ?? null,
+                'marital_status'                  => $extraValues['familienstand'] ?? null,
+                'health_insurance'                => $extraValues['krankenkasse'] ?? null,
+                'health_insurance_card_file_id'   => $this->normalizeFileId($extraValues['foto_versichertenkarte'] ?? null),
+                'drivers_license_class'           => $extraValues['fuhrerschein_klasse'] ?? null,
+                'has_car'                         => $this->normalizeBoolValue($extraValues['pkw_vorhanden'] ?? null),
+                'recruited_by_personnel_number'   => $extraValues['geworben_von'] ?? null,
 
                 // Legal-Status
                 'is_eu_citizen'                  => $legalStatus?->is_eu_citizen,
@@ -182,6 +201,58 @@ class CreateEmployeeFromApplicantService
             return is_array($decoded) ? $decoded : null;
         }
         return [$raw];
+    }
+
+    /**
+     * File-Felder werden in extra_field_values als file_id (numeric) gespeichert.
+     * Casted zu int, null wenn leer/ungueltig.
+     */
+    private function normalizeFileId($raw): ?int
+    {
+        if ($raw === null || $raw === '' || $raw === '0') {
+            return null;
+        }
+        if (is_numeric($raw)) {
+            return (int) $raw;
+        }
+        return null;
+    }
+
+    /**
+     * Datums-Wert aus extra_field auf Y-m-d-Format normalisieren.
+     * Akzeptiert Strings wie "2026-05-21" oder "21.05.2026".
+     */
+    private function normalizeDateValue($raw): ?string
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        try {
+            return \Carbon\Carbon::parse((string) $raw)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Boolean-Wert aus extra_field zu echten Bool casten.
+     */
+    private function normalizeBoolValue($raw): ?bool
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        if (is_bool($raw)) {
+            return $raw;
+        }
+        $s = strtolower((string) $raw);
+        if (in_array($s, ['1', 'true', 'ja', 'yes'], true)) {
+            return true;
+        }
+        if (in_array($s, ['0', 'false', 'nein', 'no'], true)) {
+            return false;
+        }
+        return null;
     }
 
     /**

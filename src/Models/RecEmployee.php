@@ -32,23 +32,41 @@ class RecEmployee extends Model
 
         'first_name',
         'last_name',
+        'birth_name',
         'birth_date',
+        'birth_place',
+        'birth_country',
         'identity_card_number',
+        'identity_card_valid_until',
+        'identity_card_front_file_id',
+        'identity_card_back_file_id',
+        'selfie_file_id',
         'email',
         'phone',
 
         'street',
+        'house_number',
         'zip',
         'city',
         'country_code',
 
         'beschaftigungsort',
         'art_der_tatigkeit',
+        'employment_type',
 
         'iban',
         'bic',
+        'bank_institute',
         'steuer_id',
         'sozialversicherungsnummer',
+
+        'gender',
+        'marital_status',
+        'health_insurance',
+        'health_insurance_card_file_id',
+        'drivers_license_class',
+        'has_car',
+        'recruited_by_personnel_number',
 
         'is_eu_citizen',
         'nationalpass_file_id',
@@ -69,13 +87,15 @@ class RecEmployee extends Model
     ];
 
     protected $casts = [
-        'birth_date'              => 'date',
-        'is_eu_citizen'           => 'boolean',
-        'is_active'               => 'boolean',
-        'employed_since'          => 'date',
-        'employment_ended_at'     => 'datetime',
-        'portal_verified_at'      => 'datetime',
-        'art_der_tatigkeit'       => 'array',
+        'birth_date'                => 'date',
+        'identity_card_valid_until' => 'date',
+        'is_eu_citizen'             => 'boolean',
+        'is_active'                 => 'boolean',
+        'has_car'                   => 'boolean',
+        'employed_since'            => 'date',
+        'employment_ended_at'       => 'datetime',
+        'portal_verified_at'        => 'datetime',
+        'art_der_tatigkeit'         => 'array',
     ];
 
     protected static function booted(): void
@@ -138,51 +158,79 @@ class RecEmployee extends Model
 
     /**
      * Editierbare Feldgruppen fuer das MA-Portal. Strukturierte Pairs
-     * [section_label => [field_key => human_label]]. Felder die HIER
-     * fehlen sind nicht ueber's Portal editierbar.
+     * [section_label => [field_key => [type, label, lookup?]]].
+     *
+     * Type-Codes:
+     *  - text   → Text-Input
+     *  - date   → Date-Picker
+     *  - bool   → Ja/Nein-Select
+     *  - lookup → Lookup-Dropdown (mit lookup-Name)
+     *  - file   → File-Upload
      *
      * BEWUSST AUSGESCHLOSSEN — Login-stabile Felder:
-     *  - first_name, last_name (Identitaet → HR muss aendern)
+     *  - first_name, last_name (Identitaet → HR-Aenderung in eigener UI)
      *  - birth_date (Login-Faktor 1)
-     *  - identity_card_number (Login-Faktor 2 → Aenderung wuerde
-     *    Bewerber aussperren)
-     *  - is_eu_citizen, alle file_ids (Legal-Status → HR/HR-Schreibtisch)
+     *  - identity_card_number (Login-Faktor 2 → Aenderung wuerde Aussperren)
+     *  - is_eu_citizen, legal-status file_ids (Legal-Status → HR/Schreibtisch)
+     *  - recruited_by_personnel_number (read-only, einmalig in P3 gesetzt)
      *  - zas_id (Backoffice-Feld)
      */
     public function editableFieldGroups(): array
     {
         return [
             'Kontakt' => [
-                'email' => 'Email',
-                'phone' => 'Telefon',
+                'email' => ['type' => 'text', 'label' => 'Email'],
+                'phone' => ['type' => 'text', 'label' => 'Telefon'],
             ],
             'Adresse' => [
-                'street'       => 'Strasse',
-                'zip'          => 'PLZ',
-                'city'         => 'Ort',
-                'country_code' => 'Land (z.B. DE)',
+                'street'       => ['type' => 'text', 'label' => 'Strasse'],
+                'house_number' => ['type' => 'text', 'label' => 'Hausnummer'],
+                'zip'          => ['type' => 'text', 'label' => 'PLZ'],
+                'city'         => ['type' => 'text', 'label' => 'Ort'],
+                'country_code' => ['type' => 'text', 'label' => 'Land (z.B. DE)'],
+                'birth_country' => ['type' => 'lookup', 'label' => 'Geburtsland', 'lookup' => 'geburtsland'],
+            ],
+            'Persoenliches' => [
+                'birth_name'      => ['type' => 'text', 'label' => 'Geburtsname'],
+                'birth_place'     => ['type' => 'text', 'label' => 'Geburtsort'],
+                'gender'          => ['type' => 'lookup', 'label' => 'Geschlecht', 'lookup' => 'geschlecht'],
+                'marital_status'  => ['type' => 'lookup', 'label' => 'Familienstand', 'lookup' => 'familienstand'],
+                'employment_type' => ['type' => 'lookup', 'label' => 'Ich bin', 'lookup' => 'ich_bin'],
             ],
             'Bankdaten' => [
-                'iban' => 'IBAN',
-                'bic'  => 'BIC',
+                'iban'           => ['type' => 'text', 'label' => 'IBAN'],
+                'bic'            => ['type' => 'text', 'label' => 'BIC'],
+                'bank_institute' => ['type' => 'text', 'label' => 'Geldinstitut'],
             ],
             'Steuer & Versicherung' => [
-                'steuer_id'                 => 'Steuer-ID',
-                'sozialversicherungsnummer' => 'Sozialversicherungsnummer',
+                'steuer_id'                     => ['type' => 'text', 'label' => 'Steuer-ID'],
+                'sozialversicherungsnummer'     => ['type' => 'text', 'label' => 'Sozialversicherungsnummer'],
+                'health_insurance'              => ['type' => 'lookup', 'label' => 'Krankenkasse', 'lookup' => 'krankenkasse'],
+                'health_insurance_card_file_id' => ['type' => 'file', 'label' => 'Foto Versichertenkarte'],
+            ],
+            'Ausweis' => [
+                'identity_card_valid_until'   => ['type' => 'date', 'label' => 'Ausweis gueltig bis'],
+                'identity_card_front_file_id' => ['type' => 'file', 'label' => 'Ausweis Vorderseite'],
+                'identity_card_back_file_id'  => ['type' => 'file', 'label' => 'Ausweis Rueckseite'],
+                'selfie_file_id'              => ['type' => 'file', 'label' => 'Selfie'],
+            ],
+            'Sonstiges' => [
+                'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
+                'has_car'               => ['type' => 'bool', 'label' => 'PKW vorhanden'],
             ],
         ];
     }
 
     /**
-     * Flat-Liste aller editierbaren Felder [field_key => label] —
-     * fuer Whitelist-Checks im saveField()-Pfad.
+     * Flat-Liste aller editierbaren Felder [field_key => meta-array] —
+     * fuer Whitelist-Checks im saveField()-Pfad und fuer's Render.
      */
     public function editableFieldsFlat(): array
     {
         $flat = [];
         foreach ($this->editableFieldGroups() as $group => $fields) {
-            foreach ($fields as $key => $label) {
-                $flat[$key] = $label;
+            foreach ($fields as $key => $meta) {
+                $flat[$key] = $meta;
             }
         }
         return $flat;
@@ -195,13 +243,32 @@ class RecEmployee extends Model
     public function missingFields(): array
     {
         $missing = [];
-        foreach ($this->editableFieldsFlat() as $field => $label) {
+        foreach ($this->editableFieldsFlat() as $field => $meta) {
             $value = $this->getAttribute($field);
-            if ($value === null || $value === '') {
-                $missing[$field] = $label;
+            if ($value === null || $value === '' || $value === []) {
+                $missing[$field] = $meta['label'];
             }
         }
         return $missing;
+    }
+
+    /**
+     * Read-only-Felder die im Portal angezeigt (nicht editiert) werden
+     * koennen. Returnt nur Felder mit Wert — leere werden ausgeblendet.
+     */
+    public function readOnlyDisplayFields(): array
+    {
+        $candidates = [
+            'recruited_by_personnel_number' => 'Geworben von (Personalnummer)',
+        ];
+        $out = [];
+        foreach ($candidates as $field => $label) {
+            $value = $this->getAttribute($field);
+            if ($value !== null && $value !== '') {
+                $out[$field] = ['label' => $label, 'value' => $value];
+            }
+        }
+        return $out;
     }
 
     /**
