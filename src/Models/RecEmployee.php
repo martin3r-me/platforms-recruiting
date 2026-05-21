@@ -90,6 +90,7 @@ class RecEmployee extends Model
         'visumsblatt_file_id',
         'zusatzblatt_file_id',
         'immatrikulation_file_id',
+        'schulbescheinigung_file_id',
         'fiktionsbescheinigung_front_file_id',
         'fiktionsbescheinigung_back_file_id',
 
@@ -278,7 +279,8 @@ class RecEmployee extends Model
                 'selfie_file_id'              => ['type' => 'file', 'label' => 'Selfie'],
             ],
             'Schul-/Immatrikulationsbescheinigung' => [
-                'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Schul-/Immatrikulationsbescheinigung'],
+                'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Immatrikulationsbescheinigung'],
+                'schulbescheinigung_file_id'      => ['type' => 'file', 'label' => 'Schulbescheinigung'],
                 'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gueltig bis'],
             ],
             'Gesundheit' => [

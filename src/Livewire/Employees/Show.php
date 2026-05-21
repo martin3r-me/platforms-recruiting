@@ -39,6 +39,7 @@ class Show extends Component
     public $uploadVisumsblatt = null;
     public $uploadZusatzblatt = null;
     public $uploadImmatrikulation = null;
+    public $uploadSchulbescheinigung = null;
     public $uploadFiktionFront = null;
     public $uploadFiktionBack = null;
 
@@ -53,6 +54,7 @@ class Show extends Component
         'visumsblatt_file_id'           => 'uploadVisumsblatt',
         'zusatzblatt_file_id'           => 'uploadZusatzblatt',
         'immatrikulation_file_id'       => 'uploadImmatrikulation',
+        'schulbescheinigung_file_id'    => 'uploadSchulbescheinigung',
         'fiktionsbescheinigung_front_file_id' => 'uploadFiktionFront',
         'fiktionsbescheinigung_back_file_id'  => 'uploadFiktionBack',
     ];
@@ -164,7 +166,8 @@ class Show extends Component
                 'health_insurance_card_file_id' => ['type' => 'file', 'label' => 'Foto Versichertenkarte'],
             ],
             'Schul-/Immatrikulationsbescheinigung' => [
-                'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Schul-/Immatrikulationsbescheinigung'],
+                'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Immatrikulationsbescheinigung'],
+                'schulbescheinigung_file_id'      => ['type' => 'file', 'label' => 'Schulbescheinigung'],
                 'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gueltig bis'],
             ],
             'Gesundheit' => [
@@ -372,6 +375,7 @@ class Show extends Component
     public function updatedUploadVisumsblatt(): void { $this->handleFileUpload('visumsblatt_file_id', 'uploadVisumsblatt'); }
     public function updatedUploadZusatzblatt(): void { $this->handleFileUpload('zusatzblatt_file_id', 'uploadZusatzblatt'); }
     public function updatedUploadImmatrikulation(): void { $this->handleFileUpload('immatrikulation_file_id', 'uploadImmatrikulation'); }
+    public function updatedUploadSchulbescheinigung(): void { $this->handleFileUpload('schulbescheinigung_file_id', 'uploadSchulbescheinigung'); }
     public function updatedUploadFiktionFront(): void { $this->handleFileUpload('fiktionsbescheinigung_front_file_id', 'uploadFiktionFront'); }
     public function updatedUploadFiktionBack(): void { $this->handleFileUpload('fiktionsbescheinigung_back_file_id', 'uploadFiktionBack'); }
 

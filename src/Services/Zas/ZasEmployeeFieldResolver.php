@@ -67,7 +67,7 @@ class ZasEmployeeFieldResolver
         // im Importer pflegen muss. Neu: UplNationalpass (im Bewerber-
         // Endpunkt nicht vorhanden, MA-spezifisch).
         'UplAuweis', 'UplAusw2', 'UplSelfie',
-        'UplVersicher', 'UplImma',
+        'UplVersicher', 'UplImma', 'UplSchule',
         'UplNationalpass', 'UplArbErl', 'UplArbErl2',
         'UplVisum', 'UplZusatzblatt',
         'UplFiktion', 'UplFiktion2',
@@ -104,6 +104,7 @@ class ZasEmployeeFieldResolver
         'emp-selfie'             => 'selfie_file_id',
         'emp-versicher'          => 'health_insurance_card_file_id',
         'emp-imma'               => 'immatrikulation_file_id',
+        'emp-schule'             => 'schulbescheinigung_file_id',
         'emp-pass'               => 'nationalpass_file_id',
         'emp-arberl'             => 'aufenthaltstitel_front_file_id',
         'emp-arberl2'            => 'aufenthaltstitel_back_file_id',
@@ -186,6 +187,7 @@ class ZasEmployeeFieldResolver
             'UplSelfie'              => $this->fileUrl($employee, 'emp-selfie', $employee->selfie_file_id),
             'UplVersicher'           => $this->fileUrl($employee, 'emp-versicher', $employee->health_insurance_card_file_id),
             'UplImma'                => $this->fileUrl($employee, 'emp-imma', $employee->immatrikulation_file_id),
+            'UplSchule'              => $this->fileUrl($employee, 'emp-schule', $employee->schulbescheinigung_file_id),
             'UplNationalpass'        => $this->fileUrl($employee, 'emp-pass', $employee->nationalpass_file_id),
             'UplArbErl'              => $this->fileUrl($employee, 'emp-arberl', $employee->aufenthaltstitel_front_file_id),
             'UplArbErl2'             => $this->fileUrl($employee, 'emp-arberl2', $employee->aufenthaltstitel_back_file_id),
@@ -216,7 +218,10 @@ class ZasEmployeeFieldResolver
             'Qualifikation'           => $this->multiLookupLabels('qualifikation', $hr?->qualifications),
 
             // Computed-Felder
-            'BeschErforderlich'                 => $this->boolLabel($employee->immatrikulation_file_id !== null),
+            'BeschErforderlich'                 => $this->boolLabel(
+                $employee->immatrikulation_file_id !== null
+                || $employee->schulbescheinigung_file_id !== null
+            ),
             'AufenthaltGenehmigungErforderlich' => $this->boolLabel($this->hasAufenthaltOrGenehmigung($employee)),
             'FolgeBescheinigungAm'              => $this->formatDate($this->ifsgSignedAt($employee)),
             'InfekGueltigBis'                   => $this->formatDate($this->ifsgValidUntil($employee)),
