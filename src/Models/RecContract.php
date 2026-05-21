@@ -50,6 +50,50 @@ class RecContract extends Model implements InheritsExtraFields
                 $model->uuid = $uuid;
             }
         });
+
+        // ZAS-Export-Snapshot: wenn ein AV-Vertrag signiert wird und der
+        // zugehoerige Bewerber bereits einen RecEmployee hat (= ist
+        // Mitarbeiter geworden), schreibe contract_signed_at auf die
+        // hrData-Row. Idempotent — wenn schon gesetzt, kein Re-Write.
+        static::saved(function (self $contract) {
+            if (!$contract->signed_at) {
+                return;
+            }
+            $applicant = $contract->applicant;
+            if (!$applicant) {
+                return;
+            }
+            $employee = $applicant->employee;
+            if (!$employee) {
+                return;
+            }
+            // Pruefe ob alle nicht-cancelled AV-Vertraege signed sind
+            $avContracts = $applicant->contracts()
+                ->whereNotIn('status', ['cancelled'])
+                ->whereHas('contractTemplate', fn ($q) => $q->where('code', 'like', 'AV-%'))
+                ->get();
+            if ($avContracts->isEmpty()) {
+                return;
+            }
+            $allSigned = $avContracts->every(fn ($c) => $c->signed_at !== null);
+            if (!$allSigned) {
+                return;
+            }
+            // Spaeteste signed_at als "Vertrag zurueck am"
+            $latestSigned = $avContracts
+                ->filter(fn ($c) => $c->signed_at !== null)
+                ->sortByDesc('signed_at')
+                ->first()?->signed_at;
+            if (!$latestSigned) {
+                return;
+            }
+            $hrData = $employee->ensureHrData();
+            // Nur ueberschreiben wenn aelter — HR-Manueller Override darf nicht weg
+            if ($hrData->contract_signed_at === null
+                || $hrData->contract_signed_at->lt($latestSigned)) {
+                $hrData->update(['contract_signed_at' => $latestSigned->toDateString()]);
+            }
+        });
     }
 
     public function applicant(): BelongsTo

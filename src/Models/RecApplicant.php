@@ -311,6 +311,15 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $this->hasMany(RecContract::class, 'rec_applicant_id');
     }
 
+    /**
+     * Hat 1:0..1 zum Mitarbeiter — wenn der Applicant via Phase-4-Hook
+     * zum RecEmployee konvertiert wurde. Sonst null.
+     */
+    public function employee()
+    {
+        return $this->hasOne(RecEmployee::class, 'rec_applicant_id');
+    }
+
     public function legalStatus()
     {
         return $this->hasOne(RecApplicantLegalStatus::class, 'rec_applicant_id');
