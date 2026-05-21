@@ -25,6 +25,7 @@ class Show extends Component
 
     public int $employeeId;
     public array $fieldValues = [];
+    public array $hrFieldValues = [];
     public ?string $flash = null;
 
     // File-Upload-Properties (separat, eine pro File-Field)
@@ -113,21 +114,40 @@ class Show extends Component
                 'city' => ['type' => 'text', 'label' => 'Ort'],
                 'country_code' => ['type' => 'text', 'label' => 'Land'],
             ],
+            'Persoenliches' => [
+                'religion'           => ['type' => 'lookup', 'label' => 'Religion', 'lookup' => 'religion'],
+                'number_of_children' => ['type' => 'text', 'label' => 'Anzahl Kinder'],
+            ],
             'Stelle & Taetigkeit' => [
                 'rec_position_id' => ['type' => 'position', 'label' => 'Stelle'],
                 'beschaftigungsort' => ['type' => 'text', 'label' => 'Beschaeftigungsort'],
-                'employment_type' => ['type' => 'lookup', 'label' => 'Ich bin', 'lookup' => 'ich_bin'],
+                'employment_type' => ['type' => 'lookup', 'label' => 'Ich bin (MA-Self-Deklaration)', 'lookup' => 'beschaeftigung_art'],
             ],
             'Bankdaten' => [
                 'iban' => ['type' => 'text', 'label' => 'IBAN'],
                 'bic' => ['type' => 'text', 'label' => 'BIC'],
-                'bank_institute' => ['type' => 'text', 'label' => 'Geldinstitut'],
+                'bank_institute' => ['type' => 'text', 'label' => 'Bank'],
+                'account_holder' => ['type' => 'text', 'label' => 'Kontoinhaber'],
             ],
             'Steuer & Versicherung' => [
+                'tax_class' => ['type' => 'inline_select', 'label' => 'Steuerklasse', 'options' => ['1','2','3','4','5','6']],
                 'steuer_id' => ['type' => 'text', 'label' => 'Steuer-ID'],
                 'sozialversicherungsnummer' => ['type' => 'text', 'label' => 'Sozialversicherungsnummer'],
                 'health_insurance' => ['type' => 'lookup', 'label' => 'Krankenkasse', 'lookup' => 'krankenkasse'],
                 'health_insurance_card_file_id' => ['type' => 'file', 'label' => 'Foto Versichertenkarte'],
+            ],
+            'Schul-/Immatrikulationsbescheinigung' => [
+                'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Schul-/Immatrikulationsbescheinigung'],
+                'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gueltig bis'],
+            ],
+            'Gesundheit' => [
+                'has_infection_protection_certificate' => ['type' => 'bool', 'label' => 'Infektionsschutzbescheinigung vorhanden?'],
+                'infection_protection_first_issued_at' => ['type' => 'date', 'label' => 'Erstbescheinigung am'],
+            ],
+            'Arbeitskleidung' => [
+                'shirt_size' => ['type' => 'inline_select', 'label' => 'Hemd / Bluse', 'options' => ['S','M','L','XL']],
+                'pants_size' => ['type' => 'text', 'label' => 'Hosengroesse'],
+                'shoe_size'  => ['type' => 'text', 'label' => 'Schuhgroesse'],
             ],
             'Legal-Status (EU/Non-EU)' => [
                 'is_eu_citizen' => ['type' => 'bool', 'label' => 'EU-Buerger'],
@@ -136,7 +156,8 @@ class Show extends Component
                 'aufenthaltstitel_back_file_id' => ['type' => 'file', 'label' => 'Aufenthaltstitel Rueckseite'],
                 'visumsblatt_file_id' => ['type' => 'file', 'label' => 'Visum'],
                 'zusatzblatt_file_id' => ['type' => 'file', 'label' => 'Zusatzblatt'],
-                'immatrikulation_file_id' => ['type' => 'file', 'label' => 'Immatrikulationsbescheinigung'],
+                'residence_permit_valid_until' => ['type' => 'date', 'label' => 'Aufenthaltserlaubnis bis'],
+                'work_permit_valid_until' => ['type' => 'date', 'label' => 'Arbeitsgenehmigung bis'],
             ],
             'Sonstiges' => [
                 'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
@@ -149,6 +170,34 @@ class Show extends Component
                 'employment_ended_at' => ['type' => 'datetime', 'label' => 'Beschaeftigung beendet am'],
             ],
         ];
+    }
+
+    /**
+     * HR-only-Feldgruppen aus rec_employee_hr_data. Separate Entity,
+     * MA-Portal sieht das NIE.
+     */
+    public function hrFieldGroups(): array
+    {
+        return [
+            'Vertrags-Status (HR-only, ZAS-Export)' => [
+                'export_status'        => ['type' => 'inline_select', 'label' => 'Status (immer GO)', 'options' => ['GO'], 'readonly' => true],
+                'contract_sent_date'   => ['type' => 'date', 'label' => 'Vertrags-Datum (Snapshot)'],
+                'contract_signed_at'   => ['type' => 'date', 'label' => 'Vertrag zurueck am'],
+                'contract_end_date'    => ['type' => 'date', 'label' => 'Befristet bis'],
+                'employment_classification' => ['type' => 'lookup', 'label' => 'Anstellungsart', 'lookup' => 'anstellungsart'],
+            ],
+        ];
+    }
+
+    public function hrFieldsFlat(): array
+    {
+        $flat = [];
+        foreach ($this->hrFieldGroups() as $section => $fields) {
+            foreach ($fields as $key => $meta) {
+                $flat[$key] = $meta;
+            }
+        }
+        return $flat;
     }
 
     public function fieldsFlat(): array
@@ -178,6 +227,20 @@ class Show extends Component
             $values[$field] = $raw === null ? '' : (string) $raw;
         }
         $this->fieldValues = $values;
+
+        // HR-Felder aus hrData laden (Lazy-Create wenn nicht vorhanden)
+        $hrData = $employee->ensureHrData()->fresh();
+        $hrValues = [];
+        foreach ($this->hrFieldsFlat() as $field => $meta) {
+            $raw = $hrData->getAttribute($field);
+            if ($raw instanceof \DateTimeInterface) {
+                $raw = $raw->format('Y-m-d');
+            } elseif (is_bool($raw)) {
+                $raw = $raw ? '1' : '0';
+            }
+            $hrValues[$field] = $raw === null ? '' : (string) $raw;
+        }
+        $this->hrFieldValues = $hrValues;
     }
 
     public function saveAll(): void
@@ -187,6 +250,7 @@ class Show extends Component
             return;
         }
 
+        // rec_employees Updates
         $allowed = $this->fieldsFlat();
         $updates = [];
         foreach ($this->fieldValues as $field => $value) {
@@ -210,12 +274,37 @@ class Show extends Component
             }
         }
 
-        if (empty($updates)) {
+        // rec_employee_hr_data Updates
+        $hrAllowed = $this->hrFieldsFlat();
+        $hrUpdates = [];
+        foreach ($this->hrFieldValues as $field => $value) {
+            if (!array_key_exists($field, $hrAllowed)) {
+                continue;
+            }
+            $meta = $hrAllowed[$field];
+            // readonly-Felder (z.B. export_status) nicht durchschleifen
+            if (($meta['readonly'] ?? false) === true) {
+                continue;
+            }
+            $value = is_string($value) ? trim($value) : $value;
+            $hrUpdates[$field] = ($value === '' || $value === null) ? null : $value;
+        }
+
+        $changesCount = 0;
+        if (!empty($updates)) {
+            $employee->update($updates);
+            $changesCount++;
+        }
+        if (!empty($hrUpdates)) {
+            $employee->ensureHrData()->update($hrUpdates);
+            $changesCount++;
+        }
+
+        if ($changesCount === 0) {
             $this->flash = 'Keine Aenderungen.';
             return;
         }
 
-        $employee->update($updates);
         $this->flash = 'Aenderungen gespeichert.';
         $this->loadFieldValues($employee->fresh());
         unset($this->employee);

@@ -21,11 +21,18 @@ class RecEmployeeHrData extends Model
         'uuid',
         'rec_employee_id',
         'team_id',
-        // HR-only-Felder hier ergaenzen sobald sie in Migrations dazu kommen
+        // Iteration 3 — vollstaendiges HR-Field-Set
+        'contract_signed_at',
+        'contract_sent_date',
+        'contract_end_date',
+        'export_status',
+        'employment_classification',
     ];
 
     protected $casts = [
-        // Casts hier ergaenzen je nach Field-Type
+        'contract_signed_at' => 'date',
+        'contract_sent_date' => 'date',
+        'contract_end_date'  => 'date',
     ];
 
     protected static function booted(): void

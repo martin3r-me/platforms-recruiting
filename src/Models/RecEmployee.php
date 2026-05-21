@@ -69,6 +69,20 @@ class RecEmployee extends Model
         'has_car',
         'recruited_by_personnel_number',
 
+        // Iteration 3 — vollstaendiges HR-Field-Set
+        'tax_class',
+        'number_of_children',
+        'account_holder',
+        'religion',
+        'school_certificate_valid_until',
+        'has_infection_protection_certificate',
+        'infection_protection_first_issued_at',
+        'shirt_size',
+        'pants_size',
+        'shoe_size',
+        'residence_permit_valid_until',
+        'work_permit_valid_until',
+
         'is_eu_citizen',
         'nationalpass_file_id',
         'aufenthaltstitel_front_file_id',
@@ -97,6 +111,15 @@ class RecEmployee extends Model
         'employment_ended_at'       => 'datetime',
         'portal_verified_at'        => 'datetime',
         'art_der_tatigkeit'         => 'array',
+        // Iteration 3
+        'school_certificate_valid_until'        => 'date',
+        'has_infection_protection_certificate'  => 'boolean',
+        'infection_protection_first_issued_at'  => 'date',
+        'residence_permit_valid_until'          => 'date',
+        'work_permit_valid_until'               => 'date',
+        'number_of_children'                    => 'integer',
+        'pants_size'                            => 'integer',
+        'shoe_size'                             => 'integer',
     ];
 
     protected static function booted(): void
@@ -201,7 +224,9 @@ class RecEmployee extends Model
      */
     public function editableFieldGroups(): array
     {
-        return [
+        $isNonEu = ($this->is_eu_citizen === false);
+
+        $groups = [
             'Kontakt' => [
                 'email' => ['type' => 'text', 'label' => 'Email'],
                 'phone' => ['type' => 'text', 'label' => 'Telefon'],
@@ -215,18 +240,22 @@ class RecEmployee extends Model
                 'birth_country' => ['type' => 'lookup', 'label' => 'Geburtsland', 'lookup' => 'geburtsland'],
             ],
             'Persoenliches' => [
-                'birth_name'      => ['type' => 'text', 'label' => 'Geburtsname'],
-                'birth_place'     => ['type' => 'text', 'label' => 'Geburtsort'],
-                'gender'          => ['type' => 'lookup', 'label' => 'Geschlecht', 'lookup' => 'geschlecht'],
-                'marital_status'  => ['type' => 'lookup', 'label' => 'Familienstand', 'lookup' => 'familienstand'],
-                'employment_type' => ['type' => 'lookup', 'label' => 'Ich bin', 'lookup' => 'ich_bin'],
+                'birth_name'         => ['type' => 'text', 'label' => 'Geburtsname'],
+                'birth_place'        => ['type' => 'text', 'label' => 'Geburtsort'],
+                'gender'             => ['type' => 'lookup', 'label' => 'Geschlecht', 'lookup' => 'geschlecht'],
+                'marital_status'     => ['type' => 'lookup', 'label' => 'Familienstand', 'lookup' => 'familienstand'],
+                'employment_type'    => ['type' => 'lookup', 'label' => 'Ich bin', 'lookup' => 'beschaeftigung_art'],
+                'religion'           => ['type' => 'lookup', 'label' => 'Religion', 'lookup' => 'religion'],
+                'number_of_children' => ['type' => 'text', 'label' => 'Anzahl Kinder'],
             ],
             'Bankdaten' => [
                 'iban'           => ['type' => 'text', 'label' => 'IBAN'],
                 'bic'            => ['type' => 'text', 'label' => 'BIC'],
-                'bank_institute' => ['type' => 'text', 'label' => 'Geldinstitut'],
+                'bank_institute' => ['type' => 'text', 'label' => 'Bank'],
+                'account_holder' => ['type' => 'text', 'label' => 'Kontoinhaber'],
             ],
             'Steuer & Versicherung' => [
+                'tax_class'                     => ['type' => 'inline_select', 'label' => 'Steuerklasse', 'options' => ['1','2','3','4','5','6']],
                 'steuer_id'                     => ['type' => 'text', 'label' => 'Steuer-ID'],
                 'sozialversicherungsnummer'     => ['type' => 'text', 'label' => 'Sozialversicherungsnummer'],
                 'health_insurance'              => ['type' => 'lookup', 'label' => 'Krankenkasse', 'lookup' => 'krankenkasse'],
@@ -238,11 +267,34 @@ class RecEmployee extends Model
                 'identity_card_back_file_id'  => ['type' => 'file', 'label' => 'Ausweis Rueckseite'],
                 'selfie_file_id'              => ['type' => 'file', 'label' => 'Selfie'],
             ],
+            'Schul-/Immatrikulationsbescheinigung' => [
+                'immatrikulation_file_id'         => ['type' => 'file', 'label' => 'Schul-/Immatrikulationsbescheinigung'],
+                'school_certificate_valid_until'  => ['type' => 'date', 'label' => 'Gueltig bis'],
+            ],
+            'Gesundheit' => [
+                'has_infection_protection_certificate' => ['type' => 'bool', 'label' => 'Infektionsschutzbescheinigung vorhanden?'],
+                'infection_protection_first_issued_at' => ['type' => 'date', 'label' => 'Erstbescheinigung am'],
+            ],
+            'Arbeitskleidung' => [
+                'shirt_size' => ['type' => 'inline_select', 'label' => 'Hemd / Bluse', 'options' => ['S','M','L','XL']],
+                'pants_size' => ['type' => 'text', 'label' => 'Hosengroesse (Zahl)'],
+                'shoe_size'  => ['type' => 'text', 'label' => 'Schuhgroesse (Zahl)'],
+            ],
             'Sonstiges' => [
                 'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
                 'has_car'               => ['type' => 'bool', 'label' => 'PKW vorhanden'],
             ],
         ];
+
+        // Non-EU-Sektion nur bei is_eu_citizen=false aufgenommen
+        if ($isNonEu) {
+            $groups['Aufenthalt (Non-EU)'] = [
+                'residence_permit_valid_until' => ['type' => 'date', 'label' => 'Aufenthaltserlaubnis bis'],
+                'work_permit_valid_until'      => ['type' => 'date', 'label' => 'Arbeitsgenehmigung bis'],
+            ];
+        }
+
+        return $groups;
     }
 
     /**

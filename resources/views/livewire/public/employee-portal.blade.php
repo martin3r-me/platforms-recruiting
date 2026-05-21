@@ -248,6 +248,17 @@
                                             class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm"
                                         />
 
+                                    @elseif($type === 'inline_select')
+                                        <select
+                                            wire:model.defer="fieldValues.{{ $key }}"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white"
+                                        >
+                                            <option value="">— bitte wählen —</option>
+                                            @foreach(($entry['options'] ?? []) as $opt)
+                                                <option value="{{ $opt }}">{{ $opt }}</option>
+                                            @endforeach
+                                        </select>
+
                                     @elseif($type === 'file')
                                         @php $uploadProp = $fileUploadProps[$key] ?? null; @endphp
                                         <div class="flex items-center gap-3 p-2 rounded-md border {{ $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]' }}">

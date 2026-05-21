@@ -118,6 +118,15 @@
                                             @endforeach
                                         </select>
 
+                                    @elseif($type === 'inline_select')
+                                        <select wire:model.defer="fieldValues.{{ $key }}"
+                                                class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white">
+                                            <option value="">— bitte wählen —</option>
+                                            @foreach(($meta['options'] ?? []) as $opt)
+                                                <option value="{{ $opt }}">{{ $opt }}</option>
+                                            @endforeach
+                                        </select>
+
                                     @elseif($type === 'file')
                                         @php $uploadProp = $this->uploadPropertyFor($key); @endphp
                                         <div class="flex items-center gap-3 p-2 rounded-md border {{ $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]' }}">
@@ -156,13 +165,59 @@
                 @endforeach
             </div>
 
-            {{-- HR-only Daten (separate Entity) — placeholder, Felder kommen iterativ --}}
+            {{-- HR-Vertraulich (separate Entity rec_employee_hr_data) --}}
             <div class="mt-5">
-                <h3 class="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">HR-Vertraulich</h3>
-                <div class="bg-amber-50/40 border border-amber-200 rounded-lg p-4 text-sm text-[var(--ui-muted)]">
-                    Diese Sektion ist für HR-only-Felder reserviert (z.B. Probezeit, Notizen, interner Status).
-                    Die Tabelle <code class="text-xs">rec_employee_hr_data</code> ist bereits angelegt — Felder werden iterativ ergänzt.
-                </div>
+                @foreach($this->hrFieldGroups() as $section => $fields)
+                    <h3 class="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2">{{ $section }}</h3>
+                    <div class="bg-amber-50/30 border border-amber-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-3">
+                        @foreach($fields as $key => $meta)
+                            @php
+                                $type = $meta['type'];
+                                $label = $meta['label'];
+                                $isReadonly = ($meta['readonly'] ?? false) === true;
+                                $hrValue = $employee->ensureHrData()->getAttribute($key);
+                                $isMissing = !$isReadonly && ($hrValue === null || $hrValue === '');
+                                $inputBorder = $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]';
+                            @endphp
+                            <div>
+                                <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">{{ $label }}</label>
+
+                                @if($isReadonly)
+                                    <div class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white text-[var(--ui-secondary)]">
+                                        {{ $hrValue ?: ($meta['options'][0] ?? 'GO') }}
+                                    </div>
+
+                                @elseif($type === 'lookup')
+                                    <select wire:model.defer="hrFieldValues.{{ $key }}"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white">
+                                        <option value="">— bitte wählen —</option>
+                                        @foreach($this->lookupOptionsFor($meta['lookup']) as $optValue => $optLabel)
+                                            <option value="{{ $optValue }}">{{ $optLabel }}</option>
+                                        @endforeach
+                                    </select>
+
+                                @elseif($type === 'date')
+                                    <input type="date" wire:model.defer="hrFieldValues.{{ $key }}"
+                                           class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm" />
+
+                                @elseif($type === 'inline_select')
+                                    <select wire:model.defer="hrFieldValues.{{ $key }}"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white">
+                                        <option value="">— bitte wählen —</option>
+                                        @foreach(($meta['options'] ?? []) as $opt)
+                                            <option value="{{ $opt }}">{{ $opt }}</option>
+                                        @endforeach
+                                    </select>
+
+                                @else
+                                    <input type="text" wire:model.defer="hrFieldValues.{{ $key }}"
+                                           placeholder="{{ $label }}"
+                                           class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm" />
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                @endforeach
             </div>
 
             {{-- Sticky Save --}}

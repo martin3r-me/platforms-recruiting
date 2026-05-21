@@ -330,6 +330,7 @@ class EmployeePortal extends Component
                     'label'      => $meta['label'] ?? $key,
                     'type'       => $type,
                     'lookup'     => $meta['lookup'] ?? null,
+                    'options'    => $meta['options'] ?? null,
                     'value'      => $value,
                     'display'    => $display,
                     'is_missing' => $isMissing,

@@ -115,9 +115,10 @@ class CreateEmployeeFromApplicantService
             $this->mirrorCrmContactLinks($applicant, $employee, $createdByUserId);
 
             // HR-only-Datenrow anlegen — physisch getrennt vom MA-Portal-
-            // sichtbaren rec_employees. Leerer Skeleton, HR fuellt im
-            // Backend.
-            $employee->ensureHrData();
+            // sichtbaren rec_employees. Snapshot der Vertrags-Daten beim
+            // Anlegen damit ZAS-Export direkt verfuegbar ist ohne JOIN.
+            $hrData = $employee->ensureHrData();
+            $this->snapshotContractDatesToHrData($applicant, $hrData);
 
             // Bewerber deaktivieren — raus aus default Dashboard, Statistiken
             // greifen weiter via rec_applicants ohne is_active-Filter.
@@ -258,6 +259,64 @@ class CreateEmployeeFromApplicantService
             return false;
         }
         return null;
+    }
+
+    /**
+     * Schreibt Snapshot der Vertragsdaten auf die hrData-Row:
+     *  - contract_sent_date  → frueheste sent_at aus den nicht-cancelled
+     *    Vertraegen (= "Vertrags-Datum")
+     *  - contract_end_date   → vertragsende-Extra-Field aus dem AV-Vertrag
+     *    (= "Befristet bis")
+     *
+     * contract_signed_at bleibt initial null — wird gesetzt wenn alle
+     * AV-Vertraege signed sind (separate Hook).
+     */
+    private function snapshotContractDatesToHrData(RecApplicant $applicant, $hrData): void
+    {
+        try {
+            $contracts = $applicant->contracts()
+                ->whereNotIn('status', ['cancelled'])
+                ->with('contractTemplate')
+                ->get();
+
+            // Frueheste sent_at
+            $sentDate = $contracts
+                ->filter(fn ($c) => $c->sent_at !== null)
+                ->sortBy('sent_at')
+                ->first()?->sent_at?->toDateString();
+
+            // contract_end aus AV-Vertrag extra_fields (vertragsende)
+            $avContract = $contracts->first(function ($c) {
+                $code = $c->contractTemplate?->code;
+                return $code !== null && str_starts_with($code, 'AV-');
+            });
+
+            $endDate = null;
+            if ($avContract && method_exists($avContract, 'getExtraField')) {
+                $raw = $avContract->getExtraField('vertragsende');
+                if ($raw) {
+                    try {
+                        $endDate = \Carbon\Carbon::parse($raw)->toDateString();
+                    } catch (\Throwable) {}
+                }
+            }
+
+            $updates = [];
+            if ($sentDate) {
+                $updates['contract_sent_date'] = $sentDate;
+            }
+            if ($endDate) {
+                $updates['contract_end_date'] = $endDate;
+            }
+            if (!empty($updates)) {
+                $hrData->update($updates);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[CreateEmployeeFromApplicantService] snapshotContractDates failed', [
+                'applicant_id' => $applicant->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
