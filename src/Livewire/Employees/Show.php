@@ -85,6 +85,25 @@ class Show extends Component
      */
     public function fieldGroups(): array
     {
+        // Non-EU-spezifische Felder werden nur bei is_eu_citizen=false
+        // (oder null = unklar) angezeigt. Bei EU=true werden sie verborgen
+        // damit die Ansicht uebersichtlicher bleibt.
+        $emp = $this->employee();
+        $showNonEuFields = ($emp?->is_eu_citizen !== true);
+
+        $legalStatusFields = [
+            'is_eu_citizen' => ['type' => 'bool', 'label' => 'EU-Buerger'],
+            'nationalpass_file_id' => ['type' => 'file', 'label' => 'Nationalpass'],
+        ];
+        if ($showNonEuFields) {
+            $legalStatusFields['aufenthaltstitel_front_file_id'] = ['type' => 'file', 'label' => 'Aufenthaltstitel Vorderseite'];
+            $legalStatusFields['aufenthaltstitel_back_file_id']  = ['type' => 'file', 'label' => 'Aufenthaltstitel Rueckseite'];
+            $legalStatusFields['visumsblatt_file_id']            = ['type' => 'file', 'label' => 'Visum'];
+            $legalStatusFields['zusatzblatt_file_id']            = ['type' => 'file', 'label' => 'Zusatzblatt'];
+            $legalStatusFields['residence_permit_valid_until']   = ['type' => 'date', 'label' => 'Aufenthaltserlaubnis bis'];
+            $legalStatusFields['work_permit_valid_until']        = ['type' => 'date', 'label' => 'Arbeitsgenehmigung bis'];
+        }
+
         return [
             'Stammdaten' => [
                 'first_name' => ['type' => 'text', 'label' => 'Vorname'],
@@ -149,16 +168,7 @@ class Show extends Component
                 'pants_size' => ['type' => 'text', 'label' => 'Hosengroesse'],
                 'shoe_size'  => ['type' => 'text', 'label' => 'Schuhgroesse'],
             ],
-            'Legal-Status (EU/Non-EU)' => [
-                'is_eu_citizen' => ['type' => 'bool', 'label' => 'EU-Buerger'],
-                'nationalpass_file_id' => ['type' => 'file', 'label' => 'Nationalpass'],
-                'aufenthaltstitel_front_file_id' => ['type' => 'file', 'label' => 'Aufenthaltstitel Vorderseite'],
-                'aufenthaltstitel_back_file_id' => ['type' => 'file', 'label' => 'Aufenthaltstitel Rueckseite'],
-                'visumsblatt_file_id' => ['type' => 'file', 'label' => 'Visum'],
-                'zusatzblatt_file_id' => ['type' => 'file', 'label' => 'Zusatzblatt'],
-                'residence_permit_valid_until' => ['type' => 'date', 'label' => 'Aufenthaltserlaubnis bis'],
-                'work_permit_valid_until' => ['type' => 'date', 'label' => 'Arbeitsgenehmigung bis'],
-            ],
+            'Legal-Status (EU/Non-EU)' => $legalStatusFields,
             'Sonstiges' => [
                 'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
                 'has_car' => ['type' => 'bool', 'label' => 'PKW vorhanden'],
