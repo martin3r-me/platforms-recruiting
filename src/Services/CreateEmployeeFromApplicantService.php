@@ -102,6 +102,9 @@ class CreateEmployeeFromApplicantService
                 'aufenthaltstitel_back_file_id'  => $legalStatus?->aufenthaltstitel_back_file_id,
                 'visumsblatt_file_id'            => $legalStatus?->visumsblatt_file_id,
                 'zusatzblatt_file_id'            => $legalStatus?->zusatzblatt_file_id,
+                // Zusatzblatt-Rueckseite ist NICHT in rec_applicant_legal_statuses,
+                // sondern als extra_field_value am Bewerber gespeichert.
+                'zusatzblatt_back_file_id'       => $this->normalizeFileId($extraValues['zusatzblatt_arbeitsgenehmigung_ruckseite'] ?? null),
                 'immatrikulation_file_id'        => $legalStatus?->immatrikulation_file_id,
                 // Fiktionsbescheinigung: nicht in rec_applicant_legal_statuses,
                 // sondern als extra_field_value am Bewerber gespeichert (P3 optional).

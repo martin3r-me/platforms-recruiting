@@ -89,6 +89,7 @@ class RecEmployee extends Model
         'aufenthaltstitel_back_file_id',
         'visumsblatt_file_id',
         'zusatzblatt_file_id',
+        'zusatzblatt_back_file_id',
         'immatrikulation_file_id',
         'schulbescheinigung_file_id',
         'fiktionsbescheinigung_front_file_id',

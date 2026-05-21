@@ -38,6 +38,7 @@ class Show extends Component
     public $uploadAufenthaltstitelBack = null;
     public $uploadVisumsblatt = null;
     public $uploadZusatzblatt = null;
+    public $uploadZusatzblattBack = null;
     public $uploadImmatrikulation = null;
     public $uploadSchulbescheinigung = null;
     public $uploadFiktionFront = null;
@@ -53,6 +54,7 @@ class Show extends Component
         'aufenthaltstitel_back_file_id'  => 'uploadAufenthaltstitelBack',
         'visumsblatt_file_id'           => 'uploadVisumsblatt',
         'zusatzblatt_file_id'           => 'uploadZusatzblatt',
+        'zusatzblatt_back_file_id'      => 'uploadZusatzblattBack',
         'immatrikulation_file_id'       => 'uploadImmatrikulation',
         'schulbescheinigung_file_id'    => 'uploadSchulbescheinigung',
         'fiktionsbescheinigung_front_file_id' => 'uploadFiktionFront',
@@ -107,7 +109,8 @@ class Show extends Component
             $legalStatusFields['aufenthaltstitel_front_file_id'] = ['type' => 'file', 'label' => 'Aufenthaltstitel Vorderseite'];
             $legalStatusFields['aufenthaltstitel_back_file_id']  = ['type' => 'file', 'label' => 'Aufenthaltstitel Rueckseite'];
             $legalStatusFields['visumsblatt_file_id']            = ['type' => 'file', 'label' => 'Visum'];
-            $legalStatusFields['zusatzblatt_file_id']            = ['type' => 'file', 'label' => 'Zusatzblatt'];
+            $legalStatusFields['zusatzblatt_file_id']            = ['type' => 'file', 'label' => 'Zusatzblatt Vorderseite'];
+            $legalStatusFields['zusatzblatt_back_file_id']       = ['type' => 'file', 'label' => 'Zusatzblatt Rueckseite'];
             $legalStatusFields['fiktionsbescheinigung_front_file_id'] = ['type' => 'file', 'label' => 'Fiktionsbescheinigung Vorderseite'];
             $legalStatusFields['fiktionsbescheinigung_back_file_id']  = ['type' => 'file', 'label' => 'Fiktionsbescheinigung Rueckseite'];
             $legalStatusFields['residence_permit_valid_until']   = ['type' => 'date', 'label' => 'Aufenthaltserlaubnis bis'];
@@ -374,6 +377,7 @@ class Show extends Component
     public function updatedUploadAufenthaltstitelBack(): void { $this->handleFileUpload('aufenthaltstitel_back_file_id', 'uploadAufenthaltstitelBack'); }
     public function updatedUploadVisumsblatt(): void { $this->handleFileUpload('visumsblatt_file_id', 'uploadVisumsblatt'); }
     public function updatedUploadZusatzblatt(): void { $this->handleFileUpload('zusatzblatt_file_id', 'uploadZusatzblatt'); }
+    public function updatedUploadZusatzblattBack(): void { $this->handleFileUpload('zusatzblatt_back_file_id', 'uploadZusatzblattBack'); }
     public function updatedUploadImmatrikulation(): void { $this->handleFileUpload('immatrikulation_file_id', 'uploadImmatrikulation'); }
     public function updatedUploadSchulbescheinigung(): void { $this->handleFileUpload('schulbescheinigung_file_id', 'uploadSchulbescheinigung'); }
     public function updatedUploadFiktionFront(): void { $this->handleFileUpload('fiktionsbescheinigung_front_file_id', 'uploadFiktionFront'); }
