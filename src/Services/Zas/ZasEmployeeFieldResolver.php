@@ -159,7 +159,7 @@ class ZasEmployeeFieldResolver
 
             'Stelle'              => $employee->position?->title,
             'Kostenstelle'        => $employee->position?->cost_center !== null ? (string) $employee->position->cost_center : null,
-            'Beschaeftigungsort'  => $this->lookupLabel('beschaeftigungsort', $employee->beschaftigungsort),
+            'Beschaeftigungsort'  => $this->multiLookupLabels('beschaeftigungsort', $employee->beschaftigungsort),
             'Ichbin'              => $this->lookupLabel('beschaeftigung_art', $employee->employment_type),
 
             'Bank'                => $employee->bank_institute,

@@ -117,6 +117,7 @@ class RecEmployee extends Model
         'employment_ended_at'       => 'datetime',
         'portal_verified_at'        => 'datetime',
         'art_der_tatigkeit'         => 'array',
+        'beschaftigungsort'         => 'array',
         // Iteration 3
         'school_certificate_valid_until'        => 'date',
         'has_infection_protection_certificate'  => 'boolean',

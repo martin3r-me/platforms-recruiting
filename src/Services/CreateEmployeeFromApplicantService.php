@@ -75,7 +75,7 @@ class CreateEmployeeFromApplicantService
                 'country_code'         => $extraValues['land']    ?? null,
 
                 // Stelle/Taetigkeit
-                'beschaftigungsort'    => $extraValues['beschaftigungsort'] ?? null,
+                'beschaftigungsort'    => $this->normalizeArrayValue($extraValues['beschaftigungsort'] ?? null),
                 'art_der_tatigkeit'    => $this->normalizeArrayValue($extraValues['art_der_tatigkeit'] ?? null),
                 'employment_type'      => $extraValues['ich_bin'] ?? null,
 

@@ -147,7 +147,7 @@ class Show extends Component
             ],
             'Stelle & Taetigkeit' => [
                 'rec_position_id' => ['type' => 'position', 'label' => 'Stelle'],
-                'beschaftigungsort' => ['type' => 'lookup', 'label' => 'Beschaeftigungsort', 'lookup' => 'beschaeftigungsort'],
+                'beschaftigungsort' => ['type' => 'multi_lookup', 'label' => 'Beschaeftigungsort', 'lookup' => 'beschaeftigungsort'],
                 'employment_type' => ['type' => 'lookup', 'label' => 'Ich bin (MA-Self-Deklaration)', 'lookup' => 'beschaeftigung_art'],
             ],
             'Bankdaten' => [
@@ -240,12 +240,17 @@ class Show extends Component
     {
         $values = [];
         foreach ($this->fieldsFlat() as $field => $meta) {
-            if (($meta['type'] ?? '') === 'file') {
+            $type = $meta['type'] ?? '';
+            if ($type === 'file') {
                 continue;
             }
             $raw = $employee->getAttribute($field);
+            if ($type === 'multi_lookup') {
+                $values[$field] = is_array($raw) ? $raw : [];
+                continue;
+            }
             if ($raw instanceof \DateTimeInterface) {
-                $raw = $raw->format(($meta['type'] === 'datetime') ? 'Y-m-d\TH:i' : 'Y-m-d');
+                $raw = $raw->format(($type === 'datetime') ? 'Y-m-d\TH:i' : 'Y-m-d');
             } elseif (is_bool($raw)) {
                 $raw = $raw ? '1' : '0';
             }
@@ -290,6 +295,14 @@ class Show extends Component
             }
             $meta = $allowed[$field];
             $type = $meta['type'];
+
+            if ($type === 'multi_lookup') {
+                $updates[$field] = (is_array($value) && !empty($value))
+                    ? array_values(array_filter($value, fn ($v) => $v !== '' && $v !== null))
+                    : null;
+                continue;
+            }
+
             $value = is_string($value) ? trim($value) : $value;
 
             if ($type === 'bool') {
