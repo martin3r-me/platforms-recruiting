@@ -78,6 +78,7 @@ class CreateEmployeeFromApplicantService
                 'beschaftigungsort'    => $this->normalizeArrayValue($extraValues['beschaftigungsort'] ?? null),
                 'art_der_tatigkeit'    => $this->normalizeArrayValue($extraValues['art_der_tatigkeit'] ?? null),
                 'employment_type'      => $extraValues['ich_bin'] ?? null,
+                'umfang_der_tatigkeit' => $extraValues['umfang_der_tatigkeit'] ?? null,
 
                 // Bankdaten — typischerweise leer bei Anlage, kommen via Portal
                 'iban'                       => $extraValues['iban'] ?? null,

@@ -53,6 +53,7 @@ class RecEmployee extends Model
 
         'beschaftigungsort',
         'art_der_tatigkeit',
+        'umfang_der_tatigkeit',
         'employment_type',
 
         'iban',
