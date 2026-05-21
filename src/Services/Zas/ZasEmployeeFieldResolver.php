@@ -48,7 +48,7 @@ class ZasEmployeeFieldResolver
         'Strasse', 'Hausnummer', 'PLZ', 'Ort', 'Land',
 
         // Stelle / Taetigkeit
-        'Stelle', 'Beschaeftigungsort', 'Ichbin',
+        'Stelle', 'Kostenstelle', 'Beschaeftigungsort', 'Ichbin',
 
         // Bank
         'Bank', 'IBAN', 'BIC', 'Kontoinhaber',
@@ -152,6 +152,7 @@ class ZasEmployeeFieldResolver
             'Land'                => $employee->country_code,
 
             'Stelle'              => $employee->position?->title,
+            'Kostenstelle'        => $employee->position?->cost_center !== null ? (string) $employee->position->cost_center : null,
             'Beschaeftigungsort'  => $this->lookupLabel('beschaeftigungsort', $employee->beschaftigungsort),
             'Ichbin'              => $this->lookupLabel('beschaeftigung_art', $employee->employment_type),
 

@@ -48,9 +48,9 @@
                 <x-ui-input-text name="position.title" label="Titel" wire:model.live="position.title" required />
                 <x-ui-input-text name="position.department" label="Abteilung" wire:model.live="position.department" />
                 <x-ui-input-text name="position.location" label="Standort" wire:model.live="position.location" />
-                <x-ui-input-select name="position.hcm_job_title_id" label="HCM-Stelle" :options="$this->jobTitles" optionValue="id" optionLabel="name" :nullable="true" nullLabel="Keine HCM-Stelle" wire:model.live="position.hcm_job_title_id" />
                 <x-ui-input-select name="position.owned_by_user_id" label="Verantwortlicher" :options="$this->teamUsers" optionValue="id" optionLabel="name" :nullable="true" nullLabel="Kein Verantwortlicher" wire:model.live="position.owned_by_user_id" />
                 <x-ui-input-checkbox model="position.is_active" name="position.is_active" label="Aktiv" wire:model.live="position.is_active" />
+                <x-ui-input-text name="position.cost_center" label="Kostenstelle (nur Zahlen, fuer ZAS-Export)" wire:model.live.debounce.500ms="position.cost_center" placeholder="z.B. 4711" />
             </div>
             <div class="mt-6">
                 <x-ui-input-textarea name="position.description" label="Beschreibung" wire:model.live.debounce.500ms="position.description" placeholder="Beschreibung..." rows="4" />

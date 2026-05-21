@@ -16,13 +16,14 @@ class RecPosition extends Model
 
     protected $fillable = [
         'uuid', 'team_id', 'title', 'description', 'department', 'location',
-        'beschaftigungsort_lookup_value',
+        'beschaftigungsort_lookup_value', 'cost_center',
         'hcm_job_title_id', 'is_active', 'auto_pilot_settings', 'created_by_user_id', 'owned_by_user_id',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'auto_pilot_settings' => 'array',
+        'cost_center' => 'integer',
     ];
 
     /**

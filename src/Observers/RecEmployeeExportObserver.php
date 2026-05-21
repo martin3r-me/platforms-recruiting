@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeHrData;
+use Platform\Recruiting\Models\RecPosition;
 
 /**
  * Setzt rec_employees.zas_changed_at = now() bei Aenderungen, die fuer
@@ -132,6 +133,21 @@ class RecEmployeeExportObserver
                 }
                 self::markEmployeeId((int) $employeeId);
             }, 'rec_contract.saved.signed_at', $contract->id);
+        });
+
+        // Position-Kostenstelle aendert sich → alle aktiven MAs dieser
+        // Stelle muessen ein Update an ZAS bekommen (Kostenstelle ist
+        // teil des MA-Exports).
+        RecPosition::updated(static function (RecPosition $position): void {
+            self::safelyRun(function () use ($position): void {
+                if (!$position->wasChanged('cost_center')) {
+                    return;
+                }
+                DB::table('rec_employees')
+                    ->where('rec_position_id', $position->id)
+                    ->where('is_active', true)
+                    ->update(['zas_changed_at' => now()]);
+            }, 'rec_position.updated.cost_center', $position->id);
         });
     }
 
