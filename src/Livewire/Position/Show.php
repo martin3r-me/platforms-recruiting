@@ -73,6 +73,7 @@ class Show extends Component
             'position.hcm_job_title_id' => 'nullable|exists:hcm_job_titles,id',
             'position.is_active' => 'boolean',
             'position.owned_by_user_id' => 'nullable|exists:users,id',
+            'position.cost_center' => 'nullable|integer|min:0',
             'autoPilotSettings.auto_pilot_enabled' => 'nullable|boolean',
             'autoPilotSettings.auto_pilot_channel_priority' => 'nullable|string|in:whatsapp_first,email_first,whatsapp_only,email_only',
             'autoPilotSettings.auto_pilot_wa_account_id' => 'nullable|integer',
