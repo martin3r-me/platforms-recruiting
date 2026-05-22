@@ -444,9 +444,14 @@ class EmployeePortal extends Component
             return [];
         }
 
+        // Applicant-Form-Link einmal pro Aufruf holen — wird fuer PDF-Download
+        // benoetigt (ContractPdfController validiert via CorePublicFormLink-Token
+        // des verlinkten Bewerbers, nicht ueber den MA-portal_token).
+        $applicantToken = $employee->applicant->getOrCreatePublicFormLink()->token;
+
         return $employee->applicant->contracts
             ->filter(fn ($c) => $c->status !== 'cancelled')
-            ->map(function ($c) {
+            ->map(function ($c) use ($applicantToken) {
                 $contractLink = $c->getOrCreatePublicFormLink();
                 $code = $c->contractTemplate?->code;
                 $displayName = match (true) {
@@ -462,6 +467,9 @@ class EmployeePortal extends Component
                     'signed_at'    => $c->signed_at,
                     'completed_at' => $c->completed_at,
                     'sign_url'     => route('recruiting.public.contract-signing', ['token' => $contractLink->token]),
+                    'pdf_url'      => $c->status === 'completed'
+                        ? route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id])
+                        : null,
                 ];
             })
             ->values()

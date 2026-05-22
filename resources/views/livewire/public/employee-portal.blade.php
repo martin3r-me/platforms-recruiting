@@ -132,12 +132,20 @@
                                             @endif
                                         </div>
                                     </div>
-                                    <div class="flex-shrink-0">
+                                    <div class="flex-shrink-0 flex items-center gap-2">
                                         @if(!$c['signed_at'] && in_array($c['status'], ['sent', 'in_progress']))
                                             <a href="{{ $c['sign_url'] }}"
                                                class="inline-flex items-center gap-2 px-4 py-2 bg-[var(--ui-primary)] text-white text-sm font-medium rounded-md hover:bg-[var(--ui-primary)]/90 transition-colors">
                                                 @svg('heroicon-o-pencil', 'w-4 h-4')
                                                 Jetzt unterschreiben
+                                            </a>
+                                        @endif
+                                        @if(!empty($c['pdf_url']))
+                                            <a href="{{ $c['pdf_url'] }}"
+                                               target="_blank"
+                                               class="inline-flex items-center gap-2 px-4 py-2 border border-emerald-300 text-emerald-800 bg-emerald-50 text-sm font-medium rounded-md hover:bg-emerald-100 transition-colors">
+                                                @svg('heroicon-o-document-arrow-down', 'w-4 h-4')
+                                                PDF
                                             </a>
                                         @endif
                                     </div>
