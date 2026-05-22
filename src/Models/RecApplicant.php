@@ -521,6 +521,25 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
         $config = $completedPhase->completion_config ?? [];
 
+        // EU-Buerger-Sync: extra_field 'eu_burger' → rec_applicant_legal_statuses.is_eu_citizen.
+        // Beim Abschluss jeder Phase neu evaluieren — typisch greift das nach
+        // Phase 3 (Onboarding) wo der Bewerber EU-Buerger ja/nein angibt.
+        // setEuCitizen() triggert intern HrDeskRoutingService::evaluateAndRoute
+        // → bei is_eu_citizen=false landet der Bewerber automatisch auf dem
+        // HR-Schreibtisch (Pflicht-Pruefung) und in der Schulungsnachbereitung
+        // wird die Zeile rot markiert + Versand blockiert bis HR pruefen klickt.
+        try {
+            $this->syncEuCitizenFromExtraField();
+        } catch (\Throwable $e) {
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type'             => 'eu_sync_failed',
+                    'summary'          => "EU-Buerger-Sync fehlgeschlagen: " . $e->getMessage(),
+                ]);
+            } catch (\Throwable) {}
+        }
+
         if (($config['confirm_booking_on_completion'] ?? false) === true) {
             $updated = $this->interviewBookings()
                 ->where('status', 'booked')
@@ -557,6 +576,33 @@ class RecApplicant extends Model implements InheritsExtraFields
                 } catch (\Throwable) {}
             }
         }
+    }
+
+    /**
+     * Sync eu_burger-extra_field → rec_applicant_legal_statuses.is_eu_citizen.
+     * Idempotent — schreibt nur wenn Wert sich aendert. Legt einen
+     * legalStatus-Record an wenn noch keiner existiert. Ruft setEuCitizen()
+     * auf, was intern den HrDeskRoutingService triggert.
+     */
+    protected function syncEuCitizenFromExtraField(): void
+    {
+        $raw = $this->getExtraField('eu_burger');
+        if ($raw === null || $raw === '') {
+            return;
+        }
+        $bool = filter_var($raw, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        if ($bool === null) {
+            return;
+        }
+        $legalStatus = $this->legalStatus;
+        if (!$legalStatus) {
+            $legalStatus = $this->legalStatus()->create(['is_eu_citizen' => null]);
+            $this->setRelation('legalStatus', $legalStatus);
+        }
+        if ($legalStatus->is_eu_citizen === $bool) {
+            return;  // nichts zu tun — Wert ist schon synchron
+        }
+        $legalStatus->setEuCitizen($bool, null);
     }
 
     /**
