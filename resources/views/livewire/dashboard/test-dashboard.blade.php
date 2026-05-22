@@ -17,31 +17,27 @@
         <p class="text-sm text-gray-500 mt-2">{{ $totalCount }} Bewerber gesamt</p>
     </div>
 
-    @php
-        $phaseLabels = [
-            1 => 'Bewerbung',
-            2 => 'Schulung buchen',
-            3 => 'Onboarding (Bestätigung)',
-            4 => 'Schulung & Verträge versenden',
-            5 => 'Vertrag unterschreiben',
-            6 => 'Letzte Daten',
-        ];
-    @endphp
-
-    @foreach($byPhase as $key => $phaseApplicants)
-        @if($phaseApplicants->count() > 0)
-            <div class="mb-6 border border-gray-200 rounded-lg overflow-hidden">
-                <div class="bg-gray-100 px-4 py-2 font-semibold flex items-center justify-between">
-                    <div>
-                        @if($key === 'unassigned')
-                            <span class="text-orange-600">Ohne Phase</span>
-                        @else
-                            <span class="inline-block bg-blue-600 text-white text-xs rounded-full w-5 h-5 leading-5 text-center mr-2">{{ $key }}</span>
-                            {{ $phaseLabels[$key] ?? 'Phase ' . $key }}
-                        @endif
-                    </div>
-                    <div class="text-sm text-gray-600">{{ $phaseApplicants->count() }} Bewerber</div>
+    @foreach($byPhase as $order => $row)
+        @php
+            $phase = $row['phase'];
+            $phaseApplicants = $row['applicants'];
+            $count = $phaseApplicants->count();
+        @endphp
+        <div class="mb-6 border {{ $phase->is_active ? 'border-gray-200' : 'border-gray-200 opacity-70' }} rounded-lg overflow-hidden">
+            <div class="bg-gray-100 px-4 py-2 font-semibold flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="inline-block bg-blue-600 text-white text-xs rounded-full w-5 h-5 leading-5 text-center">{{ $order }}</span>
+                    <span>{{ $phase->name }}</span>
+                    @if(!$phase->is_active)
+                        <span class="text-[10px] uppercase tracking-wide text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded">inaktiv</span>
+                    @endif
+                    @if(($phase->completion_config['creates_employee_on_completion'] ?? false) === true)
+                        <span class="text-[10px] uppercase tracking-wide text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded" title="Beim Abschluss dieser Phase wird der Bewerber zum Mitarbeiter">→ MA</span>
+                    @endif
                 </div>
+                <div class="text-sm text-gray-600">{{ $count }} {{ $count === 1 ? 'Bewerber' : 'Bewerber' }}</div>
+            </div>
+            @if($count > 0)
                 <table class="w-full text-sm">
                     <thead class="bg-gray-50 text-xs uppercase text-gray-500">
                         <tr>
@@ -91,11 +87,42 @@
                         @endforeach
                     </tbody>
                 </table>
-            </div>
-        @endif
+            @else
+                <div class="px-4 py-4 text-xs text-gray-400 italic">Keine Bewerber in dieser Phase.</div>
+            @endif
+        </div>
     @endforeach
 
-    @if($totalCount === 0)
+    @if($unassigned->count() > 0)
+        <div class="mb-6 border border-orange-200 rounded-lg overflow-hidden">
+            <div class="bg-orange-50 px-4 py-2 font-semibold flex items-center justify-between">
+                <span class="text-orange-700">Ohne Phase</span>
+                <div class="text-sm text-orange-700">{{ $unassigned->count() }} Bewerber</div>
+            </div>
+            <table class="w-full text-sm">
+                <tbody>
+                    @foreach($unassigned as $applicant)
+                        @php
+                            $contact = $applicant->crmContactLinks->first()?->contact;
+                            $name = $contact?->full_name ?: "(#{$applicant->id})";
+                            $position = $applicant->postings->first()?->position;
+                        @endphp
+                        <tr class="border-t border-gray-100 hover:bg-gray-50">
+                            <td class="px-3 py-2 text-gray-500">#{{ $applicant->id }}</td>
+                            <td class="px-3 py-2 font-medium">{{ $name }}</td>
+                            <td class="px-3 py-2 text-gray-700">{{ $position?->title ?? '—' }}</td>
+                            <td class="px-3 py-2 text-right">
+                                <a href="{{ route('recruiting.applicants.show', $applicant->id) }}"
+                                   class="text-blue-600 hover:underline text-xs">Anzeigen →</a>
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
+
+    @if($totalCount === 0 && empty($byPhase))
         <div class="text-center py-12 text-gray-500 border border-dashed border-gray-300 rounded-lg">
             Noch keine Bewerber in den Sandbox-Positionen.
             <p class="text-xs mt-1">Lege per MCP einen Test-Bewerber an um den Flow zu starten.</p>
