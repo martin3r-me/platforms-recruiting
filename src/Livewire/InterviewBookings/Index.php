@@ -10,6 +10,7 @@ use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\SendContractsService;
@@ -360,6 +361,94 @@ class Index extends Component
             session()->flash('success', $msg);
         } else {
             session()->flash('error', "Versendet: {$sent}, Fehler: {$errors}. Details siehe Logs.");
+        }
+    }
+
+    /**
+     * Kombinierter Versand: Verträge + Portal-Link in einem Schritt.
+     * Identische Eligibility-Logik wie sendContractsBulk() — anwesend +
+     * Vertragsvorlage + noch nicht versendet + Rechtsstatus-OK +
+     * Vertragsbeginn gesetzt. Pro Booking: erst SendContractsService
+     * (legt MA an via creates_employee_on_completion-Hook), danach
+     * RecEmployee::sendPortalNotification() fuer die MA-Portal-WA.
+     *
+     * Aktuell als "NICHT NUTZEN"-Variante in der UI markiert — finaler
+     * Workflow soll diesen Button zum Default-Button machen und den
+     * reinen "Vertraege versenden" abloesen. WA-Template-Konsolidierung
+     * (Portal-WA statt doppelter Vertrag-WA + Portal-WA) als eigene
+     * Iteration.
+     */
+    public function sendPortalLinkBulk(): void
+    {
+        $blockedByLegalStatus = collect();
+        $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus) {
+            if ($b->status !== 'attended') return false;
+            if (!$b->applicant?->contract_template_id) return false;
+            if ($b->applicant->hasAnyContractSent()) return false;
+            if ($this->isLegalStatusUnchecked($b->applicant)) {
+                $blockedByLegalStatus->push($b);
+                return false;
+            }
+            return true;
+        });
+
+        if ($eligible->isEmpty()) {
+            $msg = 'Keine anwesenden Bewerber mit Vertragsvorlage und noch nicht versendet.';
+            if ($blockedByLegalStatus->isNotEmpty()) {
+                $msg .= sprintf(
+                    ' (%d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte zuerst auf HR-Schreibtisch pruefen.)',
+                    $blockedByLegalStatus->count(),
+                );
+            }
+            session()->flash('error', $msg);
+            return;
+        }
+
+        $missingBeginn = $eligible->filter(function ($b) {
+            $applicantId = $b->applicant->id;
+            return empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
+        });
+        if ($missingBeginn->isNotEmpty()) {
+            session()->flash('error', 'Bei mind. einem zu versendenden Bewerber fehlt der Vertragsbeginn.');
+            return;
+        }
+
+        $service = app(SendContractsService::class);
+        $contractsSent = 0;
+        $portalsSent = 0;
+        $errors = 0;
+
+        foreach ($eligible as $booking) {
+            try {
+                $applicantId = $booking->applicant->id;
+                $fields = $this->contractDates[$applicantId] ?? null;
+                $service->send($booking->applicant, auth()->id(), $fields);
+                $contractsSent++;
+
+                // Phase-Hook hat den MA angelegt — jetzt Portal-Link nachschieben.
+                $employee = RecEmployee::where('rec_applicant_id', $applicantId)->first();
+                if ($employee) {
+                    $employee->sendPortalNotification();
+                    $portalsSent++;
+                }
+            } catch (\Throwable $e) {
+                $errors++;
+            }
+        }
+
+        unset($this->bookings);
+
+        if ($errors === 0) {
+            $msg = "Verträge + Portal-Link versendet: {$contractsSent} Verträge, {$portalsSent} Portal-WA.";
+            if ($blockedByLegalStatus->isNotEmpty()) {
+                $msg .= sprintf(
+                    ' %d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte auf HR-Schreibtisch pruefen.',
+                    $blockedByLegalStatus->count(),
+                );
+            }
+            session()->flash('success', $msg);
+        } else {
+            session()->flash('error', "Verträge: {$contractsSent}, Portal: {$portalsSent}, Fehler: {$errors}. Details siehe Logs.");
         }
     }
 

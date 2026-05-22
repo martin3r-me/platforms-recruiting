@@ -402,6 +402,15 @@
                                     @svg('heroicon-o-paper-airplane', 'w-4 h-4 inline-block mr-1.5 -mt-0.5')
                                     Verträge versenden
                                 </button>
+                                <button
+                                    wire:click="sendPortalLinkBulk"
+                                    wire:confirm="TEST-Aktion: Verträge UND Portal-Link an alle anwesenden Bewerber senden. Aktuell nicht produktiv nutzen. Fortfahren?"
+                                    class="ml-2 px-4 py-2 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-500/90"
+                                    title="Test-Variante: Verträge + Portal-Link in einem Schritt. Nicht produktiv nutzen."
+                                >
+                                    @svg('heroicon-o-paper-airplane', 'w-4 h-4 inline-block mr-1.5 -mt-0.5')
+                                    Portallink versenden NICHT NUTZEN
+                                </button>
                             @endif
                         </div>
                     </div>
