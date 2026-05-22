@@ -44,6 +44,7 @@ class Index extends Component
      * star_rating). Modal ist nur ansteuerbar wenn fuer den
      * applicant bereits ein RecEmployee existiert (= Phase 4 done).
      */
+    public bool $showEvaluationModal = false;
     public ?int $evaluateBookingId = null;
     public array $evaluation = [
         'linen_package_items' => [],
@@ -492,10 +493,12 @@ class Index extends Component
             'qualifications'      => is_array($hr->qualifications) ? $hr->qualifications : [],
             'star_rating'         => $hr->star_rating !== null ? (string) $hr->star_rating : null,
         ];
+        $this->showEvaluationModal = true;
     }
 
     public function closeEvaluationModal(): void
     {
+        $this->showEvaluationModal = false;
         $this->evaluateBookingId = null;
         $this->evaluation = ['linen_package_items' => [], 'qualifications' => [], 'star_rating' => null];
     }

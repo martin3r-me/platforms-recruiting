@@ -505,7 +505,7 @@
     </x-ui-modal>
 
     {{-- Bewertungs-Modal (Schulungsnachbereitung pro MA) --}}
-    <x-ui-modal :show="(bool) $evaluateBookingId" wire:close="closeEvaluationModal" size="lg">
+    <x-ui-modal wire:model="showEvaluationModal" size="lg">
         <x-slot name="header">Schulungs-Bewertung</x-slot>
         @php
             $evalBooking = $evaluateBookingId ? $this->bookings->firstWhere('id', $evaluateBookingId) : null;
