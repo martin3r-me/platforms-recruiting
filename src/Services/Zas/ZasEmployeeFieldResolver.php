@@ -91,6 +91,9 @@ class ZasEmployeeFieldResolver
         'BeschErforderlich', 'AufenthaltGenehmigungErforderlich',
         'FolgeBescheinigungAm', 'InfekGueltigBis',
         'InfekBeschErforderlich', 'InfekBeschVorhanden',
+
+        // Eintrittsdatum (= Vertragsbeginn vom AV-Vertrag) — letzte Spalte
+        'Eintritt',
     ];
 
     /**
@@ -223,6 +226,9 @@ class ZasEmployeeFieldResolver
             'InfekGueltigBis'                   => $this->formatDate($this->ifsgValidUntil($employee)),
             'InfekBeschErforderlich'            => 'Ja',
             'InfekBeschVorhanden'               => $this->boolLabel($employee->infection_protection_first_issued_at !== null),
+
+            // Eintrittsdatum (= Vertragsbeginn) — als letzte Spalte
+            'Eintritt'                          => $this->formatDate($this->avContractStartDate($employee)),
         };
     }
 
@@ -382,5 +388,35 @@ class ZasEmployeeFieldResolver
             return null;
         }
         return $signed->copy()->addDays(365);
+    }
+
+    /**
+     * Vertragsbeginn (Eintrittsdatum) — wird in der Schulungsnachbereitung
+     * als 'vertragsbeginn'-extra_field auf den AV-Vertrag geschrieben.
+     * Wir nehmen den juengsten nicht-cancelled AV-Vertrag des Bewerbers.
+     */
+    protected function avContractStartDate(RecEmployee $employee): ?Carbon
+    {
+        if (!$employee->rec_applicant_id) {
+            return null;
+        }
+        $contract = \Platform\Recruiting\Models\RecContract::query()
+            ->where('rec_applicant_id', $employee->rec_applicant_id)
+            ->whereNotIn('status', ['cancelled'])
+            ->whereHas('contractTemplate', fn ($q) => $q->where('code', 'like', 'AV%'))
+            ->orderByDesc('id')
+            ->first();
+        if (!$contract) {
+            return null;
+        }
+        $value = $contract->getExtraField('vertragsbeginn');
+        if (!$value) {
+            return null;
+        }
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
