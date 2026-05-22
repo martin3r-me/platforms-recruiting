@@ -444,6 +444,14 @@ class RecApplicant extends Model implements InheritsExtraFields
             'summary' => "Alle Pflichtfelder in Phase \"{$phaseName}\" ausgefüllt — AutoPilot abgeschlossen.",
         ]);
 
+        // Phase-Completion-Hooks auch im "last phase"-Branch ausfuehren —
+        // sonst greift creates_employee_on_completion nicht wenn die letzte
+        // aktive Phase die MA-Anlage-Phase ist (typisch nach Phase-5-Deaktivierung
+        // landet Phase 4 als de-facto Endphase hier).
+        if ($phase) {
+            $this->triggerPhaseCompletionHooks($phase);
+        }
+
         // Phase entscheidet selbst ueber den Schulungs-Buchungs-Link am
         // Phase-Ende via completion_config.send_booking_notification_on_completion.
         // Legacy-Fallback: nicht konfiguriert + keine Folge-Phase → senden
