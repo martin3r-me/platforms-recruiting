@@ -209,7 +209,7 @@ class ZasEmployeeFieldResolver
             // HR-only
             'VertragVersendetAm'      => $this->formatDate($hr?->contract_sent_date),
             'VertragZurueckAm'        => $this->formatDate($hr?->contract_signed_at),
-            'BefristetBis'            => $this->formatDate($hr?->contract_end_date),
+            'BefristetBis'            => $this->formatDate($this->avContractEndDate($employee) ?? $hr?->contract_end_date),
             'Status'                  => $hr?->export_status ?? 'GO',
             'Anstellungsart'          => $this->lookupLabel('anstellungsart', $hr?->employment_classification),
             'Waeschepaket'            => $this->multiLookupLabels('waeschepaket', $hr?->linen_package_items),
@@ -391,11 +391,24 @@ class ZasEmployeeFieldResolver
     }
 
     /**
-     * Vertragsbeginn (Eintrittsdatum) — wird in der Schulungsnachbereitung
-     * als 'vertragsbeginn'-extra_field auf den AV-Vertrag geschrieben.
-     * Wir nehmen den juengsten nicht-cancelled AV-Vertrag des Bewerbers.
+     * Vertragsbeginn (Eintrittsdatum) und Vertragsende (BefristetBis) —
+     * werden in der Schulungsnachbereitung als vertragsbeginn/vertragsende
+     * extra_field auf den AV-Vertrag geschrieben. Wir nehmen den juengsten
+     * nicht-cancelled AV-Vertrag des Bewerbers als Quelle der Wahrheit
+     * (nicht den hrData-Snapshot — der koennte veraltet sein wenn HR den
+     * Vertrag nachtraeglich editiert).
      */
     protected function avContractStartDate(RecEmployee $employee): ?Carbon
+    {
+        return $this->avContractExtraDate($employee, 'vertragsbeginn');
+    }
+
+    protected function avContractEndDate(RecEmployee $employee): ?Carbon
+    {
+        return $this->avContractExtraDate($employee, 'vertragsende');
+    }
+
+    protected function avContractExtraDate(RecEmployee $employee, string $field): ?Carbon
     {
         if (!$employee->rec_applicant_id) {
             return null;
@@ -409,7 +422,7 @@ class ZasEmployeeFieldResolver
         if (!$contract) {
             return null;
         }
-        $value = $contract->getExtraField('vertragsbeginn');
+        $value = $contract->getExtraField($field);
         if (!$value) {
             return null;
         }
