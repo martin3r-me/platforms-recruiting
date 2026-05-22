@@ -381,6 +381,21 @@
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird beim Klick auf "Portal per WhatsApp senden" genutzt. Der Portal-Link (Übersicht aller zugewiesenen Verträge zum Unterschreiben) wird als URL-Button-Parameter übergeben. Ohne Konfiguration fällt der Versand auf einen Kopier-Link zurück.</p>
                     @endif
 
+                    {{-- Employee Portal Template (neuer kombinierter Flow) --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            name="settings.employee_portal_wa_template_id"
+                            label="WhatsApp Template — Mitarbeiter-Portal"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model="settings.employee_portal_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird beim Klick auf "Portallink versenden" (Schulungsnachbereitung) und beim HR-Backend-Resend genutzt. Sendet den MA-Portal-Link nach Vertragsversand. Vertrags-WA wird in diesem Flow unterdrueckt – der MA sieht die Vertraege direkt im Portal.</p>
+                    @endif
+
                     {{-- Enrichment Template --}}
                     <div class="pt-4 mt-4 border-t border-[var(--ui-border)]/40">
                         <h4 class="text-sm font-medium text-[var(--ui-secondary)] mb-3">Enrichment</h4>

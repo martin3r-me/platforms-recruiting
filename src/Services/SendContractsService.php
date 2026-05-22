@@ -43,7 +43,7 @@ class SendContractsService
      * @throws \RuntimeException if applicant has no contract_template_id set
      *                           or the chosen template is invalid
      */
-    public function send(RecApplicant $applicant, ?int $createdByUserId = null, ?array $contractFields = null): array
+    public function send(RecApplicant $applicant, ?int $createdByUserId = null, ?array $contractFields = null, bool $skipNotification = false): array
     {
         if (!$applicant->contract_template_id) {
             throw new \RuntimeException(
@@ -74,7 +74,7 @@ class SendContractsService
             $contractFields['vertragsende'] ?? null,
         );
 
-        return DB::transaction(function () use ($applicant, $avTemplate, $ifsgTemplate, $createdByUserId, $resolvedDates) {
+        return DB::transaction(function () use ($applicant, $avTemplate, $ifsgTemplate, $createdByUserId, $resolvedDates, $skipNotification) {
             $created = 0;
             $reused = 0;
 
@@ -203,7 +203,7 @@ class SendContractsService
             //    mindestens ein Vertrag JETZT erstmalig als gesendet
             //    markiert wurde — verhindert doppelte Notification beim
             //    Bulk-Re-Send fuer schon abgeschlossene Bewerber.
-            if ($nowSentCount > 0) {
+            if ($nowSentCount > 0 && !$skipNotification) {
                 $applicant->refresh();
                 $applicant->sendContractPortalNotification();
             }

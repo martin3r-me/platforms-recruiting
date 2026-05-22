@@ -422,7 +422,10 @@ class Index extends Component
             try {
                 $applicantId = $booking->applicant->id;
                 $fields = $this->contractDates[$applicantId] ?? null;
-                $service->send($booking->applicant, auth()->id(), $fields);
+                // skipNotification=true: Vertrags-WA wird unterdrueckt — der
+                // MA bekommt stattdessen nur die Portal-WA (das Portal listet
+                // die Vertraege ohnehin auf).
+                $service->send($booking->applicant, auth()->id(), $fields, true);
                 $contractsSent++;
 
                 // Phase-Hook hat den MA angelegt — jetzt Portal-Link nachschieben.
