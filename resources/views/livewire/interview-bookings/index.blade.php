@@ -221,6 +221,7 @@
                                     <th class="px-4 py-3">Vertragsvorlage</th>
                                     <th class="px-4 py-3">Vertragslaufzeit</th>
                                     <th class="px-4 py-3">Vertragsstatus</th>
+                                    <th class="px-4 py-3">Bewertung</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-[var(--ui-border)]/60">
@@ -353,10 +354,28 @@
                                                 <span class="text-xs text-[var(--ui-muted)]">—</span>
                                             @endif
                                         </td>
+                                        <td class="px-4 py-3">
+                                            @php $employee = $applicant?->employee; @endphp
+                                            @if($employee)
+                                                @php
+                                                    $hr = $employee->hrData;
+                                                    $hasRating = $hr && ($hr->star_rating !== null || !empty($hr->linen_package_items) || !empty($hr->qualifications));
+                                                @endphp
+                                                <button
+                                                    wire:click="openEvaluationModal({{ $booking->id }})"
+                                                    class="px-2.5 py-1 text-xs font-medium rounded-md border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]"
+                                                >
+                                                    @svg('heroicon-o-star', 'w-3.5 h-3.5 inline-block -mt-0.5 mr-1')
+                                                    {{ $hasRating ? 'Bewertung bearbeiten' : 'Bewerten' }}
+                                                </button>
+                                            @else
+                                                <span class="text-xs text-[var(--ui-muted)]" title="MA noch nicht angelegt – Verträge zuerst versenden">—</span>
+                                            @endif
+                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                        <td colspan="6" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                             @svg('heroicon-o-clipboard-document-list', 'w-10 h-10 text-[var(--ui-muted)] mx-auto mb-2')
                                             <div class="text-sm">Keine Buchungen vorhanden</div>
                                         </td>
@@ -482,6 +501,74 @@
         <x-slot name="footer">
             <x-ui-button variant="secondary" wire:click="$set('showBookModal', false)">Abbrechen</x-ui-button>
             <x-ui-button variant="primary" wire:click="book">Buchen</x-ui-button>
+        </x-slot>
+    </x-ui-modal>
+
+    {{-- Bewertungs-Modal (Schulungsnachbereitung pro MA) --}}
+    <x-ui-modal :show="(bool) $evaluateBookingId" wire:close="closeEvaluationModal" size="lg">
+        <x-slot name="header">Schulungs-Bewertung</x-slot>
+        @php
+            $evalBooking = $evaluateBookingId ? $this->bookings->firstWhere('id', $evaluateBookingId) : null;
+            $evalEmployee = $evalBooking?->applicant?->employee;
+            $evalContactName = $evalBooking?->applicant?->crmContactLinks?->first()?->contact?->full_name ?? 'Unbekannt';
+        @endphp
+        <div class="space-y-5">
+            @if($evalEmployee)
+                <div class="text-sm text-[var(--ui-muted)]">
+                    <strong class="text-[var(--ui-secondary)]">{{ $evalContactName }}</strong>
+                    <span class="ml-2 text-xs">MA #{{ $evalEmployee->id }}</span>
+                </div>
+
+                {{-- Sternebewertung --}}
+                <div>
+                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">Sternebewertung</label>
+                    <div class="flex gap-2">
+                        @foreach(['1','2','3','4','5'] as $star)
+                            <label class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-md border cursor-pointer {{ ($evaluation['star_rating'] ?? null) === $star ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]' }}">
+                                <input type="radio" wire:model.live="evaluation.star_rating" value="{{ $star }}" class="sr-only">
+                                @svg('heroicon-m-star', 'w-4 h-4')
+                                {{ $star }}
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Waeschepaket --}}
+                <div>
+                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">Wäschepaket erhalten</label>
+                    <div class="border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm bg-white flex flex-wrap gap-x-4 gap-y-1.5">
+                        @forelse($this->lookupOptionsFor('waeschepaket') as $optValue => $optLabel)
+                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                <input type="checkbox" wire:model="evaluation.linen_package_items" value="{{ $optValue }}" class="rounded border-[var(--ui-border)]">
+                                <span>{{ $optLabel }}</span>
+                            </label>
+                        @empty
+                            <span class="text-xs text-[var(--ui-muted)]">Keine Lookup-Werte konfiguriert.</span>
+                        @endforelse
+                    </div>
+                </div>
+
+                {{-- Qualifikation --}}
+                <div>
+                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">Qualifikation</label>
+                    <div class="border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm bg-white flex flex-wrap gap-x-4 gap-y-1.5">
+                        @forelse($this->lookupOptionsFor('qualifikation') as $optValue => $optLabel)
+                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                <input type="checkbox" wire:model="evaluation.qualifications" value="{{ $optValue }}" class="rounded border-[var(--ui-border)]">
+                                <span>{{ $optLabel }}</span>
+                            </label>
+                        @empty
+                            <span class="text-xs text-[var(--ui-muted)]">Keine Lookup-Werte konfiguriert.</span>
+                        @endforelse
+                    </div>
+                </div>
+            @else
+                <div class="text-sm text-[var(--ui-muted)]">Mitarbeiter nicht gefunden.</div>
+            @endif
+        </div>
+        <x-slot name="footer">
+            <x-ui-button variant="secondary" wire:click="closeEvaluationModal">Abbrechen</x-ui-button>
+            <x-ui-button variant="primary" wire:click="saveEvaluation">Speichern</x-ui-button>
         </x-slot>
     </x-ui-modal>
 </x-ui-page>

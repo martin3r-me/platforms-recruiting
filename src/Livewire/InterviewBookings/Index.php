@@ -14,6 +14,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\SendContractsService;
+use Platform\Core\Models\CoreLookup;
 
 class Index extends Component
 {
@@ -35,6 +36,20 @@ class Index extends Component
      * die neu erstellten AV+IFSG-Verträge als Extra-Fields geschrieben.
      */
     public array $contractDates = [];
+
+    /**
+     * Schulungs-Bewertungs-Modal. Pro MA setzt der Schulungsleiter
+     * Waeschepaket, Qualifikation und Sternebewertung. Daten landen
+     * auf rec_employee_hr_data (linen_package_items, qualifications,
+     * star_rating). Modal ist nur ansteuerbar wenn fuer den
+     * applicant bereits ein RecEmployee existiert (= Phase 4 done).
+     */
+    public ?int $evaluateBookingId = null;
+    public array $evaluation = [
+        'linen_package_items' => [],
+        'qualifications'      => [],
+        'star_rating'         => null,
+    ];
 
     public function mount(int $interview)
     {
@@ -69,6 +84,8 @@ class Index extends Component
                 'applicant.postings.position',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
+                'applicant.employee:id,rec_applicant_id',
+                'applicant.employee.hrData',
             ])
             ->orderBy('booked_at', 'desc');
 
@@ -453,6 +470,66 @@ class Index extends Component
         } else {
             session()->flash('error', "Verträge: {$contractsSent}, Portal: {$portalsSent}, Fehler: {$errors}. Details siehe Logs.");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Bewertungs-Modal (Waeschepaket, Qualifikation, Sternebewertung)
+    // ------------------------------------------------------------------
+
+    public function openEvaluationModal(int $bookingId): void
+    {
+        $booking = $this->bookings->firstWhere('id', $bookingId);
+        $employee = $booking?->applicant?->employee;
+        if (!$employee) {
+            session()->flash('error', 'Mitarbeiter noch nicht angelegt — Vertraege zuerst versenden.');
+            return;
+        }
+
+        $hr = $employee->hrData ?? $employee->ensureHrData()->fresh();
+        $this->evaluateBookingId = $bookingId;
+        $this->evaluation = [
+            'linen_package_items' => is_array($hr->linen_package_items) ? $hr->linen_package_items : [],
+            'qualifications'      => is_array($hr->qualifications) ? $hr->qualifications : [],
+            'star_rating'         => $hr->star_rating !== null ? (string) $hr->star_rating : null,
+        ];
+    }
+
+    public function closeEvaluationModal(): void
+    {
+        $this->evaluateBookingId = null;
+        $this->evaluation = ['linen_package_items' => [], 'qualifications' => [], 'star_rating' => null];
+    }
+
+    public function saveEvaluation(): void
+    {
+        if (!$this->evaluateBookingId) {
+            return;
+        }
+        $booking = $this->bookings->firstWhere('id', $this->evaluateBookingId);
+        $employee = $booking?->applicant?->employee;
+        if (!$employee) {
+            session()->flash('error', 'Mitarbeiter nicht mehr vorhanden.');
+            $this->closeEvaluationModal();
+            return;
+        }
+
+        $hr = $employee->hrData ?? $employee->ensureHrData();
+        $hr->linen_package_items = array_values(array_filter($this->evaluation['linen_package_items'] ?? [], fn ($v) => $v !== '' && $v !== null)) ?: null;
+        $hr->qualifications      = array_values(array_filter($this->evaluation['qualifications'] ?? [], fn ($v) => $v !== '' && $v !== null)) ?: null;
+        $hr->star_rating         = ($this->evaluation['star_rating'] !== null && $this->evaluation['star_rating'] !== '')
+            ? (int) $this->evaluation['star_rating']
+            : null;
+        $hr->save();
+
+        session()->flash('success', 'Bewertung gespeichert.');
+        $this->closeEvaluationModal();
+        unset($this->bookings);
+    }
+
+    public function lookupOptionsFor(string $lookupName): array
+    {
+        $lookup = CoreLookup::where('name', $lookupName)->first();
+        return $lookup ? $lookup->getOptionsArray() : [];
     }
 
     /**
