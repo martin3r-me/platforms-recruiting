@@ -55,6 +55,53 @@ class Index extends Component
     public function mount(int $interview)
     {
         $this->interviewId = $interview;
+        $this->hydrateContractDatesFromExistingContracts();
+    }
+
+    /**
+     * Liest aus bestehenden AV-Vertraegen die vertragsbeginn/-ende-extra_fields
+     * und befuellt damit das contractDates-Array. So zeigt das UI nach
+     * Vertragsversand und nach Refresh die korrekten Daten an statt leere
+     * Felder (= reiner Display-Bug, die Werte sind im Vertrag persistent).
+     *
+     * Idempotent, ueberschreibt schon-gesetzte Werte nicht (User-Input
+     * vor Send hat Vorrang).
+     */
+    protected function hydrateContractDatesFromExistingContracts(): void
+    {
+        $bookings = RecInterviewBooking::where('rec_interview_id', $this->interviewId)
+            ->whereNotIn('status', ['cancelled'])
+            ->with([
+                'applicant.contracts' => function ($q) {
+                    $q->whereNotIn('status', ['cancelled'])
+                        ->with('contractTemplate', 'extraFieldValues.definition');
+                },
+            ])
+            ->get();
+
+        foreach ($bookings as $booking) {
+            $applicantId = $booking->applicant?->id;
+            if (!$applicantId) continue;
+
+            $avContract = $booking->applicant->contracts
+                ->filter(fn ($c) => $c->contractTemplate && str_starts_with($c->contractTemplate->code ?? '', 'AV'))
+                ->sortByDesc('id')
+                ->first();
+            if (!$avContract) continue;
+
+            $beginn = $avContract->getExtraField('vertragsbeginn');
+            $ende   = $avContract->getExtraField('vertragsende');
+            if (!$beginn && !$ende) continue;
+
+            $current = $this->contractDates[$applicantId] ?? ['vertragsbeginn' => null, 'vertragsende' => null];
+            if (empty($current['vertragsbeginn']) && $beginn) {
+                $current['vertragsbeginn'] = $beginn;
+            }
+            if (empty($current['vertragsende']) && $ende) {
+                $current['vertragsende'] = $ende;
+            }
+            $this->contractDates[$applicantId] = $current;
+        }
     }
 
     public function render()
@@ -367,6 +414,7 @@ class Index extends Component
         }
 
         unset($this->bookings);
+        $this->hydrateContractDatesFromExistingContracts();
 
         if ($errors === 0) {
             $msg = "Verträge versendet für {$sent} Bewerber.";
@@ -458,6 +506,7 @@ class Index extends Component
         }
 
         unset($this->bookings);
+        $this->hydrateContractDatesFromExistingContracts();
 
         if ($errors === 0) {
             $msg = "Verträge + Portal-Link versendet: {$contractsSent} Verträge, {$portalsSent} Portal-WA.";
