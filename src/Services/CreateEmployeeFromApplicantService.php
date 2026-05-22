@@ -112,6 +112,10 @@ class CreateEmployeeFromApplicantService
                 'fiktionsbescheinigung_front_file_id' => $this->normalizeFileId($extraValues['fiktionsbescheinigung_vorderseite'] ?? null),
                 'fiktionsbescheinigung_back_file_id'  => $this->normalizeFileId($extraValues['fiktionsbescheinigung_ruckseite'] ?? null),
 
+                // Aufenthalts-Daten (Non-EU): aus extra_fields in P3.
+                'residence_permit_valid_until'   => $this->normalizeDateValue($extraValues['aufenthaltserlaubnis_bis'] ?? null),
+                'work_permit_valid_until'        => $this->normalizeDateValue($extraValues['arbeitsgenehmigung_bis'] ?? null),
+
                 // Lifecycle
                 'is_active'            => true,
                 'employed_since'       => now()->toDateString(),
