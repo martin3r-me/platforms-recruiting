@@ -596,7 +596,10 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
         $legalStatus = $this->legalStatus;
         if (!$legalStatus) {
-            $legalStatus = $this->legalStatus()->create(['is_eu_citizen' => null]);
+            $legalStatus = $this->legalStatus()->create([
+                'is_eu_citizen' => null,
+                'team_id'       => $this->team_id,
+            ]);
             $this->setRelation('legalStatus', $legalStatus);
         }
         if ($legalStatus->is_eu_citizen === $bool) {
