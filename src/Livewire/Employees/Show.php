@@ -78,6 +78,41 @@ class Show extends Component
             ->find($this->employeeId);
     }
 
+    /**
+     * Signed contracts of the linked applicant (PDF-Download fuer HR im
+     * Backend). Identische Logik wie EmployeePortal::contracts() — wir
+     * nutzen den Applicant-Token, weil der ContractPdfController via
+     * CorePublicFormLink validiert.
+     */
+    #[Computed]
+    public function signedContracts(): array
+    {
+        $emp = $this->employee();
+        if (!$emp?->applicant) {
+            return [];
+        }
+        $applicantToken = $emp->applicant->getOrCreatePublicFormLink()->token;
+        return $emp->applicant->contracts
+            ->filter(fn ($c) => $c->status === 'completed' && $c->signed_at)
+            ->map(function ($c) use ($applicantToken) {
+                $code = $c->contractTemplate?->code;
+                $displayName = match (true) {
+                    $code !== null && str_starts_with($code, 'AV-') => 'Arbeitsvertrag (' . $code . ')',
+                    $code === 'IFSG'                                => 'Infektionsschutzgesetz',
+                    $code !== null && str_starts_with($code, 'AT-') => 'Zusatzvereinbarung (' . $code . ')',
+                    default                                         => $c->contractTemplate?->name ?? 'Vertrag',
+                };
+                return [
+                    'id'           => $c->id,
+                    'display_name' => $displayName,
+                    'signed_at'    => $c->signed_at,
+                    'pdf_url'      => route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id]),
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
     #[Computed]
     public function positions()
     {

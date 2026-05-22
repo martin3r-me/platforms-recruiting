@@ -246,6 +246,30 @@
                 @endforeach
             </div>
 
+            {{-- Signierte Vertraege (Download) --}}
+            @php $contracts = $this->signedContracts; @endphp
+            @if(!empty($contracts))
+                <div class="mt-6 p-4 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg">
+                    <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-3">Unterschriebene Vertraege</h3>
+                    <div class="space-y-2">
+                        @foreach($contracts as $c)
+                            <div class="flex items-center justify-between gap-3 p-2 bg-white border border-[var(--ui-border)]/60 rounded-md">
+                                <div class="flex items-center gap-2 text-sm">
+                                    @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600')
+                                    <span class="font-medium">{{ $c['display_name'] }}</span>
+                                    <span class="text-xs text-[var(--ui-muted)]">am {{ \Carbon\Carbon::parse($c['signed_at'])->format('d.m.Y') }}</span>
+                                </div>
+                                <a href="{{ $c['pdf_url'] }}" target="_blank"
+                                   class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 text-emerald-800 bg-emerald-50 text-xs font-medium rounded-md hover:bg-emerald-100 transition-colors">
+                                    @svg('heroicon-o-document-arrow-down', 'w-3.5 h-3.5')
+                                    PDF
+                                </a>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             {{-- Sticky Save --}}
             <div class="sticky bottom-0 bg-[var(--ui-surface)] pt-4 mt-6 flex items-center justify-between gap-3 border-t border-[var(--ui-border)]">
                 <a href="{{ route('recruiting.employees.index') }}" wire:navigate
