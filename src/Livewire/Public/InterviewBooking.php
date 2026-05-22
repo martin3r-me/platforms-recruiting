@@ -150,10 +150,24 @@ class InterviewBooking extends Component
 
         $wunschPositionIds = collect();
         if (!empty($wunschOrte)) {
-            $wunschPositionIds = RecPosition::forTeam($applicant->team_id)
+            // Cut-Over-Schutz: alte ('% bis %' im Titel) und neue Stellen
+            // duerfen sich nicht im Wunsch-Match vermischen. Sonst wuerde
+            // ein alter Bewerber (in P1/P2 ohne Booking) eine neue Stelle
+            // sehen — Buchung darauf laesst Phase-Modell auseinanderlaufen.
+            $primaryTitle = $applicant->postings->first()?->position?->title ?? '';
+            $primaryIsLegacy = str_contains($primaryTitle, ' bis ');
+
+            $query = RecPosition::forTeam($applicant->team_id)
                 ->whereIn('beschaftigungsort_lookup_value', $wunschOrte)
-                ->where('is_active', true)
-                ->pluck('id');
+                ->where('is_active', true);
+
+            if ($primaryIsLegacy) {
+                $query->where('title', 'like', '% bis %');
+            } else {
+                $query->where('title', 'not like', '% bis %');
+            }
+
+            $wunschPositionIds = $query->pluck('id');
         }
 
         return $wunschPositionIds
