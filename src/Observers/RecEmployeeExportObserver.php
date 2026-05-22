@@ -57,7 +57,10 @@ class RecEmployeeExportObserver
 
         // Sonstiges
         'drivers_license_class', 'has_car', 'recruited_by_personnel_number',
-        'personnel_number',
+        // personnel_number bewusst NICHT hier — Feld ist HR-only im
+        // MA-Backend, geht aktuell nicht in den ZAS-Export → Aenderung
+        // soll auch keinen Update-Pull ausloesen. Wenn PersNr spaeter
+        // doch exportiert wird, hier wieder aufnehmen.
 
         // Kleidung
         'shirt_size', 'pants_size', 'shoe_size',
