@@ -65,7 +65,7 @@ class CreateEmployeeFromApplicantService
                 'identity_card_back_file_id'  => $this->normalizeFileId($extraValues['ausweis_reisepass_foto_ruckseite'] ?? null),
                 'selfie_file_id'              => $this->normalizeFileId($extraValues['selfie_upload'] ?? null),
                 'email'                => $extraValues['email']     ?? $primaryContact?->emailAddresses?->first()?->email_address,
-                'phone'                => $extraValues['telefonnummer'] ?? $primaryContact?->phoneNumbers?->first()?->raw_input,
+                'phone'                => $this->normalizePhoneValue($extraValues['telefonnummer'] ?? null) ?? $primaryContact?->phoneNumbers?->first()?->raw_input,
 
                 // Adresse (extra_fields — wenn in P3 erfasst)
                 'street'               => $extraValues['strasse'] ?? null,
@@ -212,6 +212,30 @@ class CreateEmployeeFromApplicantService
      * gespeichert. Wenn der Wert ein JSON-String ist → dekodieren;
      * sonst null lassen.
      */
+    /**
+     * extra_field-Wert vom Typ 'phone' kommt vom Core-Form als Array mit
+     * raw/country/e164/international. Wir nehmen das e164-Format
+     * (z.B. "+4915562972070") — passt in die rec_employees.phone-Spalte
+     * (VARCHAR 32) und ist eindeutig. Bei String-Eingabe (Legacy / direkt
+     * gemappt) durchreichen.
+     */
+    private function normalizePhoneValue($raw): ?string
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        if (is_array($raw)) {
+            return $raw['e164'] ?? $raw['raw'] ?? $raw['international'] ?? null;
+        }
+        if (is_string($raw) && str_starts_with(trim($raw), '{')) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return $decoded['e164'] ?? $decoded['raw'] ?? $decoded['international'] ?? null;
+            }
+        }
+        return (string) $raw;
+    }
+
     private function normalizeArrayValue($raw): ?array
     {
         if ($raw === null || $raw === '') {
