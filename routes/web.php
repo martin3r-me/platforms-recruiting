@@ -18,6 +18,11 @@ use Platform\Recruiting\Livewire\ContractTemplates\Index as ContractTemplatesInd
 Route::get('/', Dashboard::class)->name('recruiting.dashboard');
 Route::get('/parked', Dashboard::class)->name('recruiting.dashboard.parked');
 
+// Dashboard-alt (Legacy): zeigt Stellen mit '_old'-Suffix + alte
+// 2-Phasen-Logik. Temporaere Bruecke bis Migration alter Bewerber durch.
+Route::get('/dashboard-alt', \Platform\Recruiting\Livewire\Dashboard\DashboardLegacy::class)
+    ->name('recruiting.dashboard.legacy');
+
 // Test-Dashboard fuer Sandbox-Positionen (Direct-URL, nicht im Sidebar)
 Route::get('/testdashboard', \Platform\Recruiting\Livewire\Dashboard\TestDashboard::class)
     ->name('recruiting.dashboard.test');

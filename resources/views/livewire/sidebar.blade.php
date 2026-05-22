@@ -11,6 +11,10 @@
             <span class="ml-2 text-sm">Dashboard</span>
             <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-[var(--ui-muted-5)] text-[var(--ui-muted)]">{{ $this->stats['active_applicants'] }}</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.dashboard.legacy')">
+            @svg('heroicon-o-archive-box', 'w-4 h-4 text-[var(--ui-muted)]')
+            <span class="ml-2 text-sm text-[var(--ui-muted)]">Dashboard-alt</span>
+        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.dashboard.parked')">
             @svg('heroicon-o-pause', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Geparkt</span>

@@ -23,6 +23,13 @@ class Dashboard extends Component
 
     public bool $showParked = false;
     public bool $showHrDesk = false;
+    /**
+     * Legacy-Modus: zeigt nur Stellen mit '_old'-Suffix + alle aktiven
+     * Phasen davon (ignoriert show_in_dashboard-Flag). Wird via Subklasse
+     * DashboardLegacy aktiviert. Default-Dashboard zeigt nur Stellen
+     * OHNE '_old'-Suffix.
+     */
+    public bool $legacyMode = false;
     public ?int $positionFilter = null;
     public ?int $phaseFilter = null;
     public ?string $activityFilter = null;
@@ -37,6 +44,26 @@ class Dashboard extends Component
         $this->showHrDesk = request()->routeIs('recruiting.dashboard.hr-desk');
     }
 
+    /**
+     * Liefert die IDs der Stellen die im aktuellen Mode (legacy vs.
+     * production) sichtbar sind. Production: ohne '_old'-Suffix.
+     * Legacy: mit '_old'-Suffix. Wird zentral fuer alle Queries genutzt
+     * sodass die Filter-Logik nicht in mehreren Methoden dupliziert wird.
+     */
+    protected function modeScopedPositionIds(): array
+    {
+        $cacheKey = 'mode_scoped_positions_' . ($this->legacyMode ? 'legacy' : 'prod') . '_' . auth()->user()->currentTeam->id;
+        return Cache::remember($cacheKey, 30, function () {
+            $q = RecPosition::forTeam(auth()->user()->currentTeam->id);
+            if ($this->legacyMode) {
+                $q->where('title', 'like', '%\\_old');
+            } else {
+                $q->where('title', 'not like', '%\\_old');
+            }
+            return $q->pluck('id')->all();
+        });
+    }
+
     private function applicantBaseQuery()
     {
         $query = RecApplicant::forTeam(auth()->user()->currentTeam->id)
@@ -44,6 +71,10 @@ class Dashboard extends Component
             ->withoutImports()
             ->where('is_active', true)
             ->whereNull('rejected_at');
+
+        // Mode-Scoping: nur Bewerber von Stellen des aktuellen Modes
+        $scopedPositionIds = $this->modeScopedPositionIds();
+        $query->whereHas('postings', fn ($q) => $q->whereIn('rec_position_id', $scopedPositionIds));
 
         if ($this->showHrDesk) {
             $query->where('is_on_hr_desk', true)->where('is_parked', false);
@@ -84,6 +115,7 @@ class Dashboard extends Component
     {
         return RecPosition::forTeam(auth()->user()->currentTeam->id)
             ->active()
+            ->whereIn('id', $this->modeScopedPositionIds())
             ->orderBy('title')
             ->get();
     }
@@ -93,15 +125,25 @@ class Dashboard extends Component
     {
         if ($this->positionFilter) {
             $position = RecPosition::find($this->positionFilter);
-            return $position?->phases()->active()->where('show_in_dashboard', true)->ordered()->get() ?? collect();
+            // Im Legacy-Mode show_in_dashboard-Flag ignorieren (alte
+            // Phasen haben false, sollen aber im Legacy-Dashboard sichtbar
+            // sein).
+            $query = $position?->phases()->active()->ordered();
+            if ($query && !$this->legacyMode) {
+                $query->where('show_in_dashboard', true);
+            }
+            return $query?->get() ?? collect();
         }
 
-        // Without position filter: distinct phase orders across all positions
-        // Only consider phases with show_in_dashboard=true so that hidden
-        // phases (e.g. Sandbox) do not pollute the aggregated pipeline.
-        return RecPhase::forTeam(auth()->user()->currentTeam->id)
+        // Ohne Position-Filter: distinct Phasen-Orders der mode-scoped
+        // Stellen. Legacy-Mode ignoriert show_in_dashboard.
+        $phaseQuery = RecPhase::forTeam(auth()->user()->currentTeam->id)
             ->active()
-            ->where('show_in_dashboard', true)
+            ->whereIn('rec_position_id', $this->modeScopedPositionIds());
+        if (!$this->legacyMode) {
+            $phaseQuery->where('show_in_dashboard', true);
+        }
+        return $phaseQuery
             ->ordered()
             ->get()
             ->groupBy('order')
@@ -121,7 +163,7 @@ class Dashboard extends Component
         $query = $this->applicantBaseQuery()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
-            ->whereHas('phase', fn ($q) => $q->where('show_in_dashboard', true))
+            ->when(!$this->legacyMode, fn ($q) => $q->whereHas('phase', fn ($q2) => $q2->where('show_in_dashboard', true)))
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
@@ -189,7 +231,10 @@ class Dashboard extends Component
     #[Computed]
     public function positionCount()
     {
-        return RecPosition::forTeam(auth()->user()->currentTeam->id)->active()->count();
+        return RecPosition::forTeam(auth()->user()->currentTeam->id)
+            ->active()
+            ->whereIn('id', $this->modeScopedPositionIds())
+            ->count();
     }
 
     #[Computed]
@@ -198,7 +243,10 @@ class Dashboard extends Component
         if ($this->positionFilter) {
             return RecPosting::where('rec_position_id', $this->positionFilter)->active()->count();
         }
-        return RecPosting::forTeam(auth()->user()->currentTeam->id)->active()->count();
+        return RecPosting::forTeam(auth()->user()->currentTeam->id)
+            ->active()
+            ->whereIn('rec_position_id', $this->modeScopedPositionIds())
+            ->count();
     }
 
     /**
