@@ -14,6 +14,9 @@
         <x-ui-sidebar-item :href="route('recruiting.dashboard.legacy')">
             @svg('heroicon-o-archive-box', 'w-4 h-4 text-[var(--ui-muted)]')
             <span class="ml-2 text-sm text-[var(--ui-muted)]">Dashboard-alt</span>
+            @if(($this->stats['legacy_applicants'] ?? 0) > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-[var(--ui-muted-5)] text-[var(--ui-muted)]">{{ $this->stats['legacy_applicants'] }}</span>
+            @endif
         </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.dashboard.parked')">
             @svg('heroicon-o-pause', 'w-4 h-4 text-[var(--ui-secondary)]')

@@ -42,7 +42,12 @@ class Sidebar extends Component
             'total_postings' => RecPosting::forTeam($teamId)->count(),
             'active_postings' => RecPosting::forTeam($teamId)->active()->count(),
             'total_applicants' => RecApplicant::forTeam($teamId)->count(),
-            'active_applicants' => RecApplicant::forTeam($teamId)->active()->count(),
+            'active_applicants' => RecApplicant::forTeam($teamId)->active()
+                ->whereHas('postings.position', fn ($q) => $q->where('title', 'not like', '% bis %'))
+                ->count(),
+            'legacy_applicants' => RecApplicant::forTeam($teamId)->active()
+                ->whereHas('postings.position', fn ($q) => $q->where('title', 'like', '% bis %'))
+                ->count(),
             'parked_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_parked', true)->count(),
             'hr_desk_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_on_hr_desk', true)->count(),
             'unrouted_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_unrouted', true)->count(),

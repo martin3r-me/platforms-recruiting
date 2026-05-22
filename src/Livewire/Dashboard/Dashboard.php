@@ -74,9 +74,14 @@ class Dashboard extends Component
             ->where('is_active', true)
             ->whereNull('rejected_at');
 
-        // Mode-Scoping: nur Bewerber von Stellen des aktuellen Modes
-        $scopedPositionIds = $this->modeScopedPositionIds();
-        $query->whereHas('postings', fn ($q) => $q->whereIn('rec_position_id', $scopedPositionIds));
+        // Mode-Scoping: nur Bewerber von Stellen des aktuellen Modes.
+        // Parked + HR-Schreibtisch sind bewusst Mode-uebergreifend — sie
+        // zeigen kritische Bewerber egal ob alt oder neu, damit HR den
+        // Ueberblick ueber beide Phasen-Modelle behaelt.
+        if (!$this->showParked && !$this->showHrDesk) {
+            $scopedPositionIds = $this->modeScopedPositionIds();
+            $query->whereHas('postings', fn ($q) => $q->whereIn('rec_position_id', $scopedPositionIds));
+        }
 
         if ($this->showHrDesk) {
             $query->where('is_on_hr_desk', true)->where('is_parked', false);
@@ -115,11 +120,13 @@ class Dashboard extends Component
     #[Computed]
     public function positions()
     {
-        return RecPosition::forTeam(auth()->user()->currentTeam->id)
-            ->active()
-            ->whereIn('id', $this->modeScopedPositionIds())
-            ->orderBy('title')
-            ->get();
+        $q = RecPosition::forTeam(auth()->user()->currentTeam->id)->active();
+        // Parked + HR-Schreibtisch zeigen Stellen aus beiden Modes — sonst
+        // kann HR im Filter nur die jeweils mode-passenden Stellen waehlen.
+        if (!$this->showParked && !$this->showHrDesk) {
+            $q->whereIn('id', $this->modeScopedPositionIds());
+        }
+        return $q->orderBy('title')->get();
     }
 
     #[Computed]
@@ -138,10 +145,15 @@ class Dashboard extends Component
         }
 
         // Ohne Position-Filter: distinct Phasen-Orders der mode-scoped
-        // Stellen. Legacy-Mode ignoriert show_in_dashboard.
-        $phaseQuery = RecPhase::forTeam(auth()->user()->currentTeam->id)
-            ->active()
-            ->whereIn('rec_position_id', $this->modeScopedPositionIds());
+        // Stellen. Mode-Filter wird bei Parked + HR-Schreibtisch ueber-
+        // sprungen damit Bewerber beider Modelle sichtbar sind. show_in_
+        // dashboard-Filter bleibt fuer Parked aktiv (= Original-Verhalten
+        // vor Cut), nur Legacy-Mode ignoriert ihn (alte Phasen haben den
+        // Flag auf false gesetzt, sollen im Legacy-Dashboard sichtbar sein).
+        $phaseQuery = RecPhase::forTeam(auth()->user()->currentTeam->id)->active();
+        if (!$this->showParked && !$this->showHrDesk) {
+            $phaseQuery->whereIn('rec_position_id', $this->modeScopedPositionIds());
+        }
         if (!$this->legacyMode) {
             $phaseQuery->where('show_in_dashboard', true);
         }
@@ -233,10 +245,11 @@ class Dashboard extends Component
     #[Computed]
     public function positionCount()
     {
-        return RecPosition::forTeam(auth()->user()->currentTeam->id)
-            ->active()
-            ->whereIn('id', $this->modeScopedPositionIds())
-            ->count();
+        $q = RecPosition::forTeam(auth()->user()->currentTeam->id)->active();
+        if (!$this->showParked && !$this->showHrDesk) {
+            $q->whereIn('id', $this->modeScopedPositionIds());
+        }
+        return $q->count();
     }
 
     #[Computed]
@@ -245,10 +258,11 @@ class Dashboard extends Component
         if ($this->positionFilter) {
             return RecPosting::where('rec_position_id', $this->positionFilter)->active()->count();
         }
-        return RecPosting::forTeam(auth()->user()->currentTeam->id)
-            ->active()
-            ->whereIn('rec_position_id', $this->modeScopedPositionIds())
-            ->count();
+        $q = RecPosting::forTeam(auth()->user()->currentTeam->id)->active();
+        if (!$this->showParked && !$this->showHrDesk) {
+            $q->whereIn('rec_position_id', $this->modeScopedPositionIds());
+        }
+        return $q->count();
     }
 
     /**
