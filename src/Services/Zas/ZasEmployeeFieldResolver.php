@@ -57,7 +57,7 @@ class ZasEmployeeFieldResolver
         'Steuerklasse', 'SteuerID', 'SVNummer', 'Krankenkasse',
 
         // Sonstiges
-        'Fuehrerschein', 'PKW', 'GeworbenVonPersNr',
+        'Fuehrerschein', 'PKW', 'GeworbenVonPersNr', 'PersNr',
 
         // Kleidung
         'HemdGroesse', 'HosenGroesse', 'SchuhGroesse',
@@ -173,6 +173,7 @@ class ZasEmployeeFieldResolver
             'Fuehrerschein'       => $employee->drivers_license_class,
             'PKW'                 => $this->boolLabel($employee->has_car),
             'GeworbenVonPersNr'   => $employee->recruited_by_personnel_number,
+            'PersNr'              => $employee->personnel_number,
 
             'HemdGroesse'         => $employee->shirt_size,
             'HosenGroesse'        => $employee->pants_size !== null ? (string) $employee->pants_size : null,

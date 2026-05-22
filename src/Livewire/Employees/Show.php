@@ -188,6 +188,7 @@ class Show extends Component
                 'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
                 'has_car' => ['type' => 'bool', 'label' => 'PKW vorhanden'],
                 'recruited_by_personnel_number' => ['type' => 'text', 'label' => 'Geworben von (Personalnummer)'],
+                'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
             ],
             'Lifecycle' => [
                 'is_active' => ['type' => 'bool', 'label' => 'Aktiv'],

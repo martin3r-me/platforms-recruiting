@@ -69,6 +69,7 @@ class RecEmployee extends Model
         'drivers_license_class',
         'has_car',
         'recruited_by_personnel_number',
+        'personnel_number',
 
         // Iteration 3 — vollstaendiges HR-Field-Set
         'tax_class',

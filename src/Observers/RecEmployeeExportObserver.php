@@ -57,6 +57,7 @@ class RecEmployeeExportObserver
 
         // Sonstiges
         'drivers_license_class', 'has_car', 'recruited_by_personnel_number',
+        'personnel_number',
 
         // Kleidung
         'shirt_size', 'pants_size', 'shoe_size',
