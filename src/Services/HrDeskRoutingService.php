@@ -224,7 +224,31 @@ class HrDeskRoutingService
             ->exists();
 
         if (!$hasOtherOpenCases) {
-            $applicant->update(['is_on_hr_desk' => false]);
+            // Vollstaendige Freigabe: AutoPilot wieder aktivieren + Phase-
+            // Completion-Check neu triggern. evaluateAndRoute hatte vorher
+            // auto_pilot=false gesetzt als Sicherheits-Stopp — nach HR-
+            // Approve muss der Flow weitergehen, sonst bleibt der Bewerber
+            // in der Phase haengen und z.B. creates_employee_on_completion
+            // wird nie ausgeloest obwohl die Vertraege bereits sent sind.
+            $applicant->update([
+                'is_on_hr_desk' => false,
+                'auto_pilot'    => true,
+            ]);
+
+            try {
+                $applicant->refresh();
+                $applicant->checkAutoPilotCompletion();
+            } catch (\Throwable $e) {
+                // Fail-safe: HR-Approve darf nicht hart blockieren wenn
+                // der Phase-Hook crasht — HR sieht es im Log.
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $applicant->id,
+                        'type'             => 'phase_check_failed',
+                        'summary'          => "Phase-Check nach HR-Approve fehlgeschlagen: " . $e->getMessage(),
+                    ]);
+                } catch (\Throwable) {}
+            }
         }
 
         RecAutoPilotLog::create([
