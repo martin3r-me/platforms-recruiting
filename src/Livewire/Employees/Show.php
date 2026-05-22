@@ -154,7 +154,7 @@ class Show extends Component
                 'rec_position_id' => ['type' => 'position', 'label' => 'Stelle'],
                 'beschaftigungsort' => ['type' => 'multi_lookup', 'label' => 'Beschaeftigungsort', 'lookup' => 'beschaeftigungsort'],
                 'employment_type' => ['type' => 'lookup', 'label' => 'Ich bin (MA-Self-Deklaration)', 'lookup' => 'beschaeftigung_art'],
-                'umfang_der_tatigkeit' => ['type' => 'lookup', 'label' => 'Umfang der Taetigkeit', 'lookup' => 'umfang_der_tatigkeit'],
+                'umfang_der_tatigkeit' => ['type' => 'lookup', 'label' => 'Umfang der Taetigkeit', 'lookup' => 'umfang_taetigkeit'],
             ],
             'Bankdaten' => [
                 'iban' => ['type' => 'text', 'label' => 'IBAN'],
