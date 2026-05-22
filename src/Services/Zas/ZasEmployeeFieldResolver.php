@@ -387,7 +387,7 @@ class ZasEmployeeFieldResolver
         if (!$signed) {
             return null;
         }
-        return $signed->copy()->addDays(365);
+        return $signed->copy()->addYears(2);
     }
 
     /**
