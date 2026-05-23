@@ -45,6 +45,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\ZasExportBackfill::class,
                 \Platform\Recruiting\Console\Commands\ZasEmployeeExportBackfill::class,
                 \Platform\Recruiting\Console\Commands\BackfillImageVariants::class,
+                \Platform\Recruiting\Console\Commands\DeleteEmployee::class,
             ]);
         }
 
