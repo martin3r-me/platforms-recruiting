@@ -220,6 +220,7 @@ class ZasEmployeeFieldResolver
             'BeschErforderlich'                 => $this->boolLabel(
                 $employee->immatrikulation_file_id !== null
                 || $employee->schulbescheinigung_file_id !== null
+                || in_array($employee->employment_type, ['schueler', 'student'], true)
             ),
             'AufenthaltGenehmigungErforderlich' => $this->boolLabel($this->hasAufenthaltOrGenehmigung($employee)),
             'FolgeBescheinigungAm'              => $this->formatDate($this->ifsgSignedAt($employee)),
