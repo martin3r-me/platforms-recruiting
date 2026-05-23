@@ -609,6 +609,39 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Wird vom PublicExtraFieldForm-Renderer am Ende eines Form-Saves
+     * aufgerufen. Recruiting-spezifische Schulungs-Bestaetigungsbox:
+     * nach Abschluss der Phase mit confirm_booking_on_completion-Hook
+     * (typisch P3 'Onboarding') bestaetigt diese Box dem Bewerber sein
+     * Schulungs-Datum + verlinkt rheingedeck.de/schulungen.
+     *
+     * Bedingungen:
+     *  - state === 'completed' (alle Pflichtfelder ausgefuellt)
+     *  - Bewerber hat ein registered/confirmed/attended Booking
+     *    (= eine Phase mit confirm_booking_on_completion=true wurde
+     *    bereits abgeschlossen). Bei 'booked' (= nur gebucht, aber
+     *    confirm-Hook noch nicht durch) wird die Box nicht gezeigt.
+     */
+    public function renderPublicFormCompletionExtras($state): ?string
+    {
+        if ($state !== 'completed') {
+            return null;
+        }
+        $booking = $this->interviewBookings()
+            ->whereIn('status', ['registered', 'confirmed', 'attended'])
+            ->with('interview')
+            ->latest('id')
+            ->first();
+        if (!$booking?->interview) {
+            return null;
+        }
+        return view('recruiting::partials.public-form-completion', [
+            'interview' => $booking->interview,
+            'booking'   => $booking,
+        ])->render();
+    }
+
+    /**
      * Send interview booking link via WhatsApp template (on AutoPilot completion).
      */
     public function sendInterviewBookingNotification(): bool
