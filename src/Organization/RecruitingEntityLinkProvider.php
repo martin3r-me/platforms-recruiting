@@ -186,11 +186,11 @@ class RecruitingEntityLinkProvider implements EntityLinkProvider, HasMetricDefin
     public function metricDefinitions(): array
     {
         return [
-            'rec_applicants_total'  => ['label' => 'Bewerber (gesamt)', 'group' => 'recruiting', 'direction' => 'neutral', 'unit' => 'count', 'dimension' => 'potential', 'type' => 'stock'],
-            'rec_applicants_active' => ['label' => 'Bewerber (aktiv)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'pair' => 'rec_applicants_total', 'dimension' => 'potential', 'type' => 'stock'],
-            'rec_applicants_hired'  => ['label' => 'Bewerber (eingestellt)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'dimension' => 'throughput', 'type' => 'flow'],
-            'rec_positions_total'   => ['label' => 'Positionen (gesamt)', 'group' => 'recruiting', 'direction' => 'neutral', 'unit' => 'count', 'dimension' => 'org_capital', 'type' => 'stock'],
-            'rec_positions_active'  => ['label' => 'Positionen (aktiv)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'pair' => 'rec_positions_total', 'dimension' => 'org_capital', 'type' => 'stock'],
+            'rec_applicants_total'  => ['label' => 'Bewerber (gesamt)', 'group' => 'recruiting', 'direction' => 'neutral', 'unit' => 'count', 'dimension' => 'potential', 'type' => 'stock', 'aggregation_mode' => 'rolled_up'],
+            'rec_applicants_active' => ['label' => 'Bewerber (aktiv)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'pair' => 'rec_applicants_total', 'dimension' => 'potential', 'type' => 'stock', 'aggregation_mode' => 'rolled_up'],
+            'rec_applicants_hired'  => ['label' => 'Bewerber (eingestellt)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'dimension' => 'throughput', 'type' => 'flow', 'aggregation_mode' => 'rolled_up'],
+            'rec_positions_total'   => ['label' => 'Positionen (gesamt)', 'group' => 'recruiting', 'direction' => 'neutral', 'unit' => 'count', 'dimension' => 'org_capital', 'type' => 'stock', 'aggregation_mode' => 'rolled_up'],
+            'rec_positions_active'  => ['label' => 'Positionen (aktiv)', 'group' => 'recruiting', 'direction' => 'up', 'unit' => 'count', 'pair' => 'rec_positions_total', 'dimension' => 'org_capital', 'type' => 'stock', 'aggregation_mode' => 'rolled_up'],
         ];
     }
 }
