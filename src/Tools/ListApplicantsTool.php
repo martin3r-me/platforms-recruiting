@@ -22,7 +22,7 @@ class ListApplicantsTool implements ToolContract, ToolMetadataContract
 
     public function getDescription(): string
     {
-        return 'GET /recruiting/applicants - Listet Bewerber. Parameter: team_id (optional), is_active (optional), rec_applicant_status_id (optional), include_contacts (optional, bool). Suche ueber CRM-Contact (last_name, first_name).';
+        return 'GET /recruiting/applicants - Listet Bewerber. Parameter: team_id (optional), is_active (optional), rec_applicant_status_id (optional), rec_phase_id (optional), include_contacts (optional, bool). Suche ueber CRM-Contact (last_name, first_name).';
     }
 
     public function getSchema(): array
@@ -42,6 +42,10 @@ class ListApplicantsTool implements ToolContract, ToolMetadataContract
                     'rec_applicant_status_id' => [
                         'type' => 'integer',
                         'description' => 'Optional: Filter nach Bewerbungsstatus.',
+                    ],
+                    'rec_phase_id' => [
+                        'type' => 'integer',
+                        'description' => 'Optional: Filter nach Phase. Nutze "recruiting.phases.GET" um IDs zu finden.',
                     ],
                     'rec_posting_id' => [
                         'type' => 'integer',
@@ -86,6 +90,9 @@ class ListApplicantsTool implements ToolContract, ToolMetadataContract
             }
             if (isset($arguments['rec_applicant_status_id'])) {
                 $query->where('rec_applicant_status_id', (int)$arguments['rec_applicant_status_id']);
+            }
+            if (isset($arguments['rec_phase_id'])) {
+                $query->where('rec_phase_id', (int)$arguments['rec_phase_id']);
             }
             if (isset($arguments['rec_posting_id'])) {
                 $postingId = (int)$arguments['rec_posting_id'];
