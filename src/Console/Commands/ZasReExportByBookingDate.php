@@ -34,6 +34,43 @@ class ZasReExportByBookingDate extends Command
         $teamId = $this->option('team-id');
         $dryRun = (bool) $this->option('dry-run');
 
+        $this->info(sprintf('Suche Mitarbeiter mit Schulung am %s ...', $date));
+
+        // Debug: Schulungen an diesem Datum
+        $interviews = DB::table('rec_interviews')
+            ->whereDate('starts_at', $date)
+            ->whereNull('deleted_at')
+            ->get(['id', 'title', 'starts_at']);
+        $this->line(sprintf('  Schulungen am %s: %d', $date, $interviews->count()));
+        foreach ($interviews as $iv) {
+            $this->line(sprintf('    - [%s] %s (%s)', $iv->id, $iv->title, $iv->starts_at));
+        }
+
+        // Debug: Buchungen fuer diese Schulungen
+        $bookings = DB::table('rec_interview_bookings as ib')
+            ->join('rec_interviews as i', 'i.id', '=', 'ib.rec_interview_id')
+            ->whereDate('i.starts_at', $date)
+            ->whereNull('ib.deleted_at')
+            ->get(['ib.rec_applicant_id', 'ib.rec_interview_id', 'ib.status']);
+        $this->line(sprintf('  Buchungen dazu: %d', $bookings->count()));
+        foreach ($bookings as $b) {
+            $this->line(sprintf('    - applicant=%s status=%s', $b->rec_applicant_id, $b->status));
+        }
+
+        // Debug: Mitarbeiter zu diesen Bewerbern
+        $applicantIds = $bookings->pluck('rec_applicant_id')->unique();
+        $employees = DB::table('rec_employees')
+            ->whereIn('rec_applicant_id', $applicantIds)
+            ->get(['id', 'rec_applicant_id', 'is_active', 'zas_initial_exported_at']);
+        $this->line(sprintf('  Mitarbeiter zu diesen Bewerbern: %d', $employees->count()));
+        foreach ($employees as $emp) {
+            $this->line(sprintf('    - emp=%s applicant=%s active=%s exported=%s',
+                $emp->id, $emp->rec_applicant_id, $emp->is_active ? 'ja' : 'nein', $emp->zas_initial_exported_at ?? 'NULL'));
+        }
+
+        $this->newLine();
+
+        // Eigentliche Query
         $query = DB::table('rec_employees as e')
             ->whereNotNull('e.zas_initial_exported_at')
             ->where('e.is_active', true)
@@ -54,7 +91,7 @@ class ZasReExportByBookingDate extends Command
         $count = $candidates->count();
 
         if ($count === 0) {
-            $this->info(sprintf('Keine Mitarbeiter mit Schulung am %s gefunden (oder noch nicht initial exportiert).', $date));
+            $this->warn('Keine Mitarbeiter matchen alle Filter (exported + active + Schulung am Datum).');
             return self::SUCCESS;
         }
 
