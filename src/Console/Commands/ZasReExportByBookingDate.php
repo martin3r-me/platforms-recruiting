@@ -4,17 +4,20 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Services\CreateEmployeeFromApplicantService;
 
 /**
- * Setzt zas_initial_exported_at auf NULL fuer Mitarbeiter, deren
- * zugehoeriger Bewerber eine Schulung (rec_interviews.starts_at)
- * an einem bestimmten Datum hatte.
+ * Erstellt Mitarbeiter fuer alle Bewerber, die an einer Schulung
+ * an einem bestimmten Datum teilgenommen haben (status=attended),
+ * und setzt ggf. zas_initial_exported_at auf NULL fuer bereits
+ * exportierte MA damit sie erneut auf dem Initial-Endpoint erscheinen.
  *
- * Damit erscheinen diese MA beim naechsten Pull wieder auf dem
- * Initial-Endpoint (/employees/initial.csv).
+ * CreateEmployeeFromApplicantService ist idempotent — bereits
+ * existierende MA werden uebersprungen.
  *
  * Aufruf:
- *   php artisan recruiting:zas-re-export-by-booking --date=2026-05-26 --dry-run
+ *   php artisan recruiting:zas-re-export-by-booking --dry-run
  *   php artisan recruiting:zas-re-export-by-booking --date=2026-05-26
  *   php artisan recruiting:zas-re-export-by-booking                        (= gestern)
  */
@@ -26,17 +29,17 @@ class ZasReExportByBookingDate extends Command
         {--dry-run : Nur anzeigen, nichts schreiben}
         {--force : Confirmation ueberspringen}';
 
-    protected $description = 'Setzt zas_initial_exported_at zurueck fuer MA deren Schulung an einem Datum stattfand (Re-Export via Initial-Endpoint)';
+    protected $description = 'Erstellt MA aus attended-Schulungsteilnehmern und setzt Initial-Export-Marker zurueck';
 
-    public function handle(): int
+    public function handle(CreateEmployeeFromApplicantService $service): int
     {
         $date = $this->option('date') ?? now()->subDay()->toDateString();
         $teamId = $this->option('team-id');
         $dryRun = (bool) $this->option('dry-run');
 
-        $this->info(sprintf('Suche Mitarbeiter mit Schulung am %s ...', $date));
+        $this->info(sprintf('Suche attended-Teilnehmer mit Schulung am %s ...', $date));
 
-        // Debug: Schulungen an diesem Datum
+        // 1. Schulungen am Datum
         $interviews = DB::table('rec_interviews')
             ->whereDate('starts_at', $date)
             ->whereNull('deleted_at')
@@ -46,78 +49,102 @@ class ZasReExportByBookingDate extends Command
             $this->line(sprintf('    - [%s] %s (%s)', $iv->id, $iv->title, $iv->starts_at));
         }
 
-        // Debug: Buchungen fuer diese Schulungen
-        $bookings = DB::table('rec_interview_bookings as ib')
+        if ($interviews->isEmpty()) {
+            $this->warn('Keine Schulungen an diesem Datum.');
+            return self::SUCCESS;
+        }
+
+        // 2. Attended-Buchungen fuer diese Schulungen
+        $query = DB::table('rec_interview_bookings as ib')
             ->join('rec_interviews as i', 'i.id', '=', 'ib.rec_interview_id')
             ->whereDate('i.starts_at', $date)
             ->whereNull('ib.deleted_at')
-            ->get(['ib.rec_applicant_id', 'ib.rec_interview_id', 'ib.status']);
-        $this->line(sprintf('  Buchungen dazu: %d', $bookings->count()));
-        foreach ($bookings as $b) {
-            $this->line(sprintf('    - applicant=%s status=%s', $b->rec_applicant_id, $b->status));
-        }
-
-        // Debug: Mitarbeiter zu diesen Bewerbern
-        $applicantIds = $bookings->pluck('rec_applicant_id')->unique();
-        $employees = DB::table('rec_employees')
-            ->whereIn('rec_applicant_id', $applicantIds)
-            ->get(['id', 'rec_applicant_id', 'is_active', 'zas_initial_exported_at']);
-        $this->line(sprintf('  Mitarbeiter zu diesen Bewerbern: %d', $employees->count()));
-        foreach ($employees as $emp) {
-            $this->line(sprintf('    - emp=%s applicant=%s active=%s exported=%s',
-                $emp->id, $emp->rec_applicant_id, $emp->is_active ? 'ja' : 'nein', $emp->zas_initial_exported_at ?? 'NULL'));
-        }
-
-        $this->newLine();
-
-        // Eigentliche Query
-        $query = DB::table('rec_employees as e')
-            ->whereNotNull('e.zas_initial_exported_at')
-            ->where('e.is_active', true)
-            ->whereExists(function ($q) use ($date) {
-                $q->select(DB::raw(1))
-                    ->from('rec_interview_bookings as ib')
-                    ->join('rec_interviews as i', 'i.id', '=', 'ib.rec_interview_id')
-                    ->whereColumn('ib.rec_applicant_id', 'e.rec_applicant_id')
-                    ->whereNull('ib.deleted_at')
-                    ->whereDate('i.starts_at', $date);
-            });
+            ->where('ib.status', 'attended');
 
         if ($teamId !== null) {
-            $query->where('e.team_id', (int) $teamId);
+            $query->join('rec_applicants as a', 'a.id', '=', 'ib.rec_applicant_id')
+                ->where('a.team_id', (int) $teamId);
         }
 
-        $candidates = $query->pluck('e.id');
-        $count = $candidates->count();
+        $attendedApplicantIds = $query->pluck('ib.rec_applicant_id')->unique();
 
-        if ($count === 0) {
-            $this->warn('Keine Mitarbeiter matchen alle Filter (exported + active + Schulung am Datum).');
+        $this->line(sprintf('  Teilnehmer (attended): %d', $attendedApplicantIds->count()));
+
+        if ($attendedApplicantIds->isEmpty()) {
+            $this->warn('Keine attended-Teilnehmer gefunden.');
             return self::SUCCESS;
         }
 
-        $this->info(sprintf(
-            '%d Mitarbeiter mit Schulung am %s gefunden%s.',
-            $count,
-            $date,
-            $teamId !== null ? sprintf(' (team_id=%d)', $teamId) : ''
-        ));
+        // 3. Pruefen: welche haben schon einen MA, welche nicht?
+        $existingEmployees = DB::table('rec_employees')
+            ->whereIn('rec_applicant_id', $attendedApplicantIds)
+            ->get(['id', 'rec_applicant_id', 'zas_initial_exported_at']);
+
+        $existingMap = $existingEmployees->keyBy('rec_applicant_id');
+        $missingIds = $attendedApplicantIds->diff($existingMap->keys());
+        $alreadyExportedIds = $existingEmployees
+            ->filter(fn ($e) => $e->zas_initial_exported_at !== null)
+            ->pluck('id');
+
+        $this->newLine();
+        $this->line(sprintf('  Bereits MA vorhanden: %d', $existingMap->count()));
+        $this->line(sprintf('    davon bereits exportiert (Reset noetig): %d', $alreadyExportedIds->count()));
+        $this->line(sprintf('    davon noch nicht exportiert (OK): %d', $existingMap->count() - $alreadyExportedIds->count()));
+        $this->line(sprintf('  Noch kein MA (wird angelegt): %d', $missingIds->count()));
+
+        if ($missingIds->isEmpty() && $alreadyExportedIds->isEmpty()) {
+            $this->info('Nichts zu tun — alle Teilnehmer haben bereits einen MA auf dem Initial-Endpoint.');
+            return self::SUCCESS;
+        }
 
         if ($dryRun) {
-            $this->warn('DRY-RUN: nichts geschrieben. Ohne --dry-run ausfuehren zum Anwenden.');
+            if ($missingIds->isNotEmpty()) {
+                $this->warn(sprintf('DRY-RUN: %d MA wuerden angelegt fuer Bewerber: %s', $missingIds->count(), $missingIds->implode(', ')));
+            }
+            if ($alreadyExportedIds->isNotEmpty()) {
+                $this->warn(sprintf('DRY-RUN: %d MA wuerden zurueckgesetzt (zas_initial_exported_at → NULL)', $alreadyExportedIds->count()));
+            }
             return self::SUCCESS;
         }
 
-        if (!$this->option('force') && !$this->confirm('zas_initial_exported_at jetzt auf NULL setzen?', true)) {
+        if (!$this->option('force') && !$this->confirm('Fortfahren?', true)) {
             $this->warn('Abgebrochen.');
             return self::SUCCESS;
         }
 
-        $affected = DB::table('rec_employees')
-            ->whereIn('id', $candidates)
-            ->update(['zas_initial_exported_at' => null]);
+        // 4. Fehlende MA anlegen
+        $created = 0;
+        $errors = 0;
+        foreach ($missingIds as $applicantId) {
+            $applicant = RecApplicant::find($applicantId);
+            if (!$applicant) {
+                $this->error(sprintf('  Bewerber %s nicht gefunden — uebersprungen.', $applicantId));
+                $errors++;
+                continue;
+            }
+            try {
+                $employee = $service->createOrUpdate($applicant);
+                $this->line(sprintf('  MA angelegt: emp=%s fuer applicant=%s (%s %s)',
+                    $employee->id, $applicantId, $employee->first_name, $employee->last_name));
+                $created++;
+            } catch (\Throwable $e) {
+                $this->error(sprintf('  Fehler bei applicant=%s: %s', $applicantId, $e->getMessage()));
+                $errors++;
+            }
+        }
 
-        $this->info(sprintf('OK — %d Mitarbeiter zurueckgesetzt. Erscheinen beim naechsten Pull auf /employees/initial.csv.', $affected));
+        // 5. Bereits exportierte MA zuruecksetzen
+        $reset = 0;
+        if ($alreadyExportedIds->isNotEmpty()) {
+            $reset = DB::table('rec_employees')
+                ->whereIn('id', $alreadyExportedIds)
+                ->update(['zas_initial_exported_at' => null]);
+        }
 
-        return self::SUCCESS;
+        $this->newLine();
+        $this->info(sprintf('Fertig — %d MA angelegt, %d zurueckgesetzt, %d Fehler.', $created, $reset, $errors));
+        $this->info('Alle erscheinen beim naechsten ZAS-Pull auf /employees/initial.csv.');
+
+        return $errors > 0 ? self::FAILURE : self::SUCCESS;
     }
 }
