@@ -49,6 +49,7 @@ class ZasFieldResolver
         // Erweiterungen (Hr. Michel ergaenzt am Ende seiner DB)
         'UplFiktion2', 'UplVisum', 'UplVertrag', 'UplIfsg',
         'Kostenstelle', 'SchulungsDatum',
+        'Grundlohn', 'Zuschlag',
     ];
 
     /**
@@ -157,6 +158,8 @@ class ZasFieldResolver
             'UplIfsg'            => $this->getContractUrl($applicant, 'ifsg'),
             'Kostenstelle'       => $this->getKostenstelle($applicant),
             'SchulungsDatum'     => $this->getSchulungsDatum($applicant),
+            'Grundlohn'          => $this->getGrundlohn($applicant),
+            'Zuschlag'           => $this->getZuschlag($applicant),
         };
     }
 
@@ -313,6 +316,44 @@ class ZasFieldResolver
             ->first();
 
         return $this->formatDate($row->starts_at ?? null);
+    }
+
+    /**
+     * Grundlohn (minimum_wage_hourly) aus den Team-Settings.
+     * Format: deutsches Dezimalformat (z.B. "13,90").
+     */
+    protected function getGrundlohn(RecApplicant $applicant): ?string
+    {
+        $settings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+        $wage = $settings->getSetting('minimum_wage_hourly');
+
+        return $wage !== null ? number_format((float) $wage, 2, ',', '.') : null;
+    }
+
+    /**
+     * Zuschlag aus dem AV-Template-Code des Bewerbers.
+     * AV-060 → "0,60", AV-110 → "1,10", usw.
+     */
+    protected function getZuschlag(RecApplicant $applicant): ?string
+    {
+        $templateCode = DB::table('rec_contract_templates')
+            ->where('id', $applicant->contract_template_id)
+            ->value('code');
+
+        return $this->parseZuschlagFromCode($templateCode);
+    }
+
+    /**
+     * Leitet den Zuschlag-Betrag aus dem Template-Code ab.
+     * AV-060 → "0,60", AV-110 → "1,10".
+     */
+    protected function parseZuschlagFromCode(?string $code): ?string
+    {
+        if (!$code || !preg_match('/^AV-(\d{3})$/', $code, $m)) {
+            return null;
+        }
+        $cents = (int) $m[1]; // 060 → 60, 110 → 110
+        return number_format($cents / 100, 2, ',', '.');
     }
 
     /**

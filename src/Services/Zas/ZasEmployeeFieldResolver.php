@@ -97,6 +97,7 @@ class ZasEmployeeFieldResolver
 
         // Schulungsdaten (ans Ende, nie dazwischen)
         'SchulungsStandort', 'SchulungsDatum',
+        'Grundlohn', 'Zuschlag',
     ];
 
     /**
@@ -237,6 +238,10 @@ class ZasEmployeeFieldResolver
             // Schulungsdaten
             'SchulungsStandort'                 => $this->getSchulungsStandort($employee),
             'SchulungsDatum'                    => $this->getSchulungsDatum($employee),
+
+            // Lohn
+            'Grundlohn'                         => $this->getGrundlohn($employee),
+            'Zuschlag'                          => $this->getZuschlag($employee),
         };
     }
 
@@ -437,6 +442,38 @@ class ZasEmployeeFieldResolver
             ->first();
 
         return $this->formatDate($row->starts_at ?? null);
+    }
+
+    /**
+     * Grundlohn (minimum_wage_hourly) aus den Team-Settings.
+     */
+    protected function getGrundlohn(RecEmployee $employee): ?string
+    {
+        $settings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($employee->team_id);
+        $wage = $settings->getSetting('minimum_wage_hourly');
+
+        return $wage !== null ? number_format((float) $wage, 2, ',', '.') : null;
+    }
+
+    /**
+     * Zuschlag aus dem AV-Template-Code des verknuepften Bewerbers.
+     * AV-060 → "0,60", AV-110 → "1,10", usw.
+     */
+    protected function getZuschlag(RecEmployee $employee): ?string
+    {
+        if (!$employee->rec_applicant_id) {
+            return null;
+        }
+        $templateCode = DB::table('rec_applicants')
+            ->join('rec_contract_templates', 'rec_applicants.contract_template_id', '=', 'rec_contract_templates.id')
+            ->where('rec_applicants.id', $employee->rec_applicant_id)
+            ->value('rec_contract_templates.code');
+
+        if (!$templateCode || !preg_match('/^AV-(\d{3})$/', $templateCode, $m)) {
+            return null;
+        }
+        $cents = (int) $m[1];
+        return number_format($cents / 100, 2, ',', '.');
     }
 
     /**
