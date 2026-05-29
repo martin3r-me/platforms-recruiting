@@ -92,8 +92,11 @@ class ZasEmployeeFieldResolver
         'FolgeBescheinigungAm', 'InfekGueltigBis',
         'InfekBeschErforderlich', 'InfekBeschVorhanden',
 
-        // Eintrittsdatum (= Vertragsbeginn vom AV-Vertrag) — letzte Spalte
+        // Eintrittsdatum (= Vertragsbeginn vom AV-Vertrag)
         'Eintritt',
+
+        // Schulungsdaten (ans Ende, nie dazwischen)
+        'SchulungsStandort', 'SchulungsDatum',
     ];
 
     /**
@@ -228,8 +231,12 @@ class ZasEmployeeFieldResolver
             'InfekBeschErforderlich'            => 'Ja',
             'InfekBeschVorhanden'               => $this->boolLabel($employee->infection_protection_first_issued_at !== null),
 
-            // Eintrittsdatum (= Vertragsbeginn) — als letzte Spalte
+            // Eintrittsdatum (= Vertragsbeginn)
             'Eintritt'                          => $this->formatDate($this->avContractStartDate($employee)),
+
+            // Schulungsdaten
+            'SchulungsStandort'                 => $this->getSchulungsStandort($employee),
+            'SchulungsDatum'                    => $this->getSchulungsDatum($employee),
         };
     }
 
@@ -389,6 +396,47 @@ class ZasEmployeeFieldResolver
             return null;
         }
         return $signed->copy()->addYears(2);
+    }
+
+    /**
+     * Schulungs-Standort aus dem letzten Interview-Booking des
+     * verknuepften Bewerbers.
+     */
+    protected function getSchulungsStandort(RecEmployee $employee): ?string
+    {
+        if (!$employee->rec_applicant_id) {
+            return null;
+        }
+        $row = DB::table('rec_interview_bookings as b')
+            ->join('rec_interviews as i', 'b.rec_interview_id', '=', 'i.id')
+            ->where('b.rec_applicant_id', $employee->rec_applicant_id)
+            ->whereNull('b.deleted_at')
+            ->orderByDesc('b.booked_at')
+            ->select('i.location')
+            ->first();
+
+        $text = trim((string) ($row->location ?? ''));
+        return $text === '' ? null : $text;
+    }
+
+    /**
+     * Schulungs-Datum (starts_at) aus dem letzten Interview-Booking des
+     * verknuepften Bewerbers.
+     */
+    protected function getSchulungsDatum(RecEmployee $employee): ?string
+    {
+        if (!$employee->rec_applicant_id) {
+            return null;
+        }
+        $row = DB::table('rec_interview_bookings as b')
+            ->join('rec_interviews as i', 'b.rec_interview_id', '=', 'i.id')
+            ->where('b.rec_applicant_id', $employee->rec_applicant_id)
+            ->whereNull('b.deleted_at')
+            ->orderByDesc('b.booked_at')
+            ->select('i.starts_at')
+            ->first();
+
+        return $this->formatDate($row->starts_at ?? null);
     }
 
     /**

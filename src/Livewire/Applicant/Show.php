@@ -128,6 +128,18 @@ class Show extends Component
     public function save(): void
     {
         $this->validate();
+
+        // Guard: Livewire-Hydration kann Carbon-Dates um Stunden shiften,
+        // was bei date-Cast zu einem anderen Tag fuehrt. Nur echte
+        // User-Aenderungen durchlassen.
+        if ($this->applicant->isDirty('applied_at')) {
+            $original = $this->applicant->getOriginal('applied_at');
+            $current = $this->applicant->applied_at;
+            if ($original && $current && $original->toDateString() === $current->toDateString()) {
+                $this->applicant->applied_at = $original;
+            }
+        }
+
         $this->applicant->save();
         $this->saveExtraFieldValues($this->applicant);
 

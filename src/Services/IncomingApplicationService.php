@@ -72,6 +72,11 @@ class IncomingApplicationService
         // Check if this sender already has an applicant linked to any of these postings
         $existingApplicant = $this->findExistingApplicantForPostings($senderIdentifier, $postings, $teamId);
 
+        // Fallback: breitere Suche ohne Posting-/Active-Filter
+        if (!$existingApplicant) {
+            $existingApplicant = $this->findExistingApplicantByContact($senderIdentifier, $teamId);
+        }
+
         if ($existingApplicant) {
             Log::info('[IncomingApplicationService] Existing applicant found, appending to application', [
                 'applicant_id' => $existingApplicant->id,
@@ -207,6 +212,36 @@ class IncomingApplicationService
                     });
                 }
             })
+            ->first();
+    }
+
+    /**
+     * Broad fallback: find any non-rejected applicant in the team by contact info,
+     * regardless of posting or active-scope (catches parked / hr_desk applicants).
+     */
+    private function findExistingApplicantByContact(string $senderIdentifier, int $teamId): ?RecApplicant
+    {
+        $normalizedIdentifier = $this->normalizeIdentifier($senderIdentifier);
+        $phoneDigits = preg_replace('/[^0-9]/', '', $normalizedIdentifier);
+
+        return RecApplicant::query()
+            ->forTeam($teamId)
+            ->where('is_active', true)
+            ->whereNull('rejected_at')
+            ->where(function ($query) use ($normalizedIdentifier, $phoneDigits) {
+                $query->whereHas('crmContactLinks.contact.emailAddresses', function ($q) use ($normalizedIdentifier) {
+                    $q->where('email_address', $normalizedIdentifier);
+                });
+                if (strlen($phoneDigits) >= 6) {
+                    $query->orWhereHas('crmContactLinks.contact.phoneNumbers', function ($q) use ($phoneDigits) {
+                        $q->where(function ($subQ) use ($phoneDigits) {
+                            $subQ->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $phoneDigits])
+                                 ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $phoneDigits]);
+                        });
+                    });
+                }
+            })
+            ->latest('id')
             ->first();
     }
 

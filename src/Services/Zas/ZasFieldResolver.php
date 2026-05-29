@@ -48,6 +48,7 @@ class ZasFieldResolver
         'Immabis',
         // Erweiterungen (Hr. Michel ergaenzt am Ende seiner DB)
         'UplFiktion2', 'UplVisum', 'UplVertrag', 'UplIfsg',
+        'Kostenstelle', 'SchulungsDatum',
     ];
 
     /**
@@ -154,6 +155,8 @@ class ZasFieldResolver
             'UplVisum'           => $this->getFileUrl($applicant, 'upl-visum'),
             'UplVertrag'         => $this->getContractUrl($applicant, 'arbeitsvertrag'),
             'UplIfsg'            => $this->getContractUrl($applicant, 'ifsg'),
+            'Kostenstelle'       => $this->getKostenstelle($applicant),
+            'SchulungsDatum'     => $this->getSchulungsDatum($applicant),
         };
     }
 
@@ -280,6 +283,36 @@ class ZasFieldResolver
 
         $text = trim((string) ($row->location ?? ''));
         return $text === '' ? null : $text;
+    }
+
+    /**
+     * Kostenstelle aus der primaeren Position des Bewerbers.
+     */
+    protected function getKostenstelle(RecApplicant $applicant): ?string
+    {
+        $applicant->loadMissing('postings.position');
+        $position = $applicant->postings
+            ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
+            ->first()
+            ?->position;
+
+        return $position?->cost_center !== null ? (string) $position->cost_center : null;
+    }
+
+    /**
+     * Schulungs-Datum (starts_at) aus dem letzten Interview-Booking.
+     */
+    protected function getSchulungsDatum(RecApplicant $applicant): ?string
+    {
+        $row = DB::table('rec_interview_bookings as b')
+            ->join('rec_interviews as i', 'b.rec_interview_id', '=', 'i.id')
+            ->where('b.rec_applicant_id', $applicant->id)
+            ->whereNull('b.deleted_at')
+            ->orderByDesc('b.booked_at')
+            ->select('i.starts_at')
+            ->first();
+
+        return $this->formatDate($row->starts_at ?? null);
     }
 
     /**
