@@ -124,7 +124,7 @@ class ZasFieldResolver
             'FDatum'             => $this->formatDate($applicant->created_at),
             'Geburtsname'        => $this->getStringField($applicant, ['geburtsname']),
             'Geschlecht'         => $this->getLookupField($applicant, ['geschlecht']),
-            'Nation'             => $this->getLookupField($applicant, ['geburtsland']),
+            'Nation'             => $this->getLookupField($applicant, ['nationalitaet', 'geburtsland']),
             'SVNummer'           => $this->getStringField($applicant, ['sozialversicherungsnummer']),
             'AusweisNr'          => $this->getStringField($applicant, ['ausweisnummer']),
             'SteuerID'           => $this->getStringField($applicant, ['steuer_id']),
