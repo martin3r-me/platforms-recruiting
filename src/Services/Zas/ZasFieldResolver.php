@@ -50,6 +50,7 @@ class ZasFieldResolver
         'UplFiktion2', 'UplVisum', 'UplVertrag', 'UplIfsg',
         'Kostenstelle', 'SchulungsDatum',
         'Grundlohn', 'Zuschlag',
+        'UUID', 'ZasPersonalNr',
     ];
 
     /**
@@ -160,6 +161,8 @@ class ZasFieldResolver
             'SchulungsDatum'     => $this->getSchulungsDatum($applicant),
             'Grundlohn'          => $this->getGrundlohn($applicant),
             'Zuschlag'           => $this->getZuschlag($applicant),
+            'UUID'               => (string) $applicant->uuid,
+            'ZasPersonalNr'      => null, // Bewerber haben noch keine ZAS-Personal-Nr
         };
     }
 

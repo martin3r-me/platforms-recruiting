@@ -98,6 +98,7 @@ class ZasEmployeeFieldResolver
         // Schulungsdaten (ans Ende, nie dazwischen)
         'SchulungsStandort', 'SchulungsDatum',
         'Grundlohn', 'Zuschlag',
+        'UUID', 'ZasPersonalNr',
     ];
 
     /**
@@ -242,6 +243,8 @@ class ZasEmployeeFieldResolver
             // Lohn
             'Grundlohn'                         => $this->getGrundlohn($employee),
             'Zuschlag'                          => $this->getZuschlag($employee),
+            'UUID'                              => (string) $employee->uuid,
+            'ZasPersonalNr'                     => $employee->zas_id,
         };
     }
 
