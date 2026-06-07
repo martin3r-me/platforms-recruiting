@@ -108,6 +108,10 @@ class RecEmployee extends Model
         'zas_initial_exported_at',
         'zas_changed_at',
 
+        // Payroll-Tracking
+        'payroll_data_changed_at',
+        'payroll_data_changed_fields',
+
         'created_by_user_id',
     ];
 
@@ -134,6 +138,9 @@ class RecEmployee extends Model
         // ZAS-Export-Marker
         'zas_initial_exported_at'               => 'datetime',
         'zas_changed_at'                        => 'datetime',
+        // Payroll-Tracking
+        'payroll_data_changed_at'               => 'datetime',
+        'payroll_data_changed_fields'           => 'array',
     ];
 
     protected static function booted(): void

@@ -222,6 +222,12 @@ class ApplicantSettingsModal extends Component
     }
 
     #[Computed]
+    public function payrollFieldGroups(): array
+    {
+        return RecApplicantSettings::PAYROLL_TRACKABLE_FIELDS;
+    }
+
+    #[Computed]
     public function availableStatuses()
     {
         return RecApplicantStatus::where('team_id', Auth::user()->currentTeam->id)

@@ -52,6 +52,10 @@ class Sidebar extends Component
             'hr_desk_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_on_hr_desk', true)->count(),
             'unrouted_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_unrouted', true)->count(),
             'active_employees' => RecEmployee::where('team_id', $teamId)->where('is_active', true)->count(),
+            'pending_payroll_changes' => RecEmployee::where('team_id', $teamId)
+                ->where('is_active', true)
+                ->whereNotNull('payroll_data_changed_at')
+                ->count(),
         ];
     }
 

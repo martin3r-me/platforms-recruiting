@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Observers;
 
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeHrData;
@@ -107,6 +108,11 @@ class RecEmployeeExportObserver
                 }
                 self::markEmployeeId($employee->id);
             }, 'rec_employee.updated', $employee->id);
+
+            // Payroll-Tracking: lohnrelevante Aenderungen separat tracken
+            self::safelyRun(function () use ($employee): void {
+                self::trackPayrollChanges($employee);
+            }, 'rec_employee.updated.payroll', $employee->id);
         });
 
         RecEmployeeHrData::saved(static function (RecEmployeeHrData $hr): void {
@@ -177,5 +183,91 @@ class RecEmployeeExportObserver
         DB::table('rec_employees')
             ->where('id', $employeeId)
             ->update(['zas_changed_at' => now()]);
+    }
+
+    /**
+     * Payroll-Tracking: lohnrelevante Aenderungen als JSON-Eintraege
+     * an payroll_data_changed_fields appenden + Timestamp setzen.
+     *
+     * Update via DB::table (umgeht Observer-Rekursion). Initial-Setzungen
+     * (null/"" -> Wert) zaehlen nicht als Aenderung — sonst wuerde jeder
+     * Onboarding-Flow die Liste fluten. Echte Veraenderungen zwischen
+     * zwei Werten werden getrackt.
+     */
+    protected static function trackPayrollChanges(RecEmployee $employee): void
+    {
+        $changes = array_keys($employee->getChanges());
+
+        $settings = RecApplicantSettings::getOrCreateForTeam($employee->team_id);
+        $trackedFields = $settings->getSetting(
+            'employee_payroll_tracked_fields',
+            RecApplicantSettings::DEFAULT_SETTINGS['employee_payroll_tracked_fields'] ?? []
+        );
+
+        $candidates = array_intersect($changes, $trackedFields);
+        if (empty($candidates)) {
+            return;
+        }
+
+        // Echte Aenderungen filtern (Initial-Setzungen ignorieren)
+        $realChanges = [];
+        foreach ($candidates as $field) {
+            $old = self::normalizePayrollValue($employee->getOriginal($field));
+            $new = self::normalizePayrollValue($employee->getAttribute($field));
+
+            if ($old === null) {
+                // Erstbefuellung — kein Tracking
+                continue;
+            }
+            if ($old === $new) {
+                continue;
+            }
+            $realChanges[$field] = ['old' => $old, 'new' => $new];
+        }
+
+        if (empty($realChanges)) {
+            return;
+        }
+
+        $existing = DB::table('rec_employees')
+            ->where('id', $employee->id)
+            ->value('payroll_data_changed_fields');
+        $entries = $existing ? json_decode($existing, true) : [];
+        if (!is_array($entries)) {
+            $entries = [];
+        }
+
+        $now = now()->toIso8601String();
+        foreach ($realChanges as $field => $values) {
+            $entries[] = [
+                'field' => $field,
+                'old'   => $values['old'],
+                'new'   => $values['new'],
+                'at'    => $now,
+            ];
+        }
+
+        DB::table('rec_employees')
+            ->where('id', $employee->id)
+            ->update([
+                'payroll_data_changed_at'     => now(),
+                'payroll_data_changed_fields' => json_encode($entries),
+            ]);
+    }
+
+    /**
+     * Leere/whitespace-only Werte als null behandeln, damit "" und null
+     * nicht als unterschiedlich zaehlen. Skalare bleiben skalar.
+     */
+    protected static function normalizePayrollValue(mixed $value): mixed
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            return $trimmed === '' ? null : $trimmed;
+        }
+        return $value;
     }
 }

@@ -39,6 +39,14 @@
                 >
                     Eingangs-Quellen
                 </button>
+                <button
+                    @click="$wire.set('activeTab', 'payroll')"
+                    :class="$wire.activeTab === 'payroll' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
+                    class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
+                    wire:click="$set('activeTab', 'payroll')"
+                >
+                    Lohnbuchhaltung
+                </button>
             </nav>
         </div>
 
@@ -577,6 +585,34 @@
                         </table>
                     </div>
                 @endif
+            </div>
+            @elseif($activeTab === 'payroll')
+            {{-- Lohnbuchhaltung: welche Felder sollen als lohnrelevant getrackt werden? --}}
+            <div class="space-y-4">
+                <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Lohnrelevante Felder</h3>
+                <p class="text-sm text-[var(--ui-muted)]">
+                    Aenderungen an den hier ausgewaehlten Mitarbeiter-Feldern werden auf der Seite
+                    <em>Lohnrelevante Aenderungen</em> gesammelt und koennen als CSV an die Lohnbuchhaltung
+                    uebergeben werden. Initiale Befuellung (leer → Wert) wird nicht getrackt.
+                </p>
+
+                @foreach($this->payrollFieldGroups as $groupLabel => $fields)
+                    <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <div class="text-xs font-semibold text-[var(--ui-secondary)] uppercase tracking-wider mb-3">{{ $groupLabel }}</div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            @foreach($fields as $fieldKey => $fieldLabel)
+                                <label class="flex items-center gap-2 cursor-pointer text-sm">
+                                    <input type="checkbox"
+                                           wire:model="settings.employee_payroll_tracked_fields"
+                                           value="{{ $fieldKey }}"
+                                           class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                                    <span class="text-[var(--ui-secondary)]">{{ $fieldLabel }}</span>
+                                    <span class="text-xs text-[var(--ui-muted)] font-mono">{{ $fieldKey }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                @endforeach
             </div>
             @endif
         </div>

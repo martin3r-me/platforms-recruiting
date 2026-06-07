@@ -62,6 +62,13 @@
                 <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700">{{ $this->stats['active_employees'] }}</span>
             @endif
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.employees.payroll-changes')">
+            @svg('heroicon-o-banknotes', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Lohnrelevante Änderungen</span>
+            @if(($this->stats['pending_payroll_changes'] ?? 0) > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-600">{{ $this->stats['pending_payroll_changes'] }}</span>
+            @endif
+        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.interview-schedule.index')">
             @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Interview-Termine</span>

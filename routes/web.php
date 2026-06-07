@@ -46,6 +46,10 @@ Route::get('/applicants/{applicant}', ApplicantShow::class)->name('recruiting.ap
 // Mitarbeiter (HR-Backend, getrennt vom Bewerber-Funnel)
 Route::get('/employees', \Platform\Recruiting\Livewire\Employees\Index::class)
     ->name('recruiting.employees.index');
+Route::get('/employees/payroll-changes', \Platform\Recruiting\Livewire\Employees\PayrollChanges::class)
+    ->name('recruiting.employees.payroll-changes');
+Route::get('/employees/payroll-changes.csv', \Platform\Recruiting\Http\Controllers\PayrollChangesExportController::class)
+    ->name('recruiting.employees.payroll-changes.csv');
 Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show::class)
     ->name('recruiting.employees.show');
 

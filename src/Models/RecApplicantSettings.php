@@ -43,7 +43,45 @@ class RecApplicantSettings extends Model
         // angelegt wurde (Phase-Config-Flag creates_employee_on_completion).
         'employee_portal_wa_template_id' => null,
         'employee_portal_wa_account_id' => null,
+        // Payroll-Tracking: welche Felder als lohnrelevant gelten
+        'employee_payroll_tracked_fields' => [
+            'iban', 'bic', 'bank_institute', 'account_holder',
+            'tax_class', 'steuer_id', 'sozialversicherungsnummer',
+            'health_insurance',
+            'street', 'house_number', 'zip', 'city',
+        ],
     ];
+
+    /**
+     * Felder auf rec_employees, die als lohnrelevant getrackt werden
+     * koennen. Gruppiert fuer die Settings-UI, gelabelt fuer Anzeige.
+     * Single source of truth fuer Observer, View und Settings-Modal.
+     */
+    const PAYROLL_TRACKABLE_FIELDS = [
+        'Bank' => [
+            'iban'           => 'IBAN',
+            'bic'            => 'BIC',
+            'bank_institute' => 'Bank',
+            'account_holder' => 'Kontoinhaber',
+        ],
+        'Steuer / SV' => [
+            'tax_class'                 => 'Steuerklasse',
+            'steuer_id'                 => 'Steuer-ID',
+            'sozialversicherungsnummer' => 'Sozialversicherungsnummer',
+            'health_insurance'          => 'Krankenkasse',
+        ],
+        'Adresse' => [
+            'street'       => 'Strasse',
+            'house_number' => 'Hausnummer',
+            'zip'          => 'PLZ',
+            'city'         => 'Ort',
+        ],
+    ];
+
+    public static function payrollFieldLabels(): array
+    {
+        return array_merge(...array_values(self::PAYROLL_TRACKABLE_FIELDS));
+    }
 
     public function team(): BelongsTo
     {
