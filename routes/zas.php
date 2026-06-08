@@ -6,6 +6,7 @@ use Platform\Recruiting\Http\Controllers\ZasEmployeeInitialExportController;
 use Platform\Recruiting\Http\Controllers\ZasEmployeeUpdateExportController;
 use Platform\Recruiting\Http\Controllers\ZasExportController;
 use Platform\Recruiting\Http\Controllers\ZasFileController;
+use Platform\Recruiting\Http\Controllers\ZasInboundController;
 use Platform\Recruiting\Http\Middleware\ZasBearerAuth;
 
 /*
@@ -34,6 +35,11 @@ Route::middleware([ZasBearerAuth::class])->group(function () {
     // Mitarbeiter-Update-Export — Delta-Sync bei Aenderungen
     Route::get('/employees/updates.csv', ZasEmployeeUpdateExportController::class)
         ->name('recruiting.zas.employees.updates');
+
+    // Eingang: ZAS spielt uns eine CSV zurueck (Push-Richtung).
+    // Phase 1: nur annehmen + roh speichern. ?dry_run=true markiert Tests.
+    Route::post('/inbound', ZasInboundController::class)
+        ->name('recruiting.zas.inbound');
 });
 
 // Bewerber-Datei-Stream (Slot-Prefix `upl-*`)

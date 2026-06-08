@@ -107,5 +107,9 @@ return [
         'signed_url_secret'      => env('RECRUITING_ZAS_SIGNED_URL_SECRET'),
         'signed_url_ttl_days'    => (int) env('RECRUITING_ZAS_SIGNED_URL_TTL_DAYS', 7),
         'export_min_phase_order' => env('RECRUITING_ZAS_EXPORT_MIN_PHASE_ORDER'),
+
+        // Storage-Disk fuer von ZAS eingehende CSVs (POST /recruiting/zas/inbound).
+        // Default 'local' = privat, nicht oeffentlich erreichbar.
+        'inbound_disk'           => env('RECRUITING_ZAS_INBOUND_DISK', 'local'),
     ],
 ];
