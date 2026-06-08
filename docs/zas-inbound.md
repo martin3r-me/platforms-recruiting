@@ -49,6 +49,8 @@ curl -X POST https://<host>/recruiting/zas/inbound \
 
 ## Antwort (201)
 
+**Echt-Lieferung** — schlanke Quittung, keine Spaltenwerte/PII nach außen:
+
 ```json
 {
   "status": "received",
@@ -57,11 +59,27 @@ curl -X POST https://<host>/recruiting/zas/inbound \
   "is_test": false,
   "received_at": "2026-06-08T10:00:00+00:00",
   "size_bytes": 1234,
+  "detected": { "delimiter": ";", "column_count": 4, "row_count": 12 }
+}
+```
+
+**Test** (`?dry_run=true`) — zusätzlich volle Vorschau (Spaltennamen + erste
+Datenzeile). Enthält echte Werte inkl. signierter Datei-URLs, daher bewusst nur
+im Test-Modus:
+
+```json
+{
+  "status": "received",
+  "id": 42,
+  "uuid": "0192...",
+  "is_test": true,
+  "received_at": "2026-06-08T10:00:00+00:00",
+  "size_bytes": 1234,
   "detected": {
     "delimiter": ";",
     "column_count": 4,
-    "columns": ["PersNr", "Name", "Vorname", "Status"],
-    "row_count": 12
+    "row_count": 12,
+    "columns": ["PersNr", "Name", "Vorname", "Status"]
   },
   "first_data_row": {
     "PersNr": "1001",
@@ -71,6 +89,9 @@ curl -X POST https://<host>/recruiting/zas/inbound \
   }
 }
 ```
+
+> Hinweis: `first_data_row` ist immer nur **eine** Zeile — die Antwortgröße
+> hängt an der Spaltenanzahl, nicht an der Zeilenanzahl.
 
 - `422` — keine CSV empfangen (weder Multipart-Feld noch Body)
 - `401` — Bearer-Token fehlt/falsch

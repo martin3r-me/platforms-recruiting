@@ -78,7 +78,8 @@ class ZasInboundController extends Controller
             'column_count' => count($structure['columns']),
         ]);
 
-        return response()->json([
+        // Schlanke Quittung im Echtbetrieb (keine PII/Spaltenwerte nach aussen).
+        $payload = [
             'status'      => 'received',
             'id'          => $record->id,
             'uuid'        => $record->uuid,
@@ -88,11 +89,19 @@ class ZasInboundController extends Controller
             'detected'    => [
                 'delimiter'    => $structure['delimiter'],
                 'column_count' => count($structure['columns']),
-                'columns'      => $structure['columns'],
                 'row_count'    => $structure['row_count'],
             ],
-            'first_data_row' => $structure['first_data_row'],
-        ], 201)->header('Cache-Control', 'no-store');
+        ];
+
+        // Volle Vorschau (Spaltennamen + erste Datenzeile) nur im Test-Modus —
+        // enthaelt echte Personendaten + signierte Datei-URLs, die im Echtbetrieb
+        // nicht in der HTTP-Antwort landen sollen. Rohdatei ist ohnehin gespeichert.
+        if ($isTest) {
+            $payload['detected']['columns'] = $structure['columns'];
+            $payload['first_data_row']      = $structure['first_data_row'];
+        }
+
+        return response()->json($payload, 201)->header('Cache-Control', 'no-store');
     }
 
     /**
