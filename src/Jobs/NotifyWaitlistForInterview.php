@@ -75,9 +75,23 @@ class NotifyWaitlistForInterview implements ShouldQueue
                     return; // anderer Job war schneller
                 }
 
+                // Versand. Schlägt er fehl (z.B. Template/Account nicht
+                // konfiguriert, transienter WA-Fehler), geben wir den
+                // notified_at-Anspruch WIEDER FREI — sonst wäre der Bewerber
+                // dauerhaft als "benachrichtigt" markiert ohne je eine
+                // Nachricht erhalten zu haben, und ein späterer Termin würde
+                // ihn wegen der "nur 1x"-Regel nie mehr erreichen.
                 $applicant = $entry->applicant;
-                if ($applicant && $applicant->is_active) {
-                    $applicant->sendWaitlistAvailableNotification();
+                $sent = $applicant && $applicant->is_active
+                    && $applicant->sendWaitlistAvailableNotification();
+
+                if (!$sent) {
+                    // Nur der atomare Gewinner erreicht diesen Pfad, daher
+                    // ist ein Reset per ID konfliktfrei. fulfilled_at-Guard,
+                    // damit eine zwischenzeitliche Buchung nicht angefasst wird.
+                    RecInterviewWaitlist::where('id', $entry->id)
+                        ->whereNull('fulfilled_at')
+                        ->update(['notified_at' => null]);
                 }
             });
     }
