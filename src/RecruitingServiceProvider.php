@@ -132,6 +132,10 @@ class RecruitingServiceProvider extends ServiceProvider
         // aus und nullt den Marker. Siehe docs/meingedeck/zas-applicant-export.md
         \Platform\Recruiting\Observers\RecApplicantExportObserver::register();
         \Platform\Recruiting\Observers\RecEmployeeExportObserver::register();
+
+        // Schulung-Warteliste: Slot wird verfügbar → wartende Bewerber
+        // benachrichtigen; Bewerber-Dropout → offene Warteliste-Zeile canceln.
+        \Platform\Recruiting\Observers\RecInterviewWaitlistObserver::register();
     }
 
     protected function registerSchedule(): void
