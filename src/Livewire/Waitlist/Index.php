@@ -53,6 +53,7 @@ class Index extends Component
 
     public function render()
     {
-        return view('recruiting::livewire.waitlist.index');
+        return view('recruiting::livewire.waitlist.index')
+            ->layout('platform::layouts.app');
     }
 }
