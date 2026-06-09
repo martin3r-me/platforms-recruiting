@@ -244,6 +244,10 @@ class RecruitingServiceProvider extends ServiceProvider
             // Enrichment Logs
             $registry->register(new \Platform\Recruiting\Tools\GetEnrichmentLogsTool());
 
+            // Schulung-Warteliste (Liste + Reset/Storno)
+            $registry->register(new \Platform\Recruiting\Tools\ListWaitlistTool());
+            $registry->register(new \Platform\Recruiting\Tools\UpdateWaitlistTool());
+
             // Applicant ↔ CRM Contact Links
             $registry->register(new \Platform\Recruiting\Tools\LinkApplicantContactTool());
             $registry->register(new \Platform\Recruiting\Tools\UnlinkApplicantContactTool());
