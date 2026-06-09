@@ -20,7 +20,7 @@
                         Alle
                     </button>
                     @foreach($this->countsByOrt as $ort => $count)
-                        <button type="button" wire:click="selectOrt('{{ $ort }}')"
+                        <button type="button" wire:click="selectOrt(@js($ort))"
                                 class="px-3 py-1.5 rounded-full text-sm font-semibold {{ $selectedOrt === $ort ? 'bg-[var(--ui-primary)] text-white' : 'bg-[var(--ui-muted-5)] text-[var(--ui-secondary)]' }}">
                             {{ $ort }} <span class="opacity-70">{{ $count }}</span>
                         </button>

@@ -61,7 +61,11 @@ class InterviewBooking extends Component
 
         if ($this->existingBooking) {
             $this->state = 'booked';
-        } elseif ($this->waitlistEntry) {
+        } elseif ($this->waitlistEntry && empty($this->availableInterviews)) {
+            // Auf Warteliste UND aktuell keine freien Termine → Warte-Screen.
+            // Sind Termine frei (z.B. nachdem die "Termin frei geworden"-Nachricht
+            // den Bewerber zurückholt), zeigen wir die Auswahl, damit er buchen
+            // kann — sonst säße er dauerhaft im waitlisted-State fest.
             $this->state = 'waitlisted';
         } else {
             $this->state = 'selection';
@@ -278,7 +282,7 @@ class InterviewBooking extends Component
 
     public function joinWaitlist(): void
     {
-        $applicant = RecApplicant::with('phase')->find($this->applicantId);
+        $applicant = RecApplicant::with(['phase', 'postings.position'])->find($this->applicantId);
         if (!$applicant || !$this->waitlistEnabled) {
             return;
         }
@@ -297,9 +301,25 @@ class InterviewBooking extends Component
         }
         $wunschOrte = array_values(array_filter($wunschOrte, fn ($v) => $v !== null && $v !== ''));
 
+        // Fallback: ohne gepflegte Wunschorte den Ort der primären Stelle
+        // nehmen — sonst wäre die Zeile nie über whereJsonContains matchbar
+        // und der Bewerber würde nie benachrichtigt.
+        if (empty($wunschOrte)) {
+            $primaryOrt = $applicant->postings->first()?->position?->beschaftigungsort_lookup_value;
+            if (!empty($primaryOrt)) {
+                $wunschOrte = [$primaryOrt];
+            }
+        }
+
+        // Kein matchbarer Ort → keinen stillen Geister-Eintrag anlegen.
+        if (empty($wunschOrte)) {
+            $this->state = 'selection';
+            return;
+        }
+
         RecInterviewWaitlist::create([
             'rec_applicant_id' => $applicant->id,
-            'team_id'          => $this->teamId,
+            'team_id'          => $applicant->team_id,
             'wunschorte'       => $wunschOrte,
             'enrolled_at'      => now(),
         ]);
@@ -413,6 +433,11 @@ class InterviewBooking extends Component
                 . ' wurde vom Bewerber uber den Public-Form-Link abgesagt.';
         }
 
+        // Bewerber will keine Schulung mehr → offene Warteliste-Anfrage schließen.
+        RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
+            ->open()
+            ->update(['cancelled_at' => now()]);
+
         // 4) HR-Schreibtisch-Case anlegen + Flag setzen ueber den zentralen
         //    Service. Idempotent: existiert schon ein offener Case fuer den
         //    gleichen Reason (z.B. Bewerber sagt zweimal hintereinander ab),
@@ -436,7 +461,7 @@ class InterviewBooking extends Component
             // Log-Fehler darf den Cancel nicht blockieren
         }
 
-        unset($this->existingBooking, $this->availableInterviews);
+        unset($this->existingBooking, $this->availableInterviews, $this->waitlistEntry);
         $this->state = 'cancelled';
     }
 

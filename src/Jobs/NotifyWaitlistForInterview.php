@@ -7,7 +7,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecInterviewWaitlist;
@@ -70,7 +69,7 @@ class NotifyWaitlistForInterview implements ShouldQueue
                 // notified_at IS NULL hat, gewinnt genau dieser Lauf.
                 $claimed = RecInterviewWaitlist::where('id', $entry->id)
                     ->whereNull('notified_at')
-                    ->update(['notified_at' => DB::raw('NOW()')]);
+                    ->update(['notified_at' => now()]);
 
                 if ($claimed !== 1) {
                     return; // anderer Job war schneller
