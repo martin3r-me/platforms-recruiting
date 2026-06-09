@@ -59,17 +59,11 @@ class InterviewBooking extends Component
         $this->applicantId = $applicant->id;
         $this->teamId = $applicant->team_id;
 
-        if ($this->existingBooking) {
-            $this->state = 'booked';
-        } elseif ($this->waitlistEntry && empty($this->availableInterviews)) {
-            // Auf Warteliste UND aktuell keine freien Termine → Warte-Screen.
-            // Sind Termine frei (z.B. nachdem die "Termin frei geworden"-Nachricht
-            // den Bewerber zurückholt), zeigen wir die Auswahl, damit er buchen
-            // kann — sonst säße er dauerhaft im waitlisted-State fest.
-            $this->state = 'waitlisted';
-        } else {
-            $this->state = 'selection';
-        }
+        // Kein eigener "waitlisted"-State: Buchen läuft IMMER über die normale
+        // Auswahl. Ob jemand auf der Warteliste steht, leitet die Empty-Box am
+        // Render aus waitlistEntry ab — so kann der gespeicherte State nie mit
+        // der echten Verfügbarkeit auseinanderlaufen.
+        $this->state = $this->existingBooking ? 'booked' : 'selection';
     }
 
     #[Computed]
@@ -287,9 +281,9 @@ class InterviewBooking extends Component
             return;
         }
 
-        // Schon eingetragen? Dann nur State setzen (idempotent).
+        // Schon eingetragen? Idempotent — die Empty-Box zeigt den Status
+        // ohnehin aus waitlistEntry ab.
         if ($this->waitlistEntry) {
-            $this->state = 'waitlisted';
             return;
         }
 
@@ -313,7 +307,6 @@ class InterviewBooking extends Component
 
         // Kein matchbarer Ort → keinen stillen Geister-Eintrag anlegen.
         if (empty($wunschOrte)) {
-            $this->state = 'selection';
             return;
         }
 
@@ -324,8 +317,9 @@ class InterviewBooking extends Component
             'enrolled_at'      => now(),
         ]);
 
+        // State bleibt 'selection'; die Empty-Box rendert aus dem frischen
+        // waitlistEntry den Bestätigungs-Hinweis.
         unset($this->waitlistEntry);
-        $this->state = 'waitlisted';
     }
 
     /**

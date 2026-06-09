@@ -198,14 +198,24 @@
                     @endforeach
                 </div>
             @else
+                @php $onWaitlist = $this->waitlistEnabled && $this->waitlistEntry; @endphp
                 <div class="applicant-card w-full max-w-md mx-auto p-10 text-center">
-                    <div class="w-20 h-20 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-6">
-                        <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                        </svg>
+                    <div class="w-20 h-20 rounded-full {{ $onWaitlist ? 'bg-blue-50' : 'bg-gray-50' }} flex items-center justify-center mx-auto mb-6">
+                        @if($onWaitlist)
+                            <svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        @else
+                            <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                        @endif
                     </div>
-                    <h2 class="text-xl font-bold text-gray-900 mb-3">Keine freien Termine</h2>
-                    @if($this->waitlistEnabled)
+                    @if($onWaitlist)
+                        <h2 class="text-xl font-bold text-gray-900 mb-3">Du stehst auf der Warteliste</h2>
+                        <p class="text-gray-500 text-lg">Sobald in einem deiner Wunsch-Standorte ein Termin frei wird, melden wir uns automatisch per WhatsApp mit dem Buchungslink.</p>
+                    @elseif($this->waitlistEnabled)
+                        <h2 class="text-xl font-bold text-gray-900 mb-3">Keine freien Termine</h2>
                         <p class="text-gray-500 text-lg mb-6">Aktuell sind keine freien Termine verfügbar. Trag dich ein und wir benachrichtigen dich automatisch, sobald ein Termin frei wird.</p>
                         <button
                             type="button"
@@ -217,6 +227,7 @@
                             <span wire:loading wire:target="joinWaitlist">Wird eingetragen…</span>
                         </button>
                     @else
+                        <h2 class="text-xl font-bold text-gray-900 mb-3">Keine freien Termine</h2>
                         <p class="text-gray-500 text-lg">Aktuell sind keine freien Termine verfügbar. Bitte versuchen Sie es später erneut.</p>
                     @endif
                 </div>
@@ -243,20 +254,6 @@
         <footer class="max-w-3xl mx-auto px-6 pb-8 text-center">
             <p class="text-[11px] text-white/20 tracking-wider uppercase">Powered by Recruiting</p>
         </footer>
-
-    {{-- Waitlisted --}}
-    @elseif($state === 'waitlisted')
-        <div class="flex items-center justify-center min-h-screen p-4">
-            <div class="applicant-card w-full max-w-md p-10 text-center">
-                <div class="w-20 h-20 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-6">
-                    <svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                </div>
-                <h1 class="text-2xl font-bold text-gray-900 mb-3">Du stehst auf der Warteliste</h1>
-                <p class="text-gray-500 text-lg">Sobald in einem deiner Wunsch-Standorte ein Termin frei wird, melden wir uns automatisch per WhatsApp mit dem Buchungslink.</p>
-            </div>
-        </div>
 
     {{-- Booked --}}
     @elseif($state === 'booked')
