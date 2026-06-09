@@ -77,6 +77,10 @@
             @svg('heroicon-o-chat-bubble-left-right', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Gesprächsarten</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.interview-waitlist.index')">
+            @svg('heroicon-o-clock', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Warteliste</span>
+        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.contracts.index')">
             @svg('heroicon-o-document-text', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Verträge</span>

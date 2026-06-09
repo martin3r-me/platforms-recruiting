@@ -60,6 +60,7 @@ Route::get('/inbox', \Platform\Recruiting\Livewire\Inbox\Index::class)->name('re
 Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');
 Route::get('/interview-schedule', InterviewScheduleIndex::class)->name('recruiting.interview-schedule.index');
 Route::get('/interview-bookings/{interview}', InterviewBookingsIndex::class)->name('recruiting.interview-bookings.index');
+Route::get('/interview-waitlist', \Platform\Recruiting\Livewire\Waitlist\Index::class)->name('recruiting.interview-waitlist.index');
 
 // Verträge
 Route::get('/contracts', ContractsIndex::class)->name('recruiting.contracts.index');
