@@ -646,6 +646,38 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     public function sendInterviewBookingNotification(): bool
     {
+        return $this->sendBookingLinkWhatsApp(
+            'interview_booking_wa_template_id',
+            'interview_booking_sent',
+            'Interview-Buchungslink per WhatsApp gesendet.'
+        );
+    }
+
+    /**
+     * Schickt den Buchungslink erneut, wenn ein Schulungstermin frei
+     * geworden ist (Warteliste). Nutzt ein eigenes Template
+     * (interview_waitlist_wa_template_id) mit anderem Wording, aber
+     * denselben Link-Token wie der reguläre Buchungs-Versand.
+     */
+    public function sendWaitlistAvailableNotification(): bool
+    {
+        return $this->sendBookingLinkWhatsApp(
+            'interview_waitlist_wa_template_id',
+            'waitlist_slot_available_sent',
+            'Warteliste: Benachrichtigung "Termin frei geworden" per WhatsApp gesendet.'
+        );
+    }
+
+    /**
+     * Versand-Kern für den Buchungslink: löst das Template (per Settings-Key,
+     * Position→Team-Kaskade) und den WA-Account auf, baut Body- und
+     * URL-Button-Parameter und sendet das Template an die primäre
+     * Telefonnummer des Bewerbers. Wird von sendInterviewBookingNotification
+     * und sendWaitlistAvailableNotification mit unterschiedlichen
+     * Template-Keys/Log-Typen wiederverwendet.
+     */
+    private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary): bool
+    {
         try {
             $this->loadMissing(['postings.position', 'crmContactLinks.contact.phoneNumbers']);
 
@@ -654,8 +686,8 @@ class RecApplicant extends Model implements InheritsExtraFields
             $positionSettings = $position?->auto_pilot_settings ?? [];
             $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
 
-            $templateId = $positionSettings['interview_booking_wa_template_id']
-                ?? $teamSettings->getSetting('interview_booking_wa_template_id');
+            $templateId = $positionSettings[$templateSettingKey]
+                ?? $teamSettings->getSetting($templateSettingKey);
 
             if (!$templateId) {
                 return false;
@@ -794,8 +826,8 @@ class RecApplicant extends Model implements InheritsExtraFields
 
             RecAutoPilotLog::create([
                 'rec_applicant_id' => $this->id,
-                'type' => 'interview_booking_sent',
-                'summary' => 'Interview-Buchungslink per WhatsApp gesendet.',
+                'type' => $logType,
+                'summary' => $logSummary,
             ]);
 
             return true;
