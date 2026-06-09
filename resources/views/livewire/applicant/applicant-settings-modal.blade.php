@@ -374,6 +374,21 @@
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird automatisch gesendet wenn alle Phasen abgeschlossen sind. Der Interview-Buchungslink wird als URL-Button übergeben.</p>
                     @endif
 
+                    {{-- Interview Waitlist Template (Termin frei geworden) --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            name="settings.interview_waitlist_wa_template_id"
+                            label="WhatsApp Template — Termin frei geworden (Warteliste)"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model="settings.interview_waitlist_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird an wartende Bewerber gesendet, sobald in einem ihrer Wunschorte ein Schulungstermin frei wird. Der Buchungslink wird als URL-Button übergeben.</p>
+                    @endif
+
                     {{-- Contract Portal Template --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
