@@ -9,6 +9,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
+use Platform\Recruiting\Models\RecInterviewWaitlist;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Services\HrDeskRoutingService;
 
@@ -60,6 +61,8 @@ class InterviewBooking extends Component
 
         if ($this->existingBooking) {
             $this->state = 'booked';
+        } elseif ($this->waitlistEntry) {
+            $this->state = 'waitlisted';
         } else {
             $this->state = 'selection';
         }
@@ -75,6 +78,28 @@ class InterviewBooking extends Component
         return RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
             ->whereNotIn('status', ['cancelled'])
             ->with('interview')
+            ->first();
+    }
+
+    #[Computed]
+    public function waitlistEnabled(): bool
+    {
+        if (!$this->applicantId) {
+            return false;
+        }
+        $applicant = RecApplicant::with('phase')->find($this->applicantId);
+        $config = $applicant?->phase?->completion_config ?? [];
+        return ($config['waitlist_enabled'] ?? false) === true;
+    }
+
+    #[Computed]
+    public function waitlistEntry(): ?RecInterviewWaitlist
+    {
+        if (!$this->applicantId) {
+            return null;
+        }
+        return RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
+            ->open()
             ->first();
     }
 
@@ -242,8 +267,45 @@ class InterviewBooking extends Component
         // Optional: Stellen-Wechsel falls die aktuelle Phase es erlaubt
         $this->maybeSwitchPosition($applicant, $interview);
 
-        unset($this->existingBooking, $this->availableInterviews);
+        // Bucht der Bewerber, ist seine Warteliste-Anfrage erfüllt.
+        RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
+            ->open()
+            ->update(['fulfilled_at' => now()]);
+
+        unset($this->existingBooking, $this->availableInterviews, $this->waitlistEntry);
         $this->state = 'booked';
+    }
+
+    public function joinWaitlist(): void
+    {
+        $applicant = RecApplicant::with('phase')->find($this->applicantId);
+        if (!$applicant || !$this->waitlistEnabled) {
+            return;
+        }
+
+        // Schon eingetragen? Dann nur State setzen (idempotent).
+        if ($this->waitlistEntry) {
+            $this->state = 'waitlisted';
+            return;
+        }
+
+        // Snapshot der bestätigten Wunschorte — gleiche Quelle wie
+        // resolvePositionIdsForApplicant() (beschaftigungsort-Extra-Field).
+        $wunschOrte = $applicant->getExtraField('beschaftigungsort') ?? [];
+        if (!is_array($wunschOrte)) {
+            $wunschOrte = [$wunschOrte];
+        }
+        $wunschOrte = array_values(array_filter($wunschOrte, fn ($v) => $v !== null && $v !== ''));
+
+        RecInterviewWaitlist::create([
+            'rec_applicant_id' => $applicant->id,
+            'team_id'          => $this->teamId,
+            'wunschorte'       => $wunschOrte,
+            'enrolled_at'      => now(),
+        ]);
+
+        unset($this->waitlistEntry);
+        $this->state = 'waitlisted';
     }
 
     /**

@@ -205,7 +205,20 @@
                         </svg>
                     </div>
                     <h2 class="text-xl font-bold text-gray-900 mb-3">Keine freien Termine</h2>
-                    <p class="text-gray-500 text-lg">Aktuell sind keine freien Termine verfügbar. Bitte versuchen Sie es später erneut.</p>
+                    @if($this->waitlistEnabled)
+                        <p class="text-gray-500 text-lg mb-6">Aktuell sind keine freien Termine verfügbar. Trag dich ein und wir benachrichtigen dich automatisch, sobald ein Termin frei wird.</p>
+                        <button
+                            type="button"
+                            wire:click="joinWaitlist"
+                            wire:loading.attr="disabled"
+                            class="applicant-btn-primary whitespace-nowrap"
+                        >
+                            <span wire:loading.remove wire:target="joinWaitlist">Benachrichtigt mich, sobald ein Termin frei wird</span>
+                            <span wire:loading wire:target="joinWaitlist">Wird eingetragen…</span>
+                        </button>
+                    @else
+                        <p class="text-gray-500 text-lg">Aktuell sind keine freien Termine verfügbar. Bitte versuchen Sie es später erneut.</p>
+                    @endif
                 </div>
             @endif
 
@@ -230,6 +243,20 @@
         <footer class="max-w-3xl mx-auto px-6 pb-8 text-center">
             <p class="text-[11px] text-white/20 tracking-wider uppercase">Powered by Recruiting</p>
         </footer>
+
+    {{-- Waitlisted --}}
+    @elseif($state === 'waitlisted')
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="applicant-card w-full max-w-md p-10 text-center">
+                <div class="w-20 h-20 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-6">
+                    <svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-900 mb-3">Du stehst auf der Warteliste</h1>
+                <p class="text-gray-500 text-lg">Sobald in einem deiner Wunsch-Standorte ein Termin frei wird, melden wir uns automatisch per WhatsApp mit dem Buchungslink.</p>
+            </div>
+        </div>
 
     {{-- Booked --}}
     @elseif($state === 'booked')
