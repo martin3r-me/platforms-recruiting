@@ -209,7 +209,7 @@
                     @php
                         $relevantBookings = $this->bookings->whereNotIn('status', ['cancelled'])->values();
                         $bulkState = $this->bulkSendState;
-                        $templates = $this->availableContractTemplates;
+                        $defaultTpl = $this->defaultContractTemplate;
                     @endphp
 
                     <div class="overflow-x-auto">
@@ -280,19 +280,13 @@
                                         </td>
                                         <td class="px-4 py-3">
                                             @if($applicant)
-                                                <select
-                                                    wire:change="setApplicantContractTemplate({{ $booking->id }}, $event.target.value)"
-                                                    @disabled($blockContracts)
-                                                    title="{{ $isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '' }}"
-                                                    class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
-                                                >
-                                                    <option value="">— keine Vorlage —</option>
-                                                    @foreach($templates as $tpl)
-                                                        <option value="{{ $tpl->id }}" @selected($applicant->contract_template_id === $tpl->id)>
-                                                            {{ $tpl->code ? $tpl->code . ' — ' : '' }}{{ $tpl->name }}
-                                                        </option>
-                                                    @endforeach
-                                                </select>
+                                                @if($defaultTpl)
+                                                    <div class="text-xs px-2 py-1 min-w-[180px] inline-block rounded bg-[var(--ui-muted-5)] border border-[var(--ui-border)] text-[var(--ui-secondary)]">
+                                                        {{ $defaultTpl->code ? $defaultTpl->code . ' — ' : '' }}{{ $defaultTpl->name }}
+                                                    </div>
+                                                @else
+                                                    <div class="text-xs text-red-700">AV-default-Vorlage fehlt oder ist inaktiv.</div>
+                                                @endif
                                                 <div class="mt-1.5">
                                                     <input
                                                         type="text"
@@ -411,9 +405,9 @@
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Markiere mind. einen Bewerber als „Teilgenommen"">
                                     Verträge versenden
                                 </button>
-                            @elseif($bulkState === 'missing_templates')
-                                <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern eine Vertragsvorlage zuweisen">
-                                    Verträge versenden — Vorlagen fehlen
+                            @elseif($bulkState === 'no_default_template')
+                                <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="AV-default-Vorlage fehlt oder ist inaktiv">
+                                    Verträge versenden — AV-default fehlt
                                 </button>
                             @elseif($bulkState === 'missing_dates')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern einen Vertragsbeginn setzen">
