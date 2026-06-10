@@ -348,17 +348,16 @@ class Index extends Component
             return;
         }
 
-        $normalized = str_replace(',', '.', $raw);
-        if (!is_numeric($normalized)) {
+        // Strikte Validierung: nur Ziffern + optional Komma/Punkt mit max 2
+        // Nachkommastellen (Spalte ist DECIMAL(5,2) → max 999,99). Keine
+        // wissenschaftliche Notation (is_numeric("1e2") wäre true → 100),
+        // keine Tausenderzeichen, kein Vorzeichen.
+        if (!preg_match('/^\d{1,3}([.,]\d{1,2})?$/', $raw)) {
             session()->flash('error', 'Zuschlag muss eine Zahl sein (z.B. 0,60).');
             return;
         }
 
-        $num = round((float) $normalized, 2);
-        if ($num < 0) {
-            session()->flash('error', 'Zuschlag darf nicht negativ sein.');
-            return;
-        }
+        $num = round((float) str_replace(',', '.', $raw), 2);
 
         $booking->applicant->zuschlag = $num;
         $booking->applicant->save();
