@@ -432,6 +432,13 @@ class Index extends Component
             return;
         }
 
+        // Zuschlag ist Pflicht (universeller Cut) — verhindern dass jemand ohne Zuschlag versendet.
+        $missingZuschlag = $eligible->filter(fn ($b) => $b->applicant->zuschlag === null);
+        if ($missingZuschlag->isNotEmpty()) {
+            session()->flash('error', 'Bei mind. einem zu versendenden Bewerber fehlt der Zuschlag.');
+            return;
+        }
+
         $service = app(SendContractsService::class);
         $sent = 0;
         $errors = 0;
@@ -680,6 +687,10 @@ class Index extends Component
         });
         if ($missingBeginn->isNotEmpty()) {
             return 'missing_dates';
+        }
+        $missingZuschlag = $pending->filter(fn ($b) => $b->applicant?->zuschlag === null);
+        if ($missingZuschlag->isNotEmpty()) {
+            return 'missing_zuschlag';
         }
         return 'ready';
     }

@@ -419,6 +419,10 @@
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern einen Vertragsbeginn setzen">
                                     Verträge versenden — Vertragsbeginn fehlt
                                 </button>
+                            @elseif($bulkState === 'missing_zuschlag')
+                                <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern einen Zuschlag eintragen">
+                                    Verträge versenden — Zuschlag fehlt
+                                </button>
                             @elseif($bulkState === 'all_already_sent')
                                 <span class="px-4 py-2 text-sm text-emerald-600 inline-flex items-center gap-2">
                                     @svg('heroicon-o-check-circle', 'w-4 h-4')

@@ -52,6 +52,13 @@ class SendContractsService
             );
         }
 
+        if ($applicant->zuschlag === null) {
+            throw new \RuntimeException(
+                "Bewerber #{$applicant->id} hat keinen Zuschlag gesetzt — "
+                . "bitte erst in der Schulungsnachbereitung eintragen."
+            );
+        }
+
         $avTemplate = RecContractTemplate::where('team_id', $applicant->team_id)
             ->where('id', $applicant->contract_template_id)
             ->where('is_active', true)
