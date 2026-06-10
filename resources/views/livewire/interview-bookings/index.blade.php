@@ -404,19 +404,19 @@
                         <div>
                             @if($bulkState === 'no_attended')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Markiere mind. einen Bewerber als „Teilgenommen"">
-                                    Verträge versenden
+                                    Portallink & Verträge versenden
                                 </button>
                             @elseif($bulkState === 'no_default_template')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="AV-default-Vorlage fehlt oder ist inaktiv">
-                                    Verträge versenden — AV-default fehlt
+                                    Portallink & Verträge versenden — AV-default fehlt
                                 </button>
                             @elseif($bulkState === 'missing_dates')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern einen Vertragsbeginn setzen">
-                                    Verträge versenden — Vertragsbeginn fehlt
+                                    Portallink & Verträge versenden — Vertragsbeginn fehlt
                                 </button>
                             @elseif($bulkState === 'missing_zuschlag')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern einen Zuschlag eintragen">
-                                    Verträge versenden — Zuschlag fehlt
+                                    Portallink & Verträge versenden — Zuschlag fehlt
                                 </button>
                             @elseif($bulkState === 'all_already_sent')
                                 <span class="px-4 py-2 text-sm text-emerald-600 inline-flex items-center gap-2">
@@ -425,21 +425,12 @@
                                 </span>
                             @else
                                 <button
-                                    wire:click="sendContractsBulk"
-                                    wire:confirm="Verträge für alle anwesenden Bewerber mit zugewiesener Vorlage versenden?"
+                                    wire:click="sendPortalLinkBulk"
+                                    wire:confirm="Verträge erzeugen und Portal-Link an alle anwesenden Bewerber senden?"
                                     class="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--ui-primary)] text-white hover:bg-[var(--ui-primary)]/90"
                                 >
                                     @svg('heroicon-o-paper-airplane', 'w-4 h-4 inline-block mr-1.5 -mt-0.5')
-                                    Verträge versenden
-                                </button>
-                                <button
-                                    wire:click="sendPortalLinkBulk"
-                                    wire:confirm="TEST-Aktion: Verträge UND Portal-Link an alle anwesenden Bewerber senden. Aktuell nicht produktiv nutzen. Fortfahren?"
-                                    class="ml-2 px-4 py-2 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-500/90"
-                                    title="Test-Variante: Verträge + Portal-Link in einem Schritt. Nicht produktiv nutzen."
-                                >
-                                    @svg('heroicon-o-paper-airplane', 'w-4 h-4 inline-block mr-1.5 -mt-0.5')
-                                    Portallink versenden NICHT NUTZEN
+                                    Portallink & Verträge versenden
                                 </button>
                             @endif
                         </div>
