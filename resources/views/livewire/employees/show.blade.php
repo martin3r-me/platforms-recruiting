@@ -244,6 +244,18 @@
                         @endforeach
                     </div>
                 @endforeach
+
+                {{-- Zuschlag (read-only) — gepflegt in der Schulungsnachbereitung, gelesen über den verknüpften Bewerber --}}
+                @php $maZuschlag = $employee->applicant?->zuschlag; @endphp
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2 mt-4">Lohn</h3>
+                <div class="bg-amber-50/30 border border-amber-200 rounded-lg p-4">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-[var(--ui-muted)]">Zuschlag</span>
+                        <span class="font-medium text-[var(--ui-secondary)]">
+                            {{ $maZuschlag !== null ? number_format((float) $maZuschlag, 2, ',', '.') . ' €/Std' : '—' }}
+                        </span>
+                    </div>
+                </div>
             </div>
 
             {{-- Signierte Vertraege (Download) --}}
