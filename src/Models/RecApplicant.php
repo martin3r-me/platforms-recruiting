@@ -38,6 +38,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'preferred_comms_channel_id', 'enrichment_status',
         'source_platform_id', 'is_unrouted',
         'contract_template_id',
+        'zuschlag',
         'import_source',
         'export_changed_at',
         'is_test',
@@ -59,6 +60,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'progress' => 'integer',
         'applied_at' => 'date',
         'export_changed_at' => 'datetime',
+        'zuschlag' => 'decimal:2',
         'is_test' => 'boolean',
     ];
 
