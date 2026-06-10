@@ -289,6 +289,13 @@ class Index extends Component
         }
 
         $booking->update($updates);
+
+        // Ab Status "Teilgenommen" wird die Standard-Vertragsvorlage (AV-default)
+        // automatisch zugewiesen — HR wählt nichts mehr aus.
+        if ($status === 'attended') {
+            $this->assignDefaultTemplateIfMissing($booking->fresh('applicant')->applicant);
+        }
+
         session()->flash('success', 'Status aktualisiert!');
     }
 
