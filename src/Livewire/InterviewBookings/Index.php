@@ -709,6 +709,31 @@ class Index extends Component
             ->get(['id', 'name', 'code']);
     }
 
+    #[Computed]
+    public function defaultContractTemplate()
+    {
+        return RecContractTemplate::where('team_id', auth()->user()->currentTeam->id)
+            ->where('code', 'AV-default')
+            ->where('is_active', true)
+            ->first();
+    }
+
+    /**
+     * Weist dem Bewerber die AV-default-Vorlage zu, falls noch keine gesetzt
+     * ist und ein aktives AV-default existiert. Idempotent.
+     */
+    private function assignDefaultTemplateIfMissing(?RecApplicant $applicant): void
+    {
+        if (!$applicant || $applicant->contract_template_id) {
+            return;
+        }
+        $default = $this->defaultContractTemplate;
+        if ($default) {
+            $applicant->contract_template_id = $default->id;
+            $applicant->save();
+        }
+    }
+
     public function sendReminder(int $bookingId): void
     {
         $booking = RecInterviewBooking::with(['applicant.crmContactLinks.contact.phoneNumbers'])
