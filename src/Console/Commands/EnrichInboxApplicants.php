@@ -1133,7 +1133,7 @@ class EnrichInboxApplicants extends Command
     private function getContactName(RecApplicant $applicant): string
     {
         foreach ($applicant->crmContactLinks as $link) {
-            $name = $link->contact?->full_name;
+            $name = $link->contact?->first_name;
             if ($name) return $name;
         }
         return 'Bewerber/in';

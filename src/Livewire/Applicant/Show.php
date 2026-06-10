@@ -460,7 +460,7 @@ class Show extends Component
 
         // Auto-prefill known parameters from CRM contact
         $contact = $this->applicant->getContact();
-        $contactName = $contact?->full_name ?? '';
+        $contactName = $contact?->first_name ?? '';
 
         foreach ($this->templateBodyParamDefs as $param) {
             $this->templateParams[$param['name']] = match (strtolower($param['name'])) {

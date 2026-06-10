@@ -203,7 +203,7 @@ class RecInterview extends Model
             'interview_location' => $this->location ?? '',
             'interview_title' => $this->title ?? '',
             'job_title' => $this->position?->title ?? '',
-            'candidate_name' => $booking?->applicant?->crmContactLinks?->first()?->contact?->full_name ?? '',
+            'candidate_name' => $booking?->applicant?->crmContactLinks?->first()?->contact?->first_name ?? '',
             'form_link' => $booking?->applicant?->getPublicUrl() ?? '',
             default => '',
         };

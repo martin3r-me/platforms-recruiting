@@ -777,7 +777,7 @@ class RecApplicant extends Model implements InheritsExtraFields
             }
 
             if (!empty($bodyParams)) {
-                $contactName = $this->getContact()?->full_name ?? 'Bewerber/in';
+                $contactName = $this->getContact()?->first_name ?? 'Bewerber/in';
                 $bodyParameters = [];
                 foreach ($bodyParams as $param) {
                     $value = match (strtolower($param['name'])) {
@@ -940,7 +940,7 @@ class RecApplicant extends Model implements InheritsExtraFields
             }
 
             $portalLink = $this->getOrCreatePublicFormLink();
-            $contactName = $this->getContact()?->full_name ?? 'Bewerber/in';
+            $contactName = $this->getContact()?->first_name ?? 'Bewerber/in';
 
             $contractNames = $this->contracts
                 ->filter(fn ($c) => in_array($c->status, ['sent', 'in_progress', 'pending']))

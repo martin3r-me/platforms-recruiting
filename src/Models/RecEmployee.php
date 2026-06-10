@@ -464,9 +464,9 @@ class RecEmployee extends Model
             $portalUrl    = route('recruiting.public.employee-portal', ['token' => $this->portal_token]);
 
             $variableValues = [
-                'employee_name' => $employeeName,
-                'candidate_name' => $employeeName,
-                'name'           => $employeeName,
+                'employee_name' => $this->first_name ?? $employeeName,
+                'candidate_name' => $this->first_name ?? $employeeName,
+                'name'           => $this->first_name ?? $employeeName,
                 'vorname'        => $this->first_name ?? $employeeName,
                 'portal_link'    => $portalUrl,
                 'token'          => $this->portal_token,
