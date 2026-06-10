@@ -687,9 +687,10 @@ class Index extends Component
         if ($attended->isEmpty()) {
             return 'no_attended';
         }
-        $missingTemplate = $attended->filter(fn ($b) => empty($b->applicant?->contract_template_id));
-        if ($missingTemplate->isNotEmpty()) {
-            return 'missing_templates';
+        // Vorlage ist fix AV-default → kein Auswahl-Gate mehr. Einziger Block:
+        // wenn kein aktives AV-default existiert.
+        if (!$this->defaultContractTemplate) {
+            return 'no_default_template';
         }
         $allAlreadySent = $attended->every(fn ($b) => $b->applicant?->hasAnyContractSent());
         if ($allAlreadySent) {
