@@ -152,7 +152,12 @@ class RecContractTemplate extends Model
                 return is_scalar($value) ? trim((string) $value) : (string) $value;
             }
 
-            return (string) ($applicant->{$field} ?? '');
+            $value = $applicant->{$field} ?? '';
+            // Zuschlag ist ein Geldbetrag → deutsches Format (0,60) wie im settings.-Zweig.
+            if ($field === 'zuschlag' && $value !== '' && is_numeric($value)) {
+                return number_format((float) $value, 2, ',', '.');
+            }
+            return (string) $value;
         }
 
         if (str_starts_with($source, 'contract.extra_field.') && $contract) {
