@@ -280,9 +280,10 @@
                                         </td>
                                         <td class="px-4 py-3">
                                             @if($applicant)
-                                                @if($defaultTpl)
+                                                @php $shownTpl = $applicant->contractTemplate ?? $defaultTpl; @endphp
+                                                @if($shownTpl)
                                                     <div class="text-xs px-2 py-1 min-w-[180px] inline-block rounded bg-[var(--ui-muted-5)] border border-[var(--ui-border)] text-[var(--ui-secondary)]">
-                                                        {{ $defaultTpl->code ? $defaultTpl->code . ' — ' : '' }}{{ $defaultTpl->name }}
+                                                        {{ $shownTpl->code ? $shownTpl->code . ' — ' : '' }}{{ $shownTpl->name }}
                                                     </div>
                                                 @else
                                                     <div class="text-xs text-red-700">AV-default-Vorlage fehlt oder ist inaktiv.</div>
