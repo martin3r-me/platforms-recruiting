@@ -404,6 +404,25 @@ class Index extends Component
         // ZUSAETZLICH (Block B): Nicht-EU-Bewerber muessen rechtsstatus-
         // gepruefte sein. Ungepruefte werden vom Bulk-Send ausgenommen damit
         // HR sie zuerst auf dem HR-Schreibtisch durchgehen muss.
+
+        // AV-default ist die Pflicht-Quelle. Fehlt sie (inaktiv/nicht angelegt),
+        // kann nichts versendet werden.
+        $default = $this->defaultContractTemplate;
+        if (!$default) {
+            session()->flash('error', 'AV-default-Vorlage fehlt oder ist inaktiv — bitte zuerst aktivieren.');
+            return;
+        }
+
+        // Defensiv: anwesenden Bewerbern ohne Vorlage den Default zuweisen
+        // (falls sie vor diesem Feature schon auf "Teilgenommen" standen).
+        foreach ($this->bookings as $b) {
+            if ($b->status === 'attended' && $b->applicant && !$b->applicant->contract_template_id) {
+                $b->applicant->contract_template_id = $default->id;
+                $b->applicant->save();
+            }
+        }
+        unset($this->bookings);
+
         $blockedByLegalStatus = collect();
         $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus) {
             if ($b->status !== 'attended') return false;
