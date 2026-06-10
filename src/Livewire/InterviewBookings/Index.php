@@ -331,6 +331,40 @@ class Index extends Component
     }
 
     /**
+     * Setzt den Zuschlag (€/Std) für einen Bewerber. Akzeptiert deutsches
+     * (0,60) oder Punkt-Dezimal (0.60). Leere Eingabe → null.
+     */
+    public function setApplicantZuschlag(int $bookingId, $value): void
+    {
+        $booking = RecInterviewBooking::with('applicant')->findOrFail($bookingId);
+        if (!$booking->applicant) {
+            return;
+        }
+
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            $booking->applicant->zuschlag = null;
+            $booking->applicant->save();
+            return;
+        }
+
+        $normalized = str_replace(',', '.', $raw);
+        if (!is_numeric($normalized)) {
+            session()->flash('error', 'Zuschlag muss eine Zahl sein (z.B. 0,60).');
+            return;
+        }
+
+        $num = round((float) $normalized, 2);
+        if ($num < 0) {
+            session()->flash('error', 'Zuschlag darf nicht negativ sein.');
+            return;
+        }
+
+        $booking->applicant->zuschlag = $num;
+        $booking->applicant->save();
+    }
+
+    /**
      * Setzt Vertragsbeginn oder -ende für einen Bewerber. Wenn `vertragsbeginn`
      * gesetzt wird und `vertragsende` leer ist, wird das Ende live mit der
      * Auto-Calc-Logik vorbelegt (+1y, Anfang Monat, −1d).

@@ -293,6 +293,18 @@
                                                         </option>
                                                     @endforeach
                                                 </select>
+                                                <div class="mt-1.5">
+                                                    <input
+                                                        type="text"
+                                                        inputmode="decimal"
+                                                        list="zuschlag-suggestions"
+                                                        value="{{ $applicant->zuschlag !== null ? number_format((float) $applicant->zuschlag, 2, ',', '.') : '' }}"
+                                                        @disabled($blockContracts)
+                                                        wire:change="setApplicantZuschlag({{ $booking->id }}, $event.target.value)"
+                                                        placeholder="Zuschlag €/Std (z.B. 0,60)"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
+                                                    />
+                                                </div>
                                                 @if($isLegalCheckPending)
                                                     <div class="text-[10px] text-red-700 mt-1 leading-snug">Erst auf HR-Schreibtisch prüfen.</div>
                                                 @elseif($booking->status !== 'attended')
@@ -571,4 +583,13 @@
             <x-ui-button variant="primary" wire:click="saveEvaluation">Speichern</x-ui-button>
         </x-slot>
     </x-ui-modal>
+
+    <datalist id="zuschlag-suggestions">
+        <option value="0,10"></option>
+        <option value="0,60"></option>
+        <option value="1,10"></option>
+        <option value="1,60"></option>
+        <option value="2,10"></option>
+        <option value="2,60"></option>
+    </datalist>
 </x-ui-page>
