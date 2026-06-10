@@ -293,8 +293,11 @@ class Index extends Component
         // Ab Status "Teilgenommen" wird die Standard-Vertragsvorlage (AV-default)
         // automatisch zugewiesen — HR wählt nichts mehr aus.
         if ($status === 'attended') {
-            $this->assignDefaultTemplateIfMissing($booking->fresh('applicant')->applicant);
+            $this->assignDefaultTemplateIfMissing($booking->fresh('applicant')?->applicant);
         }
+
+        // Computed-Cache busten, damit Anzeige (Vorlage/Status) den frischen Stand zeigt.
+        unset($this->bookings);
 
         session()->flash('success', 'Status aktualisiert!');
     }
@@ -416,9 +419,8 @@ class Index extends Component
         // Defensiv: anwesenden Bewerbern ohne Vorlage den Default zuweisen
         // (falls sie vor diesem Feature schon auf "Teilgenommen" standen).
         foreach ($this->bookings as $b) {
-            if ($b->status === 'attended' && $b->applicant && !$b->applicant->contract_template_id) {
-                $b->applicant->contract_template_id = $default->id;
-                $b->applicant->save();
+            if ($b->status === 'attended') {
+                $this->assignDefaultTemplateIfMissing($b->applicant);
             }
         }
         unset($this->bookings);
@@ -674,11 +676,12 @@ class Index extends Component
     /**
      * Computed: returns one of:
      *  - 'no_attended'           → kein Bewerber als anwesend markiert
-     *  - 'missing_templates'     → mind. 1 anwesender Bewerber ohne Vertragsvorlage
+     *  - 'no_default_template'   → kein aktives AV-default vorhanden
      *  - 'missing_dates'         → mind. 1 anwesender (noch nicht versendet) ohne Vertragsbeginn
+     *  - 'missing_zuschlag'      → mind. 1 anwesender (noch nicht versendet) ohne Zuschlag
      *  - 'all_already_sent'      → alle anwesenden haben schon Verträge versendet
      *  - 'pending_legal_check'   → die nicht-versendeten warten alle auf HR-Schreibtisch-Pruefung
-     *  - 'ready'                 → mind. 1 anwesender hat Vorlage + Datum + Rechtsstatus-pruefung-ok
+     *  - 'ready'                 → mind. 1 anwesender hat Zuschlag + Datum + Rechtsstatus-pruefung-ok
      */
     #[Computed]
     public function bulkSendState(): string
@@ -719,21 +722,6 @@ class Index extends Component
             return 'missing_zuschlag';
         }
         return 'ready';
-    }
-
-    #[Computed]
-    public function availableContractTemplates()
-    {
-        return RecContractTemplate::where('team_id', auth()->user()->currentTeam->id)
-            ->where('is_active', true)
-            ->where(function ($q) {
-                $q->where('code', 'like', 'AV-%')
-                    ->orWhereNull('code')
-                    ->orWhere('code', '');
-            })
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get(['id', 'name', 'code']);
     }
 
     #[Computed]
