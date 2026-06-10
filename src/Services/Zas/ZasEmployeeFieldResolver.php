@@ -467,6 +467,16 @@ class ZasEmployeeFieldResolver
         if (!$employee->rec_applicant_id) {
             return null;
         }
+
+        // Neu: Zuschlag aus dem Datenfeld des verknüpften Bewerbers.
+        $zuschlag = DB::table('rec_applicants')
+            ->where('id', $employee->rec_applicant_id)
+            ->value('zuschlag');
+        if ($zuschlag !== null) {
+            return number_format((float) $zuschlag, 2, ',', '.');
+        }
+
+        // Fallback (Bestand): aus dem AV-Template-Code parsen.
         $templateCode = DB::table('rec_applicants')
             ->join('rec_contract_templates', 'rec_applicants.contract_template_id', '=', 'rec_contract_templates.id')
             ->where('rec_applicants.id', $employee->rec_applicant_id)

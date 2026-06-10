@@ -339,6 +339,12 @@ class ZasFieldResolver
      */
     protected function getZuschlag(RecApplicant $applicant): ?string
     {
+        // Neu: Zuschlag aus dem Datenfeld, wenn gesetzt.
+        if ($applicant->zuschlag !== null) {
+            return number_format((float) $applicant->zuschlag, 2, ',', '.');
+        }
+
+        // Fallback (Bestand): aus dem AV-Template-Code parsen (AV-060 → "0,60").
         $templateCode = DB::table('rec_contract_templates')
             ->where('id', $applicant->contract_template_id)
             ->value('code');
