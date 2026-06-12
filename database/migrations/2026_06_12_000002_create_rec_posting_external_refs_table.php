@@ -8,6 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Selbstheilend: Erster Deploy scheiterte am zu langen auto-generierten
+        // Unique-Namen (MySQL-Limit 64 Zeichen), nachdem CREATE TABLE bereits
+        // durch war. Leere Resttabelle entfernen, damit das Re-Run sauber läuft.
+        Schema::dropIfExists('rec_posting_external_refs');
+
         Schema::create('rec_posting_external_refs', function (Blueprint $table) {
             $table->id();
             $table->string('uuid', 36)->unique();
@@ -17,7 +22,7 @@ return new class extends Migration
             $table->foreignId('team_id')->constrained('teams')->cascadeOnDelete();
             $table->timestamps();
 
-            $table->unique(['rec_source_platform_id', 'external_ref']);
+            $table->unique(['rec_source_platform_id', 'external_ref'], 'rec_posting_ext_refs_source_ref_unique');
             $table->index('rec_posting_id');
         });
     }
