@@ -12,6 +12,8 @@ spl_autoload_register(function (string $class): void {
             if (file_exists($file)) {
                 require $file;
             }
+            // First matching prefix wins; no fall-through. Only pure-PHP classes
+            // under src/ and tests/ are resolvable in unit tests (kein Laravel-Bootstrap).
             return;
         }
     }
