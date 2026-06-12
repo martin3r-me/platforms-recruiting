@@ -98,19 +98,28 @@ class ApplicantSettingsModal extends Component
     {
         $teamId = (int) Auth::user()->currentTeam->id;
 
-        $intake = \Platform\Recruiting\Models\RecIntakeChannel::query()
+        // Guard: Verify channel belongs to team
+        $channelBelongsToTeam = \Platform\Crm\Models\CommsChannel::query()
+            ->whereKey($channelId)
             ->where('team_id', $teamId)
-            ->where('comms_channel_id', $channelId)
-            ->first();
+            ->exists();
+        if (!$channelBelongsToTeam) {
+            return;
+        }
 
-        if ($intake) {
-            $intake->update(['is_active' => !$intake->is_active]);
-        } else {
-            \Platform\Recruiting\Models\RecIntakeChannel::create([
-                'comms_channel_id' => $channelId,
+        // Race-safe upsert
+        $intake = \Platform\Recruiting\Models\RecIntakeChannel::firstOrCreate(
+            [
                 'team_id' => $teamId,
+                'comms_channel_id' => $channelId,
+            ],
+            [
                 'is_active' => true,
-            ]);
+            ],
+        );
+
+        if (!$intake->wasRecentlyCreated) {
+            $intake->update(['is_active' => !$intake->is_active]);
         }
 
         $this->loadIntakeChannels($teamId);
@@ -119,6 +128,16 @@ class ApplicantSettingsModal extends Component
     public function setIntakeDefaultPosting(int $channelId, string $postingId): void
     {
         $teamId = (int) Auth::user()->currentTeam->id;
+
+        // Guard: Verify channel belongs to team
+        $channelBelongsToTeam = \Platform\Crm\Models\CommsChannel::query()
+            ->whereKey($channelId)
+            ->where('team_id', $teamId)
+            ->exists();
+        if (!$channelBelongsToTeam) {
+            return;
+        }
+
         $postingIdInt = is_numeric($postingId) ? (int) $postingId : null;
 
         if ($postingIdInt !== null) {
