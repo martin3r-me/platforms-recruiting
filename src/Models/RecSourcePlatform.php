@@ -10,7 +10,7 @@ class RecSourcePlatform extends Model
     protected $table = 'rec_source_platforms';
 
     protected $fillable = [
-        'uuid', 'team_id', 'name', 'url', 'match_pattern', 'is_active', 'priority',
+        'uuid', 'team_id', 'name', 'url', 'match_pattern', 'ref_parser', 'is_active', 'priority',
     ];
 
     protected $casts = [

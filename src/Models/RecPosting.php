@@ -82,6 +82,11 @@ class RecPosting extends Model
             });
     }
 
+    public function externalRefs()
+    {
+        return $this->hasMany(RecPostingExternalRef::class, 'rec_posting_id');
+    }
+
     public function scopeForTeam($query, $teamId)
     {
         return $query->where('team_id', $teamId);

@@ -42,6 +42,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'import_source',
         'export_changed_at',
         'is_test',
+        'suggested_posting_id', 'match_reason',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
@@ -301,6 +302,11 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function sourcePlatform()
     {
         return $this->belongsTo(RecSourcePlatform::class, 'source_platform_id');
+    }
+
+    public function suggestedPosting()
+    {
+        return $this->belongsTo(RecPosting::class, 'suggested_posting_id');
     }
 
     public function contractTemplate()

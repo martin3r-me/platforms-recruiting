@@ -10,6 +10,10 @@ class RecApplicantPosting extends Pivot
 
     public $incrementing = true;
 
+    protected $fillable = [
+        'matched_via', 'match_confidence',
+    ];
+
     protected $casts = [
         'applied_at' => 'date',
     ];
