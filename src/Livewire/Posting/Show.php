@@ -6,7 +6,6 @@ use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecPosting;
-use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Models\RecPostingExternalRef;
 
