@@ -42,7 +42,8 @@ class RecApplicant extends Model implements InheritsExtraFields
         'import_source',
         'export_changed_at',
         'is_test',
-        'suggested_posting_id', 'match_reason',
+        'suggested_posting_id',
+        'match_reason',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
     ];
 
@@ -250,7 +251,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     {
         return $this->belongsToMany(RecPosting::class, 'rec_applicant_posting', 'rec_applicant_id', 'rec_posting_id')
             ->using(RecApplicantPosting::class)
-            ->withPivot(['applied_at', 'notes'])
+            ->withPivot(['applied_at', 'notes', 'matched_via', 'match_confidence'])
             ->withTimestamps();
     }
 

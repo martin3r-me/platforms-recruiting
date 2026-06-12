@@ -41,7 +41,7 @@ class RecPosting extends Model
     {
         return $this->belongsToMany(RecApplicant::class, 'rec_applicant_posting', 'rec_posting_id', 'rec_applicant_id')
             ->using(RecApplicantPosting::class)
-            ->withPivot(['applied_at', 'notes'])
+            ->withPivot(['applied_at', 'notes', 'matched_via', 'match_confidence'])
             ->withTimestamps();
     }
 

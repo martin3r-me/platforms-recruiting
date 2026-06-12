@@ -40,8 +40,11 @@ class RecIntakeChannel extends Model
         return $this->belongsTo(RecPosting::class, 'default_posting_id');
     }
 
-    public static function isIntake(int $commsChannelId): bool
+    public static function isIntake(int $commsChannelId, int $teamId): bool
     {
-        return static::where('comms_channel_id', $commsChannelId)->where('is_active', true)->exists();
+        return static::where('comms_channel_id', $commsChannelId)
+            ->where('team_id', $teamId)
+            ->where('is_active', true)
+            ->exists();
     }
 }
