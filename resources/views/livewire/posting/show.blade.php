@@ -118,7 +118,7 @@
         </div>
 
         {{-- Comms Channels --}}
-        <x-ui-panel title="Bewerbungs-Channels" subtitle="Verknüpfte Kommunikationskanäle – eingehende Nachrichten erzeugen automatisch Bewerbungen">
+        <x-ui-panel title="Dedizierter Kanal (Kampagne)" subtitle="Nur für exklusive Kampagnen-Kanäle. Reguläre Eingänge laufen über die Eingangskanäle (Bewerber-Einstellungen) und werden automatisch zugeordnet.">
             @if($posting->commsChannels->count() > 0)
                 <div class="space-y-2 mb-4">
                     @foreach($posting->commsChannels as $channel)
@@ -182,6 +182,70 @@
                     </div>
                 </div>
             @endif
+        </x-ui-panel>
+
+        {{-- Externe Referenzen --}}
+        <x-ui-panel title="Externe Referenzen" subtitle="Unter welcher ID/welchem Titel läuft diese Anzeige auf den Portalen? Eingehende Portal-Mails werden darüber automatisch dieser Ausschreibung zugeordnet.">
+            @if($posting->externalRefs->count() > 0)
+                <div class="space-y-2 mb-4">
+                    @foreach($posting->externalRefs as $ref)
+                        <div class="flex items-center justify-between p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                            <div class="flex items-center gap-3">
+                                @svg('heroicon-o-link', 'w-5 h-5 text-blue-600')
+                                <div>
+                                    <div class="font-medium text-sm text-[var(--ui-secondary)]">{{ $ref->sourcePlatform?->name ?? '–' }}</div>
+                                    <div class="text-xs text-[var(--ui-muted)] font-mono">{{ $ref->external_ref }}</div>
+                                </div>
+                            </div>
+                            <x-ui-button size="sm" variant="danger-outline" wire:click="removeExternalRef({{ $ref->id }})" wire:confirm="Referenz entfernen?">
+                                @svg('heroicon-o-x-mark', 'w-3 h-3')
+                            </x-ui-button>
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <div class="text-center py-4 text-[var(--ui-muted)] text-sm mb-4">
+                    Noch keine externen Referenzen hinterlegt.
+                </div>
+            @endif
+
+            <div class="border-t border-[var(--ui-border)]/40 pt-4">
+                <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">Referenz hinzufügen</label>
+                @if($this->availableSourcePlatforms->count() > 0)
+                    <div class="flex flex-wrap gap-2 items-start">
+                        @php
+                            $sourceOptions = $this->availableSourcePlatforms->map(fn($p) => ['value' => (string) $p->id, 'label' => $p->name])->values()->all();
+                        @endphp
+                        <x-ui-input-select
+                            name="newRefSourceId"
+                            label=""
+                            :options="$sourceOptions"
+                            optionValue="value"
+                            optionLabel="label"
+                            wire:model="newRefSourceId"
+                        />
+                        <div class="flex-1 min-w-[200px]">
+                            <input
+                                type="text"
+                                wire:model="newRefValue"
+                                placeholder="Job-ID / Anzeigentitel"
+                                class="w-full rounded-lg border border-[var(--ui-border)] bg-white px-3 py-2 text-sm text-[var(--ui-secondary)] placeholder-[var(--ui-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/30 focus:border-[var(--ui-primary)]"
+                            />
+                        </div>
+                        <x-ui-button size="sm" variant="primary" wire:click="addExternalRef">
+                            @svg('heroicon-o-plus', 'w-4 h-4')
+                            <span>Hinzufügen</span>
+                        </x-ui-button>
+                    </div>
+                    @error('newRefValue')
+                        <div class="mt-2 text-sm text-red-600">{{ $message }}</div>
+                    @enderror
+                @else
+                    <div class="text-sm text-[var(--ui-muted)]">
+                        Keine aktiven Quell-Plattformen konfiguriert. Bitte zuerst Eingangskanäle in den Bewerber-Einstellungen anlegen.
+                    </div>
+                @endif
+            </div>
         </x-ui-panel>
 
         {{-- Applicants --}}

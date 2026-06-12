@@ -7,15 +7,20 @@ use Livewire\Attributes\Computed;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Models\RecSourcePlatform;
+use Platform\Recruiting\Models\RecPostingExternalRef;
 
 class Show extends Component
 {
     public RecPosting $posting;
     public string $description = '';
 
+    public string $newRefSourceId = '';
+    public string $newRefValue = '';
+
     public function mount(RecPosting $posting)
     {
-        $this->posting = $posting->load(['position', 'applicants.crmContactLinks.contact', 'commsChannels']);
+        $this->posting = $posting->load(['position', 'applicants.crmContactLinks.contact', 'commsChannels', 'externalRefs.sourcePlatform']);
         $this->description = $posting->description ?? '';
     }
 
@@ -100,6 +105,62 @@ class Show extends Component
     {
         return $this->posting->isDirty()
             || $this->description !== ($this->posting->getOriginal('description') ?? '');
+    }
+
+    #[Computed]
+    public function availableSourcePlatforms()
+    {
+        return RecSourcePlatform::query()
+            ->where('team_id', $this->posting->team_id)
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
+    }
+
+    public function addExternalRef(): void
+    {
+        $this->validate([
+            'newRefSourceId' => 'required|integer',
+            'newRefValue' => 'required|string|max:255',
+        ]);
+
+        $sourceBelongsToTeam = RecSourcePlatform::query()
+            ->whereKey((int) $this->newRefSourceId)
+            ->where('team_id', $this->posting->team_id)
+            ->exists();
+        if (!$sourceBelongsToTeam) {
+            return;
+        }
+
+        $ref = RecPostingExternalRef::firstOrCreate(
+            [
+                'rec_source_platform_id' => (int) $this->newRefSourceId,
+                'external_ref' => trim($this->newRefValue),
+            ],
+            [
+                'rec_posting_id' => $this->posting->id,
+                'team_id' => $this->posting->team_id,
+            ],
+        );
+
+        if ($ref->rec_posting_id !== $this->posting->id) {
+            $this->addError('newRefValue', 'Diese Referenz ist bereits einer anderen Ausschreibung zugeordnet.');
+            return;
+        }
+
+        $this->newRefSourceId = '';
+        $this->newRefValue = '';
+        $this->posting->load('externalRefs.sourcePlatform');
+    }
+
+    public function removeExternalRef(int $refId): void
+    {
+        RecPostingExternalRef::query()
+            ->where('rec_posting_id', $this->posting->id)
+            ->whereKey($refId)
+            ->delete();
+
+        $this->posting->load('externalRefs.sourcePlatform');
     }
 
     public function render()
