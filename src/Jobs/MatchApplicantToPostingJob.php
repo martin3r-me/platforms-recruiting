@@ -64,6 +64,11 @@ class MatchApplicantToPostingJob implements ShouldQueue
 
         // Stufe 2b: hohe Konfidenz → automatisch zuordnen
         if ($llm && $llm['posting'] && $llm['confidence'] === 'high') {
+            Log::info('[MatchApplicantToPostingJob] LLM match accepted', [
+                'applicant_id' => $applicant->id,
+                'posting_id' => $llm['posting']->id,
+                'reason' => $llm['reason'],
+            ]);
             $applications->assignPosting(
                 $applicant,
                 new MatchResult($llm['posting'], MatchResult::VIA_LLM, 'high', $llm['reason']),
@@ -152,9 +157,11 @@ class MatchApplicantToPostingJob implements ShouldQueue
         }
 
         $raw = trim((string) ($result['content'] ?? ''));
-        // tolerant gegen ```json ... ```-Wrapper
-        $raw = preg_replace('/^```(?:json)?|```$/m', '', $raw);
-        $json = json_decode(trim((string) $raw), true);
+        // tolerant gegen Prosa/```json-Wrapper: erstes {...}-Objekt extrahieren
+        $json = null;
+        if (preg_match('/\{.*\}/s', $raw, $m)) {
+            $json = json_decode($m[0], true);
+        }
 
         if (!is_array($json)) {
             Log::warning('[MatchApplicantToPostingJob] LLM response not parseable', [
@@ -165,7 +172,7 @@ class MatchApplicantToPostingJob implements ShouldQueue
         }
 
         $posting = null;
-        if (!empty($json['posting_uuid'])) {
+        if (!empty($json['posting_uuid']) && is_string($json['posting_uuid'])) {
             // NUR UUIDs aus der Kandidatenliste akzeptieren (Manipulationsschutz)
             $posting = $candidates->firstWhere('uuid', $json['posting_uuid']);
         }
