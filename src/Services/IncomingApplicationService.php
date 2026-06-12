@@ -84,7 +84,15 @@ class IncomingApplicationService
         }
 
         // Neuer Bewerber: Stufe 1 inline, Stufe 2-4 asynchron im Job
-        $match = $matching->matchDeterministic($channel, $source, $subject, $messageBody);
+        try {
+            $match = $matching->matchDeterministic($channel, $source, $subject, $messageBody);
+        } catch (\Throwable $e) {
+            Log::warning('[IncomingApplicationService] Deterministic matching failed, falling back to async matching', [
+                'channel_id' => $channel->id,
+                'error' => $e->getMessage(),
+            ]);
+            $match = null;
+        }
 
         return DB::transaction(function () use ($match, $channel, $senderIdentifier, $senderName, $subject, $messageBody, $teamId) {
             $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
@@ -156,29 +164,31 @@ class IncomingApplicationService
      */
     public function assignPosting(RecApplicant $applicant, MatchResult $match): void
     {
-        $applicant->postings()->syncWithoutDetaching([
-            $match->posting->id => [
-                'applied_at' => now()->toDateString(),
-                'notes' => 'Zugeordnet via ' . $match->via,
+        DB::transaction(function () use ($applicant, $match) {
+            $applicant->postings()->syncWithoutDetaching([
+                $match->posting->id => [
+                    'applied_at' => now()->toDateString(),
+                    'notes' => 'Zugeordnet via ' . $match->via,
+                    'matched_via' => $match->via,
+                    'match_confidence' => $match->confidence,
+                ],
+            ]);
+
+            $applicant->forceFill([
+                'rec_phase_id' => $applicant->rec_phase_id ?? $match->posting->position?->firstPhase()?->id,
+                'is_unrouted' => false,
+                'suggested_posting_id' => null,
+                'match_reason' => null,
+                'enrichment_status' => null, // Enrichment-Scheduler greift jetzt
+            ])->save();
+
+            Log::info('[IncomingApplicationService] Applicant assigned to posting', [
+                'applicant_id' => $applicant->id,
+                'posting_id' => $match->posting->id,
                 'matched_via' => $match->via,
-                'match_confidence' => $match->confidence,
-            ],
-        ]);
-
-        $applicant->forceFill([
-            'rec_phase_id' => $applicant->rec_phase_id ?? $match->posting->position?->firstPhase()?->id,
-            'is_unrouted' => false,
-            'suggested_posting_id' => null,
-            'match_reason' => null,
-            'enrichment_status' => null, // Enrichment-Scheduler greift jetzt
-        ])->save();
-
-        Log::info('[IncomingApplicationService] Applicant assigned to posting', [
-            'applicant_id' => $applicant->id,
-            'posting_id' => $match->posting->id,
-            'matched_via' => $match->via,
-            'confidence' => $match->confidence,
-        ]);
+                'confidence' => $match->confidence,
+            ]);
+        });
     }
 
     /**
