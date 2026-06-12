@@ -101,6 +101,37 @@
                                     </button>
                                 </div>
                             </div>
+
+                            {{-- Ausschreibungs-Zuordnung --}}
+                            <div class="mt-3 pt-3 border-t border-[var(--ui-border)]/40 space-y-1.5">
+                                @if($applicant->suggestedPosting)
+                                    <div class="flex items-center gap-2 text-sm">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">Vorschlag</span>
+                                        <span class="text-[var(--ui-secondary)]">{{ $applicant->suggestedPosting->title }}</span>
+                                        <button type="button"
+                                                wire:click="confirmSuggestedPosting({{ $applicant->id }})"
+                                                class="text-xs font-medium text-emerald-600 hover:underline">
+                                            Bestätigen
+                                        </button>
+                                    </div>
+                                    @if($applicant->match_reason)
+                                        <p class="text-xs text-[var(--ui-muted)]">{{ $applicant->match_reason }}</p>
+                                    @endif
+                                @elseif($applicant->match_reason)
+                                    <p class="text-xs text-[var(--ui-muted)]">{{ $applicant->match_reason }}</p>
+                                @endif
+
+                                <div class="flex items-center gap-2">
+                                    <select wire:change="assignPosting({{ $applicant->id }}, $event.target.value)"
+                                            class="text-xs px-2 py-1.5 border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20">
+                                        <option value="">Ausschreibung zuordnen …</option>
+                                        @foreach($this->openPostings as $posting)
+                                            @php $location = $posting->position?->location; @endphp
+                                            <option value="{{ $posting->id }}">{{ $posting->title }}{{ $location ? ' — ' . $location : '' }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                     @endforeach
                 </div>

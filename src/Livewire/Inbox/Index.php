@@ -6,7 +6,10 @@ use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Illuminate\Support\Facades\Auth;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
+use Platform\Recruiting\Services\IncomingApplicationService;
+use Platform\Recruiting\Services\MatchResult;
 
 /**
  * Eingangs-Inbox: lists applicants whose inbound mail did NOT match any
@@ -26,6 +29,7 @@ class Index extends Component
         $query = RecApplicant::with([
             'crmContactLinks.contact.emailAddresses',
             'crmContactLinks.contact.phoneNumbers',
+            'suggestedPosting.position',
         ])
             ->forTeam($teamId)
             ->unrouted()
@@ -53,6 +57,17 @@ class Index extends Component
             ->where('is_active', true)
             ->orderBy('name')
             ->get(['id', 'name']);
+    }
+
+    #[Computed]
+    public function openPostings()
+    {
+        return RecPosting::query()
+            ->forTeam((int) Auth::user()->currentTeam->id)
+            ->open()
+            ->with('position')
+            ->orderBy('title')
+            ->get();
     }
 
     #[Computed]
@@ -106,6 +121,49 @@ class Index extends Component
         unset($this->totalCount);
 
         session()->flash('message', 'Eingang verworfen.');
+    }
+
+    public function confirmSuggestedPosting(int $applicantId): void
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+        $applicant = RecApplicant::query()
+            ->forTeam($teamId)
+            ->findOrFail($applicantId);
+
+        if (!$applicant->suggested_posting_id || !$applicant->suggestedPosting) {
+            return;
+        }
+
+        app(IncomingApplicationService::class)->assignPosting(
+            $applicant,
+            new MatchResult(
+                $applicant->suggestedPosting,
+                MatchResult::VIA_MANUAL,
+                reason: 'Inbox-Vorschlag bestätigt',
+            ),
+        );
+
+        unset($this->unroutedApplicants);
+        unset($this->totalCount);
+    }
+
+    public function assignPosting(int $applicantId, string $postingId): void
+    {
+        if ($postingId === '' || !is_numeric($postingId)) {
+            return;
+        }
+
+        $teamId = (int) Auth::user()->currentTeam->id;
+        $applicant = RecApplicant::query()->forTeam($teamId)->findOrFail($applicantId);
+        $posting = RecPosting::query()->forTeam($teamId)->findOrFail((int) $postingId);
+
+        app(IncomingApplicationService::class)->assignPosting(
+            $applicant,
+            new MatchResult($posting, MatchResult::VIA_MANUAL),
+        );
+
+        unset($this->unroutedApplicants);
+        unset($this->totalCount);
     }
 
     public function render()
