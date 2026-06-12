@@ -126,9 +126,10 @@ class Index extends Component
     public function confirmSuggestedPosting(int $applicantId): void
     {
         $teamId = (int) Auth::user()->currentTeam->id;
-        $applicant = RecApplicant::query()
-            ->forTeam($teamId)
-            ->findOrFail($applicantId);
+        $applicant = RecApplicant::forTeam($teamId)->unrouted()->find($applicantId);
+        if (!$applicant) {
+            return;
+        }
 
         if (!$applicant->suggested_posting_id || !$applicant->suggestedPosting) {
             return;
@@ -145,6 +146,8 @@ class Index extends Component
 
         unset($this->unroutedApplicants);
         unset($this->totalCount);
+
+        session()->flash('message', 'Bewerber wurde der vorgeschlagenen Ausschreibung zugeordnet.');
     }
 
     public function assignPosting(int $applicantId, string $postingId): void
@@ -154,8 +157,15 @@ class Index extends Component
         }
 
         $teamId = (int) Auth::user()->currentTeam->id;
-        $applicant = RecApplicant::query()->forTeam($teamId)->findOrFail($applicantId);
-        $posting = RecPosting::query()->forTeam($teamId)->findOrFail((int) $postingId);
+        $applicant = RecApplicant::forTeam($teamId)->unrouted()->find($applicantId);
+        if (!$applicant) {
+            return;
+        }
+
+        $posting = RecPosting::forTeam($teamId)->find((int) $postingId);
+        if (!$posting) {
+            return;
+        }
 
         app(IncomingApplicationService::class)->assignPosting(
             $applicant,
@@ -164,6 +174,8 @@ class Index extends Component
 
         unset($this->unroutedApplicants);
         unset($this->totalCount);
+
+        session()->flash('message', 'Bewerber wurde der Ausschreibung zugeordnet.');
     }
 
     public function render()
