@@ -40,6 +40,14 @@
                     Eingangs-Quellen
                 </button>
                 <button
+                    @click="$wire.set('activeTab', 'intake-channels')"
+                    :class="$wire.activeTab === 'intake-channels' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
+                    class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
+                    wire:click="$set('activeTab', 'intake-channels')"
+                >
+                    Eingangskanäle
+                </button>
+                <button
                     @click="$wire.set('activeTab', 'payroll')"
                     :class="$wire.activeTab === 'payroll' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
                     class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
@@ -593,6 +601,66 @@
                                             <button wire:click="deleteSource({{ $source['id'] }})"
                                                     wire:confirm="Wirklich löschen?"
                                                     class="text-xs text-red-600 hover:underline">Löschen</button>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
+            </div>
+            @elseif($activeTab === 'intake-channels')
+            {{-- Eingangskanäle --}}
+            <div class="space-y-4">
+                <div>
+                    <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Eingangskanäle</h3>
+                    <p class="text-sm text-[var(--ui-muted)] mt-1">
+                        Lege fest, auf welchen Kanälen Bewerbungen eingehen. Nur markierte Kanäle erzeugen Bewerber. Optional kann pro Kanal eine Fallback-Ausschreibung gesetzt werden, die greift, wenn keine automatische Zuordnung möglich ist.
+                    </p>
+                </div>
+
+                @if(empty($intakeChannels))
+                    <div class="text-center py-8 text-[var(--ui-muted)] text-sm border border-dashed border-[var(--ui-border)]/40 rounded-lg">
+                        Keine CRM-Kanäle für dieses Team gefunden.
+                    </div>
+                @else
+                    <div class="border border-[var(--ui-border)]/60 rounded-lg overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-[var(--ui-muted-5)] text-xs uppercase text-[var(--ui-muted)]">
+                                <tr>
+                                    <th class="px-3 py-2 text-left font-medium">Kanal</th>
+                                    <th class="px-3 py-2 text-left font-medium">Typ</th>
+                                    <th class="px-3 py-2 text-center font-medium">Bewerbungs-Eingang</th>
+                                    <th class="px-3 py-2 text-left font-medium">Fallback-Ausschreibung</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[var(--ui-border)]/40">
+                                @foreach($intakeChannels as $channel)
+                                    <tr class="hover:bg-[var(--ui-muted-5)]">
+                                        <td class="px-3 py-2 font-medium text-[var(--ui-secondary)]">{{ $channel['name'] }}</td>
+                                        <td class="px-3 py-2 text-[var(--ui-muted)] text-xs">{{ $channel['type'] }}</td>
+                                        <td class="px-3 py-2 text-center">
+                                            <input type="checkbox"
+                                                   wire:click="toggleIntakeChannel({{ $channel['channel_id'] }})"
+                                                   @checked($channel['is_intake'])
+                                                   class="w-4 h-4 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)] cursor-pointer">
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            @if($channel['is_intake'])
+                                                @php
+                                                    $currentPostingId = $channel['default_posting_id'];
+                                                @endphp
+                                                <select
+                                                    wire:change="setIntakeDefaultPosting({{ $channel['channel_id'] }}, $event.target.value)"
+                                                    class="w-full px-2 py-1 text-sm border border-[var(--ui-border)] rounded-md bg-[var(--ui-surface)] text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                                                    <option value="" @selected($currentPostingId === null)>— keine —</option>
+                                                    @foreach($this->openPostings as $posting)
+                                                        <option value="{{ $posting['id'] }}" @selected($currentPostingId == $posting['id'])>{{ $posting['title'] }}</option>
+                                                    @endforeach
+                                                </select>
+                                            @else
+                                                <span class="text-xs text-[var(--ui-muted)]">–</span>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach

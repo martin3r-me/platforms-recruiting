@@ -34,6 +34,8 @@ class ApplicantSettingsModal extends Component
 
     public $sourcePlatforms = [];
     public bool $showSourceForm = false;
+
+    public array $intakeChannels = [];
     public ?int $editingSourceId = null;
     public array $newSource = [
         'name' => '',
@@ -56,6 +58,7 @@ class ApplicantSettingsModal extends Component
         $this->newServiceZeit['service_hours'] = RecServiceHours::getDefaultServiceHours();
 
         $this->loadSourcePlatforms($teamId);
+        $this->loadIntakeChannels($teamId);
 
         $this->activeTab = 'general';
         $this->modalShow = true;
@@ -68,6 +71,69 @@ class ApplicantSettingsModal extends Component
             ->orderBy('priority')
             ->get()
             ->toArray();
+    }
+
+    private function loadIntakeChannels(int $teamId): void
+    {
+        $registered = \Platform\Recruiting\Models\RecIntakeChannel::query()
+            ->where('team_id', $teamId)
+            ->get()
+            ->keyBy('comms_channel_id');
+
+        $this->intakeChannels = \Platform\Crm\Models\CommsChannel::query()
+            ->where('team_id', $teamId)
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($channel) => [
+                'channel_id' => $channel->id,
+                'name' => $channel->name,
+                'type' => $channel->type,
+                'is_intake' => $registered->has($channel->id) && $registered[$channel->id]->is_active,
+                'default_posting_id' => $registered[$channel->id]->default_posting_id ?? null,
+            ])
+            ->toArray();
+    }
+
+    public function toggleIntakeChannel(int $channelId): void
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+
+        $intake = \Platform\Recruiting\Models\RecIntakeChannel::query()
+            ->where('team_id', $teamId)
+            ->where('comms_channel_id', $channelId)
+            ->first();
+
+        if ($intake) {
+            $intake->update(['is_active' => !$intake->is_active]);
+        } else {
+            \Platform\Recruiting\Models\RecIntakeChannel::create([
+                'comms_channel_id' => $channelId,
+                'team_id' => $teamId,
+                'is_active' => true,
+            ]);
+        }
+
+        $this->loadIntakeChannels($teamId);
+    }
+
+    public function setIntakeDefaultPosting(int $channelId, string $postingId): void
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+        $postingIdInt = is_numeric($postingId) ? (int) $postingId : null;
+
+        if ($postingIdInt !== null) {
+            $valid = \Platform\Recruiting\Models\RecPosting::forTeam($teamId)->whereKey($postingIdInt)->exists();
+            if (!$valid) {
+                return;
+            }
+        }
+
+        \Platform\Recruiting\Models\RecIntakeChannel::query()
+            ->where('team_id', $teamId)
+            ->where('comms_channel_id', $channelId)
+            ->update(['default_posting_id' => $postingIdInt]);
+
+        $this->loadIntakeChannels($teamId);
     }
 
     public function toggleSourceForm(): void
@@ -219,6 +285,18 @@ class ApplicantSettingsModal extends Component
     public function toggleServiceHoursForm(): void
     {
         $this->showServiceHoursForm = !$this->showServiceHoursForm;
+    }
+
+    #[Computed]
+    public function openPostings(): array
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+        return \Platform\Recruiting\Models\RecPosting::forTeam($teamId)
+            ->open()
+            ->orderBy('title')
+            ->get()
+            ->map(fn ($p) => ['id' => $p->id, 'title' => $p->title])
+            ->toArray();
     }
 
     #[Computed]
