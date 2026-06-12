@@ -129,6 +129,7 @@ class Show extends Component
             ->where('team_id', $this->posting->team_id)
             ->exists();
         if (!$sourceBelongsToTeam) {
+            $this->addError('newRefSourceId', 'Ungültige Quelle.');
             return;
         }
 

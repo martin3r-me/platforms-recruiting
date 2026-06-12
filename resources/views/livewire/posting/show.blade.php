@@ -240,6 +240,9 @@
                     @error('newRefValue')
                         <div class="mt-2 text-sm text-red-600">{{ $message }}</div>
                     @enderror
+                    @error('newRefSourceId')
+                        <div class="mt-2 text-sm text-red-600">{{ $message }}</div>
+                    @enderror
                 @else
                     <div class="text-sm text-[var(--ui-muted)]">
                         Keine aktiven Quell-Plattformen konfiguriert. Bitte zuerst Eingangskanäle in den Bewerber-Einstellungen anlegen.
