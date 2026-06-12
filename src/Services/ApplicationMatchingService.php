@@ -61,6 +61,7 @@ class ApplicationMatchingService
         $posting = RecPostingExternalRef::query()
             ->where('rec_source_platform_id', $source->id)
             ->where('external_ref', $ref)
+            ->where('team_id', $channel->team_id)
             ->first()
             ?->posting;
 
