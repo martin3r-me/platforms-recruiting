@@ -4,16 +4,17 @@ namespace Platform\Recruiting\Listeners;
 
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Events\CommsInboundReceived;
-use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsEmailInboundMail;
 use Platform\Crm\Models\CommsLog;
 use Platform\Recruiting\Models\RecSourcePlatform;
+use Platform\Recruiting\Services\ApplicationMatchingService;
 use Platform\Recruiting\Services\IncomingApplicationService;
 
 class HandleCommsInboundForRecruiting
 {
     public function __construct(
         private IncomingApplicationService $applicationService,
+        private ApplicationMatchingService $matchingService,
     ) {}
 
     public function handle(CommsInboundReceived $event): void
@@ -46,16 +47,16 @@ class HandleCommsInboundForRecruiting
             extra: $logExtra,
         );
 
-        // Check if this channel is linked to any recruiting postings
-        if (!$this->channelHasPostings($channel)) {
-            Log::debug('[Recruiting] Email channel has no open postings, skipping', [
+        // Intake-Gate: ist dieser Kanal überhaupt ein Bewerbungs-Eingang?
+        if (!$this->matchingService->isIntakeChannel($channel)) {
+            Log::debug('[Recruiting] Email channel is not a recruiting intake channel, skipping', [
                 'channel_id' => $channel->id,
             ]);
 
             CommsLog::log(
                 event: 'inbound_skipped',
                 status: 'info',
-                summary: "Email-Kanal hat keine offenen Postings, übersprungen",
+                summary: "Email-Kanal ist kein Bewerbungs-Eingang, übersprungen",
                 details: ['channel_name' => $channel->name],
                 extra: $logExtra,
             );
@@ -95,12 +96,19 @@ class HandleCommsInboundForRecruiting
                 return;
             }
 
+            // Quellplattform aus dem ORIGINAL mail->from (= Forwarder-Adresse,
+            // z. B. noreply@indeedmail.com) bestimmen, NICHT aus der extrahierten
+            // Bewerber-Mail. Vor dem Service-Aufruf, damit die deterministische
+            // Stufe 1 (Portal-Referenz) die Quelle nutzen kann.
+            $source = RecSourcePlatform::detectFromSender($senderRaw, (int) $channel->team_id);
+
             $result = $this->applicationService->handleInboundMessage(
                 channel: $channel,
                 senderIdentifier: $senderEmail,
                 senderName: $senderName,
                 subject: $mail->subject,
                 messageBody: $mail->text_body,
+                source: $source,
             );
 
             if (!$result) {
@@ -109,21 +117,15 @@ class HandleCommsInboundForRecruiting
 
             $applicant = $result['applicant'];
 
-            // Detect source platform from the ORIGINAL mail->from (= the
-            // platform-forwarder address, e.g. noreply@indeedmail.com), NOT
-            // from the extracted applicant email. We only set this once on
-            // creation — re-applies on existing applicants would overwrite a
-            // hand-corrected source.
-            //
-            // No match → mark as unrouted so the applicant lands in the
-            // Eingangs-Inbox instead of the normal flow. We also set
-            // enrichment_status='unrouted' so the Enrichment-Cronjob skips it
-            // (Cronjob only processes status IS NULL or empty).
+            // Quellplattform-Attribution: nur einmal bei Erstanlage setzen.
+            // Re-applies auf bestehende Bewerber würden eine hand-korrigierte
+            // Quelle überschreiben. Das Routing-State (is_unrouted /
+            // enrichment_status) gehört jetzt dem Service/Job — hier NICHT mehr
+            // anfassen.
             if ($result['is_new'] && empty($applicant->source_platform_id)) {
-                $source = RecSourcePlatform::detectFromSender($senderRaw, (int) $channel->team_id);
                 if ($source) {
                     $applicant->source_platform_id = $source->id;
-                    $applicant->is_unrouted = false;
+                    $applicant->save();
                 } else {
                     // TEMP DIAG — entfernen sobald Ursache gefunden.
                     // Schreibt in comms_logs damit per MCP abrufbar.
@@ -151,11 +153,7 @@ class HandleCommsInboundForRecruiting
                             'source' => 'recruiting_inbound_diag',
                         ],
                     );
-
-                    $applicant->is_unrouted = true;
-                    $applicant->enrichment_status = 'unrouted';
                 }
-                $applicant->save();
             }
 
             // Attach files from the inbound mail to the applicant (CV, cover letter, etc.)
@@ -192,7 +190,7 @@ class HandleCommsInboundForRecruiting
 
             Log::info('[Recruiting] Email application processed', [
                 'applicant_id' => $applicant->id,
-                'posting_id' => $result['posting']->id,
+                'posting_id' => $result['posting']?->id,
                 'is_new' => $result['is_new'],
             ]);
 
@@ -204,7 +202,7 @@ class HandleCommsInboundForRecruiting
                     : "Bestehender Bewerber gefunden, Notiz angehängt für {$senderEmail}",
                 details: [
                     'applicant_id' => $applicant->id,
-                    'posting_id' => $result['posting']->id,
+                    'posting_id' => $result['posting']?->id,
                     'is_new' => $result['is_new'],
                 ],
                 extra: array_merge($logExtra, ['recipient' => $senderEmail]),
@@ -225,13 +223,6 @@ class HandleCommsInboundForRecruiting
                 extra: $logExtra,
             );
         }
-    }
-
-    private function channelHasPostings(CommsChannel $channel): bool
-    {
-        return $channel->recruitingPostings()
-            ->open()
-            ->exists();
     }
 
     /**

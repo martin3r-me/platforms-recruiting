@@ -8,38 +8,27 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecPosting;
+use Platform\Recruiting\Models\RecSourcePlatform;
 
 class IncomingApplicationService
 {
     /**
-     * Find all open postings linked to a given CommsChannel.
-     *
-     * @return \Illuminate\Database\Eloquent\Collection<RecPosting>
-     */
-    public function findPostingsForChannel(CommsChannel $channel): \Illuminate\Database\Eloquent\Collection
-    {
-        return RecPosting::query()
-            ->whereHas('commsChannels', fn ($q) => $q->where('comms_channels.id', $channel->id))
-            ->open()
-            ->get();
-    }
-
-    /**
      * Create or update an application from an inbound message.
      *
-     * Handles:
-     * - Finding postings linked to the channel
-     * - Duplicate detection (same sender on same channel → existing applicant)
-     * - Creating new applicant with CRM contact
-     * - Linking applicant to posting
+     * New staged matching semantics:
+     * - Intake-Gate (Stufe 0): channel must be a recruiting intake channel.
+     * - Bestandscheck: posting-independent broad lookup of existing applicants.
+     * - New applicants: deterministic Stufe 1 inline (assign or suggest),
+     *   otherwise dispatch the async matching job (Stufe 2-4).
      *
-     * @param CommsChannel $channel       The channel the message arrived on
-     * @param string       $senderIdentifier  Email address or phone number of sender
-     * @param string|null  $senderName    Display name of sender (e.g. "Max Mustermann")
-     * @param string|null  $subject       Email subject or message preview
-     * @param string|null  $messageBody   The message text
+     * @param CommsChannel        $channel           The channel the message arrived on
+     * @param string              $senderIdentifier  Email address or phone number of sender
+     * @param string|null         $senderName        Display name of sender (e.g. "Max Mustermann")
+     * @param string|null         $subject           Email subject or message preview
+     * @param string|null         $messageBody       The message text
+     * @param RecSourcePlatform|null $source         Already-detected source platform (from listener)
      *
-     * @return array{applicant: RecApplicant, posting: RecPosting, is_new: bool}|null
+     * @return array{applicant: RecApplicant, posting: ?RecPosting, is_new: bool}|null
      */
     public function handleInboundMessage(
         CommsChannel $channel,
@@ -47,11 +36,12 @@ class IncomingApplicationService
         ?string $senderName = null,
         ?string $subject = null,
         ?string $messageBody = null,
+        ?RecSourcePlatform $source = null,
     ): ?array {
-        $postings = $this->findPostingsForChannel($channel);
+        $matching = app(ApplicationMatchingService::class);
 
-        if ($postings->isEmpty()) {
-            Log::debug('[IncomingApplicationService] No open postings linked to channel', [
+        if (!$matching->isIntakeChannel($channel)) {
+            Log::debug('[IncomingApplicationService] Channel is not a recruiting intake channel', [
                 'channel_id' => $channel->id,
                 'channel_type' => $channel->type,
             ]);
@@ -60,7 +50,6 @@ class IncomingApplicationService
 
         $teamId = $channel->team_id;
 
-        // Skip if this sender already has an active HCM onboarding or is an employee
         if ($this->senderHasActiveHcmRecord($senderIdentifier, $channel->type, $teamId)) {
             Log::info('[IncomingApplicationService] Sender has active onboarding or employee record, skipping applicant creation', [
                 'sender' => $senderIdentifier,
@@ -69,18 +58,12 @@ class IncomingApplicationService
             return null;
         }
 
-        // Check if this sender already has an applicant linked to any of these postings
-        $existingApplicant = $this->findExistingApplicantForPostings($senderIdentifier, $postings, $teamId);
-
-        // Fallback: breitere Suche ohne Posting-/Active-Filter
-        if (!$existingApplicant) {
-            $existingApplicant = $this->findExistingApplicantByContact($senderIdentifier, $teamId);
-        }
+        // Bestandscheck (Stufe 0) — breite Suche, Posting-unabhängig
+        $existingApplicant = $this->findExistingApplicantByContact($senderIdentifier, $teamId);
 
         if ($existingApplicant) {
             Log::info('[IncomingApplicationService] Existing applicant found, appending to application', [
                 'applicant_id' => $existingApplicant->id,
-                'posting_ids' => $postings->pluck('id')->toArray(),
                 'sender' => $senderIdentifier,
             ]);
 
@@ -89,23 +72,21 @@ class IncomingApplicationService
             $existingApplicant->notes = trim(($existingApplicant->notes ?? '') . "\n" . $appendNote);
             $existingApplicant->save();
 
-            // Ensure applicant is linked to all postings (may have new ones)
-            $this->linkApplicantToPostings($existingApplicant, $postings, $channel->type);
-
-            // Mark WhatsApp as opted-in if this message came via WhatsApp
             if ($channel->type === 'whatsapp') {
                 $this->markPhoneAsWhatsAppOptedIn($existingApplicant, $senderIdentifier);
             }
 
             return [
                 'applicant' => $existingApplicant,
-                'posting' => $postings->first(),
+                'posting' => $existingApplicant->postings()->first(),
                 'is_new' => false,
             ];
         }
 
-        // Create one applicant and link to all postings
-        return DB::transaction(function () use ($postings, $channel, $senderIdentifier, $senderName, $subject, $messageBody, $teamId) {
+        // Neuer Bewerber: Stufe 1 inline, Stufe 2-4 asynchron im Job
+        $match = $matching->matchDeterministic($channel, $source, $subject, $messageBody);
+
+        return DB::transaction(function () use ($match, $channel, $senderIdentifier, $senderName, $subject, $messageBody, $teamId) {
             $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
             $defaultStatusId = $settings->getSetting('default_status_id');
 
@@ -122,13 +103,9 @@ class IncomingApplicationService
                 $notes .= "\nBetreff: {$subject}";
             }
 
-            // Resolve phase 1 of primary position
-            $primaryPosting = $postings->first();
-            $firstPhase = $primaryPosting?->position?->firstPhase();
-
             $applicant = RecApplicant::create([
                 'rec_applicant_status_id' => $defaultStatusId,
-                'rec_phase_id' => $firstPhase?->id,
+                'rec_phase_id' => null,
                 'applied_at' => now()->toDateString(),
                 'notes' => $notes,
                 'progress' => 0,
@@ -136,83 +113,72 @@ class IncomingApplicationService
                 'created_by_user_id' => null,
                 'is_active' => true,
                 'auto_pilot' => false,
+                'is_unrouted' => true,
+                'enrichment_status' => 'unrouted',
             ]);
 
-            $this->createAndLinkContact(
-                $applicant,
-                $senderIdentifier,
-                $firstName,
-                $lastName,
-                $channel->type,
-                $teamId,
-            );
+            $this->createAndLinkContact($applicant, $senderIdentifier, $firstName, $lastName, $channel->type, $teamId);
 
-            $this->linkApplicantToPostings($applicant, $postings, $channel->type);
+            if ($match && $match->isAssignable()) {
+                $this->assignPosting($applicant, $match);
+            } elseif ($match) {
+                // Referenz auf geschlossene Ausschreibung → Inbox mit Vorschlag
+                $applicant->forceFill([
+                    'suggested_posting_id' => $match->posting->id,
+                    'match_reason' => $match->reason,
+                ])->save();
+            } else {
+                \Platform\Recruiting\Jobs\MatchApplicantToPostingJob::dispatch(
+                    $applicant->id,
+                    $channel->id,
+                    $subject,
+                    $messageBody,
+                )->afterCommit();
+            }
 
             Log::info('[IncomingApplicationService] New applicant created', [
                 'applicant_id' => $applicant->id,
-                'posting_ids' => $postings->pluck('id')->toArray(),
+                'matched_via' => $match?->via,
                 'channel_type' => $channel->type,
                 'sender' => $senderIdentifier,
             ]);
 
             return [
                 'applicant' => $applicant,
-                'posting' => $postings->first(),
+                'posting' => ($match && $match->isAssignable()) ? $match->posting : null,
                 'is_new' => true,
             ];
         });
     }
 
     /**
-     * Link an applicant to all given postings (skips already existing links).
+     * Assign an applicant to a posting: pivot with audit, phase from position, release enrichment.
      */
-    private function linkApplicantToPostings(RecApplicant $applicant, $postings, string $channelType): void
+    public function assignPosting(RecApplicant $applicant, MatchResult $match): void
     {
-        $existingPostingIds = $applicant->postings()->pluck('rec_postings.id')->toArray();
-
-        foreach ($postings as $posting) {
-            if (in_array($posting->id, $existingPostingIds)) {
-                continue;
-            }
-
-            $applicant->postings()->attach($posting->id, [
+        $applicant->postings()->syncWithoutDetaching([
+            $match->posting->id => [
                 'applied_at' => now()->toDateString(),
-                'notes' => "Eingegangen via {$channelType}",
-            ]);
-        }
-    }
+                'notes' => 'Zugeordnet via ' . $match->via,
+                'matched_via' => $match->via,
+                'match_confidence' => $match->confidence,
+            ],
+        ]);
 
-    /**
-     * Find an existing applicant by sender identifier on any of the given postings.
-     * Uses CRM contact email/phone matching to detect duplicates.
-     */
-    private function findExistingApplicantForPostings(string $senderIdentifier, $postings, int $teamId): ?RecApplicant
-    {
-        $normalizedIdentifier = $this->normalizeIdentifier($senderIdentifier);
-        $postingIds = $postings->pluck('id')->toArray();
-        $phoneDigits = preg_replace('/[^0-9]/', '', $normalizedIdentifier);
+        $applicant->forceFill([
+            'rec_phase_id' => $applicant->rec_phase_id ?? $match->posting->position?->firstPhase()?->id,
+            'is_unrouted' => false,
+            'suggested_posting_id' => null,
+            'match_reason' => null,
+            'enrichment_status' => null, // Enrichment-Scheduler greift jetzt
+        ])->save();
 
-        return RecApplicant::query()
-            ->forTeam($teamId)
-            ->active()
-            ->whereHas('postings', fn ($q) => $q->whereIn('rec_postings.id', $postingIds))
-            ->where(function ($query) use ($normalizedIdentifier, $phoneDigits) {
-                // Match by email address
-                $query->whereHas('crmContactLinks.contact.emailAddresses', function ($q) use ($normalizedIdentifier) {
-                    $q->where('email_address', $normalizedIdentifier);
-                });
-                // Only check phone numbers if we have actual digits (min 6 to be meaningful)
-                if (strlen($phoneDigits) >= 6) {
-                    $query->orWhereHas('crmContactLinks.contact.phoneNumbers', function ($q) use ($phoneDigits) {
-                        $q->where(function ($subQ) use ($phoneDigits) {
-                            $subQ->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $phoneDigits])
-                                 ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $phoneDigits]);
-                        });
-                    });
-                }
-            })
-            ->first();
+        Log::info('[IncomingApplicationService] Applicant assigned to posting', [
+            'applicant_id' => $applicant->id,
+            'posting_id' => $match->posting->id,
+            'matched_via' => $match->via,
+            'confidence' => $match->confidence,
+        ]);
     }
 
     /**

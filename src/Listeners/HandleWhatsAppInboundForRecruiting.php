@@ -4,10 +4,11 @@ namespace Platform\Recruiting\Listeners;
 
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Events\CommsWhatsAppInboundReceived;
-use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Models\RecSourcePlatform;
+use Platform\Recruiting\Services\ApplicationMatchingService;
 use Platform\Recruiting\Services\IncomingApplicationService;
 use Platform\Recruiting\Services\ReminderResponseHandler;
 
@@ -16,6 +17,7 @@ class HandleWhatsAppInboundForRecruiting
     public function __construct(
         private IncomingApplicationService $applicationService,
         private ReminderResponseHandler $reminderResponseHandler,
+        private ApplicationMatchingService $matchingService,
     ) {}
 
     public function handle(CommsWhatsAppInboundReceived $event): void
@@ -60,12 +62,12 @@ class HandleWhatsAppInboundForRecruiting
             }
         }
 
-        // Check if this channel is linked to any recruiting postings
-        if (!$this->channelHasPostings($channel)) {
+        // Intake-Gate: ist dieser Kanal überhaupt ein Bewerbungs-Eingang?
+        if (!$this->matchingService->isIntakeChannel($channel)) {
             CommsLog::log(
                 event: 'inbound_skipped',
                 status: 'info',
-                summary: "WhatsApp-Kanal hat keine offenen Postings, übersprungen",
+                summary: "WhatsApp-Kanal ist kein Bewerbungs-Eingang, übersprungen",
                 details: ['channel_name' => $channel->name],
                 extra: $logExtra,
             );
@@ -93,12 +95,17 @@ class HandleWhatsAppInboundForRecruiting
             // WhatsApp profile name can serve as display name
             $senderName = $thread->contact?->full_name ?? null;
 
+            // Quellplattform vor dem Service-Aufruf bestimmen, damit die
+            // deterministische Stufe 1 (Portal-Referenz) sie nutzen kann.
+            $source = RecSourcePlatform::detectFromSender($senderPhone, (int) $channel->team_id);
+
             $result = $this->applicationService->handleInboundMessage(
                 channel: $channel,
                 senderIdentifier: $senderPhone,
                 senderName: $senderName,
                 subject: null,
                 messageBody: $message->body,
+                source: $source,
             );
 
             if (!$result) {
@@ -106,6 +113,12 @@ class HandleWhatsAppInboundForRecruiting
             }
 
             $applicant = $result['applicant'];
+
+            // Quellplattform nur einmal bei Erstanlage setzen.
+            if ($result['is_new'] && $source && empty($applicant->source_platform_id)) {
+                $applicant->source_platform_id = $source->id;
+                $applicant->save();
+            }
 
             // Attach media files from the WhatsApp message to the applicant
             $this->attachWhatsAppFilesToApplicant($message, $thread, $applicant);
@@ -156,7 +169,7 @@ class HandleWhatsAppInboundForRecruiting
 
             Log::info('[Recruiting] WhatsApp application processed', [
                 'applicant_id' => $applicant->id,
-                'posting_id' => $result['posting']->id,
+                'posting_id' => $result['posting']?->id,
                 'is_new' => $result['is_new'],
             ]);
 
@@ -168,7 +181,7 @@ class HandleWhatsAppInboundForRecruiting
                     : "Bestehender Bewerber gefunden, Notiz angehängt für {$senderPhone}",
                 details: [
                     'applicant_id' => $applicant->id,
-                    'posting_id' => $result['posting']->id,
+                    'posting_id' => $result['posting']?->id,
                     'is_new' => $result['is_new'],
                 ],
                 extra: $logExtra,
@@ -189,13 +202,6 @@ class HandleWhatsAppInboundForRecruiting
                 extra: $logExtra,
             );
         }
-    }
-
-    private function channelHasPostings(CommsChannel $channel): bool
-    {
-        return $channel->recruitingPostings()
-            ->open()
-            ->exists();
     }
 
     /**
