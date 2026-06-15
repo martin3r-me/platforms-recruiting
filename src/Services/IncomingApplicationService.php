@@ -174,8 +174,19 @@ class IncomingApplicationService
                 ],
             ]);
 
+            // Verantwortlichen per Kaskade setzen, falls noch keiner gesetzt ist.
+            // Sonst hängen Auto-Start-Bewerber ownerlos in der AutoPilot-Query fest.
+            $settings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+            $ownerId = OwnerResolver::resolve(
+                $applicant->owned_by_user_id ? (int) $applicant->owned_by_user_id : null,
+                $match->posting->position?->owned_by_user_id ? (int) $match->posting->position->owned_by_user_id : null,
+                (int) ($settings->getSetting('default_contact_user_id') ?? 0) ?: null,
+                $applicant->team?->user_id ? (int) $applicant->team->user_id : null,
+            );
+
             $applicant->forceFill([
                 'rec_phase_id' => $applicant->rec_phase_id ?? $match->posting->position?->firstPhase()?->id,
+                'owned_by_user_id' => $ownerId,
                 'is_unrouted' => false,
                 'suggested_posting_id' => null,
                 'match_reason' => null,
