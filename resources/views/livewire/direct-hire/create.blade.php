@@ -142,7 +142,7 @@
                                 placeholder="z. B. service-job"
                                 class="flex-1 min-w-0 rounded-l-lg border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-2 text-sm text-[var(--ui-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]/40" />
                             <span class="inline-flex items-center px-3 rounded-r-lg border border-l-0 border-[var(--ui-border)] bg-[var(--ui-muted-5)] text-sm text-[var(--ui-muted)] font-mono whitespace-nowrap">
-                                @{{ $mailDomain ?? 'team-domain' }}
+                                {{ $mailDomain ?? 'team-domain' }}
                             </span>
                         </div>
                         @error('mailPrefix')

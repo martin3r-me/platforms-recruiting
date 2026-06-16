@@ -88,11 +88,13 @@ class Create extends Component
 
         $this->validate([
             'title' => 'required|string|max:255',
-            'mailPrefix' => ['nullable', 'string', 'max:64', 'regex:/^[a-z0-9][a-z0-9.\-]*$/i'],
+            'mailPrefix' => ['nullable', 'string', 'max:64', 'regex:/^[a-z0-9]([a-z0-9.\-]*[a-z0-9])?$/i'],
             'ownerUserId' => ['required', 'integer', 'in:' . implode(',', $teamUserIds)],
+            'fields' => 'array|min:1',
+            'fields.*' => 'string|in:' . implode(',', array_column(DirectHireSetupService::STANDARD_FIELDS, 'name')),
         ], [
             'ownerUserId.in' => 'Der gewählte Verantwortliche gehört nicht zum Team.',
-            'mailPrefix.regex' => 'Der Mail-Präfix darf nur Buchstaben, Ziffern, Punkt und Bindestrich enthalten.',
+            'mailPrefix.regex' => 'Der Mail-Präfix darf nur Buchstaben, Ziffern, Punkt und Bindestrich enthalten (kein Abschluss mit Punkt oder Bindestrich).',
         ]);
 
         $intakeMode = trim($this->mailPrefix) !== '' ? 'mail' : 'code';
