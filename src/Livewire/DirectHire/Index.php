@@ -15,7 +15,8 @@ use Platform\Recruiting\Services\CreateEmployeeFromApplicantService;
 /**
  * Direkteinstellungen-Uebersicht: listet aktive Direct-Hire-Stellen mit ihren
  * Bewerbern, gruppiert je Stelle. HR kann pro Bewerber die Datenerfassung
- * starten (Phase 1 -> Phase 2 + Portal-Link senden), parken oder oeffnen.
+ * starten (Phase 1 -> Phase 2 + Portal-Link senden), parken, oeffnen oder
+ * als Mitarbeiter anlegen (mit Vertragsauswahl).
  * Bewusst einfach gehalten — kein Phasen-Board.
  */
 class Index extends Component
@@ -305,15 +306,18 @@ class Index extends Component
             //    status='sent' + sent_at gesetzt = signierbar (MA-Portal listet
             //    Vertraege ueber employee->applicant->contracts; Signatur-Flow
             //    erwartet einen gesendeten Vertrag — analog SendContractsService).
-            RecContract::create([
-                'rec_applicant_id'         => $applicant->id,
-                'rec_contract_template_id' => $template->id,
-                'team_id'                  => $teamId,
-                'personalized_content'     => $template->personalizeContent($applicant),
-                'status'                   => 'sent',
-                'sent_at'                  => now(),
-                'created_by_user_id'       => Auth::id(),
-            ]);
+            //    Guard: nur anlegen wenn noch nicht gesendet.
+            if (!$applicant->hasAnyContractSent()) {
+                RecContract::create([
+                    'rec_applicant_id'         => $applicant->id,
+                    'rec_contract_template_id' => $template->id,
+                    'team_id'                  => $teamId,
+                    'personalized_content'     => $template->personalizeContent($applicant),
+                    'status'                   => 'sent',
+                    'sent_at'                  => now(),
+                    'created_by_user_id'       => Auth::id(),
+                ]);
+            }
 
             // 3) Mitarbeiter anlegen (idempotent). Vertrag existiert bereits am
             //    Bewerber → surfaced via employee->applicant->contracts im Portal.
