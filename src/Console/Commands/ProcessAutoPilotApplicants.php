@@ -157,6 +157,18 @@ class ProcessAutoPilotApplicants extends Command
             return;
         }
 
+        // 2a-0. Warteliste pausiert den Auto-Pilot: Hat der Bewerber einen
+        // offenen Warteliste-Eintrag (kein Termin verfuegbar, er wartet auf
+        // Benachrichtigung), wird KEIN Erstkontakt/Reminder geschickt — sonst
+        // bekaeme er "bitte Termin auswaehlen", obwohl er sich genau deshalb
+        // eingetragen hat. Sobald ein Termin frei wird und er bucht, ist die
+        // Buchungs-Phase abgeschlossen (oben) und der Flow laeuft normal weiter.
+        if (\Platform\Recruiting\Models\RecInterviewWaitlist::where('rec_applicant_id', $applicant->id)->open()->exists()) {
+            $this->logAutoPilot($applicant, 'silent', 'Bewerber steht auf der Warteliste — Auto-Pilot pausiert (kein Reminder).');
+            $this->info('  Auf Warteliste — Auto-Pilot pausiert.');
+            return;
+        }
+
         // 2a. Phase-Stop-Marker: wenn die aktuelle Phase explizit
         // auto_pilot_disabled=true gesetzt hat, wird kein Template/Reminder
         // versendet. Cascade auf Position/Team-Default wird damit bewusst
