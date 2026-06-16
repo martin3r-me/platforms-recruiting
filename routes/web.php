@@ -38,6 +38,8 @@ Route::get('/positions/{position}', PositionShow::class)->name('recruiting.posit
 // Direkteinstellung (Wizard: Stelle + Ausschreibung + Eingang in einem Schritt)
 Route::get('/direkteinstellungen/neu', \Platform\Recruiting\Livewire\DirectHire\Create::class)
     ->name('recruiting.direct-hire.create');
+Route::get('/direkteinstellungen', \Platform\Recruiting\Livewire\DirectHire\Index::class)
+    ->name('recruiting.direct-hire.index');
 
 // Ausschreibungen
 Route::get('/postings', PostingIndex::class)->name('recruiting.postings.index');

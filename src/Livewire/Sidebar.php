@@ -51,6 +51,11 @@ class Sidebar extends Component
             'parked_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_parked', true)->count(),
             'hr_desk_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_on_hr_desk', true)->count(),
             'unrouted_applicants' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_unrouted', true)->count(),
+            'direct_hire_positions' => RecPosition::forTeam($teamId)->directHire()->where('is_active', true)->count(),
+            'direct_hire_new' => RecApplicant::forTeam($teamId)->where('is_active', true)->where('is_parked', false)
+                ->whereHas('phase', fn ($q) => $q->where('order', 1))
+                ->whereHas('postings.position', fn ($q) => $q->where('is_direct_hire', true)->where('is_active', true))
+                ->count(),
             'active_employees' => RecEmployee::where('team_id', $teamId)->where('is_active', true)->count(),
             'pending_payroll_changes' => RecEmployee::where('team_id', $teamId)
                 ->where('is_active', true)
