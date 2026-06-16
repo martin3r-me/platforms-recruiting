@@ -54,7 +54,8 @@ class Dashboard extends Component
     {
         $cacheKey = 'mode_scoped_positions_' . ($this->legacyMode ? 'legacy' : 'prod') . '_' . auth()->user()->currentTeam->id;
         return Cache::remember($cacheKey, 30, function () {
-            $q = RecPosition::forTeam(auth()->user()->currentTeam->id);
+            $q = RecPosition::forTeam(auth()->user()->currentTeam->id)
+                ->notDirectHire();
             // Legacy-Marker: Title enthaelt " bis " (z.B. "Duesseldorf bis
             // 22.05.26"). Production-Stellen haben keinen solchen Suffix.
             if ($this->legacyMode) {

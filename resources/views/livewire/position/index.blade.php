@@ -36,7 +36,14 @@
                     <tbody class="divide-y divide-[var(--ui-border)]/60">
                         @forelse($this->positions as $position)
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
-                                <td class="px-4 py-3 font-semibold text-[var(--ui-secondary)]">{{ $position->title }}</td>
+                                <td class="px-4 py-3 font-semibold text-[var(--ui-secondary)]">
+                                    {{ $position->title }}
+                                    @if($position->is_direct_hire)
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                            Direkteinstellung
+                                        </span>
+                                    @endif
+                                </td>
                                 <td class="px-4 py-3 text-[var(--ui-muted)]">{{ $position->department ?? '–' }}</td>
                                 <td class="px-4 py-3 text-[var(--ui-muted)]">{{ $position->location ?? '–' }}</td>
                                 <td class="px-4 py-3">
