@@ -43,7 +43,10 @@ class Create extends Component
 
     public function mount(): void
     {
-        $this->fields = array_map(fn (array $f) => $f['name'], DirectHireSetupService::STANDARD_FIELDS);
+        $this->fields = array_column(
+            array_filter(DirectHireSetupService::STANDARD_FIELDS, fn (array $f) => ($f['required'] ?? false) === true),
+            'name'
+        );
         $this->ownerUserId = Auth::id();
     }
 
