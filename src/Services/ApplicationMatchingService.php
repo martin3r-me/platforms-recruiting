@@ -7,6 +7,7 @@ use Platform\Recruiting\Models\RecIntakeChannel;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecPostingExternalRef;
 use Platform\Recruiting\Models\RecSourcePlatform;
+use Platform\Recruiting\Services\RefParsers\RefCodeParser;
 use Platform\Recruiting\Services\RefParsers\RefParserRegistry;
 
 class ApplicationMatchingService
@@ -47,6 +48,28 @@ class ApplicationMatchingService
     ): ?MatchResult {
         if ($dedicated = $this->dedicatedPostingForChannel($channel)) {
             return new MatchResult($dedicated, MatchResult::VIA_DEDICATED_CHANNEL);
+        }
+
+        // Stufe 1b: Referenz-Code (quellen-unabhängig — Codes kommen von beliebigen Absendern)
+        if ($code = (new RefCodeParser())->extract($subject, $body)) {
+            $posting = RecPostingExternalRef::query()
+                ->where('team_id', $channel->team_id)
+                ->where('external_ref', $code)
+                ->whereHas('sourcePlatform', fn ($q) => $q->where('ref_parser', 'ref_code'))
+                ->first()
+                ?->posting;
+
+            if ($posting && RecPosting::query()->open()->whereKey($posting->id)->exists()) {
+                return new MatchResult($posting, MatchResult::VIA_EXTERNAL_REF);
+            }
+            if ($posting) {
+                return new MatchResult(
+                    $posting,
+                    MatchResult::VIA_SUGGESTION,
+                    reason: 'Referenz-Code zeigt auf geschlossene Ausschreibung "' . $posting->title . '"',
+                );
+            }
+            // Code ohne Treffer → normale Pipeline weiterlaufen lassen
         }
 
         if (!$source || !$source->ref_parser) {

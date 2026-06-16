@@ -21,6 +21,6 @@ class RefParserRegistryTest extends TestCase
 
     public function test_keys_lists_all_parsers(): void
     {
-        $this->assertSame(['kleinanzeigen', 'website_form'], RefParserRegistry::keys());
+        $this->assertSame(['kleinanzeigen', 'website_form', 'ref_code'], RefParserRegistry::keys());
     }
 }
