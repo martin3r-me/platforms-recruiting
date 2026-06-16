@@ -91,6 +91,11 @@ class Index extends Component
             'progress' => 0,
         ]);
 
+        // Definition-Cache leeren, damit setExtraField/getExtraField die
+        // Phase-2-Felder aufloest und nicht einen veralteten Phase-1-Cache
+        // verwendet.
+        $applicant->clearExtraFieldDefinitionsCache();
+
         // Phase-2-Datenfelder aus dem CRM-Kontakt vorbefuellen, damit der
         // Kandidat im Portal Name/E-Mail/Telefon angereichert sieht und
         // ueberschreiben kann. NUR wo das Extra-Field noch leer ist, damit
@@ -136,7 +141,7 @@ class Index extends Component
             'vorname' => $contact->first_name,
             'nachname' => $contact->last_name,
             'email' => $contact->emailAddresses->first()?->email_address,
-            'telefonnummer' => $phone,
+            'telefonnummer' => $phone !== null ? ['raw' => $phone, 'country' => 'DE'] : null,
         ];
 
         foreach ($candidates as $name => $value) {
