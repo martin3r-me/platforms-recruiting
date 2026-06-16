@@ -23,7 +23,7 @@ use Platform\Recruiting\Services\DirectHireSetupService;
 class Create extends Component
 {
     /** Felder, die für den MA-Portal-Login zwingend sind und nicht abgewählt werden dürfen. */
-    public const LOCKED_FIELDS = ['geburtsdatum', 'ausweisnummer'];
+    public const LOCKED_FIELDS = ['vorname', 'nachname', 'email', 'telefonnummer', 'geburtsdatum', 'ausweisnummer'];
 
     public string $title = '';
 

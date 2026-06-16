@@ -91,6 +91,12 @@ class Index extends Component
             'progress' => 0,
         ]);
 
+        // Phase-2-Datenfelder aus dem CRM-Kontakt vorbefuellen, damit der
+        // Kandidat im Portal Name/E-Mail/Telefon angereichert sieht und
+        // ueberschreiben kann. NUR wo das Extra-Field noch leer ist, damit
+        // bereits erfasste Werte nicht ueberschrieben werden (idempotent).
+        $this->prefillContactFields($applicant);
+
         $result = $applicant->sendContractPortalNotification();
 
         session()->flash('message', ($result['ok'] ?? false)
@@ -99,6 +105,49 @@ class Index extends Component
 
         unset($this->applicantsByPosition, $this->positions);
         $this->dispatch('sidebar-refresh');
+    }
+
+    /**
+     * Befuellt die Phase-2-Extra-Fields vorname/nachname/email/telefonnummer
+     * aus dem primaeren CRM-Kontakt des Bewerbers — aber nur dort, wo das
+     * jeweilige Extra-Field aktuell leer ist. Der Kandidat sieht die Werte
+     * im Portal vorbefuellt und kann sie ueberschreiben; sein Wert gewinnt
+     * spaeter in der Fallback-Kette von CreateEmployeeFromApplicantService
+     * (extra_field ?? contact).
+     */
+    private function prefillContactFields(RecApplicant $applicant): void
+    {
+        $applicant->loadMissing([
+            'crmContactLinks.contact.emailAddresses',
+            'crmContactLinks.contact.phoneNumbers',
+        ]);
+
+        $contact = $applicant->crmContactLinks->first()?->contact;
+        if (!$contact) {
+            return;
+        }
+
+        $phone = $contact->phoneNumbers->first(fn ($p) => $p->is_active)?->international
+            ?: $contact->phoneNumbers->first(fn ($p) => $p->is_active)?->raw_input
+            ?: $contact->phoneNumbers->first()?->international
+            ?: $contact->phoneNumbers->first()?->raw_input;
+
+        $candidates = [
+            'vorname' => $contact->first_name,
+            'nachname' => $contact->last_name,
+            'email' => $contact->emailAddresses->first()?->email_address,
+            'telefonnummer' => $phone,
+        ];
+
+        foreach ($candidates as $name => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $current = $applicant->getExtraField($name);
+            if ($current === null || $current === '') {
+                $applicant->setExtraField($name, $value);
+            }
+        }
     }
 
     public function parkApplicant(int $applicantId): void

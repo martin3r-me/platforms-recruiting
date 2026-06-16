@@ -49,6 +49,10 @@ use Platform\Recruiting\Services\RefParsers\RefCodeParser;
 class DirectHireSetupService
 {
     public const STANDARD_FIELDS = [
+        ['name' => 'vorname', 'label' => 'Vorname', 'type' => 'text', 'required' => true],
+        ['name' => 'nachname', 'label' => 'Nachname', 'type' => 'text', 'required' => true],
+        ['name' => 'email', 'label' => 'E-Mail', 'type' => 'email', 'required' => true],
+        ['name' => 'telefonnummer', 'label' => 'Telefonnummer', 'type' => 'phone', 'required' => true],
         ['name' => 'geburtsdatum', 'label' => 'Geburtsdatum', 'type' => 'text', 'required' => true],
         ['name' => 'ausweisnummer', 'label' => 'Ausweisnummer', 'type' => 'text', 'required' => true],
         ['name' => 'strasse', 'label' => 'Straße', 'type' => 'text', 'required' => true],
