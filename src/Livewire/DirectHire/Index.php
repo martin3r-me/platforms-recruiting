@@ -97,7 +97,7 @@ class Index extends Component
             ? 'Datenerfassung gestartet — Portal-Link wurde gesendet.'
             : 'Datenerfassung gestartet. Portal-Link bitte manuell senden — automatischer Versand fehlgeschlagen: ' . ($result['message'] ?? 'unbekannter Fehler'));
 
-        unset($this->applicantsByPosition);
+        unset($this->applicantsByPosition, $this->positions);
         $this->dispatch('sidebar-refresh');
     }
 
@@ -118,7 +118,7 @@ class Index extends Component
 
         session()->flash('message', 'Bewerber geparkt.');
 
-        unset($this->applicantsByPosition);
+        unset($this->applicantsByPosition, $this->positions);
         $this->dispatch('sidebar-refresh');
     }
 
