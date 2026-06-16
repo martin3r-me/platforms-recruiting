@@ -8,6 +8,7 @@ class RefParserRegistry
     private const PARSERS = [
         'kleinanzeigen' => KleinanzeigenRefParser::class,
         'website_form' => WebsiteFormRefParser::class,
+        'ref_code' => RefCodeParser::class,
     ];
 
     public static function for(?string $key): ?SourceRefParser

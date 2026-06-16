@@ -17,11 +17,12 @@ class RecPosition extends Model
     protected $fillable = [
         'uuid', 'team_id', 'title', 'description', 'department', 'location',
         'beschaftigungsort_lookup_value', 'cost_center',
-        'hcm_job_title_id', 'is_active', 'auto_pilot_settings', 'created_by_user_id', 'owned_by_user_id',
+        'hcm_job_title_id', 'is_active', 'is_direct_hire', 'auto_pilot_settings', 'created_by_user_id', 'owned_by_user_id',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'is_direct_hire' => 'boolean',
         'auto_pilot_settings' => 'array',
         'cost_center' => 'integer',
     ];
@@ -129,5 +130,15 @@ class RecPosition extends Model
     public function scopeForTeam($query, $teamId)
     {
         return $query->where('team_id', $teamId);
+    }
+
+    public function scopeDirectHire($query)
+    {
+        return $query->where('is_direct_hire', true);
+    }
+
+    public function scopeNotDirectHire($query)
+    {
+        return $query->where('is_direct_hire', false);
     }
 }

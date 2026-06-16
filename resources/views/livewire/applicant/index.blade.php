@@ -51,6 +51,7 @@
                                     ?: $primaryContact?->phoneNumbers->first(fn($p) => $p->is_active)?->raw_input;
                                 $positions = $applicant->postings->map(fn($p) => $p->position)->filter()->unique('id');
                                 $apColor = $this->getAutoPilotColor($applicant);
+                                $isDirectHire = (bool) $applicant->postings->first()?->position?->is_direct_hire;
                             @endphp
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
                                 {{-- Name + Stellen-Badges --}}
@@ -65,6 +66,11 @@
                                                 @if($applicant->import_source)
                                                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200" title="Altbestand-Import — fließt nicht in Recruiting-KPIs ein">
                                                         Import
+                                                    </span>
+                                                @endif
+                                                @if($isDirectHire)
+                                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-200" title="Direkteinstellung — fließt nicht in Dashboard-KPIs ein">
+                                                        Direkteinstellung
                                                     </span>
                                                 @endif
                                             </div>

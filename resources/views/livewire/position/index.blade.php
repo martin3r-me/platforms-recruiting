@@ -8,6 +8,10 @@
             ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
             ['label' => 'Stellen'],
         ]">
+            <x-ui-button variant="secondary-outline" size="sm" href="{{ route('recruiting.direct-hire.create') }}" wire:navigate>
+                @svg('heroicon-o-bolt', 'w-4 h-4')
+                <span>Direkteinstellung anlegen</span>
+            </x-ui-button>
             <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
                 @svg('heroicon-o-plus', 'w-4 h-4')
                 <span>Neue Stelle</span>
@@ -32,7 +36,14 @@
                     <tbody class="divide-y divide-[var(--ui-border)]/60">
                         @forelse($this->positions as $position)
                             <tr class="hover:bg-[var(--ui-muted-5)] transition-colors">
-                                <td class="px-4 py-3 font-semibold text-[var(--ui-secondary)]">{{ $position->title }}</td>
+                                <td class="px-4 py-3 font-semibold text-[var(--ui-secondary)]">
+                                    {{ $position->title }}
+                                    @if($position->is_direct_hire)
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                                            Direkteinstellung
+                                        </span>
+                                    @endif
+                                </td>
                                 <td class="px-4 py-3 text-[var(--ui-muted)]">{{ $position->department ?? '–' }}</td>
                                 <td class="px-4 py-3 text-[var(--ui-muted)]">{{ $position->location ?? '–' }}</td>
                                 <td class="px-4 py-3">

@@ -35,6 +35,12 @@ Route::get('/hr-desk', \Platform\Recruiting\Livewire\HrDesk\Index::class)
 Route::get('/positions', PositionIndex::class)->name('recruiting.positions.index');
 Route::get('/positions/{position}', PositionShow::class)->name('recruiting.positions.show');
 
+// Direkteinstellung (Wizard: Stelle + Ausschreibung + Eingang in einem Schritt)
+Route::get('/direkteinstellungen/neu', \Platform\Recruiting\Livewire\DirectHire\Create::class)
+    ->name('recruiting.direct-hire.create');
+Route::get('/direkteinstellungen', \Platform\Recruiting\Livewire\DirectHire\Index::class)
+    ->name('recruiting.direct-hire.index');
+
 // Ausschreibungen
 Route::get('/postings', PostingIndex::class)->name('recruiting.postings.index');
 Route::get('/postings/{posting}', PostingShow::class)->name('recruiting.postings.show');

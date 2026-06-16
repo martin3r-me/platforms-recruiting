@@ -39,6 +39,15 @@
                 <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600">{{ $this->stats['unrouted_applicants'] }}</span>
             @endif
         </x-ui-sidebar-item>
+        @if(($this->stats['direct_hire_positions'] ?? 0) > 0)
+            <x-ui-sidebar-item :href="route('recruiting.direct-hire.index')">
+                @svg('heroicon-o-bolt', 'w-4 h-4 text-[var(--ui-secondary)]')
+                <span class="ml-2 text-sm">Direkteinstellungen</span>
+                @if(($this->stats['direct_hire_new'] ?? 0) > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-600">{{ $this->stats['direct_hire_new'] }}</span>
+                @endif
+            </x-ui-sidebar-item>
+        @endif
     </x-ui-sidebar-list>
 
     {{-- Abschnitt: Recruiting --}}
