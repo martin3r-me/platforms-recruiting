@@ -8,6 +8,10 @@
             ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
             ['label' => 'Stellen'],
         ]">
+            <x-ui-button variant="secondary-outline" size="sm" href="{{ route('recruiting.direct-hire.create') }}" wire:navigate>
+                @svg('heroicon-o-bolt', 'w-4 h-4')
+                <span>Direkteinstellung anlegen</span>
+            </x-ui-button>
             <x-ui-button variant="primary" size="sm" wire:click="openCreateModal">
                 @svg('heroicon-o-plus', 'w-4 h-4')
                 <span>Neue Stelle</span>
