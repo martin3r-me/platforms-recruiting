@@ -103,7 +103,7 @@ class DirectHireSetupService
             $phase2 = $position->phases()->create([
                 'team_id' => $input['team_id'],
                 'name' => 'Datenerfassung',
-                'order' => 2,
+                'order' => (int) ($position->phases()->max('order') ?? 0) + 1,
                 'is_active' => true,
                 'auto_advance' => false,
                 'completion_type' => 'fields',
@@ -143,7 +143,7 @@ class DirectHireSetupService
     {
         $source = RecSourcePlatform::firstOrCreate(
             ['team_id' => $teamId, 'name' => 'Referenz-Code'],
-            ['match_pattern' => '@@referenz-code-niemals-absender@@', 'ref_parser' => 'ref_code', 'is_active' => true, 'priority' => 999],
+            ['match_pattern' => '@@referenz-code-niemals-absender@@', /* Sentinel: matcht absichtlich NIE einen echten Absender — die Code-Stufe im Matching ist quellen-unabhängig. */ 'ref_parser' => 'ref_code', 'is_active' => true, 'priority' => 999],
         );
         if ($source->ref_parser !== 'ref_code') {
             $source->update(['ref_parser' => 'ref_code']);
