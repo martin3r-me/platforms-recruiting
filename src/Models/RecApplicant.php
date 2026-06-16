@@ -393,7 +393,21 @@ class RecApplicant extends Model implements InheritsExtraFields
 
     public function checkAutoPilotCompletion(): void
     {
-        if (!$this->auto_pilot || $this->auto_pilot_completed_at !== null) {
+        // Direkteinstellung & Co.: Bewerber mit AutoPilot=OFF durchlaufen den
+        // regulaeren AutoPilot-Phase-Advance NICHT. Trotzdem muss der Phasen-
+        // Abschluss-Hook (insb. creates_employee_on_completion) feuern, wenn der
+        // Bewerber seine Daten ueber das oeffentliche Portal vollstaendig
+        // ausfuellt. Der Core-PublicExtraFieldForm ruft checkAutoPilotCompletion()
+        // nach jedem Save auf — wir haengen uns hier in genau diese Kette ein,
+        // ohne Phase zu advancen oder AutoPilot-Logs zu schreiben.
+        if (!$this->auto_pilot) {
+            if ($this->rec_phase_id && $this->isPhaseComplete()) {
+                $this->triggerPhaseCompletionHooks($this->phase);
+            }
+            return;
+        }
+
+        if ($this->auto_pilot_completed_at !== null) {
             return;
         }
 
