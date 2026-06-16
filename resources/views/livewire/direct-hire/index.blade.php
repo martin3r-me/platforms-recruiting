@@ -27,6 +27,36 @@
             </div>
         @endif
 
+        @if($createdEmployeePortalLink)
+            <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex-1">
+                        <div class="font-medium">Mitarbeiter angelegt.</div>
+                        <div class="mt-0.5 text-emerald-700">
+                            Schicke ihm diesen Login-Link — dort signiert er den Vertrag.
+                        </div>
+                        <div class="mt-2 flex items-center gap-2">
+                            <code class="px-2 py-1 rounded bg-white border border-emerald-200 text-xs break-all">{{ $createdEmployeePortalLink }}</code>
+                            <div
+                                x-data="{ copied: false }"
+                                class="flex items-center gap-1.5 px-2 py-1.5 bg-white border border-emerald-200 hover:bg-emerald-100 rounded-md cursor-pointer transition-colors shrink-0"
+                                x-on:click="navigator.clipboard.writeText('{{ $createdEmployeePortalLink }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                                title="MA-Portal-Link kopieren"
+                            >
+                                <span class="text-xs font-medium text-emerald-700" x-show="!copied">Link kopieren</span>
+                                <span class="text-xs font-medium text-emerald-600" x-show="copied" x-cloak>Kopiert!</span>
+                                <template x-if="!copied">@svg('heroicon-o-clipboard-document', 'w-3.5 h-3.5 text-emerald-500')</template>
+                                <template x-if="copied">@svg('heroicon-o-check', 'w-3.5 h-3.5 text-emerald-500')</template>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="dismissCreatedEmployeeLink" class="text-emerald-500 hover:text-emerald-700 shrink-0">
+                        @svg('heroicon-o-x-mark', 'w-4 h-4')
+                    </button>
+                </div>
+            </div>
+        @endif
+
         <div class="mb-4 flex items-center justify-between">
             <div class="text-sm text-[var(--ui-muted)]">
                 Aktive Direkteinstellungs-Stellen mit ihren Bewerbern.
@@ -141,6 +171,10 @@
                                                 $isParked = $applicant->is_parked;
                                                 if ($phaseOrder === 2) {
                                                     $portalLink = $applicant->getPublicUrl();
+                                                    // Datenerfassung komplett? (completion_type=fields → progress>=100).
+                                                    // Authoritativ wird in createEmployeeWithContract() via
+                                                    // isPhaseComplete() erneut geprueft.
+                                                    $dataComplete = (int) $applicant->progress >= 100;
                                                 }
                                             @endphp
                                             <tr class="border-b border-[var(--ui-border)]/30 hover:bg-[var(--ui-muted-5)]">
@@ -189,22 +223,30 @@
                                                                     Parken
                                                                 </button>
                                                             @elseif($phaseOrder === 2)
-                                                                <div
-                                                                    x-data="{ copied: false }"
-                                                                    class="flex items-center gap-2 px-2 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-md cursor-pointer transition-colors"
-                                                                    x-on:click="navigator.clipboard.writeText('{{ $portalLink }}'); copied = true; setTimeout(() => copied = false, 2000)"
-                                                                    title="Datenerfassungs-Link kopieren"
-                                                                >
-                                                                    @svg('heroicon-o-link', 'w-3.5 h-3.5 text-gray-500')
-                                                                    <span class="text-xs font-medium text-gray-600" x-show="!copied">Link kopieren</span>
-                                                                    <span class="text-xs font-medium text-emerald-600" x-show="copied" x-cloak>Kopiert!</span>
-                                                                    <template x-if="!copied">
-                                                                        @svg('heroicon-o-clipboard-document', 'w-3.5 h-3.5 text-gray-400')
-                                                                    </template>
-                                                                    <template x-if="copied">
-                                                                        @svg('heroicon-o-check', 'w-3.5 h-3.5 text-emerald-500')
-                                                                    </template>
-                                                                </div>
+                                                                @if($dataComplete)
+                                                                    <button type="button"
+                                                                            wire:click="openCreateEmployee({{ $applicant->id }})"
+                                                                            class="text-xs px-2 py-1.5 rounded-md bg-emerald-600 text-white hover:opacity-90">
+                                                                        Als Mitarbeiter anlegen
+                                                                    </button>
+                                                                @else
+                                                                    <div
+                                                                        x-data="{ copied: false }"
+                                                                        class="flex items-center gap-2 px-2 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-md cursor-pointer transition-colors"
+                                                                        x-on:click="navigator.clipboard.writeText('{{ $portalLink }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                                                                        title="Datenerfassungs-Link kopieren"
+                                                                    >
+                                                                        @svg('heroicon-o-link', 'w-3.5 h-3.5 text-gray-500')
+                                                                        <span class="text-xs font-medium text-gray-600" x-show="!copied">Link kopieren</span>
+                                                                        <span class="text-xs font-medium text-emerald-600" x-show="copied" x-cloak>Kopiert!</span>
+                                                                        <template x-if="!copied">
+                                                                            @svg('heroicon-o-clipboard-document', 'w-3.5 h-3.5 text-gray-400')
+                                                                        </template>
+                                                                        <template x-if="copied">
+                                                                            @svg('heroicon-o-check', 'w-3.5 h-3.5 text-emerald-500')
+                                                                        </template>
+                                                                    </div>
+                                                                @endif
                                                             @endif
                                                         @endif
                                                         <a href="{{ route('recruiting.applicants.show', $applicant->id) }}"
@@ -225,4 +267,58 @@
             </div>
         @endif
     </x-ui-page-container>
+
+    {{-- "Als Mitarbeiter anlegen"-Modal: Vertragsauswahl + optionaler Zuschlag --}}
+    @if($maApplicantId)
+        @php $templates = $this->availableContractTemplates; @endphp
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div class="absolute inset-0 bg-black/40" wire:click="closeCreateEmployee"></div>
+            <div class="relative w-full max-w-md bg-white rounded-lg shadow-xl border border-[var(--ui-border)]">
+                <div class="px-5 py-4 border-b border-[var(--ui-border)]/40">
+                    <h2 class="text-base font-semibold text-[var(--ui-secondary)]">Als Mitarbeiter anlegen</h2>
+                    <p class="mt-1 text-xs text-[var(--ui-muted)]">
+                        Wähle einen Arbeitsvertrag. Der Vertrag wird erstellt, der Mitarbeiter angelegt
+                        und du erhältst einen Login-Link für das MA-Portal, in dem er den Vertrag signiert.
+                    </p>
+                </div>
+
+                <div class="px-5 py-4 space-y-4">
+                    <div>
+                        <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Arbeitsvertrag</label>
+                        <select wire:model="maContractTemplateId"
+                                class="w-full rounded-md border border-[var(--ui-border)] text-sm focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                            <option value="">— Vorlage wählen —</option>
+                            @foreach($templates as $tpl)
+                                <option value="{{ $tpl->id }}">{{ $tpl->name }}</option>
+                            @endforeach
+                        </select>
+                        @error('maContractTemplateId')
+                            <div class="mt-1 text-xs text-red-600">{{ $message }}</div>
+                        @enderror
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Zuschlag (optional)</label>
+                        <input type="text" wire:model="maZuschlag" placeholder="z. B. 1.50"
+                               class="w-full rounded-md border border-[var(--ui-border)] text-sm focus:ring-[var(--ui-primary)]/20 focus:border-[var(--ui-primary)]">
+                        @error('maZuschlag')
+                            <div class="mt-1 text-xs text-red-600">{{ $message }}</div>
+                        @enderror
+                    </div>
+                </div>
+
+                <div class="px-5 py-4 border-t border-[var(--ui-border)]/40 flex items-center justify-end gap-2">
+                    <button type="button" wire:click="closeCreateEmployee"
+                            class="text-sm px-3 py-2 border border-[var(--ui-border)] text-[var(--ui-secondary)] rounded-md hover:bg-[var(--ui-muted-5)]">
+                        Abbrechen
+                    </button>
+                    <button type="button" wire:click="createEmployeeWithContract"
+                            wire:loading.attr="disabled"
+                            class="text-sm px-3 py-2 rounded-md bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50">
+                        Anlegen
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 </x-ui-page>

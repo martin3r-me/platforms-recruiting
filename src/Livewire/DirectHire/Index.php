@@ -3,10 +3,14 @@
 namespace Platform\Recruiting\Livewire\DirectHire;
 
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Services\CreateEmployeeFromApplicantService;
 
 /**
  * Direkteinstellungen-Uebersicht: listet aktive Direct-Hire-Stellen mit ihren
@@ -19,6 +23,16 @@ class Index extends Component
     public bool $onlyMine = false;
 
     public bool $showParked = false;
+
+    // ── "Als Mitarbeiter anlegen"-Modal ──────────────────────────────
+    public ?int $maApplicantId = null;
+
+    public ?int $maContractTemplateId = null;
+
+    public ?string $maZuschlag = null;
+
+    // Ergebnis: kopierbarer MA-Portal-Login-Link nach erfolgreicher Anlage.
+    public ?string $createdEmployeePortalLink = null;
 
     #[Computed]
     public function positions()
@@ -189,6 +203,130 @@ class Index extends Component
         ]);
 
         session()->flash('message', 'Bewerber reaktiviert.');
+
+        unset($this->applicantsByPosition, $this->positions);
+        $this->dispatch('sidebar-refresh');
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Manuelle MA-Anlage mit Vertragsauswahl (statt Auto-Anlage bei
+    // Datenerfassung-Abschluss). HR waehlt einen Arbeitsvertrag, EIN Klick:
+    //  - Template am Bewerber zuweisen (+ optional Zuschlag)
+    //  - personalisierten Vertrag (lean, ohne Zuschlag-Zwang) anlegen
+    //  - MA anlegen (idempotent)
+    //  - MA-Portal-Login-Link zum Teilen anzeigen
+    // Bewusst KEIN SendContractsService (der erzwingt Zuschlag) und KEIN
+    // WhatsApp-Versand — nur der Link wird angezeigt.
+    // ────────────────────────────────────────────────────────────────
+
+    /**
+     * Aktive Vertrags-Vorlagen des aktuellen Teams fuer die Auswahl im Modal.
+     */
+    #[Computed]
+    public function availableContractTemplates()
+    {
+        return RecContractTemplate::forTeam((int) Auth::user()->currentTeam->id)
+            ->active()
+            ->whereNull('deleted_at')
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+    }
+
+    public function openCreateEmployee(int $applicantId): void
+    {
+        $this->maApplicantId = $applicantId;
+        $this->maContractTemplateId = null;
+        $this->maZuschlag = null;
+        $this->resetErrorBag();
+    }
+
+    public function closeCreateEmployee(): void
+    {
+        $this->maApplicantId = null;
+        $this->maContractTemplateId = null;
+        $this->maZuschlag = null;
+        $this->resetErrorBag();
+    }
+
+    public function dismissCreatedEmployeeLink(): void
+    {
+        $this->createdEmployeePortalLink = null;
+    }
+
+    public function createEmployeeWithContract(): void
+    {
+        if (!$this->maApplicantId) {
+            return;
+        }
+
+        $teamId = (int) Auth::user()->currentTeam->id;
+
+        $applicant = RecApplicant::query()
+            ->forTeam($teamId)
+            ->with(['phase', 'postings.position'])
+            ->find($this->maApplicantId);
+
+        // Guards: existiert, aktiv, Direkteinstellung, Datenerfassung komplett.
+        $position = $applicant?->postings->first()?->position;
+        if (!$applicant || !$applicant->is_active || !$position || !$position->is_direct_hire) {
+            $this->addError('maContractTemplateId', 'Bewerber nicht gefunden oder keine Direkteinstellung.');
+            return;
+        }
+
+        if (!$applicant->isPhaseComplete()) {
+            $this->addError('maContractTemplateId', 'Die Datenerfassung ist noch nicht vollständig — bitte zuerst abschließen.');
+            return;
+        }
+
+        $this->validate([
+            'maContractTemplateId' => 'required|integer',
+            'maZuschlag' => 'nullable|numeric',
+        ]);
+
+        $template = RecContractTemplate::forTeam($teamId)
+            ->active()
+            ->whereNull('deleted_at')
+            ->find((int) $this->maContractTemplateId);
+        if (!$template) {
+            $this->addError('maContractTemplateId', 'Vertrags-Vorlage nicht gefunden oder inaktiv.');
+            return;
+        }
+
+        $employee = DB::transaction(function () use ($applicant, $template, $teamId) {
+            // 1) Template (+ optional Zuschlag) am Bewerber setzen.
+            $applicant->contract_template_id = $template->id;
+            if ($this->maZuschlag !== null && $this->maZuschlag !== '') {
+                $applicant->zuschlag = $this->maZuschlag;
+            }
+            $applicant->save();
+
+            // 2) Personalisierten Vertrag anlegen — lean, OHNE Zuschlag-Zwang.
+            //    status='sent' + sent_at gesetzt = signierbar (MA-Portal listet
+            //    Vertraege ueber employee->applicant->contracts; Signatur-Flow
+            //    erwartet einen gesendeten Vertrag — analog SendContractsService).
+            RecContract::create([
+                'rec_applicant_id'         => $applicant->id,
+                'rec_contract_template_id' => $template->id,
+                'team_id'                  => $teamId,
+                'personalized_content'     => $template->personalizeContent($applicant),
+                'status'                   => 'sent',
+                'sent_at'                  => now(),
+                'created_by_user_id'       => Auth::id(),
+            ]);
+
+            // 3) Mitarbeiter anlegen (idempotent). Vertrag existiert bereits am
+            //    Bewerber → surfaced via employee->applicant->contracts im Portal.
+            return app(CreateEmployeeFromApplicantService::class)
+                ->createOrUpdate($applicant, Auth::id());
+        });
+
+        // 4) MA-Portal-Login-Link zum Teilen.
+        $this->createdEmployeePortalLink = route('recruiting.public.employee-portal', ['token' => $employee->portal_token]);
+
+        session()->flash('message', 'Mitarbeiter angelegt. Schicke ihm den Login-Link zum MA-Portal — dort signiert er den Vertrag.');
+
+        $this->closeCreateEmployee();
 
         unset($this->applicantsByPosition, $this->positions);
         $this->dispatch('sidebar-refresh');

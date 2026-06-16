@@ -21,8 +21,9 @@ use Platform\Recruiting\Services\RefParsers\RefCodeParser;
  *  2. Zwei Phasen:
  *     - Phase 1 "Bewerbung" (vom RecPosition::created-Hook bereits angelegt) wird
  *       auf completion_type=manual / auto_advance=false UMGESTELLT (kein Duplikat).
- *     - Phase 2 "Datenerfassung" (order 2) mit completion_type=fields und
- *       completion_config.creates_employee_on_completion=true.
+ *     - Phase 2 "Datenerfassung" (order 2) mit completion_type=fields.
+ *       KEIN creates_employee_on_completion: die MA-Anlage erfolgt manuell
+ *       ueber "Als Mitarbeiter anlegen" in der Direkteinstellungs-Uebersicht.
  *  3. Die ausgewählten Standard-Datenfelder als CoreExtraFieldDefinition auf Phase 2.
  *  4. Eine veröffentlichte Ausschreibung (RecPosting).
  *  5. Einen Eingang – entweder Referenz-Code (intake_mode='code') ODER einen
@@ -111,7 +112,13 @@ class DirectHireSetupService
                 'is_active' => true,
                 'auto_advance' => false,
                 'completion_type' => 'fields',
-                'completion_config' => ['creates_employee_on_completion' => true],
+                // KEIN creates_employee_on_completion mehr: die MA-Anlage erfolgt
+                // bei Direkteinstellung nun manuell ueber den
+                // "Als Mitarbeiter anlegen"-Schritt in der Uebersicht
+                // (DirectHire\Index::createEmployeeWithContract) inkl.
+                // Vertragsauswahl. Datenerfassung komplett legt also keinen
+                // MA mehr automatisch an.
+                'completion_config' => null,
             ]);
 
             $selected = array_filter(self::STANDARD_FIELDS, fn (array $f) => in_array($f['name'], $input['fields'], true));
