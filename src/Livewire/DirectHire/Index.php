@@ -102,11 +102,7 @@ class Index extends Component
         // bereits erfasste Werte nicht ueberschrieben werden (idempotent).
         $this->prefillContactFields($applicant);
 
-        $result = $applicant->sendContractPortalNotification();
-
-        session()->flash('message', ($result['ok'] ?? false)
-            ? 'Datenerfassung gestartet — Portal-Link wurde gesendet.'
-            : 'Datenerfassung gestartet. Portal-Link bitte manuell senden — automatischer Versand fehlgeschlagen: ' . ($result['message'] ?? 'unbekannter Fehler'));
+        session()->flash('message', 'Datenerfassung gestartet — der Bewerber ist jetzt in Phase „Datenerfassung". Kopiere den Portal-Link und schicke ihn dem Kandidaten.');
 
         unset($this->applicantsByPosition, $this->positions);
         $this->dispatch('sidebar-refresh');
