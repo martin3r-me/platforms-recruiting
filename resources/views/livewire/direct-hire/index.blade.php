@@ -31,11 +31,18 @@
             <div class="text-sm text-[var(--ui-muted)]">
                 Aktive Direkteinstellungs-Stellen mit ihren Bewerbern.
             </div>
-            <label class="flex items-center gap-2 text-sm text-[var(--ui-secondary)] cursor-pointer">
-                <input type="checkbox" wire:model.live="onlyMine"
-                       class="rounded border-[var(--ui-border)] text-[var(--ui-primary)] focus:ring-[var(--ui-primary)]/20">
-                <span>Nur meine</span>
-            </label>
+            <div class="flex items-center gap-4">
+                <label class="flex items-center gap-2 text-sm text-[var(--ui-secondary)] cursor-pointer">
+                    <input type="checkbox" wire:model.live="showParked"
+                           class="rounded border-[var(--ui-border)] text-[var(--ui-primary)] focus:ring-[var(--ui-primary)]/20">
+                    <span>Geparkte anzeigen</span>
+                </label>
+                <label class="flex items-center gap-2 text-sm text-[var(--ui-secondary)] cursor-pointer">
+                    <input type="checkbox" wire:model.live="onlyMine"
+                           class="rounded border-[var(--ui-border)] text-[var(--ui-primary)] focus:ring-[var(--ui-primary)]/20">
+                    <span>Nur meine</span>
+                </label>
+            </div>
         </div>
 
         @if($positions->isEmpty())
@@ -103,7 +110,11 @@
 
                         @if($applicants->isEmpty())
                             <div class="text-sm text-[var(--ui-muted)] py-6 text-center border border-dashed border-[var(--ui-border)]/40 rounded-lg">
-                                Noch keine Bewerber für diese Stelle.
+                                @if($showParked)
+                                    Keine geparkten Bewerber.
+                                @else
+                                    Noch keine Bewerber für diese Stelle.
+                                @endif
                             </div>
                         @else
                             <div class="overflow-x-auto">
@@ -127,6 +138,7 @@
                                                 $createdAt = $applicant->created_at?->format('d.m.Y');
                                                 $phaseName = $applicant->phase?->name;
                                                 $phaseOrder = $applicant->phase?->order;
+                                                $isParked = $applicant->is_parked;
                                                 if ($phaseOrder === 2) {
                                                     $portalLink = $applicant->getPublicUrl();
                                                 }
@@ -155,36 +167,45 @@
                                                 </td>
                                                 <td class="py-2.5 pr-3 align-top">
                                                     <div class="flex items-center justify-end gap-2">
-                                                        @if($phaseOrder === 1 || $phaseOrder === null)
+                                                        @if($isParked)
                                                             <button type="button"
-                                                                    wire:click="startDataCollection({{ $applicant->id }})"
-                                                                    wire:confirm="Datenerfassung starten?"
+                                                                    wire:click="unparkApplicant({{ $applicant->id }})"
+                                                                    wire:confirm="Diesen Bewerber reaktivieren?"
                                                                     class="text-xs px-2 py-1.5 rounded-md bg-[var(--ui-primary)] text-white hover:opacity-90">
-                                                                Datenerfassung starten
+                                                                Reaktivieren
                                                             </button>
-                                                            <button type="button"
-                                                                    wire:click="parkApplicant({{ $applicant->id }})"
-                                                                    wire:confirm="Diesen Bewerber parken?"
-                                                                    class="text-xs px-2 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] rounded-md hover:bg-[var(--ui-muted-5)]">
-                                                                Parken
-                                                            </button>
-                                                        @elseif($phaseOrder === 2)
-                                                            <div
-                                                                x-data="{ copied: false }"
-                                                                class="flex items-center gap-2 px-2 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-md cursor-pointer transition-colors"
-                                                                x-on:click="navigator.clipboard.writeText('{{ $portalLink }}'); copied = true; setTimeout(() => copied = false, 2000)"
-                                                                title="Datenerfassungs-Link kopieren"
-                                                            >
-                                                                @svg('heroicon-o-link', 'w-3.5 h-3.5 text-gray-500')
-                                                                <span class="text-xs font-medium text-gray-600" x-show="!copied">Link kopieren</span>
-                                                                <span class="text-xs font-medium text-emerald-600" x-show="copied" x-cloak>Kopiert!</span>
-                                                                <template x-if="!copied">
-                                                                    @svg('heroicon-o-clipboard-document', 'w-3.5 h-3.5 text-gray-400')
-                                                                </template>
-                                                                <template x-if="copied">
-                                                                    @svg('heroicon-o-check', 'w-3.5 h-3.5 text-emerald-500')
-                                                                </template>
-                                                            </div>
+                                                        @else
+                                                            @if($phaseOrder === 1 || $phaseOrder === null)
+                                                                <button type="button"
+                                                                        wire:click="startDataCollection({{ $applicant->id }})"
+                                                                        wire:confirm="Datenerfassung starten?"
+                                                                        class="text-xs px-2 py-1.5 rounded-md bg-[var(--ui-primary)] text-white hover:opacity-90">
+                                                                    Datenerfassung starten
+                                                                </button>
+                                                                <button type="button"
+                                                                        wire:click="parkApplicant({{ $applicant->id }})"
+                                                                        wire:confirm="Diesen Bewerber parken?"
+                                                                        class="text-xs px-2 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] rounded-md hover:bg-[var(--ui-muted-5)]">
+                                                                    Parken
+                                                                </button>
+                                                            @elseif($phaseOrder === 2)
+                                                                <div
+                                                                    x-data="{ copied: false }"
+                                                                    class="flex items-center gap-2 px-2 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-md cursor-pointer transition-colors"
+                                                                    x-on:click="navigator.clipboard.writeText('{{ $portalLink }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                                                                    title="Datenerfassungs-Link kopieren"
+                                                                >
+                                                                    @svg('heroicon-o-link', 'w-3.5 h-3.5 text-gray-500')
+                                                                    <span class="text-xs font-medium text-gray-600" x-show="!copied">Link kopieren</span>
+                                                                    <span class="text-xs font-medium text-emerald-600" x-show="copied" x-cloak>Kopiert!</span>
+                                                                    <template x-if="!copied">
+                                                                        @svg('heroicon-o-clipboard-document', 'w-3.5 h-3.5 text-gray-400')
+                                                                    </template>
+                                                                    <template x-if="copied">
+                                                                        @svg('heroicon-o-check', 'w-3.5 h-3.5 text-emerald-500')
+                                                                    </template>
+                                                                </div>
+                                                            @endif
                                                         @endif
                                                         <a href="{{ route('recruiting.applicants.show', $applicant->id) }}"
                                                            wire:navigate

@@ -18,6 +18,8 @@ class Index extends Component
 {
     public bool $onlyMine = false;
 
+    public bool $showParked = false;
+
     #[Computed]
     public function positions()
     {
@@ -51,7 +53,7 @@ class Index extends Component
         return RecApplicant::query()
             ->forTeam((int) Auth::user()->currentTeam->id)
             ->where('is_active', true)
-            ->where('is_parked', false)
+            ->where('is_parked', $this->showParked)
             ->whereHas('postings.position', fn ($q) => $q->whereIn('rec_positions.id', $positionIds))
             ->with([
                 'crmContactLinks.contact.emailAddresses',
@@ -167,6 +169,26 @@ class Index extends Component
         ]);
 
         session()->flash('message', 'Bewerber geparkt.');
+
+        unset($this->applicantsByPosition, $this->positions);
+        $this->dispatch('sidebar-refresh');
+    }
+
+    public function unparkApplicant(int $applicantId): void
+    {
+        $applicant = RecApplicant::query()
+            ->forTeam((int) Auth::user()->currentTeam->id)
+            ->find($applicantId);
+        if (!$applicant) {
+            return;
+        }
+
+        $applicant->update([
+            'is_parked' => false,
+            'parked_at' => null,
+        ]);
+
+        session()->flash('message', 'Bewerber reaktiviert.');
 
         unset($this->applicantsByPosition, $this->positions);
         $this->dispatch('sidebar-refresh');
