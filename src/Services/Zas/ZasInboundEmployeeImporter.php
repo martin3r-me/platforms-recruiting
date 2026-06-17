@@ -96,6 +96,14 @@ class ZasInboundEmployeeImporter
                 $hr->fill($mapped['hr'])->save();
             }
 
+            // Export-Schleifen-Schutz, Teil 2: der HrData-save oben triggert den
+            // RecEmployeeExportObserver, der zas_changed_at setzt — was den frisch
+            // importierten MA sofort in den ZAS-Update-Export spuelen wuerde.
+            // Direktes DB-Update (ohne Observer) macht das wieder rueckgaengig.
+            DB::table('rec_employees')
+                ->where('id', $employee->id)
+                ->update(['zas_changed_at' => null]);
+
             return $employee;
         });
     }
