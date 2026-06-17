@@ -77,6 +77,13 @@ return [
         ],
     ],
 
+    'whatsapp_costs' => [
+        // Meta Utility-Template an DE-Empfänger, direkt über Cloud API. Stand 04/2026.
+        // Bei Meta-Ratenänderung hier anpassen (kein Hardcoding im Code).
+        'price_per_delivered_template' => 0.055,
+        'currency' => 'EUR',
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | ZAS Bewerber-Export
