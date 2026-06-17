@@ -30,6 +30,7 @@ class RecEmployee extends Model
         'rec_applicant_id',
         'rec_position_id',
         'zas_id',
+        'rec_zas_inbound_file_id',
 
         'first_name',
         'last_name',
@@ -168,6 +169,11 @@ class RecEmployee extends Model
     public function team(): BelongsTo
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
+    }
+
+    public function zasInboundFile(): BelongsTo
+    {
+        return $this->belongsTo(RecZasInboundFile::class, 'rec_zas_inbound_file_id');
     }
 
     /**

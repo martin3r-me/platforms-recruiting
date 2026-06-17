@@ -111,5 +111,8 @@ return [
         // Storage-Disk fuer von ZAS eingehende CSVs (POST /recruiting/zas/inbound).
         // Default 'local' = privat, nicht oeffentlich erreichbar.
         'inbound_disk'           => env('RECRUITING_ZAS_INBOUND_DISK', 'local'),
+
+        // Team, dem von ZAS importierte Mitarbeiter zugeordnet werden (Pflicht fuer Import).
+        'inbound_team_id'        => env('RECRUITING_ZAS_INBOUND_TEAM_ID'),
     ],
 ];
