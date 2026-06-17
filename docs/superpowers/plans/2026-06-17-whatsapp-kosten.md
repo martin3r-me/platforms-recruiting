@@ -205,7 +205,9 @@ git commit -m "feat(whatsapp-kosten): reines Kosten-DTO mit Split und Template-B
 
 ### Task 2: Config-Eintrag + `WhatsAppCostReportService` (DB-Query)
 
-Fügt den Preis-Config-Block hinzu und baut den Service, der genau eine Aggregat-Query ausführt und das DTO aus Task 1 befüllt. DB-Test mit SQLite :memory: deckt Team-Isolation, Status-/Richtungs-Filter, Zeitraum und manuell/automatisch ab.
+Fügt den Preis-Config-Block hinzu und baut den Service, der genau eine Aggregat-Query ausführt und das DTO aus Task 1 befüllt.
+
+> **Entscheidung 2026-06-17 (Test-Strategie geändert):** Der ursprünglich geplante SQLite-`:memory:`-Feature-Test ist **entfallen**. Das Recruiting-Modul ist ein Composer-Package ohne eigenes Laravel-Bootstrap in der Test-Suite (`tests/bootstrap.php` lädt nur reines PHP, kein `config()`/`DB`-Facade) und `orchestra/testbench` ist nirgends verfügbar. Ein DB-Test hätte eine neue, schwergewichtige Test-Abhängigkeit + ein neues Test-Paradigma erfordert — bewusst abgelehnt, um der Modul-Konvention treu zu bleiben. **Stattdessen:** Service-Code bleibt; die Query-Korrektheit (Team-Isolation, Status-/Richtungs-Filter, Zeitraum, manuell/automatisch) wird **manuell in der Host-App `demo.bhgdigital.de`** gegen die echte (MySQL-)DB verifiziert. Die reinen Rechen-/Aggregationsregeln sind weiterhin per Unit-Test (Task 1) abgedeckt.
 
 **Files:**
 - Modify: `config/recruiting.php` (neuer Top-Level-Key `whatsapp_costs`, neben `billables`)
