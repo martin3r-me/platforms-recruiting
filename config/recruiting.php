@@ -31,6 +31,7 @@ return [
                 ['label' => 'Ausschreibungen', 'route' => 'recruiting.postings.index',           'icon' => 'heroicon-o-megaphone'],
                 ['label' => 'Bewerber',        'route' => 'recruiting.applicants.index',         'icon' => 'heroicon-o-user-group'],
                 ['label' => 'Eingangs-Inbox',  'route' => 'recruiting.inbox.index',              'icon' => 'heroicon-o-inbox'],
+                ['label' => 'WhatsApp-Kosten', 'route' => 'recruiting.whatsapp-costs.index', 'icon' => 'heroicon-o-banknotes'],
             ],
         ],
     ],
@@ -75,6 +76,13 @@ return [
             'priority' => 100,
             'active' => true,
         ],
+    ],
+
+    'whatsapp_costs' => [
+        // Meta Utility-Template an DE-Empfänger, direkt über Cloud API. Stand 04/2026.
+        // Bei Meta-Ratenänderung hier anpassen (kein Hardcoding im Code).
+        'price_per_delivered_template' => 0.055,
+        'currency' => 'EUR',
     ],
 
     /*

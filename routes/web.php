@@ -71,3 +71,7 @@ Route::get('/interview-waitlist', \Platform\Recruiting\Livewire\Waitlist\Index::
 // Verträge
 Route::get('/contracts', ContractsIndex::class)->name('recruiting.contracts.index');
 Route::get('/contract-templates', ContractTemplatesIndex::class)->name('recruiting.contract-templates.index');
+
+// WhatsApp-Kosten
+Route::get('/whatsapp-costs', \Platform\Recruiting\Livewire\WhatsAppCosts\Index::class)
+    ->name('recruiting.whatsapp-costs.index');
