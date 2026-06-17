@@ -244,7 +244,7 @@ class ZasEmployeeFieldResolver
             'Grundlohn'                         => $this->getGrundlohn($employee),
             'Zuschlag'                          => $this->getZuschlag($employee),
             'UUID'                              => (string) $employee->uuid,
-            'ZasPersonalNr'                     => $employee->zas_id,
+            'ZasPersonalNr'                     => $employee->personnel_number,
         };
     }
 

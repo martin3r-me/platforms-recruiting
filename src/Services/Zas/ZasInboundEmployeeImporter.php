@@ -7,7 +7,7 @@ use Platform\Recruiting\Models\RecEmployee;
 
 /**
  * Verarbeitet ZAS-Inbound-Datenzeilen: legt MA an, die bei uns noch nicht
- * existieren (Neuanlage-only). Bestehende (UUID- oder zas_id-Match) werden
+ * existieren (Neuanlage-only). Bestehende (UUID- oder personnel_number-Match) werden
  * uebersprungen. Pro Zeile gekapselt — eine fehlerhafte Zeile stoppt nicht den Rest.
  */
 class ZasInboundEmployeeImporter
@@ -30,30 +30,30 @@ class ZasInboundEmployeeImporter
                 }
 
                 // Matching-Kaskade
-                $existing = $this->findExisting($mapped['uuid'], $mapped['zas_id'], $teamId);
+                $existing = $this->findExisting($mapped['uuid'], $mapped['personnel_number'], $teamId);
                 if ($existing !== null) {
-                    $skipped[] = ['zas_id' => $mapped['zas_id'], 'employee_id' => $existing->id, 'reason' => 'exists'];
+                    $skipped[] = ['personnel_number' => $mapped['personnel_number'], 'employee_id' => $existing->id, 'reason' => 'exists'];
                     continue;
                 }
 
                 if (!$teamId) {
-                    $failed[] = ['zas_id' => $mapped['zas_id'], 'reason' => 'RECRUITING_ZAS_INBOUND_TEAM_ID nicht konfiguriert'];
+                    $failed[] = ['personnel_number' => $mapped['personnel_number'], 'reason' => 'RECRUITING_ZAS_INBOUND_TEAM_ID nicht konfiguriert'];
                     continue;
                 }
 
                 if ($dryRun) {
                     $created[] = [
-                        'would_create' => true,
-                        'zas_id' => $mapped['zas_id'],
-                        'name'   => trim(($mapped['employee']['last_name'] ?? '') . ', ' . ($mapped['employee']['first_name'] ?? '')),
+                        'would_create'     => true,
+                        'personnel_number' => $mapped['personnel_number'],
+                        'name'             => trim(($mapped['employee']['last_name'] ?? '') . ', ' . ($mapped['employee']['first_name'] ?? '')),
                     ];
                     continue;
                 }
 
                 $employee = $this->createEmployee($mapped, $teamId, $inbound->id);
-                $created[] = ['employee_id' => $employee->id, 'zas_id' => $employee->zas_id];
+                $created[] = ['employee_id' => $employee->id, 'personnel_number' => $employee->personnel_number];
             } catch (\Throwable $e) {
-                $failed[] = ['zas_id' => $row['ZasPersonalNr'] ?? null, 'reason' => $e->getMessage()];
+                $failed[] = ['personnel_number' => $row['ZasPersonalNr'] ?? null, 'reason' => $e->getMessage()];
             }
         }
 
@@ -62,7 +62,7 @@ class ZasInboundEmployeeImporter
         return compact('status', 'created', 'skipped', 'failed', 'warnings');
     }
 
-    protected function findExisting(?string $uuid, ?string $zasId, $teamId): ?RecEmployee
+    protected function findExisting(?string $uuid, ?string $personnelNumber, $teamId): ?RecEmployee
     {
         if ($uuid) {
             $byUuid = RecEmployee::where('uuid', $uuid)->first();
@@ -70,8 +70,8 @@ class ZasInboundEmployeeImporter
                 return $byUuid;
             }
         }
-        if ($zasId) {
-            return RecEmployee::where('zas_id', $zasId)
+        if ($personnelNumber) {
+            return RecEmployee::where('personnel_number', $personnelNumber)
                 ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
                 ->first();
         }
@@ -84,7 +84,7 @@ class ZasInboundEmployeeImporter
             $employee = RecEmployee::create(array_merge($mapped['employee'], [
                 'team_id'                 => $teamId,
                 'rec_applicant_id'        => null,
-                'zas_id'                  => $mapped['zas_id'],
+                'personnel_number'        => $mapped['personnel_number'],
                 'rec_zas_inbound_file_id' => $inboundId,
                 'is_active'               => true,
                 // Export-Schleifen-Schutz: nicht erneut an ZAS exportieren.

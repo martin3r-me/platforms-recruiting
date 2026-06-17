@@ -68,9 +68,10 @@
             {{-- Felder — responsive grid (1 col mobile, 2 col md, 3 col xl) --}}
             <div class="mt-4 space-y-5">
                 @foreach($this->fieldGroups() as $section => $fields)
+                    @php $isHrOnly = str_contains($section, 'HR-only'); @endphp
                     <div>
-                        <h3 class="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)] mb-2">{{ $section }}</h3>
-                        <div class="bg-white border border-[var(--ui-border)] rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-3">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide {{ $isHrOnly ? 'text-amber-700' : 'text-[var(--ui-muted)]' }} mb-2">{{ $section }}</h3>
+                        <div class="{{ $isHrOnly ? 'bg-amber-50/30 border-amber-200' : 'bg-white border-[var(--ui-border)]' }} border rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-4 gap-y-3">
                             @foreach($fields as $key => $meta)
                                 @php
                                     $type = $meta['type'];

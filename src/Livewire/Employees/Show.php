@@ -223,12 +223,16 @@ class Show extends Component
                 'drivers_license_class' => ['type' => 'text', 'label' => 'Fuehrerschein-Klasse'],
                 'has_car' => ['type' => 'bool', 'label' => 'PKW vorhanden'],
                 'recruited_by_personnel_number' => ['type' => 'text', 'label' => 'Geworben von (Personalnummer)'],
-                'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
             ],
             'Lifecycle' => [
                 'is_active' => ['type' => 'bool', 'label' => 'Aktiv'],
                 'employed_since' => ['type' => 'date', 'label' => 'Beschaeftigt seit'],
                 'employment_ended_at' => ['type' => 'datetime', 'label' => 'Beschaeftigung beendet am'],
+            ],
+            // Liegt auf rec_employees (nicht hr_data), wird aber als HR-only
+            // gerendert (gelb) — speist Lohn-Export + ZAS. MA-Portal sieht es NIE.
+            'Personalnummer (HR-only, ZAS)' => [
+                'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
             ],
         ];
     }

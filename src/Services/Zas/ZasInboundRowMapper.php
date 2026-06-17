@@ -136,9 +136,9 @@ class ZasInboundRowMapper
         }
 
         return [
-            'uuid'     => $get('UUID') !== '' ? $get('UUID') : null,
-            'zas_id'   => $get('ZasPersonalNr') !== '' ? $get('ZasPersonalNr') : null,
-            'employee' => $employee,
+            'uuid'              => $get('UUID') !== '' ? $get('UUID') : null,
+            'personnel_number'  => $get('ZasPersonalNr') !== '' ? $get('ZasPersonalNr') : null,
+            'employee'          => $employee,
             'hr'       => $hr,
             'warnings' => $warnings,
         ];
