@@ -98,6 +98,10 @@
             @svg('heroicon-o-document-duplicate', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Vertragsvorlagen</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.whatsapp-costs.index')">
+            @svg('heroicon-o-currency-euro', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">WhatsApp-Kosten</span>
+        </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 
     {{-- Collapsed: Icons-only --}}
