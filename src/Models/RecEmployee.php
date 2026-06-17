@@ -29,7 +29,6 @@ class RecEmployee extends Model
         'team_id',
         'rec_applicant_id',
         'rec_position_id',
-        'zas_id',
         'rec_zas_inbound_file_id',
 
         'first_name',
@@ -247,7 +246,7 @@ class RecEmployee extends Model
      *  - identity_card_number (Login-Faktor 2 → Aenderung wuerde Aussperren)
      *  - is_eu_citizen, legal-status file_ids (Legal-Status → HR/Schreibtisch)
      *  - recruited_by_personnel_number (read-only, einmalig in P3 gesetzt)
-     *  - zas_id (Backoffice-Feld)
+     *  - personnel_number (Backoffice-/HR-Feld, ZAS-Personalnummer)
      */
     public function editableFieldGroups(): array
     {
