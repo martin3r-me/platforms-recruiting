@@ -212,7 +212,7 @@ Fügt den Preis-Config-Block hinzu und baut den Service, der genau eine Aggregat
 **Files:**
 - Modify: `config/recruiting.php` (neuer Top-Level-Key `whatsapp_costs`, neben `billables`)
 - Create: `src/Services/WhatsAppCost/WhatsAppCostReportService.php`
-- Test: `tests/Feature/WhatsAppCostReportServiceTest.php`
+- Test: ~~`tests/Feature/WhatsAppCostReportServiceTest.php`~~ (entfallen, siehe Entscheidung oben — Query wird manuell in der Host-App verifiziert)
 
 **Interfaces:**
 - Consumes: `WhatsAppCostReport::fromRows(...)` (Task 1).
