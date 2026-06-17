@@ -31,6 +31,8 @@ use Symfony\Component\Uid\UuidV7;
  */
 class ZasInboundController extends Controller
 {
+    public function __construct(private \Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter $importer) {}
+
     public function __invoke(Request $request): JsonResponse
     {
         $content = $this->extractContent($request, $originalName, $mimeType);
@@ -78,6 +80,19 @@ class ZasInboundController extends Controller
             'column_count' => count($structure['columns']),
         ]);
 
+        $import = $this->importer->import($structure['rows'], $record, $isTest);
+
+        $record->update([
+            'status'       => $isTest ? 'received' : $import['status'],
+            'processed_at' => $isTest ? null : now(),
+            'notes'        => json_encode([
+                'created'  => $import['created'],
+                'skipped'  => $import['skipped'],
+                'failed'   => $import['failed'],
+                'warnings' => $import['warnings'],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+
         // Schlanke Quittung im Echtbetrieb (keine PII/Spaltenwerte nach aussen).
         $payload = [
             'status'      => 'received',
@@ -91,6 +106,7 @@ class ZasInboundController extends Controller
                 'column_count' => count($structure['columns']),
                 'row_count'    => $structure['row_count'],
             ],
+            'import'      => $import,
         ];
 
         // Volle Vorschau (Spaltennamen + erste Datenzeile) nur im Test-Modus —
@@ -157,11 +173,18 @@ class ZasInboundController extends Controller
             $firstDataRow = $this->zip($columns, $values);
         }
 
+        $rows = [];
+        foreach (array_slice($lines, 1) as $line) {
+            $values = array_map('trim', str_getcsv($line, $delimiter, '"', ''));
+            $rows[] = $this->zip($columns, $values);
+        }
+
         return [
             'delimiter'      => $delimiter,
             'columns'        => $columns,
             'row_count'      => $rowCount,
             'first_data_row' => $firstDataRow,
+            'rows'           => $rows,
         ];
     }
 
