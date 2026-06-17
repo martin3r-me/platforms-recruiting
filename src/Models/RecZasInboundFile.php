@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -51,5 +52,10 @@ class RecZasInboundFile extends Model
                 $model->uuid = (string) UuidV7::generate();
             }
         });
+    }
+
+    public function employees(): HasMany
+    {
+        return $this->hasMany(RecEmployee::class, 'rec_zas_inbound_file_id');
     }
 }
