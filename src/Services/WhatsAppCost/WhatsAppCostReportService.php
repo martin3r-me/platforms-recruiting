@@ -16,6 +16,8 @@ final class WhatsAppCostReportService
         $query = DB::table('comms_whatsapp_messages as m')
             ->join('comms_whatsapp_threads as t', 'm.comms_whatsapp_thread_id', '=', 't.id')
             ->where('t.team_id', $teamId)
+            // DB::table() bypasses Eloquent SoftDeletes — filter soft-deleted threads manually.
+            ->whereNull('t.deleted_at')
             ->where('m.direction', 'outbound')
             ->whereIn('m.status', ['delivered', 'read'])
             ->whereBetween('m.delivered_at', [$from, $to]);

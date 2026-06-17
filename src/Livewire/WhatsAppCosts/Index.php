@@ -25,12 +25,27 @@ class Index extends Component
     {
         $teamId = auth()->user()->currentTeam->id;
 
+        $from = $this->parseDateOr($this->from, fn () => now()->startOfMonth())->startOfDay();
+        $to   = $this->parseDateOr($this->to, fn () => now()->endOfMonth())->endOfDay();
+
         return app(WhatsAppCostReportService::class)->build(
             $teamId,
-            Carbon::parse($this->from)->startOfDay(),
-            Carbon::parse($this->to)->endOfDay(),
+            $from,
+            $to,
             $this->type,
         );
+    }
+
+    private function parseDateOr(string $value, \Closure $default): \Carbon\CarbonInterface
+    {
+        if (trim($value) === '') {
+            return $default();
+        }
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable) {
+            return $default();
+        }
     }
 
     public function render()
