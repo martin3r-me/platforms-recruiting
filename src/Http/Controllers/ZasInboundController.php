@@ -159,7 +159,7 @@ class ZasInboundController extends Controller
         $lines = array_values(array_filter($lines, fn ($l) => trim($l) !== ''));
 
         if ($lines === []) {
-            return ['delimiter' => null, 'columns' => [], 'row_count' => 0, 'first_data_row' => null];
+            return ['delimiter' => null, 'columns' => [], 'row_count' => 0, 'first_data_row' => null, 'rows' => []];
         }
 
         $headerLine = $lines[0];
