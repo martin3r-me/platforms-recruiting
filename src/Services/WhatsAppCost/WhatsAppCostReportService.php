@@ -41,8 +41,13 @@ final class WhatsAppCostReportService
             ])
             ->all();
 
-        $price = (float) config('recruiting.whatsapp_costs.price_per_delivered_template', 0.055);
+        $basePrice = (float) config('recruiting.whatsapp_costs.price_per_delivered_template', 0.055);
+        $feePercent = (float) config('recruiting.whatsapp_costs.fee_percent', 0);
         $currency = (string) config('recruiting.whatsapp_costs.currency', 'EUR');
+
+        // Service-Aufschlag in den effektiven Preis einrechnen — der Kunde sieht den
+        // Endpreis inkl. Aufschlag, ohne dass er separat ausgewiesen wird.
+        $price = $basePrice * (1 + $feePercent / 100);
 
         return WhatsAppCostReport::fromRows($rows, $price, $currency);
     }

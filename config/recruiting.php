@@ -82,6 +82,9 @@ return [
         // Meta Utility-Template an DE-Empfänger, direkt über Cloud API. Stand 04/2026.
         // Bei Meta-Ratenänderung hier anpassen (kein Hardcoding im Code).
         'price_per_delivered_template' => 0.055,
+        // Service-Aufschlag in Prozent, der auf den Meta-Basispreis kommt. Der dem
+        // Kunden angezeigte Preis enthält diesen Aufschlag bereits (nicht separat ausgewiesen).
+        'fee_percent' => 30,
         'currency' => 'EUR',
     ],
 
