@@ -19,7 +19,7 @@ use Platform\Recruiting\Services\Comms\ConversationInboxService;
 class Index extends Component
 {
     /** unread | escalation | all */
-    public string $view = 'escalation';
+    public string $view = 'all';
 
     /** all | green | yellow | red | missed */
     public string $level = 'all';
