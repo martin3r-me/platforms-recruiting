@@ -22,7 +22,7 @@ final class ConversationEscalation
     public const LEVEL_RED = 'red';
     public const LEVEL_MISSED = 'missed';
 
-    /** Länge des Meta-Service-Windows in Stunden. */
+    /** Länge des Meta-Service-Windows in Stunden (WhatsApp Business Policy). */
     public const WINDOW_HOURS = 24;
 
     public function __construct(
