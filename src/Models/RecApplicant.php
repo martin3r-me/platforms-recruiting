@@ -1344,33 +1344,12 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     public function reconcilePositionState(): void
     {
-        $this->loadMissing(['postings.position', 'phase', 'team']);
-
-        $primaryPosition = $this->primaryPosition();
-        if (!$primaryPosition) {
+        $plan = $this->resolvePositionReconciliation();
+        if ($plan === null) {
             return; // keine Stelle verknüpft → nichts abzugleichen
         }
 
-        $orderMap = RecPhase::where('rec_position_id', $primaryPosition->id)
-            ->where('is_active', true)
-            ->orderBy('order')
-            ->get(['id', 'order'])
-            ->mapWithKeys(fn ($p) => [(int) $p->order => (int) $p->id])
-            ->all();
-
-        $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
-
-        $decision = \Platform\Recruiting\Services\PositionReconciler::resolve(
-            $this->phase?->rec_position_id ? (int) $this->phase->rec_position_id : null,
-            $this->phase?->order !== null ? (int) $this->phase->order : null,
-            (int) $primaryPosition->id,
-            $orderMap,
-            $this->owned_by_user_id ? (int) $this->owned_by_user_id : null,
-            $primaryPosition->owned_by_user_id ? (int) $primaryPosition->owned_by_user_id : null,
-            (int) ($settings->getSetting('default_contact_user_id') ?? 0) ?: null,
-            $this->team?->user_id ? (int) $this->team->user_id : null,
-        );
-
+        $decision = $plan['decision'];
         $dirty = false;
 
         if ($decision['phase_id'] !== null && $decision['phase_id'] !== (int) $this->rec_phase_id) {
@@ -1399,12 +1378,52 @@ class RecApplicant extends Model implements InheritsExtraFields
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $this->id,
                     'type' => 'position_reconciled',
-                    'summary' => "Stelle/Phase/Verantwortlicher an primäre Stelle \"{$primaryPosition->title}\" angeglichen (nach Posting-Wechsel).",
+                    'summary' => "Stelle/Phase/Verantwortlicher an primäre Stelle \"{$plan['primary_position']->title}\" angeglichen (nach Posting-Wechsel).",
                 ]);
             } catch (\Throwable) {
                 // Log-Fehler darf den Abgleich nicht blockieren
             }
         }
+    }
+
+    /**
+     * Berechnet — OHNE zu speichern — wie Phase + Verantwortlicher an die
+     * primäre Stelle angeglichen würden. Gemeinsame Quelle für
+     * reconcilePositionState() (Live) und den Heil-Command (--dry-run).
+     *
+     * @return array{decision: array{phase_id: int|null, owner_id: int|null, position_changed: bool}, primary_position: RecPosition}|null
+     *   null, wenn keine Stelle verknüpft ist.
+     */
+    public function resolvePositionReconciliation(): ?array
+    {
+        $this->loadMissing(['postings.position', 'phase', 'team']);
+
+        $primaryPosition = $this->primaryPosition();
+        if (!$primaryPosition) {
+            return null;
+        }
+
+        $orderMap = RecPhase::where('rec_position_id', $primaryPosition->id)
+            ->where('is_active', true)
+            ->orderBy('order')
+            ->get(['id', 'order'])
+            ->mapWithKeys(fn ($p) => [(int) $p->order => (int) $p->id])
+            ->all();
+
+        $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+
+        $decision = \Platform\Recruiting\Services\PositionReconciler::resolve(
+            $this->phase?->rec_position_id ? (int) $this->phase->rec_position_id : null,
+            $this->phase?->order !== null ? (int) $this->phase->order : null,
+            (int) $primaryPosition->id,
+            $orderMap,
+            $this->owned_by_user_id ? (int) $this->owned_by_user_id : null,
+            $primaryPosition->owned_by_user_id ? (int) $primaryPosition->owned_by_user_id : null,
+            (int) ($settings->getSetting('default_contact_user_id') ?? 0) ?: null,
+            $this->team?->user_id ? (int) $this->team->user_id : null,
+        );
+
+        return ['decision' => $decision, 'primary_position' => $primaryPosition];
     }
 
     /**
