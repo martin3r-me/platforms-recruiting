@@ -1324,34 +1324,52 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
-     * Stellt sicher, dass ein Bewerber mit verknüpfter Stelle einen
-     * Verantwortlichen hat — füllt owned_by_user_id auf, wenn leer (Kaskade
-     * Stelle → Default-Kontakt → Team-Owner). Verhindert, dass umgehängte
-     * Bewerber ownerlos und damit für den Auto-Pilot unsichtbar werden
-     * (Selektions-Query: whereNotNull('owned_by_user_id')).
+     * Gleicht abgeleiteten Zustand an die PRIMÄRE Stelle an, nachdem das Posting
+     * geändert wurde (Enrichment-Umschlüsselung, manuelles Verknüpfen, HR-Zuweisung).
+     * Diese Pfade ändern nur das Pivot — ohne diesen Abgleich blieben Phase und
+     * Verantwortlicher auf der alten Stelle stehen.
      *
-     * Bewusst NUR Owner (+ is_unrouted): Die Phase wird NICHT angefasst. Ein
-     * Phasen-Desync (Phase gehört zu Stelle A, Posting zu Stelle B) ist
-     * funktional folgenlos — Buchung, Warteliste, Benachrichtigung und sogar
-     * die MA-Anlage (CreateEmployeeFromApplicantService nutzt primaryPosition()
-     * + beschaftigungsort) hängen am Posting/Wunschort, nicht an der Phase.
-     * Ein automatischer Phasen-Umzug würde nur das (kosmetische) Dashboard-Bild
-     * im pro-Stelle-Filter glätten, aber Feldwerte verwaisen lassen (liegen
-     * unter den Definition-IDs der alten Stelle) — das Risiko nicht wert.
-     *
-     * Bestehender Owner wird nie überschrieben. Idempotent.
+     * Verhalten (idempotent, reagiert nur auf einen bereits geänderten Posting-Stand):
+     *  - **Verantwortlicher:** auffüllen, wenn leer (Kaskade Stelle → Default → Team).
+     *    Bestehender Owner wird nie überschrieben. Verhindert Auto-Pilot-Unsichtbarkeit
+     *    (Selektions-Query: whereNotNull('owned_by_user_id')).
+     *  - **Phase + Feldwerte:** NUR bei eindeutigem **Einzel-Posting**, dessen Phase zu
+     *    einer ANDEREN Stelle gehört → rec_phase_id auf die gleiche-order-Phase der
+     *    primären Stelle, und Feldwerte per Name mitziehen (remapExtraFieldValuesToPosition,
+     *    dieselbe Mechanik wie switchToPosition) → kein Verwaisen.
+     *  - **Mehrfach-Posting:** Phase NICHT anfassen. Die primäre Stelle ist mehrdeutig
+     *    (echter Mehr-Orts-Wunsch ist normal und löst sich bei der Buchung via
+     *    switchToPosition). Nur Owner auffüllen.
+     *  - **is_unrouted:** false, sobald eine Stelle verknüpft ist.
      */
     public function reconcilePositionState(): void
     {
-        $this->loadMissing(['postings.position', 'team']);
+        $this->loadMissing(['postings.position', 'phase', 'team']);
 
         $primaryPosition = $this->primaryPosition();
         if (!$primaryPosition) {
-            return; // keine Stelle verknüpft → nichts aufzufüllen
+            return; // keine Stelle verknüpft → nichts abzugleichen
         }
 
         $dirty = false;
+        $phaseRemapped = false;
 
+        // Phase + Feldwerte nur bei eindeutigem Einzel-Posting angleichen, dessen
+        // Phase zu einer anderen Stelle gehört (oder fehlt).
+        $isSinglePosting = $this->postings->count() === 1;
+        $phaseBelongsElsewhere = $this->phase === null
+            || (int) $this->phase->rec_position_id !== (int) $primaryPosition->id;
+
+        if ($isSinglePosting && $phaseBelongsElsewhere) {
+            $targetPhaseId = $this->sameOrderPhaseId($primaryPosition, $this->phase?->order);
+            if ($targetPhaseId && $targetPhaseId !== (int) $this->rec_phase_id) {
+                $this->rec_phase_id = $targetPhaseId;
+                $dirty = true;
+                $phaseRemapped = true;
+            }
+        }
+
+        // Verantwortlichen auffüllen, falls leer.
         if (!$this->owned_by_user_id) {
             $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
             $ownerId = \Platform\Recruiting\Services\OwnerResolver::resolve(
@@ -1371,9 +1389,44 @@ class RecApplicant extends Model implements InheritsExtraFields
             $dirty = true;
         }
 
-        if ($dirty) {
-            $this->save();
+        if (!$dirty) {
+            return;
         }
+
+        $this->save();
+
+        // Feldwerte erst NACH dem Phasen-Wechsel umhängen (gleiche Mechanik wie
+        // switchToPosition) — sonst würden sie unter der alten Stelle verwaisen.
+        if ($phaseRemapped) {
+            $this->remapExtraFieldValuesToPosition($primaryPosition);
+
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => 'position_reconciled',
+                    'summary' => "Phase + Feldwerte an primäre Stelle \"{$primaryPosition->title}\" angeglichen (nach Posting-Wechsel).",
+                ]);
+            } catch (\Throwable) {
+                // Log-Fehler darf den Abgleich nicht blockieren
+            }
+        }
+    }
+
+    /**
+     * Liefert die ID der Phase mit gleichem `order` in $position (Fallback:
+     * erste aktive Phase). null, wenn $position keine aktive Phase hat.
+     */
+    private function sameOrderPhaseId(RecPosition $position, ?int $order): ?int
+    {
+        $phases = RecPhase::where('rec_position_id', $position->id)
+            ->where('is_active', true)
+            ->orderBy('order')
+            ->get(['id', 'order']);
+
+        return \Platform\Recruiting\Services\PhaseMatcher::sameOrderOrFirst(
+            $order,
+            $phases->mapWithKeys(fn ($p) => [(int) $p->order => (int) $p->id])->all(),
+        );
     }
 
     /**
