@@ -10,7 +10,11 @@ final class ConversationInboxRow
 {
     public function __construct(
         public readonly int|string $threadId,
-        public readonly ?int $applicantId,
+        /** 'applicant' | 'employee' */
+        public readonly string $subjectType,
+        public readonly ?int $subjectId,
+        /** Deep-Link in den Verlauf (Bewerber-Detail mit Chat bzw. MA-Detail). */
+        public readonly ?string $url,
         public readonly string $contactName,
         public readonly ?string $preview,
         public readonly ?string $phone,

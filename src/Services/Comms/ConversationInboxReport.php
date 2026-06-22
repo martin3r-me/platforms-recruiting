@@ -36,7 +36,9 @@ final class ConversationInboxReport
     /**
      * @param array<int, array{
      *     thread_id: int|string,
-     *     applicant_id?: ?int,
+     *     subject_type?: string,
+     *     subject_id?: ?int,
+     *     url?: ?string,
      *     contact_name?: ?string,
      *     preview?: ?string,
      *     phone?: ?string,
@@ -78,7 +80,9 @@ final class ConversationInboxReport
 
             $built[] = new ConversationInboxRow(
                 threadId: $row['thread_id'],
-                applicantId: $row['applicant_id'] ?? null,
+                subjectType: (string) ($row['subject_type'] ?? 'applicant'),
+                subjectId: $row['subject_id'] ?? null,
+                url: $row['url'] ?? null,
                 contactName: (string) ($row['contact_name'] ?? 'Unbekannt'),
                 preview: $row['preview'] ?? null,
                 phone: $row['phone'] ?? null,

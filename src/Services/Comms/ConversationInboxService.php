@@ -5,11 +5,16 @@ namespace Platform\Recruiting\Services\Comms;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecEmployee;
 
 /**
  * Baut die Kommunikations-Übersicht für ein Team: lädt die WhatsApp-Threads
- * der Bewerber (aus dem CRM, nur lesend), reichert Kontakt-/Owner-Daten an und
- * delegiert die Eskalations-/Sortier-Logik an das reine DTO ConversationInboxReport.
+ * von Bewerbern UND Mitarbeitern (aus dem CRM, nur lesend), reichert
+ * Kontakt-/Owner-Daten an und delegiert die Eskalations-/Sortier-Logik an das
+ * reine DTO ConversationInboxReport.
+ *
+ * Getrackt wird jede Konversation, bei der mindestens eine eingehende Nachricht
+ * vorliegt (last_inbound_at) — egal ob das Gegenüber Bewerber oder Mitarbeiter ist.
  *
  * Eloquent statt DB::table, weil hier Kontaktname/Owner über Relationen aufgelöst
  * werden und SoftDeletes automatisch greifen. Die testbare Logik liegt im DTO.
@@ -24,49 +29,67 @@ final class ConversationInboxService
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
 
-        $morphClass = (new RecApplicant)->getMorphClass();
-        $fullClass = RecApplicant::class;
+        $bySubject = $this->dedupedThreads($teamId);
 
-        // Threads dieses Teams, die an einen Bewerber gebunden sind und je
-        // mindestens eine eingehende Nachricht hatten (sonst nichts zu lesen/eskalieren).
-        $threads = CommsWhatsAppThread::query()
-            ->where('team_id', $teamId)
-            ->whereIn('context_model', [$morphClass, $fullClass])
-            ->whereNotNull('context_model_id')
-            ->whereNotNull('last_inbound_at')
-            ->get();
-
-        // Pro Bewerber den relevantesten Thread (neuester Eingang) — analog
-        // zu Applicant\Index::whatsAppThreadMap().
-        $byApplicant = [];
-        foreach ($threads as $thread) {
-            $oid = (int) $thread->context_model_id;
-            $existing = $byApplicant[$oid] ?? null;
-            if ($existing === null
-                || ($thread->last_inbound_at
-                    && $thread->last_inbound_at->greaterThan($existing->last_inbound_at))) {
-                $byApplicant[$oid] = $thread;
+        // IDs je Typ sammeln und Subjekte laden.
+        $applicantIds = [];
+        $employeeIds = [];
+        foreach ($bySubject as $key => $thread) {
+            [$type, $id] = explode(':', $key, 2);
+            if ($type === 'employee') {
+                $employeeIds[] = (int) $id;
+            } else {
+                $applicantIds[] = (int) $id;
             }
         }
 
         $applicants = RecApplicant::query()
             ->with(['crmContactLinks.contact'])
-            ->whereIn('id', array_keys($byApplicant))
+            ->whereIn('id', $applicantIds)
             ->get()
             ->keyBy('id');
 
+        $employees = RecEmployee::query()
+            ->whereIn('id', $employeeIds)
+            ->get(['id', 'first_name', 'last_name', 'rec_applicant_id'])
+            ->keyBy('id');
+
         $rows = [];
-        foreach ($byApplicant as $oid => $thread) {
-            $applicant = $applicants->get($oid);
-            $name = $applicant?->crmContactLinks->first()?->contact?->full_name;
+        foreach ($bySubject as $key => $thread) {
+            [$type, $idStr] = explode(':', $key, 2);
+            $id = (int) $idStr;
+
+            if ($type === 'employee') {
+                $employee = $employees->get($id);
+                $name = $employee
+                    ? trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? ''))
+                    : null;
+                $owner = null; // Mitarbeiter haben kein owned_by_user_id
+                // Deep-Link bevorzugt auf die Bewerber-Detailseite (dort lebt der
+                // Chat); fällt zurück auf die MA-Detailseite.
+                if ($employee && $employee->rec_applicant_id) {
+                    $url = route('recruiting.applicants.show', ['applicant' => $employee->rec_applicant_id]);
+                } elseif ($employee) {
+                    $url = route('recruiting.employees.show', ['employee' => $id]);
+                } else {
+                    $url = null;
+                }
+            } else {
+                $applicant = $applicants->get($id);
+                $name = $applicant?->crmContactLinks->first()?->contact?->full_name;
+                $owner = $applicant?->owned_by_user_id;
+                $url = $applicant ? route('recruiting.applicants.show', ['applicant' => $id]) : null;
+            }
 
             $rows[] = [
                 'thread_id' => (int) $thread->id,
-                'applicant_id' => $oid,
+                'subject_type' => $type,
+                'subject_id' => $id,
+                'url' => $url,
                 'contact_name' => $name ?: ($thread->remote_phone_number ?: 'Unbekannt'),
                 'preview' => $thread->last_message_preview,
                 'phone' => $thread->remote_phone_number,
-                'owner_user_id' => $applicant?->owned_by_user_id,
+                'owner_user_id' => $owner,
                 'is_unread' => (bool) $thread->is_unread,
                 'last_inbound_at' => $thread->last_inbound_at?->getTimestamp(),
                 'last_outbound_at' => $thread->last_outbound_at?->getTimestamp(),
@@ -90,31 +113,11 @@ final class ConversationInboxService
         $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
 
-        $morphClass = (new RecApplicant)->getMorphClass();
-        $fullClass = RecApplicant::class;
-
-        $threads = CommsWhatsAppThread::query()
-            ->where('team_id', $teamId)
-            ->whereIn('context_model', [$morphClass, $fullClass])
-            ->whereNotNull('context_model_id')
-            ->whereNotNull('last_inbound_at')
-            ->get(['id', 'context_model_id', 'is_unread', 'last_inbound_at', 'last_outbound_at']);
-
-        // Pro Bewerber den relevantesten Thread (neuester Eingang).
-        $byApplicant = [];
-        foreach ($threads as $thread) {
-            $oid = (int) $thread->context_model_id;
-            $existing = $byApplicant[$oid] ?? null;
-            if ($existing === null
-                || ($thread->last_inbound_at
-                    && $thread->last_inbound_at->greaterThan($existing->last_inbound_at))) {
-                $byApplicant[$oid] = $thread;
-            }
-        }
+        $bySubject = $this->dedupedThreads($teamId);
 
         $unread = 0;
         $escalation = 0;
-        foreach ($byApplicant as $thread) {
+        foreach ($bySubject as $thread) {
             if ($thread->is_unread) {
                 $unread++;
             }
@@ -133,5 +136,40 @@ final class ConversationInboxService
         }
 
         return ['unread' => $unread, 'escalation' => $escalation];
+    }
+
+    /**
+     * Lädt die relevanten Threads (Bewerber + Mitarbeiter, mind. ein Eingang)
+     * und reduziert sie pro Subjekt auf den Thread mit dem neuesten Eingang.
+     *
+     * @return array<string, CommsWhatsAppThread> Key = "applicant:<id>" | "employee:<id>"
+     */
+    private function dedupedThreads(int $teamId): array
+    {
+        $applicantMorph = (new RecApplicant)->getMorphClass();
+        $applicantFull = RecApplicant::class;
+        $employeeFull = RecEmployee::class; // nicht in der morphMap → Full-Class
+
+        $threads = CommsWhatsAppThread::query()
+            ->where('team_id', $teamId)
+            ->whereIn('context_model', [$applicantMorph, $applicantFull, $employeeFull])
+            ->whereNotNull('context_model_id')
+            ->whereNotNull('last_inbound_at')
+            ->get();
+
+        $bySubject = [];
+        foreach ($threads as $thread) {
+            $type = $thread->context_model === $employeeFull ? 'employee' : 'applicant';
+            $key = $type . ':' . (int) $thread->context_model_id;
+
+            $existing = $bySubject[$key] ?? null;
+            if ($existing === null
+                || ($thread->last_inbound_at
+                    && $thread->last_inbound_at->greaterThan($existing->last_inbound_at))) {
+                $bySubject[$key] = $thread;
+            }
+        }
+
+        return $bySubject;
     }
 }

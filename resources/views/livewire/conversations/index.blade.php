@@ -135,7 +135,12 @@
                                     <span class="ml-1 inline-block h-2 w-2 rounded-full bg-orange-500" title="ungelesen"></span>
                                 @endif
                             </div>
-                            <div class="text-xs text-gray-400">{{ $row->phone }}</div>
+                            <div class="flex items-center gap-2 text-xs text-gray-400">
+                                <span class="inline-flex rounded px-1.5 py-0.5 {{ $row->subjectType === 'employee' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700' }}">
+                                    {{ $row->subjectType === 'employee' ? 'Mitarbeiter' : 'Bewerber' }}
+                                </span>
+                                <span>{{ $row->phone }}</span>
+                            </div>
                         </td>
                         <td class="px-4 py-3 text-gray-600">
                             <span class="line-clamp-1 max-w-xs">{{ $row->preview ?: '—' }}</span>
@@ -146,9 +151,9 @@
                         <td class="px-4 py-3 text-gray-600">{{ $fmtWindow($row->escalation) }}</td>
                         <td class="px-4 py-3">
                             <div class="flex items-center justify-end gap-2">
-                                @if ($row->applicantId)
-                                    <button wire:click="open({{ $row->applicantId }})"
-                                            class="rounded bg-[var(--ui-primary)] px-2.5 py-1 text-xs font-medium text-white hover:opacity-90">Öffnen</button>
+                                @if ($row->url)
+                                    <a href="{{ $row->url }}" wire:navigate
+                                       class="rounded bg-[var(--ui-primary)] px-2.5 py-1 text-xs font-medium text-white hover:opacity-90">Öffnen</a>
                                 @endif
                                 @if ($row->isUnread)
                                     <button wire:click="markRead({{ $row->threadId }})"
@@ -157,8 +162,8 @@
                                     <button wire:click="markUnread({{ $row->threadId }})"
                                             class="rounded bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200">Ungelesen</button>
                                 @endif
-                                @if ($row->applicantId && in_array($row->escalation->level, ['red', 'missed'], true))
-                                    <button wire:click="sendHolding({{ $row->applicantId }})"
+                                @if ($row->subjectType === 'applicant' && $row->subjectId && in_array($row->escalation->level, ['red', 'missed'], true))
+                                    <button wire:click="sendHolding({{ $row->subjectId }})"
                                             class="rounded bg-gray-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-700"
                                             title="Allgemeines Template senden, um das Fenster wieder zu öffnen">Template</button>
                                 @endif

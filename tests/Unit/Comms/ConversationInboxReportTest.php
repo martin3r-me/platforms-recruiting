@@ -15,7 +15,9 @@ class ConversationInboxReportTest extends TestCase
     {
         return array_merge([
             'thread_id' => 1,
-            'applicant_id' => 10,
+            'subject_type' => 'applicant',
+            'subject_id' => 10,
+            'url' => '/recruiting/applicants/10',
             'contact_name' => 'Test Person',
             'preview' => 'Hallo',
             'phone' => '+49150',
@@ -93,7 +95,9 @@ class ConversationInboxReportTest extends TestCase
         $row = $r->rows[0];
 
         $this->assertSame(1, $row->threadId);
-        $this->assertSame(10, $row->applicantId);
+        $this->assertSame('applicant', $row->subjectType);
+        $this->assertSame(10, $row->subjectId);
+        $this->assertSame('/recruiting/applicants/10', $row->url);
         $this->assertSame('Test Person', $row->contactName);
         $this->assertSame('Hallo', $row->preview);
         $this->assertSame(7, $row->ownerUserId);

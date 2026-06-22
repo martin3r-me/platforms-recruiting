@@ -153,11 +153,6 @@ class Index extends Component
         $this->dispatch('sidebar-refresh');
     }
 
-    public function open(int $applicantId)
-    {
-        return $this->redirect(route('recruiting.applicants.show', ['applicant' => $applicantId]), navigate: true);
-    }
-
     public function render()
     {
         return view('recruiting::livewire.conversations.index')
