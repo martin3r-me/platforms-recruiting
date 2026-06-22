@@ -263,6 +263,7 @@ class Show extends Component
         ]);
         $this->postingLinkModalShow = false;
         $this->applicant->load('postings.position');
+        $this->applicant->reconcilePositionState();
         session()->flash('message', 'Ausschreibung verknüpft.');
     }
 
@@ -270,6 +271,7 @@ class Show extends Component
     {
         $this->applicant->postings()->detach($postingId);
         $this->applicant->load('postings.position');
+        $this->applicant->reconcilePositionState();
         session()->flash('message', 'Ausschreibung-Zuordnung entfernt.');
     }
 

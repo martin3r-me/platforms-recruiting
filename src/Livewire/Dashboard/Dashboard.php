@@ -1007,6 +1007,8 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
+        // Phase + Verantwortlicher an die (neue) primäre Stelle angleichen.
+        $applicant->reconcilePositionState();
         unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
     }
 

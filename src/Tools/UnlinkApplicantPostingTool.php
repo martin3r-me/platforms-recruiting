@@ -82,6 +82,10 @@ class UnlinkApplicantPostingTool implements ToolContract, ToolMetadataContract
                 ]);
             }
 
+            // Nach dem Entfernen kann sich die primäre Stelle geändert haben →
+            // Phase + Verantwortlicher angleichen, damit nichts auseinanderläuft.
+            $applicant->reconcilePositionState();
+
             return ToolResult::success([
                 'applicant_id' => $applicant->id,
                 'posting_id' => $postingId,

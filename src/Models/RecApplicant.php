@@ -1324,6 +1324,90 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Gleicht abgeleiteten Zustand (Phase + Verantwortlicher) an die aktuelle
+     * PRIMÄRE Stelle an. Notwendig, weil das Enrichment (und manuelles
+     * Verknüpfen) Postings über die rohen applicant_postings-Tools umhängt,
+     * die nur das Pivot ändern — ohne diesen Abgleich blieben rec_phase_id und
+     * owned_by_user_id auf der alten Stelle stehen (typischer Bruch: Köln-Posting
+     * + Düsseldorf-Phase + leerer Owner → unsichtbar für den Auto-Pilot).
+     *
+     * Anders als switchToPosition() (booking-getrieben, hängt Postings selbst um)
+     * REAGIERT diese Methode nur auf einen bereits geänderten Posting-Stand:
+     *  - rec_phase_id → gleiche order-Phase der primären Stelle (Fallback: erste)
+     *  - owned_by_user_id → Owner-Kaskade (bei Stellenwechsel folgt der Owner der
+     *    neuen Stelle; sonst nur auffüllen falls leer) — nie leer lassen
+     *  - is_unrouted → false, sobald mindestens eine Stelle verknüpft ist
+     *
+     * Idempotent: passt bereits alles, wird nichts geschrieben.
+     *
+     * @see \Platform\Recruiting\Services\PositionReconciler
+     */
+    public function reconcilePositionState(): void
+    {
+        $this->loadMissing(['postings.position', 'phase', 'team']);
+
+        $primaryPosition = $this->primaryPosition();
+        if (!$primaryPosition) {
+            return; // keine Stelle verknüpft → nichts abzugleichen
+        }
+
+        $orderMap = RecPhase::where('rec_position_id', $primaryPosition->id)
+            ->where('is_active', true)
+            ->orderBy('order')
+            ->get(['id', 'order'])
+            ->mapWithKeys(fn ($p) => [(int) $p->order => (int) $p->id])
+            ->all();
+
+        $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+
+        $decision = \Platform\Recruiting\Services\PositionReconciler::resolve(
+            $this->phase?->rec_position_id ? (int) $this->phase->rec_position_id : null,
+            $this->phase?->order !== null ? (int) $this->phase->order : null,
+            (int) $primaryPosition->id,
+            $orderMap,
+            $this->owned_by_user_id ? (int) $this->owned_by_user_id : null,
+            $primaryPosition->owned_by_user_id ? (int) $primaryPosition->owned_by_user_id : null,
+            (int) ($settings->getSetting('default_contact_user_id') ?? 0) ?: null,
+            $this->team?->user_id ? (int) $this->team->user_id : null,
+        );
+
+        $dirty = false;
+
+        if ($decision['phase_id'] !== null && $decision['phase_id'] !== (int) $this->rec_phase_id) {
+            $this->rec_phase_id = $decision['phase_id'];
+            $dirty = true;
+        }
+
+        if ($decision['owner_id'] !== null) {
+            $this->owned_by_user_id = $decision['owner_id'];
+            $dirty = true;
+        }
+
+        if ($this->is_unrouted) {
+            $this->is_unrouted = false;
+            $dirty = true;
+        }
+
+        if (!$dirty) {
+            return;
+        }
+
+        $this->save();
+
+        if ($decision['position_changed']) {
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => 'position_reconciled',
+                    'summary' => "Stelle/Phase/Verantwortlicher an primäre Stelle \"{$primaryPosition->title}\" angeglichen (nach Posting-Wechsel).",
+                ]);
+            } catch (\Throwable) {
+                // Log-Fehler darf den Abgleich nicht blockieren
+            }
+        }
+    }
+
+    /**
      * Hängt alle Extra-Field-Werte vom alten Definitionen-Set (vorherige
      * Position) auf die Definitionen der neuen Position um, gematcht per
      * `name`. Behaelt Werte wenn:
