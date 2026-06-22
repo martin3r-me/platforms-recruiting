@@ -46,6 +46,17 @@ class RecApplicantSettings extends Model
         // angelegt wurde (Phase-Config-Flag creates_employee_on_completion).
         'employee_portal_wa_template_id' => null,
         'employee_portal_wa_account_id' => null,
+        // Kommunikations-Übersicht / Eskalation (WhatsApp 24h-Fenster).
+        // Restzeit-Schwellen IM offenen Fenster (NICHT "Stunden seit Eingang"):
+        // grün > yellow, gelb <= yellow, rot <= red, verpasst = Fenster zu.
+        'comms_window_yellow_hours_left' => 12,
+        'comms_window_red_hours_left' => 3,
+        // In-App-Eskalation: zusätzlicher Verantwortlicher, der verpasste/rote
+        // Fälle team-weit sieht (greift auch bei Krankheit/Urlaub des Owners).
+        'comms_escalation_user_id' => null,
+        // Allgemeines, von Meta genehmigtes Template, das ein geschlossenes
+        // 24h-Fenster wieder öffnet ("deine Nachricht wird bearbeitet" o.ä.).
+        'comms_holding_template_id' => null,
         // Payroll-Tracking: welche Felder als lohnrelevant gelten
         'employee_payroll_tracked_fields' => [
             'iban', 'bic', 'bank_institute', 'account_holder',

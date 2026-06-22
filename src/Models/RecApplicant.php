@@ -699,7 +699,7 @@ class RecApplicant extends Model implements InheritsExtraFields
      * und sendWaitlistAvailableNotification mit unterschiedlichen
      * Template-Keys/Log-Typen wiederverwendet.
      */
-    private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary): bool
+    private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary, string $contextPurpose = 'interview_booking'): bool
     {
         try {
             $this->loadMissing(['postings.position', 'crmContactLinks.contact.phoneNumbers']);
@@ -844,7 +844,7 @@ class RecApplicant extends Model implements InheritsExtraFields
 
             // Link thread to applicant
             if ($thread = $message->thread ?? null) {
-                $thread->addContext($this->getMorphClass(), $this->id, 'interview_booking');
+                $thread->addContext($this->getMorphClass(), $this->id, $contextPurpose);
             }
 
             RecAutoPilotLog::create([
@@ -865,6 +865,25 @@ class RecApplicant extends Model implements InheritsExtraFields
 
             return false;
         }
+    }
+
+    /**
+     * Schickt das allgemeine „Re-Open"-/Holding-Template an den Bewerber, um
+     * ein geschlossenes WhatsApp 24h-Fenster wieder zu öffnen: Antwortet die
+     * Person, wird das Fenster reaktiviert und freie Nachrichten sind möglich.
+     *
+     * Nutzt das team-weite Setting `comms_holding_template_id` (+
+     * `auto_pilot_wa_account_id` für den Kanal). Wiederverwendet die komplette
+     * Channel-/Phone-/Component-Auflösung von sendBookingLinkWhatsApp.
+     */
+    public function sendHoldingWhatsApp(): bool
+    {
+        return $this->sendBookingLinkWhatsApp(
+            'comms_holding_template_id',
+            'holding',
+            'Holding/Re-Open-Template gesendet',
+            'comms_holding',
+        );
     }
 
     /**

@@ -55,6 +55,14 @@
                 >
                     Lohnbuchhaltung
                 </button>
+                <button
+                    @click="$wire.set('activeTab', 'comms')"
+                    :class="$wire.activeTab === 'comms' ? 'border-[var(--ui-primary)] text-[var(--ui-primary)]' : 'border-transparent text-[var(--ui-muted)] hover:text-[var(--ui-secondary)] hover:border-[var(--ui-border)]'"
+                    class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors"
+                    wire:click="$set('activeTab', 'comms')"
+                >
+                    Kommunikation
+                </button>
             </nav>
         </div>
 
@@ -696,6 +704,78 @@
                         </div>
                     </div>
                 @endforeach
+            </div>
+            @elseif($activeTab === 'comms')
+            {{-- Kommunikation: Eskalations-Schwellen für das WhatsApp 24h-Fenster --}}
+            <div class="space-y-5">
+                <div>
+                    <h3 class="text-lg font-medium text-[var(--ui-secondary)]">Kommunikations-Übersicht & Eskalation</h3>
+                    <p class="text-sm text-[var(--ui-muted)] mt-1">
+                        Steuert die Ampel der Kommunikations-Übersicht. WhatsApp lässt freie Antworten nur
+                        innerhalb von 24h nach der letzten eingehenden Nachricht zu — die Schwellen beziehen
+                        sich auf die <strong>Restzeit</strong> in diesem Fenster.
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {{-- Gelb-Schwelle --}}
+                    <x-ui-input-text
+                        type="number"
+                        name="settings.comms_window_yellow_hours_left"
+                        label="Gelb ab Restzeit (Stunden)"
+                        wire:model="settings.comms_window_yellow_hours_left"
+                    />
+                    {{-- Rot-Schwelle --}}
+                    <x-ui-input-text
+                        type="number"
+                        name="settings.comms_window_red_hours_left"
+                        label="Rot ab Restzeit (Stunden)"
+                        wire:model="settings.comms_window_red_hours_left"
+                    />
+                </div>
+                <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                    Grün = Fenster offen mit viel Zeit · Gelb = läuft bald ab · Rot = nur noch wenige Stunden
+                    offen (jetzt antworten) · Verpasst = Fenster geschlossen und unbeantwortet.
+                </p>
+
+                {{-- Eskalations-Verantwortlicher --}}
+                <x-ui-input-select
+                    name="settings.comms_escalation_user_id"
+                    label="Eskalations-Verantwortliche/r"
+                    :options="$teamUsers"
+                    optionValue="id"
+                    optionLabel="name"
+                    :nullable="true"
+                    nullLabel="– Niemand –"
+                    wire:model="settings.comms_escalation_user_id"
+                />
+                <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                    Sieht verpasste/rote Konversationen team-weit — greift auch, wenn der zuständige Owner
+                    krank oder im Urlaub ist.
+                </p>
+
+                {{-- Holding / Re-Open Template --}}
+                @if(!empty($this->availableWhatsAppTemplates))
+                    <x-ui-input-select
+                        name="settings.comms_holding_template_id"
+                        label="WhatsApp Template — Fenster wieder öffnen"
+                        :options="$this->availableWhatsAppTemplates"
+                        optionValue="id"
+                        optionLabel="label"
+                        :nullable="true"
+                        nullLabel="– Template wählen –"
+                        wire:model="settings.comms_holding_template_id"
+                    />
+                    <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                        Allgemeines Template (idealerweise mit Antwort-Button), das bei geschlossenem Fenster
+                        gesendet wird. Antwortet die Person, öffnet sich das 24h-Fenster und freie Nachrichten
+                        sind wieder möglich.
+                    </p>
+                @else
+                    <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 text-sm text-[var(--ui-muted)]">
+                        Keine WhatsApp Templates verfügbar. Templates werden über die WhatsApp-Integration synchronisiert.
+                    </div>
+                @endif
             </div>
             @endif
         </div>

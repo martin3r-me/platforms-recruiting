@@ -39,6 +39,24 @@
                 <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600">{{ $this->stats['unrouted_applicants'] }}</span>
             @endif
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.conversations.index')">
+            @svg('heroicon-o-chat-bubble-left-right', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Kommunikation</span>
+            @php
+                $unreadConv = $this->stats['unread_conversations'] ?? 0;
+                $escalationConv = $this->stats['escalation_conversations'] ?? 0;
+            @endphp
+            @if($escalationConv > 0 || $unreadConv > 0)
+                <span class="ml-auto flex items-center gap-1">
+                    @if($escalationConv > 0)
+                        <span class="flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600" title="dringend / verpasst">{{ $escalationConv }}</span>
+                    @endif
+                    @if($unreadConv > 0)
+                        <span class="flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600" title="ungelesen">{{ $unreadConv }}</span>
+                    @endif
+                </span>
+            @endif
+        </x-ui-sidebar-item>
         @if(($this->stats['direct_hire_positions'] ?? 0) > 0)
             <x-ui-sidebar-item :href="route('recruiting.direct-hire.index')">
                 @svg('heroicon-o-bolt', 'w-4 h-4 text-[var(--ui-secondary)]')

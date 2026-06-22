@@ -62,6 +62,10 @@ Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show
 // Eingangs-Inbox: Bewerbungen ohne erkannte Quelle (is_unrouted = true)
 Route::get('/inbox', \Platform\Recruiting\Livewire\Inbox\Index::class)->name('recruiting.inbox.index');
 
+// Kommunikation: unbeantwortete WhatsApp-Konversationen + 24h-Fenster-Eskalation
+Route::get('/conversations', \Platform\Recruiting\Livewire\Conversations\Index::class)
+    ->name('recruiting.conversations.index');
+
 // Interview-Termine
 Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');
 Route::get('/interview-schedule', InterviewScheduleIndex::class)->name('recruiting.interview-schedule.index');

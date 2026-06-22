@@ -36,7 +36,11 @@ class Sidebar extends Component
     {
         $teamId = auth()->user()->currentTeam->id;
 
+        $commsCounts = app(\Platform\Recruiting\Services\Comms\ConversationInboxService::class)->counts($teamId);
+
         return [
+            'unread_conversations' => $commsCounts['unread'],
+            'escalation_conversations' => $commsCounts['escalation'],
             'total_positions' => RecPosition::forTeam($teamId)->count(),
             'active_positions' => RecPosition::forTeam($teamId)->active()->count(),
             'total_postings' => RecPosting::forTeam($teamId)->count(),
