@@ -1324,42 +1324,46 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
-     * Gleicht abgeleiteten Zustand (Phase + Verantwortlicher) an die aktuelle
-     * PRIMÄRE Stelle an. Notwendig, weil das Enrichment (und manuelles
-     * Verknüpfen) Postings über die rohen applicant_postings-Tools umhängt,
-     * die nur das Pivot ändern — ohne diesen Abgleich blieben rec_phase_id und
-     * owned_by_user_id auf der alten Stelle stehen (typischer Bruch: Köln-Posting
-     * + Düsseldorf-Phase + leerer Owner → unsichtbar für den Auto-Pilot).
+     * Stellt sicher, dass ein Bewerber mit verknüpfter Stelle einen
+     * Verantwortlichen hat — füllt owned_by_user_id auf, wenn leer (Kaskade
+     * Stelle → Default-Kontakt → Team-Owner). Verhindert, dass umgehängte
+     * Bewerber ownerlos und damit für den Auto-Pilot unsichtbar werden
+     * (Selektions-Query: whereNotNull('owned_by_user_id')).
      *
-     * Anders als switchToPosition() (booking-getrieben, hängt Postings selbst um)
-     * REAGIERT diese Methode nur auf einen bereits geänderten Posting-Stand:
-     *  - rec_phase_id → gleiche order-Phase der primären Stelle (Fallback: erste)
-     *  - owned_by_user_id → Owner-Kaskade (bei Stellenwechsel folgt der Owner der
-     *    neuen Stelle; sonst nur auffüllen falls leer) — nie leer lassen
-     *  - is_unrouted → false, sobald mindestens eine Stelle verknüpft ist
+     * Bewusst NUR Owner (+ is_unrouted): Die Phase wird NICHT angefasst. Ein
+     * Phasen-Desync (Phase gehört zu Stelle A, Posting zu Stelle B) ist
+     * funktional folgenlos — Buchung, Warteliste, Benachrichtigung und sogar
+     * die MA-Anlage (CreateEmployeeFromApplicantService nutzt primaryPosition()
+     * + beschaftigungsort) hängen am Posting/Wunschort, nicht an der Phase.
+     * Ein automatischer Phasen-Umzug würde nur das (kosmetische) Dashboard-Bild
+     * im pro-Stelle-Filter glätten, aber Feldwerte verwaisen lassen (liegen
+     * unter den Definition-IDs der alten Stelle) — das Risiko nicht wert.
      *
-     * Idempotent: passt bereits alles, wird nichts geschrieben.
-     *
-     * @see \Platform\Recruiting\Services\PositionReconciler
+     * Bestehender Owner wird nie überschrieben. Idempotent.
      */
     public function reconcilePositionState(): void
     {
-        $plan = $this->resolvePositionReconciliation();
-        if ($plan === null) {
-            return; // keine Stelle verknüpft → nichts abzugleichen
+        $this->loadMissing(['postings.position', 'team']);
+
+        $primaryPosition = $this->primaryPosition();
+        if (!$primaryPosition) {
+            return; // keine Stelle verknüpft → nichts aufzufüllen
         }
 
-        $decision = $plan['decision'];
         $dirty = false;
 
-        if ($decision['phase_id'] !== null && $decision['phase_id'] !== (int) $this->rec_phase_id) {
-            $this->rec_phase_id = $decision['phase_id'];
-            $dirty = true;
-        }
-
-        if ($decision['owner_id'] !== null) {
-            $this->owned_by_user_id = $decision['owner_id'];
-            $dirty = true;
+        if (!$this->owned_by_user_id) {
+            $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+            $ownerId = \Platform\Recruiting\Services\OwnerResolver::resolve(
+                null, // leer → auffüllen (sonst wären wir nicht hier)
+                $primaryPosition->owned_by_user_id ? (int) $primaryPosition->owned_by_user_id : null,
+                (int) ($settings->getSetting('default_contact_user_id') ?? 0) ?: null,
+                $this->team?->user_id ? (int) $this->team->user_id : null,
+            );
+            if ($ownerId) {
+                $this->owned_by_user_id = $ownerId;
+                $dirty = true;
+            }
         }
 
         if ($this->is_unrouted) {
@@ -1367,63 +1371,9 @@ class RecApplicant extends Model implements InheritsExtraFields
             $dirty = true;
         }
 
-        if (!$dirty) {
-            return;
+        if ($dirty) {
+            $this->save();
         }
-
-        $this->save();
-
-        if ($decision['position_changed']) {
-            try {
-                RecAutoPilotLog::create([
-                    'rec_applicant_id' => $this->id,
-                    'type' => 'position_reconciled',
-                    'summary' => "Stelle/Phase/Verantwortlicher an primäre Stelle \"{$plan['primary_position']->title}\" angeglichen (nach Posting-Wechsel).",
-                ]);
-            } catch (\Throwable) {
-                // Log-Fehler darf den Abgleich nicht blockieren
-            }
-        }
-    }
-
-    /**
-     * Berechnet — OHNE zu speichern — wie Phase + Verantwortlicher an die
-     * primäre Stelle angeglichen würden. Gemeinsame Quelle für
-     * reconcilePositionState() (Live) und den Heil-Command (--dry-run).
-     *
-     * @return array{decision: array{phase_id: int|null, owner_id: int|null, position_changed: bool}, primary_position: RecPosition}|null
-     *   null, wenn keine Stelle verknüpft ist.
-     */
-    public function resolvePositionReconciliation(): ?array
-    {
-        $this->loadMissing(['postings.position', 'phase', 'team']);
-
-        $primaryPosition = $this->primaryPosition();
-        if (!$primaryPosition) {
-            return null;
-        }
-
-        $orderMap = RecPhase::where('rec_position_id', $primaryPosition->id)
-            ->where('is_active', true)
-            ->orderBy('order')
-            ->get(['id', 'order'])
-            ->mapWithKeys(fn ($p) => [(int) $p->order => (int) $p->id])
-            ->all();
-
-        $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
-
-        $decision = \Platform\Recruiting\Services\PositionReconciler::resolve(
-            $this->phase?->rec_position_id ? (int) $this->phase->rec_position_id : null,
-            $this->phase?->order !== null ? (int) $this->phase->order : null,
-            (int) $primaryPosition->id,
-            $orderMap,
-            $this->owned_by_user_id ? (int) $this->owned_by_user_id : null,
-            $primaryPosition->owned_by_user_id ? (int) $primaryPosition->owned_by_user_id : null,
-            (int) ($settings->getSetting('default_contact_user_id') ?? 0) ?: null,
-            $this->team?->user_id ? (int) $this->team->user_id : null,
-        );
-
-        return ['decision' => $decision, 'primary_position' => $primaryPosition];
     }
 
     /**

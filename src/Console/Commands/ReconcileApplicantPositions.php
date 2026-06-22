@@ -4,21 +4,25 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Services\OwnerResolver;
 
 /**
- * Backfill/Heilung: gleicht bei bestehenden Bewerbern Phase + Verantwortlichen
- * an die aktuelle PRIMÄRE Stelle an.
+ * Backfill/Heilung: füllt bei bestehenden Bewerbern den Verantwortlichen
+ * (owned_by_user_id) auf, wenn er LEER ist.
  *
- * Hintergrund: Vor dem reconcilePositionState()-Fix änderte das Posting-
- * Umhängen (Enrichment via applicant_postings.POST/DELETE, manuelles
- * Verknüpfen, HR-Zuweisung) nur das Pivot — rec_phase_id und
- * owned_by_user_id blieben auf der alten Stelle stehen. Folge: Bewerber mit
- * z.B. Köln-Posting aber Düsseldorf-Phase und (im schlimmsten Fall) leerem
- * Owner → unsichtbar für den Auto-Pilot.
+ * Hintergrund: Posting-Umhängen via Enrichment (applicant_postings.POST/DELETE)
+ * setzte historisch keinen Verantwortlichen → Bewerber konnten ownerlos werden.
+ * Leerer Owner = unsichtbar für die Auto-Pilot-Query
+ * (whereNotNull('owned_by_user_id')) → kein Template/Reminder.
  *
- * Dieser Command läuft einmalig über alle Altfälle und ruft pro Bewerber
- * RecApplicant::reconcilePositionState() — exakt dieselbe Logik wie der Fix.
- * Idempotent: bereits saubere Bewerber bleiben unangetastet.
+ * BEWUSST nur Owner: Die Phase wird NICHT angefasst. Ein Phasen-Desync (Phase
+ * gehört zu einer anderen Stelle als das Posting) ist funktional folgenlos
+ * (Buchung/Warteliste/Benachrichtigung/MA-Anlage hängen am Posting), und ein
+ * automatischer Phasen-Umzug würde Feldwerte verwaisen lassen.
+ *
+ * Ruft pro betroffenem Bewerber RecApplicant::reconcilePositionState()
+ * (identische Logik wie der Live-Fix). Bestehender Owner wird nie
+ * überschrieben. Idempotent.
  *
  * Aufruf:
  *   php artisan recruiting:reconcile-applicant-positions --dry-run
@@ -27,7 +31,6 @@ use Platform\Recruiting\Models\RecApplicant;
  *   php artisan recruiting:reconcile-applicant-positions --include-inactive
  *
  * @see \Platform\Recruiting\Models\RecApplicant::reconcilePositionState()
- * @see \Platform\Recruiting\Services\PositionReconciler
  */
 class ReconcileApplicantPositions extends Command
 {
@@ -37,7 +40,7 @@ class ReconcileApplicantPositions extends Command
         {--include-inactive : Auch inaktive Bewerber einbeziehen (Default: nur aktive)}
         {--limit=0 : Maximale Anzahl Bewerber pro Run (0 = alle)}';
 
-    protected $description = 'Heilt Phase + Verantwortlichen bestehender Bewerber, deren Posting auf eine andere Stelle umgehängt wurde (Desync-Backfill).';
+    protected $description = 'Füllt leere Verantwortliche bestehender Bewerber auf (Auto-Pilot-Sichtbarkeit). Phasen bleiben unangetastet.';
 
     public function handle(): int
     {
@@ -49,9 +52,11 @@ class ReconcileApplicantPositions extends Command
             $this->warn('DRY-RUN — es wird nichts geschrieben.');
         }
 
+        // Nur Bewerber mit Stelle UND ohne Verantwortlichen sind betroffen.
         $query = RecApplicant::query()
+            ->whereNull('owned_by_user_id')
             ->whereHas('postings')
-            ->with(['postings.position', 'phase', 'team']);
+            ->with(['postings.position', 'team']);
 
         if (!$this->option('include-inactive')) {
             $query->where('is_active', true);
@@ -64,76 +69,65 @@ class ReconcileApplicantPositions extends Command
         }
 
         $checked = 0;
-        $phaseFixed = 0;
-        $ownerFixed = 0;
-        $unroutedFixed = 0;
-        $changed = 0;
+        $fixed = 0;
+        $unresolved = 0;
         $errors = 0;
 
         foreach ($query->cursor() as $applicant) {
             $checked++;
 
-            $plan = $applicant->resolvePositionReconciliation();
-            if ($plan === null) {
-                continue; // keine primäre Stelle → nichts abzugleichen
+            $primaryPosition = $applicant->primaryPosition();
+            if (!$primaryPosition) {
+                continue;
             }
 
-            $decision = $plan['decision'];
-            $oldPhaseId = (int) $applicant->rec_phase_id;
-            $oldOwnerId = $applicant->owned_by_user_id ? (int) $applicant->owned_by_user_id : null;
+            // Würde-Owner zur Anzeige bestimmen (gleiche Kaskade wie reconcilePositionState).
+            $settings = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+            $ownerId = OwnerResolver::resolve(
+                null,
+                $primaryPosition->owned_by_user_id ? (int) $primaryPosition->owned_by_user_id : null,
+                (int) ($settings->getSetting('default_contact_user_id') ?? 0) ?: null,
+                $applicant->team?->user_id ? (int) $applicant->team->user_id : null,
+            );
 
-            $willChangePhase = $decision['phase_id'] !== null && $decision['phase_id'] !== $oldPhaseId;
-            $willChangeOwner = $decision['owner_id'] !== null && $decision['owner_id'] !== $oldOwnerId;
-            $willRoute = (bool) $applicant->is_unrouted;
-
-            if (!$willChangePhase && !$willChangeOwner && !$willRoute) {
-                continue; // bereits sauber
-            }
-
-            $parts = [];
-            if ($willChangePhase) {
-                $parts[] = "Phase {$oldPhaseId}→{$decision['phase_id']}";
-            }
-            if ($willChangeOwner) {
-                $parts[] = 'Owner ' . ($oldOwnerId ?? 'leer') . "→{$decision['owner_id']}";
-            }
-            if ($willRoute) {
-                $parts[] = 'is_unrouted→false';
+            if (!$ownerId) {
+                $unresolved++;
+                $this->line(sprintf(
+                    ' #%-5d %-28s [%s] : KEIN Owner-Kandidat (Stelle/Default/Team alle leer) → manuell',
+                    $applicant->id,
+                    mb_substr($this->displayName($applicant), 0, 28),
+                    $primaryPosition->title,
+                ));
+                continue;
             }
 
             $this->line(sprintf(
-                ' #%-5d %-28s [%s] : %s',
+                ' #%-5d %-28s [%s] : Owner leer → %d',
                 $applicant->id,
                 mb_substr($this->displayName($applicant), 0, 28),
-                $plan['primary_position']->title,
-                implode(', ', $parts),
+                $primaryPosition->title,
+                $ownerId,
             ));
-
-            if ($willChangePhase) { $phaseFixed++; }
-            if ($willChangeOwner) { $ownerFixed++; }
-            if ($willRoute) { $unroutedFixed++; }
 
             if (!$dryRun) {
                 try {
                     $applicant->reconcilePositionState();
-                    $changed++;
+                    $fixed++;
                 } catch (\Throwable $e) {
                     $errors++;
                     $this->error(" Fehler bei #{$applicant->id}: {$e->getMessage()}");
                 }
             } else {
-                $changed++;
+                $fixed++;
             }
         }
 
         $this->info('');
-        $this->info("Geprüft:                 {$checked}");
-        $this->info("Betroffen/geheilt:       {$changed}" . ($dryRun ? ' (dry-run)' : ''));
-        $this->info("  davon Phase korrigiert: {$phaseFixed}");
-        $this->info("  davon Owner gesetzt:    {$ownerFixed}");
-        $this->info("  davon Routing gesetzt:  {$unroutedFixed}");
+        $this->info("Geprüft (ownerlos):        {$checked}");
+        $this->info("Owner gesetzt:             {$fixed}" . ($dryRun ? ' (dry-run)' : ''));
+        $this->info("Kein Kandidat (manuell):   {$unresolved}");
         if ($errors > 0) {
-            $this->warn("Fehler:                  {$errors}");
+            $this->warn("Fehler:                    {$errors}");
             return Command::FAILURE;
         }
 
