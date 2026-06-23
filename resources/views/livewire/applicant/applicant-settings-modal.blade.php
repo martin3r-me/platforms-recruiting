@@ -758,7 +758,7 @@
                 @if(!empty($this->availableWhatsAppTemplates))
                     <x-ui-input-select
                         name="settings.comms_holding_template_id"
-                        label="WhatsApp Template — Eingangsbestätigung („wir melden uns")"
+                        label="WhatsApp Template — Eingangsbestätigung (wir melden uns)"
                         :options="$this->availableWhatsAppTemplates"
                         optionValue="id"
                         optionLabel="label"
