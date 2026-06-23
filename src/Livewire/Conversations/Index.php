@@ -183,7 +183,7 @@ class Index extends Component
         if ($result['error'] !== null) {
             session()->flash('error', $result['error']);
         } else {
-            $msg = "Eingangsbestätigung „{$result['template']}\" an {$result['sent']} Kontakt(e) gesendet.";
+            $msg = '„Wir melden uns" an ' . $result['sent'] . ' Kontakt(e) gesendet.';
             if ($result['failed'] > 0) {
                 $msg .= " {$result['failed']} fehlgeschlagen.";
             }

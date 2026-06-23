@@ -117,7 +117,7 @@
                 <button wire:click="sendTemplateToSelected"
                         @disabled($selectedCount === 0)
                         class="rounded bg-[var(--ui-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
-                    Eingangsbestätigung an Markierte senden
+                    „Wir melden uns schnellstmöglich" an Markierte senden
                 </button>
             @else
                 <span class="text-xs text-amber-600">Kein Bestätigungs-Template hinterlegt — in Einstellungen → Kommunikation wählen.</span>
@@ -204,9 +204,8 @@
     </div>
 
     <p class="text-xs text-gray-400">
-        Konversationen markieren und „Eingangsbestätigung an Markierte senden" — verschickt das in den
-        Einstellungen hinterlegte Template (z.&nbsp;B. „wir melden uns") mit Vornamen-Anrede an alle Markierten,
-        unabhängig vom 24h-Fenster. Die Ampel zeigt die Restzeit im 24h-Fenster (grün → gelb → rot), „Verpasst"
+        Konversationen markieren und „Wir melden uns schnellstmöglich" an Markierte senden — verschickt das in
+        den Einstellungen hinterlegte Template mit Vornamen-Anrede an alle Markierten, unabhängig vom 24h-Fenster. Die Ampel zeigt die Restzeit im 24h-Fenster (grün → gelb → rot), „Verpasst"
         = Fenster zu (dann sind freie Antworten erst nach einer Reaktion der Person wieder möglich).
     </p>
 </div>
