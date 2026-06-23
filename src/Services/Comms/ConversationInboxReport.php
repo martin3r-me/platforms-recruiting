@@ -84,6 +84,7 @@ final class ConversationInboxReport
                 subjectId: $row['subject_id'] ?? null,
                 url: $row['url'] ?? null,
                 contactName: (string) ($row['contact_name'] ?? 'Unbekannt'),
+                firstName: $row['first_name'] ?? null,
                 preview: $row['preview'] ?? null,
                 phone: $row['phone'] ?? null,
                 ownerUserId: $row['owner_user_id'] ?? null,

@@ -19,6 +19,7 @@ class ConversationInboxReportTest extends TestCase
             'subject_id' => 10,
             'url' => '/recruiting/applicants/10',
             'contact_name' => 'Test Person',
+            'first_name' => 'Test',
             'preview' => 'Hallo',
             'phone' => '+49150',
             'owner_user_id' => 7,
@@ -99,6 +100,7 @@ class ConversationInboxReportTest extends TestCase
         $this->assertSame(10, $row->subjectId);
         $this->assertSame('/recruiting/applicants/10', $row->url);
         $this->assertSame('Test Person', $row->contactName);
+        $this->assertSame('Test', $row->firstName);
         $this->assertSame('Hallo', $row->preview);
         $this->assertSame(7, $row->ownerUserId);
         $this->assertTrue($row->isUnread);

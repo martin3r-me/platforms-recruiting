@@ -64,6 +64,7 @@ final class ConversationInboxService
                 $name = $employee
                     ? trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? ''))
                     : null;
+                $firstName = $employee?->first_name;
                 $owner = null; // Mitarbeiter haben kein owned_by_user_id
                 // Deep-Link bevorzugt auf die Bewerber-Detailseite (dort lebt der
                 // Chat); fällt zurück auf die MA-Detailseite.
@@ -76,7 +77,9 @@ final class ConversationInboxService
                 }
             } else {
                 $applicant = $applicants->get($id);
-                $name = $applicant?->crmContactLinks->first()?->contact?->full_name;
+                $contact = $applicant?->crmContactLinks->first()?->contact;
+                $name = $contact?->full_name;
+                $firstName = $contact?->first_name;
                 $owner = $applicant?->owned_by_user_id;
                 $url = $applicant ? route('recruiting.applicants.show', ['applicant' => $id]) : null;
             }
@@ -87,6 +90,7 @@ final class ConversationInboxService
                 'subject_id' => $id,
                 'url' => $url,
                 'contact_name' => $name ?: ($thread->remote_phone_number ?: 'Unbekannt'),
+                'first_name' => $firstName,
                 'preview' => $thread->last_message_preview,
                 'phone' => $thread->remote_phone_number,
                 'owner_user_id' => $owner,

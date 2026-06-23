@@ -103,11 +103,34 @@
         </button>
     </div>
 
+    {{-- Bulk-Aktionen: markieren → Eingangsbestätigung an alle Markierten senden --}}
+    @php $selectedCount = count($selected); @endphp
+    <div class="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <span class="text-sm font-medium text-gray-700">{{ $selectedCount }} markiert</span>
+        <button wire:click="selectAllVisible" class="text-sm text-[var(--ui-primary)] hover:underline">Alle (gefiltert) markieren</button>
+        @if ($selectedCount > 0)
+            <button wire:click="clearSelection" class="text-sm text-gray-500 hover:underline">Auswahl löschen</button>
+        @endif
+        <div class="ml-auto flex items-center gap-3">
+            @if ($this->holdingTemplateName)
+                <span class="text-xs text-gray-400">Template: <span class="font-mono">{{ $this->holdingTemplateName }}</span></span>
+                <button wire:click="sendTemplateToSelected"
+                        @disabled($selectedCount === 0)
+                        class="rounded bg-[var(--ui-primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+                    Eingangsbestätigung an Markierte senden
+                </button>
+            @else
+                <span class="text-xs text-amber-600">Kein Bestätigungs-Template hinterlegt — in Einstellungen → Kommunikation wählen.</span>
+            @endif
+        </div>
+    </div>
+
     {{-- Tisch-Ansicht --}}
     <div class="rounded-lg border border-gray-200 bg-white">
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
                 <tr>
+                    <th class="px-4 py-2 font-medium w-8"></th>
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Kontakt</th>
                     <th class="px-4 py-2 font-medium">Letzte Nachricht</th>
@@ -122,6 +145,10 @@
                         $meta = $levelMeta[$row->escalation->level] ?? $levelMeta['none'];
                     @endphp
                     <tr class="border-t border-gray-50 {{ $row->isUnread ? 'bg-orange-50/40' : '' }}">
+                        <td class="px-4 py-3">
+                            <input type="checkbox" wire:model.live="selected" value="{{ $row->threadId }}"
+                                   class="h-4 w-4 rounded border-gray-300 text-[var(--ui-primary)] focus:ring-[var(--ui-primary)]">
+                        </td>
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-2">
                                 <span class="inline-block h-8 w-1.5 rounded {{ $meta['bar'] }}"></span>
@@ -162,17 +189,12 @@
                                     <button wire:click="markUnread({{ $row->threadId }})"
                                             class="rounded bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200">Ungelesen</button>
                                 @endif
-                                @if ($row->subjectType === 'applicant' && $row->subjectId && in_array($row->escalation->level, ['red', 'missed'], true))
-                                    <button wire:click="sendHolding({{ $row->subjectId }})"
-                                            class="rounded bg-gray-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-700"
-                                            title="Allgemeines Template senden, um das Fenster wieder zu öffnen">Template</button>
-                                @endif
                             </div>
                         </td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="6" class="px-4 py-10 text-center text-gray-400">
+                        <td colspan="7" class="px-4 py-10 text-center text-gray-400">
                             Keine Konversationen im aktuellen Filter. 🎉
                         </td>
                     </tr>
@@ -182,8 +204,9 @@
     </div>
 
     <p class="text-xs text-gray-400">
-        WhatsApp erlaubt freie Antworten nur innerhalb von 24h nach der letzten eingehenden Nachricht.
-        Danach (Status „Verpasst") öffnet erst das allgemeine Template das Fenster wieder, sobald die
-        Person antwortet.
+        Konversationen markieren und „Eingangsbestätigung an Markierte senden" — verschickt das in den
+        Einstellungen hinterlegte Template (z.&nbsp;B. „wir melden uns") mit Vornamen-Anrede an alle Markierten,
+        unabhängig vom 24h-Fenster. Die Ampel zeigt die Restzeit im 24h-Fenster (grün → gelb → rot), „Verpasst"
+        = Fenster zu (dann sind freie Antworten erst nach einer Reaktion der Person wieder möglich).
     </p>
 </div>

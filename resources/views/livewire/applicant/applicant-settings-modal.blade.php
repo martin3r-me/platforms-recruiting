@@ -754,11 +754,11 @@
                     krank oder im Urlaub ist.
                 </p>
 
-                {{-- Holding / Re-Open Template --}}
+                {{-- Eingangsbestätigungs-Template ("wir melden uns") --}}
                 @if(!empty($this->availableWhatsAppTemplates))
                     <x-ui-input-select
                         name="settings.comms_holding_template_id"
-                        label="WhatsApp Template — Fenster wieder öffnen"
+                        label="WhatsApp Template — Eingangsbestätigung („wir melden uns")"
                         :options="$this->availableWhatsAppTemplates"
                         optionValue="id"
                         optionLabel="label"
@@ -767,9 +767,10 @@
                         wire:model="settings.comms_holding_template_id"
                     />
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
-                        Allgemeines Template (idealerweise mit Antwort-Button), das bei geschlossenem Fenster
-                        gesendet wird. Antwortet die Person, öffnet sich das 24h-Fenster und freie Nachrichten
-                        sind wieder möglich.
+                        Wird in der Kommunikations-Übersicht über „Eingangsbestätigung an Markierte senden"
+                        an mehrere markierte Kontakte gleichzeitig verschickt („deine Nachricht wird bearbeitet,
+                        wir melden uns"). Eine Body-Variable <span class="font-mono">@{{name}}</span> bzw.
+                        <span class="font-mono">@{{vorname}}</span> wird automatisch mit dem Vornamen gefüllt.
                     </p>
                 @else
                     <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 text-sm text-[var(--ui-muted)]">

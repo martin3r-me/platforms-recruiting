@@ -16,6 +16,8 @@ final class ConversationInboxRow
         /** Deep-Link in den Verlauf (Bewerber-Detail mit Chat bzw. MA-Detail). */
         public readonly ?string $url,
         public readonly string $contactName,
+        /** Vorname für die Template-Anrede ({{name}}/{{vorname}}). */
+        public readonly ?string $firstName,
         public readonly ?string $preview,
         public readonly ?string $phone,
         public readonly ?int $ownerUserId,

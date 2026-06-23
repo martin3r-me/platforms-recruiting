@@ -6,15 +6,16 @@ use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
-use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Services\Comms\ConversationEscalation;
 use Platform\Recruiting\Services\Comms\ConversationInboxReport;
 use Platform\Recruiting\Services\Comms\ConversationInboxService;
+use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
 
 /**
  * Kommunikations-Übersicht: zeigt unbeantwortete/ungelesene WhatsApp-Konversationen
- * mit Ampel nach dem EINEN 24h-Fenster (grün/gelb/rot/verpasst), filterbar, und
- * erlaubt gelesen-markieren sowie das Re-Open-Template zu senden.
+ * mit Ampel nach dem EINEN 24h-Fenster (grün/gelb/rot/verpasst), filterbar. Erlaubt
+ * gelesen-markieren sowie das Markieren mehrerer Konversationen und das Versenden
+ * einer Eingangsbestätigung („wir melden uns") an alle Markierten in einem Schritt.
  */
 class Index extends Component
 {
@@ -28,6 +29,9 @@ class Index extends Component
     public string $owner = 'all';
 
     public string $search = '';
+
+    /** Markierte Thread-IDs (für Bulk-Template-Versand). */
+    public array $selected = [];
 
     private function teamId(): int
     {
@@ -136,19 +140,60 @@ class Index extends Component
         $this->dispatch('sidebar-refresh');
     }
 
-    public function sendHolding(int $applicantId): void
+    /** Markiert alle aktuell gefilterten Zeilen. */
+    public function selectAllVisible(): void
     {
-        $applicant = RecApplicant::forTeam($this->teamId())->whereKey($applicantId)->first();
-        if (!$applicant) {
-            session()->flash('error', 'Bewerber nicht gefunden.');
+        $this->selected = array_map(fn ($r) => (string) $r->threadId, $this->rows);
+    }
+
+    public function clearSelection(): void
+    {
+        $this->selected = [];
+    }
+
+    /** Name des konfigurierten Eingangsbestätigungs-Templates (oder null). */
+    #[Computed]
+    public function holdingTemplateName(): ?string
+    {
+        return app(HoldingTemplateSender::class)->configuredTemplateName($this->teamId());
+    }
+
+    /**
+     * Sendet die konfigurierte Eingangsbestätigung („wir melden uns") an alle
+     * markierten Konversationen — unabhängig vom 24h-Fenster (Template-Versand).
+     */
+    public function sendTemplateToSelected(): void
+    {
+        $selectedIds = array_map('strval', $this->selected);
+        if ($selectedIds === []) {
+            session()->flash('error', 'Bitte zuerst Konversationen markieren.');
             return;
         }
 
-        if ($applicant->sendHoldingWhatsApp()) {
-            session()->flash('message', 'Template gesendet — sobald geantwortet wird, ist das Fenster wieder offen.');
-        } else {
-            session()->flash('error', 'Versand fehlgeschlagen. Ist ein Re-Open-Template in den Einstellungen hinterlegt?');
+        // Über den vollen Report matchen, damit die Auswahl Filterwechsel übersteht.
+        $recipients = [];
+        foreach ($this->report->rows as $row) {
+            if (in_array((string) $row->threadId, $selectedIds, true)) {
+                $recipients[] = ['phone' => $row->phone, 'first_name' => $row->firstName];
+            }
         }
+
+        $result = app(HoldingTemplateSender::class)->sendToMany($this->teamId(), $recipients);
+
+        if ($result['error'] !== null) {
+            session()->flash('error', $result['error']);
+        } else {
+            $msg = "Eingangsbestätigung „{$result['template']}\" an {$result['sent']} Kontakt(e) gesendet.";
+            if ($result['failed'] > 0) {
+                $msg .= " {$result['failed']} fehlgeschlagen.";
+            }
+            if ($result['skipped'] > 0) {
+                $msg .= " {$result['skipped']} ohne Nummer übersprungen.";
+            }
+            session()->flash('message', $msg);
+        }
+
+        $this->selected = [];
         unset($this->report, $this->rows);
         $this->dispatch('sidebar-refresh');
     }
