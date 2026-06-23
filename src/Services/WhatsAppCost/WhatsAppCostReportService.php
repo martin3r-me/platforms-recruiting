@@ -19,6 +19,9 @@ final class WhatsAppCostReportService
             // DB::table() bypasses Eloquent SoftDeletes — filter soft-deleted threads manually.
             ->whereNull('t.deleted_at')
             ->where('m.direction', 'outbound')
+            // Nur echte Template-Versände verursachen Kosten. Freitext-/Session-
+            // Antworten (template_name = NULL) im offenen 24h-Fenster sind kostenlos.
+            ->whereNotNull('m.template_name')
             ->whereIn('m.status', ['delivered', 'read'])
             ->whereBetween('m.delivered_at', [$from, $to]);
 
