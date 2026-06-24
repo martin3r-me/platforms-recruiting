@@ -75,4 +75,29 @@ class HoldingTemplateComponentsTest extends TestCase
         $this->assertSame('Ana', $out[0]['parameters'][0]['text']);
         $this->assertSame('T-9', $out[0]['parameters'][1]['text']);
     }
+
+    public function test_empty_name_produces_empty_param(): void
+    {
+        // Kein Vorname → Pflicht-Parameter bliebe leer (Meta lehnt das ab).
+        $out = HoldingTemplateComponents::build([$this->body('Hallo {{name}}')], '');
+        $this->assertSame('', $out[0]['parameters'][0]['text']);
+    }
+
+    public function test_has_empty_required_param_detects_empty_text(): void
+    {
+        $out = HoldingTemplateComponents::build([$this->body('Hallo {{name}}')], '');
+        $this->assertTrue(HoldingTemplateComponents::hasEmptyRequiredParam($out));
+    }
+
+    public function test_has_empty_required_param_false_when_filled(): void
+    {
+        $out = HoldingTemplateComponents::build([$this->body('Hallo {{name}}')], 'Lea');
+        $this->assertFalse(HoldingTemplateComponents::hasEmptyRequiredParam($out));
+    }
+
+    public function test_has_empty_required_param_false_when_no_params(): void
+    {
+        // Variablenfreies Template → keine Parameter → nichts kann leer sein.
+        $this->assertFalse(HoldingTemplateComponents::hasEmptyRequiredParam([]));
+    }
 }

@@ -6,6 +6,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Models\RecApplicant;
 
 /**
  * Schickt automatisch ein Hinweis-Template zurück, wenn eine eingehende
@@ -53,7 +54,7 @@ final class VoiceNoteAutoReplyHandler
             return; // innerhalb der letzten 24h bereits gesendet
         }
 
-        $result = $this->sender->sendOne($teamId, $phone, $this->firstNameFromThread($thread), self::SETTINGS_KEY);
+        $result = $this->sender->sendOne($teamId, $phone, $this->resolveFirstName($thread), self::SETTINGS_KEY);
 
         CommsLog::log(
             event: 'voice_autoreply_sent',
@@ -72,13 +73,41 @@ final class VoiceNoteAutoReplyHandler
         );
     }
 
-    private function firstNameFromThread(CommsWhatsAppThread $thread): string
+    /**
+     * Vorname zuverlässig auflösen: zuerst über den Recruiting-Kontext
+     * (Bewerber → CRM-Kontakt, gleicher Pfad wie manuelle Templates), dann
+     * Fallback auf den direkten Thread-Kontakt. Leer, wenn nichts auflösbar
+     * (z.B. echter Erstkontakt ohne Bewerber) — dann greift der Leer-Schutz
+     * im Sender.
+     */
+    private function resolveFirstName(CommsWhatsAppThread $thread): string
     {
-        $full = $thread->contact?->full_name;
-        if (!$full) {
-            return '';
+        if ($thread->context_model_id && $this->isApplicantContext($thread->context_model)) {
+            $applicant = RecApplicant::query()
+                ->with('crmContactLinks.contact')
+                ->find((int) $thread->context_model_id);
+
+            $first = $applicant?->crmContactLinks->first()?->contact?->first_name;
+            if ($first) {
+                return trim($first);
+            }
         }
 
-        return trim(explode(' ', trim($full))[0] ?? '');
+        $full = $thread->contact?->full_name;
+        if ($full) {
+            return trim(explode(' ', trim($full))[0] ?? '');
+        }
+
+        return '';
+    }
+
+    private function isApplicantContext(?string $contextModel): bool
+    {
+        if (!$contextModel) {
+            return false;
+        }
+
+        return $contextModel === (new RecApplicant)->getMorphClass()
+            || $contextModel === RecApplicant::class;
     }
 }

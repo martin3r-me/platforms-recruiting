@@ -51,6 +51,13 @@ final class HoldingTemplateSender
             $firstName = (string) ($recipient['first_name'] ?? '');
             $components = HoldingTemplateComponents::build($template->components ?? [], $firstName);
 
+            // Meta lehnt leere Pflicht-Parameter ab (131008) — lieber überspringen
+            // als einen garantiert fehlschlagenden Send abzusetzen.
+            if (HoldingTemplateComponents::hasEmptyRequiredParam($components)) {
+                $skipped++;
+                continue;
+            }
+
             try {
                 $this->whatsApp->sendTemplate(
                     channel: $channel,

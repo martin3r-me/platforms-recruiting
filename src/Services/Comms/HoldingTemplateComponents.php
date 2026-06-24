@@ -53,4 +53,24 @@ final class HoldingTemplateComponents
 
         return [['type' => 'body', 'parameters' => $bodyParams]];
     }
+
+    /**
+     * Prüft, ob die gebauten Komponenten einen leeren Text-Parameter enthalten.
+     * WhatsApp/Meta lehnt leere Pflicht-Parameter ab (Fehler 131008) — solche
+     * Sends sollten übersprungen statt fehlgeschlagen werden.
+     *
+     * @param array<int, array{type: string, parameters: array}> $components
+     */
+    public static function hasEmptyRequiredParam(array $components): bool
+    {
+        foreach ($components as $component) {
+            foreach ($component['parameters'] ?? [] as $param) {
+                if (($param['type'] ?? '') === 'text' && trim((string) ($param['text'] ?? '')) === '') {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }
