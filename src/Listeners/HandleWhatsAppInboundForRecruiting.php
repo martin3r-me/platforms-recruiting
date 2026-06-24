@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\ApplicationMatchingService;
+use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
 use Platform\Recruiting\Services\ReminderResponseHandler;
 
@@ -18,6 +19,7 @@ class HandleWhatsAppInboundForRecruiting
         private IncomingApplicationService $applicationService,
         private ReminderResponseHandler $reminderResponseHandler,
         private ApplicationMatchingService $matchingService,
+        private VoiceNoteAutoReplyHandler $voiceNoteAutoReply,
     ) {}
 
     public function handle(CommsWhatsAppInboundReceived $event): void
@@ -60,6 +62,18 @@ class HandleWhatsAppInboundForRecruiting
 
                 return;
             }
+        }
+
+        // Auto-Hinweis bei Sprachnachrichten (greift für jede Recruiting-Konversation,
+        // auch auf Nicht-Intake-Kanälen; gedrosselt 1×/24h; Feature aus wenn kein
+        // Template konfiguriert). Bewusst VOR dem Intake-Gate, normaler Flow läuft danach weiter.
+        try {
+            $this->voiceNoteAutoReply->handle($channel, $thread, $message);
+        } catch (\Throwable $e) {
+            Log::warning('[Recruiting] Voice-Note Auto-Reply fehlgeschlagen', [
+                'thread_id' => $thread->id,
+                'error' => $e->getMessage(),
+            ]);
         }
 
         // Intake-Gate: ist dieser Kanal überhaupt ein Bewerbungs-Eingang?

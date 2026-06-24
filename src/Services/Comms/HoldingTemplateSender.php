@@ -25,9 +25,9 @@ final class HoldingTemplateSender
      * @param iterable<array{phone: ?string, first_name: ?string}> $recipients
      * @return array{sent: int, failed: int, skipped: int, error: ?string, template: ?string}
      */
-    public function sendToMany(int $teamId, iterable $recipients): array
+    public function sendToMany(int $teamId, iterable $recipients, string $settingsKey = 'comms_holding_template_id'): array
     {
-        $config = $this->resolveConfig($teamId);
+        $config = $this->resolveConfig($teamId, $settingsKey);
         if ($config['error'] !== null) {
             return ['sent' => 0, 'failed' => 0, 'skipped' => 0, 'error' => $config['error'], 'template' => null];
         }
@@ -69,22 +69,28 @@ final class HoldingTemplateSender
         return ['sent' => $sent, 'failed' => $failed, 'skipped' => $skipped, 'error' => null, 'template' => $template->name];
     }
 
-    /** Name des konfigurierten Templates oder null (für UI-Anzeige/Guard). */
-    public function configuredTemplateName(int $teamId): ?string
+    /** Einzelversand des konfigurierten Templates an eine Nummer (z.B. Auto-Reply). */
+    public function sendOne(int $teamId, string $phone, string $firstName, string $settingsKey = 'comms_holding_template_id'): array
     {
-        $config = $this->resolveConfig($teamId);
+        return $this->sendToMany($teamId, [['phone' => $phone, 'first_name' => $firstName]], $settingsKey);
+    }
+
+    /** Name des konfigurierten Templates oder null (für UI-Anzeige/Guard/Throttle). */
+    public function configuredTemplateName(int $teamId, string $settingsKey = 'comms_holding_template_id'): ?string
+    {
+        $config = $this->resolveConfig($teamId, $settingsKey);
         return $config['error'] === null ? $config['template']->name : null;
     }
 
     /**
      * @return array{error: ?string, template: ?IntegrationsWhatsAppTemplate, channel: ?CommsChannel}
      */
-    private function resolveConfig(int $teamId): array
+    private function resolveConfig(int $teamId, string $settingsKey = 'comms_holding_template_id'): array
     {
         $fail = fn (string $msg) => ['error' => $msg, 'template' => null, 'channel' => null];
 
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
-        $templateId = $settings->getSetting('comms_holding_template_id');
+        $templateId = $settings->getSetting($settingsKey);
         if (!$templateId) {
             return $fail('Kein Eingangsbestätigungs-Template konfiguriert (Einstellungen → Kommunikation).');
         }

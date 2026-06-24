@@ -772,6 +772,23 @@
                         wir melden uns"). Eine Body-Variable <span class="font-mono">@{{name}}</span> bzw.
                         <span class="font-mono">@{{vorname}}</span> wird automatisch mit dem Vornamen gefüllt.
                     </p>
+
+                    {{-- Auto-Antwort auf Sprachnachrichten --}}
+                    <x-ui-input-select
+                        name="settings.comms_voice_not_supported_template_id"
+                        label="WhatsApp Template — Hinweis bei Sprachnachricht"
+                        :options="$this->availableWhatsAppTemplates"
+                        optionValue="id"
+                        optionLabel="label"
+                        :nullable="true"
+                        nullLabel="– kein Auto-Hinweis –"
+                        wire:model="settings.comms_voice_not_supported_template_id"
+                    />
+                    <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                        Geht eine Sprachnachricht ein, wird dieses Template automatisch zurückgesendet
+                        (z.&nbsp;B. „Sprachnachrichten können wir leider nicht bearbeiten, bitte schreib uns als Text").
+                        Höchstens 1× pro 24&nbsp;h je Konversation. Leer = kein automatischer Hinweis.
+                    </p>
                 @else
                     <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 text-sm text-[var(--ui-muted)]">
                         Keine WhatsApp Templates verfügbar. Templates werden über die WhatsApp-Integration synchronisiert.

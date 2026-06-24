@@ -57,6 +57,10 @@ class RecApplicantSettings extends Model
         // Allgemeines, von Meta genehmigtes Template, das ein geschlossenes
         // 24h-Fenster wieder öffnet ("deine Nachricht wird bearbeitet" o.ä.).
         'comms_holding_template_id' => null,
+        // Auto-Antwort auf eingehende Sprachnachrichten: genehmigtes Template
+        // mit Hinweis, dass Sprachnachrichten nicht bearbeitet werden koennen.
+        // Leer = Feature aus. Gedrosselt auf 1x/24h je Konversation.
+        'comms_voice_not_supported_template_id' => null,
         // Payroll-Tracking: welche Felder als lohnrelevant gelten
         'employee_payroll_tracked_fields' => [
             'iban', 'bic', 'bank_institute', 'account_holder',
