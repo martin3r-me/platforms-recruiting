@@ -659,18 +659,9 @@ class Index extends Component
      */
     private function isLegalStatusUnchecked($applicant): bool
     {
-        $legal = $applicant?->legalStatus;
-        if (!$legal) {
-            // Kein legalStatus-Record vorhanden → eu_burger-Frage noch nie
-            // beantwortet. Production-Bewerber im Bestand haben das oft nicht
-            // — wir blockieren sie nicht (sonst Versand-Regression).
-            return false;
-        }
-        if ($legal->is_eu_citizen === true) {
-            return false; // EU-Buerger: keine Pruefung noetig
-        }
-        // is_eu_citizen=false ODER null → Pruefung relevant
-        return $legal->legal_status_checked_at === null;
+        // Zentrale Regel im RecApplicant-Adapter / LegalStatusGate. Hier nur
+        // noch Null-Guard fuer den Applicant selbst.
+        return (bool) $applicant?->isLegalStatusUnchecked();
     }
 
     /**

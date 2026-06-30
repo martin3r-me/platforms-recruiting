@@ -45,7 +45,7 @@ class SendInterviewReminders extends Command
             $bookings = $interview->bookings()
                 ->whereNull('reminder_sent_at')
                 ->where('status', '!=', 'cancelled')
-                ->with(['applicant.crmContactLinks.contact.phoneNumbers'])
+                ->with(['applicant.crmContactLinks.contact.phoneNumbers', 'applicant.legalStatus'])
                 ->get();
 
             if ($bookings->isEmpty()) {
@@ -66,6 +66,15 @@ class SendInterviewReminders extends Command
             }
 
             foreach ($bookings as $booking) {
+                // Nicht-EU-Bewerber, die noch nicht von HR geprueft wurden,
+                // landen auf dem HR-Schreibtisch — bis dahin keine Schulungs-
+                // Erinnerung. Gleiche Regel wie beim Vertrags-/Portal-Versand.
+                if ($booking->applicant && $booking->applicant->isLegalStatusUnchecked()) {
+                    $this->line("  Buchung #{$booking->id}: Rechtsstatus-Pruefung offen, Erinnerung übersprungen.");
+                    $skipped++;
+                    continue;
+                }
+
                 $phoneNumber = $this->findPhoneNumber($booking);
                 if (!$phoneNumber) {
                     $this->line("  Buchung #{$booking->id}: Keine Telefonnummer gefunden, übersprungen.");

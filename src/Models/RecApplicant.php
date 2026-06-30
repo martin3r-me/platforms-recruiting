@@ -334,6 +334,23 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $this->hasOne(RecApplicantLegalStatus::class, 'rec_applicant_id');
     }
 
+    /**
+     * True wenn der Bewerber rechtsstatus-pruefung-pflichtig ist (nicht-EU
+     * oder unbeantwortet) und HR ihn noch NICHT geprueft hat. Blockiert
+     * Vertrags-/Portal-Versand UND Schulungs-Reminder. Delegiert an den
+     * zentralen LegalStatusGate, damit alle Call-Sites dieselbe Regel teilen.
+     */
+    public function isLegalStatusUnchecked(): bool
+    {
+        $legal = $this->legalStatus;
+
+        return \Platform\Recruiting\Services\LegalStatusGate::isUnchecked(
+            hasLegalStatus: $legal !== null,
+            isEuCitizen: $legal?->is_eu_citizen,
+            isChecked: $legal?->legal_status_checked_at !== null,
+        );
+    }
+
     public function hrDeskCases()
     {
         return $this->hasMany(RecHrDeskCase::class, 'rec_applicant_id');
