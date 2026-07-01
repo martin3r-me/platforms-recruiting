@@ -96,13 +96,17 @@ class CreateEmployeeFromApplicantService
                 'has_car'                         => $this->normalizeBoolValue($extraValues['pkw_vorhanden'] ?? null),
                 'recruited_by_personnel_number'   => $extraValues['geworben_von'] ?? null,
 
-                // Legal-Status
+                // Legal-Status: is_eu_citizen kommt aus dem legalStatus-Record.
+                // Die Dokument-file_ids dagegen DIREKT aus den Extra-Feldern des
+                // Bewerbers — die legalStatus-Spalten werden im Normalfluss nie
+                // automatisch befuellt (nur is_eu_citizen). Vervollstaendigt die
+                // schrittweise Umstellung (vgl. fiktion/zusatzblatt-rueck/Datum).
                 'is_eu_citizen'                  => $legalStatus?->is_eu_citizen,
                 'nationalpass_file_id'           => $legalStatus?->nationalpass_file_id,
-                'aufenthaltstitel_front_file_id' => $legalStatus?->aufenthaltstitel_front_file_id,
-                'aufenthaltstitel_back_file_id'  => $legalStatus?->aufenthaltstitel_back_file_id,
-                'visumsblatt_file_id'            => $legalStatus?->visumsblatt_file_id,
-                'zusatzblatt_file_id'            => $legalStatus?->zusatzblatt_file_id,
+                'aufenthaltstitel_front_file_id' => $this->normalizeFileId($extraValues['aufenthaltstitel_vorderseite'] ?? null),
+                'aufenthaltstitel_back_file_id'  => $this->normalizeFileId($extraValues['aufenthaltstitel_ruckseite'] ?? null),
+                'visumsblatt_file_id'            => $this->normalizeFileId($extraValues['visum_foto'] ?? null),
+                'zusatzblatt_file_id'            => $this->normalizeFileId($extraValues['zusatzblatt_arbeitsgenehmigung_vorderseite'] ?? null),
                 // Zusatzblatt-Rueckseite ist NICHT in rec_applicant_legal_statuses,
                 // sondern als extra_field_value am Bewerber gespeichert.
                 'zusatzblatt_back_file_id'       => $this->normalizeFileId($extraValues['zusatzblatt_arbeitsgenehmigung_ruckseite'] ?? null),
