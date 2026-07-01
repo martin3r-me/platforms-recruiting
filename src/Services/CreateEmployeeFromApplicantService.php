@@ -96,25 +96,16 @@ class CreateEmployeeFromApplicantService
                 'has_car'                         => $this->normalizeBoolValue($extraValues['pkw_vorhanden'] ?? null),
                 'recruited_by_personnel_number'   => $extraValues['geworben_von'] ?? null,
 
-                // Legal-Status: is_eu_citizen kommt aus dem legalStatus-Record.
-                // Die Dokument-file_ids dagegen DIREKT aus den Extra-Feldern des
-                // Bewerbers — die legalStatus-Spalten werden im Normalfluss nie
-                // automatisch befuellt (nur is_eu_citizen). Vervollstaendigt die
-                // schrittweise Umstellung (vgl. fiktion/zusatzblatt-rueck/Datum).
-                'is_eu_citizen'                  => $legalStatus?->is_eu_citizen,
-                'nationalpass_file_id'           => $legalStatus?->nationalpass_file_id,
-                'aufenthaltstitel_front_file_id' => $this->normalizeFileId($extraValues['aufenthaltstitel_vorderseite'] ?? null),
-                'aufenthaltstitel_back_file_id'  => $this->normalizeFileId($extraValues['aufenthaltstitel_ruckseite'] ?? null),
-                'visumsblatt_file_id'            => $this->normalizeFileId($extraValues['visum_foto'] ?? null),
-                'zusatzblatt_file_id'            => $this->normalizeFileId($extraValues['zusatzblatt_arbeitsgenehmigung_vorderseite'] ?? null),
-                // Zusatzblatt-Rueckseite ist NICHT in rec_applicant_legal_statuses,
-                // sondern als extra_field_value am Bewerber gespeichert.
-                'zusatzblatt_back_file_id'       => $this->normalizeFileId($extraValues['zusatzblatt_arbeitsgenehmigung_ruckseite'] ?? null),
-                'immatrikulation_file_id'        => $legalStatus?->immatrikulation_file_id,
-                // Fiktionsbescheinigung: nicht in rec_applicant_legal_statuses,
-                // sondern als extra_field_value am Bewerber gespeichert (P3 optional).
-                'fiktionsbescheinigung_front_file_id' => $this->normalizeFileId($extraValues['fiktionsbescheinigung_vorderseite'] ?? null),
-                'fiktionsbescheinigung_back_file_id'  => $this->normalizeFileId($extraValues['fiktionsbescheinigung_ruckseite'] ?? null),
+                // Legal-Status + Non-EU-Dokumente. is_eu_citizen sowie
+                // nationalpass/immatrikulation kommen aus dem legalStatus-Record;
+                // die uebrigen Dokument-file_ids zentral via NonEuDocumentMapping
+                // DIREKT aus den Extra-Feldern (die legalStatus-file_id-Spalten
+                // werden im Normalfluss nie automatisch befuellt). Der Helper ist
+                // unit-getestet und schuetzt vor Mapping-Drift.
+                'is_eu_citizen'           => $legalStatus?->is_eu_citizen,
+                'nationalpass_file_id'    => $legalStatus?->nationalpass_file_id,
+                'immatrikulation_file_id' => $legalStatus?->immatrikulation_file_id,
+                ...\Platform\Recruiting\Support\NonEuDocumentMapping::resolve($extraValues),
 
                 // Aufenthalts-Daten (Non-EU): aus extra_fields in P3.
                 'residence_permit_valid_until'   => $this->normalizeDateValue($extraValues['aufenthaltserlaubnis_bis'] ?? null),
