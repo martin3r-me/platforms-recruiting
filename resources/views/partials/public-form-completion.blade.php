@@ -22,11 +22,11 @@
     <p class="text-sm text-emerald-800 mb-4">
         Weitere Infos zur Schulung findest du hier:
     </p>
-    <a href="https://rheingedeck.de/schulungen"
+    <a href="https://rheingedeck.de/schulung"
        target="_blank"
        rel="noopener"
        class="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-md hover:bg-emerald-700 transition-colors">
         @svg('heroicon-o-arrow-top-right-on-square', 'w-4 h-4')
-        rheingedeck.de/schulungen
+        rheingedeck.de/schulung
     </a>
 </div>
