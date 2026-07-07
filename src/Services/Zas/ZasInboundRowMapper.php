@@ -22,6 +22,7 @@ class ZasInboundRowMapper
         'SteuerID' => 'steuer_id', 'SVNummer' => 'sozialversicherungsnummer',
         'Fuehrerschein' => 'drivers_license_class',
         'GeworbenVonPersNr' => 'recruited_by_personnel_number', 'HemdGroesse' => 'shirt_size',
+        'Kostenstelle' => 'cost_center',
     ];
 
     /** CSV-Spalte → rec_employees-Datumsspalte (d.m.Y → Y-m-d) */
@@ -134,11 +135,6 @@ class ZasInboundRowMapper
             if (!$res['matched']) {
                 $warnings[] = "employment_classification: '{$anst}' roh gespeichert (kein Lookup-Treffer)";
             }
-        }
-
-        // Ignorierte Felder mit Inhalt vermerken (keine Ziel-Spalte)
-        if ($get('Kostenstelle') !== '') {
-            $warnings[] = "Kostenstelle '{$get('Kostenstelle')}' ignoriert (keine Positions-Zuordnung)";
         }
 
         return [
