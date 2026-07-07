@@ -77,9 +77,12 @@ class ZasInboundRowMapper
             }
         }
         foreach (self::DATES as $col => $field) {
-            $d = $this->date($get($col));
+            $v = $get($col);
+            $d = $this->date($v);
             if ($d !== null) {
                 $employee[$field] = $d;
+            } elseif ($v !== '') {
+                $warnings[] = "{$field}: '{$v}' kein gueltiges Datum (TT.MM.JJJJ erwartet) — leer gelassen";
             }
         }
         foreach (self::INTS as $col => $field) {
@@ -112,9 +115,12 @@ class ZasInboundRowMapper
 
         // HR-Daten
         foreach (self::HR_DATES as $col => $field) {
-            $d = $this->date($get($col));
+            $v = $get($col);
+            $d = $this->date($v);
             if ($d !== null) {
                 $hr[$field] = $d;
+            } elseif ($v !== '') {
+                $warnings[] = "{$field}: '{$v}' kein gueltiges Datum (TT.MM.JJJJ erwartet) — leer gelassen";
             }
         }
         $status = $get('Status');
@@ -144,19 +150,28 @@ class ZasInboundRowMapper
         ];
     }
 
+    /**
+     * Parst strikt TT.MM.JJJJ (das ZAS-Format) — sonst null. Bewusst KEIN
+     * Carbon::parse-Fallback: der wuerde kaputte Strings ("2018", "13.2024",
+     * vertauschte Formate) still in plausible-aber-falsche Daten verwandeln.
+     * Fehlende Daten fallen im Portal/HR auf, falsche nicht.
+     *
+     * Roundtrip-Check faengt zusaetzlich Overflow-Rollover ab (32.01.2020
+     * wuerde createFromFormat sonst als 01.02.2020 akzeptieren).
+     */
     private function date(string $value): ?string
     {
         if ($value === '') {
             return null;
         }
         try {
-            return Carbon::createFromFormat('d.m.Y', $value)->format('Y-m-d');
+            $dt = Carbon::createFromFormat('d.m.Y', $value);
         } catch (\Throwable) {
-            try {
-                return Carbon::parse($value)->format('Y-m-d');
-            } catch (\Throwable) {
-                return null;
-            }
+            return null;
         }
+        if ($dt === false || ($dt->format('d.m.Y') !== $value && $dt->format('j.n.Y') !== $value)) {
+            return null;
+        }
+        return $dt->format('Y-m-d');
     }
 }
