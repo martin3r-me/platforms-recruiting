@@ -174,4 +174,32 @@ class FlynkPostingSyncDeciderTest extends TestCase
         $this->assertTrue($state->publishSent);
         $this->assertSame('update', $D::decide($state));
     }
+
+    public function test_stale_publish_when_closed(): void
+    {
+        // publish pending, Posting inzwischen geschlossen ⇒ stale
+        $ids = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::staleRowIds(false, [
+            ['id' => 7, 'event_type' => 'publish'],
+        ]);
+        $this->assertSame([7], $ids);
+    }
+
+    public function test_stale_close_when_reopened(): void
+    {
+        // close pending, Posting wieder offen ⇒ stale
+        $ids = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::staleRowIds(true, [
+            ['id' => 9, 'event_type' => 'close'],
+        ]);
+        $this->assertSame([9], $ids);
+    }
+
+    public function test_not_stale_when_consistent(): void
+    {
+        $D = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        // publish+offen, close+geschlossen ⇒ nichts stale
+        $this->assertSame([], $D::staleRowIds(true, [['id' => 1, 'event_type' => 'publish']]));
+        $this->assertSame([], $D::staleRowIds(false, [['id' => 2, 'event_type' => 'close']]));
+        // update+geschlossen ⇒ stale
+        $this->assertSame([3], $D::staleRowIds(false, [['id' => 3, 'event_type' => 'update']]));
+    }
 }

@@ -96,4 +96,24 @@ final class FlynkPostingSyncDecider
             lastDeliverableContentHash: self::lastDeliverableContentHash($rows, $gen),
         );
     }
+
+    /**
+     * @param array<int,array{id:int,event_type:string}> $undelivered  nur pending/failed-Zeilen der Generation
+     * @return int[]
+     */
+    public static function staleRowIds(bool $isOpen, array $undelivered): array
+    {
+        $stale = [];
+        foreach ($undelivered as $r) {
+            $due = match ($r['event_type']) {
+                FlynkEvent::PUBLISH, FlynkEvent::UPDATE => $isOpen,
+                FlynkEvent::CLOSE => !$isOpen,
+                default => true,
+            };
+            if (!$due) {
+                $stale[] = (int) $r['id'];
+            }
+        }
+        return $stale;
+    }
 }
