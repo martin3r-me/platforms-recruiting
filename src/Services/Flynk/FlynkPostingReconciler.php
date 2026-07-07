@@ -97,10 +97,12 @@ class FlynkPostingReconciler
                     $row['event_type'],
                     $careersUrl
                 );
+                $model->content_hash = $task->contentHash; // Hash des tatsächlich gesendeten Payloads persistieren
                 $outcome = $this->dispatch($model, $task->payload, $maxAttempts, $summary);
                 $sends++;
                 $summary['retried']++;
                 $context[$pid]['rows'][$i]['status'] = $model->status; // in-memory für Detect-Pass syncen
+                $context[$pid]['rows'][$i]['content_hash'] = $task->contentHash;
                 if ($outcome === 'abort') {
                     $abort = true;
                     break;
@@ -184,8 +186,24 @@ class FlynkPostingReconciler
     private function dispatch(RecPostingFlynkSync $model, array $payload, int $maxAttempts, array &$summary): string
     {
         $result = $this->client->createTask($payload);
-        $model->attempts = $model->attempts + 1;
         $model->http_status = $result->httpStatus;
+
+        if ($result->unauthorized) {
+            // NICHT permanent — globales Token-Problem, Zeile bleibt retrybar.
+            // Zählt NICHT gegen das Retry-Budget der Zeile (kein attempts++).
+            $model->last_error = 'unauthorized (401)';
+            $model->save();
+            return 'abort';
+        }
+
+        if ($result->rateLimited) {
+            // Globales Rate-Limit-Problem, zählt ebenfalls NICHT gegen das Retry-Budget.
+            $model->last_error = 'rate_limited (429)';
+            $model->save();
+            return 'stop';
+        }
+
+        $model->attempts = $model->attempts + 1;
 
         if ($result->ok) {
             $model->status = 'sent';
@@ -195,19 +213,6 @@ class FlynkPostingReconciler
             $model->save();
             $summary['sent']++;
             return 'ok';
-        }
-
-        if ($result->unauthorized) {
-            // NICHT permanent — globales Token-Problem, Zeile bleibt retrybar.
-            $model->last_error = 'unauthorized (401)';
-            $model->save();
-            return 'abort';
-        }
-
-        if ($result->rateLimited) {
-            $model->last_error = 'rate_limited (429)';
-            $model->save();
-            return 'stop';
         }
 
         if ($result->permanent) {
