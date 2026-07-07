@@ -202,4 +202,20 @@ class FlynkPostingSyncDeciderTest extends TestCase
         // update+geschlossen ⇒ stale
         $this->assertSame([3], $D::staleRowIds(false, [['id' => 3, 'event_type' => 'update']]));
     }
+
+    public function test_next_update_seq_starts_at_one(): void
+    {
+        $this->assertSame(1, \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::nextUpdateSeq([]));
+    }
+
+    public function test_next_update_seq_is_max_plus_one(): void
+    {
+        $this->assertSame(3, \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::nextUpdateSeq([1, 2]));
+    }
+
+    public function test_next_update_seq_tolerates_gap_from_deletion(): void
+    {
+        // Lücke: seq 2 wurde per staleRows gelöscht ⇒ nächste MUSS 4 sein, nicht 3 (count+1)
+        $this->assertSame(4, \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::nextUpdateSeq([1, 3]));
+    }
 }

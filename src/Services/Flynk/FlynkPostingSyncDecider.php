@@ -116,4 +116,10 @@ final class FlynkPostingSyncDecider
         }
         return $stale;
     }
+
+    /** @param int[] $updateSeqsInGeneration */
+    public static function nextUpdateSeq(array $updateSeqsInGeneration): int
+    {
+        return $updateSeqsInGeneration === [] ? 1 : (max($updateSeqsInGeneration) + 1);
+    }
 }
