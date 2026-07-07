@@ -105,4 +105,73 @@ class FlynkPostingSyncDeciderTest extends TestCase
         ]));
         $this->assertSame('publish', $d);
     }
+
+    private function row(array $o): array
+    {
+        return [
+            'id' => $o['id'] ?? 1,
+            'generation' => $o['generation'] ?? 1,
+            'event_type' => $o['event_type'],
+            'seq' => $o['seq'] ?? 0,
+            'content_hash' => $o['content_hash'] ?? '',
+            'status' => $o['status'] ?? 'sent',
+        ];
+    }
+
+    public function test_generation_counts_sent_closes_plus_one(): void
+    {
+        $D = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $this->assertSame(1, $D::generation([]));
+        $this->assertSame(2, $D::generation([
+            $this->row(['event_type' => 'close', 'status' => 'sent', 'generation' => 1]),
+        ]));
+        // ein pending close zählt NICHT
+        $this->assertSame(1, $D::generation([
+            $this->row(['event_type' => 'close', 'status' => 'pending', 'generation' => 1]),
+        ]));
+    }
+
+    public function test_publish_predicates_are_generation_scoped(): void
+    {
+        $D = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $rows = [$this->row(['event_type' => 'publish', 'status' => 'pending', 'generation' => 2, 'seq' => 0])];
+        $this->assertTrue($D::publishRowExists($rows, 2));
+        $this->assertFalse($D::publishRowExists($rows, 1));
+        $this->assertFalse($D::publishSent($rows, 2)); // pending, nicht sent
+    }
+
+    public function test_last_deliverable_hash_excludes_failed(): void
+    {
+        // publish A sent, update B failed ⇒ deliverable = A (failed ausgeschlossen ⇒ Selbstheilung)
+        $D = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $rows = [
+            $this->row(['event_type' => 'publish', 'seq' => 0, 'content_hash' => 'A', 'status' => 'sent']),
+            $this->row(['event_type' => 'update', 'seq' => 1, 'content_hash' => 'B', 'status' => 'failed', 'id' => 2]),
+        ];
+        $this->assertSame('A', $D::lastDeliverableContentHash($rows, 1));
+    }
+
+    public function test_last_deliverable_hash_uses_highest_seq(): void
+    {
+        $D = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $rows = [
+            $this->row(['event_type' => 'publish', 'seq' => 0, 'content_hash' => 'A', 'status' => 'sent']),
+            $this->row(['event_type' => 'update', 'seq' => 1, 'content_hash' => 'B', 'status' => 'sent', 'id' => 2]),
+        ];
+        $this->assertSame('B', $D::lastDeliverableContentHash($rows, 1));
+    }
+
+    public function test_build_state_then_failed_update_heals(): void
+    {
+        // publish A sent + update B failed, aktueller Inhalt B, offen ⇒ decide = update (heilt)
+        $D = \Platform\Recruiting\Services\Flynk\FlynkPostingSyncDecider::class;
+        $rows = [
+            $this->row(['event_type' => 'publish', 'seq' => 0, 'content_hash' => 'A', 'status' => 'sent']),
+            $this->row(['event_type' => 'update', 'seq' => 1, 'content_hash' => 'B', 'status' => 'failed', 'id' => 2]),
+        ];
+        $state = $D::buildState($rows, true, 'B');
+        $this->assertSame('A', $state->lastDeliverableContentHash);
+        $this->assertTrue($state->publishSent);
+        $this->assertSame('update', $D::decide($state));
+    }
 }
