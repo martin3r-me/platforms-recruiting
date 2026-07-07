@@ -48,6 +48,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\BackfillImageVariants::class,
                 \Platform\Recruiting\Console\Commands\DeleteEmployee::class,
                 \Platform\Recruiting\Console\Commands\ZasReExportByBookingDate::class,
+                \Platform\Recruiting\Console\Commands\ZasCrmContactBackfill::class,
                 \Platform\Recruiting\Console\Commands\FlynkReconcile::class,
             ]);
         }
