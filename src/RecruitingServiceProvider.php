@@ -60,6 +60,15 @@ class RecruitingServiceProvider extends ServiceProvider
                 ttlDays: (int) config('recruiting.zas.signed_url_ttl_days', 7),
             )
         );
+
+        $this->app->singleton(
+            \Platform\Recruiting\Services\Flynk\FlynkClient::class,
+            fn ($app) => new \Platform\Recruiting\Services\Flynk\FlynkClient(
+                baseUrl: (string) config('recruiting.flynk.base_url', 'https://flynk.on-forge.com/api'),
+                token:   (string) config('recruiting.flynk.token', ''),
+                timeout: (int) config('recruiting.flynk.timeout', 10),
+            )
+        );
     }
 
     public function boot(): void
