@@ -126,4 +126,23 @@ return [
         // Team, dem von ZAS importierte Mitarbeiter zugeordnet werden (Pflicht fuer Import).
         'inbound_team_id'        => env('RECRUITING_ZAS_INBOUND_TEAM_ID'),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | FLYNK-Sync (Ausschreibungen → Website-Tasks)
+    |--------------------------------------------------------------------------
+    |
+    | Ausgehender Sync veröffentlichter Ausschreibungen an den FLYNK
+    | Task-Webhook. Ohne enabled=true + token passiert nichts.
+    | Siehe docs/superpowers/specs/2026-07-06-flynk-ausschreibungen-sync-design.md
+    */
+    'flynk' => [
+        'enabled'      => (bool) env('RECRUITING_FLYNK_ENABLED', false),
+        'base_url'     => env('RECRUITING_FLYNK_BASE_URL', 'https://flynk.on-forge.com/api'),
+        'token'        => env('RECRUITING_FLYNK_TOKEN'),
+        'careers_url'  => env('RECRUITING_FLYNK_CAREERS_URL'),
+        'timeout'      => (int) env('RECRUITING_FLYNK_TIMEOUT', 10),
+        'per_run_cap'  => (int) env('RECRUITING_FLYNK_PER_RUN_CAP', 50),
+        'max_attempts' => (int) env('RECRUITING_FLYNK_MAX_ATTEMPTS', 5),
+    ],
 ];
