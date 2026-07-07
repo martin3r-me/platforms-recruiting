@@ -229,10 +229,11 @@ class Show extends Component
                 'employed_since' => ['type' => 'date', 'label' => 'Beschaeftigt seit'],
                 'employment_ended_at' => ['type' => 'datetime', 'label' => 'Beschaeftigung beendet am'],
             ],
-            // Liegt auf rec_employees (nicht hr_data), wird aber als HR-only
-            // gerendert (gelb) — speist Lohn-Export + ZAS. MA-Portal sieht es NIE.
-            'Personalnummer (HR-only, ZAS)' => [
+            // Liegen auf rec_employees (nicht hr_data), werden aber als HR-only
+            // gerendert (gelb) — speisen Lohn-/ZAS-Export. MA-Portal sieht sie NIE.
+            'ZAS / Abrechnung (HR-only)' => [
                 'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
+                'cost_center'      => ['type' => 'text', 'label' => 'Kostenstelle (Vorrang vor Stelle)'],
             ],
         ];
     }

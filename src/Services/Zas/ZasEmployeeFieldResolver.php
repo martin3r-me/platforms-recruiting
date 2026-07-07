@@ -165,7 +165,10 @@ class ZasEmployeeFieldResolver
             'Ort'                 => $employee->city,
             'Land'                => $employee->country_code,
 
-            'Kostenstelle'        => $employee->position?->cost_center !== null ? (string) $employee->position->cost_center : null,
+            // Vorrang: MA-eigenes Feld (ZAS-Import / HR-Pflege) — sonst Stelle.
+            'Kostenstelle'        => ($employee->cost_center !== null && $employee->cost_center !== '')
+                ? (string) $employee->cost_center
+                : ($employee->position?->cost_center !== null ? (string) $employee->position->cost_center : null),
             'Ichbin'              => $this->lookupLabel('beschaeftigung_art', $employee->employment_type),
 
             'Bank'                => $employee->bank_institute,
