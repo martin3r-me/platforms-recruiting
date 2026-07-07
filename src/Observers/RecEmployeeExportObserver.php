@@ -35,6 +35,9 @@ class RecEmployeeExportObserver
      * — die zaehlen nicht als Business-Change fuer ZAS.
      */
     public const RELEVANT_EMPLOYEE_FIELDS = [
+        // Kostenstelle (MA-eigenes Feld; Vorrang vor Stelle im Export)
+        'cost_center',
+
         // Stammdaten
         'first_name', 'last_name', 'birth_name', 'birth_date', 'birth_place',
         'birth_country', 'gender', 'marital_status',
