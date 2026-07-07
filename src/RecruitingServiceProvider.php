@@ -48,6 +48,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\BackfillImageVariants::class,
                 \Platform\Recruiting\Console\Commands\DeleteEmployee::class,
                 \Platform\Recruiting\Console\Commands\ZasReExportByBookingDate::class,
+                \Platform\Recruiting\Console\Commands\FlynkReconcile::class,
             ]);
         }
 
@@ -163,6 +164,11 @@ class RecruitingServiceProvider extends ServiceProvider
         Schedule::command('recruiting:send-interview-reminders')
             ->everyFiveMinutes()
             ->withoutOverlapping(5)
+            ->runInBackground();
+
+        Schedule::command('recruiting:flynk-reconcile')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping(15)
             ->runInBackground();
     }
 
