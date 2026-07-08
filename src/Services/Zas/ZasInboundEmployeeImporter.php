@@ -34,8 +34,12 @@ class ZasInboundEmployeeImporter
                 }
 
                 $mapped = $this->mapper->map($row);
+                // PersNr in jeder Warnung: macht den Sammel-Bericht nach dem
+                // Massenimport pro Person zuordenbar ("Zeile 12" allein sagt
+                // HR nichts, wenn 9 Paeckchen a 100 Zeilen durchlaufen).
+                $pnLabel = $mapped['personnel_number'] !== null ? ' (PersNr ' . $mapped['personnel_number'] . ')' : '';
                 foreach ($mapped['warnings'] as $w) {
-                    $warnings[] = "Zeile " . ($index + 1) . ": {$w}";
+                    $warnings[] = "Zeile " . ($index + 1) . "{$pnLabel}: {$w}";
                 }
 
                 // Guard 2: ohne ZAS-Personalnummer kein Dubletten-Schluessel —
