@@ -15,9 +15,63 @@ class ZasLookupReverseResolver
     /** Cache: lookupName → Liste [['value'=>..,'label'=>..], ...] */
     protected array $cache = [];
 
+    /**
+     * Bekannte ZAS-Schreibweisen → unsere Lookup-Codes (aus dem 100er-Testlauf).
+     * Keys lowercase. Ein Alias greift NUR, wenn der Ziel-Code im Lookup
+     * existiert (sonst Raw-Fallback wie bisher) — dadurch unabhaengig davon
+     * deploybar, ob neue Lookup-Werte schon angelegt sind.
+     */
+    private const ALIASES = [
+        'geburtsland' => [
+            'deutsch' => 'de',
+            'indisch' => 'in', 'indian' => 'in',
+            'kosovarisch' => 'xk', 'kosov' => 'xk',
+            'tuerkisch' => 'tr', 'türkisch' => 'tr',
+            'ghanaisch' => 'gh',
+            'lettisch' => 'lv',
+            'tunesisch' => 'tn', 'tunesische' => 'tn', 'tunisien' => 'tn',
+            'irakisch' => 'iq', 'irakische' => 'iq',
+            'iranisch' => 'ir',
+            'pakistani' => 'pk', 'pakistanisch' => 'pk',
+            'bangladeshi' => 'bd', 'bangladesh' => 'bd', 'bangladeschisch' => 'bd',
+            'griechisch' => 'gr',
+            'libanesisch' => 'lb',
+            'armenisch' => 'am',
+            'venezolanisch' => 've',
+            'kamerunisch' => 'cm',
+        ],
+        'beschaeftigung_art' => [
+            'studentin' => 'student',
+            'student, erwerbstätig' => 'student',
+            'student erwerbst.' => 'student',
+            'dualer student' => 'student',
+            'angestellt' => 'erwerbstaetig',
+            'hausfrau' => 'hausmann_frau', 'hausmann' => 'hausmann_frau', 'hausfrau / mann' => 'hausmann_frau',
+        ],
+        'krankenkasse' => [
+            'technicker krankenkassen' => 'tk', 'techniker krankenkassen' => 'tk',
+        ],
+        'anstellungsart' => [
+            '556,00 € basis' => 'minijob',
+        ],
+    ];
+
     public function resolve(string $lookupName, ?string $incoming, bool $allowPrefix = false): array
     {
-        return self::matchValue($this->loadPairs($lookupName), $incoming, $allowPrefix);
+        $pairs = $this->loadPairs($lookupName);
+        $res = self::matchValue($pairs, $incoming, $allowPrefix);
+        if ($res['matched'] || $res['value'] === null) {
+            return $res;
+        }
+
+        // Alias-Stufe: bekannte ZAS-Schreibweisen — nur wenn der Ziel-Code
+        // tatsaechlich als Lookup-Wert existiert.
+        $alias = self::ALIASES[$lookupName][mb_strtolower(trim((string) $incoming))] ?? null;
+        if ($alias !== null && in_array($alias, array_column($pairs, 'value'), true)) {
+            return ['value' => $alias, 'matched' => true];
+        }
+
+        return $res;
     }
 
     /**
