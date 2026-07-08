@@ -24,9 +24,25 @@ class ZasInboundEmployeeImporter
 
         foreach ($rows as $index => $row) {
             try {
+                // Guard 1: Struktur — verschobene Zeilen erzeugen Muell-Daten
+                // in falschen Feldern; lieber abweisen und ZAS melden.
+                $structureIssue = $this->detectRowStructureIssue($row);
+                if ($structureIssue !== null) {
+                    $pn = trim((string) ($row['ZasPersonalNr'] ?? ''));
+                    $failed[] = ['personnel_number' => $pn !== '' ? $pn : null, 'reason' => "Zeile " . ($index + 1) . ": {$structureIssue}"];
+                    continue;
+                }
+
                 $mapped = $this->mapper->map($row);
                 foreach ($mapped['warnings'] as $w) {
                     $warnings[] = "Zeile " . ($index + 1) . ": {$w}";
+                }
+
+                // Guard 2: ohne ZAS-Personalnummer kein Dubletten-Schluessel —
+                // ein Re-Send wuerde die Zeile doppelt anlegen. Abweisen.
+                if (!$mapped['personnel_number']) {
+                    $failed[] = ['personnel_number' => null, 'reason' => "Zeile " . ($index + 1) . ": ZasPersonalNr fehlt — nicht importiert (kein Dubletten-Schluessel)"];
+                    continue;
                 }
 
                 // Matching-Kaskade
@@ -106,5 +122,29 @@ class ZasInboundEmployeeImporter
 
             return $employee;
         });
+    }
+
+    /**
+     * Erkennt verschobene/kaputte Zeilen (Erkenntnis aus dem 100er-Testlauf:
+     * eine Zeile mit Spaltenversatz haette einen Muell-MA ohne Dubletten-
+     * Schluessel angelegt).
+     *
+     *  - col_N-Keys: die Zeile hatte MEHR Werte als der Header (zip() im
+     *    Controller haengt Ueberzaehlige als col_N an) — typisch: Semikolon
+     *    im Feldwert.
+     *  - '|'-Marker: das ZAS-Zeilenende `;|;` erzeugt eine '|'-Spalte, deren
+     *    Wert in jeder intakten Zeile '|' ist. Alles andere = Versatz/zu kurz.
+     */
+    protected function detectRowStructureIssue(array $row): ?string
+    {
+        foreach (array_keys($row) as $key) {
+            if (str_starts_with((string) $key, 'col_')) {
+                return 'Zeile hat mehr Spalten als der Header (Spaltenversatz, vermutlich Semikolon im Feldwert) — nicht importiert';
+            }
+        }
+        if (array_key_exists('|', $row) && trim((string) $row['|']) !== '|') {
+            return 'Zeilenende-Marker verschoben (Spaltenversatz oder Zeile zu kurz) — nicht importiert';
+        }
+        return null;
     }
 }
