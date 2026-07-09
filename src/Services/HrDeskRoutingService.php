@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Services;
 
+use Platform\Recruiting\Exceptions\LegalStatusNotCheckedException;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecHrDeskCase;
@@ -208,14 +209,21 @@ class HrDeskRoutingService
 
     public function approveCase(RecHrDeskCase $case, int $userId, ?string $notes = null): void
     {
+        $applicant = $case->applicant;
+
+        // Guard: Nicht-EU-Fall darf nicht freigegeben werden, solange der
+        // Rechtsstatus ungeprüft ist. Nur dieser menschliche Approve-Pfad
+        // wird gegated — autoCloseObsoleteCases bewusst NICHT.
+        if ($applicant && HrDeskApprovalGate::blocksApproval($case->reason, $applicant->isLegalStatusUnchecked())) {
+            throw new LegalStatusNotCheckedException($case->rec_applicant_id);
+        }
+
         $case->update([
             'status' => RecHrDeskCase::STATUS_APPROVED,
             'resolved_at' => now(),
             'resolved_by_user_id' => $userId,
             'resolution_notes' => $notes,
         ]);
-
-        $applicant = $case->applicant;
 
         // Only release from HR desk if no other open cases remain
         $hasOtherOpenCases = $applicant->hrDeskCases()

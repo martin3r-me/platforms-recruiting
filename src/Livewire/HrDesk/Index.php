@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\HrDesk;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Platform\Recruiting\Exceptions\LegalStatusNotCheckedException;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecHrDeskCase;
@@ -121,8 +122,12 @@ class Index extends Component
         $notes = trim($this->resolveNotes) ?: null;
 
         if ($this->resolvingAction === 'approve') {
-            $service->approveCase($case, $userId, $notes);
-            session()->flash('message', 'Case freigegeben — Bewerber zurück im normalen Flow.');
+            try {
+                $service->approveCase($case, $userId, $notes);
+                session()->flash('message', 'Case freigegeben — Bewerber zurück im normalen Flow.');
+            } catch (LegalStatusNotCheckedException) {
+                session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
+            }
         } else {
             $service->rejectCase($case, $userId, $notes);
             session()->flash('message', 'Bewerber abgelehnt.');
