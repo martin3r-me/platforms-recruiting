@@ -136,6 +136,11 @@
                                         $case->reason === \Platform\Recruiting\Models\RecHrDeskCase::REASON_NON_EU_CITIZEN
                                         || ($legalStatus && $legalStatus->is_eu_citizen === false)
                                     );
+                                    $approveBlocked = $applicant
+                                        && \Platform\Recruiting\Services\HrDeskApprovalGate::blocksApproval(
+                                            $case->reason,
+                                            $applicant->isLegalStatusUnchecked()
+                                        );
                                 @endphp
                                 @if($showLegalSection && $legalStatus)
                                     <div class="mt-4 p-3 rounded-md border border-amber-200 bg-amber-50/60">
@@ -194,11 +199,19 @@
                             <div class="flex flex-col gap-2 flex-shrink-0">
                                 <button
                                     wire:click="openResolveModal({{ $case->id }}, 'approve')"
-                                    class="px-3 py-1.5 text-sm font-medium rounded-md border border-emerald-200 text-emerald-700 bg-white hover:bg-emerald-50"
+                                    @disabled($approveBlocked)
+                                    @class([
+                                        'px-3 py-1.5 text-sm font-medium rounded-md border',
+                                        'border-emerald-200 text-emerald-700 bg-white hover:bg-emerald-50' => ! $approveBlocked,
+                                        'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed' => $approveBlocked,
+                                    ])
                                 >
                                     @svg('heroicon-o-check', 'w-4 h-4 inline-block -mt-0.5')
                                     Freigeben
                                 </button>
+                                @if($approveBlocked)
+                                    <span class="text-xs text-amber-700 text-center">Erst Rechtsstatus prüfen</span>
+                                @endif
                                 <button
                                     wire:click="openResolveModal({{ $case->id }}, 'reject')"
                                     class="px-3 py-1.5 text-sm font-medium rounded-md border border-red-200 text-red-700 bg-white hover:bg-red-50"
