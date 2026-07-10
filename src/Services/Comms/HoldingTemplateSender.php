@@ -25,7 +25,7 @@ final class HoldingTemplateSender
      * @param iterable<array{phone: ?string, first_name: ?string}> $recipients
      * @return array{sent: int, failed: int, skipped: int, error: ?string, template: ?string}
      */
-    public function sendToMany(int $teamId, iterable $recipients, string $settingsKey = 'comms_holding_template_id'): array
+    public function sendToMany(int $teamId, iterable $recipients, string $settingsKey = 'comms_holding_template_id', array $namedValues = [], bool $isAutoReply = false): array
     {
         $config = $this->resolveConfig($teamId, $settingsKey);
         if ($config['error'] !== null) {
@@ -49,7 +49,7 @@ final class HoldingTemplateSender
             }
 
             $firstName = (string) ($recipient['first_name'] ?? '');
-            $components = HoldingTemplateComponents::build($template->components ?? [], $firstName);
+            $components = HoldingTemplateComponents::build($template->components ?? [], $firstName, $namedValues);
 
             // Meta lehnt leere Pflicht-Parameter ab (131008) — lieber überspringen
             // als einen garantiert fehlschlagenden Send abzusetzen.
@@ -66,6 +66,7 @@ final class HoldingTemplateSender
                     components: $components,
                     languageCode: $template->language ?? 'de',
                     sender: auth()->user(),
+                    isAutoReply: $isAutoReply,
                 );
                 $sent++;
             } catch (\Throwable $e) {
@@ -77,9 +78,9 @@ final class HoldingTemplateSender
     }
 
     /** Einzelversand des konfigurierten Templates an eine Nummer (z.B. Auto-Reply). */
-    public function sendOne(int $teamId, string $phone, string $firstName, string $settingsKey = 'comms_holding_template_id'): array
+    public function sendOne(int $teamId, string $phone, string $firstName, string $settingsKey = 'comms_holding_template_id', array $namedValues = [], bool $isAutoReply = false): array
     {
-        return $this->sendToMany($teamId, [['phone' => $phone, 'first_name' => $firstName]], $settingsKey);
+        return $this->sendToMany($teamId, [['phone' => $phone, 'first_name' => $firstName]], $settingsKey, $namedValues, $isAutoReply);
     }
 
     /** Name des konfigurierten Templates oder null (für UI-Anzeige/Guard/Throttle). */

@@ -16,7 +16,7 @@ final class HoldingTemplateComponents
      * @param array $templateComponents Meta-Template-Komponenten (JSON-decodiert)
      * @return array<int, array{type: string, parameters: array}>
      */
-    public static function build(array $templateComponents, string $firstName): array
+    public static function build(array $templateComponents, string $firstName, array $namedValues = []): array
     {
         $bodyParams = [];
 
@@ -37,7 +37,13 @@ final class HoldingTemplateComponents
                 $isNameVar = in_array(strtolower($paramName), ['name', 'vorname', '1'], true);
                 $example = $examplesByName[$paramName] ?? $positionalExamples[$i] ?? '';
 
-                $value = $isNameVar ? $firstName : ($example !== '' ? $example : $firstName);
+                // Explizit uebergebene Werte (z.B. OOO-Daten) haben Vorrang;
+                // name/vorname kommt weiterhin aus firstName (Holding/Voice unveraendert).
+                if (!$isNameVar && array_key_exists($paramName, $namedValues)) {
+                    $value = (string) $namedValues[$paramName];
+                } else {
+                    $value = $isNameVar ? $firstName : ($example !== '' ? $example : $firstName);
+                }
 
                 $entry = ['type' => 'text', 'text' => (string) $value];
                 if (!is_numeric($paramName)) {
