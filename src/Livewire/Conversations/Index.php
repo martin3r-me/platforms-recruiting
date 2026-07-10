@@ -259,6 +259,11 @@ class Index extends Component
 
     public function activateOoo(): void
     {
+        if (!$this->oooView['template_configured']) {
+            session()->flash('error', 'Kein Abwesenheits-Template konfiguriert (Einstellungen → Kommunikation).');
+            return;
+        }
+
         $from = $this->oooForm['from'];
         $until = $this->oooForm['until'];
         $backAt = $this->oooForm['back_at'];
@@ -282,6 +287,7 @@ class Index extends Component
         $s->setSetting('comms_ooo_until', $until);
         $s->setSetting('comms_ooo_back_at', $backAt);
         $s->setSetting('comms_ooo_enabled', true);
+        $s->save();
 
         $this->showOooForm = false;
         unset($this->oooState, $this->oooView);
@@ -290,7 +296,9 @@ class Index extends Component
 
     public function deactivateOoo(): void
     {
-        $this->oooSettings()->setSetting('comms_ooo_enabled', false);
+        $s = $this->oooSettings();
+        $s->setSetting('comms_ooo_enabled', false);
+        $s->save();
         unset($this->oooState, $this->oooView);
         session()->flash('message', 'Abwesenheitsmodus deaktiviert.');
     }
