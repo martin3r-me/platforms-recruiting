@@ -61,6 +61,14 @@ class RecApplicantSettings extends Model
         // mit Hinweis, dass Sprachnachrichten nicht bearbeitet werden koennen.
         // Leer = Feature aus. Gedrosselt auf 1x/24h je Konversation.
         'comms_voice_not_supported_template_id' => null,
+        // HR-Abwesenheitsmodus (OOO): Template + Zeitraum. enabled/from/until/
+        // back_at werden von der Conversations-Seite gesetzt; Template im
+        // Einstellungen-Modal. Auto-Off lazy via OooMode (today >= back_at).
+        'comms_ooo_template_id' => null,
+        'comms_ooo_enabled' => false,
+        'comms_ooo_from' => null,
+        'comms_ooo_until' => null,
+        'comms_ooo_back_at' => null,
         // Payroll-Tracking: welche Felder als lohnrelevant gelten
         'employee_payroll_tracked_fields' => [
             'iban', 'bic', 'bank_institute', 'account_holder',

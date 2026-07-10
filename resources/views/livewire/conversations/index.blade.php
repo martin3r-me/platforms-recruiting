@@ -35,6 +35,69 @@
         <span class="text-sm text-gray-500">Unbeantwortete WhatsApp-Konversationen &amp; 24h-Fenster</span>
     </div>
 
+    {{-- HR-Abwesenheitsmodus: Zustand IMMER aus OooMode (3 Zustaende), nie aus dem rohen Flag --}}
+    @php
+        $oooState = $this->oooState;
+        $oooView = $this->oooView;
+    @endphp
+    <div class="rounded-lg border px-4 py-3 text-sm
+        @if($oooState === 'active') border-amber-300 bg-amber-50
+        @elseif($oooState === 'pending') border-sky-200 bg-sky-50
+        @else border-gray-200 bg-white @endif">
+        <div class="flex items-center justify-between gap-4">
+            <div>
+                @if($oooState === 'active')
+                    <span class="font-medium text-amber-900">Abwesenheitsmodus aktiv</span>
+                    <span class="text-amber-800">— wieder da am {{ $oooView['back_at'] }}. Eingehende Nachrichten erhalten automatisch die Abwesenheitsnotiz (1×/24h je Konversation).</span>
+                @elseif($oooState === 'pending')
+                    <span class="font-medium text-sky-900">Abwesenheitsmodus geplant</span>
+                    <span class="text-sky-800">— ab {{ $oooView['from'] }} (wieder da am {{ $oooView['back_at'] }}).</span>
+                @else
+                    <span class="font-medium text-gray-700">HR in Abwesenheit</span>
+                    <span class="text-gray-500">— Abwesenheitsnotiz fuer eingehende Nachrichten aktivieren.</span>
+                @endif
+            </div>
+            <div class="flex-shrink-0">
+                @if($oooState === 'off')
+                    <button wire:click="openOooForm"
+                            class="px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50">
+                        Aktivieren…
+                    </button>
+                @else
+                    <button wire:click="deactivateOoo"
+                            class="px-3 py-1.5 text-sm font-medium rounded-md border border-red-200 text-red-700 bg-white hover:bg-red-50">
+                        Deaktivieren
+                    </button>
+                @endif
+            </div>
+        </div>
+
+        @if($showOooForm && $oooState === 'off')
+            <div class="mt-3 pt-3 border-t border-gray-200 flex flex-wrap items-end gap-4">
+                <label class="text-xs text-gray-600">Abwesend von
+                    <input type="date" wire:model="oooForm.from"
+                           class="mt-1 block rounded-md border-gray-300 text-sm">
+                </label>
+                <label class="text-xs text-gray-600">Bis (letzter Tag)
+                    <input type="date" wire:model.live="oooForm.until"
+                           class="mt-1 block rounded-md border-gray-300 text-sm">
+                </label>
+                <label class="text-xs text-gray-600">Wieder da ab
+                    <input type="date" wire:model="oooForm.back_at"
+                           class="mt-1 block rounded-md border-gray-300 text-sm">
+                </label>
+                <button wire:click="activateOoo"
+                        class="px-3 py-1.5 text-sm font-medium rounded-md border border-emerald-200 text-emerald-700 bg-white hover:bg-emerald-50">
+                    Speichern &amp; aktivieren
+                </button>
+                <button wire:click="$set('showOooForm', false)"
+                        class="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">
+                    Abbrechen
+                </button>
+            </div>
+        @endif
+    </div>
+
     {{-- Flash --}}
     @if (session('message'))
         <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ session('message') }}</div>

@@ -6,10 +6,13 @@ use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Services\Comms\ConversationEscalation;
 use Platform\Recruiting\Services\Comms\ConversationInboxReport;
 use Platform\Recruiting\Services\Comms\ConversationInboxService;
 use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
+use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
+use Platform\Recruiting\Services\Comms\OooMode;
 
 /**
  * Kommunikations-Übersicht: zeigt unbeantwortete/ungelesene WhatsApp-Konversationen
@@ -32,6 +35,10 @@ class Index extends Component
 
     /** Markierte Thread-IDs (für Bulk-Template-Versand). */
     public array $selected = [];
+
+    /** OOO-Aktivierungsformular (Y-m-d-Strings aus <input type="date">). */
+    public array $oooForm = ['from' => '', 'until' => '', 'back_at' => ''];
+    public bool $showOooForm = false;
 
     private function teamId(): int
     {
@@ -196,6 +203,96 @@ class Index extends Component
         $this->selected = [];
         unset($this->report, $this->rows);
         $this->dispatch('sidebar-refresh');
+    }
+
+    private function oooSettings(): RecApplicantSettings
+    {
+        return RecApplicantSettings::getOrCreateForTeam($this->teamId());
+    }
+
+    /** off | pending | active — alleinige Quelle: OooMode (nie das rohe Flag). */
+    #[Computed]
+    public function oooState(): string
+    {
+        $s = $this->oooSettings();
+
+        return OooMode::state(
+            (bool) $s->getSetting('comms_ooo_enabled', false),
+            $s->getSetting('comms_ooo_from'),
+            $s->getSetting('comms_ooo_back_at'),
+            now()->format('Y-m-d'),
+        );
+    }
+
+    /** Anzeige-Daten fuer Banner (d.m.Y) + Template-Konfig-Status. */
+    #[Computed]
+    public function oooView(): array
+    {
+        $s = $this->oooSettings();
+        $fmt = static fn (?string $ymd): ?string => $ymd ? \Carbon\Carbon::parse($ymd)->format('d.m.Y') : null;
+
+        return [
+            'from' => $fmt($s->getSetting('comms_ooo_from')),
+            'back_at' => $fmt($s->getSetting('comms_ooo_back_at')),
+            'template_configured' => app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
+                ->configuredTemplateName($this->teamId(), OooAutoReplyHandler::SETTINGS_KEY) !== null,
+        ];
+    }
+
+    public function openOooForm(): void
+    {
+        if (!$this->oooView['template_configured']) {
+            session()->flash('error', 'Kein Abwesenheits-Template konfiguriert (Einstellungen → Kommunikation).');
+            return;
+        }
+        $this->oooForm = ['from' => now()->format('Y-m-d'), 'until' => '', 'back_at' => ''];
+        $this->showOooForm = true;
+    }
+
+    /** Bis-Datum gesetzt → wieder_da mit bis+1 vorbefuellen (editierbar). */
+    public function updated($property): void
+    {
+        if ($property === 'oooForm.until' && $this->oooForm['until'] !== '' && $this->oooForm['back_at'] === '') {
+            $this->oooForm['back_at'] = \Carbon\Carbon::parse($this->oooForm['until'])->addDay()->format('Y-m-d');
+        }
+    }
+
+    public function activateOoo(): void
+    {
+        $from = $this->oooForm['from'];
+        $until = $this->oooForm['until'];
+        $backAt = $this->oooForm['back_at'];
+
+        if ($from === '' || $until === '' || $backAt === '') {
+            session()->flash('error', 'Bitte alle drei Daten angeben.');
+            return;
+        }
+        // Y-m-d: String-Vergleich == chronologischer Vergleich
+        if (!($from <= $until && $until < $backAt)) {
+            session()->flash('error', 'Es muss gelten: von ≤ bis < wieder da.');
+            return;
+        }
+        if ($backAt <= now()->format('Y-m-d')) {
+            session()->flash('error', 'Das Wieder-da-Datum muss in der Zukunft liegen.');
+            return;
+        }
+
+        $s = $this->oooSettings();
+        $s->setSetting('comms_ooo_from', $from);
+        $s->setSetting('comms_ooo_until', $until);
+        $s->setSetting('comms_ooo_back_at', $backAt);
+        $s->setSetting('comms_ooo_enabled', true);
+
+        $this->showOooForm = false;
+        unset($this->oooState, $this->oooView);
+        session()->flash('message', 'Abwesenheitsmodus gespeichert.');
+    }
+
+    public function deactivateOoo(): void
+    {
+        $this->oooSettings()->setSetting('comms_ooo_enabled', false);
+        unset($this->oooState, $this->oooView);
+        session()->flash('message', 'Abwesenheitsmodus deaktiviert.');
     }
 
     public function render()
