@@ -55,6 +55,8 @@ Zwei neue schlanke Modelle plus ein extrahierter geteilter Sender:
 
 Orchestriert durch **`EmployeeDocumentService::provide()`** (ein Aufruf = Dokument + ggf. Aufgabe + ggf. Benachrichtigung, atomar mit Benachrichtigung außerhalb der DB-Transaktion).
 
+**Selbstheilender Zwischenzustand:** Stirbt der Prozess zwischen Transaktions-Commit und dem Nachtragen von `notified_at`/`notify_error` (Deploy, Crash), steht ein Dokument mit `notify_employee = true` und **beiden** Feldern leer da. Die Retry-Menge ist deshalb bewusst breit gefasst: **`notify_employee = true AND notified_at IS NULL`** — das fängt sowohl den expliziten Fehlerfall (`notify_error IS NOT NULL`) als auch den abgestürzten Zwischenzustand (beide Felder null) ein. Damit ist keine Benachrichtigung still verloren.
+
 Verträge (`RecContract`) bleiben **unangetastet** — kein Risiko am produktiven AV/IfSG-/AutoPilot-Flow.
 
 ---
@@ -80,8 +82,8 @@ Verträge (`RecContract`) bleiben **unangetastet** — kein Risiko am produktive
 | `acknowledged_at` | datetime nullable | "gelesen/bestätigt" (wenn keine Signatur) |
 | `signed_at` | datetime nullable | Unterschrift |
 | `signature_data` | text nullable | Base64-PNG (wie Verträge) |
-| `file_sha256` | string(64) nullable | Hash der Datei, **bei `provide()` berechnet** (§7) |
-| `signed_ip` | string nullable | kleiner Audit-Bonus |
+| `file_sha256` | string(64) nullable | Hash der Datei, **bei `provide()` berechnet** (§7); Länge/Format wie bestehendes `content_hash`-Muster (Flynk-Sync) |
+| `signed_ip` | string nullable | IP zum Signaturzeitpunkt; **personenbezogen** — ins Verarbeitungsverzeichnis aufnehmen, Rechtsgrundlage = Nachweis der Willenserklärung (Art. 6 Abs. 1 lit. b/f DSGVO). Wird nur beim Signieren erfasst, nicht bei bloßem Ansehen. |
 | `notified_at` | datetime nullable | nur bei **Erfolg** gesetzt |
 | `notified_channel` | string nullable | z. B. `whatsapp` (E-Mail = V2) |
 | `notify_error` | text nullable | Fehlermeldung; **bei Erfolg auf NULL zurückgesetzt** |
@@ -89,6 +91,8 @@ Verträge (`RecContract`) bleiben **unangetastet** — kein Risiko am produktive
 | Timestamps + SoftDeletes | | Zurückziehen = Soft-Delete |
 
 **Status** wird aus Zeitstempeln abgeleitet (keine Status-Spalte): `provided → viewed → acknowledged|signed`.
+
+**Zwei getrennte Achsen, bewusst nicht verschmolzen:** Der MA-seitige Fortschritt (`provided → viewed → acknowledged|signed`) und der Benachrichtigungs-Zustand (`notified_at`/`notified_channel`/`notify_error`) bleiben getrennte Spalten. Es gibt **keinen** verschmolzenen "Gesamtstatus" — ein Dokument kann gesehen, aber nie benachrichtigt worden sein (und umgekehrt), und beide Fakten müssen unabhängig auswertbar bleiben (Nachweis vs. Zustellungs-Monitoring).
 
 **Immutability (harte Invariante):** Nach `provide()` ist die Datei unveränderlich. Es gibt **keine "Datei ersetzen"-Aktion** (weder UI noch Service). Korrektur = Dokument zurückziehen (Soft-Delete, nur solange unsigniert) + neues bereitstellen.
 
@@ -118,14 +122,18 @@ Verträge (`RecContract`) bleiben **unangetastet** — kein Risiko am produktive
 
 Feste Liste im Code (Konstante am Model, z. B. `DocumentCategoryDefaults`). Jede Kategorie liefert Default-Flags; **jedes Flag pro Dokument frei übersteuerbar**.
 
-| Kategorie | `requires_signature` | `creates_task` | `is_legally_critical` | `notify_employee` | `is_payroll_relevant` |
+**Enum-Codes englisch** — konsistent zum Modul-Bestand (Statuswerte wie `sent`/`completed`/`draft`/`closed` und Spaltennamen wie `employment_type`/`export_status` sind englisch; deutsche Codes wären ein Fremdkörper).
+
+| Kategorie (Code / Anzeige) | `requires_signature` | `creates_task` | `is_legally_critical` | `notify_employee` | `is_payroll_relevant` |
 |---|---|---|---|---|---|
-| `vertrag_zusatz` (Vertrag/Zusatzvereinbarung) | ✅ | ✅ | ✅ | ✅ | ⬜ |
-| `belehrung` (Belehrung/Unterweisung) | ⬜ | ✅ | ✅ | ✅ | ⬜ |
-| `formular` | ⬜ | ✅ | ⬜ | ⬜ | ⬜ |
-| `lohnabrechnung` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| `bescheinigung` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| `sonstiges` | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| `contract` (Vertrag/Zusatzvereinbarung) | ✅ | ✅ | ✅ | ✅ | ⬜ |
+| `instruction` (Belehrung/Unterweisung) | ⬜ | ✅ | ✅ | ✅ | ⬜ |
+| `form` (Formular) | ⬜ | ✅ | ⬜ | ⬜ | ⬜ |
+| `payslip` (Lohnabrechnung) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| `certificate` (Bescheinigung) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| `other` (Sonstiges) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+
+`payslip` steht bewusst auf `is_payroll_relevant = ⬜`: Die Lohnabrechnung ist das **Ergebnis** der bereits erfolgten Lohnbuchung, sie löst keine neue lohnrelevante Änderung aus. (Explizit dokumentiert, damit es später nicht als vermeintlicher Fehler "korrigiert" wird.)
 
 **Invariante:** `requires_signature = true` **erzwingt** `creates_task = true` (eine Signaturpflicht, von der der MA nie erfährt, wäre widersprüchlich). Im Formular ist die `creates_task`-Checkbox ausgegraut/gesetzt, solange Signatur aktiv ist.
 
@@ -147,6 +155,8 @@ In `EmployeeDocumentService::provide()`, deterministisch, als reine Methode (`Ta
 
 Neuer Abschnitt "Dokumente & Aufgaben", wo heute die `*_file_id`-Uploads liegen. **Nur einzeln pro MA** (Massen-Upload = späteres V2).
 
+**Autorisierung:** Die Backoffice-Aktionen (bereitstellen, zurückziehen, abhaken) laufen auf der bestehenden `/employees/{employee}`-Route, die über `ModuleRouter::group('recruiting', …)` mit dem Modul-Guard (`config('recruiting.guard')`) im aktiven Team-Kontext geschützt ist. Das Modul hat **keine feingranulare Per-Action-Policy** — Autorisierung = Recruiting-Modul-Zugang im Team (identisch zu allen anderen HR-Aktionen an derselben Seite, z. B. Vertragsversand, Payroll-Ansicht). Für V1 bewusst kein neues Rollen-/Policy-Konstrukt; falls rechtskritische Dokumente eine engere Rolle erfordern, ist das ein separater, expliziter Folge-Schritt (V2), kein implizites Mitnehmen.
+
 **Upload-Flow (Drag & Drop):**
 1. Drop-Zone (Muster `InlineFileUpload`), **serverseitig** PDF-only (MIME + Extension), Größenlimit (~20 MB).
 2. Drop öffnet Bereitstellungs-Formular (Inline-Panel). Titel (aus Dateiname), Kategorie-Select. Kategoriewechsel belegt Flag-Checkboxen live vor (`updatedCategory()`-Hook im Livewire-Backend — **nicht** über Inline-`@if` in `x-ui-*`-Attributen, siehe Blade-Pitfalls-Regel). Bei aktivem `notify_employee`: Hinweistext "Mitarbeiter erhält eine WhatsApp-Nachricht".
@@ -156,7 +166,7 @@ Neuer Abschnitt "Dokumente & Aufgaben", wo heute die `*_file_id`-Uploads liegen.
 
 **Aufgabenliste:** offene zuerst. Manuell anlegen: `read_document` (+Dokumentwahl), `fill_form` (+`link_url`), `custom`. HR kann Aufgaben abhaken → `completed_by_user_id` = eigene ID.
 
-**HR-Schreibtisch (abgeleitete Sicht, NICHT materialisiert):** Query nach `is_legally_critical`-Dokumenten mit offenem `notify_error` (analog Autopilot-Eskalations-Muster in `HrDesk/Index`). Verschwindet automatisch bei Retry-Erfolg (`notify_error → NULL`) und bei Soft-Delete — keine separate Aufräumlogik.
+**HR-Schreibtisch (abgeleitete Sicht, NICHT materialisiert):** Query nach `is_legally_critical`-Dokumenten in der Retry-Menge (`notify_employee = true AND notified_at IS NULL`, siehe §2 — fängt Fehlerfall UND abgestürzten Zwischenzustand), analog Autopilot-Eskalations-Muster in `HrDesk/Index`. Verschwindet automatisch bei Erfolg (`notified_at` gesetzt) und bei Soft-Delete — keine separate Aufräumlogik.
 
 ---
 
@@ -223,7 +233,7 @@ Modul-Konvention: **reines PHPUnit, kein Laravel/keine DB** → Logik pure-unit-
 - Task-Typ-Ableitung (`TaskTypeResolver`): sign / read / kein Task; `fill_form`/`custom` nie automatisch
 - Invariante: `requires_signature` erzwingt `creates_task`
 - Status-Ableitung aus Zeitstempeln
-- Retry-Query-Bedingung (Dokument in Retry-Menge gdw. `notify_error IS NOT NULL`; nach Erfolg raus)
+- Retry-Query-Bedingung: Dokument in Retry-Menge gdw. `notify_employee = true AND notified_at IS NULL`. Drei Fälle explizit testen: (a) Fehlerfall `notify_error` gesetzt → drin; (b) **abgestürzter Zwischenzustand** `notified_at` und `notify_error` beide null → drin (Selbstheilung); (c) erfolgreich zugestellt `notified_at` gesetzt → raus, auch wenn ein Alt-`notify_error` fälschlich stünde (Erfolgspfad setzt es auf NULL)
 - Idempotenz: zweites `acknowledge`/`sign` überschreibt ersten Zeitpunkt nicht
 - **Hash-Verify-Abbruch (Pflicht):** `provide()`-Hash ≠ aktueller Hash → `sign()` bricht ab, **`signed_at` bleibt null**, keine Signatur persistiert. Schützt die Immutability-Invariante.
 - `WhatsAppTemplateSendService`-Mapping: gleiche Eingaben → gleiche Komponenten-Struktur wie die Alt-Pfade `sendPortalNotification` **und** `sendContractPortalNotification` (Validierung gegen beide, damit die Extraktion sauber delegiert)
