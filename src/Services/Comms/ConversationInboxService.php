@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Services\Comms;
 
+use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
@@ -30,6 +31,10 @@ final class ConversationInboxService
         $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
 
         $bySubject = $this->dedupedThreads($teamId);
+
+        $humanOutbound = $this->humanOutboundTimestamps(
+            array_map(fn ($t) => (int) $t->id, array_values($bySubject)),
+        );
 
         // IDs je Typ sammeln und Subjekte laden.
         $applicantIds = [];
@@ -96,7 +101,9 @@ final class ConversationInboxService
                 'owner_user_id' => $owner,
                 'is_unread' => (bool) $thread->is_unread,
                 'last_inbound_at' => $thread->last_inbound_at?->getTimestamp(),
-                'last_outbound_at' => $thread->last_outbound_at?->getTimestamp(),
+                // Effektiver letzter MENSCHLICHER Ausgang; fehlt der Thread in
+                // der Map (nur Auto-Reply-Outbounds), gilt null = nie beantwortet.
+                'last_outbound_at' => $humanOutbound[(int) $thread->id] ?? null,
             ];
         }
 
@@ -119,6 +126,10 @@ final class ConversationInboxService
 
         $bySubject = $this->dedupedThreads($teamId);
 
+        $humanOutbound = $this->humanOutboundTimestamps(
+            array_map(fn ($t) => (int) $t->id, array_values($bySubject)),
+        );
+
         $unread = 0;
         $escalation = 0;
         foreach ($bySubject as $thread) {
@@ -127,7 +138,7 @@ final class ConversationInboxService
             }
             $level = ConversationEscalation::compute(
                 $thread->last_inbound_at?->getTimestamp(),
-                $thread->last_outbound_at?->getTimestamp(),
+                $humanOutbound[(int) $thread->id] ?? null,
                 $now,
                 $yellow,
                 $red,
@@ -175,5 +186,36 @@ final class ConversationInboxService
         }
 
         return $bySubject;
+    }
+
+    /**
+     * Letzter MENSCHLICHER Outbound je Thread (Auto-Quittungen wie OOO/Voice
+     * via is_auto_reply ausgeschlossen). EINE gruppierte, index-gestuetzte
+     * Query (Composite-Index thread_id+created_at) — kein N+1. Laeuft bewusst
+     * unconditional fuer alle Teams (fixt auch den Voice-Fall ohne Config).
+     *
+     * WICHTIG: Threads ohne menschlichen Outbound fehlen im Ergebnis —
+     * der Aufrufer MUSS das als null (nie beantwortet) werten. KEIN Fallback
+     * auf thread.last_outbound_at (wurde von der Auto-Reply gebumpt; ein
+     * Fallback regressiert still in genau den Bug, den das Flag fixt).
+     *
+     * @param array<int, int> $threadIds
+     * @return array<int, int> thread_id => Unix-TS des letzten menschlichen Outbounds
+     */
+    private function humanOutboundTimestamps(array $threadIds): array
+    {
+        if ($threadIds === []) {
+            return [];
+        }
+
+        return CommsWhatsAppMessage::query()
+            ->whereIn('comms_whatsapp_thread_id', $threadIds)
+            ->where('direction', 'outbound')
+            ->where('is_auto_reply', false)
+            ->groupBy('comms_whatsapp_thread_id')
+            ->selectRaw('comms_whatsapp_thread_id, MAX(created_at) AS last_human_outbound_at')
+            ->pluck('last_human_outbound_at', 'comms_whatsapp_thread_id')
+            ->map(fn ($v) => \Carbon\Carbon::parse((string) $v)->getTimestamp())
+            ->all();
     }
 }
