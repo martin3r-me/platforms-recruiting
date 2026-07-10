@@ -39,7 +39,7 @@ final class OooAutoReplyHandler
             (bool) $settings->getSetting('comms_ooo_enabled', false),
             $settings->getSetting('comms_ooo_from'),
             $settings->getSetting('comms_ooo_back_at'),
-            now()->format('Y-m-d'),
+            TeamClock::today($settings->getSetting('comms_timezone')),
         )) {
             return;
         }

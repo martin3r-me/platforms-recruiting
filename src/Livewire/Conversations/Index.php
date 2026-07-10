@@ -13,6 +13,7 @@ use Platform\Recruiting\Services\Comms\ConversationInboxService;
 use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
 use Platform\Recruiting\Services\Comms\OooMode;
+use Platform\Recruiting\Services\Comms\TeamClock;
 
 /**
  * Kommunikations-Übersicht: zeigt unbeantwortete/ungelesene WhatsApp-Konversationen
@@ -210,6 +211,12 @@ class Index extends Component
         return RecApplicantSettings::getOrCreateForTeam($this->teamId());
     }
 
+    /** Heutiges Datum in der Team-Timezone — einzige "heute"-Quelle der Komponente. */
+    private function teamToday(): string
+    {
+        return TeamClock::today($this->oooSettings()->getSetting('comms_timezone'));
+    }
+
     /** off | pending | active — alleinige Quelle: OooMode (nie das rohe Flag). */
     #[Computed]
     public function oooState(): string
@@ -220,7 +227,7 @@ class Index extends Component
             (bool) $s->getSetting('comms_ooo_enabled', false),
             $s->getSetting('comms_ooo_from'),
             $s->getSetting('comms_ooo_back_at'),
-            now()->format('Y-m-d'),
+            $this->teamToday(),
         );
     }
 
@@ -245,7 +252,7 @@ class Index extends Component
             session()->flash('error', 'Kein Abwesenheits-Template konfiguriert (Einstellungen → Kommunikation).');
             return;
         }
-        $this->oooForm = ['from' => now()->format('Y-m-d'), 'until' => '', 'back_at' => ''];
+        $this->oooForm = ['from' => $this->teamToday(), 'until' => '', 'back_at' => ''];
         $this->showOooForm = true;
     }
 
@@ -277,7 +284,7 @@ class Index extends Component
             session()->flash('error', 'Es muss gelten: von ≤ bis < wieder da.');
             return;
         }
-        if ($backAt <= now()->format('Y-m-d')) {
+        if ($backAt <= $this->teamToday()) {
             session()->flash('error', 'Das Wieder-da-Datum muss in der Zukunft liegen.');
             return;
         }

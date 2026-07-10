@@ -69,6 +69,10 @@ class RecApplicantSettings extends Model
         'comms_ooo_from' => null,
         'comms_ooo_until' => null,
         'comms_ooo_back_at' => null,
+        // Team-Timezone fuer datumsbasierte Features (OOO "heute"-Berechnung).
+        // null = Fallback Europe/Berlin (aufgeloest NUR in TeamClock, nie an
+        // Call-Sites). Bewusst noch nicht im Einstellungen-Modal editierbar.
+        'comms_timezone' => null,
         // Payroll-Tracking: welche Felder als lohnrelevant gelten
         'employee_payroll_tracked_fields' => [
             'iban', 'bic', 'bank_institute', 'account_holder',
