@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\ApplicationMatchingService;
+use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
 use Platform\Recruiting\Services\ReminderResponseHandler;
@@ -20,6 +21,7 @@ class HandleWhatsAppInboundForRecruiting
         private ReminderResponseHandler $reminderResponseHandler,
         private ApplicationMatchingService $matchingService,
         private VoiceNoteAutoReplyHandler $voiceNoteAutoReply,
+        private OooAutoReplyHandler $oooAutoReply,
     ) {}
 
     public function handle(CommsWhatsAppInboundReceived $event): void
@@ -43,6 +45,18 @@ class HandleWhatsAppInboundForRecruiting
             details: ['message_id' => $message->id, 'from' => $thread->remote_phone_number],
             extra: $logExtra,
         );
+
+        // HR-Abwesenheitsmodus: Auto-Quittung VOR dem Kontext-Gate, damit auch
+        // Mitarbeiter-Threads erfasst werden (eigener Kontext-Filter im Handler,
+        // Fremd-Kontexte bleiben aussen vor). Fehler stoppen nie den Inbound-Flow.
+        try {
+            $this->oooAutoReply->handle($channel, $thread, $message);
+        } catch (\Throwable $e) {
+            Log::warning('[Recruiting] OOO-Auto-Reply fehlgeschlagen', [
+                'thread_id' => $thread->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         // Skip if this thread is already linked to a non-recruiting context
         // (e.g. HCM onboarding, helpdesk ticket, sales, etc.)

@@ -54,7 +54,7 @@ final class VoiceNoteAutoReplyHandler
             return; // innerhalb der letzten 24h bereits gesendet
         }
 
-        $result = $this->sender->sendOne($teamId, $phone, $this->resolveFirstName($thread), self::SETTINGS_KEY);
+        $result = $this->sender->sendOne($teamId, $phone, $this->resolveFirstName($thread), self::SETTINGS_KEY, [], true);
 
         CommsLog::log(
             event: 'voice_autoreply_sent',
