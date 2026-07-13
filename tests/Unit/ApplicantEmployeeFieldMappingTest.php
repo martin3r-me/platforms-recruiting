@@ -128,6 +128,53 @@ class ApplicantEmployeeFieldMappingTest extends TestCase
         $this->assertArrayNotHasKey('fiktionsbescheinigung_front_file_id', $r);
     }
 
+    public function test_legacy_field_names_resolve_as_fallback(): void
+    {
+        // Aeltere Formular-Generationen (Definition-IDs 652ff., z.B. Bewerber
+        // #1669) nutzten andere Feldnamen fuer dieselben Dokumente.
+        $r = ApplicantEmployeeFieldMapping::resolve([
+            'foto_ausweis_vorderseite'                         => '1552',
+            'foto_ausweis_ruckseite'                           => '1553',
+            'foto_versicherungskarte'                          => '1559',
+            'zusatzblatt'                                      => '1556',
+            'visumsblatt'                                      => '1560',
+            'nationalpass'                                     => '1561',
+            'immatrikulationsbescheinigung_schulbescheinigung' => '1563',
+        ]);
+
+        $this->assertSame(1552, $r['identity_card_front_file_id']);
+        $this->assertSame(1553, $r['identity_card_back_file_id']);
+        $this->assertSame(1559, $r['health_insurance_card_file_id']);
+        $this->assertSame(1556, $r['zusatzblatt_file_id']);
+        $this->assertSame(1560, $r['visumsblatt_file_id']);
+        $this->assertSame(1561, $r['nationalpass_file_id']);
+        $this->assertSame(1563, $r['immatrikulation_file_id']);
+    }
+
+    public function test_current_field_name_wins_over_legacy_alias(): void
+    {
+        $r = ApplicantEmployeeFieldMapping::resolve([
+            'ausweis_reisepass_foto_vorderseite' => '100',
+            'foto_ausweis_vorderseite'           => '200',
+            'visum_foto'                         => '300',
+            'visumsblatt'                        => '400',
+        ]);
+
+        $this->assertSame(100, $r['identity_card_front_file_id']);
+        $this->assertSame(300, $r['visumsblatt_file_id']);
+    }
+
+    public function test_known_source_fields_span_current_and_legacy_names(): void
+    {
+        // Basis fuer den Unmapped-Report des Backfill-Commands: alles was
+        // hier fehlt, wird im Dry-Run als "nicht gemappt" gemeldet.
+        $known = ApplicantEmployeeFieldMapping::knownSourceFields();
+        foreach (['vorname', 'telefonnummer', 'stadt', 'ort', 'visum_foto', 'pkw_vorhanden',
+                  'foto_ausweis_vorderseite', 'visumsblatt', 'nationalpass'] as $field) {
+            $this->assertContains($field, $known);
+        }
+    }
+
     public function test_covers_every_non_eu_document_column(): void
     {
         // Drift-Schutz: das Gesamt-Mapping muss alle Spalten aus

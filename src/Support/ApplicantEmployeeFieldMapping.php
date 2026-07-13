@@ -67,6 +67,22 @@ class ApplicantEmployeeFieldMapping
         'health_insurance_card_file_id' => 'foto_versichertenkarte',
     ];
 
+    /**
+     * Legacy-Feldnamen aelterer Formular-Generationen (Definition-IDs 652ff.,
+     * betrifft Bewerber vor ~Mai 2026). Greifen nur, wenn der aktuelle
+     * Feldname (FILE_MAP/NonEuDocumentMapping) keinen Wert geliefert hat.
+     * nationalpass/immatrikulation existieren NUR in der alten Generation.
+     */
+    public const FILE_ALIASES = [
+        'identity_card_front_file_id'   => 'foto_ausweis_vorderseite',
+        'identity_card_back_file_id'    => 'foto_ausweis_ruckseite',
+        'health_insurance_card_file_id' => 'foto_versicherungskarte',
+        'zusatzblatt_file_id'           => 'zusatzblatt',
+        'visumsblatt_file_id'           => 'visumsblatt',
+        'nationalpass_file_id'          => 'nationalpass',
+        'immatrikulation_file_id'       => 'immatrikulationsbescheinigung_schulbescheinigung',
+    ];
+
     /** Multi-Lookup-Felder, als Array (JSON-dekodiert) gespeichert. */
     public const ARRAY_MAP = [
         'beschaftigungsort' => 'beschaftigungsort',
@@ -134,7 +150,36 @@ class ApplicantEmployeeFieldMapping
             }
         }
 
+        foreach (self::FILE_ALIASES as $column => $field) {
+            if (isset($out[$column])) {
+                continue;
+            }
+            $value = NonEuDocumentMapping::normalizeFileId($extraValues[$field] ?? null);
+            if ($value !== null) {
+                $out[$column] = $value;
+            }
+        }
+
         return $out;
+    }
+
+    /**
+     * Alle Quell-Feldnamen (aktuell + legacy), die das Mapping kennt.
+     * Basis fuer den Unmapped-Report des Backfill-Commands.
+     */
+    public static function knownSourceFields(): array
+    {
+        return array_values(array_unique(array_merge(
+            array_values(self::TEXT_MAP),
+            self::CITY_SOURCES,
+            ['telefonnummer'],
+            array_values(self::DATE_MAP),
+            array_values(self::ARRAY_MAP),
+            array_values(self::BOOL_MAP),
+            array_values(self::FILE_MAP),
+            array_values(NonEuDocumentMapping::MAP),
+            array_values(self::FILE_ALIASES),
+        )));
     }
 
     /**

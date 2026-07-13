@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
+use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\CreateEmployeeFromApplicantService;
@@ -41,6 +42,18 @@ class BackfillEmployeeFieldsFromApplicant extends Command
 
     protected $description = 'Fuellt leere RecEmployee-Spalten aus den Bewerber-Extra-Fields nach (nie ueberschreibend)';
 
+    /**
+     * Bewusst nicht gemappte Quell-Felder — steuern nur den Funnel bzw.
+     * haben keine RecEmployee-Spalte. Alles andere Unbekannte meldet der
+     * Dry-Run als "nicht gemappt".
+     */
+    private const IGNORED_SOURCES = [
+        'eu_burger',                      // via legalStatus.is_eu_citizen
+        'grundlegende_deutschkenntnisse', // Funnel-Gate, keine MA-Spalte
+        'nicht_eu_dokumente',             // Steuerfeld fuer Sichtbarkeit
+        'nationalitaet',                  // keine MA-Spalte (nur geburtsland)
+    ];
+
     public function handle(CreateEmployeeFromApplicantService $service): int
     {
         $dryRun = (bool) $this->option('dry-run');
@@ -67,6 +80,11 @@ class BackfillEmployeeFieldsFromApplicant extends Command
         $untouched = 0;
         $skipped = 0;
         $columnCounts = [];
+        $unmappedCounts = [];
+        $knownSources = array_merge(
+            ApplicantEmployeeFieldMapping::knownSourceFields(),
+            self::IGNORED_SOURCES,
+        );
 
         foreach ($employees as $employee) {
             $label = trim("#{$employee->id} {$employee->first_name} {$employee->last_name}");
@@ -78,8 +96,18 @@ class BackfillEmployeeFieldsFromApplicant extends Command
                 continue;
             }
 
-            $extraValues = $service->collectExtraFieldValuesByName($applicant);
+            // Union: ALLE gespeicherten Werte (auch aus alten/verwaisten
+            // Phasen-Definitionen mit Legacy-Feldnamen) als Basis, die
+            // Phase-aufgeloesten Werte des Service als Vorrang obendrauf.
+            $extraValues = array_merge(
+                $this->collectAllValuesByName($applicant),
+                $service->collectExtraFieldValuesByName($applicant),
+            );
             $candidates = ApplicantEmployeeFieldMapping::resolve($extraValues);
+
+            foreach (array_diff(array_keys($extraValues), $knownSources) as $name) {
+                $unmappedCounts[$name] = ($unmappedCounts[$name] ?? 0) + 1;
+            }
 
             // legalStatus-Quellen ergaenzen (einzige Spalten, die der
             // Create-Flow nicht aus Extra-Fields zieht).
@@ -139,6 +167,49 @@ class BackfillEmployeeFieldsFromApplicant extends Command
             );
         }
 
+        if (!empty($unmappedCounts)) {
+            arsort($unmappedCounts);
+            $this->components->warn('Befuellte Extra-Fields OHNE Mapping (pruefen, ob eine MA-Spalte fehlt):');
+            $this->table(
+                ['Extra-Field', 'Anzahl Bewerber'],
+                collect($unmappedCounts)->map(fn ($count, $name) => [$name, $count])->values()->all(),
+            );
+        }
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Liest ALLE extra_field_values des Bewerbers und mapped sie by-name —
+     * unabhaengig von der aktuellen Phase-Inheritance. Noetig, weil aeltere
+     * Formular-Generationen eigene Definitionen (und teils eigene Feldnamen)
+     * hatten, die getExtraFieldDefinitions() nicht mehr aufloest. Bei
+     * Namens-Dubletten gewinnt die hoehere definition_id (neuere Generation).
+     */
+    private function collectAllValuesByName(RecApplicant $applicant): array
+    {
+        $values = $applicant->extraFieldValues()->get();
+        if ($values->isEmpty()) {
+            return [];
+        }
+
+        $names = CoreExtraFieldDefinition::query()
+            ->whereIn('id', $values->pluck('definition_id')->unique())
+            ->pluck('name', 'id');
+
+        $byName = [];
+        foreach ($values->sortBy('definition_id') as $value) {
+            $name = $names[$value->definition_id] ?? null;
+            if (!$name) {
+                continue;
+            }
+            $raw = $value->value;
+            if ($raw === null || $raw === '' || $raw === '[]') {
+                continue;
+            }
+            $byName[$name] = $raw;
+        }
+
+        return $byName;
     }
 }
