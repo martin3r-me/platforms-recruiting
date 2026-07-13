@@ -47,76 +47,34 @@ class CreateEmployeeFromApplicantService
             $legalStatus = $applicant->legalStatus;
             $primaryContact = $applicant->crmContactLinks->first()?->contact;
 
-            $employee = RecEmployee::create([
-                'team_id'              => $applicant->team_id,
-                'rec_applicant_id'     => $applicant->id,
-                'rec_position_id'      => $applicant->primaryPosition()?->id,
+            // Extra-Field-Mapping zentral in ApplicantEmployeeFieldMapping
+            // (unit-getestet, gleiche Quelle wie das Backfill-Command —
+            // schuetzt vor Mapping-Drift). resolve() liefert nur befuellte
+            // Spalten; die Basis-Werte darunter sind Fallbacks (crm_contact)
+            // bzw. Felder, die nicht aus Extra-Fields kommen.
+            $employee = RecEmployee::create(array_merge([
+                'team_id'          => $applicant->team_id,
+                'rec_applicant_id' => $applicant->id,
+                'rec_position_id'  => $applicant->primaryPosition()?->id,
 
-                // Stammdaten — Fallback-Kette extra_field → crm_contact
-                'first_name'           => $extraValues['vorname']   ?? $primaryContact?->first_name,
-                'last_name'            => $extraValues['nachname']  ?? $primaryContact?->last_name,
-                'birth_name'           => $extraValues['geburtsname'] ?? null,
-                'birth_date'           => $extraValues['geburtsdatum'] ?? null,
-                'birth_place'          => $extraValues['geburtsort'] ?? null,
-                'birth_country'        => $extraValues['geburtsland'] ?? null,
-                'identity_card_number'      => $extraValues['ausweisnummer'] ?? null,
-                'identity_card_valid_until' => $this->normalizeDateValue($extraValues['ausweis_gultig_bis'] ?? null),
-                'identity_card_front_file_id' => $this->normalizeFileId($extraValues['ausweis_reisepass_foto_vorderseite'] ?? null),
-                'identity_card_back_file_id'  => $this->normalizeFileId($extraValues['ausweis_reisepass_foto_ruckseite'] ?? null),
-                'selfie_file_id'              => $this->normalizeFileId($extraValues['selfie_upload'] ?? null),
-                'email'                => $extraValues['email']     ?? $primaryContact?->emailAddresses?->first()?->email_address,
-                'phone'                => $this->normalizePhoneValue($extraValues['telefonnummer'] ?? null) ?? $primaryContact?->phoneNumbers?->first()?->raw_input,
+                // Fallback-Kette extra_field → crm_contact
+                'first_name' => $primaryContact?->first_name,
+                'last_name'  => $primaryContact?->last_name,
+                'email'      => $primaryContact?->emailAddresses?->first()?->email_address,
+                'phone'      => $primaryContact?->phoneNumbers?->first()?->raw_input,
 
-                // Adresse (extra_fields — wenn in P3 erfasst)
-                'street'               => $extraValues['strasse'] ?? null,
-                'house_number'         => $extraValues['hausnummer'] ?? null,
-                'zip'                  => $extraValues['plz']     ?? null,
-                'city'                 => $extraValues['stadt'] ?? $extraValues['ort'] ?? null,
-                'country_code'         => $extraValues['land']    ?? null,
-
-                // Stelle/Taetigkeit
-                'beschaftigungsort'    => $this->normalizeArrayValue($extraValues['beschaftigungsort'] ?? null),
-                'art_der_tatigkeit'    => $this->normalizeArrayValue($extraValues['art_der_tatigkeit'] ?? null),
-                'employment_type'      => $extraValues['ich_bin'] ?? null,
-                'umfang_der_tatigkeit' => $extraValues['umfang_der_tatigkeit'] ?? null,
-
-                // Bankdaten — typischerweise leer bei Anlage, kommen via Portal
-                'iban'                       => $extraValues['iban'] ?? null,
-                'bic'                        => $extraValues['bic'] ?? null,
-                'bank_institute'             => $extraValues['geldinstitut'] ?? null,
-                'steuer_id'                  => $extraValues['steuer_id'] ?? null,
-                'sozialversicherungsnummer'  => $extraValues['sozialversicherungsnummer'] ?? null,
-
-                // Persoenliches + Versicherung
-                'gender'                          => $extraValues['geschlecht'] ?? null,
-                'marital_status'                  => $extraValues['familienstand'] ?? null,
-                'health_insurance'                => $extraValues['krankenkasse'] ?? null,
-                'health_insurance_card_file_id'   => $this->normalizeFileId($extraValues['foto_versichertenkarte'] ?? null),
-                'drivers_license_class'           => $extraValues['fuhrerschein_klasse'] ?? null,
-                'has_car'                         => $this->normalizeBoolValue($extraValues['pkw_vorhanden'] ?? null),
-                'recruited_by_personnel_number'   => $extraValues['geworben_von'] ?? null,
-
-                // Legal-Status + Non-EU-Dokumente. is_eu_citizen sowie
-                // nationalpass/immatrikulation kommen aus dem legalStatus-Record;
-                // die uebrigen Dokument-file_ids zentral via NonEuDocumentMapping
-                // DIREKT aus den Extra-Feldern (die legalStatus-file_id-Spalten
-                // werden im Normalfluss nie automatisch befuellt). Der Helper ist
-                // unit-getestet und schuetzt vor Mapping-Drift.
+                // Legal-Status: nur diese drei kommen (noch) aus dem
+                // legalStatus-Record; alle Dokument-file_ids laufen direkt
+                // ueber die Extra-Fields (via Mapping unten).
                 'is_eu_citizen'           => $legalStatus?->is_eu_citizen,
                 'nationalpass_file_id'    => $legalStatus?->nationalpass_file_id,
                 'immatrikulation_file_id' => $legalStatus?->immatrikulation_file_id,
-                ...\Platform\Recruiting\Support\NonEuDocumentMapping::resolve($extraValues),
-
-                // Aufenthalts-Daten (Non-EU): aus extra_fields in P3.
-                'residence_permit_valid_until'   => $this->normalizeDateValue($extraValues['aufenthaltserlaubnis_bis'] ?? null),
-                'work_permit_valid_until'        => $this->normalizeDateValue($extraValues['arbeitsgenehmigung_bis'] ?? null),
 
                 // Lifecycle
-                'is_active'            => true,
-                'employed_since'       => now()->toDateString(),
-
-                'created_by_user_id'   => $createdByUserId,
-            ]);
+                'is_active'          => true,
+                'employed_since'     => now()->toDateString(),
+                'created_by_user_id' => $createdByUserId,
+            ], \Platform\Recruiting\Support\ApplicantEmployeeFieldMapping::resolve($extraValues)));
 
             // CRM-Link duplizieren: gleicher Contact, neuer linkable_type
             $this->mirrorCrmContactLinks($applicant, $employee, $createdByUserId);
@@ -179,7 +137,7 @@ class CreateEmployeeFromApplicantService
      * Phasen gueltigen Definitionen zu (via getExtraFieldDefinitions),
      * die Phase-Inheritance schon handhabt.
      */
-    private function collectExtraFieldValuesByName(RecApplicant $applicant): array
+    public function collectExtraFieldValuesByName(RecApplicant $applicant): array
     {
         try {
             $definitions = $applicant->getExtraFieldDefinitions();
@@ -204,102 +162,6 @@ class CreateEmployeeFromApplicantService
             $byName[$def->name] = $raw;
         }
         return $byName;
-    }
-
-    /**
-     * Multi-Lookup-Felder (z.B. art_der_tatigkeit) werden als JSON-Array
-     * gespeichert. Wenn der Wert ein JSON-String ist → dekodieren;
-     * sonst null lassen.
-     */
-    /**
-     * extra_field-Wert vom Typ 'phone' kommt vom Core-Form als Array mit
-     * raw/country/e164/international. Wir nehmen das e164-Format
-     * (z.B. "+4915562972070") — passt in die rec_employees.phone-Spalte
-     * (VARCHAR 32) und ist eindeutig. Bei String-Eingabe (Legacy / direkt
-     * gemappt) durchreichen.
-     */
-    private function normalizePhoneValue($raw): ?string
-    {
-        if ($raw === null || $raw === '') {
-            return null;
-        }
-        if (is_array($raw)) {
-            return $raw['e164'] ?? $raw['raw'] ?? $raw['international'] ?? null;
-        }
-        if (is_string($raw) && str_starts_with(trim($raw), '{')) {
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) {
-                return $decoded['e164'] ?? $decoded['raw'] ?? $decoded['international'] ?? null;
-            }
-        }
-        return (string) $raw;
-    }
-
-    private function normalizeArrayValue($raw): ?array
-    {
-        if ($raw === null || $raw === '') {
-            return null;
-        }
-        if (is_array($raw)) {
-            return $raw;
-        }
-        if (is_string($raw) && str_starts_with(trim($raw), '[')) {
-            $decoded = json_decode($raw, true);
-            return is_array($decoded) ? $decoded : null;
-        }
-        return [$raw];
-    }
-
-    /**
-     * File-Felder werden in extra_field_values als file_id (numeric) gespeichert.
-     * Casted zu int, null wenn leer/ungueltig.
-     */
-    private function normalizeFileId($raw): ?int
-    {
-        if ($raw === null || $raw === '' || $raw === '0') {
-            return null;
-        }
-        if (is_numeric($raw)) {
-            return (int) $raw;
-        }
-        return null;
-    }
-
-    /**
-     * Datums-Wert aus extra_field auf Y-m-d-Format normalisieren.
-     * Akzeptiert Strings wie "2026-05-21" oder "21.05.2026".
-     */
-    private function normalizeDateValue($raw): ?string
-    {
-        if ($raw === null || $raw === '') {
-            return null;
-        }
-        try {
-            return \Carbon\Carbon::parse((string) $raw)->toDateString();
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
-    /**
-     * Boolean-Wert aus extra_field zu echten Bool casten.
-     */
-    private function normalizeBoolValue($raw): ?bool
-    {
-        if ($raw === null || $raw === '') {
-            return null;
-        }
-        if (is_bool($raw)) {
-            return $raw;
-        }
-        $s = strtolower((string) $raw);
-        if (in_array($s, ['1', 'true', 'ja', 'yes'], true)) {
-            return true;
-        }
-        if (in_array($s, ['0', 'false', 'nein', 'no'], true)) {
-            return false;
-        }
-        return null;
     }
 
     /**
