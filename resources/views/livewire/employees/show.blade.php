@@ -148,10 +148,14 @@
                                                 @if($isMissing)
                                                     <span class="text-[var(--ui-muted)] text-xs">Keine Datei hochgeladen</span>
                                                 @else
-                                                    <span class="inline-flex items-center gap-1.5 text-[var(--ui-secondary)] truncate">
+                                                    <a href="{{ route('recruiting.employees.files', ['employee' => $employeeId, 'slot' => $key]) }}"
+                                                       target="_blank" rel="noopener"
+                                                       title="Dokument in neuem Tab öffnen"
+                                                       class="inline-flex items-center gap-1.5 text-[var(--ui-secondary)] truncate hover:underline">
                                                         @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600 flex-shrink-0')
                                                         <span class="truncate">{{ $this->fileNameFor($currentValue) ?? 'Datei #' . $currentValue }}</span>
-                                                    </span>
+                                                        @svg('heroicon-o-arrow-top-right-on-square', 'w-3.5 h-3.5 text-[var(--ui-muted)] flex-shrink-0')
+                                                    </a>
                                                 @endif
                                             </div>
                                             @if($uploadProp)

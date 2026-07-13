@@ -58,6 +58,8 @@ Route::get('/employees/payroll-changes.csv', \Platform\Recruiting\Http\Controlle
     ->name('recruiting.employees.payroll-changes.csv');
 Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show::class)
     ->name('recruiting.employees.show');
+Route::get('/employees/{employee}/files/{slot}', \Platform\Recruiting\Http\Controllers\EmployeeFileController::class)
+    ->name('recruiting.employees.files');
 
 // Eingangs-Inbox: Bewerbungen ohne erkannte Quelle (is_unrouted = true)
 Route::get('/inbox', \Platform\Recruiting\Livewire\Inbox\Index::class)->name('recruiting.inbox.index');
