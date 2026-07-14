@@ -198,10 +198,14 @@
                     @endforeach
                 </div>
             @else
-                @php $onWaitlist = $this->waitlistEnabled && $this->waitlistEntry; @endphp
+                @php
+                    $waitlistEntry = $this->waitlistEnabled ? $this->waitlistEntry : null;
+                    $isWaiting     = $waitlistEntry && !$waitlistEntry->notified_at;
+                    $wasNotified   = $waitlistEntry && $waitlistEntry->notified_at;
+                @endphp
                 <div class="applicant-card w-full max-w-md mx-auto p-10 text-center">
-                    <div class="w-20 h-20 rounded-full {{ $onWaitlist ? 'bg-blue-50' : 'bg-gray-50' }} flex items-center justify-center mx-auto mb-6">
-                        @if($onWaitlist)
+                    <div class="w-20 h-20 rounded-full {{ $isWaiting ? 'bg-blue-50' : 'bg-gray-50' }} flex items-center justify-center mx-auto mb-6">
+                        @if($isWaiting)
                             <svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
@@ -211,12 +215,16 @@
                             </svg>
                         @endif
                     </div>
-                    @if($onWaitlist)
+                    @if($isWaiting)
                         <h2 class="text-xl font-bold text-gray-900 mb-3">Du stehst auf der Warteliste</h2>
                         <p class="text-gray-500 text-lg">Sobald in einem deiner Wunsch-Standorte ein Termin frei wird, melden wir uns automatisch per WhatsApp mit dem Buchungslink.</p>
                     @elseif($this->waitlistEnabled)
                         <h2 class="text-xl font-bold text-gray-900 mb-3">Keine freien Termine</h2>
-                        <p class="text-gray-500 text-lg mb-6">Aktuell sind keine freien Termine verfügbar. Trag dich ein und wir benachrichtigen dich automatisch, sobald ein Termin frei wird.</p>
+                        @if($wasNotified)
+                            <p class="text-gray-500 text-lg mb-6">Der letzte Termin war leider schon voll. Trag dich erneut ein und wir benachrichtigen dich automatisch, sobald wieder ein Termin frei wird.</p>
+                        @else
+                            <p class="text-gray-500 text-lg mb-6">Aktuell sind keine freien Termine verfügbar. Trag dich ein und wir benachrichtigen dich automatisch, sobald ein Termin frei wird.</p>
+                        @endif
                         <button
                             type="button"
                             wire:click="joinWaitlist"
