@@ -30,6 +30,12 @@ class RecPosting extends Model
                 $model->uuid = $uuid;
             }
         });
+
+        // Jede neue Ausschreibung bekommt sofort einen RG-Code — Grundlage
+        // für die deterministische Zuordnung (Matching Stufe 1) statt LLM.
+        static::created(function (self $model) {
+            app(\Platform\Recruiting\Services\PostingRefCodeService::class)->ensure($model);
+        });
     }
 
     public function position()
