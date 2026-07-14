@@ -76,4 +76,49 @@ class FlynkPostingPayloadBuilderTest extends TestCase
         $t = B::build($this->posting(['title' => str_repeat('x', 400)]), 'publish', null);
         $this->assertLessThanOrEqual(255, mb_strlen($t->payload['title']));
     }
+
+    public function test_ref_code_appears_in_description_and_meta(): void
+    {
+        $t = B::build($this->posting(['ref_code' => 'RG-AB23']), 'publish', null);
+        $this->assertStringContainsString('Referenz-Code: RG-AB23', $t->payload['description']);
+        $this->assertSame('RG-AB23', $t->payload['meta']['ref_code']);
+    }
+
+    public function test_ref_code_line_also_on_update_but_not_on_close(): void
+    {
+        $u = B::build($this->posting(['ref_code' => 'RG-AB23']), 'update', null);
+        $this->assertStringContainsString('Referenz-Code: RG-AB23', $u->payload['description']);
+
+        $c = B::build($this->posting(['ref_code' => 'RG-AB23']), 'close', null);
+        $this->assertStringNotContainsString('RG-AB23', $c->payload['description']);
+    }
+
+    public function test_content_hash_without_ref_code_stays_legacy_compatible(): void
+    {
+        // Bestands-Postings ohne Code dürfen KEINEN neuen Hash bekommen (kein Update-Sturm).
+        $legacy = hash('sha256', "a\nb\nc");
+        $this->assertSame($legacy, B::contentHash('a', 'b', 'c'));
+        $this->assertSame($legacy, B::contentHash('a', 'b', 'c', null));
+        $this->assertSame($legacy, B::contentHash('a', 'b', 'c', ''));
+    }
+
+    public function test_content_hash_changes_with_ref_code(): void
+    {
+        $this->assertNotSame(B::contentHash('a', 'b', 'c'), B::contentHash('a', 'b', 'c', 'RG-AB23'));
+    }
+
+    public function test_build_hash_equals_content_hash_with_ref_code(): void
+    {
+        // Konsistenz-Garantie für den Reconciler-Detect-Pass (beide Hash-Quellen identisch).
+        $t = B::build($this->posting(['ref_code' => 'RG-AB23']), 'publish', null);
+        $this->assertSame(B::contentHash('Koch', 'Tolle Stelle', 'Küche', 'RG-AB23'), $t->contentHash);
+    }
+
+    public function test_missing_ref_code_key_behaves_like_today(): void
+    {
+        $t = B::build($this->posting(), 'publish', null);
+        $this->assertStringNotContainsString('Referenz-Code', $t->payload['description']);
+        $this->assertNull($t->payload['meta']['ref_code']);
+        $this->assertSame(B::contentHash('Koch', 'Tolle Stelle', 'Küche'), $t->contentHash);
+    }
 }
