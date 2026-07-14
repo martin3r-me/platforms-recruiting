@@ -235,6 +235,7 @@ class FlynkPostingReconciler
     private function refCodeOf(RecPosting $p): ?string
     {
         return $p->externalRefs
+            ->sortBy('id')
             ->first(fn ($r) => $r->sourcePlatform?->ref_parser === 'ref_code')
             ?->external_ref;
     }

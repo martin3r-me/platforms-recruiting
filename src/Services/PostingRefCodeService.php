@@ -56,9 +56,11 @@ class PostingRefCodeService
      */
     public function codeFor(RecPosting $posting): ?string
     {
+        // Deterministisch ältester Eintrag (= auto-generierter Code), sonst könnte der Flynk-Hash zwischen Läufen kippen.
         return RecPostingExternalRef::query()
             ->where('rec_posting_id', $posting->id)
             ->whereHas('sourcePlatform', fn ($q) => $q->where('ref_parser', 'ref_code'))
+            ->orderBy('id')
             ->value('external_ref');
     }
 
