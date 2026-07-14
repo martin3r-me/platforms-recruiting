@@ -186,6 +186,17 @@
 
         {{-- Externe Referenzen --}}
         <x-ui-panel title="Externe Referenzen" subtitle="Unter welcher ID/welchem Titel läuft diese Anzeige auf den Portalen? Eingehende Portal-Mails werden darüber automatisch dieser Ausschreibung zugeordnet.">
+            @php($refCode = $this->refCode)
+            @if($refCode)
+                <div class="mb-4 rounded-lg border border-[var(--ui-border)] p-3">
+                    <div class="text-xs text-[var(--ui-muted)]">Referenz-Code für Anzeigen (Stepstone, Indeed, Karriereseite)</div>
+                    <div class="text-lg font-mono font-semibold">{{ $refCode }}</div>
+                    <div class="mt-1 text-xs text-[var(--ui-muted)]">
+                        Diesen Code sichtbar in jede Anzeige aufnehmen (idealerweise ins Referenznummer-Feld des Portals oder in den Titel).
+                        Bewerbungen, die den Code enthalten, werden automatisch dieser Ausschreibung zugeordnet — ohne LLM-Zuordnung.
+                    </div>
+                </div>
+            @endif
             @if($posting->externalRefs->count() > 0)
                 <div class="space-y-2 mb-4">
                     @foreach($posting->externalRefs as $ref)

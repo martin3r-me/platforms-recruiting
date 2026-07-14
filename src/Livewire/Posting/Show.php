@@ -8,6 +8,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Models\RecPostingExternalRef;
+use Platform\Recruiting\Services\PostingRefCodeService;
 
 class Show extends Component
 {
@@ -114,6 +115,12 @@ class Show extends Component
             ->where('is_active', true)
             ->orderBy('name')
             ->get();
+    }
+
+    #[Computed]
+    public function refCode(): ?string
+    {
+        return app(PostingRefCodeService::class)->codeFor($this->posting);
     }
 
     public function addExternalRef(): void

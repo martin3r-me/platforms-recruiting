@@ -6,6 +6,7 @@ use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Services\PostingRefCodeService;
 
 class Index extends Component
 {
@@ -70,7 +71,7 @@ class Index extends Component
     {
         $this->validate();
 
-        RecPosting::create([
+        $posting = RecPosting::create([
             'rec_position_id' => $this->rec_position_id,
             'title' => $this->title,
             'description' => $this->description,
@@ -81,9 +82,13 @@ class Index extends Component
             'is_active' => true,
         ]);
 
+        $refCode = app(PostingRefCodeService::class)->codeFor($posting);
+
         $this->resetForm();
         $this->modalShow = false;
-        session()->flash('message', 'Ausschreibung erfolgreich erstellt.');
+        session()->flash('message', $refCode
+            ? "Ausschreibung erfolgreich erstellt. Referenz-Code für Anzeigen: {$refCode}"
+            : 'Ausschreibung erfolgreich erstellt.');
     }
 
     public function resetForm()
