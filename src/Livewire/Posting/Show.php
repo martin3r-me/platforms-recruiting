@@ -15,6 +15,12 @@ class Show extends Component
     public RecPosting $posting;
     public string $description = '';
 
+    // Datums-Felder als Y-m-d-Strings statt Model-Binding: das datetime-Cast
+    // serialisiert Carbon als ISO-Timestamp, den <input type="date"> verwirft
+    // (Feld springt sonst nach jedem Livewire-Roundtrip auf leer zurück).
+    public ?string $publishedAt = null;
+    public ?string $closesAt = null;
+
     public string $newRefSourceId = '';
     public string $newRefValue = '';
 
@@ -22,6 +28,8 @@ class Show extends Component
     {
         $this->posting = $posting->load(['position', 'applicants.crmContactLinks.contact', 'commsChannels', 'externalRefs.sourcePlatform']);
         $this->description = $posting->description ?? '';
+        $this->publishedAt = $posting->published_at?->format('Y-m-d');
+        $this->closesAt = $posting->closes_at?->format('Y-m-d');
     }
 
     public function rules(): array
@@ -31,8 +39,8 @@ class Show extends Component
             'description' => 'nullable|string',
             'posting.status' => 'required|in:draft,published,closed',
             'posting.is_active' => 'boolean',
-            'posting.published_at' => 'nullable|date',
-            'posting.closes_at' => 'nullable|date',
+            'publishedAt' => 'nullable|date_format:Y-m-d',
+            'closesAt' => 'nullable|date_format:Y-m-d',
         ];
     }
 
@@ -40,6 +48,8 @@ class Show extends Component
     {
         $this->validate();
         $this->posting->description = $this->description;
+        $this->posting->published_at = $this->publishedAt ?: null;
+        $this->posting->closes_at = $this->closesAt ?: null;
         $this->posting->save();
         session()->flash('message', 'Ausschreibung erfolgreich aktualisiert.');
     }
@@ -49,6 +59,7 @@ class Show extends Component
         $this->posting->status = 'published';
         $this->posting->published_at = now();
         $this->posting->save();
+        $this->publishedAt = $this->posting->published_at->format('Y-m-d');
         session()->flash('message', 'Ausschreibung veröffentlicht.');
     }
 
@@ -104,7 +115,9 @@ class Show extends Component
     public function isDirty()
     {
         return $this->posting->isDirty()
-            || $this->description !== ($this->posting->getOriginal('description') ?? '');
+            || $this->description !== ($this->posting->getOriginal('description') ?? '')
+            || ($this->publishedAt ?: null) !== $this->posting->getOriginal('published_at')?->format('Y-m-d')
+            || ($this->closesAt ?: null) !== $this->posting->getOriginal('closes_at')?->format('Y-m-d');
     }
 
     #[Computed]

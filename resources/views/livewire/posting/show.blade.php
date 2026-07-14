@@ -56,12 +56,12 @@
                 </div>
                 <x-ui-input-select name="posting.status" label="Status" :options="[['value' => 'draft', 'label' => 'Entwurf'], ['value' => 'published', 'label' => 'Veröffentlicht'], ['value' => 'closed', 'label' => 'Geschlossen']]" optionValue="value" optionLabel="label" wire:model.live="posting.status" />
                 <x-ui-input-checkbox model="posting.is_active" name="posting.is_active" label="Aktiv" wire:model.live="posting.is_active" />
-                <x-ui-input-date name="posting.published_at" label="Startdatum" wire:model.live="posting.published_at" :nullable="true" />
-                <x-ui-input-date name="posting.closes_at" label="Enddatum" wire:model.live="posting.closes_at" :nullable="true" />
+                <x-ui-input-date name="publishedAt" label="Startdatum" wire:model.live="publishedAt" :nullable="true" />
+                <x-ui-input-date name="closesAt" label="Enddatum" wire:model.live="closesAt" :nullable="true" />
             </div>
-            @if($posting->published_at && $posting->closes_at)
+            @if($publishedAt && $closesAt)
                 @php
-                    $days = \Carbon\Carbon::parse($posting->published_at)->diffInDays(\Carbon\Carbon::parse($posting->closes_at));
+                    $days = \Carbon\Carbon::parse($publishedAt)->diffInDays(\Carbon\Carbon::parse($closesAt));
                 @endphp
                 <div class="mt-3 text-sm text-[var(--ui-muted)]">
                     Laufzeit: {{ $days }} Tage
