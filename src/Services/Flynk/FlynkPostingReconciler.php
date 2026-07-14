@@ -34,7 +34,7 @@ class FlynkPostingReconciler
             return $summary;
         }
 
-        $postings = RecPosting::query()->with('position:id,title')
+        $postings = RecPosting::query()->with(['position:id,title', 'externalRefs.sourcePlatform'])
             ->whereIn('id', $candidateIds)->get()->keyBy('id');
         $rowsByPosting = RecPostingFlynkSync::query()
             ->whereIn('rec_posting_id', $candidateIds)->get()->groupBy('rec_posting_id');
@@ -122,7 +122,7 @@ class FlynkPostingReconciler
             $p = $ctx['posting'];
             $rows = $ctx['rows'];
 
-            $contentHash = FlynkPostingPayloadBuilder::contentHash($p->title, $p->description, $p->activity);
+            $contentHash = FlynkPostingPayloadBuilder::contentHash($p->title, $p->description, $p->activity, $this->refCodeOf($p));
             $state = FlynkPostingSyncDecider::buildState($rows, $ctx['isOpen'], $contentHash);
             $event = FlynkPostingSyncDecider::decide($state);
             if ($event === null) {
@@ -232,6 +232,13 @@ class FlynkPostingReconciler
         return 'ok';
     }
 
+    private function refCodeOf(RecPosting $p): ?string
+    {
+        return $p->externalRefs
+            ->first(fn ($r) => $r->sourcePlatform?->ref_parser === 'ref_code')
+            ?->external_ref;
+    }
+
     private function postingData(RecPosting $p, int $generation): array
     {
         return [
@@ -239,6 +246,7 @@ class FlynkPostingReconciler
             'title' => $p->title,
             'description' => $p->description,
             'activity' => $p->activity,
+            'ref_code' => $this->refCodeOf($p),
             'position_title' => $p->position?->title,
             'team_id' => $p->team_id,
             'generation' => $generation,
