@@ -186,7 +186,11 @@
 
         {{-- Externe Referenzen --}}
         <x-ui-panel title="Externe Referenzen" subtitle="Unter welcher ID/welchem Titel läuft diese Anzeige auf den Portalen? Eingehende Portal-Mails werden darüber automatisch dieser Ausschreibung zugeordnet.">
-            @php($refCode = $this->refCode)
+            {{-- Block-Form Pflicht: inline @php(...) ohne @endphp wird vom Raw-Block-Regex
+                 mit dem @endphp eines SPÄTEREN Blocks gepaart und verschluckt alles dazwischen. --}}
+            @php
+                $refCode = $this->refCode;
+            @endphp
             @if($refCode)
                 <div class="mb-4 rounded-lg border border-[var(--ui-border)] p-3">
                     <div class="text-xs text-[var(--ui-muted)]">Referenz-Code für Anzeigen (Stepstone, Indeed, Karriereseite)</div>
