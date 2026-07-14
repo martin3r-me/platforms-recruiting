@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecInterviewWaitlist;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Services\HrDeskRoutingService;
+use Platform\Recruiting\Services\WaitlistEnrollmentPlanner;
 
 class InterviewBooking extends Component
 {
@@ -281,44 +282,42 @@ class InterviewBooking extends Component
             return;
         }
 
-        // Schon eingetragen? Idempotent — die Empty-Box zeigt den Status
-        // ohnehin aus waitlistEntry ab.
-        if ($this->waitlistEntry) {
-            return;
-        }
-
         // Snapshot der bestätigten Wunschorte — gleiche Quelle wie
-        // resolvePositionIdsForApplicant() (beschaftigungsort-Extra-Field).
-        $wunschOrte = $applicant->getExtraField('beschaftigungsort') ?? [];
-        if (!is_array($wunschOrte)) {
-            $wunschOrte = [$wunschOrte];
-        }
-        $wunschOrte = array_values(array_filter($wunschOrte, fn ($v) => $v !== null && $v !== ''));
+        // resolvePositionIdsForApplicant() (beschaftigungsort-Extra-Field),
+        // Fallback auf den Ort der primären Stelle.
+        $wunschOrte = WaitlistEnrollmentPlanner::resolveWunschorte(
+            $applicant->getExtraField('beschaftigungsort'),
+            $applicant->postings->first()?->position?->beschaftigungsort_lookup_value,
+        );
 
-        // Fallback: ohne gepflegte Wunschorte den Ort der primären Stelle
-        // nehmen — sonst wäre die Zeile nie über whereJsonContains matchbar
-        // und der Bewerber würde nie benachrichtigt.
-        if (empty($wunschOrte)) {
-            $primaryOrt = $applicant->postings->first()?->position?->beschaftigungsort_lookup_value;
-            if (!empty($primaryOrt)) {
-                $wunschOrte = [$primaryOrt];
-            }
-        }
+        $entry = $this->waitlistEntry;
+        $plan = WaitlistEnrollmentPlanner::plan(
+            $entry ? [
+                'notified'   => $entry->notified_at !== null,
+                'wunschorte' => $entry->wunschorte ?? [],
+            ] : null,
+            $wunschOrte,
+        );
 
-        // Kein matchbarer Ort → keinen stillen Geister-Eintrag anlegen.
-        if (empty($wunschOrte)) {
-            return;
+        if ($plan['action'] === 'create') {
+            RecInterviewWaitlist::create([
+                'rec_applicant_id' => $applicant->id,
+                'team_id'          => $applicant->team_id,
+                'wunschorte'       => $plan['wunschorte'],
+                'enrolled_at'      => now(),
+            ]);
+        } elseif ($plan['action'] === 'rearm') {
+            // Verbrauchten Eintrag wieder scharf schalten: nur notified_at
+            // und Snapshot — enrolled_at bleibt das ursprüngliche
+            // Eintragedatum ("wartet seit" für HR).
+            $entry->update([
+                'notified_at' => null,
+                'wunschorte'  => $plan['wunschorte'],
+            ]);
         }
-
-        RecInterviewWaitlist::create([
-            'rec_applicant_id' => $applicant->id,
-            'team_id'          => $applicant->team_id,
-            'wunschorte'       => $wunschOrte,
-            'enrolled_at'      => now(),
-        ]);
 
         // State bleibt 'selection'; die Empty-Box rendert aus dem frischen
-        // waitlistEntry den Bestätigungs-Hinweis.
+        // waitlistEntry den passenden Zustand.
         unset($this->waitlistEntry);
     }
 
