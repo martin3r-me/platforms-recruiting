@@ -9,9 +9,7 @@ use Platform\Crm\Models\CommsProviderConnection;
 use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
-use Platform\Recruiting\Models\RecPostingExternalRef;
-use Platform\Recruiting\Models\RecSourcePlatform;
-use Platform\Recruiting\Services\RefParsers\RefCodeParser;
+use Platform\Recruiting\Services\PostingRefCodeService;
 
 /**
  * Baut ein komplettes Direkteinstellungs-Set in EINER Transaktion auf:
@@ -141,36 +139,13 @@ class DirectHireSetupService
             $refCode = null;
             $channel = null;
             if ($input['intake_mode'] === 'code') {
-                $refCode = $this->createRefCode($posting, $input['team_id']);
+                $refCode = app(PostingRefCodeService::class)->ensure($posting);
             } else {
                 $channel = $this->createDedicatedChannel($posting, $input['mail_prefix'], $input['team_id'], $input['created_by_user_id']);
             }
 
             return ['position' => $position, 'posting' => $posting, 'ref_code' => $refCode, 'channel' => $channel];
         });
-    }
-
-    private function createRefCode(RecPosting $posting, int $teamId): string
-    {
-        $source = RecSourcePlatform::firstOrCreate(
-            ['team_id' => $teamId, 'name' => 'Referenz-Code'],
-            ['match_pattern' => '@@referenz-code-niemals-absender@@', /* Sentinel: matcht absichtlich NIE einen echten Absender — die Code-Stufe im Matching ist quellen-unabhängig. */ 'ref_parser' => 'ref_code', 'is_active' => true, 'priority' => 999],
-        );
-        if ($source->ref_parser !== 'ref_code') {
-            $source->update(['ref_parser' => 'ref_code']);
-        }
-        do {
-            $code = RefCodeParser::generate();
-        } while (RecPostingExternalRef::where('rec_source_platform_id', $source->id)->where('external_ref', $code)->exists());
-
-        RecPostingExternalRef::create([
-            'rec_posting_id' => $posting->id,
-            'rec_source_platform_id' => $source->id,
-            'external_ref' => $code,
-            'team_id' => $teamId,
-        ]);
-
-        return $code;
     }
 
     private function createDedicatedChannel(RecPosting $posting, string $mailPrefix, int $teamId, int $userId): CommsChannel
