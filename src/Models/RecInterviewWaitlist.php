@@ -16,6 +16,7 @@ class RecInterviewWaitlist extends Model
     protected $fillable = [
         'uuid',
         'rec_applicant_id',
+        'rec_interview_id',
         'wunschorte',
         'enrolled_at',
         'notified_at',
@@ -51,6 +52,11 @@ class RecInterviewWaitlist extends Model
         return $this->belongsTo(RecApplicant::class, 'rec_applicant_id');
     }
 
+    public function interview(): BelongsTo
+    {
+        return $this->belongsTo(RecInterview::class, 'rec_interview_id');
+    }
+
     public function team(): BelongsTo
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
@@ -67,5 +73,21 @@ class RecInterviewWaitlist extends Model
     public function scopeOpen($query)
     {
         return $query->whereNull('fulfilled_at')->whereNull('cancelled_at');
+    }
+
+    /**
+     * Ort-Warteliste (Bestand): Einträge ohne Termin-Bezug.
+     */
+    public function scopeOrtBased($query)
+    {
+        return $query->whereNull('rec_interview_id');
+    }
+
+    /**
+     * Termin-Warteliste: Einträge, die auf genau diesen Termin warten.
+     */
+    public function scopeForInterview($query, int $interviewId)
+    {
+        return $query->where('rec_interview_id', $interviewId);
     }
 }
