@@ -365,10 +365,13 @@ class InterviewBooking extends Component
     public function cancelAndRebook(): void
     {
         // Cancel ALL non-cancelled bookings for this applicant (not just the first one)
-        // cancelled_by='applicant' weil Bewerber aktiv umbucht (kein HR-Eingriff)
+        // cancelled_by='applicant' weil Bewerber aktiv umbucht (kein HR-Eingriff).
+        // Model-Updates (kein Query-Builder), damit der Waitlist-Observer den
+        // frei werdenden Platz mitbekommt.
         RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
             ->whereNotIn('status', ['cancelled'])
-            ->update([
+            ->get()
+            ->each->update([
                 'status'        => 'cancelled',
                 'cancelled_by'  => 'applicant',
                 'cancelled_at'  => now(),
@@ -407,14 +410,14 @@ class InterviewBooking extends Component
             ->sortBy('starts_at')
             ->first();
 
-        // 2) Alle aktiven Buchungen cancellen mit Quellen-Info
-        RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
-            ->whereNotIn('status', ['cancelled'])
-            ->update([
-                'status'        => 'cancelled',
-                'cancelled_by'  => 'applicant',
-                'cancelled_at'  => now(),
-            ]);
+        // 2) Alle aktiven Buchungen cancellen mit Quellen-Info — als
+        //    Model-Updates, damit der Waitlist-Observer den frei werdenden
+        //    Platz mitbekommt.
+        $activeBookings->each->update([
+            'status'        => 'cancelled',
+            'cancelled_by'  => 'applicant',
+            'cancelled_at'  => now(),
+        ]);
 
         // 3) Notes-Kontext fuer den HR-Schreibtisch-Case zusammenbauen
         $notes = 'Bewerber hat die Schulung uber den Public-Form-Link abgesagt.';

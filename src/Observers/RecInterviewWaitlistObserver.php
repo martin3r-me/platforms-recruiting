@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Jobs\NotifyWaitlistForInterview;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecInterview;
+use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecInterviewWaitlist;
 
 /**
@@ -44,6 +45,21 @@ class RecInterviewWaitlistObserver
 
                 NotifyWaitlistForInterview::dispatch($interview->id);
             }, 'rec_interview.saved.waitlist', $interview->id);
+        });
+
+        RecInterviewBooking::saved(static function (RecInterviewBooking $booking): void {
+            self::safelyRun(function () use ($booking): void {
+                // Storno gibt ggf. einen Platz frei → Warteliste anstoßen.
+                // Der Job re-validiert Kapazität/Status/Cutoff selbst;
+                // Über-Dispatch ist dank notified_at-Claim safe.
+                if (!$booking->wasChanged('status') || $booking->status !== 'cancelled') {
+                    return;
+                }
+                if (!$booking->rec_interview_id) {
+                    return;
+                }
+                NotifyWaitlistForInterview::dispatch($booking->rec_interview_id);
+            }, 'rec_interview_booking.saved.waitlist', $booking->id);
         });
 
         RecApplicant::saved(static function (RecApplicant $applicant): void {
