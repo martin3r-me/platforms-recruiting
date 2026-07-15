@@ -61,21 +61,19 @@ class WaitlistEnrollmentPlanner
     }
 
     /**
-     * Entscheidung für den Termin-Warteliste-Klick ("Benachrichtige mich,
-     * wenn hier ein Platz frei wird"). Anders als plan() ohne Orte-Guard:
-     * Termin-Einträge matchen über rec_interview_id, nicht über Wunschorte.
+     * Entscheidung für den Termin-Warteliste-Klick (V2, Dauerabo):
+     * offener Eintrag = aktives Abo = noop — egal ob schon benachrichtigt.
+     * Re-Arm passiert automatisch beim Voll-Werden des Termins
+     * (WaitlistRearmService), nie durch Klick. Ein Klick-Re-Arm würde
+     * notified_at nullen und damit die 1h-Notbremse aushebeln.
      *
      * @param array{notified: bool}|null $openEntry
-     * @return array{action: 'noop'|'create'|'rearm'}
+     * @return array{action: 'noop'|'create'}
      */
     public static function planForInterview(?array $openEntry): array
     {
-        if ($openEntry === null) {
-            return ['action' => 'create'];
-        }
-
-        return $openEntry['notified']
-            ? ['action' => 'rearm']
+        return $openEntry === null
+            ? ['action' => 'create']
             : ['action' => 'noop'];
     }
 }

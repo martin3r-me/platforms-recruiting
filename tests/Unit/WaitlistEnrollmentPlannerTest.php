@@ -101,7 +101,10 @@ class WaitlistEnrollmentPlannerTest extends TestCase
         );
     }
 
-    // --- planForInterview: Termin-Warteliste (kein Orte-Guard) ---
+    // --- planForInterview: Termin-Dauerabo (V2) ---
+    // Offener Eintrag = aktives Abo = noop, egal ob schon benachrichtigt.
+    // Manuelles Re-Arm existiert nicht mehr (automatisches Re-Arm beim
+    // Voll-Werden des Termins, siehe WaitlistRearmService).
 
     public function test_termin_kein_eintrag_ergibt_create(): void
     {
@@ -111,7 +114,7 @@ class WaitlistEnrollmentPlannerTest extends TestCase
         );
     }
 
-    public function test_termin_wartender_eintrag_ergibt_noop(): void
+    public function test_termin_offener_eintrag_ergibt_noop(): void
     {
         $this->assertSame(
             ['action' => 'noop'],
@@ -119,10 +122,13 @@ class WaitlistEnrollmentPlannerTest extends TestCase
         );
     }
 
-    public function test_termin_benachrichtigter_eintrag_ergibt_rearm(): void
+    public function test_termin_benachrichtigter_offener_eintrag_ergibt_ebenfalls_noop(): void
     {
+        // V1 hätte hier 'rearm' geliefert — im Dauerabo-Modell ist der
+        // Eintrag weiterhin aktiv, ein Klick darf notified_at (Basis der
+        // 1h-Notbremse) NICHT nullen.
         $this->assertSame(
-            ['action' => 'rearm'],
+            ['action' => 'noop'],
             WaitlistEnrollmentPlanner::planForInterview(['notified' => true])
         );
     }
