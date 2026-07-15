@@ -8,6 +8,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecInterviewWaitlist;
+use Platform\Recruiting\Services\WaitlistRearmService;
 
 /**
  * Verdrahtet die Schulung-Warteliste mit dem Lebenszyklus:
@@ -44,21 +45,39 @@ class RecInterviewWaitlistObserver
                 }
 
                 NotifyWaitlistForInterview::dispatch($interview->id);
+
+                // Kapazitäts-SENKUNG kann den Termin voll machen →
+                // Dauerabos scharf stellen (Erhöhung: Voll-Check no-op't).
+                if ($interview->wasChanged('max_participants')) {
+                    WaitlistRearmService::rearmIfNowFull($interview->id);
+                }
             }, 'rec_interview.saved.waitlist', $interview->id);
         });
 
         RecInterviewBooking::saved(static function (RecInterviewBooking $booking): void {
             self::safelyRun(function () use ($booking): void {
-                // Storno gibt ggf. einen Platz frei → Warteliste anstoßen.
-                // Der Job re-validiert Kapazität/Status/Cutoff selbst;
-                // Über-Dispatch ist dank notified_at-Claim safe.
-                if (!$booking->wasChanged('status') || $booking->status !== 'cancelled') {
-                    return;
-                }
                 if (!$booking->rec_interview_id) {
                     return;
                 }
-                NotifyWaitlistForInterview::dispatch($booking->rec_interview_id);
+
+                // Storno gibt ggf. einen Platz frei → Warteliste anstoßen.
+                // Der Job re-validiert Kapazität/Status/Cutoff selbst;
+                // Über-Dispatch ist dank armed-/notified_at-Claim safe.
+                if ($booking->wasChanged('status') && $booking->status === 'cancelled') {
+                    NotifyWaitlistForInterview::dispatch($booking->rec_interview_id);
+                    return;
+                }
+
+                // Aktivierende Änderung (Neuanlage aktiv oder Status weg
+                // von cancelled) kann den Termin VOLL machen → Dauerabos
+                // wieder scharf stellen. rearmIfNowFull no-op't, wenn
+                // noch Platz ist.
+                $activated = $booking->status !== 'cancelled'
+                    && ($booking->wasRecentlyCreated || $booking->wasChanged('status'));
+
+                if ($activated) {
+                    WaitlistRearmService::rearmIfNowFull($booking->rec_interview_id);
+                }
             }, 'rec_interview_booking.saved.waitlist', $booking->id);
         });
 
