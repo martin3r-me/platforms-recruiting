@@ -163,6 +163,12 @@ class NotifyWaitlistForInterview implements ShouldQueue
 
             $claimed = RecInterviewWaitlist::where('id', $entry->id)
                 ->where('armed', true)
+                // Härtung gegen das ms-Fenster zwischen get() und Claim:
+                // wer sich gerade abgemeldet (cancelled_at) oder gebucht
+                // (fulfilled_at) hat, bekommt keine WhatsApp mehr — gleiche
+                // Logik wie der hasActive-Guard im Public-Booking.
+                ->whereNull('cancelled_at')
+                ->whereNull('fulfilled_at')
                 ->where(function ($query) {
                     $query->whereNull('notified_at')
                         ->orWhere('notified_at', '<=', now()->subMinutes(self::RENOTIFY_COOLDOWN_MINUTES));
