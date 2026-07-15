@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Platform\Core\Contracts\InheritsExtraFields;
 use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Core\Traits\HasExtraFields;
@@ -723,7 +724,7 @@ class RecApplicant extends Model implements InheritsExtraFields
 
         $sent = $this->sendBookingLinkWhatsApp(
             'interview_waitlist_termin_wa_template_id',
-            'waitlist_termin_slot_available_sent',
+            'waitlist_termin_sent',
             'Termin-Warteliste: Benachrichtigung "Platz im Termin frei" per WhatsApp gesendet.',
             'interview_booking',
             [
@@ -891,16 +892,33 @@ class RecApplicant extends Model implements InheritsExtraFields
                 languageCode: $template->language,
             );
 
-            // Link thread to applicant
-            if ($thread = $message->thread ?? null) {
-                $thread->addContext($this->getMorphClass(), $this->id, $contextPurpose);
-            }
+            // Ab hier ist die WhatsApp RAUS — Buchhaltungs-Fehler (Log,
+            // Thread-Link) dürfen den erfolgreichen Versand NIEMALS als
+            // false zurückmelden. Sonst passieren zwei Dinge: (1) der
+            // Termin-Fallback schickt zusätzlich das generische Template
+            // (Doppel-WhatsApp, live passiert am 15.07. durch zu langen
+            // Log-Typ vs. type-Spalte varchar(30)), und (2) der Notify-Job
+            // rollt seinen armed-Claim zurück, obwohl die Nachricht ankam
+            // (= verzögerte Doppel-WA nach Ablauf des Cooldowns).
+            // Muster wie in cancelSchulung(): Log-Fehler dürfen die
+            // Aktion nicht blockieren.
+            try {
+                // Link thread to applicant
+                if ($thread = $message->thread ?? null) {
+                    $thread->addContext($this->getMorphClass(), $this->id, $contextPurpose);
+                }
 
-            RecAutoPilotLog::create([
-                'rec_applicant_id' => $this->id,
-                'type' => $logType,
-                'summary' => $logSummary,
-            ]);
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => $logType,
+                    'summary' => $logSummary,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[RecApplicant] Versand-Buchhaltung fehlgeschlagen (WhatsApp ist raus): ' . $e->getMessage(), [
+                    'applicant_id' => $this->id,
+                    'log_type'     => $logType,
+                ]);
+            }
 
             return true;
         } catch (\Throwable $e) {
