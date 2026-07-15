@@ -188,7 +188,7 @@
                                         $isFull = $interview->max_participants
                                             && $interview->bookings_count >= $interview->max_participants;
                                         $terminEntry = $isFull ? ($this->interviewWaitlistEntries[$interview->id] ?? null) : null;
-                                        $terminWaiting = $terminEntry && !$terminEntry->notified_at;
+                                        $terminSubscribed = (bool) $terminEntry;
                                     @endphp
                                     @if(!$isFull)
                                         <button
@@ -202,13 +202,24 @@
                                                 <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                                             </span>
                                         </button>
-                                    @elseif($this->waitlistEnabled && $terminWaiting)
-                                        <span class="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold whitespace-nowrap">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                            </svg>
-                                            Wir melden uns bei einem freien Platz
-                                        </span>
+                                    @elseif($this->waitlistEnabled && $terminSubscribed)
+                                        <div class="flex flex-col items-end gap-1.5">
+                                            <span class="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold whitespace-nowrap">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                                </svg>
+                                                Wir melden uns bei einem freien Platz
+                                            </span>
+                                            <button
+                                                type="button"
+                                                x-data
+                                                @click="if (confirm('Möchtest du für diesen Termin wirklich keine Benachrichtigungen mehr bekommen?')) $wire.leaveInterviewWaitlist({{ $interview->id }})"
+                                                wire:loading.attr="disabled"
+                                                class="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
+                                            >
+                                                Nicht mehr benachrichtigen
+                                            </button>
+                                        </div>
                                     @elseif($this->waitlistEnabled)
                                         <button
                                             wire:click="joinInterviewWaitlist({{ $interview->id }})"
@@ -232,6 +243,29 @@
                         </div>
                     @endforeach
                 </div>
+                @if($this->waitlistEnabled)
+                    @php
+                        $ortEntry = $this->waitlistEntry;
+                        $ortWaiting = $ortEntry && !$ortEntry->notified_at;
+                    @endphp
+                    <div class="mt-6 text-center">
+                        @if($ortWaiting)
+                            <p class="text-sm text-white/70">
+                                Du stehst auf der Warteliste — wir melden uns, sobald es neue Termine für deinen Standort gibt.
+                            </p>
+                        @else
+                            <button
+                                type="button"
+                                wire:click="joinWaitlist"
+                                wire:loading.attr="disabled"
+                                class="text-sm font-medium text-white/60 hover:text-white/80 underline underline-offset-2 transition-colors"
+                            >
+                                <span wire:loading.remove wire:target="joinWaitlist">Keiner der Termine passt? Benachrichtige mich, sobald es neue Termine gibt.</span>
+                                <span wire:loading wire:target="joinWaitlist">Wird eingetragen…</span>
+                            </button>
+                        @endif
+                    </div>
+                @endif
             @else
                 @php
                     $waitlistEntry = $this->waitlistEnabled ? $this->waitlistEntry : null;
