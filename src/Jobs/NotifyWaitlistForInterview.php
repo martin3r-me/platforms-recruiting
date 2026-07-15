@@ -35,6 +35,16 @@ class NotifyWaitlistForInterview implements ShouldQueue
      */
     public const MIN_LEAD_HOURS = 24;
 
+    /**
+     * Notbremse gegen Sekunden-Flattern (voll↔frei im Minutentakt):
+     * Mindestabstand zwischen zwei Nachrichten an dieselbe Person für
+     * denselben Termin. NICHT der Haupt-Mechanismus (das ist der
+     * armed-Claim = ein Ereignis pro Voll→Frei-Fenster) — nur ein Deckel
+     * für den pathologischen Fall. Greift die Bremse, bleibt der Eintrag
+     * scharf; zugestellt wird beim nächsten Trigger nach Ablauf.
+     */
+    public const RENOTIFY_COOLDOWN_MINUTES = 60;
+
     public function __construct(private int $interviewId) {}
 
     public function handle(): void
@@ -60,15 +70,20 @@ class NotifyWaitlistForInterview implements ShouldQueue
             }
         }
 
-        // 1) Termin-Wartende: warten auf genau diesen Termin.
-        $this->notifyEntries(
+        // 1) Termin-Abos (Dauerabo): scharfe Einträge dieses Termins.
+        //    armed wird beim Voll-Werden gesetzt (WaitlistRearmService)
+        //    und hier atomar verbraucht — ein Ereignis pro
+        //    Voll→Frei-Fenster, Storno-Wellen im selben Fenster finden
+        //    armed=0 vor.
+        $this->notifyTerminEntries(
             RecInterviewWaitlist::query()
                 ->forTeam($interview->team_id)
                 ->open()
-                ->whereNull('notified_at')
+                ->where('armed', true)
                 ->forInterview($interview->id)
                 ->with('applicant')
-                ->get()
+                ->get(),
+            $interview
         );
 
         // 2) Ort-Wartende (Bestand): explizit ortBased(), damit Termin-
@@ -78,6 +93,14 @@ class NotifyWaitlistForInterview implements ShouldQueue
             return;
         }
 
+        // Skip-Logik: Wer ein OFFENES Termin-Abo für genau diesen Termin
+        // hat, wird vom Ort-Zweig für diesen Termin übersprungen — das
+        // speziellere Abo gewinnt, keine Doppel-WhatsApp.
+        $terminAboApplicantIds = RecInterviewWaitlist::query()
+            ->forInterview($interview->id)
+            ->open()
+            ->pluck('rec_applicant_id');
+
         $this->notifyEntries(
             RecInterviewWaitlist::query()
                 ->forTeam($interview->team_id)
@@ -85,6 +108,7 @@ class NotifyWaitlistForInterview implements ShouldQueue
                 ->whereNull('notified_at')
                 ->ortBased()
                 ->whereJsonContains('wunschorte', $ort)
+                ->when($terminAboApplicantIds->isNotEmpty(), fn ($query) => $query->whereNotIn('rec_applicant_id', $terminAboApplicantIds))
                 ->with('applicant')
                 ->get()
         );
@@ -120,6 +144,50 @@ class NotifyWaitlistForInterview implements ShouldQueue
                 RecInterviewWaitlist::where('id', $entry->id)
                     ->whereNull('fulfilled_at')
                     ->update(['notified_at' => null]);
+            }
+        });
+    }
+
+    /**
+     * Dauerabo-Zustellung (nur Termin-Einträge). Atomarer Claim auf
+     * armed=1: nur wer das Flag umlegt (1 affected row), verschickt —
+     * parallel laufende Jobs desselben Frei-Fensters gehen leer aus.
+     * Die Cooldown-Bedingung steckt IM Claim-UPDATE: greift die
+     * Notbremse, bleibt armed=1 stehen (Zustellung beim nächsten
+     * Trigger nach Ablauf), nur notified_at/armed werden NICHT angefasst.
+     */
+    private function notifyTerminEntries(Collection $entries, RecInterview $interview): void
+    {
+        $entries->each(function (RecInterviewWaitlist $entry) use ($interview) {
+            $previousNotifiedAt = $entry->notified_at;
+
+            $claimed = RecInterviewWaitlist::where('id', $entry->id)
+                ->where('armed', true)
+                ->where(function ($query) {
+                    $query->whereNull('notified_at')
+                        ->orWhere('notified_at', '<=', now()->subMinutes(self::RENOTIFY_COOLDOWN_MINUTES));
+                })
+                ->update(['armed' => false, 'notified_at' => now()]);
+
+            if ($claimed !== 1) {
+                return; // anderer Job war schneller ODER Notbremse aktiv
+            }
+
+            // Versand: termin-spezifisches Template ({{termin}}), mit
+            // Fallback aufs generische Template (siehe RecApplicant).
+            $applicant = $entry->applicant;
+            $sent = $applicant && $applicant->is_active
+                && $applicant->sendTerminWaitlistNotification($interview);
+
+            if (!$sent) {
+                // Claim zurückgeben: wieder scharf UND den alten
+                // notified_at-Stand wiederherstellen — sonst würde der
+                // fehlgeschlagene Versand die Notbremse für eine Stunde
+                // scharf schalten, obwohl nichts ankam. fulfilled_at-Guard
+                // wie im Ort-Loop: zwischenzeitliche Buchung nicht anfassen.
+                RecInterviewWaitlist::where('id', $entry->id)
+                    ->whereNull('fulfilled_at')
+                    ->update(['armed' => true, 'notified_at' => $previousNotifiedAt]);
             }
         });
     }
