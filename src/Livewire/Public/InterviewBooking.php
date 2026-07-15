@@ -97,13 +97,36 @@ class InterviewBooking extends Component
         if (!$this->applicantId) {
             return null;
         }
+        // Nur Ort-Einträge: Termin-Einträge (rec_interview_id gesetzt)
+        // haben eigene UI-Zustände an der Termin-Karte und dürfen die
+        // Empty-Box nicht als "steht auf der Warteliste" erscheinen lassen.
         return RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
+            ->ortBased()
             ->open()
             ->first();
     }
 
+    /**
+     * Offene Termin-Warteliste-Einträge des Bewerbers, keyed by
+     * rec_interview_id — fürs Blade (Glocken-Zustand pro Termin-Karte).
+     */
     #[Computed]
-    public function availableInterviews(): array
+    public function interviewWaitlistEntries(): array
+    {
+        if (!$this->applicantId) {
+            return [];
+        }
+
+        return RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
+            ->whereNotNull('rec_interview_id')
+            ->open()
+            ->get()
+            ->keyBy('rec_interview_id')
+            ->all();
+    }
+
+    #[Computed]
+    public function visibleInterviews(): array
     {
         if (!$this->applicantId) {
             return [];
@@ -120,6 +143,10 @@ class InterviewBooking extends Component
             return [];
         }
 
+        // Volle Termine bleiben sichtbar (Badge "Ausgebucht" + Termin-
+        // Warteliste-Glocke im Blade) — deshalb KEIN Kapazitäts-Filter
+        // mehr. Zeit-/Status-/Aktiv-Filter unverändert: vergangene oder
+        // abgesagte Termine sieht ein Bewerber weiterhin nie.
         return RecInterview::forTeam($this->teamId)
             ->with('position')
             ->active()
@@ -130,12 +157,6 @@ class InterviewBooking extends Component
                 $query->whereNotIn('status', ['cancelled']);
             }])
             ->get()
-            ->filter(function ($interview) {
-                if (!$interview->max_participants) {
-                    return true;
-                }
-                return $interview->bookings_count < $interview->max_participants;
-            })
             ->sortBy('starts_at')
             ->values()
             ->all();
@@ -236,7 +257,7 @@ class InterviewBooking extends Component
                 ->count();
 
             if ($currentCount >= $interview->max_participants) {
-                unset($this->availableInterviews);
+                unset($this->visibleInterviews);
                 return;
             }
         }
@@ -271,7 +292,7 @@ class InterviewBooking extends Component
             ->open()
             ->update(['fulfilled_at' => now()]);
 
-        unset($this->existingBooking, $this->availableInterviews, $this->waitlistEntry);
+        unset($this->existingBooking, $this->visibleInterviews, $this->waitlistEntry, $this->interviewWaitlistEntries);
         $this->state = 'booked';
     }
 
@@ -319,6 +340,60 @@ class InterviewBooking extends Component
         // State bleibt 'selection'; die Empty-Box rendert aus dem frischen
         // waitlistEntry den passenden Zustand.
         unset($this->waitlistEntry);
+    }
+
+    public function joinInterviewWaitlist(int $interviewId): void
+    {
+        $applicant = RecApplicant::with(['phase', 'postings.position'])->find($this->applicantId);
+        if (!$applicant || !$this->waitlistEnabled) {
+            return;
+        }
+
+        // Gleiche Server-Validierung wie bookInterview(): Team, aktiv,
+        // Zukunft, buchbarer Status. Zusätzlich: nur für VOLLE Termine —
+        // ist noch Platz, soll der Bewerber buchen statt warten.
+        $interview = RecInterview::forTeam($this->teamId)
+            ->active()
+            ->where('starts_at', '>', now())
+            ->whereIn('status', ['planned', 'confirmed'])
+            ->find($interviewId);
+
+        if (!$interview || !$interview->max_participants) {
+            return;
+        }
+
+        $booked = RecInterviewBooking::where('rec_interview_id', $interviewId)
+            ->whereNotIn('status', ['cancelled'])
+            ->count();
+
+        if ($booked < $interview->max_participants) {
+            unset($this->visibleInterviews);
+            return;
+        }
+
+        $entry = $this->interviewWaitlistEntries[$interviewId] ?? null;
+        $plan = WaitlistEnrollmentPlanner::planForInterview(
+            $entry ? ['notified' => $entry->notified_at !== null] : null
+        );
+
+        if ($plan['action'] === 'create') {
+            // Wunschorte-Snapshot nur als HR-Info — das Matching läuft
+            // über rec_interview_id, deshalb ist auch [] okay.
+            RecInterviewWaitlist::create([
+                'rec_applicant_id' => $applicant->id,
+                'rec_interview_id' => $interviewId,
+                'team_id'          => $applicant->team_id,
+                'wunschorte'       => WaitlistEnrollmentPlanner::resolveWunschorte(
+                    $applicant->getExtraField('beschaftigungsort'),
+                    $applicant->postings->first()?->position?->beschaftigungsort_lookup_value,
+                ),
+                'enrolled_at'      => now(),
+            ]);
+        } elseif ($plan['action'] === 'rearm') {
+            $entry->update(['notified_at' => null]);
+        }
+
+        unset($this->interviewWaitlistEntries);
     }
 
     /**
@@ -378,7 +453,7 @@ class InterviewBooking extends Component
             ]);
 
         // Force fresh computed values on next access
-        unset($this->existingBooking, $this->availableInterviews);
+        unset($this->existingBooking, $this->visibleInterviews);
         $this->state = 'selection';
     }
 
@@ -457,7 +532,7 @@ class InterviewBooking extends Component
             // Log-Fehler darf den Cancel nicht blockieren
         }
 
-        unset($this->existingBooking, $this->availableInterviews, $this->waitlistEntry);
+        unset($this->existingBooking, $this->visibleInterviews, $this->waitlistEntry, $this->interviewWaitlistEntries);
         $this->state = 'cancelled';
     }
 
