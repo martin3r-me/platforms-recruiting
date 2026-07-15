@@ -20,7 +20,7 @@ class ListWaitlistTool implements ToolContract, ToolMetadataContract
 
     public function getDescription(): string
     {
-        return 'GET /recruiting/waitlist - Listet Schulung-Warteliste-Einträge. Zeigt Wunschorte (Snapshot), notified_at ("benachrichtigt"-Zeitpunkt), fulfilled_at (gebucht) und cancelled_at. Default nur offene Einträge (weder gebucht noch storniert). Parameter: applicant_id (optional), include_closed (optional, default false). Einträge mit rec_interview_id sind Termin-Warteliste (warten auf einen konkreten vollen Termin), ohne = Ort-Warteliste.';
+        return 'GET /recruiting/waitlist - Listet Schulung-Warteliste-Einträge. Zeigt Wunschorte (Snapshot), notified_at ("benachrichtigt"-Zeitpunkt), fulfilled_at (gebucht) und cancelled_at. Default nur offene Einträge (weder gebucht noch storniert). Parameter: applicant_id (optional), include_closed (optional, default false). Einträge mit rec_interview_id sind Termin-Warteliste (warten auf einen konkreten vollen Termin), ohne = Ort-Warteliste. Termin-Einträge sind Dauerabos (Status "abonniert", armed=true heißt: feuert beim nächsten freien Platz); Ort-Einträge feuern einmalig (Status wartet/benachrichtigt).';
     }
 
     public function getSchema(): array
@@ -89,9 +89,12 @@ class ListWaitlistTool implements ToolContract, ToolMetadataContract
                     'notified_at' => $entry->notified_at?->toIso8601String(),
                     'fulfilled_at' => $entry->fulfilled_at?->toIso8601String(),
                     'cancelled_at' => $entry->cancelled_at?->toIso8601String(),
+                    'armed' => (bool) $entry->armed,
                     'status' => $entry->fulfilled_at ? 'gebucht'
                         : ($entry->cancelled_at ? 'storniert'
-                        : ($entry->notified_at ? 'benachrichtigt' : 'wartet')),
+                        : ($entry->rec_interview_id
+                            ? 'abonniert' . ($entry->notified_at ? ' (zuletzt benachrichtigt ' . $entry->notified_at->format('d.m.Y H:i') . ')' : '')
+                            : ($entry->notified_at ? 'benachrichtigt' : 'wartet'))),
                 ];
             })->toArray();
 
