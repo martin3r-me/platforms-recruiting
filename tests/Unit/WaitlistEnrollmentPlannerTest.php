@@ -100,4 +100,48 @@ class WaitlistEnrollmentPlannerTest extends TestCase
             )
         );
     }
+
+    // --- planForInterview: Termin-Warteliste (kein Orte-Guard) ---
+
+    public function test_termin_kein_eintrag_ergibt_create(): void
+    {
+        $this->assertSame(
+            ['action' => 'create'],
+            WaitlistEnrollmentPlanner::planForInterview(null)
+        );
+    }
+
+    public function test_termin_wartender_eintrag_ergibt_noop(): void
+    {
+        $this->assertSame(
+            ['action' => 'noop'],
+            WaitlistEnrollmentPlanner::planForInterview(['notified' => false])
+        );
+    }
+
+    public function test_termin_benachrichtigter_eintrag_ergibt_rearm(): void
+    {
+        $this->assertSame(
+            ['action' => 'rearm'],
+            WaitlistEnrollmentPlanner::planForInterview(['notified' => true])
+        );
+    }
+
+    // --- Follow-ups aus dem Re-Arm-Final-Review ---
+
+    public function test_resolve_behaelt_falsy_skalare_die_nicht_leer_sind(): void
+    {
+        // 0/'0' sind keine leeren Werte — Verhalten byte-identisch zum
+        // alten Inline-Code: sie bleiben erhalten, kein Fallback.
+        $this->assertSame([0], WaitlistEnrollmentPlanner::resolveWunschorte(0, 'Köln'));
+        $this->assertSame(['0'], WaitlistEnrollmentPlanner::resolveWunschorte('0', 'Köln'));
+    }
+
+    public function test_resolve_leerer_string_skalar_faellt_auf_fallback(): void
+    {
+        $this->assertSame(
+            ['Düsseldorf'],
+            WaitlistEnrollmentPlanner::resolveWunschorte('', 'Düsseldorf')
+        );
+    }
 }

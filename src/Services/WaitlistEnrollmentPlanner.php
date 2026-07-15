@@ -59,4 +59,23 @@ class WaitlistEnrollmentPlanner
 
         return ['action' => 'rearm', 'wunschorte' => $wunschorte];
     }
+
+    /**
+     * Entscheidung für den Termin-Warteliste-Klick ("Benachrichtige mich,
+     * wenn hier ein Platz frei wird"). Anders als plan() ohne Orte-Guard:
+     * Termin-Einträge matchen über rec_interview_id, nicht über Wunschorte.
+     *
+     * @param array{notified: bool}|null $openEntry
+     * @return array{action: 'noop'|'create'|'rearm'}
+     */
+    public static function planForInterview(?array $openEntry): array
+    {
+        if ($openEntry === null) {
+            return ['action' => 'create'];
+        }
+
+        return $openEntry['notified']
+            ? ['action' => 'rearm']
+            : ['action' => 'noop'];
+    }
 }
