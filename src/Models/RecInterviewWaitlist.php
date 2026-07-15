@@ -20,6 +20,7 @@ class RecInterviewWaitlist extends Model
         'wunschorte',
         'enrolled_at',
         'notified_at',
+        'armed',
         'fulfilled_at',
         'cancelled_at',
         'team_id',
@@ -31,6 +32,7 @@ class RecInterviewWaitlist extends Model
         'wunschorte'   => 'array',
         'enrolled_at'  => 'datetime',
         'notified_at'  => 'datetime',
+        'armed'        => 'boolean',
         'fulfilled_at' => 'datetime',
         'cancelled_at' => 'datetime',
     ];
