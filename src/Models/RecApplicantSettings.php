@@ -37,6 +37,10 @@ class RecApplicantSettings extends Model
         // Warteliste: "Termin frei geworden"-Benachrichtigung (eigenes
         // Wording, gleicher Buchungslink-Token wie interview_booking).
         'interview_waitlist_wa_template_id' => null,
+        // Termin-Warteliste (Dauerabo): "Platz im Termin frei" mit
+        // {{name}}/{{termin}}-Variablen; ohne Wert greift der Fallback
+        // aufs generische interview_waitlist_wa_template_id.
+        'interview_waitlist_termin_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
         'contract_wa_template_id' => null,
         'contract_wa_account_id' => null,

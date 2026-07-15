@@ -405,6 +405,21 @@
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird an wartende Bewerber gesendet, sobald in einem ihrer Wunschorte ein Schulungstermin frei wird. Der Buchungslink wird als URL-Button übergeben.</p>
                     @endif
 
+                    {{-- Termin-Warteliste Template (Platz im Termin frei, Dauerabo) --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            name="settings.interview_waitlist_termin_wa_template_id"
+                            label="WhatsApp Template — Platz im Termin frei (Termin-Warteliste)"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model="settings.interview_waitlist_termin_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird an Termin-Abonnenten gesendet, sobald in ihrem konkreten Termin ein Platz frei wird. Unterstützt die Variablen name und termin ("Samstag, 25. Juli 2026 um 15:00 Uhr"). Ohne Auswahl greift das generische Warteliste-Template.</p>
+                    @endif
+
                     {{-- Contract Portal Template --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select

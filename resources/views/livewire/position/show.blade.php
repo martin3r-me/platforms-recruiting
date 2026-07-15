@@ -216,6 +216,25 @@
                         />
                         <p class="text-xs text-[var(--ui-muted)] mt-1">Wird an wartende Bewerber gesendet, sobald ein Termin frei wird.</p>
                     </div>
+                    {{-- Termin-Warteliste Template (Platz im Termin frei, Dauerabo) --}}
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-sm font-medium text-[var(--ui-secondary)]">WhatsApp Template — Platz im Termin frei (Termin-Warteliste)</label>
+                            @if(isset($autoPilotSettings['interview_waitlist_termin_wa_template_id']))
+                                <button wire:click="clearAutoPilotSetting('interview_waitlist_termin_wa_template_id')" class="text-xs text-[var(--ui-primary)] hover:underline">Team-Default</button>
+                            @endif
+                        </div>
+                        <x-ui-input-select
+                            name="autoPilotSettings.interview_waitlist_termin_wa_template_id"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="Team-Default verwenden"
+                            wire:model.live="autoPilotSettings.interview_waitlist_termin_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Wird an Termin-Abonnenten gesendet, sobald in ihrem Termin ein Platz frei wird (Variablen: name, termin). Ohne Auswahl greift das generische Warteliste-Template.</p>
+                    </div>
                 @endif
 
                 {{-- Reminder Interval --}}
