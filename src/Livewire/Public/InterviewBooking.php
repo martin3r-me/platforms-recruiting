@@ -390,19 +390,39 @@ class InterviewBooking extends Component
         if ($plan['action'] === 'create') {
             // Wunschorte-Snapshot nur als HR-Info — das Matching läuft
             // über rec_interview_id, deshalb ist auch [] okay.
+            // armed=true: Abo entsteht nur an vollen Terminen (Guard oben),
+            // der nächste freie Platz soll benachrichtigen.
             RecInterviewWaitlist::create([
                 'rec_applicant_id' => $applicant->id,
                 'rec_interview_id' => $interviewId,
                 'team_id'          => $applicant->team_id,
+                'armed'            => true,
                 'wunschorte'       => WaitlistEnrollmentPlanner::resolveWunschorte(
                     $applicant->getExtraField('beschaftigungsort'),
                     $applicant->postings->first()?->position?->beschaftigungsort_lookup_value,
                 ),
                 'enrolled_at'      => now(),
             ]);
-        } elseif ($plan['action'] === 'rearm') {
-            $entry->update(['notified_at' => null]);
         }
+
+        unset($this->interviewWaitlistEntries);
+    }
+
+    /**
+     * Bewerber meldet sich aktiv von der Termin-Warteliste ab
+     * (Dauerabo-Ende (c)). Schließt NUR den eigenen offenen Eintrag
+     * für genau diesen Termin — Ort-Abo und andere Termin-Abos bleiben.
+     */
+    public function leaveInterviewWaitlist(int $interviewId): void
+    {
+        if (!$this->applicantId) {
+            return;
+        }
+
+        RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
+            ->forInterview($interviewId)
+            ->open()
+            ->update(['cancelled_at' => now()]);
 
         unset($this->interviewWaitlistEntries);
     }
