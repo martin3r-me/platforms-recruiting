@@ -16,6 +16,7 @@ use Platform\Hcm\Traits\SyncsCrmContactFields;
 use Symfony\Component\Uid\UuidV7;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecAutoPilotState;
+use Platform\Recruiting\Services\TerminLabel;
 
 class RecApplicant extends Model implements InheritsExtraFields
 {
@@ -709,6 +710,34 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Termin-Warteliste (Dauerabo): "In deinem Termin ist ein Platz frei
+     * geworden" — mit {{termin}}-Variable ("Samstag, 25. Juli 2026 um
+     * 15:00 Uhr"). Fallback aufs generische Ort-Template, solange das
+     * Termin-Template nicht konfiguriert/approved ist oder der Versand
+     * damit fehlschlägt — so bleibt das Feature vor dem Meta-Approval
+     * funktionsfähig.
+     */
+    public function sendTerminWaitlistNotification(RecInterview $interview): bool
+    {
+        $terminLabel = TerminLabel::format($interview->starts_at);
+
+        $sent = $this->sendBookingLinkWhatsApp(
+            'interview_waitlist_termin_wa_template_id',
+            'waitlist_termin_slot_available_sent',
+            'Termin-Warteliste: Benachrichtigung "Platz im Termin frei" per WhatsApp gesendet.',
+            'interview_booking',
+            [
+                'termin' => $terminLabel,
+                // Positional-Fallback, falls das Meta-Template {{2}} statt
+                // {{termin}} nutzt ({{1}} ist konventionell der Name).
+                '2'      => $terminLabel,
+            ]
+        );
+
+        return $sent ?: $this->sendWaitlistAvailableNotification();
+    }
+
+    /**
      * Versand-Kern für den Buchungslink: löst das Template (per Settings-Key,
      * Position→Team-Kaskade) und den WA-Account auf, baut Body- und
      * URL-Button-Parameter und sendet das Template an die primäre
@@ -716,7 +745,7 @@ class RecApplicant extends Model implements InheritsExtraFields
      * und sendWaitlistAvailableNotification mit unterschiedlichen
      * Template-Keys/Log-Typen wiederverwendet.
      */
-    private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary, string $contextPurpose = 'interview_booking'): bool
+    private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary, string $contextPurpose = 'interview_booking', array $bodyValues = []): bool
     {
         try {
             $this->loadMissing(['postings.position', 'crmContactLinks.contact.phoneNumbers']);
@@ -818,7 +847,10 @@ class RecApplicant extends Model implements InheritsExtraFields
                 $contactName = $this->getContact()?->first_name ?? 'Bewerber/in';
                 $bodyParameters = [];
                 foreach ($bodyParams as $param) {
-                    $value = match (strtolower($param['name'])) {
+                    // Explizit übergebene Werte (z.B. {{termin}}) gewinnen
+                    // über die Default-Auflösung (Name/Beispielwert).
+                    $paramKey = strtolower($param['name']);
+                    $value = $bodyValues[$paramKey] ?? match ($paramKey) {
                         '1', 'name', 'vorname' => $contactName,
                         default => $param['example'] ?: $contactName,
                     };
