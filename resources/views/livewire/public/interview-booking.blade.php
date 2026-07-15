@@ -86,9 +86,9 @@
                 </p>
             </div>
 
-            @if(count($this->availableInterviews) > 0)
+            @if(count($this->visibleInterviews) > 0)
                 @php
-                    $grouped = collect($this->availableInterviews)->groupBy(fn ($i) => $i->position?->id ?? 0);
+                    $grouped = collect($this->visibleInterviews)->groupBy(fn ($i) => $i->position?->id ?? 0);
                     $showGroupHeaders = $grouped->count() > 1;
                 @endphp
                 <div class="space-y-8">
@@ -160,13 +160,19 @@
 
                                         {{-- Available spots --}}
                                         @if($interview->max_participants)
-                                            @php $freeSpots = $interview->max_participants - $interview->bookings_count; @endphp
+                                            @php
+                                                $freeSpots = $interview->max_participants - $interview->bookings_count;
+                                            @endphp
                                             <div class="flex items-center gap-2 text-sm {{ $freeSpots <= 2 ? 'text-amber-600' : 'text-gray-600' }}">
                                                 <svg class="w-4 h-4 {{ $freeSpots <= 2 ? 'text-amber-400' : 'text-gray-400' }} flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
                                                 </svg>
                                                 <span>
-                                                    {{ $freeSpots }} {{ $freeSpots === 1 ? 'Platz' : 'Plätze' }} frei
+                                                    @if($freeSpots <= 0)
+                                                        Ausgebucht
+                                                    @else
+                                                        {{ $freeSpots }} {{ $freeSpots === 1 ? 'Platz' : 'Plätze' }} frei
+                                                    @endif
                                                 </span>
                                             </div>
                                         @endif
@@ -178,17 +184,46 @@
                                 </div>
 
                                 <div class="flex-shrink-0 pt-1">
-                                    <button
-                                        wire:click="bookInterview({{ $interview->id }})"
-                                        wire:loading.attr="disabled"
-                                        wire:target="bookInterview({{ $interview->id }})"
-                                        class="applicant-btn-primary whitespace-nowrap"
-                                    >
-                                        <span wire:loading.remove wire:target="bookInterview({{ $interview->id }})">Buchen</span>
-                                        <span wire:loading wire:target="bookInterview({{ $interview->id }})" class="inline-flex items-center gap-2">
-                                            <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                    @php
+                                        $isFull = $interview->max_participants
+                                            && $interview->bookings_count >= $interview->max_participants;
+                                        $terminEntry = $isFull ? ($this->interviewWaitlistEntries[$interview->id] ?? null) : null;
+                                        $terminWaiting = $terminEntry && !$terminEntry->notified_at;
+                                    @endphp
+                                    @if(!$isFull)
+                                        <button
+                                            wire:click="bookInterview({{ $interview->id }})"
+                                            wire:loading.attr="disabled"
+                                            wire:target="bookInterview({{ $interview->id }})"
+                                            class="applicant-btn-primary whitespace-nowrap"
+                                        >
+                                            <span wire:loading.remove wire:target="bookInterview({{ $interview->id }})">Buchen</span>
+                                            <span wire:loading wire:target="bookInterview({{ $interview->id }})" class="inline-flex items-center gap-2">
+                                                <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                            </span>
+                                        </button>
+                                    @elseif($this->waitlistEnabled && $terminWaiting)
+                                        <span class="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold whitespace-nowrap">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                            </svg>
+                                            Wir melden uns bei einem freien Platz
                                         </span>
-                                    </button>
+                                    @elseif($this->waitlistEnabled)
+                                        <button
+                                            wire:click="joinInterviewWaitlist({{ $interview->id }})"
+                                            wire:loading.attr="disabled"
+                                            wire:target="joinInterviewWaitlist({{ $interview->id }})"
+                                            class="applicant-btn-primary whitespace-nowrap"
+                                        >
+                                            <span wire:loading.remove wire:target="joinInterviewWaitlist({{ $interview->id }})">Platz frei? Benachrichtige mich</span>
+                                            <span wire:loading wire:target="joinInterviewWaitlist({{ $interview->id }})">Wird eingetragen…</span>
+                                        </button>
+                                    @else
+                                        <span class="inline-flex items-center px-3 py-2 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold whitespace-nowrap">
+                                            Ausgebucht
+                                        </span>
+                                    @endif
                                 </div>
                             </div>
                         </div>
