@@ -349,6 +349,17 @@ class InterviewBooking extends Component
             return;
         }
 
+        // Check no active booking exists — gleicher Guard wie bookInterview():
+        // wer eine aktive Buchung hat, wartet nirgendwo mehr (die UI bietet
+        // den Button dann eh nicht an; das hier sichert den Wire-Pfad ab).
+        $hasActive = RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
+            ->whereNotIn('status', ['cancelled'])
+            ->exists();
+
+        if ($hasActive) {
+            return;
+        }
+
         // Gleiche Server-Validierung wie bookInterview(): Team, aktiv,
         // Zukunft, buchbarer Status. Zusätzlich: nur für VOLLE Termine —
         // ist noch Platz, soll der Bewerber buchen statt warten.
