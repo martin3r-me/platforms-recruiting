@@ -51,6 +51,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\ZasCrmContactBackfill::class,
                 \Platform\Recruiting\Console\Commands\FlynkReconcile::class,
                 \Platform\Recruiting\Console\Commands\BackfillEmployeeFieldsFromApplicant::class,
+                \Platform\Recruiting\Console\Commands\CleanupInterviewWaitlist::class,
             ]);
         }
 
@@ -171,6 +172,11 @@ class RecruitingServiceProvider extends ServiceProvider
         Schedule::command('recruiting:flynk-reconcile')
             ->everyThirtyMinutes()
             ->withoutOverlapping(15)
+            ->runInBackground();
+
+        Schedule::command('recruiting:cleanup-interview-waitlist')
+            ->hourly()
+            ->withoutOverlapping(10)
             ->runInBackground();
     }
 
