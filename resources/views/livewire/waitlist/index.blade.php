@@ -36,6 +36,14 @@
                                 <div class="text-sm text-[var(--ui-muted)]">
                                     Wunschorte: {{ implode(', ', $entry->wunschorte ?? []) }} · seit {{ $entry->enrolled_at?->format('d.m.Y') }}
                                 </div>
+                                @if($entry->rec_interview_id)
+                                    <div class="text-xs text-[var(--ui-muted)]">
+                                        Wartet auf Termin: {{ $entry->interview?->title ?? '#'.$entry->rec_interview_id }}
+                                        @if($entry->interview?->starts_at)
+                                            am {{ $entry->interview->starts_at->format('d.m.Y H:i') }}
+                                        @endif
+                                    </div>
+                                @endif
                             </div>
                             <div class="text-sm">
                                 @if($entry->notified_at)

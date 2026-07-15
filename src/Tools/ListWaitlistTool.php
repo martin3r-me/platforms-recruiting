@@ -20,7 +20,7 @@ class ListWaitlistTool implements ToolContract, ToolMetadataContract
 
     public function getDescription(): string
     {
-        return 'GET /recruiting/waitlist - Listet Schulung-Warteliste-Einträge. Zeigt Wunschorte (Snapshot), notified_at ("benachrichtigt"-Zeitpunkt), fulfilled_at (gebucht) und cancelled_at. Default nur offene Einträge (weder gebucht noch storniert). Parameter: applicant_id (optional), include_closed (optional, default false).';
+        return 'GET /recruiting/waitlist - Listet Schulung-Warteliste-Einträge. Zeigt Wunschorte (Snapshot), notified_at ("benachrichtigt"-Zeitpunkt), fulfilled_at (gebucht) und cancelled_at. Default nur offene Einträge (weder gebucht noch storniert). Parameter: applicant_id (optional), include_closed (optional, default false). Einträge mit rec_interview_id sind Termin-Warteliste (warten auf einen konkreten vollen Termin), ohne = Ort-Warteliste.';
     }
 
     public function getSchema(): array
@@ -62,7 +62,7 @@ class ListWaitlistTool implements ToolContract, ToolMetadataContract
             $includeClosed = (bool) ($arguments['include_closed'] ?? false);
 
             $query = RecInterviewWaitlist::forTeam($teamId)
-                ->with('applicant')
+                ->with(['applicant', 'interview'])
                 ->orderByDesc('id');
 
             if (!$includeClosed) {
@@ -79,6 +79,12 @@ class ListWaitlistTool implements ToolContract, ToolMetadataContract
                     'rec_applicant_id' => $entry->rec_applicant_id,
                     'applicant_name' => $entry->applicant?->getContact()?->full_name,
                     'wunschorte' => $entry->wunschorte,
+                    'rec_interview_id' => $entry->rec_interview_id,
+                    'interview' => $entry->rec_interview_id ? [
+                        'title'     => $entry->interview?->title,
+                        'starts_at' => $entry->interview?->starts_at?->toIso8601String(),
+                    ] : null,
+                    'typ' => $entry->rec_interview_id ? 'termin' : 'ort',
                     'enrolled_at' => $entry->enrolled_at?->toIso8601String(),
                     'notified_at' => $entry->notified_at?->toIso8601String(),
                     'fulfilled_at' => $entry->fulfilled_at?->toIso8601String(),

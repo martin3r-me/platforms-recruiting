@@ -22,7 +22,10 @@ class Index extends Component
     public function countsByOrt(): array
     {
         $counts = [];
-        RecInterviewWaitlist::forTeam($this->teamId())->open()->get()
+        // Nur Ort-Einträge: Termin-Wartende warten auf einen konkreten
+        // Termin, nicht auf "irgendeinen Termin am Ort" — sie würden die
+        // Ort-Nachfrage-Zähler verfälschen.
+        RecInterviewWaitlist::forTeam($this->teamId())->open()->ortBased()->get()
             ->each(function (RecInterviewWaitlist $entry) use (&$counts) {
                 foreach (($entry->wunschorte ?? []) as $ort) {
                     $counts[$ort] = ($counts[$ort] ?? 0) + 1;
@@ -36,7 +39,7 @@ class Index extends Component
     public function entries()
     {
         $query = RecInterviewWaitlist::forTeam($this->teamId())->open()
-            ->with('applicant')
+            ->with(['applicant', 'interview'])
             ->orderBy('enrolled_at');
 
         if ($this->selectedOrt) {
