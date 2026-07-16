@@ -13,7 +13,7 @@ Alle öffentlichen Seiten (Bewerber-Formulare, Interview-Booking, Portale, Vertr
 1. **Steuerungsebene: Team/Mandant.** Nicht das Modul entscheidet, sondern das Team, dem die Bewerber/Mitarbeiter gehören (RheinGedeck-HR = du; ein späterer Kunde = eigenes Team, eigener Default).
 2. **Scope: alle Public-Views.** Core-Formular, Interview-Booking, Bewerber-/Mitarbeiterportal, Vertragsunterschrift, Schulungs-Partials. **Nicht** im Scope: E-Mails, WhatsApp-Templates, interne Admin-UI (bewusste Entscheidung; Stilbruch Seite↔Nachricht wird akzeptiert).
 3. **Keine Mehrsprachigkeit.** Bleibt rein Deutsch, daher keine Laravel-Lang-Files — schlanker Bool-Mechanismus mit Ganz-Satz-Ternaries direkt in den Views.
-4. **Default ist Sie.** Setting fehlt, ist null oder ungültig → immer Sie. Nur expliztes `'du'` duzt.
+4. **Default ist Sie.** Setting fehlt, ist null oder ungültig → immer Sie. Nur explizit aktiviertes `use_informal_address` duzt.
 
 ## Verworfene Alternativen
 
@@ -23,9 +23,11 @@ Alle öffentlichen Seiten (Bewerber-Formulare, Interview-Booking, Portale, Vertr
 
 ## Architektur
 
-**Datenfluss:** Public-Link (Token) → Modell (`RecApplicant`/`RecEmployee`) → `team_id` → `RecApplicantSettings.settings['public_address_style']` → `$duzen: bool` → Ternary im Blade.
+**Datenfluss:** Public-Link (Token) → Modell (`RecApplicant`/`RecEmployee`) → `team_id` → `RecApplicantSettings.settings['use_informal_address']` → `$duzen: bool` → Ternary im Blade.
 
-**Setting:** Key `public_address_style` (`'sie'` | `'du'`) im bestehenden Team-Settings-JSON `rec_applicant_settings` (eine Zeile pro Team, `getOrCreateForTeam()` existiert). Bewusst neutraler Key-Name, da das Setting auch fürs Mitarbeiterportal gilt.
+`getOrCreateForTeam()` ist ein `firstOrCreate` und legt bei fehlender Zeile eine mit Defaults an — dieser Schreib-Seiteneffekt in Public-GET-Pfaden existiert heute schon (z. B. `RecContractTemplate.php:170` im Contract-Signing, `RecEmployee.php:408`) und ist idempotent → akzeptiert, konsistent mit Bestand.
+
+**Setting:** Der Key existiert bereits: `use_informal_address` (bool, Default `false`) in `RecApplicantSettings::DEFAULT_SETTINGS` (Z. 22) — inklusive fertigem Checkbox-Toggle „Informelle Anrede (Duzen)" im `ApplicantSettingsModal` (General-Tab, Blade Z. 80), der beim Save bereits mitpersistiert wird (`save()` schreibt das komplette Settings-Array, keine Whitelist). **Bislang liest nur niemand den Key aus.** Diese Spec verdrahtet ihn; es wird kein neuer Key und keine neue Settings-UI gebaut. Migration unnötig (`settings` ist `'array'`-Cast, Z. 17-19).
 
 **Core-Anbindung:** Core kennt Recruiting nicht. `PublicExtraFieldForm` nutzt das dort etablierte Duck-Typing-Muster (`usesAccordionFormLayout`, `renderPublicFormCompletionExtras`): `method_exists($model, 'usesInformalAddress')` → `$duzen`, sonst false. Andere Module ohne die Methode bleiben unverändert bei Sie.
 
@@ -40,17 +42,16 @@ Alle öffentlichen Seiten (Bewerber-Formulare, Interview-Booking, Portale, Vertr
 
 | Datei | Inhalt |
 |---|---|
-| `src/Support/PublicAddressStyle.php` | Pure-PHP: `informal(?string $value): bool` — nur `'du'` → true; null/`'sie'`/Müll → false. Single Source of Truth für den Default. |
-| `src/Models/Concerns/ResolvesPublicAddressStyle.php` | Trait `usesInformalAddress(): bool` — `RecApplicantSettings::getOrCreateForTeam($this->team_id)`, Key auswerten via `PublicAddressStyle`. |
-| `tests/Unit/PublicAddressStyleTest.php` | Pure-Unit-Tests: `'du'`, `'sie'`, null, ungültiger Wert, Groß-/Kleinschreibung. |
+| `src/Support/PublicAddressStyle.php` | Pure-PHP: `informal(mixed $value): bool` — normalisiert den Setting-Wert (true/`'1'`/1 → true; false/null/Müll → false). Single Source of Truth für den Default Sie. |
+| `src/Models/Concerns/ResolvesPublicAddressStyle.php` | Trait `usesInformalAddress(): bool` — `RecApplicantSettings::getOrCreateForTeam($this->team_id)->getSetting('use_informal_address')`, normalisiert via `PublicAddressStyle`. |
+| `tests/Unit/PublicAddressStyleTest.php` | Pure-Unit-Tests: true, false, null, `'1'`/`'0'`, ungültiger Wert. |
 
 ### platforms-recruiting — geänderte Dateien
 
 | Datei | Änderung |
 |---|---|
-| `src/Models/RecApplicant.php` | Trait einbinden; in `renderPublicFormCompletionExtras()` (~Z. 667) `$duzen` an das Partial geben |
+| `src/Models/RecApplicant.php` | Trait `ResolvesPublicAddressStyle` einbinden; in `renderPublicFormCompletionExtras()` (~Z. 667) `$duzen` an das Partial geben |
 | `src/Models/RecEmployee.php` | Trait einbinden |
-| `src/Traits/RendersPublicFormCompletionExtras.php` | `$duzen` an das Schulungs-Partial geben (~Z. 31) |
 | `src/Livewire/Public/InterviewBooking.php` | `public bool $duzen`, im `mount()` vom Modell aufgelöst |
 | `src/Livewire/Public/ApplicantPortal.php` | dito |
 | `src/Livewire/Public/EmployeePortal.php` | dito |
@@ -60,8 +61,9 @@ Alle öffentlichen Seiten (Bewerber-Formulare, Interview-Booking, Portale, Vertr
 | `resources/views/livewire/public/employee-portal.blade.php` | dito |
 | `resources/views/livewire/public/contract-signing.blade.php` | dito |
 | `resources/views/partials/public-form-completion.blade.php` | heute hardcoded du → beide Varianten via `$duzen`-Parameter |
-| `resources/views/partials/public-form-completion-schulung.blade.php` | dito |
-| `src/Livewire/Applicant/ApplicantSettingsModal.php` + Blade | Toggle „Anrede auf öffentlichen Seiten: Sie (Standard) / du" |
+| `resources/views/livewire/applicant/applicant-settings-modal.blade.php` | nur Beschreibungstext des vorhandenen Toggles ergänzen: gilt auch für öffentliche Seiten (Z. 84) |
+
+**Dead Code (Befund, optionaler Cleanup):** `RecApplicant` bindet `src/Traits/RendersPublicFormCompletionExtras.php` ein (Z. 31), definiert die Methode aber selbst (Z. 667) — die Klassen-Methode gewinnt, die Trait-Version und das von ihr gerenderte Partial `public-form-completion-schulung.blade.php` laufen nie (kein anderes Modell nutzt den Trait). Beide werden NICHT variant gemacht; Entfernung als separater Cleanup-Schritt im Plan.
 
 Der Text-Audit bei der Umsetzung muss neben den Views auch PHP-Strings erfassen (Validierungs-/Fehlermeldungen in `src/Livewire/Public/` und `src/Tools/`); Stand heute ist `ContractSigning.php:119` die einzige bekannte PHP-Fundstelle.
 
@@ -87,7 +89,7 @@ Der Text-Audit bei der Umsetzung muss neben den Views auch PHP-Strings erfassen 
 
 1. Recruiting-Branch + Core-Branch, Merge nach Review (ff auf main, kein PR — Repo-Konvention).
 2. Nach Deploy: meingedeck `composer.lock` bumpen (Pflicht, sonst nicht live).
-3. Einmalig: im Team RheinGedeck-HR den Toggle im `ApplicantSettingsModal` auf „du" stellen. Kein Seed-Command nötig.
+3. Einmalig: im Team RheinGedeck-HR die vorhandene Checkbox „Informelle Anrede (Duzen)" im `ApplicantSettingsModal` (General-Tab) aktivieren — falls nicht ohnehin schon gesetzt (der Toggle speichert bereits, wird nur bisher nicht ausgelesen). Kein Seed-Command nötig.
 
 ## Bewusst akzeptierte Punkte
 
