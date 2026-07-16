@@ -5,7 +5,7 @@
     <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-100 mb-3">
         @svg('heroicon-o-check-circle', 'w-7 h-7 text-emerald-600')
     </div>
-    <h3 class="text-lg font-semibold text-emerald-900 mb-2">{{ $duzen ? 'Deine Schulung ist bestätigt!' : 'Ihre Schulung ist bestätigt!' }}</h3>
+    <h3 class="text-lg font-semibold text-emerald-900 mb-2">{{ $bestaetigtSatz }}</h3>
 
     @if($interview)
         <p class="text-sm text-emerald-800 mb-1">
@@ -20,7 +20,7 @@
     @endif
 
     <p class="text-sm text-emerald-800 mb-4">
-        {{ $duzen ? 'Weitere Infos zur Schulung findest du hier:' : 'Weitere Infos zur Schulung finden Sie hier:' }}
+        {{ $duzen ? 'Weitere Infos findest du hier:' : 'Weitere Infos finden Sie hier:' }}
     </p>
     <a href="https://rheingedeck.de/schulung"
        target="_blank"

@@ -677,10 +677,14 @@ class RecApplicant extends Model implements InheritsExtraFields
         if (!$booking?->interview) {
             return null;
         }
+        $duzen = $this->usesInformalAddress();
+        $wort = \Platform\Recruiting\Support\TerminWort::from($booking->interview->interviewType);
+
         return view('recruiting::partials.public-form-completion', [
-            'interview' => $booking->interview,
-            'booking'   => $booking,
-            'duzen'     => $this->usesInformalAddress(),
+            'interview'      => $booking->interview,
+            'booking'        => $booking,
+            'duzen'          => $duzen,
+            'bestaetigtSatz' => ucfirst($wort->possessiv($duzen)) . ' ist bestätigt!',
         ])->render();
     }
 
