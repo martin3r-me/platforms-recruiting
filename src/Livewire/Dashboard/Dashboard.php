@@ -172,9 +172,12 @@ class Dashboard extends Component
     /**
      * Change-Token für den Dirty-Check-Poll. Nur leichte Queries
      * (COUNT/MAX je Tabelle + ID-only-Inbox-Query) — fasst bewusst KEINE
-     * schweren Computeds an. Scope bewusst breiter als das Dashboard
-     * (ohne withoutImports etc.): Über-Triggern kostet einen Refresh,
-     * Unter-Triggern wäre der echte Fehler.
+     * schweren Computeds an. Die COUNT/MAX-Queries scopen bewusst breiter
+     * als das Dashboard (ohne withoutImports etc.) — Über-Triggern kostet
+     * einen Refresh, Unter-Triggern wäre der echte Fehler. Die Inbox-ID-
+     * Query nutzt bewusst den identischen Dashboard-Scope
+     * (applicantBaseQuery), damit die Enriching-IDs exakt die Inbox-Karten
+     * spiegeln.
      */
     private function buildChangeToken(): string
     {
@@ -185,6 +188,8 @@ class Dashboard extends Component
         $bookings = RecInterviewBooking::query()->where('team_id', $teamId)
             ->selectRaw('COUNT(*) AS c, MAX(updated_at) AS m')->first();
         $contracts = RecContract::query()->where('team_id', $teamId)
+            ->selectRaw('COUNT(*) AS c, MAX(updated_at) AS m')->first();
+        $threads = CommsWhatsAppThread::query()->where('team_id', $teamId)
             ->selectRaw('COUNT(*) AS c, MAX(updated_at) AS m')->first();
 
         $inboxIds = $this->applicantBaseQuery()
@@ -197,7 +202,7 @@ class Dashboard extends Component
         ));
 
         return DashboardChangeToken::build(
-            [$applicants->c, $applicants->m, $bookings->c, $bookings->m, $contracts->c, $contracts->m],
+            [$applicants->c, $applicants->m, $bookings->c, $bookings->m, $contracts->c, $contracts->m, $threads->c, $threads->m],
             $enrichingIds,
             now()->format('Y-m-d H'),
         );
@@ -989,9 +994,9 @@ class Dashboard extends Component
                 continue;
             }
 
-            $group = $applicant->import_source
-                ? 'import'
-                : 'phase_' . ($applicant->rec_phase_id ?? 'none');
+            $group = $applicant->rec_phase_id
+                ? 'phase_' . $applicant->rec_phase_id
+                : ($applicant->import_source ? 'import' : 'phase_none');
             if (!array_key_exists($group, $definitionIdsByGroup)) {
                 $definitionIdsByGroup[$group] = $applicant->getExtraFieldDefinitions()->pluck('id')->all();
             }
