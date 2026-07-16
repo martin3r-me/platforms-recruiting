@@ -120,6 +120,32 @@ class InterviewBooking extends Component
     }
 
     /**
+     * Kann für diesen Bewerber überhaupt ein Ort-Eintrag entstehen?
+     * Gleiche Auflösung wie joinWaitlist() (beschaftigungsort-Extra-Field,
+     * Fallback Ort der primären Stelle). Ist sie leer, verwirft der
+     * Planner-Guard jeden Klick als noop (Geister-Eintrag-Schutz) — dann
+     * wird der Ort-Button gar nicht erst angeboten, statt still nichts
+     * zu tun.
+     */
+    #[Computed]
+    public function ortResolvable(): bool
+    {
+        if (!$this->applicantId) {
+            return false;
+        }
+
+        $applicant = RecApplicant::with('postings.position')->find($this->applicantId);
+        if (!$applicant) {
+            return false;
+        }
+
+        return WaitlistEnrollmentPlanner::resolveWunschorte(
+            $applicant->getExtraField('beschaftigungsort'),
+            $applicant->postings->first()?->position?->beschaftigungsort_lookup_value,
+        ) !== [];
+    }
+
+    /**
      * Offene Termin-Warteliste-Einträge des Bewerbers, keyed by
      * rec_interview_id — fürs Blade (Glocken-Zustand pro Termin-Karte).
      */

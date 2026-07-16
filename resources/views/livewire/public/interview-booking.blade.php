@@ -243,7 +243,10 @@
                         </div>
                     @endforeach
                 </div>
-                @if($this->waitlistEnabled)
+                {{-- Nur anbieten, wenn ein Ort-Eintrag überhaupt entstehen kann
+                     (ortResolvable) — sonst wäre der Klick ein stiller Noop
+                     (Planner-Guard gegen Geister-Einträge). --}}
+                @if($this->waitlistEnabled && $this->ortResolvable)
                     @php
                         $ortEntry = $this->waitlistEntry;
                         $ortWaiting = $ortEntry && !$ortEntry->notified_at;
