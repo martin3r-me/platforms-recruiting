@@ -315,11 +315,11 @@
                 <button
                     type="button"
                     x-data
-                    @click="if (confirm('{{ $duzen ? 'Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.' : 'Möchten Sie die Schulung wirklich absagen? Sie werden danach von unserem HR-Team kontaktiert.' }}')) $wire.cancelSchulung()"
+                    @click="if (confirm(@js($terminAbsagenConfirm))) $wire.cancelSchulung()"
                     wire:loading.attr="disabled"
                     class="text-sm font-medium text-white/60 hover:text-white/80 underline underline-offset-2 transition-colors"
                 >
-                    <span wire:loading.remove wire:target="cancelSchulung">Schulung absagen</span>
+                    <span wire:loading.remove wire:target="cancelSchulung">{{ $terminAbsagenLabel }}</span>
                     <span wire:loading wire:target="cancelSchulung" class="inline-flex items-center gap-2">
                         <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                         Wird abgesagt...
@@ -342,8 +342,8 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                 </div>
-                <h1 class="text-2xl font-bold text-gray-900 mb-3">Termin gebucht!</h1>
-                <p class="text-gray-500 text-lg mb-6">{{ $duzen ? 'Dein Interview-Termin wurde erfolgreich gebucht.' : 'Ihr Interview-Termin wurde erfolgreich gebucht.' }}</p>
+                <h1 class="text-2xl font-bold text-gray-900 mb-3">{{ $terminGebuchtTitel }}</h1>
+                <p class="text-gray-500 text-lg mb-6">{{ $terminGebuchtSatz }}</p>
 
                 @if($booking && $booking->interview)
                     <div class="bg-gray-50 rounded-2xl p-6 text-left mb-6">
@@ -395,11 +395,11 @@
                 <button
                     type="button"
                     x-data
-                    @click="if (confirm('{{ $duzen ? 'Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.' : 'Möchten Sie die Schulung wirklich absagen? Sie werden danach von unserem HR-Team kontaktiert.' }}')) $wire.cancelSchulung()"
+                    @click="if (confirm(@js($terminAbsagenConfirm))) $wire.cancelSchulung()"
                     wire:loading.attr="disabled"
                     class="text-sm font-medium text-red-500/70 hover:text-red-600 underline underline-offset-2 transition-colors"
                 >
-                    <span wire:loading.remove wire:target="cancelSchulung">Schulung absagen</span>
+                    <span wire:loading.remove wire:target="cancelSchulung">{{ $terminAbsagenLabel }}</span>
                     <span wire:loading wire:target="cancelSchulung" class="inline-flex items-center gap-2">
                         <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                         Wird abgesagt...

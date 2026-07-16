@@ -13,6 +13,7 @@ use Platform\Recruiting\Models\RecInterviewWaitlist;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Services\HrDeskRoutingService;
 use Platform\Recruiting\Services\WaitlistEnrollmentPlanner;
+use Platform\Recruiting\Support\TerminWort;
 
 class InterviewBooking extends Component
 {
@@ -22,6 +23,14 @@ class InterviewBooking extends Component
     public string $applicantName = '';
     public ?int $teamId = null;
     public bool $duzen = false;
+
+    /** Fertige, registergerechte Termin-Sätze (Wort aus der Gesprächsart,
+     *  du/Sie bereits aufgelöst — bewusst im PHP statt Blade-Ternary,
+     *  wegen satzinitialem Casing und JS-Attribut-Escaping). */
+    public string $terminGebuchtTitel = 'Termin gebucht!';
+    public string $terminGebuchtSatz = 'Ihr Termin wurde erfolgreich gebucht.';
+    public string $terminAbsagenLabel = 'Termin absagen';
+    public string $terminAbsagenConfirm = 'Möchten Sie den Termin wirklich absagen? Sie werden danach von unserem HR-Team kontaktiert.';
 
     public function mount(string $publicToken): void
     {
@@ -61,6 +70,8 @@ class InterviewBooking extends Component
         $this->applicantId = $applicant->id;
         $this->teamId = $applicant->team_id;
         $this->duzen = $applicant->usesInformalAddress();
+
+        $this->refreshTerminWording($this->existingBooking?->interview);
 
         // Kein eigener "waitlisted"-State: Buchen läuft IMMER über die normale
         // Auswahl. Ob jemand auf der Warteliste steht, leitet die Empty-Box am
@@ -295,6 +306,7 @@ class InterviewBooking extends Component
             ->update(['fulfilled_at' => now()]);
 
         unset($this->existingBooking, $this->visibleInterviews, $this->waitlistEntry, $this->interviewWaitlistEntries);
+        $this->refreshTerminWording($interview);
         $this->state = 'booked';
     }
 
@@ -487,6 +499,7 @@ class InterviewBooking extends Component
 
         // Force fresh computed values on next access
         unset($this->existingBooking, $this->visibleInterviews);
+        $this->refreshTerminWording(null);
         $this->state = 'selection';
     }
 
@@ -567,6 +580,24 @@ class InterviewBooking extends Component
 
         unset($this->existingBooking, $this->visibleInterviews, $this->waitlistEntry, $this->interviewWaitlistEntries);
         $this->state = 'cancelled';
+    }
+
+    /**
+     * Berechnet die Termin-Sätze aus der Gesprächsart des übergebenen
+     * Interviews. null (keine Buchung, z.B. Auswahl-State) → Fallback
+     * "Termin". Wird bei jedem State-Wechsel mit dem dann gültigen
+     * Interview aufgerufen — nie im Blade abgeleitet.
+     */
+    private function refreshTerminWording(?RecInterview $interview): void
+    {
+        $wort = TerminWort::from($interview?->interviewType);
+
+        $this->terminGebuchtTitel = $wort->nominativ() . ' gebucht!';
+        $this->terminGebuchtSatz = ucfirst($wort->possessiv($this->duzen)) . ' wurde erfolgreich gebucht.';
+        $this->terminAbsagenLabel = $wort->nominativ() . ' absagen';
+        $this->terminAbsagenConfirm = $this->duzen
+            ? 'Möchtest du ' . $wort->akkusativMitArtikel() . ' wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.'
+            : 'Möchten Sie ' . $wort->akkusativMitArtikel() . ' wirklich absagen? Sie werden danach von unserem HR-Team kontaktiert.';
     }
 
     public function render()
