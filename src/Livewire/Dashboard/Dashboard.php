@@ -16,6 +16,7 @@ use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
+use Platform\Recruiting\Services\Dashboard\DashboardChangeToken;
 
 class Dashboard extends Component
 {
@@ -37,11 +38,15 @@ class Dashboard extends Component
     public ?string $filterTo = null;   // Y-m-d
     public array $positionStatsUniqueTotals = [];
     public array $activityStatsUniqueTotals = [];
+    public string $changeToken = '';
+    public bool $showCompleted = false;
+    public int $completedLimit = 25;
 
     public function mount(): void
     {
         $this->showParked = request()->routeIs('recruiting.dashboard.parked');
         $this->showHrDesk = request()->routeIs('recruiting.dashboard.hr-desk');
+        $this->changeToken = $this->buildChangeToken();
     }
 
     /**
@@ -116,6 +121,83 @@ class Dashboard extends Component
         }
 
         return $query;
+    }
+
+    /**
+     * IDs aller Bewerber, die im aktuellen Render sichtbar sind. Grundlage
+     * für die Batch-Maps (WhatsApp-Fenster, Extra-Feld-Zähler). Greift auf
+     * die Listen-Computeds zu — die sind im Render ohnehin fällig, der
+     * Zugriff hier kostet also keine zusätzlichen Queries.
+     */
+    private function visibleApplicantIds(): array
+    {
+        $ids = collect($this->phasedApplicants)->flatten()->pluck('id')
+            ->merge($this->inboxApplicants->pluck('id'))
+            ->merge($this->needsReviewApplicants->pluck('id'));
+
+        if ($this->showCompleted) {
+            $ids = $ids->merge($this->completedApplicants->pluck('id'));
+        }
+
+        return $ids->unique()->values()->all();
+    }
+
+    /**
+     * Vertrag: EINE zentrale Stelle für die Invalidierung der Bewerber-Listen
+     * und aller davon abgeleiteten Batch-Maps. Bewusst über-invalidierend —
+     * ein unnötiger Recompute ist billig, eine stale Map wäre ein Bug.
+     * whatsAppWindowMap/extraFieldCountsMap/completedCount existieren erst ab
+     * späteren Tasks; unset auf unbekannte Namen ist in Livewire 3 ein No-Op.
+     */
+    private function clearApplicantCaches(): void
+    {
+        unset(
+            $this->inboxApplicants,
+            $this->needsReviewApplicants,
+            $this->activeApplicants,
+            $this->completedApplicants,
+            $this->phasedApplicants,
+            $this->applicantCount,
+            $this->autoPilotProcessingIds,
+            $this->enrichingApplicantIds,
+            $this->whatsAppWindowMap,
+            $this->extraFieldCountsMap,
+            $this->completedCount,
+        );
+    }
+
+    /**
+     * Change-Token für den Dirty-Check-Poll. Nur leichte Queries
+     * (COUNT/MAX je Tabelle + ID-only-Inbox-Query) — fasst bewusst KEINE
+     * schweren Computeds an. Scope bewusst breiter als das Dashboard
+     * (ohne withoutImports etc.): Über-Triggern kostet einen Refresh,
+     * Unter-Triggern wäre der echte Fehler.
+     */
+    private function buildChangeToken(): string
+    {
+        $teamId = auth()->user()->currentTeam->id;
+
+        $applicants = RecApplicant::forTeam($teamId)
+            ->selectRaw('COUNT(*) AS c, MAX(updated_at) AS m')->first();
+        $bookings = RecInterviewBooking::query()->where('team_id', $teamId)
+            ->selectRaw('COUNT(*) AS c, MAX(updated_at) AS m')->first();
+        $contracts = RecContract::query()->where('team_id', $teamId)
+            ->selectRaw('COUNT(*) AS c, MAX(updated_at) AS m')->first();
+
+        $inboxIds = $this->applicantBaseQuery()
+            ->where(fn ($q) => $q->whereNull('enrichment_status')->orWhere('enrichment_status', ''))
+            ->pluck('rec_applicants.id')
+            ->all();
+        $enrichingIds = array_values(array_filter(
+            $inboxIds,
+            fn ($id) => Cache::has("enrichment:processing:{$id}")
+        ));
+
+        return DashboardChangeToken::build(
+            [$applicants->c, $applicants->m, $bookings->c, $bookings->m, $contracts->c, $contracts->m],
+            $enrichingIds,
+            now()->format('Y-m-d H'),
+        );
     }
 
     #[Computed]
@@ -734,7 +816,7 @@ class Dashboard extends Component
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->advanceToNextPhase();
-        unset($this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
+        $this->clearApplicantCaches();
     }
 
     #[Computed]
@@ -759,7 +841,7 @@ class Dashboard extends Component
             'parked_at' => now(),
             'auto_pilot' => false,
         ]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->autoPilotProcessingIds, $this->phasedApplicants);
+        $this->clearApplicantCaches();
         $this->dispatch('sidebar-refresh');
     }
 
@@ -770,7 +852,7 @@ class Dashboard extends Component
             'is_parked' => false,
             'parked_at' => null,
         ]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+        $this->clearApplicantCaches();
         $this->dispatch('sidebar-refresh');
     }
 
@@ -903,14 +985,14 @@ class Dashboard extends Component
             }
         }
 
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->autoPilotProcessingIds, $this->phasedApplicants);
+        $this->clearApplicantCaches();
     }
 
     public function retryEnrichment(int $applicantId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
         $applicant->update(['enrichment_status' => null]);
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
+        $this->clearApplicantCaches();
     }
 
     public function updatedPositionFilter(): void
@@ -979,28 +1061,25 @@ class Dashboard extends Component
 
     public function refreshDashboard(): void
     {
+        $this->clearApplicantCaches();
         unset(
             $this->positionCount,
             $this->postingCount,
-            $this->applicantCount,
-            $this->inboxApplicants,
-            $this->needsReviewApplicants,
-            $this->activeApplicants,
-            $this->completedApplicants,
-            $this->enrichingApplicantIds,
             $this->teamChannels,
-            $this->autoPilotProcessingIds,
             $this->positions,
             $this->phases,
-            $this->phasedApplicants,
             $this->availablePostings,
             $this->availableActivities,
+            $this->statsApplicantPool,
             $this->positionStats,
             $this->activityStats,
             $this->timeToHire,
             $this->stuckCounts,
             $this->hrDeskCount,
         );
+        // Lifecycle-Vertrag: jeder Voll-Refresh aktualisiert das Token —
+        // sonst triggert jeder Folge-Poll ewig einen weiteren Refresh.
+        $this->changeToken = $this->buildChangeToken();
     }
 
     public function assignPosting(int $applicantId, int $postingId): void
@@ -1009,7 +1088,7 @@ class Dashboard extends Component
         $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
         // Phase + Verantwortlicher an die (neue) primäre Stelle angleichen.
         $applicant->reconcilePositionState();
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->phasedApplicants);
+        $this->clearApplicantCaches();
     }
 
     public function deleteApplicant(int $applicantId): void
@@ -1019,7 +1098,7 @@ class Dashboard extends Component
         $applicant->extraFieldValues()->delete();
         $applicant->crmContactLinks()->delete();
         $applicant->delete();
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+        $this->clearApplicantCaches();
         $this->dispatch('sidebar-refresh');
     }
 
@@ -1037,7 +1116,7 @@ class Dashboard extends Component
         $applicant->extraFieldValues()->delete();
         $applicant->crmContactLinks()->delete();
         $applicant->delete();
-        unset($this->inboxApplicants, $this->needsReviewApplicants, $this->activeApplicants, $this->completedApplicants, $this->applicantCount, $this->phasedApplicants);
+        $this->clearApplicantCaches();
         $this->dispatch('sidebar-refresh');
     }
 
