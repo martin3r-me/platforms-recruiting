@@ -1,4 +1,4 @@
-<div class="h-full" wire:poll.15s="refreshDashboard">
+<div class="h-full" wire:poll.15s="checkForUpdates">
 <x-ui-page>
     <x-slot name="navbar">
         <x-ui-page-navbar icon="heroicon-o-briefcase">
@@ -936,7 +936,16 @@
         @endif
 
         {{-- Abgeschlossene Bewerbungen --}}
-        <x-ui-panel title="Abgeschlossen" subtitle="Alle Phasen durchlaufen">
+        @php
+            $completedSubtitle = 'Alle Phasen durchlaufen — ' . $this->completedCount . ' Bewerber';
+        @endphp
+        <x-ui-panel title="Abgeschlossen" :subtitle="$completedSubtitle">
+            <div class="px-4 pt-4 {{ $this->showCompleted ? '' : 'pb-4' }}">
+                <x-ui-button variant="secondary" size="sm" wire:click="toggleCompleted">
+                    {{ $this->showCompleted ? 'Einklappen' : 'Anzeigen (' . $this->completedCount . ')' }}
+                </x-ui-button>
+            </div>
+            @if($this->showCompleted)
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>
@@ -1069,6 +1078,14 @@
                     </tbody>
                 </table>
             </div>
+        @if($this->completedCount > $this->completedLimit)
+            <div class="px-4 pb-4 pt-2">
+                <x-ui-button variant="secondary" size="sm" wire:click="loadMoreCompleted">
+                    Mehr laden ({{ $this->completedApplicants->count() }} von {{ $this->completedCount }})
+                </x-ui-button>
+            </div>
+        @endif
+    @endif
         </x-ui-panel>
     </x-ui-page-container>
 

@@ -672,23 +672,61 @@ class Dashboard extends Component
             ->get();
     }
 
-    #[Computed]
-    public function completedApplicants()
+    /**
+     * Gemeinsame Basis für Badge-Count UND Liste — Zahl und Inhalt können
+     * per Konstruktion nicht divergieren.
+     */
+    private function completedQuery()
     {
         return $this->applicantBaseQuery()
             ->whereNotNull('enrichment_status')
             ->where('enrichment_status', '!=', 'no_contact')
-            ->whereNotNull('auto_pilot_completed_at')
+            ->whereNotNull('auto_pilot_completed_at');
+    }
+
+    #[Computed]
+    public function completedCount(): int
+    {
+        return $this->completedQuery()->count();
+    }
+
+    /**
+     * Lazy + limitiert: lädt erst bei aufgeklappter Sektion, dann in
+     * 25er-Häppchen. Eager-Loads bewusst OHNE extraFieldValues — die
+     * Abgeschlossen-Karten rendern keinen Extra-Feld-Badge (Blade
+     * verifiziert 2026-07-16).
+     */
+    #[Computed]
+    public function completedApplicants()
+    {
+        if (!$this->showCompleted) {
+            return collect();
+        }
+
+        return $this->completedQuery()
             ->with([
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
-                'extraFieldValues',
                 'preferredCommsChannel',
                 'phase',
             ])
             ->orderByDesc('created_at')
+            ->limit($this->completedLimit)
             ->get();
+    }
+
+    public function toggleCompleted(): void
+    {
+        $this->showCompleted = !$this->showCompleted;
+        // Batch-Maps hängen von der sichtbaren ID-Menge ab → mit invalidieren.
+        $this->clearApplicantCaches();
+    }
+
+    public function loadMoreCompleted(): void
+    {
+        $this->completedLimit += 25;
+        $this->clearApplicantCaches();
     }
 
     #[Computed]
@@ -1129,6 +1167,23 @@ class Dashboard extends Component
                 $this->filterTo   = null;
                 break;
         }
+        $this->refreshDashboard();
+    }
+
+    /**
+     * Dirty-Check für den 15s-Poll: billiges Change-Token vergleichen statt
+     * Voll-Render. skipRender() ist zwingend — Livewire 3 führt render()
+     * sonst bei jedem Poll aus und der Check wäre wirkungslos.
+     * Token-Set im Änderungs-Zweig übernimmt refreshDashboard() selbst
+     * (Lifecycle-Vertrag aus Task 1).
+     */
+    public function checkForUpdates(): void
+    {
+        if ($this->buildChangeToken() === $this->changeToken) {
+            $this->skipRender();
+            return;
+        }
+
         $this->refreshDashboard();
     }
 
