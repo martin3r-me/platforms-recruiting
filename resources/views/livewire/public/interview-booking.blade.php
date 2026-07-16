@@ -40,7 +40,7 @@
                     </svg>
                 </div>
                 <h1 class="text-2xl font-bold text-gray-900 mb-3">Link ungültig</h1>
-                <p class="text-gray-500 text-lg">Dieser Link ist ungültig oder existiert nicht mehr. Bitte kontaktieren Sie die Personalabteilung.</p>
+                <p class="text-gray-500 text-lg">{{ $duzen ? 'Dieser Link ist ungültig oder existiert nicht mehr. Bitte kontaktiere die Personalabteilung.' : 'Dieser Link ist ungültig oder existiert nicht mehr. Bitte kontaktieren Sie die Personalabteilung.' }}</p>
             </div>
         </div>
 
@@ -54,7 +54,7 @@
                     </svg>
                 </div>
                 <h1 class="text-2xl font-bold text-gray-900 mb-3">Bewerbung nicht aktiv</h1>
-                <p class="text-gray-500 text-lg">Ihre Bewerbung ist derzeit nicht aktiv. Bitte kontaktieren Sie die Personalabteilung.</p>
+                <p class="text-gray-500 text-lg">{{ $duzen ? 'Deine Bewerbung ist derzeit nicht aktiv. Bitte kontaktiere die Personalabteilung.' : 'Ihre Bewerbung ist derzeit nicht aktiv. Bitte kontaktieren Sie die Personalabteilung.' }}</p>
             </div>
         </div>
 
@@ -82,7 +82,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
                 <p class="text-sm text-blue-900 leading-snug">
-                    Nimm den Ort der für dich am besten passt, danach kannst du dich nur noch innerhalb des Standortes umbuchen.
+                    {{ $duzen ? 'Nimm den Ort der für dich am besten passt, danach kannst du dich nur noch innerhalb des Standortes umbuchen.' : 'Nehmen Sie den Ort, der für Sie am besten passt — danach können Sie sich nur noch innerhalb des Standortes umbuchen.' }}
                 </p>
             </div>
 
@@ -213,7 +213,7 @@
                                             <button
                                                 type="button"
                                                 x-data
-                                                @click="if (confirm('Möchtest du für diesen Termin wirklich keine Benachrichtigungen mehr bekommen?')) $wire.leaveInterviewWaitlist({{ $interview->id }})"
+                                                @click="if (confirm('{{ $duzen ? 'Möchtest du für diesen Termin wirklich keine Benachrichtigungen mehr bekommen?' : 'Möchten Sie für diesen Termin wirklich keine Benachrichtigungen mehr bekommen?' }}')) $wire.leaveInterviewWaitlist({{ $interview->id }})"
                                                 wire:loading.attr="disabled"
                                                 class="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition-colors"
                                             >
@@ -251,7 +251,7 @@
                     <div class="mt-6 text-center">
                         @if($ortWaiting)
                             <p class="text-sm text-white/70">
-                                Du stehst auf der Warteliste — wir melden uns, sobald es neue Termine für deinen Standort gibt.
+                                {{ $duzen ? 'Du stehst auf der Warteliste — wir melden uns, sobald es neue Termine für deinen Standort gibt.' : 'Sie stehen auf der Warteliste — wir melden uns, sobald es neue Termine für Ihren Standort gibt.' }}
                             </p>
                         @else
                             <button
@@ -285,14 +285,14 @@
                         @endif
                     </div>
                     @if($isWaiting)
-                        <h2 class="text-xl font-bold text-gray-900 mb-3">Du stehst auf der Warteliste</h2>
-                        <p class="text-gray-500 text-lg">Sobald in einem deiner Wunsch-Standorte ein Termin frei wird, melden wir uns automatisch per WhatsApp mit dem Buchungslink.</p>
+                        <h2 class="text-xl font-bold text-gray-900 mb-3">{{ $duzen ? 'Du stehst auf der Warteliste' : 'Sie stehen auf der Warteliste' }}</h2>
+                        <p class="text-gray-500 text-lg">{{ $duzen ? 'Sobald in einem deiner Wunsch-Standorte ein Termin frei wird, melden wir uns automatisch per WhatsApp mit dem Buchungslink.' : 'Sobald in einem Ihrer Wunsch-Standorte ein Termin frei wird, melden wir uns automatisch per WhatsApp mit dem Buchungslink.' }}</p>
                     @elseif($this->waitlistEnabled)
                         <h2 class="text-xl font-bold text-gray-900 mb-3">Keine freien Termine</h2>
                         @if($wasNotified)
-                            <p class="text-gray-500 text-lg mb-6">Der letzte Termin war leider schon voll. Trag dich erneut ein und wir benachrichtigen dich automatisch, sobald wieder ein Termin frei wird.</p>
+                            <p class="text-gray-500 text-lg mb-6">{{ $duzen ? 'Der letzte Termin war leider schon voll. Trag dich erneut ein und wir benachrichtigen dich automatisch, sobald wieder ein Termin frei wird.' : 'Der letzte Termin war leider schon voll. Tragen Sie sich erneut ein und wir benachrichtigen Sie automatisch, sobald wieder ein Termin frei wird.' }}</p>
                         @else
-                            <p class="text-gray-500 text-lg mb-6">Aktuell sind keine freien Termine verfügbar. Trag dich ein und wir benachrichtigen dich automatisch, sobald ein Termin frei wird.</p>
+                            <p class="text-gray-500 text-lg mb-6">{{ $duzen ? 'Aktuell sind keine freien Termine verfügbar. Trag dich ein und wir benachrichtigen dich automatisch, sobald ein Termin frei wird.' : 'Aktuell sind keine freien Termine verfügbar. Tragen Sie sich ein und wir benachrichtigen Sie automatisch, sobald ein Termin frei wird.' }}</p>
                         @endif
                         <button
                             type="button"
@@ -305,7 +305,7 @@
                         </button>
                     @else
                         <h2 class="text-xl font-bold text-gray-900 mb-3">Keine freien Termine</h2>
-                        <p class="text-gray-500 text-lg">Aktuell sind keine freien Termine verfügbar. Bitte versuchen Sie es später erneut.</p>
+                        <p class="text-gray-500 text-lg">{{ $duzen ? 'Aktuell sind keine freien Termine verfügbar. Bitte versuch es später erneut.' : 'Aktuell sind keine freien Termine verfügbar. Bitte versuchen Sie es später erneut.' }}</p>
                     @endif
                 </div>
             @endif
@@ -315,7 +315,7 @@
                 <button
                     type="button"
                     x-data
-                    @click="if (confirm('Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.')) $wire.cancelSchulung()"
+                    @click="if (confirm('{{ $duzen ? 'Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.' : 'Möchten Sie die Schulung wirklich absagen? Sie werden danach von unserem HR-Team kontaktiert.' }}')) $wire.cancelSchulung()"
                     wire:loading.attr="disabled"
                     class="text-sm font-medium text-white/60 hover:text-white/80 underline underline-offset-2 transition-colors"
                 >
@@ -343,7 +343,7 @@
                     </svg>
                 </div>
                 <h1 class="text-2xl font-bold text-gray-900 mb-3">Termin gebucht!</h1>
-                <p class="text-gray-500 text-lg mb-6">Ihr Interview-Termin wurde erfolgreich gebucht.</p>
+                <p class="text-gray-500 text-lg mb-6">{{ $duzen ? 'Dein Interview-Termin wurde erfolgreich gebucht.' : 'Ihr Interview-Termin wurde erfolgreich gebucht.' }}</p>
 
                 @if($booking && $booking->interview)
                     <div class="bg-gray-50 rounded-2xl p-6 text-left mb-6">
@@ -395,7 +395,7 @@
                 <button
                     type="button"
                     x-data
-                    @click="if (confirm('Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.')) $wire.cancelSchulung()"
+                    @click="if (confirm('{{ $duzen ? 'Möchtest du die Schulung wirklich absagen? Du wirst danach von unserem HR-Team kontaktiert.' : 'Möchten Sie die Schulung wirklich absagen? Sie werden danach von unserem HR-Team kontaktiert.' }}')) $wire.cancelSchulung()"
                     wire:loading.attr="disabled"
                     class="text-sm font-medium text-red-500/70 hover:text-red-600 underline underline-offset-2 transition-colors"
                 >
@@ -418,7 +418,7 @@
                     </svg>
                 </div>
                 <h1 class="text-2xl font-bold text-gray-900 mb-3">Absage erhalten</h1>
-                <p class="text-gray-500 text-lg">Schade, dass du nicht teilnehmen kannst. Unser HR-Team wird sich in Kürze bei dir melden um die nächsten Schritte zu besprechen.</p>
+                <p class="text-gray-500 text-lg">{{ $duzen ? 'Schade, dass du nicht teilnehmen kannst. Unser HR-Team wird sich in Kürze bei dir melden um die nächsten Schritte zu besprechen.' : 'Schade, dass Sie nicht teilnehmen können. Unser HR-Team wird sich in Kürze bei Ihnen melden um die nächsten Schritte zu besprechen.' }}</p>
             </div>
         </div>
     @endif

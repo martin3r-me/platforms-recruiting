@@ -14,6 +14,7 @@ class ApplicantPortal extends Component
     public ?string $applicantToken = null;
     public string $applicantName = '';
     public array $contracts = [];
+    public bool $duzen = false;
 
     public function mount(string $token): void
     {
@@ -44,6 +45,7 @@ class ApplicantPortal extends Component
         ]);
 
         $this->applicantId = $applicant->id;
+        $this->duzen = $applicant->usesInformalAddress();
         $contact = $applicant->crmContactLinks->first()?->contact;
         $this->applicantName = trim(($contact?->first_name ?? '') . ' ' . ($contact?->last_name ?? '')) ?: 'Bewerber';
 

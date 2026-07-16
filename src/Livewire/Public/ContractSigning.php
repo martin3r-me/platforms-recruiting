@@ -28,6 +28,8 @@ class ContractSigning extends Component
     /** URL zurück ins Bewerber-Portal mit allen Verträgen — nach Signieren angezeigt */
     public ?string $portalUrl = null;
 
+    public bool $duzen = false;
+
     public function mount(string $token): void
     {
         $link = CorePublicFormLink::where('token', $token)->first();
@@ -48,6 +50,8 @@ class ContractSigning extends Component
             $this->state = 'invalid';
             return;
         }
+
+        $this->duzen = $contract->applicant?->usesInformalAddress() ?? false;
 
         if ($contract->status === 'completed' || $contract->signed_at) {
             $this->state = 'already_signed';
@@ -116,7 +120,9 @@ class ContractSigning extends Component
         $this->validate([
             'signatureData' => 'required',
         ], [
-            'signatureData.required' => 'Bitte unterschreiben Sie den Vertrag.',
+            'signatureData.required' => $this->duzen
+                ? 'Bitte unterschreibe den Vertrag.'
+                : 'Bitte unterschreiben Sie den Vertrag.',
         ]);
 
         $contract = RecContract::find($this->contractId);

@@ -20,7 +20,7 @@
             <div class="p-6 bg-red-50 border border-red-200 rounded-lg text-center">
                 @svg('heroicon-o-exclamation-triangle', 'w-10 h-10 text-red-600 mx-auto mb-3')
                 <h2 class="text-lg font-medium text-red-900 mb-1">Link ungueltig</h2>
-                <p class="text-sm text-red-700">Dieser Link ist nicht gueltig oder das Konto ist nicht aktiv. Bitte wenden Sie sich an Ihre Ansprechperson.</p>
+                <p class="text-sm text-red-700">{{ $duzen ? 'Dieser Link ist nicht gueltig oder das Konto ist nicht aktiv. Bitte wende dich an deine Ansprechperson.' : 'Dieser Link ist nicht gueltig oder das Konto ist nicht aktiv. Bitte wenden Sie sich an Ihre Ansprechperson.' }}</p>
             </div>
 
         {{-- RATE LIMITED --}}
@@ -28,7 +28,7 @@
             <div class="p-6 bg-amber-50 border border-amber-200 rounded-lg text-center">
                 @svg('heroicon-o-shield-exclamation', 'w-10 h-10 text-amber-600 mx-auto mb-3')
                 <h2 class="text-lg font-medium text-amber-900 mb-1">Zu viele Versuche</h2>
-                <p class="text-sm text-amber-700">Aus Sicherheitsgruenden wurde der Zugang vorruebergehend gesperrt. Bitte versuchen Sie es in 15 Minuten erneut.</p>
+                <p class="text-sm text-amber-700">{{ $duzen ? 'Aus Sicherheitsgruenden wurde der Zugang vorruebergehend gesperrt. Bitte versuch es in 15 Minuten erneut.' : 'Aus Sicherheitsgruenden wurde der Zugang vorruebergehend gesperrt. Bitte versuchen Sie es in 15 Minuten erneut.' }}</p>
             </div>
 
         {{-- UNVERIFIED — LOGIN FORM --}}
@@ -36,7 +36,7 @@
             <div class="bg-white border border-[var(--ui-border)] rounded-lg shadow-sm p-6">
                 <div class="mb-4">
                     <h2 class="text-lg font-medium text-[var(--ui-secondary)]">Anmeldung</h2>
-                    <p class="text-sm text-[var(--ui-muted)] mt-1">Bitte verifizieren Sie sich mit Ihrem Geburtsdatum und den letzten 4 Ziffern Ihrer Ausweisnummer.</p>
+                    <p class="text-sm text-[var(--ui-muted)] mt-1">{{ $duzen ? 'Bitte verifiziere dich mit deinem Geburtsdatum und den letzten 4 Ziffern deiner Ausweisnummer.' : 'Bitte verifizieren Sie sich mit Ihrem Geburtsdatum und den letzten 4 Ziffern Ihrer Ausweisnummer.' }}</p>
                 </div>
 
                 <form wire:submit.prevent="verify" class="space-y-4">
@@ -52,7 +52,7 @@
                     </div>
 
                     <div>
-                        <label for="idCardLast4" class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Letzte 4 Ziffern Ihrer Ausweisnummer</label>
+                        <label for="idCardLast4" class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">{{ $duzen ? 'Letzte 4 Ziffern deiner Ausweisnummer' : 'Letzte 4 Ziffern Ihrer Ausweisnummer' }}</label>
                         <input
                             type="text"
                             id="idCardLast4"
@@ -91,7 +91,7 @@
 
             {{-- VERTRAEGE SECTION --}}
             <div class="mb-6">
-                <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">Ihre Vertraege</h2>
+                <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">{{ $duzen ? 'Deine Vertraege' : 'Ihre Vertraege' }}</h2>
                 @if(empty($contractsList))
                     <div class="p-6 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg text-center">
                         <p class="text-sm text-[var(--ui-muted)]">Keine Vertraege hinterlegt.</p>
@@ -117,7 +117,7 @@
                                             @elseif($c['status'] === 'sent')
                                                 <span class="inline-flex items-center gap-1 text-blue-700">
                                                     @svg('heroicon-o-pencil', 'w-4 h-4')
-                                                    Wartet auf Ihre Unterschrift
+                                                    {{ $duzen ? 'Wartet auf deine Unterschrift' : 'Wartet auf Ihre Unterschrift' }}
                                                 </span>
                                             @elseif($c['status'] === 'in_progress')
                                                 <span class="inline-flex items-center gap-1 text-amber-700">
@@ -197,7 +197,7 @@
             {{-- STAMMDATEN — Direct-Edit fuer alle editierbaren Felder --}}
             <div class="mb-6">
                 <h2 class="text-base font-semibold text-[var(--ui-secondary)] mb-3">Meine Daten</h2>
-                <p class="text-xs text-[var(--ui-muted)] mb-4">Diese Daten kannst du jederzeit ändern. Anpassungen werden mit dem Button "Speichern" unten übernommen. Dateien werden direkt beim Hochladen gespeichert.</p>
+                <p class="text-xs text-[var(--ui-muted)] mb-4">{{ $duzen ? 'Diese Daten kannst du jederzeit ändern. Anpassungen werden mit dem Button "Speichern" unten übernommen. Dateien werden direkt beim Hochladen gespeichert.' : 'Diese Daten können Sie jederzeit ändern. Anpassungen werden mit dem Button "Speichern" unten übernommen. Dateien werden direkt beim Hochladen gespeichert.' }}</p>
 
                 @php
                     $fileUploadProps = [

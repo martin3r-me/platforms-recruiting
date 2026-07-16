@@ -21,6 +21,7 @@ class InterviewBooking extends Component
     public ?int $applicantId = null;
     public string $applicantName = '';
     public ?int $teamId = null;
+    public bool $duzen = false;
 
     public function mount(string $publicToken): void
     {
@@ -59,6 +60,7 @@ class InterviewBooking extends Component
         $this->applicantName = $contact->full_name ?? 'Bewerber';
         $this->applicantId = $applicant->id;
         $this->teamId = $applicant->team_id;
+        $this->duzen = $applicant->usesInformalAddress();
 
         // Kein eigener "waitlisted"-State: Buchen läuft IMMER über die normale
         // Auswahl. Ob jemand auf der Warteliste steht, leitet die Empty-Box am

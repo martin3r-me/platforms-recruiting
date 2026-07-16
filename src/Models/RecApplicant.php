@@ -11,7 +11,7 @@ use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
 use Platform\Recruiting\Traits\HasApplicantContact;
-use Platform\Recruiting\Traits\RendersPublicFormCompletionExtras;
+use Platform\Recruiting\Traits\ResolvesPublicAddressStyle;
 use Platform\Recruiting\Traits\UsesAccordionPublicForm;
 use Platform\Hcm\Traits\SyncsCrmContactFields;
 use Symfony\Component\Uid\UuidV7;
@@ -26,9 +26,9 @@ class RecApplicant extends Model implements InheritsExtraFields
         getExtraFieldsWithLabels as private getExtraFieldsWithLabelsBase;
     }
     use HasPublicFormLink;
+    use ResolvesPublicAddressStyle;
     use SyncsCrmContactFields;
     use UsesAccordionPublicForm;
-    use RendersPublicFormCompletionExtras;
 
     protected $table = 'rec_applicants';
 
@@ -680,6 +680,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         return view('recruiting::partials.public-form-completion', [
             'interview' => $booking->interview,
             'booking'   => $booking,
+            'duzen'     => $this->usesInformalAddress(),
         ])->render();
     }
 

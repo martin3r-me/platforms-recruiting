@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Platform\Crm\Models\CrmContactLink;
+use Platform\Recruiting\Traits\ResolvesPublicAddressStyle;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -22,6 +23,8 @@ use Symfony\Component\Uid\UuidV7;
  */
 class RecEmployee extends Model
 {
+    use ResolvesPublicAddressStyle;
+
     protected $table = 'rec_employees';
 
     protected $fillable = [

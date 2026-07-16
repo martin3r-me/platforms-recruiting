@@ -81,7 +81,7 @@
                                    class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
                             <div>
                                 <span class="text-sm font-medium text-[var(--ui-secondary)]">Informelle Anrede (Duzen)</span>
-                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Bewerber werden in der Kommunikation geduzt</p>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Bewerber und Mitarbeiter werden auf allen öffentlichen Seiten (Formulare, Terminbuchung, Portale, Verträge) geduzt</p>
                             </div>
                         </label>
                     </div>

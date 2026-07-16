@@ -30,6 +30,7 @@ class EmployeePortal extends Component
     public ?int $employeeId = null;
     public string $token = '';
     public string $displayName = '';
+    public bool $duzen = false;
 
     // Login-Form
     public string $birthDateInput = '';
@@ -80,6 +81,7 @@ class EmployeePortal extends Component
 
         $this->employeeId = $employee->id;
         $this->displayName = trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) ?: 'Mitarbeiter';
+        $this->duzen = $employee->usesInformalAddress();
 
         // Initial-Werte fuer alle editierbaren Felder laden (Direct-Edit-UX)
         $this->loadFieldValues($employee);

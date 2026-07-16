@@ -12,7 +12,7 @@
             <div class="bg-white rounded-lg border border-yellow-200 p-12 text-center">
                 @svg('heroicon-o-clock', 'w-16 h-16 text-yellow-400 mx-auto mb-4')
                 <h2 class="text-xl font-bold text-gray-900 mb-2">Link abgelaufen</h2>
-                <p class="text-gray-500">Dieser Link ist abgelaufen. Bitte kontaktieren Sie Ihren Arbeitgeber.</p>
+                <p class="text-gray-500">{{ $duzen ? 'Dieser Link ist abgelaufen. Bitte kontaktiere deinen Arbeitgeber.' : 'Dieser Link ist abgelaufen. Bitte kontaktieren Sie Ihren Arbeitgeber.' }}</p>
             </div>
         @elseif($state === 'already_signed')
             <div class="bg-white rounded-lg border border-green-200 p-12 text-center">
@@ -25,7 +25,7 @@
                         @svg('heroicon-o-arrow-uturn-left', 'w-4 h-4')
                         Zurück zu meinen Verträgen
                     </a>
-                    <p class="text-xs text-gray-400 mt-4">Dort sehen Sie alle weiteren Dokumente, die noch zur Unterschrift anstehen.</p>
+                    <p class="text-xs text-gray-400 mt-4">{{ $duzen ? 'Dort siehst du alle weiteren Dokumente, die noch zur Unterschrift anstehen.' : 'Dort sehen Sie alle weiteren Dokumente, die noch zur Unterschrift anstehen.' }}</p>
                 @endif
             </div>
         @elseif($state === 'loading')
@@ -67,7 +67,7 @@
                     <div class="bg-white rounded-lg border border-gray-200 p-8">
                         <h2 class="text-xl font-bold text-gray-900 mb-2">Angaben nach §15 — Kurzfristige Beschäftigungen</h2>
                         <p class="text-gray-500 text-sm mb-6">
-                            Waren Sie in den letzten 12 Monaten kurzfristig beschäftigt?
+                            {{ $duzen ? 'Warst du in den letzten 12 Monaten kurzfristig beschäftigt?' : 'Waren Sie in den letzten 12 Monaten kurzfristig beschäftigt?' }}
                         </p>
 
                         <div class="space-y-4">
@@ -134,7 +134,7 @@
 
                                     @if(count($par15Entries) === 0)
                                         <p class="text-sm text-gray-400 text-center py-4">
-                                            Noch keine Einträge. Klicken Sie auf "Eintrag hinzufügen".
+                                            {{ $duzen ? 'Noch keine Einträge. Klick auf "Eintrag hinzufügen".' : 'Noch keine Einträge. Klicken Sie auf "Eintrag hinzufügen".' }}
                                         </p>
                                     @endif
                                     @error('par15Entries') <span class="text-sm text-red-500">{{ $message }}</span> @enderror
@@ -147,7 +147,7 @@
                     <div class="bg-white rounded-lg border border-gray-200 p-8">
                         <h2 class="text-xl font-bold text-gray-900 mb-2">Angaben nach §16 — Beschäftigungslose Zeiten</h2>
                         <p class="text-gray-500 text-sm mb-6">
-                            Waren Sie in den letzten 12 Monaten bei der Arbeitsagentur als arbeitssuchend gemeldet?
+                            {{ $duzen ? 'Warst du in den letzten 12 Monaten bei der Arbeitsagentur als arbeitssuchend gemeldet?' : 'Waren Sie in den letzten 12 Monaten bei der Arbeitsagentur als arbeitssuchend gemeldet?' }}
                         </p>
 
                         <div class="space-y-4">
@@ -207,7 +207,7 @@
 
                                     @if(count($par16Entries) === 0)
                                         <p class="text-sm text-gray-400 text-center py-4">
-                                            Noch keine Einträge. Klicken Sie auf "Eintrag hinzufügen".
+                                            {{ $duzen ? 'Noch keine Einträge. Klick auf "Eintrag hinzufügen".' : 'Noch keine Einträge. Klicken Sie auf "Eintrag hinzufügen".' }}
                                         </p>
                                     @endif
                                     @error('par16Entries') <span class="text-sm text-red-500">{{ $message }}</span> @enderror
@@ -240,12 +240,15 @@
                     <div class="bg-white rounded-lg border border-gray-200 p-8">
                         <h3 class="text-lg font-bold text-gray-900 mb-4">Unterschrift</h3>
                         <p class="text-sm text-gray-500 mb-4">
-                            Mit Ihrer Unterschrift bestätigen Sie, dass Sie den Vertrag gelesen haben und die oben gemachten Angaben korrekt sind.
+                            {{ $duzen ? 'Mit deiner Unterschrift bestätigst du, dass du den Vertrag gelesen hast und die oben gemachten Angaben korrekt sind.' : 'Mit Ihrer Unterschrift bestätigen Sie, dass Sie den Vertrag gelesen haben und die oben gemachten Angaben korrekt sind.' }}
                         </p>
 
+                        @php
+                            $signatureLabel = $duzen ? 'Deine Unterschrift' : 'Ihre Unterschrift';
+                        @endphp
                         <x-ui-input-signature
                             name="signatureData"
-                            label="Ihre Unterschrift"
+                            :label="$signatureLabel"
                             wire:model="signatureData"
                             :required="true"
                             :height="200"
