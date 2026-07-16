@@ -17,6 +17,7 @@ class RecInterviewType extends Model
     protected $fillable = [
         'uuid',
         'name',
+        'genus',
         'code',
         'description',
         'sort_order',

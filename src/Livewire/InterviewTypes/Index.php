@@ -13,6 +13,7 @@ class Index extends Component
 
     public $editingId = null;
     public $name = '';
+    public $genus = null;
     public $code = '';
     public $description = '';
     public $sort_order = 0;
@@ -20,6 +21,7 @@ class Index extends Component
 
     protected $rules = [
         'name' => 'required|string|max:255',
+        'genus' => 'nullable|in:m,f,n',
         'code' => 'nullable|string|max:20',
         'description' => 'nullable|string',
         'sort_order' => 'integer|min:0',
@@ -53,6 +55,7 @@ class Index extends Component
         $m = RecInterviewType::findOrFail($id);
         $this->editingId = $m->id;
         $this->name = $m->name;
+        $this->genus = $m->genus;
         $this->code = $m->code;
         $this->description = $m->description;
         $this->sort_order = $m->sort_order;
@@ -66,6 +69,7 @@ class Index extends Component
 
         $data = [
             'name' => $this->name,
+            'genus' => $this->genus ?: null,
             'code' => $this->code,
             'description' => $this->description,
             'sort_order' => $this->sort_order,
@@ -111,6 +115,7 @@ class Index extends Component
     {
         $this->editingId = null;
         $this->name = '';
+        $this->genus = null;
         $this->code = '';
         $this->description = '';
         $this->sort_order = 0;
