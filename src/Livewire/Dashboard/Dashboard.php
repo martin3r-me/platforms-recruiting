@@ -352,11 +352,12 @@ class Dashboard extends Component
     }
 
     /**
-     * Returns the applicants used for both positionStats and activityStats:
-     * the active, non-parked, non-HR-desk, non-rejected pool inside the date range,
-     * eager-loaded with postings.position, interviewBookings and contracts.
+     * Gemeinsamer Pool für positionStats UND activityStats — als Computed,
+     * damit er pro Request nur EINMAL geladen wird (vorher: 2x identische
+     * Voll-Ladung des Team-Bewerberpools inkl. Eager-Loads).
      */
-    private function statsApplicantPool()
+    #[Computed]
+    public function statsApplicantPool()
     {
         $teamId = auth()->user()->currentTeam->id;
 
@@ -430,7 +431,7 @@ class Dashboard extends Component
     #[Computed]
     public function positionStats(): array
     {
-        $applicants = $this->statsApplicantPool();
+        $applicants = $this->statsApplicantPool;
 
         $stats = [];
         $noPosition = [];
@@ -514,7 +515,7 @@ class Dashboard extends Component
     #[Computed]
     public function activityStats(): array
     {
-        $applicants = $this->statsApplicantPool();
+        $applicants = $this->statsApplicantPool;
 
         $stats = [];
         $noActivity = [];
