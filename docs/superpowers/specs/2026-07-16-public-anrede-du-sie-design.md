@@ -43,7 +43,7 @@ Alle öffentlichen Seiten (Bewerber-Formulare, Interview-Booking, Portale, Vertr
 | Datei | Inhalt |
 |---|---|
 | `src/Support/PublicAddressStyle.php` | Pure-PHP: `informal(mixed $value): bool` — normalisiert den Setting-Wert (true/`'1'`/1 → true; false/null/Müll → false). Single Source of Truth für den Default Sie. |
-| `src/Models/Concerns/ResolvesPublicAddressStyle.php` | Trait `usesInformalAddress(): bool` — `RecApplicantSettings::getOrCreateForTeam($this->team_id)->getSetting('use_informal_address')`, normalisiert via `PublicAddressStyle`. |
+| `src/Traits/ResolvesPublicAddressStyle.php` | Trait `usesInformalAddress(): bool` — `RecApplicantSettings::getOrCreateForTeam($this->team_id)->getSetting('use_informal_address')`, normalisiert via `PublicAddressStyle`. (Pfad folgt Modul-Konvention `src/Traits/`.) |
 | `tests/Unit/PublicAddressStyleTest.php` | Pure-Unit-Tests: true, false, null, `'1'`/`'0'`, ungültiger Wert. |
 
 ### platforms-recruiting — geänderte Dateien
@@ -63,7 +63,7 @@ Alle öffentlichen Seiten (Bewerber-Formulare, Interview-Booking, Portale, Vertr
 | `resources/views/partials/public-form-completion.blade.php` | heute hardcoded du → beide Varianten via `$duzen`-Parameter |
 | `resources/views/livewire/applicant/applicant-settings-modal.blade.php` | nur Beschreibungstext des vorhandenen Toggles ergänzen: gilt auch für öffentliche Seiten (Z. 84) |
 
-**Dead Code (Befund, optionaler Cleanup):** `RecApplicant` bindet `src/Traits/RendersPublicFormCompletionExtras.php` ein (Z. 31), definiert die Methode aber selbst (Z. 667) — die Klassen-Methode gewinnt, die Trait-Version und das von ihr gerenderte Partial `public-form-completion-schulung.blade.php` laufen nie (kein anderes Modell nutzt den Trait). Beide werden NICHT variant gemacht; Entfernung als separater Cleanup-Schritt im Plan.
+**Dead Code (verifiziert 2026-07-16, wird gelöscht):** `RecApplicant` bindet `src/Traits/RendersPublicFormCompletionExtras.php` ein (Z. 31), definiert die Methode aber selbst (Z. 667) — die Klassen-Methode gewinnt. Frischer Grep über Modul UND Core (Views + PHP): `public-form-completion-schulung` wird ausschließlich in der überschriebenen Trait-Methode referenziert, kein `@include`, keine zweite Renderstelle. Trait + Partial werden im Zuge dieser Umsetzung **gelöscht** (inkl. `use`-Zeile in RecApplicant). Ebenfalls verifiziert: `RecEmployee`/`EmployeePortal` referenzieren kein Completion-Partial und implementieren den Hook nicht — die `$duzen`-Durchreichung nur in `RecApplicant::renderPublicFormCompletionExtras()` ist vollständig.
 
 Der Text-Audit bei der Umsetzung muss neben den Views auch PHP-Strings erfassen (Validierungs-/Fehlermeldungen in `src/Livewire/Public/` und `src/Tools/`); Stand heute ist `ContractSigning.php:119` die einzige bekannte PHP-Fundstelle.
 
