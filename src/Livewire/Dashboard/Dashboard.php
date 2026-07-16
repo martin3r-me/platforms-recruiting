@@ -17,6 +17,7 @@ use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Services\Dashboard\DashboardChangeToken;
+use Platform\Recruiting\Services\Dashboard\WhatsAppWindowResolver;
 
 class Dashboard extends Component
 {
@@ -885,6 +886,31 @@ class Dashboard extends Component
             ->toArray();
     }
 
+    /**
+     * Batch: MAX(last_inbound_at) je sichtbarem Bewerber in EINER Query
+     * statt einer Thread-Query pro Karte. context_model deckt beide
+     * historischen Schreibweisen ab (Morph-Alias + FQCN); groupBy nur auf
+     * context_model_id merged beide Varianten aufs MAX.
+     */
+    #[Computed]
+    public function whatsAppWindowMap(): array
+    {
+        $ids = $this->visibleApplicantIds();
+        if (empty($ids)) {
+            return [];
+        }
+
+        $lastInbound = CommsWhatsAppThread::query()
+            ->whereIn('context_model', [(new RecApplicant())->getMorphClass(), RecApplicant::class])
+            ->whereIn('context_model_id', $ids)
+            ->groupBy('context_model_id')
+            ->selectRaw('context_model_id, MAX(last_inbound_at) AS max_last_inbound_at')
+            ->pluck('max_last_inbound_at', 'context_model_id')
+            ->all();
+
+        return WhatsAppWindowResolver::windowMap($lastInbound, now()->toImmutable());
+    }
+
     public function getExtraFieldCounts(RecApplicant $applicant): array
     {
         $fields = $applicant->getExtraFieldsWithLabels();
@@ -936,27 +962,8 @@ class Dashboard extends Component
             ];
         }
 
-        // Check if 24h window is open by finding a WhatsApp thread
-        $windowOpen = false;
-        $morphClass = $applicant->getMorphClass();
-        $fullClass = get_class($applicant);
-
-        $thread = CommsWhatsAppThread::query()
-            ->where(function ($q) use ($morphClass, $fullClass, $applicant) {
-                $q->where(function ($q2) use ($morphClass, $applicant) {
-                    $q2->where('context_model', $morphClass)
-                        ->where('context_model_id', $applicant->id);
-                })->orWhere(function ($q2) use ($fullClass, $applicant) {
-                    $q2->where('context_model', $fullClass)
-                        ->where('context_model_id', $applicant->id);
-                });
-            })
-            ->orderByDesc('last_inbound_at')
-            ->first();
-
-        if ($thread && $thread->isWindowOpen()) {
-            $windowOpen = true;
-        }
+        // 24h-Fenster: gebatcht über whatsAppWindowMap (eine Query für alle Karten)
+        $windowOpen = $this->whatsAppWindowMap[$applicant->id] ?? false;
 
         return [
             'color' => $windowOpen ? 'green' : 'yellow',
