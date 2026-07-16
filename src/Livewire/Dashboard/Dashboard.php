@@ -16,7 +16,9 @@ use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Recruiting\Models\RecPosting;
+use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Recruiting\Services\Dashboard\DashboardChangeToken;
+use Platform\Recruiting\Services\Dashboard\ExtraFieldCounts;
 use Platform\Recruiting\Services\Dashboard\WhatsAppWindowResolver;
 
 class Dashboard extends Component
@@ -266,7 +268,7 @@ class Dashboard extends Component
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
-                'extraFieldValues',
+                'extraFieldValues.definition',
                 'preferredCommsChannel',
                 'phase',
             ])
@@ -627,7 +629,7 @@ class Dashboard extends Component
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
-                'extraFieldValues',
+                'extraFieldValues.definition',
                 'preferredCommsChannel',
             ])
             ->orderByDesc('created_at')
@@ -643,7 +645,7 @@ class Dashboard extends Component
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
-                'extraFieldValues',
+                'extraFieldValues.definition',
                 'preferredCommsChannel',
             ])
             ->orderByDesc('created_at')
@@ -661,7 +663,7 @@ class Dashboard extends Component
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'postings.position',
-                'extraFieldValues',
+                'extraFieldValues.definition',
                 'preferredCommsChannel',
                 'phase',
             ])
@@ -911,7 +913,70 @@ class Dashboard extends Component
         return WhatsAppWindowResolver::windowMap($lastInbound, now()->toImmutable());
     }
 
+    /**
+     * Batch: Extra-Feld-Zähler für alle Karten mit Badge (Inbox, NeedsReview,
+     * Phasen-Boards — Abgeschlossen rendert keinen Badge). Die Definitions-
+     * Liste ist eine reine Funktion der Phase (extraFieldParents) und wird
+     * einmal pro Gruppe über einen Repräsentanten aufgelöst — die Core-
+     * Merge-Logik wird nicht dupliziert. Werte kommen aus den eager-
+     * geladenen extraFieldValues (mit .definition — typed_value braucht den
+     * Definition-Type). Bewerber mit instanzspezifischen Definitionen
+     * (praktisch: keine) fallen auf den Einzelpfad zurück.
+     */
+    #[Computed]
+    public function extraFieldCountsMap(): array
+    {
+        $applicants = collect($this->phasedApplicants)->flatten()
+            ->merge($this->inboxApplicants)
+            ->merge($this->needsReviewApplicants)
+            ->unique('id')
+            ->values();
+
+        if ($applicants->isEmpty()) {
+            return [];
+        }
+
+        $instanceSpecificIds = CoreExtraFieldDefinition::query()
+            ->where('context_type', RecApplicant::class)
+            ->whereIn('context_id', $applicants->pluck('id'))
+            ->pluck('context_id')
+            ->flip();
+
+        $definitionIdsByGroup = [];
+        $map = [];
+        foreach ($applicants as $applicant) {
+            if (isset($instanceSpecificIds[$applicant->id])) {
+                $map[$applicant->id] = $this->legacyExtraFieldCounts($applicant);
+                continue;
+            }
+
+            $group = $applicant->import_source
+                ? 'import'
+                : 'phase_' . ($applicant->rec_phase_id ?? 'none');
+            if (!array_key_exists($group, $definitionIdsByGroup)) {
+                $definitionIdsByGroup[$group] = $applicant->getExtraFieldDefinitions()->pluck('id')->all();
+            }
+
+            $values = $applicant->extraFieldValues
+                ->mapWithKeys(fn ($v) => [$v->definition_id => $v->typed_value])
+                ->all();
+
+            $map[$applicant->id] = ExtraFieldCounts::forApplicant($definitionIdsByGroup[$group], $values);
+        }
+
+        return $map;
+    }
+
     public function getExtraFieldCounts(RecApplicant $applicant): array
+    {
+        return $this->extraFieldCountsMap[$applicant->id] ?? $this->legacyExtraFieldCounts($applicant);
+    }
+
+    /**
+     * Einzelpfad (bisheriges Verhalten) — nur noch Fallback für Bewerber mit
+     * instanzspezifischen Definitionen oder außerhalb der Batch-Listen.
+     */
+    private function legacyExtraFieldCounts(RecApplicant $applicant): array
     {
         $fields = $applicant->getExtraFieldsWithLabels();
         $total = count($fields);
