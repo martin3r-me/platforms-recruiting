@@ -89,6 +89,11 @@ class RecEmployee extends Model
         'residence_permit_valid_until',
         'work_permit_valid_until',
 
+        // Arbeitsschutz
+        'is_first_aider',
+        'first_aider_valid_until',
+        'is_safety_officer',
+
         'is_eu_citizen',
         'nationalpass_file_id',
         'aufenthaltstitel_front_file_id',
@@ -136,6 +141,10 @@ class RecEmployee extends Model
         'infection_protection_first_issued_at'  => 'date',
         'residence_permit_valid_until'          => 'date',
         'work_permit_valid_until'               => 'date',
+        // Arbeitsschutz
+        'is_first_aider'                        => 'boolean',
+        'first_aider_valid_until'               => 'date',
+        'is_safety_officer'                     => 'boolean',
         'number_of_children'                    => 'integer',
         'pants_size'                            => 'integer',
         'shoe_size'                             => 'integer',
