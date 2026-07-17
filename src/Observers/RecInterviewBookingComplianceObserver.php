@@ -24,7 +24,10 @@ class RecInterviewBookingComplianceObserver
     {
         RecInterviewBooking::saved(static function (RecInterviewBooking $booking): void {
             self::safelyRun(function () use ($booking): void {
-                if (!$booking->wasChanged('status')) {
+                // wasChanged greift nur bei Updates — ein Insert direkt mit
+                // status='attended' (heute kein Pfad, aber Gate-Matrix deckt
+                // null→attended ab) läuft über wasRecentlyCreated.
+                if (!$booking->wasRecentlyCreated && !$booking->wasChanged('status')) {
                     return;
                 }
 
