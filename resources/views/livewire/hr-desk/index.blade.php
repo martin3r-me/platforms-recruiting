@@ -194,6 +194,97 @@
                                         @endif
                                     </div>
                                 @endif
+
+                                {{-- Vertrags-Versand vom Schreibtisch (Nachbereitung-Semantik) --}}
+                                @php
+                                    $isNonEuCase = $case->reason === \Platform\Recruiting\Models\RecHrDeskCase::REASON_NON_EU_CITIZEN;
+                                    $hasAttended = $applicant && isset($this->attendedApplicantIds[$applicant->id]);
+                                    $showSendSection = $isNonEuCase && $hasAttended && $legalStatus;
+                                    $deskFields = $applicant ? ($deskContractDates[$applicant->id] ?? []) : [];
+                                    $deskBeginn = $deskFields['vertragsbeginn'] ?? '';
+                                    $deskEnde = $deskFields['vertragsende'] ?? '';
+                                    $sendState = $showSendSection
+                                        ? \Platform\Recruiting\Services\ContractSendEligibility::state(
+                                            (bool) $applicant->hasAnyContractSent(),
+                                            (bool) $applicant->isLegalStatusUnchecked(),
+                                            !empty($deskBeginn),
+                                            $applicant->zuschlag !== null,
+                                        )
+                                        : null;
+                                    $sendReady = $sendState === 'ready' || $sendState === 'already_sent';
+                                    $shownTpl = $applicant?->contractTemplate ?? $this->defaultContractTemplate;
+                                @endphp
+                                @if($showSendSection)
+                                    <div class="mt-3 p-3 rounded-md border border-blue-200 bg-blue-50/60">
+                                        <div class="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-2">
+                                            Verträge &amp; Portallink (nach Schulung)
+                                        </div>
+                                        <div class="flex flex-wrap items-end gap-3">
+                                            <div>
+                                                <label class="block text-[11px] font-medium text-gray-700 mb-0.5">AV-Vorlage</label>
+                                                @if($shownTpl)
+                                                    <div class="text-xs px-2 py-1 rounded bg-white border border-gray-300 text-gray-700">
+                                                        {{ $shownTpl->code ? $shownTpl->code . ' — ' : '' }}{{ $shownTpl->name }}
+                                                    </div>
+                                                @else
+                                                    <div class="text-xs text-red-700">AV-default-Vorlage fehlt oder ist inaktiv.</div>
+                                                @endif
+                                            </div>
+                                            <div>
+                                                <label class="block text-[11px] font-medium text-gray-700 mb-0.5">Zuschlag €/Std</label>
+                                                <input
+                                                    type="text"
+                                                    inputmode="decimal"
+                                                    value="{{ $applicant->zuschlag !== null ? number_format((float) $applicant->zuschlag, 2, ',', '.') : '' }}"
+                                                    wire:change="setDeskZuschlag({{ $applicant->id }}, $event.target.value)"
+                                                    placeholder="z.B. 0,60"
+                                                    class="text-xs border border-gray-300 rounded px-2 py-1 w-[110px]"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label class="block text-[11px] font-medium text-gray-700 mb-0.5">Vertragsbeginn</label>
+                                                <input
+                                                    type="date"
+                                                    value="{{ $deskBeginn }}"
+                                                    wire:change="setDeskContractDate({{ $applicant->id }}, 'vertragsbeginn', $event.target.value)"
+                                                    class="text-xs border border-gray-300 rounded px-2 py-1"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label class="block text-[11px] font-medium text-gray-700 mb-0.5">Vertragsende</label>
+                                                <input
+                                                    type="date"
+                                                    value="{{ $deskEnde }}"
+                                                    wire:change="setDeskContractDate({{ $applicant->id }}, 'vertragsende', $event.target.value)"
+                                                    class="text-xs border border-gray-300 rounded px-2 py-1"
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                wire:click="sendContractsFromDesk({{ $case->id }})"
+                                                wire:loading.attr="disabled"
+                                                @disabled(!$sendReady)
+                                                @class([
+                                                    'px-3 py-1.5 text-xs font-semibold rounded-md border',
+                                                    'border-blue-300 text-white bg-blue-600 hover:bg-blue-700' => $sendReady,
+                                                    'border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed' => !$sendReady,
+                                                ])
+                                            >
+                                                Portallink &amp; Verträge versenden
+                                            </button>
+                                        </div>
+                                        @if($sendState === 'legal_blocked')
+                                            <p class="text-[11px] text-amber-800 mt-2">Erst Rechtsstatus prüfen — dann wird der Versand aktiv.</p>
+                                        @elseif($sendState === 'missing_beginn')
+                                            <p class="text-[11px] text-gray-600 mt-2">Vertragsbeginn setzen (Ende leer = Auto: +1 Jahr, Anfang Monat, −1 Tag).</p>
+                                        @elseif($sendState === 'missing_zuschlag')
+                                            <p class="text-[11px] text-gray-600 mt-2">Zuschlag setzen.</p>
+                                        @elseif($sendState === 'already_sent')
+                                            <p class="text-[11px] text-emerald-700 mt-2">Verträge bereits versendet — Klick schließt nur noch den Fall.</p>
+                                        @endif
+                                        <p class="text-[11px] text-gray-500 mt-1">Zusatzvertrag (oben) wird automatisch mitversendet. Alternativ: "Freigeben" ohne Versand — dann sendet der Schulungsleiter.</p>
+                                    </div>
+                                @endif
                             </div>
 
                             <div class="flex flex-col gap-2 flex-shrink-0">

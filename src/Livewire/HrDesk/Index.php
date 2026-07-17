@@ -7,8 +7,12 @@ use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Exceptions\LegalStatusNotCheckedException;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecHrDeskCase;
+use Platform\Recruiting\Models\RecInterviewBooking;
+use Platform\Recruiting\Services\ContractDispatchService;
+use Platform\Recruiting\Services\ContractSendEligibility;
 use Platform\Recruiting\Services\HrDeskRoutingService;
 
 /**
@@ -68,6 +72,8 @@ class Index extends Component
                 'applicant.phase',
                 'applicant.postings.position',
                 'applicant.legalStatus.additionalContractTemplate',
+                'applicant.contractTemplate',
+                'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
             ])
             ->whereHas('applicant', function ($q) {
                 $q->where('is_active', true)
@@ -215,6 +221,166 @@ class Index extends Component
             : 'Zusatzvertrag entfernt.');
 
         unset($this->cases);
+    }
+
+    /** Vertragslaufzeit-Eingaben pro Bewerber: [applicantId => ['vertragsbeginn' => ?, 'vertragsende' => ?]] */
+    public array $deskContractDates = [];
+
+    #[Computed]
+    public function defaultContractTemplate()
+    {
+        return RecContractTemplate::where('team_id', (int) Auth::user()->currentTeam->id)
+            ->where('code', 'AV-default')
+            ->where('is_active', true)
+            ->first();
+    }
+
+    /**
+     * Bewerber-IDs (der sichtbaren Fälle) mit attended-Booking — EIN
+     * Batch-Query; steuert die Sichtbarkeit des Sende-Bereichs.
+     */
+    #[Computed]
+    public function attendedApplicantIds(): array
+    {
+        $ids = $this->cases->pluck('rec_applicant_id')->filter()->unique()->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return RecInterviewBooking::whereIn('rec_applicant_id', $ids)
+            ->where('status', 'attended')
+            ->pluck('rec_applicant_id')
+            ->flip()
+            ->all();
+    }
+
+    /**
+     * Zuschlag setzen — identische Validierung wie die Nachbereitung
+     * (setApplicantZuschlag): Ziffern + optional Komma/Punkt, max 2
+     * Nachkommastellen, DECIMAL(5,2).
+     */
+    public function setDeskZuschlag(int $applicantId, $value): void
+    {
+        $applicant = RecApplicant::forTeam((int) Auth::user()->currentTeam->id)->find($applicantId);
+        if (!$applicant) {
+            return;
+        }
+
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            $applicant->zuschlag = null;
+            $applicant->save();
+            unset($this->cases);
+            return;
+        }
+
+        if (!preg_match('/^\d{1,3}([.,]\d{1,2})?$/', $raw)) {
+            session()->flash('message', 'Zuschlag muss eine Zahl sein (z.B. 0,60).');
+            return;
+        }
+
+        $applicant->zuschlag = round((float) str_replace(',', '.', $raw), 2);
+        $applicant->save();
+        unset($this->cases);
+    }
+
+    /**
+     * Vertragslaufzeit setzen — gleiche Auto-Calc-Vorbelegung wie die
+     * Nachbereitung (setContractDate): Beginn gesetzt + Ende leer →
+     * Ende via resolveContractDates (+1 Jahr, Anfang Monat, −1 Tag).
+     */
+    public function setDeskContractDate(int $applicantId, string $field, ?string $value): void
+    {
+        if (!in_array($field, ['vertragsbeginn', 'vertragsende'], true)) {
+            return;
+        }
+
+        $value = $value !== '' ? $value : null;
+        $current = $this->deskContractDates[$applicantId] ?? ['vertragsbeginn' => null, 'vertragsende' => null];
+        $current[$field] = $value;
+
+        if ($field === 'vertragsbeginn' && $value && empty($current['vertragsende'])) {
+            $resolved = RecContract::resolveContractDates($value, null);
+            $current['vertragsende'] = $resolved['vertragsende'];
+        }
+
+        $this->deskContractDates[$applicantId] = $current;
+    }
+
+    /**
+     * "Portallink & Verträge versenden" vom HR-Schreibtisch: sendet über
+     * den gemeinsamen ContractDispatchService (identische Sequenz wie der
+     * Nachbereitungs-Bulk) und schließt bei Erfolg den Fall über den
+     * bestehenden approveCase-Pfad (Desk-Entlassung, Auto-Pilot an,
+     * Phase-Advance — Spec F1/F2). Selbstheilung: war schon gesendet
+     * (skipped_already_sent), wird nur noch der Fall geschlossen.
+     *
+     * Portal-Fehler nach erfolgreichem Vertragsversand (status 'sent' +
+     * portal_sent=false + message gesetzt) verhindern den Fall-Abschluss
+     * NICHT — die Flash-Meldung nennt den Portal-Fehler aber explizit,
+     * damit HR den Portal-Link ggf. manuell nachsendet.
+     */
+    public function sendContractsFromDesk(int $caseId): void
+    {
+        $teamId = (int) Auth::user()->currentTeam->id;
+        $userId = (int) Auth::id();
+
+        $case = RecHrDeskCase::forTeam($teamId)->with('applicant.legalStatus')->find($caseId);
+        $applicant = $case?->applicant;
+        if (!$case || !$case->isOpen() || $case->reason !== RecHrDeskCase::REASON_NON_EU_CITIZEN || !$applicant) {
+            return;
+        }
+
+        // Gemeinsames Prädikat (Task 1) — identisch zum Bulk-Gate.
+        $fields = $this->deskContractDates[$applicant->id] ?? null;
+        $state = ContractSendEligibility::state(
+            $applicant->hasAnyContractSent(),
+            $applicant->isLegalStatusUnchecked(),
+            !empty($fields['vertragsbeginn']),
+            $applicant->zuschlag !== null,
+        );
+
+        if ($state === 'legal_blocked') {
+            session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
+            return;
+        }
+        if ($state === 'missing_beginn') {
+            session()->flash('message', 'Vertragsbeginn fehlt.');
+            return;
+        }
+        if ($state === 'missing_zuschlag') {
+            session()->flash('message', 'Zuschlag fehlt.');
+            return;
+        }
+
+        $portalErrorMessage = null;
+
+        if ($state === 'ready') {
+            $result = app(ContractDispatchService::class)
+                ->sendForApplicant($applicant, $userId, $fields, $this->defaultContractTemplate);
+
+            if ($result['status'] === 'error') {
+                session()->flash('message', 'Versand fehlgeschlagen: ' . $result['message']);
+                return; // Fall bleibt offen — kein halber Zustand.
+            }
+
+            if ($result['status'] === 'sent' && !$result['portal_sent'] && $result['message'] !== null) {
+                // Vertragsversand ok, Portal-Benachrichtigung fehlgeschlagen — Fall trotzdem schliessen.
+                $portalErrorMessage = $result['message'];
+            }
+        }
+        // state === 'already_sent' ODER erfolgreicher Versand: Fall schließen.
+
+        try {
+            app(HrDeskRoutingService::class)->approveCase($case, $userId, 'Verträge + Portallink vom HR-Schreibtisch versendet.');
+            session()->flash('message', $portalErrorMessage
+                ? 'Verträge versendet, Portal-WA fehlgeschlagen: ' . $portalErrorMessage . ' — Fall geschlossen; Portal-Link ggf. manuell senden.'
+                : 'Verträge + Portallink versendet — Fall geschlossen.');
+        } catch (LegalStatusNotCheckedException) {
+            session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
+        }
+
+        unset($this->cases, $this->reasonCounts, $this->attendedApplicantIds);
     }
 
     public function render()
