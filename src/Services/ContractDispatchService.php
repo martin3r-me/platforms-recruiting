@@ -52,13 +52,22 @@ class ContractDispatchService
         }
 
         // Phase-Hook hat den MA angelegt (F1) — jetzt Portal-Link nachschieben.
+        // Eigener try/catch: Verträge sind zu diesem Zeitpunkt RAUS — ein
+        // Portal-Fehler darf weder den Status kippen noch (im Bulk) die
+        // restlichen Bewerber blockieren (alte Bulk-Semantik: Fehler pro
+        // Bewerber gezählt, Schleife läuft weiter).
         $portalSent = false;
-        $employee = RecEmployee::where('rec_applicant_id', $applicant->id)->first();
-        if ($employee) {
-            $employee->sendPortalNotification();
-            $portalSent = true;
+        $portalError = null;
+        try {
+            $employee = RecEmployee::where('rec_applicant_id', $applicant->id)->first();
+            if ($employee) {
+                $employee->sendPortalNotification();
+                $portalSent = true;
+            }
+        } catch (\Throwable $e) {
+            $portalError = $e->getMessage();
         }
 
-        return ['status' => 'sent', 'portal_sent' => $portalSent, 'message' => null];
+        return ['status' => 'sent', 'portal_sent' => $portalSent, 'message' => $portalError];
     }
 }

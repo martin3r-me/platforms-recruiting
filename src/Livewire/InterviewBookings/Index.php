@@ -13,6 +13,7 @@ use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
+use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\SendContractsService;
 use Platform\Core\Models\CoreLookup;
 
@@ -547,30 +548,30 @@ class Index extends Component
             return;
         }
 
-        $service = app(SendContractsService::class);
+        $dispatch = app(ContractDispatchService::class);
         $contractsSent = 0;
         $portalsSent = 0;
         $errors = 0;
 
         foreach ($eligible as $booking) {
-            try {
-                $applicantId = $booking->applicant->id;
-                $fields = $this->contractDates[$applicantId] ?? null;
-                // skipNotification=true: Vertrags-WA wird unterdrueckt — der
-                // MA bekommt stattdessen nur die Portal-WA (das Portal listet
-                // die Vertraege ohnehin auf).
-                $service->send($booking->applicant, auth()->id(), $fields, true);
-                $contractsSent++;
+            $applicantId = $booking->applicant->id;
+            $fields = $this->contractDates[$applicantId] ?? null;
+            $result = $dispatch->sendForApplicant($booking->applicant, auth()->id(), $fields, $this->defaultContractTemplate);
 
-                // Phase-Hook hat den MA angelegt — jetzt Portal-Link nachschieben.
-                $employee = RecEmployee::where('rec_applicant_id', $applicantId)->first();
-                if ($employee) {
-                    $employee->sendPortalNotification();
+            if ($result['status'] === 'sent') {
+                $contractsSent++;
+                if ($result['portal_sent']) {
                     $portalsSent++;
+                } elseif ($result['message'] !== null) {
+                    // Portal-Fehler NACH erfolgreichem Vertragsversand —
+                    // alte Bulk-Semantik: contractsSent zählt, errors auch.
+                    $errors++;
                 }
-            } catch (\Throwable $e) {
+            } elseif ($result['status'] === 'error') {
                 $errors++;
             }
+            // 'skipped_already_sent' kann hier nicht auftreten — der
+            // Eligibility-Filter oben schließt hasAnyContractSent() aus.
         }
 
         unset($this->bookings);
