@@ -150,6 +150,9 @@ class RecruitingServiceProvider extends ServiceProvider
         // Schulung-Warteliste: Slot wird verfügbar → wartende Bewerber
         // benachrichtigen; Bewerber-Dropout → offene Warteliste-Zeile canceln.
         \Platform\Recruiting\Observers\RecInterviewWaitlistObserver::register();
+
+        // Nicht-EU-Abzweig nach der Schulung: attended → HR-Schreibtisch.
+        \Platform\Recruiting\Observers\RecInterviewBookingComplianceObserver::register();
     }
 
     protected function registerSchedule(): void

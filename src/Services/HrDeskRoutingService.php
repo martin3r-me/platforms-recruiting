@@ -36,14 +36,12 @@ class HrDeskRoutingService
      */
     public function evaluateAndRoute(RecApplicant $applicant, ?int $userId = null): void
     {
-        // Regel 1: Nicht-EU-Bürger
-        if ($applicant->legalStatus?->is_eu_citizen === false) {
-            $this->routeIfNotAlreadyOpen(
-                $applicant,
-                RecHrDeskCase::REASON_NON_EU_CITIZEN,
-                $userId
-            );
-        } elseif ($applicant->legalStatus?->is_eu_citizen === true) {
+        // Regel 1: Nicht-EU-Bürger — das ROUTING passiert seit der
+        // Nach-Schulung-Umstellung NICHT mehr hier (P3), sondern im
+        // RecInterviewBookingComplianceObserver beim Statuswechsel auf
+        // 'attended'. Hier verbleibt nur der Auto-Close bei Korrektur
+        // auf EU-Bürger.
+        if ($applicant->legalStatus?->is_eu_citizen === true) {
             // Korrektur: Bewerber war non-EU, ist jetzt EU → obsoleten Case
             // automatisch schliessen damit er nicht orphaned auf dem
             // HR-Schreibtisch haengt. is_eu_citizen=null ist BEWUSST kein
