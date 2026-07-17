@@ -260,6 +260,10 @@
                                         }
 
                                         $blockContracts = $hasSent || $isLegalCheckPending || $hasOpenNonEuCase;
+
+                                        $lockTitle = $hasOpenNonEuCase
+                                            ? 'Liegt beim HR-Schreibtisch'
+                                            : ($isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '');
                                     @endphp
                                     <tr class="hover:bg-gray-50 {{ $rowDimmed ? 'opacity-60' : '' }} {{ $rowBgClass }}">
                                         <td class="px-4 py-3">
@@ -306,7 +310,7 @@
                                                         @disabled($blockContracts)
                                                         wire:change="setApplicantZuschlag({{ $booking->id }}, $event.target.value)"
                                                         placeholder="Zuschlag €/Std (z.B. 0,60)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
                                                     />
                                                 </div>
                                                 @if($hasOpenNonEuCase)
@@ -331,18 +335,18 @@
                                                         type="date"
                                                         value="{{ $beginnVal }}"
                                                         @disabled($blockContracts)
-                                                        title="{{ $isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '' }}"
+                                                        title="{{ $lockTitle }}"
                                                         wire:change="setContractDate({{ $applicant->id }}, 'vertragsbeginn', $event.target.value)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
                                                         placeholder="Beginn"
                                                     />
                                                     <input
                                                         type="date"
                                                         value="{{ $endeVal }}"
                                                         @disabled($blockContracts)
-                                                        title="{{ $isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '' }}"
+                                                        title="{{ $lockTitle }}"
                                                         wire:change="setContractDate({{ $applicant->id }}, 'vertragsende', $event.target.value)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
+                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
                                                         placeholder="Ende"
                                                     />
                                                 </div>
@@ -361,6 +365,8 @@
                                                     @svg('heroicon-o-check-circle', 'w-3.5 h-3.5')
                                                     Verträge versendet
                                                 </span>
+                                            @elseif($hasOpenNonEuCase)
+                                                <span class="text-[10px] text-blue-700 font-medium">Liegt beim HR-Schreibtisch — Versand macht HR.</span>
                                             @elseif($isLegalCheckPending)
                                                 <span class="inline-flex items-center gap-1 text-xs text-red-600 font-medium" title="Bewerber muss zuerst auf HR-Schreibtisch geprüft werden">
                                                     @svg('heroicon-o-exclamation-triangle', 'w-3.5 h-3.5')
