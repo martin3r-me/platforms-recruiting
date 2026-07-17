@@ -11,6 +11,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\ContractDispatchService;
@@ -130,6 +131,7 @@ class Index extends Component
             })
             ->with([
                 'applicant.crmContactLinks.contact',
+                'applicant.legalStatus',
                 'applicant.postings.position',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
@@ -165,6 +167,35 @@ class Index extends Component
         }
 
         return $query->get();
+    }
+
+    /**
+     * Offene Nicht-EU-Fälle der sichtbaren Bewerber — EIN Batch-Query,
+     * keyed by applicant_id (Blade: Lock-Badge "Liegt beim HR-Schreibtisch").
+     *
+     * BEWUSSTE GRENZE: Die Nachbereitung pollt nicht (kein wire:poll/Token —
+     * anders als das Dashboard); wird attended EXTERN gesetzt (MCP-Tool,
+     * andere Session), erscheint der Badge erst bei der naechsten
+     * Interaktion/Reload — view-weite, vorbestehende Eigenschaft dieser
+     * Ansicht, gilt fuer alle externen Aenderungen. Das Dashboard-Poll-Token
+     * ist abgedeckt: Routing bumpt rec_applicants.updated_at [Flags], eine
+     * Token-Quelle.
+     */
+    #[Computed]
+    public function openNonEuCaseApplicantIds(): array
+    {
+        $ids = $this->bookings->pluck('applicant.id')->filter()->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return RecHrDeskCase::query()
+            ->open()
+            ->where('reason', RecHrDeskCase::REASON_NON_EU_CITIZEN)
+            ->whereIn('rec_applicant_id', $ids)
+            ->pluck('rec_applicant_id')
+            ->flip()
+            ->all();
     }
 
     #[Computed]
@@ -298,7 +329,7 @@ class Index extends Component
         }
 
         // Computed-Cache busten, damit Anzeige (Vorlage/Status) den frischen Stand zeigt.
-        unset($this->bookings);
+        unset($this->bookings, $this->openNonEuCaseApplicantIds);
 
         session()->flash('success', 'Status aktualisiert!');
     }
@@ -424,14 +455,20 @@ class Index extends Component
                 $this->assignDefaultTemplateIfMissing($b->applicant);
             }
         }
-        unset($this->bookings);
+        unset($this->bookings, $this->openNonEuCaseApplicantIds);
 
+        // Verteidigung in beide Richtungen: ungeprueft ODER offener Nicht-EU-
+        // Fall blockt. Ein offener Fall heisst bewusst "liegt bei HR" — auch
+        // wenn HR den Pruefen-Toggle schon gesetzt, den Fall aber noch nicht
+        // geschlossen/gesendet hat, darf der Schulungsleiter nicht parallel
+        // per Bulk-Versand senden.
         $blockedByLegalStatus = collect();
         $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus) {
             if ($b->status !== 'attended') return false;
             if (!$b->applicant?->contract_template_id) return false;
             if ($b->applicant->hasAnyContractSent()) return false;
-            if ($this->isLegalStatusUnchecked($b->applicant)) {
+            if ($this->isLegalStatusUnchecked($b->applicant)
+                || isset($this->openNonEuCaseApplicantIds[$b->applicant->id])) {
                 $blockedByLegalStatus->push($b);
                 return false;
             }
@@ -482,7 +519,7 @@ class Index extends Component
             }
         }
 
-        unset($this->bookings);
+        unset($this->bookings, $this->openNonEuCaseApplicantIds);
         $this->hydrateContractDatesFromExistingContracts();
 
         if ($errors === 0) {
@@ -515,12 +552,18 @@ class Index extends Component
      */
     public function sendPortalLinkBulk(): void
     {
+        // Verteidigung in beide Richtungen: ungeprueft ODER offener Nicht-EU-
+        // Fall blockt. Ein offener Fall heisst bewusst "liegt bei HR" — auch
+        // wenn HR den Pruefen-Toggle schon gesetzt, den Fall aber noch nicht
+        // geschlossen/gesendet hat, darf der Schulungsleiter nicht parallel
+        // per Bulk-Versand senden.
         $blockedByLegalStatus = collect();
         $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus) {
             if ($b->status !== 'attended') return false;
             if (!$b->applicant?->contract_template_id) return false;
             if ($b->applicant->hasAnyContractSent()) return false;
-            if ($this->isLegalStatusUnchecked($b->applicant)) {
+            if ($this->isLegalStatusUnchecked($b->applicant)
+                || isset($this->openNonEuCaseApplicantIds[$b->applicant->id])) {
                 $blockedByLegalStatus->push($b);
                 return false;
             }
@@ -574,7 +617,7 @@ class Index extends Component
             // Eligibility-Filter oben schließt hasAnyContractSent() aus.
         }
 
-        unset($this->bookings);
+        unset($this->bookings, $this->openNonEuCaseApplicantIds);
         $this->hydrateContractDatesFromExistingContracts();
 
         if ($errors === 0) {
@@ -697,7 +740,8 @@ class Index extends Component
         // wenn alle pending ungepruefte Nicht-EU sind, bleibt nichts zum
         // Senden ueber → eigener State der HR direkt zum HR-Schreibtisch
         // verweist.
-        $pendingAfterLegal = $pending->filter(fn ($b) => !$this->isLegalStatusUnchecked($b->applicant));
+        $pendingAfterLegal = $pending->filter(fn ($b) => !$this->isLegalStatusUnchecked($b->applicant)
+            && !isset($this->openNonEuCaseApplicantIds[$b->applicant?->id]));
         if ($pendingAfterLegal->isEmpty()) {
             return 'pending_legal_check';
         }

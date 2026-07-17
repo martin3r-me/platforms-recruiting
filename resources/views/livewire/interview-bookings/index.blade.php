@@ -245,14 +245,21 @@
                                             && $legalStatus->is_eu_citizen !== true
                                             && $legalStatus->legal_status_checked_at === null;
 
+                                        $hasOpenNonEuCase = $applicant
+                                            && isset($this->openNonEuCaseApplicantIds[$applicant->id]);
+
                                         $rowBgClass = '';
-                                        if ($isLegalCheckPending) {
+                                        if ($hasOpenNonEuCase) {
+                                            // Liegt bewusst bei HR — neutral, kein Handlungsbedarf hier.
+                                            $rowBgClass = 'bg-blue-50/60';
+                                        } elseif ($isLegalCheckPending) {
+                                            // Verteidigungslinie: ungeprueft ohne offenen Fall (Randfall).
                                             $rowBgClass = 'bg-red-50';
                                         } elseif ($isNonEuChecked) {
                                             $rowBgClass = 'bg-emerald-50';
                                         }
 
-                                        $blockContracts = $hasSent || $isLegalCheckPending;
+                                        $blockContracts = $hasSent || $isLegalCheckPending || $hasOpenNonEuCase;
                                     @endphp
                                     <tr class="hover:bg-gray-50 {{ $rowDimmed ? 'opacity-60' : '' }} {{ $rowBgClass }}">
                                         <td class="px-4 py-3">
@@ -260,7 +267,9 @@
                                                 <a href="{{ route('recruiting.applicants.show', $applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
                                                     {{ $applicant->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt' }}
                                                 </a>
-                                                @if($isLegalCheckPending)
+                                                @if($hasOpenNonEuCase)
+                                                    <div class="text-[10px] text-blue-700 mt-0.5 font-medium">Liegt beim HR-Schreibtisch</div>
+                                                @elseif($isLegalCheckPending)
                                                     <div class="text-[10px] text-red-700 mt-0.5 font-medium">Rechtsstatus ungeprüft</div>
                                                 @elseif($isNonEuChecked)
                                                     <div class="text-[10px] text-emerald-700 mt-0.5">Rechtsstatus geprüft</div>
@@ -300,7 +309,9 @@
                                                         class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $isLegalCheckPending ? 'bg-gray-100 cursor-not-allowed' : '' }}"
                                                     />
                                                 </div>
-                                                @if($isLegalCheckPending)
+                                                @if($hasOpenNonEuCase)
+                                                    <div class="text-[10px] text-blue-700 mt-1 leading-snug">Versand macht HR vom Schreibtisch.</div>
+                                                @elseif($isLegalCheckPending)
                                                     <div class="text-[10px] text-red-700 mt-1 leading-snug">Erst auf HR-Schreibtisch prüfen.</div>
                                                 @elseif($booking->status !== 'attended')
                                                     <div class="text-[10px] text-[var(--ui-muted)] mt-1">Wirksam ab Status „Teilgenommen"</div>
