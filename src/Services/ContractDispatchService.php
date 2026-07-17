@@ -56,13 +56,28 @@ class ContractDispatchService
         // Portal-Fehler darf weder den Status kippen noch (im Bulk) die
         // restlichen Bewerber blockieren (alte Bulk-Semantik: Fehler pro
         // Bewerber gezählt, Schleife läuft weiter).
+        //
+        // sendPortalNotification() wirft NICHT — es hat ein eigenes
+        // Catch-All und liefert immer array{ok: bool, message: ?string}
+        // zurueck (RecEmployee.php, ~Z. 406). Der try/catch hier ist daher
+        // nur noch ein Guertel fuer einen etwaigen kuenftigen throw; die
+        // eigentliche Erfolgs-/Fehler-Auswertung MUSS ueber den Rueckgabewert
+        // laufen, sonst waere portal_sent auch bei fehlgeschlagenem WA-Versand
+        // true. Das weicht bewusst vom historischen Bulk ab, der einen
+        // fehlgeschlagenen Portal-WA-Versand faelschlich als "sent" zaehlte
+        // (Bug wird hier bewusst NICHT uebernommen) — die WA-Menge selbst
+        // bleibt unveraendert (weiterhin genau ein Versandversuch), nur der
+        // Bulk-Zaehler portalsSent wird dadurch als Nebeneffekt korrekt.
         $portalSent = false;
         $portalError = null;
         try {
             $employee = RecEmployee::where('rec_applicant_id', $applicant->id)->first();
             if ($employee) {
-                $employee->sendPortalNotification();
-                $portalSent = true;
+                $portalResult = $employee->sendPortalNotification();
+                $portalSent = (bool) ($portalResult['ok'] ?? false);
+                if (!$portalSent) {
+                    $portalError = $portalResult['message'] ?? 'Portal-WA fehlgeschlagen (Details im RecAutoPilotLog).';
+                }
             }
         } catch (\Throwable $e) {
             $portalError = $e->getMessage();
