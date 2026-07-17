@@ -203,9 +203,14 @@
                                     $deskFields = $applicant ? ($deskContractDates[$applicant->id] ?? []) : [];
                                     $deskBeginn = $deskFields['vertragsbeginn'] ?? '';
                                     $deskEnde = $deskFields['vertragsende'] ?? '';
+                                    // Aus der eager-geladenen Relation statt hasAnyContractSent()
+                                    // (das würde pro Karte einen frischen EXISTS-Query feuern).
+                                    $deskHasSent = $applicant
+                                        ? $applicant->contracts->first(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null) !== null
+                                        : false;
                                     $sendState = $showSendSection
                                         ? \Platform\Recruiting\Services\ContractSendEligibility::state(
-                                            (bool) $applicant->hasAnyContractSent(),
+                                            $deskHasSent,
                                             (bool) $applicant->isLegalStatusUnchecked(),
                                             !empty($deskBeginn),
                                             $applicant->zuschlag !== null,

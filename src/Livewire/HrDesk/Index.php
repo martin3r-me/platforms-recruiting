@@ -315,10 +315,11 @@ class Index extends Component
      * Phase-Advance — Spec F1/F2). Selbstheilung: war schon gesendet
      * (skipped_already_sent), wird nur noch der Fall geschlossen.
      *
-     * Portal-Fehler nach erfolgreichem Vertragsversand (status 'sent' +
-     * portal_sent=false + message gesetzt) verhindern den Fall-Abschluss
-     * NICHT — die Flash-Meldung nennt den Portal-Fehler aber explizit,
-     * damit HR den Portal-Link ggf. manuell nachsendet.
+     * Portal-Probleme nach erfolgreichem Vertragsversand (status 'sent' +
+     * portal_sent=false) verhindern den Fall-Abschluss NICHT — die Flash-
+     * Meldung nennt das Problem aber explizit (Fehlertext, oder falls kein
+     * RecEmployee gefunden wurde: message === null, F1-Edge), damit HR den
+     * Portal-Link ggf. manuell nachsendet statt vollen Erfolg zu glauben.
      */
     public function sendContractsFromDesk(int $caseId): void
     {
@@ -353,7 +354,7 @@ class Index extends Component
             return;
         }
 
-        $portalErrorMessage = null;
+        $portalWarning = null;
 
         if ($state === 'ready') {
             $result = app(ContractDispatchService::class)
@@ -364,18 +365,21 @@ class Index extends Component
                 return; // Fall bleibt offen — kein halber Zustand.
             }
 
-            if ($result['status'] === 'sent' && !$result['portal_sent'] && $result['message'] !== null) {
-                // Vertragsversand ok, Portal-Benachrichtigung fehlgeschlagen — Fall trotzdem schliessen.
-                $portalErrorMessage = $result['message'];
+            if ($result['status'] === 'sent' && !$result['portal_sent']) {
+                // Vertragsversand ok, Portal-Benachrichtigung fehlgeschlagen ODER
+                // kein RecEmployee gefunden (message === null, F1-Edge) — Fall
+                // trotzdem schliessen, aber Flash ehrlich halten statt vollen
+                // Erfolg zu behaupten.
+                $portalWarning = $result['message'] !== null
+                    ? 'Verträge versendet, Portal-WA fehlgeschlagen: ' . $result['message'] . ' — Fall geschlossen; Portal-Link ggf. manuell senden.'
+                    : 'Verträge versendet, Portal-WA nicht möglich (kein Mitarbeiter-Datensatz) — Fall geschlossen; Portal-Link ggf. manuell senden.';
             }
         }
         // state === 'already_sent' ODER erfolgreicher Versand: Fall schließen.
 
         try {
             app(HrDeskRoutingService::class)->approveCase($case, $userId, 'Verträge + Portallink vom HR-Schreibtisch versendet.');
-            session()->flash('message', $portalErrorMessage
-                ? 'Verträge versendet, Portal-WA fehlgeschlagen: ' . $portalErrorMessage . ' — Fall geschlossen; Portal-Link ggf. manuell senden.'
-                : 'Verträge + Portallink versendet — Fall geschlossen.');
+            session()->flash('message', $portalWarning ?? 'Verträge + Portallink versendet — Fall geschlossen.');
         } catch (LegalStatusNotCheckedException) {
             session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
         }
