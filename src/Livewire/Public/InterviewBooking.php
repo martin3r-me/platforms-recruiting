@@ -187,7 +187,7 @@ class InterviewBooking extends Component
         // mehr. Zeit-/Status-/Aktiv-Filter unverändert: vergangene oder
         // abgesagte Termine sieht ein Bewerber weiterhin nie.
         return RecInterview::forTeam($this->teamId)
-            ->with('position')
+            ->with(['position', 'interviewType'])
             ->active()
             ->where('starts_at', '>', now())
             ->whereIn('status', ['planned', 'confirmed'])
