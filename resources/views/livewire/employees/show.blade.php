@@ -65,6 +65,13 @@
                 </div>
             @endif
 
+            @if($flashError)
+                <div class="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-800 inline-flex items-center gap-2">
+                    @svg('heroicon-o-exclamation-circle', 'w-4 h-4')
+                    {{ $flashError }}
+                </div>
+            @endif
+
             {{-- Felder — responsive grid (1 col mobile, 2 col md, 3 col xl) --}}
             <div class="mt-4 space-y-5">
                 @foreach($this->fieldGroups() as $section => $fields)

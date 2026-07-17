@@ -10,6 +10,7 @@ use Platform\Core\Models\ContextFile;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Support\FirstAiderDateGuard;
 
 /**
  * HR-Backend Detail-Edit-View fuer einen RecEmployee.
@@ -27,6 +28,7 @@ class Show extends Component
     public array $fieldValues = [];
     public array $hrFieldValues = [];
     public ?string $flash = null;
+    public ?string $flashError = null;
 
     // File-Upload-Properties (separat, eine pro File-Field)
     public $uploadIdentityFront = null;
@@ -235,6 +237,11 @@ class Show extends Component
                 'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
                 'cost_center'      => ['type' => 'text', 'label' => 'Kostenstelle (Vorrang vor Stelle)'],
             ],
+            'Arbeitsschutz (HR-only)' => [
+                'is_first_aider'          => ['type' => 'bool', 'label' => 'Ersthelfer'],
+                'first_aider_valid_until' => ['type' => 'date', 'label' => 'Ersthelfer-Schein gueltig bis'],
+                'is_safety_officer'       => ['type' => 'bool', 'label' => 'Sicherheitsbeauftragter'],
+            ],
         ];
     }
 
@@ -333,6 +340,21 @@ class Show extends Component
         if (!$employee) {
             return;
         }
+
+        // Datumspflicht Ersthelfer (Endzustands-Pruefung, Spec 2026-07-17):
+        // blockt JEDEN Save solange Ersthelfer=Ja ohne Datum — auch bei
+        // unrelated Edits, damit lenient importierte MA repariert werden.
+        // Early-Return OHNE loadFieldValues(): Eingaben bleiben stehen.
+        $guardError = FirstAiderDateGuard::error(
+            $this->fieldValues['is_first_aider'] ?? null,
+            $this->fieldValues['first_aider_valid_until'] ?? null,
+        );
+        if ($guardError !== null) {
+            $this->flashError = $guardError;
+            $this->flash = null;
+            return;
+        }
+        $this->flashError = null;
 
         // rec_employees Updates
         $allowed = $this->fieldsFlat();
