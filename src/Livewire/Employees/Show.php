@@ -376,6 +376,7 @@ class Show extends Component
             $value = is_string($value) ? trim($value) : $value;
 
             if ($type === 'bool') {
+                // Truthy-Arme muessen identisch bleiben mit FirstAiderDateGuard (Support/FirstAiderDateGuard.php)
                 $updates[$field] = match ((string) $value) {
                     '1', 'true', 'ja' => true,
                     '0', 'false', 'nein' => false,
@@ -449,6 +450,7 @@ class Show extends Component
 
     private function handleFileUpload(string $employeeField, string $propertyName): void
     {
+        $this->flashError = null;
         $employee = $this->employee();
         if (!$employee) {
             return;

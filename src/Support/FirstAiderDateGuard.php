@@ -18,6 +18,7 @@ class FirstAiderDateGuard
     public static function error(mixed $isFirstAider, mixed $validUntil): ?string
     {
         $flag = mb_strtolower(trim((string) ($isFirstAider ?? '')));
+        // Truthy-Set muss identisch bleiben mit der Bool-Konvertierung in Employees/Show.php::saveAll()
         $isSet = in_array($flag, ['1', 'true', 'ja'], true);
         $date = trim((string) ($validUntil ?? ''));
 
