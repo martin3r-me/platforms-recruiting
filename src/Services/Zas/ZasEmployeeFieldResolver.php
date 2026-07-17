@@ -99,6 +99,10 @@ class ZasEmployeeFieldResolver
         'SchulungsStandort', 'SchulungsDatum',
         'Grundlohn', 'Zuschlag',
         'UUID', 'ZasPersonalNr',
+
+        // Arbeitsschutz (ans Ende — ZAS parst ggf. positionsbasiert,
+        // Einschub in der Mitte wuerde Folgespalten verschieben)
+        'Ersthelfer', 'ErsthelferBis', 'Sicherheitsbeauftragter',
     ];
 
     /**
@@ -248,6 +252,11 @@ class ZasEmployeeFieldResolver
             'Zuschlag'                          => $this->getZuschlag($employee),
             'UUID'                              => (string) $employee->uuid,
             'ZasPersonalNr'                     => $employee->personnel_number,
+
+            // Arbeitsschutz
+            'Ersthelfer'              => $this->boolLabel($employee->is_first_aider),
+            'ErsthelferBis'           => $this->formatDate($employee->first_aider_valid_until),
+            'Sicherheitsbeauftragter' => $this->boolLabel($employee->is_safety_officer),
         };
     }
 

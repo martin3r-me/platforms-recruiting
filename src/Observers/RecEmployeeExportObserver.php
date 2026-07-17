@@ -85,6 +85,9 @@ class RecEmployeeExportObserver
         'has_infection_protection_certificate',
         'infection_protection_first_issued_at',
 
+        // Arbeitsschutz
+        'is_first_aider', 'first_aider_valid_until', 'is_safety_officer',
+
         // Lifecycle
         'is_eu_citizen', 'employment_ended_at',
         'is_active',
