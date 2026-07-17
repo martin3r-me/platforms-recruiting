@@ -33,6 +33,7 @@ class ZasInboundRowMapper
         'SchulBeschGueltigBis' => 'school_certificate_valid_until',
         'InfekErstbescheinigung' => 'infection_protection_first_issued_at',
         'Eintritt' => 'employed_since',
+        'ErsthelferBis' => 'first_aider_valid_until',
     ];
 
     /** CSV-Spalte → rec_employees-Integer-Spalte */
@@ -43,6 +44,7 @@ class ZasInboundRowMapper
     /** CSV-Spalte → rec_employees-Bool-Spalte (Ja/Nein) */
     private const BOOLS = [
         'PKW' => 'has_car', 'EUBuerger' => 'is_eu_citizen',
+        'Ersthelfer' => 'is_first_aider', 'Sicherheitsbeauftragter' => 'is_safety_officer',
     ];
 
     /** CSV-Spalte → [field, lookup, prefix] auf rec_employees */
@@ -98,6 +100,17 @@ class ZasInboundRowMapper
                 $employee[$field] = mb_strtolower($v) === 'ja';
             }
         }
+        // Arbeitsschutz-Kopplung: Ersthelfer=Ja verlangt fachlich ein
+        // Bis-Datum. Lenient: trotzdem importieren, aber warnen — der
+        // Datumspflicht-Guard der HR-Maske erzwingt die Reparatur beim
+        // naechsten Edit. array_key_exists ist korrekt: die DATES-Schleife
+        // setzt den Ziel-Key bei leerem UND bei unparsebarem Datum gar
+        // nicht (nur `if ($d !== null)` schreibt, RowMapper:82-87).
+        if (($employee['is_first_aider'] ?? false) === true
+            && !array_key_exists('first_aider_valid_until', $employee)) {
+            $warnings[] = "first_aider_valid_until: Ersthelfer=Ja ohne gueltiges Bis-Datum — bitte in der HR-Ansicht nachpflegen";
+        }
+
         foreach (self::LOOKUPS as $col => [$field, $lookup, $prefix]) {
             $v = $get($col);
             if ($v === '') {
