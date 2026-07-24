@@ -17,7 +17,9 @@ use Platform\Hcm\Traits\SyncsCrmContactFields;
 use Symfony\Component\Uid\UuidV7;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecAutoPilotState;
+use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Services\TerminLabel;
+use Platform\Recruiting\Support\SeatStandbyPolicy;
 
 class RecApplicant extends Model implements InheritsExtraFields
 {
@@ -421,6 +423,9 @@ class RecApplicant extends Model implements InheritsExtraFields
         // ohne Phase zu advancen oder AutoPilot-Logs zu schreiben.
         if (!$this->auto_pilot) {
             if ($this->rec_phase_id && $this->isPhaseComplete()) {
+                if ($this->guardSeatReclaim($this->phase) !== self::RECLAIM_GUARD_OK) {
+                    return; // HR-Fall geloggt — keine Hooks, kein Phantom-Upgrade
+                }
                 $this->triggerPhaseCompletionHooks($this->phase);
             }
             return;
@@ -432,6 +437,12 @@ class RecApplicant extends Model implements InheritsExtraFields
 
         // completion_type-aware: respects the phase's setting (fields/booking/manual)
         if (!$this->isPhaseComplete()) {
+            return;
+        }
+
+        // Standby-Re-Claim MUSS vor dem Advance passieren — bei Fehlschlag
+        // wurde der Bewerber bereits zurueck in die Buchen-Phase gesetzt.
+        if ($this->guardSeatReclaim($this->phase) !== self::RECLAIM_GUARD_OK) {
             return;
         }
 
@@ -632,11 +643,17 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
 
         if (($config['confirm_booking_on_completion'] ?? false) === true) {
-            $updated = $this->interviewBookings()
-                ->where('status', 'booked')
-                ->update(['status' => 'registered']);
+            // Per Model-Save statt Bulk-Update: Observer (Re-Arm bei "wieder
+            // voll") sehen das Upgrade, und der saving-Guard raeumt
+            // seat_released_at ab (Invariante, deckt auch den manuellen
+            // HR-Advance via advanceToNextPhase ab = bewusste Uebersteuerung).
+            $bookings = $this->interviewBookings()->where('status', 'booked')->get();
+            foreach ($bookings as $booking) {
+                $booking->status = 'registered';
+                $booking->save();
+            }
 
-            if ($updated > 0) {
+            if ($bookings->isNotEmpty()) {
                 try {
                     RecAutoPilotLog::create([
                         'rec_applicant_id' => $this->id,
@@ -667,6 +684,136 @@ class RecApplicant extends Model implements InheritsExtraFields
                 } catch (\Throwable) {}
             }
         }
+    }
+
+    public const RECLAIM_GUARD_OK = 'ok';
+    public const RECLAIM_GUARD_RETURNED = 'returned';
+    public const RECLAIM_GUARD_HR_CASE = 'hr_case';
+
+    /**
+     * Pre-Advance-Guard: Standby-Buchungen muessen ihren Platz zurueckholen,
+     * BEVOR die Phase advanced (der Hook selbst feuert erst nach dem
+     * persistierten Advance und kann nichts mehr verhindern).
+     *
+     * Ergebnis:
+     *  - OK:       kein Standby oder Platz erfolgreich re-claimt → Advance normal
+     *  - RETURNED: Termin voll/vergangen, Buchung storniert, Bewerber zurueck
+     *              in der Buchen-Phase → Aufrufer bricht ab (kein Advance)
+     *  - HR_CASE:  wie RETURNED, aber Auto-Pilot ist aus (Direkteinstellung) —
+     *              Buchung bleibt Standby, HR entscheidet (Log reclaim_failed)
+     */
+    protected function guardSeatReclaim(?RecPhase $phase): string
+    {
+        $config = $phase?->completion_config ?? [];
+        if (($config['confirm_booking_on_completion'] ?? false) !== true) {
+            return self::RECLAIM_GUARD_OK;
+        }
+
+        $standbyBookings = $this->interviewBookings()
+            ->where('status', 'booked')
+            ->whereNotNull('seat_released_at')
+            ->get();
+
+        if ($standbyBookings->isEmpty()) {
+            return self::RECLAIM_GUARD_OK;
+        }
+
+        $failedBookings = [];
+        foreach ($standbyBookings as $booking) {
+            $outcome = DB::transaction(function () use ($booking) {
+                // Zeilensperre auf dem Termin — serialisiert gegen parallele
+                // Buchungen (Task 4) und andere Re-Claims.
+                // Kein Off-by-one: die eigene Standby-Buchung hat hier noch
+                // seat_released_at != null und ist damit NICHT in
+                // takenSeatsCount() enthalten (seatTaking = whereNull) —
+                // bei taken == max-1 gelingt der Re-Claim korrekt.
+                $interview = RecInterview::query()->lockForUpdate()->find($booking->rec_interview_id);
+
+                $result = SeatStandbyPolicy::reclaimOutcome(
+                    true,
+                    $interview ? $interview->takenSeatsCount() : 0,
+                    $interview?->max_participants,
+                    (bool) $interview?->starts_at?->isFuture(),
+                );
+
+                if ($result === SeatStandbyPolicy::RECLAIM_OK) {
+                    // Platz sofort IM Lock konsumieren — das Status-Upgrade
+                    // auf 'registered' macht danach der Phase-Hook.
+                    $booking->seat_released_at = null;
+                    $booking->save();
+                }
+
+                return $result;
+            });
+
+            if ($outcome === SeatStandbyPolicy::RECLAIM_OK) {
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->id,
+                        'type' => 'seat_reclaimed',
+                        'summary' => "Standby-Platz zurückgeholt (Buchung #{$booking->id}) — Onboarding abgeschlossen.",
+                        'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id],
+                    ]);
+                } catch (\Throwable) {}
+                continue;
+            }
+
+            $failedBookings[] = $booking;
+        }
+
+        if ($failedBookings === []) {
+            return self::RECLAIM_GUARD_OK;
+        }
+
+        if (!$this->auto_pilot) {
+            // Direkteinstellung & Co.: keine Auto-Pilot-Kommunikation moeglich.
+            // Buchung bleibt Standby, HR entscheidet (ueberbuchen/umbuchen).
+            foreach ($failedBookings as $booking) {
+                // Idempotenz: checkAutoPilotCompletion feuert bei JEDEM
+                // Public-Form-Save erneut, und die Standby-Buchung bleibt
+                // hier bestehen — ohne Guard entsteht pro Save ein neues
+                // reclaim_failed-Log. Nur EIN Log pro Release-Fenster
+                // (seit seat_released_at).
+                $alreadyLogged = RecAutoPilotLog::where('rec_applicant_id', $this->id)
+                    ->where('type', 'reclaim_failed')
+                    ->when($booking->seat_released_at, fn ($q) => $q->where('created_at', '>=', $booking->seat_released_at))
+                    ->exists();
+                if ($alreadyLogged) {
+                    continue;
+                }
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->id,
+                        'type' => 'reclaim_failed',
+                        'summary' => "Termin inzwischen voll/vergangen (Buchung #{$booking->id}) — HR-Entscheidung nötig (Auto-Pilot aus).",
+                        'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id, 'mode' => 'hr_case'],
+                    ]);
+                } catch (\Throwable) {}
+            }
+            return self::RECLAIM_GUARD_HR_CASE;
+        }
+
+        // Auto-Pilot-Flow: Buchung stornieren (Observer bietet den Platz ggf.
+        // der Warteliste an — no-op bei vollem Termin) + Ruecksprung.
+        foreach ($failedBookings as $booking) {
+            $booking->status = 'cancelled';
+            $booking->cancelled_by = 'system';
+            $booking->cancelled_at = now();
+            $booking->save(); // saving-Guard raeumt seat_released_at mit ab
+
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => 'reclaim_failed',
+                    'summary' => "Termin inzwischen voll/vergangen (Buchung #{$booking->id}) — zurück zur Terminwahl.",
+                    'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id, 'mode' => 'returned'],
+                ]);
+            } catch (\Throwable) {}
+        }
+
+        return $this->returnToBookingPhase()
+            ? self::RECLAIM_GUARD_RETURNED
+            : self::RECLAIM_GUARD_HR_CASE;
     }
 
     /**
