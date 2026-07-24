@@ -765,6 +765,30 @@ class RecApplicant extends Model implements InheritsExtraFields
             return self::RECLAIM_GUARD_OK;
         }
 
+        // Teilerfolg (Multi-Standby ist via Tool-Zweitbuchung/HR-Status-Revival
+        // erreichbar): mindestens ein Platz ist gesichert — der Bewerber wird
+        // NICHT zurueckgeworfen. Gescheiterte Geschwister-Buchungen werden in
+        // BEIDEN Auto-Pilot-Modi storniert, sonst wuerde der Hook den
+        // Standby-Rest kapazitaetsfrei auf 'registered' heben.
+        if (count($failedBookings) < $standbyBookings->count()) {
+            foreach ($failedBookings as $booking) {
+                $booking->status = 'cancelled';
+                $booking->cancelled_by = 'system';
+                $booking->cancelled_at = now();
+                $booking->save();
+
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->id,
+                        'type' => 'reclaim_failed',
+                        'summary' => "Termin voll/vergangen (Buchung #{$booking->id}) — storniert, anderer Standby-Platz erfolgreich zurückgeholt.",
+                        'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id, 'mode' => 'sibling_cancelled'],
+                    ]);
+                } catch (\Throwable) {}
+            }
+            return self::RECLAIM_GUARD_OK;
+        }
+
         if (!$this->auto_pilot) {
             // Direkteinstellung & Co.: keine Auto-Pilot-Kommunikation moeglich.
             // Buchung bleibt Standby, HR entscheidet (ueberbuchen/umbuchen).
