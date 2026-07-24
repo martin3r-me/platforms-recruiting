@@ -100,8 +100,12 @@ class CreateInterviewBookingTool implements ToolContract, ToolMetadataContract
             $booking = DB::transaction(function () use ($interviewId, $applicantId, $arguments, $teamId, $context) {
                 $locked = \Platform\Recruiting\Models\RecInterview::query()->lockForUpdate()->find($interviewId);
 
-                if ($locked && !$locked->hasFreeSeat()) {
-                    return null;
+                if (!$locked) {
+                    return 'not_found'; // Termin zwischen Lookup und Lock geloescht — NICHT durchfallen lassen
+                }
+
+                if (!$locked->hasFreeSeat()) {
+                    return 'full';
                 }
 
                 return RecInterviewBooking::updateOrCreate(
@@ -122,7 +126,10 @@ class CreateInterviewBookingTool implements ToolContract, ToolMetadataContract
                 );
             });
 
-            if ($booking === null) {
+            if ($booking === 'not_found') {
+                return ToolResult::error('NOT_FOUND', 'Interview-Termin nicht gefunden.');
+            }
+            if ($booking === 'full') {
                 return ToolResult::error('CAPACITY_REACHED', "Maximale Teilnehmerzahl ({$interview->max_participants}) bereits erreicht.");
             }
 

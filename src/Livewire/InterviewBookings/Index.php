@@ -244,8 +244,6 @@ class Index extends Component
             'bookingNotes' => 'nullable|string',
         ]);
 
-        $interview = $this->interview;
-
         // Status 'booked': konsistent zum Public-Form-Pfad. HR bucht hier
         // manuell einen Kandidaten in eine Schulung — gleiche Initial-Semantik
         // wie wenn der Bewerber sich selbst gebucht haette.
@@ -253,7 +251,7 @@ class Index extends Component
         // Zeilensperre auf dem Termin serialisiert ALLE Buchungs-Erzeugungen
         // gegeneinander und gegen den Standby-Re-Claim (Phantom-Insert-sicher —
         // Row-Locks auf Buchungszeilen wuerden neue Inserts nicht stoppen).
-        $error = DB::transaction(function () use ($interview) {
+        $error = DB::transaction(function () {
             $locked = RecInterview::query()->lockForUpdate()->find($this->interviewId);
             if (!$locked) {
                 return 'Termin nicht gefunden.';
