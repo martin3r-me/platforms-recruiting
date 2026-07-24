@@ -649,8 +649,27 @@ class RecApplicant extends Model implements InheritsExtraFields
             // HR-Advance via advanceToNextPhase ab = bewusste Uebersteuerung).
             $bookings = $this->interviewBookings()->where('status', 'booked')->get();
             foreach ($bookings as $booking) {
+                // Vor dem Save festhalten — der saving-Guard loescht den Marker
+                // beim Upgrade. Im regulaeren Auto-Pilot-Pfad hat der Guard den
+                // Marker bereits im Lock geloescht (is_standby=false) — dieses
+                // Log feuert also exakt nur auf dem ungeguardeten manuellen
+                // HR-Advance (advanceToNextPhase) und macht den Belegungspfad
+                // fuer die Rueckhol-Quote sichtbar.
+                $wasStandby = $booking->is_standby;
+
                 $booking->status = 'registered';
                 $booking->save();
+
+                if ($wasStandby) {
+                    try {
+                        RecAutoPilotLog::create([
+                            'rec_applicant_id' => $this->id,
+                            'type' => 'seat_reclaimed_override',
+                            'summary' => "Standby-Buchung #{$booking->id} durch Phasen-Abschluss auf 'registered' gehoben — Platz bewusst konsumiert (HR-Advance).",
+                            'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id, 'status' => 'registered'],
+                        ]);
+                    } catch (\Throwable) {}
+                }
             }
 
             if ($bookings->isNotEmpty()) {

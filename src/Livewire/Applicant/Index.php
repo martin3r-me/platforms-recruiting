@@ -558,15 +558,13 @@ class Index extends Component
                 return ['error' => 'Schulungs-Termin nicht gefunden oder nicht aktiv.'];
             }
 
-            if ($locked->max_participants) {
-                $remaining = $locked->max_participants - $locked->takenSeatsCount();
-                if ($remaining < count($ids)) {
-                    return ['error' => sprintf(
-                        'Termin hat nicht genug Plätze (frei: %d, benötigt: %d). Buchung abgebrochen.',
-                        $remaining,
-                        count($ids),
-                    )];
-                }
+            $remaining = $locked->freeSeatsCount();
+            if ($remaining !== null && $remaining < count($ids)) {
+                return ['error' => sprintf(
+                    'Termin hat nicht genug Plätze (frei: %d, benötigt: %d). Buchung abgebrochen.',
+                    $remaining,
+                    count($ids),
+                )];
             }
 
             $booked = 0;

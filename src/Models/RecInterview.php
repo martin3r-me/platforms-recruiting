@@ -95,6 +95,16 @@ class RecInterview extends Model
         return !$this->max_participants || $this->takenSeatsCount() < $this->max_participants;
     }
 
+    /** Freie Plaetze nach zentraler Zaehlregel; null = unbegrenzt (kein max_participants). */
+    public function freeSeatsCount(): ?int
+    {
+        if (!$this->max_participants) {
+            return null;
+        }
+
+        return max(0, $this->max_participants - $this->takenSeatsCount());
+    }
+
     /** Standby-Buchungen (booked + seat_released_at) — fuer HR-Anzeige. */
     public function standbySeatsCount(): int
     {

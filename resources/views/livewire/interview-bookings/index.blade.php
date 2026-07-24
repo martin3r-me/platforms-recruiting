@@ -97,8 +97,8 @@
 
                     @if($this->interview->max_participants)
                         @php
-                            $activeCount = $this->bookings->filter->takes_seat->count();
-                            $standbyCount = $this->bookings->filter->is_standby->count();
+                            $activeCount = $this->interview->takenSeatsCount();
+                            $standbyCount = $this->interview->standbySeatsCount();
                             $isFull = $activeCount >= $this->interview->max_participants;
                         @endphp
                         <div class="mb-4 p-3 rounded-lg {{ $isFull ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200' }}">
