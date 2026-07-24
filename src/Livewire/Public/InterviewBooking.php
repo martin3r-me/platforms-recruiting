@@ -193,7 +193,7 @@ class InterviewBooking extends Component
             ->whereIn('status', ['planned', 'confirmed'])
             ->whereIn('rec_position_id', $positionIds)
             ->withCount(['bookings' => function ($query) {
-                $query->whereNotIn('status', ['cancelled']);
+                $query->seatTaking();
             }])
             ->get()
             ->sortBy('starts_at')
@@ -414,7 +414,7 @@ class InterviewBooking extends Component
         }
 
         $booked = RecInterviewBooking::where('rec_interview_id', $interviewId)
-            ->whereNotIn('status', ['cancelled'])
+            ->seatTaking()
             ->count();
 
         if ($booked < $interview->max_participants) {

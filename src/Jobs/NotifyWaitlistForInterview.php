@@ -63,7 +63,7 @@ class NotifyWaitlistForInterview implements ShouldQueue
         // Kapazität: nur benachrichtigen, wenn wirklich noch Platz ist.
         if ($interview->max_participants) {
             $booked = RecInterviewBooking::where('rec_interview_id', $interview->id)
-                ->whereNotIn('status', ['cancelled'])
+                ->seatTaking()
                 ->count();
             if ($booked >= $interview->max_participants) {
                 return;

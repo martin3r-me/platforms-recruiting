@@ -93,9 +93,16 @@
                                     <td class="px-4 py-3">{{ $interview->position->title ?? '—' }}</td>
                                     <td class="px-4 py-3">{{ $interview->location ?? '—' }}</td>
                                     <td class="px-4 py-3">
-                                        <span class="font-medium">{{ $interview->bookings->whereNotIn('status', ['cancelled'])->count() }}</span>
+                                        @php
+                                            $takenCount = $interview->bookings->filter->takes_seat->count();
+                                            $standbyCount = $interview->bookings->filter->is_standby->count();
+                                        @endphp
+                                        <span class="font-medium">{{ $takenCount }}</span>
                                         @if($interview->max_participants)
                                             <span class="text-[var(--ui-muted)]">/ {{ $interview->max_participants }}</span>
+                                        @endif
+                                        @if($standbyCount > 0)
+                                            <span class="text-amber-600">(+{{ $standbyCount }} Standby)</span>
                                         @endif
                                     </td>
                                     <td class="px-4 py-3">

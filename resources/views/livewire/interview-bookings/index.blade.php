@@ -97,12 +97,14 @@
 
                     @if($this->interview->max_participants)
                         @php
-                            $activeCount = $this->bookings->whereNotIn('status', ['cancelled'])->count();
+                            $activeCount = $this->bookings->filter->takes_seat->count();
+                            $standbyCount = $this->bookings->filter->is_standby->count();
                             $isFull = $activeCount >= $this->interview->max_participants;
                         @endphp
                         <div class="mb-4 p-3 rounded-lg {{ $isFull ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200' }}">
                             <span class="text-sm font-medium {{ $isFull ? 'text-red-700' : 'text-blue-700' }}">
                                 {{ $activeCount }} / {{ $this->interview->max_participants }} Plätze belegt
+                                @if($standbyCount > 0) <span class="text-amber-600">(+{{ $standbyCount }} Standby)</span> @endif
                                 @if($isFull)
                                     — Termin voll
                                 @endif
