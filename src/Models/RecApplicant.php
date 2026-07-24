@@ -895,6 +895,35 @@ class RecApplicant extends Model implements InheritsExtraFields
             ->latest('id')
             ->first();
         if (!$booking?->interview) {
+            // Fehlgeschlagener Standby-Re-Claim: Bewerber wurde zurueck in die
+            // Buchen-Phase gesetzt (Buchung storniert). Statt stillem null eine
+            // Erklaerung + Link zur Terminauswahl rendern.
+            $this->loadMissing('phase');
+            $hasActiveBooking = $this->interviewBookings()
+                ->whereNotIn('status', ['cancelled'])
+                ->exists();
+
+            if ($this->phase?->completion_type === 'booking' && !$hasActiveBooking) {
+                $url = url('/recruiting/interviews/' . $this->public_token);
+                $text = $this->usesInformalAddress()
+                    ? 'Danke, deine Angaben sind vollständig! Dein ursprünglicher Schulungstermin ist leider inzwischen voll geworden — bitte wähle einen neuen Termin.'
+                    : 'Danke, Ihre Angaben sind vollständig! Ihr ursprünglicher Schulungstermin ist leider inzwischen voll geworden — bitte wählen Sie einen neuen Termin.';
+
+                // Markup an die Bestaetigungsbox in
+                // resources/views/partials/public-form-completion.blade.php
+                // angelehnt (rounded-xl/border/p-6/text-center-Container,
+                // Heading- und CTA-Button-Klassen), Farbton amber statt
+                // emerald. Kein @svg()-Icon: diese Methode liefert reines
+                // HTML als String (kein Blade-Kontext) und die Task
+                // beschraenkt die Aenderung auf RecApplicant.php.
+                return '<div class="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">'
+                    . '<h3 class="text-lg font-semibold text-amber-900 mb-2">' . e($text) . '</h3>'
+                    . '<a href="' . e($url) . '" class="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700 transition-colors">'
+                    . 'Neuen Termin wählen'
+                    . '</a>'
+                    . '</div>';
+            }
+
             return null;
         }
         $duzen = $this->usesInformalAddress();
