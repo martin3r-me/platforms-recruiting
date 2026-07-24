@@ -17,7 +17,10 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecAutoPilotState;
+use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Support\SeatStandbyPolicy;
+use Platform\Recruiting\Jobs\NotifyWaitlistForInterview;
 
 class ProcessAutoPilotApplicants extends Command
 {
@@ -232,6 +235,7 @@ class ProcessAutoPilotApplicants extends Command
             $applicant->auto_pilot_state_id = $this->reviewNeededStateId;
             $applicant->save();
             $this->logAutoPilot($applicant, 'max_reminders_reached', "Max. Erinnerungen erreicht ({$maxReminders}/{$maxReminders}).");
+            $this->releaseSeats($applicant);
             $this->info("  Max. Erinnerungen erreicht — review_needed.");
             return;
         }
@@ -248,6 +252,36 @@ class ProcessAutoPilotApplicants extends Command
         } else {
             $this->logAutoPilot($applicant, 'warning', "Erinnerungs-Versand per {$channelType} fehlgeschlagen.");
             $this->warn("  Erinnerungs-Versand fehlgeschlagen.");
+        }
+    }
+
+    /**
+     * Standby: Auto-Pilot hat aufgegeben — 'booked'-Buchungen geben ihren
+     * Platz frei (seat_released_at), bleiben aber bestehen. Der frei
+     * gewordene Platz wird sofort der Warteliste angeboten. Idempotent
+     * (bereits released wird uebersprungen) — der Max-Branch kann nach
+     * Inbound-State-Reset mehrfach feuern.
+     */
+    private function releaseSeats(RecApplicant $applicant): void
+    {
+        $bookings = RecInterviewBooking::where('rec_applicant_id', $applicant->id)
+            ->where('status', 'booked')
+            ->whereNull('seat_released_at')
+            ->get();
+
+        foreach ($bookings as $booking) {
+            if (!SeatStandbyPolicy::shouldRelease($booking->status, $booking->seat_released_at !== null)) {
+                continue;
+            }
+            $booking->seat_released_at = now();
+            $booking->save();
+
+            $this->logAutoPilot($applicant, 'seat_released', "Schulungsplatz freigegeben — keine Reaktion auf Erinnerungen (Buchung #{$booking->id}).", [
+                'booking_id'   => $booking->id,
+                'interview_id' => $booking->rec_interview_id,
+                'source'       => 'auto_pilot',
+            ]);
+            NotifyWaitlistForInterview::dispatch($booking->rec_interview_id);
         }
     }
 

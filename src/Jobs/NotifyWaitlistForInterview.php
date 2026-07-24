@@ -29,6 +29,12 @@ class NotifyWaitlistForInterview implements ShouldQueue
     public $timeout = 120;
 
     /**
+     * Dispatch erst nach DB-Commit ausfuehren — der Re-Claim/Storno-Pfad
+     * dispatcht aus einer FOR-UPDATE-Transaktion heraus (via Observer).
+     */
+    public $afterCommit = true;
+
+    /**
      * Keine Benachrichtigung mehr, wenn der Termin in weniger als
      * MIN_LEAD_HOURS beginnt — eine Push um 22 Uhr für eine Schulung am
      * nächsten Morgen bringt niemanden mehr in den Termin.
