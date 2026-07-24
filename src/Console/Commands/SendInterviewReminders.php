@@ -45,6 +45,10 @@ class SendInterviewReminders extends Command
             $bookings = $interview->bookings()
                 ->whereNull('reminder_sent_at')
                 ->where('status', '!=', 'cancelled')
+                // Standby hat keinen garantierten Platz — keine Teilnahme-
+                // Bestaetigungsfrage; der Weg zurueck fuehrt uebers Onboarding
+                // (kapazitaetsgeprüfter Re-Claim).
+                ->whereNull('seat_released_at')
                 ->with(['applicant.crmContactLinks.contact.phoneNumbers', 'applicant.legalStatus'])
                 ->get();
 

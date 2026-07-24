@@ -7,6 +7,7 @@ use Platform\Core\Contracts\ToolContext;
 use Platform\Core\Contracts\ToolMetadataContract;
 use Platform\Core\Contracts\ToolResult;
 use Platform\Core\Tools\Concerns\HasStandardizedWriteOperations;
+use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Tools\Concerns\ResolvesRecruitingTeam;
 
@@ -74,6 +75,20 @@ class UpdateInterviewBookingTool implements ToolContract, ToolMetadataContract
                 if (!in_array($arguments['status'], $validStatuses)) {
                     return ToolResult::error('VALIDATION_ERROR', 'Ungültiger Status. Erlaubt: ' . implode(', ', $validStatuses));
                 }
+
+                // Standby-Buchung wird manuell hochgestuft = bewusste HR-Uebersteuerung
+                // (kein Kapazitaetsblock, aber nachvollziehbar im AutoPilot-Log).
+                if ($booking->is_standby && !in_array($arguments['status'], ['booked', 'cancelled'], true)) {
+                    try {
+                        RecAutoPilotLog::create([
+                            'rec_applicant_id' => $booking->rec_applicant_id,
+                            'type' => 'seat_reclaimed_override',
+                            'summary' => "Standby-Buchung #{$booking->id} manuell auf '{$arguments['status']}' gesetzt — Platz bewusst konsumiert (HR).",
+                            'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id, 'status' => $arguments['status']],
+                        ]);
+                    } catch (\Throwable) {}
+                }
+
                 $booking->status = $arguments['status'];
             }
 

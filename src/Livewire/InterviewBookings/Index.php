@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecEmployee;
@@ -327,6 +328,19 @@ class Index extends Component
         } elseif ($status !== 'cancelled' && $booking->status === 'cancelled') {
             $updates['cancelled_by'] = null;
             $updates['cancelled_at'] = null;
+        }
+
+        // Standby-Buchung wird manuell hochgestuft = bewusste HR-Uebersteuerung
+        // (kein Kapazitaetsblock, aber nachvollziehbar im AutoPilot-Log).
+        if ($booking->is_standby && !in_array($status, ['booked', 'cancelled'], true)) {
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $booking->rec_applicant_id,
+                    'type' => 'seat_reclaimed_override',
+                    'summary' => "Standby-Buchung #{$booking->id} manuell auf '{$status}' gesetzt — Platz bewusst konsumiert (HR).",
+                    'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id, 'status' => $status],
+                ]);
+            } catch (\Throwable) {}
         }
 
         $booking->update($updates);

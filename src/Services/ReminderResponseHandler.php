@@ -57,6 +57,7 @@ class ReminderResponseHandler
         // → keine Reminder-Antwort.
         $booking = $applicant->interviewBookings()
             ->whereIn('status', ['booked', 'registered'])
+            ->whereNull('seat_released_at')
             ->whereNotNull('reminder_sent_at')
             ->where('reminder_sent_at', '>=', now()->subHours(72))
             ->orderByDesc('reminder_sent_at')
