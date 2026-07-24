@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Platform\Recruiting\Support\SeatStandbyPolicy;
 use Symfony\Component\Uid\UuidV7;
 
 class RecInterviewBooking extends Model
@@ -23,6 +24,7 @@ class RecInterviewBooking extends Model
         'is_active',
         'team_id',
         'reminder_sent_at',
+        'seat_released_at',
         'cancelled_by',
         'cancelled_at',
         'created_by_user_id',
@@ -32,6 +34,7 @@ class RecInterviewBooking extends Model
     protected $casts = [
         'booked_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
+        'seat_released_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'is_active' => 'boolean',
     ];
@@ -44,6 +47,15 @@ class RecInterviewBooking extends Model
                     $uuid = UuidV7::generate();
                 } while (self::where('uuid', $uuid)->exists());
                 $model->uuid = $uuid;
+            }
+        });
+
+        // Invariante: seat_released_at existiert nur auf status='booked'.
+        // Jeder Statuswechsel weg von 'booked' (Upgrade, Storno, HR-Set)
+        // raeumt den Marker automatisch ab — egal ueber welchen Pfad.
+        static::saving(function (self $model) {
+            if (SeatStandbyPolicy::mustClearReleaseMarker($model->status)) {
+                $model->seat_released_at = null;
             }
         });
     }
@@ -61,6 +73,27 @@ class RecInterviewBooking extends Model
     public function team(): BelongsTo
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
+    }
+
+    /**
+     * Platz-belegende Buchungen: nicht storniert UND kein Standby.
+     * DIE zentrale Zaehlregel — alle Kapazitaets-Checks laufen hierueber.
+     */
+    public function scopeSeatTaking($query)
+    {
+        return $query
+            ->whereNotIn('status', SeatStandbyPolicy::SEAT_FREEING_STATUSES)
+            ->whereNull('seat_released_at');
+    }
+
+    public function getTakesSeatAttribute(): bool
+    {
+        return SeatStandbyPolicy::countsAsSeat($this->status, $this->seat_released_at !== null);
+    }
+
+    public function getIsStandbyAttribute(): bool
+    {
+        return SeatStandbyPolicy::statusLabel($this->status, $this->seat_released_at !== null) !== null;
     }
 
     /**
@@ -87,6 +120,9 @@ class RecInterviewBooking extends Model
      */
     public function getStatusLabelAttribute(): string
     {
+        if ($label = SeatStandbyPolicy::statusLabel($this->status, $this->seat_released_at !== null)) {
+            return $label;
+        }
         if ($this->is_rebooked) {
             return 'Umgebucht';
         }

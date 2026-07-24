@@ -84,6 +84,26 @@ class RecInterview extends Model
         return $this->hasMany(RecInterviewBooking::class, 'rec_interview_id');
     }
 
+    /** Belegte Plaetze nach zentraler Zaehlregel (Standby zaehlt nicht). */
+    public function takenSeatsCount(): int
+    {
+        return $this->bookings()->seatTaking()->count();
+    }
+
+    public function hasFreeSeat(): bool
+    {
+        return !$this->max_participants || $this->takenSeatsCount() < $this->max_participants;
+    }
+
+    /** Standby-Buchungen (booked + seat_released_at) — fuer HR-Anzeige. */
+    public function standbySeatsCount(): int
+    {
+        return $this->bookings()
+            ->where('status', 'booked')
+            ->whereNotNull('seat_released_at')
+            ->count();
+    }
+
     public function team(): BelongsTo
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
