@@ -577,12 +577,14 @@ class RecApplicant extends Model implements InheritsExtraFields
         $this->clearExtraFieldDefinitionsCache();
         $this->save();
 
-        RecAutoPilotLog::create([
-            'rec_applicant_id' => $this->id,
-            'type' => 'phase_returned',
-            'summary' => "Zurück zu Phase \"{$target->name}\" — Schulungsplatz war nicht mehr verfügbar.",
-            'details' => ['from_phase_id' => $current->id, 'to_phase_id' => $target->id],
-        ]);
+        try {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'phase_returned',
+                'summary' => "Zurück zu Phase \"{$target->name}\" — Schulungsplatz war nicht mehr verfügbar.",
+                'details' => ['from_phase_id' => $current->id, 'to_phase_id' => $target->id],
+            ]);
+        } catch (\Throwable) {}
 
         return true;
     }
