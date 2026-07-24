@@ -29,12 +29,6 @@ class NotifyWaitlistForInterview implements ShouldQueue
     public $timeout = 120;
 
     /**
-     * Dispatch erst nach DB-Commit ausfuehren — der Re-Claim/Storno-Pfad
-     * dispatcht aus einer FOR-UPDATE-Transaktion heraus (via Observer).
-     */
-    public $afterCommit = true;
-
-    /**
      * Keine Benachrichtigung mehr, wenn der Termin in weniger als
      * MIN_LEAD_HOURS beginnt — eine Push um 22 Uhr für eine Schulung am
      * nächsten Morgen bringt niemanden mehr in den Termin.
@@ -51,7 +45,16 @@ class NotifyWaitlistForInterview implements ShouldQueue
      */
     public const RENOTIFY_COOLDOWN_MINUTES = 60;
 
-    public function __construct(private int $interviewId) {}
+    public function __construct(private int $interviewId)
+    {
+        // Dispatch erst nach DB-Commit ausfuehren — der Re-Claim/Storno-Pfad
+        // dispatcht aus einer FOR-UPDATE-Transaktion heraus (via Observer).
+        // Als Konstruktor-Zuweisung, NICHT als Property-Redeklaration: der
+        // Queueable-Trait definiert $afterCommit bereits (ohne Default) —
+        // eine Redeklaration mit abweichendem Initializer ist ein Fatal
+        // bei der Trait-Komposition.
+        $this->afterCommit = true;
+    }
 
     public function handle(): void
     {
