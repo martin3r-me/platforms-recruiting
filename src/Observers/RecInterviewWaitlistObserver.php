@@ -96,6 +96,21 @@ class RecInterviewWaitlistObserver
                 RecInterviewWaitlist::where('rec_applicant_id', $applicant->id)
                     ->open()
                     ->update(['cancelled_at' => now()]);
+
+                // Aktive Buchungen an ZUKUENFTIGEN Terminen mitstornieren —
+                // der Booking-saved-Observer oben bietet den Platz dann der
+                // Warteliste an. Vergangene Termine (attended/no_show-Historie)
+                // bleiben unangetastet.
+                RecInterviewBooking::where('rec_applicant_id', $applicant->id)
+                    ->whereIn('status', ['booked', 'registered', 'confirmed'])
+                    ->whereHas('interview', fn ($q) => $q->where('starts_at', '>', now()))
+                    ->get()
+                    ->each(function (RecInterviewBooking $booking): void {
+                        $booking->status = 'cancelled';
+                        $booking->cancelled_by = 'system';
+                        $booking->cancelled_at = now();
+                        $booking->save();
+                    });
             }, 'rec_applicant.saved.waitlist', $applicant->id);
         });
     }
