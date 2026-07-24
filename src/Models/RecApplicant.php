@@ -541,6 +541,53 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Expliziter Ruecksprung in die Termin-Buchen-Phase — einziger Pfad,
+     * der rueckwaerts durch die Phasen geht (fehlgeschlagener Standby-
+     * Re-Claim: Termin ist inzwischen voll/vergangen).
+     *
+     * Spiegelt die Advance-Reset-Semantik (checkAutoPilotCompletion) PLUS
+     * auto_pilot_state_id = null: der Bewerber steht in diesem Moment auf
+     * review_needed, und die Auto-Pilot-Query schliesst review_needed aus —
+     * ohne State-Reset bekaeme er nie das Termin-Template.
+     */
+    public function returnToBookingPhase(): bool
+    {
+        $current = $this->phase;
+        if (!$current) {
+            return false;
+        }
+
+        $target = RecPhase::where('rec_position_id', $current->rec_position_id)
+            ->where('is_active', true)
+            ->where('completion_type', 'booking')
+            ->where('order', '<', $current->order)
+            ->orderByDesc('order')
+            ->first();
+
+        if (!$target) {
+            return false;
+        }
+
+        $this->rec_phase_id = $target->id;
+        $this->auto_pilot_completed_at = null;
+        $this->auto_pilot_reminder_count = 0;
+        $this->auto_pilot_last_reminder_at = null;
+        $this->auto_pilot_state_id = null;
+        $this->progress = 0;
+        $this->clearExtraFieldDefinitionsCache();
+        $this->save();
+
+        RecAutoPilotLog::create([
+            'rec_applicant_id' => $this->id,
+            'type' => 'phase_returned',
+            'summary' => "Zurück zu Phase \"{$target->name}\" — Schulungsplatz war nicht mehr verfügbar.",
+            'details' => ['from_phase_id' => $current->id, 'to_phase_id' => $target->id],
+        ]);
+
+        return true;
+    }
+
+    /**
      * Triggers configured side-effects that should fire when a phase completes,
      * based on the phase's completion_config.
      *
