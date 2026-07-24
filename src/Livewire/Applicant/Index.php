@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\Applicant;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
@@ -546,44 +547,61 @@ class Index extends Component
             return;
         }
 
-        // Kapazitäts-Check
-        if ($interview->max_participants) {
-            $current = RecInterviewBooking::where('rec_interview_id', $interview->id)
-                ->whereNotIn('status', ['cancelled'])
-                ->count();
-            $remaining = $interview->max_participants - $current;
-            if ($remaining < count($ids)) {
-                $this->importBookingError = sprintf(
-                    'Termin hat nicht genug Plätze (frei: %d, benötigt: %d). Buchung abgebrochen.',
-                    $remaining,
-                    count($ids),
-                );
-                return;
-            }
-        }
-
-        $booked = 0;
-        $skipped = 0;
-
-        foreach ($ids as $applicantId) {
-            $alreadyBooked = RecInterviewBooking::where('rec_applicant_id', $applicantId)
-                ->whereNotIn('status', ['cancelled'])
-                ->exists();
-            if ($alreadyBooked) {
-                $skipped++;
-                continue;
+        // Kapazitäts-Check + Buchungs-Schleife laufen zusammen in einer
+        // Transaktion mit Zeilensperre auf dem Termin — serialisiert gegen
+        // parallele Buchungs-Erzeugungen (Public-Form, HR, Tool) und den
+        // Standby-Re-Claim (Phantom-Insert-sicher — Row-Locks auf
+        // Buchungszeilen wuerden neue Inserts nicht stoppen).
+        $result = DB::transaction(function () use ($interview, $ids, $teamId) {
+            $locked = RecInterview::query()->lockForUpdate()->find($interview->id);
+            if (!$locked) {
+                return ['error' => 'Schulungs-Termin nicht gefunden oder nicht aktiv.'];
             }
 
-            RecInterviewBooking::create([
-                'rec_interview_id'   => $interview->id,
-                'rec_applicant_id'   => $applicantId,
-                'status'             => 'registered',
-                'booked_at'          => now(),
-                'team_id'            => $teamId,
-                'created_by_user_id' => auth()->id(),
-            ]);
-            $booked++;
+            if ($locked->max_participants) {
+                $remaining = $locked->max_participants - $locked->takenSeatsCount();
+                if ($remaining < count($ids)) {
+                    return ['error' => sprintf(
+                        'Termin hat nicht genug Plätze (frei: %d, benötigt: %d). Buchung abgebrochen.',
+                        $remaining,
+                        count($ids),
+                    )];
+                }
+            }
+
+            $booked = 0;
+            $skipped = 0;
+
+            foreach ($ids as $applicantId) {
+                $alreadyBooked = RecInterviewBooking::where('rec_applicant_id', $applicantId)
+                    ->whereNotIn('status', ['cancelled'])
+                    ->exists();
+                if ($alreadyBooked) {
+                    $skipped++;
+                    continue;
+                }
+
+                RecInterviewBooking::create([
+                    'rec_interview_id'   => $locked->id,
+                    'rec_applicant_id'   => $applicantId,
+                    'status'             => 'registered',
+                    'booked_at'          => now(),
+                    'team_id'            => $teamId,
+                    'created_by_user_id' => auth()->id(),
+                ]);
+                $booked++;
+            }
+
+            return ['booked' => $booked, 'skipped' => $skipped];
+        });
+
+        if (isset($result['error'])) {
+            $this->importBookingError = $result['error'];
+            return;
         }
+
+        $booked = $result['booked'];
+        $skipped = $result['skipped'];
 
         $msg = "{$booked} Bewerber gebucht in Schulung „{$interview->title}".'"';
         if ($skipped > 0) {

@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\Public;
 
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Core\Models\CorePublicFormLink;
@@ -279,49 +280,56 @@ class InterviewBooking extends Component
             return;
         }
 
-        $interview = RecInterview::forTeam($this->teamId)
-            ->active()
-            ->where('starts_at', '>', now())
-            ->whereIn('status', ['planned', 'confirmed'])
-            ->find($interviewId);
+        $interview = DB::transaction(function () use ($interviewId) {
+            // Zeilensperre auf dem Termin serialisiert ALLE Buchungs-Erzeugungen
+            // gegeneinander und gegen den Standby-Re-Claim (Phantom-Insert-sicher —
+            // Row-Locks auf Buchungszeilen wuerden neue Inserts nicht stoppen).
+            $interview = RecInterview::forTeam($this->teamId)
+                ->active()
+                ->where('starts_at', '>', now())
+                ->whereIn('status', ['planned', 'confirmed'])
+                ->lockForUpdate()
+                ->find($interviewId);
 
-        if (!$interview) {
+            if (!$interview) {
+                return null;
+            }
+
+            // Capacity check — zentrale Zaehlregel (Standby zaehlt nicht)
+            if (!$interview->hasFreeSeat()) {
+                return false;
+            }
+
+            // Status 'booked': Initial-Status fuer eine frische Buchung. Wird beim
+            // Phase-3-Hook auf 'registered' hochgestuft. Cancelled-Felder und
+            // seat_released_at werden explizit zurueckgesetzt fuer den Fall, dass
+            // die Row via updateOrCreate auf einer alten cancelled-/Standby-Buchung
+            // landet.
+            RecInterviewBooking::updateOrCreate(
+                [
+                    'rec_interview_id' => $interviewId,
+                    'rec_applicant_id' => $this->applicantId,
+                ],
+                [
+                    'status'           => 'booked',
+                    'booked_at'        => now(),
+                    'team_id'          => $this->teamId,
+                    'cancelled_by'     => null,
+                    'cancelled_at'     => null,
+                    'seat_released_at' => null,
+                ],
+            );
+
+            return $interview;
+        });
+
+        if ($interview === null) {
             return;
         }
-
-        // Capacity check
-        if ($interview->max_participants) {
-            $currentCount = RecInterviewBooking::where('rec_interview_id', $interviewId)
-                ->whereNotIn('status', ['cancelled'])
-                ->count();
-
-            if ($currentCount >= $interview->max_participants) {
-                unset($this->visibleInterviews);
-                return;
-            }
+        if ($interview === false) {
+            unset($this->visibleInterviews);
+            return;
         }
-
-        // Status 'booked' (NEU mit Schritt 3): Initial-Status fuer eine
-        // frische Buchung. Wird beim Phase-3-Hook auf 'registered'
-        // hochgestuft (sofern die Phase confirm_booking_on_completion=true
-        // setzt). Reminder-Ja-Antwort hebt dann auf 'confirmed'.
-        // Cancelled-Felder werden explizit zurueckgesetzt fuer den Fall
-        // dass die Row via updateOrCreate auf einer alten cancelled-Buchung
-        // landet — sonst bleiben Storno-Metadaten an einer wieder aktiven
-        // Buchung haengen.
-        RecInterviewBooking::updateOrCreate(
-            [
-                'rec_interview_id' => $interviewId,
-                'rec_applicant_id' => $this->applicantId,
-            ],
-            [
-                'status'        => 'booked',
-                'booked_at'     => now(),
-                'team_id'       => $this->teamId,
-                'cancelled_by'  => null,
-                'cancelled_at'  => null,
-            ],
-        );
 
         // Optional: Stellen-Wechsel falls die aktuelle Phase es erlaubt
         $this->maybeSwitchPosition($applicant, $interview);

@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\InterviewBookings;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Illuminate\Support\Facades\DB;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmPhoneNumber;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
@@ -245,45 +246,55 @@ class Index extends Component
 
         $interview = $this->interview;
 
-        if ($interview->max_participants) {
-            $currentCount = RecInterviewBooking::where('rec_interview_id', $this->interviewId)
-                ->whereNotIn('status', ['cancelled'])
-                ->count();
-
-            if ($currentCount >= $interview->max_participants) {
-                session()->flash('error', 'Maximale Teilnehmerzahl erreicht!');
-                return;
+        // Status 'booked': konsistent zum Public-Form-Pfad. HR bucht hier
+        // manuell einen Kandidaten in eine Schulung — gleiche Initial-Semantik
+        // wie wenn der Bewerber sich selbst gebucht haette.
+        //
+        // Zeilensperre auf dem Termin serialisiert ALLE Buchungs-Erzeugungen
+        // gegeneinander und gegen den Standby-Re-Claim (Phantom-Insert-sicher —
+        // Row-Locks auf Buchungszeilen wuerden neue Inserts nicht stoppen).
+        $error = DB::transaction(function () use ($interview) {
+            $locked = RecInterview::query()->lockForUpdate()->find($this->interviewId);
+            if (!$locked) {
+                return 'Termin nicht gefunden.';
             }
-        }
 
-        // Check if applicant already has an active booking in ANY interview
-        $existing = RecInterviewBooking::where('rec_applicant_id', $this->selectedApplicantId)
-            ->whereNotIn('status', ['cancelled'])
-            ->exists();
+            if (!$locked->hasFreeSeat()) {
+                return 'Maximale Teilnehmerzahl erreicht!';
+            }
 
-        if ($existing) {
-            session()->flash('error', 'Dieser Kandidat ist bereits in einem Termin gebucht!');
+            $existing = RecInterviewBooking::where('rec_applicant_id', $this->selectedApplicantId)
+                ->whereNotIn('status', ['cancelled'])
+                ->exists();
+
+            if ($existing) {
+                return 'Dieser Kandidat ist bereits in einem Termin gebucht!';
+            }
+
+            RecInterviewBooking::updateOrCreate(
+                [
+                    'rec_interview_id' => $this->interviewId,
+                    'rec_applicant_id' => $this->selectedApplicantId,
+                ],
+                [
+                    'status'             => 'booked',
+                    'notes'              => $this->bookingNotes ?: null,
+                    'booked_at'          => now(),
+                    'team_id'            => auth()->user()->currentTeam->id,
+                    'created_by_user_id' => auth()->id(),
+                    'cancelled_by'       => null,
+                    'cancelled_at'       => null,
+                    'seat_released_at'   => null,
+                ],
+            );
+
+            return null;
+        });
+
+        if ($error !== null) {
+            session()->flash('error', $error);
             return;
         }
-
-        // Status 'booked' (NEU mit Schritt 3): konsistent zum Public-Form-Pfad.
-        // HR bucht hier manuell einen Kandidaten in eine Schulung — gleiche
-        // Initial-Semantik wie wenn der Bewerber sich selbst gebucht haette.
-        RecInterviewBooking::updateOrCreate(
-            [
-                'rec_interview_id' => $this->interviewId,
-                'rec_applicant_id' => $this->selectedApplicantId,
-            ],
-            [
-                'status'             => 'booked',
-                'notes'              => $this->bookingNotes ?: null,
-                'booked_at'          => now(),
-                'team_id'            => auth()->user()->currentTeam->id,
-                'created_by_user_id' => auth()->id(),
-                'cancelled_by'       => null,
-                'cancelled_at'       => null,
-            ],
-        );
 
         session()->flash('success', 'Kandidat erfolgreich gebucht!');
         $this->showBookModal = false;

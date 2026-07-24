@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Tools;
 
+use Illuminate\Support\Facades\DB;
 use Platform\Core\Contracts\ToolContract;
 use Platform\Core\Contracts\ToolContext;
 use Platform\Core\Contracts\ToolMetadataContract;
@@ -93,29 +94,37 @@ class CreateInterviewBookingTool implements ToolContract, ToolMetadataContract
                 return ToolResult::error('DUPLICATE', 'Dieser Bewerber ist bereits für diesen Termin gebucht.');
             }
 
-            // Max-Teilnehmer-Check
-            if ($interview->max_participants) {
-                $currentCount = RecInterviewBooking::where('rec_interview_id', $interviewId)
-                    ->whereNotIn('status', ['cancelled'])
-                    ->count();
-                if ($currentCount >= $interview->max_participants) {
-                    return ToolResult::error('CAPACITY_REACHED', "Maximale Teilnehmerzahl ({$interview->max_participants}) bereits erreicht.");
-                }
-            }
+            // Max-Teilnehmer-Check + Buchung — Zeilensperre auf dem Termin
+            // serialisiert gegen parallele Buchungs-Erzeugungen und den
+            // Standby-Re-Claim (Phantom-Insert-sicher).
+            $booking = DB::transaction(function () use ($interviewId, $applicantId, $arguments, $teamId, $context) {
+                $locked = \Platform\Recruiting\Models\RecInterview::query()->lockForUpdate()->find($interviewId);
 
-            $booking = RecInterviewBooking::updateOrCreate(
-                [
-                    'rec_interview_id' => $interviewId,
-                    'rec_applicant_id' => $applicantId,
-                ],
-                [
-                    'status' => $arguments['status'] ?? 'registered',
-                    'notes' => $arguments['notes'] ?? null,
-                    'booked_at' => now(),
-                    'team_id' => $teamId,
-                    'created_by_user_id' => $context->user?->id,
-                ],
-            );
+                if ($locked && !$locked->hasFreeSeat()) {
+                    return null;
+                }
+
+                return RecInterviewBooking::updateOrCreate(
+                    [
+                        'rec_interview_id' => $interviewId,
+                        'rec_applicant_id' => $applicantId,
+                    ],
+                    [
+                        'status' => $arguments['status'] ?? 'registered',
+                        'notes' => $arguments['notes'] ?? null,
+                        'booked_at' => now(),
+                        'team_id' => $teamId,
+                        'created_by_user_id' => $context->user?->id,
+                        'cancelled_by' => null,
+                        'cancelled_at' => null,
+                        'seat_released_at' => null,
+                    ],
+                );
+            });
+
+            if ($booking === null) {
+                return ToolResult::error('CAPACITY_REACHED', "Maximale Teilnehmerzahl ({$interview->max_participants}) bereits erreicht.");
+            }
 
             return ToolResult::success([
                 'id' => $booking->id,
