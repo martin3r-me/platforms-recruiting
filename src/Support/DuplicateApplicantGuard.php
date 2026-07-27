@@ -70,6 +70,49 @@ class DuplicateApplicantGuard
     }
 
     /**
+     * Senior-Regel (Totalordnung, ordnungsunabhängig): entscheidet, ob der
+     * Kandidat senden darf oder auf ein Original geflaggt wird.
+     *
+     * Ein Match ist senior, wenn er kontaktiert ist und der Kandidat nicht,
+     * ODER beide denselben Kontakt-Status haben und der Match die kleinere ID
+     * hat. Kein seniorer Match → null (senden ok). Sonst: Original = ranghöchster
+     * Senior (kontaktierte vor unkontaktierten, innerhalb dessen kleinste ID).
+     *
+     * @param iterable<object{id: int, auto_pilot_last_reminder_at: mixed}> $matches
+     * @return int|null Original-ID zum Flaggen, oder null = senden ok
+     */
+    public static function decide(int $candidateId, mixed $candidateLastReminderAt, iterable $matches): ?int
+    {
+        $candidateContacted = !empty($candidateLastReminderAt);
+
+        $seniors = [];
+        foreach ($matches as $match) {
+            $id = (int) $match->id;
+            if ($id === $candidateId) {
+                continue;
+            }
+            $contacted = !empty($match->auto_pilot_last_reminder_at);
+
+            $isSenior = ($contacted && !$candidateContacted)
+                || ($contacted === $candidateContacted && $id < $candidateId);
+
+            if ($isSenior) {
+                $seniors[] = ['id' => $id, 'contacted' => $contacted];
+            }
+        }
+
+        if ($seniors === []) {
+            return null;
+        }
+
+        // Kontaktierte zuerst (desc), innerhalb dessen kleinste ID (asc)
+        usort($seniors, fn (array $a, array $b) =>
+            [$b['contacted'], $a['id']] <=> [$a['contacted'], $b['id']]);
+
+        return $seniors[0]['id'];
+    }
+
+    /**
      * Match-Set für den Guard: alle ANDEREN aktiven, nicht abgelehnten Bewerber
      * im Team des Kandidaten, die auf irgendeiner aktiven Nummer (nicht nur
      * Primary) kanonisch dieselbe Nummer tragen wie die Versand-Nummer.
