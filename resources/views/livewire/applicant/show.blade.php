@@ -31,7 +31,7 @@
                     <a href="{{ route('recruiting.applicants.show', $applicant->duplicate_of_applicant_id) }}" class="underline font-medium" wire:navigate>
                         Bewerber #{{ $applicant->duplicate_of_applicant_id }}
                     </a>
-                    (gleiche Telefonnummer) — Auto-Pilot gestoppt. Zum Freigeben Feld leeren und Auto-Pilot-Status zurücksetzen.
+                    (gleiche Telefonnummer) — Auto-Pilot gestoppt. Echte Dublette: diesen Datensatz deaktivieren. Geteilte Nummer (kein Duplikat): Auto-Pilot abschalten und manuell betreuen.
                 </span>
             </div>
         @endif

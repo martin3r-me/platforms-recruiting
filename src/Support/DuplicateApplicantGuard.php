@@ -39,6 +39,8 @@ class DuplicateApplicantGuard
      *     führende 0 würde hier fehlinterpretiert → der Guard verfehlt dieses
      *     Paar (fail-open, kein False-Flag). Alle bekannten Schreibpfade nackter
      *     Werte schreiben ländercodiert; deutsche Mobil-NSN beginnen mit 1.
+     *     Ebenfalls dokumentiert: Schreibweise „+49 (0) 163…" kanonisiert zu
+     *     490163… und verfehlt +49163… (fail-open, kein False-Flag).
      *  6. Sonst (nackte NSN ohne 0, Legacy wie '17664744605') → '49' + Ziffern.
      */
     public static function canonicalDigits(?string $number): ?string

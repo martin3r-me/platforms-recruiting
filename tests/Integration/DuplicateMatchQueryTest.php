@@ -95,6 +95,7 @@ class DuplicateMatchQueryTest extends TestCase
             'platform-crm/database/migrations/2025_02_18_000001_add_whatsapp_status_to_crm_phone_numbers_table.php',
             'platform-crm/database/migrations/2026_02_18_220000_make_created_by_user_id_nullable_on_crm_contact_links.php',
             'platform-crm/database/migrations/2026_02_19_230000_add_whatsapp_template_tracking_to_crm_phone_numbers.php',
+            'platform-crm/database/migrations/2026_03_19_000001_add_is_blacklisted_to_crm_contacts_table.php',
             // Recruiting: rec_applicants create + alle Schema-Alters darauf
             'platforms-recruiting/database/migrations/2026_02_09_000005_create_rec_applicants_table.php',
             'platforms-recruiting/database/migrations/2026_02_09_000006_create_rec_applicant_posting_table.php',
@@ -242,6 +243,20 @@ class DuplicateMatchQueryTest extends TestCase
 
         $this->assertTrue(DuplicateApplicantGuard::matchesFor($kandidat, null)->isEmpty());
         $this->assertTrue(DuplicateApplicantGuard::matchesFor($kandidat, '')->isEmpty());
+    }
+
+    public function test_geparkte_und_hr_desk_bewerber_bleiben_im_match_set(): void
+    {
+        // Bewusste Design-Entscheidung (Spec §2): ein geparktes/HR-Desk-Original
+        // besitzt den Chat weiterhin — analog findExistingApplicantByContact.
+        $kandidat = $this->withPhones($this->applicant(), [['international' => '+491111111111']]);
+        $geparkt = $this->withPhones($this->applicant(['is_parked' => true]), [['international' => '+491111111111']]);
+        $hrDesk = $this->withPhones($this->applicant(['is_on_hr_desk' => true]), [['international' => '+491111111111']]);
+
+        $this->assertSame(
+            [$geparkt->id, $hrDesk->id],
+            DuplicateApplicantGuard::matchesFor($kandidat, '+491111111111')->pluck('id')->all()
+        );
     }
 
     public function test_duplicate_of_spalte_existiert_im_echten_schema(): void
