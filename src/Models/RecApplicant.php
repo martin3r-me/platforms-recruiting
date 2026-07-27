@@ -39,6 +39,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         'is_active', 'is_parked', 'parked_at', 'is_on_hr_desk', 'rejected_at',
         'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
+        'duplicate_of_applicant_id',
         'preferred_comms_channel_id', 'enrichment_status',
         'source_platform_id', 'is_unrouted',
         'contract_template_id',
@@ -292,6 +293,11 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function ownedByUser()
     {
         return $this->belongsTo(\Platform\Core\Models\User::class, 'owned_by_user_id');
+    }
+
+    public function duplicateOf()
+    {
+        return $this->belongsTo(self::class, 'duplicate_of_applicant_id');
     }
 
     public function autoPilotLogs()

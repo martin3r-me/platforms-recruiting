@@ -114,6 +114,7 @@ class DuplicateMatchQueryTest extends TestCase
             'platforms-recruiting/database/migrations/2026_05_08_000001_add_is_test_to_rec_applicants.php',
             'platforms-recruiting/database/migrations/2026_06_09_000010_add_zuschlag_to_rec_applicants.php',
             'platforms-recruiting/database/migrations/2026_06_12_000003_add_matching_columns.php',
+            'platforms-recruiting/database/migrations/2026_07_24_000001_add_duplicate_of_to_rec_applicants.php',
         ];
 
         foreach ($files as $relative) {
@@ -241,5 +242,13 @@ class DuplicateMatchQueryTest extends TestCase
 
         $this->assertTrue(DuplicateApplicantGuard::matchesFor($kandidat, null)->isEmpty());
         $this->assertTrue(DuplicateApplicantGuard::matchesFor($kandidat, '')->isEmpty());
+    }
+
+    public function test_duplicate_of_spalte_existiert_im_echten_schema(): void
+    {
+        $this->assertTrue(
+            Capsule::schema()->hasColumn('rec_applicants', 'duplicate_of_applicant_id'),
+            'Migration add_duplicate_of_to_rec_applicants fehlt in runRealMigrations() oder ist nicht angelegt'
+        );
     }
 }
