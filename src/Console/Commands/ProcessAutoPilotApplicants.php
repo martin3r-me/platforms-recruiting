@@ -20,6 +20,7 @@ use Platform\Recruiting\Models\RecAutoPilotState;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Support\SeatStandbyPolicy;
+use Platform\Recruiting\Support\DuplicateApplicantGuard;
 use Platform\Recruiting\Jobs\NotifyWaitlistForInterview;
 
 class ProcessAutoPilotApplicants extends Command
@@ -204,6 +205,10 @@ class ProcessAutoPilotApplicants extends Command
 
         // 4. First contact (never sent a reminder)
         if ($applicant->auto_pilot_last_reminder_at === null) {
+            if ($this->duplicateGuardBlocks($applicant)) {
+                return;
+            }
+
             $sent = $this->sendMessageWithOverrides($applicant, $channel, $channelType, $publicUrl, $formToken, $teamSettings, $positionSettings, isReminder: false, phaseSettings: $phaseSettings);
 
             if ($sent) {
@@ -241,6 +246,10 @@ class ProcessAutoPilotApplicants extends Command
         }
 
         // 5b. Send reminder
+        if ($this->duplicateGuardBlocks($applicant)) {
+            return;
+        }
+
         $sent = $this->sendMessageWithOverrides($applicant, $channel, $channelType, $publicUrl, $formToken, $teamSettings, $positionSettings, isReminder: true, phaseSettings: $phaseSettings);
 
         if ($sent) {
@@ -253,6 +262,35 @@ class ProcessAutoPilotApplicants extends Command
             $this->logAutoPilot($applicant, 'warning', "Erinnerungs-Versand per {$channelType} fehlgeschlagen.");
             $this->warn("  Erinnerungs-Versand fehlgeschlagen.");
         }
+    }
+
+    /**
+     * Dedup-Guard: true = Versand stoppen (Bewerber wurde als mögliche
+     * Dublette geflaggt und auf review_needed gesetzt).
+     */
+    private function duplicateGuardBlocks(RecApplicant $applicant): bool
+    {
+        $sendNumber = $this->findPrimaryPhoneNumber($applicant)?->international;
+
+        $matches = DuplicateApplicantGuard::matchesFor($applicant, $sendNumber);
+        $originalId = DuplicateApplicantGuard::decide(
+            (int) $applicant->id,
+            $applicant->auto_pilot_last_reminder_at,
+            $matches,
+        );
+
+        if ($originalId === null) {
+            return false;
+        }
+
+        $applicant->duplicate_of_applicant_id = $originalId;
+        $applicant->auto_pilot_state_id = $this->reviewNeededStateId;
+        $applicant->save();
+
+        $this->logAutoPilot($applicant, 'duplicate_detected', "Mögliche Dublette von #{$originalId} (gleiche Telefonnummer) — Versand gestoppt.");
+        $this->info("  Mögliche Dublette von #{$originalId} — Versand gestoppt.");
+
+        return true;
     }
 
     /**
