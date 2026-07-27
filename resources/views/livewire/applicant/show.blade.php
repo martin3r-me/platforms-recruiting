@@ -23,6 +23,18 @@
     </x-slot>
 
     <x-ui-page-container spacing="space-y-8">
+        @if($applicant->duplicate_of_applicant_id)
+            <div class="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900 flex items-center gap-2">
+                @svg('heroicon-o-exclamation-triangle', 'w-4 h-4 shrink-0')
+                <span>
+                    Mögliche Dublette von
+                    <a href="{{ route('recruiting.applicants.show', $applicant->duplicate_of_applicant_id) }}" class="underline font-medium" wire:navigate>
+                        Bewerber #{{ $applicant->duplicate_of_applicant_id }}
+                    </a>
+                    (gleiche Telefonnummer) — Auto-Pilot gestoppt. Zum Freigeben Feld leeren und Auto-Pilot-Status zurücksetzen.
+                </span>
+            </div>
+        @endif
         {{-- Header --}}
         @php
             $primaryContact = $applicant->crmContactLinks->first()?->contact;
