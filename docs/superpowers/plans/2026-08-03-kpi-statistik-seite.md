@@ -121,7 +121,14 @@ git commit -m "feat(recruiting): rec_phase_transitions Tabelle + Model — Phase
 - Test: `tests/Unit/Statistics/PhaseTransitionTriggerTest.php`
 
 **Interfaces:**
-- Produces: `PhaseTransitionTrigger::set(string)`, `::consume(): string` (liefert gesetzten Wert oder `'unknown'`, setzt danach zurück), Konstanten `AUTO_ADVANCE|MANUAL|RETURNED|POSITION_SWITCH|FIX|PHASE_DELETED|UNKNOWN`. Task 3 setzt den Kontext an den vier bekannten Stellen, der Observer konsumiert ihn.
+- Produces: `PhaseTransitionTrigger::set(int $applicantId, string $trigger)`, `::consume(int $applicantId): string` (liefert den Wert NUR bei ID-Match, leert IMMER), `::forget(int $applicantId)`, Konstanten `AUTO_ADVANCE|MANUAL|RETURNED|POSITION_SWITCH|FIX|PHASE_DELETED|UNKNOWN`. Task 3 setzt den Kontext an den vier bekannten Stellen (mit try/finally), der Observer konsumiert ihn.
+
+**P1-Hintergrund:** Queue-Worker laufen stundenlang im selben PHP-Prozess. Ein
+gesetzter Trigger, dessen Observer nie feuert (rec_phase_id unverändert, Guard
+bricht ab, Exception), darf NIE den nächsten Phasenwechsel eines anderen
+Bewerbers etikettieren — `auto_advance` vs. `manual` ist die
+Auto-Pilot-Durchlaufquote (§6.6), `fix` muss aus den Medianen fliegen.
+Deshalb: an die Applicant-ID gebunden, consume leert immer, forget im finally.
 
 - [ ] **Step 1: Failing Test schreiben**
 
@@ -137,14 +144,34 @@ class PhaseTransitionTriggerTest extends TestCase
 {
     public function test_default_ist_unknown(): void
     {
-        $this->assertSame('unknown', PhaseTransitionTrigger::consume());
+        $this->assertSame('unknown', PhaseTransitionTrigger::consume(1));
     }
 
-    public function test_consume_liefert_gesetzten_wert_und_reset(): void
+    public function test_consume_liefert_wert_bei_id_match_und_leert(): void
     {
-        PhaseTransitionTrigger::set(PhaseTransitionTrigger::MANUAL);
-        $this->assertSame('manual', PhaseTransitionTrigger::consume());
-        $this->assertSame('unknown', PhaseTransitionTrigger::consume(), 'nach consume zurueckgesetzt');
+        PhaseTransitionTrigger::set(7, PhaseTransitionTrigger::MANUAL);
+        $this->assertSame('manual', PhaseTransitionTrigger::consume(7));
+        $this->assertSame('unknown', PhaseTransitionTrigger::consume(7), 'nach consume geleert');
+    }
+
+    public function test_id_mismatch_liefert_unknown_und_leert_trotzdem(): void
+    {
+        // P1: liegengebliebener Trigger (Observer feuerte nie) darf den
+        // naechsten Wechsel eines ANDEREN Bewerbers nicht etikettieren.
+        PhaseTransitionTrigger::set(7, PhaseTransitionTrigger::MANUAL);
+        $this->assertSame('unknown', PhaseTransitionTrigger::consume(8));
+        $this->assertSame('unknown', PhaseTransitionTrigger::consume(7), 'Mismatch leert auch');
+    }
+
+    public function test_forget_leert_nur_bei_passender_id(): void
+    {
+        PhaseTransitionTrigger::set(7, PhaseTransitionTrigger::RETURNED);
+        PhaseTransitionTrigger::forget(9);
+        $this->assertSame('returned', PhaseTransitionTrigger::consume(7), 'fremde ID leert nicht');
+
+        PhaseTransitionTrigger::set(7, PhaseTransitionTrigger::RETURNED);
+        PhaseTransitionTrigger::forget(7);
+        $this->assertSame('unknown', PhaseTransitionTrigger::consume(7));
     }
 
     public function test_konstanten_vollstaendig(): void
@@ -172,10 +199,14 @@ namespace Platform\Recruiting\Support;
 
 /**
  * Transienter Trigger-Kontext fuer den Phase-Observer: die vier bekannten
- * Phasenwechsel-Methoden setzen ihn VOR dem save(); der Observer konsumiert
- * ihn beim Schreiben der Transition. Alle anderen Schreibpfade (LLM-Tool,
- * DirectHire, Reconcile, SyncPhases, ...) laufen als 'unknown' — bewusst,
- * damit keiner still falsch etikettiert wird (Spec §5).
+ * Phasenwechsel-Methoden setzen ihn VOR dem save() (try/finally!); der
+ * Observer konsumiert ihn beim Schreiben der Transition. Alle anderen
+ * Schreibpfade (LLM-Tool, DirectHire, Reconcile, SyncPhases, ...) laufen als
+ * 'unknown' — bewusst, damit keiner still falsch etikettiert wird (Spec §5).
+ *
+ * An die Applicant-ID gebunden (P1): Queue-Worker leben stundenlang im selben
+ * Prozess — ein liegengebliebener Wert darf nie den naechsten Wechsel eines
+ * anderen Bewerbers etikettieren. consume() leert deshalb IMMER.
  */
 final class PhaseTransitionTrigger
 {
@@ -187,19 +218,34 @@ final class PhaseTransitionTrigger
     public const PHASE_DELETED  = 'phase_deleted';
     public const UNKNOWN        = 'unknown';
 
-    private static ?string $current = null;
+    private static ?int $applicantId = null;
+    private static ?string $trigger = null;
 
-    public static function set(string $trigger): void
+    public static function set(int $applicantId, string $trigger): void
     {
-        self::$current = $trigger;
+        self::$applicantId = $applicantId;
+        self::$trigger = $trigger;
     }
 
-    public static function consume(): string
+    /** Liefert den Trigger nur bei ID-Match — und leert in JEDEM Fall. */
+    public static function consume(int $applicantId): string
     {
-        $value = self::$current ?? self::UNKNOWN;
-        self::$current = null;
+        $value = (self::$applicantId === $applicantId && self::$trigger !== null)
+            ? self::$trigger
+            : self::UNKNOWN;
+        self::$applicantId = null;
+        self::$trigger = null;
 
         return $value;
+    }
+
+    /** Aufraeumen im finally der Setz-Stellen — Exception im save() darf nichts stehen lassen. */
+    public static function forget(int $applicantId): void
+    {
+        if (self::$applicantId === $applicantId) {
+            self::$applicantId = null;
+            self::$trigger = null;
+        }
     }
 }
 ```
@@ -280,7 +326,7 @@ class RecApplicantPhaseObserver
                 'to_phase_id'      => $toId,
                 'from_phase_name'  => $from?->name,
                 'to_phase_name'    => $to?->name,
-                'trigger'          => PhaseTransitionTrigger::consume(),
+                'trigger'          => PhaseTransitionTrigger::consume($applicant->id),
                 'source'           => 'live',
                 'occurred_at'      => now(),
             ]);
@@ -300,18 +346,25 @@ In `src/RecruitingServiceProvider.php` bei den bestehenden `::observe(...)`-Aufr
 \Platform\Recruiting\Models\RecApplicant::observe(\Platform\Recruiting\Observers\RecApplicantPhaseObserver::class);
 ```
 
-- [ ] **Step 3: Trigger-Kontext an den vier bekannten Stellen setzen**
+- [ ] **Step 3: Trigger-Kontext an den vier bekannten Stellen setzen (try/finally!)**
 
-In `src/Models/RecApplicant.php`, jeweils DIREKT VOR dem `$this->save()` der Phasenwechsel (Import `use Platform\Recruiting\Support\PhaseTransitionTrigger;` oben ergänzen):
+In `src/Models/RecApplicant.php` (Import `use Platform\Recruiting\Support\PhaseTransitionTrigger;` oben ergänzen) wird an allen vier Stellen das bare `$this->save()` durch dieses Muster ersetzt — das finally garantiert, dass auch bei Exception im save() kein Wert liegenbleibt (P1):
 
-1. Auto-Advance (bei `$this->rec_phase_id = $nextPhase->id;` um Zeile 472):
-   `PhaseTransitionTrigger::set(PhaseTransitionTrigger::AUTO_ADVANCE);`
-2. `advanceToNextPhase()` (um Zeile 541):
-   `PhaseTransitionTrigger::set(PhaseTransitionTrigger::MANUAL);`
-3. `returnToBookingPhase()` (um Zeile 588):
-   `PhaseTransitionTrigger::set(PhaseTransitionTrigger::RETURNED);`
-4. `switchToPosition()` (um Zeile 1648, vor dem `$this->save()` in Schritt 3 der Methode):
-   `PhaseTransitionTrigger::set(PhaseTransitionTrigger::POSITION_SWITCH);`
+```php
+PhaseTransitionTrigger::set($this->id, PhaseTransitionTrigger::AUTO_ADVANCE);
+try {
+    $this->save();
+} finally {
+    PhaseTransitionTrigger::forget($this->id);
+}
+```
+
+Die vier Stellen und ihre Trigger:
+
+1. Auto-Advance (bei `$this->rec_phase_id = $nextPhase->id;` um Zeile 472): `AUTO_ADVANCE`
+2. `advanceToNextPhase()` (um Zeile 541): `MANUAL`
+3. `returnToBookingPhase()` (um Zeile 588): `RETURNED`
+4. `switchToPosition()` (um Zeile 1648, das `$this->save()` in Schritt 3 der Methode): `POSITION_SWITCH`
 
 (Zeilennummern per `grep -n "rec_phase_id = " src/Models/RecApplicant.php` verifizieren.)
 
@@ -360,8 +413,26 @@ use Platform\Recruiting\Support\PhaseTransitionTrigger;
  */
 class RecPhaseObserver
 {
+    /**
+     * Doppel-Schreib-Guard: RecPositionObserver ruft deleting() direkt auf;
+     * loescht danach noch irgendein Pfad dieselbe Phase via Eloquent, gaebe es
+     * zwei Intervall-Enden. Prozessweiter Static ist hier unkritisch: Phase-IDs
+     * sind einmalig, eine geloeschte ID kommt nie wieder.
+     * Gecheckter Sonderfall: DuplicatePosition.php:122 loescht Phasen per
+     * Query-Builder-Bulk (phases()->delete(), KEINE Events) — betrifft nur die
+     * frisch geklonte Zielstelle ohne Bewerber, keine Transitions noetig.
+     *
+     * @var array<int,bool>
+     */
+    private static array $handled = [];
+
     public function deleting(RecPhase $phase): void
     {
+        if (isset(self::$handled[$phase->id])) {
+            return;
+        }
+        self::$handled[$phase->id] = true;
+
         try {
             RecApplicant::where('rec_phase_id', $phase->id)
                 ->select(['id', 'team_id'])
@@ -500,6 +571,12 @@ use PHPUnit\Framework\TestCase;
  * Nagelt die Observer-Vollstaendigkeit fest (Spec §7): Query-Builder-Updates
  * auf rec_phase_id umgehen Model-Events. Einzige erlaubte Stelle ist
  * FixApplicantPhase (dort expliziter Transition-Insert, Task 5).
+ *
+ * HEURISTIK, kein Beweis: flaggt nur ->update([...rec_phase_id...]) in
+ * Dateien, die auch DB::table enthalten. False Negatives moeglich (Update
+ * ueber Variable, Query-Builder ohne DB::table-Literal), False Positives
+ * bei Model-update() neben unabhaengigem DB::table. Der Test ist ein
+ * Stolperdraht fuer den haeufigsten Fehler, kein Ersatz fuer Review.
  */
 class PhaseWriteInvariantTest extends TestCase
 {
@@ -1088,7 +1165,7 @@ class CohortAssignerTest extends TestCase
         $result = (new CohortAssigner())->assign(
             [
                 $this->applicant(1), $this->applicant(2), $this->applicant(3),
-                $this->applicant(4, ['contract_signed' => true, 'contract_sent' => true]),
+                $this->applicant(4, ['contract_signed' => true, 'contract_sent' => true, 'applied_to_signed_days' => 12]),
             ],
             [
                 1 => [$this->booking(11, ['status' => 'booked'])],
@@ -1104,6 +1181,7 @@ class CohortAssignerTest extends TestCase
         $this->assertSame([4], $row['columns']['teilgenommen'], 'Rang>=3 OHNE no_show');
         $this->assertSame([3], $row['columns']['no_show']);
         $this->assertSame([4], $row['columns']['unterschrieben']);
+        $this->assertSame([12], $row['tth_days'], 'tth haengt an der Zeile (P5)');
     }
 }
 ```
@@ -1140,8 +1218,9 @@ use Platform\Recruiting\Support\BookingStatusGroups;
  *     columns: array{kontaktiert:list<int>, gebucht:list<int>, bestaetigt:list<int>,
  *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>,
  *                    vertrag_verschickt:list<int>, unterschrieben:list<int>},
+ *     tth_days: list<int>,  // Eingang→Unterschrift DIESER Zeile (P5: Kacheln
+ *                           // aggregieren ueber dieselben gefilterten Zeilen)
  *   }>,
- *   'tth_days' => list<int>,  // Eingang→Unterschrift der Kohorte (Kachel)
  * ]
  */
 final class CohortAssigner
@@ -1155,7 +1234,6 @@ final class CohortAssigner
     ): array {
         $rows = [];
         $totalIds = [];
-        $tthDays = [];
 
         foreach ($applicants as $a) {
             // Stufe 1: is_test — einziger stiller Filter (Spec §4)
@@ -1171,9 +1249,6 @@ final class CohortAssigner
             }
 
             $totalIds[] = $a['id'];
-            if ($a['contract_signed'] && $a['applied_to_signed_days'] !== null) {
-                $tthDays[] = $a['applied_to_signed_days'];
-            }
 
             [$type, $key, $booking] = $this->rowTypeFor($a, $bookingsByApplicant[$a['id']] ?? []);
             $group = $this->groupFor($a, $pivotsByApplicant[$a['id']] ?? []);
@@ -1182,7 +1257,7 @@ final class CohortAssigner
             if (!isset($rows[$rowKey])) {
                 $rows[$rowKey] = [
                     'type' => $type, 'key' => $key, 'group' => $group,
-                    'ids' => [], 'hr_desk_ids' => [],
+                    'ids' => [], 'hr_desk_ids' => [], 'tth_days' => [],
                     'columns' => [
                         'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [],
@@ -1210,11 +1285,16 @@ final class CohortAssigner
                 }
             }
             if ($a['contract_sent']) { $row['columns']['vertrag_verschickt'][] = $a['id']; }
-            if ($a['contract_signed']) { $row['columns']['unterschrieben'][] = $a['id']; }
+            if ($a['contract_signed']) {
+                $row['columns']['unterschrieben'][] = $a['id'];
+                if ($a['applied_to_signed_days'] !== null) {
+                    $row['tth_days'][] = $a['applied_to_signed_days']; // P5: pro Zeile
+                }
+            }
             unset($row);
         }
 
-        return ['total_ids' => $totalIds, 'rows' => array_values($rows), 'tth_days' => $tthDays];
+        return ['total_ids' => $totalIds, 'rows' => array_values($rows)];
     }
 
     /** @return array{0:string,1:string,2:?array} [type, key, gewinnende Buchung|null] */
@@ -1343,10 +1423,35 @@ class Index extends Component
     {
         $teamId = auth()->user()->currentTeam->id;
 
+        // P2: Vorfilter spiegeln die PHP-Logik verlustfrei (is_test = Stufe 1,
+        // Zeitraum mit NULL-Ausnahme = Stufe 2, Posting-/Quellen-Filter =
+        // Mengeneinschraenkung P3) — Rekonziliation unveraendert, aber die
+        // Query laedt nie das ganze Team (Query-Budget ist Abnahmekriterium §2).
+        // Falls Q10 grosse Zahlen zeigt: chunkById(500) + assign() pro Chunk
+        // fuettern — der Assigner akkumuliert zeilenweise, ist also streamfaehig.
         $applicants = RecApplicant::forTeam($teamId)
+            ->where('is_test', false)
+            ->when($this->filterFrom || $this->filterTo, fn ($q) => $q->where(fn ($q2) => $q2
+                ->whereNull('applied_at')
+                ->orWhere(fn ($q3) => $q3
+                    ->when($this->filterFrom, fn ($q4) => $q4->where('applied_at', '>=', $this->filterFrom))
+                    ->when($this->filterTo, fn ($q4) => $q4->where('applied_at', '<=', $this->filterTo)))))
+            // P3: Ausschreibungs-Filter schraenkt die BEWERBER-Menge ein (Spec §4),
+            // nicht nur die Pivot-Liste — sonst fuellt sich "ohne Ausschreibung"
+            // mit dem gesamten Rest des Teams.
+            ->when($this->postingFilter, fn ($q) => $q->whereHas('postings',
+                fn ($p) => $p->where('rec_postings.id', $this->postingFilter)))
+            ->when($this->sourcePlatformFilter, fn ($q) => $q->where('source_platform_id', $this->sourcePlatformFilter))
             ->with([
                 'postings.position',
-                'interviewBookings' => fn ($q) => $q->withTrashed()->with('interview:id,starts_at,location'),
+                // kein withTrashed(): der Assigner verwirft deleted ohnehin —
+                // SoftDeleted gar nicht erst laden
+                'interviewBookings' => fn ($q) => $q->with('interview:id,starts_at,location'),
+                // P4 verifiziert: rec_contracts.status ist string(30) NOT NULL
+                // default 'pending' (Migration 2026_04_15_100000) → '!=' ist
+                // NULL-safe. Dashboard zaehlt heute ungefiltert (bumpStatRow:421);
+                // der cancelled-Ausschluss hier ist Spec §4 (heute wirkungslos,
+                // aber zukunftssicher).
                 'contracts' => fn ($q) => $q->where('status', '!=', 'cancelled'),
                 'phase:id,name,order,rec_position_id',
             ])
@@ -1383,7 +1488,7 @@ class Index extends Component
                 'status' => $b->status,
                 'seat_released' => $b->seat_released_at !== null,
                 'starts_at' => $b->interview?->starts_at?->toDateTimeString(),
-                'deleted' => $b->deleted_at !== null,
+                'deleted' => false, // SoftDeleted wird nicht geladen; Assigner-Kontrakt bleibt vollstaendig
             ])->all();
             $pivots[$a->id] = $a->postings
                 ->filter(fn ($p) => $this->postingFilter === null || $p->id === $this->postingFilter)
@@ -1393,11 +1498,6 @@ class Index extends Component
                     'location' => $p->position?->location,
                     'activity' => $p->activity,
                 ])->all();
-        }
-
-        if ($this->sourcePlatformFilter !== null) {
-            $keep = $applicants->where('source_platform_id', $this->sourcePlatformFilter)->pluck('id')->all();
-            $rows = array_values(array_filter($rows, fn ($r) => in_array($r['id'], $keep, true)));
         }
 
         $result = (new CohortAssigner())->assign($rows, $bookings, $pivots, $this->filterFrom, $this->filterTo);
@@ -1438,12 +1538,16 @@ class Index extends Component
     public function tiles(): array
     {
         $c = $this->cohort; // Kacheln lesen NUR aus dem Kohorten-Ergebnis (Spec §3)
-        $sum = fn (string $col) => count(array_unique(array_merge(
-            ...array_map(fn ($r) => $r['columns'][$col], $c['rows']) ?: [[]])));
+        // KEIN array_unique: die Zeilen sind per Rekonziliations-Invariante
+        // disjunkt — unique wuerde eine Verletzung maskieren statt aufdecken.
+        $sum = fn (string $col) => array_sum(array_map(fn ($r) => count($r['columns'][$col]), $c['rows']));
         $total = count($c['total_ids']);
         $signed = $sum('unterschrieben');
-        sort($c['tth_days']);
-        $n = count($c['tth_days']);
+        // P5: tth pro Zeile aggregiert → folgt automatisch jedem Zeilen-Filter
+        // (Ort/Taetigkeit), Kachel und Tabelle koennen sich nicht widersprechen
+        $tth = array_merge(...array_map(fn ($r) => $r['tth_days'], $c['rows']) ?: [[]]);
+        sort($tth);
+        $n = count($tth);
         return [
             'bewerbungen' => $total,
             'gebucht' => $sum('gebucht'),
@@ -1451,8 +1555,8 @@ class Index extends Component
             'conversion' => $total > 0 ? (int) round($signed / $total * 100) : 0,
             'tth_median' => $n > 0
                 ? ($n % 2 === 0
-                    ? (int) round(($c['tth_days'][$n / 2 - 1] + $c['tth_days'][$n / 2]) / 2)
-                    : $c['tth_days'][intdiv($n, 2)])
+                    ? (int) round(($tth[$n / 2 - 1] + $tth[$n / 2]) / 2)
+                    : $tth[intdiv($n, 2)])
                 : null,
         ];
     }
@@ -1546,7 +1650,7 @@ WICHTIG (Memory-Pitfalls): `x-ui-input-date` NIE per `wire:model` an einen datet
 
 - [ ] **Step 4: Manuelle Verifikation (kein Unit-Test möglich — Livewire+DB)**
 
-In der Host-App (meingedeck, lokal falls lauffähig, sonst Staging nach Deploy):
+Es gibt KEIN Staging — der reale letzte Sichttest ist der erste Klick auf der Live-Seite nach dem Forge-Deploy:
 1. `php artisan migrate` → Tabelle `rec_phase_transitions` existiert
 2. `/recruiting/statistik` aufrufen → Seite lädt, Kacheln + Tabelle gefüllt
 3. Gesamt-Zahl == Summe aller Zeilen (Stichprobe, Rekonziliation)
@@ -1566,7 +1670,7 @@ git commit -m "feat(recruiting): Statistik-Seite /statistik — Kohorten-Tabelle
 
 **Files:** keine (Ops-Checkliste, Spec §8 — Reihenfolge ist verbindlich)
 
-- [ ] **Step 1:** Modul pushen (Migration + Observer + Command + Seite zusammen ist ok — die Reihenfolge unten betrifft die AUSFÜHRUNG)
+- [ ] **Step 1:** Modul pushen — EIN Push, so jetzt auch in Spec §8 festgelegt (die Seite ist nicht öffentlich verlinkt, `migrate` läuft im Deploy-Script; das Zwei-Push-Ritual schützt öffentliche Dauerverkehrs-Seiten). Bekanntes Fenster: zwischen Symlink-Switch und `migrate` schreibt der Observer auf eine noch nicht existierende Tabelle — try/catch fängt es, es fehlen nur die ersten Transitions.
 - [ ] **Step 2:** meingedeck `composer.lock` bumpen + pushen (Pflicht nach jedem Modul-Push)
 - [ ] **Step 3:** Forge-Deploy abwarten → `php artisan migrate` läuft im Deploy
 - [ ] **Step 4:** **`php artisan queue:restart`** — RecApplicant-Code läuft in Queue-Jobs; alte Worker schreiben sonst keine Transitions

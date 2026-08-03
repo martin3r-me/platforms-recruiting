@@ -1,7 +1,7 @@
 # KPI-Statistik-Seite — Design
 
 **Datum:** 2026-08-03
-**Status:** Entwurf zur Review (Spec-Runde 3)
+**Status:** Freigegeben (Stand Runde 5)
 
 ## 1. Kontext & Ziel
 
@@ -224,16 +224,20 @@ landet in seiner Schulungszeile — innerhalb der Gruppe „ohne Ausschreibung".
    `rec_posting_id` zählt, Bewerber wird als „Zuordnung uneindeutig"
    gekennzeichnet (mess- und anklickbar)
 3. Keine Pivot-Zeile → Gruppen-Fallback „ohne Ausschreibung"
-4. `rec_phase_id IS NULL` (und keine Pivot-Zeile) → Gruppen-Fallback „ohne Phase"
+4. GESTRICHEN — als Gruppe unerreichbar: „keine Pivot-Zeile" fängt Fall 3
+   bereits ab, und bei `rec_phase_id IS NULL` mit Pivot-Zeilen fällt der
+   Bewerber auf Fall 2 durch (kleinste `rec_posting_id`). „Ohne Phase"
+   existiert als **Unterzeile von Stufe 8** der Präzedenz-Kette, nicht als
+   Gruppe.
 5. Dangling `rec_phase_id` → kann nicht auftreten (FK
    `constrained('rec_phases')->nullOnDelete()`, Migration `2026_04_12_000002`);
-   kollabiert DB-garantiert in Fall 4. „Nie gesetzt" vs. „genullt" ist erst ab
-   Einführung des Transition-Logs unterscheidbar.
+   kollabiert DB-garantiert zu Phase-NULL → Fall 2 bzw. 3. „Nie gesetzt" vs.
+   „genullt" ist erst ab Einführung des Transition-Logs unterscheidbar.
 
-**Alle Gruppen-Fallbacks an einer Stelle:** „ohne Ausschreibung" (Fall 3),
-„ohne Phase" (Fall 4), „ohne Ort" (Position ohne gepflegtes `location`) — sie
-sind Gruppen, keine Zeilentypen, und stehen in der Tabelle als ehrliche
-Gruppen-Header (kein stilles Wegfiltern).
+**Alle Gruppen-Fallbacks an einer Stelle:** „ohne Ausschreibung" (Fall 3) und
+„ohne Ort" (Position ohne gepflegtes `location`) — sie sind Gruppen, keine
+Zeilentypen, und stehen in der Tabelle als ehrliche Gruppen-Header (kein
+stilles Wegfiltern).
 
 Bei aktivem Ausschreibungs-Filter zählt die gefilterte Zuordnung. Hinten bewusst
 erweiterbar: Dispo-Spalten („gearbeitete Termine") kommen später als zusätzliche
@@ -402,10 +406,15 @@ Modul-Konvention: reines PHPUnit ohne Laravel/DB
 
 - Route in `ModuleRouter::group('recruiting')` → Middleware-Stack
   `['web', 'detect.module.guard', 'auth:{guard}', 'check.module.permission']`
-- **Deploy-Reihenfolge:** Migration-Push → Observer-Push → Backfill
-  (`--dry-run` zuerst) → Seite. **`queue:restart` nach dem Observer-Push**
-  (RecApplicant-Code läuft in Queue-Jobs, alte Worker schreiben sonst keine
-  Transitions). composer.lock-Bump in meingedeck bei jedem Push.
+- **Deploy: EIN Push ist ok** — die Seite ist nicht öffentlich verlinkt und
+  `php artisan migrate` läuft im Forge-Deploy-Script; das Zwei-Push-Ritual
+  schützt öffentliche Dauerverkehrs-Seiten und ist hier nicht nötig.
+  Bekanntes, akzeptiertes Fenster: zwischen Symlink-Switch und `migrate`
+  schreibt der Observer auf eine noch nicht existierende Tabelle — der
+  try/catch fängt das, es fehlen lediglich die ersten Transitions.
+  Nach dem Deploy: **`queue:restart`** (RecApplicant-Code läuft in
+  Queue-Jobs, alte Worker schreiben sonst keine Transitions), dann Backfill
+  (`--dry-run` zuerst). composer.lock-Bump in meingedeck beim Push.
 
 ## 9. Nicht im Scope (bewusst)
 
