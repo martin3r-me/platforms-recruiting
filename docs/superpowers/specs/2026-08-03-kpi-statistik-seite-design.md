@@ -19,6 +19,11 @@ konkretes Feedback (Mail vom Kunden) zum heutigen Dashboard:
 Technischer Hintergrund der Verwirrung: Bewerber↔Ausschreibung ist n:m (Zeilensummen
 zählen doppelt, Unique-Totals nicht), und es gibt unsichtbare Buckets (unzugeordnet,
 geparkt, HR-Desk, Dubletten, Alt-Importe), die je nach Ansicht rein- oder rausfallen.
+Der Mechanismus ist im Code direkt sichtbar: `positionStats()` bumpt jeden Bewerber
+in **jeder** seiner Positions-Zeilen (`foreach ($positions as $position) …
+bumpStatRow`, `Dashboard.php:470-480`) — die Zeilensumme der „Übersicht nach
+Stelle" ist konstruktionsbedingt größer als das Unique-Total. Einen Ort-Filter
+hat das Dashboard nicht; „MGL" ist dort eine Positions-Zeile.
 
 **Ziel:** Eigene Statistik-Seite, deren Herzstück eine vollständig rekonzilierte
 Kohorten-Tabelle ist (jede Gesamtzahl = exakte Summe der sichtbaren Zeilen), plus
@@ -89,15 +94,17 @@ Darunter drei Ebenen:
 2. **Kohorten-Tabelle** (Abschnitt 4)
 3. **Analyse-Sektionen** (Abschnitt 6), aufklappbar, lazy
 
-Wird `location` an einer Stelle nicht gepflegt, erscheint eine ehrliche
-„ohne Ort"-Gruppe (kein stilles Wegfiltern).
+Wird `location` an einer Stelle nicht gepflegt, greift der Gruppen-Fallback
+„ohne Ort" (Abschnitt 4, Gruppen-Fallbacks — kein stilles Wegfiltern).
 
 ## 4. Kohorten-Tabelle (Herzstück)
 
-**Grundprinzip:** Bewerber-basiert und vollständig. Grundmenge = alle Bewerbungen
-im gewählten Zeitraum (nach `applied_at`, mit globalen Filtern). **Jeder Bewerber
-landet in genau einer Zeile.** Die Gesamt-Zeile ist die exakte Summe der Zeilen
-darüber.
+**Grundprinzip:** Bewerber-basiert und vollständig. **Grundmenge = alle
+Bewerbungen des Teams.** Der Zeitraum ist ein Filter auf `applied_at` — mit
+expliziter Ausnahme: Datensätze mit `applied_at IS NULL` fallen nie still aus
+dem Zeitraumfilter, sie erscheinen immer als eigene Zeile (Stufe 2 der
+Präzedenz-Kette). **Jeder Bewerber landet in genau einer Zeile.** Die
+Gesamt-Zeile ist die exakte Summe der Zeilen darüber.
 
 **Zähleinheit ist ein `rec_applicants`-Record.** Spaltenköpfe sagen durchgehend
 „Bewerbungen", nicht „Bewerber" — dieselbe Person kann als Dublette mehrfach
@@ -108,14 +115,23 @@ geprüft, der erste Treffer gewinnt; implementiert ausschließlich in
 `CohortAssigner`):
 
 1. `is_test` → raus (einziger stiller Filter)
-2. Dublette (`duplicate_of_applicant_id`) → Dubletten-Zeile
-3. Unrouted (`is_unrouted`) → Unzugeordnet-Zeile
-4. Kohorten-zugeordnete Buchung vorhanden → Schulungszeile (neueste
-   Kohorten-zugeordnete Buchung; Storno mit späterer Neubuchung = umgebucht,
-   zählt einmal beim neuen Termin)
-5. Ausgeschieden: geparkt (`is_parked`) / abgesagt (`rejected_at`) — getrennt
+2. `applied_at IS NULL` → Zeile „ohne Bewerbungsdatum"
+3. Dublette (`duplicate_of_applicant_id`) → Dubletten-Zeile
+4. Unrouted (`is_unrouted`) → Unzugeordnet-Zeile
+5. Alt-Import (`import_source IS NOT NULL`) → Import-Zeile. **Entscheidung:
+   Import schlägt Buchung** — Imports waren bereits Mitarbeiter und
+   durchlaufen den Funnel nicht (Docblock `withoutImports`); eine Buchung an
+   einem Import ist Bestandsdaten-Rauschen und darf nie als Funnel-Erfolg
+   zählen
+6. Kohorten-zugeordnete Buchung vorhanden → **bekannter** Status:
+   Schulungszeile; **unbekannter** Status: Zeile „unbekannter
+   Buchungsstatus". Bei mehreren Kohorten-zugeordneten Buchungen gewinnt die
+   neueste — Tie-Break (Senior-Rule-Muster wie im Dedup-Guard): spätester
+   `starts_at` des Termins, bei Gleichstand kleinste Booking-ID. Storno mit
+   späterer Neubuchung = umgebucht, zählt einmal beim neuen Termin
+7. Ausgeschieden: geparkt (`is_parked`) / abgesagt (`rejected_at`) — getrennt
    ausgewiesen
-6. „Noch ohne Schulung", aufklappbar nach aktueller Phase — beantwortet „wo
+8. „Noch ohne Schulung", aufklappbar nach aktueller Phase — beantwortet „wo
    hängen die restlichen fest?"
 
 **HR-Schreibtisch ist KEIN Zeilentyp in dieser Kette**, sondern eine
@@ -124,14 +140,12 @@ ist „HR-Desk MIT aktiver Buchung" der Normalfall, nicht der Randfall — ein
 HR-Desk-Bewerber mit Buchung gehört in seine Schulungszeile, mit sichtbarem
 HR-Desk-Marker.
 
-Weitere Zeilen (unterhalb, Teil der Gesamt-Addition):
-
-| Zeile | Inhalt |
-|---|---|
-| „ohne Bewerbungsdatum" | `applied_at IS NULL` — die Seite nutzt **weder** `routed()` **noch** `withoutImports()` als stillen Filter |
-| „Alt-Importe" | `import_source IS NOT NULL` — eigene Zeile statt Scope |
-| „unbekannter Buchungsstatus" | default-Zweig: `status` ist ein freier String ohne DB-Constraint (Create-Tool validiert nicht) — unbekannte Werte werden sichtbar gezeigt, nie verschluckt |
-| Gesamt je Ort-Gruppe + Gesamt unten | Reine Addition |
+Alle acht Stufen sind Teil der Gesamt-Addition (Gesamt je Ort-Gruppe + Gesamt
+unten = reine Addition). Die Seite nutzt **weder** `routed()` **noch**
+`withoutImports()` als stillen Filter — beide Buckets sind Stufen der Kette.
+„Unbekannter Buchungsstatus" existiert, weil `status` ein freier String ohne
+DB-Constraint ist (das Create-Tool validiert nicht) — unbekannte Werte werden
+sichtbar gezeigt, nie verschluckt.
 
 **Funnel-Spalten der Schulungszeilen — Rang-Modell, alle Spalten kumulativ:**
 
@@ -152,13 +166,24 @@ Weitere Zeilen (unterhalb, Teil der Gesamt-Addition):
   Phasen-Abschluss, `confirm_booking_on_completion` schreibt `'registered'`);
   Phasen-Abschluss-Upgrades fehlen in der Spalte systematisch, bis Auftrag ③
   entschieden ist.
+- **Der Funnel ist ein Snapshot, keine Historie.** Alle Ränge leiten aus dem
+  aktuellen `status` ab; wer bestätigt hat und dann storniert, verschwindet
+  rückwirkend aus „Bestätigt". Innerhalb einer Zeile bleibt die Kette monoton,
+  aber zwischen zwei Aufrufen kann „Bestätigt" sinken. Ohne
+  `confirmed_at`/`attended_at` (bewusst nicht im Scope) unvermeidbar —
+  Definitions-Tooltip weist darauf hin.
 
 **Status-Gruppierung: keine zweite Wahrheit.** Quelle ist `SeatStandbyPolicy`:
 
-- **Kohorten-zugeordnet** = `status NOT IN SeatStandbyPolicy::SEAT_FREEING_STATUSES`
-  und `deleted_at IS NULL` — bewusst **negativ formuliert**, keine positive
-  Liste (eine positive Liste wäre genau die zweite Wahrheit, die dieser Absatz
-  ausschließt; neue Status landen automatisch in „unbekannter Buchungsstatus")
+- **Kohorten-zugeordnet** = Status ist **bekannt** UND `NOT IN
+  SeatStandbyPolicy::SEAT_FREEING_STATUSES` UND `deleted_at IS NULL`. Die
+  reine Negativ-Formulierung würde unbekannte Statuswerte still in die
+  Schulungszeilen spülen — genau das soll die „unbekannter
+  Buchungsstatus"-Zeile verhindern. „Bekannt" kommt aus der Status-Konstante
+  von Auftrag ②; **bis ② existiert, gilt als offene Verzweigung** die heute
+  dokumentierte Werteliste (`booked, registered, confirmed, attended,
+  cancelled, no_show` aus den zwei `$validStatuses`-Duplikaten) als bekannt.
+  Was weder bekannt noch platzfreigebend ist → Extra-Zeile
 - **Kapazität**: `CohortAssigner` dockt an `SeatStandbyPolicy::countsAsSeat()`
   an — pure statische Methode, testbar ohne DB, garantiert dieselbe Regel wie
   UI und Buchungslogik (`scopeSeatTaking`)
@@ -185,19 +210,30 @@ hat keinen solchen Filter) — Test-Bewerber verfälschen dort die Kundenzahlen.
 Die Statistik-Seite filtert `is_test` als einzigen stillen Filter und
 dokumentiert die Abweichung.
 
-**Zuordnungsregel Bewerber → Stelle/Ausschreibung — fünf Fälle:**
+**Zwei Ketten, zwei Zuständigkeiten:** Die **Präzedenz-Kette entscheidet den
+ZEILENTYP**, die **Zuordnungsregel entscheidet die GRUPPE** (Ort → Tätigkeit),
+in der die Zeile erscheint. Ein Bewerber mit Buchung, aber ohne Pivot-Zeile,
+landet in seiner Schulungszeile — innerhalb der Gruppe „ohne Ausschreibung".
+
+**Zuordnungsregel Bewerber → Gruppe — fünf Fälle:**
 
 1. Es gibt eine Pivot-Zeile, deren Posting zur Position von `rec_phase_id`
-   gehört → diese Zuordnung zählt (Phase ist der abgeleitete Ist-Zustand)
+   gehört → diese Zuordnung bestimmt die Gruppe (Phase ist der abgeleitete
+   Ist-Zustand)
 2. Pivot-Zeilen vorhanden, aber keine passt zur Phase-Position → kleinste
    `rec_posting_id` zählt, Bewerber wird als „Zuordnung uneindeutig"
    gekennzeichnet (mess- und anklickbar)
-3. Keine Pivot-Zeile → Zeile „ohne Ausschreibung"
-4. `rec_phase_id IS NULL` → Zeile „ohne Phase"
+3. Keine Pivot-Zeile → Gruppen-Fallback „ohne Ausschreibung"
+4. `rec_phase_id IS NULL` (und keine Pivot-Zeile) → Gruppen-Fallback „ohne Phase"
 5. Dangling `rec_phase_id` → kann nicht auftreten (FK
    `constrained('rec_phases')->nullOnDelete()`, Migration `2026_04_12_000002`);
    kollabiert DB-garantiert in Fall 4. „Nie gesetzt" vs. „genullt" ist erst ab
    Einführung des Transition-Logs unterscheidbar.
+
+**Alle Gruppen-Fallbacks an einer Stelle:** „ohne Ausschreibung" (Fall 3),
+„ohne Phase" (Fall 4), „ohne Ort" (Position ohne gepflegtes `location`) — sie
+sind Gruppen, keine Zeilentypen, und stehen in der Tabelle als ehrliche
+Gruppen-Header (kein stilles Wegfiltern).
 
 Bei aktivem Ausschreibungs-Filter zählt die gefilterte Zuordnung. Hinten bewusst
 erweiterbar: Dispo-Spalten („gearbeitete Termine") kommen später als zusätzliche
@@ -215,6 +251,16 @@ Verweildauer- und Staustellen-KPIs brauchen sie.
 - `from_phase_id` / `to_phase_id` (nullable FK) **plus** `from_phase_name` /
   `to_phase_name` als Text-Snapshot — Phasen werden pro Stelle geklont,
   umbenannt und gelöscht; die Auswertung darf davon nicht abhängen
+- **FK-Löschverhalten (verbindlich):** `from_phase_id`, `to_phase_id` und
+  `rec_position_id` sind alle **`nullOnDelete`** — bei `cascadeOnDelete` würde
+  eine Phasen- oder Stellenlöschung die Transition-Zeilen selbst löschen, die
+  Historie verschwände genau in dem Moment, für den der Text-Snapshot gebaut
+  wurde. `rec_applicant_id` bleibt `cascadeOnDelete` (die Historie eines
+  gelöschten Bewerbers ist wertlos; Team-Löschung räumt so konsistent ab).
+  Bewusste Konsequenz: die `phase_deleted`-Transition wird geschrieben,
+  WÄHREND die Phase gelöscht wird — ihr `from_phase_id` wird von derselben
+  Kaskade unmittelbar danach genullt. Das ist in Ordnung (der Name-Snapshot
+  bleibt), aber Tests dürfen für diesen Fall **nicht** die ID erwarten.
 - `trigger`: `auto_advance` | `manual` | `returned` | `position_switch` |
   `fix` (FixApplicantPhase — Korrektur, kein Phasenwechsel: wird aus ALLEN
   Verweildauer-Medianen ausgeschlossen) | `phase_deleted` (RecPhase-Löschung,
@@ -236,15 +282,27 @@ Pfade" — es gibt genau **zwei bekannte Ausnahmen**:
 1. **`FixApplicantPhase`** schreibt per Query-Builder
    (`DB::table(...)->update()`, keine Model-Events) → der Command bekommt einen
    expliziten Transition-Insert mit `trigger='fix'`.
-2. **`RecPhase`-Löschung**: der FK ist `nullOnDelete` — die Nullung passiert
-   auf **DB-Ebene ohne Eloquent-Event**. Stellen-Löschung → Phasen cascaden →
-   `rec_phase_id` wird genullt → der RecApplicant-Observer sieht das nie; das
+2. **Phasen-Wegfall auf DB-Ebene**: der FK ist `nullOnDelete` — die Nullung
+   passiert ohne Eloquent-Event, der RecApplicant-Observer sieht sie nie; das
    Log zeigt den Bewerber sonst für immer in Phase X, offene Intervalle werden
-   unsichtbar beliebig groß. **Lösung: Observer auf `RecPhase::deleting`**, der
-   die Transition (`to = NULL`, `trigger='phase_deleted'`) für alle betroffenen
-   Bewerber schreibt, BEVOR die DB nullt. Defensive Leseregel zusätzlich:
-   „Intervall endet ohne Nachfolger und Phase existiert nicht mehr" → Intervall
-   verwerfen statt hochrechnen.
+   unsichtbar beliebig groß. **Prinzip: Model-Events feuern nicht bei
+   DB-Kaskaden. Jede Kaskade, die auf `rec_phase_id` durchschlägt, braucht
+   einen eigenen Observer an ihrem AUSGANGSPUNKT.** Konkret zwei Observer:
+   - **`RecPhase::deleting`** — fängt nur direkt über Eloquent gelöschte
+     Einzel-Phasen; schreibt die Transition (`to = NULL`,
+     `trigger='phase_deleted'`) für alle betroffenen Bewerber, bevor die DB
+     nullt.
+   - **`RecPosition::deleting`** — Pflicht, denn die Kaskade
+     `rec_phases.rec_position_id → cascadeOnDelete` läuft auf DB-Ebene: MySQL
+     entfernt die Phasen-Zeilen, es gibt keine RecPhase-Instanz und kein
+     deleting-Event. Der Position-Observer schreibt die Transitions für alle
+     Bewerber aller Phasen dieser Stelle, bevor irgendetwas kaskadiert.
+   - Dritter Pfad geprüft — **Team-Löschung**: `rec_applicants.team_id` ist
+     ebenfalls `cascadeOnDelete`; Bewerber und (via `rec_applicant_id`-FK)
+     ihre Transitions verschwinden mit dem Team konsistent. Kein Orphan, kein
+     Observer nötig.
+   - Defensive Leseregel zusätzlich: „Intervall endet ohne Nachfolger und
+     Phase existiert nicht mehr" → Intervall verwerfen statt hochrechnen.
 
 Defensiv: try/catch um jeden Insert; ein Log-Fehler wird geloggt, bricht aber
 nie den Phasenwechsel ab.
