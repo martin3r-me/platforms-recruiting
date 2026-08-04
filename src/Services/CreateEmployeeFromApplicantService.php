@@ -79,6 +79,19 @@ class CreateEmployeeFromApplicantService
             // CRM-Link duplizieren: gleicher Contact, neuer linkable_type
             $this->mirrorCrmContactLinks($applicant, $employee, $createdByUserId);
 
+            // MA-Kontaktbuch: Link-Anlage feuert keinen Observer (Regel aus der
+            // Spec, Benannte Luecken) — nach dem Spiegeln explizit syncen.
+            // Darf die Uebernahme niemals kippen.
+            try {
+                app(\Platform\Recruiting\Services\EmployeeContactListSyncService::class)
+                    ->syncEmployee($employee);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('[EmployeeContactListSync] Sync nach Bewerber-Uebernahme fehlgeschlagen', [
+                    'employee_id' => $employee->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
             // HR-only-Datenrow anlegen — physisch getrennt vom MA-Portal-
             // sichtbaren rec_employees. Snapshot der Vertrags-Daten beim
             // Anlegen damit ZAS-Export direkt verfuegbar ist ohne JOIN.
