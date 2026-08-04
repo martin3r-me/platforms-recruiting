@@ -228,7 +228,13 @@ IDs. Grund: Ort-/Phasennamen sind Freitexte mit möglichen Anführungszeichen
 und würden als nackte `wire:click`-Argumente den Ausdruck zerlegen. Die
 Auflösung läuft serverseitig immer gegen die FRISCH berechneten,
 team-gescopten Assigner-Zeilen; ein manipuliertes Token kann nichts sehen,
-was die aktuelle Kohorte nicht enthält. `drillApplicants()` scoped zusätzlich
+was die aktuelle Kohorte nicht enthält. Unbekannte scope-/column-Werte
+lösen fail-closed zu einer leeren Menge auf, nie zur Gesamtkohorte.
+**Bewusster Tradeoff:** die frische Neuberechnung ist die Grundlage des
+Sicherheitsarguments — dafür löst jeder Zellklick die volle Kohorten-Query
+aus (Livewire-Request-Zyklus; das Computed cached nur innerhalb eines
+Requests). Beim Query-Budget-Abnahmekriterium einkalkulieren, nicht als
+Überraschung im Live-Check. `drillApplicants()` scoped zusätzlich
 `forTeam` — Pflicht, nicht Redundanz: `drillIds` ist eine public
 Livewire-Property und clientseitig manipulierbar.
 
@@ -423,10 +429,17 @@ geladen:
   Kohorten-Zeile bekommt eine Spalte „noch offen: N"; Conversion-% wird
   ausgegraut, solange die Kohorte jünger ist als der Median-Durchlauf (sonst
   sieht eine junge Schulung wie eine schlechte aus). Definitionen (Ruling
-  Task 13): „offen" = Zeilen-IDs ohne Unterschrift und ohne No-Show;
-  Kohorten-Alter = Tage seit der ältesten Bewerbung der Zeile; Schwelle =
-  Time-to-Hire-Median der aktuellen Gesamtsicht, ohne Median (keine
-  Unterschriften) bleibt Conversion grau
+  Task 13, Anker-Korrektur Review-Runde 2): „offen" = Zeilen-IDs ohne
+  Unterschrift und ohne No-Show — **nur für laufende Zeilentypen** (Schulung,
+  noch ohne Schulung); ausgeschlossene Buckets (Dublette, Import, Unrouted,
+  ohne Datum, geparkt, abgesagt, unbekannter Status) zeigen „–", sie sind
+  keine laufenden Kohorten. Kohorten-Alter = Tage seit der **jüngsten**
+  Bewerbung der Zeile (max applied_at — konservativ: eine einzelne alte
+  Bewerbung darf eine überwiegend frische Zeile nicht „reif" färben;
+  falsch-grau ist harmlos und vom Tooltip erklärt, falsch-farbig ist die
+  Kundenmail). Schwelle = Time-to-Hire-Median der aktuellen Gesamtsicht,
+  strikt „jünger als"; ohne Median (keine Unterschriften) bleibt Conversion
+  grau (fail-safe)
 - **Definitions-Tooltip pro Spalte** *(ebenfalls TEIL 1)* — speziell
   „Kontaktiert": das ist ein Anreicherungs-Proxy (`enrichment_status`), kein
   Kontaktnachweis

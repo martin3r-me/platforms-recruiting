@@ -1724,3 +1724,39 @@ git commit -m "feat(recruiting): Statistik-Seite /statistik — Kohorten-Tabelle
 - **Spec-Coverage:** §2 Architektur → Tasks 9–11; §3 Seitenaufbau/Filter → Task 11; §4 Kette/Rang/Gruppen/Drill-down/Kapazität → Tasks 9, 10, 11; §5 Transition-Log komplett → Tasks 1–8; §7 Tests → Tasks 2, 6, 7, 9, 10; §8 Deploy → Task 12. NICHT in diesem Plan: §6 Analyse-Sektionen (eigener Folgeplan, oben deklariert) sowie Right-Censoring/Tooltips aus §6-Fußnoten, die an den Sektionen hängen. Die Kapazitäts-Doppelspalte ist in Task 11 Step 3 als verbindlicher Kommentar-Anker enthalten.
 - **Platzhalter:** Task 11 Step 3 enthält bewusst ein Markup-Gerüst mit konkreter Vorlagen-Referenz (Dashboard-Tabelle) statt vollständigem Tabellen-HTML — alle Logik-Bausteine (Zellen = drill-Buttons auf rowKey+Spalte, Meta aus interviewMeta, zwei Kapazitätsspalten) sind benannt. Alle PHP-Blöcke sind vollständig.
 - **Typ-Konsistenz:** Ergebnis-Shape von `CohortAssigner::assign()` (Task 10 Docblock) == Konsum in Task 11 (`cohort['rows']`, `columns`, `key`-Format `schulung:<id>`); `BookingStatusGroups`-Signaturen (Task 9) == Nutzung in Task 10; `PhaseTransitionTrigger`-Konstanten (Task 2) == Nutzung in Tasks 3–5.
+
+---
+
+### Task 13: Right-Censoring + Spalten-Tooltips (nachgetragen, as built)
+
+Nachgetragen nach Review-Entscheidung: die zwei §6-Fußnoten Right-Censoring
+und Definitions-Tooltips sind Spalten/Darstellung der Kohorten-Tabelle und
+gehören zu Teil 1 (Spec-Ablage unter §6 war ein Ablage-, kein Scope-Signal).
+
+**Files:**
+- Modify: `src/Services/Statistics/CohortAssigner.php` — pro Zeile `offen_ids`
+  (= ids − unterschrieben − no_show, NUR für laufende Typen schulung/
+  ohne_schulung, sonst leere Menge) und `max_applied_at` (jüngste Bewerbung
+  der Zeile — konservativer Censoring-Anker)
+- Modify: `src/Services/Statistics/CohortViewModel.php` — `isCensored(?string
+  $maxAppliedAt, string $todayYmd, ?int $tthMedian): bool` (strikt „jünger
+  als", kein Median → true, Rollover-Guard per Round-Trip-Prüfung),
+  `maxAppliedAt(array $rows): ?string` (Aggregat = max über Zeilen),
+  `conversionOf(array $rows): ?int` (null bei 0 Bewerbungen — nie „0 %" für
+  „keine Daten")
+- Modify: `src/Livewire/Statistics/Index.php` — `isCensored()`/`censorNote()`
+  (EINE Textquelle für Kachel und Tabellenzelle; `today` reist als
+  Y-m-d-String in die pure Klasse)
+- Modify: Blades — Spalte „noch offen" (klickbar, gleiche idsOf/drill-
+  Mechanik; „–" auf ausgeschlossenen Buckets), Conversion-%-Spalte für alle
+  Zeilenkontexte (colspan-konsistent), Grau+kursiv+Tooltip bei Zensur (Zelle
+  UND Kachel), Definitions-Tooltips an allen Spaltenköpfen (Kontaktiert =
+  Anreicherungs-Proxy; Bestätigt = registered zählt nicht + Snapshot-Satz)
+- Tests: `CohortAssignerTest` (+offen-Mengen inkl. Doppel-Mitgliedschaft,
+  max_applied_at), `CohortViewModelTest` (+isCensored-Grenzfälle: Median
+  null/0, Alter == Median, Zukunfts-/Rollover-/unlesbares Datum,
+  conversionOf null-vs-0, fail-closed resolveIds)
+
+Commits: 39a5066 (Grundausbau), e4cf079 (Kachel graut mit, conversionOf →
+ViewModel), + Folge-Commit der Review-Runde (max-Anker, offen nur laufende
+Typen, fail-closed, Kapazitäts-Einheiten). Rulings in Spec §4/§6.
