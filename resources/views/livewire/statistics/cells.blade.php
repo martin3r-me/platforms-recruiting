@@ -4,22 +4,30 @@
     zweite Kopie wuerde beim naechsten Spalten-Wechsel garantiert auseinanderlaufen.
 
     Erwartet:
-      $colDefs  list<array{key,label,on,total}>
+      $colDefs  list<array{key,label,on,total,onlyRunning?}>
       $rows     list<array>  Assigner-Zeilen, die diese Tabellenzeile bilden
       $token    string       Drill-Token der Zeile (einmal pro Zeile gebaut)
       $prefix   string       Label-Praefix, nur fuer den title-Tooltip
       $isTotal  bool         Summen-Zeile (kraeftigere Badge-Farbe)
+
+    'onlyRunning' => true markiert Spalten, die nur fuer laufende Kohorten eine
+    Aussage sind ("noch offen"). Auf ausgeschlossenen Buckets steht dort "–" wie
+    bei den Kapazitaetsspalten — eine 0 saehe wie ein Messwert aus.
 --}}
 @foreach ($colDefs as $col)
     @php
-        $count = $this->countIn($rows, $col['key']);
+        $applicable = empty($col['onlyRunning']) || $this->hasRunningRow($rows);
+        $count = $applicable ? $this->countIn($rows, $col['key']) : 0;
         $badge = $count > 0
             ? ($isTotal ? $col['total'] : $col['on'])
             : 'bg-gray-50 text-gray-400';
         $weight = $isTotal ? 'font-bold' : 'font-medium';
     @endphp
     <td class="px-3 py-2 text-center whitespace-nowrap">
-        @if ($count > 0)
+        @if (!$applicable)
+            <span class="text-xs text-[color:var(--ui-muted)]"
+                  title="{{ $col['label'] }} gilt nur für laufende Kohorten (Schulung / ohne Schulung) — dieser Zeilentyp ist ein ausgeschlossener Bucket.">–</span>
+        @elseif ($count > 0)
             <button
                 type="button"
                 wire:click="drill('{{ $token }}', '{{ $col['key'] }}', '{{ $col['label'] }}')"

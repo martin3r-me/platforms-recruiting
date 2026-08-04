@@ -29,15 +29,28 @@ use Platform\Recruiting\Support\SeatStandbyPolicy;
  *     tth_days: list<int>,  // Eingang→Unterschrift DIESER Zeile (P5: Kacheln
  *                           // aggregieren ueber dieselben gefilterten Zeilen)
  *     offen_ids: list<int>,       // Right-Censoring (Spec §6): ids − unterschrieben
- *                                 // − no_show. Als ID-Menge, damit die Zahl in der
- *                                 // Tabelle anklickbar ist wie jede andere.
- *     min_applied_at: ?string,    // aelteste Bewerbung der Zeile (Y-m-d) = Basis des
+ *                                 // − no_show, aber NUR fuer RUNNING_TYPES; auf
+ *                                 // ausgeschlossenen Buckets immer []. Als ID-Menge,
+ *                                 // damit die Zahl anklickbar ist wie jede andere.
+ *     max_applied_at: ?string,    // JUENGSTE Bewerbung der Zeile (Y-m-d) = Anker des
  *                                 // Kohorten-Alters; null nur bei ohne_datum-Zeilen
  *   }>,
  * ]
  */
 final class CohortAssigner
 {
+    /**
+     * Zeilentypen, die eine LAUFENDE Kohorte beschreiben — der Bewerber steckt noch
+     * im Funnel und sein Ausgang ist offen. Alle anderen Typen sind ausgeschlossene
+     * Buckets (Dublette, Import, unrouted, ohne Datum, geparkt, abgesagt, unbekannter
+     * Status): dort ist „noch offen" keine Aussage, weil es gar keinen Termin-Ausgang
+     * gibt, gegen den etwas offen sein koennte.
+     *
+     * @var list<string>
+     */
+    public const RUNNING_TYPES = ['schulung', 'ohne_schulung'];
+
+
     public function assign(
         array $applicants,
         array $bookingsByApplicant,
@@ -77,7 +90,7 @@ final class CohortAssigner
                 $rows[$rowKey] = [
                     'type' => $type, 'key' => $key, 'group' => $group,
                     'ids' => [], 'hr_desk_ids' => [], 'uneindeutig_ids' => [], 'tth_days' => [],
-                    'min_applied_at' => null,
+                    'max_applied_at' => null,
                     'columns' => [
                         'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [],
@@ -87,11 +100,16 @@ final class CohortAssigner
             }
             $row = &$rows[$rowKey];
             $row['ids'][] = $a['id'];
-            // Kohorten-Alter (Spec §6) haengt an der AELTESTEN Bewerbung der Zeile.
+            // Kohorten-Alter (Spec §6) ankert an der JUENGSTEN Bewerbung der Zeile.
+            // Mit der aeltesten waere das Censoring wirkungslos: eine alte Bewerbung
+            // plus zwanzig frische haette die Zeile reif erscheinen lassen, obwohl
+            // fast alle noch im Funnel haengen. Die juengste liefert das kleinste
+            // Alter und graut damit haeufiger — falsch-grau ist harmlos, falsch-farbig
+            // geht als Zahl an den Kunden.
             // Y-m-d-Strings sind lexikographisch = chronologisch, kein Datum-Parsing.
             if ($a['applied_at'] !== null
-                && ($row['min_applied_at'] === null || $a['applied_at'] < $row['min_applied_at'])) {
-                $row['min_applied_at'] = $a['applied_at'];
+                && ($row['max_applied_at'] === null || $a['applied_at'] > $row['max_applied_at'])) {
+                $row['max_applied_at'] = $a['applied_at'];
             }
             if ($a['hr_desk']) {
                 $row['hr_desk_ids'][] = $a['id']; // Marker, kein Zeilentyp (Spec §4)
@@ -130,11 +148,16 @@ final class CohortAssigner
         // vollstaendig fest. Ein Mitzaehlen waere von der Reihenfolge der
         // Spalten-Zuweisungen abhaengig gewesen.
         foreach ($rows as &$row) {
-            $row['offen_ids'] = array_values(array_diff(
-                $row['ids'],
-                $row['columns']['unterschrieben'],
-                $row['columns']['no_show'],
-            ));
+            // Nur laufende Kohorten: auf ausgeschlossenen Buckets gibt es keinen
+            // Termin-Ausgang, gegen den etwas offen sein koennte — jede Person ohne
+            // Unterschrift haette dort als "offen" gezaehlt und die Zahl aufgeblasen.
+            $row['offen_ids'] = in_array($row['type'], self::RUNNING_TYPES, true)
+                ? array_values(array_diff(
+                    $row['ids'],
+                    $row['columns']['unterschrieben'],
+                    $row['columns']['no_show'],
+                ))
+                : [];
         }
         unset($row);
 

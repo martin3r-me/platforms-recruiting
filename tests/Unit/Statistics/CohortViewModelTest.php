@@ -396,20 +396,48 @@ final class CohortViewModelTest extends TestCase
         $this->assertTrue($vm->isCensored('2026-02-30', '2026-08-04', 30), 'Rollover-Datum wird nicht stillschweigend akzeptiert');
     }
 
-    public function test_min_applied_at_nimmt_das_aelteste_datum_und_ignoriert_null(): void
+    public function test_max_applied_at_nimmt_das_juengste_datum_und_ignoriert_null(): void
     {
         $vm = $this->vm();
         $rows = [
-            ['min_applied_at' => '2026-07-01'],
-            ['min_applied_at' => null],
-            ['min_applied_at' => '2026-05-20'],
-            ['min_applied_at' => '2026-09-09'],
+            ['max_applied_at' => '2026-07-01'],
+            ['max_applied_at' => null],
+            ['max_applied_at' => '2026-05-20'],
+            ['max_applied_at' => '2026-09-09'],
         ];
 
-        $this->assertSame('2026-05-20', $vm->minAppliedAt($rows));
-        $this->assertNull($vm->minAppliedAt([['min_applied_at' => null]]));
-        $this->assertNull($vm->minAppliedAt([]), 'leere Zeilenmenge hat kein Alter');
-        $this->assertNull($vm->minAppliedAt([['ids' => [1]]]), 'fehlender Schluessel zaehlt wie null');
+        $this->assertSame('2026-09-09', $vm->maxAppliedAt($rows));
+        $this->assertNull($vm->maxAppliedAt([['max_applied_at' => null]]));
+        $this->assertNull($vm->maxAppliedAt([]), 'leere Zeilenmenge hat kein Alter');
+        $this->assertNull($vm->maxAppliedAt([['ids' => [1]]]), 'fehlender Schluessel zaehlt wie null');
+    }
+
+    public function test_eine_alte_bewerbung_macht_eine_frische_kohorte_nicht_reif(): void
+    {
+        // Regression fuer den Anker-Dreh: mit min(applied_at) galt diese Zeile als
+        // reif (alte Bewerbung = 90 Tage alt > Median 30) und wurde voll farbig
+        // ausgegeben, obwohl 20 von 21 Bewerbungen erst zwei Tage im Funnel sind.
+        // Mit max(applied_at) ankert das Alter an der juengsten Bewerbung -> grau.
+        $vm = $this->vm();
+        $row = ['max_applied_at' => '2026-08-02'];  // Assigner liefert das Maximum
+        $today = '2026-08-04';
+
+        $this->assertSame('2026-08-02', $vm->maxAppliedAt([$row]));
+        $this->assertTrue($vm->isCensored($vm->maxAppliedAt([$row]), $today, 30));
+    }
+
+    public function test_aggregat_ankert_an_der_juengsten_zeile(): void
+    {
+        // Summen-Zeile ueber eine reife und eine frische Zeile -> die frische
+        // bestimmt den Anker, die Summe ist zensiert.
+        $vm = $this->vm();
+        $rows = [
+            ['max_applied_at' => '2026-01-10'],
+            ['max_applied_at' => '2026-08-03'],
+        ];
+
+        $this->assertSame('2026-08-03', $vm->maxAppliedAt($rows));
+        $this->assertTrue($vm->isCensored($vm->maxAppliedAt($rows), '2026-08-04', 30));
     }
 
     public function test_offen_menge_ist_ueber_ids_of_erreichbar(): void
@@ -476,6 +504,46 @@ final class CohortViewModelTest extends TestCase
         // 8/8 -> 100
         $this->assertSame(100, $vm->conversionOf([
             $this->row('schulung', 'schulung:1', 'E', 'S', ids: [1, 2], columns: ['unterschrieben' => [1, 2]]),
+        ]));
+    }
+
+    public function test_unbekannter_scope_liefert_nichts(): void
+    {
+        // fail-closed: ein unbekannter Scope darf NICHT auf "alles" zurueckfallen,
+        // sonst zeigt ein Tippfehler im Token die gesamte Kohorte.
+        $rows = [
+            $this->row('schulung', 'schulung:1', 'Essen', 'Service', ids: [1, 2]),
+            $this->row('geparkt', '-', 'Essen', 'Service', ids: [3]),
+        ];
+        $vm = $this->vm();
+
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'gibt_es_nicht'], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => ''], 'ids'));
+        // 'all' und ein fehlender Scope bleiben "alles" (Default des Tokens)
+        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'all'], 'ids'));
+        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, [], 'ids'));
+    }
+
+    public function test_hat_laufende_zeile_erkennt_die_beiden_laufenden_typen(): void
+    {
+        $vm = $this->vm();
+
+        $this->assertTrue($vm->hasRunningRow([$this->row('schulung', 'schulung:1', 'E', 'S')]));
+        $this->assertTrue($vm->hasRunningRow([$this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'E', 'S')]));
+        $this->assertFalse($vm->hasRunningRow([
+            $this->row('geparkt', '-', 'E', 'S'),
+            $this->row('abgesagt', '-', 'E', 'S'),
+            $this->row('dublette', '-', 'E', 'S'),
+            $this->row('unrouted', '-', 'E', 'S'),
+            $this->row('import', '-', 'E', 'S'),
+            $this->row('ohne_datum', '-', 'E', 'S'),
+            $this->row('unbekannter_status', '-', 'E', 'S'),
+        ]));
+        $this->assertFalse($vm->hasRunningRow([]));
+        // gemischte Menge (Summen-Zeile) -> laufend, die offen-Zahl ist dort echt
+        $this->assertTrue($vm->hasRunningRow([
+            $this->row('geparkt', '-', 'E', 'S'),
+            $this->row('schulung', 'schulung:1', 'E', 'S'),
         ]));
     }
 }

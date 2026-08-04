@@ -28,7 +28,8 @@
         // sondern das unentschiedene Restfeld. Der 100/700-Ton ist zugleich klar von
         // der Null-Darstellung (gray-50/400) unterscheidbar.
         ['key' => 'offen_ids',          'label' => 'Noch offen',     'on' => 'bg-gray-100 text-gray-700',      'total' => 'bg-gray-200 text-gray-800',
-         'title' => 'Weder unterschrieben noch No-Show — die Bewerbungen, deren Ausgang noch offen ist (Bewerbungen − Unterschrieben − No-Show). Vorbehalt: bei Zeilentypen ohne Termin-Ausgang (Abgesagt, Geparkt, Dubletten, …) gibt es kein No-Show, dort zählt also jede Person ohne Unterschrift als offen.'],
+         'onlyRunning' => true,
+         'title' => 'Weder unterschrieben noch No-Show — die Bewerbungen, deren Ausgang noch offen ist (Bewerbungen − Unterschrieben − No-Show). Nur für laufende Kohorten (Schulung / ohne Schulung); ausgeschlossene Buckets zeigen „–".'],
     ];
 
     // 1 Zeilen-Spalte + Zahlen + Conversion + 2 Kapazitaets-Spalten
@@ -191,11 +192,13 @@
                                 Conversion
                                 <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                             </th>
-                            <th class="px-3 py-3 text-center" title="Belegte Plätze dieses Termins durch die Bewerber DIESER Zeile (also innerhalb der aktuellen Filter-Auswahl) — Standby zählt wie überall nicht mit">
+                            <th class="px-3 py-3 text-center" title="Einheit: BEWERBER. Bewerbungen dieser Zeile mit platzbelegender Buchung auf diesem Termin (also innerhalb der aktuellen Filter-Auswahl) — Standby zählt nicht mit.">
                                 Kohorte
+                                <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                             </th>
-                            <th class="px-3 py-3 text-center" title="Belegte Plätze des Termins insgesamt — zentrale Zählregel (Standby zählt nicht), unabhängig von Filtern und Gruppierung">
+                            <th class="px-3 py-3 text-center" title="Einheit: BUCHUNGEN. Platzbelegende Buchungen des Termins insgesamt nach zentraler Zählregel, unabhängig von Filtern und Gruppierung. Unterschied zur Spalte „Kohorte“: eine Person mit zwei aktiven Buchungen auf denselben Termin zählt links 1, hier 2.">
                                 Termin gesamt
+                                <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                             </th>
                         </tr>
                     </thead>

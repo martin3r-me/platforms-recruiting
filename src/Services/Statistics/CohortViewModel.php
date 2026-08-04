@@ -112,9 +112,10 @@ final class CohortViewModel
 
     /**
      * Spaltenschluessel einer Zeile aufloesen. Neben den columns-Schluesseln auch
-     * die drei Zeilen-Mengen 'ids', 'hr_desk_ids' und 'uneindeutig_ids' — die
-     * beiden Marker (HR-Schreibtisch, uneindeutige Stellen-Zuordnung / Fall 2 der
-     * Zuordnungsregel) werden damit genauso anklickbar wie jede Zahl.
+     * die vier Zeilen-Mengen 'ids', 'hr_desk_ids', 'uneindeutig_ids' und
+     * 'offen_ids' — die Marker (HR-Schreibtisch, uneindeutige Stellen-Zuordnung /
+     * Fall 2 der Zuordnungsregel) und die offen-Menge werden damit genauso
+     * anklickbar wie jede Zahl.
      *
      * @return list<int>
      */
@@ -167,7 +168,11 @@ final class CohortViewModel
             'type' => fn ($row) => $row['type'] === $type
                 && $row['group']['ort'] === $ort && $row['group']['taetigkeit'] === $act,
             'ort' => fn ($row) => $row['group']['ort'] === $ort,
-            default => fn ($row) => true,
+            'all' => fn ($row) => true,
+            // fail-closed: ein unbekannter Scope liefert NICHTS. Als Default auf
+            // „alles" waere ein Tippfehler im Token ein Datenleck-artiger Unfall —
+            // das Modal zeigte die gesamte Kohorte unter einem falschen Label.
+            default => fn ($row) => false,
         };
 
         $ids = [];
@@ -200,27 +205,52 @@ final class CohortViewModel
     }
 
     /**
-     * Aeltestes `min_applied_at` einer Zeilenmenge (Y-m-d) — die Alters-Basis fuer
-     * Summen-Zeilen. Zeilen ohne Datum (ohne_datum) zaehlen nicht mit; bestehen
+     * Juengstes `max_applied_at` einer Zeilenmenge (Y-m-d) — der Alters-Anker, auch
+     * fuer Summen-Zeilen. Zeilen ohne Datum (ohne_datum) zaehlen nicht mit; bestehen
      * ALLE Zeilen daraus, gibt es kein Alter → null.
+     *
+     * Maximum, nicht Minimum: die juengste Bewerbung liefert das kleinste Alter und
+     * laesst die Conversion damit haeufiger ausgrauen. Bei einer Summen-Zeile
+     * bestimmt also die frischeste enthaltene Zeile, ob die Quote schon zaehlt.
      *
      * @param  list<array>  $rows
      */
-    public function minAppliedAt(array $rows): ?string
+    public function maxAppliedAt(array $rows): ?string
     {
-        $min = null;
+        $max = null;
         foreach ($rows as $row) {
-            $value = $row['min_applied_at'] ?? null;
+            $value = $row['max_applied_at'] ?? null;
             if ($value === null) {
                 continue;
             }
             // Y-m-d ist lexikographisch = chronologisch
-            if ($min === null || $value < $min) {
-                $min = (string) $value;
+            if ($max === null || $value > $max) {
+                $max = (string) $value;
             }
         }
 
-        return $min;
+        return $max;
+    }
+
+    /**
+     * Enthaelt die Zeilenmenge mindestens eine LAUFENDE Kohorte? Nur dann ist
+     * „noch offen" eine Aussage — auf rein ausgeschlossenen Buckets zeigt die
+     * Tabelle „–" statt einer Null, die wie ein Messwert aussieht.
+     *
+     * Die Typ-Liste kommt aus dem CohortAssigner, der die Typen vergibt — eine
+     * eigene Kopie hier waere eine zweite Wahrheit.
+     *
+     * @param  list<array>  $rows
+     */
+    public function hasRunningRow(array $rows): bool
+    {
+        foreach ($rows as $row) {
+            if (in_array($row['type'] ?? null, CohortAssigner::RUNNING_TYPES, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -236,13 +266,13 @@ final class CohortViewModel
      *  - unlesbares/rollover-Datum → lieber grau als falsch zuversichtlich;
      *  - Alter < Median. Die Grenze ist STRIKT: Alter == Median gilt als reif.
      */
-    public function isCensored(?string $rowMinAppliedAt, string $todayYmd, ?int $tthMedian): bool
+    public function isCensored(?string $rowMaxAppliedAt, string $todayYmd, ?int $tthMedian): bool
     {
-        if ($tthMedian === null || $rowMinAppliedAt === null) {
+        if ($tthMedian === null || $rowMaxAppliedAt === null) {
             return true;
         }
 
-        $age = self::ageInDays($rowMinAppliedAt, $todayYmd);
+        $age = self::ageInDays($rowMaxAppliedAt, $todayYmd);
         if ($age === null) {
             return true;
         }

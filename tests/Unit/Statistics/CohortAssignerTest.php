@@ -252,32 +252,55 @@ class CohortAssignerTest extends TestCase
         $this->assertSame([1], $row['offen_ids'], 'offen = ids - unterschrieben - no_show');
     }
 
-    public function test_offen_ist_bei_bucket_zeilen_die_ganze_zeile(): void
+    public function test_offen_bleibt_auf_ausgeschlossenen_zeilentypen_leer(): void
     {
-        // no_show gibt es nur auf Schulungszeilen — in einem Bucket ohne
-        // Unterschrift ist damit jede Person "noch offen".
+        // Geparkt/abgesagt/dublette/... sind AUSGESCHLOSSENE Buckets, keine
+        // laufenden Kohorten — "noch offen" ist dort keine Aussage. Frueher zaehlte
+        // hier jede Person ohne Unterschrift als offen, weil es in Buckets kein
+        // no_show gibt; das blies die Zahl auf, ohne etwas zu bedeuten.
         $result = (new CohortAssigner())->assign([
             $this->applicant(1, ['parked' => true]),
-            $this->applicant(2, ['parked' => true, 'contract_signed' => true]),
+            $this->applicant(2, ['rejected' => true]),
+            $this->applicant(3, ['duplicate' => true]),
+            $this->applicant(4, ['unrouted' => true]),
+            $this->applicant(5, ['import' => true]),
+            $this->applicant(6, ['applied_at' => null]),
+        ], [], [], null, null);
+
+        foreach ($result['rows'] as $row) {
+            $this->assertSame([], $row['offen_ids'], "Typ {$row['type']} ist ausgeschlossen, nicht laufend");
+        }
+    }
+
+    public function test_offen_wird_fuer_laufende_typen_befuellt(): void
+    {
+        // ohne_schulung ist eine laufende Kohorte (Bewerber ist im Funnel, nur
+        // noch ohne Termin) -> offen ist dort eine echte Aussage.
+        $result = (new CohortAssigner())->assign([
+            $this->applicant(1, ['phase_name' => 'Screening', 'phase_order' => 1]),
+            $this->applicant(2, ['phase_name' => 'Screening', 'phase_order' => 1, 'contract_signed' => true]),
         ], [], [], null, null);
 
         $row = $result['rows'][0];
-        $this->assertSame('geparkt', $row['type']);
+        $this->assertSame('ohne_schulung', $row['type']);
         $this->assertSame([1], $row['offen_ids']);
     }
 
-    public function test_min_applied_at_ist_die_aelteste_bewerbung_der_zeile(): void
+    public function test_max_applied_at_ist_die_juengste_bewerbung_der_zeile(): void
     {
+        // Anker des Kohorten-Alters ist die JUENGSTE Bewerbung: sie liefert das
+        // kleinste Alter und graut damit haeufiger. Falsch-grau ist harmlos,
+        // falsch-farbig geht als Zahl an den Kunden.
         $result = (new CohortAssigner())->assign([
             $this->applicant(1, ['parked' => true, 'applied_at' => '2026-06-15']),
             $this->applicant(2, ['parked' => true, 'applied_at' => '2026-05-02']),
             $this->applicant(3, ['parked' => true, 'applied_at' => '2026-07-30']),
         ], [], [], null, null);
 
-        $this->assertSame('2026-05-02', $result['rows'][0]['min_applied_at']);
+        $this->assertSame('2026-07-30', $result['rows'][0]['max_applied_at']);
     }
 
-    public function test_min_applied_at_ist_null_wenn_die_zeile_kein_datum_hat(): void
+    public function test_max_applied_at_ist_null_wenn_die_zeile_kein_datum_hat(): void
     {
         // ohne_datum-Zeilen haben per Definition kein applied_at -> kein Alter,
         // also auch keine Zensur-Entscheidung moeglich.
@@ -287,7 +310,7 @@ class CohortAssignerTest extends TestCase
         );
 
         $this->assertSame('ohne_datum', $result['rows'][0]['type']);
-        $this->assertNull($result['rows'][0]['min_applied_at']);
+        $this->assertNull($result['rows'][0]['max_applied_at']);
     }
 
     public function test_jede_zeile_hat_die_neuen_schluessel(): void
@@ -301,7 +324,7 @@ class CohortAssignerTest extends TestCase
         $this->assertNotEmpty($result['rows']);
         foreach ($result['rows'] as $row) {
             $this->assertArrayHasKey('offen_ids', $row, 'Shape-Zusage gilt fuer JEDEN Zeilentyp');
-            $this->assertArrayHasKey('min_applied_at', $row);
+            $this->assertArrayHasKey('max_applied_at', $row);
         }
     }
 }

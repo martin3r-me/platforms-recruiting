@@ -353,10 +353,22 @@ class Index extends Component
         $vm = $this->viewModel();
 
         return $vm->isCensored(
-            $vm->minAppliedAt($rows),
+            $vm->maxAppliedAt($rows),
             now()->toDateString(),
             $this->tiles['tth_median'],
         );
+    }
+
+    /**
+     * Ist „noch offen" fuer diese Zeilenmenge ueberhaupt eine Aussage? Nur laufende
+     * Kohorten (Schulung, ohne Schulung) haben einen offenen Ausgang; auf
+     * ausgeschlossenen Buckets zeigt die Tabelle „–" statt einer Null.
+     *
+     * @param  list<array>  $rows
+     */
+    public function hasRunningRow(array $rows): bool
+    {
+        return $this->viewModel()->hasRunningRow($rows);
     }
 
     /**
