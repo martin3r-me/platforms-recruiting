@@ -3,10 +3,12 @@
 namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecPhaseTransition;
 use Platform\Recruiting\Services\Statistics\PhaseAdvancedSummaryParser;
+use Platform\Recruiting\Support\PhaseTransitionTrigger;
 
 /**
  * Backfill der Phasen-Historie aus rec_auto_pilot_logs (Spec §5).
@@ -29,17 +31,52 @@ class BackfillPhaseTransitions extends Command
         }
         $dryRun = (bool) $this->option('dry-run');
 
-        $stats = ['inserted' => 0, 'skipped_existing' => 0, 'name_only' => 0, 'unparseable' => 0];
+        $stats = [
+            'inserted' => 0, 'skipped_existing' => 0, 'skipped_live_window' => 0,
+            'name_only' => 0, 'returned_name_only' => 0, 'unparseable' => 0,
+        ];
+
+        // Live-Cutoff gegen Doppelzaehlung: der Observer schreibt ab Deploy
+        // Live-Transitions fuer dieselben vier Trigger-Stellen, die auch
+        // phase_advanced/phase_returned loggen. source_log_id dedupliziert
+        // nur backfill-gegen-backfill (Live-Zeilen haben kein source_log_id-
+        // Gegenstueck) — ohne Cutoff wuerde jedes Ereignis nach dem Deploy
+        // ZWEI Transitions bekommen (eine live, eine backfilled).
+        // $cutoff = fruehester Live-Zeitpunkt dieses Teams: alles davor kann
+        // der Observer unmoeglich geschrieben haben (er lief noch nicht),
+        // ist also frei von Doppelzaehlung und wird normal backfilled.
+        // Das schliesst die Duplizierung vollstaendig: jedes Log mit
+        // created_at < cutoff liegt beweisbar vor dem ersten Live-Schreiben;
+        // jedes Log mit created_at >= cutoff faellt in den Zeitraum, in dem
+        // der Observer bereits aktiv live schreibt, und wird uebersprungen.
+        // Als Nebeneffekt deckt das exakt das in Spec §8 akzeptierte Fenster
+        // ab: zwischen Symlink-Switch und `migrate` faengt der Observer
+        // seinen Schreibversuch per try/catch ab (Tabelle existiert noch
+        // nicht) — diese allerersten Ereignisse haben KEINE Live-Zeile,
+        // liegen also unter dem Cutoff und werden hier ganz normal
+        // nachgezogen. Noch keine Live-Zeile fuer das Team vorhanden (frisch
+        // deployt, noch kein Trigger gelaufen) → now() als Cutoff, dann ist
+        // ohnehin alles im Log "vor Deploy".
+        $cutoffRaw = RecPhaseTransition::query()
+            ->where('team_id', $teamId)
+            ->where('source', 'live')
+            ->min('occurred_at');
+        $cutoff = $cutoffRaw !== null ? Carbon::parse($cutoffRaw) : now();
 
         RecAutoPilotLog::query()
             ->whereIn('type', ['phase_advanced', 'phase_returned'])
             ->whereHas('applicant', fn ($q) => $q->where('team_id', $teamId))
             ->with('applicant:id,team_id')
             ->orderBy('id')
-            ->chunkById(500, function ($logs) use ($dryRun, &$stats) {
+            ->chunkById(500, function ($logs) use ($dryRun, &$stats, $cutoff) {
                 foreach ($logs as $log) {
                     if (RecPhaseTransition::where('source_log_id', $log->id)->exists()) {
                         $stats['skipped_existing']++;
+                        continue;
+                    }
+
+                    if ($log->created_at >= $cutoff) {
+                        $stats['skipped_live_window']++;
                         continue;
                     }
 
@@ -47,11 +84,26 @@ class BackfillPhaseTransitions extends Command
                         $fromId = $log->details['from_phase_id'] ?? null;
                         $toId = $log->details['to_phase_id'] ?? null;
                         $names = $this->phaseNames([$fromId, $toId]);
+                        // FK-sicher: nur uebernehmen, was phaseNames() auch
+                        // aufloesen konnte. Eine inzwischen geloeschte Phase
+                        // waere sonst eine tote FK und wuerde die
+                        // Constraint-Verletzung den kompletten Command
+                        // abbrechen lassen. Der Name-Snapshot bleibt nur
+                        // erhalten, wenn die Phase noch existiert — fuer
+                        // phase_returned gibt es (anders als bei
+                        // phase_advanced ueber den Summary-Text) keine
+                        // andere Quelle fuer den Namen.
+                        $fromResolved = $fromId !== null && isset($names[$fromId]);
+                        $toResolved = $toId !== null && isset($names[$toId]);
+                        if (!$toResolved) {
+                            $stats['returned_name_only']++; // Sichtbarkeit wie im phase_advanced-Zweig
+                        }
                         $row = [
-                            'from_phase_id' => $fromId, 'to_phase_id' => $toId,
+                            'from_phase_id' => $fromResolved ? $fromId : null,
+                            'to_phase_id' => $toResolved ? $toId : null,
                             'from_phase_name' => $names[$fromId] ?? null,
                             'to_phase_name' => $names[$toId] ?? null,
-                            'trigger' => 'returned',
+                            'trigger' => PhaseTransitionTrigger::RETURNED,
                         ];
                     } else {
                         $parsed = PhaseAdvancedSummaryParser::parse((string) $log->summary);
@@ -69,7 +121,9 @@ class BackfillPhaseTransitions extends Command
                         $row = [
                             'from_phase_id' => $fromId, 'to_phase_id' => $toId,
                             'from_phase_name' => $parsed['from'], 'to_phase_name' => $parsed['to'],
-                            'trigger' => str_starts_with((string) $log->summary, 'Manuell') ? 'manual' : 'auto_advance',
+                            'trigger' => str_starts_with((string) $log->summary, 'Manuell')
+                                ? PhaseTransitionTrigger::MANUAL
+                                : PhaseTransitionTrigger::AUTO_ADVANCE,
                         ];
                     }
 
@@ -91,7 +145,10 @@ class BackfillPhaseTransitions extends Command
 
         $this->info(($dryRun ? '[DRY-RUN] ' : '')
             . "eingefuegt: {$stats['inserted']}, uebersprungen (existiert): {$stats['skipped_existing']}, "
-            . "nur-Name (kein ID-Match): {$stats['name_only']}, unparsebar: {$stats['unparseable']}");
+            . "uebersprungen (Live-Fenster): {$stats['skipped_live_window']}, "
+            . "nur-Name (kein ID-Match): {$stats['name_only']}, "
+            . "returned nur-Name (kein ID-Match): {$stats['returned_name_only']}, "
+            . "unparsebar: {$stats['unparseable']}");
 
         return Command::SUCCESS;
     }
@@ -103,7 +160,17 @@ class BackfillPhaseTransitions extends Command
         return $ids ? DB::table('rec_phases')->whereIn('id', $ids)->pluck('name', 'id')->all() : [];
     }
 
-    /** @return array<string,int> name => phase_id (Phasen der Stellen des Bewerbers) */
+    /**
+     * @return array<string,int> name => phase_id (Phasen der Stellen des Bewerbers)
+     *
+     * Bekannte, tolerierte Grenze: Phasen werden pro Stelle geklont, bei
+     * Mehrfach-Bewerbung (mehrere Postings/Stellen desselben Bewerbers) sind
+     * Namenskollisionen zwischen den geklonten Phasensaetzen der Regelfall.
+     * pluck('ph.id', 'ph.name') behaelt bei Kollision die zuletzt gejointe
+     * ID. Das Log selbst gibt nicht her, auf welche Stelle sich ein Eintrag
+     * bezieht, und die Auswertung keyt ohnehin auf order/name statt auf die
+     * exakte Phase-ID — daher hier bewusst nicht aufgeloest.
+     */
     private function applicantPhaseIdsByName(int $applicantId): array
     {
         return DB::table('rec_applicant_posting as ap')
