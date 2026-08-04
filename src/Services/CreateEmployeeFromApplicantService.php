@@ -83,8 +83,12 @@ class CreateEmployeeFromApplicantService
             // Spec, Benannte Luecken) — nach dem Spiegeln explizit syncen.
             // Darf die Uebernahme niemals kippen.
             try {
-                app(\Platform\Recruiting\Services\EmployeeContactListSyncService::class)
-                    ->syncEmployee($employee);
+                // Eigener Savepoint: Sync-Fehler darf die aeussere Uebernahme-
+                // Transaktion nicht vergiften (abort-on-error-Engines).
+                DB::transaction(function () use ($employee) {
+                    app(\Platform\Recruiting\Services\EmployeeContactListSyncService::class)
+                        ->syncEmployee($employee);
+                });
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::error('[EmployeeContactListSync] Sync nach Bewerber-Uebernahme fehlgeschlagen', [
                     'employee_id' => $employee->id,
