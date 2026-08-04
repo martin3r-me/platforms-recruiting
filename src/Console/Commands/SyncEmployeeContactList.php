@@ -25,12 +25,23 @@ class SyncEmployeeContactList extends Command
 
     public function handle(EmployeeContactListSyncService $sync): int
     {
+        // --team muss numerisch sein, BEVOR irgendetwas die DB anfasst —
+        // (int)-Koerzierung wuerde z. B. 'abc' zu Team 0 machen und in
+        // getOrCreateForTeam() an der FK auf teams scheitern (QueryException
+        // statt sauberer Meldung).
+        $teamOption = $this->option('team');
+        if ($teamOption !== null && (!ctype_digit((string) $teamOption) || (int) $teamOption < 1)) {
+            $this->error("Ungueltiger Wert fuer --team: '{$teamOption}' — erwartet wird eine numerische Team-ID (>= 1).");
+
+            return Command::FAILURE;
+        }
+
         // Bewusst KEIN JSON-Path-Where (settings->employee_contact_list_id):
         // verhaelt sich je nach MySQL-Version unterschiedlich und waere
         // ungetestete Flaeche. Es sind eine Handvoll Teams — alle Zeilen
         // laden und in PHP filtern.
-        $teamIds = $this->option('team')
-            ? [(int) $this->option('team')]
+        $teamIds = $teamOption !== null
+            ? [(int) $teamOption]
             : RecApplicantSettings::query()->get()
                 ->filter(fn ($s) => $s->getSetting(EmployeeContactListSyncService::SETTING_LIST_ID))
                 ->pluck('team_id')

@@ -144,8 +144,10 @@ class ContactBook extends Component
     #[Computed]
     public function lastSync(): ?string
     {
-        return RecApplicantSettings::getOrCreateForTeam($this->teamId())
+        $iso = RecApplicantSettings::getOrCreateForTeam($this->teamId())
             ->getSetting(EmployeeContactListSyncService::SETTING_LAST_SYNC);
+
+        return $iso ? \Illuminate\Support\Carbon::parse($iso)->format('d.m.Y H:i') : null;
     }
 
     public function render()
