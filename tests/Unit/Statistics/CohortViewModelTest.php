@@ -78,7 +78,13 @@ final class CohortViewModelTest extends TestCase
         );
     }
 
-    public function test_zeilen_folgen_der_praezedenz_kette(): void
+    /**
+     * Erwartet wird die ANZEIGE-Reihenfolge (Erfolgspfad zuerst), NICHT die
+     * Praezedenz-Kette des Assigners — die lautet ohne_datum, dublette, unrouted,
+     * import, schulung/unbekannter_status, abgesagt, geparkt, ohne_schulung.
+     * Die Kette bestimmt die Zeilen-Zuordnung, diese Liste nur die Sortierung.
+     */
+    public function test_zeilen_folgen_der_anzeige_reihenfolge(): void
     {
         // absichtlich in verdrehter Reihenfolge eingefuettert
         $rows = [

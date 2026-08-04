@@ -21,9 +21,18 @@ final class CohortViewModel
     public const FALLBACKS = ['ohne Ort', 'ohne Ausschreibung', 'ohne Tätigkeit'];
 
     /**
-     * Anzeige-Reihenfolge = Reihenfolge der Praezedenz-Kette (Spec §4).
-     * Bewusst vollstaendig: ein hier fehlender Typ landet mit 99 am Ende und
-     * bleibt sichtbar, statt still zu verschwinden.
+     * Reine ANZEIGE-Reihenfolge: Erfolgspfad zuerst (Schulung, dann noch offene
+     * Bewerbungen), Befunde und Sonderfaelle danach.
+     *
+     * Das ist bewusst NICHT die Praezedenz-Kette der Spec §4 und darf auch nicht
+     * mit ihr verwechselt werden: die Kette entscheidet im CohortAssigner, WELCHE
+     * Zeile eine Person bekommt (Stufe 1 = is_test bis Stufe 8 = Phase). Hier wird
+     * nur sortiert — eine Aenderung an dieser Liste verschiebt Zeilen in der
+     * Tabelle, sie ordnet niemanden um.
+     *
+     * Vollstaendig gehalten, damit die Sortierung erwartbar bleibt; ein hier
+     * fehlender Typ landet mit 99 am Ende und bleibt sichtbar, statt still zu
+     * verschwinden (siehe Test).
      */
     private const TYPE_ORDER = [
         'schulung' => 0,

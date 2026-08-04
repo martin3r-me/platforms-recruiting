@@ -17,8 +17,9 @@
     // 1 Zeilen-Spalte + Zahlen + 2 Kapazitaets-Spalten
     $colSpanAll = count($colDefs) + 3;
 
-    // Labels der Praezedenz-Kette (Assigner-Zeilentypen, Spec §4). Jeder Typ ist
-    // sichtbar — nichts wird verschluckt, auch 'unbekannter_status' nicht.
+    // Labels der Assigner-Zeilentypen (Spec §4). Jeder Typ ist sichtbar — nichts
+    // wird verschluckt, auch 'unbekannter_status' nicht. Die Reihenfolge in der
+    // Tabelle macht CohortViewModel (Anzeige-Reihenfolge, nicht die Kette).
     $typeLabels = [
         'geparkt' => 'Geparkt',
         'abgesagt' => 'Abgesagt',
@@ -125,7 +126,7 @@
     </div>
 
     {{-- ------------------------------------------------------------------ --}}
-    {{-- Kohorten-Tabelle: Ort → Tätigkeit → Zeilen der Präzedenz-Kette     --}}
+    {{-- Kohorten-Tabelle: Ort → Tätigkeit → Zeilen in Anzeige-Reihenfolge   --}}
     {{-- ------------------------------------------------------------------ --}}
     <x-ui-panel title="Kohorten-Tabelle" subtitle="Gruppiert nach Ort und Tätigkeit — die Summen sind die Addition der Zeilen">
         @if (count($this->cohort['rows']) === 0)
@@ -141,10 +142,10 @@
                             @foreach ($colDefs as $col)
                                 <th class="px-3 py-3 text-center">{{ $col['label'] }}</th>
                             @endforeach
-                            <th class="px-3 py-3 text-center" title="Belegung dieses Termins durch die Bewerber DIESER Zeile (also innerhalb der aktuellen Filter-Auswahl)">
+                            <th class="px-3 py-3 text-center" title="Belegte Plätze dieses Termins durch die Bewerber DIESER Zeile (also innerhalb der aktuellen Filter-Auswahl) — Standby zählt wie überall nicht mit">
                                 Kohorte
                             </th>
-                            <th class="px-3 py-3 text-center" title="Belegung des Termins insgesamt — zentrale Zählregel, unabhängig von Filtern und Gruppierung">
+                            <th class="px-3 py-3 text-center" title="Belegte Plätze des Termins insgesamt — zentrale Zählregel (Standby zählt nicht), unabhängig von Filtern und Gruppierung">
                                 Termin gesamt
                             </th>
                         </tr>
@@ -211,7 +212,19 @@
                                         ]);
 
                                         $max = $meta['max'] ?? null;
-                                        $cohortTaken = count($row['ids']);
+                                        // Belegte Plaetze, NICHT Zeilen-Mitgliedschaft: count($row['ids'])
+                                        // wuerde Standby mitzaehlen, waehrend "Termin gesamt"
+                                        // (seatTaking-Scope) es nicht tut — die beiden Spalten haetten
+                                        // sich widersprochen.
+                                        // Warum die Subtraktion exakt der zentralen Zaehlregel entspricht:
+                                        //  - standby ⊆ ids, weil der Assigner beide nur fuer dieselbe
+                                        //    Schulungszeile aus derselben Buchung fuellt;
+                                        //  - der Gewinner einer Schulungszeile ist nie 'cancelled'
+                                        //    (isCohortAssigned schliesst SEAT_FREEING_STATUSES aus);
+                                        //  - seat_released_at existiert laut Model-Invariante nur auf
+                                        //    status='booked' (saving-Guard in RecInterviewBooking).
+                                        // Damit gilt countsAsSeat ⇔ !standby, also belegt = ids − standby.
+                                        $cohortTaken = count($row['ids']) - count($row['columns']['standby']);
                                         $totalTaken = $meta['seat_taking'] ?? null;
                                         // Auslastung darf >100 % anzeigen — Überbuchung ist ein
                                         // Befund und wird NICHT geklammert (Spec §4).
@@ -312,7 +325,7 @@
                                     @endforeach
                                 @endif
 
-                                {{-- Übrige Buckets in Reihenfolge der Präzedenz-Kette --}}
+                                {{-- Übrige Buckets, bereits in Anzeige-Reihenfolge sortiert --}}
                                 @foreach ($bucketRows as $row)
                                     @php
                                         $bucketLabel = $typeLabels[$row['type']] ?? $row['type'];

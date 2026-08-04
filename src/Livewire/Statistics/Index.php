@@ -113,6 +113,13 @@ class Index extends Component
     {
         $teamId = $this->teamId();
 
+        // Einmal casten, dann ueberall dieselbe Variable: die Property ist
+        // untypisiert (Livewire-Hydrierung von ''), und SQL vergleicht lose,
+        // der Pivot-Filter unten aber strikt. Mit einem gecrafteten Snapshot
+        // ("5" statt 5) waere die Bewerber-Menge gefiltert, die Pivot-Liste
+        // aber leer geblieben — jede Zeile waere in "ohne Ausschreibung" gelandet.
+        $postingId = $this->postingFilter !== null ? (int) $this->postingFilter : null;
+
         // P2: Vorfilter spiegeln die PHP-Logik verlustfrei (is_test = Stufe 1,
         // Zeitraum mit NULL-Ausnahme = Stufe 2, Posting-/Quellen-Filter =
         // Mengeneinschraenkung P3) — Rekonziliation unveraendert, aber die
@@ -132,8 +139,8 @@ class Index extends Component
             // P3: Ausschreibungs-Filter schraenkt die BEWERBER-Menge ein (Spec §4),
             // nicht nur die Pivot-Liste — sonst fuellt sich "ohne Ausschreibung"
             // mit dem gesamten Rest des Teams.
-            ->when($this->postingFilter, fn ($q) => $q->whereHas('postings',
-                fn ($p) => $p->where('rec_postings.id', $this->postingFilter)))
+            ->when($postingId, fn ($q) => $q->whereHas('postings',
+                fn ($p) => $p->where('rec_postings.id', $postingId)))
             ->when($this->sourcePlatformFilter, fn ($q) => $q->where('source_platform_id', $this->sourcePlatformFilter))
             // OPTIONAL, erst wenn Q10 grosse Zahlen zeigt: Superset-Vorfilter Ort.
             // Schliesst nie eine Zeile aus, die sonst ueberlebt haette — eine Zeile
@@ -193,7 +200,7 @@ class Index extends Component
                 'deleted' => $b->deleted_at !== null,
             ])->all();
             $pivots[$a->id] = $a->postings
-                ->filter(fn ($p) => $this->postingFilter === null || $p->id === $this->postingFilter)
+                ->filter(fn ($p) => $postingId === null || (int) $p->id === $postingId)
                 ->map(fn ($p) => [
                     'posting_id' => $p->id,
                     'position_id' => $p->rec_position_id,
@@ -264,7 +271,12 @@ class Index extends Component
         // Termin ein eigenes COUNT (N+1, und das Query-Budget ist ein
         // Abnahmekriterium §2). Der seatTaking-Scope ist derselbe — die zentrale
         // Zaehlregel bleibt die einzige Wahrheit, nur eben in einem Query.
-        return RecInterview::with('interviewType:id,name')
+        // forTeam ist Pflicht: die IDs stammen aus den Row-Keys des Assigners und
+        // damit indirekt aus einer public Livewire-Property — ohne Scope waere das
+        // ein Leck fuer Termindaten fremder Teams. (Einzige Query hier, die den
+        // Scope zunaechst nicht hatte.)
+        return RecInterview::forTeam($this->teamId())
+            ->with('interviewType:id,name')
             ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
             ->whereIn('id', $ids)->get()
             ->mapWithKeys(fn ($i) => [$i->id => [
