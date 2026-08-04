@@ -27,6 +27,13 @@ class CohortAssignerTest extends TestCase
         ];
     }
 
+    private function pivot(int $postingId, array $overrides = []): array
+    {
+        return $overrides + [
+            'posting_id' => $postingId, 'position_id' => 1, 'location' => null, 'activity' => null,
+        ];
+    }
+
     public function test_praezedenz_kette_erster_treffer_gewinnt(): void
     {
         $result = (new CohortAssigner())->assign([
@@ -166,5 +173,55 @@ class CohortAssignerTest extends TestCase
         $this->assertSame([3], $row['columns']['no_show']);
         $this->assertSame([4], $row['columns']['unterschrieben']);
         $this->assertSame([12], $row['tth_days'], 'tth haengt an der Zeile (P5)');
+    }
+
+    public function test_gruppe_uneindeutig_wenn_kein_pivot_zur_phase_position_passt(): void
+    {
+        // Review-Fix 1: Fall 2 der Zuordnungsregel (keine Pivot-Zeile passt zur
+        // Phase-Position) muss als 'uneindeutig' markiert werden, sonst kann die
+        // UI das nicht mess- und anklickbar machen (Spec §4).
+        $result = (new CohortAssigner())->assign(
+            [
+                $this->applicant(1, ['phase_position_id' => 9]),  // Pivot-Position 5 != 9 -> uneindeutig
+                $this->applicant(2, ['phase_position_id' => 5]),  // Pivot-Position 5 == 5 -> eindeutig
+            ],
+            [],
+            [
+                1 => [$this->pivot(100, ['position_id' => 5])],
+                2 => [$this->pivot(200, ['position_id' => 5])],
+            ],
+            null, null
+        );
+        $this->assertCount(1, $result['rows'], 'beide landen in derselben Gruppe (gleicher Ort/Taetigkeit-Fallback)');
+        $this->assertSame([1, 2], $result['rows'][0]['ids']);
+        $this->assertSame([1], $result['rows'][0]['uneindeutig_ids'], 'nur Bewerber 1 hat keinen passenden Pivot-Treffer');
+    }
+
+    public function test_abgesagt_schlaegt_geparkt(): void
+    {
+        // Review-Fix 3: rejected ist der endgueltige Zustand, parked der weiche.
+        // Bei gleichzeitig true muss 'abgesagt' gewinnen.
+        $result = (new CohortAssigner())->assign(
+            [$this->applicant(1, ['parked' => true, 'rejected' => true])],
+            [], [], null, null
+        );
+        $this->assertSame('abgesagt', $result['rows'][0]['type']);
+    }
+
+    public function test_fall1_bei_mehreren_treffern_kleinste_posting_id(): void
+    {
+        // Review-Fix 4: mehrere zur Phase-Position passende Pivot-Zeilen ->
+        // deterministisch die kleinste posting_id, nicht Array-Reihenfolge.
+        $result = (new CohortAssigner())->assign(
+            [$this->applicant(1, ['phase_position_id' => 5])],
+            [],
+            [1 => [
+                $this->pivot(300, ['position_id' => 5, 'location' => 'Koeln', 'activity' => 'Pflege']),
+                $this->pivot(100, ['position_id' => 5, 'location' => 'Berlin', 'activity' => 'Reinigung']),
+            ]],
+            null, null
+        );
+        $this->assertSame('Berlin', $result['rows'][0]['group']['ort']);
+        $this->assertFalse($result['rows'][0]['group']['uneindeutig'], 'beide Pivots passen zur Phase-Position -> nicht uneindeutig');
     }
 }

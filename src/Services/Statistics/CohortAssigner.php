@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Statistics;
 
 use Platform\Recruiting\Support\BookingStatusGroups;
+use Platform\Recruiting\Support\SeatStandbyPolicy;
 
 /**
  * Herzstueck der Statistik-Seite (Spec §4): Praezedenz-Kette (Zeilentyp) und
@@ -17,9 +18,11 @@ use Platform\Recruiting\Support\BookingStatusGroups;
  *     type: string,   // ohne_datum|dublette|unrouted|import|schulung|
  *                     // unbekannter_status|geparkt|abgesagt|ohne_schulung
  *     key: string,    // z.B. "schulung:42", "ohne_schulung:2|Onboarding"
- *     group: array{ort:string, taetigkeit:string},
+ *     group: array{ort:string, taetigkeit:string, uneindeutig:bool},
  *     ids: list<int>,
  *     hr_desk_ids: list<int>,
+ *     uneindeutig_ids: list<int>,  // Fall 2 der Zuordnungsregel (Spec §4): kein
+ *                                  // Pivot passte zur Phase-Position, Fallback griff
  *     columns: array{kontaktiert:list<int>, gebucht:list<int>, bestaetigt:list<int>,
  *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>,
  *                    vertrag_verschickt:list<int>, unterschrieben:list<int>},
@@ -68,7 +71,7 @@ final class CohortAssigner
             if (!isset($rows[$rowKey])) {
                 $rows[$rowKey] = [
                     'type' => $type, 'key' => $key, 'group' => $group,
-                    'ids' => [], 'hr_desk_ids' => [], 'tth_days' => [],
+                    'ids' => [], 'hr_desk_ids' => [], 'uneindeutig_ids' => [], 'tth_days' => [],
                     'columns' => [
                         'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [],
@@ -81,6 +84,9 @@ final class CohortAssigner
             if ($a['hr_desk']) {
                 $row['hr_desk_ids'][] = $a['id']; // Marker, kein Zeilentyp (Spec §4)
             }
+            if ($group['uneindeutig']) {
+                $row['uneindeutig_ids'][] = $a['id']; // Marker (Fall 2), kein Zeilentyp
+            }
 
             if ($a['enrichment_status'] !== null && $a['enrichment_status'] !== 'no_contact') {
                 $row['columns']['kontaktiert'][] = $a['id'];
@@ -91,7 +97,9 @@ final class CohortAssigner
                 if ($rank >= 2) { $row['columns']['bestaetigt'][] = $a['id']; }
                 if ($rank >= 3) { $row['columns']['teilgenommen'][] = $a['id']; }
                 if ($booking['status'] === 'no_show') { $row['columns']['no_show'][] = $a['id']; }
-                if ($booking['status'] === 'booked' && $booking['seat_released']) {
+                // Review-Fix 2: keine zweite Wahrheit fuer Standby — die Policy
+                // (SeatStandbyPolicy::statusLabel) ist die einzige Quelle (Spec §4).
+                if (SeatStandbyPolicy::statusLabel($booking['status'], $booking['seat_released']) !== null) {
                     $row['columns']['standby'][] = $a['id'];
                 }
             }
@@ -133,8 +141,11 @@ final class CohortAssigner
             return ['unbekannter_status', '-', $winner]; // sichtbar, nie verschluckt
         }
 
-        if ($a['parked']) { return ['geparkt', '-', null]; }                   // Stufe 7
+        // Stufe 7: rejected und parked koennen gleichzeitig true sein — Review-Fix 3
+        // (Entscheidung Controller): abgesagt schlaegt geparkt, da rejected der
+        // endgueltige Zustand ist und parked nur der weiche.
         if ($a['rejected']) { return ['abgesagt', '-', null]; }
+        if ($a['parked']) { return ['geparkt', '-', null]; }
         // Stufe 8: nach aktueller Phase aufgeschluesselt
         $phaseKey = ($a['phase_order'] ?? '-') . '|' . ($a['phase_name'] ?? 'ohne Phase');
         return ['ohne_schulung', 'ohne_schulung:' . $phaseKey, null];
@@ -144,24 +155,24 @@ final class CohortAssigner
     private function groupFor(array $a, array $pivots): array
     {
         if ($pivots === []) {
-            return ['ort' => 'ohne Ausschreibung', 'taetigkeit' => 'ohne Ausschreibung']; // Fall 3
+            return ['ort' => 'ohne Ausschreibung', 'taetigkeit' => 'ohne Ausschreibung', 'uneindeutig' => false]; // Fall 3
         }
-        // Fall 1: Pivot passt zur Position von rec_phase_id
-        $match = null;
-        foreach ($pivots as $p) {
-            if ($a['phase_position_id'] !== null && $p['position_id'] === $a['phase_position_id']) {
-                $match = $p;
-                break;
-            }
-        }
-        // Fall 2: keine passt → kleinste posting_id (Kennzeichnung macht die UI via 'uneindeutig')
-        if ($match === null) {
-            usort($pivots, fn ($x, $y) => $x['posting_id'] <=> $y['posting_id']);
-            $match = $pivots[0];
-        }
+        // Fall 1: alle Pivots, die zur Position von rec_phase_id passen. Review-Fix 4:
+        // bei mehreren Treffern deterministisch die kleinste posting_id, nicht Array-Reihenfolge.
+        $matching = ($a['phase_position_id'] !== null)
+            ? array_values(array_filter($pivots, fn ($p) => $p['position_id'] === $a['phase_position_id']))
+            : [];
+        // Fall 2: keine Pivot passt → uneindeutig, Fallback auf kleinste posting_id
+        // ueber ALLE Pivots. Review-Fix 1: als 'uneindeutig' im Shape sichtbar, damit
+        // die UI mess- und anklickbar bleibt, ohne die Praezedenzlogik zu duplizieren.
+        $uneindeutig = $matching === [];
+        $candidates = $uneindeutig ? $pivots : $matching;
+        usort($candidates, fn ($x, $y) => $x['posting_id'] <=> $y['posting_id']);
+        $match = $candidates[0];
         return [
             'ort' => ($match['location'] !== null && $match['location'] !== '') ? $match['location'] : 'ohne Ort',
             'taetigkeit' => ($match['activity'] !== null && $match['activity'] !== '') ? $match['activity'] : 'ohne Tätigkeit',
+            'uneindeutig' => $uneindeutig,
         ];
     }
 }
