@@ -196,6 +196,14 @@ class RecruitingServiceProvider extends ServiceProvider
             ->withoutOverlapping(15)
             ->runInBackground();
 
+        // MA-Kontaktbuch: Konvergenz-Garantie fuer alle Pfade, die der Observer
+        // nicht sieht (Link-Anlage, Hard-Deletes). BEWUSST ohne --force —
+        // Guard-Faelle sollen liegen bleiben und im Command/Panel auffallen.
+        Schedule::command('recruiting:sync-employee-contact-list')
+            ->hourly()
+            ->withoutOverlapping(10)
+            ->runInBackground();
+
         Schedule::command('recruiting:cleanup-interview-waitlist')
             ->hourly()
             ->withoutOverlapping(10)
