@@ -51,6 +51,28 @@ class ContactBook extends Component
         $report = app(EmployeeContactListSyncService::class)->syncAll($this->teamId());
 
         unset($this->list, $this->lastSync);
+
+        // partial = gelbe Warnung, nie gruen: mindestens ein Write ist fehlgeschlagen
+        // (analog confirmSync() — die Erstbefuellung ist ein syncAll()-Aufruf wie jeder
+        // andere und unterliegt derselben partial-Regel).
+        if ($report->status === 'partial') {
+            session()->flash('warning', "Kontaktbuch angelegt, aber Erstbefüllung unvollständig: +{$report->added} aufgenommen"
+                . ($report->skipped_without_contact > 0 ? ", {$report->skipped_without_contact} ohne CRM-Kontakt übersprungen" : '')
+                . ' — mindestens ein Schreibvorgang ist fehlgeschlagen (Details im Log unter [EmployeeContactListSync]). last_sync wurde nicht aktualisiert.');
+
+            return;
+        }
+
+        if ($report->status !== 'ok') {
+            // Defensiv: auf einer frisch angelegten Liste kann syncAll() hier eigentlich
+            // nur 'ok' oder 'partial' liefern (guard_tripped braeuchte bereits vorhandene
+            // Ist-Mitglieder). Falls doch ein anderer Status auftaucht, lieber neutral
+            // warnen als faelschlich gruen zu melden.
+            session()->flash('warning', "Kontaktbuch angelegt, aber Erstbefüllung nicht möglich (Status: {$report->status}).");
+
+            return;
+        }
+
         session()->flash('message', "Kontaktbuch angelegt — {$report->added} Mitarbeiter aufgenommen"
             . ($report->skipped_without_contact > 0 ? ", {$report->skipped_without_contact} ohne CRM-Kontakt übersprungen" : '')
             . '.');
@@ -88,7 +110,12 @@ class ContactBook extends Component
 
         session()->flash('message', match ($report->status) {
             'ok' => "Sync ausgeführt: +{$report->added} hinzugefügt, -{$report->removed} entfernt, {$report->normalized} renormalisiert.",
-            'guard_tripped' => 'Sync abgebrochen: keine auslieferbaren Kontakte gefunden — deutet auf fehlende CRM-Links hin.',
+            // Generisch, weil syncAll() den Guard-Grund NICHT im Report trägt (Vertrag
+            // bleibt 9-Felder-Report ohne guard_reason) und der Guard seit dem Dry-Run-Klick
+            // aus einem ANDEREN Grund als im Preview angezeigt getrippt sein kann (z. B.
+            // 'threshold' statt 'empty_soll', wenn sich die Ist-Menge inzwischen geaendert
+            // hat) — eine fest verdrahtete Diagnose koennte hier falsch liegen.
+            'guard_tripped' => "Sync abgebrochen: Schutz ausgelöst. Bitte erneut „Jetzt synchronisieren\" klicken — der neue Prüflauf zeigt den Grund.",
             default => "Sync nicht möglich (Status: {$report->status}).",
         });
     }
