@@ -253,7 +253,7 @@ final class PhaseTransitionTrigger
 - [ ] **Step 4: Test laufen lassen — muss grün sein**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter PhaseTransitionTriggerTest`
-Expected: PASS (3 Tests)
+Expected: PASS (alle Tests der Datei grün)
 
 - [ ] **Step 5: Commit**
 
@@ -416,8 +416,10 @@ class RecPhaseObserver
     /**
      * Doppel-Schreib-Guard: RecPositionObserver ruft deleting() direkt auf;
      * loescht danach noch irgendein Pfad dieselbe Phase via Eloquent, gaebe es
-     * zwei Intervall-Enden. Prozessweiter Static ist hier unkritisch: Phase-IDs
-     * sind einmalig, eine geloeschte ID kommt nie wieder.
+     * zwei Intervall-Enden. Prozessweiter Static ist hier fast immer unkritisch
+     * (Phase-IDs sind einmalig) — bekannter Randfall: wird eine Loeschung in
+     * einer Transaktion zurueckgerollt und im selben Prozess erneut versucht,
+     * ueberspringt der Guard das zweite Schreiben (toleriert, dokumentiert).
      * Gecheckter Sonderfall: DuplicatePosition.php:122 loescht Phasen per
      * Query-Builder-Bulk (phases()->delete(), KEINE Events) — betrifft nur die
      * frisch geklonte Zielstelle ohne Bewerber, keine Transitions noetig.
@@ -714,7 +716,7 @@ final class PhaseAdvancedSummaryParser
 - [ ] **Step 4: Tests grün**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter PhaseAdvancedSummaryParserTest`
-Expected: PASS (4 Tests)
+Expected: PASS (alle Tests der Datei grün)
 
 - [ ] **Step 5: Commit**
 
@@ -984,7 +986,7 @@ final class BookingStatusGroups
 - [ ] **Step 4: Tests grün + Commit**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter BookingStatusGroupsTest`
-Expected: PASS (4 Tests)
+Expected: PASS (alle Tests der Datei grün)
 
 ```bash
 git add src/Support/BookingStatusGroups.php tests/Unit/Statistics/BookingStatusGroupsTest.php
@@ -1148,6 +1150,17 @@ class CohortAssignerTest extends TestCase
         $this->assertSame([2, 3], $result['total_ids']);
     }
 
+    public function test_leerstring_datum_verhaelt_sich_wie_null(): void
+    {
+        // P6: Livewire liefert '' fuer geleerte Datumsfelder — darf die
+        // Tabelle nicht leeren ("Von" gesetzt, "Bis" geleert).
+        $a = [$this->applicant(1, ['applied_at' => '2026-07-05'])];
+        $withEmpty = (new CohortAssigner())->assign($a, [], [], '2026-07-01', '');
+        $withNull = (new CohortAssigner())->assign($a, [], [], '2026-07-01', null);
+        $this->assertSame($withNull['total_ids'], $withEmpty['total_ids']);
+        $this->assertSame([1], $withEmpty['total_ids']);
+    }
+
     public function test_gruppen_fallbacks_und_hr_desk_marker(): void
     {
         $result = (new CohortAssigner())->assign(
@@ -1232,6 +1245,12 @@ final class CohortAssigner
         ?string $from,
         ?string $to,
     ): array {
+        // P6: geleerte Livewire-Datumsfelder liefern '' statt null — und
+        // '2026-07-05' > '' ist WAHR, die Tabelle waere komplett leer.
+        // Pure Klasse mit oeffentlichem Kontrakt traut dem Aufrufer nicht.
+        $from = ($from === '') ? null : $from;
+        $to = ($to === '') ? null : $to;
+
         $rows = [];
         $totalIds = [];
 
@@ -1359,7 +1378,7 @@ final class CohortAssigner
 - [ ] **Step 4: Tests grün**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter CohortAssignerTest`
-Expected: PASS (7 Tests)
+Expected: PASS (alle Tests der Datei grün)
 
 - [ ] **Step 5: Komplette Suite + Commit**
 
@@ -1409,6 +1428,18 @@ class Index extends Component
 {
     public ?string $filterFrom = null;
     public ?string $filterTo = null;
+
+    // P6: geleerte x-ui-input-date liefern '' — auf null normalisieren,
+    // damit SQL-when() und Assigner dieselbe Menge sehen
+    public function updatedFilterFrom($value): void
+    {
+        $this->filterFrom = $value ?: null;
+    }
+
+    public function updatedFilterTo($value): void
+    {
+        $this->filterTo = $value ?: null;
+    }
     public ?string $ortFilter = null;
     public ?string $activityFilter = null;
     public ?int $postingFilter = null;
@@ -1442,6 +1473,13 @@ class Index extends Component
             ->when($this->postingFilter, fn ($q) => $q->whereHas('postings',
                 fn ($p) => $p->where('rec_postings.id', $this->postingFilter)))
             ->when($this->sourcePlatformFilter, fn ($q) => $q->where('source_platform_id', $this->sourcePlatformFilter))
+            // OPTIONAL, erst wenn Q10 grosse Zahlen zeigt: Superset-Vorfilter Ort.
+            // Schliesst nie eine Zeile aus, die sonst ueberlebt haette — eine Zeile
+            // mit konkreter Gruppe "Essen" setzt eine Pivot-Zeile mit
+            // position.location = 'Essen' voraus; die Fallback-Werte "ohne Ort"/
+            // "ohne Ausschreibung" sind nie gleich einer konkreten Auswahl.
+            // ->when($this->ortFilter, fn ($q) => $q->whereHas('postings.position',
+            //     fn ($p) => $p->where('location', $this->ortFilter)))
             ->with([
                 'postings.position',
                 // kein withTrashed(): der Assigner verwirft deleted ohnehin —
@@ -1488,7 +1526,9 @@ class Index extends Component
                 'status' => $b->status,
                 'seat_released' => $b->seat_released_at !== null,
                 'starts_at' => $b->interview?->starts_at?->toDateTimeString(),
-                'deleted' => false, // SoftDeleted wird nicht geladen; Assigner-Kontrakt bleibt vollstaendig
+                // heute identisch mit false (kein withTrashed) — aber
+                // selbstkorrigierend, falls die Relation je geaendert wird
+                'deleted' => $b->deleted_at !== null,
             ])->all();
             $pivots[$a->id] = $a->postings
                 ->filter(fn ($p) => $this->postingFilter === null || $p->id === $this->postingFilter)
