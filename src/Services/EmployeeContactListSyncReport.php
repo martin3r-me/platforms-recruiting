@@ -17,7 +17,7 @@ final readonly class EmployeeContactListSyncReport
         public int $hidden_from_carddav,
         public int $ambiguous_multi_link,
         public bool $dry_run,
-        public string $status, // ok | not_configured | list_missing | guard_tripped
+        public string $status, // ok | partial | not_configured | list_missing | guard_tripped
     ) {
     }
 }

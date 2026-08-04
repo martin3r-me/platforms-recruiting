@@ -434,4 +434,36 @@ class EmployeeContactListSyncTest extends TestCase
             RecApplicantSettings::getOrCreateForTeam(self::TEAM)->getSetting(EmployeeContactListSyncService::SETTING_LAST_SYNC)
         );
     }
+
+    public function test_fehlgeschlagener_subscribe_ergibt_partial_und_echte_zaehler(): void
+    {
+        $this->makeList();
+        $this->makeEmployeeWithContact();
+        [, $contactFail] = $this->makeEmployeeWithContact(['first_name' => 'Zweiter'], ['first_name' => 'Zweiter']);
+
+        // Wirft nur fuer den zweiten Kontakt — der Rest laeuft echt durch.
+        $failing = new class((int) $contactFail->id) extends SubscriptionService {
+            public function __construct(private readonly int $failForContactId)
+            {
+            }
+
+            public function subscribe(CrmContactList $list, CrmContact $contact, string $source = 'manual_admin', ?int $userId = null): CrmContactListMember
+            {
+                if ((int) $contact->id === $this->failForContactId) {
+                    throw new \RuntimeException('subscribe kaputt (Testfall partial)');
+                }
+
+                return parent::subscribe($list, $contact, $source, $userId);
+            }
+        };
+
+        $report = (new EmployeeContactListSyncService($failing))->syncAll(self::TEAM);
+
+        $this->assertSame('partial', $report->status);
+        $this->assertSame(1, $report->added, 'added zaehlt nur den tatsaechlich erfolgreichen Write.');
+        $this->assertNull(
+            RecApplicantSettings::getOrCreateForTeam(self::TEAM)->getSetting(EmployeeContactListSyncService::SETTING_LAST_SYNC),
+            'last_sync darf bei partial nicht geschrieben werden.'
+        );
+    }
 }

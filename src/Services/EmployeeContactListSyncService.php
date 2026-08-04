@@ -49,20 +49,39 @@ class EmployeeContactListSyncService
         $ist = $this->currentMembers($list);
 
         $diff = self::computeDiff($resolved['contact_ids'], $ist, $force);
-        $report = self::reportFrom($diff, $resolved['counters'], $dryRun);
 
-        if ($dryRun || $report->status !== 'ok') {
-            return $report;
+        if ($dryRun || $diff->guardTripped) {
+            // Dry-Run und Guard melden das berechnete Diff (Intention).
+            return self::reportFrom($diff, $resolved['counters'], $dryRun);
         }
 
+        // Echte Laeufe zaehlen die TATSAECHLICH erfolgreichen Writes —
+        // ein still verschluckter Fehler darf den Report nicht aufblasen.
+        $addedActual = 0;
+        $normalizedActual = 0;
+        $writeFailed = false;
+
+        $toNormalizeSet = array_flip($diff->toNormalize);
         $toSubscribe = array_merge($diff->toAdd, $diff->toNormalize);
+
         if ($toSubscribe !== []) {
-            foreach (CrmContact::query()->whereIn('id', $toSubscribe)->get() as $contact) {
+            $contacts = CrmContact::query()->whereIn('id', $toSubscribe)->get()->keyBy('id');
+
+            foreach ($toSubscribe as $contactId) {
+                $contact = $contacts->get($contactId);
+                if (!$contact) {
+                    // Kontakt zwischen Diff und Write verschwunden -> kein Write.
+                    $writeFailed = true;
+                    continue;
+                }
+
                 try {
                     $this->subscriptions->subscribe($list, $contact, 'manual_admin');
+                    isset($toNormalizeSet[$contactId]) ? $normalizedActual++ : $addedActual++;
                 } catch (\Throwable $e) {
+                    $writeFailed = true;
                     Log::error('[EmployeeContactListSync] subscribe fehlgeschlagen', [
-                        'contact_id' => $contact->id,
+                        'contact_id' => $contactId,
                         'list_id' => $list->id,
                         'error' => $e->getMessage(),
                     ]);
@@ -70,19 +89,49 @@ class EmployeeContactListSyncService
             }
         }
 
+        $removedActual = 0;
         if ($diff->toRemove !== []) {
-            CrmContactListMember::query()
-                ->where('contact_list_id', $list->id)
-                ->whereIn('contact_id', $diff->toRemove)
-                ->delete();
+            try {
+                // delete() liefert die Zahl der tatsaechlich geloeschten Zeilen.
+                $removedActual = CrmContactListMember::query()
+                    ->where('contact_list_id', $list->id)
+                    ->whereIn('contact_id', $diff->toRemove)
+                    ->delete();
+            } catch (\Throwable $e) {
+                $writeFailed = true;
+                Log::error('[EmployeeContactListSync] Row-Delete fehlgeschlagen', [
+                    'list_id' => $list->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         $list->updateMemberCount();
 
-        // Nur syncAll schreibt last_sync (JSON Read-Modify-Write; Observer-Saves
-        // wuerden parallele Aenderungen anderer Keys klobbern).
-        $settings->setSetting(self::SETTING_LAST_SYNC, now()->toIso8601String());
-        $settings->save();
+        $partial = $writeFailed
+            || $addedActual !== count($diff->toAdd)
+            || $normalizedActual !== count($diff->toNormalize)
+            || $removedActual !== count($diff->toRemove);
+
+        $report = new EmployeeContactListSyncReport(
+            added: $addedActual,
+            removed: $removedActual,
+            normalized: $normalizedActual,
+            unchanged: $diff->unchanged,
+            skipped_without_contact: (int) ($resolved['counters']['skipped_without_contact'] ?? 0),
+            hidden_from_carddav: (int) ($resolved['counters']['hidden_from_carddav'] ?? 0),
+            ambiguous_multi_link: (int) ($resolved['counters']['ambiguous_multi_link'] ?? 0),
+            dry_run: false,
+            status: $partial ? 'partial' : 'ok',
+        );
+
+        // Nur syncAll schreibt last_sync, und NUR bei status ok — bei partial
+        // nicht (JSON Read-Modify-Write; Observer-Saves wuerden parallele
+        // Aenderungen anderer Keys klobbern).
+        if ($report->status === 'ok') {
+            $settings->setSetting(self::SETTING_LAST_SYNC, now()->toIso8601String());
+            $settings->save();
+        }
 
         return $report;
     }
