@@ -104,6 +104,26 @@ class FixApplicantPhase extends Command
                     DB::table('rec_applicants')
                         ->where('id', $applicant->id)
                         ->update(['rec_phase_id' => $firstPhase->id]);
+
+                    try {
+                        \Platform\Recruiting\Models\RecPhaseTransition::create([
+                            'team_id'          => $applicant->team_id,
+                            'rec_applicant_id' => $applicant->id,
+                            'rec_position_id'  => $firstPhase->rec_position_id,
+                            'from_phase_id'    => null, // Command heilt nur rec_phase_id IS NULL
+                            'to_phase_id'      => $firstPhase->id,
+                            'from_phase_name'  => null,
+                            'to_phase_name'    => $firstPhase->name,
+                            // Korrektur, kein Phasenwechsel — aus allen Verweildauer-Medianen
+                            // ausgeschlossen (Spec §5)
+                            'trigger'          => \Platform\Recruiting\Support\PhaseTransitionTrigger::FIX,
+                            'source'           => 'live',
+                            'occurred_at'      => now(),
+                        ]);
+                    } catch (\Throwable) {
+                        // Transition-Fehler bricht die Heilung nicht ab
+                    }
+
                     $changed++;
                 } catch (\Throwable $e) {
                     $errors++;
