@@ -8,7 +8,7 @@ use Platform\Recruiting\Services\EmployeeContactListSyncService;
 
 /**
  * Voll-Sync des MA-Kontaktbuchs (sync-verwaltete CRM-Kontaktliste).
- * Bewusst NICHT im Scheduler (Spec) — manueller Lauf bzw. Panel.
+ * Laeuft stuendlich im Scheduler (ohne --force); manueller Lauf bzw. Panel zusaetzlich.
  *
  *   php artisan recruiting:sync-employee-contact-list --dry-run
  *   php artisan recruiting:sync-employee-contact-list --team=3
