@@ -124,6 +124,7 @@ final class CohortViewModel
             'ids' => $row['ids'] ?? [],
             'hr_desk_ids' => $row['hr_desk_ids'] ?? [],
             'uneindeutig_ids' => $row['uneindeutig_ids'] ?? [],
+            'offen_ids' => $row['offen_ids'] ?? [],
             default => $row['columns'][$column] ?? [],
         };
     }
@@ -177,6 +178,83 @@ final class CohortViewModel
         }
 
         return array_values($ids);
+    }
+
+    /**
+     * Aeltestes `min_applied_at` einer Zeilenmenge (Y-m-d) — die Alters-Basis fuer
+     * Summen-Zeilen. Zeilen ohne Datum (ohne_datum) zaehlen nicht mit; bestehen
+     * ALLE Zeilen daraus, gibt es kein Alter → null.
+     *
+     * @param  list<array>  $rows
+     */
+    public function minAppliedAt(array $rows): ?string
+    {
+        $min = null;
+        foreach ($rows as $row) {
+            $value = $row['min_applied_at'] ?? null;
+            if ($value === null) {
+                continue;
+            }
+            // Y-m-d ist lexikographisch = chronologisch
+            if ($min === null || $value < $min) {
+                $min = (string) $value;
+            }
+        }
+
+        return $min;
+    }
+
+    /**
+     * Right-Censoring (Spec §6): Ist die Conversion dieser Zeile noch nicht
+     * aussagekraeftig, weil die Kohorte juenger ist als der Median-Durchlauf?
+     *
+     * `$todayYmd` wird bewusst HEREINGEREICHT und nicht hier erzeugt — eine pure
+     * Klasse darf keine Uhr haben, sonst waere die Regel nicht testbar.
+     *
+     * Grau (true) in vier Faellen, alle konservativ „Reife nicht belegbar":
+     *  - kein Median (keine Unterschriften) → es gibt keine Referenz;
+     *  - Zeile ohne Datum (ohne_datum) → kein Alter bestimmbar;
+     *  - unlesbares/rollover-Datum → lieber grau als falsch zuversichtlich;
+     *  - Alter < Median. Die Grenze ist STRIKT: Alter == Median gilt als reif.
+     */
+    public function isCensored(?string $rowMinAppliedAt, string $todayYmd, ?int $tthMedian): bool
+    {
+        if ($tthMedian === null || $rowMinAppliedAt === null) {
+            return true;
+        }
+
+        $age = self::ageInDays($rowMinAppliedAt, $todayYmd);
+        if ($age === null) {
+            return true;
+        }
+
+        return $age < $tthMedian;
+    }
+
+    /** Ganze Tage zwischen zwei Y-m-d-Strings; negativ moeglich, null = unlesbar. */
+    private static function ageInDays(string $fromYmd, string $toYmd): ?int
+    {
+        $from = self::parseYmd($fromYmd);
+        $to = self::parseYmd($toYmd);
+        if ($from === null || $to === null) {
+            return null;
+        }
+
+        return (int) floor(($to->getTimestamp() - $from->getTimestamp()) / 86400);
+    }
+
+    private static function parseYmd(string $value): ?\DateTimeImmutable
+    {
+        // '!' nullt alle Zeitfelder, fixe UTC-Zone → die Differenz ist exakt in
+        // Tagen, ohne Sommerzeit-Effekte.
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, new \DateTimeZone('UTC'));
+        if ($date === false) {
+            return null;
+        }
+
+        // Round-Trip-Pruefung: createFromFormat rollt '2026-02-30' still auf
+        // '2026-03-02' weiter. Ein solches Datum ist kaputt, kein Datum.
+        return $date->format('Y-m-d') === $value ? $date : null;
     }
 
     /**

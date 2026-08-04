@@ -2,20 +2,37 @@
     // Spaltendefinition an EINER Stelle — thead, jede Datenzeile und beide
     // Summen-Zeilen lesen daraus. Farbklassen bewusst als Literale (Tailwind-JIT
     // findet keine zusammengesetzten Klassennamen).
+    // Jede Spalte traegt ihre Definition als Tooltip (Spec §6): die Zahlen sind
+    // ohne die Definition mehrdeutig, und der Tooltip ist der einzige Ort, an dem
+    // sie mitreist.
     $colDefs = [
-        ['key' => 'ids',                'label' => 'Bewerbungen',    'on' => 'bg-blue-50 text-blue-700',       'total' => 'bg-blue-100 text-blue-800'],
-        ['key' => 'kontaktiert',        'label' => 'Kontaktiert',    'on' => 'bg-indigo-50 text-indigo-700',   'total' => 'bg-indigo-100 text-indigo-800'],
-        ['key' => 'gebucht',            'label' => 'Gebucht',        'on' => 'bg-purple-50 text-purple-700',   'total' => 'bg-purple-100 text-purple-800'],
-        ['key' => 'bestaetigt',         'label' => 'Bestätigt',      'on' => 'bg-green-50 text-green-700',     'total' => 'bg-green-100 text-green-800'],
-        ['key' => 'teilgenommen',       'label' => 'Teilgenommen',   'on' => 'bg-emerald-50 text-emerald-700', 'total' => 'bg-emerald-100 text-emerald-800'],
-        ['key' => 'standby',            'label' => 'Standby',        'on' => 'bg-amber-50 text-amber-700',     'total' => 'bg-amber-100 text-amber-800'],
-        ['key' => 'no_show',            'label' => 'No-Show',        'on' => 'bg-red-50 text-red-700',         'total' => 'bg-red-100 text-red-800'],
-        ['key' => 'vertrag_verschickt', 'label' => 'Vertrag raus',   'on' => 'bg-orange-50 text-orange-700',   'total' => 'bg-orange-100 text-orange-800'],
-        ['key' => 'unterschrieben',     'label' => 'Unterschrieben', 'on' => 'bg-teal-50 text-teal-700',       'total' => 'bg-teal-100 text-teal-800'],
+        ['key' => 'ids',                'label' => 'Bewerbungen',    'on' => 'bg-blue-50 text-blue-700',       'total' => 'bg-blue-100 text-blue-800',
+         'title' => 'Alle Bewerbungen dieser Zeile — Testbewerber sind immer ausgeschlossen, Bewerbungen ohne Datum stehen in einer eigenen Zeile.'],
+        ['key' => 'kontaktiert',        'label' => 'Kontaktiert',    'on' => 'bg-indigo-50 text-indigo-700',   'total' => 'bg-indigo-100 text-indigo-800',
+         'title' => 'Anreicherungs-Proxy (enrichment_status), kein Kontaktnachweis'],
+        ['key' => 'gebucht',            'label' => 'Gebucht',        'on' => 'bg-purple-50 text-purple-700',   'total' => 'bg-purple-100 text-purple-800',
+         'title' => 'Hat eine kohorten-relevante Buchung auf diesem Termin (Rang ≥ 1: booked/registered und höher). Storno zählt nicht.'],
+        ['key' => 'bestaetigt',         'label' => 'Bestätigt',      'on' => 'bg-green-50 text-green-700',     'total' => 'bg-green-100 text-green-800',
+         'title' => 'confirmed/attended/no_show — registered zählt bewusst nicht (mehrdeutig, siehe Auftrag ③)'],
+        ['key' => 'teilgenommen',       'label' => 'Teilgenommen',   'on' => 'bg-emerald-50 text-emerald-700', 'total' => 'bg-emerald-100 text-emerald-800',
+         'title' => 'Status attended (Rang 3). No-Show ist ein Abzweig und zählt hier NICHT mit.'],
+        ['key' => 'standby',            'label' => 'Standby',        'on' => 'bg-amber-50 text-amber-700',     'total' => 'bg-amber-100 text-amber-800',
+         'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at) — zählt in keiner der beiden Kapazitätsspalten mit.'],
+        ['key' => 'no_show',            'label' => 'No-Show',        'on' => 'bg-red-50 text-red-700',         'total' => 'bg-red-100 text-red-800',
+         'title' => 'Status no_show — gebucht und bestätigt, aber nicht erschienen. Gilt als abgeschlossen, zählt also nicht als „noch offen".'],
+        ['key' => 'vertrag_verschickt', 'label' => 'Vertrag raus',   'on' => 'bg-orange-50 text-orange-700',   'total' => 'bg-orange-100 text-orange-800',
+         'title' => 'Mindestens ein Vertrag mit sent_at. Stornierte Verträge (status=cancelled) sind ausgeschlossen.'],
+        ['key' => 'unterschrieben',     'label' => 'Unterschrieben', 'on' => 'bg-teal-50 text-teal-700',       'total' => 'bg-teal-100 text-teal-800',
+         'title' => 'Mindestens ein Vertrag mit signed_at — das Ziel des Funnels.'],
+        // Neutral-grau statt einer Funnel-Farbe: "noch offen" ist kein Fortschritt,
+        // sondern das unentschiedene Restfeld. Der 100/700-Ton ist zugleich klar von
+        // der Null-Darstellung (gray-50/400) unterscheidbar.
+        ['key' => 'offen_ids',          'label' => 'Noch offen',     'on' => 'bg-gray-100 text-gray-700',      'total' => 'bg-gray-200 text-gray-800',
+         'title' => 'Weder unterschrieben noch No-Show — die Bewerbungen, deren Ausgang noch offen ist (Bewerbungen − Unterschrieben − No-Show).'],
     ];
 
-    // 1 Zeilen-Spalte + Zahlen + 2 Kapazitaets-Spalten
-    $colSpanAll = count($colDefs) + 3;
+    // 1 Zeilen-Spalte + Zahlen + Conversion + 2 Kapazitaets-Spalten
+    $colSpanAll = count($colDefs) + 4;
 
     // Labels der Assigner-Zeilentypen (Spec §4). Jeder Typ ist sichtbar — nichts
     // wird verschluckt, auch 'unbekannter_status' nicht. Die Reihenfolge in der
@@ -129,6 +146,16 @@
     {{-- Kohorten-Tabelle: Ort → Tätigkeit → Zeilen in Anzeige-Reihenfolge   --}}
     {{-- ------------------------------------------------------------------ --}}
     <x-ui-panel title="Kohorten-Tabelle" subtitle="Gruppiert nach Ort und Tätigkeit — die Summen sind die Addition der Zeilen">
+        {{-- Snapshot-Hinweis (Spec §6): der Funnel liest den AKTUELLEN Status, nicht
+             eine Historie. Wer heute abgesagt wird, verschwindet morgen aus
+             „Bestätigt" — ohne diesen Hinweis liest man sinkende Zahlen als Fehler. --}}
+        <div class="mb-3 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-muted-5)] px-3 py-2 text-xs text-[color:var(--ui-muted)]">
+            <span class="font-semibold text-[color:var(--ui-secondary)]">Snapshot, keine Historie:</span>
+            Der Funnel zeigt den aktuellen Status jeder Bewerbung — Werte können zwischen zwei
+            Aufrufen auch <em>sinken</em>, wenn sich ein Status ändert. Spaltenköpfe (ⓘ) tragen
+            die jeweilige Definition als Tooltip.
+        </div>
+
         @if (count($this->cohort['rows']) === 0)
             <div class="py-10 text-center text-sm text-[color:var(--ui-muted)]">
                 Keine Bewerbungen in dieser Auswahl.
@@ -138,10 +165,17 @@
                 <table class="w-full table-auto border-collapse text-sm">
                     <thead>
                         <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
-                            <th class="px-4 py-3">Zeile</th>
+                            <th class="px-4 py-3" title="Zeilentyp aus der Präzedenz-Kette (Spec §4): jede Bewerbung steckt in genau einer Zeile.">Zeile</th>
                             @foreach ($colDefs as $col)
-                                <th class="px-3 py-3 text-center">{{ $col['label'] }}</th>
+                                <th class="px-3 py-3 text-center" title="{{ $col['title'] }}">
+                                    {{ $col['label'] }}
+                                    <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
+                                </th>
                             @endforeach
+                            <th class="px-3 py-3 text-center" title="Unterschriften geteilt durch Bewerbungen dieser Zeile. Ausgegraut, solange die Kohorte jünger ist als der Median-Durchlauf — dann ist die Quote strukturell zu niedrig (Right-Censoring).">
+                                Conversion
+                                <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
+                            </th>
                             <th class="px-3 py-3 text-center" title="Belegte Plätze dieses Termins durch die Bewerber DIESER Zeile (also innerhalb der aktuellen Filter-Auswahl) — Standby zählt wie überall nicht mit">
                                 Kohorte
                             </th>
@@ -245,6 +279,7 @@
                                             @include('recruiting::livewire.statistics.markers', ['rows' => [$row], 'token' => $rowToken, 'prefix' => $rowPrefix])
                                         </td>
                                         @include('recruiting::livewire.statistics.cells', ['rows' => [$row], 'token' => $rowToken, 'prefix' => $rowPrefix, 'isTotal' => false])
+                                        @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false, 'tiles' => $tiles])
 
                                         {{-- Kapazität "Kohorte": belegt/max innerhalb dieser Zeile --}}
                                         <td class="px-3 py-2 text-center whitespace-nowrap text-xs">
@@ -296,6 +331,7 @@
                                             @include('recruiting::livewire.statistics.markers', ['rows' => $phaseRows, 'token' => $bucketToken, 'prefix' => $bucketPrefix])
                                         </td>
                                         @include('recruiting::livewire.statistics.cells', ['rows' => $phaseRows, 'token' => $bucketToken, 'prefix' => $bucketPrefix, 'isTotal' => false])
+                                        @include('recruiting::livewire.statistics.conversion', ['rows' => $phaseRows, 'isTotal' => false, 'tiles' => $tiles])
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                     </tr>
@@ -319,6 +355,7 @@
                                                 @include('recruiting::livewire.statistics.markers', ['rows' => [$row], 'token' => $phaseToken, 'prefix' => $phasePrefix])
                                             </td>
                                             @include('recruiting::livewire.statistics.cells', ['rows' => [$row], 'token' => $phaseToken, 'prefix' => $phasePrefix, 'isTotal' => false])
+                                            @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false, 'tiles' => $tiles])
                                             <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                             <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                         </tr>
@@ -345,6 +382,7 @@
                                             @include('recruiting::livewire.statistics.markers', ['rows' => [$row], 'token' => $bRowToken, 'prefix' => $bucketLabel])
                                         </td>
                                         @include('recruiting::livewire.statistics.cells', ['rows' => [$row], 'token' => $bRowToken, 'prefix' => $bucketLabel, 'isTotal' => false])
+                                        @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false, 'tiles' => $tiles])
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                     </tr>
@@ -355,6 +393,7 @@
                             <tr class="border-t-2 border-[var(--ui-border)] bg-[var(--ui-muted-5)] font-semibold">
                                 <td class="px-4 py-2 text-[color:var(--ui-secondary)]">Summe {{ $ort }}</td>
                                 @include('recruiting::livewire.statistics.cells', ['rows' => $ortRows, 'token' => $ortToken, 'prefix' => 'Summe ' . $ort, 'isTotal' => true])
+                                @include('recruiting::livewire.statistics.conversion', ['rows' => $ortRows, 'isTotal' => true, 'tiles' => $tiles])
                                 <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                 <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                             </tr>
@@ -379,6 +418,7 @@
                                 @endif
                             </td>
                             @include('recruiting::livewire.statistics.cells', ['rows' => $this->cohort['rows'], 'token' => $allToken, 'prefix' => 'Gesamt', 'isTotal' => true])
+                            @include('recruiting::livewire.statistics.conversion', ['rows' => $this->cohort['rows'], 'isTotal' => true, 'tiles' => $tiles])
                             <td class="px-3 py-3 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                             <td class="px-3 py-3 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                         </tr>

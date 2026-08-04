@@ -327,6 +327,45 @@ class Index extends Component
     }
 
     /**
+     * Conversion einer Zeilenmenge in Prozent (unterschrieben/Bewerbungen).
+     * null = keine Bewerbungen, also keine Quote (nicht 0 %).
+     *
+     * @param  list<array>  $rows
+     */
+    public function conversionOf(array $rows): ?int
+    {
+        $vm = $this->viewModel();
+        $total = $vm->countIn($rows, 'ids');
+        if ($total === 0) {
+            return null;
+        }
+
+        return (int) round($vm->countIn($rows, 'unterschrieben') / $total * 100);
+    }
+
+    /**
+     * Right-Censoring (Spec §6): Conversion dieser Zeilenmenge ausgrauen, weil die
+     * Kohorte juenger ist als der Median-Durchlauf? Die Uhr sitzt HIER, die Regel im
+     * CohortViewModel — `today` reist als Y-m-d-String hinein, damit die pure Klasse
+     * ohne Uhr testbar bleibt.
+     *
+     * Schwelle ist der Median der aktuellen Gesamtsicht, also genau der Wert, den
+     * die Kachel zeigt — Kachel und Tabelle koennen sich nicht widersprechen.
+     *
+     * @param  list<array>  $rows
+     */
+    public function isCensored(array $rows): bool
+    {
+        $vm = $this->viewModel();
+
+        return $vm->isCensored(
+            $vm->minAppliedAt($rows),
+            now()->toDateString(),
+            $this->tiles['tth_median'],
+        );
+    }
+
+    /**
      * Baut das erste Argument fuer wire:click="drill(...)" — EIN Token pro
      * Tabellenzeile, das fuer alle Spalten derselben Zeile wiederverwendet wird.
      *

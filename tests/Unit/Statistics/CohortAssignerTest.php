@@ -224,4 +224,84 @@ class CohortAssignerTest extends TestCase
         $this->assertSame('Berlin', $result['rows'][0]['group']['ort']);
         $this->assertFalse($result['rows'][0]['group']['uneindeutig'], 'beide Pivots passen zur Phase-Position -> nicht uneindeutig');
     }
+
+    // ---------------------------------------------------------------- //
+    // Right-Censoring-Eingaben (Spec §6): offen-Menge + min applied_at //
+    // ---------------------------------------------------------------- //
+
+    public function test_offen_ist_ids_ohne_unterschrift_und_ohne_no_show(): void
+    {
+        // Ein Termin, vier Bewerber: 1 offen, 2 unterschrieben, 3 no_show,
+        // 4 no_show UND unterschrieben (beides raus, keine Doppelsubtraktion).
+        $result = (new CohortAssigner())->assign([
+            $this->applicant(1),
+            $this->applicant(2, ['contract_signed' => true]),
+            $this->applicant(3),
+            $this->applicant(4, ['contract_signed' => true]),
+        ], [
+            1 => [$this->booking(11, ['status' => 'confirmed'])],
+            2 => [$this->booking(12, ['status' => 'confirmed'])],
+            3 => [$this->booking(13, ['status' => 'no_show'])],
+            4 => [$this->booking(14, ['status' => 'no_show'])],
+        ], [], null, null);
+
+        $row = $result['rows'][0];
+        $this->assertSame([1, 2, 3, 4], $row['ids']);
+        $this->assertSame([2, 4], $row['columns']['unterschrieben']);
+        $this->assertSame([3, 4], $row['columns']['no_show']);
+        $this->assertSame([1], $row['offen_ids'], 'offen = ids - unterschrieben - no_show');
+    }
+
+    public function test_offen_ist_bei_bucket_zeilen_die_ganze_zeile(): void
+    {
+        // no_show gibt es nur auf Schulungszeilen — in einem Bucket ohne
+        // Unterschrift ist damit jede Person "noch offen".
+        $result = (new CohortAssigner())->assign([
+            $this->applicant(1, ['parked' => true]),
+            $this->applicant(2, ['parked' => true, 'contract_signed' => true]),
+        ], [], [], null, null);
+
+        $row = $result['rows'][0];
+        $this->assertSame('geparkt', $row['type']);
+        $this->assertSame([1], $row['offen_ids']);
+    }
+
+    public function test_min_applied_at_ist_die_aelteste_bewerbung_der_zeile(): void
+    {
+        $result = (new CohortAssigner())->assign([
+            $this->applicant(1, ['parked' => true, 'applied_at' => '2026-06-15']),
+            $this->applicant(2, ['parked' => true, 'applied_at' => '2026-05-02']),
+            $this->applicant(3, ['parked' => true, 'applied_at' => '2026-07-30']),
+        ], [], [], null, null);
+
+        $this->assertSame('2026-05-02', $result['rows'][0]['min_applied_at']);
+    }
+
+    public function test_min_applied_at_ist_null_wenn_die_zeile_kein_datum_hat(): void
+    {
+        // ohne_datum-Zeilen haben per Definition kein applied_at -> kein Alter,
+        // also auch keine Zensur-Entscheidung moeglich.
+        $result = (new CohortAssigner())->assign(
+            [$this->applicant(1, ['applied_at' => null])],
+            [], [], null, null
+        );
+
+        $this->assertSame('ohne_datum', $result['rows'][0]['type']);
+        $this->assertNull($result['rows'][0]['min_applied_at']);
+    }
+
+    public function test_jede_zeile_hat_die_neuen_schluessel(): void
+    {
+        $result = (new CohortAssigner())->assign([
+            $this->applicant(1),
+            $this->applicant(2, ['applied_at' => null]),
+            $this->applicant(3, ['duplicate' => true]),
+        ], [], [], null, null);
+
+        $this->assertNotEmpty($result['rows']);
+        foreach ($result['rows'] as $row) {
+            $this->assertArrayHasKey('offen_ids', $row, 'Shape-Zusage gilt fuer JEDEN Zeilentyp');
+            $this->assertArrayHasKey('min_applied_at', $row);
+        }
+    }
 }

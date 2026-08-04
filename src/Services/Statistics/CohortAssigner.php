@@ -28,6 +28,11 @@ use Platform\Recruiting\Support\SeatStandbyPolicy;
  *                    vertrag_verschickt:list<int>, unterschrieben:list<int>},
  *     tth_days: list<int>,  // Eingang→Unterschrift DIESER Zeile (P5: Kacheln
  *                           // aggregieren ueber dieselben gefilterten Zeilen)
+ *     offen_ids: list<int>,       // Right-Censoring (Spec §6): ids − unterschrieben
+ *                                 // − no_show. Als ID-Menge, damit die Zahl in der
+ *                                 // Tabelle anklickbar ist wie jede andere.
+ *     min_applied_at: ?string,    // aelteste Bewerbung der Zeile (Y-m-d) = Basis des
+ *                                 // Kohorten-Alters; null nur bei ohne_datum-Zeilen
  *   }>,
  * ]
  */
@@ -72,6 +77,7 @@ final class CohortAssigner
                 $rows[$rowKey] = [
                     'type' => $type, 'key' => $key, 'group' => $group,
                     'ids' => [], 'hr_desk_ids' => [], 'uneindeutig_ids' => [], 'tth_days' => [],
+                    'min_applied_at' => null,
                     'columns' => [
                         'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [],
@@ -81,6 +87,12 @@ final class CohortAssigner
             }
             $row = &$rows[$rowKey];
             $row['ids'][] = $a['id'];
+            // Kohorten-Alter (Spec §6) haengt an der AELTESTEN Bewerbung der Zeile.
+            // Y-m-d-Strings sind lexikographisch = chronologisch, kein Datum-Parsing.
+            if ($a['applied_at'] !== null
+                && ($row['min_applied_at'] === null || $a['applied_at'] < $row['min_applied_at'])) {
+                $row['min_applied_at'] = $a['applied_at'];
+            }
             if ($a['hr_desk']) {
                 $row['hr_desk_ids'][] = $a['id']; // Marker, kein Zeilentyp (Spec §4)
             }
@@ -112,6 +124,19 @@ final class CohortAssigner
             }
             unset($row);
         }
+
+        // Nachlauf statt Mitzaehlen: "offen" ist definiert als Mengen-Differenz
+        // (Spec §6), und unterschrieben/no_show stehen erst nach der Schleife
+        // vollstaendig fest. Ein Mitzaehlen waere von der Reihenfolge der
+        // Spalten-Zuweisungen abhaengig gewesen.
+        foreach ($rows as &$row) {
+            $row['offen_ids'] = array_values(array_diff(
+                $row['ids'],
+                $row['columns']['unterschrieben'],
+                $row['columns']['no_show'],
+            ));
+        }
+        unset($row);
 
         return ['total_ids' => $totalIds, 'rows' => array_values($rows)];
     }

@@ -335,4 +335,92 @@ final class CohortViewModelTest extends TestCase
 
         $this->assertSame(['schulung', 'brandneuer_typ'], $ordered);
     }
+
+    // ------------------------------------------------- //
+    // Right-Censoring: Grau-Entscheidung (Spec §6)      //
+    // ------------------------------------------------- //
+
+    public function test_kohorte_juenger_als_der_median_ist_zensiert(): void
+    {
+        // Bewerbung vor 10 Tagen, Median-Durchlauf 30 Tage -> noch nicht aussagekraeftig
+        $this->assertTrue($this->vm()->isCensored('2026-07-25', '2026-08-04', 30));
+    }
+
+    public function test_kohorte_aelter_als_der_median_ist_nicht_zensiert(): void
+    {
+        // 40 Tage alt bei Median 30
+        $this->assertFalse($this->vm()->isCensored('2026-06-25', '2026-08-04', 30));
+    }
+
+    public function test_alter_genau_gleich_dem_median_ist_nicht_zensiert(): void
+    {
+        // Grenzfall: "juenger als" ist strikt — 30 Tage bei Median 30 zaehlt als reif
+        $this->assertFalse($this->vm()->isCensored('2026-07-05', '2026-08-04', 30));
+    }
+
+    public function test_ein_tag_unter_dem_median_ist_noch_zensiert(): void
+    {
+        $this->assertTrue($this->vm()->isCensored('2026-07-06', '2026-08-04', 30));
+    }
+
+    public function test_ohne_median_bleibt_conversion_grau(): void
+    {
+        // Kein Median = keine Unterschriften = keine Referenz fuer Reife (Spec §6)
+        $this->assertTrue($this->vm()->isCensored('2020-01-01', '2026-08-04', null));
+    }
+
+    public function test_median_null_tage_macht_jede_kohorte_reif(): void
+    {
+        // Median 0 (alle am Eingangstag unterschrieben): kein Alter kann darunter
+        // liegen, also nie zensiert.
+        $this->assertFalse($this->vm()->isCensored('2026-08-04', '2026-08-04', 0));
+    }
+
+    public function test_zeile_ohne_datum_ist_zensiert(): void
+    {
+        // ohne_datum-Zeilen haben kein Alter — Reife ist nicht belegbar, also grau
+        $this->assertTrue($this->vm()->isCensored(null, '2026-08-04', 30));
+    }
+
+    public function test_bewerbung_in_der_zukunft_ist_zensiert(): void
+    {
+        // negatives Alter -> erst recht juenger als der Median
+        $this->assertTrue($this->vm()->isCensored('2026-09-01', '2026-08-04', 30));
+    }
+
+    public function test_unlesbares_datum_ist_konservativ_zensiert(): void
+    {
+        $vm = $this->vm();
+        $this->assertTrue($vm->isCensored('kein-datum', '2026-08-04', 30));
+        $this->assertTrue($vm->isCensored('2026-08-04', 'kaputt', 30));
+        $this->assertTrue($vm->isCensored('2026-02-30', '2026-08-04', 30), 'Rollover-Datum wird nicht stillschweigend akzeptiert');
+    }
+
+    public function test_min_applied_at_nimmt_das_aelteste_datum_und_ignoriert_null(): void
+    {
+        $vm = $this->vm();
+        $rows = [
+            ['min_applied_at' => '2026-07-01'],
+            ['min_applied_at' => null],
+            ['min_applied_at' => '2026-05-20'],
+            ['min_applied_at' => '2026-09-09'],
+        ];
+
+        $this->assertSame('2026-05-20', $vm->minAppliedAt($rows));
+        $this->assertNull($vm->minAppliedAt([['min_applied_at' => null]]));
+        $this->assertNull($vm->minAppliedAt([]), 'leere Zeilenmenge hat kein Alter');
+        $this->assertNull($vm->minAppliedAt([['ids' => [1]]]), 'fehlender Schluessel zaehlt wie null');
+    }
+
+    public function test_offen_menge_ist_ueber_ids_of_erreichbar(): void
+    {
+        // damit die "noch offen"-Spalte dieselbe Klick-Mechanik nutzt wie alles andere
+        $row = $this->row('schulung', 'schulung:1', 'Essen', 'Service', ids: [1, 2, 3]);
+        $row['offen_ids'] = [1, 3];
+        $vm = $this->vm();
+
+        $this->assertSame([1, 3], $vm->idsOf($row, 'offen_ids'));
+        $this->assertSame(2, $vm->countIn([$row], 'offen_ids'));
+        $this->assertSame([1, 3], $vm->resolveIds([$row], ['scope' => 'all'], 'offen_ids'));
+    }
 }
