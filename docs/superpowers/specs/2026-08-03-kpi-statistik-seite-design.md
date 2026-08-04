@@ -61,6 +61,16 @@ erbt damit `['web', 'detect.module.guard', 'auth:{guard}',
 - `CohortAssigner` liefert **pro Zelle eine ID-Menge**. Die angezeigte Zahl ist
   `count()` dieser Menge, das Drill-down-Modal lädt exakt diese IDs. Nie zwei
   getrennte Queries für Zahl und Liste — die können divergieren.
+- **`CohortViewModel`** (Architektur-Ergänzung aus der Ausführung, Task 11):
+  pure Klasse für die ANZEIGE-Logik — Gruppierung/Sortierung des Anzeige-Baums
+  Ort → Tätigkeit → Zeilen und die Auflösung der Drill-Mengen (`resolveIds`,
+  `encodeScope`/`decodeScope`). Nötig, weil der Test-Bootstrap keinen
+  Composer-Autoloader lädt und `Livewire\Component` nicht auflösbar ist — die
+  Komponente selbst ist nicht unit-testbar; der riskante Teil wurde deshalb
+  herausgeschnitten (Modul-Konvention). Sie erzeugt, verwirft und verschiebt
+  KEINE Zeilen — Kette und Zuordnung bleiben allein Sache des Assigners. Ihre
+  `TYPE_ORDER` ist bewusst eine Anzeige-Reihenfolge (Erfolgspfad zuerst),
+  NICHT die Präzedenz-Kette.
 - Analyse-Sektionen laden **lazy** (`wire:init` bzw. lazy Child-Components), die
   Kohorten-Tabelle zuerst. Query-Budget pro Render ist Abnahmekriterium (Messung
   wie beim Dashboard-Performance-Refactor).
@@ -129,8 +139,10 @@ geprüft, der erste Treffer gewinnt; implementiert ausschließlich in
    neueste — Tie-Break (Senior-Rule-Muster wie im Dedup-Guard): spätester
    `starts_at` des Termins, bei Gleichstand kleinste Booking-ID. Storno mit
    späterer Neubuchung = umgebucht, zählt einmal beim neuen Termin
-7. Ausgeschieden: geparkt (`is_parked`) / abgesagt (`rejected_at`) — getrennt
-   ausgewiesen
+7. Ausgeschieden: abgesagt (`rejected_at`) / geparkt (`is_parked`) — getrennt
+   ausgewiesen. **Beide Flags gleichzeitig: abgesagt schlägt geparkt** —
+   `rejected` ist der endgültige Zustand, Parken der weiche (Ruling aus der
+   Ausführung, Task 10; im Code als Kommentar, per Test abgedeckt)
 8. „Noch ohne Schulung", aufklappbar nach aktueller Phase — beantwortet „wo
    hängen die restlichen fest?"
 
@@ -187,8 +199,14 @@ sichtbar gezeigt, nie verschluckt.
 - **Kapazität**: `CohortAssigner` dockt an `SeatStandbyPolicy::countsAsSeat()`
   an — pure statische Methode, testbar ohne DB, garantiert dieselbe Regel wie
   UI und Buchungslogik (`scopeSeatTaking`)
-- **Standby**: `status='booked'` + `seat_released_at` gesetzt (Invariante: der
-  Marker existiert nur auf `'booked'`, saving-Guard im Model erzwingt das)
+- **Standby**: bestimmt über `SeatStandbyPolicy::statusLabel(...) !== null`
+  (Ruling Task 10 — keine duplizierte booked+released-Bedingung). Invariante:
+  der Marker existiert nur auf `'booked'`, saving-Guard im Model erzwingt das
+- **Kapazität „Kohorte"** (Blade): `count(ids) − count(standby)` — exakt, weil
+  (1) standby ⊆ ids (gleiche Gewinner-Buchung), (2) der Gewinner nie
+  `cancelled` ist, (3) `seat_released_at` nur auf `'booked'` existiert; erst
+  aus (3) folgt `countsAsSeat ⇔ !standby` (Ruling Task-11-Fix, Herleitung als
+  Blade-Kommentar an der Rechnung)
 - Kontaktiert: `enrichment_status IS NOT NULL AND != 'no_contact'` (wie Dashboard)
 - `rec_interview_bookings.is_active` wird **ignoriert** — tote Spalte (default
   true, nirgends gesetzt, nirgends gelesen)
@@ -204,6 +222,15 @@ rechnen, Auslastung darf über 100 % anzeigen.
 
 **Drill-down:** Jede Zahl ist anklickbar → Modal mit den Personen dahinter
 (geladen über exakt die ID-Menge der Zelle, siehe Abschnitt 2).
+**Mechanik (Ruling Task 11):** Die Zelle übergibt ein base64-Token, das nur
+eine MENGENBESCHREIBUNG trägt (scope/ort/taetigkeit/type/key als JSON) — nie
+IDs. Grund: Ort-/Phasennamen sind Freitexte mit möglichen Anführungszeichen
+und würden als nackte `wire:click`-Argumente den Ausdruck zerlegen. Die
+Auflösung läuft serverseitig immer gegen die FRISCH berechneten,
+team-gescopten Assigner-Zeilen; ein manipuliertes Token kann nichts sehen,
+was die aktuelle Kohorte nicht enthält. `drillApplicants()` scoped zusätzlich
+`forTeam` — Pflicht, nicht Redundanz: `drillIds` ist eine public
+Livewire-Property und clientseitig manipulierbar.
 
 Hinweis: das heutige Dashboard filtert `is_test` **nicht** (`statsApplicantPool()`
 hat keinen solchen Filter) — Test-Bewerber verfälschen dort die Kundenzahlen.
@@ -219,10 +246,14 @@ landet in seiner Schulungszeile — innerhalb der Gruppe „ohne Ausschreibung".
 
 1. Es gibt eine Pivot-Zeile, deren Posting zur Position von `rec_phase_id`
    gehört → diese Zuordnung bestimmt die Gruppe (Phase ist der abgeleitete
-   Ist-Zustand)
+   Ist-Zustand). Bei mehreren passenden Pivots: kleinste `rec_posting_id`
+   (deterministisch, Ruling Task 10)
 2. Pivot-Zeilen vorhanden, aber keine passt zur Phase-Position → kleinste
    `rec_posting_id` zählt, Bewerber wird als „Zuordnung uneindeutig"
-   gekennzeichnet (mess- und anklickbar)
+   gekennzeichnet — **transportiert als `uneindeutig_ids` pro Zeile im
+   Assigner-Ergebnis** (analog `hr_desk_ids`), UI zeigt Marker-Badge,
+   anklickbar (Ruling Task 10: Spec schlägt den Plan-Kommentar „macht die
+   UI" — die UI kann das nicht ohne Logik-Duplikation)
 3. Keine Pivot-Zeile → Gruppen-Fallback „ohne Ausschreibung"
 4. GESTRICHEN — als Gruppe unerreichbar: „keine Pivot-Zeile" fängt Fall 3
    bereits ab, und bei `rec_phase_id IS NULL` mit Pivot-Zeilen fällt der
@@ -326,6 +357,23 @@ nie den Phasenwechsel ab.
 - **Nicht-Treffer werden nicht weggeworfen**: geparster Name ohne ID-Match
   landet als `to_phase_name` mit `to_phase_id = NULL`
 - Idempotent über `source_log_id` UNIQUE (kein Duplikat bei Mehrfachlauf)
+- **Live-Cutoff (Ruling Final-Review):** `source_log_id` dedupliziert nur
+  backfill-gegen-backfill — Live-Transitions haben dort NULL. Der Command
+  überspringt deshalb Logs mit `created_at >= min(occurred_at der
+  live-Transitions des Teams)` (Fallback `now()`; eigener Zähler
+  `skipped_live_window`). Warum das dicht ist: Live-Transition und Log
+  entstehen synchron im selben Request, die Transition VOR dem Log — jedes
+  Ereignis mit Live-Zeile hat also `log.created_at > cutoff` und wird
+  übersprungen; Ereignisse aus dem Migrate-Fenster (Observer-Insert schlug
+  fehl, Tabelle fehlte noch) haben keine Live-Zeile, liegen unter dem Cutoff
+  und werden normal nachgezogen. Tolerierte Grenzen (dokumentiert): der
+  Cutoff ist global pro Team — ein partieller Observer-Ausfall NACH dem
+  Cutoff erzeugt Under-Counting (nie Doppelzählung); und
+  `applicantPhaseIdsByName()` toleriert Namenskollisionen über mehrere
+  beworbene Stellen (Phasen sind pro Stelle geklont, das Log gibt die
+  Position nicht her — Auswertung keyt ohnehin auf order/name)
+- FK-Sicherheit: `phase_returned`-Detail-IDs werden nur übernommen, wenn sie
+  noch auflösbar sind (gelöschte Phase → NULL, Name-Snapshot bleibt)
 
 **Stellenübergreifender Funnel-Schlüssel ist `order`** (folgt der
 Code-Präzedenz `PhaseMatcher::sameOrderOrFirst`); bei Namens-Divergenz je order
@@ -370,11 +418,18 @@ geladen:
 
 **UI-Fußnoten (verbindlich):**
 
-- **Right-Censoring**: jede Kohorten-Zeile bekommt eine Spalte „noch offen: N";
-  Conversion-% wird ausgegraut, solange die Kohorte jünger ist als der
-  Median-Durchlauf (sonst sieht eine junge Schulung wie eine schlechte aus)
-- **Definitions-Tooltip pro Spalte** — speziell „Kontaktiert": das ist ein
-  Anreicherungs-Proxy (`enrichment_status`), kein Kontaktnachweis
+- **Right-Censoring** *(gehört zu TEIL 1 — Spalte der Kohorten-Tabelle, die
+  Ablage unter §6 ist eine Spec-Eigenheit, kein Scope-Signal)*: jede
+  Kohorten-Zeile bekommt eine Spalte „noch offen: N"; Conversion-% wird
+  ausgegraut, solange die Kohorte jünger ist als der Median-Durchlauf (sonst
+  sieht eine junge Schulung wie eine schlechte aus). Definitionen (Ruling
+  Task 13): „offen" = Zeilen-IDs ohne Unterschrift und ohne No-Show;
+  Kohorten-Alter = Tage seit der ältesten Bewerbung der Zeile; Schwelle =
+  Time-to-Hire-Median der aktuellen Gesamtsicht, ohne Median (keine
+  Unterschriften) bleibt Conversion grau
+- **Definitions-Tooltip pro Spalte** *(ebenfalls TEIL 1)* — speziell
+  „Kontaktiert": das ist ein Anreicherungs-Proxy (`enrichment_status`), kein
+  Kontaktnachweis
 - Terminart: `interview_type_id` ist **nullable** → „ohne Terminart"-Zeile;
   Gruppierung über `code` (stabil), `name` nur Anzeige
 - Vorzeitraum-Regel bei laufenden Presets („letzte 30 Tage" vergleicht gegen
@@ -412,9 +467,15 @@ Modul-Konvention: reines PHPUnit ohne Laravel/DB
   Bekanntes, akzeptiertes Fenster: zwischen Symlink-Switch und `migrate`
   schreibt der Observer auf eine noch nicht existierende Tabelle — der
   try/catch fängt das, es fehlen lediglich die ersten Transitions.
-  Nach dem Deploy: **`queue:restart`** (RecApplicant-Code läuft in
-  Queue-Jobs, alte Worker schreiben sonst keine Transitions), dann Backfill
-  (`--dry-run` zuerst). composer.lock-Bump in meingedeck beim Push.
+  Nach dem Deploy: **`queue:restart` UNMITTELBAR nach dem Symlink-Switch**,
+  nicht irgendwann davor oder danach. Begründung (Ausführungs-Befund):
+  Auto-Pilot-Advances laufen im Scheduler (Cron = frischer Prozess pro Tick,
+  zieht neuen Code von selbst) — aber `MatchApplicantToPostingJob` ist
+  queued und setzt via `assignPosting()` die Initial-Phase. Alte Worker
+  schreiben dafür keine Live-Transition UND es existiert kein
+  phase_advanced-Log — diese Initial-Transitions sind nicht backfillbar,
+  das Fenster schrumpft nur über die Ops-Reihenfolge auf Sekunden. Danach
+  Backfill (`--dry-run` zuerst). composer.lock-Bump in meingedeck beim Push.
 
 ## 9. Nicht im Scope (bewusst)
 
