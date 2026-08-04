@@ -90,8 +90,10 @@ class CreateEmployeeFromApplicantService
                         ->syncEmployee($employee);
                 });
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::error('[EmployeeContactListSync] Sync nach Bewerber-Uebernahme fehlgeschlagen', [
+                Log::error('[EmployeeContactListSync] Sync nach Bewerber-Uebernahme fehlgeschlagen', [
                     'employee_id' => $employee->id,
+                    'team_id' => $employee->team_id,
+                    'exception' => get_class($e),
                     'error' => $e->getMessage(),
                 ]);
             }
