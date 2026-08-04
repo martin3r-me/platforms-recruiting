@@ -60,6 +60,8 @@ Route::get('/employees/payroll-changes', \Platform\Recruiting\Livewire\Employees
     ->name('recruiting.employees.payroll-changes');
 Route::get('/employees/payroll-changes.csv', \Platform\Recruiting\Http\Controllers\PayrollChangesExportController::class)
     ->name('recruiting.employees.payroll-changes.csv');
+Route::get('/employees/contact-book', \Platform\Recruiting\Livewire\Employees\ContactBook::class)
+    ->name('recruiting.employees.contact-book');
 Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show::class)
     ->name('recruiting.employees.show');
 Route::get('/employees/{employee}/files/{slot}', \Platform\Recruiting\Http\Controllers\EmployeeFileController::class)
