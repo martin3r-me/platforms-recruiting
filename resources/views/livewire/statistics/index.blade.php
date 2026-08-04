@@ -77,7 +77,11 @@
     {{-- ------------------------------------------------------------------ --}}
     {{-- Filterleiste                                                       --}}
     {{-- ------------------------------------------------------------------ --}}
-    <x-ui-panel title="Statistik" subtitle="Rekonzilierte Kohorten-Sicht — jede Zahl ist anklickbar">
+    {{-- relative z-30: hebt die Filterleiste (inkl. der absolut positionierten
+         Select-Dropdowns) ueber die KPI-Kacheln darunter. Ohne eigenen
+         Stacking-Context wird das z-50 der Dropdowns von spaeteren Siblings
+         uebermalt (Overlay-Bug, Live-Check 2026-08-04). --}}
+    <x-ui-panel title="Statistik" subtitle="Rekonzilierte Kohorten-Sicht — jede Zahl ist anklickbar" class="relative z-30">
         <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
             <x-ui-input-date name="filterFrom" label="Von" size="sm" wire:model.live="filterFrom" />
             <x-ui-input-date name="filterTo" label="Bis" size="sm" wire:model.live="filterTo" />
