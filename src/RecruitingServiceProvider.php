@@ -160,6 +160,12 @@ class RecruitingServiceProvider extends ServiceProvider
         // Eloquent-Pfad, der rec_phase_id setzt/aendert (Ausnahmen siehe
         // Observer-Docblocks und FixApplicantPhase).
         \Platform\Recruiting\Models\RecApplicant::observe(\Platform\Recruiting\Observers\RecApplicantPhaseObserver::class);
+
+        // Phasen-Statistik: DB-Kaskaden (nullOnDelete/cascadeOnDelete) feuern
+        // keine Eloquent-Events auf RecApplicant — diese beiden Observer
+        // schreiben die Transition VOR der Kaskade an ihrem Ausgangspunkt.
+        \Platform\Recruiting\Models\RecPhase::observe(\Platform\Recruiting\Observers\RecPhaseObserver::class);
+        \Platform\Recruiting\Models\RecPosition::observe(\Platform\Recruiting\Observers\RecPositionObserver::class);
     }
 
     protected function registerSchedule(): void
