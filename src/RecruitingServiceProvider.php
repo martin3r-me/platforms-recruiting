@@ -167,6 +167,10 @@ class RecruitingServiceProvider extends ServiceProvider
         // schreiben die Transition VOR der Kaskade an ihrem Ausgangspunkt.
         \Platform\Recruiting\Models\RecPhase::observe(\Platform\Recruiting\Observers\RecPhaseObserver::class);
         \Platform\Recruiting\Models\RecPosition::observe(\Platform\Recruiting\Observers\RecPositionObserver::class);
+
+        // MA-Kontaktbuch: haelt die sync-verwaltete CRM-Kontaktliste bei
+        // Einzel-Aenderungen (is_active/employment_ended_at) aktuell.
+        \Platform\Recruiting\Models\RecEmployee::observe(\Platform\Recruiting\Observers\RecEmployeeContactListObserver::class);
     }
 
     protected function registerSchedule(): void
