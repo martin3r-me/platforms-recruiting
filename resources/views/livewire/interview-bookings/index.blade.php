@@ -16,7 +16,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         <div class="px-4 sm:px-6 lg:px-8">
             {{-- Termin-Info --}}
             <x-ui-panel title="Termin-Details" subtitle="{{ $this->interview->interviewType?->name ?? 'Interview' }}">

@@ -18,7 +18,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         @if(!$employee)
             <div class="p-8 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
                 Mitarbeiter nicht gefunden.

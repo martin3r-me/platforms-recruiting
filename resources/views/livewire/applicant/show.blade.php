@@ -22,7 +22,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container spacing="space-y-8">
+    <x-ui-page-container width="full" spacing="space-y-8">
         @if($applicant->duplicate_of_applicant_id)
             <div class="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900 flex items-center gap-2">
                 @svg('heroicon-o-exclamation-triangle', 'w-4 h-4 shrink-0')

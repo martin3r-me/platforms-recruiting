@@ -22,7 +22,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container spacing="space-y-8">
+    <x-ui-page-container width="full" spacing="space-y-8">
         @if(session()->has('message'))
             <div class="p-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
                 {{ session('message') }}

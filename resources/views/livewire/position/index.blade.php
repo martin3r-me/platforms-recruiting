@@ -19,7 +19,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         <x-ui-panel title="Übersicht" subtitle="Stellen verwalten">
             <div class="overflow-x-auto">
                 <table class="w-full table-auto border-collapse text-sm">

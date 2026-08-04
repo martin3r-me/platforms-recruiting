@@ -48,7 +48,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         @if ($isDone)
             {{-- ===================== Success-View ===================== --}}
             <x-ui-panel title="Direkteinstellung angelegt" subtitle="Die Stelle ist veröffentlicht und der Eingang ist eingerichtet.">

@@ -10,7 +10,7 @@
         ]" />
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         <div class="px-4 sm:px-6 lg:px-8">
             <x-ui-panel title="Wartende Bewerber" subtitle="Bewerber, die auf einen freien Schulungstermin warten">
                 {{-- Zähler pro Ort --}}

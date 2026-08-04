@@ -3,7 +3,7 @@
         <x-ui-page-navbar title="Verträge" icon="heroicon-o-document-text" />
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         <div class="px-4 sm:px-6 lg:px-8">
             <x-ui-panel title="Verträge" subtitle="Übersicht aller Verträge">
                 <div class="flex gap-2 mb-4 flex-wrap">

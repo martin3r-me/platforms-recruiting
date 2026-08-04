@@ -34,7 +34,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container spacing="space-y-8">
+    <x-ui-page-container width="full" spacing="space-y-8">
         <div class="bg-white rounded-lg border border-[var(--ui-border)]/60 p-8">
             <div class="flex items-center gap-2 mb-6">
                 @svg('heroicon-o-megaphone', 'w-6 h-6 text-green-600')

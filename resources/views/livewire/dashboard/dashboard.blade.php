@@ -62,7 +62,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container spacing="space-y-8">
+    <x-ui-page-container width="full" spacing="space-y-8">
         {{-- Stuck-Indikatoren (Block C) --}}
         @if(!$this->showParked)
             @php $stuck = $this->stuckCounts; @endphp

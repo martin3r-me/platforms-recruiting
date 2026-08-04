@@ -11,7 +11,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         {{-- Filter-Bar --}}
         <div class="bg-white border border-[var(--ui-border)] rounded-lg p-4">
             <div class="flex flex-wrap items-end gap-3">

@@ -22,7 +22,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         <div class="px-4 sm:px-6 lg:px-8">
             <x-ui-panel title="Übersicht" subtitle="Gesprächsarten verwalten">
                 <div class="flex justify-between items-center mb-4">

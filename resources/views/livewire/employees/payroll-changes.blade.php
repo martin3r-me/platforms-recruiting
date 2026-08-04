@@ -25,7 +25,7 @@
         </x-ui-page-actionbar>
     </x-slot>
 
-    <x-ui-page-container>
+    <x-ui-page-container width="full">
         @if(!$this->hasChanges)
             <div class="bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg p-8 text-center text-sm text-[var(--ui-muted)]">
                 Keine offenen lohnrelevanten Aenderungen.
