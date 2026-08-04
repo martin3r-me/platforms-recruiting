@@ -181,6 +181,25 @@ final class CohortViewModel
     }
 
     /**
+     * Conversion einer Zeilenmenge in Prozent (unterschrieben / Bewerbungen).
+     *
+     * null bedeutet „keine Quote", NICHT 0 %: ohne Bewerbungen ist nichts
+     * gescheitert, und die Tabelle zeigt dafuer „–". 0 % heisst dagegen sehr wohl
+     * „Bewerbungen da, aber keine Unterschrift".
+     *
+     * @param  list<array>  $rows
+     */
+    public function conversionOf(array $rows): ?int
+    {
+        $total = $this->countIn($rows, 'ids');
+        if ($total === 0) {
+            return null;
+        }
+
+        return (int) round($this->countIn($rows, 'unterschrieben') / $total * 100);
+    }
+
+    /**
      * Aeltestes `min_applied_at` einer Zeilenmenge (Y-m-d) — die Alters-Basis fuer
      * Summen-Zeilen. Zeilen ohne Datum (ohne_datum) zaehlen nicht mit; bestehen
      * ALLE Zeilen daraus, gibt es kein Alter → null.

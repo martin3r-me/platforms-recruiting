@@ -7,21 +7,20 @@
     dann ausgegraut statt versteckt, damit niemand aus einer unfertigen
     Kohorte einen Trend liest.
 
-    Erwartet: $rows, $isTotal, $tiles (fuer die Median-Schwelle im Tooltip)
+    Erwartet: $rows, $isTotal — die Median-Schwelle wird NICHT hereingereicht, sondern
+    ueber $this->censorNote() gelesen: isCensored() entscheidet intern mit demselben
+    Wert, ein zweiter Pfad auf dieselbe Wahrheit koennte auseinanderlaufen.
 --}}
 @php
     $conversion = $this->conversionOf($rows);
     $censored = $this->isCensored($rows);
-    $median = $tiles['tth_median'];
 
     if ($conversion === null) {
         $convClass = 'text-[color:var(--ui-muted)]';
         $convTitle = 'Keine Bewerbungen in dieser Zeile — keine Quote.';
     } elseif ($censored) {
         $convClass = 'text-gray-400 italic';
-        $convTitle = $median !== null
-            ? 'Kohorte jünger als der Median-Durchlauf (' . $median . ' Tage) — Conversion noch nicht aussagekräftig'
-            : 'Kein Median-Durchlauf vorhanden (noch keine Unterschrift) — Conversion noch nicht aussagekräftig';
+        $convTitle = $this->censorNote();
     } else {
         $convClass = $conversion >= 50
             ? 'text-emerald-600'

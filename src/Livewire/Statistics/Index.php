@@ -334,13 +334,7 @@ class Index extends Component
      */
     public function conversionOf(array $rows): ?int
     {
-        $vm = $this->viewModel();
-        $total = $vm->countIn($rows, 'ids');
-        if ($total === 0) {
-            return null;
-        }
-
-        return (int) round($vm->countIn($rows, 'unterschrieben') / $total * 100);
+        return $this->viewModel()->conversionOf($rows);
     }
 
     /**
@@ -363,6 +357,20 @@ class Index extends Component
             now()->toDateString(),
             $this->tiles['tth_median'],
         );
+    }
+
+    /**
+     * Begruendungstext fuer eine ausgegraute Conversion — EINE Quelle fuer Kachel
+     * und Tabellenzelle. Beide zeigen dieselbe Zahl; zwei Textvarianten waeren der
+     * erste Schritt zu zwei Regeln.
+     */
+    public function censorNote(): string
+    {
+        $median = $this->tiles['tth_median'];
+
+        return $median !== null
+            ? 'Kohorte jünger als der Median-Durchlauf (' . $median . ' Tage) — Conversion noch nicht aussagekräftig'
+            : 'Kein Median-Durchlauf vorhanden (noch keine Unterschrift) — Conversion noch nicht aussagekräftig';
     }
 
     /**

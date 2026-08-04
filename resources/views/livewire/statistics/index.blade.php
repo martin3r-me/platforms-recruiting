@@ -13,7 +13,7 @@
         ['key' => 'gebucht',            'label' => 'Gebucht',        'on' => 'bg-purple-50 text-purple-700',   'total' => 'bg-purple-100 text-purple-800',
          'title' => 'Hat eine kohorten-relevante Buchung auf diesem Termin (Rang ≥ 1: booked/registered und höher). Storno zählt nicht.'],
         ['key' => 'bestaetigt',         'label' => 'Bestätigt',      'on' => 'bg-green-50 text-green-700',     'total' => 'bg-green-100 text-green-800',
-         'title' => 'confirmed/attended/no_show — registered zählt bewusst nicht (mehrdeutig, siehe Auftrag ③)'],
+         'title' => 'confirmed/attended/no_show — registered zählt bewusst nicht (mehrdeutig, siehe Auftrag ③). Wert ist ein Status-Snapshot und kann zwischen Aufrufen sinken.'],
         ['key' => 'teilgenommen',       'label' => 'Teilgenommen',   'on' => 'bg-emerald-50 text-emerald-700', 'total' => 'bg-emerald-100 text-emerald-800',
          'title' => 'Status attended (Rang 3). No-Show ist ein Abzweig und zählt hier NICHT mit.'],
         ['key' => 'standby',            'label' => 'Standby',        'on' => 'bg-amber-50 text-amber-700',     'total' => 'bg-amber-100 text-amber-800',
@@ -28,7 +28,7 @@
         // sondern das unentschiedene Restfeld. Der 100/700-Ton ist zugleich klar von
         // der Null-Darstellung (gray-50/400) unterscheidbar.
         ['key' => 'offen_ids',          'label' => 'Noch offen',     'on' => 'bg-gray-100 text-gray-700',      'total' => 'bg-gray-200 text-gray-800',
-         'title' => 'Weder unterschrieben noch No-Show — die Bewerbungen, deren Ausgang noch offen ist (Bewerbungen − Unterschrieben − No-Show).'],
+         'title' => 'Weder unterschrieben noch No-Show — die Bewerbungen, deren Ausgang noch offen ist (Bewerbungen − Unterschrieben − No-Show). Vorbehalt: bei Zeilentypen ohne Termin-Ausgang (Abgesagt, Geparkt, Dubletten, …) gibt es kein No-Show, dort zählt also jede Person ohne Unterschrift als offen.'],
     ];
 
     // 1 Zeilen-Spalte + Zahlen + Conversion + 2 Kapazitaets-Spalten
@@ -53,12 +53,20 @@
             . ' – ' . ($this->filterTo ? \Carbon\Carbon::parse($this->filterTo)->format('d.m.Y') : '…'))
         : 'Alle Zeiträume';
 
+    // Right-Censoring gilt fuer die Kachel GENAUSO wie fuer die Gesamt-Zeile der
+    // Tabelle — beide zeigen dieselbe Zahl. Waere nur die Tabellenzelle grau,
+    // widerspraeche sich die Seite selbst. Dieselbe Zeilenmenge, derselbe Median,
+    // derselbe Tooltip-Text (censorNote()).
+    $overallCensored = $this->isCensored($this->cohort['rows']);
+
     $kpis = [
-        ['label' => 'Bewerbungen',          'value' => $tiles['bewerbungen'],        'column' => 'ids'],
-        ['label' => 'In Schulung gebucht',  'value' => $tiles['gebucht'],            'column' => 'gebucht'],
-        ['label' => 'Unterschriften',       'value' => $tiles['unterschrieben'],     'column' => 'unterschrieben'],
-        ['label' => 'Conversion',           'value' => $tiles['conversion'] . ' %',  'column' => null],
-        ['label' => 'Time-to-Hire (Median)','value' => $tiles['tth_median'] !== null ? $tiles['tth_median'] . ' Tage' : '–', 'column' => null],
+        ['label' => 'Bewerbungen',          'value' => $tiles['bewerbungen'],        'column' => 'ids',    'muted' => false, 'title' => null],
+        ['label' => 'In Schulung gebucht',  'value' => $tiles['gebucht'],            'column' => 'gebucht','muted' => false, 'title' => null],
+        ['label' => 'Unterschriften',       'value' => $tiles['unterschrieben'],     'column' => 'unterschrieben', 'muted' => false, 'title' => null],
+        ['label' => 'Conversion',           'value' => $tiles['conversion'] . ' %',  'column' => null,
+         'muted' => $overallCensored, 'title' => $overallCensored ? $this->censorNote() : 'Unterschriften geteilt durch alle Bewerbungen der aktuellen Auswahl.'],
+        ['label' => 'Time-to-Hire (Median)','value' => $tiles['tth_median'] !== null ? $tiles['tth_median'] . ' Tage' : '–', 'column' => null,
+         'muted' => false, 'title' => 'Median der Tage von Bewerbungseingang bis Unterschrift — Grundlage der Right-Censoring-Schwelle.'],
     ];
     $allToken = $this->drillToken('all', 'Gesamt');
 @endphp
@@ -135,9 +143,16 @@
                         title="{{ $kpi['label'] }}: Personen anzeigen"
                     >{{ $kpi['value'] }}</button>
                 @else
-                    <div class="text-2xl font-semibold text-[color:var(--ui-secondary)]">{{ $kpi['value'] }}</div>
+                    {{-- gleiche Ausgrau-Optik wie die Conversion-Zelle der Tabelle --}}
+                    <div class="text-2xl font-semibold {{ $kpi['muted'] ? 'text-gray-400 italic' : 'text-[color:var(--ui-secondary)]' }}"
+                         @if ($kpi['title']) title="{{ $kpi['title'] }}" @endif>{{ $kpi['value'] }}</div>
                 @endif
-                <div class="text-sm text-[color:var(--ui-muted)]">{{ $kpi['label'] }}</div>
+                <div class="text-sm text-[color:var(--ui-muted)]">
+                    {{ $kpi['label'] }}
+                    @if ($kpi['muted'])
+                        <span class="cursor-help" title="{{ $kpi['title'] }}">ⓘ</span>
+                    @endif
+                </div>
             </x-ui-panel>
         @endforeach
     </div>
@@ -279,7 +294,7 @@
                                             @include('recruiting::livewire.statistics.markers', ['rows' => [$row], 'token' => $rowToken, 'prefix' => $rowPrefix])
                                         </td>
                                         @include('recruiting::livewire.statistics.cells', ['rows' => [$row], 'token' => $rowToken, 'prefix' => $rowPrefix, 'isTotal' => false])
-                                        @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false, 'tiles' => $tiles])
+                                        @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false])
 
                                         {{-- Kapazität "Kohorte": belegt/max innerhalb dieser Zeile --}}
                                         <td class="px-3 py-2 text-center whitespace-nowrap text-xs">
@@ -331,7 +346,7 @@
                                             @include('recruiting::livewire.statistics.markers', ['rows' => $phaseRows, 'token' => $bucketToken, 'prefix' => $bucketPrefix])
                                         </td>
                                         @include('recruiting::livewire.statistics.cells', ['rows' => $phaseRows, 'token' => $bucketToken, 'prefix' => $bucketPrefix, 'isTotal' => false])
-                                        @include('recruiting::livewire.statistics.conversion', ['rows' => $phaseRows, 'isTotal' => false, 'tiles' => $tiles])
+                                        @include('recruiting::livewire.statistics.conversion', ['rows' => $phaseRows, 'isTotal' => false])
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                     </tr>
@@ -355,7 +370,7 @@
                                                 @include('recruiting::livewire.statistics.markers', ['rows' => [$row], 'token' => $phaseToken, 'prefix' => $phasePrefix])
                                             </td>
                                             @include('recruiting::livewire.statistics.cells', ['rows' => [$row], 'token' => $phaseToken, 'prefix' => $phasePrefix, 'isTotal' => false])
-                                            @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false, 'tiles' => $tiles])
+                                            @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false])
                                             <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                             <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                         </tr>
@@ -382,7 +397,7 @@
                                             @include('recruiting::livewire.statistics.markers', ['rows' => [$row], 'token' => $bRowToken, 'prefix' => $bucketLabel])
                                         </td>
                                         @include('recruiting::livewire.statistics.cells', ['rows' => [$row], 'token' => $bRowToken, 'prefix' => $bucketLabel, 'isTotal' => false])
-                                        @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false, 'tiles' => $tiles])
+                                        @include('recruiting::livewire.statistics.conversion', ['rows' => [$row], 'isTotal' => false])
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                         <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                     </tr>
@@ -393,7 +408,7 @@
                             <tr class="border-t-2 border-[var(--ui-border)] bg-[var(--ui-muted-5)] font-semibold">
                                 <td class="px-4 py-2 text-[color:var(--ui-secondary)]">Summe {{ $ort }}</td>
                                 @include('recruiting::livewire.statistics.cells', ['rows' => $ortRows, 'token' => $ortToken, 'prefix' => 'Summe ' . $ort, 'isTotal' => true])
-                                @include('recruiting::livewire.statistics.conversion', ['rows' => $ortRows, 'isTotal' => true, 'tiles' => $tiles])
+                                @include('recruiting::livewire.statistics.conversion', ['rows' => $ortRows, 'isTotal' => true])
                                 <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                                 <td class="px-3 py-2 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                             </tr>
@@ -418,7 +433,7 @@
                                 @endif
                             </td>
                             @include('recruiting::livewire.statistics.cells', ['rows' => $this->cohort['rows'], 'token' => $allToken, 'prefix' => 'Gesamt', 'isTotal' => true])
-                            @include('recruiting::livewire.statistics.conversion', ['rows' => $this->cohort['rows'], 'isTotal' => true, 'tiles' => $tiles])
+                            @include('recruiting::livewire.statistics.conversion', ['rows' => $this->cohort['rows'], 'isTotal' => true])
                             <td class="px-3 py-3 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                             <td class="px-3 py-3 text-center text-xs text-[color:var(--ui-muted)]">–</td>
                         </tr>

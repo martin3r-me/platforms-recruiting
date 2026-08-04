@@ -423,4 +423,59 @@ final class CohortViewModelTest extends TestCase
         $this->assertSame(2, $vm->countIn([$row], 'offen_ids'));
         $this->assertSame([1, 3], $vm->resolveIds([$row], ['scope' => 'all'], 'offen_ids'));
     }
+
+    // ------------------------------------------------- //
+    // Conversion pro Zeilenmenge                        //
+    // ------------------------------------------------- //
+
+    public function test_conversion_ist_null_ohne_bewerbungen_nicht_null_prozent(): void
+    {
+        // Wichtig: "keine Bewerbungen" ist KEINE Quote von 0 % — die Tabelle
+        // zeigt dafuer "–", sonst liest man ein Scheitern, wo nichts passiert ist.
+        $this->assertNull($this->vm()->conversionOf([]));
+        $this->assertNull($this->vm()->conversionOf([
+            $this->row('geparkt', '-', 'Essen', 'Service', ids: []),
+        ]));
+    }
+
+    public function test_conversion_ist_null_prozent_bei_bewerbungen_ohne_unterschrift(): void
+    {
+        $rows = [$this->row('geparkt', '-', 'Essen', 'Service', ids: [1, 2])];
+
+        $this->assertSame(0, $this->vm()->conversionOf($rows));
+    }
+
+    public function test_conversion_rechnet_ueber_die_ganze_zeilenmenge(): void
+    {
+        $rows = [
+            $this->row('schulung', 'schulung:1', 'Essen', 'Service',
+                ids: [1, 2], columns: ['unterschrieben' => [1]]),
+            $this->row('geparkt', '-', 'Essen', 'Service', ids: [3, 4]),
+        ];
+
+        // 1 von 4
+        $this->assertSame(25, $this->vm()->conversionOf($rows));
+    }
+
+    public function test_conversion_wird_kaufmaennisch_gerundet(): void
+    {
+        $vm = $this->vm();
+
+        // 1/3 = 33,33 -> 33
+        $this->assertSame(33, $vm->conversionOf([
+            $this->row('schulung', 'schulung:1', 'E', 'S', ids: [1, 2, 3], columns: ['unterschrieben' => [1]]),
+        ]));
+        // 2/3 = 66,67 -> 67
+        $this->assertSame(67, $vm->conversionOf([
+            $this->row('schulung', 'schulung:1', 'E', 'S', ids: [1, 2, 3], columns: ['unterschrieben' => [1, 2]]),
+        ]));
+        // 1/8 = 12,5 -> 13 (nicht 12)
+        $this->assertSame(13, $vm->conversionOf([
+            $this->row('schulung', 'schulung:1', 'E', 'S', ids: [1, 2, 3, 4, 5, 6, 7, 8], columns: ['unterschrieben' => [1]]),
+        ]));
+        // 8/8 -> 100
+        $this->assertSame(100, $vm->conversionOf([
+            $this->row('schulung', 'schulung:1', 'E', 'S', ids: [1, 2], columns: ['unterschrieben' => [1, 2]]),
+        ]));
+    }
 }
