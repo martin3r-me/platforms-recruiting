@@ -155,6 +155,11 @@ class RecruitingServiceProvider extends ServiceProvider
 
         // Nicht-EU-Abzweig nach der Schulung: attended → HR-Schreibtisch.
         \Platform\Recruiting\Observers\RecInterviewBookingComplianceObserver::register();
+
+        // Phasen-Statistik: schreibt rec_phase_transitions bei jedem
+        // Eloquent-Pfad, der rec_phase_id setzt/aendert (Ausnahmen siehe
+        // Observer-Docblocks und FixApplicantPhase).
+        \Platform\Recruiting\Models\RecApplicant::observe(\Platform\Recruiting\Observers\RecApplicantPhaseObserver::class);
     }
 
     protected function registerSchedule(): void

@@ -19,6 +19,7 @@ use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecAutoPilotState;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Services\TerminLabel;
+use Platform\Recruiting\Support\PhaseTransitionTrigger;
 use Platform\Recruiting\Support\SeatStandbyPolicy;
 
 class RecApplicant extends Model implements InheritsExtraFields
@@ -475,7 +476,12 @@ class RecApplicant extends Model implements InheritsExtraFields
             $this->auto_pilot_last_reminder_at = null;
             $this->progress = 0;
             $this->clearExtraFieldDefinitionsCache();
-            $this->save();
+            PhaseTransitionTrigger::set($this->id, PhaseTransitionTrigger::AUTO_ADVANCE);
+            try {
+                $this->save();
+            } finally {
+                PhaseTransitionTrigger::forget($this->id);
+            }
 
             RecAutoPilotLog::create([
                 'rec_applicant_id' => $this->id,
@@ -544,7 +550,12 @@ class RecApplicant extends Model implements InheritsExtraFields
         $this->auto_pilot_last_reminder_at = null;
         $this->progress = 0;
         $this->clearExtraFieldDefinitionsCache();
-        $this->save();
+        PhaseTransitionTrigger::set($this->id, PhaseTransitionTrigger::MANUAL);
+        try {
+            $this->save();
+        } finally {
+            PhaseTransitionTrigger::forget($this->id);
+        }
 
         RecAutoPilotLog::create([
             'rec_applicant_id' => $this->id,
@@ -592,7 +603,12 @@ class RecApplicant extends Model implements InheritsExtraFields
         $this->auto_pilot_state_id = null;
         $this->progress = 0;
         $this->clearExtraFieldDefinitionsCache();
-        $this->save();
+        PhaseTransitionTrigger::set($this->id, PhaseTransitionTrigger::RETURNED);
+        try {
+            $this->save();
+        } finally {
+            PhaseTransitionTrigger::forget($this->id);
+        }
 
         try {
             RecAutoPilotLog::create([
@@ -1648,7 +1664,12 @@ class RecApplicant extends Model implements InheritsExtraFields
                     $this->rec_phase_id = $newPhase->id;
                 }
             }
-            $this->save();
+            PhaseTransitionTrigger::set($this->id, PhaseTransitionTrigger::POSITION_SWITCH);
+            try {
+                $this->save();
+            } finally {
+                PhaseTransitionTrigger::forget($this->id);
+            }
 
             // 4. Extra-Field-Werte vom alten Definitionen-Set auf das neue
             // umhaengen. Hintergrund: Definitionen sind position-spezifisch
