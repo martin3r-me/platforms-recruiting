@@ -15,14 +15,16 @@ use Platform\Recruiting\Services\EmployeeContactListSyncService;
  * CrmContactLink-Zeilen vor dem forceDelete — beim deleted-Event ist der
  * Kontakt nicht mehr aufloesbar. Aufraeumen uebernimmt der Voll-Sync
  * (Spec: benannte Luecke).
+ *
+ * BEWUSST kein created()-Hook: crm_contact_links.linkable_id braucht die
+ * Employee-ID, ein Link kann also erst NACH dem created-Event existieren —
+ * der Hook waere strukturell tot (beide Produktionspfade legen Links nach
+ * dem Create an). REGEL: Wer einen CrmContactLink fuer einen RecEmployee
+ * anlegt, ruft danach selbst syncEmployee() auf (siehe Spec, Benannte
+ * Luecken). Bis dahin holt der Voll-/Scheduler-Sync Neuzugaenge nach.
  */
 class RecEmployeeContactListObserver
 {
-    public function created(RecEmployee $employee): void
-    {
-        $this->sync($employee);
-    }
-
     public function updated(RecEmployee $employee): void
     {
         if (!$employee->wasChanged(['is_active', 'employment_ended_at'])) {

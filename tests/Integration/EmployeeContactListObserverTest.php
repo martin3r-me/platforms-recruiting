@@ -27,11 +27,9 @@ class EmployeeContactListObserverTest extends EmployeeContactListSyncTest
     {
         $list = $this->makeList();
         [$employee, $contact] = $this->makeEmployeeWithContact();
-        // makeEmployeeWithContact() legt employee->create() vor link() an: der
-        // created()-Hook feuert bereits synchron beim Employee-Insert, sieht den
-        // Link zu diesem Zeitpunkt aber noch nicht (verifiziert per Debug-Trace)
-        // und no-opt daher. Ausgangszustand hier einmal explizit ueber denselben
-        // Produktionspfad herstellen, den der Observer selbst nutzt.
+        // Kein created()-Hook (s. Observer-Docblock): Ausgangszustand hier
+        // einmal explizit ueber denselben Produktionspfad herstellen, den ein
+        // echter Link-Anleger nach dem create() selbst aufrufen wuerde.
         $this->service()->syncEmployee($employee);
 
         $this->assertSame('subscribed', CrmContactListMember::where('contact_list_id', $list->id)->where('contact_id', $contact->id)->first()?->status);
@@ -49,6 +47,17 @@ class EmployeeContactListObserverTest extends EmployeeContactListSyncTest
         $employee2 = RecEmployee::create(['team_id' => self::TEAM, 'first_name' => 'Zwei', 'last_name' => 'Aktiv', 'is_active' => true]);
         $this->link($employee2, $contact);
 
+        // Vorbedingung herstellen (kein created()-Hook, s. Observer-Docblock):
+        // die Zeile muss VOR dem Flip existieren, sonst nimmt der anschliessende
+        // Sync den Add-Zweig statt des zu testenden Removal-Vermeidungs-Zweigs
+        // (elseif ($member) { $member->delete(); } wuerde nie ausgefuehrt).
+        $this->service()->syncEmployee($employee1);
+        $this->assertSame(
+            'subscribed',
+            CrmContactListMember::where('contact_list_id', $list->id)->where('contact_id', $contact->id)->first()?->status,
+            'Vorbedingung: Zeile muss vor dem Flip existieren, sonst wird der Removal-Vermeidungs-Zweig nicht getestet.'
+        );
+
         $employee1->update(['is_active' => false]);
 
         $this->assertSame(
@@ -62,9 +71,8 @@ class EmployeeContactListObserverTest extends EmployeeContactListSyncTest
     {
         $list = $this->makeList();
         [$employee, $contact] = $this->makeEmployeeWithContact();
-        // s.o. (test_is_active_flip_aendert_mitgliedschaft): Ausgangszustand
-        // herstellen, da der created()-Hook den Link zu diesem Zeitpunkt noch
-        // nicht sieht.
+        // s.o. (test_is_active_flip_aendert_mitgliedschaft): kein created()-Hook,
+        // Ausgangszustand explizit herstellen.
         $this->service()->syncEmployee($employee);
 
         // Zeile von aussen manipulieren; ein Nicht-Trigger-Update darf sie nicht anfassen.
@@ -106,16 +114,31 @@ class EmployeeContactListObserverTest extends EmployeeContactListSyncTest
         $this->assertSame(0, CrmContactListMember::count());
     }
 
+    public function test_employee_erstellung_alleine_loest_keinen_sync_aus(): void
+    {
+        $this->makeList();
+
+        // Kein created()-Hook (s. Observer-Docblock): Employee+Link-Erstellung
+        // legt fuer sich allein NIE eine Mitgliedschaftszeile an, selbst mit
+        // konfigurierter Liste. Neuzugaenge holt der Voll-/Scheduler-Sync nach,
+        // bzw. der Anlage-Code ruft syncEmployee() selbst auf (Spec: Regel).
+        $this->makeEmployeeWithContact();
+
+        $this->assertSame(0, CrmContactListMember::count());
+    }
+
     /**
      * Override der von EmployeeContactListSyncTest geerbten Version: mit
      * registriertem Observer entfernt schon employee->update(['is_active' =>
-     * false]) die Mitgliedschaftszeile (updated()-Hook), bevor der
-     * anschliessende force-Sync laeuft. Der anschliessende Sync findet dann
-     * nichts mehr zu entfernen (removed: 0 statt 1) — die eigentliche
-     * Invariante (Zeile ist weg, nicht bloss unsubscribed) bleibt unveraendert
-     * bestehen. Doppelte Abdeckung ist laut Aufgabenstellung akzeptiert;
-     * dieses eine geerbte Test ist der einzige, dessen Zaehler sich durch die
-     * doppelte Verarbeitung (Observer + expliziter syncAll) verschiebt.
+     * false]) die Mitgliedschaftszeile (updated()-Hook — unabhaengig vom
+     * entfernten created()-Hook, verifiziert per Vergleichslauf ohne diesen
+     * Override), bevor der anschliessende force-Sync laeuft. Der
+     * anschliessende Sync findet dann nichts mehr zu entfernen (removed: 0
+     * statt 1) — die eigentliche Invariante (Zeile ist weg, nicht bloss
+     * unsubscribed) bleibt unveraendert bestehen. Doppelte Abdeckung ist laut
+     * Aufgabenstellung akzeptiert; dieses eine geerbte Test ist der einzige,
+     * dessen Zaehler sich durch die doppelte Verarbeitung (Observer +
+     * expliziter syncAll) verschiebt.
      */
     public function test_inaktiver_ma_zeile_wird_geloescht(): void
     {
