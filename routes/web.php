@@ -31,6 +31,10 @@ Route::get('/testdashboard', \Platform\Recruiting\Livewire\Dashboard\TestDashboa
 Route::get('/hr-desk', \Platform\Recruiting\Livewire\HrDesk\Index::class)
     ->name('recruiting.dashboard.hr-desk');
 
+// Statistik (V1 nur per Direkt-URL, kein Sidebar-Eintrag — Spec §1 Rollout)
+Route::get('/statistik', \Platform\Recruiting\Livewire\Statistics\Index::class)
+    ->name('recruiting.statistics.index');
+
 // Stellen
 Route::get('/positions', PositionIndex::class)->name('recruiting.positions.index');
 Route::get('/positions/{position}', PositionShow::class)->name('recruiting.positions.show');
