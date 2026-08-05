@@ -92,7 +92,7 @@
                                 optionLabel="label"
                             />
                         @endif
-                        <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.300ms="search" class="flex-1 max-w-xs" />
+                        <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.500ms="search" class="flex-1 max-w-xs" />
                     </div>
 
                     @if($this->interview->max_participants)
@@ -129,7 +129,7 @@
                             </thead>
                             <tbody class="divide-y divide-[var(--ui-border)]/60">
                                 @forelse($this->bookings as $booking)
-                                    <tr class="hover:bg-gray-50">
+                                    <tr class="hover:bg-gray-50" wire:key="booking-{{ $booking->id }}">
                                         <td class="px-4 py-3">
                                             @if($booking->applicant)
                                                 <a href="{{ route('recruiting.applicants.show', $booking->applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
@@ -272,7 +272,7 @@
                                             ? 'Liegt beim HR-Schreibtisch'
                                             : ($isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '');
                                     @endphp
-                                    <tr class="hover:bg-gray-50 {{ $rowDimmed ? 'opacity-60' : '' }} {{ $rowBgClass }}">
+                                    <tr class="hover:bg-gray-50 {{ $rowDimmed ? 'opacity-60' : '' }} {{ $rowBgClass }}" wire:key="booking-{{ $booking->id }}">
                                         <td class="px-4 py-3">
                                             @if($applicant)
                                                 <a href="{{ route('recruiting.applicants.show', $applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
