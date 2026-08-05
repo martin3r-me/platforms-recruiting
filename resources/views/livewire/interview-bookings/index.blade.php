@@ -568,7 +568,16 @@
             );
             $evalCriteria = \Platform\Recruiting\Support\RatingCriteria::CRITERIA;
         @endphp
-        <div class="space-y-5">
+        {{-- wire:key am Modal-Inhalt, gekoppelt an die Buchung: beim Personenwechsel
+             verwirft Livewire den Teilbaum statt ihn zu morphen. Ohne das muesste
+             das Morphing bei fuenf Radios das checked-Attribut ENTFERNEN, und
+             genau dort laufen Attribut und DOM-Property auseinander — die Sterne
+             der zuvor bewerteten Person koennten stehen bleiben. Seit das
+             Highlight aus peer-checked kommt (nicht mehr aus einer serverseitig
+             berechneten Klasse), waere das nicht als Widerspruch sichtbar,
+             sondern saehe stimmig aus: Speichern schriebe die Bewertung der
+             falschen Person. --}}
+        <div class="space-y-5" wire:key="eval-modal-{{ $evaluateBookingId }}">
             @if($evalBooking)
                 <div class="text-sm">
                     <strong class="text-[var(--ui-secondary)]">{{ $evalName }}</strong>
