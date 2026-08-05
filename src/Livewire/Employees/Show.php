@@ -262,9 +262,23 @@ class Show extends Component
             'Ausstattung' => [
                 'linen_package_items' => ['type' => 'multi_lookup', 'label' => 'Waeschepaket erhalten', 'lookup' => 'waeschepaket'],
             ],
-            'Bewertung & Qualifikation' => [
-                'star_rating'    => ['type' => 'inline_select', 'label' => 'Sternebewertung', 'options' => ['1','2','3','4','5']],
+            'Bewertung (Termin)' => [
+                'rating_erscheinungsbild' => ['type' => 'inline_select', 'label' => 'Erscheinungsbild & Hygiene', 'options' => ['1','2','3','4','5']],
+                'rating_fachkompetenz'    => ['type' => 'inline_select', 'label' => 'Fachliche Grundkompetenz', 'options' => ['1','2','3','4','5']],
+                'rating_auffassungsgabe'  => ['type' => 'inline_select', 'label' => 'Auffassungsgabe & Lernbereitschaft', 'options' => ['1','2','3','4','5']],
+                'rating_auftreten'        => ['type' => 'inline_select', 'label' => 'Auftreten & Kommunikation', 'options' => ['1','2','3','4','5']],
+                'rating_teamintegration'  => ['type' => 'inline_select', 'label' => 'Teamintegration & Verhalten', 'options' => ['1','2','3','4','5']],
+                'evaluation_note'         => ['type' => 'text', 'label' => 'Bewertungstext'],
+            ],
+            'Qualifikation & Altbestand' => [
                 'qualifications' => ['type' => 'multi_lookup', 'label' => 'Qualifikation', 'lookup' => 'qualifikation'],
+                // star_rating wird nicht mehr geschrieben (Spec §1). readonly,
+                // weil der Blade auf leeren Feldern einen roten "fehlt"-Rand
+                // setzt (:204-205) — sonst waere das Feld bei jedem neuen
+                // Mitarbeiter dauerhaft rot markiert. 'empty' verhindert, dass
+                // der readonly-Zweig bei leerem Wert den ersten Options-Wert
+                // ("1") als Bewertung anzeigt, die niemand gesetzt hat.
+                'star_rating'    => ['type' => 'inline_select', 'label' => 'Sternebewertung (Altbestand)', 'options' => ['1','2','3','4','5'], 'readonly' => true, 'empty' => '—'],
             ],
         ];
     }

@@ -208,8 +208,14 @@
                                 <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">{{ $label }}</label>
 
                                 @if($isReadonly)
+                                    {{-- Leerwert-Anzeige: 'empty' aus den Feld-Metadaten; ohne 'empty'
+                                         greift aus Rueckwaertskompatibilitaet der erste Options-Wert
+                                         (nur fuer export_status sinnvoll, weil dort genau eine Option
+                                         existiert). Neue readonly-Felder mit mehreren Optionen MUESSEN
+                                         'empty' setzen, sonst wird ein Wert angezeigt, den niemand
+                                         gesetzt hat. --}}
                                     <div class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white text-[var(--ui-secondary)]">
-                                        {{ $hrValue ?: ($meta['options'][0] ?? 'GO') }}
+                                        {{ $hrValue ?: ($meta['empty'] ?? $meta['options'][0] ?? 'GO') }}
                                     </div>
 
                                 @elseif($type === 'lookup')
