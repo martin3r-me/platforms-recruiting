@@ -585,12 +585,32 @@
                                 </span>
                             @endif
                         </label>
+                        {{-- Highlight per peer-checked (reines CSS) statt serverseitig
+                             berechneter Border-Klasse. Mit wire:model.live waere jeder
+                             einzelne Sternklick ein Roundtrip mit vollem Component-Render
+                             (bookings, bookingsSortedByName, bulkSendState, selfies) —
+                             bei fuenf Kriterien x 20 Teilnehmern 100 Roundtrips pro
+                             Schulung. Deferred wire:model schickt die Werte erst beim
+                             Speichern; sichtbares Verhalten identisch, null Requests
+                             pro Klick.
+                             Struktur beachten: 'peer' wirkt nur auf GESCHWISTER, also
+                             Input und <span> als Kinder des Labels — nicht das Label
+                             selbst stylen. Gleiches Muster wie
+                             styles/platforms-ui-tailwind/.../status-toggle.blade.php:44-48. --}}
                         <div class="flex gap-2">
                             @foreach(['1','2','3','4','5'] as $star)
-                                <label class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-md border cursor-pointer {{ ($evaluation[$critKey] ?? null) === $star ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]' }}">
-                                    <input type="radio" wire:model.live="evaluation.{{ $critKey }}" value="{{ $star }}" class="sr-only">
-                                    @svg('heroicon-m-star', 'w-4 h-4')
-                                    {{ $star }}
+                                <label class="flex-1 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        wire:model="evaluation.{{ $critKey }}"
+                                        value="{{ $star }}"
+                                        @checked(($evaluation[$critKey] ?? null) === $star)
+                                        class="sr-only peer"
+                                    >
+                                    <span class="inline-flex w-full items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-md border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] peer-checked:border-amber-500 peer-checked:bg-amber-50 peer-checked:text-amber-700">
+                                        @svg('heroicon-m-star', 'w-4 h-4')
+                                        {{ $star }}
+                                    </span>
                                 </label>
                             @endforeach
                         </div>

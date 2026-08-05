@@ -184,6 +184,14 @@ class Index extends Component
      * ACHTUNG-Kopplung: wird die Liste spaeter paginiert, sortiert das hier nur
      * die aktuelle Seite. Dann muss auf DB-Sortierung mit expliziter
      * Link-Priorisierung umgestellt werden.
+     *
+     * BEWUSST eine normale Methode und KEINE #[Computed]-Property: sie liest
+     * $this->bookings (bereits gecacht, also keine zusaetzliche Query, nur eine
+     * Sortierung pro Aufruf). Eine gecachte Sortierung muesste in
+     * saveEvaluation() mit-invalidiert werden — dort wird $this->bookings
+     * verworfen —, und wer das vergisst, bekommt nach dem Speichern veraltete
+     * Werte in der Tabelle. Als Methode kann sie per Konstruktion nicht
+     * veralten. Nicht "optimieren".
      */
     public function bookingsSortedByName()
     {
@@ -761,11 +769,17 @@ class Index extends Component
             ->get()
             ->keyBy('id');
 
-        // 4) Thumbnail-Varianten
+        // 4) Thumbnail-Varianten. Pro Datei koennen mehrere thumbnail_%-Varianten
+        //    existieren; keyBy() wuerde die LETZTE der DB-Reihenfolge nehmen, also
+        //    nicht deterministisch — die angezeigte Bildgroesse haette je nach
+        //    Zeilenfolge gewechselt. Deshalb explizit: 'thumbnail_4_3' bevorzugt
+        //    (F13), sonst die Variante mit der kleinsten id.
         $variants = \Platform\Core\Models\ContextFileVariant::whereIn('context_file_id', array_values($fileIdByApplicant))
             ->where('variant_type', 'like', 'thumbnail_%')
+            ->orderBy('id')
             ->get()
-            ->keyBy('context_file_id');
+            ->groupBy('context_file_id')
+            ->map(fn ($group) => $group->firstWhere('variant_type', 'thumbnail_4_3') ?? $group->first());
 
         $result = [];
         foreach ($fileIdByApplicant as $applicantId => $fileId) {
@@ -878,7 +892,9 @@ class Index extends Component
             return;
         }
 
-        $applicant = $booking->applicant;
+        // Null-Safe, obwohl der Guard oben bei $booking === null schon ausgestiegen
+        // ist: lokal zugesichert statt an die Reihenfolge zweier Guards gekoppelt.
+        $applicant = $booking?->applicant;
         if (!$applicant) {
             session()->flash('error', 'Bewerber nicht gefunden.');
             return;
@@ -935,7 +951,7 @@ class Index extends Component
         }
 
         // SCHREIBSEITE — hier darf ensureHrData() die Row anlegen.
-        $target = $this->evaluationWriteTarget($booking->applicant);
+        $target = $this->evaluationWriteTarget($booking?->applicant);
         if (!$target) {
             session()->flash('error', 'Bewerber nicht mehr vorhanden.');
             $this->closeEvaluationModal();

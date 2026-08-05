@@ -71,8 +71,10 @@ Namen, und das existierende Suchfeld ist im Nachbereitungs-Modus ausgeblendet (F
 | 5 | Teamintegration & Verhalten | `rating_teamintegration` | `BewertungTeamintegration` |
 
 ZAS-Namen im Stil des Bestands: CamelCase, keine Umlaute (`Waeschepaket`),
-Gruppen-Prefix (`Infek*`, `Schulungs*`). **Vor dem Deploy von Hr. Michel
-bestätigen** — danach sind sie Vertragsbestandteil (F6).
+Gruppen-Prefix (`Infek*`, `Schulungs*`). **Die Namen sind festgelegt** (Entscheidung
+2026-08-05) — Hr. Michel wird nach dem Deploy informiert, nicht gefragt. Ab dem
+ersten Export sind sie Vertragsbestandteil (F6): eine Änderung danach ist ein
+Rename in einer Schnittstelle, die ein Partner liest.
 
 Labels, Spaltennamen, ZAS-Namen und Handout-Texte werden gemeinsam in **einer**
 Support-Klasse `RatingCriteria` definiert (Single Source of Truth für UI,
@@ -700,9 +702,10 @@ Keine Tests in die Pure-Unit-Liste stellen, die faktisch eine DB brauchen.
   `NotifyWaitlistForInterview` (`ShouldQueue` `:24`, `afterCommit` `:56`) — und
   dieses Paket dem Modell acht Spalten mit Casts anhängt (F19). Long-running Worker
   halten sonst die alte Klassendefinition.
-- **Vor dem Deploy abstimmen:** die fünf ZAS-Spaltennamen mit Hr. Michel bestätigen.
-  Der Export bleibt ohne seine Änderung funktionsfähig — er sieht die neuen Spalten
-  erst, wenn er sie aufnimmt.
+- **ZAS-Spaltennamen sind festgelegt; Hr. Michel wird nach dem Deploy informiert.**
+  Ab dem ersten Export sind sie Vertragsbestandteil — eine Änderung danach ist ein
+  Rename in einer Schnittstelle, die ein Partner liest. Der Export bleibt ohne seine
+  Änderung funktionsfähig: er sieht die neuen Spalten erst, wenn er sie aufnimmt.
 - **Handout-PDF** ins Repo legen und im Popover verlinken.
 
 ## Benannte Lücken
@@ -711,7 +714,9 @@ Keine Tests in die Pure-Unit-Liste stellen, die faktisch eine DB brauchen.
   `RatingCriteria` Label, Spalten- und ZAS-Namen; das Popover wird mit dem Text
   befüllt, sobald er da ist. Kein struktureller Einfluss.
 - **Handout-PDF-Datei** liegt noch nicht im Repo.
-- **Bestätigung der fünf ZAS-Spaltennamen** durch Hr. Michel steht aus (§Deploy).
+- ~~Bestätigung der fünf ZAS-Spaltennamen~~ — **keine offene Lücke mehr, sondern eine
+  getroffene Entscheidung** (2026-08-05): Namen festgelegt, Hr. Michel wird nach dem
+  Deploy informiert (§Deploy).
 
 ## Betroffene Dateien
 
