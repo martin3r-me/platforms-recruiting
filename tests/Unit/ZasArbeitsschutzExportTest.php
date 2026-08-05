@@ -32,11 +32,23 @@ class ZasArbeitsschutzExportTest extends TestCase
         return $e;
     }
 
-    public function test_columns_end_with_arbeitsschutz_headers(): void
+    public function test_arbeitsschutz_headers_stehen_als_block_in_fester_reihenfolge(): void
     {
+        // Der Test hiess urspruenglich test_columns_end_with_arbeitsschutz_headers
+        // und pruefte array_slice(..., -3), also "Arbeitsschutz ist der Schluss".
+        // Das war richtig, solange Arbeitsschutz die jueingste Ergaenzung war —
+        // per Konvention ("ans Ende, nie dazwischen") kann es aber nicht halten,
+        // sobald ein neuer Block folgt; die Bewertungsspalten stehen jetzt danach.
+        // Geschuetzt wird weiterhin, worauf es ankommt: die drei Spalten stehen
+        // zusammenhaengend und in dieser Reihenfolge, wurden also nicht
+        // auseinandergerissen oder in die Mitte eingeschoben.
+        $columns = ZasEmployeeFieldResolver::COLUMNS;
+        $start = array_search('Ersthelfer', $columns, true);
+
+        $this->assertNotFalse($start, 'Ersthelfer-Spalte fehlt im Export.');
         $this->assertSame(
             ['Ersthelfer', 'ErsthelferBis', 'Sicherheitsbeauftragter'],
-            array_slice(ZasEmployeeFieldResolver::COLUMNS, -3),
+            array_slice($columns, $start, 3),
         );
     }
 

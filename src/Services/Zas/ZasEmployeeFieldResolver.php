@@ -103,6 +103,17 @@ class ZasEmployeeFieldResolver
         // Arbeitsschutz (ans Ende — ZAS parst ggf. positionsbasiert,
         // Einschub in der Mitte wuerde Folgespalten verschieben)
         'Ersthelfer', 'ErsthelferBis', 'Sicherheitsbeauftragter',
+
+        // Bewertung (ans Ende, nie dazwischen) — fuenf Kriterien à 1-5 Sterne
+        // aus rec_employee_hr_data. Der Bewertungstext wird bewusst NICHT
+        // exportiert (Spec §5): ZasCsvBuilder::sanitize wuerde Semikolons zu
+        // Kommas und Umbrueche zu Leerzeichen machen, der Text kaeme also
+        // verstuemmelt an, und ZAS hat keinen Nutzen dafuer.
+        'BewertungErscheinungsbild',
+        'BewertungFachkompetenz',
+        'BewertungAuffassungsgabe',
+        'BewertungAuftreten',
+        'BewertungTeamintegration',
     ];
 
     /**
@@ -226,6 +237,11 @@ class ZasEmployeeFieldResolver
             'Anstellungsart'          => $this->lookupLabel('anstellungsart', $hr?->employment_classification),
             'Waeschepaket'            => $this->multiLookupLabels('waeschepaket', $hr?->linen_package_items),
             'Sternebewertung'         => $hr?->star_rating !== null ? (string) $hr->star_rating : null,
+            'BewertungErscheinungsbild' => $hr?->rating_erscheinungsbild !== null ? (string) $hr->rating_erscheinungsbild : null,
+            'BewertungFachkompetenz'    => $hr?->rating_fachkompetenz !== null ? (string) $hr->rating_fachkompetenz : null,
+            'BewertungAuffassungsgabe'  => $hr?->rating_auffassungsgabe !== null ? (string) $hr->rating_auffassungsgabe : null,
+            'BewertungAuftreten'        => $hr?->rating_auftreten !== null ? (string) $hr->rating_auftreten : null,
+            'BewertungTeamintegration'  => $hr?->rating_teamintegration !== null ? (string) $hr->rating_teamintegration : null,
             'Qualifikation'           => $this->multiLookupLabels('qualifikation', $hr?->qualifications),
 
             // Computed-Felder

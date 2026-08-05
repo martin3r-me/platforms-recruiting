@@ -101,6 +101,11 @@ class RecEmployeeExportObserver
         'contract_signed_at', 'contract_sent_date', 'contract_end_date',
         'export_status', 'employment_classification',
         'linen_package_items', 'star_rating', 'qualifications',
+        // Bewertung (Spec §5): loest den Update-Marker aus, damit HR-Korrekturen
+        // ZAS erreichen. evaluation_note fehlt hier ABSICHTLICH — es wird nicht
+        // exportiert, ein Marker waere ein Re-Export ohne Inhaltsaenderung.
+        'rating_erscheinungsbild', 'rating_fachkompetenz', 'rating_auffassungsgabe',
+        'rating_auftreten', 'rating_teamintegration',
     ];
 
     public static function register(): void
