@@ -381,21 +381,42 @@
                                             @endif
                                         </td>
                                         <td class="px-4 py-3">
-                                            @php $employee = $applicant?->employee; @endphp
-                                            @if($employee)
-                                                @php
-                                                    $hr = $employee->hrData;
-                                                    $hasRating = $hr && ($hr->star_rating !== null || !empty($hr->linen_package_items) || !empty($hr->qualifications));
-                                                @endphp
+                                            @php
+                                                // Werte kommen aus der Computed-Leseseite (Task 8) — kein
+                                                // Query und kein Write pro Zeile.
+                                                $evalOpen   = \Platform\Recruiting\Support\EvaluationAvailability::isOpen($booking->status);
+                                                $evalValues = $applicant ? ($this->evaluationValues[$applicant->id] ?? []) : [];
+                                                $hasEval    = \Platform\Recruiting\Support\EvaluationValues::hasAny($evalValues);
+                                            @endphp
+
+                                            @if(!$evalOpen)
+                                                <span class="text-xs text-[var(--ui-muted)]" title="Bewertung erst nach bestätigter Teilnahme">
+                                                    Nach Teilnahme
+                                                </span>
+                                            @else
+                                                @if($hasEval)
+                                                    <div class="text-xs font-mono text-[var(--ui-secondary)]">
+                                                        {{ \Platform\Recruiting\Support\EvaluationValues::compactLine($evalValues) }}
+                                                    </div>
+                                                    <div class="flex items-center gap-1.5 mt-0.5 text-[10px] text-[var(--ui-muted)]">
+                                                        @if(!empty($evalValues['linen_package_items']))
+                                                            <span title="Wäschepaket erfasst">@svg('heroicon-o-check-badge', 'w-3 h-3 inline-block')</span>
+                                                        @endif
+                                                        @if(!empty($evalValues['qualifications']))
+                                                            <span title="Qualifikation erfasst">@svg('heroicon-o-academic-cap', 'w-3 h-3 inline-block')</span>
+                                                        @endif
+                                                        @if(trim((string) ($evalValues['evaluation_note'] ?? '')) !== '')
+                                                            <span title="Bewertungstext vorhanden">@svg('heroicon-o-chat-bubble-bottom-center-text', 'w-3 h-3 inline-block')</span>
+                                                        @endif
+                                                    </div>
+                                                @endif
                                                 <button
                                                     wire:click="openEvaluationModal({{ $booking->id }})"
-                                                    class="px-2.5 py-1 text-xs font-medium rounded-md border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]"
+                                                    class="mt-1 px-2.5 py-1 text-xs font-medium rounded-md border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]"
                                                 >
                                                     @svg('heroicon-o-star', 'w-3.5 h-3.5 inline-block -mt-0.5 mr-1')
-                                                    {{ $hasRating ? 'Bewertung bearbeiten' : 'Bewerten' }}
+                                                    {{ $hasEval ? 'Bewertung bearbeiten' : 'Bewerten' }}
                                                 </button>
-                                            @else
-                                                <span class="text-xs text-[var(--ui-muted)]" title="MA noch nicht angelegt – Verträge zuerst versenden">—</span>
                                             @endif
                                         </td>
                                     </tr>
@@ -525,34 +546,44 @@
         </x-slot>
     </x-ui-modal>
 
-    {{-- Bewertungs-Modal (Schulungsnachbereitung pro MA) --}}
+    {{-- Bewertungs-Modal: acht Felder in einem Vorgang (Spec §3) --}}
     <x-ui-modal wire:model="showEvaluationModal" size="lg">
-        <x-slot name="header">Schulungs-Bewertung</x-slot>
+        <x-slot name="header">Bewertung</x-slot>
         @php
             $evalBooking = $evaluateBookingId ? $this->bookings->firstWhere('id', $evaluateBookingId) : null;
-            $evalEmployee = $evalBooking?->applicant?->employee;
-            $evalContactName = $evalBooking?->applicant?->crmContactLinks?->first()?->contact?->full_name ?? 'Unbekannt';
+            $evalName = \Platform\Recruiting\Support\ApplicantContactName::display(
+                $this->contactCandidatesFor($evalBooking?->applicant),
+            );
+            $evalCriteria = \Platform\Recruiting\Support\RatingCriteria::CRITERIA;
         @endphp
         <div class="space-y-5">
-            @if($evalEmployee)
-                <div class="text-sm text-[var(--ui-muted)]">
-                    <strong class="text-[var(--ui-secondary)]">{{ $evalContactName }}</strong>
-                    <span class="ml-2 text-xs">MA #{{ $evalEmployee->id }}</span>
+            @if($evalBooking)
+                <div class="text-sm">
+                    <strong class="text-[var(--ui-secondary)]">{{ $evalName }}</strong>
                 </div>
 
-                {{-- Sternebewertung --}}
-                <div>
-                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">Sternebewertung</label>
-                    <div class="flex gap-2">
-                        @foreach(['1','2','3','4','5'] as $star)
-                            <label class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-md border cursor-pointer {{ ($evaluation['star_rating'] ?? null) === $star ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]' }}">
-                                <input type="radio" wire:model.live="evaluation.star_rating" value="{{ $star }}" class="sr-only">
-                                @svg('heroicon-m-star', 'w-4 h-4')
-                                {{ $star }}
-                            </label>
-                        @endforeach
+                {{-- Fünf Kriterien, je 1-5 Sterne --}}
+                @foreach($evalCriteria as $critKey => $crit)
+                    <div>
+                        <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">
+                            {{ $crit['label'] }}
+                            @if($crit['help'] !== '')
+                                <span class="ml-1 text-[var(--ui-muted)] cursor-help" title="{{ $crit['help'] }}">
+                                    @svg('heroicon-o-information-circle', 'w-3.5 h-3.5 inline-block -mt-0.5')
+                                </span>
+                            @endif
+                        </label>
+                        <div class="flex gap-2">
+                            @foreach(['1','2','3','4','5'] as $star)
+                                <label class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-md border cursor-pointer {{ ($evaluation[$critKey] ?? null) === $star ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)]' }}">
+                                    <input type="radio" wire:model.live="evaluation.{{ $critKey }}" value="{{ $star }}" class="sr-only">
+                                    @svg('heroicon-m-star', 'w-4 h-4')
+                                    {{ $star }}
+                                </label>
+                            @endforeach
+                        </div>
                     </div>
-                </div>
+                @endforeach
 
                 {{-- Waeschepaket --}}
                 <div>
@@ -583,8 +614,19 @@
                         @endforelse
                     </div>
                 </div>
+
+                {{-- Bewertungstext (NICHT die Buchungsnotiz, Spec F4) --}}
+                <div>
+                    <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-2">Bewertungstext</label>
+                    <textarea
+                        wire:model="evaluation.evaluation_note"
+                        rows="4"
+                        placeholder="Individuelle Einschätzung zum Abschluss…"
+                        class="w-full border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm"
+                    ></textarea>
+                </div>
             @else
-                <div class="text-sm text-[var(--ui-muted)]">Mitarbeiter nicht gefunden.</div>
+                <div class="text-sm text-[var(--ui-muted)]">Buchung nicht gefunden.</div>
             @endif
         </div>
         <x-slot name="footer">
