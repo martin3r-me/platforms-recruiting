@@ -584,7 +584,25 @@ schreiben** — falsche Begründungen werden abgeschrieben.
 
 Der Puffer am Bewerber wird nicht geleert (Archiv, §Tradeoffs).
 
-### §4b Bewertung auf der Mitarbeiterkarte
+### §4b Bewertung auf der Mitarbeiterkarte (HR-Backend)
+
+**Abgrenzung, die explizit festgehalten wird, weil sie im Gespräch mehrdeutig war:**
+Gemeint ist die **Mitarbeiterkarte im HR-Backend** (`/recruiting/employees/…`,
+`Employees/Show`) — dort, wo HR heute Wäschepaket und Qualifikation pflegt.
+**Nicht** gemeint ist das Mitarbeiter-Portal, in das sich der Mitarbeiter selbst
+einloggt (`/recruiting/mitarbeiter/{token}`, `Livewire/Public/EmployeePortal`).
+Dort werden Bewertungsdaten **nicht** angezeigt, und das ist eine bestehende
+Architekturgrenze, keine Auslassung: der Docblock von `RecEmployeeHrData` (`:9-14`)
+hält fest „nur fuer's HR-Backend gedacht — MA-Portal hat keinen Zugriff", und ein
+Grep über `src/Livewire/Public/` sowie die Public-Views findet **null** Treffer für
+`hrData` — das Portal rendert ausschließlich `editableFieldGroups()`, also die
+Stammdaten, die der Mitarbeiter selbst pflegt.
+
+Fachlicher Grund, diese Grenze zu halten: Liest der Bewertete seine Bewertung, ändert
+sich, was die Bewertung ist — Schulungsleiter bewerten anders, wenn die Person
+mitliest. Sollte das Portal später Teile zeigen sollen (Wäschepaket wäre harmlos, die
+fünf Kriterien und der Freitext sind es nicht), ist das eine eigene Entscheidung
+gegen diese Grenze und gehört in eine eigene Spec.
 
 Wird der Bewerber zum Mitarbeiter (Portallink + Vertragsversand), müssen **alle**
 Bewertungsdaten mitwandern — die fünf Kriterien und der Freitext, nicht nur
@@ -883,11 +901,7 @@ liefern die Werte derselben (richtigen) Buchung.
   befüllt, sobald er da ist. Kein struktureller Einfluss.
 - **Handout-PDF-Datei** liegt noch nicht im Repo.
 - **Bestätigung der ZAS-Spaltennamen** durch Hr. Michel steht aus (§Deploy).
-- **Verbleib der Selfie-Spalte in diesem Paket** ist eine offene
-  Produktentscheidung: sie stammt nicht aus dem Kundenzitat, sondern aus einer
-  Zusatzanforderung. §3a ist vollständig spezifiziert und kann ohne Rückwirkung auf
-  §1–§5 in ein Folgepaket verschoben werden — die vier Batch-Queries und die
-  `#[Computed]`-Property hängen an keiner anderen Entscheidung.
+- ~~Verbleib der Selfie-Spalte~~ — **entschieden: bleibt in diesem Paket** (§3a).
 - **Das Query-Budget in §3 ist statisch gezählt, nicht gemessen** (in der
   Entwicklungsumgebung ist keine DB erreichbar: `meingedeck` ohne `.env`, lokale
   SQLite ohne `rec_*`-Tabellen). Die Größenordnung trägt die Entscheidung für die
