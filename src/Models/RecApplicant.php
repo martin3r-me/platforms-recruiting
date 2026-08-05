@@ -959,8 +959,19 @@ class RecApplicant extends Model implements InheritsExtraFields
             $hasActiveBooking = $this->interviewBookings()
                 ->whereNotIn('status', ['cancelled'])
                 ->exists();
+            // Nur der Re-Claim-Guard und der Drop-out-Observer stornieren mit
+            // cancelled_by='system' — Bewerber ohne jede Buchungshistorie
+            // (frisch in der Buchen-Phase) kriegen den Hinweis nicht.
+            $hadSystemCancelledBooking = $this->interviewBookings()
+                ->where('status', 'cancelled')
+                ->where('cancelled_by', 'system')
+                ->exists();
 
-            if ($this->phase?->completion_type === 'booking' && !$hasActiveBooking) {
+            if (\Platform\Recruiting\Support\SeatStandbyPolicy::shouldShowSeatLostNotice(
+                $this->phase?->completion_type === 'booking',
+                $hasActiveBooking,
+                $hadSystemCancelledBooking,
+            )) {
                 $url = url('/recruiting/interviews/' . $this->public_token);
                 $text = $this->usesInformalAddress()
                     ? 'Danke, deine Angaben sind vollständig! Dein ursprünglicher Schulungstermin ist leider inzwischen voll geworden — bitte wähle einen neuen Termin.'

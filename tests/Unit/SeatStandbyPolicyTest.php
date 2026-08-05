@@ -58,4 +58,23 @@ final class SeatStandbyPolicyTest extends TestCase
         $this->assertNull(SeatStandbyPolicy::statusLabel('booked', false));
         $this->assertNull(SeatStandbyPolicy::statusLabel('registered', true));
     }
+
+    public function test_seat_lost_notice_nur_nach_system_storno(): void
+    {
+        // Der Kernfall: Buchen-Phase, keine aktive Buchung, System hat storniert
+        // (fehlgeschlagener Re-Claim) → Hinweis "Termin voll geworden" zeigen.
+        $this->assertTrue(SeatStandbyPolicy::shouldShowSeatLostNotice(true, false, true));
+
+        // Frischer Bewerber in der Buchen-Phase, der schlicht noch nie gebucht
+        // hat → KEIN Hinweis (war der Bug: Box erschien für jeden ohne Buchung).
+        $this->assertFalse(SeatStandbyPolicy::shouldShowSeatLostNotice(true, false, false));
+
+        // Aktive Buchung vorhanden → nie anzeigen, egal was die Historie sagt.
+        $this->assertFalse(SeatStandbyPolicy::shouldShowSeatLostNotice(true, true, true));
+        $this->assertFalse(SeatStandbyPolicy::shouldShowSeatLostNotice(true, true, false));
+
+        // Keine Buchen-Phase (fields/manual) → nie anzeigen.
+        $this->assertFalse(SeatStandbyPolicy::shouldShowSeatLostNotice(false, false, true));
+        $this->assertFalse(SeatStandbyPolicy::shouldShowSeatLostNotice(false, false, false));
+    }
 }

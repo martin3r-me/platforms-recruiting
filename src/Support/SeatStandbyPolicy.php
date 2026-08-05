@@ -59,4 +59,17 @@ final class SeatStandbyPolicy
     {
         return ($status === 'booked' && $seatReleased) ? 'Standby' : null;
     }
+
+    /**
+     * Public-Form-Hinweis "Termin voll geworden — neu wählen" nur für Bewerber,
+     * denen tatsächlich eine Buchung vom System storniert wurde (fehlgeschlagener
+     * Re-Claim, cancelled_by='system'). Frische Bewerber in der Buchen-Phase,
+     * die schlicht noch nie gebucht haben, erfüllen dieselben äußeren
+     * Bedingungen (Buchen-Phase, keine aktive Buchung) und dürfen den
+     * Hinweis NICHT sehen.
+     */
+    public static function shouldShowSeatLostNotice(bool $isBookingPhase, bool $hasActiveBooking, bool $hadSystemCancelledBooking): bool
+    {
+        return $isBookingPhase && !$hasActiveBooking && $hadSystemCancelledBooking;
+    }
 }
