@@ -317,6 +317,31 @@ final class CohortViewModel
         return true;
     }
 
+    /**
+     * EINZIGER Einstieg fuer die Anzeige: waehlt die Censoring-Regel anhand der
+     * Zeilenmenge selbst, statt sie sich vom Aufrufer sagen zu lassen.
+     *
+     * Kriterium ist „mehr als eine Zeile" — und das ist nicht Bequemlichkeit,
+     * sondern genau die Voraussetzung des Verduennungs-Arguments: nur wenn eine
+     * Menge mehrere Zeilen enthaelt, koennen reife die jungen ueberstimmen. Eine
+     * Sammelzeile mit genau einer Phase ist eben KEIN Aggregat und wird wie eine
+     * Einzelzeile behandelt.
+     *
+     * Vorher entschied ein durchgereichtes Flag ($isTotal) darueber. Das war an
+     * drei von vier Stellen richtig gesetzt und an der vierten (Sammelzeile
+     * „Ohne Schulung") falsch — dieselbe Fehlerklasse, die das Paket eigentlich
+     * beheben sollte. Mit der Ableitung aus den Daten kann kein Aufrufer sie
+     * mehr falsch setzen.
+     *
+     * @param  list<array>  $rows
+     */
+    public function isCensoredForRows(array $rows, string $todayYmd, ?int $tthMedian): bool
+    {
+        return count($rows) > 1
+            ? $this->isCensoredAggregate($rows, $todayYmd, $tthMedian)
+            : $this->isCensored($this->maxAppliedAt($rows), $todayYmd, $tthMedian);
+    }
+
     /** Ganze Tage zwischen zwei Y-m-d-Strings; negativ moeglich, null = unlesbar. */
     private static function ageInDays(string $fromYmd, string $toYmd): ?int
     {

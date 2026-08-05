@@ -1,13 +1,15 @@
 {{--
     Conversion-Zelle einer Tabellenzeile (unterschrieben / Bewerbungen).
 
-    Right-Censoring (Spec §6) gilt fuer EINZELZEILEN: solange eine Kohorte
-    juenger ist als der Median-Durchlauf, ist ihre Quote strukturell zu niedrig
-    — die meisten Bewerbungen hatten noch keine Zeit zur Unterschrift. Sie wird
-    dann ausgegraut statt versteckt.
+    Right-Censoring (Spec §6): solange eine Kohorte juenger ist als der
+    Median-Durchlauf, ist ihre Quote strukturell zu niedrig — die meisten
+    Bewerbungen hatten noch keine Zeit zur Unterschrift. Sie wird dann
+    ausgegraut statt versteckt.
 
-    Fuer Summen- und Gesamtzeilen ($isTotal) gilt es NICHT — Begruendung in
-    CohortViewModel::isCensored().
+    Ob die Einzelzeilen- oder die Aggregat-Regel greift, entscheidet
+    CohortViewModel::isCensoredForRows() anhand der Zeilenmenge — hier wird dazu
+    bewusst NICHTS durchgereicht, damit diese Zelle es nicht falsch setzen kann.
+    $isTotal steuert nur noch die Schriftstaerke.
 
     Erwartet: $rows, $isTotal — die Median-Schwelle wird NICHT hereingereicht, sondern
     ueber $this->censorNote() gelesen: isCensored() entscheidet intern mit demselben
@@ -15,7 +17,7 @@
 --}}
 @php
     $conversion = $this->conversionOf($rows);
-    $censored = $this->isCensored($rows, $isTotal);
+    $censored = $this->isCensored($rows);
 
     if ($conversion === null) {
         $convClass = 'text-[color:var(--ui-muted)]';

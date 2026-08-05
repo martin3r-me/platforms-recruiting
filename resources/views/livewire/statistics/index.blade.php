@@ -92,12 +92,12 @@
     $filterNote = 'Testbewerber sind immer ausgeschlossen. Bewerbungen ohne Datum bleiben trotz Zeitraum-Filter sichtbar und stehen in einer eigenen Zeile, damit die Summe vollständig bleibt.';
     $snapshotNote = 'Der Trichter zeigt den aktuellen Status jeder Bewerbung, keine Historie. Werte können zwischen zwei Aufrufen auch sinken, wenn sich ein Status ändert (z. B. eine bestätigte Buchung wird storniert). Jeder Spaltenkopf trägt seine Definition als Tooltip.';
 
-    // Right-Censoring auf der Kachel folgt der Aggregat-Regel (siehe
-    // CohortViewModel::isCensoredAggregate): grau nur, wenn JEDE Zeile der
-    // Auswahl zu jung ist. Vorher war die Kachel dauerhaft grau, weil in einer
-    // Gesamtsicht immer eine Bewerbung von heute dabei ist — ein Zustand, der
-    // nie wechselt, liest sich als Fehler.
-    $overallCensored = $this->isCensored($this->cohort['rows'], true);
+    // Right-Censoring auf der Kachel: die Regel waehlt das ViewModel anhand der
+    // Zeilenmenge (isCensoredForRows) — bei mehreren Zeilen also die
+    // Aggregat-Regel „grau nur, wenn JEDE Zeile zu jung ist". Vorher war die
+    // Kachel dauerhaft grau, weil in einer Gesamtsicht immer eine Bewerbung von
+    // heute dabei ist — ein Zustand, der nie wechselt, liest sich als Fehler.
+    $overallCensored = $this->isCensored($this->cohort['rows']);
 
     $allToken = $this->drillToken('all', 'Gesamt');
     $ohneTerminToken = $this->drillToken('type_all', 'Ohne Termin', ['type' => 'ohne_schulung']);

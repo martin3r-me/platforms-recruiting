@@ -604,4 +604,31 @@ final class CohortViewModelTest extends TestCase
             'Einzelzeile: der Anker ist die juengste Bewerbung, also grau',
         );
     }
+
+    public function test_regelwahl_haengt_an_der_zeilenzahl_nicht_an_einem_flag(): void
+    {
+        $vm = $this->vm();
+        $today = '2026-08-05';
+        $median = 7;
+
+        $reif = ['max_applied_at' => '2026-06-01'];
+        $jung = ['max_applied_at' => '2026-08-04'];
+
+        // Mehrere Zeilen -> Aggregat-Regel: eine reife Zeile genuegt.
+        // Deckt die Sammelzeile „Ohne Schulung" ab, die vorher als Einzelzeile
+        // lief und deshalb dauerhaft grau war, sobald EINE Phase frisch war.
+        $this->assertFalse($vm->isCensoredForRows([$reif, $jung], $today, $median));
+        $this->assertTrue($vm->isCensoredForRows([$jung, $jung], $today, $median));
+
+        // Genau eine Zeile -> Einzelzeilen-Regel. Eine Sammelzeile mit nur einer
+        // Phase ist kein Aggregat; das Verduennungs-Argument braucht Mehrzahl.
+        $this->assertTrue($vm->isCensoredForRows([$jung], $today, $median));
+        $this->assertFalse($vm->isCensoredForRows([$reif], $today, $median));
+
+        // Leere Menge: keine belegbare Reife
+        $this->assertTrue($vm->isCensoredForRows([], $today, $median));
+        // Ohne Median gibt es keine Referenz — unabhaengig von der Zeilenzahl
+        $this->assertTrue($vm->isCensoredForRows([$reif], $today, null));
+        $this->assertTrue($vm->isCensoredForRows([$reif, $reif], $today, null));
+    }
 }

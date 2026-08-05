@@ -356,20 +356,19 @@ class Index extends Component
      * Schwelle ist der Median der aktuellen Gesamtsicht, also genau der Wert, den
      * die Kachel zeigt — Kachel und Tabelle koennen sich nicht widersprechen.
      *
-     * $isAggregate unterscheidet Einzelzeile von Summen-/Gesamtzeile und Kachel;
-     * die beiden Regeln stehen samt Begruendung im CohortViewModel.
+     * Ob die Einzelzeilen- oder die Aggregat-Regel gilt, leitet das ViewModel aus
+     * der Zeilenmenge ab (isCensoredForRows) — bewusst KEIN Flag von hier, das an
+     * einer von vier Aufrufstellen falsch gesetzt werden koennte.
      *
      * @param  list<array>  $rows
      */
-    public function isCensored(array $rows, bool $isAggregate = false): bool
+    public function isCensored(array $rows): bool
     {
-        $vm = $this->viewModel();
-        $today = now()->toDateString();
-        $median = $this->tiles['tth_median'];
-
-        return $isAggregate
-            ? $vm->isCensoredAggregate($rows, $today, $median)
-            : $vm->isCensored($vm->maxAppliedAt($rows), $today, $median);
+        return $this->viewModel()->isCensoredForRows(
+            $rows,
+            now()->toDateString(),
+            $this->tiles['tth_median'],
+        );
     }
 
     /**
