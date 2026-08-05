@@ -31,6 +31,13 @@ class RecEmployeeHrData extends Model
         'linen_package_items',
         'star_rating',
         'qualifications',
+        // Iteration 5 — fuenf Kriterien + Freitext (Spec §1/N1)
+        'rating_erscheinungsbild',
+        'rating_fachkompetenz',
+        'rating_auffassungsgabe',
+        'rating_auftreten',
+        'rating_teamintegration',
+        'evaluation_note',
     ];
 
     protected $casts = [
@@ -40,6 +47,11 @@ class RecEmployeeHrData extends Model
         'linen_package_items' => 'array',
         'qualifications'      => 'array',
         'star_rating'         => 'integer',
+        'rating_erscheinungsbild' => 'integer',
+        'rating_fachkompetenz'    => 'integer',
+        'rating_auffassungsgabe'  => 'integer',
+        'rating_auftreten'        => 'integer',
+        'rating_teamintegration'  => 'integer',
     ];
 
     protected static function booted(): void

@@ -51,6 +51,15 @@ class RecApplicant extends Model implements InheritsExtraFields
         'suggested_posting_id',
         'match_reason',
         'team_id', 'created_by_user_id', 'owned_by_user_id',
+        // Bewertung am Bewerber (Spec §1) — wandert bei der MA-Anlage auf hrData.
+        'rating_erscheinungsbild',
+        'rating_fachkompetenz',
+        'rating_auffassungsgabe',
+        'rating_auftreten',
+        'rating_teamintegration',
+        'evaluation_note',
+        'linen_package_items',
+        'qualifications',
     ];
 
     protected $casts = [
@@ -70,6 +79,13 @@ class RecApplicant extends Model implements InheritsExtraFields
         'export_changed_at' => 'datetime',
         'zuschlag' => 'decimal:2',
         'is_test' => 'boolean',
+        'rating_erscheinungsbild' => 'integer',
+        'rating_fachkompetenz'    => 'integer',
+        'rating_auffassungsgabe'  => 'integer',
+        'rating_auftreten'        => 'integer',
+        'rating_teamintegration'  => 'integer',
+        'linen_package_items'     => 'array',
+        'qualifications'          => 'array',
     ];
 
     protected static function booted(): void
