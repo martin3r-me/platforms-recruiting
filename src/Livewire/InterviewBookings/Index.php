@@ -175,6 +175,26 @@ class Index extends Component
     }
 
     /**
+     * Nachbereitungs-Modus: A-Z nach dem angezeigten Namen (Spec §3).
+     *
+     * Sortiert wird die geladene Collection, nicht per Join: die Liste
+     * paginiert nicht (Spec F11), und ein Join ueber crm_contact_links wuerde
+     * bei mehrfach verlinkten Bewerbern Zeilen vervielfachen.
+     *
+     * ACHTUNG-Kopplung: wird die Liste spaeter paginiert, sortiert das hier nur
+     * die aktuelle Seite. Dann muss auf DB-Sortierung mit expliziter
+     * Link-Priorisierung umgestellt werden.
+     */
+    public function bookingsSortedByName()
+    {
+        return $this->bookings
+            ->sortBy(fn ($booking) => \Platform\Recruiting\Support\ApplicantContactName::sortKey(
+                $this->contactCandidatesFor($booking->applicant),
+            ), SORT_STRING)
+            ->values();
+    }
+
+    /**
      * Offene Nicht-EU-Fälle der sichtbaren Bewerber — EIN Batch-Query,
      * keyed by applicant_id (Blade: Lock-Badge "Liegt beim HR-Schreibtisch").
      *

@@ -73,27 +73,27 @@
                     title="{{ $mode === 'nachbereitung' ? 'Schulungsnachbereitung' : 'Buchungen' }}"
                     subtitle="{{ $mode === 'nachbereitung' ? 'Anwesenheit markieren, Vertragsvorlage wählen, Verträge versenden.' : 'Gebuchte Kandidaten für diesen Termin' }}"
                 >
-                    @if($mode === 'overview')
                     <div class="flex gap-2 mb-4">
-                        <x-ui-input-select
-                            name="filterStatus"
-                            wire:model.live="filterStatus"
-                            :options="[
-                                ['value' => 'all', 'label' => 'Alle Status'],
-                                ['value' => 'booked', 'label' => 'Gebucht'],
-                                ['value' => 'registered', 'label' => 'Registriert'],
-                                ['value' => 'confirmed', 'label' => 'Bestätigt'],
-                                ['value' => 'attended', 'label' => 'Teilgenommen'],
-                                ['value' => 'cancelled', 'label' => 'Abgesagt'],
-                                ['value' => 'rebooked', 'label' => 'Umgebucht'],
-                                ['value' => 'no_show', 'label' => 'Nicht erschienen'],
-                            ]"
-                            optionValue="value"
-                            optionLabel="label"
-                        />
+                        @if($mode === 'overview')
+                            <x-ui-input-select
+                                name="filterStatus"
+                                wire:model.live="filterStatus"
+                                :options="[
+                                    ['value' => 'all', 'label' => 'Alle Status'],
+                                    ['value' => 'booked', 'label' => 'Gebucht'],
+                                    ['value' => 'registered', 'label' => 'Registriert'],
+                                    ['value' => 'confirmed', 'label' => 'Bestätigt'],
+                                    ['value' => 'attended', 'label' => 'Teilgenommen'],
+                                    ['value' => 'cancelled', 'label' => 'Abgesagt'],
+                                    ['value' => 'rebooked', 'label' => 'Umgebucht'],
+                                    ['value' => 'no_show', 'label' => 'Nicht erschienen'],
+                                ]"
+                                optionValue="value"
+                                optionLabel="label"
+                            />
+                        @endif
                         <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.300ms="search" class="flex-1 max-w-xs" />
                     </div>
-                    @endif
 
                     @if($this->interview->max_participants)
                         @php
@@ -132,7 +132,7 @@
                                         <td class="px-4 py-3">
                                             @if($booking->applicant)
                                                 <a href="{{ route('recruiting.applicants.show', $booking->applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
-                                                    {{ $booking->applicant->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt' }}
+                                                    {{ \Platform\Recruiting\Support\ApplicantContactName::display($this->contactCandidatesFor($booking->applicant)) }}
                                                 </a>
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
@@ -209,7 +209,7 @@
                     @else
                     {{-- Nachbereitungs-Modus --}}
                     @php
-                        $relevantBookings = $this->bookings->whereNotIn('status', ['cancelled'])->values();
+                        $relevantBookings = $this->bookingsSortedByName()->whereNotIn('status', ['cancelled'])->values();
                         $bulkState = $this->bulkSendState;
                         $defaultTpl = $this->defaultContractTemplate;
                     @endphp
@@ -271,7 +271,7 @@
                                         <td class="px-4 py-3">
                                             @if($applicant)
                                                 <a href="{{ route('recruiting.applicants.show', $applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
-                                                    {{ $applicant->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt' }}
+                                                    {{ \Platform\Recruiting\Support\ApplicantContactName::display($this->contactCandidatesFor($applicant)) }}
                                                 </a>
                                                 @if($hasOpenNonEuCase)
                                                     <div class="text-[10px] text-blue-700 mt-0.5 font-medium">Liegt beim HR-Schreibtisch</div>
