@@ -4,7 +4,7 @@
     zweite Kopie wuerde beim naechsten Spalten-Wechsel garantiert auseinanderlaufen.
 
     Erwartet:
-      $colDefs  list<array{key,label,on,total,onlyRunning?}>
+      $colDefs  list<array{key,label,on,total,onlyRunning?,gstart?}>
       $rows     list<array>  Assigner-Zeilen, die diese Tabellenzeile bilden
       $token    string       Drill-Token der Zeile (einmal pro Zeile gebaut)
       $prefix   string       Label-Praefix, nur fuer den title-Tooltip
@@ -13,17 +13,26 @@
     'onlyRunning' => true markiert Spalten, die nur fuer laufende Kohorten eine
     Aussage sind ("noch offen"). Auf ausgeschlossenen Buckets steht dort "–" wie
     bei den Kapazitaetsspalten — eine 0 saehe wie ein Messwert aus.
+
+    'gstart' => true zieht die Trennlinie zur vorigen Spaltengruppe (Trichter /
+    Abzweige / Vertrag / Stand). Die Gruppen sind der Grund, warum 14 Spalten
+    lesbar bleiben: der Blick bekommt Absaetze.
+
+    Nullen tragen KEINE Pille: eine gefuellte Pille ist die Markierung fuer
+    „hier ist etwas passiert". Bei ueber der Haelfte leerer Zellen zog die
+    graue Null vorher genauso viel Aufmerksamkeit wie ein echter Wert.
 --}}
 @foreach ($colDefs as $col)
     @php
         $applicable = empty($col['onlyRunning']) || $this->hasRunningRow($rows);
         $count = $applicable ? $this->countIn($rows, $col['key']) : 0;
-        $badge = $count > 0
-            ? ($isTotal ? $col['total'] : $col['on'])
-            : 'bg-gray-50 text-gray-400';
-        $weight = $isTotal ? 'font-bold' : 'font-medium';
+        $badge = $isTotal ? $col['total'] : $col['on'];
+        // Bewerbungen ist die Bezugsgroesse aller anderen Spalten und wird
+        // deshalb schwerer gesetzt.
+        $weight = $isTotal ? 'font-bold' : ($col['key'] === 'ids' ? 'font-semibold' : 'font-medium');
+        $groupBorder = empty($col['gstart']) ? '' : 'border-l border-[var(--ui-border)]/60';
     @endphp
-    <td class="px-3 py-2 text-center whitespace-nowrap">
+    <td class="px-3 py-2 text-center whitespace-nowrap tabular-nums {{ $groupBorder }}">
         @if (!$applicable)
             <span class="text-xs text-[color:var(--ui-muted)]"
                   title="{{ $col['label'] }} gilt nur für laufende Kohorten (Schulung / ohne Schulung) — dieser Zeilentyp ist ein ausgeschlossener Bucket.">–</span>
@@ -36,7 +45,7 @@
                 class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs {{ $weight }} {{ $badge }} hover:ring-2 hover:ring-[var(--ui-border)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)] transition-all cursor-pointer"
             >{{ $count }}</button>
         @else
-            <span class="inline-flex items-center justify-center min-w-[2rem] rounded-full px-2 py-0.5 text-xs {{ $weight }} bg-gray-50 text-gray-400">0</span>
+            <span class="text-xs text-[color:var(--ui-muted)]">0</span>
         @endif
     </td>
 @endforeach

@@ -546,4 +546,62 @@ final class CohortViewModelTest extends TestCase
             $this->row('schulung', 'schulung:1', 'E', 'S'),
         ]));
     }
+
+    public function test_scope_type_all_sammelt_einen_typ_ueber_alle_gruppen(): void
+    {
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Bonn', 'Service', [1, 2]),
+            $this->row('ohne_schulung', 'ohne_schulung:2|Termin', 'Düsseldorf', 'Küche', [3]),
+            $this->row('schulung', 'schulung:9', 'Bonn', 'Service', [4]),
+            $this->row('geparkt', '-', 'Bonn', 'Service', [5]),
+        ];
+
+        // Grundlage der Kachel „Ohne Termin": haengt an keinem Ort und keiner Taetigkeit
+        $this->assertSame(
+            [1, 2, 3],
+            $this->vm()->resolveIds($rows, ['scope' => 'type_all', 'type' => 'ohne_schulung'], 'ids'),
+        );
+        // ort/act im Spec sind fuer diesen Scope irrelevant und duerfen nichts einschraenken
+        $this->assertSame(
+            [1, 2, 3],
+            $this->vm()->resolveIds(
+                $rows,
+                ['scope' => 'type_all', 'type' => 'ohne_schulung', 'ort' => 'Bonn', 'act' => 'Service'],
+                'ids',
+            ),
+        );
+        $this->assertSame(
+            [],
+            $this->vm()->resolveIds($rows, ['scope' => 'type_all', 'type' => 'gibt_es_nicht'], 'ids'),
+        );
+    }
+
+    public function test_aggregat_censoring_nur_wenn_jede_zeile_zu_jung_ist(): void
+    {
+        $vm = $this->vm();
+        $today = '2026-08-05';
+        $median = 7;
+
+        $reif = ['max_applied_at' => '2026-06-01'];   // 65 Tage alt
+        $jung = ['max_applied_at' => '2026-08-04'];   // 1 Tag alt
+        $ohneDatum = ['max_applied_at' => null];
+
+        // Kernbefund: eine einzige frische Zeile darf die Kachel NICHT ausgrauen —
+        // sonst ist sie dauerhaft grau und traegt keine Information mehr.
+        $this->assertFalse($vm->isCensoredAggregate([$reif, $jung], $today, $median));
+        $this->assertFalse($vm->isCensoredAggregate([$jung, $reif, $ohneDatum], $today, $median));
+
+        // Sind ALLE Zeilen jung, greift das Verduennungs-Argument nicht mehr
+        $this->assertTrue($vm->isCensoredAggregate([$jung, $jung], $today, $median));
+        $this->assertTrue($vm->isCensoredAggregate([$ohneDatum], $today, $median));
+        $this->assertTrue($vm->isCensoredAggregate([], $today, $median), 'keine Zeilen = keine belegbare Reife');
+        // ohne Median gibt es keine Referenz -> grau, auch bei alten Zeilen
+        $this->assertTrue($vm->isCensoredAggregate([$reif], $today, null));
+
+        // Einzelzeilen-Regel bleibt unangetastet: dieselbe Menge, andere Aussage
+        $this->assertTrue(
+            $vm->isCensored($vm->maxAppliedAt([$reif, $jung]), $today, $median),
+            'Einzelzeile: der Anker ist die juengste Bewerbung, also grau',
+        );
+    }
 }

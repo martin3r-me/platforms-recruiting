@@ -168,6 +168,9 @@ final class CohortViewModel
             'type' => fn ($row) => $row['type'] === $type
                 && $row['group']['ort'] === $ort && $row['group']['taetigkeit'] === $act,
             'ort' => fn ($row) => $row['group']['ort'] === $ort,
+            // Ein Zeilentyp ueber ALLE Gruppen hinweg — Grundlage der Kachel
+            // „Ohne Termin", die nicht an einem Ort haengt.
+            'type_all' => fn ($row) => $row['type'] === $type,
             'all' => fn ($row) => true,
             // fail-closed: ein unbekannter Scope liefert NICHTS. Als Default auf
             // „alles" waere ein Tippfehler im Token ein Datenleck-artiger Unfall —
@@ -278,6 +281,40 @@ final class CohortViewModel
         }
 
         return $age < $tthMedian;
+    }
+
+    /**
+     * Right-Censoring fuer AGGREGATE (Summen-Zeile, Gesamt-Zeile, KPI-Kachel):
+     * grau nur, wenn JEDE enthaltene Zeile fuer sich zu jung ist.
+     *
+     * Warum nicht dieselbe Regel wie fuer Einzelzeilen: der Alters-Anker einer
+     * Zeilenmenge ist die juengste enthaltene Bewerbung (maxAppliedAt) — in einer
+     * Gesamtsicht ist praktisch immer eine von heute dabei, die Kachel waere also
+     * dauerhaft grau. Ein Zustand, der nie wechselt, traegt keine Information und
+     * liest sich als Anzeigefehler (Live-Befund 2026-08-05: Kachel grau, einzelne
+     * Zeilen daneben farbig).
+     *
+     * Fachlich traegt die Unterscheidung: der Verzerrungsanteil ist |jung| / |alle|
+     * — ueber viele reife Zeilen vernachlaessigbar, in einer einzelnen frischen
+     * Schulung dominant. Sind ALLE Zeilen jung, greift das Argument nicht mehr und
+     * auch das Aggregat wird ausgegraut. Die exakte Variante (Reife pro Bewerbung
+     * statt pro Zeile) ist fuer Teil 2 vorgemerkt.
+     *
+     * @param  list<array>  $rows
+     */
+    public function isCensoredAggregate(array $rows, string $todayYmd, ?int $tthMedian): bool
+    {
+        if ($rows === []) {
+            return true; // keine Zeilen → keine belegbare Reife
+        }
+
+        foreach ($rows as $row) {
+            if (!$this->isCensored($row['max_applied_at'] ?? null, $todayYmd, $tthMedian)) {
+                return false; // mindestens eine reife Zeile → Aggregat zaehlt
+            }
+        }
+
+        return true;
     }
 
     /** Ganze Tage zwischen zwei Y-m-d-Strings; negativ moeglich, null = unlesbar. */

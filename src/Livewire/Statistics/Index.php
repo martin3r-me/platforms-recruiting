@@ -302,9 +302,19 @@ class Index extends Component
         $tth = array_merge(...array_map(fn ($r) => $r['tth_days'], $c['rows']) ?: [[]]);
         sort($tth);
         $n = count($tth);
+        // „Ohne Termin" ist die Antwort auf die Kundenfrage „wo hängen die
+        // restlichen fest" und stand vorher nur als Nebenzeile in der Tabelle.
+        // Summiert ueber die Zeilen des laufenden Typs ohne_schulung — dieselbe
+        // Menge, die das Drill-down mit scope=type_all aufloest.
+        $ohneTermin = array_sum(array_map(
+            fn ($r) => $r['type'] === 'ohne_schulung' ? count($r['ids']) : 0,
+            $c['rows'],
+        ));
+
         return [
             'bewerbungen' => $total,
             'gebucht' => $sum('gebucht'),
+            'ohne_termin' => $ohneTermin,
             'unterschrieben' => $signed,
             'conversion' => $total > 0 ? (int) round($signed / $total * 100) : 0,
             'tth_median' => $n > 0
@@ -346,17 +356,20 @@ class Index extends Component
      * Schwelle ist der Median der aktuellen Gesamtsicht, also genau der Wert, den
      * die Kachel zeigt — Kachel und Tabelle koennen sich nicht widersprechen.
      *
+     * $isAggregate unterscheidet Einzelzeile von Summen-/Gesamtzeile und Kachel;
+     * die beiden Regeln stehen samt Begruendung im CohortViewModel.
+     *
      * @param  list<array>  $rows
      */
-    public function isCensored(array $rows): bool
+    public function isCensored(array $rows, bool $isAggregate = false): bool
     {
         $vm = $this->viewModel();
+        $today = now()->toDateString();
+        $median = $this->tiles['tth_median'];
 
-        return $vm->isCensored(
-            $vm->maxAppliedAt($rows),
-            now()->toDateString(),
-            $this->tiles['tth_median'],
-        );
+        return $isAggregate
+            ? $vm->isCensoredAggregate($rows, $today, $median)
+            : $vm->isCensored($vm->maxAppliedAt($rows), $today, $median);
     }
 
     /**
