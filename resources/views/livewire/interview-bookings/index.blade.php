@@ -576,7 +576,14 @@
              Highlight aus peer-checked kommt (nicht mehr aus einer serverseitig
              berechneten Klasse), waere das nicht als Widerspruch sichtbar,
              sondern saehe stimmig aus: Speichern schriebe die Bewertung der
-             falschen Person. --}}
+             falschen Person.
+
+             ZUSAMMENSPIEL, nicht Redundanz: wire:key verhindert das Morphing
+             des Teilbaums, @checked() an den Radios liefert den Initialzustand
+             des NEU gerenderten Teilbaums. Beides zusammen traegt, einzeln
+             nicht — wer @checked() "aufraeumt", verliert die Vorbelegung beim
+             Oeffnen; wer wire:key entfernt, holt die Fremdwerte-Anzeige
+             zurueck. --}}
         <div class="space-y-5" wire:key="eval-modal-{{ $evaluateBookingId }}">
             @if($evalBooking)
                 <div class="text-sm">
