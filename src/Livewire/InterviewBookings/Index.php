@@ -661,7 +661,8 @@ class Index extends Component
     }
 
     // ------------------------------------------------------------------
-    // Bewertungs-Modal (Waeschepaket, Qualifikation, Sternebewertung)
+    // Bewertungs-Modal: fuenf Kriterien à 1-5 Sterne, Waeschepaket,
+    // Qualifikation, Bewertungstext — alle acht Felder in einem Vorgang.
     // ------------------------------------------------------------------
 
     /**
