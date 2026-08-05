@@ -614,6 +614,10 @@ einzigen Mitarbeiter ohne jede Bewertung. Deshalb bleibt es bei der einen Regel.
   lässt die Bewerber-Spalten unberührt; ohne Employee nur die Bewerber-Spalten.
 - Phasenregel §4 beim **Lesen der Zeilen-Anzeige**: existiert ein Employee, liest sie
   hrData, sonst die Bewerber-Spalten.
+- **Die Zeilen-Anzeige erzeugt keine hrData-Row.** `ensureHrData()` ist ein
+  `firstOrCreate` und gehört ausschließlich in den Schreibpfad; im Render würde das
+  bloße Betrachten der Tabelle Rows anlegen — einmal pro Zeile. Testfall: Employee
+  ohne hrData-Row rendern, danach muss `rec_employee_hr_data` unverändert leer sein.
 - Übernahme **aller acht Felder** bei der MA-Erst-Anlage, nur in leere Felder.
 - `RecEmployeeHrData::saved` setzt `zas_changed_at` bei Änderung der neuen
   Rating-Felder (F9).

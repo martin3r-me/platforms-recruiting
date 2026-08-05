@@ -1499,8 +1499,19 @@ git commit -m "feat(recruiting): Bewertung bei MA-Erst-Anlage auf hrData ueberne
 - Consumes: `EvaluationAvailability::isOpen()` (Task 2), `EvaluationValues` (Task 3), `RatingCriteria` (Task 1), `ApplicantContactName` (Task 4).
 - Produces:
   - `$this->evaluation` — Array mit den acht Feldnamen als Schlüssel.
-  - `evaluationTargetFor($applicant)` — liefert das Modell, aus dem gelesen und in das geschrieben wird (hrData falls Employee existiert, sonst Applicant). **Von Task 9 mitbenutzt.**
+  - `#[Computed] evaluationValues(): array` — **Leseseite**, `[applicant_id => array<string, mixed>]` für alle sichtbaren Bewerber, einmal pro Render, **ohne Query und ohne Write**. **Von Task 9 mitbenutzt.**
+  - `evaluationWriteTarget($applicant)` — **Schreibseite**, liefert das Modell, in das geschrieben wird (`ensureHrData()` falls Employee existiert, sonst Applicant). Nur in `saveEvaluation()` benutzt.
   - `contactCandidatesFor($applicant): array` — mappt die CRM-Links in die Kandidaten-Form von `ApplicantContactName`. **Von Task 9 und Task 10 mitbenutzt.**
+
+**Lesen und Schreiben sind strikt getrennt.** `ensureHrData()` ist ein
+`firstOrCreate`, also ein **Schreibzugriff**. Würde die Leseseite es benutzen,
+erzeugte das bloße Betrachten der Tabelle hrData-Rows — einmal pro Zeile, bei 20
+Teilnehmern 20 Writes. Das ist genau das Anti-Pattern, das auf der
+Mitarbeiterkarte schon existiert (F17, `ensureHrData()` pro Feld im Render) und
+das diese Spec ausdrücklich nicht weiterträgt. Die Leseseite nimmt deshalb
+`$applicant->employee?->hrData ?? $applicant` — beides eager geladen (F12).
+Existiert ein Employee ohne hrData-Row, wird **nichts erzeugt**; dann werden eben
+keine Werte angezeigt.
 
 - [ ] **Step 1: Property-Shape umstellen**
 
@@ -1555,24 +1566,63 @@ Task 10 (beide Tabellen) benutzt:
     }
 ```
 
-- [ ] **Step 3: Phasenweiche als eigene Methode ergänzen**
+- [ ] **Step 3: Leseseite als Computed-Property ergänzen**
 
 Direkt darunter einfügen:
 
 ```php
     /**
-     * Phasenregel (Spec §4): existiert ein Mitarbeiter, ist hrData die einzige
-     * Lese- UND Schreibseite; sonst der Bewerber. Gilt fuer alle drei
-     * Leseseiten — Modal, Tabellenzelle und Mitarbeiterkarte.
+     * LESESEITE der Phasenregel (Spec §4): die acht Bewertungsfelder aller
+     * sichtbaren Bewerber, einmal pro Render aufgeloest.
+     *
+     * Quelle: hrData, wenn ein Mitarbeiter existiert, sonst der Bewerber.
+     * Beides ist bereits eager geladen (Spec F12) — diese Property macht
+     * KEINE Query.
+     *
+     * WICHTIG: hier NICHT ensureHrData() benutzen. Das ist ein firstOrCreate,
+     * also ein Schreibzugriff — im Render-Pfad wuerde das blosse Betrachten der
+     * Tabelle hrData-Rows erzeugen, einmal pro Zeile. Existiert ein Mitarbeiter
+     * ohne hrData-Row, werden hier eben keine Werte geliefert. Angelegt wird die
+     * Row ausschliesslich beim Speichern (evaluationWriteTarget).
+     *
+     * @return array<int, array<string, mixed>>  applicant_id => Feldwerte
+     */
+    #[Computed]
+    public function evaluationValues(): array
+    {
+        $result = [];
+
+        foreach ($this->bookings as $booking) {
+            $applicant = $booking->applicant;
+            if (!$applicant) {
+                continue;
+            }
+
+            $source = $applicant->employee?->hrData ?? $applicant;
+
+            $values = [];
+            foreach (\Platform\Recruiting\Support\EvaluationValues::FIELDS as $field) {
+                $values[$field] = $source->{$field};
+            }
+
+            $result[$applicant->id] = $values;
+        }
+
+        return $result;
+    }
+
+    /**
+     * SCHREIBSEITE der Phasenregel (Spec §4): existiert ein Mitarbeiter, ist
+     * hrData die Schreibseite, sonst der Bewerber.
      *
      * Kein Dual-Write: HR pflegt dieselben Felder auf der Mitarbeiterkarte und
      * schreibt dort nur hrData. Wuerden wir beide Seiten schreiben, schoebe das
      * Modal spaeter den alten Bewerber-Wert ueber HRs Korrektur.
      *
-     * Beide Quellen sind bereits eager geladen (Spec F12) — die Weiche kostet
-     * keine zusaetzliche Query.
+     * Hier ist ensureHrData() richtig: der Aufruf erfolgt nur bei einer
+     * bewussten Speicher-Aktion, nicht im Render.
      */
-    public function evaluationTargetFor($applicant)
+    public function evaluationWriteTarget($applicant)
     {
         if (!$applicant) {
             return null;
@@ -1598,22 +1648,25 @@ Direkt darunter einfügen:
             return;
         }
 
-        $target = $this->evaluationTargetFor($booking->applicant);
-        if (!$target) {
+        $applicant = $booking->applicant;
+        if (!$applicant) {
             session()->flash('error', 'Bewerber nicht gefunden.');
             return;
         }
 
+        // Vorbelegung aus der LESESEITE — legt keine hrData-Row an.
+        $values = $this->evaluationValues[$applicant->id] ?? [];
+
         $this->evaluateBookingId = $bookingId;
         $this->evaluation = [
-            'rating_erscheinungsbild' => $target->rating_erscheinungsbild !== null ? (string) $target->rating_erscheinungsbild : null,
-            'rating_fachkompetenz'    => $target->rating_fachkompetenz !== null ? (string) $target->rating_fachkompetenz : null,
-            'rating_auffassungsgabe'  => $target->rating_auffassungsgabe !== null ? (string) $target->rating_auffassungsgabe : null,
-            'rating_auftreten'        => $target->rating_auftreten !== null ? (string) $target->rating_auftreten : null,
-            'rating_teamintegration'  => $target->rating_teamintegration !== null ? (string) $target->rating_teamintegration : null,
-            'evaluation_note'         => $target->evaluation_note,
-            'linen_package_items'     => is_array($target->linen_package_items) ? $target->linen_package_items : [],
-            'qualifications'          => is_array($target->qualifications) ? $target->qualifications : [],
+            'rating_erscheinungsbild' => isset($values['rating_erscheinungsbild']) ? (string) $values['rating_erscheinungsbild'] : null,
+            'rating_fachkompetenz'    => isset($values['rating_fachkompetenz']) ? (string) $values['rating_fachkompetenz'] : null,
+            'rating_auffassungsgabe'  => isset($values['rating_auffassungsgabe']) ? (string) $values['rating_auffassungsgabe'] : null,
+            'rating_auftreten'        => isset($values['rating_auftreten']) ? (string) $values['rating_auftreten'] : null,
+            'rating_teamintegration'  => isset($values['rating_teamintegration']) ? (string) $values['rating_teamintegration'] : null,
+            'evaluation_note'         => $values['evaluation_note'] ?? null,
+            'linen_package_items'     => is_array($values['linen_package_items'] ?? null) ? $values['linen_package_items'] : [],
+            'qualifications'          => is_array($values['qualifications'] ?? null) ? $values['qualifications'] : [],
         ];
         $this->showEvaluationModal = true;
     }
@@ -1657,7 +1710,8 @@ Direkt darunter einfügen:
             return;
         }
 
-        $target = $this->evaluationTargetFor($booking->applicant);
+        // SCHREIBSEITE — hier darf ensureHrData() die Row anlegen.
+        $target = $this->evaluationWriteTarget($booking->applicant);
         if (!$target) {
             session()->flash('error', 'Bewerber nicht mehr vorhanden.');
             $this->closeEvaluationModal();
@@ -1678,7 +1732,7 @@ Direkt darunter einfügen:
 
         session()->flash('success', 'Bewertung gespeichert.');
         $this->closeEvaluationModal();
-        unset($this->bookings);
+        unset($this->bookings, $this->evaluationValues);
     }
 ```
 
@@ -1706,8 +1760,13 @@ git commit -m "feat(recruiting): Bewertungs-Modal auf acht Felder und Phasenrege
 - Modify: `resources/views/livewire/interview-bookings/index.blade.php` (Bewertungs-Zelle `:383-399`, Bewertungs-Modal `:528-594`)
 
 **Interfaces:**
-- Consumes: `evaluationTargetFor()` (Task 8), `EvaluationAvailability`, `EvaluationValues`, `RatingCriteria`, `lookupOptionsFor()` (bestehend, `:716`).
+- Consumes: `$this->evaluationValues` und `contactCandidatesFor()` (Task 8), `EvaluationAvailability`, `EvaluationValues`, `RatingCriteria`, `ApplicantContactName`, `lookupOptionsFor()` (bestehend, `:716`).
 - Produces: nichts.
+
+**Nicht verhandelbar:** Die Zelle liest **ausschließlich** aus
+`$this->evaluationValues`. Kein `ensureHrData()`, kein `evaluationWriteTarget()`
+und keine eigene Modell-Auflösung im Blade — sonst steht ein `firstOrCreate` im
+Render-Pfad, einmal pro Zeile (siehe Task 8).
 
 - [ ] **Step 1: Bewertungs-Zelle ersetzen**
 
@@ -1716,15 +1775,11 @@ git commit -m "feat(recruiting): Bewertungs-Modal auf acht Felder und Phasenrege
 ```blade
                                         <td class="px-4 py-3">
                                             @php
+                                                // Werte kommen aus der Computed-Leseseite (Task 8) — kein
+                                                // Query und kein Write pro Zeile.
                                                 $evalOpen   = \Platform\Recruiting\Support\EvaluationAvailability::isOpen($booking->status);
-                                                $evalTarget = $this->evaluationTargetFor($applicant);
-                                                $evalValues = [];
-                                                if ($evalTarget) {
-                                                    foreach (\Platform\Recruiting\Support\EvaluationValues::FIELDS as $evalField) {
-                                                        $evalValues[$evalField] = $evalTarget->{$evalField};
-                                                    }
-                                                }
-                                                $hasEval = \Platform\Recruiting\Support\EvaluationValues::hasAny($evalValues);
+                                                $evalValues = $applicant ? ($this->evaluationValues[$applicant->id] ?? []) : [];
+                                                $hasEval    = \Platform\Recruiting\Support\EvaluationValues::hasAny($evalValues);
                                             @endphp
 
                                             @if(!$evalOpen)
@@ -1870,6 +1925,10 @@ Terminseite → „Nach der Schulung". Erwartet:
 3. Modal zeigt fünf Kriterien mit je fünf Sternen, Wäschepaket, Qualifikation, Bewertungstext.
 4. Speichern → Zeile zeigt die Zahlenreihe (`4·3·5·4·4`) und die Marker; Button heißt jetzt „Bewertung bearbeiten".
 5. Modal erneut öffnen → alle Werte vorbelegt.
+6. **Kein Write beim Betrachten:** `SELECT COUNT(*) FROM rec_employee_hr_data;`
+   vor dem Öffnen der Nachbereitung notieren, Seite öffnen und mehrfach neu laden,
+   Zahl erneut prüfen — sie muss **identisch** sein. Steigt sie, erzeugt der
+   Render hrData-Rows und der Fix aus Task 8 ist nicht angekommen.
 
 - [ ] **Step 5: Commit**
 
