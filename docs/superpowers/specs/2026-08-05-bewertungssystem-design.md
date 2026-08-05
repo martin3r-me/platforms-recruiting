@@ -176,6 +176,69 @@ Bildanzeige** (Grep über `resources/views`: nur ein Datei-Link in
 `conversations/index.blade.php:244`) — kein bestehendes Muster, aber auch keins,
 das gebrochen wird.
 
+**F14 — Was ein Statuswechsel auf `attended` auslöst (vollständig).**
+Setzende Pfade: `InterviewBookings/Index::updateStatus()` (`:310-358`,
+`$booking->update()` bei `:346`) und `Tools/UpdateInterviewBookingTool` (`:74`).
+Ausgelöst wird:
+
+1. Model-`saving`-Hook (`RecInterviewBooking.php:56-60`):
+   `SeatStandbyPolicy::mustClearReleaseMarker()` → `seat_released_at = null`.
+2. `RecInterviewBookingComplianceObserver::saved` (`:25-59`) →
+   `NonEuPostTrainingGate::shouldRoute()` → ggf.
+   `routeIfNotAlreadyOpen(REASON_NON_EU_CITIZEN)` → **legt einen HR-Desk-Fall an**
+   und setzt `is_on_hr_desk=true`, `auto_pilot=false`.
+3. `RecInterviewWaitlistObserver::saved` (`:57-82`): `$activated` ist wahr →
+   `WaitlistRearmService::rearmIfNowFull($interviewId)`.
+4. **Nur im UI-Pfad** (`:350-352`): `assignDefaultTemplateIfMissing()` schreibt
+   `applicant.contract_template_id` (AV-default) → Applicant-Save → dessen
+   Observer (Export-Marker; Waitlist-Zweig no-op).
+
+**Nicht** ausgelöst: Phase-Check, Employee-Anlage, Auto-Pilot-Nachrichten.
+`checkAutoPilotCompletion()` wird von keinem Booking-Pfad gerufen (Aufrufer:
+`SendContractsService:219`, `HrDeskRoutingService:246`, `MigrateNonEuCases:179`,
+`ProcessAutoPilotApplicants:151`); der Employee entsteht ausschließlich beim
+Vertragsversand. Für den Phasenfortschritt ist attended nicht das Kriterium —
+`isPhaseComplete()` prüft bei `completion_type='booking'`
+`hasMatchingBooking($config)` (`RecApplicant.php:1573`), bei `'contract_sent'`
+`hasAnyContractSent()` (`:1575`).
+
+**`updateStatus()` hat keine Guards** für „Bewerber ist bereits Employee",
+`is_active=false` oder „Funnel abgeschlossen" — und **kein Team-Scoping**
+(`RecInterviewBooking::findOrFail($bookingId)`, `:317`). Ein attended-Klick auf
+einem längst abgeschlossenen Bewerber kann also einen HR-Desk-Fall aufreißen.
+
+**F15 — Team-Scoping fehlt in dieser Komponente durchgängig.**
+Die schreibenden Pro-Buchung-Methoden nutzen alle `findOrFail($bookingId)` ohne
+Team-Filter: `updateNotes:304`, `updateStatus:310`, `deleteBooking:360`,
+`setApplicantContractTemplate:367`, `setApplicantZuschlag:402`, `sendReminder:811`.
+Team-gescoped sind nur `availableApplicants:206`, `book:282` und
+`defaultContractTemplate:789`. **Es gibt hier also kein bestehendes
+Scoping-Muster zum Nachbauen** — vorbestehende Lücke, siehe §Benannte Lücken.
+`openEvaluationModal:664` und `saveEvaluation:690` lösen die Buchung dagegen über
+`$this->bookings->firstWhere('id', …)` auf und sind damit implizit auf den
+geladenen Termin begrenzt — der stärkere Guard.
+
+**F16 — Mitarbeiterkarte: Rendering und roter Fehlanzeiger.**
+`hrFieldGroups()` (`Employees/Show.php:252-270`) definiert die Gruppen
+„Vertrags-Status", „Ausstattung" (`linen_package_items`, `:263`) und
+„Bewertung & Qualifikation" (`star_rating` als `inline_select` mit Optionen 1–5,
+`:266`; `qualifications` als `multi_lookup`, `:267`). Gerendert in
+`employees/show.blade.php:195-258`. Zwei relevante Details:
+`:203` liest `$employee->ensureHrData()->getAttribute($key)` **pro Feld im Loop**
+(ein `firstOrCreate` je Feld je Render — vorbestehend), und `:204-205` setzt
+`$isMissing` → **roter Rand auf leeren Feldern**. Ein nicht mehr geschriebenes
+`star_rating` wäre damit bei jedem neuen Mitarbeiter dauerhaft rot als
+„bitte ausfüllen" markiert.
+
+**F17 — Buchungen sind soft-deleted; drei Löschpfade.**
+`SoftDeletes` auf `RecInterviewBooking` (`:7`, `:13`).
+(a) `InterviewBookings/Index::deleteBooking()` (`:360-364`) — ohne Guard, ohne
+Team-Check. (b) `Tools/DeleteInterviewBookingTool` (`:62-73`) — mit Team-Check
+(`:68`). (c) `Console/Commands/DeleteEmployee:118` — löscht die Buchungen, aber
+im selben Transaktionsblock wird der Employee `forceDelete`t (`:126`); für die
+Export-Frage daher ohne Bedeutung. **(a) und (b) können eine Buchung entfernen,
+während der Mitarbeiter bestehen bleibt.**
+
 **F13 — Lookup-Werte kommen aus `CoreLookup`.**
 `lookupOptionsFor()` (`InterviewBookings/Index.php:716-720`) liest
 `CoreLookup::where('name', …)->getOptionsArray()`; genutzt für `waeschepaket` und
@@ -239,22 +302,28 @@ Laravel/DB):
 EvaluationAvailability::isOpen(string $bookingStatus): bool
 ```
 
-Wahr genau bei `$bookingStatus === 'attended'`. Verwendet an **drei** Stellen mit
-einer Wahrheit: der Blade-Bedingung der Bewertungs-Zelle, in
-`openEvaluationModal()` und in `saveEvaluation()`. Kein Guard entfällt — sie
-wechseln nur ihr Kriterium und ihre Meldung („Bewertung erst möglich, wenn die
-Teilnahme bestätigt ist.").
+Wahr genau bei `$bookingStatus === 'attended'`. Verwendet an **vier** Stellen mit
+einer Wahrheit: der Blade-Bedingung der fünf Sterne-Zellen, der Blade-Bedingung
+der Abschluss-Zelle, in `openEvaluationModal()`/`saveEvaluation()` und —
+zwingend — in **`setRating()`** (§3). Kein Guard entfällt; die bestehenden
+wechseln nur Kriterium und Meldung („Bewertung erst möglich, wenn die Teilnahme
+bestätigt ist.").
 
-Bewusst **kein** ODER mit „Employee existiert": Wer heute schon Mitarbeiter ist,
-hat definitionsgemäß eine Schulung durchlaufen; ist seine Buchung nicht auf
-`attended`, ist *das* der Datenfehler und wird durch einen Klick behoben. Der
-Sonderfall aus der Zertifikat-Spec (`ma_ohne_attended = 1`, `bewertungen_ohne_
-attended = 0`) betrifft genau einen Mitarbeiter ohne jede Bewertung — es gibt
-nichts zu retten, und ein ODER würde die eine Regel aufweichen, die der Kunde
-verstehen soll. **Bestehende Bewertungen auf hrData bleiben unberührt und weiter
-sichtbar** — sie werden auf der Mitarbeiterkarte angezeigt (F8) und weiter als
-`Sternebewertung` exportiert (§5); diese Regel steuert nur die Neuerfassung am
-Termin.
+Bewusst **kein** ODER mit „Employee existiert": Der Sonderfall aus der
+Zertifikat-Spec (`ma_ohne_attended = 1`, `bewertungen_ohne_attended = 0`) betrifft
+genau einen Mitarbeiter ohne jede Bewertung — es gibt nichts zu retten, und ein
+ODER würde die eine Regel aufweichen, die der Kunde verstehen soll.
+
+**Der fehlende Status ist nicht durch einen beiläufigen Klick zu heilen.** Ein
+Statuswechsel auf `attended` hat Nebenwirkungen (F14): er kann über den
+Compliance-Observer einen HR-Desk-Fall anlegen und `auto_pilot=false` +
+`is_on_hr_desk=true` setzen — bei einem Bewerber, der längst Mitarbeiter ist, wäre
+das ein Rückschritt in den Funnel, und `updateStatus()` hat dafür keinen Guard
+(F14). Wer eine Altbewertung braucht, korrigiert deshalb **nicht** über den
+Status, sondern trägt sie auf der Mitarbeiterkarte nach bzw. lässt sie stehen:
+**bestehende Bewertungen auf hrData bleiben unberührt und weiter sichtbar** — auf
+der Mitarbeiterkarte (F16) und weiter als `Sternebewertung` im Export (§5). Diese
+Regel steuert ausschließlich die Neuerfassung am Termin.
 
 ### §3 Erfassung — fünf Sterne inline, Rest im Modal
 
@@ -270,6 +339,41 @@ Jede Zelle schreibt einzeln (`wire:click` pro Stern → eine Methode
 `setRating(bookingId, criterion, value)`), kein Sammel-Speichern. Erneuter Klick
 auf denselben Wert setzt zurück auf NULL — sonst ist ein Fehlklick nicht
 korrigierbar.
+
+**`setRating()` braucht vier serverseitige Prüfungen.** Eine optisch gesperrte
+Zelle ist keine Sperre: die Methode ist public auf der Livewire-Komponente und
+über das Wire-Protokoll direkt aufrufbar — derselbe Fund wie
+`setApplicantContractTemplate` (Zertifikat-Spec F10), diesmal von uns selbst
+gebaut. Also:
+
+1. **`EvaluationAvailability::isOpen($booking->status)`** serverseitig (§2).
+2. **`$criterion` gegen `RatingCriteria` whitelisten.** Der Parameter wird zu einem
+   Spaltennamen; ohne Whitelist ist das ein beliebiger Schreibzugriff auf
+   `rec_interview_bookings`. Nicht gelistetes Kriterium → stiller Abbruch.
+3. **Buchung über `$this->bookings->firstWhere('id', $bookingId)` auflösen**, nicht
+   per `findOrFail`. Das begrenzt implizit auf die Buchungen des geladenen Termins
+   und ist damit der stärkere Guard — dasselbe Muster wie `openEvaluationModal()`
+   (F15). Zusätzlich Team-Prüfung, weil in dieser Komponente **kein**
+   Scoping-Muster existiert, dem man folgen könnte (F15, vorbestehende Lücke).
+4. **`$value` in `{1,2,3,4,5,null}`.**
+
+**Render-Kosten: die Rating-Zelle wird eine eigene Livewire-Kindkomponente.**
+Statisch gezählt (nicht gemessen — in der Entwicklungsumgebung ist keine DB
+erreichbar) kostet ein voller Render der Nachbereitung **~23 Basis-Queries** plus
+**2–4 Queries pro Bewerber**: `hasAnyContractSent()` ist eine eigene
+`exists()`-Query (`RecApplicant.php:1587-1593` nutzt den Query-Builder, nicht die
+geladene Relation) und wird an vier Stellen gerufen — Blade `:233`, Blade `:419`,
+`bulkSendState:756` (`every`), `bulkSendState:760` (`filter`). Bei 20 Teilnehmern
+sind das **~63–103 Queries pro Klick**; 20 × 5 Kriterien = 100 Klicks ergeben
+6.300–10.300 Queries pro Schulung — genau in der Situation, für die das Feature
+gebaut ist. Ein Kindkomponenten-Render betrifft nur die eigene Zelle und bleibt
+bei 1–2 Queries.
+
+Zusätzlich, weil dieser Abschnitt die Zelle ohnehin neu baut: **`hasAnyContractSent`
+wird pro Render einmal für alle sichtbaren Bewerber als Batch aufgelöst**
+(`[applicant_id => bool]`, Muster `openNonEuCaseApplicantIds`,
+`InterviewBookings/Index.php:186-201`) und aus diesem Array gelesen. Das nimmt dem
+Voll-Render die 2–4N und verbessert die bestehende Ansicht mit.
 
 **Das Modal bleibt für den Abschluss:** Wäschepaket, Qualifikation und Freitext
 („dann zum Abschluss kann noch ein individueller Text geschrieben werden").
@@ -312,15 +416,35 @@ unsortiert aus („Anna Zimmermann" vor „Bernd Achterberg").
 
 **Sortiert wird die geladene Collection, nicht per Join** (F11): Die Liste
 paginiert nicht, und der Sortierschlüssel wird aus demselben Kontakt gebildet,
-den die Zeile anzeigt (`crmContactLinks->first()?->contact`) — Schlüssel und
-Label können damit nie auseinanderlaufen. Ein Join über `crm_contact_links` ist
-bewusst verworfen: die Relation ist to-many ohne Ordering (F11), ein Join würde
-Zeilen bei mehrfach verlinkten Bewerbern vervielfachen und bräuchte eine eigene
-Link-Priorisierung. **Kopplung, die im Code als Kommentar stehen muss:** Wird die
-Liste später paginiert, sortiert der Collection-Sort nur die aktuelle Seite —
-dann muss auf DB-Sortierung mit expliziter Link-Priorisierung umgestellt werden
-(Muster: `EmployeeContactListSyncService::resolveDesired()`, `:282-327`, die
-einzige Stelle im Modul mit Link-Priorisierung).
+den die Zeile anzeigt — Schlüssel und Label können damit nie auseinanderlaufen.
+Ein Join über `crm_contact_links` ist bewusst verworfen: die Relation ist to-many
+ohne Ordering (F11), ein Join würde Zeilen bei mehrfach verlinkten Bewerbern
+vervielfachen und bräuchte eine eigene Link-Priorisierung.
+
+**Die Kontaktwahl muss deterministisch werden.** `crmContactLinks->first()` ist
+heute nicht deterministisch (`morphMany` ohne Ordering, F11). Dass Schlüssel und
+Label aus demselben `first()` kommen, verhindert nur die Divergenz *zwischen
+beiden* — nicht, dass die Datenbank zwischen zwei Renderings einen anderen Link
+zuerst liefert. Bei der Klick-für-Klick-Arbeitsweise (§3) hieße das: **die Liste
+kann sich umsortieren, während der Schulungsleiter klickt.** Deshalb wird die
+Kontaktwahl für Anzeige und Sortierung über eine gemeinsame Hilfsfunktion
+deterministisch gemacht — **kleinste `contact_id`**, Muster
+`EmployeeContactListSyncService::resolveDesired()` (`:282-327`, die einzige Stelle
+im Modul mit Link-Priorisierung). Nur diese Ansicht wird umgestellt; die
+verstreuten `->first()`-Aufrufe im Rest des Moduls bleiben unangetastet (siehe
+§Benannte Lücken).
+
+**Kopplung, die im Code als Kommentar stehen muss:** Wird die Liste später
+paginiert, sortiert der Collection-Sort nur die aktuelle Seite — dann muss auf
+DB-Sortierung mit derselben expliziten Link-Priorisierung umgestellt werden.
+
+**Die bestehende `orderBy('booked_at', 'desc')`** (`InterviewBookings/Index.php:143`)
+**bleibt stehen** und gilt weiter für den Buchungs-Modus, wo sie die richtige
+Sortierung ist („zuletzt gebucht oben"). Im Nachbereitungs-Modus wird sie durch die
+Collection-Sortierung überschrieben. Bewusst kein Umbau der Query auf
+modus-abhängiges `orderBy` — die DB-Sortierung ist bei einer ohnehin vollständig
+geladenen, ungepaginierten Liste kein messbarer Aufwand, und ein zweiter
+Verzweigungspunkt in `bookings()` wäre mehr Risiko als Gewinn.
 
 Das Suchfeld wird im Nachbereitungs-Modus eingeblendet (F2 — die Filterlogik
 existiert und bleibt unverändert). Die Status-Filter-Auswahl bleibt dem
@@ -343,12 +467,20 @@ er bewertet.
 - **Neutraler Platzhalter** (Initialen oder Icon), wenn kein Selfie vorliegt, das
   Feld an der Stelle nicht definiert ist oder die Datei kein Bild ist
   (`isImage()`). Kein Fehler, keine leere Zelle.
-- **Batch-Laden ist Pflicht.** Pro Zeile wären sonst drei Queries nötig
-  (Definitions-ID, Feldwert, ContextFile + Variante) — bei 25 Teilnehmern 75
-  zusätzliche Abfragen. Auflösung als **eine** Batch-Query über alle sichtbaren
-  Bewerber, Muster wie `openNonEuCaseApplicantIds()`
-  (`InterviewBookings/Index.php:186-201`): `[applicant_id => thumbnail-/url-Daten]`,
-  im Blade nur noch Array-Zugriff.
+- **Batch-Laden ist Pflicht — in genau vier Queries.** Pro Zeile wären es sonst
+  drei (Definitions-ID, Feldwert, ContextFile + Variante), bei 25 Teilnehmern also
+  75 zusätzliche Abfragen. Konkrete Form, damit daraus keine Prosa wird:
+  1. Definitions-IDs für `selfie_upload` über alle Stellen der sichtbaren Bewerber
+     (`core_extra_field_definitions`, `whereIn` auf die Kontexte, `name =
+     'selfie_upload'`).
+  2. Feldwerte (`core_extra_field_values`, `whereIn` Bewerber-IDs ×
+     `whereIn` Definitions-IDs) → `[applicant_id => raw]`.
+  3. `ContextFile::whereIn('id', $fileIds)` über alle aufgelösten File-IDs.
+  4. `ContextFileVariant` für diese Files, `variant_type like 'thumbnail_%'`.
+
+  Ergebnis als `#[Computed]`-Property `[applicant_id => ['url' => …, 'is_image' =>
+  …]]`, im Blade nur noch Array-Zugriff. Muster für die Batch-Form:
+  `openNonEuCaseApplicantIds()` (`InterviewBookings/Index.php:186-201`).
 
 Die Spalte gehört zur Nachbereitungs-Ansicht; der Buchungs-Modus bleibt unverändert.
 
@@ -398,14 +530,29 @@ Abschnitt behebt.
 **Umsetzung: live auflösen, nicht kopieren.** Die Mitarbeiterkarte zeigt die Werte
 der jüngsten `attended`-Buchung des über `rec_applicant_id` verknüpften Bewerbers —
 **dieselbe Regel wie §5**: `interview.starts_at DESC`, Tie-Break `bookings.id DESC`,
-`deleted_at IS NULL`. Anzeige **read-only**, mit Sprung in die Nachbereitung des
-betreffenden Termins für Korrekturen.
+nicht gelöschte Buchungen bevorzugt, gelöschte als Fallback (siehe unten). Anzeige
+**read-only**, mit Sprung in die Nachbereitung des betreffenden Termins für
+Korrekturen.
 
 **Die Auswahlregel wird EINMAL implementiert** — `LatestAttendedBookingResolver` —
 und von §4b und §5 gemeinsam benutzt. Zwei getrennte Implementierungen derselben
 Regel würden garantiert auseinanderlaufen, und dann zeigen Mitarbeiterkarte und
 ZAS-Export verschiedene Werte, was genau der Zustand ist, den die Live-Auflösung
 verhindern soll.
+
+**Soft-deleted Buchungen zählen mit (`withTrashed`).** Buchungen sind
+soft-deleted, und zwei Pfade können eine Buchung entfernen, während der
+Mitarbeiter bestehen bleibt: `deleteBooking()` in der UI und das MCP-Tool (F17).
+Ohne diese Regel kippen die fünf ZAS-Spalten und der §4b-Block in dem Moment von
+befüllt auf leer — und ein Feld, das von einem Wert auf leer wechselt, kann beim
+Import auf ZAS-Seite als **„Wert löschen"** ankommen, nicht als „unverändert".
+Fachlich ist die Sache eindeutig: **die Teilnahme hat stattgefunden**, unabhängig
+davon, ob die Buchungszeile später aufgeräumt wurde; die Bewertung bleibt eine
+gültige Beobachtung. Der Resolver berücksichtigt gelöschte Buchungen daher als
+Fallback — bevorzugt wird eine nicht gelöschte, gibt es keine, greift die
+gelöschte. Der `DeleteEmployee`-Pfad ist davon unberührt: er `forceDelete`t im
+selben Transaktionsblock auch den Mitarbeiter (F17), es bleibt also niemand übrig,
+für den etwas aufzulösen wäre.
 
 **Warum kein hrData-Snapshot:** Er bräuchte fünf weitere Spalten plus eine
 Freitextspalte, und bei jeder nachträglichen Korrektur an der Buchung liefen
@@ -415,7 +562,22 @@ Live aufgelöst zeigen Mitarbeiterkarte und ZAS-Export zwangsläufig denselben W
 Die Anzeige passt **nicht** in `hrFieldGroups()` (`Employees/Show.php:252-270`) —
 dieser Mechanismus rendert editierbare Felder, die auf hrData-Spalten liegen.
 Der neue Block ist ein eigener read-only Abschnitt neben der bestehenden Gruppe
-„Bewertung & Qualifikation"; `star_rating` bleibt dort als Altbestand stehen (§1).
+„Bewertung & Qualifikation".
+
+**Das alte `star_rating` wird umbenannt und auf `readonly` gesetzt.** Ohne das
+stehen zwei Blöcke namens „Bewertung" nebeneinander, von denen je nach Bestand
+immer einer leer ist. Schlimmer: `show.blade.php:204-205` setzt auf leeren
+hrData-Feldern einen **roten Rand** als Fehlanzeiger (F16) — ein nie mehr
+geschriebenes `star_rating` wäre bei jedem neuen Mitarbeiter dauerhaft rot als
+„bitte ausfüllen" markiert. Also Label **„Sternebewertung (Altbestand)"** und
+`'readonly' => true` in `hrFieldGroups()`; der `readonly`-Zweig (`:210-213`)
+rendert ohne Missing-Prüfung und ohne Eingabefeld. Der Wert bleibt lesbar, der
+Export unverändert (§5).
+
+**Mitarbeiter ohne Bewerberbezug** (`rec_applicant_id IS NULL`, der
+ZAS-Import-Fall aus F4 der Zertifikat-Spec) haben keine Buchung und damit nichts
+aufzulösen. Der Block zeigt dann einen neutralen Hinweis („Keine Terminbewertung
+vorhanden — Mitarbeiter ohne Bewerbungsvorgang") statt eines leeren Rasters.
 
 ### §5 ZAS-Export
 
@@ -425,7 +587,7 @@ Reihenfolge der Kriterien-Tabelle — nie zwischen bestehende (F6).
 **Auflösung live aus der Buchung**, nicht als hrData-Snapshot: über
 `LatestAttendedBookingResolver` (dieselbe Klasse wie §4b) — Werte der jüngsten
 `attended`-Buchung des Bewerbers, sortiert `interview.starts_at DESC`, Tie-Break
-`bookings.id DESC`, `deleted_at IS NULL`. Join-Weg wie
+`bookings.id DESC`, gelöschte Buchungen als Fallback (§4b). Join-Weg wie
 `ZasReExportByBookingDate.php:58-62`. Live-Auflösung ist im Resolver etabliert
 (z.B. `avContractEndDate()`, ausdrücklich „nicht den hrData-Snapshot", `:509`) und
 vermeidet eine zweite Wahrheit.
@@ -486,6 +648,16 @@ gegenstandslos — die Freigabe hängt an `attended`, nicht am Vertragsstand.
   Wäschepaket ODER Qualifikation gesetzt) — die Sterne stehen inline und zählen
   hier nicht mit.
 - Stern-Toggle: gleicher Wert erneut → NULL, anderer Wert → neuer Wert.
+- **`setRating()`-Guards, alle vier (§3):** gesperrter Status → kein Write;
+  Kriterium nicht in `RatingCriteria` → kein Write (Whitelist-Test mit
+  Spaltennamen-artigen Fremdwerten, z.B. `status`, `team_id`); Buchung nicht in
+  der geladenen Liste bzw. anderes Team → kein Write; `$value` außerhalb
+  `{1..5,null}` → kein Write.
+- Deterministische Kontaktwahl: bei mehreren Links gewinnt die kleinste
+  `contact_id`, gleiche Eingabe → gleiche Ausgabe über mehrere Aufrufe (§3).
+- `LatestAttendedBookingResolver`: nicht gelöschte Buchung gewinnt vor
+  gelöschter; existiert nur eine gelöschte, wird sie genommen; keine
+  `attended`-Buchung → null (§4b).
 - Auswahlregel „jüngste attended-Buchung" (starts_at DESC, Tie-Break id DESC)
   inkl. Umbuchungs-Fall.
 - Selfie-Auflösung als pure Funktion: File-ID skalar vs. JSON-Array (erste ID
@@ -524,7 +696,8 @@ liefern die Werte derselben (richtigen) Buchung.
 ## Benannte Tradeoffs
 
 - **Freitext termingebunden.** Er liegt an der Buchung, nicht an der Person. Im
-  Normalfall (genau ein Termin, K1) ist das ohne Unterschied; **bei einer Umbuchung**
+  Normalfall (genau ein Termin pro Bewerber, §1) ist das ohne Unterschied; **bei
+  einer Umbuchung**
   entstehen zwei Buchungszeilen und damit potenziell zwei Texte, und „der Text zum
   Bewerber" ist keine einzelne Aussage mehr. Bewusst so: der Kunde beschreibt ihn als
   Abschluss *dieser* Bewertung, und die eindeutige Zuordnung zum Termin wiegt mehr
@@ -536,9 +709,15 @@ liefern die Werte derselben (richtigen) Buchung.
   eine Änderung gilt für alle Buchungszeilen dieses Bewerbers. Gewollt (Sachstand,
   nicht Momentaufnahme) und im Normalfall unsichtbar, weil es nur eine Zeile gibt.
 - **Die Bewertung auf der Mitarbeiterkarte ist abgeleitet, nicht gespeichert**
-  (§4b). Wird die Buchung gelöscht, ist die Bewertung dort nicht mehr sichtbar — und
-  auch nicht mehr im ZAS-Export. Bewusst akzeptiert: eine Wahrheit schlägt Redundanz.
-  Ein Snapshot würde bei jeder Korrektur an der Buchung auseinanderlaufen.
+  (§4b). Bewusst akzeptiert: eine Wahrheit schlägt Redundanz; ein Snapshot würde bei
+  jeder Korrektur an der Buchung auseinanderlaufen. Der Löschfall ist über den
+  `withTrashed`-Fallback abgedeckt (§4b) — bleibt aber eine Ableitung: wird die
+  Buchungszeile hart entfernt (kein Pfad im Modul tut das außer `DeleteEmployee`,
+  der den Mitarbeiter mitnimmt), ist die Bewertung weg.
+- **Die Rating-Zelle wird eine eigene Livewire-Kindkomponente** (§3). Das kostet
+  eine zusätzliche Komponente plus Zustandsübergabe und macht die Tabelle etwas
+  verschachtelter — der Preis dafür, dass ein Stern-Klick nicht die ganze Liste neu
+  rendert (statisch gezählt ~63–103 Queries pro Klick im Voll-Render).
 - **`star_rating` bleibt als toter Zweig liegen.** Wird nicht mehr geschrieben,
   aber weiter als `Sternebewertung` exportiert und auf der Mitarbeiterkarte
   angezeigt. Ein Aufräumen (Spalte entfernen, ZAS-Spalte streichen) ist eine
@@ -564,9 +743,22 @@ liefern die Werte derselben (richtigen) Buchung.
   stellen-/phasengebunden (F12); wo eine Stelle kein Selfie erhebt, gibt es nichts
   anzuzeigen. Ein Nachfordern des Selfies ist nicht Teil dieses Scopes.
 - **Signierte Bild-URLs laufen nach 60 Minuten ab.** Bleibt die Nachbereitung
-  länger offen, ohne dass Livewire die Zeilen neu rendert, liefern die Bild-URLs
-  403. Praktisch unkritisch, weil jede Bewertung ein Re-Render auslöst; ein
-  Seiten-Reload behebt es in jedem Fall.
+  länger offen, liefern die Bild-URLs 403. **Die frühere Entschärfung („jede
+  Bewertung löst ein Re-Render aus") gilt nicht mehr** — mit der Rating-Zelle als
+  Kindkomponente (§3) rendert ein Stern-Klick die Elternzeile gerade *nicht* neu.
+  Ein Termin dauert typischerweise länger als 60 Minuten, der Fall ist also real.
+  Behandlung: die Selfie-Auflösung läuft in einer `#[Computed]`-Property, die beim
+  Öffnen des Abschluss-Modals und bei jeder Status- oder Filteränderung neu
+  ausgewertet wird; ein Seiten-Reload behebt es in jedem Fall. Bewusst **kein**
+  Auto-Refresh-Timer — ein Poll nur für Bild-URLs wäre teurer als das Problem.
+- **Vorbestehende Lücken, die diese Spec nicht schließt:** kein Team-Scoping auf
+  den Pro-Buchung-Methoden der Komponente (F15 — die neue `setRating()` bekommt es,
+  die bestehenden bleiben wie sie sind), `updateStatus()` ohne Guard gegen
+  Statuswechsel bei längst abgeschlossenen Bewerbern (F14), `ensureHrData()` pro
+  Feld im Render der Mitarbeiterkarte (F16), und die verstreuten
+  nicht-deterministischen `crmContactLinks->first()`-Aufrufe im übrigen Modul
+  (F11 — nur die Nachbereitungs-Ansicht wird umgestellt). Alle vier bewusst
+  außerhalb des Scopes, alle vier als Folge-Notiz.
 
 ## Deploy
 
@@ -593,6 +785,16 @@ liefern die Werte derselben (richtigen) Buchung.
   befüllt, sobald er da ist. Kein struktureller Einfluss.
 - **Handout-PDF-Datei** liegt noch nicht im Repo.
 - **Bestätigung der ZAS-Spaltennamen** durch Hr. Michel steht aus (§Deploy).
+- **Verbleib der Selfie-Spalte in diesem Paket** ist eine offene
+  Produktentscheidung: sie stammt nicht aus dem Kundenzitat, sondern aus einer
+  Zusatzanforderung. §3a ist vollständig spezifiziert und kann ohne Rückwirkung auf
+  §1–§5 in ein Folgepaket verschoben werden — die vier Batch-Queries und die
+  `#[Computed]`-Property hängen an keiner anderen Entscheidung.
+- **Das Query-Budget in §3 ist statisch gezählt, nicht gemessen** (in der
+  Entwicklungsumgebung ist keine DB erreichbar: `meingedeck` ohne `.env`, lokale
+  SQLite ohne `rec_*`-Tabellen). Die Größenordnung trägt die Entscheidung für die
+  Kindkomponente; eine Messung mit Laravel Debugbar oder `DB::listen()` gehört in
+  den ersten Implementierungs-Task, bevor die Zelle gebaut wird.
 
 ## Betroffene Dateien
 
@@ -600,8 +802,9 @@ liefern die Werte derselben (richtigen) Buchung.
   `database/migrations/*_add_evaluation_buffer_to_rec_applicants.php`,
   `src/Support/RatingCriteria.php`, `src/Support/EvaluationAvailability.php`,
   `src/Support/LatestAttendedBookingResolver.php` (gemeinsame Auswahlregel für §4b
-  und §5 — eine Implementierung, zwei Aufrufer), zugehörige `tests/Unit/*`,
-  Handout-PDF als Asset.
+  und §5 — eine Implementierung, zwei Aufrufer),
+  `src/Livewire/InterviewBookings/RatingCell.php` + Blade (Kindkomponente, §3),
+  zugehörige `tests/Unit/*`, Handout-PDF als Asset.
 - **Ändern:** `src/Models/RecInterviewBooking.php` (fillable + casts),
   `src/Models/RecApplicant.php` (fillable + casts),
   `src/Livewire/InterviewBookings/Index.php` (Freigabe-Regel, `setRating()`,
