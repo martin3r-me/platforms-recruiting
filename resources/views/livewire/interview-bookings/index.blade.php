@@ -118,6 +118,7 @@
                             <thead>
                                 <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                                     <th class="px-4 py-3">Kandidat</th>
+                                    <th class="px-4 py-3">Foto</th>
                                     <th class="px-4 py-3">Stelle</th>
                                     <th class="px-4 py-3">Gebucht am</th>
                                     <th class="px-4 py-3">Notizen</th>
@@ -137,6 +138,9 @@
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
                                             @endif
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @include('recruiting::livewire.interview-bookings.partials.selfie', ['applicantId' => $booking->applicant?->id])
                                         </td>
                                         <td class="px-4 py-3">
                                             @php $positions = $booking->applicant?->postings?->map(fn ($p) => $p->position?->title)->filter()->unique(); @endphp
@@ -197,7 +201,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                        <td colspan="8" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                             @svg('heroicon-o-clipboard-document-list', 'w-10 h-10 text-[var(--ui-muted)] mx-auto mb-2')
                                             <div class="text-sm">Keine Buchungen vorhanden</div>
                                         </td>
@@ -219,6 +223,7 @@
                             <thead>
                                 <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
                                     <th class="px-4 py-3">Bewerber</th>
+                                    <th class="px-4 py-3">Foto</th>
                                     <th class="px-4 py-3">Anwesenheit</th>
                                     <th class="px-4 py-3">Vertragsvorlage</th>
                                     <th class="px-4 py-3">Vertragslaufzeit</th>
@@ -283,6 +288,9 @@
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
                                             @endif
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @include('recruiting::livewire.interview-bookings.partials.selfie', ['applicantId' => $applicant?->id])
                                         </td>
                                         <td class="px-4 py-3">
                                             <select wire:change="updateStatus({{ $booking->id }}, $event.target.value)" class="text-xs border border-[var(--ui-border)] rounded px-2 py-1">
@@ -422,7 +430,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                        <td colspan="7" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                             @svg('heroicon-o-clipboard-document-list', 'w-10 h-10 text-[var(--ui-muted)] mx-auto mb-2')
                                             <div class="text-sm">Keine Buchungen vorhanden</div>
                                         </td>
