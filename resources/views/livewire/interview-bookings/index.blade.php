@@ -540,7 +540,11 @@
                 name="selectedApplicantId"
                 wire:model="selectedApplicantId"
                 label="Kandidat *"
-                :options="$this->availableApplicants->map(fn($a) => ['value' => $a->id, 'label' => $a->crmContactLinks->first()?->contact?->full_name ?? 'Unbekannt'])->toArray()"
+                {{-- Namensformat und Kontaktwahl wie in beiden Tabellen: deterministisch
+                     (kleinste contact_id) und "Nachname, Vorname". Ein ->first() auf
+                     crmContactLinks waere nicht deterministisch (morphMany ohne
+                     Ordering) und wuerde hier ein abweichendes Format zeigen. --}}
+                :options="$this->availableApplicants->map(fn($a) => ['value' => $a->id, 'label' => \Platform\Recruiting\Support\ApplicantContactName::display($this->contactCandidatesFor($a))])->toArray()"
                 optionValue="value"
                 optionLabel="label"
                 :nullable="true"
