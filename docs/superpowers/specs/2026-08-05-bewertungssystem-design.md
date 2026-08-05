@@ -446,10 +446,14 @@ Gesicht zu, bevor er bewertet.
 - **Batch-Laden ist Pflicht — in genau vier Queries.** Pro Zeile wären es sonst drei
   (Definitions-ID, Feldwert, ContextFile + Variante), bei 25 Teilnehmern also 75
   zusätzliche Abfragen. Konkrete Form:
-  1. Definitions-IDs für `selfie_upload` über die Kontexte der sichtbaren Bewerber
-     (`core_extra_field_definitions`, `whereIn` Kontexte, `name = 'selfie_upload'`).
-  2. Feldwerte (`core_extra_field_values`, `whereIn` Bewerber-IDs × `whereIn`
-     Definitions-IDs) → `[applicant_id => raw]`.
+  1. Definitions-IDs (`core_extra_field_definitions`, `name = 'selfie_upload'`) —
+     Definitionen sind stellen-/phasengebunden, es gibt also mehrere.
+  2. Feldwerte (`core_extra_field_values`: `whereIn definition_id` ×
+     `whereIn fieldable_id` × `fieldable_type = 'rec_applicant'`) →
+     `[applicant_id => raw]`. Spalten- und Morph-Namen wie im bewährten Pfad
+     `ZasFieldResolver::preloadExtraFields()` (`:447-451`); der Unique-Index
+     `(definition_id, fieldable_type, fieldable_id)` garantiert einen Wert je
+     Bewerber und Definition.
   3. `ContextFile::whereIn('id', $fileIds)` über alle aufgelösten File-IDs.
   4. `ContextFileVariant` für diese Files, `variant_type like 'thumbnail_%'`.
 
