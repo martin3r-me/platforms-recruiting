@@ -359,17 +359,29 @@ Zeile bleiben es 20 Komponenten, und ein Klick rendert fünf Zellen statt der ga
 Liste. **Die Klasse heißt `BookingRatingRow`** — nicht `RatingCell` —, weil ein
 Subagent baut, was auf der Klasse steht.
 
-**Das Kind bekommt nur `bookingId` als Prop.** Kein Booking-Modell, keine Collection
-des Parents. `setRating()` lädt die Buchung **frisch aus der DB, mit Team-Filter**,
-und prüft die Policy gegen den **frisch gelesenen** Status:
+**Props zum Rendern, frischer Read zum Schreiben — getrennt nach Zweck.** Beides
+in einen Topf zu werfen kostet entweder Sicherheit oder die Ersparnis, um die es
+geht:
+
+- **Rendern: Status und die fünf Rating-Werte kommen als Props vom Parent.** Der hat
+  sie in seiner Collection ohnehin geladen (`bookings()` eager-loaded die Buchung
+  selbst) — das kostet **null zusätzliche Queries**. Würde das Kind sie über die
+  `bookingId` selbst nachladen, wären das 20 zusätzliche Queries beim Voll-Render auf
+  eine Basis von ~23, also fast eine Verdopplung genau der Zahl, die die
+  Kindkomponente senken soll. Eine veraltete **Anzeige** ist dabei harmlos.
+- **Schreiben: `setRating()` lädt die Buchung frisch und team-gescoped** und prüft
+  die Policy gegen den DB-Stand. Hier ist Aktualität sicherheitsrelevant: klickt
+  jemand auf eine Zelle, deren Status sich inzwischen geändert hat, lehnt der frische
+  Guard ab.
+
+Die vier Prüfungen in `setRating()`:
 
 1. **Buchung frisch laden, team-gescoped.** `$this->bookings` gehört dem Parent und
    existiert im Kind nicht. Team-Prüfung explizit, weil es in dieser Komponente
    **kein** Scoping-Muster gibt, dem man folgen könnte (F15).
-2. **`EvaluationAvailability::isOpen($fresh->status)`** — gegen den DB-Stand, nicht
-   gegen den hydrierten Snapshot. Livewire signiert Snapshots (Manipulation fällt
-   auf), aber es hält sie nicht aktuell: der Status kann sich zwischen Render und
-   Klick geändert haben.
+2. **`EvaluationAvailability::isOpen($fresh->status)`** — gegen den DB-Stand, **nicht**
+   gegen das gerenderte Status-Prop und nicht gegen den hydrierten Snapshot. Livewire
+   signiert Snapshots (Manipulation fällt auf), aber es hält sie nicht aktuell.
 3. **`$criterion` gegen `RatingCriteria` whitelisten.** Der Parameter wird zu einem
    Spaltennamen; ohne Whitelist ist das ein beliebiger Schreibzugriff auf
    `rec_interview_bookings`. Nicht gelistetes Kriterium → stiller Abbruch.
@@ -379,12 +391,22 @@ Eine optisch gesperrte Zelle ist keine Sperre — die Methode ist public und üb
 Wire-Protokoll direkt aufrufbar; derselbe Fund wie `setApplicantContractTemplate`
 (Zertifikat-Spec F10), diesmal von uns selbst gebaut.
 
+**Nach erfolgreichem Schreiben aktualisiert das Kind seinen eigenen lokalen Wert aus
+dem Schreibergebnis**, nicht aus dem Prop. Das Prop wird erst beim nächsten
+Parent-Render neu gesetzt — und den soll es laut der Regel unten gerade nicht geben.
+Ohne diesen Punkt zeigt die Zelle nach dem Klick wieder den alten Stern.
+
+**`wire:key` pro Kind ist Pflicht** (`wire:key="rating-{{ $booking->id }}"`). Ohne
+Key ordnet Livewire die Kinder nach einer Umsortierung falsch zu — mit der neuen
+Namenssortierung und der Möglichkeit, dass sich die Liste bei Filter- oder
+Statusänderungen neu ordnet, ist das ein realer Fall, nicht ein theoretischer.
+
 **Den gesperrten Zustand rendert das Kind, nicht der Parent.** Der Parent bindet
-`BookingRatingRow` für jede Zeile bedingungslos ein und übergibt nur die
-`bookingId`; das Kind entscheidet anhand des Status, ob es Sterne oder den
-Sperr-Hinweis zeigt. Andernfalls stünde die Freigabe-Bedingung an zwei Stellen und
-würde auseinanderdriften — und nach einer Statusänderung müsste der Parent neu
-rendern, damit das Kind überhaupt erscheint.
+`BookingRatingRow` für jede Zeile bedingungslos ein und übergibt Status und Werte;
+das Kind entscheidet anhand des Status-Props, ob es Sterne oder den Sperr-Hinweis
+zeigt. Andernfalls stünde die Freigabe-Bedingung an zwei Stellen und würde
+auseinanderdriften — und nach einer Statusänderung müsste der Parent neu rendern,
+damit das Kind überhaupt erscheint.
 
 **Harte Regel: kein `$dispatch` an den Parent, kein `$refresh`, keine
 Parent-Property, die von einem Rating abhängt.** Die Kindkomponente trägt nur,
@@ -705,6 +727,9 @@ gegenstandslos — die Freigabe hängt an `attended`, nicht am Vertragsstand.
   nicht in `RatingCriteria` → kein Write (Whitelist-Test mit spaltennamen-artigen
   Fremdwerten wie `status`, `team_id`); `$value` außerhalb `{1..5,null}` → kein
   Write.
+- **Kein Nachladen zum Rendern:** `BookingRatingRow` liest Status und Werte
+  ausschließlich aus den Props; ein Test hält fest, dass die Komponente beim Rendern
+  keine Buchung lädt (sonst kehrt der 20-Query-Aufschlag unbemerkt zurück, §3).
 - Deterministische Kontaktwahl: bei mehreren Links gewinnt die kleinste
   `contact_id`, gleiche Eingabe → gleiche Ausgabe über mehrere Aufrufe (§3).
 - `LatestAttendedBookingResolver`: gelöschte und nicht gelöschte Buchungen werden
@@ -781,6 +806,16 @@ liefern die Werte derselben (richtigen) Buchung.
   (statisch gezählt ~63–103 Queries im Voll-Render). **Die Trennung hält nur,
   solange kein Parent-Zustand von einem Rating abhängt** — das ist die harte Regel
   in §3, und sie ist der Punkt, an dem dieser Entwurf brechen würde.
+- **Die Anzeige im Kind kann veralten.** Status und Werte kommen als Props und werden
+  erst beim nächsten Parent-Render aktualisiert (§3). Ändert eine zweite Sitzung den
+  Status oder eine Bewertung, zeigt die Zelle bis zum nächsten Parent-Render den alten
+  Stand. Bewusst akzeptiert: die Anzeige ist unkritisch, der Schreibpfad prüft
+  ohnehin frisch — und diese Ansicht pollt grundsätzlich nicht: „Die Nachbereitung
+  pollt nicht (kein wire:poll/Token […]) — view-weite, vorbestehende Eigenschaft
+  dieser Ansicht, gilt fuer alle externen Aenderungen"
+  (`InterviewBookings/Index.php:178-184`, Docblock von `openNonEuCaseApplicantIds()`).
+  Die Props-Veraltung ist damit kein neuer Zustand, sondern derselbe, der für alle
+  externen Änderungen dieser Ansicht schon gilt.
 - **`star_rating` bleibt als toter Zweig liegen.** Wird nicht mehr geschrieben,
   aber weiter als `Sternebewertung` exportiert und auf der Mitarbeiterkarte
   angezeigt. Ein Aufräumen (Spalte entfernen, ZAS-Spalte streichen) ist eine
