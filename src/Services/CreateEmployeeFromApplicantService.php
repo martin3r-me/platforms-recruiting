@@ -103,6 +103,7 @@ class CreateEmployeeFromApplicantService
             // Anlegen damit ZAS-Export direkt verfuegbar ist ohne JOIN.
             $hrData = $employee->ensureHrData();
             $this->snapshotContractDatesToHrData($applicant, $hrData);
+            $this->transferEvaluationToHrData($applicant, $hrData);
 
             // Bewerber deaktivieren — raus aus default Dashboard, Statistiken
             // greifen weiter via rec_applicants ohne is_active-Filter.
@@ -235,6 +236,37 @@ class CreateEmployeeFromApplicantService
             }
         } catch (\Throwable $e) {
             Log::warning('[CreateEmployeeFromApplicantService] snapshotContractDates failed', [
+                'applicant_id' => $applicant->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Uebernimmt die acht Bewertungsfelder vom Bewerber auf die frische
+     * hrData-Row (Spec §4). Ab hier ist hrData die einzige Lese- und
+     * Schreibseite; die Bewerber-Spalten werden nicht mehr angefasst.
+     *
+     * Eigener Log-Marker (nicht der von snapshotContractDates), damit im Log
+     * unterscheidbar bleibt, welcher der beiden Uebernahme-Schritte gekippt ist.
+     */
+    private function transferEvaluationToHrData(RecApplicant $applicant, $hrData): void
+    {
+        try {
+            $source = [];
+            $target = [];
+            foreach (\Platform\Recruiting\Support\EvaluationValues::FIELDS as $field) {
+                $source[$field] = $applicant->{$field};
+                $target[$field] = $hrData->{$field};
+            }
+
+            $updates = \Platform\Recruiting\Support\EvaluationTransfer::valuesToCopy($source, $target);
+
+            if (!empty($updates)) {
+                $hrData->update($updates);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[CreateEmployeeFromApplicantService] evaluationTransfer failed', [
                 'applicant_id' => $applicant->id,
                 'error'        => $e->getMessage(),
             ]);
