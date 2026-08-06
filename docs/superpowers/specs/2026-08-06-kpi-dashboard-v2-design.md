@@ -38,6 +38,12 @@ Drei Felder an `rec_postings`, gepflegt von HR im Ausschreibungs-Formular:
 | `bewerbungs_faktor` | `decimal(4,1)` nullable | Bewerbungen pro Einstellung | keine Pipeline-Ampel |
 | `closes_at` | existiert | Laufzeitende | keine Hochrechnung → Ampel fällt auf absolute Lesart zurück |
 
+Dazu ein Feld an `rec_interviews`:
+
+| Feld | Typ | Bedeutung | leer bedeutet |
+|---|---|---|---|
+| `rec_posting_id` | `foreignId` nullable | für welche Ausschreibung diese Schulung stattfindet | Qualifikation nur aus dem Titel lesbar, keine Gruppierung/Filterung |
+
 **Nichts wird geraten.** Fehlt ein Wert, fehlt die Ampel — eine erfundene Ampel
 ist schlimmer als keine.
 
@@ -136,24 +142,37 @@ gezählt, ohne es würde er unterzählt.
 
 ## 6. Tabelle 2 — je Schulungstermin
 
-**Ein Termin ist gemischt:** Cateringhilfen, Zapfer und Logistiker sitzen im
-selben Termin. Daraus folgen zwei Dinge:
+**Ein Termin ist je Qualifikation angelegt** (verifiziert an den Live-Titeln):
+pro Abend existieren drei getrennte Termine, alle 18:00–21:00 am selben Ort —
+„Vorstellungsrunde Cateringhilfen/Küchenhilfen Borussiapark Mönchengladbach",
+„… Theke/Zapfer …", „… Logistik …". Die unterschiedlichen Kapazitäten am selben
+Tag (max 20 und max 10) bestätigen das. **Die im Mockup gezeichneten drei Zeilen
+pro Datum mit eigenem IST/SOLL sind also korrekt** — sie sind drei Termine, keine
+drei Scheiben eines Termins.
 
-- Ein Fremdschlüssel „Termin → Ausschreibung" wäre **falsch** und wird nicht
-  gebaut (ein Termin gehört keiner Ausschreibung).
-- **Die Kapazität gehört dem Termin, nicht der Qualifikation.** Die im Mockup
-  gezeichneten eigenen IST/SOLL-Werte pro Ausschreibung am selben Abend („20/20",
-  „13/15", „7/10") kann es deshalb nicht geben.
+**„Gemischt" gilt auf einer anderen Ebene:** Der Termin ist fachlich eine
+Cateringhilfen-Schulung, aber die Teilnehmer kommen aus **verschiedenen
+Ausschreibungen** — wer sich über Initiativ oder „MGL allgemein" bewarb, kann in
+der Cateringhilfen-Runde sitzen. Gemischt nach Herkunft, nicht nach Qualifikation.
 
-**Aufbau:** eine Zeile pro Termin mit Datum, Uhrzeit, Ort, **IST/SOLL (+Standby)**
-und dem Trichter aller Teilnehmer. Darunter **aufklappbar die Aufteilung nach
-Qualifikation** („davon Cateringhilfe 8, Zapfer 4, Logistiker 6") — jede
-Unterzeile mit eigenem Trichter, aber **ohne** eigene Kapazität. Das ist die
-Spalte „Ausschreibung" aus dem Mockup, eine Ebene tiefer, wo sie stimmt.
+**Aufbau:** eine Zeile pro Termin mit Datum, Uhrzeit, Ort, Qualifikation,
+**IST/SOLL (+Standby)** und dem Trichter seiner Teilnehmer. Darunter
+**aufklappbar die Herkunft** („davon Cateringhilfe-Anzeige 8, Initiativ 4,
+MGL allgemein 2") — jede Unterzeile mit eigenem Trichter, aber **ohne** eigene
+Kapazität, denn die Plätze gehören dem Termin.
 
-Die beiden Kapazitätsspalten aus V1 sind dafür bereits das richtige Modell:
-„Belegt (Zeile)" = diese Qualifikation, „Belegt (Termin)" = der Abend insgesamt.
-Überbuchung färbt statt zu klammern, Standby zählt in keiner der beiden.
+**Die Qualifikation steht heute nur im Freitext-Titel.** Für die Anzeige reicht
+das; zum Gruppieren oder Filtern müsste man Titel parsen, und die sind erkennbar
+frei formuliert (es existieren Termine „test nicht einbuchen" und „Test Clara
+Nini – nicht einbuchen"). Deshalb: **optionales Feld `rec_interviews.rec_posting_id`**
+(nullable, „für welche Ausschreibung findet diese Schulung statt"), Titel bleibt
+Rückfall. Damit ist die Zuordnung Termin ↔ Anzeige eindeutig, ohne bestehende
+Termine zu brechen.
+
+**Test-Termine haben kein Flag.** `is_test` existiert an Bewerbern, nicht an
+Terminen — die beiden Test-Termine würden in der Kundenansicht als Schulungen
+erscheinen. Vor dem Rollout entweder löschen oder auf `is_active = false` setzen;
+die Tabelle zeigt nur aktive Termine.
 
 ## 7. Ampelsystem — Herleitung und Regeln
 
