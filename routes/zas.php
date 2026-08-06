@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Platform\Recruiting\Http\Controllers\ZasDispoInboundController;
 use Platform\Recruiting\Http\Controllers\ZasEmployeeFileController;
 use Platform\Recruiting\Http\Controllers\ZasEmployeeInitialExportController;
 use Platform\Recruiting\Http\Controllers\ZasEmployeeUpdateExportController;
@@ -40,6 +41,11 @@ Route::middleware([ZasBearerAuth::class])->group(function () {
     // Phase 1: nur annehmen + roh speichern. ?dry_run=true markiert Tests.
     Route::post('/inbound', ZasInboundController::class)
         ->name('recruiting.zas.inbound');
+
+    // Dispo-Eingang: Veranstaltungen + eingebuchtes Personal aus ZAS.
+    // Phase 1: nur annehmen + roh speichern (Sichtung: Disposition → ZAS-Eingang).
+    Route::post('/dispo-inbound', ZasDispoInboundController::class)
+        ->name('recruiting.zas.dispo-inbound');
 });
 
 // Bewerber-Datei-Stream (Slot-Prefix `upl-*`)
