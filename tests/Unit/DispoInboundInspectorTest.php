@@ -41,6 +41,11 @@ class DispoInboundInspectorTest extends TestCase
         $this->assertSame('unknown', $this->inspector->detectFormat('{kaputt'));
     }
 
+    public function test_invalid_json_with_comma_is_unknown(): void
+    {
+        $this->assertSame('unknown', $this->inspector->detectFormat('{"a":1,"b":'));
+    }
+
     public function test_plain_text_is_unknown(): void
     {
         $this->assertSame('unknown', $this->inspector->detectFormat("nur eine zeile ohne trennzeichen"));
@@ -60,6 +65,7 @@ class DispoInboundInspectorTest extends TestCase
 
         $this->assertSame(';', $result['delimiter']);
         $this->assertSame(['VaNr', 'Kunde', 'Ort'], $result['columns']);
+        $this->assertSame([], $result['extra_columns']);
         $this->assertSame(2, $result['row_count']);
         $this->assertSame(['VaNr' => '1', 'Kunde' => 'Broich', 'Ort' => 'Koeln'], $result['rows'][0]);
     }
@@ -82,6 +88,7 @@ class DispoInboundInspectorTest extends TestCase
     {
         $result = $this->inspector->inspectCsv("A;B\n1;2;3\n");
         $this->assertSame(['A' => '1', 'B' => '2', 'col_2' => '3'], $result['rows'][0]);
+        $this->assertSame(['col_2'], $result['extra_columns']);
     }
 
     public function test_header_only_means_zero_rows(): void
@@ -96,6 +103,7 @@ class DispoInboundInspectorTest extends TestCase
         $result = $this->inspector->inspectCsv('');
         $this->assertNull($result['delimiter']);
         $this->assertSame([], $result['columns']);
+        $this->assertSame([], $result['extra_columns']);
         $this->assertSame(0, $result['row_count']);
     }
 

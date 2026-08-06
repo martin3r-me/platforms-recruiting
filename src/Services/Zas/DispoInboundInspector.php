@@ -30,9 +30,7 @@ class DispoInboundInspector
 
         if (str_starts_with($trimmed, '{') || str_starts_with($trimmed, '[')) {
             json_decode($trimmed);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                return 'json';
-            }
+            return json_last_error() === JSON_ERROR_NONE ? 'json' : 'unknown';
         }
 
         $firstLine = (string) (preg_split('/\r\n|\r|\n/', $trimmed)[0] ?? '');
@@ -49,7 +47,7 @@ class DispoInboundInspector
      * Parst CSV-Inhalt tolerant: Trennzeichen-Erkennung, Header→Wert-Maps,
      * Laengenunterschiede werden aufgefuellt (keine strikte Validierung).
      *
-     * @return array{delimiter: ?string, columns: list<string>, row_count: int, rows: list<array<string, string>>}
+     * @return array{delimiter: ?string, columns: list<string>, extra_columns: list<string>, row_count: int, rows: list<array<string, string>>}
      */
     public function inspectCsv(string $utf8Content): array
     {
@@ -57,7 +55,7 @@ class DispoInboundInspector
         $lines = array_values(array_filter($lines, fn ($l) => trim($l) !== ''));
 
         if ($lines === []) {
-            return ['delimiter' => null, 'columns' => [], 'row_count' => 0, 'rows' => []];
+            return ['delimiter' => null, 'columns' => [], 'extra_columns' => [], 'row_count' => 0, 'rows' => []];
         }
 
         $delimiter = $this->detectDelimiter($lines[0]);
@@ -69,9 +67,19 @@ class DispoInboundInspector
             $rows[] = $this->zip($columns, $values);
         }
 
+        $extras = [];
+        foreach ($rows as $row) {
+            foreach (array_keys($row) as $key) {
+                if (!in_array($key, $columns, true) && !in_array($key, $extras, true)) {
+                    $extras[] = $key;
+                }
+            }
+        }
+
         return [
             'delimiter' => $delimiter,
             'columns'   => $columns,
+            'extra_columns' => $extras,
             'row_count' => count($rows),
             'rows'      => $rows,
         ];
