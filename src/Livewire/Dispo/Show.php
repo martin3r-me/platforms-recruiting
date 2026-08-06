@@ -39,13 +39,29 @@ class Show extends Component
      * Zeilen-Array laege sonst bei jedem Request im serialisierten
      * Component-State. #[Computed] ist request-lokal.
      *
+     * Fehlerbehandlung: Datei auf Storage kann gelöscht/bewegt sein, oder
+     * Disk-Config hat sich geändert. In beiden Fällen wird graceful
+     * ['format' => 'missing'] zurückgegeben (nicht Silent-Coerce zu '').
+     *
      * @return array<string, mixed>
      */
     #[Computed]
     public function parsed(): array
     {
         $file = $this->file;
-        $raw  = (string) Storage::disk($file->disk)->get($file->stored_path);
+
+        // Prüfe erst ob Datei auf Storage existiert
+        if (! Storage::disk($file->disk)->exists($file->stored_path)) {
+            return ['format' => 'missing'];
+        }
+
+        // Belt & Braces: Auch get() kann fehlschlagen (Disk-Config geändert, etc.)
+        try {
+            $raw = (string) Storage::disk($file->disk)->get($file->stored_path);
+        } catch (\Throwable) {
+            return ['format' => 'missing'];
+        }
+
         $utf8 = CsvEncodingNormalizer::toUtf8($raw);
 
         $inspector = new DispoInboundInspector();

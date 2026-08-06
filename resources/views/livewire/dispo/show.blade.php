@@ -84,6 +84,11 @@
             <div class="border-b border-gray-100 px-4 py-3 font-medium">JSON-Inhalt</div>
             <pre class="overflow-x-auto p-4 text-xs">{{ $parsed['pretty'] }}</pre>
         </div>
+    @elseif ($parsed['format'] === 'missing')
+        <div class="rounded-lg border border-gray-200 bg-white">
+            <div class="border-b border-gray-100 px-4 py-3 font-medium text-red-800">Datei nicht verfügbar</div>
+            <div class="p-4 text-sm text-gray-600">Rohdatei nicht mehr auf dem Storage vorhanden (Disk/Pfad siehe Metadaten oben).</div>
+        </div>
     @else
         <div class="rounded-lg border border-gray-200 bg-white">
             <div class="border-b border-gray-100 px-4 py-3 font-medium">Roh-Ansicht (Format nicht erkannt, erste 20.000 Zeichen)</div>
