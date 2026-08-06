@@ -45,6 +45,7 @@ class Show extends Component
     public $uploadSchulbescheinigung = null;
     public $uploadFiktionFront = null;
     public $uploadFiktionBack = null;
+    public $uploadErstbescheinigung = null;
 
     private const FILE_UPLOAD_MAP = [
         'identity_card_front_file_id'   => 'uploadIdentityFront',
@@ -61,6 +62,7 @@ class Show extends Component
         'schulbescheinigung_file_id'    => 'uploadSchulbescheinigung',
         'fiktionsbescheinigung_front_file_id' => 'uploadFiktionFront',
         'fiktionsbescheinigung_back_file_id'  => 'uploadFiktionBack',
+        'erstbescheinigung_file_id'           => 'uploadErstbescheinigung',
     ];
 
     public function mount(int $employee): void
@@ -214,6 +216,7 @@ class Show extends Component
             'Gesundheit' => [
                 'has_infection_protection_certificate' => ['type' => 'bool', 'label' => 'Infektionsschutzbescheinigung vorhanden?'],
                 'infection_protection_first_issued_at' => ['type' => 'date', 'label' => 'Erstbescheinigung am'],
+                'erstbescheinigung_file_id'            => ['type' => 'file', 'label' => 'Erstbescheinigung (Datei)'],
             ],
             'Arbeitskleidung' => [
                 'shirt_size' => ['type' => 'inline_select', 'label' => 'Hemd / Bluse', 'options' => ['S','M','L','XL']],
@@ -461,6 +464,7 @@ class Show extends Component
     public function updatedUploadSchulbescheinigung(): void { $this->handleFileUpload('schulbescheinigung_file_id', 'uploadSchulbescheinigung'); }
     public function updatedUploadFiktionFront(): void { $this->handleFileUpload('fiktionsbescheinigung_front_file_id', 'uploadFiktionFront'); }
     public function updatedUploadFiktionBack(): void { $this->handleFileUpload('fiktionsbescheinigung_back_file_id', 'uploadFiktionBack'); }
+    public function updatedUploadErstbescheinigung(): void { $this->handleFileUpload('erstbescheinigung_file_id', 'uploadErstbescheinigung'); }
 
     private function handleFileUpload(string $employeeField, string $propertyName): void
     {

@@ -57,6 +57,9 @@ class EmployeePortal extends Component
     public $uploadIdentityBack = null;
     public $uploadSelfie = null;
     public $uploadHealthInsuranceCard = null;
+    public $uploadImmatrikulation = null;
+    public $uploadSchulbescheinigung = null;
+    public $uploadErstbescheinigung = null;
 
     /** Map File-Field-Key → property-Name fuer dynamische Zugriffe */
     private const FILE_FIELDS = [
@@ -64,6 +67,9 @@ class EmployeePortal extends Component
         'identity_card_back_file_id'    => 'uploadIdentityBack',
         'selfie_file_id'                => 'uploadSelfie',
         'health_insurance_card_file_id' => 'uploadHealthInsuranceCard',
+        'immatrikulation_file_id'       => 'uploadImmatrikulation',
+        'schulbescheinigung_file_id'    => 'uploadSchulbescheinigung',
+        'erstbescheinigung_file_id'     => 'uploadErstbescheinigung',
     ];
 
     private const MAX_ATTEMPTS = 5;
@@ -251,6 +257,21 @@ class EmployeePortal extends Component
     public function updatedUploadHealthInsuranceCard(): void
     {
         $this->handleFileUpload('health_insurance_card_file_id', 'uploadHealthInsuranceCard');
+    }
+
+    public function updatedUploadImmatrikulation(): void
+    {
+        $this->handleFileUpload('immatrikulation_file_id', 'uploadImmatrikulation');
+    }
+
+    public function updatedUploadSchulbescheinigung(): void
+    {
+        $this->handleFileUpload('schulbescheinigung_file_id', 'uploadSchulbescheinigung');
+    }
+
+    public function updatedUploadErstbescheinigung(): void
+    {
+        $this->handleFileUpload('erstbescheinigung_file_id', 'uploadErstbescheinigung');
     }
 
     /**

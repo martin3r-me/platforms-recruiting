@@ -208,6 +208,9 @@
                         'identity_card_back_file_id'    => 'uploadIdentityBack',
                         'selfie_file_id'                => 'uploadSelfie',
                         'health_insurance_card_file_id' => 'uploadHealthInsuranceCard',
+                        'immatrikulation_file_id'       => 'uploadImmatrikulation',
+                        'schulbescheinigung_file_id'    => 'uploadSchulbescheinigung',
+                        'erstbescheinigung_file_id'     => 'uploadErstbescheinigung',
                     ];
                 @endphp
 

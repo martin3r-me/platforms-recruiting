@@ -28,6 +28,7 @@ class EmployeeFileSlotsTest extends TestCase
             'schulbescheinigung_file_id',
             'fiktionsbescheinigung_front_file_id',
             'fiktionsbescheinigung_back_file_id',
+            'erstbescheinigung_file_id',
         ], EmployeeFileSlots::COLUMNS);
     }
 

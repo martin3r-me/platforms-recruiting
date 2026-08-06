@@ -83,6 +83,7 @@ class RecEmployee extends Model
         'school_certificate_valid_until',
         'has_infection_protection_certificate',
         'infection_protection_first_issued_at',
+        'erstbescheinigung_file_id',
         'shirt_size',
         'pants_size',
         'shoe_size',
@@ -314,6 +315,7 @@ class RecEmployee extends Model
             'Gesundheit' => [
                 'has_infection_protection_certificate' => ['type' => 'bool', 'label' => 'Infektionsschutzbescheinigung vorhanden?'],
                 'infection_protection_first_issued_at' => ['type' => 'date', 'label' => 'Erstbescheinigung am'],
+                'erstbescheinigung_file_id'            => ['type' => 'file', 'label' => 'Erstbescheinigung (Datei)'],
             ],
             'Arbeitskleidung' => [
                 'shirt_size' => ['type' => 'inline_select', 'label' => 'Hemd / Bluse', 'options' => ['S','M','L','XL']],
@@ -325,6 +327,18 @@ class RecEmployee extends Model
                 'has_car'               => ['type' => 'bool', 'label' => 'PKW vorhanden'],
             ],
         ];
+
+        // Bescheinigung passend zum Beschaeftigungsstatus: Schueler sehen die
+        // Schulbescheinigung, Studenten die Immatrikulation, alle anderen
+        // (und leerer Typ) keine Sektion. Gilt nur fuers MA-Portal — die
+        // HR-Ansicht (Employees/Show) pflegt eine eigene, ungegatete Liste.
+        $groups['Schul-/Immatrikulationsbescheinigung'] = array_intersect_key(
+            $groups['Schul-/Immatrikulationsbescheinigung'],
+            array_flip(\Platform\Recruiting\Support\SchoolCertificateFields::forEmploymentType($this->employment_type)),
+        );
+        if ($groups['Schul-/Immatrikulationsbescheinigung'] === []) {
+            unset($groups['Schul-/Immatrikulationsbescheinigung']);
+        }
 
         // Non-EU-Sektion nur bei is_eu_citizen=false aufgenommen
         if ($isNonEu) {
