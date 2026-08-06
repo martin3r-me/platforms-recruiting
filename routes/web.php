@@ -87,3 +87,10 @@ Route::get('/contract-templates', ContractTemplatesIndex::class)->name('recruiti
 // WhatsApp-Kosten
 Route::get('/whatsapp-costs', \Platform\Recruiting\Livewire\WhatsAppCosts\Index::class)
     ->name('recruiting.whatsapp-costs.index');
+
+// Disposition (Zwischenstation im Recruiting-Modul — Zielbild eigenes
+// Staffing-Modul, siehe docs/superpowers/specs/2026-08-06-zas-dispo-inbound-design.md)
+Route::get('/dispo-inbound', \Platform\Recruiting\Livewire\Dispo\Index::class)
+    ->name('recruiting.dispo.index');
+Route::get('/dispo-inbound/{fileId}', \Platform\Recruiting\Livewire\Dispo\Show::class)
+    ->name('recruiting.dispo.show');

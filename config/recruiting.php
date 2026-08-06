@@ -34,6 +34,12 @@ return [
                 ['label' => 'WhatsApp-Kosten', 'route' => 'recruiting.whatsapp-costs.index', 'icon' => 'heroicon-o-banknotes'],
             ],
         ],
+        [
+            'group' => 'Disposition',
+            'items' => [
+                ['label' => 'ZAS-Eingang', 'route' => 'recruiting.dispo.index', 'icon' => 'heroicon-o-inbox-arrow-down'],
+            ],
+        ],
     ],
     'billables' => [
         [
