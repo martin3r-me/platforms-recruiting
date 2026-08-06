@@ -93,4 +93,5 @@ Route::get('/whatsapp-costs', \Platform\Recruiting\Livewire\WhatsAppCosts\Index:
 Route::get('/dispo-inbound', \Platform\Recruiting\Livewire\Dispo\Index::class)
     ->name('recruiting.dispo.index');
 Route::get('/dispo-inbound/{fileId}', \Platform\Recruiting\Livewire\Dispo\Show::class)
-    ->name('recruiting.dispo.show');
+    ->name('recruiting.dispo.show')
+    ->whereNumber('fileId');
