@@ -16,7 +16,8 @@ use Platform\Recruiting\Models\RecEmployee;
  *
  *  - Token-Lookup direkt auf rec_employees.portal_token
  *  - Zwei-Faktor-aehnliche Verifizierung: Geburtsdatum + letzte 4
- *    Ziffern der Ausweisnummer (beides aus P3-Pflichtfeldern erfasst)
+ *    Stellen der Ausweisnummer — kann Buchstaben enthalten, Vergleich
+ *    case-insensitiv (beides aus P3-Pflichtfeldern erfasst)
  *  - Rate-Limit gegen Brute-Force: 5 falsche Versuche → 15min Sperre
  *  - Nach Verifikation: Vertraege unterschreiben + Daten nachpflegen
  *

@@ -36,7 +36,7 @@
             <div class="bg-white border border-[var(--ui-border)] rounded-lg shadow-sm p-6">
                 <div class="mb-4">
                     <h2 class="text-lg font-medium text-[var(--ui-secondary)]">Anmeldung</h2>
-                    <p class="text-sm text-[var(--ui-muted)] mt-1">{{ $duzen ? 'Bitte verifiziere dich mit deinem Geburtsdatum und den letzten 4 Ziffern deiner Ausweisnummer.' : 'Bitte verifizieren Sie sich mit Ihrem Geburtsdatum und den letzten 4 Ziffern Ihrer Ausweisnummer.' }}</p>
+                    <p class="text-sm text-[var(--ui-muted)] mt-1">{{ $duzen ? 'Bitte verifiziere dich mit deinem Geburtsdatum und den letzten 4 Stellen deiner Ausweisnummer.' : 'Bitte verifizieren Sie sich mit Ihrem Geburtsdatum und den letzten 4 Stellen Ihrer Ausweisnummer.' }}</p>
                 </div>
 
                 <form wire:submit.prevent="verify" class="space-y-4">
@@ -46,21 +46,24 @@
                             type="date"
                             id="birthDate"
                             wire:model.defer="birthDateInput"
-                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]"
+                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]"
+                            style="color-scheme: light"
                             required
                         />
                     </div>
 
                     <div>
-                        <label for="idCardLast4" class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">{{ $duzen ? 'Letzte 4 Ziffern deiner Ausweisnummer' : 'Letzte 4 Ziffern Ihrer Ausweisnummer' }}</label>
+                        <label for="idCardLast4" class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">{{ $duzen ? 'Letzte 4 Stellen deiner Ausweisnummer' : 'Letzte 4 Stellen Ihrer Ausweisnummer' }}</label>
                         <input
                             type="text"
                             id="idCardLast4"
                             maxlength="4"
-                            inputmode="numeric"
+                            autocapitalize="characters"
+                            autocomplete="off"
+                            spellcheck="false"
                             wire:model.defer="idCardLast4Input"
-                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]"
-                            placeholder="z.B. 4567"
+                            class="w-full border border-[var(--ui-border)] rounded-md px-3 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[var(--ui-primary)]"
+                            placeholder="z.B. 0T47"
                             required
                         />
                     </div>
@@ -231,7 +234,7 @@
                                     @if($type === 'lookup')
                                         <select
                                             wire:model.defer="fieldValues.{{ $key }}"
-                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white text-gray-900"
                                         >
                                             <option value="">— bitte wählen —</option>
                                             @foreach($this->lookupOptionsFor($entry['lookup']) as $optValue => $optLabel)
@@ -242,7 +245,7 @@
                                     @elseif($type === 'bool')
                                         <select
                                             wire:model.defer="fieldValues.{{ $key }}"
-                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white text-gray-900"
                                         >
                                             <option value="">— bitte wählen —</option>
                                             <option value="1">Ja</option>
@@ -253,13 +256,14 @@
                                         <input
                                             type="date"
                                             wire:model.defer="fieldValues.{{ $key }}"
-                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white text-gray-900"
+                                            style="color-scheme: light"
                                         />
 
                                     @elseif($type === 'inline_select')
                                         <select
                                             wire:model.defer="fieldValues.{{ $key }}"
-                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white text-gray-900"
                                         >
                                             <option value="">— bitte wählen —</option>
                                             @foreach(($entry['options'] ?? []) as $opt)
@@ -302,7 +306,7 @@
                                             type="text"
                                             wire:model.defer="fieldValues.{{ $key }}"
                                             placeholder="{{ $label }}"
-                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm"
+                                            class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white text-gray-900"
                                         />
                                     @endif
                                 </div>
