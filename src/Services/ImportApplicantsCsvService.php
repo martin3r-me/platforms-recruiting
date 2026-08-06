@@ -288,11 +288,7 @@ class ImportApplicantsCsvService
             return null;
         }
 
-        $encoding = mb_detect_encoding($raw, ['UTF-8', 'Windows-1252', 'ISO-8859-1', 'ASCII'], true) ?: 'Windows-1252';
-        if ($encoding !== 'UTF-8') {
-            $raw = mb_convert_encoding($raw, 'UTF-8', $encoding);
-        }
-        $raw = preg_replace('/^\xEF\xBB\xBF/', '', (string) $raw);
+        $raw = \Platform\Recruiting\Support\CsvEncodingNormalizer::toUtf8((string) $raw);
 
         $tmp = tmpfile();
         if (!$tmp) {
