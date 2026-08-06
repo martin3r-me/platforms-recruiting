@@ -69,13 +69,14 @@ class Show extends Component
 
         if ($format === 'csv') {
             $csv = $inspector->inspectCsv($utf8);
+            $columns = array_merge($csv['columns'], $csv['extra_columns']);
 
             return [
                 'format'    => 'csv',
-                'columns'   => $csv['columns'],
+                'columns'   => $columns,
                 'row_count' => $csv['row_count'],
                 'rows'      => array_slice($csv['rows'], 0, self::ROW_CAP),
-                'profile'   => (new DispoColumnProfiler())->profile($csv['columns'], $csv['rows']),
+                'profile'   => (new DispoColumnProfiler())->profile($columns, $csv['rows']),
             ];
         }
 
