@@ -122,6 +122,14 @@
         </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 
+    {{-- Abschnitt: Disposition (ZAS-Dispo-Inbound — Zwischenstation, Zielbild Staffing-Modul) --}}
+    <x-ui-sidebar-list label="Disposition">
+        <x-ui-sidebar-item :href="route('recruiting.dispo.index')">
+            @svg('heroicon-o-inbox-arrow-down', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">ZAS-Eingang</span>
+        </x-ui-sidebar-item>
+    </x-ui-sidebar-list>
+
     {{-- Collapsed: Icons-only --}}
     <div x-show="collapsed" class="px-2 py-2 border-b border-[var(--ui-border)]">
         <div class="flex flex-col gap-2">
