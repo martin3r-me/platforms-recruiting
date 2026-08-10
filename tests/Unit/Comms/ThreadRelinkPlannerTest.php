@@ -7,34 +7,34 @@ use Platform\Recruiting\Services\Comms\ThreadRelinkPlanner;
 
 final class ThreadRelinkPlannerTest extends TestCase
 {
-    // ── normalizePhone ───────────────────────────────────────────────
+    // ── normalizePhone (delegiert an DuplicateApplicantGuard::canonicalDigits) ──
 
-    public function test_normalize_reduziert_auf_letzte_zehn_ziffern(): void
+    public function test_normalize_kanonisiert_alle_formate_gleich(): void
     {
-        $this->assertSame('1637742867', ThreadRelinkPlanner::normalizePhone('+491637742867'));
-        $this->assertSame('1637742867', ThreadRelinkPlanner::normalizePhone('+49 163 7742867'));
-        $this->assertSame('1637742867', ThreadRelinkPlanner::normalizePhone('01637742867'));
-        $this->assertSame('1637742867', ThreadRelinkPlanner::normalizePhone('1637742867'));
-        $this->assertSame('1637742867', ThreadRelinkPlanner::normalizePhone('0049 163/774-2867'));
+        $expected = '491637742867';
+        $this->assertSame($expected, ThreadRelinkPlanner::normalizePhone('+491637742867'));
+        $this->assertSame($expected, ThreadRelinkPlanner::normalizePhone('+49 163 7742867'));
+        $this->assertSame($expected, ThreadRelinkPlanner::normalizePhone('01637742867'));
+        $this->assertSame($expected, ThreadRelinkPlanner::normalizePhone('491637742867'));
+        $this->assertSame($expected, ThreadRelinkPlanner::normalizePhone('0049 163/774-2867'));
     }
 
-    public function test_normalize_lehnt_zu_kurze_nummern_ab(): void
+    public function test_normalize_matcht_kurze_festnetznummern_ueber_formatgrenzen(): void
+    {
+        // Regression: fixe Letzte-10-Ziffern-Keys liefen bei Nummern mit <10
+        // signifikanten Ziffern auseinander ('0211876543' vs '+49211876543').
+        $this->assertSame(
+            ThreadRelinkPlanner::normalizePhone('0211876543'),
+            ThreadRelinkPlanner::normalizePhone('+49211876543'),
+        );
+    }
+
+    public function test_normalize_lehnt_leere_und_zu_kurze_werte_ab(): void
     {
         $this->assertNull(ThreadRelinkPlanner::normalizePhone(null));
         $this->assertNull(ThreadRelinkPlanner::normalizePhone(''));
         $this->assertNull(ThreadRelinkPlanner::normalizePhone('12345'));
         $this->assertNull(ThreadRelinkPlanner::normalizePhone('keine nummer'));
-    }
-
-    // ── phonesMatch ──────────────────────────────────────────────────
-
-    public function test_match_ueber_formatgrenzen(): void
-    {
-        $this->assertTrue(ThreadRelinkPlanner::phonesMatch('+491637742867', '01637742867'));
-        $this->assertTrue(ThreadRelinkPlanner::phonesMatch('+49 163 7742867', '+491637742867'));
-        $this->assertFalse(ThreadRelinkPlanner::phonesMatch('+491637742867', '+491637742868'));
-        $this->assertFalse(ThreadRelinkPlanner::phonesMatch(null, '+491637742867'));
-        $this->assertFalse(ThreadRelinkPlanner::phonesMatch('123', '123'));
     }
 
     // ── chooseApplicant ──────────────────────────────────────────────
@@ -56,19 +56,22 @@ final class ThreadRelinkPlannerTest extends TestCase
         $this->assertSame(307, $chosen['id']);
     }
 
-    public function test_bei_gleichem_status_gewinnt_der_neueste(): void
+    public function test_bei_gleichem_status_gewinnt_der_senior(): void
     {
+        // Senior-Regel wie DuplicateApplicantGuard: kleinste ID besitzt den
+        // Chat — Dedup/Reminder-Logik behandelt denselben Bewerber als
+        // Eigentümer der Nummer.
         $chosen = ThreadRelinkPlanner::chooseApplicant([
-            ['id' => 680, 'is_active' => true],
             ['id' => 1012, 'is_active' => true],
+            ['id' => 680, 'is_active' => true],
         ]);
-        $this->assertSame(1012, $chosen['id']);
+        $this->assertSame(680, $chosen['id']);
 
         $chosenInactive = ThreadRelinkPlanner::chooseApplicant([
-            ['id' => 680, 'is_active' => false],
             ['id' => 1012, 'is_active' => false],
+            ['id' => 680, 'is_active' => false],
         ]);
-        $this->assertSame(1012, $chosenInactive['id']);
+        $this->assertSame(680, $chosenInactive['id']);
     }
 
     public function test_keine_kandidaten_ergibt_null(): void

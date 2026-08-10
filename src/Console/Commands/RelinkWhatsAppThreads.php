@@ -6,6 +6,8 @@ use Illuminate\Console\Command;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
+use Platform\Recruiting\Services\ApplicationMatchingService;
+use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
 use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\ThreadRelinkPlanner;
 
@@ -16,10 +18,20 @@ use Platform\Recruiting\Services\Comms\ThreadRelinkPlanner;
  * Bewerber umgehängt und waren in Kommunikations-Übersicht & Nachrichten-
  * Spalte unsichtbar; Antworten wurden vom Gate verworfen).
  *
- * Ordnet Threads per Telefonnummer (letzte 10 Ziffern, formattolerant) ihrem
- * Bewerber zu: addContext() + Beförderung der Legacy-Spalten. Threads ohne
- * Bewerber-Match werden als "verlorene Bewerbung" gelistet (Kandidat für
- * Nach-Intake), nichts geändert.
+ * Schutzgeländer:
+ *  - NUR Threads auf Bewerbungs-Eingangs-Kanälen (isIntakeChannel) — Dispo-/
+ *    Sales-Threads bekannter Kontakte werden nie angefasst.
+ *  - Threads mit fremdem Pivot-Kontext (HCM-Onboarding, Helpdesk, ...) werden
+ *    übersprungen, auch wenn die Legacy-Spalte crm_contact zeigt.
+ *  - Zuordnung primär über den exakten Kontakt-Link (Thread-Kontakt ist per
+ *    crm_contact_links mit einem Bewerber verlinkt); Telefon-Match (kanonische
+ *    Digit-Form, nur aktive Nummern) nur als Fallback für Dubletten-Kontakte
+ *    wie Fall #2474 (WhatsApp-Kontakt ≠ Bewerber-Kontakt).
+ *  - Bei mehreren Kandidaten gewinnt der Senior (aktiv vor inaktiv, kleinste
+ *    ID) — dieselbe Eigentümer-Konvention wie der DuplicateApplicantGuard.
+ *
+ * Threads ohne Bewerber-Match werden als "verlorene Bewerbung" gelistet
+ * (Kandidaten für Nach-Intake), nichts geändert.
  *
  * Idempotent. Erst mit --dry-run prüfen.
  *
@@ -34,7 +46,12 @@ class RelinkWhatsAppThreads extends Command
         {--dry-run : Nur anzeigen was geändert würde, nichts schreiben}
         {--thread-id= : Einzelnen Thread bearbeiten}';
 
-    protected $description = 'Hängt WhatsApp-Threads mit nacktem CrmContact-Kontext per Telefonnummer an ihre Bewerber um (Kontext-Gate-Heilung).';
+    protected $description = 'Hängt WhatsApp-Threads mit nacktem CrmContact-Kontext auf Intake-Kanälen an ihre Bewerber um (Kontext-Gate-Heilung).';
+
+    public function __construct(private ApplicationMatchingService $matching)
+    {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -55,6 +72,7 @@ class RelinkWhatsAppThreads extends Command
             ->where('team_id', $teamId)
             ->whereIn('context_model', ['crm_contact', 'Platform\\Crm\\Models\\CrmContact'])
             ->when($threadId, fn ($q) => $q->where('id', (int) $threadId))
+            ->with(['channel', 'contexts'])
             ->orderBy('id')
             ->get();
 
@@ -63,22 +81,49 @@ class RelinkWhatsAppThreads extends Command
             return Command::SUCCESS;
         }
 
-        $phoneIndex = $this->buildApplicantPhoneIndex($teamId);
-        $this->info("Prüfe {$threads->count()} Threads gegen {$this->indexSize($phoneIndex)} Bewerber-Nummern...");
+        [$byContactId, $byPhone] = $this->buildApplicantIndexes($teamId);
+        $this->info("Prüfe {$threads->count()} Threads gegen " . count($byContactId) . ' verlinkte Kontakte / ' . count($byPhone) . ' Bewerber-Nummern...');
         $this->newLine();
 
-        $stats = ['relinked' => 0, 'ambiguous' => 0, 'lost' => 0, 'no_phone' => 0];
+        $stats = ['relinked' => 0, 'ambiguous' => 0, 'lost' => 0, 'skipped_channel' => 0, 'skipped_foreign' => 0];
         $lost = [];
+        $intakeCache = [];
 
         foreach ($threads as $thread) {
-            $key = ThreadRelinkPlanner::normalizePhone($thread->remote_phone_number);
-            if ($key === null) {
-                $this->line("  <fg=yellow>Thread #{$thread->id}</>: keine verwertbare Nummer ({$thread->remote_phone_number}), übersprungen.");
-                $stats['no_phone']++;
+            // Schutz 1: nur Bewerbungs-Eingangs-Kanäle.
+            $channel = $thread->channel;
+            if (!$channel) {
+                $stats['skipped_channel']++;
+                continue;
+            }
+            $intakeCache[$channel->id] ??= $this->matching->isIntakeChannel($channel);
+            if (!$intakeCache[$channel->id]) {
+                $this->line("  <fg=yellow>Thread #{$thread->id}</>: Kanal '{$channel->name}' ist kein Bewerbungs-Eingang, übersprungen.");
+                $stats['skipped_channel']++;
                 continue;
             }
 
-            $candidates = $phoneIndex[$key] ?? [];
+            // Schutz 2: fremde Pivot-Kontexte (HCM, Helpdesk, ...) → Finger weg.
+            $contextModels = $thread->contexts->pluck('context_model')
+                ->push($thread->context_model)
+                ->filter()
+                ->unique()
+                ->all();
+            if (ThreadContextGate::blocksIntakeAny($contextModels)) {
+                $this->line("  <fg=yellow>Thread #{$thread->id}</>: fremder Pivot-Kontext (" . implode(', ', $contextModels) . '), übersprungen.');
+                $stats['skipped_foreign']++;
+                continue;
+            }
+
+            // Zuordnung: exakter Kontakt-Link zuerst, Telefon nur als Fallback.
+            $candidates = $byContactId[(int) $thread->context_model_id] ?? [];
+            $via = 'kontakt';
+            if ($candidates === []) {
+                $key = ThreadRelinkPlanner::normalizePhone($thread->remote_phone_number);
+                $candidates = $key !== null ? ($byPhone[$key] ?? []) : [];
+                $via = 'telefon';
+            }
+
             $chosen = ThreadRelinkPlanner::chooseApplicant($candidates);
 
             if ($chosen === null) {
@@ -87,10 +132,10 @@ class RelinkWhatsAppThreads extends Command
                 continue;
             }
 
-            $note = '';
+            $note = " <fg=gray>via {$via}</>";
             if (count($candidates) > 1) {
                 $ids = implode(', ', array_column($candidates, 'id'));
-                $note = " <fg=cyan>(mehrere Kandidaten: {$ids} — aktivster/neuester gewählt)</>";
+                $note .= " <fg=cyan>(mehrere Kandidaten: {$ids} — Senior gewählt)</>";
                 $stats['ambiguous']++;
             }
 
@@ -104,7 +149,7 @@ class RelinkWhatsAppThreads extends Command
 
         if ($lost !== []) {
             $this->newLine();
-            $this->warn('Verlorene Bewerbungen (kein Bewerber zur Nummer — Kandidaten für Nach-Intake):');
+            $this->warn('Verlorene Bewerbungen (kein Bewerber zum Thread — Kandidaten für Nach-Intake):');
             $this->table(['Thread', 'Nummer', 'Letzter Eingang'], $lost);
         }
 
@@ -113,33 +158,19 @@ class RelinkWhatsAppThreads extends Command
             ['Aktion', 'Anzahl'],
             [
                 ['Umgehängt', $stats['relinked']],
-                ['davon mehrdeutig (neuester gewählt)', $stats['ambiguous']],
+                ['davon mehrdeutig (Senior gewählt)', $stats['ambiguous']],
                 ['Verloren (kein Bewerber-Match)', $stats['lost']],
-                ['Keine verwertbare Nummer', $stats['no_phone']],
+                ['Übersprungen: kein Intake-Kanal', $stats['skipped_channel']],
+                ['Übersprungen: fremder Pivot-Kontext', $stats['skipped_foreign']],
             ]
         );
 
         return Command::SUCCESS;
     }
 
-    /**
-     * Thread → Bewerber: Pivot-Kontext ergänzen UND Legacy-Spalten befördern.
-     * addContext() allein reicht nicht — Legacy-Spalten folgen "first context
-     * wins" und genau sie werden von Kommunikations-Übersicht & Nachrichten-
-     * Spalte gelesen.
-     */
     private function relink(CommsWhatsAppThread $thread, int $applicantId): void
     {
-        $morph = (new RecApplicant)->getMorphClass();
-
-        $thread->addContext($morph, $applicantId, 'relink_context_gate');
-
-        if (ThreadContextGate::isBareContactContext($thread->context_model)) {
-            $thread->updateQuietly([
-                'context_model' => $morph,
-                'context_model_id' => $applicantId,
-            ]);
-        }
+        ApplicantThreadLinker::link($thread, $applicantId, 'relink_context_gate');
 
         try {
             RecAutoPilotLog::create([
@@ -157,42 +188,52 @@ class RelinkWhatsAppThreads extends Command
     }
 
     /**
-     * Index normalisierte Nummer → Bewerber-Kandidaten für das Team.
-     * Eine Nummer kann auf mehrere Bewerber zeigen (Mehrfach-Bewerbung) —
-     * die Auswahl trifft ThreadRelinkPlanner::chooseApplicant().
+     * Zwei Indizes über die Bewerber des Teams:
+     *  - contact_id  → Kandidaten (exakter crm_contact_links-Join)
+     *  - kanonische Nummer → Kandidaten (nur AKTIVE Telefonnummern —
+     *    deaktivierte/ersetzte Nummern dürfen ihren Alt-Bewerber nicht
+     *    mehr in den Index tragen)
      *
-     * @return array<string, array<array{id: int, is_active: bool}>>
+     * @return array{0: array<int, array<array{id: int, is_active: bool}>>,
+     *               1: array<string, array<array{id: int, is_active: bool}>>}
      */
-    private function buildApplicantPhoneIndex(int $teamId): array
+    private function buildApplicantIndexes(int $teamId): array
     {
         $applicants = RecApplicant::query()
             ->where('team_id', $teamId)
-            ->whereHas('crmContactLinks.contact.phoneNumbers')
+            ->whereHas('crmContactLinks')
             ->with('crmContactLinks.contact.phoneNumbers')
-            ->get(['id', 'is_active', 'team_id']);
+            ->get(['id', 'is_active']);
 
-        $index = [];
+        $byContactId = [];
+        $byPhone = [];
+
         foreach ($applicants as $applicant) {
+            $candidate = [
+                'id' => (int) $applicant->id,
+                'is_active' => (bool) $applicant->is_active,
+            ];
+
             foreach ($applicant->crmContactLinks as $link) {
+                $byContactId[(int) $link->contact_id][$applicant->id] = $candidate;
+
                 foreach ($link->contact?->phoneNumbers ?? [] as $phone) {
+                    if (!$phone->is_active) {
+                        continue;
+                    }
                     $key = ThreadRelinkPlanner::normalizePhone($phone->international ?: $phone->raw_input);
                     if ($key === null) {
                         continue;
                     }
-                    $index[$key][$applicant->id] = [
-                        'id' => (int) $applicant->id,
-                        'is_active' => (bool) $applicant->is_active,
-                    ];
+                    $byPhone[$key][$applicant->id] = $candidate;
                 }
             }
         }
 
         // Innere Keys (Dedup pro Bewerber) wieder zu Listen glätten.
-        return array_map('array_values', $index);
-    }
-
-    private function indexSize(array $index): int
-    {
-        return count($index);
+        return [
+            array_map('array_values', $byContactId),
+            array_map('array_values', $byPhone),
+        ];
     }
 }

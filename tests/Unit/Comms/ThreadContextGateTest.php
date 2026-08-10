@@ -46,6 +46,25 @@ final class ThreadContextGateTest extends TestCase
         $this->assertTrue(ThreadContextGate::blocksIntake($contextModel));
     }
 
+    // ── blocksIntakeAny ──────────────────────────────────────────────
+
+    public function test_any_blockt_wenn_ein_pivot_kontext_fremd_ist(): void
+    {
+        // Legacy-Spalte bleibt per "first context wins" auf crm_contact
+        // stehen, auch wenn HCM/Helpdesk später per Pivot dazukommen —
+        // ein einziger fremder Kontext muss den Intake blocken.
+        $this->assertTrue(ThreadContextGate::blocksIntakeAny(['crm_contact', 'hcm_onboarding']));
+        $this->assertTrue(ThreadContextGate::blocksIntakeAny(['helpdesk_ticket']));
+    }
+
+    public function test_any_erlaubt_reine_kontakt_und_bewerber_kontexte(): void
+    {
+        $this->assertFalse(ThreadContextGate::blocksIntakeAny([]));
+        $this->assertFalse(ThreadContextGate::blocksIntakeAny(['crm_contact']));
+        $this->assertFalse(ThreadContextGate::blocksIntakeAny(['crm_contact', 'rec_applicant']));
+        $this->assertFalse(ThreadContextGate::blocksIntakeAny([null, 'Platform\\Crm\\Models\\CrmContact']));
+    }
+
     // ── isBareContactContext ─────────────────────────────────────────
 
     public function test_crm_kontakt_ist_bare_contact(): void

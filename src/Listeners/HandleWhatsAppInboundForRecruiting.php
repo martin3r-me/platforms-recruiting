@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\ApplicationMatchingService;
+use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
 use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
@@ -63,12 +64,22 @@ class HandleWhatsAppInboundForRecruiting
         // (e.g. HCM onboarding, helpdesk ticket, sales, etc.). Ein nackter
         // CrmContact-Kontext blockt NICHT — den heftet das CRM seit 04/2026
         // an jeden neuen Thread, bevor Recruiting die Nachricht sieht.
-        if (ThreadContextGate::blocksIntake($thread->context_model)) {
+        // Geprüft werden Legacy-Spalte UND Pivot-Kontexte: die Legacy-Spalte
+        // bleibt per "first context wins" auf crm_contact stehen, auch wenn
+        // ein Fachprozess den Thread später per Pivot übernommen hat.
+        $contextModels = $thread->contexts()->pluck('context_model')
+            ->push($thread->context_model)
+            ->filter()
+            ->unique()
+            ->all();
+
+        if (ThreadContextGate::blocksIntakeAny($contextModels)) {
+            $blocking = implode(', ', array_filter($contextModels, [ThreadContextGate::class, 'blocksIntake']));
             CommsLog::log(
                 event: 'inbound_skipped',
                 status: 'info',
-                summary: "WhatsApp-Thread gehört zu anderem Kontext ({$thread->context_model}), kein Recruiting-Applicant erstellt",
-                details: ['thread_id' => $thread->id, 'context_model' => $thread->context_model, 'context_model_id' => $thread->context_model_id],
+                summary: "WhatsApp-Thread gehört zu anderem Kontext ({$blocking}), kein Recruiting-Applicant erstellt",
+                details: ['thread_id' => $thread->id, 'context_model' => $thread->context_model, 'context_model_id' => $thread->context_model_id, 'context_models' => $contextModels],
                 extra: $logExtra,
             );
 
@@ -78,13 +89,18 @@ class HandleWhatsAppInboundForRecruiting
         // Auto-Hinweis bei Sprachnachrichten (greift für jede Recruiting-Konversation,
         // auch auf Nicht-Intake-Kanälen; gedrosselt 1×/24h; Feature aus wenn kein
         // Template konfiguriert). Bewusst VOR dem Intake-Gate, normaler Flow läuft danach weiter.
-        try {
-            $this->voiceNoteAutoReply->handle($channel, $thread, $message);
-        } catch (\Throwable $e) {
-            Log::warning('[Recruiting] Voice-Note Auto-Reply fehlgeschlagen', [
-                'thread_id' => $thread->id,
-                'error' => $e->getMessage(),
-            ]);
+        // NICHT für nackte CrmContact-Threads: das wäre eine Recruiting-Antwort an
+        // beliebige bekannte Kontakte (Kunden, Disponenten) auf beliebigen Kanälen —
+        // vor dem Gate-Fix hat der alte Kontext-Check genau das unterbunden.
+        if (!ThreadContextGate::isBareContactContext($thread->context_model)) {
+            try {
+                $this->voiceNoteAutoReply->handle($channel, $thread, $message);
+            } catch (\Throwable $e) {
+                Log::warning('[Recruiting] Voice-Note Auto-Reply fehlgeschlagen', [
+                    'thread_id' => $thread->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         // Intake-Gate: ist dieser Kanal überhaupt ein Bewerbungs-Eingang?
@@ -148,19 +164,9 @@ class HandleWhatsAppInboundForRecruiting
             // Attach media files from the WhatsApp message to the applicant
             $this->attachWhatsAppFilesToApplicant($message, $thread, $applicant);
 
-            // Link the thread to the applicant for communication tracking.
-            // addContext() schreibt Legacy-Spalten nur, wenn sie leer sind
-            // ("first context wins") — hängt der Thread noch am nackten
-            // CrmContact, muss der Bewerber aktiv befördert werden, sonst
-            // bleibt der Chat für Kommunikations-Übersicht & Nachrichten-
-            // Spalte (lesen die Legacy-Spalten) unsichtbar.
-            $thread->addContext($applicant->getMorphClass(), $applicant->id, 'recruiting_inbound');
-            if (ThreadContextGate::isBareContactContext($thread->context_model)) {
-                $thread->updateQuietly([
-                    'context_model' => $applicant->getMorphClass(),
-                    'context_model_id' => $applicant->id,
-                ]);
-            }
+            // Link the thread to the applicant for communication tracking
+            // (Pivot + Beförderung der Legacy-Spalten, siehe Linker-Doc).
+            ApplicantThreadLinker::link($thread, $applicant->id, 'recruiting_inbound');
 
             // Versuche Inbound als Reminder-Antwort (Ja/Nein) zu interpretieren.
             // Wenn ja: Booking-Status wird gesetzt + ggf. HR-Schreibtisch markiert.

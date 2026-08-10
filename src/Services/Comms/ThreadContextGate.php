@@ -43,6 +43,26 @@ final class ThreadContextGate
     }
 
     /**
+     * Wie blocksIntake(), aber über ALLE Kontexte eines Threads (Legacy-Spalte
+     * + Pivot-Zeilen). Nötig, weil die Legacy-Spalte per "first context wins"
+     * auf crm_contact stehen bleibt, auch wenn ein Fachprozess (HCM-Onboarding,
+     * Helpdesk) den Thread später per Pivot-addContext() übernommen hat —
+     * ein einziger fremder Kontext blockt den Intake.
+     *
+     * @param iterable<string|null> $contextModels
+     */
+    public static function blocksIntakeAny(iterable $contextModels): bool
+    {
+        foreach ($contextModels as $contextModel) {
+            if (self::blocksIntake($contextModel)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * True, wenn der Kontext nur ein nackter CRM-Kontakt ist. Solche Threads
      * werden nach dem Intake auf den Bewerber "befördert" (Legacy-Spalten
      * umgeschrieben), damit Kommunikations-Übersicht & Nachrichten-Spalte
