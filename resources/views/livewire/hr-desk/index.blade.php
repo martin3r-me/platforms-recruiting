@@ -346,6 +346,19 @@
                         Der Bewerber wird abgelehnt — <code>rejected_at</code> wird gesetzt, <code>is_active</code> auf false. <strong>Nicht rückgängig machbar via UI</strong>.
                     @endif
                 </div>
+                @if($resolvingAction === 'reject' && $canSendRejectionMessage)
+                    <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model="sendRejectionMessage"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">Absage-Nachricht per WhatsApp senden</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Nutzt das Jugendschutz-Absage-Template aus den Bewerber-Einstellungen — der Bewerber erfährt sonst nichts von der Ablehnung.</p>
+                            </div>
+                        </label>
+                    </div>
+                @endif
                 <div class="space-y-1">
                     <label class="text-sm font-medium text-[var(--ui-secondary)]">Notiz {{ $resolvingAction === 'reject' ? '(empfohlen)' : '(optional)' }}</label>
                     <textarea wire:model="resolveNotes"

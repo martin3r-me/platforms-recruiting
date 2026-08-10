@@ -11,6 +11,8 @@ use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterviewBooking;
+use Platform\Recruiting\Models\RecAutoPilotLog;
+use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
 use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\ContractSendEligibility;
 use Platform\Recruiting\Services\HrDeskRoutingService;
@@ -37,6 +39,11 @@ class Index extends Component
     public ?int $resolvingCaseId = null;
     public string $resolvingAction = ''; // 'approve' | 'reject'
     public string $resolveNotes = '';
+    // Absage-Nachricht beim Ablehnen von Jugendschutz-Fällen (nutzt das
+    // U16-Template aus den Bewerber-Einstellungen). Nur angeboten, wenn
+    // Template konfiguriert ist und der Bewerber eine Nummer hat.
+    public bool $sendRejectionMessage = false;
+    public bool $canSendRejectionMessage = false;
 
     #[Computed]
     public function reasonCounts(): array
@@ -99,6 +106,24 @@ class Index extends Component
         $this->resolvingCaseId = $caseId;
         $this->resolvingAction = $action;
         $this->resolveNotes = '';
+
+        $this->canSendRejectionMessage = false;
+        $this->sendRejectionMessage = false;
+        if ($action === 'reject') {
+            $teamId = (int) Auth::user()->currentTeam->id;
+            $case = RecHrDeskCase::forTeam($teamId)->find($caseId);
+            if ($case?->reason === RecHrDeskCase::REASON_MINOR) {
+                $applicant = $case->applicant;
+                $templateOk = app(HoldingTemplateSender::class)
+                    ->configuredTemplateName($teamId, 'minor_rejection_template_id') !== null;
+                $this->canSendRejectionMessage = $templateOk
+                    && $applicant !== null
+                    && $applicant->primaryContactPhone() !== null;
+                // Default AN — bewusste Abwahl statt vergessener Absage.
+                $this->sendRejectionMessage = $this->canSendRejectionMessage;
+            }
+        }
+
         $this->resolveModalShow = true;
     }
 
@@ -108,6 +133,8 @@ class Index extends Component
         $this->resolvingCaseId = null;
         $this->resolvingAction = '';
         $this->resolveNotes = '';
+        $this->sendRejectionMessage = false;
+        $this->canSendRejectionMessage = false;
     }
 
     public function confirmResolve(): void
@@ -136,7 +163,36 @@ class Index extends Component
             }
         } else {
             $service->rejectCase($case, $userId, $notes);
-            session()->flash('message', 'Bewerber abgelehnt.');
+
+            $messageSent = false;
+            if ($this->sendRejectionMessage
+                && $this->canSendRejectionMessage
+                && $case->reason === RecHrDeskCase::REASON_MINOR) {
+                $applicant = $case->applicant;
+                $phone = $applicant?->primaryContactPhone();
+                if ($applicant && $phone !== null) {
+                    $firstName = trim((string) ($applicant->getExtraField('vorname')
+                        ?? $applicant->crmContactLinks->first()?->contact?->first_name ?? ''));
+                    $result = app(HoldingTemplateSender::class)
+                        ->sendOne($teamId, $phone, $firstName, 'minor_rejection_template_id');
+                    $messageSent = ($result['sent'] ?? 0) > 0;
+
+                    try {
+                        RecAutoPilotLog::create([
+                            'rec_applicant_id' => $applicant->id,
+                            'type' => 'rejection_message_sent',
+                            'summary' => $messageSent
+                                ? 'Absage-Nachricht (Jugendschutz-Template) per WhatsApp versendet (HR-Schreibtisch).'
+                                : 'Absage-Nachricht konnte NICHT versendet werden: ' . ($result['error'] ?? 'Sendefehler'),
+                            'details' => ['template_result' => $result],
+                        ]);
+                    } catch (\Throwable) {}
+                }
+            }
+
+            session()->flash('message', $messageSent
+                ? 'Bewerber abgelehnt — Absage-Nachricht versendet.'
+                : 'Bewerber abgelehnt.');
         }
 
         unset($this->cases, $this->reasonCounts);

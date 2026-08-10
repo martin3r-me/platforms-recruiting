@@ -679,7 +679,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /** Erste aktive Telefonnummer der verknüpften Kontakte (international bevorzugt). */
-    private function primaryContactPhone(): ?string
+    public function primaryContactPhone(): ?string
     {
         $this->loadMissing('crmContactLinks.contact.phoneNumbers');
         foreach ($this->crmContactLinks as $link) {
