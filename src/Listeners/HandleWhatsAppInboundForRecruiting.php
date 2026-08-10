@@ -10,6 +10,7 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\ApplicationMatchingService;
 use Platform\Recruiting\Services\Comms\OooAutoReplyHandler;
+use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
 use Platform\Recruiting\Services\ReminderResponseHandler;
@@ -59,23 +60,19 @@ class HandleWhatsAppInboundForRecruiting
         }
 
         // Skip if this thread is already linked to a non-recruiting context
-        // (e.g. HCM onboarding, helpdesk ticket, sales, etc.)
-        // Only allow threads with no context (new) or rec_applicant context (reply)
-        if ($thread->context_model !== null) {
-            $morphClass = (new \Platform\Recruiting\Models\RecApplicant)->getMorphClass();
-            $fullClass = \Platform\Recruiting\Models\RecApplicant::class;
+        // (e.g. HCM onboarding, helpdesk ticket, sales, etc.). Ein nackter
+        // CrmContact-Kontext blockt NICHT — den heftet das CRM seit 04/2026
+        // an jeden neuen Thread, bevor Recruiting die Nachricht sieht.
+        if (ThreadContextGate::blocksIntake($thread->context_model)) {
+            CommsLog::log(
+                event: 'inbound_skipped',
+                status: 'info',
+                summary: "WhatsApp-Thread gehört zu anderem Kontext ({$thread->context_model}), kein Recruiting-Applicant erstellt",
+                details: ['thread_id' => $thread->id, 'context_model' => $thread->context_model, 'context_model_id' => $thread->context_model_id],
+                extra: $logExtra,
+            );
 
-            if ($thread->context_model !== $morphClass && $thread->context_model !== $fullClass) {
-                CommsLog::log(
-                    event: 'inbound_skipped',
-                    status: 'info',
-                    summary: "WhatsApp-Thread gehört zu anderem Kontext ({$thread->context_model}), kein Recruiting-Applicant erstellt",
-                    details: ['thread_id' => $thread->id, 'context_model' => $thread->context_model, 'context_model_id' => $thread->context_model_id],
-                    extra: $logExtra,
-                );
-
-                return;
-            }
+            return;
         }
 
         // Auto-Hinweis bei Sprachnachrichten (greift für jede Recruiting-Konversation,
@@ -151,9 +148,19 @@ class HandleWhatsAppInboundForRecruiting
             // Attach media files from the WhatsApp message to the applicant
             $this->attachWhatsAppFilesToApplicant($message, $thread, $applicant);
 
-            // Link the thread to the applicant for communication tracking
-            // addContext() writes both pivot table and legacy columns
+            // Link the thread to the applicant for communication tracking.
+            // addContext() schreibt Legacy-Spalten nur, wenn sie leer sind
+            // ("first context wins") — hängt der Thread noch am nackten
+            // CrmContact, muss der Bewerber aktiv befördert werden, sonst
+            // bleibt der Chat für Kommunikations-Übersicht & Nachrichten-
+            // Spalte (lesen die Legacy-Spalten) unsichtbar.
             $thread->addContext($applicant->getMorphClass(), $applicant->id, 'recruiting_inbound');
+            if (ThreadContextGate::isBareContactContext($thread->context_model)) {
+                $thread->updateQuietly([
+                    'context_model' => $applicant->getMorphClass(),
+                    'context_model_id' => $applicant->id,
+                ]);
+            }
 
             // Versuche Inbound als Reminder-Antwort (Ja/Nein) zu interpretieren.
             // Wenn ja: Booking-Status wird gesetzt + ggf. HR-Schreibtisch markiert.
