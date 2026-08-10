@@ -44,12 +44,20 @@ final class MinorAgeGate
 
     private static function parse(mixed $birthDate): ?\DateTimeImmutable
     {
+        if ($birthDate instanceof \DateTimeInterface) {
+            return \DateTimeImmutable::createFromInterface($birthDate)->setTime(0, 0);
+        }
+
         if (!is_string($birthDate) || trim($birthDate) === '') {
             return null;
         }
 
-        $raw = trim($birthDate);
-        foreach (['Y-m-d', 'd.m.Y'] as $format) {
+        // Datetime-Suffix abschneiden ('2011-01-07 00:00:00' → '2011-01-07').
+        $raw = trim(explode(' ', trim($birthDate), 2)[0]);
+
+        // 'j.n.Y' fängt auch ungepolsterte Eingaben ('7.1.2011') — Roundtrip
+        // pro Format verhindert stille Fehlinterpretationen.
+        foreach (['Y-m-d', 'd.m.Y', 'j.n.Y'] as $format) {
             $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $raw);
             if ($parsed !== false && $parsed->format($format) === $raw) {
                 return $parsed;

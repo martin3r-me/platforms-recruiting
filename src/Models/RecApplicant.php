@@ -567,15 +567,31 @@ class RecApplicant extends Model implements InheritsExtraFields
      *    Einstellungen, Buchungen storniert, deaktiviert); solange Template/
      *    Status nicht konfiguriert sind: Schreibtisch statt stiller Absage
      */
-    public function guardMinorAge(): bool
+    public function guardMinorAge(bool $forHooks = false): bool
     {
         $verdict = \Platform\Recruiting\Support\MinorAgeGate::verdict(
             $this->getExtraField('geburtsdatum'),
             new \DateTimeImmutable('today'),
         );
 
-        if ($verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_PASS
-            || $verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_UNKNOWN) {
+        if ($verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_PASS) {
+            // Datum korrigiert (z.B. Tippfehler 2010→2000): offene Minor-Fälle
+            // automatisch schließen, sonst hängt der Bewerber ewig am Desk.
+            app(\Platform\Recruiting\Services\HrDeskRoutingService::class)->autoCloseObsoleteCases(
+                $this,
+                RecHrDeskCase::REASON_MINOR,
+                'Automatisch geschlossen: Geburtsdatum weist Volljährigkeit aus.',
+            );
+            return true;
+        }
+
+        $birthDateRaw = $this->getExtraField('geburtsdatum');
+        $birthDate = is_scalar($birthDateRaw) ? (string) $birthDateRaw : 'unbekannt';
+
+        // Kein plausibles Geburtsdatum: Phasen-Aufstieg/Datensammlung laufen
+        // weiter (Altbestand darf nicht einfrieren), aber Vertragsversand/
+        // MA-Anlage (Hooks) brauchen ein geklärtes Datum oder HR-Freigabe.
+        if ($verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_UNKNOWN && !$forHooks) {
             return true;
         }
 
@@ -584,30 +600,40 @@ class RecApplicant extends Model implements InheritsExtraFields
             ->orderByDesc('id')
             ->first();
 
-        // HR hat geprüft und freigegeben → Automatik läuft normal weiter.
-        if ($latestCase?->status === RecHrDeskCase::STATUS_APPROVED) {
-            return true;
-        }
+        if ($verdict !== \Platform\Recruiting\Support\MinorAgeGate::VERDICT_REJECT) {
+            // REVIEW (16–17) oder UNKNOWN-vor-Hooks: HR-Freigabe entsperrt.
+            if ($latestCase?->status === RecHrDeskCase::STATUS_APPROVED) {
+                return true;
+            }
+            if ($latestCase?->status === RecHrDeskCase::STATUS_REJECTED) {
+                return false;
+            }
 
-        // HR hat abgelehnt → blockiert lassen, aber keinen neuen Fall
-        // erzeugen (sonst Fall-Schleife); die Absage macht HR im Fall selbst.
-        if ($latestCase?->status === RecHrDeskCase::STATUS_REJECTED) {
-            return false;
-        }
-
-        $birthDate = (string) $this->getExtraField('geburtsdatum');
-
-        if ($verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_REVIEW) {
+            $note = $verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_REVIEW
+                ? "Minderjährig (16–17, geb. {$birthDate}): Jugendschutz/Einverständnis prüfen. Freigabe schaltet den Phasen-Aufstieg frei."
+                : "Geburtsdatum fehlt oder ist unplausibel ({$birthDate}) — Vertragsversand/MA-Anlage blockiert. Bitte Datum klären; Freigabe schaltet frei.";
             app(\Platform\Recruiting\Services\HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
                 $this,
                 RecHrDeskCase::REASON_MINOR,
                 null,
-                "Minderjährig (16–17, geb. {$birthDate}): Jugendschutz/Einverständnis prüfen. Freigabe schaltet den Phasen-Aufstieg frei.",
+                $note,
             );
             return false;
         }
 
-        // VERDICT_REJECT (<16): zwingende Auto-Absage — sofern konfiguriert.
+        // VERDICT_REJECT (<16): zwingende Auto-Absage. Eine HR-Freigabe
+        // entsperrt hier bewusst NICHT (Kundenregel: unter 16 immer absagen) —
+        // sie verhindert nur nichts, weil dieser Zweig sie ignoriert.
+        if (!$this->is_active) {
+            return false; // bereits abgesagt/deaktiviert — nichts mehr tun
+        }
+        if ($latestCase && $latestCase->isOpen()) {
+            return false; // Fall liegt bei HR (z.B. Versand fehlgeschlagen) — kein Auto-Retry-Spam
+        }
+        if ($latestCase?->status === RecHrDeskCase::STATUS_REJECTED) {
+            return false; // HR hat bereits manuell abgelehnt
+        }
+
         $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
         $statusId = (int) ($settings->getSetting('minor_rejection_status_id') ?? 0);
         $templateOk = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
@@ -637,18 +663,41 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     private function executeMinorRejection(int $statusId, string $phone, string $birthDate): void
     {
-        $alreadyRejected = RecAutoPilotLog::where('rec_applicant_id', $this->id)
-            ->where('type', 'minor_rejected')
-            ->exists();
-        if ($alreadyRejected) {
-            return;
-        }
-
         $firstName = trim((string) ($this->getExtraField('vorname')
             ?? $this->crmContactLinks->first()?->contact?->first_name ?? ''));
 
+        // Send-first: die Absage-Nachricht MUSS raus sein, bevor irgendetwas
+        // deaktiviert wird — sonst entsteht genau die stille Absage, die das
+        // Feature verspricht auszuschließen. Fehlversand → Fall an HR, der
+        // offene Fall stoppt weitere Auto-Versuche (guardMinorAge).
         $result = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
             ->sendOne($this->team_id, $phone, $firstName, 'minor_rejection_template_id');
+
+        if (($result['sent'] ?? 0) < 1) {
+            app(\Platform\Recruiting\Services\HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
+                $this,
+                RecHrDeskCase::REASON_MINOR,
+                null,
+                "Unter 16 (geb. {$birthDate}) — Absage-Nachricht konnte nicht versendet werden ("
+                    . ($result['error'] ?? 'Sendefehler') . "). Bitte manuell absagen.",
+            );
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type' => 'minor_rejection_send_failed',
+                    'summary' => 'Auto-Absage (unter 16) abgebrochen — Template-Versand fehlgeschlagen, Fall an HR übergeben.',
+                    'details' => ['template_result' => $result],
+                ]);
+            } catch (\Throwable) {}
+            return;
+        }
+
+        // Idempotenz trägt is_active=false (guardMinorAge prüft das zuerst) —
+        // das Log ist reines Audit und darf scheitern.
+        $this->rec_applicant_status_id = $statusId;
+        $this->rejected_at = now();
+        $this->is_active = false;
+        $this->save();
 
         $openBookings = $this->interviewBookings()->whereNotIn('status', ['cancelled'])->get();
         foreach ($openBookings as $booking) {
@@ -658,17 +707,12 @@ class RecApplicant extends Model implements InheritsExtraFields
             $booking->save();
         }
 
-        $this->rec_applicant_status_id = $statusId;
-        $this->is_active = false;
-        $this->save();
-
         try {
             RecAutoPilotLog::create([
                 'rec_applicant_id' => $this->id,
                 'type' => 'minor_rejected',
-                'summary' => "Auto-Absage: Bewerber unter 16 (geb. {$birthDate}). Absage-Template "
-                    . (($result['sent'] ?? 0) > 0 ? 'versendet' : 'NICHT versendet (' . ($result['error'] ?? 'Sendefehler') . ')')
-                    . ', ' . $openBookings->count() . ' Buchung(en) storniert, Bewerber deaktiviert.',
+                'summary' => "Auto-Absage: Bewerber unter 16 (geb. {$birthDate}). Absage-Template versendet, "
+                    . $openBookings->count() . ' Buchung(en) storniert, Bewerber deaktiviert.',
                 'details' => [
                     'birth_date' => $birthDate,
                     'template_result' => $result,
@@ -809,11 +853,26 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
+        // EU-Bürger-Sync VOR dem Jugendschutz-Backstop: reiner Daten-Sync,
+        // der auch für blockierte Minderjährige laufen muss — sonst bleibt
+        // is_eu_citizen null und die Non-EU-Compliance-Prüfung greift nie.
+        try {
+            $this->syncEuCitizenFromExtraField();
+        } catch (\Throwable $e) {
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->id,
+                    'type'             => 'eu_sync_failed',
+                    'summary'          => "EU-Buerger-Sync fehlgeschlagen: " . $e->getMessage(),
+                ]);
+            } catch (\Throwable) {}
+        }
+
         // Jugendschutz-Backstop: Phase-Abschluss-Hooks (Vertragsversand,
-        // MA-Anlage, Buchungs-Bestätigung) laufen NIE für bekannte
-        // Minderjährige ohne freigegebenen HR-Fall — auch nicht auf Pfaden
-        // am AutoPilot vorbei (Direkteinstellung, manueller HR-Advance).
-        if (!$this->guardMinorAge()) {
+        // MA-Anlage, Buchungs-Bestätigung) laufen NIE für Minderjährige ohne
+        // freigegebenen HR-Fall oder ohne plausibles Geburtsdatum — auch nicht
+        // auf Pfaden am AutoPilot vorbei (Direkteinstellung, manueller Advance).
+        if (!$this->guardMinorAge(forHooks: true)) {
             try {
                 // Ein Log pro Bewerber reicht — der Hook feuert bei jedem
                 // Public-Form-Save erneut, solange die Freigabe aussteht.
@@ -832,25 +891,6 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
 
         $config = $completedPhase->completion_config ?? [];
-
-        // EU-Buerger-Sync: extra_field 'eu_burger' → rec_applicant_legal_statuses.is_eu_citizen.
-        // Beim Abschluss jeder Phase neu evaluieren — typisch greift das nach
-        // Phase 3 (Onboarding) wo der Bewerber EU-Buerger ja/nein angibt.
-        // setEuCitizen() triggert intern HrDeskRoutingService::evaluateAndRoute
-        // → bei is_eu_citizen=false landet der Bewerber automatisch auf dem
-        // HR-Schreibtisch (Pflicht-Pruefung) und in der Schulungsnachbereitung
-        // wird die Zeile rot markiert + Versand blockiert bis HR pruefen klickt.
-        try {
-            $this->syncEuCitizenFromExtraField();
-        } catch (\Throwable $e) {
-            try {
-                RecAutoPilotLog::create([
-                    'rec_applicant_id' => $this->id,
-                    'type'             => 'eu_sync_failed',
-                    'summary'          => "EU-Buerger-Sync fehlgeschlagen: " . $e->getMessage(),
-                ]);
-            } catch (\Throwable) {}
-        }
 
         if (($config['confirm_booking_on_completion'] ?? false) === true) {
             // Per Model-Save statt Bulk-Update: Observer (Re-Arm bei "wieder

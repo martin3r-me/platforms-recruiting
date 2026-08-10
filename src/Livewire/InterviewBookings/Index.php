@@ -222,9 +222,11 @@ class Index extends Component
             return [];
         }
 
+        // Offene Non-EU- UND Jugendschutz-Fälle blocken den Vertragsversand
+        // aus der Nachbereitung gleichermaßen — beides sind Pflicht-Prüfungen.
         return RecHrDeskCase::query()
             ->open()
-            ->where('reason', RecHrDeskCase::REASON_NON_EU_CITIZEN)
+            ->whereIn('reason', [RecHrDeskCase::REASON_NON_EU_CITIZEN, RecHrDeskCase::REASON_MINOR])
             ->whereIn('rec_applicant_id', $ids)
             ->pluck('rec_applicant_id')
             ->flip()

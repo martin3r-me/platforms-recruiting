@@ -82,7 +82,7 @@ class HrDeskRoutingService
      * fuer User-Aktionen (z.B. applicant_cancelled_training) bleiben
      * unangetastet — die brauchen menschliche HR-Entscheidung.
      */
-    private function autoCloseObsoleteCases(RecApplicant $applicant, string $reason, string $notes): void
+    public function autoCloseObsoleteCases(RecApplicant $applicant, string $reason, string $notes): void
     {
         $openCases = $applicant->hrDeskCases()
             ->where('reason', $reason)
@@ -236,9 +236,13 @@ class HrDeskRoutingService
             // Approve muss der Flow weitergehen, sonst bleibt der Bewerber
             // in der Phase haengen und z.B. creates_employee_on_completion
             // wird nie ausgeloest obwohl die Vertraege bereits sent sind.
+            // Direkteinstellung läuft bewusst OHNE AutoPilot — die Freigabe
+            // darf den Aus-Zustand nicht überschreiben (der saving-Guard
+            // verhindert nur true→false-Flips, nicht false→true).
+            $isDirectHire = (bool) $applicant->primaryPosition()?->is_direct_hire;
             $applicant->update([
                 'is_on_hr_desk' => false,
-                'auto_pilot'    => true,
+                'auto_pilot'    => !$isDirectHire,
             ]);
 
             try {

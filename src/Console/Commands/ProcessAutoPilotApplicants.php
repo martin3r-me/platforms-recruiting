@@ -618,6 +618,10 @@ class ProcessAutoPilotApplicants extends Command
             ->where('is_unrouted', false)
             ->where('auto_pilot', true)
             ->where('is_active', true)
+            // HR-Schreibtisch = eingefroren: der saving-Guard dreht auto_pilot
+            // bei progress<100 wieder auf true — ohne diesen Filter bekämen
+            // geblockte Fälle (z.B. Jugendschutz-Prüfung) weiter Templates.
+            ->where('is_on_hr_desk', false)
             ->whereNull('auto_pilot_completed_at')
             ->whereNotNull('owned_by_user_id');
 

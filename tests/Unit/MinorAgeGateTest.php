@@ -40,6 +40,16 @@ final class MinorAgeGateTest extends TestCase
         $this->assertSame(MinorAgeGate::VERDICT_PASS, MinorAgeGate::verdict('15.05.1990', $this->today));
     }
 
+    public function test_reale_datenformate_werden_nicht_unknown(): void
+    {
+        // Regression aus dem Review: ungepolstert, Datetime-Suffix und
+        // DateTime-Objekte kommen in den Extra-Field-Daten real vor.
+        $this->assertSame(MinorAgeGate::VERDICT_REJECT, MinorAgeGate::verdict('7.1.2011', $this->today));
+        $this->assertSame(MinorAgeGate::VERDICT_REJECT, MinorAgeGate::verdict('2011-01-07 00:00:00', $this->today));
+        $this->assertSame(MinorAgeGate::VERDICT_REJECT, MinorAgeGate::verdict(new \DateTimeImmutable('2011-01-07 13:45:00'), $this->today));
+        $this->assertSame(MinorAgeGate::VERDICT_PASS, MinorAgeGate::verdict('15.5.1990', $this->today));
+    }
+
     public function test_fehlende_oder_kaputte_werte_sind_unknown(): void
     {
         $this->assertSame(MinorAgeGate::VERDICT_UNKNOWN, MinorAgeGate::verdict(null, $this->today));
