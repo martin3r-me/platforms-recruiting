@@ -21,6 +21,10 @@ class RecApplicantSettings extends Model
     const DEFAULT_SETTINGS = [
         'use_informal_address' => false,
         'default_status_id' => null,
+        // Jugendschutz-Gate: Auto-Absage <16 (WhatsApp-Template + Bewerbungsstatus).
+        // Solange nicht konfiguriert, landen U16-Fälle auf dem HR-Schreibtisch.
+        'minor_rejection_template_id' => null,
+        'minor_rejection_status_id' => null,
         'auto_assign_owner' => false,
         'default_contact_user_id' => null,
         'auto_pilot_enabled' => true,

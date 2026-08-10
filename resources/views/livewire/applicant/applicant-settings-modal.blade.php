@@ -98,6 +98,35 @@
                         wire:model="settings.default_status_id"
                     />
 
+                    {{-- Jugendschutz: Auto-Absage unter 16 --}}
+                    <x-ui-input-select
+                        name="settings.minor_rejection_status_id"
+                        label="Jugendschutz — Status bei Auto-Absage (unter 16)"
+                        :options="$this->availableStatuses"
+                        optionValue="id"
+                        optionLabel="name"
+                        :nullable="true"
+                        nullLabel="– Status wählen –"
+                        wire:model="settings.minor_rejection_status_id"
+                    />
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            name="settings.minor_rejection_template_id"
+                            label="Jugendschutz — WhatsApp-Template für Auto-Absage (unter 16)"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model="settings.minor_rejection_template_id"
+                        />
+                    @endif
+                    <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                        Bewerber unter 16 werden automatisch abgesagt (Template + Status oben), Buchungen storniert.
+                        16–17-Jährige landen zur Prüfung auf dem HR-Schreibtisch und kommen erst nach Freigabe in die nächste Phase.
+                        Solange Template oder Status fehlen, werden auch Unter-16-Fälle auf den HR-Schreibtisch gelegt — es geht nie eine stille Absage raus.
+                    </p>
+
                     {{-- Standard-Ansprechpartner --}}
                     <x-ui-input-select
                         name="settings.default_contact_user_id"

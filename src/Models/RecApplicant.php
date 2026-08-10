@@ -469,6 +469,13 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
+        // Jugendschutz-Gate: kein Phasen-Aufstieg für Minderjährige ohne
+        // HR-Freigabe. Greift beim ersten Aufstieg nach P1 (geburtsdatum ist
+        // dort Pflichtfeld): <16 → Auto-Absage, 16-17 → HR-Schreibtisch.
+        if (!$this->guardMinorAge()) {
+            return;
+        }
+
         // Bewerber-Form-Daten in den CrmContact synct (Vorname/Nachname/
         // Geburtsdatum/Adresse). Idempotent — laeuft bei jedem Phase-
         // Uebergang. Stellt sicher dass Vertragsvorlagen die per
@@ -546,6 +553,148 @@ class RecApplicant extends Model implements InheritsExtraFields
         if ($shouldSendBooking) {
             $this->sendInterviewBookingNotification();
         }
+    }
+
+    /**
+     * Jugendschutz-Gate. True = Automatik darf weiterlaufen.
+     *
+     *  - pass/unknown → true (unknown blockt nur Hooks/Verträge nicht den
+     *    P1-Aufstieg — geburtsdatum ist dort Pflichtfeld, Altbestand ohne
+     *    Datum darf nicht einfrieren)
+     *  - review (16-17) → HR-Schreibtisch-Fall (idempotent), false bis ein
+     *    Fall freigegeben ist; abgelehnter Fall bleibt false ohne neuen Fall
+     *  - reject (<16) → Auto-Absage (Template + Status aus den Bewerber-
+     *    Einstellungen, Buchungen storniert, deaktiviert); solange Template/
+     *    Status nicht konfiguriert sind: Schreibtisch statt stiller Absage
+     */
+    public function guardMinorAge(): bool
+    {
+        $verdict = \Platform\Recruiting\Support\MinorAgeGate::verdict(
+            $this->getExtraField('geburtsdatum'),
+            new \DateTimeImmutable('today'),
+        );
+
+        if ($verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_PASS
+            || $verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_UNKNOWN) {
+            return true;
+        }
+
+        $latestCase = RecHrDeskCase::where('rec_applicant_id', $this->id)
+            ->where('reason', RecHrDeskCase::REASON_MINOR)
+            ->orderByDesc('id')
+            ->first();
+
+        // HR hat geprüft und freigegeben → Automatik läuft normal weiter.
+        if ($latestCase?->status === RecHrDeskCase::STATUS_APPROVED) {
+            return true;
+        }
+
+        // HR hat abgelehnt → blockiert lassen, aber keinen neuen Fall
+        // erzeugen (sonst Fall-Schleife); die Absage macht HR im Fall selbst.
+        if ($latestCase?->status === RecHrDeskCase::STATUS_REJECTED) {
+            return false;
+        }
+
+        $birthDate = (string) $this->getExtraField('geburtsdatum');
+
+        if ($verdict === \Platform\Recruiting\Support\MinorAgeGate::VERDICT_REVIEW) {
+            app(\Platform\Recruiting\Services\HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
+                $this,
+                RecHrDeskCase::REASON_MINOR,
+                null,
+                "Minderjährig (16–17, geb. {$birthDate}): Jugendschutz/Einverständnis prüfen. Freigabe schaltet den Phasen-Aufstieg frei.",
+            );
+            return false;
+        }
+
+        // VERDICT_REJECT (<16): zwingende Auto-Absage — sofern konfiguriert.
+        $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+        $statusId = (int) ($settings->getSetting('minor_rejection_status_id') ?? 0);
+        $templateOk = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
+            ->configuredTemplateName($this->team_id, 'minor_rejection_template_id') !== null;
+        $phone = $this->primaryContactPhone();
+
+        if ($statusId <= 0 || !$templateOk || $phone === null) {
+            $missing = $statusId <= 0 ? 'Absage-Status' : (!$templateOk ? 'Absage-Template' : 'Telefonnummer');
+            app(\Platform\Recruiting\Services\HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
+                $this,
+                RecHrDeskCase::REASON_MINOR,
+                null,
+                "Unter 16 (geb. {$birthDate}) — Auto-Absage nicht möglich ({$missing} fehlt). Bitte manuell absagen bzw. Bewerber-Einstellungen vervollständigen.",
+            );
+            return false;
+        }
+
+        $this->executeMinorRejection($statusId, $phone, $birthDate);
+        return false;
+    }
+
+    /**
+     * Auto-Absage <16: idempotent (genau eine Absage-Nachricht), storniert
+     * offene Buchungen, setzt Status + deaktiviert. is_active=false stoppt
+     * AutoPilot & Erinnerungen zuverlässig (auto_pilot=false würde der
+     * saving-Guard bei progress<100 zurückdrehen).
+     */
+    private function executeMinorRejection(int $statusId, string $phone, string $birthDate): void
+    {
+        $alreadyRejected = RecAutoPilotLog::where('rec_applicant_id', $this->id)
+            ->where('type', 'minor_rejected')
+            ->exists();
+        if ($alreadyRejected) {
+            return;
+        }
+
+        $firstName = trim((string) ($this->getExtraField('vorname')
+            ?? $this->crmContactLinks->first()?->contact?->first_name ?? ''));
+
+        $result = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
+            ->sendOne($this->team_id, $phone, $firstName, 'minor_rejection_template_id');
+
+        $openBookings = $this->interviewBookings()->whereNotIn('status', ['cancelled'])->get();
+        foreach ($openBookings as $booking) {
+            $booking->status = 'cancelled';
+            $booking->cancelled_by = 'system';
+            $booking->cancelled_at = now();
+            $booking->save();
+        }
+
+        $this->rec_applicant_status_id = $statusId;
+        $this->is_active = false;
+        $this->save();
+
+        try {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'minor_rejected',
+                'summary' => "Auto-Absage: Bewerber unter 16 (geb. {$birthDate}). Absage-Template "
+                    . (($result['sent'] ?? 0) > 0 ? 'versendet' : 'NICHT versendet (' . ($result['error'] ?? 'Sendefehler') . ')')
+                    . ', ' . $openBookings->count() . ' Buchung(en) storniert, Bewerber deaktiviert.',
+                'details' => [
+                    'birth_date' => $birthDate,
+                    'template_result' => $result,
+                    'cancelled_bookings' => $openBookings->pluck('id')->all(),
+                ],
+            ]);
+        } catch (\Throwable) {}
+    }
+
+    /** Erste aktive Telefonnummer der verknüpften Kontakte (international bevorzugt). */
+    private function primaryContactPhone(): ?string
+    {
+        $this->loadMissing('crmContactLinks.contact.phoneNumbers');
+        foreach ($this->crmContactLinks as $link) {
+            foreach ($link->contact?->phoneNumbers ?? [] as $phoneNumber) {
+                if (!$phoneNumber->is_active) {
+                    continue;
+                }
+                $value = $phoneNumber->international ?: $phoneNumber->raw_input;
+                if (is_string($value) && trim($value) !== '') {
+                    return trim($value);
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -659,6 +808,29 @@ class RecApplicant extends Model implements InheritsExtraFields
         if (!$completedPhase) {
             return;
         }
+
+        // Jugendschutz-Backstop: Phase-Abschluss-Hooks (Vertragsversand,
+        // MA-Anlage, Buchungs-Bestätigung) laufen NIE für bekannte
+        // Minderjährige ohne freigegebenen HR-Fall — auch nicht auf Pfaden
+        // am AutoPilot vorbei (Direkteinstellung, manueller HR-Advance).
+        if (!$this->guardMinorAge()) {
+            try {
+                // Ein Log pro Bewerber reicht — der Hook feuert bei jedem
+                // Public-Form-Save erneut, solange die Freigabe aussteht.
+                $alreadyLogged = RecAutoPilotLog::where('rec_applicant_id', $this->id)
+                    ->where('type', 'minor_hooks_blocked')
+                    ->exists();
+                if (!$alreadyLogged) {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->id,
+                        'type' => 'minor_hooks_blocked',
+                        'summary' => "Phase-Abschluss-Hooks von \"{$completedPhase->name}\" blockiert — Bewerber minderjährig, HR-Freigabe fehlt.",
+                    ]);
+                }
+            } catch (\Throwable) {}
+            return;
+        }
+
         $config = $completedPhase->completion_config ?? [];
 
         // EU-Buerger-Sync: extra_field 'eu_burger' → rec_applicant_legal_statuses.is_eu_citizen.
