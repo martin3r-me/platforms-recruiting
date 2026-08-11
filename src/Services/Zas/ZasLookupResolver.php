@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Services\Zas;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Support\LookupLabelFormatter;
 
 /**
  * Resolved Lookup-Werte zu ihren Labels fuer den ZAS-CSV-Export.
@@ -41,22 +42,11 @@ class ZasLookupResolver
             return null;
         }
 
-        // Multi-Select: Array von Values → Komma-separierte Labels
-        if (is_array($value)) {
-            $labels = collect($value)
-                ->map(fn ($v) => $this->resolveLabel($definitionId, $v))
-                ->filter()
-                ->all();
-            return $labels === [] ? null : implode(', ', $labels);
-        }
-
-        $stringValue = (string) $value;
-
         if (!isset($this->labelMaps[$definitionId])) {
             $this->loadLabelMap($definitionId);
         }
 
-        return $this->labelMaps[$definitionId][$stringValue] ?? $stringValue;
+        return LookupLabelFormatter::format($value, $this->labelMaps[$definitionId]);
     }
 
     /**
