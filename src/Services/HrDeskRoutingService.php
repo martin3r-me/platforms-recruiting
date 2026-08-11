@@ -4,8 +4,10 @@ namespace Platform\Recruiting\Services;
 
 use Platform\Recruiting\Exceptions\LegalStatusNotCheckedException;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecHrDeskCase;
+use Platform\Recruiting\Support\HrDeskRejectionStatus;
 
 class HrDeskRoutingService
 {
@@ -278,12 +280,27 @@ class HrDeskRoutingService
         ]);
 
         $applicant = $case->applicant;
-        $applicant->update([
+        $attributes = [
             'rejected_at' => now(),
             'is_on_hr_desk' => false,
             'auto_pilot' => false,
             'is_active' => false,
-        ]);
+        ];
+
+        // Jugendschutz-Ablehnung stempelt denselben Status wie die U16-Auto-
+        // Absage — sonst steht ein von HR abgelehnter 16/17-Jähriger ohne
+        // sichtbaren Grund inaktiv in der Liste (Entscheidung: HrDeskRejectionStatus).
+        $stampStatusId = HrDeskRejectionStatus::resolve(
+            $case->reason,
+            $applicant->rec_applicant_status_id !== null ? (int) $applicant->rec_applicant_status_id : null,
+            (int) (RecApplicantSettings::getOrCreateForTeam($applicant->team_id)
+                ->getSetting('minor_rejection_status_id') ?? 0) ?: null,
+        );
+        if ($stampStatusId !== null) {
+            $attributes['rec_applicant_status_id'] = $stampStatusId;
+        }
+
+        $applicant->update($attributes);
 
         RecAutoPilotLog::create([
             'rec_applicant_id' => $applicant->id,

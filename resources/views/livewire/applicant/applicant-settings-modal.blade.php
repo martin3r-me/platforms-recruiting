@@ -88,6 +88,7 @@
 
                     {{-- Standard-Status --}}
                     <x-ui-input-select
+                        :value="$settings['default_status_id'] ?? null"
                         name="settings.default_status_id"
                         label="Standard-Status für neue Bewerber"
                         :options="$this->availableStatuses"
@@ -95,11 +96,12 @@
                         optionLabel="name"
                         :nullable="true"
                         nullLabel="Kein Standard-Status"
-                        wire:model="settings.default_status_id"
+                        wire:model.live="settings.default_status_id"
                     />
 
                     {{-- Jugendschutz: Auto-Absage unter 16 --}}
                     <x-ui-input-select
+                        :value="$settings['minor_rejection_status_id'] ?? null"
                         name="settings.minor_rejection_status_id"
                         label="Jugendschutz — Status bei Auto-Absage (unter 16)"
                         :options="$this->availableStatuses"
@@ -107,10 +109,11 @@
                         optionLabel="name"
                         :nullable="true"
                         nullLabel="– Status wählen –"
-                        wire:model="settings.minor_rejection_status_id"
+                        wire:model.live="settings.minor_rejection_status_id"
                     />
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
+                            :value="$settings['minor_rejection_template_id'] ?? null"
                             name="settings.minor_rejection_template_id"
                             label="Jugendschutz — WhatsApp-Template für Auto-Absage (unter 16)"
                             :options="$this->availableWhatsAppTemplates"
@@ -118,7 +121,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.minor_rejection_template_id"
+                            wire:model.live="settings.minor_rejection_template_id"
                         />
                     @endif
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
@@ -129,6 +132,7 @@
 
                     {{-- Standard-Ansprechpartner --}}
                     <x-ui-input-select
+                        :value="$settings['default_contact_user_id'] ?? null"
                         name="settings.default_contact_user_id"
                         label="Standard-Ansprechpartner"
                         :options="$teamUsers"
@@ -136,7 +140,7 @@
                         optionLabel="name"
                         :nullable="true"
                         nullLabel="Kein Standard-Ansprechpartner"
-                        wire:model="settings.default_contact_user_id"
+                        wire:model.live="settings.default_contact_user_id"
                     />
 
                     {{-- Auto-Assign Owner --}}
@@ -364,6 +368,7 @@
                     {{-- WA Account --}}
                     @if(!empty($this->availableWhatsAppAccounts))
                         <x-ui-input-select
+                            :value="$settings['auto_pilot_wa_account_id'] ?? null"
                             name="settings.auto_pilot_wa_account_id"
                             label="WhatsApp Account"
                             :options="$this->availableWhatsAppAccounts"
@@ -378,6 +383,7 @@
                     {{-- WA Templates --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
+                            :value="$settings['auto_pilot_wa_initial_template_id'] ?? null"
                             name="settings.auto_pilot_wa_initial_template_id"
                             label="WhatsApp Template — Erstkontakt"
                             :options="$this->availableWhatsAppTemplates"
@@ -385,10 +391,11 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.auto_pilot_wa_initial_template_id"
+                            wire:model.live="settings.auto_pilot_wa_initial_template_id"
                         />
 
                         <x-ui-input-select
+                            :value="$settings['auto_pilot_wa_reminder_template_id'] ?? null"
                             name="settings.auto_pilot_wa_reminder_template_id"
                             label="WhatsApp Template — Erinnerung"
                             :options="$this->availableWhatsAppTemplates"
@@ -396,7 +403,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.auto_pilot_wa_reminder_template_id"
+                            wire:model.live="settings.auto_pilot_wa_reminder_template_id"
                         />
                     @else
                         <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40 text-sm text-[var(--ui-muted)]">
@@ -407,6 +414,7 @@
                     {{-- Interview Booking Template --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
+                            :value="$settings['interview_booking_wa_template_id'] ?? null"
                             name="settings.interview_booking_wa_template_id"
                             label="WhatsApp Template — Interview Buchung"
                             :options="$this->availableWhatsAppTemplates"
@@ -414,7 +422,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.interview_booking_wa_template_id"
+                            wire:model.live="settings.interview_booking_wa_template_id"
                         />
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird automatisch gesendet wenn alle Phasen abgeschlossen sind. Der Interview-Buchungslink wird als URL-Button übergeben.</p>
                     @endif
@@ -422,6 +430,7 @@
                     {{-- Interview Waitlist Template (Termin frei geworden) --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
+                            :value="$settings['interview_waitlist_wa_template_id'] ?? null"
                             name="settings.interview_waitlist_wa_template_id"
                             label="WhatsApp Template — Termin frei geworden (Warteliste)"
                             :options="$this->availableWhatsAppTemplates"
@@ -429,7 +438,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.interview_waitlist_wa_template_id"
+                            wire:model.live="settings.interview_waitlist_wa_template_id"
                         />
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird an wartende Bewerber gesendet, sobald in einem ihrer Wunschorte ein Schulungstermin frei wird. Der Buchungslink wird als URL-Button übergeben.</p>
                     @endif
@@ -437,6 +446,7 @@
                     {{-- Termin-Warteliste Template (Platz im Termin frei, Dauerabo) --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
+                            :value="$settings['interview_waitlist_termin_wa_template_id'] ?? null"
                             name="settings.interview_waitlist_termin_wa_template_id"
                             label="WhatsApp Template — Platz im Termin frei (Termin-Warteliste)"
                             :options="$this->availableWhatsAppTemplates"
@@ -444,7 +454,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.interview_waitlist_termin_wa_template_id"
+                            wire:model.live="settings.interview_waitlist_termin_wa_template_id"
                         />
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird an Termin-Abonnenten gesendet, sobald in ihrem konkreten Termin ein Platz frei wird. Unterstützt die Variablen name und termin ("Samstag, 25. Juli 2026 um 15:00 Uhr"). Ohne Auswahl greift das generische Warteliste-Template.</p>
                     @endif
@@ -452,6 +462,7 @@
                     {{-- Contract Portal Template --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
+                            :value="$settings['contract_wa_template_id'] ?? null"
                             name="settings.contract_wa_template_id"
                             label="WhatsApp Template — Vertrags-Portal"
                             :options="$this->availableWhatsAppTemplates"
@@ -459,7 +470,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.contract_wa_template_id"
+                            wire:model.live="settings.contract_wa_template_id"
                         />
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird beim Klick auf "Portal per WhatsApp senden" genutzt. Der Portal-Link (Übersicht aller zugewiesenen Verträge zum Unterschreiben) wird als URL-Button-Parameter übergeben. Ohne Konfiguration fällt der Versand auf einen Kopier-Link zurück.</p>
                     @endif
@@ -467,6 +478,7 @@
                     {{-- Employee Portal Template (neuer kombinierter Flow) --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
+                            :value="$settings['employee_portal_wa_template_id'] ?? null"
                             name="settings.employee_portal_wa_template_id"
                             label="WhatsApp Template — Mitarbeiter-Portal"
                             :options="$this->availableWhatsAppTemplates"
@@ -474,7 +486,7 @@
                             optionLabel="label"
                             :nullable="true"
                             nullLabel="– Template wählen –"
-                            wire:model="settings.employee_portal_wa_template_id"
+                            wire:model.live="settings.employee_portal_wa_template_id"
                         />
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird beim Klick auf "Portallink versenden" (Schulungsnachbereitung) und beim HR-Backend-Resend genutzt. Sendet den MA-Portal-Link nach Vertragsversand. Vertrags-WA wird in diesem Flow unterdrueckt – der MA sieht die Vertraege direkt im Portal.</p>
                     @endif
@@ -498,6 +510,7 @@
 
                             @if(!empty($settings['send_initial_whatsapp_template']) && !empty($this->availableWhatsAppTemplates))
                                 <x-ui-input-select
+                                    :value="$settings['enrichment_wa_template_id'] ?? null"
                                     name="settings.enrichment_wa_template_id"
                                     label="WhatsApp Template — nach Enrichment"
                                     :options="$this->availableWhatsAppTemplates"
@@ -505,7 +518,7 @@
                                     optionLabel="label"
                                     :nullable="true"
                                     nullLabel="– Template wählen –"
-                                    wire:model="settings.enrichment_wa_template_id"
+                                    wire:model.live="settings.enrichment_wa_template_id"
                                 />
                             @endif
                         </div>
@@ -784,6 +797,7 @@
 
                 {{-- Eskalations-Verantwortlicher --}}
                 <x-ui-input-select
+                    :value="$settings['comms_escalation_user_id'] ?? null"
                     name="settings.comms_escalation_user_id"
                     label="Eskalations-Verantwortliche/r"
                     :options="$teamUsers"
@@ -791,7 +805,7 @@
                     optionLabel="name"
                     :nullable="true"
                     nullLabel="– Niemand –"
-                    wire:model="settings.comms_escalation_user_id"
+                    wire:model.live="settings.comms_escalation_user_id"
                 />
                 <p class="text-xs text-[var(--ui-muted)] -mt-2">
                     Sieht verpasste/rote Konversationen team-weit — greift auch, wenn der zuständige Owner
@@ -801,6 +815,7 @@
                 {{-- Eingangsbestätigungs-Template ("wir melden uns") --}}
                 @if(!empty($this->availableWhatsAppTemplates))
                     <x-ui-input-select
+                        :value="$settings['comms_holding_template_id'] ?? null"
                         name="settings.comms_holding_template_id"
                         label="WhatsApp Template — Eingangsbestätigung (wir melden uns)"
                         :options="$this->availableWhatsAppTemplates"
@@ -808,7 +823,7 @@
                         optionLabel="label"
                         :nullable="true"
                         nullLabel="– Template wählen –"
-                        wire:model="settings.comms_holding_template_id"
+                        wire:model.live="settings.comms_holding_template_id"
                     />
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
                         Wird in der Kommunikations-Übersicht über „Eingangsbestätigung an Markierte senden"
@@ -819,6 +834,7 @@
 
                     {{-- Auto-Antwort auf Sprachnachrichten --}}
                     <x-ui-input-select
+                        :value="$settings['comms_voice_not_supported_template_id'] ?? null"
                         name="settings.comms_voice_not_supported_template_id"
                         label="WhatsApp Template — Hinweis bei Sprachnachricht"
                         :options="$this->availableWhatsAppTemplates"
@@ -826,7 +842,7 @@
                         optionLabel="label"
                         :nullable="true"
                         nullLabel="– kein Auto-Hinweis –"
-                        wire:model="settings.comms_voice_not_supported_template_id"
+                        wire:model.live="settings.comms_voice_not_supported_template_id"
                     />
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
                         Geht eine Sprachnachricht ein, wird dieses Template automatisch zurückgesendet
@@ -836,6 +852,7 @@
 
                     {{-- HR-Abwesenheitsmodus (OOO) --}}
                     <x-ui-input-select
+                        :value="$settings['comms_ooo_template_id'] ?? null"
                         name="settings.comms_ooo_template_id"
                         label="WhatsApp Template — Abwesenheitsnotiz (HR in Abwesenheit)"
                         :options="$this->availableWhatsAppTemplates"
@@ -843,7 +860,7 @@
                         optionLabel="label"
                         :nullable="true"
                         nullLabel="– kein Abwesenheitsmodus –"
-                        wire:model="settings.comms_ooo_template_id"
+                        wire:model.live="settings.comms_ooo_template_id"
                     />
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
                         Wird bei aktivem Abwesenheitsmodus (Kommunikations-Übersicht) automatisch auf eingehende
