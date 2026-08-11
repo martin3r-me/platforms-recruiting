@@ -38,7 +38,10 @@
             @if($requiresPreSigningStep)
                 <div class="mb-8">
                     <div class="flex items-center justify-between mb-2">
-                        @foreach([1 => '§15/§16 Angaben', 2 => 'Vertrag & Unterschrift'] as $num => $label)
+                        @php
+                            $stepOneLabel = $preSigningType === 'resttage' ? 'Deine Angabe' : '§15/§16 Angaben';
+                        @endphp
+                        @foreach([1 => $stepOneLabel, 2 => 'Vertrag & Unterschrift'] as $num => $label)
                             <div class="flex items-center {{ $num < 2 ? 'flex-1' : '' }}">
                                 <div class="flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold
                                     {{ $step >= $num ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500' }}">
@@ -60,8 +63,8 @@
                 </div>
             @endif
 
-            {{-- Step 1: §15 + §16 zusammen --}}
-            @if($step === 1)
+            {{-- Step 1: §15 + §16 zusammen (nur Arbeitsvertraege) --}}
+            @if($step === 1 && $preSigningType === 'par1516')
                 <div class="space-y-6">
                     {{-- §15 - Kurzfristige Beschäftigungen --}}
                     <div class="bg-white rounded-lg border border-gray-200 p-8">
@@ -225,6 +228,52 @@
                 </div>
             @endif
 
+            {{-- Step 1 (Variante): Rest-Kontingent bei der 140-Tage-Erklaerung --}}
+            @if($step === 1 && $preSigningType === 'resttage')
+                @php
+                    $resttageFrage = $duzen
+                        ? 'Wie viele der 140 genehmigungsfreien Tage stehen dir in diesem Kalenderjahr noch zur Verfügung?'
+                        : 'Wie viele der 140 genehmigungsfreien Tage stehen Ihnen in diesem Kalenderjahr noch zur Verfügung?';
+                    $resttageHinweis = $duzen
+                        ? 'Zähle alle Tage mit, die du dieses Jahr bereits bei anderen Arbeitgebern gearbeitet hast, und ziehe sie von 140 ab. Wenn du dieses Jahr noch nicht gearbeitet hast, sind es 140 Tage.'
+                        : 'Zählen Sie alle Tage mit, die Sie dieses Jahr bereits bei anderen Arbeitgebern gearbeitet haben, und ziehen Sie sie von 140 ab. Wenn Sie dieses Jahr noch nicht gearbeitet haben, sind es 140 Tage.';
+                    $resttageNachweis = $duzen
+                        ? 'Hast du dieses Jahr schon woanders gearbeitet, brauchen wir zusätzlich eine Bescheinigung über die bereits gearbeiteten Tage.'
+                        : 'Haben Sie dieses Jahr schon woanders gearbeitet, benötigen wir zusätzlich eine Bescheinigung über die bereits gearbeiteten Tage.';
+                @endphp
+                <div class="space-y-6">
+                    <div class="bg-white rounded-lg border border-gray-200 p-8">
+                        <h2 class="text-xl font-bold text-gray-900 mb-2">Verfügbare Arbeitstage</h2>
+                        <p class="text-gray-500 text-sm mb-6">{{ $resttageFrage }}</p>
+
+                        <div class="max-w-xs">
+                            <label for="resttage" class="block text-sm font-medium text-gray-700 mb-1">
+                                Verfügbare Tage
+                            </label>
+                            <input type="number" id="resttage" wire:model="resttage"
+                                min="0" max="140" step="1" inputmode="numeric"
+                                class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-blue-500 focus:border-blue-500">
+                            @error('resttage')
+                                <span class="text-xs text-red-500">{{ $message }}</span>
+                            @enderror
+                        </div>
+
+                        <p class="text-sm text-gray-500 mt-4">{{ $resttageHinweis }}</p>
+
+                        <div class="mt-6 rounded-md bg-amber-50 border border-amber-200 p-4">
+                            <p class="text-sm text-amber-900">{{ $resttageNachweis }}</p>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end">
+                        <button type="button" wire:click="nextStep"
+                            class="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">
+                            Weiter @svg('heroicon-o-arrow-right', 'w-4 h-4')
+                        </button>
+                    </div>
+                </div>
+            @endif
+
             {{-- Step 2: Vertrag & Unterschrift --}}
             @if($step === 2)
                 <div class="space-y-6">
@@ -239,20 +288,32 @@
                     {{-- Unterschrift --}}
                     <div class="bg-white rounded-lg border border-gray-200 p-8">
                         <h3 class="text-lg font-bold text-gray-900 mb-4">Unterschrift</h3>
-                        <p class="text-sm text-gray-500 mb-4">
-                            {{ $duzen ? 'Mit deiner Unterschrift bestätigst du, dass du den Vertrag gelesen hast und die oben gemachten Angaben korrekt sind.' : 'Mit Ihrer Unterschrift bestätigen Sie, dass Sie den Vertrag gelesen haben und die oben gemachten Angaben korrekt sind.' }}
-                        </p>
 
-                        @php
-                            $signatureLabel = $duzen ? 'Deine Unterschrift' : 'Ihre Unterschrift';
-                        @endphp
-                        <x-ui-input-signature
-                            name="signatureData"
-                            :label="$signatureLabel"
-                            wire:model="signatureData"
-                            :required="true"
-                            :height="200"
-                        />
+                        @if($contentIncomplete)
+                            @php
+                                $incompleteHinweis = $duzen
+                                    ? 'Dieses Dokument ist noch nicht vollständig ausgefüllt. Bitte melde dich bei uns — wir klären das und schicken dir das Dokument neu.'
+                                    : 'Dieses Dokument ist noch nicht vollständig ausgefüllt. Bitte melden Sie sich bei uns — wir klären das und schicken Ihnen das Dokument neu.';
+                            @endphp
+                            <div class="rounded-md bg-red-50 border border-red-200 p-4">
+                                <p class="text-sm text-red-900">{{ $incompleteHinweis }}</p>
+                            </div>
+                        @else
+                            <p class="text-sm text-gray-500 mb-4">
+                                {{ $duzen ? 'Mit deiner Unterschrift bestätigst du, dass du den Vertrag gelesen hast und die oben gemachten Angaben korrekt sind.' : 'Mit Ihrer Unterschrift bestätigen Sie, dass Sie den Vertrag gelesen haben und die oben gemachten Angaben korrekt sind.' }}
+                            </p>
+
+                            @php
+                                $signatureLabel = $duzen ? 'Deine Unterschrift' : 'Ihre Unterschrift';
+                            @endphp
+                            <x-ui-input-signature
+                                name="signatureData"
+                                :label="$signatureLabel"
+                                wire:model="signatureData"
+                                :required="true"
+                                :height="200"
+                            />
+                        @endif
 
                         <div class="flex {{ $requiresPreSigningStep ? 'justify-between' : 'justify-end' }} mt-8">
                             @if($requiresPreSigningStep)
@@ -261,10 +322,12 @@
                                     @svg('heroicon-o-arrow-left', 'w-4 h-4') Zurück
                                 </button>
                             @endif
-                            <button type="button" wire:click="sign"
-                                class="inline-flex items-center gap-2 px-8 py-3 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition">
-                                @svg('heroicon-o-check', 'w-5 h-5') Vertrag unterschreiben
-                            </button>
+                            @if(!$contentIncomplete)
+                                <button type="button" wire:click="sign"
+                                    class="inline-flex items-center gap-2 px-8 py-3 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition">
+                                    @svg('heroicon-o-check', 'w-5 h-5') Vertrag unterschreiben
+                                </button>
+                            @endif
                         </div>
                     </div>
                 </div>
