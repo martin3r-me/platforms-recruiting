@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Platform\Core\Contracts\InheritsExtraFields;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
+use Platform\Recruiting\Support\ResttagePlaceholder;
 use Symfony\Component\Uid\UuidV7;
 
 class RecContract extends Model implements InheritsExtraFields
@@ -225,6 +226,19 @@ class RecContract extends Model implements InheritsExtraFields
 
     public static function embedPreSigningData(string $content, array $data): string
     {
+        // Typ-Weiche. Bestandszeilen haben kein 'type' — sie sind immer
+        // §15/§16, weil das bis AT-140 der einzige Vorschalt-Schritt war.
+        // Ohne diese Weiche wuerden an eine 140-Tage-Erklaerung die
+        // §15/§16-Verneinungsbloecke angehaengt (siehe buildPar15Html).
+        //
+        // Die gesamte Entscheidung liegt in embed(): null heisst "nicht
+        // zustaendig". Fehlt die Zahl, gibt embed() den Inhalt unveraendert
+        // zurueck — der Platzhalter bleibt stehen, damit der Guard greift.
+        $resttageContent = ResttagePlaceholder::embed($content, $data);
+        if ($resttageContent !== null) {
+            return $resttageContent;
+        }
+
         $par15Html = self::buildPar15Html($data);
         $par16Html = self::buildPar16Html($data);
 
