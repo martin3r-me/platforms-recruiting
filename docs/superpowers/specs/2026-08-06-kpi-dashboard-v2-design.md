@@ -48,9 +48,15 @@ Dazu ein Feld an `rec_interviews`:
 ist schlimmer als keine.
 
 **Faktor als freie Zahl, nicht als Auswahl 1–5.** Begründung: der gemessene Wert
-liegt außerhalb dieses Bereichs (siehe §7). Das Feld wird mit dem gemessenen Wert
-der letzten abgeschlossenen vergleichbaren Kampagne vorbelegt und ist
-überschreibbar.
+liegt außerhalb dieses Bereichs (siehe §7).
+
+Das Feld bekommt in V2 **nur einen statischen Hinweistext** („Erfahrungswert im
+Team: 7–10 Bewerbungen pro Einstellung"). Damit trägt niemand blind eine 1 ein,
+und es braucht keine Rechenlogik. **Zurückgestellt:** den gemessenen Wert der
+letzten vergleichbaren abgeschlossenen Kampagne automatisch daneben anzeigen —
+Komfort, kein Funktionsteil. Dafür wäre zuerst zu definieren, was „vergleichbar"
+heißt (Vorschlag für später: gleiche Tätigkeit, sonst gleiche Stelle, sonst
+teamweit, und die Herkunft des Werts im Tooltip nennen).
 
 ## 3. Zustandsmodell — zwei Marker, zwei Fragen
 
@@ -127,6 +133,13 @@ Phasen, deshalb **kein** „Phase 5/6"):
 das: wer zurückgestuft wurde (verlorener Standby-Platz), steht aktuell in einer
 niedrigeren Phase, hat die höhere aber erreicht — mit dem Log wird er korrekt
 gezählt, ohne es würde er unterzählt.
+
+**Die Spaltenüberschriften der Phasen kommen aus dem Phasensatz der gefilterten
+Filiale, nicht fest verdrahtet.** Phasen sind pro Stelle geklont und frei
+benannt: „Phase 2 Schulung buchen" heißt in MGL so, an einem anderen Standort
+kann dieselbe `order` anders heißen. Alle Ausschreibungen einer Filiale hängen an
+derselben Stelle, also gibt es je Ansicht genau einen Phasensatz — der liefert
+die Überschriften.
 
 **Rechenregeln der Gesamt-Zeile:**
 - Absolute Spalten: Summe der Zeilen.
