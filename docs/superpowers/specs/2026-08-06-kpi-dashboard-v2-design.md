@@ -284,12 +284,17 @@ Geparkte und Dubletten sind keine Pipeline.
 
 ## 10. Getrennte Aufträge (nicht Teil dieser Spec)
 
-- **① `CreateInterviewBookingTool` (MCP):** Default ist `registered` und der
-  übergebene Status wird nicht geprüft. Damit kann eine Buchung „Onboarding
-  abgeschlossen" behaupten, ohne dass Phase 3 durchlaufen wurde — genau die
-  Spalte „registriert", die der Kunde sehen will. Zusätzlich greift das
-  Standby-Sicherheitsnetz nur auf `booked`. Fix: Default `booked`, Status gegen
-  die erlaubte Liste prüfen. **Vor dem Rollout dieses Dashboards.**
+- **① `CreateInterviewBookingTool` (MCP) — nachgelagert.** Default ist
+  `registered` und der übergebene Status wird nicht geprüft. Damit kann eine
+  Buchung „Onboarding abgeschlossen" behaupten, ohne dass Phase 3 durchlaufen
+  wurde, und das Standby-Sicherheitsnetz greift nicht (es gibt nur Plätze von
+  Buchungen auf `booked` frei). Fix: Default `booked`, Status gegen die erlaubte
+  Liste prüfen.
+  **Bewusst zurückgestellt** (Entscheidung 2026-08-07): über MCP wird praktisch
+  nicht gebucht, der Pfad ist damit theoretisch. Restrisiko, solange es offen
+  ist: eine so entstandene Buchung zählt in der Spalte „registriert" mit, ohne
+  dort hinzugehören, und ihr Schulungsplatz wird nie automatisch freigegeben.
+  Kein Blocker für dieses Dashboard.
 - **③ ist erledigt, ohne Codeänderung:** `confirm_booking_on_completion` schreibt
   `registered` — in der Semantik des Kunden ist das korrekt (Phase-3-Abschluss
   *ist* die Registrierung, nicht die Bestätigung). Es bleibt ein irreführender
