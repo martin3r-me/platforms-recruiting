@@ -133,4 +133,53 @@ class ResttagePlaceholderTest extends TestCase
 
         $this->assertTrue(ResttagePlaceholder::hasUnresolvedPlaceholder($result));
     }
+
+    /**
+     * Der Lesepfad muss dieselbe Form verlangen wie der Schreibpfad
+     * (integer|min:0|max:140). is_numeric waere zu permissiv gewesen:
+     * '-5' und '1e3' landeten als Zahl im Dokument, 87.9 wuerde still auf
+     * 87 trunkiert — eine falsche Zahl in einer haftungsbewehrten
+     * Selbstauskunft, ohne Absturz und ohne Auffaelligkeit.
+     */
+    public function test_embed_rejects_values_the_write_path_would_never_produce(): void
+    {
+        $content = 'noch {{resttage}} Tage';
+
+        $this->assertSame($content, ResttagePlaceholder::embed($content, ['type' => 'resttage', 'resttage' => '-5']));
+        $this->assertSame($content, ResttagePlaceholder::embed($content, ['type' => 'resttage', 'resttage' => -5]));
+        $this->assertSame($content, ResttagePlaceholder::embed($content, ['type' => 'resttage', 'resttage' => '1e3']));
+        $this->assertSame($content, ResttagePlaceholder::embed($content, ['type' => 'resttage', 'resttage' => 87.9]));
+        $this->assertSame($content, ResttagePlaceholder::embed($content, ['type' => 'resttage', 'resttage' => '+5']));
+        $this->assertSame($content, ResttagePlaceholder::embed($content, ['type' => 'resttage', 'resttage' => ' 87']));
+    }
+
+    /**
+     * Der Schreibpfad castet auf int, bevor er speichert — dieser Weg muss
+     * offen bleiben. Fuehrende Nullen sind zulaessig und werden zur Zahl;
+     * hier festgenagelt, damit das niemand spaeter auf ctype_digit plus
+     * Laengenpruefung umbaut und dabei '007' verliert.
+     */
+    public function test_embed_accepts_int_and_leading_zeroes(): void
+    {
+        $this->assertSame(
+            'noch 87 Tage',
+            ResttagePlaceholder::embed('noch {{resttage}} Tage', ['type' => 'resttage', 'resttage' => 87])
+        );
+        $this->assertSame(
+            'noch 7 Tage',
+            ResttagePlaceholder::embed('noch {{resttage}} Tage', ['type' => 'resttage', 'resttage' => '007'])
+        );
+    }
+
+    /**
+     * Der Vorlagen-Editor validiert Platzhalternamen nur als
+     * required|string|max:255 — Punkte und Bindestriche sind erlaubt. Dass
+     * heute alle Mappings snake_case sind, ist eine Momentaufnahme, keine
+     * Systemeigenschaft. Ein Guard, der hier nicht ausloest, schuetzt nicht.
+     */
+    public function test_detects_placeholders_with_dots_and_dashes(): void
+    {
+        $this->assertTrue(ResttagePlaceholder::hasUnresolvedPlaceholder('Hallo {{kontakt.vorname}}'));
+        $this->assertTrue(ResttagePlaceholder::hasUnresolvedPlaceholder('Hallo {{kontakt-vorname}}'));
+    }
 }
