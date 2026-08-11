@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Platform\Core\Traits\HasExtraFields;
+use Platform\Recruiting\Services\Zas\ZasLookupResolver;
 use Symfony\Component\Uid\UuidV7;
 
 class RecContractTemplate extends Model
@@ -86,9 +87,14 @@ class RecContractTemplate extends Model
         ]);
         $contactModel = $applicant->crmContactLinks->first()?->contact;
 
+        // Eine Resolver-Instanz pro Dokument: der Label-Cache lebt genau so
+        // lange wie dieser Render-Vorgang. Bewusst kein Singleton — ein
+        // langlebiger Queue-Worker wuerde sonst veraltete Labels ausliefern.
+        $lookups = new ZasLookupResolver();
+
         $replacements = [];
         foreach ($mappings as $placeholder => $source) {
-            $replacements['{{' . $placeholder . '}}'] = $this->resolveSource($source, $applicant, $contactModel, $contract);
+            $replacements['{{' . $placeholder . '}}'] = $this->resolveSource($source, $applicant, $contactModel, $contract, $lookups);
         }
 
         $content = str_replace(array_keys($replacements), array_values($replacements), $content);
@@ -99,7 +105,7 @@ class RecContractTemplate extends Model
         return $content;
     }
 
-    private function resolveSource(string $source, RecApplicant $applicant, $contact, ?RecContract $contract): string
+    private function resolveSource(string $source, RecApplicant $applicant, $contact, ?RecContract $contract, ?ZasLookupResolver $lookups = null): string
     {
         if (str_starts_with($source, 'contact.')) {
             if (!$contact) {
@@ -139,6 +145,21 @@ class RecContractTemplate extends Model
                 if ($value === null || $value === '') {
                     return '';
                 }
+
+                // Lookup-Felder speichern den Maschinenwert ("tr") — im Dokument
+                // muss das Label stehen ("Türkei"). Nur wenn die Definition
+                // wirklich ein Lookup ist, sonst bleibt alles wie gehabt.
+                if ($lookups !== null) {
+                    $definition = $applicant->getExtraFieldDefinitions()->firstWhere('name', $efName);
+                    $lookupId = $definition?->options['lookup_id'] ?? null;
+                    if ($lookupId) {
+                        $label = $lookups->resolveLabel((int) $definition->id, $value);
+                        if ($label !== null && $label !== '') {
+                            return $label;
+                        }
+                    }
+                }
+
                 if ($value instanceof Carbon) {
                     return $value->format('d.m.Y');
                 }
