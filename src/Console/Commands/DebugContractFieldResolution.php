@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Services\Zas\ZasLookupResolver;
 
 class DebugContractFieldResolution extends Command
 {
@@ -102,8 +103,9 @@ class DebugContractFieldResolution extends Command
             $reflection = new \ReflectionClass($template);
             $method = $reflection->getMethod('resolveSource');
             $method->setAccessible(true);
+            $lookups = new ZasLookupResolver();
             foreach ($mappings as $placeholder => $source) {
-                $value = $method->invoke($template, $source, $applicant, $contact, $contract);
+                $value = $method->invoke($template, $source, $applicant, $contact, $contract, $lookups);
                 $status = $value === '' ? '⚠ LEER' : '✓';
                 $this->line('  ' . str_pad('{{' . $placeholder . '}}', 28) . '→ '
                     . str_pad($source, 40) . '= ' . $status . ' ' . (is_string($value) ? $value : json_encode($value)));

@@ -34,12 +34,13 @@
                 <p class="text-gray-500">Vertrag wird geladen...</p>
             </div>
         @elseif($state === 'form')
-            {{-- Fortschrittsanzeige (nur wenn Step 1 mit §15/§16 Pre-Signing relevant ist) --}}
+            {{-- Fortschrittsanzeige (nur wenn ein Vorschalt-Schritt gilt: §15/§16 oder Resttage) --}}
             @if($requiresPreSigningStep)
                 <div class="mb-8">
                     <div class="flex items-center justify-between mb-2">
                         @php
-                            $stepOneLabel = $preSigningType === 'resttage' ? 'Deine Angabe' : '§15/§16 Angaben';
+                            $resttageStepLabel = $duzen ? 'Deine Angabe' : 'Ihre Angabe';
+                            $stepOneLabel = $preSigningType === 'resttage' ? $resttageStepLabel : '§15/§16 Angaben';
                         @endphp
                         @foreach([1 => $stepOneLabel, 2 => 'Vertrag & Unterschrift'] as $num => $label)
                             <div class="flex items-center {{ $num < 2 ? 'flex-1' : '' }}">

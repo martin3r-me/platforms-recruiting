@@ -850,6 +850,20 @@ class Show extends Component
                 $this->applicant,
                 $contract
             );
+
+            // Bei bereits unterschriebenen Vertraegen die Vorschalt-Angaben
+            // wieder einbetten. Ohne das wuerde ein Neu-Rendern aus der
+            // Vorlage die §15/§16-Bloecke bzw. die eingetragene Resttage-Zahl
+            // aus einem signierten Dokument entfernen — der Platzhalter
+            // {{resttage}} stuende wieder im Archivstueck. Gleiches Muster
+            // wie in RePersonalizeContractsTool.
+            if ($contract->status === 'completed' && !empty($contract->pre_signing_data)) {
+                $contract->personalized_content = RecContract::embedPreSigningData(
+                    $contract->personalized_content,
+                    $contract->pre_signing_data
+                );
+            }
+
             $contract->save();
         }
 
