@@ -2,12 +2,15 @@
 
 namespace Platform\Recruiting\Services;
 
+use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Exceptions\LegalStatusNotCheckedException;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecApplicantStatus;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Support\HrDeskRejectionStatus;
+use Platform\Recruiting\Support\MinorAgeGate;
 
 class HrDeskRoutingService
 {
@@ -272,6 +275,15 @@ class HrDeskRoutingService
 
     public function rejectCase(RecHrDeskCase $case, int $userId, ?string $notes = null): void
     {
+        // Fall-Abschluss und Bewerber-Update gehören zusammen: scheitert das
+        // zweite Update (z.B. FK), darf der Fall nicht geschlossen zurückbleiben.
+        DB::transaction(function () use ($case, $userId, $notes) {
+            $this->applyRejection($case, $userId, $notes);
+        });
+    }
+
+    private function applyRejection(RecHrDeskCase $case, int $userId, ?string $notes): void
+    {
         $case->update([
             'status' => RecHrDeskCase::STATUS_REJECTED,
             'resolved_at' => now(),
@@ -289,15 +301,22 @@ class HrDeskRoutingService
 
         // Jugendschutz-Ablehnung stempelt denselben Status wie die U16-Auto-
         // Absage — sonst steht ein von HR abgelehnter 16/17-Jähriger ohne
-        // sichtbaren Grund inaktiv in der Liste (Entscheidung: HrDeskRejectionStatus).
-        $stampStatusId = HrDeskRejectionStatus::resolve(
-            $case->reason,
-            $applicant->rec_applicant_status_id !== null ? (int) $applicant->rec_applicant_status_id : null,
-            (int) (RecApplicantSettings::getOrCreateForTeam($applicant->team_id)
-                ->getSetting('minor_rejection_status_id') ?? 0) ?: null,
-        );
-        if ($stampStatusId !== null) {
-            $attributes['rec_applicant_status_id'] = $stampStatusId;
+        // sichtbaren Grund inaktiv in der Liste. Settings-Lookup bewusst erst
+        // im Minderjährigen-Zweig (sonst liefe bei JEDER Ablehnung ein
+        // firstOrCreate auf rec_applicant_settings).
+        if ($case->reason === RecHrDeskCase::REASON_MINOR) {
+            $stampStatusId = HrDeskRejectionStatus::resolve(
+                $case->reason,
+                MinorAgeGate::verdict($applicant->getExtraField('geburtsdatum'), new \DateTimeImmutable('today')),
+                RecApplicantSettings::getOrCreateForTeam($applicant->team_id)->minorRejectionStatusId(),
+            );
+
+            // FK-Ziel prüfen: ein gelöschter/verstellter Status würde sonst
+            // beim Update eine Constraint-Verletzung werfen — mitten in einer
+            // bereits geschlossenen Fall-Zeile.
+            if ($stampStatusId !== null && RecApplicantStatus::whereKey($stampStatusId)->exists()) {
+                $attributes['rec_applicant_status_id'] = $stampStatusId;
+            }
         }
 
         $applicant->update($attributes);

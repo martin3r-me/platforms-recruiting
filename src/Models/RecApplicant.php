@@ -634,14 +634,14 @@ class RecApplicant extends Model implements InheritsExtraFields
             return false; // HR hat bereits manuell abgelehnt
         }
 
-        $settings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
-        $statusId = (int) ($settings->getSetting('minor_rejection_status_id') ?? 0);
+        // Eine Quelle für "welcher Status" — dieselbe nutzt die HR-Desk-Ablehnung.
+        $statusId = RecApplicantSettings::getOrCreateForTeam($this->team_id)->minorRejectionStatusId();
         $templateOk = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
             ->configuredTemplateName($this->team_id, 'minor_rejection_template_id') !== null;
         $phone = $this->primaryContactPhone();
 
-        if ($statusId <= 0 || !$templateOk || $phone === null) {
-            $missing = $statusId <= 0 ? 'Absage-Status' : (!$templateOk ? 'Absage-Template' : 'Telefonnummer');
+        if ($statusId === null || !$templateOk || $phone === null) {
+            $missing = $statusId === null ? 'Absage-Status' : (!$templateOk ? 'Absage-Template' : 'Telefonnummer');
             app(\Platform\Recruiting\Services\HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
                 $this,
                 RecHrDeskCase::REASON_MINOR,

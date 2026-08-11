@@ -349,13 +349,57 @@ class ApplicantSettingsModal extends Component
             $query->where('whatsapp_account_id', (int) $accountId);
         }
 
-        return $query->orderBy('name')
+        $options = $query->orderBy('name')
             ->get()
             ->map(fn ($t) => [
                 'id' => $t->id,
                 'label' => "{$t->name} ({$t->language})" . (!$accountId && $t->whatsappAccount ? " — {$t->whatsappAccount->title}" : ''),
             ])
-            ->toArray();
+            ->values()
+            ->all();
+
+        return array_merge($options, $this->orphanedTemplateOptions($options));
+    }
+
+    /**
+     * Bereits konfigurierte Templates, die durch den Account-Filter (oder eine
+     * zurückgezogene Meta-Freigabe) aus der Liste fallen, trotzdem anbieten —
+     * sonst zeigt das Select "nicht gewählt", während der Wert gespeichert
+     * bleibt und weiter versendet wird. Mit Warn-Präfix, damit die Fehl-
+     * konfiguration sichtbar ist und geändert werden kann.
+     *
+     * @param array<array{id: int, label: string}> $options
+     * @return array<array{id: int, label: string}>
+     */
+    private function orphanedTemplateOptions(array $options): array
+    {
+        $listed = array_column($options, 'id');
+
+        $configured = [];
+        foreach ($this->settings as $key => $value) {
+            if (str_ends_with((string) $key, '_template_id') && (int) $value > 0) {
+                $configured[] = (int) $value;
+            }
+        }
+
+        $missing = array_values(array_diff(array_unique($configured), $listed));
+        if ($missing === []) {
+            return [];
+        }
+
+        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->with('whatsappAccount:id,title,phone_number')
+            ->whereIn('id', $missing)
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($t) => [
+                'id' => $t->id,
+                'label' => "⚠ {$t->name} ({$t->language})"
+                    . ($t->whatsappAccount ? " — {$t->whatsappAccount->title}" : '')
+                    . ($t->status !== 'APPROVED' ? " — {$t->status}" : ' — anderer Account'),
+            ])
+            ->values()
+            ->all();
     }
 
     #[Computed]

@@ -145,6 +145,18 @@ class RecApplicantSettings extends Model
         return $settings[$key] ?? $default ?? (self::DEFAULT_SETTINGS[$key] ?? null);
     }
 
+    /**
+     * Konfigurierter Absage-Status für Jugendschutz-Fälle (U16-Automatik und
+     * HR-Schreibtisch-Ablehnung lesen ihn hier — eine Quelle, eine Sentinel-
+     * Regel: 0/null/leer = nicht konfiguriert).
+     */
+    public function minorRejectionStatusId(): ?int
+    {
+        $value = (int) ($this->getSetting('minor_rejection_status_id') ?? 0);
+
+        return $value > 0 ? $value : null;
+    }
+
     public function setSetting(string $key, $value): void
     {
         $settings = $this->settings ?? self::DEFAULT_SETTINGS;
