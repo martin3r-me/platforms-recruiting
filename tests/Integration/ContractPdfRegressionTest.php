@@ -5,13 +5,26 @@ namespace Platform\Recruiting\Tests\Integration;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Http\Controllers\Concerns\RendersContractPdf;
+use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Models\RecContractTemplate;
 
 /**
  * Belegt, dass die Zertifikat-Arbeit den Vertragsweg nicht beruehrt.
  *
  * Rendert einen festen Beispielinhalt durch das ECHTE Stylesheet aus
- * resources/views/pdf/contract.blade.php und friert Seitenzahl, Fontliste
- * und Textinhalt als SOLL ein.
+ * resources/views/pdf/contract.blade.php und friert Seitenzahl und
+ * Fontliste als SOLL ein (siehe render()), zusaetzlich den md5 des
+ * Stylesheet-Blocks (siehe contractStylesheet()) und — ueber die echte
+ * RendersContractPdf-Logik, nicht ueber ein synthetisches Render — die
+ * Firmenstempel-Injektion fuer AV-* vs. andere Vorlagen.
+ *
+ * Bekannte Luecke: KEINE Assertion auf extrahierten PDF-Text. Die Spec
+ * verlangt "extrahierter Text identisch" als eigenes Kriterium; das ist
+ * hier nicht umgesetzt, weil personalizeContent() Models und DB braucht
+ * und der Runner kein Laravel bootet (siehe Task-Brief, "Bewusste
+ * Abweichung von der Spec"). Eine Aenderung an personalizeContent(),
+ * die nur den Text veraendert, faellt durch dieses Netz.
  *
  * Abweichung vom urspruenglichen Task-Brief: Der Brief nennt als SOLL
  * ['DejaVuSans', 'Times-Bold'] und begruendet das mit einem angenommenen
@@ -111,6 +124,72 @@ class ContractPdfRegressionTest extends TestCase
             md5($css),
             'contract.blade.php wurde geaendert. Zertifikat-Arbeit darf das nicht — '
             . 'war die Aenderung beabsichtigt, Hash bewusst aktualisieren.'
+        );
+    }
+
+    /**
+     * Anonyme Klasse, die den ECHTEN Trait RendersContractPdf nutzt und
+     * seine beiden protected Methoden ueber Trait-Aliasing public macht.
+     * Kein DB-/Laravel-Bootstrap noetig: prepareContractContentForPdf()
+     * und loadCompanyStampDataUrl() greifen nicht auf die Datenbank zu,
+     * solange die contractTemplate-Relation vorab per setRelation()
+     * gesetzt ist (dann feuert die BelongsTo keine Query).
+     */
+    private function stampHost(): object
+    {
+        return new class {
+            use RendersContractPdf {
+                prepareContractContentForPdf as public pub;
+                loadCompanyStampDataUrl as public stamp;
+            }
+        };
+    }
+
+    public function testFirmenstempelDataUrlHatPngPraefix(): void
+    {
+        $dataUrl = $this->stampHost()->stamp();
+
+        $this->assertNotNull($dataUrl, 'resources/images/company-stamp.png sollte ladbar sein.');
+        $this->assertStringStartsWith('data:image/png;base64,', $dataUrl);
+    }
+
+    /**
+     * Positivfall: AV-* Vorlagen bekommen den Stempel injiziert.
+     */
+    public function testFirmenstempelWirdBeiArbeitsvertragInjiziert(): void
+    {
+        $template = new RecContractTemplate(['code' => 'AV-010']);
+        $contract = new RecContract();
+        $contract->personalized_content = "<p>Vertrag</p>\n<p>RheinGedeck GmbH</p>";
+        $contract->setRelation('contractTemplate', $template);
+
+        $result = $this->stampHost()->pub($contract);
+
+        $this->assertStringContainsString(
+            'data:image/png;base64,',
+            $result,
+            'AV-010 ist ein Arbeitsvertrag und sollte den Firmenstempel enthalten.'
+        );
+    }
+
+    /**
+     * Negativfall: eine Vorlage ohne AV-Praefix (hier IFSG) bekommt KEINEN
+     * Stempel. Ohne diesen Fall wuerde ein Test, der den Stempel ploetzlich
+     * ueberall injiziert, nicht auffallen.
+     */
+    public function testFirmenstempelWirdBeiIfsgNichtInjiziert(): void
+    {
+        $template = new RecContractTemplate(['code' => 'IFSG']);
+        $contract = new RecContract();
+        $contract->personalized_content = "<p>Belehrung</p>\n<p>RheinGedeck GmbH</p>";
+        $contract->setRelation('contractTemplate', $template);
+
+        $result = $this->stampHost()->pub($contract);
+
+        $this->assertStringNotContainsString(
+            'data:image/png;base64,',
+            $result,
+            'Nur AV-* Vorlagen sollen den Firmenstempel bekommen, IFSG nicht.'
         );
     }
 }
