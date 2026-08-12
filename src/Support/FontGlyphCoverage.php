@@ -22,31 +22,40 @@ use FontLib\Font;
 final class FontGlyphCoverage
 {
     /**
-     * @return list<string> fehlende Zeichen als UTF-8-Strings, dedupliziert,
-     *                      in Reihenfolge des ersten Auftretens
+     * Prueft den Text gegen die Schrift und liefert einen Bericht mit drei
+     * moeglichen Zustaenden: nichts fehlt / diese Zeichen fehlen / nicht
+     * pruefbar. Wirft nie — die Pruefung ist eine Hilfe, kein Gate.
+     *
+     * Es gibt absichtlich KEINE Methode, die nur die fehlenden Zeichen als
+     * Array liefert: ihr leeres Array bedeutete "nichts fehlt" UND "Schrift
+     * nicht pruefbar", und eine kaputte Schrift bekaeme damit ein besseres
+     * Zeugnis als eine intakte.
      */
-    public static function missing(string $content, string $fontPath): array
+    public static function inspect(string $content, string $fontPath): FontGlyphReport
     {
         $text = self::plainText($content);
         if ($text === '') {
-            return [];
+            // Kein Text, also kann kein Zeichen fehlen. Die Schrift wird dafuer
+            // nicht gebraucht und deshalb auch nicht bewertet.
+            return FontGlyphReport::checked([]);
         }
 
         $map = self::charMap($fontPath);
         if ($map === null) {
-            // Nicht lesbare Fontdatei blockiert die Pruefung nicht — sie ist
-            // eine Hilfe, kein Gate. Das fehlende Asset faellt beim Rendern auf.
-            return [];
+            // Nicht lesbare Fontdatei blockiert nicht, wird aber auch nicht
+            // als "nichts fehlt" verkauft: der Aufrufer erfaehrt, dass hier
+            // nichts geprueft wurde. Das fehlende Asset faellt beim Rendern auf.
+            return FontGlyphReport::notCheckable();
         }
 
         $missing = [];
         foreach (self::codepoints($text) as $codepoint => $char) {
-            if (!isset($map[$codepoint]) && !isset($missing[$codepoint])) {
+            if (!isset($map[$codepoint])) {
                 $missing[$codepoint] = $char;
             }
         }
 
-        return array_values($missing);
+        return FontGlyphReport::checked(array_values($missing));
     }
 
     /** HTML-Markup entfernen — im PDF steht nur der Textinhalt. */
@@ -58,7 +67,17 @@ final class FontGlyphCoverage
         return trim($decoded);
     }
 
-    /** @return array<int,int>|null Unicode-Codepoint => Glyph-Index */
+    /**
+     * @return array<int,int>|null Unicode-Codepoint => Glyph-Index,
+     *                             null = nicht pruefbar
+     *
+     * Gemessen an Oswald-SemiBold (109 120 B) ueber fuenf Beschaedigungsstufen:
+     * bei 40 % und 5 % der Datei parst FontLib weiter und liefert dieselben 737
+     * Einträge wie die intakte Datei (der cmap-Table liegt im erhaltenen Kopf);
+     * bei 3 Byte und 0 Byte gibt Font::load() null zurueck, ohne Exception. Ein
+     * LEERES, aber gueltiges Array kam auf keiner Stufe vor — deshalb steht hier
+     * kein Sonderfall dafuer.
+     */
     private static function charMap(string $fontPath): ?array
     {
         if (!is_file($fontPath) || !is_readable($fontPath)) {
@@ -102,8 +121,8 @@ final class FontGlyphCoverage
             $out[] = [$codepoint, $char];
         }
 
-        // Reihenfolge des ersten Auftretens erhalten, Duplikate spaeter
-        // in missing() gefiltert.
+        // Codepoint als Schluessel: Duplikate fallen weg, die Reihenfolge des
+        // ersten Auftretens bleibt.
         $ordered = [];
         foreach ($out as [$codepoint, $char]) {
             $ordered[$codepoint] ??= $char;
