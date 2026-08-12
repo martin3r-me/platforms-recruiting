@@ -62,40 +62,91 @@ use Platform\Recruiting\Models\RecContractTemplate;
  *   schulung.* in Benutzung: NEIN
  *
  * ---------------------------------------------------------------------------
- * ZWEIG-REIHENFOLGE in resolveSource() — sie ist Teil des Verhaltens, der
- * erste passende Zweig gewinnt (Zeilennummern gegen den Stand dieses
- * Commits):
+ * DIE ZWEIGE in resolveSource(), in Code-Reihenfolge. Als Anker stehen hier
+ * ABSICHTLICH nur die Praefix-STRINGS, keine Zeilennummern: die Strings
+ * altern nicht, Zeilennummern bei jedem Task. Hier stand vorher eine
+ * Nummernliste, die nach einem einzigen Commit zur Haelfte falsch war,
+ * obwohl sie "gegen den Stand dieses Commits" behauptete — und teilweise
+ * nachgemessene Doku ist schlechter als durchgehend veraltete, weil sie
+ * Verlaesslichkeit vortaeuscht.
  *
- *   contact.               (:110, darin address. :126, Carbon → d.m.Y :131)
- *   applicant.             (:139, darin extra_field. :142 mit
- *                           Lookup-Label-Zweig :145-160, ISO-Datum → d.m.Y
- *                           :168-175, zuschlag → number_format :178-180)
- *   contract.extra_field.  (:243, NUR wenn ein $contract uebergeben ist)
- *   settings.              (:248, float → number_format, bool → ja/nein)
- *   text:                  (:264)
- *   meta.                  (:268, datum_heute → d.m.Y, ort → '')
- *   danach                 return '' (:277)
+ *   'contact.'              darin 'email', 'phone', 'address.';
+ *                           sonst Feld am Kontakt (Carbon → d.m.Y)
+ *   'applicant.'            darin 'extra_field.': Early-Return bei leer,
+ *                           Lookup-Label-Zweig, Carbon → d.m.Y,
+ *                           ISO-String → d.m.Y, trim();
+ *                           sonst Feld am Bewerber ('zuschlag' →
+ *                           number_format)
+ *   'contract.extra_field.' NUR wenn ein $contract uebergeben ist; Wert ROH
+ *   'settings.'             float → number_format, bool → ja/nein
+ *   'text:'                 Literal nach dem Praefix
+ *   'meta.'                 'datum_heute' → d.m.Y, alles andere → ''
+ *   danach                  return ''
+ *
+ * WAS DIE REIHENFOLGE BEDEUTET — und was nicht. Der erste passende Zweig
+ * gewinnt, aber DIE PRAEFIXE SIND DISJUNKT. Fuer einen neuen Zweig mit einem
+ * neuen Praefix (z.B. `schulung.`) ist die Einfuegeposition damit
+ * VERHALTENSNEUTRAL. Gemessen: derselbe Zweig ganz oben vor `contact.` und
+ * ganz unten vor dem finalen `return ''` laesst diesen Test beide Male gruen.
+ * Die frueher hier und im Task-Report behauptete Regel ("nur unerreichbar,
+ * wenn NACH settings. und VOR return '' einsortiert") ist damit widerlegt —
+ * sie war nie gemessen.
+ *
+ * Was dieser Test beim Einhaengen des sechsten Zweigs wirklich schuetzt, sind
+ * zwei ANDERE Dinge. Beide gemessen rot:
+ *
+ *  (a) Die BEDINGUNG darf nicht breiter werden als das neue Praefix. Eine zu
+ *      greifige Bedingung (`contract.` statt `schulung.`) vor dem
+ *      contract.extra_field.-Zweig macht Fall 9 rot.
+ *  (b) Die FALLBACK-SEMANTIK. Ein Zweig, der am Ende `return $source` statt
+ *      `return ''` hinterlaesst, macht Fall 13 UND Fall 9 rot.
+ *
+ * Die echte Gefahr ist also nicht die Einfuegeposition, sondern ein UMBAU DES
+ * IF-CHAINS: die Kette in ein match() ueberfuehren, Praefixe zu einem
+ * gemeinsamen Praefix zusammenziehen, einen frueheren Zweig auf einen
+ * Early-Return umstellen. Wer das tut, verschiebt Bedingungen und Fallback
+ * mit — und genau dagegen sind (a) und (b) die Sicherung. Fall 7b sichert
+ * zusaetzlich, dass ein Early-Return INNERHALB des applicant.-Zweigs die
+ * nachgelagerte Formatierung nicht ueberspringt.
  *
  * ---------------------------------------------------------------------------
  * NICHT FESTGENAGELT (bewusst, kein Versehen):
  *
- *  - `contact.email` / `contact.phone` (:117/:122) und `text:` (:264): in
- *    KEINER der 11 Live-Vorlagen benutzt. Dieser Test sichert den Bestand,
- *    nicht die Vollstaendigkeit der Methode.
- *  - Der Fallback `settings.<key>` auf RecApplicantSettings::DEFAULT_SETTINGS
- *    (:251). Er ist erreichbar, aber ihn festzunageln hiesse einen
+ *  - Der Fallback `settings.<key>` auf RecApplicantSettings::DEFAULT_SETTINGS.
+ *    Er ist erreichbar, aber ihn festzunageln hiesse einen
  *    KONFIGURATIONSWERT (z.B. minimum_wage_hourly = 13.90) in einen Test zu
  *    schreiben; eine legitime HR-Aenderung waere dann ein roter Test.
  *    Festgenagelt wird stattdessen die FORMATIERUNG gegen einen explizit
  *    gesetzten Settings-Wert — das ist der Teil, der beim Umbau bricht.
+ *  - Das abschliessende `trim()` im applicant.extra_field.-Zweig. Gemessen:
+ *    es zu entfernen laesst die Suite gruen. Bekannte Luecke, nicht
+ *    geschlossen — ein Extra-Field-Wert mit fuehrendem/nachlaufendem
+ *    Leerzeichen ist kein Live-Fall, den ich belegen kann.
+ *
+ * FRUEHER HIER AUSGELASSEN, jetzt festgenagelt (Faelle 14 und 15):
+ * `contact.email`, `contact.phone` und `text:`. Die Begruendung war "in
+ * KEINER der 11 Live-Vorlagen benutzt" — also genau die Argumentationsform
+ * ueber Daten, die HR selbst aendern kann, die dieser Test oben ausdruecklich
+ * als keinen Schutz bezeichnet. Verschaerfend: `contact.email` und
+ * `contact.phone` werden HR bzw. dem MCP-Agenten AKTIV als verfuegbare
+ * Quellen angeboten (Tools/CreateContractTemplateTool,
+ * Tools/UpdateContractTemplateTool). `text:` wird nirgends angeboten, ist
+ * aber trivial festzunageln. Gemessen war ohne diese Faelle jede der drei
+ * Quellen mutierbar: "email liefert immer ''" und "text:-Zweig entfernt"
+ * liessen die Suite gruen.
  *
  * BEFUND, der beim Schreiben dieses Tests herauskam (Bestand, kein Bug-Fix
  * hier): `contract.extra_field.*` formatiert NICHT um. Die Live-Werte von
  * vertragsbeginn/vertragsende sind ISO-Strings ("2026-08-01", gemessen an
- * rec_contract 451), und der Zweig :243-246 gibt sie roh aus — waehrend der
+ * rec_contract 451), und der Zweig gibt sie roh aus — waehrend der
  * applicant.extra_field.-Zweig genau solche Strings zu d.m.Y umformt. Im
- * Vertragstext steht damit ein ISO-Datum. Test 9 nagelt dieses Verhalten
- * fest, wie es ist; wer es aendern will, aendert es bewusst.
+ * Vertragstext steht damit ein ISO-Datum. Beide Seiten der Asymmetrie sind
+ * jetzt festgenagelt: Fall 9 die Vertrags-Seite (roh bleibt roh), Fall 7b die
+ * Bewerber-Seite (ISO wird d.m.Y). Wer die Asymmetrie spaeter
+ * "harmonisiert", muss sich entscheiden, welche Seite er aendert, und wird in
+ * JEDER Richtung rot. Vorher war nur die Vertrags-Seite gesichert — die
+ * Umformung auf der Bewerber-Seite zu ENTFERNEN war gemessen gruen, und das
+ * ist genau die Richtung, in die ein "Aufraeumen" am ehesten laeuft.
  *
  * ---------------------------------------------------------------------------
  * ABWEICHUNG VOM TASK-BRIEF (Fixture-Aufbau), begruendet:
@@ -216,7 +267,8 @@ class PlaceholderResolutionPinTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // Die 13 Faelle
+    // Die Faelle (1-13 plus 7b/7c/14/15; die Nummern sind Lesehilfe, keine
+    // Reihenfolge-Garantie — PHPUnit laeuft in Deklarationsreihenfolge)
     // -----------------------------------------------------------------
 
     /**
@@ -364,9 +416,21 @@ class PlaceholderResolutionPinTest extends TestCase
     }
 
     /**
-     * FALL 7 — dasselbe Roh-Datum ("tr") in einem Feld OHNE Lookup-Definition
-     * bleibt unveraendert. Belegt, dass der Label-Zweig ausschliesslich bei
-     * echten Lookup-Feldern greift und nicht global uebersetzt.
+     * FALL 7 — ROHWERT BLEIBT ROHWERT: "tr" in einem Feld OHNE
+     * Lookup-Definition kommt unveraendert heraus.
+     *
+     * Was dieser Fall NICHT belegt, obwohl er das frueher behauptete: "dass
+     * der Label-Zweig nicht global uebersetzt". Diese Eigenschaft ist ueber
+     * den Codepfad PRINZIPIELL NICHT VERLETZBAR und deshalb auch nicht
+     * testbar — ZasLookupResolver::loadLabelMap() liest `options` selbst
+     * erneut aus der DB und setzt fuer Nicht-Lookup-Definitionen eine LEERE
+     * Map, worauf LookupLabelFormatter::format() auf `$labelMap[$v] ?? $v`
+     * zurueckfaellt, also auf den Rohwert. Ein Test kann nur zeigen, was
+     * brechen KANN; ein Fall, der eine unverletzbare Eigenschaft "beweist",
+     * taeuscht Schutz vor.
+     *
+     * Der Guard `if ($lookupId)` ist trotzdem load-bearing — aber fuer die
+     * REIHENFOLGE, nicht fuer das Label. Genau das nagelt Fall 7b fest.
      */
     public function test_applicant_extra_field_ohne_lookup_definition_bleibt_rohwert(): void
     {
@@ -380,7 +444,90 @@ class PlaceholderResolutionPinTest extends TestCase
             $applicant
         );
 
-        $this->assertSame('tr', $rendered, 'Ohne options.lookup_id darf nichts uebersetzt werden.');
+        $this->assertSame('tr', $rendered, 'Ein Wert ohne Lookup-Definition kommt unveraendert durch.');
+    }
+
+    /**
+     * FALL 7b — der scharfe Zwilling von Fall 7. Ein Textfeld (KEINE
+     * Lookup-Definition) mit einem ISO-Datum als Wert muss als d.m.Y
+     * herauskommen. Diese eine Assertion sichert zwei Dinge, die je einzeln
+     * ungesichert waren:
+     *
+     *  1. Den Guard `if ($lookupId)` im Lookup-Zweig. Faellt er, kehren
+     *     Nicht-Lookup-Werte ueber `return $label;` VORZEITIG zurueck (der
+     *     Formatter liefert ja den Rohwert, siehe Fall 7) und erreichen die
+     *     nachgelagerte Formatierung nie mehr. Gemessen: Guard auf
+     *     `if (true)` mutiert → dieser Fall rot, '2026-08-01' statt
+     *     '01.08.2026'. Das ist der echte Zweck, den Fall 7 nur behauptete.
+     *  2. Die ISO→d.m.Y-Umformung im applicant.extra_field.-Zweig selbst. Sie
+     *     war ueberhaupt nicht festgenagelt: sie KOMPLETT zu entfernen war
+     *     gemessen gruen. Sie ist die Bewerber-Seite der Asymmetrie zu
+     *     contract.extra_field. (siehe BEFUND im Klassen-Docblock) — wer die
+     *     Asymmetrie "harmonisiert", indem er die Umformung ENTFERNT statt
+     *     sie drueben zu ergaenzen, wird jetzt rot.
+     *
+     * Der Fixture-Wert ist bewusst derselbe ISO-String wie in Fall 9
+     * ('2026-08-01'): die beiden Faelle stehen damit als Paar da und die
+     * gegenlaeufige Erwartung ist beim Lesen sofort sichtbar.
+     */
+    public function test_applicant_extra_field_iso_datum_wird_auch_ohne_lookup_zu_d_m_Y(): void
+    {
+        $applicant = $this->applicantWithContact();
+        $this->definition('eintritt_freitext_pin', 'text', [], RecApplicant::class);
+        $applicant->setExtraField('eintritt_freitext_pin', '2026-08-01');
+
+        $rendered = $this->render(
+            '{{eintritt}}',
+            ['eintritt' => 'applicant.extra_field.eintritt_freitext_pin'],
+            $applicant
+        );
+
+        $this->assertSame(
+            '01.08.2026',
+            $rendered,
+            'Ein ISO-String aus einem applicant.extra_field muss zu d.m.Y werden — auch ohne '
+            . 'Lookup-Definition, d.h. der Lookup-Zweig darf nicht vorzeitig zurueckkehren.'
+        );
+    }
+
+    /**
+     * FALL 7c — leeres oder gar nicht definiertes applicant.extra_field
+     * liefert leeren String. Der Alltagsfall, nicht der Sonderfall: neun der
+     * elf Live-Vorlagen mappen applicant.extra_field.geburtsort, und ob der
+     * Bewerber es ausgefuellt hat, entscheidet er selbst.
+     * Console/Commands/DebugContractFieldResolution hat fuer genau diesen
+     * Zustand eigens eine "LEER"-Anzeige.
+     *
+     * War nicht festgenagelt: den Early-Return statt auf '' auf
+     * '[' . $efName . ']' zu mutieren (also "zeig den Feldnamen, damit man den
+     * Fehler sieht" — eine plausible, gut gemeinte Aenderung) liess die Suite
+     * gemessen gruen. Im Arbeitsvertrag stuende dann "[geburtsort]".
+     */
+    public function test_applicant_extra_field_leer_oder_undefiniert_liefert_leeren_string(): void
+    {
+        $applicant = $this->applicantWithContact();
+        $this->definition('geburtsort_leer_pin', 'text', [], RecApplicant::class);
+        $applicant->setExtraField('geburtsort_leer_pin', '');
+
+        $this->assertSame(
+            '[]',
+            $this->render(
+                '[{{geburtsort}}]',
+                ['geburtsort' => 'applicant.extra_field.geburtsort_leer_pin'],
+                $applicant
+            ),
+            'Ein leeres Extra-Field liefert leeren String — nicht den Feldnamen, nicht "null".'
+        );
+
+        $this->assertSame(
+            '[]',
+            $this->render(
+                '[{{geburtsort}}]',
+                ['geburtsort' => 'applicant.extra_field.gibt_es_gar_nicht_pin'],
+                $applicant
+            ),
+            'Ein Extra-Field ohne Definition liefert ebenfalls leeren String und wirft nicht.'
+        );
     }
 
     /**
@@ -523,6 +670,118 @@ class PlaceholderResolutionPinTest extends TestCase
         $this->assertSame('[]', $rendered, 'Unbekanntes Praefix: leerer String, keine Exception, kein roher Quellstring.');
     }
 
+    /**
+     * FALL 14 — contact.email und contact.phone. Von keiner der 11
+     * Live-Vorlagen benutzt, aber HR und dem MCP-Agenten ALS QUELLE ANGEBOTEN
+     * (Tools/CreateContractTemplateTool, Tools/UpdateContractTemplateTool
+     * listen sie auf). "Heute nicht benutzt" ist damit kein Argument: der Weg
+     * von "nicht benutzt" zu "benutzt" ist ein Klick im Vorlagen-Editor, und
+     * dann traegt eine ungetestete Quelle Kontaktdaten in einen
+     * Arbeitsvertrag. Gemessen war der email-Zweig ohne diesen Fall auf
+     * "liefert immer ''" mutierbar, ohne dass irgendein Test rot wurde.
+     *
+     * Festgenagelt ist jeweils die AUSWAHLREGEL, nicht nur "nicht leer":
+     * bei email gewinnt is_primary ueber die Einfuegereihenfolge, bei phone
+     * gewinnt `international` ueber `national` — und faellt international weg,
+     * traegt national. Ein Test auf "enthaelt ein @" bliebe gruen, wenn die
+     * Zweitadresse im Vertrag landet.
+     */
+    public function test_contact_email_und_telefon_folgen_der_primaer_und_format_auswahl(): void
+    {
+        $applicant = $this->applicantWithContact();
+        $contact = $this->contactOf($applicant);
+
+        // Nicht-primaere ZUERST: waere is_primary egal, gewaenne diese hier.
+        $contact->emailAddresses()->create([
+            'email_address' => 'zweitadresse@example.org',
+            'is_primary' => false,
+            'email_type_id' => 1, // NOT NULL im echten Schema (FK auf crm_email_types)
+        ]);
+        $contact->emailAddresses()->create([
+            'email_address' => 'marie@example.org',
+            'is_primary' => true,
+            'email_type_id' => 1,
+        ]);
+        $contact->phoneNumbers()->create([
+            'raw_input' => '0151 1234567',
+            'international' => '+49 151 1234567',
+            'national' => '0151 1234567',
+            'is_primary' => true,
+            'phone_type_id' => 1, // NOT NULL im echten Schema (FK auf crm_phone_types)
+        ]);
+
+        $this->assertSame(
+            'marie@example.org|+49 151 1234567',
+            $this->render(
+                '{{mail}}|{{tel}}',
+                ['mail' => 'contact.email', 'tel' => 'contact.phone'],
+                $applicant
+            ),
+            'Die primaere E-Mail gewinnt ueber die Einfuegereihenfolge; beim Telefon gewinnt die '
+            . 'internationale Schreibweise.'
+        );
+
+        // Zweiter Kontakt ohne international → national traegt.
+        $nurNational = $this->applicantWithContact();
+        $this->contactOf($nurNational)->phoneNumbers()->create([
+            'raw_input' => '0151 7654321',
+            'national' => '0151 7654321',
+            'is_primary' => true,
+            'phone_type_id' => 1,
+        ]);
+
+        $this->assertSame(
+            '0151 7654321',
+            $this->render('{{tel}}', ['tel' => 'contact.phone'], $nurNational),
+            'Ohne internationale Schreibweise faellt contact.phone auf national zurueck.'
+        );
+
+        $this->assertSame(
+            '|',
+            $this->render(
+                '{{mail}}|{{tel}}',
+                ['mail' => 'contact.email', 'tel' => 'contact.phone'],
+                $this->applicantWithContact()
+            ),
+            'Ohne Kontaktdaten liefern beide Quellen leeren String, keine Exception.'
+        );
+    }
+
+    /**
+     * FALL 15 — `text:` gibt den Literal nach dem Praefix aus. Diese Quelle
+     * wird HR NICHT angeboten (anders als contact.email/phone), das Restrisiko
+     * ist also kleiner — aber "wird nirgends angeboten" ist eine Aussage ueber
+     * heutige UI, nicht ueber den Code: das Feld field_mappings ist ein
+     * freies JSON, und der Zweig war gemessen ersatzlos entfernbar, ohne dass
+     * ein Test rot wurde. Eine Assertion kostet weniger als die Ueberlegung,
+     * ob man sie braucht.
+     *
+     * Mitgenagelt: `text:` schneidet NUR das Praefix ab und laesst den Rest
+     * unangetastet — auch Doppelpunkte darin.
+     */
+    public function test_text_quelle_gibt_den_literal_nach_dem_praefix_aus(): void
+    {
+        $applicant = $this->applicantWithContact();
+
+        $this->assertSame(
+            '[Moenchengladbach, den]',
+            $this->render('[{{ort_literal}}]', ['ort_literal' => 'text:Moenchengladbach, den'], $applicant),
+            'text: gibt den Rest unveraendert aus.'
+        );
+
+        $this->assertSame(
+            '[a:b]',
+            $this->render('[{{doppelpunkt}}]', ['doppelpunkt' => 'text:a:b'], $applicant),
+            'Nur das erste "text:" ist Praefix; weitere Doppelpunkte bleiben Inhalt.'
+        );
+
+        $this->assertSame(
+            '[]',
+            $this->render('[{{leer}}]', ['leer' => 'text:'], $applicant),
+            'text: ohne Rest liefert leeren String.'
+        );
+    }
+
     // -----------------------------------------------------------------
     // Fixtures
     // -----------------------------------------------------------------
@@ -582,6 +841,16 @@ class PlaceholderResolutionPinTest extends TestCase
         }
 
         return $applicant;
+    }
+
+    /**
+     * Der verknuepfte CRM-Kontakt eines Fixture-Bewerbers — ueber denselben
+     * Weg, den personalizeContent() nimmt (crmContactLinks → contact), damit
+     * ein Relation-Key-Change hier genauso auffaellt wie dort.
+     */
+    private function contactOf(RecApplicant $applicant): CrmContact
+    {
+        return $applicant->crmContactLinks()->first()->contact;
     }
 
     /** @param array<string, mixed>|null $options */
