@@ -84,6 +84,12 @@ final class FontGlyphCoverage
             return null;
         }
 
+        // Vorbelegt, damit der finally-Block auch dann gueltig ist, wenn
+        // Font::load() selbst wirft (FontNotFoundException, wenn die Datei
+        // zwischen der Pruefung oben und hier verschwindet) und die Variable
+        // nie zugewiesen wurde.
+        $font = null;
+
         try {
             $font = Font::load($fontPath);
             if ($font === null) {
@@ -91,9 +97,29 @@ final class FontGlyphCoverage
             }
             $font->parse();
             $map = $font->getUnicodeCharMap();
-            $font->close();
         } catch (\Throwable) {
             return null;
+        } finally {
+            // close() gibt das Dateihandle frei und gehoert deshalb in den
+            // finally-Block: parse() und getUnicodeCharMap() werfen genau bei
+            // der beschaedigten Schrift, fuer die diese Klasse gebaut ist —
+            // im catch-Zweig zu schliessen hiesse, es dort gar nicht zu tun.
+            // Gemessen ueber einen zaehlenden Stream-Wrapper: ein Handle pro
+            // Fehlerpfad-Aufruf blieb offen (siehe FontGlyphCoverageTest).
+            //
+            // Der innere try/catch ist Pflicht, nicht Vorsicht: FontLibs
+            // close() ruft fclose() auf einem Feld auf, das bei
+            // fehlgeschlagenem fopen() false ist (Font::load() wertet den
+            // Rueckgabewert von BinaryStream::load() nicht aus). Ohne ihn
+            // verliesse dieser TypeError die Methode aus dem finally heraus,
+            // am catch oben vorbei — und inspect() wuerde werfen, obwohl es
+            // das laut Vertrag nie tut.
+            try {
+                $font?->close();
+            } catch (\Throwable) {
+                // Handle ist entweder zu oder war nie offen. Beides ist hier
+                // das Ziel; der Bericht steht schon fest.
+            }
         }
 
         return is_array($map) ? $map : null;

@@ -82,6 +82,16 @@ class ContractPdfRegressionTest extends TestCase
      * enthaelt die PID, also kollidiert nichts, aber es sammelt sich eben auch
      * nie wieder auf. Task 9 wird dieses Muster kopieren, deshalb steht das
      * Aufraeumen hier und nicht nur als Vorsatz.
+     *
+     * Bleibt etwas liegen, geht die Meldung auf STDERR und der Testlauf bleibt
+     * gruen. Diese Wahl ist bewusst und die Begruendung gehoert dazu: die
+     * Methode laeuft in tearDownAfterClass(), also NACH allen Assertionen. Eine
+     * Exception oder ein self::fail() von hier aus wuerde eine Aussage ueber die
+     * Bestandsvertraege — die Tests dieser Klasse — rot faerben, obwohl gar nichts
+     * am Vertragsweg kaputt ist, sondern nur ein Verzeichnis klemmt (Rechte,
+     * offene Handles, gemountetes Laufwerk). Der Befund, der zu dieser Methode
+     * gefuehrt hat, war nicht "raeumt zu wenig auf", sondern "raeumt lautlos
+     * nicht auf". Genau das ist behoben: nichts bleibt mehr unbemerkt liegen.
      */
     private static function removeFontCache(): void
     {
@@ -90,13 +100,73 @@ class ContractPdfRegressionTest extends TestCase
             return;
         }
 
-        foreach (glob($dir . '/*') ?: [] as $file) {
-            if (is_file($file)) {
-                @unlink($file);
+        $leftovers = self::deleteRecursively($dir);
+        if ($leftovers === []) {
+            return;
+        }
+
+        fwrite(STDERR, PHP_EOL . sprintf(
+            '[%s] fontCache nicht vollstaendig entfernt (%d Eintrag/Eintraege bleiben liegen):%s  %s%s',
+            self::class,
+            count($leftovers),
+            PHP_EOL,
+            implode(PHP_EOL . '  ', $leftovers),
+            PHP_EOL
+        ));
+    }
+
+    /**
+     * Loescht $dir samt Inhalt und liefert zurueck, was NICHT wegzuraeumen war.
+     *
+     * scandir() statt glob(): glob() liefert Dotfiles nicht (ein .DS_Store im
+     * fontCache blieb damit liegen) und liest *, ?, [ ] im Pfad als Muster —
+     * ein Verzeichnisname mit eckigen Klammern liess glob() auf ALLES leer
+     * laufen, nicht nur auf den Sonderfall. Gemessen an vier Faellen: der alte
+     * Aufraeumer liess Dotfile, Unterverzeichnis und Metazeichen-Pfad liegen
+     * (drei von vier), scandir() raeumt alle vier.
+     *
+     * Das @ vor unlink()/rmdir() unterdrueckt nur die PHP-Diagnose — die
+     * phpunit.xml hat failOnWarning="true", eine Warnung von hier wuerde die
+     * Klasse rot machen. Der Rueckgabewert wird stattdessen ausgewertet und
+     * landet in der Liste. Wer das @ entfernt, muss das Signal weiterhin ueber
+     * den Rueckgabewert fuehren, nicht ueber die Warnung.
+     *
+     * @return list<string> Pfade, die stehen geblieben sind; leer = sauber
+     */
+    private static function deleteRecursively(string $dir): array
+    {
+        $entries = scandir($dir);
+        if ($entries === false) {
+            return [$dir];
+        }
+
+        $failed = [];
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            $path = $dir . '/' . $entry;
+
+            // is_dir() folgt Symlinks. Ein Symlink auf ein Verzeichnis wird
+            // deshalb per unlink() entfernt (loescht den Link) und NICHT
+            // rekursiv ausgeraeumt — sonst loeschte das Aufraeumen fremde
+            // Dateien am Linkziel.
+            if (!is_link($path) && is_dir($path)) {
+                $failed = array_merge($failed, self::deleteRecursively($path));
+                continue;
+            }
+
+            if (!@unlink($path)) {
+                $failed[] = $path;
             }
         }
 
-        @rmdir($dir);
+        if (!@rmdir($dir)) {
+            $failed[] = $dir;
+        }
+
+        return $failed;
     }
 
     private static function fontCacheDir(): string
@@ -137,9 +207,7 @@ class ContractPdfRegressionTest extends TestCase
         // fontDir bleibt unangetastet — dort liegen die gebuendelten
         // DejaVu-Fonts, die lesbar bleiben muessen.
         // Aufgeraeumt wird in tearDownAfterClass() — siehe removeFontCache().
-        $fontCache = self::fontCacheDir();
-        @mkdir($fontCache, 0777, true);
-        $options->set('fontCache', $fontCache);
+        $options->set('fontCache', $this->prepareFontCacheDir());
 
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml($html);
@@ -149,11 +217,69 @@ class ContractPdfRegressionTest extends TestCase
         return $dompdf->output();
     }
 
+    /**
+     * Legt das fontCache-Verzeichnis an und scheitert mit Grund, wenn das nicht
+     * geht.
+     *
+     * Der Rueckgabewert von mkdir() MUSS geprueft werden. Gemessen mit einem
+     * nicht beschreibbaren Elternverzeichnis: der vorherige Stand (@mkdir ohne
+     * Pruefung) scheiterte nicht spaeter, sondern blieb GRUEN — "OK (6 tests,
+     * 8 assertions)". DomPDF faellt bei nicht existierendem fontCache still auf
+     * seinen Standard zurueck, und der ist der geteilte Fontordner der Host-App
+     * (gemessen: Options::getFontCache() ohne Zuweisung liefert
+     * meingedeck/vendor/dompdf/dompdf/lib/fonts, und DomPDF legt dort
+     * DejaVuSans.ufm.json und DejaVuSans-Bold.ufm.json ab). Genau die Isolation,
+     * die render() zusichert, verschwand also lautlos — der Test lief weiter und
+     * behauptete weiter, ueber einen eigenen fontCache zu messen.
+     *
+     * Das @ bleibt, damit die PHP-Warnung nicht unter failOnWarning="true" eine
+     * zweite, unvollstaendige Fehlermeldung erzeugt; der Grund wird aus
+     * error_get_last() geholt und in die eigene Meldung gehoben. Wer das @
+     * entfernt, muss den Grund weiterhin in die Meldung schreiben.
+     */
+    private function prepareFontCacheDir(): string
+    {
+        $fontCache = self::fontCacheDir();
+
+        // mkdir() mit recursive=true liefert false, wenn das Verzeichnis schon
+        // existiert — render() laeuft mehrfach pro Klasse, das ist der Normalfall.
+        if (is_dir($fontCache)) {
+            return $fontCache;
+        }
+
+        if (!@mkdir($fontCache, 0777, true) && !is_dir($fontCache)) {
+            $reason = error_get_last()['message'] ?? 'PHP hat keinen Grund gemeldet';
+            self::fail(sprintf(
+                'fontCache-Verzeichnis konnte nicht angelegt werden: %s — %s. '
+                . 'Der Test bricht hier ab statt weiterzulaufen: ohne eigenen fontCache '
+                . 'benutzt DomPDF still den geteilten Fontordner der Host-App '
+                . '(vendor/dompdf/dompdf/lib/fonts), und dann haengt das Ergebnis vom '
+                . 'dortigen, veraenderlichen Zustand ab — der Lauf waere gruen, aber die '
+                . 'zugesicherte Isolation weg. Pruefen: Schreibrechte auf %s, und ob dort '
+                . 'schon eine Datei gleichen Namens liegt.',
+                $fontCache,
+                $reason,
+                dirname($fontCache)
+            ));
+        }
+
+        return $fontCache;
+    }
+
     public function testSeitenzahlBleibtEins(): void
     {
         preg_match_all('/\/Type\s*\/Page[^s]/', $this->render(), $m);
 
-        $this->assertCount(1, $m[0]);
+        $this->assertCount(
+            1,
+            $m[0],
+            'Bestandsvertrag: der feste Beispielinhalt muss auf EINE Seite passen. '
+            . 'Sind es mehr, braucht das Vertragslayout aus resources/views/pdf/'
+            . 'contract.blade.php jetzt mehr Platz als vorher — Schriftgroesse, '
+            . 'Zeilenhoehe, margin oder @page haben sich geaendert. Die Zertifikat-Arbeit '
+            . 'darf das nicht bewirken; wurde das Vertragslayout absichtlich geaendert, '
+            . 'ist die neue Seitenzahl bewusst einzufrieren und im Commit zu begruenden.'
+        );
     }
 
     public function testFontlisteIstEingefroren(): void
@@ -166,7 +292,19 @@ class ContractPdfRegressionTest extends TestCase
         )));
         sort($normalized);
 
-        $this->assertSame(['DejaVuSans', 'DejaVuSans-Bold'], $normalized);
+        $this->assertSame(
+            ['DejaVuSans', 'DejaVuSans-Bold'],
+            $normalized,
+            'Bestandsvertrag: das PDF muss genau DejaVuSans und DejaVuSans-Bold einbetten '
+            . '(normal und fett). Eine kuerzere Liste heisst, dass ein Schnitt nicht mehr '
+            . 'eingebettet wird und der Text still auf einen PDF-Core-Font zurueckfaellt — '
+            . 'DomPDF meldet das nicht, das Ergebnis sieht nur anders aus. Ein zusaetzlicher '
+            . 'Name heisst, dass eine fremde Schrift in den Vertragsweg gelangt ist; die '
+            . 'Zertifikat-Schrift (Oswald) hat dort nichts zu suchen. Ursachen: geaenderte '
+            . 'font-family/font-weight im Vertrags-Stylesheet, verstellter fontDir, '
+            . 'anderer Dompdf-Stand. Wurde die Fontliste absichtlich geaendert, ist der neue '
+            . 'SOLL bewusst einzufrieren und im Commit zu begruenden.'
+        );
     }
 
     /**

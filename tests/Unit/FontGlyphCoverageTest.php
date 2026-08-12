@@ -253,4 +253,218 @@ class FontGlyphCoverageTest extends TestCase
             'missing() muss entfallen: sein leeres Array bedeutete beides.'
         );
     }
+
+    // --- Das Dateihandle --------------------------------------------------
+
+    /**
+     * Registriert den zaehlenden Wrapper und legt die Nutzdaten fest.
+     *
+     * @param  int  $failOpenAttempt  Nummer des fopen()-Versuchs, der scheitern
+     *                                soll. Font::load() liest den 4-Byte-Header
+     *                                per file_get_contents() (Versuch 1) und
+     *                                oeffnet die Datei danach per
+     *                                BinaryStream::open() (Versuch 2). 0 = alle
+     *                                Versuche gelingen.
+     */
+    private function countingFont(string $data, int $failOpenAttempt = 0): string
+    {
+        if (!in_array(CountingFontStream::SCHEME, stream_get_wrappers(), true)) {
+            stream_wrapper_register(CountingFontStream::SCHEME, CountingFontStream::class);
+        }
+        CountingFontStream::reset($data, $failOpenAttempt);
+
+        return CountingFontStream::SCHEME . '://font';
+    }
+
+    /**
+     * Das Dateihandle muss auch dann zugehen, wenn parse() wirft.
+     *
+     * Gemessen am Stand vor dieser Aenderung (close() als letzte Zeile im
+     * try-Block): Erfolgspfad 2 geoeffnet / 2 geschlossen, Fehlerpfad 2
+     * geoeffnet / 1 geschlossen — pro Aufruf ein Handle offen. Ueber die
+     * Prozess-Dateideskriptoren gegengemessen: /dev/fd wuchs im Fehlerpfad um
+     * genau 1 pro Aufruf, im Erfolgspfad um 0.
+     *
+     * Der Fehlerpfad ist hier kein Sonderfall, sondern der Regelfall der
+     * Host-App: Laravels HandleExceptions::handleError macht aus FontLibs
+     * Parse-Warnungen ErrorExceptions (siehe
+     * testAbgeschnitteneSchriftIstNichtPruefbarWennWarnungenZuExceptionsWerden).
+     * Genau die beschaedigte Schrift, fuer die diese Klasse gebaut ist, ist
+     * also die, bei der das Handle offen blieb.
+     */
+    public function testDateihandleWirdAuchImFehlerpfadGeschlossen(): void
+    {
+        $truncated = substr((string) file_get_contents($this->font()), 0, 43648);
+        $path = $this->countingFont($truncated);
+
+        set_error_handler(static function (int $number, string $message, string $file = '', int $line = 0): bool {
+            throw new \ErrorException($message, 0, $number, $file, $line);
+        });
+
+        try {
+            $report = FontGlyphCoverage::inspect('STEHEMPFANG ★', $path);
+        } finally {
+            restore_error_handler();
+        }
+
+        // Erst belegen, dass wirklich der Fehlerpfad gelaufen ist. Ohne diese
+        // Zeile waere die Handle-Assertion auch dann gruen, wenn die Pruefung
+        // sauber durchgelaufen ist und es nichts zu retten gab.
+        $this->assertFalse($report->checkable, 'Erwartet war der Fehlerpfad (parse() wirft).');
+        // Und dass der Wrapper ueberhaupt benutzt wurde: 0 === 0 waere sonst
+        // eine Assertion ohne Gegenstand.
+        $this->assertGreaterThan(0, CountingFontStream::$opened, 'Der Wrapper wurde nicht benutzt.');
+        $this->assertSame(
+            CountingFontStream::$opened,
+            CountingFontStream::$closed,
+            'Jedes geoeffnete Dateihandle muss wieder geschlossen werden — auch wenn '
+            . 'parse() oder getUnicodeCharMap() wirft. Bleibt eines offen, laeuft close() '
+            . 'nur im Erfolgspfad und gehoert in einen finally-Block.'
+        );
+    }
+
+    public function testDateihandleWirdImErfolgspfadGeschlossen(): void
+    {
+        $path = $this->countingFont((string) file_get_contents($this->font()));
+
+        $report = FontGlyphCoverage::inspect('STEHEMPFANG ★', $path);
+
+        $this->assertTrue($report->checkable);
+        $this->assertSame(['★'], $report->missing);
+        $this->assertGreaterThan(0, CountingFontStream::$opened, 'Der Wrapper wurde nicht benutzt.');
+        $this->assertSame(
+            CountingFontStream::$opened,
+            CountingFontStream::$closed,
+            'Auch im Erfolgspfad muss jedes Handle wieder zugehen.'
+        );
+    }
+
+    /**
+     * Eine Schrift, die sich statten laesst, aber nicht oeffnen — der Fall, den
+     * die is_file()/is_readable()-Pruefung nicht abfangen kann, weil zwischen
+     * Pruefung und fopen() Zeit liegt (Rechte geaendert, Deskriptoren erschoepft,
+     * Netzlaufwerk weg).
+     *
+     * FontLibs Font::load() wertet den Rueckgabewert von BinaryStream::load()
+     * nicht aus und liefert das Objekt auch dann, wenn fopen() false ergab.
+     * close() ruft dann fclose(false) und wirft einen TypeError. Passiert das im
+     * finally-Block ungeschuetzt, verlaesst der TypeError inspect() am eigenen
+     * catch vorbei. Gemessen mit entferntem innerem try/catch:
+     * "TypeError: fclose(): Argument #1 ($stream) must be of type resource,
+     * false given" entkam nach draussen.
+     */
+    public function testNichtOeffenbareSchriftBleibtEineWarnungUndWirdKeineException(): void
+    {
+        $path = $this->countingFont((string) file_get_contents($this->font()), failOpenAttempt: 2);
+
+        // Ohne werfenden Error-Handler: FontLibs eigene Diagnosen auf dem
+        // toten Handle wuerden unter failOnWarning="true" die Suite rot machen.
+        $report = @FontGlyphCoverage::inspect('STEHEMPFANG ★', $path);
+
+        $this->assertFalse($report->checkable);
+        $this->assertSame([], $report->missing);
+        $this->assertTrue($report->hasWarning());
+    }
+}
+
+/**
+ * Stream-Wrapper, der mitzaehlt, wie oft geoeffnet und wie oft geschlossen
+ * wurde. Damit ist "das Handle bleibt offen" direkt messbar, statt ueber die
+ * Prozess-Dateideskriptoren geschaetzt: die haengen daran, wann PHPs
+ * Zyklen-Sammler laeuft (FontLibs Tabellen halten Rueckverweise auf die Datei),
+ * und wuerden den Test von der Speicherverwaltung abhaengig machen.
+ *
+ * Liegt in dieser Datei und nicht unter tests/Support/, weil nur dieser Test
+ * ihn braucht.
+ */
+final class CountingFontStream
+{
+    public const SCHEME = 'reccountingfont';
+
+    public static string $data = '';
+    public static int $opened = 0;
+    public static int $closed = 0;
+    public static int $failOpenAttempt = 0;
+
+    private static int $attempts = 0;
+
+    /** @var resource|null */
+    public $context;
+
+    private int $position = 0;
+
+    public static function reset(string $data, int $failOpenAttempt = 0): void
+    {
+        self::$data = $data;
+        self::$opened = 0;
+        self::$closed = 0;
+        self::$attempts = 0;
+        self::$failOpenAttempt = $failOpenAttempt;
+    }
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$openedPath): bool
+    {
+        self::$attempts++;
+        if (self::$failOpenAttempt !== 0 && self::$attempts === self::$failOpenAttempt) {
+            // PHP ruft stream_close() nach einem gescheiterten stream_open()
+            // nicht auf — dieser Versuch zaehlt deshalb auch nicht als geoeffnet.
+            return false;
+        }
+
+        $this->position = 0;
+        self::$opened++;
+
+        return true;
+    }
+
+    public function stream_close(): void
+    {
+        self::$closed++;
+    }
+
+    public function stream_read(int $count): string
+    {
+        $chunk = substr(self::$data, $this->position, $count);
+        $this->position += strlen($chunk);
+
+        return $chunk;
+    }
+
+    public function stream_eof(): bool
+    {
+        return $this->position >= strlen(self::$data);
+    }
+
+    public function stream_seek(int $offset, int $whence = SEEK_SET): bool
+    {
+        $target = match ($whence) {
+            SEEK_SET => $offset,
+            SEEK_CUR => $this->position + $offset,
+            SEEK_END => strlen(self::$data) + $offset,
+            default => -1,
+        };
+        if ($target < 0) {
+            return false;
+        }
+        $this->position = $target;
+
+        return true;
+    }
+
+    public function stream_tell(): int
+    {
+        return $this->position;
+    }
+
+    /** @return array<string,int> */
+    public function stream_stat(): array
+    {
+        return ['mode' => 0100444, 'size' => strlen(self::$data)];
+    }
+
+    /** @return array<string,int> Regulaere, lesbare Datei — is_file() und is_readable() sollen zustimmen. */
+    public function url_stat(string $path, int $flags): array
+    {
+        return ['mode' => 0100444, 'size' => strlen(self::$data)];
+    }
 }
