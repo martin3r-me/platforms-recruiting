@@ -49,6 +49,14 @@ class RecApplicantSettings extends Model
         'contract_wa_template_id' => null,
         'contract_wa_account_id' => null,
         'contract_wa_template_variables' => [],
+        // Schulungszertifikat: Hauptschalter fuer die Ausstellung (HR-Absage
+        // mit Zertifikat-Haken und MA-Anlage). Der Inhalt des Zertifikats ist
+        // festes HTML im Code, es gibt also keine Vorlage, deren Fehlen das
+        // Feature stilllegen wuerde — ohne diesen Schalter waere ein Deploy der
+        // einzige Weg dazu. Default AUS: ein Team, das nichts konfiguriert hat,
+        // stellt keine Zertifikate aus. Gelesen ueber
+        // IssueTrainingCertificateService::SETTING_ENABLED.
+        'issue_training_certificates' => false,
         // Mitarbeiter-Portal — eigenes Template (Wording: "Willkommen
         // im Team, hier dein Portal-Zugang"). Greift wenn ein RecEmployee
         // angelegt wurde (Phase-Config-Flag creates_employee_on_completion).
