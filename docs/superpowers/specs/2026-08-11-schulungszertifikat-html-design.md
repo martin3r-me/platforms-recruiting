@@ -976,6 +976,47 @@ diesen Fall erweitert.
    steht im MA-Portal unter „Deine Verträge" mit „Ausgestellt am …".
 5. Direkteinstellung ohne Schulung → **kein** Zertifikat.
 
+## Testreihenfolge — bekannter Bestandsdefekt, bewusst nicht gelöst
+
+**Die Suite ist nur unter der Default-Reihenfolge verlässlich grün.** `phpunit.xml`
+setzt deshalb bewusst kein `executionOrder`; ein Kommentar an genau dieser
+Stelle in der Datei sagt das und verweist hierher.
+
+**Ursache.** Die Integrationstests des Moduls bauen Container und Capsule von
+Hand auf (kein Laravel-Bootstrap, kein testbench). Mehrere Testklassen booten
+dabei Eloquent-Modelle im **geteilten** PHPUnit-Prozess, teils mit, teils ohne
+Event-Dispatcher. Eloquents `$booted`-Cache ist statisch: wer eine Modellklasse
+zuerst ohne Dispatcher instanziiert, lässt deren `creating`-Hooks für alle
+späteren Testklassen still ausfallen. Symptom ist dann etwa
+`NOT NULL constraint failed: rec_contract_templates.uuid` — **nur im
+Gesamtlauf, nie im gefilterten.**
+
+**Messung (2026-08-12, 12 Seeds, zufällige Reihenfolge):**
+
+| Seed | main `511451c` | feat/schulungszertifikat |
+| --- | --- | --- |
+| 3, 99 | ROT | ROT |
+| 2, 42, 1234 | grün | **ROT** |
+| 1, 4, 5, 7, 11, 23, 31337 | grün | grün |
+
+**Auslegung, präzise:** Der Defekt ist **vorbestehend** — zwei Seeds brechen
+auch ohne die Commits dieses Branches. Die Arbeit an diesem Paket hat die
+**Angriffsfläche verbreitert**, weil weitere Testklassen mit Eloquent-Hooks
+hinzugekommen sind: drei zusätzliche Reihenfolgen brechen nur hier. Unter der
+tatsächlich konfigurierten Reihenfolge sind beide Stände grün.
+
+**Was in diesem Paket dagegen getan wurde** — punktuell, nicht strukturell:
+`ContractPdfRegressionTest` räumt in `tearDownAfterClass()` mit
+`Model::clearBootedModels()` hinter sich auf (es ist der Verursacher, weil es
+Modelle per `new` ohne Dispatcher instanziiert), und
+`ContractTemplateTypeInvariantsTest` ruft dasselbe defensiv in
+`setUpBeforeClass()`. Zwei Stellen, weil keine allein reicht.
+
+**Nachhaltige Lösung, ausdrücklich NICHT Teil dieses Pakets:** eine gemeinsame
+Basisklasse für Integrationstests, die Boot-Cache und Dispatcher einheitlich
+aufsetzt. Sie berührt Bestandstests, die mit dem Zertifikat nichts zu tun
+haben — eigenes Ticket.
+
 ## Benannte Tradeoffs
 
 - **Der Letterpress-Charakter ist weg.** Oswald ist nah, aber nicht die

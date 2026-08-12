@@ -3444,6 +3444,13 @@ git commit -m "feat(recruiting): Vorlagen-Editor mit Typ, Test-PDF und Zeichen-P
 
 > Vorlageninhalt mit den Platzhaltern `{{kontakt_vorname}} {{kontakt_nachname}}`, `{{schulung_datum}}`, `{{datum_heute}}`, `{{schulung_leiter}}`. Kursname, Kenntnisliste und Ort sind Literaltext, weil eine Vorlage pro Schulungsart existiert.
 
+**Die Sterne stehen als HTML-Entity `&#9733;`, und das ist Absicht — nicht aufräumen.** Zwei Gründe, beide belegt:
+
+1. Oswald hat kein ★ (U+2605). Ohne den `<span class="zeichen">`-Umweg, der auf DejaVu schaltet, stünde `?` im PDF (G13.3). Die Entity ändert daran nichts — sie ist nur die Schreibweise —, aber sie macht sichtbar, dass hier ein Sonderzeichen steht, das eine eigene Behandlung braucht.
+2. **`FontGlyphCoverage::missing()` dekodiert HTML-Entities** (in Task 4 direkt verprobt: `'A &#9733; B'` → `["★"]`). Die Zeichenprüfung im Editor greift also auch auf die Entity-Schreibweise. Würde jemand die Entity durch ein wörtliches ★ ersetzen, bliebe die Prüfung weiterhin korrekt — würde jemand aber umgekehrt annehmen, Entities seien „nur Text" und die Dekodierung aus `FontGlyphCoverage` entfernen, wäre die Prüfung an der **einzigen ausgelieferten Vorlage** still blind.
+
+Wer den Seed-Inhalt anfasst, muss deshalb beides zusammen denken: die Entity und die Dekodierung. Ein Kommentar im Command hält das fest.
+
 - [ ] **Step 1: Command schreiben**
 
 ```php
@@ -3528,6 +3535,15 @@ class SeedTrainingCertificateTemplate extends Command
 
     private function content(): string
     {
+        // Der Stern steht als HTML-Entity &#9733; und in einem span, das per
+        // CSS auf DejaVu schaltet. BEIDES ist Absicht, bitte nicht aufraeumen:
+        //   - Oswald hat kein U+2605. Ohne den span-Umweg steht "?" im PDF,
+        //     ohne Warnung (DomPDF macht bei Custom-Fonts keinen Fallback).
+        //   - FontGlyphCoverage::missing() dekodiert Entities, die
+        //     Zeichenpruefung im Vorlagen-Editor greift also auch hier.
+        // Wer die Entity ersetzt, muss die Dekodierung in FontGlyphCoverage
+        // mitdenken — sonst wird die Pruefung an der einzigen ausgelieferten
+        // Vorlage still blind.
         $stern = '<span class="zeichen">&#9733;</span>';
 
         $kenntnisse = [

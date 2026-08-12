@@ -4,6 +4,38 @@
          bootstrap="tests/bootstrap.php"
          colors="true"
          failOnWarning="true">
+    <!--
+      HIER FEHLT executionOrder ABSICHTLICH. Bitte nicht "zur Verbesserung"
+      ergaenzen, und die Suite nicht mit dem PHPUnit-Flag "order-by=random"
+      laufen lassen, ohne vorher das unten genannte Problem zu loesen.
+      (Kein doppeltes Minus in diesem Kommentar: XML verbietet es.)
+
+      (XML erlaubt keinen Kommentar innerhalb der Attributliste des
+      phpunit-Elements — deshalb steht dieser Hinweis hier, direkt darunter.)
+
+      Grund: Die Integrationstests dieses Moduls bauen Container und Capsule
+      von Hand auf (kein Laravel-Bootstrap, kein testbench). Dabei booten
+      mehrere Testklassen Eloquent-Modelle im GETEILTEN PHPUnit-Prozess, teils
+      mit, teils ohne Event-Dispatcher. Eloquents $booted-Cache ist statisch:
+      wer eine Modellklasse zuerst ohne Dispatcher instanziiert, laesst deren
+      creating-Hooks fuer alle spaeteren Testklassen still ausfallen. Symptom
+      ist dann z.B. "NOT NULL constraint failed: rec_contract_templates.uuid"
+      — und zwar nur im Gesamtlauf, nie im gefilterten.
+
+      Gemessen am 2026-08-12 ueber 12 Seeds mit zufaelliger Reihenfolge:
+        auf feat/schulungszertifikat  ROT bei 2, 3, 42, 99, 1234
+        auf main (511451c)            ROT bei 3, 99
+      Der Defekt ist also VORBESTEHEND, wurde durch weitere Testklassen mit
+      Eloquent-Hooks aber breiter. In der Default-Reihenfolge ist die Suite
+      auf beiden Staenden gruen.
+
+      Nachhaltige Loesung: eine gemeinsame Basisklasse fuer Integrationstests,
+      die Boot-Cache und Dispatcher einheitlich aufsetzt. Bis dahin ist die
+      Default-Reihenfolge die einzige, unter der die Suite verlaesslich gruen
+      ist. Details und Messwerte:
+      docs/superpowers/specs/2026-08-11-schulungszertifikat-html-design.md
+      (Abschnitt "Testreihenfolge") sowie die Einzelbelege im SDD-Ledger.
+    -->
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
