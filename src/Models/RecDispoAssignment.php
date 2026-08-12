@@ -1,0 +1,57 @@
+<?php
+
+namespace Platform\Recruiting\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Symfony\Component\Uid\UuidV7;
+
+/**
+ * Einbuchung aus dem ZAS-Webexport ({Dispo}). ds_ref = DS-ID ZAS (unique),
+ * der Schluessel fuer die Step-2-Loeschmarkierung.
+ *
+ * rec_employee_id ist das Matching-Ergebnis (null = offene Referenz, wird
+ * bei jedem Import-Lauf erneut versucht). Bewusst kein DB-FK (Spec).
+ */
+class RecDispoAssignment extends Model
+{
+    public const STATUS_ANGEBOT = 0;
+    public const STATUS_AUFTRAG = 1;
+    public const STATUS_BEENDET = 2;
+    public const STATUS_STORNO  = 3;
+
+    protected $table = 'rec_dispo_assignments';
+
+    protected $fillable = [
+        'uuid', 'ds_ref', 'rec_dispo_event_id', 'pnr_raw', 'rec_employee_id',
+        'datum', 'von', 'bis', 'status_id', 'taetigkeit',
+        'last_seen_at', 'missing_since', 'source_meta',
+    ];
+
+    protected $casts = [
+        'datum'         => 'date:Y-m-d',
+        'status_id'     => 'integer',
+        'last_seen_at'  => 'datetime',
+        'missing_since' => 'datetime',
+        'source_meta'   => 'array',
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $model) {
+            if (empty($model->uuid)) {
+                $model->uuid = (string) UuidV7::generate();
+            }
+        });
+    }
+
+    public function event(): BelongsTo
+    {
+        return $this->belongsTo(RecDispoEvent::class, 'rec_dispo_event_id');
+    }
+
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(RecEmployee::class, 'rec_employee_id');
+    }
+}

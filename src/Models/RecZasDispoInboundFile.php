@@ -12,8 +12,7 @@ use Symfony\Component\Uid\UuidV7;
  * dem Storage-Disk unter `disk`/`stored_path`. Siehe ZasDispoInboundController
  * und die Migration create_rec_zas_dispo_inbound_files_table fuer Details.
  *
- * Phase 1: nur annehmen + wegspeichern + sichten. Verarbeitung folgt, sobald
- * klar ist welche Spalten ZAS tatsaechlich liefert.
+ * Verarbeitung: siehe ZasDispoWebexportImporter (parse_status: viewable|unparseable|processed|failed).
  */
 class RecZasDispoInboundFile extends Model
 {
@@ -35,6 +34,7 @@ class RecZasDispoInboundFile extends Model
         'parse_status',
         'notes',
         'received_ip',
+        'processed_at',
     ];
 
     protected $casts = [
@@ -42,6 +42,7 @@ class RecZasDispoInboundFile extends Model
         'size_bytes'     => 'integer',
         'row_count'      => 'integer',
         'is_test'        => 'boolean',
+        'processed_at'   => 'datetime',
     ];
 
     protected static function booted(): void
