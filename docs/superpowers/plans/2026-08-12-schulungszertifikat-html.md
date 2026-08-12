@@ -20,6 +20,12 @@
 - **Farben verbatim:** Papier `#FDF3E0`, Tinte `#3C4A63`.
 - **Commit-Präfixe** wie im Repo üblich: `feat(recruiting):`, `fix(recruiting):`, `refactor(recruiting):`.
 
+### Zwei Regeln, die aus Fehlern dieses Durchlaufs stammen — für alle restlichen Tasks verbindlich
+
+**1) Falsifizierbarkeitsfrage pro Test: welche plausible Änderung macht ihn rot?** Findet sich keine, ist der Test falsch formuliert oder überflüssig — er belegt dann Unverletzbares und täuscht Schutz vor. Gefunden an Fall 7 des Pin-Tests (Task 6a): er sollte belegen, dass der Lookup-Zweig nicht global übersetzt, aber diese Eigenschaft ist über den Codepfad prinzipiell nicht verletzbar, weil `ZasLookupResolver::loadLabelMap()` selbst guardet. Ein Test, dessen Aussage nicht kaputtzumachen ist, ist kein Test.
+
+**2) Die eine Fehlerklasse, die in diesem Paket siebenmal zugeschlagen hat: eine Bedingung, ein Guard oder eine Assertion, die plausibel aussieht und den Fehlerfall durchlässt, ohne dass etwas rot wird.** Vertreter bisher: Idempotenz-Guard für nur eine von zwei DDL-Operationen (Task 1); `try/catch` in einer Blueprint-Closure, das nichts fing, weil das SQL danach läuft (Task 1); `str_starts_with` ohne Verzeichnisgrenze (Task 5); `file_get_contents() !== false` bei einer lesbaren 0-Byte-Datei (Task 5a); `filesize() === 0` gegen `false` (Task 5a); vier Assertionen, die eine kaputte HTML-Hülle grün ließen (Task 6); `[]` als Rückgabe für „nichts fehlt" **und** „nicht prüfbar" (Task 4a). **Alle sieben standen in einem plausibel klingenden Auftragstext.** Wer einen Guard schreibt, muss die Mutation fahren, die ihn aushebelt — erschließen genügt nicht.
+
 ---
 
 ## File Structure
@@ -1873,6 +1879,14 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: **Task 6a muss grün sein, bevor dieser Task startet** — er nagelt die Auflösung der 17 in Benutzung befindlichen Mapping-Quellen fest, gegen die dieser Task einen neuen Zweig hängt.
+
+**Drei Auflagen aus dem Review zu Task 6a — gemessen, nicht vermutet:**
+
+**1) Die Einfügeposition des `schulung.`-Zweigs ist verhaltensneutral. Ein „an Stelle X einsortieren" ist die falsche Vorsicht.** Gemessen gegen die 17 Pin-Fälle: der Zweig ganz oben (vor `contact.`) → grün, unten (vor `return ''`) → grün. Die Präfixe sind disjunkt. Was der Pin-Test wirklich bewacht und woran du dich halten musst: **die Bedingung darf nicht breiter sein als genau `schulung.`** (eine Bedingung `contract.` statt `contract.extra_field.` machte Fall 9 rot) und **die Fallback-Semantik bleibt `return ''`** (ein `return $source` machte Fall 13 und 9 rot). Die echte Gefahr ist ein **Umbau des if-Chains**, nicht die Position.
+
+**2) Es gibt einen zweiten Konsumenten von `resolveSource()`, und er ruft per Reflection auf.** `src/Console/Commands/DebugContractFieldResolution.php:102-109` ruft die private Methode mit **fünf positionalen Argumenten**. Der modell-interne Aufrufer ist durch Pin-Fall 6 gedeckt, dieser Command **nicht**: ein neuer Parameter vor `$lookups` lässt das Diagnosewerkzeug still Maschinenwerte statt Labels anzeigen — es lügt also genau dann, wenn man ihm glaubt. Ziehst du die Signatur an, zieh den Command mit und prüf ihn.
+
+**3) Wenn du eine neue Integrations-Testklasse anlegst:** `Facade::clearResolvedInstances()` in Setup **und** Teardown, plus `Model::clearBootedModels()`. Beides ist prozessweiter statischer Zustand, dessen Symptome **nur im Gesamtlauf** auftreten, nie im gefilterten. Muster: `tests/Integration/PlaceholderResolutionPinTest.php`. Und beachte: Klassennamen, die alphabetisch **nach** `PlaceholderResolutionPinTest` sortieren (`T…`, `Z…`), erben dessen globale Capsule (`setAsGlobal()`) und den Eloquent-Connection-Resolver auf eine nicht mehr gebrauchte In-Memory-DB — der Pin-Test räumt nur die Facade-Instanzen auf, nicht das.
 - Produces:
   - `TrainingLeaderResolver::pickBooking(array $bookings): ?array` — wählt aus einer Liste von Buchungen `['id' => int, 'status' => string, 'starts_at' => string|null, 'interviewers' => list<string>]` die maßgebliche aus
   - `TrainingLeaderResolver::leaderNames(array $bookings): string`
