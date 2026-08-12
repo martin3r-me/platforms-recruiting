@@ -38,7 +38,12 @@ final class TrainingCertificateAssets
         $missing = [];
 
         $fontPath = $base . '/' . self::FONT;
-        if (!is_file($fontPath) || !is_readable($fontPath)) {
+        // 0-Byte-Datei zaehlt als fehlend: ein leeres @font-face waere kein
+        // Absturz, aber eine Schrift, die es nur dem Namen nach gibt, und
+        // "missing" ist der einzige Kanal, ueber den das jemand erfaehrt.
+        // filesize() statt file_get_contents(), weil der Pfad selbst benoetigt
+        // wird, nicht der Inhalt.
+        if (!is_file($fontPath) || !is_readable($fontPath) || filesize($fontPath) === 0) {
             // Pfad trotzdem zurueckgeben: das @font-face braucht ihn, und
             // TrainingCertificatePdfOptions prueft ihn gegen den chroot.
             $missing[] = self::FONT;
@@ -56,7 +61,12 @@ final class TrainingCertificateAssets
             }
 
             $binary = @file_get_contents($path);
-            if ($binary === false) {
+            // Leerstring zaehlt wie false als fehlend: ein lesbares 0-Byte-Bild
+            // wuerde sonst einen leeren Data-URI erzeugen, der im PDF nichts
+            // rendert, ohne dass "missing" davon je erfaehrt — der Controller
+            // loggt dann nichts und der Editor zeigt nichts an, obwohl das
+            // Element fehlt.
+            if ($binary === false || $binary === '') {
                 $out[$key] = null;
                 $missing[] = $relative;
                 continue;

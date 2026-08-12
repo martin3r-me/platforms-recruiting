@@ -82,6 +82,52 @@ class TrainingCertificateAssetsTest extends TestCase
         $this->assertSame(['fonts/Oswald-SemiBold.ttf'], $a['missing']);
     }
 
+    public function testNullByteBildWirdAlsFehlendGemeldet(): void
+    {
+        // Ein lesbares 0-Byte-Bild (abgebrochener Kopiervorgang, fehlgeschlagener
+        // Deploy, voller Datentraeger, nicht geholtes LFS-Objekt) besteht den
+        // is_file/is_readable-Guard, ergaebe aber einen leeren Data-URI, der im
+        // PDF nichts rendert -- und "missing" ist der einzige Kanal, ueber den
+        // der Controller (Logging) und der Editor (Anzeige) davon erfahren.
+        // Deshalb muss ein 0-Byte-Bild wie eine fehlende Datei behandelt werden.
+        $this->writeAll();
+        $this->write('images/certificates/logo.png', '');
+
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+
+        $this->assertNull($a['logo'], 'Ein 0-Byte-Bild darf keinen (leeren) Data-URI liefern.');
+        $this->assertSame(
+            ['images/certificates/logo.png'],
+            $a['missing'],
+            'Ein 0-Byte-Bild muss in "missing" auftauchen -- sonst erfaehrt niemand davon.'
+        );
+    }
+
+    public function testNullByteSchriftWirdGemeldetAberDerPfadBleibt(): void
+    {
+        // Dieselbe Fehlerklasse wie beim Bild, aber fuer die Schrift: eine
+        // lesbare 0-Byte-TTF-Datei besteht is_file/is_readable, ist aber keine
+        // brauchbare Schrift. Anders als beim Bild bleibt der Pfad trotzdem
+        // gesetzt -- das @font-face braucht ihn, und TrainingCertificatePdfOptions
+        // prueft ihn gegen den chroot. Diese Asymmetrie (Pfad bleibt, Bild wird
+        // null) ist Absicht und darf hier nicht verschwinden.
+        $this->writeAll();
+        $this->write('fonts/Oswald-SemiBold.ttf', '');
+
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+
+        $this->assertSame(
+            $this->tmp . '/fonts/Oswald-SemiBold.ttf',
+            $a['font'],
+            'Der Font-Pfad muss trotz 0-Byte-Datei zurueckkommen (Asymmetrie zu Bildern ist Absicht).'
+        );
+        $this->assertSame(
+            ['fonts/Oswald-SemiBold.ttf'],
+            $a['missing'],
+            'Eine 0-Byte-Schriftdatei muss in "missing" auftauchen -- sonst erfaehrt niemand davon.'
+        );
+    }
+
     public function testAllesFehltErgibtVierMeldungenInFesterReihenfolge(): void
     {
         $a = TrainingCertificateAssets::resolve($this->tmp);
