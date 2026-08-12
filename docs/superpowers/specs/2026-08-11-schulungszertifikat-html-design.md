@@ -511,12 +511,31 @@ Blade. [v2]** (v1: `resources/views/pdf/training-certificate.blade.php`)
 > Laden des HTML. Nachgemessen mit absichtlich falschem Start-`chroot` und
 > korrektem `chroot` erst nach `loadHtml()` — Oswald wird trotzdem eingebettet.
 >
-> **Die Ausnahme, und sie ist die eigentliche Regel: `fontDir` und `fontCache`
-> dürfen NIE spät kommen.** Sie entscheiden, wohin DomPDF seinen Font-Metrik-Cache
-> legt, und das passiert früher. Wer sie nachträglich setzt, misst oder rendert
-> gegen ein anderes Verzeichnis als das gemeinte — im Test wurde genau das einmal
-> als „Schrift greift nicht" fehlgedeutet, bevor die Isolation in Einzelprozessen
-> es als Artefakt des Messskripts entlarvte.
+> **KORRIGIERT, wenige Stunden nach dem ersten Schreiben.** Hier stand: „Die
+> Ausnahme, und sie ist die eigentliche Regel: `fontDir` und `fontCache` dürfen
+> NIE spät kommen." **Das ist falsch, und zwar gemessen.** Konstruktion mit einem
+> **nicht existierenden** `fontDir`, Umstellung auf ein existierendes **nach**
+> `loadHtml()`:
+>
+> ```
+> fontDir SPAET auf existierendes Verzeichnis: 315693 Byte, Fonts: Oswald-SemiBold, DejaVuSans
+> Dateien im spaet gesetzten Ordner: 5
+> ```
+>
+> Es zählt also der Wert **zum Zeitpunkt von `render()`** — für **alle** diese
+> Optionen, `fontDir` und `fontCache` eingeschlossen. Die Gegenprobe stützt das:
+> ein spät gesetzter *falscher* `chroot` bricht die Schrift sehr wohl.
+>
+> Woher der Irrtum kam: der ursprüngliche Gegenbefund war durch den **`chroot`**
+> verursacht, nicht durch `fontDir`. Ich habe die Regel aus einer Messung
+> abgeleitet, deren Ursache falsch zugeordnet war — dieselbe Bauart wie die
+> Times-Bold-Behauptung und die §E5-Zusicherung, und diesmal mit Folgen: die
+> falsche Regel hätte die einzige saubere Lösung für das
+> `storage/fonts`-Problem (siehe §Deploy) **verboten**.
+>
+> Was bleibt: `fontDir`/`fontCache` früh zu setzen ist **Cache-Hygiene**, keine
+> Korrektheitsbedingung. Wird `fontDir` spät umgestellt, verteilt sich der
+> Metrik-Cache auf zwei Verzeichnisse — unschön, aber das PDF ist korrekt.
 >
 > Diese Zeile steht hier und nicht nur im Controller-Docblock, weil sie für jeden
 > **zweiten** Renderpfad gilt, den später jemand baut — Vorschau, Neuausstellung,
