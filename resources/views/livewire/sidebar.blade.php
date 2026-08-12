@@ -124,6 +124,10 @@
 
     {{-- Abschnitt: Disposition (ZAS-Dispo-Inbound — Zwischenstation, Zielbild Staffing-Modul) --}}
     <x-ui-sidebar-list label="Disposition">
+        <x-ui-sidebar-item :href="route('recruiting.dispo.events.index')">
+            @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Veranstaltungen</span>
+        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.dispo.index')">
             @svg('heroicon-o-inbox-arrow-down', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">ZAS-Eingang</span>

@@ -17,7 +17,41 @@
         <a href="{{ route('recruiting.dispo.index') }}" class="text-sm text-blue-600 hover:underline">← Zurück zur Liste</a>
     </div>
 
-    @if ($parsed['format'] === 'csv')
+    @if ($parsed['format'] === 'blocks')
+        @foreach ($parsed['blocks'] as $block)
+            <div class="rounded-lg border border-gray-200 bg-white">
+                <div class="border-b border-gray-100 px-4 py-3 font-medium">
+                    {{ '{' . $block['name'] . '}' }}
+                    <span class="ml-2 text-sm font-normal text-gray-500">
+                        {{ number_format($block['row_count'], 0, ',', '.') }} Zeilen
+                        @if ($block['row_count'] > count($block['rows']))
+                            · Zeige {{ count($block['rows']) }}
+                        @endif
+                    </span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="text-left text-gray-500">
+                            <tr>
+                                @foreach ($block['columns'] as $column)
+                                    <th class="px-3 py-2 font-medium whitespace-nowrap">{{ $column }}</th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            @foreach ($block['rows'] as $row)
+                                <tr>
+                                    @foreach ($block['columns'] as $column)
+                                        <td class="px-3 py-2 whitespace-nowrap">{{ $row[$column] ?? '' }}</td>
+                                    @endforeach
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        @endforeach
+    @elseif ($parsed['format'] === 'csv')
         {{-- Spaltenübersicht: rechnet über die GANZE Datei --}}
         <div class="rounded-lg border border-gray-200 bg-white">
             <div class="border-b border-gray-100 px-4 py-3 font-medium">

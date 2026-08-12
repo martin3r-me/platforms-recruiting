@@ -64,6 +64,39 @@ class Show extends Component
 
         $utf8 = CsvEncodingNormalizer::toUtf8($raw);
 
+        $splitter = new \Platform\Recruiting\Services\Zas\Dispo\ZasDispoBlockSplitter();
+        $split = $splitter->split($utf8);
+        if ($split['known'] !== [] || $split['unknown'] !== []) {
+            $blocks = [];
+            foreach ($split['known'] as $name => $rows) {
+                $columns = \Platform\Recruiting\Services\Zas\Dispo\ZasDispoBlockSplitter::COLUMNS[$name];
+                $blocks[] = [
+                    'name'      => $name,
+                    'columns'   => $columns,
+                    'row_count' => count($rows),
+                    'rows'      => array_slice($rows, 0, self::ROW_CAP),
+                ];
+            }
+            foreach ($split['unknown'] as $name => $rows) {
+                $width = 0;
+                foreach ($rows as $cells) {
+                    $width = max($width, count($cells));
+                }
+                $columns = array_map(fn ($i) => 'Feld ' . ($i + 1), range(0, max(0, $width - 1)));
+                $blocks[] = [
+                    'name'      => $name,
+                    'columns'   => $columns,
+                    'row_count' => count($rows),
+                    'rows'      => array_map(
+                        fn ($cells) => array_combine($columns, array_pad(array_slice($cells, 0, $width), $width, '')),
+                        array_slice($rows, 0, self::ROW_CAP)
+                    ),
+                ];
+            }
+
+            return ['format' => 'blocks', 'blocks' => $blocks];
+        }
+
         $inspector = new DispoInboundInspector();
         $format    = $inspector->detectFormat($utf8);
 

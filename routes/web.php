@@ -95,3 +95,8 @@ Route::get('/dispo-inbound', \Platform\Recruiting\Livewire\Dispo\Index::class)
 Route::get('/dispo-inbound/{fileId}', \Platform\Recruiting\Livewire\Dispo\Show::class)
     ->name('recruiting.dispo.show')
     ->whereNumber('fileId');
+Route::get('/dispo-events', \Platform\Recruiting\Livewire\Dispo\Events\Index::class)
+    ->name('recruiting.dispo.events.index');
+Route::get('/dispo-events/{eventId}', \Platform\Recruiting\Livewire\Dispo\Events\Show::class)
+    ->name('recruiting.dispo.events.show')
+    ->whereNumber('eventId');
