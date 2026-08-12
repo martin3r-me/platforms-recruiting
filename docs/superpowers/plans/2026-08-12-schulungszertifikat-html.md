@@ -1,0 +1,3499 @@
+# Schulungszertifikat als HTML-Vorlage — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Ein ausstellbares Schulungszertifikat als gewöhnliche Vorlage in `rec_contract_templates` — HTML mit Platzhaltern, gerendert als einseitiges A4-PDF, ausgestellt bei HR-Ablehnung und automatisch bei der Mitarbeiter-Anlage, abrufbar in beiden Portalen.
+
+**Architecture:** Zertifikat-Vorlagen sind `rec_contract_templates` mit `type='certificate'` und erzwungenem `code`-Präfix `ZERT-`. Das Aussehen liegt nicht in einer Blade, sondern in zwei laravel-freien Support-Klassen (HTML-Hülle und DomPDF-Optionen), die Controller *und* Test konsumieren — sonst testet der Render-Test eine anders konfigurierte Engine als die ausgelieferte. Ausgestellte Zertifikate liegen in einer eigenen Tabelle mit Inhalts-Snapshot, nicht als `RecContract`.
+
+**Tech Stack:** PHP 8.4, Laravel (Host-App `meingedeck`), Livewire 3, DomPDF 3.1.5 via `barryvdh/laravel-dompdf` 3.1.2, `dompdf/php-font-lib` (transitiv), PHPUnit 11.5, SQLite in-memory via `Illuminate\Database\Capsule\Manager`.
+
+## Global Constraints
+
+- **Test-Runner:** `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`, ausgeführt im Modul-Root `modules/platforms-recruiting`. Das Modul hat **kein eigenes `vendor/`**.
+- **Kein Laravel-Bootstrap in Tests.** `tests/bootstrap.php` ist ein reiner Autoloader mit dem Kommentar „kein Laravel-Bootstrap"; `orchestra/testbench` ist nicht installiert. Unit-Tests dürfen nur laravel-freie Klassen laden. Integrationstests bauen Container + Capsule von Hand (Muster: `tests/Integration/DuplicateMatchQueryTest.php:28-45`).
+- **Der Runner lädt Modulklassen aus der Arbeitskopie**, nicht aus `meingedeck/vendor` (per Reflection gemessen). Kein composer-Bump für Tests nötig.
+- **`Pdf::loadHTML` ist im Test nicht aufrufbar** (Facade braucht App-Container). `Dompdf\Dompdf` direkt schon.
+- **Keine `grep`- oder Literal-String-Assertions auf PDF-Bytes.** `grep -c "/Type /Page"` und `grep -c "/BaseFont"` liefern auf einem DomPDF-PDF je **0 Treffer** (Marker über Zeilenumbruch verteilt, plus grep-Binary-Modus). Nur `preg_match_all` mit `\s*`.
+- **Zertifikat-`code` beginnt immer mit `ZERT-`.** Erzwungen im Model, siehe Task 3.
+- **Nicht anfassen:** `resources/views/pdf/contract.blade.php`, `src/Http/Controllers/Concerns/RendersContractPdf.php`, `src/Http/Controllers/ContractPdfController.php`. Der Zertifikat-Weg bekommt eigenen Controller und eigene Hülle. Keine „Gemeinsamkeiten" in den Trait ziehen.
+- **Farben verbatim:** Papier `#FDF3E0`, Tinte `#3C4A63`.
+- **Commit-Präfixe** wie im Repo üblich: `feat(recruiting):`, `fix(recruiting):`, `refactor(recruiting):`.
+
+---
+
+## File Structure
+
+**Neu — laravel-freie Support-Klassen (alle unit-testbar):**
+- `src/Support/FontGlyphCoverage.php` — welche Zeichen eines Textes fehlen in einer TTF-Datei
+- `src/Support/TrainingCertificatePdfOptions.php` — einzige Quelle der DomPDF-Optionen
+- `src/Support/TrainingCertificateAssets.php` — einzige Quelle der Asset-Auflösung (Schrift + drei Bilder + Liste der fehlenden)
+- `src/Support/TrainingCertificateHtml.php` — HTML-Hülle: Seitensetup, Styles, die drei Bilder
+- `src/Support/TrainingLeaderResolver.php` — Schulungsleiter-Namen aus einer Buchungsmenge
+
+**Neu — Persistenz und Ausstellung:**
+- `database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php`
+- `database/migrations/2026_08_12_000002_create_rec_training_certificates_table.php`
+- `src/Models/RecTrainingCertificate.php`
+- `src/Services/IssueTrainingCertificateService.php`
+- `src/Http/Controllers/TrainingCertificatePdfController.php`
+- `src/Console/Commands/SeedTrainingCertificateTemplate.php`
+
+**Neu — Assets (kommen mit dem Deploy, kein Upload):**
+- `resources/fonts/Oswald-SemiBold.ttf`, `resources/fonts/OFL.txt`
+- `resources/images/certificates/logo.png`
+- `resources/images/certificates/headline-zertifikat.png`
+- `resources/images/certificates/signature-block.png`
+
+**Ändern:**
+- `src/Models/RecContractTemplate.php` — `type`, Konstanten, saving-Hook, `schulung.`-Zweig
+- `src/Services/HrDeskRoutingService.php` — Ausstellung in `applyRejection`
+- `src/Livewire/HrDesk/Index.php` + `resources/views/livewire/hr-desk/index.blade.php`
+- `src/Services/CreateEmployeeFromApplicantService.php`
+- `src/Livewire/Public/EmployeePortal.php` + `resources/views/livewire/public/employee-portal.blade.php`
+- `src/Livewire/Public/ApplicantPortal.php` + `resources/views/livewire/public/applicant-portal.blade.php`
+- `src/Livewire/ContractTemplates/Index.php` + `resources/views/livewire/contract-templates/index.blade.php`
+- `src/Models/RecApplicantSettings.php`
+- `routes/public.php`
+- Die 22 Handlungszeilen aus `docs/zertifikat/guard-landkarte-511451c.md`
+
+---
+
+### Task 0: Regressionsschutz Bestandsverträge — SOLL einfrieren, BEVOR gebaut wird
+
+**Files:**
+- Test: `tests/Integration/ContractPdfRegressionTest.php`
+
+**Interfaces:**
+- Consumes: `resources/views/pdf/contract.blade.php` (nur lesend, **nicht ändern**)
+- Produces: nichts
+
+**Warum dieser Task an Position 1 steht:** Er friert SOLL-Werte ein. Als letzter Task würde er den Zustand *nach* allen anderen Tasks einfrieren — hätte unterwegs jemand `contract.blade.php` angefasst, also genau das, was er verhindern soll, schriebe er den Schaden als SOLL fest und wäre grün. Er konsumiert nur lesend und produziert nichts, läuft also ohne jede Abhängigkeit vorneweg. Kosten: null.
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Regressionstest Bestandsverträge:** Vor der ersten Änderung das PDF eines **bereits signierten** Arbeitsvertrags und eines IFSG rendern und ablegen. Nach dem Bau erneut rendern und vergleichen — nicht byteweise (PDFs enthalten Erzeugungszeit und Datei-ID), sondern: extrahierter Text identisch, Liste der eingebetteten Fonts identisch, Seitenzahl identisch, Firmenstempel weiterhin vorhanden.
+
+> **Die Font-Liste wird als SOLL eingefroren, inklusive `Times-Bold`.** Der Fallback fetter Zellen auf den Core-Font ist ein Bestandsmakel, keine Regression dieses Pakets. Wer ihn später behebt, muss den SOLL-Wert bewusst ändern — der Test soll nicht fehlschlagen, weil jemand etwas verbessert hat, und er soll nicht schweigen, wenn sich die Font-Situation ungeplant verschiebt.
+
+> Gemessen an einem Render mit dem echten `pdf/contract.blade.php`-Stylesheet: eingebettet sind `SUBAAB+DejaVuSans` **und** der Core-Font `Times-Bold`.
+
+**Bewusste Abweichung von der Spec — hier benannt, nicht stillschweigend:** Die Spec verlangt unter „Regressionstest Bestandsverträge" als erstes Kriterium „**extrahierter Text identisch**". Das ist in diesem Test nicht umsetzbar: `personalizeContent()` braucht Models und DB, und der Runner bootet kein Laravel. Der Test ersetzt das Kriterium durch **Seitenzahl + Fontliste + md5 des Stylesheets** und rendert dazu einen festen Beispielinhalt durch das **echte** Stylesheet der Vertrags-Blade.
+
+Was dadurch nicht abgedeckt ist: eine Änderung an `personalizeContent()` selbst, die den Text verändert. Das fängt der `schulung.`-Zweig-Test aus Task 7 nur für den neuen Zweig ab, nicht für die Bestandszweige. Wer das schließen will, braucht einen Test mit echten Models auf Capsule — **nicht Teil dieses Plans**.
+
+Was der Test dafür genau prüft: was G17 behauptet — dass die Zertifikat-Änderungen die Vertrags-Darstellung nicht anfassen.
+
+- [ ] **Step 1: Test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Dompdf\Dompdf;
+use Dompdf\Options;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Belegt, dass die Zertifikat-Arbeit den Vertragsweg nicht beruehrt.
+ *
+ * Rendert einen festen Beispielinhalt durch das ECHTE Stylesheet aus
+ * resources/views/pdf/contract.blade.php und friert Seitenzahl, Fontliste
+ * und Textinhalt als SOLL ein.
+ *
+ * Times-Bold gehoert bewusst zum SOLL: fette Zellen fallen auf den Core-Font
+ * zurueck, weil unter dem Namen "DejaVu Sans" keine Bold-Variante registriert
+ * ist. Das ist ein Bestandsmakel, keine Regression dieses Pakets. Wer ihn
+ * behebt, aendert diesen SOLL-Wert bewusst.
+ */
+class ContractPdfRegressionTest extends TestCase
+{
+    private const MODULE_ROOT = __DIR__ . '/../..';
+
+    private function contractStylesheet(): string
+    {
+        $blade = file_get_contents(self::MODULE_ROOT . '/resources/views/pdf/contract.blade.php');
+        $css = preg_replace('/^.*?<style>/s', '<style>', $blade);
+
+        return preg_replace('/<\/style>.*$/s', '</style>', $css);
+    }
+
+    private function render(): string
+    {
+        $body = '<div class="contract-content">'
+            . '<p>§1 Vertragsgegenstand</p>'
+            . '<p>Zwischen der RheinGedeck GmbH und Erika Mustermann, geb. 01.01.2000, '
+            . 'wird folgender Arbeitsvertrag geschlossen. Stundenlohn 13,50 €.</p>'
+            . '<table><tr><th>Feld</th><th>Wert</th></tr>'
+            . '<tr><td>Beginn</td><td>01.09.2026</td></tr></table>'
+            . '</div>';
+
+        $html = '<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">'
+            . $this->contractStylesheet() . '</head><body>' . $body . '</body></html>';
+
+        $options = new Options();
+        $options->set('isRemoteEnabled', false);
+        $options->set('dpi', 96);
+        $options->set('defaultFont', 'DejaVu Sans');
+        $options->set('isHtml5ParserEnabled', true);
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('A4');
+        $dompdf->render();
+
+        return $dompdf->output();
+    }
+
+    public function testSeitenzahlBleibtEins(): void
+    {
+        preg_match_all('/\/Type\s*\/Page[^s]/', $this->render(), $m);
+
+        $this->assertCount(1, $m[0]);
+    }
+
+    public function testFontlisteIstEingefrorenInklusiveTimesBold(): void
+    {
+        preg_match_all('/\/BaseFont\s*\/([A-Za-z0-9+\-]+)/', $this->render(), $m);
+
+        $normalized = array_values(array_unique(array_map(
+            fn (string $f) => preg_replace('/^[A-Z]+\+/', '', $f),
+            $m[1]
+        )));
+        sort($normalized);
+
+        $this->assertSame(['DejaVuSans', 'Times-Bold'], $normalized);
+    }
+
+    /**
+     * md5 ueber den gesamten <style>-Block, nicht zwei Stichproben.
+     *
+     * Dass ein legitimer Edit an contract.blade.php diesen Test rot macht,
+     * ist der ZWECK: die Zertifikat-Arbeit darf das Vertrags-Stylesheet nicht
+     * anfassen. Wer es aus einem anderen Grund aendert, aktualisiert den
+     * Hash bewusst und begruendet es im Commit.
+     */
+    public function testVertragsstylesheetIstUnveraendert(): void
+    {
+        $css = $this->contractStylesheet();
+
+        $this->assertSame(1347, strlen($css), 'Laenge des <style>-Blocks abgewichen.');
+        $this->assertSame(
+            '9e0d883726cd80892ad640c236103a67',
+            md5($css),
+            'contract.blade.php wurde geaendert. Zertifikat-Arbeit darf das nicht — '
+            . 'war die Aenderung beabsichtigt, Hash bewusst aktualisieren.'
+        );
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ContractPdfRegressionTest`
+Expected: PASS (3 tests). Schlägt `testFontlisteIstEingefroren…` oder `testVertragsstylesheetIstUnveraendert` fehl, hat jemand die Vertrags-Blade angefasst — das ist der Zweck des Tests, kein Anlass, den SOLL-Wert nachzuziehen.
+
+- [ ] **Step 3: Gesamtsuite**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Expected: PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/Integration/ContractPdfRegressionTest.php
+git commit -m "test(recruiting): Regressionsschutz fuer Bestandsvertraege (Seite, Fonts, Stylesheet)"
+```
+
+---
+
+---
+
+### Task 1: Migration `type` auf `rec_contract_templates`
+
+**Files:**
+- Create: `database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php`
+
+**Interfaces:**
+- Consumes: nichts
+- Produces: Spalte `rec_contract_templates.type` `string(20) NOT NULL DEFAULT 'contract'`
+
+**Spec-Ausschnitt (wörtlich):**
+
+> `type`-Spalte auf `rec_contract_templates` (`string(20) NOT NULL DEFAULT 'contract'`, Werte `contract`/`certificate`). **Nicht nullable**, damit es keinen dritten Zustand „unbekannt" gibt, den jede Query mitdenken müsste. Bestand wird durch den Default korrekt zu `contract`.
+
+> **Der `type`-Default trifft den Bestand richtig.** Die 10 live vorhandenen Vorlagen (7 aktive: `AV-default`, `AV-010`, `AV-060`, `AV-110`, `AV-160`, `AV-210`, `AV-260`, plus `IFSG`; inaktiv: `AV`, `AV-TEST`) werden dadurch `contract`. Jeder neue `type`-Filter (`where('type','contract')`) lässt sie also unverändert durch.
+
+**Hinweis zur Verifikation:** Migrationen sind lokal **nicht** ausführbar (`meingedeck` hat kein `.env`, das Modul keine DB). Die Spalte wird in den Integrationstests von Hand ins Capsule-Schema geschrieben. Die Migration selbst wird per Review und beim Deploy verifiziert.
+
+- [ ] **Step 1: Migration schreiben**
+
+```php
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Unterscheidet Vertragsvorlagen von Zertifikat-Vorlagen. Beide leben in
+ * derselben Tabelle, damit Editor, Platzhalter-Engine und Verwaltungsseite
+ * mitbenutzt werden koennen.
+ *
+ * Bewusst NOT NULL mit Default: ein dritter Zustand "unbekannt" muesste in
+ * jeder Query mitgedacht werden. Der Bestand wird durch den Default korrekt
+ * zu 'contract'.
+ *
+ * Idempotent per hasColumn — Muster aus
+ * 2026_05_19_000002_add_check_flag_and_additional_contract_...
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('rec_contract_templates', function (Blueprint $table) {
+            if (!Schema::hasColumn('rec_contract_templates', 'type')) {
+                $table->string('type', 20)->default('contract')->after('code');
+                $table->index(['team_id', 'type']);
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('rec_contract_templates', function (Blueprint $table) {
+            if (Schema::hasColumn('rec_contract_templates', 'type')) {
+                $table->dropIndex(['team_id', 'type']);
+                $table->dropColumn('type');
+            }
+        });
+    }
+};
+```
+
+- [ ] **Step 2: Syntax prüfen**
+
+Run: `php -l database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php`
+Expected: `No syntax errors detected`
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php
+git commit -m "feat(recruiting): type-Spalte auf rec_contract_templates"
+```
+
+---
+
+### Task 2: Migration `rec_training_certificates`
+
+**Files:**
+- Create: `database/migrations/2026_08_12_000002_create_rec_training_certificates_table.php`
+
+**Interfaces:**
+- Consumes: Spalte `type` aus Task 1 (nur logisch, keine FK darauf)
+- Produces: Tabelle `rec_training_certificates` mit Unique `(rec_applicant_id, rec_contract_template_id)`
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Tabelle `rec_training_certificates`.** Spalten: `id`, `uuid` (unique, UuidV7 via `booted()` wie überall im Modul), `team_id`, `rec_applicant_id`, `rec_contract_template_id`, `personalized_content` (longText, Snapshot), `issued_at`, `issued_by_user_id` nullable, `wa_sent_at` nullable, Timestamps.
+
+> **Nicht** als `RecContract` ablegen: eine Contract-Zeile würde `hasAnyContractSent()` wahr machen, worauf die Versand-Guards des Nicht-EU-Umbaus aufsetzen (`ContractDispatchService`, `InterviewBookings/Index:522`), und in Portal-, Employees-Show- und ZAS-Vertragslisten auftauchen.
+
+> **Unique-Constraint auf `(rec_applicant_id, rec_contract_template_id)`** statt allein auf `rec_applicant_id`. Sonst blockiert die erste Schulungsart jede zweite für denselben Menschen. Weiterhin auf DB-Ebene: ein Doppelklick am Desk ist kein Sonderfall.
+
+- [ ] **Step 1: Migration schreiben**
+
+```php
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Ausgestellte Schulungszertifikate. Bewusst KEINE rec_contracts-Zeile:
+ * die wuerde hasAnyContractSent() wahr machen (Versand-Guards des
+ * Nicht-EU-Umbaus) und in Portal-, Employees-Show- und ZAS-Vertragslisten
+ * auftauchen.
+ *
+ * personalized_content ist ein Snapshot — die Huelle (Layout, Assets) steckt
+ * NICHT darin, sondern wird beim Rendern aufgeloest. Muster wie beim
+ * Firmenstempel in Vertraegen.
+ *
+ * Unique auf (rec_applicant_id, rec_contract_template_id): ein Zertifikat pro
+ * Person pro Vorlage. Eine zweite Schulungsart bleibt damit moeglich.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('rec_training_certificates', function (Blueprint $table) {
+            $table->id();
+            $table->string('uuid', 36)->unique();
+            $table->foreignId('team_id')->constrained('teams')->cascadeOnDelete();
+            $table->foreignId('rec_applicant_id')->constrained('rec_applicants')->cascadeOnDelete();
+            $table->foreignId('rec_contract_template_id')->constrained('rec_contract_templates')->cascadeOnDelete();
+            $table->longText('personalized_content')->nullable();
+            $table->timestamp('issued_at')->nullable();
+            $table->foreignId('issued_by_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->timestamp('wa_sent_at')->nullable();
+            $table->timestamps();
+
+            $table->unique(
+                ['rec_applicant_id', 'rec_contract_template_id'],
+                'rec_training_cert_applicant_tpl_unique'
+            );
+            $table->index(['team_id', 'issued_at']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('rec_training_certificates');
+    }
+};
+```
+
+**Hinweis:** Der Unique-Index bekommt einen expliziten kurzen Namen. Der auto-generierte wäre `rec_training_certificates_rec_applicant_id_rec_contract_template_id_unique` = 74 Zeichen und überschreitet das MySQL-Limit von 64 — genau der Fehler 1059, an dem die Migration `2026_05_19_000002` schon einmal halb durchgelaufen ist.
+
+- [ ] **Step 2: Syntax prüfen**
+
+Run: `php -l database/migrations/2026_08_12_000002_create_rec_training_certificates_table.php`
+Expected: `No syntax errors detected`
+
+- [ ] **Step 3: Namenslänge verifizieren**
+
+Run: `php -r 'echo strlen("rec_training_cert_applicant_tpl_unique"), PHP_EOL;'`
+Expected: `38` (< 64)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add database/migrations/2026_08_12_000002_create_rec_training_certificates_table.php
+git commit -m "feat(recruiting): Tabelle rec_training_certificates"
+```
+
+---
+
+### Task 3: `type` am Model + saving-Hook mit zwei Invarianten
+
+**Files:**
+- Modify: `src/Models/RecContractTemplate.php`
+- Test: `tests/Integration/ContractTemplateTypeInvariantsTest.php`
+
+**Interfaces:**
+- Consumes: Spalte `type` (Task 1)
+- Produces:
+  - `RecContractTemplate::TYPE_CONTRACT = 'contract'`
+  - `RecContractTemplate::TYPE_CERTIFICATE = 'certificate'`
+  - `RecContractTemplate::CERTIFICATE_CODE_PREFIX = 'ZERT-'`
+  - `scopeContracts($query)` und `scopeCertificates($query)`
+  - saving-Hook, der bei `type === 'certificate'` `requires_signature = false` setzt und einen `code` ohne Präfix mit `\InvalidArgumentException` abweist
+
+**Spec-Ausschnitt (wörtlich):**
+
+> Im Model (`booted()`/`saving`-Hook) werden bei `type === 'certificate'` **zwei** Dinge erzwungen:
+> 1. **`requires_signature = false`.** Ein Zertifikat wird von niemandem unterschrieben: die Unterschrift der RheinGedeck GmbH ist Teil des Dokuments, und der Empfänger bestätigt nichts. Ein `true` würde einen Signaturweg suggerieren, den es nicht gibt.
+> 2. **`code` beginnt mit `ZERT-`.** Verstoß → Exception, nicht stille Korrektur.
+
+> **Warum der Präfix-Zwang und nicht die Konvention aus v1.** v1 sagte „Zertifikat-`code` darf nie `AV-*` oder `AT-140` sein". Das ist eine Konvention ohne Guard: `ContractPreSigningType::forCode()` entscheidet allein am `code`, ob ein Vorschalt-Schritt läuft — ein Zertifikat mit `code = 'AV-ZERT'` bekäme die §15/§16-Abfrage. Und der nächste Seed-Command, der einen `code` frei setzt, kennt die Konvention nicht. Ein erzwungener Präfix macht die Kollision **unmöglich statt unwahrscheinlich**.
+
+> Der Hook deckt die Wege ab, die das Modal umgehen: MCP (`CreateContractTemplateTool:87`, `UpdateContractTemplateTool:86`), einen nachträglichen Typwechsel an einer Bestandsvorlage, und Seeder/Commands.
+
+> **§B8 ist einzelne Ausfallstelle für 12 Einträge der Guard-Landkarte; der Test dazu ist Pflicht.**
+
+- [ ] **Step 1: Failing test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Events\Dispatcher;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Models\RecContractTemplate;
+
+/**
+ * §B8: ein saving-Hook, zwei Invarianten. Zwoelf "keiner"-Zeilen der
+ * Guard-Landkarte haengen an der Praefix-Zusicherung — deshalb Pflichttest.
+ */
+class ContractTemplateTypeInvariantsTest extends TestCase
+{
+    private const TEAM = 3;
+
+    public static function setUpBeforeClass(): void
+    {
+        $container = Container::getInstance();
+        $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []]]));
+
+        $capsule = new Capsule();
+        $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $capsule->setEventDispatcher(new Dispatcher($container));
+        $capsule->setAsGlobal();
+        $capsule->bootEloquent();
+
+        $capsule->schema()->create('rec_contract_templates', function ($t) {
+            $t->id();
+            $t->string('uuid', 36)->unique();
+            $t->string('name');
+            $t->string('code', 20)->nullable();
+            $t->string('type', 20)->default('contract');
+            $t->text('description')->nullable();
+            $t->longText('content')->nullable();
+            $t->text('field_mappings')->nullable();
+            $t->boolean('requires_signature')->default(true);
+            $t->boolean('is_active')->default(true);
+            $t->unsignedInteger('sort_order')->default(0);
+            $t->unsignedBigInteger('team_id');
+            $t->unsignedBigInteger('created_by_user_id')->nullable();
+            $t->timestamps();
+            $t->softDeletes();
+        });
+    }
+
+    private function make(array $attrs): RecContractTemplate
+    {
+        return RecContractTemplate::create(array_merge([
+            'name' => 'Test',
+            'team_id' => self::TEAM,
+        ], $attrs));
+    }
+
+    public function testBestandsvorlageBleibtVertragMitSignatur(): void
+    {
+        $t = $this->make(['code' => 'AV-010', 'requires_signature' => true]);
+
+        $this->assertSame('contract', $t->type);
+        $this->assertTrue($t->requires_signature);
+    }
+
+    public function testZertifikatErzwingtSignaturFalse(): void
+    {
+        $t = $this->make([
+            'code' => 'ZERT-BASIS',
+            'type' => 'certificate',
+            'requires_signature' => true,
+        ]);
+
+        $this->assertFalse($t->requires_signature);
+    }
+
+    public function testZertifikatOhnePraefixWirft(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->make(['code' => 'AV-ZERT', 'type' => 'certificate']);
+    }
+
+    public function testZertifikatOhneCodeWirft(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->make(['code' => null, 'type' => 'certificate']);
+    }
+
+    public function testNachtraeglicherTypwechselGreiftEbenfalls(): void
+    {
+        $t = $this->make(['code' => 'ZERT-UMBAU', 'requires_signature' => true]);
+        $this->assertTrue($t->requires_signature);
+
+        $t->type = 'certificate';
+        $t->save();
+
+        $this->assertFalse($t->fresh()->requires_signature);
+    }
+
+    public function testScopesTrennenDieTypen(): void
+    {
+        $this->make(['code' => 'AV-060']);
+        $this->make(['code' => 'ZERT-SERVICE', 'type' => 'certificate']);
+
+        $this->assertSame(1, RecContractTemplate::query()->contracts()->count());
+        $this->assertSame(1, RecContractTemplate::query()->certificates()->count());
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ContractTemplateTypeInvariantsTest`
+Expected: FAIL — `Call to undefined method …::contracts()` bzw. `requires_signature` bleibt `true`
+
+- [ ] **Step 3: Model erweitern**
+
+In `src/Models/RecContractTemplate.php`:
+
+`'type'` in `$fillable` direkt nach `'code'` einfügen. In `booted()` nach dem bestehenden `creating`-Hook ergänzen:
+
+```php
+    public const TYPE_CONTRACT = 'contract';
+    public const TYPE_CERTIFICATE = 'certificate';
+
+    /**
+     * Zertifikat-Codes muessen mit diesem Praefix beginnen. Grund:
+     * ContractPreSigningType::forCode() entscheidet ALLEIN am code, ob ein
+     * Vorschalt-Schritt vor der Unterschrift laeuft (AT-140 → Resttage,
+     * Praefix AV- → §15/§16). Ein Zertifikat mit code 'AV-ZERT' bekaeme die
+     * §15/§16-Abfrage. Der Praefix macht die Kollision unmoeglich statt
+     * unwahrscheinlich — und er schuetzt zwoelf code-Muster-Filter in der
+     * Guard-Landkarte, die sonst nur auf eine Konvention vertrauen.
+     */
+    public const CERTIFICATE_CODE_PREFIX = 'ZERT-';
+```
+
+```php
+        static::saving(function (self $model) {
+            if ($model->type !== self::TYPE_CERTIFICATE) {
+                return;
+            }
+
+            // Invariante 1: ein Zertifikat unterschreibt niemand.
+            $model->requires_signature = false;
+
+            // Invariante 2: Praefix-Zwang. Exception statt stiller Korrektur —
+            // ein automatisch umgeschriebener code wuerde Verweise brechen,
+            // die der Aufrufer schon gesetzt hat.
+            $code = (string) $model->code;
+            if (!str_starts_with($code, self::CERTIFICATE_CODE_PREFIX)) {
+                throw new \InvalidArgumentException(
+                    'Zertifikat-Vorlagen brauchen einen code mit Praefix "'
+                    . self::CERTIFICATE_CODE_PREFIX . '" (bekommen: "' . $code . '").'
+                );
+            }
+        });
+```
+
+Und die zwei Scopes neben `scopeActive`:
+
+```php
+    public function scopeContracts($query)
+    {
+        return $query->where('type', self::TYPE_CONTRACT);
+    }
+
+    public function scopeCertificates($query)
+    {
+        return $query->where('type', self::TYPE_CERTIFICATE);
+    }
+```
+
+- [ ] **Step 4: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ContractTemplateTypeInvariantsTest`
+Expected: PASS (6 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Models/RecContractTemplate.php tests/Integration/ContractTemplateTypeInvariantsTest.php
+git commit -m "feat(recruiting): type-Invarianten fuer Zertifikat-Vorlagen (Signatur + ZERT-Praefix)"
+```
+
+---
+
+### Task 4: `FontGlyphCoverage` — fehlende Zeichen finden
+
+**Files:**
+- Create: `src/Support/FontGlyphCoverage.php`
+- Test: `tests/Unit/FontGlyphCoverageTest.php`
+
+**Interfaces:**
+- Consumes: `FontLib\Font` aus `dompdf/php-font-lib` (transitive Abhängigkeit von DomPDF, liegt unter `meingedeck/vendor/dompdf/php-font-lib/src/FontLib/Font.php`)
+- Produces: `FontGlyphCoverage::missing(string $content, string $fontPath): array` — Liste der Zeichen (als UTF-8-Strings, dedupliziert, in Reihenfolge des ersten Auftretens), die die Schrift nicht hat. Leerer Array = alles abgedeckt. Nicht lesbare Fontdatei → leerer Array (Prüfung soll nichts blockieren).
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Custom Font = kein Glyph-Fallback.** Jedes Zeichen, das die eingebundene Schrift nicht hat, wird `?`. Konkret gemessen: ★ (U+2605) in Oswald ergab `STEHEMPFANG ? FLYING BUFFET`.
+
+> **„Zeichen prüfen"** ruft eine pure Funktion auf: `Support/FontGlyphCoverage::missing(string $content, string $fontPath): array`. Sie liest die `cmap` der Schriftdatei und gibt die Zeichen des Inhalts zurück, die darin fehlen — also genau die, die im PDF zu `?` würden. **Am Eingang, nicht am PDF**, weil der PDF-Text komprimiert und UTF-16BE-kodiert ist und eine Prüfung dort teuer und indirekt wäre.
+
+**Gemessene Ausgangslage für die Testfälle** (`FontLib\Font::load()` + `getUnicodeCharMap()` gegen `Oswald-SemiBold.ttf`): `A` U+0041 vorhanden, `Ü` U+00DC vorhanden, `ä` U+00E4 vorhanden, `–` U+2013 vorhanden, `€` U+20AC vorhanden, **`★` U+2605 FEHLT**.
+
+- [ ] **Step 1: Failing test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\FontGlyphCoverage;
+
+class FontGlyphCoverageTest extends TestCase
+{
+    private function font(): string
+    {
+        return __DIR__ . '/../../resources/fonts/Oswald-SemiBold.ttf';
+    }
+
+    public function testLatinUndUmlauteSindAbgedeckt(): void
+    {
+        $this->assertSame(
+            [],
+            FontGlyphCoverage::missing('GÄSTEBETREUUNG UND KOMMUNIKATION – 3-Gang-Menü, 12 €', $this->font())
+        );
+    }
+
+    public function testSternFehlt(): void
+    {
+        $this->assertSame(
+            ['★'],
+            FontGlyphCoverage::missing('STEHEMPFANG ★ FLYING BUFFET', $this->font())
+        );
+    }
+
+    public function testJedesFehlendeZeichenNurEinmalUndInReihenfolge(): void
+    {
+        $this->assertSame(
+            ['★', '☂'],
+            FontGlyphCoverage::missing('★ A ☂ B ★', $this->font())
+        );
+    }
+
+    public function testHtmlTagsWerdenNichtGepruefft(): void
+    {
+        // Der Vorlageninhalt ist HTML. Spitze Klammern und Attributnamen
+        // stehen nie im gerenderten Text und duerfen nicht gemeldet werden.
+        $this->assertSame(
+            ['★'],
+            FontGlyphCoverage::missing('<div class="skill">A ★ B</div>', $this->font())
+        );
+    }
+
+    public function testFehlendeFontdateiBlockiertNicht(): void
+    {
+        $this->assertSame([], FontGlyphCoverage::missing('★', '/gibt/es/nicht.ttf'));
+    }
+
+    public function testLeererInhalt(): void
+    {
+        $this->assertSame([], FontGlyphCoverage::missing('', $this->font()));
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter FontGlyphCoverageTest`
+Expected: FAIL — `Class "Platform\Recruiting\Support\FontGlyphCoverage" not found`
+
+- [ ] **Step 3: Font-Assets ablegen**
+
+```bash
+mkdir -p resources/fonts resources/images/certificates
+curl -sS -o resources/fonts/Oswald-SemiBold.ttf \
+  "https://raw.githubusercontent.com/googlefonts/OswaldFont/main/fonts/ttf/Oswald-SemiBold.ttf"
+curl -sS -o resources/fonts/OFL.txt \
+  "https://raw.githubusercontent.com/google/fonts/main/ofl/oswald/OFL.txt"
+cp /Users/shaustein/Documents/dev/docs/zertifikat/mockups/prototyp/logo.png \
+   resources/images/certificates/logo.png
+cp /Users/shaustein/Documents/dev/docs/zertifikat/mockups/prototyp/headline.png \
+   resources/images/certificates/headline-zertifikat.png
+cp /Users/shaustein/Documents/dev/docs/zertifikat/mockups/prototyp/signature-block.png \
+   resources/images/certificates/signature-block.png
+ls -la resources/fonts resources/images/certificates
+```
+
+Expected: `Oswald-SemiBold.ttf` 109120 Bytes, `OFL.txt` vorhanden, drei PNGs vorhanden.
+
+- [ ] **Step 4: Implementierung schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Support;
+
+use FontLib\Font;
+
+/**
+ * Welche Zeichen eines Textes fehlen in einer TTF-Datei?
+ *
+ * Hintergrund: DomPDF macht bei einer per @font-face eingebundenen Schrift
+ * KEINEN Glyph-Fallback. Jedes Zeichen, das die Schrift nicht kennt, landet
+ * als "?" im PDF — ohne Warnung. Gemessen an Oswald-SemiBold: ★ (U+2605)
+ * fehlt, waehrend –, €, Ü, ä vorhanden sind.
+ *
+ * Geprueft wird am EINGANG, nicht am fertigen PDF: dort ist der Text
+ * FlateDecode-komprimiert und UTF-16BE-kodiert (CID-Font, Identity-H), eine
+ * Pruefung waere teuer und indirekt.
+ *
+ * Dependency: FontLib liegt als dompdf/php-font-lib immer dort, wo DomPDF
+ * liegt — keine neue Abhaengigkeit.
+ */
+final class FontGlyphCoverage
+{
+    /**
+     * @return list<string> fehlende Zeichen als UTF-8-Strings, dedupliziert,
+     *                      in Reihenfolge des ersten Auftretens
+     */
+    public static function missing(string $content, string $fontPath): array
+    {
+        $text = self::plainText($content);
+        if ($text === '') {
+            return [];
+        }
+
+        $map = self::charMap($fontPath);
+        if ($map === null) {
+            // Nicht lesbare Fontdatei blockiert die Pruefung nicht — sie ist
+            // eine Hilfe, kein Gate. Das fehlende Asset faellt beim Rendern auf.
+            return [];
+        }
+
+        $missing = [];
+        foreach (self::codepoints($text) as $codepoint => $char) {
+            if (!isset($map[$codepoint]) && !isset($missing[$codepoint])) {
+                $missing[$codepoint] = $char;
+            }
+        }
+
+        return array_values($missing);
+    }
+
+    /** HTML-Markup entfernen — im PDF steht nur der Textinhalt. */
+    private static function plainText(string $content): string
+    {
+        $withoutTags = strip_tags($content);
+        $decoded = html_entity_decode($withoutTags, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return trim($decoded);
+    }
+
+    /** @return array<int,int>|null Unicode-Codepoint => Glyph-Index */
+    private static function charMap(string $fontPath): ?array
+    {
+        if (!is_file($fontPath) || !is_readable($fontPath)) {
+            return null;
+        }
+
+        try {
+            $font = Font::load($fontPath);
+            if ($font === null) {
+                return null;
+            }
+            $font->parse();
+            $map = $font->getUnicodeCharMap();
+            $font->close();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($map) ? $map : null;
+    }
+
+    /**
+     * @return array<int,string> Codepoint => Zeichen, in Textreihenfolge.
+     *         Whitespace wird uebersprungen (steht in jeder Schrift und
+     *         wuerde nur Rauschen erzeugen).
+     */
+    private static function codepoints(string $text): array
+    {
+        $out = [];
+        $length = mb_strlen($text, 'UTF-8');
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = mb_substr($text, $i, 1, 'UTF-8');
+            if (trim($char) === '') {
+                continue;
+            }
+            $codepoint = mb_ord($char, 'UTF-8');
+            if ($codepoint === false) {
+                continue;
+            }
+            $out[] = [$codepoint, $char];
+        }
+
+        // Reihenfolge des ersten Auftretens erhalten, Duplikate spaeter
+        // in missing() gefiltert.
+        $ordered = [];
+        foreach ($out as [$codepoint, $char]) {
+            $ordered[$codepoint] ??= $char;
+        }
+
+        return $ordered;
+    }
+}
+```
+
+- [ ] **Step 5: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter FontGlyphCoverageTest`
+Expected: PASS (6 tests)
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/Support/FontGlyphCoverage.php tests/Unit/FontGlyphCoverageTest.php \
+        resources/fonts resources/images/certificates
+git commit -m "feat(recruiting): FontGlyphCoverage + Zertifikat-Assets"
+```
+
+---
+
+### Task 5: `TrainingCertificatePdfOptions` — geteilte Options-Quelle
+
+**Files:**
+- Create: `src/Support/TrainingCertificatePdfOptions.php`
+- Test: `tests/Unit/TrainingCertificatePdfOptionsTest.php`
+
+**Interfaces:**
+- Consumes: nichts
+- Produces: `TrainingCertificatePdfOptions::for(string $fontPath, string $chroot): array` — Options-Array mit Keys `chroot`, `isRemoteEnabled`, `dpi`, `defaultFont`, `isHtml5ParserEnabled`. Wird von Task 9 (Render-Test) **und** Task 10 (Controller) konsumiert.
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **`TrainingCertificatePdfOptions` ist die einzige Stelle, an der die Engine-Optionen stehen** — `chroot`, `isRemoteEnabled`, `dpi`, `defaultFont`, `isHtml5ParserEnabled`. **Controller und Render-Test konsumieren dieselbe Quelle.** Begründung: der Vertrags-Controller setzt seine Optionen selbst; im Prototyp fiel ein `isRemoteEnabled`-Unterschied nur auf, weil ich ihn von Hand gesucht habe. Setzen Controller und Test ihre Optionen je selbst, testet der Render-Test eine andere Engine als die ausgelieferte und ist grün ohne Aussage. Das ist die eigentliche Absicherung, nicht der Test selbst.
+
+> **`@font-face` braucht `chroot`.** Ein absoluter Pfad in `src: url(...)` allein genügt nicht — DomPDF fällt dann **stumm auf Helvetica** zurück: keine Exception, kein Log.
+
+> `enable_remote => false` ist der Live-Wert. Gegengeprüft: mit `enable_remote = false` **und** gesetztem `chroot` bettet die Schrift korrekt ein *und* das Data-URI-Bild wird gerendert.
+
+- [ ] **Step 1: Failing test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\TrainingCertificatePdfOptions;
+
+class TrainingCertificatePdfOptionsTest extends TestCase
+{
+    public function testEnthaeltAlleFuenfSchluessel(): void
+    {
+        $opts = TrainingCertificatePdfOptions::for('/app/resources/fonts/X.ttf', '/app');
+
+        $this->assertSame(
+            ['chroot', 'defaultFont', 'dpi', 'isHtml5ParserEnabled', 'isRemoteEnabled'],
+            self::sortedKeys($opts)
+        );
+    }
+
+    public function testRemoteBleibtAusWieLive(): void
+    {
+        $opts = TrainingCertificatePdfOptions::for('/app/resources/fonts/X.ttf', '/app');
+
+        $this->assertFalse($opts['isRemoteEnabled']);
+    }
+
+    public function testFontPfadLiegtUnterChroot(): void
+    {
+        // Genau diese Bedingung entscheidet, ob DomPDF die Schrift einbettet
+        // oder stumm auf Helvetica zurueckfaellt.
+        $opts = TrainingCertificatePdfOptions::for('/app/resources/fonts/X.ttf', '/app');
+
+        $this->assertStringStartsWith($opts['chroot'], '/app/resources/fonts/X.ttf');
+    }
+
+    public function testFontPfadAusserhalbChrootWirft(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        TrainingCertificatePdfOptions::for('/anderswo/X.ttf', '/app');
+    }
+
+    public function testDpiUndParserWieImVertragsweg(): void
+    {
+        $opts = TrainingCertificatePdfOptions::for('/app/resources/fonts/X.ttf', '/app');
+
+        $this->assertSame(96, $opts['dpi']);
+        $this->assertTrue($opts['isHtml5ParserEnabled']);
+        $this->assertSame('DejaVu Sans', $opts['defaultFont']);
+    }
+
+    private static function sortedKeys(array $a): array
+    {
+        $k = array_keys($a);
+        sort($k);
+
+        return $k;
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificatePdfOptionsTest`
+Expected: FAIL — `Class "…TrainingCertificatePdfOptions" not found`
+
+- [ ] **Step 3: Implementierung schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Support;
+
+/**
+ * Die EINZIGE Quelle der DomPDF-Optionen fuer das Schulungszertifikat.
+ *
+ * Warum eine eigene Klasse: der Vertrags-Controller setzt seine Optionen
+ * selbst (defaultFont, isHtml5ParserEnabled). Wuerden Zertifikat-Controller
+ * und Render-Test das ebenfalls je selbst tun, pruefte der Test eine anders
+ * konfigurierte Engine als die ausgelieferte — und waere gruen ohne Aussage.
+ * Genau so ist im Prototyp ein isRemoteEnabled-Unterschied entstanden, der
+ * nur durch manuelles Nachsehen auffiel.
+ *
+ * chroot ist nicht Kosmetik: ohne passenden chroot ignoriert DomPDF das
+ * @font-face STUMM und rendert in Helvetica — keine Exception, kein Log.
+ */
+final class TrainingCertificatePdfOptions
+{
+    /**
+     * @param string $fontPath absoluter Pfad zur TTF-Datei
+     * @param string $chroot   Wurzel, unterhalb der DomPDF lesen darf
+     *                         (in der Host-App: realpath(base_path()))
+     * @return array<string,mixed>
+     */
+    public static function for(string $fontPath, string $chroot): array
+    {
+        if (!str_starts_with($fontPath, rtrim($chroot, '/'))) {
+            throw new \InvalidArgumentException(
+                'Der Font-Pfad liegt ausserhalb des chroot — DomPDF wuerde die '
+                . 'Schrift stumm ignorieren und in Helvetica rendern. '
+                . "font={$fontPath} chroot={$chroot}"
+            );
+        }
+
+        return [
+            'chroot' => rtrim($chroot, '/'),
+            'isRemoteEnabled' => false,
+            'dpi' => 96,
+            'defaultFont' => 'DejaVu Sans',
+            'isHtml5ParserEnabled' => true,
+        ];
+    }
+}
+```
+
+- [ ] **Step 4: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificatePdfOptionsTest`
+Expected: PASS (5 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Support/TrainingCertificatePdfOptions.php tests/Unit/TrainingCertificatePdfOptionsTest.php
+git commit -m "feat(recruiting): geteilte DomPDF-Options-Quelle fuer Zertifikate"
+```
+
+---
+
+### Task 5a: `TrainingCertificateAssets` — ein Resolver, drei Konsumenten
+
+**Files:**
+- Create: `src/Support/TrainingCertificateAssets.php`
+- Test: `tests/Unit/TrainingCertificateAssetsTest.php`
+
+**Interfaces:**
+- Consumes: nichts
+- Produces: `TrainingCertificateAssets::resolve(string $resourcesDir): array` mit den Keys
+  - `font` (string, absoluter Pfad — wird **immer** zurückgegeben, auch wenn die Datei fehlt, weil das `@font-face` den Pfad braucht)
+  - `logo`, `headline`, `signature` (je `?string` Data-URI, `null` wenn Datei fehlt oder unlesbar)
+  - `missing` (`list<string>`, relative Namen der fehlenden Assets, in fester Reihenfolge)
+
+  Konsumiert von Task 6 (Hülle, nimmt die vier ersten Keys), Task 9 (Render-Test, assertiert `missing === []`), Task 10 (Controller, **loggt** `missing`), Task 15 (Editor, **zeigt** `missing` an).
+
+**Warum diese Klasse existiert:** Ohne sie würden Controller (Task 10) und Editor-Vorschau (Task 15) die vier Assets **je selbst** auflösen. Das ist exakt die Konstellation, die bei den DomPDF-Optionen zum Auseinanderlaufen geführt hätte: weicht ein Pfad ab, zeigt die Vorschau etwas anderes als die Auslieferung — und damit wäre der Riss wieder offen, den der Test-PDF-Knopf schließen sollte. Ein Resolver, drei Konsumenten.
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Vier Assets, geteilt über alle Zertifikat-Vorlagen.** Nicht pro Design, nicht pro Schulungsart: `resources/fonts/Oswald-SemiBold.ttf` (Grundschrift, Pfad + `chroot`), `resources/images/certificates/logo.png`, `resources/images/certificates/headline-zertifikat.png`, `resources/images/certificates/signature-block.png` (je Data-URI).
+
+> Fehlt ein Bild, rendert das PDF ohne dieses Element (`null` statt Fehler); fehlt die Schrift, läuft alles in Helvetica. Beides ist kein Absturz und beides ist falsch — deshalb loggt der aufrufende Controller jedes fehlende Asset als `warning`; die Hülle selbst bleibt laravel-frei und lässt fehlende Bilder still weg.
+
+> **„Test-PDF"** rendert mit Beispielwerten über dieselbe Hülle und dieselben Optionen und liefert das Ergebnis aus.
+
+- [ ] **Step 1: Failing test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\TrainingCertificateAssets;
+
+class TrainingCertificateAssetsTest extends TestCase
+{
+    private string $tmp;
+
+    protected function setUp(): void
+    {
+        $this->tmp = sys_get_temp_dir() . '/zert-assets-' . getmypid() . '-' . uniqid();
+        mkdir($this->tmp . '/fonts', 0777, true);
+        mkdir($this->tmp . '/images/certificates', 0777, true);
+    }
+
+    protected function tearDown(): void
+    {
+        // Aufraeumen, damit Testlaeufe sich nicht gegenseitig sehen.
+        foreach (['fonts/Oswald-SemiBold.ttf', 'images/certificates/logo.png',
+                  'images/certificates/headline-zertifikat.png',
+                  'images/certificates/signature-block.png'] as $f) {
+            @unlink($this->tmp . '/' . $f);
+        }
+        @rmdir($this->tmp . '/images/certificates');
+        @rmdir($this->tmp . '/images');
+        @rmdir($this->tmp . '/fonts');
+        @rmdir($this->tmp);
+    }
+
+    private function write(string $relative, string $bytes = 'PNGDATA'): void
+    {
+        file_put_contents($this->tmp . '/' . $relative, $bytes);
+    }
+
+    private function writeAll(): void
+    {
+        $this->write('fonts/Oswald-SemiBold.ttf', 'TTF');
+        $this->write('images/certificates/logo.png');
+        $this->write('images/certificates/headline-zertifikat.png');
+        $this->write('images/certificates/signature-block.png');
+    }
+
+    public function testAlleAssetsVorhanden(): void
+    {
+        $this->writeAll();
+
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+
+        $this->assertSame([], $a['missing']);
+        $this->assertSame($this->tmp . '/fonts/Oswald-SemiBold.ttf', $a['font']);
+        $this->assertSame('data:image/png;base64,' . base64_encode('PNGDATA'), $a['logo']);
+        $this->assertNotNull($a['headline']);
+        $this->assertNotNull($a['signature']);
+    }
+
+    public function testFehlendesBildWirdNullUndGemeldet(): void
+    {
+        $this->writeAll();
+        unlink($this->tmp . '/images/certificates/headline-zertifikat.png');
+
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+
+        $this->assertNull($a['headline']);
+        $this->assertSame(['images/certificates/headline-zertifikat.png'], $a['missing']);
+        // Die uebrigen bleiben unberuehrt — ein fehlendes Bild ist kein Absturz.
+        $this->assertNotNull($a['logo']);
+    }
+
+    public function testFehlendeSchriftWirdGemeldetAberDerPfadBleibt(): void
+    {
+        $this->writeAll();
+        unlink($this->tmp . '/fonts/Oswald-SemiBold.ttf');
+
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+
+        // Der Pfad muss trotzdem kommen: das @font-face braucht ihn, und der
+        // chroot-Check in TrainingCertificatePdfOptions prueft ihn.
+        $this->assertSame($this->tmp . '/fonts/Oswald-SemiBold.ttf', $a['font']);
+        $this->assertSame(['fonts/Oswald-SemiBold.ttf'], $a['missing']);
+    }
+
+    public function testAllesFehltErgibtVierMeldungenInFesterReihenfolge(): void
+    {
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+
+        $this->assertSame([
+            'fonts/Oswald-SemiBold.ttf',
+            'images/certificates/logo.png',
+            'images/certificates/headline-zertifikat.png',
+            'images/certificates/signature-block.png',
+        ], $a['missing']);
+    }
+
+    public function testKeysSindImmerVollstaendig(): void
+    {
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+        $keys = array_keys($a);
+        sort($keys);
+
+        $this->assertSame(['font', 'headline', 'logo', 'missing', 'signature'], $keys);
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificateAssetsTest`
+Expected: FAIL — `Class "…TrainingCertificateAssets" not found`
+
+- [ ] **Step 3: Implementierung schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Support;
+
+/**
+ * Loest die vier Zertifikat-Assets auf: Schrift-Pfad und drei Bilder als
+ * Data-URIs, plus die Liste der fehlenden.
+ *
+ * Warum eine eigene Klasse und nicht je im Controller und im Editor:
+ * genau diese Doppelung ist bei den DomPDF-Optionen fast zum Problem
+ * geworden. Weicht ein Pfad zwischen Vorschau und Auslieferung ab, zeigt der
+ * Test-PDF-Knopf etwas anderes als das ausgestellte Dokument — und der
+ * Knopf existiert genau dazu, das zu verhindern. Ein Resolver, drei
+ * Konsumenten: Controller loggt `missing`, Editor zeigt es an, Render-Test
+ * assertiert `missing === []`.
+ *
+ * Laravel-frei, damit der Render-Test ohne Bootstrap laeuft. Das Loggen
+ * fehlender Assets ist deshalb Sache des Aufrufers, nicht dieser Klasse.
+ */
+final class TrainingCertificateAssets
+{
+    private const FONT = 'fonts/Oswald-SemiBold.ttf';
+
+    /** Reihenfolge ist Teil des Vertrags — die Tests assertieren sie. */
+    private const IMAGES = [
+        'logo' => 'images/certificates/logo.png',
+        'headline' => 'images/certificates/headline-zertifikat.png',
+        'signature' => 'images/certificates/signature-block.png',
+    ];
+
+    /**
+     * @param string $resourcesDir absoluter Pfad auf das resources/-Verzeichnis des Moduls
+     * @return array{font: string, logo: ?string, headline: ?string, signature: ?string, missing: list<string>}
+     */
+    public static function resolve(string $resourcesDir): array
+    {
+        $base = rtrim($resourcesDir, '/');
+        $missing = [];
+
+        $fontPath = $base . '/' . self::FONT;
+        if (!is_file($fontPath) || !is_readable($fontPath)) {
+            // Pfad trotzdem zurueckgeben: das @font-face braucht ihn, und
+            // TrainingCertificatePdfOptions prueft ihn gegen den chroot.
+            $missing[] = self::FONT;
+        }
+
+        $out = ['font' => $fontPath];
+
+        foreach (self::IMAGES as $key => $relative) {
+            $path = $base . '/' . $relative;
+
+            if (!is_file($path) || !is_readable($path)) {
+                $out[$key] = null;
+                $missing[] = $relative;
+                continue;
+            }
+
+            $binary = @file_get_contents($path);
+            if ($binary === false) {
+                $out[$key] = null;
+                $missing[] = $relative;
+                continue;
+            }
+
+            $out[$key] = 'data:image/png;base64,' . base64_encode($binary);
+        }
+
+        $out['missing'] = $missing;
+
+        return $out;
+    }
+}
+```
+
+- [ ] **Step 4: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificateAssetsTest`
+Expected: PASS (5 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Support/TrainingCertificateAssets.php tests/Unit/TrainingCertificateAssetsTest.php
+git commit -m "feat(recruiting): Asset-Resolver fuer Zertifikate — ein Resolver, drei Konsumenten"
+```
+
+---
+
+### Task 6: `TrainingCertificateHtml` — die Hülle
+
+**Files:**
+- Create: `src/Support/TrainingCertificateHtml.php`
+- Test: `tests/Unit/TrainingCertificateHtmlTest.php`
+
+**Interfaces:**
+- Consumes: nichts
+- Produces: `TrainingCertificateHtml::build(string $personalizedContent, array $assets): string`. `$assets` erwartet die Keys `font` (absoluter Pfad), `logo`, `headline`, `signature` (je Data-URI-String oder `null`). Fehlt ein Bild (`null`), wird es weggelassen — kein Fehler.
+
+**Spec-Ausschnitt (wörtlich):**
+
+> `TrainingCertificateHtml` liefert Seiten-Setup, Papierfarbe, Schrift-Einbindung, Basis-Styles und die Fuß-Verankerung:
+>
+> ```
+> @font-face { font-family: "Zert"; font-weight: normal; font-style: normal;
+>              src: url("<fontPath>") format("truetype"); }
+> @page { margin: 0; size: A4; }
+> body  { margin: 0; padding: 15mm 18mm 11mm; background: #FDF3E0;
+>         font-family: "Zert", sans-serif; color: #3C4A63; text-align: center; }
+> .zert-fuss-links  { position: absolute; left:  24mm; width: 54mm; bottom: 12mm; }
+> .zert-fuss-rechts { position: absolute; left: 116mm; width: 66mm; bottom: 10mm; }
+> ```
+
+> **Datum und Unterschriftszeile sind am Seitenfuß verankert**, als Divs (nicht als Tabelle) mit `position: absolute; bottom: …`. Damit kann der fließende Mittelteil **keinen Seitenumbruch mehr erzeugen** — die Einzelseiten-Eigenschaft wird strukturell erzwungen statt durch Abstände austariert.
+
+> **`position:absolute` + `bottom` funktioniert bei Block-Divs, NICHT zuverlässig bei `<table>`.** Eine bottom-verankerte Tabelle lief unten aus der Seite; als zwei Divs korrekt.
+
+> **Die Hülle stylt auch `p`, `h2`, `strong` und `li`** so, dass gewöhnliches HTML brauchbar aussieht (zentriert, Grundschrift, sinnvolle Abstände). Die Klassen sind dann Feinsteuerung, keine Voraussetzung. Wer nur einen Satz ergänzen will, tippt einen `<p>` und es passt.
+
+> **Sonderzeichen laufen in DejaVu.** Die ★-Trenner der Kenntnisliste stehen in `<span class="zeichen">`, das per CSS auf `"DejaVu Sans"` schaltet.
+
+> Papierfarbe `#FDF3E0`, nicht der Scan-Ton `#FBDAA3`.
+
+**Layout-Entscheidung, die dieser Task festlegt:** Die Hülle emittiert die drei Bilder an fixen Positionen — Logo und Headline oben im Fluss, der Unterschriften-Block absolut in `.zert-fuss-links`. Der Vorlageninhalt liefert **nur Text**: Labels, Name, Kursname, Datum, Kenntnisliste, die Ausstellungszeile und den rechten Fußblock mit dem Schulungsleiter. Grund: die Bilder sind über alle Zertifikat-Vorlagen identisch und dürfen von HR nicht verschoben werden.
+
+Geometrie aus dem verifizierten Prototyp (`docs/zertifikat/mockups/prototyp/render_live.php`): Logo 40 mm, Headline 116 mm, Unterschriftsbild 54 mm, Ausstellungszeile `bottom: 46mm`.
+
+- [ ] **Step 1: Failing test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\TrainingCertificateHtml;
+
+class TrainingCertificateHtmlTest extends TestCase
+{
+    private function assets(): array
+    {
+        return [
+            'font' => '/app/resources/fonts/Oswald-SemiBold.ttf',
+            'logo' => 'data:image/png;base64,AAAA',
+            'headline' => 'data:image/png;base64,BBBB',
+            'signature' => 'data:image/png;base64,CCCC',
+        ];
+    }
+
+    public function testSeitenSetupUndPapierfarbe(): void
+    {
+        $html = TrainingCertificateHtml::build('<p>X</p>', $this->assets());
+
+        $this->assertStringContainsString('@page { margin: 0; size: A4; }', $html);
+        $this->assertStringContainsString('background: #FDF3E0', $html);
+        $this->assertStringContainsString('color: #3C4A63', $html);
+    }
+
+    public function testFontWirdMitAbsolutemPfadEingebunden(): void
+    {
+        $html = TrainingCertificateHtml::build('', $this->assets());
+
+        $this->assertStringContainsString(
+            'src: url("/app/resources/fonts/Oswald-SemiBold.ttf") format("truetype")',
+            $html
+        );
+    }
+
+    public function testFussKlassenSindBottomVerankertUndKeineTabelle(): void
+    {
+        $html = TrainingCertificateHtml::build('', $this->assets());
+
+        $this->assertStringContainsString('.zert-fuss-links', $html);
+        $this->assertStringContainsString('bottom: 12mm', $html);
+        $this->assertStringContainsString('.zert-fuss-rechts', $html);
+        $this->assertStringContainsString('bottom: 10mm', $html);
+        $this->assertStringNotContainsString('<table', $html);
+    }
+
+    public function testNackteElementeWerdenGestylt(): void
+    {
+        $html = TrainingCertificateHtml::build('', $this->assets());
+
+        foreach (['p {', 'h2 {', 'strong {', 'li {'] as $selector) {
+            $this->assertStringContainsString($selector, $html);
+        }
+    }
+
+    public function testSonderzeichenKlasseSchaltetAufDejaVu(): void
+    {
+        $html = TrainingCertificateHtml::build('', $this->assets());
+
+        $this->assertMatchesRegularExpression(
+            '/\.zeichen\s*\{[^}]*DejaVu Sans/',
+            $html
+        );
+    }
+
+    public function testDreiBilderWerdenEmittiert(): void
+    {
+        $html = TrainingCertificateHtml::build('', $this->assets());
+
+        $this->assertStringContainsString('data:image/png;base64,AAAA', $html);
+        $this->assertStringContainsString('data:image/png;base64,BBBB', $html);
+        $this->assertStringContainsString('data:image/png;base64,CCCC', $html);
+    }
+
+    public function testFehlendesBildWirdWeggelassenOhneFehler(): void
+    {
+        $assets = $this->assets();
+        $assets['headline'] = null;
+
+        $html = TrainingCertificateHtml::build('', $assets);
+
+        $this->assertStringNotContainsString('zert-headline', $html);
+        $this->assertStringContainsString('zert-logo', $html);
+    }
+
+    public function testInhaltWirdUnveraendertEingesetzt(): void
+    {
+        $content = '<div class="val">ERIKA MUSTERMANN</div>';
+
+        $this->assertStringContainsString(
+            $content,
+            TrainingCertificateHtml::build($content, $this->assets())
+        );
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificateHtmlTest`
+Expected: FAIL — `Class "…TrainingCertificateHtml" not found`
+
+- [ ] **Step 3: Implementierung schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Support;
+
+/**
+ * Die HTML-Huelle des Schulungszertifikats.
+ *
+ * Bewusst KEINE Blade: der Render-Test laeuft ohne Laravel-Bootstrap
+ * (tests/bootstrap.php ist ein reiner Autoloader), und eine Blade waere dort
+ * nur mit handverdrahtetem BladeCompiler + FileViewFinder + Engine-Resolver
+ * zu rendern. Als Klasse ist die Huelle direkt unit-testbar — und es gibt
+ * keine zweite Blade, die jemand versehentlich in ein gemeinsames Layout
+ * mit dem Vertragsweg ziehen koennte.
+ *
+ * Aufteilung: die drei Bilder emittiert die Huelle an fixen Positionen, weil
+ * sie ueber alle Zertifikat-Vorlagen identisch sind und HR sie nicht
+ * verschieben soll. Der Vorlageninhalt liefert nur Text.
+ *
+ * Datum und Unterschriftszeile sind absolut am Seitenfuss verankert. Damit
+ * kann der fliessende Mittelteil keinen Seitenumbruch erzeugen — die
+ * Einzelseiten-Eigenschaft ist strukturell erzwungen, nicht durch Abstaende
+ * austariert. Als <table> funktioniert das in DomPDF 3.1.5 nicht: eine
+ * bottom-verankerte Tabelle laeuft unten aus der Seite.
+ */
+final class TrainingCertificateHtml
+{
+    /**
+     * @param array{font: string, logo: ?string, headline: ?string, signature: ?string} $assets
+     */
+    public static function build(string $personalizedContent, array $assets): string
+    {
+        $font = $assets['font'];
+        $logo = $assets['logo'] ?? null;
+        $headline = $assets['headline'] ?? null;
+        $signature = $assets['signature'] ?? null;
+
+        $logoHtml = $logo === null
+            ? ''
+            : '<div><img class="zert-logo" src="' . $logo . '" alt="RheinGedeck"></div>';
+
+        $headlineHtml = $headline === null
+            ? ''
+            : '<div><img class="zert-headline" src="' . $headline . '" alt="Zertifikat"></div>';
+
+        $signatureHtml = $signature === null
+            ? ''
+            : '<div class="zert-fuss-links"><img class="zert-signatur" src="' . $signature
+              . '" alt="RheinGedeck GmbH"></div>';
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="UTF-8"><style>
+  @font-face { font-family: "Zert"; font-weight: normal; font-style: normal;
+               src: url("{$font}") format("truetype"); }
+  @page { margin: 0; size: A4; }
+  body  { margin: 0; padding: 15mm 18mm 11mm; background: #FDF3E0;
+          font-family: "Zert", sans-serif; color: #3C4A63; text-align: center; }
+
+  /* Bilder — Positionen aus dem verifizierten Prototyp */
+  .zert-logo     { width:  40mm; }
+  .zert-headline { width: 116mm; margin: 4mm 0 6mm; }
+  .zert-signatur { width:  54mm; }
+
+  /* Fuss-Verankerung: Divs, nicht Tabelle (DomPDF-Einschraenkung) */
+  .zert-datum       { position: absolute; left:  18mm; width: 174mm; bottom: 46mm;
+                      font-size: 11.5pt; letter-spacing: 2px; text-transform: uppercase; }
+  .zert-fuss-links  { position: absolute; left:  24mm; width:  54mm; bottom: 12mm; text-align: center; }
+  .zert-fuss-rechts { position: absolute; left: 116mm; width:  66mm; bottom: 10mm; text-align: center; }
+
+  /* Vokabular fuer den Vorlageninhalt */
+  .lab    { font-size: 11pt;   letter-spacing: 2.5px; text-transform: uppercase; }
+  .val    { font-size: 15pt;   letter-spacing: 2px;   text-transform: uppercase; margin: 2mm 0 6mm; }
+  .kurs   { font-size: 24pt;   letter-spacing: 3px;   text-transform: uppercase; margin: 2mm 0 6mm; }
+  .intro  { font-size: 11.5pt; letter-spacing: 2px;   text-transform: uppercase; margin: 8mm 0 4mm; }
+  .skill  { font-size: 12pt;   letter-spacing: 1.6px; text-transform: uppercase; margin: 1.1mm 0; }
+  .leiter { font-size: 9.5pt;  letter-spacing: 1.5px; text-transform: uppercase; }
+  .cap    { font-size: 10pt;   letter-spacing: 2px;   text-transform: uppercase; }
+  .linie  { border-top: 1px solid #3C4A63; margin: 1.5mm 0; }
+
+  /* Sonderzeichen: Oswald hat kein ★. Ohne diesen Umweg steht "?" im PDF. */
+  .zeichen { font-family: "DejaVu Sans", sans-serif; font-size: 9pt; padding: 0 3mm; }
+
+  /* Basis-Styles fuer nackte Elemente: wer nur einen Satz ergaenzt, tippt
+     einen <p> und es passt. Die Klassen oben sind dann Feinsteuerung. */
+  p      { font-size: 11.5pt; letter-spacing: 1.5px; margin: 3mm 0; }
+  h2     { font-size: 16pt;   letter-spacing: 2px; text-transform: uppercase; margin: 4mm 0; font-weight: normal; }
+  strong { font-weight: normal; letter-spacing: 2.5px; }
+  li     { font-size: 12pt; letter-spacing: 1.6px; list-style: none; margin: 1.1mm 0; }
+</style></head><body>
+{$logoHtml}
+{$headlineHtml}
+{$personalizedContent}
+{$signatureHtml}
+</body></html>
+HTML;
+    }
+}
+```
+
+- [ ] **Step 4: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificateHtmlTest`
+Expected: PASS (8 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Support/TrainingCertificateHtml.php tests/Unit/TrainingCertificateHtmlTest.php
+git commit -m "feat(recruiting): HTML-Huelle des Schulungszertifikats als Support-Klasse"
+```
+
+---
+
+### Task 7: `TrainingLeaderResolver` + `schulung.`-Zweig in `resolveSource()`
+
+**Files:**
+- Create: `src/Support/TrainingLeaderResolver.php`
+- Modify: `src/Models/RecContractTemplate.php` (`resolveSource`, ab `:108`)
+- Test: `tests/Unit/TrainingLeaderResolverTest.php`
+
+**Interfaces:**
+- Consumes: nichts
+- Produces:
+  - `TrainingLeaderResolver::pickBooking(array $bookings): ?array` — wählt aus einer Liste von Buchungen `['id' => int, 'status' => string, 'starts_at' => string|null, 'interviewers' => list<string>]` die maßgebliche aus
+  - `TrainingLeaderResolver::leaderNames(array $bookings): string`
+  - `TrainingLeaderResolver::trainingDate(array $bookings): string` (Format `d.m.Y`)
+  - Neue Mapping-Quellen `schulung.datum` und `schulung.leiter`
+
+**Spec-Ausschnitt (wörtlich):**
+
+> Platzhalter-Zweig `schulung.` mit der Selektionsregel: `attended`, sortiert **`interview.starts_at DESC`, Tie-Break `bookings.id DESC`** — **bewusst nicht `latest('id')`**: Bei einer Umbuchung kann die zuletzt *erfasste* Buchung ein *früheres* Termindatum haben. Auf dem Dokument steht das Datum, das der Bewerber liest — es muss das späteste tatsächliche Teilnahmedatum sein, nicht das jüngste Insert.
+
+> `schulung.datum` → `starts_at` im Format `d.m.Y`. Keine Buchung gefunden oder Feld leer → leerer String (Semantik wie alle anderen Zweige).
+
+> Aufgelöst als `interview->interviewers->pluck('name')->join(', ')`. Keine Buchung, kein Interviewer oder leerer Name → leerer String, wie alle anderen Zweige von `resolveSource()`.
+
+> **Die Auflösung liegt in einer Support-Klasse, nicht inline in `resolveSource()`.** `resolveSource()` hat seit `511451c` fünf Parameter und drei Verzweigungsebenen; der `schulung.`-Zweig delegiert deshalb an eine eigene Klasse mit eigenem Unit-Test, so wie `Support/ResttagePlaceholder` und `Support/LookupLabelFormatter` es vormachen.
+
+> **Kein Typ-Filter auf die Terminart.** Kriterium ist `attended`. Ein Filter auf eine bestimmte `interview_type_id` wäre eine zweite, stillschweigende Definition von „Schulung" neben der, die das Modul benutzt.
+
+> `schulung.ort` wird für dieses Dokument **nicht** gemappt: `rec_interviews.location` enthält die volle Adresse (live geprüft: `"RheinGedeck GmbH, Hansaallee 321 / Halle 33a, 40549 Düsseldorf"`), in „DÜSSELDORF, DEN …" gehört ein Stadtname. Der Ort bleibt Literaltext in der Vorlage.
+
+- [ ] **Step 1: Failing test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\TrainingLeaderResolver;
+
+class TrainingLeaderResolverTest extends TestCase
+{
+    private function booking(int $id, string $status, ?string $startsAt, array $interviewers): array
+    {
+        return [
+            'id' => $id,
+            'status' => $status,
+            'starts_at' => $startsAt,
+            'interviewers' => $interviewers,
+        ];
+    }
+
+    public function testNurAttendedZaehlt(): void
+    {
+        $bookings = [
+            $this->booking(1, 'no_show', '2026-07-01 14:00:00', ['Falsch']),
+            $this->booking(2, 'attended', '2026-06-01 14:00:00', ['Richtig']),
+        ];
+
+        $this->assertSame('Richtig', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testSpaetesterTerminGewinntNichtDasJuengsteInsert(): void
+    {
+        // Umbuchungsfall: Buchung 9 wurde SPAETER erfasst, hat aber ein
+        // FRUEHERES Termindatum. Auf dem Dokument muss das spaeteste
+        // tatsaechliche Teilnahmedatum stehen.
+        $bookings = [
+            $this->booking(3, 'attended', '2026-07-24 14:00:00', ['Spaeter Termin']),
+            $this->booking(9, 'attended', '2026-06-02 14:00:00', ['Juengeres Insert']),
+        ];
+
+        $this->assertSame('Spaeter Termin', TrainingLeaderResolver::leaderNames($bookings));
+        $this->assertSame('24.07.2026', TrainingLeaderResolver::trainingDate($bookings));
+    }
+
+    public function testTieBreakUeberIdAbsteigend(): void
+    {
+        $bookings = [
+            $this->booking(4, 'attended', '2026-07-24 14:00:00', ['Alt']),
+            $this->booking(7, 'attended', '2026-07-24 14:00:00', ['Neu']),
+        ];
+
+        $this->assertSame('Neu', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testZweiInterviewerWerdenVerbunden(): void
+    {
+        $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', ['Michel Zimmer', 'Anna Bergmann'])];
+
+        $this->assertSame('Michel Zimmer, Anna Bergmann', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testKeinInterviewerErgibtLeerenString(): void
+    {
+        $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', [])];
+
+        $this->assertSame('', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testLeereNamenWerdenAussortiert(): void
+    {
+        $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', ['', '  ', 'Echt'])];
+
+        $this->assertSame('Echt', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testKeineAttendedBuchungErgibtLeereStrings(): void
+    {
+        $bookings = [$this->booking(1, 'registered', '2026-07-24 14:00:00', ['X'])];
+
+        $this->assertSame('', TrainingLeaderResolver::leaderNames($bookings));
+        $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings));
+    }
+
+    public function testBuchungOhneTerminErgibtLeeresDatum(): void
+    {
+        $bookings = [$this->booking(1, 'attended', null, ['X'])];
+
+        $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings));
+        // Der Leiter ist trotzdem bekannt — die Buchung bleibt waehlbar.
+        $this->assertSame('X', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testLeereListe(): void
+    {
+        $this->assertSame('', TrainingLeaderResolver::leaderNames([]));
+        $this->assertSame('', TrainingLeaderResolver::trainingDate([]));
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingLeaderResolverTest`
+Expected: FAIL — `Class "…TrainingLeaderResolver" not found`
+
+- [ ] **Step 3: Support-Klasse schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Support;
+
+/**
+ * Waehlt die massgebliche Schulungsbuchung und liefert Datum und
+ * Schulungsleiter fuer die schulung.*-Platzhalter.
+ *
+ * Selektionsregel: status='attended', sortiert nach Termindatum absteigend,
+ * Tie-Break Buchungs-ID absteigend.
+ *
+ * Bewusst NICHT "juengste Buchung": bei einer Umbuchung kann die zuletzt
+ * erfasste Buchung ein frueheres Termindatum haben. Auf dem Dokument steht
+ * das Datum, das der Bewerber liest — es muss das spaeteste tatsaechliche
+ * Teilnahmedatum sein.
+ *
+ * Kein Filter auf die Terminart: Kriterium ist 'attended'. Ein Filter auf
+ * eine interview_type_id waere eine zweite, stillschweigende Definition von
+ * "Schulung" neben der, die das Modul benutzt.
+ *
+ * Reine Datenstrukturen als Eingabe (keine Models) — damit unit-testbar
+ * ohne Laravel, Muster wie Support/ResttagePlaceholder.
+ */
+final class TrainingLeaderResolver
+{
+    /**
+     * @param list<array{id: int, status: string, starts_at: ?string, interviewers: list<string>}> $bookings
+     * @return array{id: int, status: string, starts_at: ?string, interviewers: list<string>}|null
+     */
+    public static function pickBooking(array $bookings): ?array
+    {
+        $attended = array_values(array_filter(
+            $bookings,
+            fn (array $b) => ($b['status'] ?? null) === 'attended'
+        ));
+
+        if ($attended === []) {
+            return null;
+        }
+
+        usort($attended, function (array $a, array $b) {
+            // Buchungen ohne Termin sortieren nach hinten: ein bekanntes
+            // Datum schlaegt ein unbekanntes.
+            $aTime = $a['starts_at'] === null ? '' : (string) $a['starts_at'];
+            $bTime = $b['starts_at'] === null ? '' : (string) $b['starts_at'];
+
+            $byDate = strcmp($bTime, $aTime);
+            if ($byDate !== 0) {
+                return $byDate;
+            }
+
+            return ((int) $b['id']) <=> ((int) $a['id']);
+        });
+
+        return $attended[0];
+    }
+
+    /** @param list<array<string,mixed>> $bookings */
+    public static function leaderNames(array $bookings): string
+    {
+        $booking = self::pickBooking($bookings);
+        if ($booking === null) {
+            return '';
+        }
+
+        $names = array_values(array_filter(
+            array_map(
+                fn ($n) => trim((string) $n),
+                $booking['interviewers'] ?? []
+            ),
+            fn (string $n) => $n !== ''
+        ));
+
+        return implode(', ', $names);
+    }
+
+    /** @param list<array<string,mixed>> $bookings */
+    public static function trainingDate(array $bookings): string
+    {
+        $booking = self::pickBooking($bookings);
+        $raw = $booking['starts_at'] ?? null;
+
+        if ($booking === null || $raw === null || trim((string) $raw) === '') {
+            return '';
+        }
+
+        try {
+            return (new \DateTimeImmutable((string) $raw))->format('d.m.Y');
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingLeaderResolverTest`
+Expected: PASS (9 tests)
+
+- [ ] **Step 5: `schulung.`-Zweig in `resolveSource()` einhängen**
+
+In `src/Models/RecContractTemplate.php`, in `resolveSource()` **vor** dem `meta.`-Zweig einfügen:
+
+```php
+        if (str_starts_with($source, 'schulung.')) {
+            $field = substr($source, strlen('schulung.'));
+
+            // Buchungen einmal in eine reine Datenstruktur uebersetzen — die
+            // Auswahl- und Formatlogik liegt in TrainingLeaderResolver und ist
+            // dort ohne Laravel testbar.
+            $bookings = $applicant->interviewBookings()
+                ->with('interview.interviewers:id,name')
+                ->get()
+                ->map(fn ($b) => [
+                    'id' => (int) $b->id,
+                    'status' => (string) $b->status,
+                    'starts_at' => $b->interview?->starts_at?->format('Y-m-d H:i:s'),
+                    'interviewers' => $b->interview
+                        ? $b->interview->interviewers->pluck('name')->all()
+                        : [],
+                ])
+                ->all();
+
+            return match ($field) {
+                'datum' => TrainingLeaderResolver::trainingDate($bookings),
+                'leiter' => TrainingLeaderResolver::leaderNames($bookings),
+                // schulung.ort bewusst NICHT gemappt: rec_interviews.location
+                // enthaelt die volle Adresse, in "DUESSELDORF, DEN ..." gehoert
+                // ein Stadtname. Der Ort bleibt Literaltext in der Vorlage.
+                default => '',
+            };
+        }
+```
+
+Import ergänzen: `use Platform\Recruiting\Support\TrainingLeaderResolver;`
+
+- [ ] **Step 6: Beziehungsname gegenprüfen**
+
+Run: `grep -n "function interviewBookings" src/Models/RecApplicant.php`
+Expected: Treffer auf `:325`. Gegen `511451c` verifiziert — dieser Schritt fängt nur ab, dass sich der Stand inzwischen bewegt hat.
+
+- [ ] **Step 7: Syntax + Gesamtsuite**
+
+Run: `php -l src/Models/RecContractTemplate.php && /Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Expected: `No syntax errors detected`, gesamte Suite PASS
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/Support/TrainingLeaderResolver.php tests/Unit/TrainingLeaderResolverTest.php \
+        src/Models/RecContractTemplate.php
+git commit -m "feat(recruiting): schulung.datum und schulung.leiter als Platzhalter"
+```
+
+---
+
+### Task 8: `RecTrainingCertificate` + `IssueTrainingCertificateService`
+
+**Files:**
+- Create: `src/Models/RecTrainingCertificate.php`
+- Create: `src/Services/IssueTrainingCertificateService.php`
+- Test: `tests/Integration/IssueTrainingCertificateServiceTest.php`
+
+**Interfaces:**
+- Consumes: `RecContractTemplate::TYPE_CERTIFICATE`, `scopeCertificates()` (Task 3); Tabelle aus Task 2
+- Produces: `IssueTrainingCertificateService::issue(RecApplicant $applicant, int $templateId, ?int $issuedByUserId): RecTrainingCertificate` — wirft `\InvalidArgumentException`, wenn die Vorlage nicht `type='certificate'` ist oder inaktiv; `firstOrCreate`-Semantik gegen das Unique-Constraint
+
+**Spec-Ausschnitt (wörtlich):**
+
+> `IssueTrainingCertificateService`, Vorlagen-Auflösung — **Gegenrichtung**: darf hier ein *Vertrag* als Zertifikat ausgestellt werden? Soll-Filter: **`type='certificate'`**.
+
+> Nebeneffekt: Wird ein abgelehnter Bewerber später doch eingestellt, greift das Constraint und Weg (b) legt kein zweites Zertifikat derselben Vorlage an. Die Ausstellung behandelt diesen Fall als **Normalfall** (`firstOrCreate`-Semantik), nicht als Fehler.
+
+> `personalized_content` (longText, Snapshot). **Der Hintergrund gehört NICHT in den Snapshot.** Er wird erst beim Rendern aufgelöst, exakt wie der Stempel. Andernfalls lägen ~550 KB Base64 **pro ausgestelltem Zertifikat** in `personalized_content`.
+
+> `uuid` (unique, UuidV7 via `booted()` wie überall im Modul)
+
+- [ ] **Step 1: Failing test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Events\Dispatcher;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Models\RecContractTemplate;
+use Platform\Recruiting\Models\RecTrainingCertificate;
+
+class IssueTrainingCertificateServiceTest extends TestCase
+{
+    private const TEAM = 3;
+
+    public static function setUpBeforeClass(): void
+    {
+        $container = Container::getInstance();
+        $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []]]));
+
+        $capsule = new Capsule();
+        $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $capsule->setEventDispatcher(new Dispatcher($container));
+        $capsule->setAsGlobal();
+        $capsule->bootEloquent();
+
+        $capsule->schema()->create('rec_contract_templates', function ($t) {
+            $t->id();
+            $t->string('uuid', 36)->unique();
+            $t->string('name');
+            $t->string('code', 20)->nullable();
+            $t->string('type', 20)->default('contract');
+            $t->longText('content')->nullable();
+            $t->text('field_mappings')->nullable();
+            $t->boolean('requires_signature')->default(true);
+            $t->boolean('is_active')->default(true);
+            $t->unsignedInteger('sort_order')->default(0);
+            $t->unsignedBigInteger('team_id');
+            $t->unsignedBigInteger('created_by_user_id')->nullable();
+            $t->timestamps();
+            $t->softDeletes();
+        });
+
+        $capsule->schema()->create('rec_training_certificates', function ($t) {
+            $t->id();
+            $t->string('uuid', 36)->unique();
+            $t->unsignedBigInteger('team_id');
+            $t->unsignedBigInteger('rec_applicant_id');
+            $t->unsignedBigInteger('rec_contract_template_id');
+            $t->longText('personalized_content')->nullable();
+            $t->timestamp('issued_at')->nullable();
+            $t->unsignedBigInteger('issued_by_user_id')->nullable();
+            $t->timestamp('wa_sent_at')->nullable();
+            $t->timestamps();
+            $t->unique(['rec_applicant_id', 'rec_contract_template_id'], 'rec_training_cert_applicant_tpl_unique');
+        });
+    }
+
+    protected function setUp(): void
+    {
+        RecTrainingCertificate::query()->delete();
+        RecContractTemplate::query()->forceDelete();
+    }
+
+    private function template(array $attrs): RecContractTemplate
+    {
+        return RecContractTemplate::create(array_merge([
+            'name' => 'Zertifikat Service',
+            'team_id' => self::TEAM,
+            'code' => 'ZERT-SERVICE',
+            'type' => 'certificate',
+            'content' => '<div class="val">Snapshot</div>',
+        ], $attrs));
+    }
+
+    public function testVertragsvorlageWirdAbgewiesen(): void
+    {
+        $tpl = $this->template(['code' => 'AV-010', 'type' => 'contract']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/type=certificate/');
+
+        (new \Platform\Recruiting\Services\IssueTrainingCertificateService())
+            ->issueFromSnapshot(self::TEAM, 42, $tpl->id, '<p>x</p>', null);
+    }
+
+    public function testInaktiveVorlageWirdAbgewiesen(): void
+    {
+        $tpl = $this->template(['is_active' => false]);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        (new \Platform\Recruiting\Services\IssueTrainingCertificateService())
+            ->issueFromSnapshot(self::TEAM, 42, $tpl->id, '<p>x</p>', null);
+    }
+
+    public function testAusstellungLegtZeileMitSnapshotUndUuidAn(): void
+    {
+        $tpl = $this->template([]);
+
+        $cert = (new \Platform\Recruiting\Services\IssueTrainingCertificateService())
+            ->issueFromSnapshot(self::TEAM, 42, $tpl->id, '<div class="val">ERIKA</div>', 7);
+
+        $this->assertNotEmpty($cert->uuid);
+        $this->assertSame('<div class="val">ERIKA</div>', $cert->personalized_content);
+        $this->assertSame(7, $cert->issued_by_user_id);
+        $this->assertNotNull($cert->issued_at);
+        $this->assertNull($cert->wa_sent_at);
+    }
+
+    public function testZweiteAusstellungDerselbenVorlageIstNormalfall(): void
+    {
+        $tpl = $this->template([]);
+        $svc = new \Platform\Recruiting\Services\IssueTrainingCertificateService();
+
+        $first = $svc->issueFromSnapshot(self::TEAM, 42, $tpl->id, '<p>eins</p>', null);
+        $second = $svc->issueFromSnapshot(self::TEAM, 42, $tpl->id, '<p>zwei</p>', null);
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, RecTrainingCertificate::query()->count());
+        // Snapshot der ersten Ausstellung bleibt stehen — ein Dokument, das
+        // schon zugestellt wurde, darf sich nicht nachtraeglich aendern.
+        $this->assertSame('<p>eins</p>', $second->personalized_content);
+    }
+
+    public function testAndereVorlageFuerDenselbenBewerberGehtDurch(): void
+    {
+        $a = $this->template(['code' => 'ZERT-SERVICE']);
+        $b = $this->template(['code' => 'ZERT-KUECHE', 'name' => 'Zertifikat Kueche']);
+        $svc = new \Platform\Recruiting\Services\IssueTrainingCertificateService();
+
+        $svc->issueFromSnapshot(self::TEAM, 42, $a->id, '<p>a</p>', null);
+        $svc->issueFromSnapshot(self::TEAM, 42, $b->id, '<p>b</p>', null);
+
+        $this->assertSame(2, RecTrainingCertificate::query()->count());
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter IssueTrainingCertificateServiceTest`
+Expected: FAIL — `Class "…RecTrainingCertificate" not found`
+
+- [ ] **Step 3: Model schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Symfony\Component\Uid\UuidV7;
+
+/**
+ * Ein ausgestelltes Schulungszertifikat.
+ *
+ * Bewusst KEIN RecContract: eine Contract-Zeile wuerde hasAnyContractSent()
+ * wahr machen (worauf die Versand-Guards des Nicht-EU-Umbaus aufsetzen) und
+ * in Portal-, Employees-Show- und ZAS-Vertragslisten auftauchen.
+ *
+ * personalized_content ist der Snapshot des Vorlageninhalts nach der
+ * Platzhalter-Ersetzung. Die Huelle (Layout, Schrift, Bilder) steckt NICHT
+ * darin — sie wird beim Rendern aufgeloest, wie der Firmenstempel bei
+ * Vertraegen. Sonst lagen ~550 KB Base64 pro Zertifikat in der DB.
+ */
+class RecTrainingCertificate extends Model
+{
+    protected $table = 'rec_training_certificates';
+
+    protected $fillable = [
+        'uuid',
+        'team_id',
+        'rec_applicant_id',
+        'rec_contract_template_id',
+        'personalized_content',
+        'issued_at',
+        'issued_by_user_id',
+        'wa_sent_at',
+    ];
+
+    protected $casts = [
+        'issued_at' => 'datetime',
+        'wa_sent_at' => 'datetime',
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $model) {
+            if (empty($model->uuid)) {
+                do {
+                    $uuid = UuidV7::generate();
+                } while (self::where('uuid', $uuid)->exists());
+                $model->uuid = $uuid;
+            }
+        });
+    }
+
+    public function applicant(): BelongsTo
+    {
+        return $this->belongsTo(RecApplicant::class, 'rec_applicant_id');
+    }
+
+    public function contractTemplate(): BelongsTo
+    {
+        return $this->belongsTo(RecContractTemplate::class, 'rec_contract_template_id');
+    }
+}
+```
+
+- [ ] **Step 4: Service schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Services;
+
+use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContractTemplate;
+use Platform\Recruiting\Models\RecTrainingCertificate;
+
+/**
+ * Stellt ein Schulungszertifikat aus.
+ *
+ * Gegenrichtungs-Guard: hier wird geprueft, dass keine VERTRAGSvorlage als
+ * Zertifikat ausgestellt wird. Die uebrigen type-Filter im Modul schuetzen
+ * die andere Richtung (kein Zertifikat als Vertrag) — diese Stelle ist die
+ * einzige, die den umgekehrten Fehlgriff abfangen kann.
+ *
+ * firstOrCreate-Semantik: das Unique-Constraint (rec_applicant_id,
+ * rec_contract_template_id) ist eine Invariante, kein Fehlerfall. Wird ein
+ * abgelehnter Bewerber spaeter doch eingestellt, laeuft die automatische
+ * Ausstellung erneut an — und soll das bestehende Zertifikat zurueckgeben,
+ * nicht abbrechen. Der Snapshot der ersten Ausstellung bleibt stehen: ein
+ * bereits zugestelltes Dokument darf sich nicht nachtraeglich aendern.
+ */
+class IssueTrainingCertificateService
+{
+    /** Personalisiert und stellt aus. */
+    public function issue(
+        RecApplicant $applicant,
+        int $templateId,
+        ?int $issuedByUserId
+    ): RecTrainingCertificate {
+        $template = $this->resolveTemplate((int) $applicant->team_id, $templateId);
+
+        return $this->issueFromSnapshot(
+            (int) $applicant->team_id,
+            (int) $applicant->id,
+            $template->id,
+            $template->personalizeContent($applicant),
+            $issuedByUserId
+        );
+    }
+
+    /**
+     * Ausstellung mit fertigem Snapshot — getrennter Einstieg, damit die
+     * Persistenz ohne Platzhalter-Engine testbar ist.
+     */
+    public function issueFromSnapshot(
+        int $teamId,
+        int $applicantId,
+        int $templateId,
+        string $personalizedContent,
+        ?int $issuedByUserId
+    ): RecTrainingCertificate {
+        $this->resolveTemplate($teamId, $templateId);
+
+        $existing = RecTrainingCertificate::where('rec_applicant_id', $applicantId)
+            ->where('rec_contract_template_id', $templateId)
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        return RecTrainingCertificate::create([
+            'team_id' => $teamId,
+            'rec_applicant_id' => $applicantId,
+            'rec_contract_template_id' => $templateId,
+            'personalized_content' => $personalizedContent,
+            'issued_at' => now(),
+            'issued_by_user_id' => $issuedByUserId,
+        ]);
+    }
+
+    private function resolveTemplate(int $teamId, int $templateId): RecContractTemplate
+    {
+        $template = RecContractTemplate::where('team_id', $teamId)
+            ->where('id', $templateId)
+            ->certificates()
+            ->where('is_active', true)
+            ->first();
+
+        if (!$template) {
+            throw new \InvalidArgumentException(
+                "Vorlage #{$templateId} ist keine aktive Zertifikat-Vorlage "
+                . "(type=certificate) im Team #{$teamId}."
+            );
+        }
+
+        return $template;
+    }
+}
+```
+
+- [ ] **Step 5: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter IssueTrainingCertificateServiceTest`
+Expected: PASS (5 tests)
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/Models/RecTrainingCertificate.php src/Services/IssueTrainingCertificateService.php \
+        tests/Integration/IssueTrainingCertificateServiceTest.php
+git commit -m "feat(recruiting): Zertifikat-Ablage und Ausstellungs-Service"
+```
+
+---
+
+### Task 9: Render-Test — Erstnachweis, dass das PDF stimmt
+
+**Files:**
+- Test: `tests/Integration/TrainingCertificateRenderTest.php`
+
+**Interfaces:**
+- Consumes: `TrainingCertificateHtml::build()` (Task 6), `TrainingCertificatePdfOptions::for()` (Task 5), `TrainingCertificateAssets::resolve()` (Task 5a), `FontGlyphCoverage::missing()` (Task 4), `ResttagePlaceholder::hasUnresolvedPlaceholder()` (Bestand, `src/Support/ResttagePlaceholder.php:88-91`), Assets-Dateien aus Task 4
+- Produces: nichts — reiner Nachweis
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Render-Test (Erstnachweis, nicht Absicherung — der Prototyp ist kein Code).** Läuft als Integrationstest mit `Dompdf\Dompdf` direkt und **den Optionen aus `TrainingCertificatePdfOptions`**, nicht mit selbst gesetzten:
+> 1. **Genau eine Seite** — `preg_match_all('/\/Type\s*\/Page[^s]/')` auf `$dompdf->output()`, auch mit Worst-Case-Inhalt: langer Doppelname, zwei Interviewer, längste Kursbezeichnung.
+> 2. **Die Schrift ist eingebettet** — `preg_match_all('/\/BaseFont\s*\/([A-Za-z0-9+\-]+)/')` enthält `Oswald-SemiBold`.
+> 3. **Keine fehlenden Glyphen** — `FontGlyphCoverage::missing()` auf dem personalisierten Inhalt ist leer.
+> 4. **Keine unaufgelösten Platzhalter** — `ResttagePlaceholder::hasUnresolvedPlaceholder()` auf dem personalisierten Inhalt ist `false`.
+
+> **Mechanik-Auflage: keine `grep`- und keine Literal-String-Assertions.** `grep -c "/Type /Page"` und `grep -c "/BaseFont"` liefern auf einem DomPDF-PDF je 0 Treffer. Wer so assertiert, baut einen Test, der immer grün ist.
+
+**Gemessene Referenz aus dem Prototyp** (`docs/zertifikat/mockups/prototyp/render_live.php`, mit `isRemoteEnabled=false`): 315 802 Bytes, 1 Seite, `SUBAAB+Oswald-SemiBold` + `SUBAAC+DejaVuSans`, 6 Bildobjekte.
+
+**Haltung bei Fehlschlag — verbindlich:** Dieser Task ist ein **Erstnachweis**, keine Absicherung. Der Prototyp ist kein Code; bis hier grün ist, ist nicht belegt, dass die eine Seite und die eingebettete Schrift auch aus dem gebauten Pfad herauskommen. Schlägt eine Assertion fehl, ist das ein **Befund über den gebauten Pfad** — kein Anlass, die Erwartung anzupassen. Also: nicht die Seitenzahl-Erwartung auf 2 setzen, nicht die Font-Assertion aufweichen, nicht den Glyph-Test überspringen. Ursache im Pfad suchen (meist `chroot`, Asset-Pfad oder ein Abstand im Fließteil) und dort beheben.
+
+- [ ] **Step 1: Test schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Dompdf\Dompdf;
+use Dompdf\Options;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\FontGlyphCoverage;
+use Platform\Recruiting\Support\ResttagePlaceholder;
+use Platform\Recruiting\Support\TrainingCertificateAssets;
+use Platform\Recruiting\Support\TrainingCertificateHtml;
+use Platform\Recruiting\Support\TrainingCertificatePdfOptions;
+
+/**
+ * Erstnachweis, dass das Zertifikat-PDF stimmt.
+ *
+ * Nutzt bewusst DIESELBEN Optionen wie der Controller
+ * (TrainingCertificatePdfOptions) — mit selbst gesetzten Optionen wuerde der
+ * Test eine andere Engine pruefen als die ausgelieferte und waere gruen ohne
+ * Aussage.
+ *
+ * Assertions per PCRE mit \s*: grep und Literalvergleiche finden die
+ * PDF-Marker NICHT (Marker ueber Zeilenumbruch verteilt).
+ */
+class TrainingCertificateRenderTest extends TestCase
+{
+    private const MODULE_ROOT = __DIR__ . '/../..';
+
+    /** Derselbe Resolver, den Controller und Editor-Vorschau benutzen. */
+    private function assets(): array
+    {
+        return TrainingCertificateAssets::resolve(
+            (string) realpath(self::MODULE_ROOT . '/resources')
+        );
+    }
+
+    private function fontPath(): string
+    {
+        return $this->assets()['font'];
+    }
+
+    /** Inhalt wie ihn der Seed-Command anlegt, nach Platzhalter-Ersetzung. */
+    private function content(string $name, string $leiter, string $kurs): string
+    {
+        $stern = '<span class="zeichen">&#9733;</span>';
+        $skills = '';
+        foreach ([
+            'Fachgerechte Tellerschulung 2-er Obergriff',
+            'Stehempfang' . $stern . 'Flying Buffet',
+            'Buffetservice',
+            '3-Gang-Menü fachgerecht eindecken',
+            'Weinservice',
+            'Gästebetreuung und Kommunikation',
+        ] as $skill) {
+            $skills .= '<div class="skill">' . $stern . '<span>' . $skill . '</span>' . $stern . '</div>';
+        }
+
+        return '<div class="lab">Herr / Frau</div>'
+            . '<div class="val">' . $name . '</div>'
+            . '<div class="lab">hat am Kurs</div>'
+            . '<div class="kurs">' . $kurs . '</div>'
+            . '<div class="lab">am</div>'
+            . '<div class="val">24.07.2026</div>'
+            . '<div class="lab">mit Erfolg teilgenommen.</div>'
+            . '<div class="intro">Bei der Schulung wurden folgende Grundkenntnisse vermittelt:</div>'
+            . $skills
+            . '<div class="zert-datum">Düsseldorf, den 05.08.2026</div>'
+            . '<div class="zert-fuss-rechts"><div class="leiter">' . $leiter . '</div>'
+            . '<div class="linie"></div><div class="cap">Schulungsleiter</div></div>';
+    }
+
+    private function render(string $content): string
+    {
+        $assets = $this->assets();
+        $html = TrainingCertificateHtml::build($content, $assets);
+
+        $options = new Options();
+        foreach (TrainingCertificatePdfOptions::for($assets['font'], (string) realpath(self::MODULE_ROOT)) as $k => $v) {
+            $options->set($k, $v);
+        }
+        $fontCache = sys_get_temp_dir() . '/zert-fontcache-' . getmypid();
+        @mkdir($fontCache, 0777, true);
+        $options->set('fontDir', $fontCache);
+        $options->set('fontCache', $fontCache);
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html);
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+
+        return $dompdf->output();
+    }
+
+    private function pageCount(string $pdf): int
+    {
+        preg_match_all('/\/Type\s*\/Page[^s]/', $pdf, $m);
+
+        return count($m[0]);
+    }
+
+    /** @return list<string> */
+    private function baseFonts(string $pdf): array
+    {
+        preg_match_all('/\/BaseFont\s*\/([A-Za-z0-9+\-]+)/', $pdf, $m);
+
+        return array_values(array_unique($m[1]));
+    }
+
+    public function testAlleAssetsSindImRepoVorhanden(): void
+    {
+        // Faellt hier etwas auf, fehlt es auch bei der Ausstellung — derselbe
+        // Resolver.
+        $this->assertSame([], $this->assets()['missing']);
+    }
+
+    public function testNormalfallIstEineSeiteMitEingebetteterSchrift(): void
+    {
+        $pdf = $this->render($this->content('Erika Mustermann', 'Michel Zimmer', 'Service-Basisschulung'));
+
+        $this->assertSame(1, $this->pageCount($pdf));
+        $this->assertContains(
+            'Oswald-SemiBold',
+            array_map(fn (string $f) => preg_replace('/^[A-Z]+\+/', '', $f), $this->baseFonts($pdf))
+        );
+    }
+
+    public function testWorstCaseBleibtEineSeite(): void
+    {
+        $pdf = $this->render($this->content(
+            'Maximiliane Charlotte von Hohenberg-Lichtenstein',
+            'Michel Zimmer, Anna Bergmann',
+            'Service-Basisschulung für Großveranstaltungen'
+        ));
+
+        $this->assertSame(1, $this->pageCount($pdf));
+    }
+
+    public function testKeineFehlendenGlyphenImInhalt(): void
+    {
+        // Die ★ stehen in <span class="zeichen"> und laufen damit in DejaVu.
+        // Geprueft wird der Rest gegen Oswald.
+        $content = $this->content('Erika Mustermann', 'Michel Zimmer', 'Service-Basisschulung');
+        $ohneZeichenSpans = preg_replace('#<span class="zeichen">.*?</span>#', '', $content);
+
+        $this->assertSame([], FontGlyphCoverage::missing($ohneZeichenSpans, $this->fontPath()));
+    }
+
+    public function testKeineUnaufgeloestenPlatzhalter(): void
+    {
+        $content = $this->content('Erika Mustermann', 'Michel Zimmer', 'Service-Basisschulung');
+
+        $this->assertFalse(ResttagePlaceholder::hasUnresolvedPlaceholder($content));
+    }
+
+    public function testEinUebriggebliebenerPlatzhalterWirdErkannt(): void
+    {
+        // Negativkontrolle: der Guard muss ausloesen, sonst ist Assertion 4
+        // wertlos.
+        $this->assertTrue(
+            ResttagePlaceholder::hasUnresolvedPlaceholder('<div class="val">{{kontakt_vorname}}</div>')
+        );
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificateRenderTest`
+Expected: PASS (6 tests). Bei `testNormalfall…` FAIL mit fehlendem `Oswald-SemiBold`: der `chroot` greift nicht — `TrainingCertificatePdfOptions::for()` prüfen, der Font-Pfad muss unterhalb des übergebenen chroot liegen. Bei `testAlleAssetsSindImRepoVorhanden` FAIL: Task 4 Step 3 wurde nicht ausgeführt oder eine Datei fehlt im Repo.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/Integration/TrainingCertificateRenderTest.php
+git commit -m "test(recruiting): Render-Nachweis Zertifikat-PDF (Seite, Schrift, Glyphen, Platzhalter)"
+```
+
+---
+
+### Task 10: PDF-Controller + Public-Route
+
+**Files:**
+- Create: `src/Http/Controllers/TrainingCertificatePdfController.php`
+- Modify: `routes/public.php`
+
+**Interfaces:**
+- Consumes: `RecTrainingCertificate` (Task 8), `TrainingCertificateHtml` (Task 6), `TrainingCertificatePdfOptions` (Task 5), `TrainingCertificateAssets::resolve()` (Task 5a)
+- Produces: benannte Route `recruiting.public.training-certificate` mit Pfad `/zertifikat/{uuid}`
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Route `/recruiting/zertifikat/{uuid}`**, aufgelöst über `rec_training_certificates.uuid`. Neu in `routes/public.php`, damit unter `web` + `NoCacheHeaders`.
+
+> **Nicht über den Applicant-Token.** Der Applicant-Token öffnet auch Bewerbungsformular und `contract-pdf`, unbegrenzt und ohne Rotation. Ihn per WhatsApp **aktiv erneut** zu versenden ist eine neu geöffnete Tür in eine bestehende Lücke — der Trostpreis soll das Zertifikat zustellen, nicht den Generalschlüssel.
+
+> **Kein Status-Guard im Controller** — bewusst: der abgelehnte, inaktive Bewerber ist der Normalfall dieses Dokuments. Geprüft wird nur die Existenz der Zertifikat-Zeile.
+
+> Der Controller ruft danach `Pdf::loadHTML(...)`, überträgt die Optionen aus der Klasse und liefert per **`->stream()`** aus, nicht `->download()`: der WhatsApp-Link soll das PDF anzeigen, nicht einen Download erzwingen.
+
+> Fehlt ein Bild, rendert das PDF ohne dieses Element (`null` statt Fehler); fehlt die Schrift, läuft alles in Helvetica. Beides ist kein Absturz und beides ist falsch — deshalb loggt **der aufrufende Controller** jedes fehlende Asset als `warning`; die Hülle selbst bleibt laravel-frei und lässt fehlende Bilder still weg.
+
+- [ ] **Step 1: Controller schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Http\Controllers;
+
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Log;
+use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Support\TrainingCertificateAssets;
+use Platform\Recruiting\Support\TrainingCertificateHtml;
+use Platform\Recruiting\Support\TrainingCertificatePdfOptions;
+
+/**
+ * Liefert ein ausgestelltes Schulungszertifikat als PDF.
+ *
+ * Kein Status-Guard: der abgelehnte, inaktive Bewerber ist der Normalfall
+ * dieses Dokuments. Geprueft wird nur, dass die Zertifikat-Zeile existiert.
+ *
+ * Adressiert wird ueber die Zertifikat-uuid, NICHT ueber den Applicant-Token:
+ * der oeffnet auch Bewerbungsformular und Vertrags-PDFs, unbegrenzt und ohne
+ * Rotation. Die uuid oeffnet genau ein Dokument.
+ *
+ * stream() statt download(): der Link kommt per WhatsApp, das PDF soll
+ * angezeigt werden und nicht als Datei im Downloadordner landen.
+ */
+class TrainingCertificatePdfController extends Controller
+{
+    public function __invoke(string $uuid)
+    {
+        $certificate = RecTrainingCertificate::where('uuid', $uuid)
+            ->with('contractTemplate')
+            ->firstOrFail();
+
+        $assets = TrainingCertificateAssets::resolve(
+            (string) realpath(__DIR__ . '/../../../resources')
+        );
+
+        // Fehlende Assets sind kein Absturz, aber auch nicht harmlos: das PDF
+        // kaeme ohne Logo/Headline/Unterschrift raus, oder — bei fehlender
+        // Schrift — komplett in Helvetica. Der Resolver bleibt laravel-frei,
+        // das Loggen ist deshalb Sache dieses Controllers.
+        if ($assets['missing'] !== []) {
+            Log::warning('[TrainingCertificatePdfController] Assets fehlen', [
+                'certificate_uuid' => $uuid,
+                'missing' => $assets['missing'],
+            ]);
+        }
+
+        $html = TrainingCertificateHtml::build($certificate->personalized_content ?? '', $assets);
+
+        $pdf = Pdf::loadHTML($html);
+        foreach (TrainingCertificatePdfOptions::for($assets['font'], (string) realpath(base_path())) as $key => $value) {
+            $pdf->setOption($key, $value);
+        }
+
+        return $pdf->setPaper('a4')->stream('zertifikat.pdf');
+    }
+}
+```
+
+- [ ] **Step 2: Route ergänzen**
+
+Am Ende von `routes/public.php`:
+
+```php
+// Schulungszertifikat-PDF (public, ueber die Zertifikat-uuid).
+// Bewusst nicht ueber den Applicant-Token: der oeffnet auch
+// Bewerbungsformular und Vertrags-PDFs.
+Route::get('/zertifikat/{uuid}', [\Platform\Recruiting\Http\Controllers\TrainingCertificatePdfController::class, '__invoke'])
+    ->name('recruiting.public.training-certificate');
+```
+
+- [ ] **Step 3: Syntax prüfen**
+
+Run: `php -l src/Http/Controllers/TrainingCertificatePdfController.php && php -l routes/public.php`
+Expected: beide `No syntax errors detected`
+
+- [ ] **Step 4: Route-Registrierung prüfen**
+
+Run: `grep -n "training-certificate" routes/public.php`
+Expected: eine Zeile mit dem Routennamen
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/Http/Controllers/TrainingCertificatePdfController.php routes/public.php
+git commit -m "feat(recruiting): Public-Route und Controller fuer Zertifikat-PDF"
+```
+
+---
+
+### Task 11: Ausstellung im Ablehnen-Zweig des HR-Schreibtischs
+
+**Files:**
+- Modify: `src/Services/HrDeskRoutingService.php` (`rejectCase` `:276-283`, `applyRejection` `:285`)
+- Modify: `src/Livewire/HrDesk/Index.php`
+- Modify: `resources/views/livewire/hr-desk/index.blade.php` (Resolve-Modal `:333-378`)
+- Test: `tests/Unit/CertificateIssuanceEligibilityTest.php`
+
+**Interfaces:**
+- Consumes: `IssueTrainingCertificateService::issue()` (Task 8), `RecContractTemplate::scopeCertificates()` (Task 3)
+- Produces: `CertificateIssuanceEligibility::isAvailable(bool $hasAttendedBooking, bool $templateExists, bool $alreadyIssued): bool`
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Weg (a): Ablehnung am HR-Schreibtisch.** Checkbox „☑ Teilnahme-Zertifikat ausstellen" im Ablehnen-Zweig des Resolve-Modals, sichtbar nur bei vorhandener `attended`-Buchung (bestehendes Batch-Muster `attendedApplicantIds()`), Vorlagen-Dropdown über die aktiven `certificate`-Vorlagen, bei genau einer vorausgewählt. Gilt für jeden Fall-Grund, nicht nur `insufficient_documents`.
+
+> **Platzierung und Kollisionsfreiheit sind geprüft:** die Checkbox gehört direkt neben `sendRejectionMessage` (`hr-desk/index.blade.php:349-360`), im gleichen `$resolvingAction === 'reject'`-Gate, mit einem bei Modal-Öffnung berechneten `$canIssueCertificate` analog zu `$canSendRejectionMessage`. Der `AT-*`-Select liegt auf der Karte (`:171-186`), nicht im Modal, und hat eigenen State — keine UI- und keine Validierungskollision.
+
+> **Zwei Sends bei einer Ablehnung sind möglich.** Sind beide Checkboxen gesetzt, gehen zwei separate Template-Sends raus (Jugendschutz-Absage und Zertifikat-Link) — verschiedene Settings-Keys, verschiedene Meta-Templates. Sie werden **nicht** zusammengelegt. Die UI weist darauf hin, wenn beide angehakt sind.
+
+> Eingehängt **innerhalb** der bestehenden Transaktion von `rejectCase()` — als vierter Schritt in `applyRejection()` oder als Parameter an `rejectCase()`. Alles oder nichts: keine Ablehnung ohne Zertifikat, kein Zertifikat ohne Ablehnung. Der WhatsApp-Versand läuft **nach dem Commit**.
+
+- [ ] **Step 1: Failing test für die Freigabe-Regel schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\CertificateIssuanceEligibility;
+
+class CertificateIssuanceEligibilityTest extends TestCase
+{
+    public function testAlleBedingungenErfuellt(): void
+    {
+        $this->assertTrue(CertificateIssuanceEligibility::isAvailable(true, true, false));
+    }
+
+    public function testOhneAttendedBuchungNicht(): void
+    {
+        $this->assertFalse(CertificateIssuanceEligibility::isAvailable(false, true, false));
+    }
+
+    public function testOhneVorlageNicht(): void
+    {
+        $this->assertFalse(CertificateIssuanceEligibility::isAvailable(true, false, false));
+    }
+
+    public function testBereitsAusgestelltNicht(): void
+    {
+        $this->assertFalse(CertificateIssuanceEligibility::isAvailable(true, true, true));
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter CertificateIssuanceEligibilityTest`
+Expected: FAIL — `Class "…CertificateIssuanceEligibility" not found`
+
+- [ ] **Step 3: Freigabe-Regel schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Support;
+
+/**
+ * Darf am HR-Schreibtisch ein Zertifikat ausgestellt werden?
+ *
+ * Kriterium ist die attended-Buchung, NICHT der Fall-Grund: auch ein
+ * no_german_knowledge-Fall hat an der Schulung teilgenommen.
+ */
+final class CertificateIssuanceEligibility
+{
+    public static function isAvailable(
+        bool $hasAttendedBooking,
+        bool $templateExists,
+        bool $alreadyIssued
+    ): bool {
+        return $hasAttendedBooking && $templateExists && !$alreadyIssued;
+    }
+}
+```
+
+- [ ] **Step 4: Test laufen lassen, grün bestätigen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter CertificateIssuanceEligibilityTest`
+Expected: PASS (4 tests)
+
+- [ ] **Step 5: `applyRejection` um die Ausstellung erweitern**
+
+In `src/Services/HrDeskRoutingService.php`: `rejectCase()` bekommt zwei optionale Parameter, `applyRejection()` ebenfalls, und stellt am Ende aus:
+
+```php
+    public function rejectCase(
+        RecHrDeskCase $case,
+        int $userId,
+        ?string $notes = null,
+        ?int $certificateTemplateId = null
+    ): void {
+        // Fall-Abschluss, Bewerber-Update und Zertifikat gehoeren zusammen:
+        // scheitert die Ausstellung, darf der Fall nicht geschlossen
+        // zurueckbleiben — und umgekehrt.
+        DB::transaction(function () use ($case, $userId, $notes, $certificateTemplateId) {
+            $this->applyRejection($case, $userId, $notes, $certificateTemplateId);
+        });
+    }
+```
+
+Am Ende von `applyRejection()`, nach dem bestehenden Bewerber-Update:
+
+```php
+        if ($certificateTemplateId !== null && $applicant) {
+            app(IssueTrainingCertificateService::class)
+                ->issue($applicant, $certificateTemplateId, $userId);
+        }
+```
+
+Import ergänzen: `use Platform\Recruiting\Services\IssueTrainingCertificateService;`
+
+- [ ] **Step 6: Livewire-Komponente erweitern**
+
+In `src/Livewire/HrDesk/Index.php`:
+
+```php
+    /** Zertifikat-Ausstellung im Ablehnen-Zweig */
+    public bool $issueCertificate = false;
+    public bool $canIssueCertificate = false;
+    public ?int $certificateTemplateId = null;
+```
+
+Beim Öffnen des Resolve-Modals, direkt neben der Berechnung von `$canSendRejectionMessage`:
+
+```php
+            $certificateTemplates = $this->availableCertificateTemplates;
+            $this->canIssueCertificate = CertificateIssuanceEligibility::isAvailable(
+                in_array($applicant->id, $this->attendedApplicantIds(), true),
+                $certificateTemplates->isNotEmpty(),
+                RecTrainingCertificate::where('rec_applicant_id', $applicant->id)->exists()
+            );
+            $this->certificateTemplateId = $certificateTemplates->count() === 1
+                ? (int) $certificateTemplates->first()->id
+                : null;
+            $this->issueCertificate = false;
+```
+
+Neue Computed-Property:
+
+```php
+    /** Aktive Zertifikat-Vorlagen des Teams (Gegenrichtungs-Filter: type=certificate). */
+    #[Computed]
+    public function availableCertificateTemplates()
+    {
+        return RecContractTemplate::where('team_id', (int) Auth::user()->currentTeam->id)
+            ->certificates()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+    }
+```
+
+In `confirmResolve()` im `reject`-Zweig den Aufruf erweitern:
+
+```php
+                $templateId = ($this->issueCertificate && $this->canIssueCertificate)
+                    ? $this->certificateTemplateId
+                    : null;
+
+                app(HrDeskRoutingService::class)
+                    ->rejectCase($case, $userId, $this->resolveNotes, $templateId);
+```
+
+- [ ] **Step 7: Blade erweitern**
+
+In `resources/views/livewire/hr-desk/index.blade.php`, direkt **nach** dem `sendRejectionMessage`-Block (endet auf `:360`):
+
+```blade
+                @if($resolvingAction === 'reject' && $canIssueCertificate)
+                    <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model.live="issueCertificate"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">Teilnahme-Zertifikat ausstellen</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Der Bewerber hat an der Schulung teilgenommen — das Zertifikat bleibt ihm als Nachweis.</p>
+                            </div>
+                        </label>
+                        @if($issueCertificate && $this->availableCertificateTemplates->count() > 1)
+                            <select wire:model="certificateTemplateId"
+                                    class="mt-3 w-full text-sm border border-[var(--ui-border)] rounded-md px-2 py-1.5 bg-[var(--ui-surface)]">
+                                @foreach($this->availableCertificateTemplates as $tpl)
+                                    <option value="{{ $tpl->id }}">{{ $tpl->code }} — {{ $tpl->name }}</option>
+                                @endforeach
+                            </select>
+                        @endif
+                        @if($issueCertificate && $sendRejectionMessage)
+                            <p class="mt-3 text-xs text-amber-800">
+                                Es gehen zwei WhatsApp-Nachrichten raus: die Absage und der Zertifikat-Link.
+                            </p>
+                        @endif
+                    </div>
+                @endif
+```
+
+- [ ] **Step 8: Blade und Syntax prüfen**
+
+Run: `php tools/blade-check.php resources/views/livewire/hr-desk/index.blade.php && php -l src/Livewire/HrDesk/Index.php && php -l src/Services/HrDeskRoutingService.php`
+Expected: alle drei ohne Fehler. (`php -l` auf `.blade.php` prüft nichts — dafür ist `tools/blade-check.php` da.)
+
+- [ ] **Step 9: Gesamtsuite**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Expected: PASS
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/Support/CertificateIssuanceEligibility.php tests/Unit/CertificateIssuanceEligibilityTest.php \
+        src/Services/HrDeskRoutingService.php src/Livewire/HrDesk/Index.php \
+        resources/views/livewire/hr-desk/index.blade.php
+git commit -m "feat(recruiting): Zertifikat-Ausstellung im Ablehnen-Zweig des HR-Schreibtischs"
+```
+
+---
+
+### Task 12: WhatsApp-Zustellung für Weg (a)
+
+**Files:**
+- Modify: `src/Models/RecApplicantSettings.php`
+- Modify: `src/Livewire/HrDesk/Index.php` (`confirmResolve`, nach dem Commit)
+- Modify: `resources/views/livewire/applicant/applicant-settings-modal.blade.php`
+
+**Interfaces:**
+- Consumes: `HoldingTemplateSender::sendOne()` (Bestand, `src/Services/Comms/HoldingTemplateSender.php:81-84`), Route aus Task 10
+- Produces: Settings-Keys `training_certificate_wa_template_id` und `default_certificate_template_id`
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Weg (a) nutzt `HoldingTemplateSender`** mit neuem Settings-Key `training_certificate_wa_template_id`, Aufruf-Muster wie die Jugendschutz-Absage. Der PDF-Link geht als **Body-Variable** über `$namedValues` (z.B. `{{zertifikat_link}}`), nicht als URL-Button: der Sender kann Buttons nicht füllen, und ein Umbau von `HoldingTemplateComponents` würde einen Pfad anfassen, der auch Holding, Auto-Reply und Voice-Note-Antworten bedient. WhatsApp verlinkt URLs im Text automatisch klickbar.
+
+> **Fehler kippen die Ablehnung nicht.** Versand nach dem Commit; `sendToMany` fängt jeden `Throwable` pro Empfänger — und `sendOne` erbt das, weil es vollständig delegiert; `resolveConfig` gibt Konfigurationsfehler als `error`-String zurück statt zu werfen. Erfolg → `wa_sent_at`; Fehler → Feld bleibt leer, Flash-Meldung, HR lädt das PDF herunter und verschickt es von Hand. Ohne konfiguriertes Template wird trotzdem ausgestellt.
+
+> Die zwei neuen Settings kopieren das bestehende Muster: `wire:model.live` **plus explizites `:value`**, **kein `@entangle`**. Der `save()` schreibt das ganze `settings`-Array (`$this->settingsModel->settings = $this->settings; ->save();`), es gibt keinen JSON_SET-Workaround im Code.
+
+- [ ] **Step 1: Settings-Defaults ergänzen**
+
+In `src/Models/RecApplicantSettings.php`, in `DEFAULT_SETTINGS` neben `minor_rejection_template_id`:
+
+```php
+        'training_certificate_wa_template_id' => null,
+        'default_certificate_template_id' => null,
+```
+
+- [ ] **Step 2: Versand nach dem Commit einbauen**
+
+In `src/Livewire/HrDesk/Index.php`, in `confirmResolve()` **nach** dem `rejectCase()`-Aufruf:
+
+```php
+                // Nach dem Commit. Ein WA-Fehler darf die Ablehnung nicht
+                // kippen: sendOne delegiert an sendToMany, das jeden Throwable
+                // pro Empfaenger faengt, und resolveConfig gibt
+                // Konfigurationsfehler als error-String zurueck.
+                if ($templateId !== null) {
+                    $certificate = RecTrainingCertificate::where('rec_applicant_id', $applicant->id)
+                        ->where('rec_contract_template_id', $templateId)
+                        ->first();
+
+                    if ($certificate) {
+                        $link = route('recruiting.public.training-certificate', ['uuid' => $certificate->uuid]);
+
+                        // Verifizierte Namen: primaryContactPhone() (HrDesk/Index.php:173),
+                        // Vorname inline wie dort :175-176 — es gibt kein firstName().
+                        $phone = $applicant->primaryContactPhone();
+                        $firstName = trim((string) ($applicant->getExtraField('vorname')
+                            ?? $applicant->crmContactLinks->first()?->contact?->first_name ?? ''));
+
+                        if ($phone !== null) {
+                            $result = app(HoldingTemplateSender::class)->sendOne(
+                                $teamId,
+                                $phone,
+                                $firstName,
+                                'training_certificate_wa_template_id',
+                                ['zertifikat_link' => $link],
+                            );
+
+                            if (($result['sent'] ?? 0) > 0) {
+                                $certificate->update(['wa_sent_at' => now()]);
+                            } else {
+                                session()->flash('error',
+                                    'Zertifikat ausgestellt, aber der WhatsApp-Versand ist fehlgeschlagen: '
+                                    . ($result['error'] ?? 'unbekannter Fehler')
+                                    . ' — bitte das PDF herunterladen und manuell senden.');
+                            }
+                        }
+                    }
+                }
+```
+
+- [ ] **Step 3: Verifizierte Namen gegenprüfen**
+
+Run: `grep -n "function primaryContactPhone" src/Models/RecApplicant.php && grep -n "primaryContactPhone\|getExtraField('vorname')" src/Livewire/HrDesk/Index.php`
+Expected: `primaryContactPhone()` existiert am Model, und `HrDesk/Index.php:173-176` zeigt dasselbe Vorname-Muster. Beides ist gegen `511451c` bereits verifiziert — dieser Schritt fängt nur ab, dass sich der Stand inzwischen bewegt hat.
+
+- [ ] **Step 4: Settings-Selects ergänzen**
+
+In `resources/views/livewire/applicant/applicant-settings-modal.blade.php`, direkt nach dem `minor_rejection_template_id`-Block (endet auf `:126`):
+
+```blade
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['training_certificate_wa_template_id'] ?? null"
+                            name="settings.training_certificate_wa_template_id"
+                            label="Schulungszertifikat — WhatsApp-Template mit Link"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model.live="settings.training_certificate_wa_template_id"
+                        />
+                    @endif
+                    <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                        Das Template braucht eine Body-Variable <code>zertifikat_link</code> — keinen URL-Button.
+                        Fehlt das Template, wird das Zertifikat trotzdem ausgestellt und muss von Hand verschickt werden.
+                    </p>
+```
+
+- [ ] **Step 5: Blade und Syntax prüfen**
+
+Run: `php tools/blade-check.php resources/views/livewire/applicant/applicant-settings-modal.blade.php && php -l src/Livewire/HrDesk/Index.php && php -l src/Models/RecApplicantSettings.php`
+Expected: ohne Fehler
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/Models/RecApplicantSettings.php src/Livewire/HrDesk/Index.php \
+        resources/views/livewire/applicant/applicant-settings-modal.blade.php
+git commit -m "feat(recruiting): WhatsApp-Zustellung des Zertifikats mit Link als Body-Variable"
+```
+
+---
+
+### Task 13: Weg (b) — automatisch bei der Mitarbeiter-Anlage
+
+**Files:**
+- Modify: `src/Services/CreateEmployeeFromApplicantService.php` (neben `:106`)
+
+**Interfaces:**
+- Consumes: `IssueTrainingCertificateService::issue()` (Task 8), Setting `default_certificate_template_id` (Task 12)
+- Produces: nichts
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Weg (b): automatisch bei der Mitarbeiter-Anlage.** Vierter Nachbereitungs-Schritt neben `transferEvaluationToHrData()`, im dortigen try/catch-Muster, aber mit **eigenem Log-Marker**, damit ein Fehler bei der Ausstellung nicht wie ein Fehler beim Bewertungs-Transfer gelesen wird.
+
+> `createOrUpdate()` steigt bei existierendem Employee vor allem anderen aus (`:38-41`), danach läuft alles in `DB::transaction` (`:43`). Darin bereits drei Nachbereitungs-Schritte in Folge: `ensureHrData()` (`:104`), `snapshotContractDatesToHrData()` (`:105`), `transferEvaluationToHrData()` (`:106`). **Jeder Hook dort feuert genau einmal pro Mitarbeiter.**
+
+> Vorlagenwahl über ein neues Team-Setting `default_certificate_template_id`. Ist keines gesetzt oder hat der Bewerber keine `attended`-Buchung, passiert nichts (kein Fehler) — Direkteinstellungen und ZAS-Importe haben keine Schulung.
+
+> Setting `default_certificate_template_id`: **Wert muss zur Ausstellungszeit noch `type='certificate'` sein** — Prüfung bei der Ausstellung, nicht beim Speichern: der Typ einer Vorlage kann sich nach dem Setzen des Settings ändern.
+
+> **Weg (b) verschickt nichts.** Der neue Mitarbeiter bekommt seine Portal-Einladung ohnehin, und dort steht das Zertifikat.
+
+- [ ] **Step 1: Aufruf einhängen**
+
+In `src/Services/CreateEmployeeFromApplicantService.php`, direkt nach Zeile `:106` (`$this->transferEvaluationToHrData($applicant, $hrData);`):
+
+```php
+            $this->issueTrainingCertificate($applicant);
+```
+
+Und die Methode ergänzen:
+
+```php
+    /**
+     * Weg (b) der Zertifikat-Ausstellung: jeder Teilnehmer, der Mitarbeiter
+     * wird, bekommt sein Zertifikat — ohne Zutun.
+     *
+     * Eigener Log-Marker, damit ein Fehler hier nicht wie ein Fehler beim
+     * Bewertungs-Transfer gelesen wird.
+     *
+     * Kein Versand: der neue Mitarbeiter bekommt seine Portal-Einladung
+     * ohnehin, und dort steht das Zertifikat.
+     */
+    private function issueTrainingCertificate(RecApplicant $applicant): void
+    {
+        try {
+            $templateId = RecApplicantSettings::getOrCreateForTeam((int) $applicant->team_id)
+                ->getSetting('default_certificate_template_id');
+
+            if (!$templateId) {
+                return;
+            }
+
+            $hasAttended = $applicant->interviewBookings()
+                ->where('status', 'attended')
+                ->exists();
+
+            if (!$hasAttended) {
+                // Direkteinstellungen und ZAS-Importe haben keine Schulung.
+                return;
+            }
+
+            app(IssueTrainingCertificateService::class)
+                ->issue($applicant, (int) $templateId, null);
+        } catch (\Throwable $e) {
+            // Die MA-Anlage schlaegt schwerer als das Zertifikat — sie darf
+            // hier nicht kippen. Die Vorlage kann inzwischen geloescht oder
+            // auf type=contract umgestellt worden sein; der Service wirft
+            // dann InvalidArgumentException.
+            Log::warning('[CreateEmployeeFromApplicantService] issueTrainingCertificate failed', [
+                'applicant_id' => $applicant->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+```
+
+Imports ergänzen: `use Platform\Recruiting\Models\RecApplicantSettings;`, `use Platform\Recruiting\Services\IssueTrainingCertificateService;` (falls nicht vorhanden), `use Illuminate\Support\Facades\Log;` (prüfen, ob schon importiert).
+
+- [ ] **Step 2: Relations- und Methodennamen verifizieren**
+
+Run: `grep -n "function interviewBookings\|function getSetting" src/Models/RecApplicant.php src/Models/RecApplicantSettings.php`
+Expected: beide existieren. Falls die Bookings-Relation anders heißt, an den in Task 7 Step 6 festgestellten Namen anpassen.
+
+- [ ] **Step 3: Syntax + Gesamtsuite**
+
+Run: `php -l src/Services/CreateEmployeeFromApplicantService.php && /Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Expected: ohne Fehler, Suite PASS
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/Services/CreateEmployeeFromApplicantService.php
+git commit -m "feat(recruiting): Zertifikat automatisch bei der Mitarbeiter-Anlage"
+```
+
+---
+
+### Task 14: Beide Portale zeigen das Zertifikat
+
+**Files:**
+- Modify: `src/Livewire/Public/EmployeePortal.php` (`contracts()` `:464-501`)
+- Modify: `resources/views/livewire/public/employee-portal.blade.php` (`:112`)
+- Modify: `src/Livewire/Public/ApplicantPortal.php` (`:53-78`)
+- Modify: `resources/views/livewire/public/applicant-portal.blade.php` (`:42`)
+
+**Interfaces:**
+- Consumes: `RecTrainingCertificate` (Task 8), Route aus Task 10
+- Produces: nichts
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Zertifikat-Zeilen an `contracts()` anhängen, in beiden Portalen.** Nach den Vertragszeilen: `display_name` = Vorlagenname, `signed_at` = `issued_at`, `sign_url` = `null`, `pdf_url` = die Route, `status` = `'issued'`. Die Array-Form ist in `EmployeePortal::contracts()` (`:464-501`) und `ApplicantPortal::contracts()` (`:53-77`) identisch — dieselbe Ergänzung, zweimal.
+
+> **Genau eine Blade-Anpassung pro Portal, und die Reihenfolge ist Pflicht.** Der `issued`-Zweig muss **vor** die Bedingung auf `employee-portal.blade.php:112` bzw. `applicant-portal.blade.php:42` (`status === 'completed' || signed_at`) — sonst gewinnt sie, weil `signed_at` gesetzt ist, und die Zeile behauptet „Unterschrieben am …" über ein Dokument, das niemand unterschrieben hat. Richtig ist „Ausgestellt am …". Ohne den Zweig gäbe der Rohwert-Fallback das Wort `issued` aus.
+
+> Zwei Dinge sind **ohne Änderung** korrekt und nur deshalb festgehalten, weil sie die Wahl von `status = 'issued'` und `sign_url = null` begründen: der Unterschreiben-Button verlangt `sent`/`in_progress` → bleibt weg; der PDF-Button hängt allein an `pdf_url` → erscheint von allein.
+
+> **`ApplicantPortal:78` muss Zertifikate mitzählen.** Die Zeile setzt `state = count($contracts) === 0 ? 'empty' : 'ready'`. Ein abgelehnter Nicht-EU-Bewerber hat typischerweise **keine** Verträge — bleibt die Zählung wie sie ist, liegt sein Zertifikat in einem Portal, das sich für leer erklärt.
+
+- [ ] **Step 1: `EmployeePortal::contracts()` erweitern**
+
+Vor `->values()->toArray()` das Ergebnis in eine Variable ziehen und die Zertifikate anhängen:
+
+```php
+        $rows = $employee->applicant->contracts
+            ->filter(fn ($c) => $c->status !== 'cancelled')
+            ->map(function ($c) use ($applicantToken) {
+                // ... unveraendert ...
+            })
+            ->values()
+            ->toArray();
+
+        return array_merge($rows, $this->certificateRows($employee->applicant));
+```
+
+Und die geteilte Methode ergänzen (identisch in beiden Portalen):
+
+```php
+    /**
+     * Zertifikat-Zeilen in der Form der Vertragszeilen.
+     *
+     * status='issued' und sign_url=null sind bewusst gewaehlt: der
+     * Unterschreiben-Button der Blade verlangt 'sent'/'in_progress' und
+     * bleibt damit von allein weg; der PDF-Button haengt allein an pdf_url
+     * und erscheint von allein.
+     *
+     * signed_at wird mit issued_at befuellt, statt einen zweiten Datums-Key
+     * einzufuehren — die Zeile soll denselben gruenen Erledigt-Zustand
+     * tragen wie ein fertiger Vertrag, nur mit anderem Wort.
+     */
+    private function certificateRows(RecApplicant $applicant): array
+    {
+        return RecTrainingCertificate::where('rec_applicant_id', $applicant->id)
+            ->with('contractTemplate:id,name')
+            ->orderBy('issued_at')
+            ->get()
+            ->map(fn (RecTrainingCertificate $cert) => [
+                'id' => 'cert-' . $cert->id,
+                'display_name' => $cert->contractTemplate?->name ?? 'Schulungszertifikat',
+                'status' => 'issued',
+                'signed_at' => $cert->issued_at,
+                'completed_at' => $cert->issued_at,
+                'sign_url' => null,
+                'pdf_url' => route('recruiting.public.training-certificate', ['uuid' => $cert->uuid]),
+            ])
+            ->all();
+    }
+```
+
+- [ ] **Step 2: `employee-portal.blade.php` — `issued`-Zweig VOR `:112`**
+
+Die Badge-Kette beginnt heute mit:
+
+```blade
+                                            @if($c['status'] === 'completed' || $c['signed_at'])
+```
+
+Davor einfügen:
+
+```blade
+                                            @if($c['status'] === 'issued')
+                                                <span class="inline-flex items-center gap-1 text-green-700">
+                                                    @svg('heroicon-o-academic-cap', 'w-4 h-4')
+                                                    Ausgestellt
+                                                    @if($c['signed_at'])
+                                                        am {{ \Carbon\Carbon::parse($c['signed_at'])->format('d.m.Y') }}
+                                                    @endif
+                                                </span>
+                                            @elseif($c['status'] === 'completed' || $c['signed_at'])
+```
+
+(Das bestehende `@if` wird zum `@elseif` — die Reihenfolge ist der Kern dieser Änderung.)
+
+- [ ] **Step 3: `ApplicantPortal` erweitern**
+
+Analog zu Step 1, und **die `state`-Zählung anpassen**:
+
+```php
+        $this->contracts = array_merge($contracts, $this->certificateRows($applicant));
+        // Zaehlt Zertifikate mit: ein abgelehnter Bewerber hat typischerweise
+        // keine Vertraege. Ohne das laege sein Zertifikat in einem Portal,
+        // das sich fuer leer erklaert.
+        $this->state = count($this->contracts) === 0 ? 'empty' : 'ready';
+```
+
+- [ ] **Step 4: `applicant-portal.blade.php` — `issued`-Zweig VOR `:42`**
+
+Identisch zu Step 2, an der Bedingung auf `:42`.
+
+- [ ] **Step 5: Blades und Syntax prüfen**
+
+Run:
+```bash
+php tools/blade-check.php resources/views/livewire/public/employee-portal.blade.php
+php tools/blade-check.php resources/views/livewire/public/applicant-portal.blade.php
+php -l src/Livewire/Public/EmployeePortal.php
+php -l src/Livewire/Public/ApplicantPortal.php
+```
+Expected: alle ohne Fehler
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/Livewire/Public/EmployeePortal.php src/Livewire/Public/ApplicantPortal.php \
+        resources/views/livewire/public/employee-portal.blade.php \
+        resources/views/livewire/public/applicant-portal.blade.php
+git commit -m "feat(recruiting): Zertifikat in MA- und Bewerber-Portal bei den Vertraegen"
+```
+
+---
+
+### Task 15: Vorlagen-Editor — Typ, Test-PDF, Zeichen prüfen
+
+**Files:**
+- Modify: `src/Livewire/ContractTemplates/Index.php`
+- Modify: `resources/views/livewire/contract-templates/index.blade.php`
+
+**Interfaces:**
+- Consumes: `FontGlyphCoverage::missing()` (Task 4), `TrainingCertificateAssets::resolve()` (Task 5a), `TrainingCertificateHtml` (Task 6), `TrainingCertificatePdfOptions` (Task 5), `RecContractTemplate::TYPE_*` (Task 3)
+- Produces: nichts
+
+**Spec-Ausschnitt (wörtlich):**
+
+> `ContractTemplates/Index` bekommt `type` in `$rules`, im Create/Edit-Modal ein Dropdown („Vertrag" / „Schulungszertifikat"), in der Liste einen Typ-Badge. Der Signatur-Toggle wird bei `certificate` ausgeblendet. Die Admin-Liste bleibt **ungefiltert** — hier sollen beide Typen sichtbar sein.
+
+> **„Test-PDF"** rendert mit Beispielwerten über dieselbe Hülle und dieselben Optionen und liefert das Ergebnis aus. Begründung: das Fließlayout ist inhaltsabhängig — ein langer Name oder eine längere Kenntnisliste kann das Layout sprengen, und ohne Vorschau merkt das erst der Bewerber.
+
+> **„Zeichen prüfen"** ruft eine pure Funktion auf. Sie liest die `cmap` der Schriftdatei und gibt die Zeichen des Inhalts zurück, die darin fehlen — also genau die, die im PDF zu `?` würden. **Damit ist der Tradeoff „prüft nur die ausgelieferte Vorlage, nicht spätere Bearbeitungen" geschlossen** — HR kann nach jeder Bearbeitung selbst prüfen.
+
+> **Das Vokabular steht in der Platzhalter-Hilfe** neben dem Editor, dort wo schon die verfügbaren Platzhalter erklärt werden.
+
+- [ ] **Step 1: `type` in Rules und Formular-State**
+
+In `src/Livewire/ContractTemplates/Index.php`: `public string $type = 'contract';`, in `$rules` `'type' => 'required|in:contract,certificate'`, in `openEditModal()` laden und in `save()` in `$data` schreiben.
+
+- [ ] **Step 2: Zeichen-Prüfung als Action**
+
+```php
+    public ?string $glyphCheckResult = null;
+
+    /**
+     * Meldet Zeichen, die die Zertifikat-Schrift nicht kennt. DomPDF macht
+     * bei einer eingebundenen Schrift keinen Glyph-Fallback — jedes
+     * unbekannte Zeichen wird im PDF zu "?", ohne Warnung.
+     */
+    public function checkGlyphs(): void
+    {
+        $assets = TrainingCertificateAssets::resolve($this->resourcesDir());
+        $missing = FontGlyphCoverage::missing((string) $this->content, $assets['font']);
+
+        $hinweis = '';
+        if ($assets['missing'] !== []) {
+            // Derselbe Resolver wie im Controller — fehlt hier etwas, fehlt
+            // es auch bei der Ausstellung.
+            $hinweis = ' Achtung: diese Assets fehlen auf dem Server: '
+                . implode(', ', $assets['missing']) . '.';
+        }
+
+        $this->glyphCheckResult = ($missing === []
+            ? 'Alle Zeichen sind in der Schrift vorhanden.'
+            : 'Diese Zeichen fehlen in der Schrift und würden im PDF zu „?“: '
+              . implode(' ', $missing)
+              . ' — in <span class="zeichen">…</span> setzen.') . $hinweis;
+    }
+```
+
+- [ ] **Step 3: Test-PDF als Action**
+
+```php
+    /**
+     * Rendert die Vorlage mit Beispielwerten — gleiche Huelle, gleiche
+     * Optionen UND derselbe Asset-Resolver wie die Ausstellung. Wuerde die
+     * Vorschau ihre Assets selbst aufloesen, koennte sie etwas anderes zeigen
+     * als das ausgestellte Dokument — und genau dagegen existiert der Knopf.
+     */
+    public function testPdf()
+    {
+        $assets = TrainingCertificateAssets::resolve($this->resourcesDir());
+
+        $beispiel = str_replace(
+            ['{{kontakt_vorname}}', '{{kontakt_nachname}}', '{{schulung_datum}}', '{{datum_heute}}', '{{schulung_leiter}}'],
+            ['Erika', 'Mustermann', '24.07.2026', now()->format('d.m.Y'), 'Michel Zimmer, Anna Bergmann'],
+            (string) $this->content
+        );
+
+        $html = TrainingCertificateHtml::build($beispiel, $assets);
+
+        $pdf = Pdf::loadHTML($html);
+        foreach (TrainingCertificatePdfOptions::for($assets['font'], (string) realpath(base_path())) as $key => $value) {
+            $pdf->setOption($key, $value);
+        }
+
+        return response()->streamDownload(
+            fn () => print($pdf->setPaper('a4')->output()),
+            'zertifikat-test.pdf'
+        );
+    }
+
+    private function resourcesDir(): string
+    {
+        return (string) realpath(__DIR__ . '/../../../resources');
+    }
+```
+
+- [ ] **Step 4: Blade — Typ-Dropdown, Badge, zwei Knöpfe, Vokabular-Hilfe**
+
+Im Create/Edit-Modal vor dem Vertragstext-Textarea (`:166`):
+
+```blade
+                <x-ui-input-select
+                    :value="$type"
+                    name="type"
+                    label="Typ"
+                    :options="[['id' => 'contract', 'label' => 'Vertrag'], ['id' => 'certificate', 'label' => 'Schulungszertifikat']]"
+                    optionValue="id"
+                    optionLabel="label"
+                    wire:model.live="type"
+                />
+                @if($type === 'certificate')
+                    <div class="text-xs text-[var(--ui-muted)] space-y-1">
+                        <p><strong>Code muss mit <code>ZERT-</code> beginnen.</strong> Unterschrift wird automatisch abgeschaltet.</p>
+                        <p>Platzhalter: <code>{{ '{{kontakt_vorname}}' }}</code>, <code>{{ '{{kontakt_nachname}}' }}</code>,
+                           <code>{{ '{{schulung_datum}}' }}</code>, <code>{{ '{{datum_heute}}' }}</code>,
+                           <code>{{ '{{schulung_leiter}}' }}</code></p>
+                        <p>Klassen: <code>lab</code>, <code>val</code>, <code>kurs</code>, <code>intro</code>,
+                           <code>skill</code>, <code>zeichen</code>, <code>zert-datum</code>, <code>zert-fuss-rechts</code>.
+                           Ein nackter <code>&lt;p&gt;</code> funktioniert auch.</p>
+                        <p><code>zeichen</code> ist für Sonderzeichen wie ★ — ohne sie stehen sie als „?" im PDF.</p>
+                    </div>
+                @endif
+```
+
+Nach dem Textarea:
+
+```blade
+                @if($type === 'certificate')
+                    <div class="flex items-center gap-2">
+                        <x-ui-button variant="secondary-outline" size="sm" wire:click="checkGlyphs">Zeichen prüfen</x-ui-button>
+                        <x-ui-button variant="secondary-outline" size="sm" wire:click="testPdf">Test-PDF</x-ui-button>
+                    </div>
+                    @if($glyphCheckResult)
+                        <p class="text-xs text-[var(--ui-secondary)]">{!! $glyphCheckResult !!}</p>
+                    @endif
+                @endif
+```
+
+In der Liste, neben dem `is_active`-Badge (`:57`):
+
+```blade
+                                        <x-ui-badge variant="{{ $item->type === 'certificate' ? 'info' : 'secondary' }}" size="xs">
+                                            {{ $item->type === 'certificate' ? 'Zertifikat' : 'Vertrag' }}
+                                        </x-ui-badge>
+```
+
+Und den Signatur-Toggle in `@if($type !== 'certificate')` einwickeln.
+
+- [ ] **Step 5: Blade und Syntax prüfen**
+
+Run: `php tools/blade-check.php resources/views/livewire/contract-templates/index.blade.php && php -l src/Livewire/ContractTemplates/Index.php`
+Expected: ohne Fehler
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/Livewire/ContractTemplates/Index.php resources/views/livewire/contract-templates/index.blade.php
+git commit -m "feat(recruiting): Vorlagen-Editor mit Typ, Test-PDF und Zeichen-Pruefung"
+```
+
+---
+
+### Task 16: Seed-Command für die erste Zertifikat-Vorlage
+
+**Files:**
+- Create: `src/Console/Commands/SeedTrainingCertificateTemplate.php`
+- Modify: `src/RecruitingServiceProvider.php` (Command registrieren)
+
+**Interfaces:**
+- Consumes: `RecContractTemplate` (Task 3)
+- Produces: Command `recruiting:seed-training-certificate-template`
+
+**Spec-Ausschnitt (wörtlich):**
+
+> **Die erste Zertifikat-Vorlage kommt aus einem Command**, nicht aus Handarbeit im Textarea — Muster vorhanden: `Console/Commands/CreateArbeitsvertragVariants.php`, `CopyHcmContractTemplates.php`, `SeedRecContractExtraFields.php`. HR bearbeitet danach Wörter in einer fertigen Vorlage, statt Struktur zu schreiben. Für eine neue Schulungsart wird kopiert und der Text getauscht.
+
+> Vorlageninhalt mit den Platzhaltern `{{kontakt_vorname}} {{kontakt_nachname}}`, `{{schulung_datum}}`, `{{datum_heute}}`, `{{schulung_leiter}}`. Kursname, Kenntnisliste und Ort sind Literaltext, weil eine Vorlage pro Schulungsart existiert.
+
+- [ ] **Step 1: Command schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecContractTemplate;
+
+/**
+ * Legt die Zertifikat-Vorlage "Service-Basisschulung" an.
+ *
+ * Warum ein Command und nicht Handarbeit im Editor: der Vorlageninhalt hat
+ * eine Struktur (Klassen, Reihenfolge, Sonderzeichen-Spans), die niemand in
+ * einem sechszeiligen Textarea fehlerfrei tippt. HR bearbeitet danach Woerter
+ * in einer fertigen Vorlage. Fuer eine weitere Schulungsart wird kopiert und
+ * der Text getauscht.
+ *
+ * Idempotent ueber (team_id, code).
+ */
+class SeedTrainingCertificateTemplate extends Command
+{
+    protected $signature = 'recruiting:seed-training-certificate-template
+        {--team= : Team-ID (Pflicht)}
+        {--dry-run : Nur anzeigen was passieren wuerde}';
+
+    protected $description = 'Legt die Zertifikat-Vorlage ZERT-SERVICE (Service-Basisschulung) an. Idempotent via (team_id, code).';
+
+    private const CODE = 'ZERT-SERVICE';
+
+    public function handle(): int
+    {
+        $teamId = (int) $this->option('team');
+        if ($teamId <= 0) {
+            $this->error('--team ist erforderlich.');
+
+            return self::FAILURE;
+        }
+
+        $existing = RecContractTemplate::where('team_id', $teamId)
+            ->where('code', self::CODE)
+            ->first();
+
+        if ($existing) {
+            $this->line("⏭ Vorlage {$existing->code} existiert bereits (#{$existing->id}) — nichts zu tun.");
+
+            return self::SUCCESS;
+        }
+
+        if ($this->option('dry-run')) {
+            $this->warn('[DRY-RUN] Wuerde Vorlage ' . self::CODE . " in Team {$teamId} anlegen.");
+
+            return self::SUCCESS;
+        }
+
+        $template = DB::transaction(fn () => RecContractTemplate::create([
+            'name' => 'Zertifikat Service-Basisschulung',
+            'code' => self::CODE,
+            'type' => RecContractTemplate::TYPE_CERTIFICATE,
+            'description' => 'Teilnahme-Zertifikat der Service-Basisschulung. Ort und Kenntnisliste sind Literaltext — fuer eine andere Schulungsart kopieren und Text tauschen.',
+            'content' => $this->content(),
+            'field_mappings' => [
+                'kontakt_vorname' => 'contact.first_name',
+                'kontakt_nachname' => 'contact.last_name',
+                'schulung_datum' => 'schulung.datum',
+                'datum_heute' => 'meta.datum_heute',
+                'schulung_leiter' => 'schulung.leiter',
+            ],
+            'is_active' => true,
+            'sort_order' => 500,
+            'team_id' => $teamId,
+        ]));
+
+        $this->info("✚ Vorlage {$template->code} angelegt (#{$template->id}).");
+        $this->line('Naechster Schritt: im Vorlagen-Editor "Test-PDF" pruefen.');
+
+        return self::SUCCESS;
+    }
+
+    private function content(): string
+    {
+        $stern = '<span class="zeichen">&#9733;</span>';
+
+        $kenntnisse = [
+            'Fachgerechte Tellerschulung 2-er Obergriff',
+            'Stehempfang' . $stern . 'Flying Buffet',
+            'Buffetservice',
+            '3-Gang-Menü fachgerecht eindecken',
+            'Weinservice',
+            'Gästebetreuung und Kommunikation',
+        ];
+
+        $liste = '';
+        foreach ($kenntnisse as $k) {
+            $liste .= '<div class="skill">' . $stern . '<span>' . $k . '</span>' . $stern . '</div>' . "\n";
+        }
+
+        return <<<HTML
+<div class="lab">Herr / Frau</div>
+<div class="val">{{kontakt_vorname}} {{kontakt_nachname}}</div>
+
+<div class="lab">hat am Kurs</div>
+<div class="kurs">Service-Basisschulung</div>
+
+<div class="lab">am</div>
+<div class="val">{{schulung_datum}}</div>
+
+<div class="lab">mit Erfolg teilgenommen.</div>
+
+<div class="intro">Bei der Schulung wurden folgende Grundkenntnisse vermittelt:</div>
+{$liste}
+<div class="zert-datum">Düsseldorf, den {{datum_heute}}</div>
+
+<div class="zert-fuss-rechts">
+  <div class="leiter">{{schulung_leiter}}</div>
+  <div class="linie"></div>
+  <div class="cap">Schulungsleiter</div>
+</div>
+HTML;
+    }
+}
+```
+
+- [ ] **Step 2: Command registrieren**
+
+In `src/RecruitingServiceProvider.php` bei den übrigen `commands([...])`-Einträgen `SeedTrainingCertificateTemplate::class` ergänzen.
+
+- [ ] **Step 3: Syntax + Registrierung prüfen**
+
+Run: `php -l src/Console/Commands/SeedTrainingCertificateTemplate.php && grep -n "SeedTrainingCertificateTemplate" src/RecruitingServiceProvider.php`
+Expected: ohne Fehler, ein Treffer im Provider
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/Console/Commands/SeedTrainingCertificateTemplate.php src/RecruitingServiceProvider.php
+git commit -m "feat(recruiting): Seed-Command fuer die Zertifikat-Vorlage ZERT-SERVICE"
+```
+
+---
+
+### Task 17: Guard-Landkarte abarbeiten — die 22 Handlungszeilen
+
+**Files:**
+- Consumes-Artefakt: `docs/zertifikat/guard-landkarte-511451c.md` (44 + 17 Zeilen, davon 22 mit Handlungsbedarf)
+- Modify: die in der Landkarte genannten Dateien
+- Test: `tests/Integration/CertificateTypeGuardsTest.php`
+
+**Interfaces:**
+- Consumes: `RecContractTemplate::scopeContracts()`, `scopeCertificates()` (Task 3)
+- Produces: nichts
+
+**Spec-Ausschnitt (wörtlich):**
+
+> Maßgeblich ist **`docs/zertifikat/guard-landkarte-511451c.md`** — mit Spalte `erledigt` als Merge-Gate. **Merge-Gate: die 22 Zeilen mit Handlungsbedarf müssen in Spalte `erledigt` abgehakt sein.** Handlungsbedarf hat eine Zeile genau dann, wenn ihr Soll-Filter einen Filter *hinzufügt*. Nicht dazu gehören: Zeilen mit Soll-Filter „keiner" (inklusive der geerbten), sowie die zwei ausdrücklich mit **n/a** markierten Zeilen.
+
+> Die gefährlichste ist `Applicant/Show.php:750` — `findOrFail($templateId)` ohne jeden Filter, davor nur eine `exists:`-Regel, die den Typ nicht kennt.
+
+> `SendContractsService.php:144-145`: Zusatzvertrag-Auflösung über `legalStatus?->additionalContractTemplate`, danach Contract-Anlage auf `:154-160` mit `personalizeContent()` — **dritte Vertragsanlage in diesem Service**. Filtert heute nur `is_active`. Soll: **type='contract'** — heute nur transitiv geschützt über HrDesk:262 plus §B8.
+
+> **Alle „keiner"-Zeilen mit code-Muster-Filter hängen an §B8 (`ZERT-`-Präfixzwang). §B8 ist einzelne Ausfallstelle für 12 Einträge; der Test dazu ist Pflicht.**
+
+- [ ] **Step 1: Failing test für die drei kritischsten Stellen schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Container\Container;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Events\Dispatcher;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Models\RecContractTemplate;
+
+/**
+ * Die Guard-Landkarte hat 22 Handlungszeilen. Drei davon koennen einen
+ * echten Vertrag aus einer Zertifikat-Vorlage erzeugen und bekommen deshalb
+ * einen Test:
+ *  - SendContractsService:62  (AV-Trichter)
+ *  - SendContractsService:144 (Zusatzvertrag, dritte Anlage)
+ *  - Applicant/Show:750       (findOrFail ohne Filter)
+ */
+class CertificateTypeGuardsTest extends TestCase
+{
+    private const TEAM = 3;
+
+    public static function setUpBeforeClass(): void
+    {
+        $container = Container::getInstance();
+        $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []]]));
+
+        $capsule = new Capsule();
+        $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $capsule->setEventDispatcher(new Dispatcher($container));
+        $capsule->setAsGlobal();
+        $capsule->bootEloquent();
+
+        $capsule->schema()->create('rec_contract_templates', function ($t) {
+            $t->id();
+            $t->string('uuid', 36)->unique();
+            $t->string('name');
+            $t->string('code', 20)->nullable();
+            $t->string('type', 20)->default('contract');
+            $t->longText('content')->nullable();
+            $t->text('field_mappings')->nullable();
+            $t->boolean('requires_signature')->default(true);
+            $t->boolean('is_active')->default(true);
+            $t->unsignedInteger('sort_order')->default(0);
+            $t->unsignedBigInteger('team_id');
+            $t->unsignedBigInteger('created_by_user_id')->nullable();
+            $t->timestamps();
+            $t->softDeletes();
+        });
+    }
+
+    public function testContractsScopeSchliesstZertifikateAus(): void
+    {
+        RecContractTemplate::create([
+            'name' => 'Zert', 'code' => 'ZERT-A', 'type' => 'certificate', 'team_id' => self::TEAM,
+        ]);
+        RecContractTemplate::create([
+            'name' => 'AV', 'code' => 'AV-010', 'team_id' => self::TEAM,
+        ]);
+
+        $ids = RecContractTemplate::query()->contracts()->pluck('code')->all();
+
+        $this->assertSame(['AV-010'], $ids);
+    }
+
+    public function testEinZertifikatCodeKannNieMitAvOderAtBeginnen(): void
+    {
+        // Das ist die Zusicherung, an der 12 code-Muster-Filter der
+        // Guard-Landkarte haengen.
+        foreach (['AV-ZERT', 'AT-140', 'IFSG', 'AV-default'] as $code) {
+            try {
+                RecContractTemplate::create([
+                    'name' => 'X', 'code' => $code, 'type' => 'certificate', 'team_id' => self::TEAM,
+                ]);
+                $this->fail("code '{$code}' haette abgewiesen werden muessen.");
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter CertificateTypeGuardsTest`
+Expected: PASS (2 tests) — beide Zusicherungen kommen aus Task 3
+
+**Warum dieser Task nicht gesplittet wird:** Die 22 Zeilen sind mechanisch gleichförmig — dieselbe Frage, dieselbe Antwortform, oft dieselbe Datei. Ein Split über drei Tasks würde denselben Kontext dreimal aufbauen, ohne dass ein Reviewer eine der drei Gruppen sinnvoll ablehnen könnte, während er die anderen annimmt. (Das Gate wäre **kein** Argument: es ist ein Grep auf eine Datei und läuft, wo man ihn hinlegt.)
+
+- [ ] **Step 3: Die 22 Handlungszeilen abarbeiten — Häkchen pro Zeile, sofort**
+
+Für jede Zeile mit Handlungsbedarf in `docs/zertifikat/guard-landkarte-511451c.md`, **eine nach der anderen**:
+
+1. Den Soll-Filter aus der Spalte anwenden. Für Eloquent-Abfragen ist das `->contracts()` bzw. `->certificates()`; für `Applicant/Show.php:696` ein Rule-Objekt statt `exists:`; für `Tools/CreateContractTool.php:87` zusätzlich `ToolResult::error('VALIDATION_ERROR', …)`; für `Tools/ListContractTemplatesTool.php:56` ein optionaler `type`-Parameter mit Default `contract`.
+2. **Sofort danach** die Spalte `erledigt` in genau dieser Zeile auf `x` setzen — nicht am Ende alle in einem Rutsch. Sonst zählt der Gate-Grep in Step 4 zweiundzwanzig Häkchen aus der Erinnerung statt aus der Arbeit.
+3. Nach jeweils drei bis fünf Zeilen die Gesamtsuite laufen lassen.
+
+**Reihenfolge:** zuerst die drei Stellen mit Vertragsanlage (`SendContractsService:62`, `SendContractsService:144-145`, `Applicant/Show.php:750`), dann die Dropdowns und Validierungen, dann die MCP-Tools, zuletzt die Commands.
+
+- [ ] **Step 4: Gate-Grep — eigener Schritt, Ausgabe zurückmelden**
+
+Run:
+```bash
+grep '^| ' docs/zertifikat/guard-landkarte-511451c.md | tail -n +3 \
+  | grep -v '| keiner' | grep -v '\*\*n/a\*\*' | grep -c '| x |'
+```
+Expected: `22`
+
+Kommt eine kleinere Zahl, fehlt ein Häkchen **oder** eine Änderung. Beides ist ein Gate-Verstoß — nicht weitermachen, nicht die Zahl im Kopf korrigieren. Die Rohausgabe dieses Greps gehört in die Rückmeldung des Tasks.
+
+- [ ] **Step 5: Gesamtsuite**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Expected: PASS
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "feat(recruiting): type-Guards an allen 22 Stellen der Guard-Landkarte"
+```
+
+---
+
+## Nach dem Plan — nicht Teil der Tasks
+
+**Vor dem Deploy zu klären (aus der Spec):**
+
+- **V2-Abfrage auf dem Server** (Interviewer-Befüllung bei Alt-Terminen). Auslegung vorab festgelegt: `termine_ohne_interviewer` ≤ 2 → leerer String bleibt; größer → Team-Setting `training_certificate_leader_fallback` als Rückfall; regelmäßig ≥3 Interviewer → `TrainingLeaderResolver::leaderNames()` auf „erster Interviewer" umstellen und den Render-Test um diesen Fall erweitern.
+- **Logo und Unterschrift im Original** von RheinGedeck besorgen — die abgelegten PNGs sind aus dem 300-dpi-Scan per Schwellenwert freigestellt.
+- **WhatsApp-Template bei Meta einreichen**: Body-Variable `zertifikat_link`, **kein** URL-Button.
+- **Settings setzen:** `training_certificate_wa_template_id`, `default_certificate_template_id`.
+- **`storage/fonts` muss existieren und schreibbar sein** — dort legt DomPDF den Font-Metrik-Cache an. Erster Render nach Deploy prüfen.
+
+**Deploy-Reihenfolge:** Migrationen (Task 1+2) zuerst pushen, Feature danach — Task 10 bringt eine öffentlich erreichbare Route, die ohne Tabelle 500er wirft. Danach `composer.lock`-Bump in `meingedeck`. Kein `queue:restart` (kein Worker-Code in diesem Paket).
+
+**Live-Sichttest** nach dem Deploy: die fünf Schritte aus der Spec, inklusive „Zeichen prüfen" mit einem eingefügten ★ und der Prüfung, dass das Bewerber-Portal nach der Ausstellung nicht mehr „leer" meldet.
