@@ -2,9 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ein ausstellbares Schulungszertifikat als gewöhnliche Vorlage in `rec_contract_templates` — HTML mit Platzhaltern, gerendert als einseitiges A4-PDF, ausgestellt bei HR-Ablehnung und automatisch bei der Mitarbeiter-Anlage, abrufbar in beiden Portalen.
+> # ZUSCHNITT v3, 12.08.2026 — vor Task 7 entschieden, nach Task 6a
+>
+> **Das Zertifikat ist keine Vorlage.** Der Inhalt steht als festes HTML im Code, nicht als Zeile in `rec_contract_templates`. Grund: das Dokument hat drei variable Werte, eine Schulungsart und einen Text, der sich praktisch nie ändert — die Vorlagen-Infrastruktur trug die Kosten einer Flexibilität, die niemand braucht.
+>
+> **Betroffene Tasks tragen einen Banner direkt unter ihrer Überschrift.** Der alte Text bleibt darunter als Protokoll stehen; maßgeblich ist der Banner. Kurzfassung:
+>
+> | | Tasks |
+> | --- | --- |
+> | **unverändert fertig** | 0, 1, 2a, 3, 4, 4a, 5, 5a, 6, 6a |
+> | **fertig, geändert** | 2 (Migration editiert: `kind` statt Vorlagen-FK) |
+> | **bleibt, halbiert** | 7 (`TrainingLeaderResolver` bleibt, `resolveSource()`-Zweig entfällt) |
+> | **bleibt, geändert** | 8, 11, 13, 14 |
+> | **bleibt unverändert** | 9, 10, 12 |
+> | **entfällt** | 15, 16, 17 |
+>
+> Vollständige Begründung und der Preis: Spec, „Revision v3" und „Aufgegeben mit dem Zuschnitt v3".
 
-**Architecture:** Zertifikat-Vorlagen sind `rec_contract_templates` mit `type='certificate'` und erzwungenem `code`-Präfix `ZERT-`. Das Aussehen liegt nicht in einer Blade, sondern in zwei laravel-freien Support-Klassen (HTML-Hülle und DomPDF-Optionen), die Controller *und* Test konsumieren — sonst testet der Render-Test eine anders konfigurierte Engine als die ausgelieferte. Ausgestellte Zertifikate liegen in einer eigenen Tabelle mit Inhalts-Snapshot, nicht als `RecContract`.
+**Goal:** Ein ausstellbares Schulungszertifikat mit **festem HTML-Inhalt im Code** — gerendert als einseitiges A4-PDF, ausgestellt bei HR-Ablehnung und automatisch bei der Mitarbeiter-Anlage, abrufbar in beiden Portalen. ~~als gewöhnliche Vorlage in `rec_contract_templates` — HTML mit Platzhaltern~~
+
+**Architecture:** ~~Zertifikat-Vorlagen sind `rec_contract_templates` mit `type='certificate'` und erzwungenem `code`-Präfix `ZERT-`.~~ **[v3]** Es gibt keine Zertifikat-Zeile in `rec_contract_templates`; `type` und der `ZERT-`-Präfixzwang bleiben als leerlaufende Tür für den Rückweg im Code und sind dort als tote Schalter kommentiert. Das Aussehen liegt nicht in einer Blade, sondern in zwei laravel-freien Support-Klassen (HTML-Hülle und DomPDF-Optionen), die Controller *und* Test konsumieren — sonst testet der Render-Test eine anders konfigurierte Engine als die ausgelieferte. Ausgestellte Zertifikate liegen in einer eigenen Tabelle mit Inhalts-Snapshot, dedupliziert über `(rec_applicant_id, kind)`, nicht als `RecContract`.
 
 **Tech Stack:** PHP 8.4, Laravel (Host-App `meingedeck`), Livewire 3, DomPDF 3.1.5 via `barryvdh/laravel-dompdf` 3.1.2, `dompdf/php-font-lib` (transitiv), PHPUnit 11.5, SQLite in-memory via `Illuminate\Database\Capsule\Manager`.
 
@@ -295,6 +312,9 @@ git commit -m "feat(recruiting): type-Spalte auf rec_contract_templates"
 ---
 
 ### Task 2: Migration `rec_training_certificates`
+
+> **GEÄNDERT durch den Zuschnitt v3.** Die Migration ist bereits editiert (nicht nachmigriert — sie war nicht deployed): `rec_contract_template_id` ist raus, `kind` (string 40, NOT NULL, ohne Default) ist rein, der Unique ist `(rec_applicant_id, kind)`. Der Codeblock unten zeigt den **alten** Stand; maßgeblich ist die Datei `database/migrations/2026_08_12_000002_create_rec_training_certificates_table.php` und ihr Docblock, der die Constraint-Namen durchrechnet und begründet, warum der Snapshot bleibt. `tests/Support/TestSchema::trainingCertificates()` ist mitgezogen.
+
 
 **Files:**
 - Create: `database/migrations/2026_08_12_000002_create_rec_training_certificates_table.php`
@@ -1872,6 +1892,17 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ### Task 7: `TrainingLeaderResolver` + `schulung.`-Zweig in `resolveSource()`
 
+> **HALBIERT durch den Zuschnitt v3 — und die verbleibende Hälfte ist die harmlose.**
+>
+> **Es bleibt:** `src/Support/TrainingLeaderResolver.php` mit `pickBooking()`, `leaderNames()`, `trainingDate()` und `tests/Unit/TrainingLeaderResolverTest.php`. Vollständig, unverändert. Die drei variablen Werte müssen auch in festem HTML von irgendwo kommen, und Schulungsdatum wie Schulungsleiter stehen in der maßgeblichen Buchung (G10). Der Task behält damit seinen Kern und seinen kompletten Testumfang, inklusive des dreizehnten Falls, der als wertvollster benannt war.
+>
+> **Es entfällt:** der `schulung.`-Zweig in `RecContractTemplate::resolveSource()` und jede Änderung an `src/Models/RecContractTemplate.php`. Damit entfallen auch die drei Auflagen aus dem Review zu Task 6a, die genau diesen Eingriff betrafen (Breite der Bedingung, Fallback-Semantik, der Reflection-Konsument `DebugContractFieldResolution.php:102-109`) — es wird keine Bestandsmethode angefasst, also gibt es dort nichts zu brechen.
+>
+> **Task 6a bleibt trotzdem wertvoll.** Er war als Netz für genau diesen Eingriff gedacht und wird dafür nicht mehr gebraucht. Was er geleistet hat, bleibt: 17 festgenagelte Bestandsfälle für den Vertragsweg, der ISO-Datums-Befund an `contract.extra_field.*` und der Facade-Defekt, der sonst Task 9 und 15 getroffen hätte. Nicht umsonst gebaut.
+>
+> **Neu in diesem Task, weil es keinen anderen Ort mehr hat:** die Platzhalter-Ersetzung. Vier `{{…}}`-Marken (`kontakt_vorname`, `kontakt_nachname`, `schulung_datum`, `schulung_leiter`, plus `datum_heute`) werden bei der Ausstellung per `str_replace` gesetzt — Schreibweise und Namen bleiben identisch zur Vorlagen-Fassung, weil `ResttagePlaceholder::hasUnresolvedPlaceholder()` in Task 9 auf genau dieses Muster prüft und der Rückweg dieselben Namen braucht.
+
+
 **Files:**
 - Create: `src/Support/TrainingLeaderResolver.php`
 - Modify: `src/Models/RecContractTemplate.php` (`resolveSource`, ab `:108`)
@@ -2175,6 +2206,14 @@ git commit -m "feat(recruiting): schulung.datum und schulung.leiter als Platzhal
 ---
 
 ### Task 8: `RecTrainingCertificate` + `IssueTrainingCertificateService`
+
+> **GEÄNDERT durch den Zuschnitt v3.** Vier Punkte, der letzte ist neu:
+>
+> 1. **Kein `templateId`-Parameter.** Signatur wird `issue(RecApplicant $applicant, ?int $issuedByUserId): RecTrainingCertificate`. Die Schulungsart kommt aus einer Konstante am Model (`RecTrainingCertificate::KIND_SERVICE_BASIS = 'service-basis'`), nicht von außen.
+> 2. **Kein `resolveTemplate()`-Guard.** Der Spec-Ausschnitt unten fordert einen Filter `type='certificate'` gegen die Gegenrichtung „darf hier ein *Vertrag* als Zertifikat ausgestellt werden?". Diese Gegenrichtung existiert nicht mehr — es gibt keine Vorlagen-ID, die man verwechseln könnte. Der Guard entfällt, das Risiko mit ihm.
+> 3. **`firstOrCreate` gegen `(rec_applicant_id, kind)`** statt gegen die Vorlagen-ID.
+> 4. **Das neue Team-Setting `issue_training_certificates` (Default `false`) gated die Ausstellung.** Es wird an derselben Stelle geprüft wie `$canIssueCertificate`, also **vor** der Sichtbarkeit der Checkbox — nicht erst hier. Der Service prüft es zusätzlich, weil Weg (b) ihn ohne UI aufruft. Grund für das Setting: mit festem HTML gibt es kein `default_certificate_template_id` mehr, und ohne Ersatz wäre der einzige Weg, das Feature stillzulegen, ein Deploy.
+
 
 **Files:**
 - Create: `src/Models/RecTrainingCertificate.php`
@@ -2880,6 +2919,9 @@ git commit -m "feat(recruiting): Public-Route und Controller fuer Zertifikat-PDF
 
 ### Task 11: Ausstellung im Ablehnen-Zweig des HR-Schreibtischs
 
+> **GEÄNDERT durch den Zuschnitt v3.** Die Checkbox bleibt, das **Vorlagen-Dropdown entfällt** — samt der Logik „bei genau einer Vorlage vorausgewählt", die diesen Normalfall kaschieren sollte. `$certificateTemplateId` verschwindet aus der Komponente, `rejectCase()` bekommt einen `bool` statt einer `?int`. Neu: `$canIssueCertificate` prüft zusätzlich das Team-Setting `issue_training_certificates` (Default `false`) — ist es aus, erscheint die Checkbox nicht.
+
+
 **Files:**
 - Modify: `src/Services/HrDeskRoutingService.php` (`rejectCase` `:276-283`, `applyRejection` `:285`)
 - Modify: `src/Livewire/HrDesk/Index.php`
@@ -3235,6 +3277,9 @@ git commit -m "feat(recruiting): WhatsApp-Zustellung des Zertifikats mit Link al
 
 ### Task 13: Weg (b) — automatisch bei der Mitarbeiter-Anlage
 
+> **GEÄNDERT durch den Zuschnitt v3.** Keine Vorlagen-Auflösung mehr, kein `default_certificate_template_id`. Der Hook ruft `issue($applicant, null)` und prüft dasselbe Team-Setting `issue_training_certificates`. **Wichtig:** dieser Weg hat keine UI, das Setting ist hier also die einzige Bremse.
+
+
 **Files:**
 - Modify: `src/Services/CreateEmployeeFromApplicantService.php` (neben `:106`)
 
@@ -3331,6 +3376,9 @@ git commit -m "feat(recruiting): Zertifikat automatisch bei der Mitarbeiter-Anla
 ---
 
 ### Task 14: Beide Portale zeigen das Zertifikat
+
+> **GEÄNDERT durch den Zuschnitt v3, an einer Stelle die man leicht übersieht.** Der Spec-Ausschnitt unten setzt `display_name` = **Vorlagenname**. Es gibt keine Vorlage; `display_name` wird ein konstanter String („Teilnahme-Zertifikat" o. ä.), passend zur `kind`-Konstante. Alles andere an diesem Task bleibt unverändert — insbesondere die Pflicht-Reihenfolge des `issued`-Zweigs vor der `signed_at`-Bedingung und die Mitzählung in `ApplicantPortal:78`.
+
 
 **Files:**
 - Modify: `src/Livewire/Public/EmployeePortal.php` (`contracts()` `:464-501`)
@@ -3465,6 +3513,17 @@ git commit -m "feat(recruiting): Zertifikat in MA- und Bewerber-Portal bei den V
 ---
 
 ### Task 15: Vorlagen-Editor — Typ, Test-PDF, Zeichen prüfen
+
+> **ENTFÄLLT durch den Zuschnitt v3, vollständig.**
+>
+> Es gibt keine Zertifikat-Vorlage, also nichts zu editieren: kein Typ-Dropdown, kein Badge, keine Vokabular-Hilfe, und **keine der beiden Knöpfe** (Test-PDF, Zeichen prüfen). Das ist mehr als das Zurücknehmen der „load-bearing"-Markierung an §E8 — die Knöpfe hatten ihren Platz im Editor, und der existiert nicht.
+>
+> **Warum das vertretbar ist, und das ist die Begründung, die nicht verloren gehen darf:** die Markierung war richtig, solange der Inhalt in einem Textarea lag. Die Kette war „Einseitigkeit hängt am Inhalt → Inhalt ist HR-editierbar → also braucht es eine Sichtprüfung nach jeder Bearbeitung". Mit v3 bricht das mittlere Glied: der Inhalt ist **deploy-gebunden** und ändert sich nur, wenn jemand `TrainingCertificateHtml` anfasst — und genau dann läuft **Task 9**. Der übernimmt beide Aufgaben automatisch statt manuell: Seitenzahl inklusive Negativkontrolle (Kriterium 1), Zeichenabdeckung über `FontGlyphCoverage::inspect()` mit `checkable === true` (Kriterium 3), plus `/BaseFont` (Kriterium 2), das §E8 ohnehin nie konnte.
+>
+> **Wer diesen Task reaktiviert, muss zuerst das Textarea zurückbringen.** Ein Test-PDF-Knopf über deploy-gebundenem Inhalt wäre ein Bequemlichkeitswerkzeug, kein Wächter, und darf nicht als solcher geführt werden.
+>
+> Was aus diesem Task **schon gebaut ist und bleibt:** `FontGlyphCoverage` samt drittem Zustand (Task 4/4a). Es beschreibt jetzt eine Klasse, die der Render-Test benutzt, keinen Knopf.
+
 
 **Files:**
 - Modify: `src/Livewire/ContractTemplates/Index.php`
@@ -3669,6 +3728,14 @@ git commit -m "feat(recruiting): Vorlagen-Editor mit Typ, Test-PDF und Zeichen-P
 
 ### Task 16: Seed-Command für die erste Zertifikat-Vorlage
 
+> **ENTFÄLLT durch den Zuschnitt v3.** Es gibt keine Vorlage zu seeden; der Inhalt ist Teil des Deploys.
+>
+> **Zwei Dinge aus diesem Task ziehen um, statt zu verschwinden:**
+>
+> 1. **Der Vorlageninhalt selbst** — das HTML mit den vier Platzhaltern und der Kenntnisliste — wird der feste Block in `TrainingCertificateHtml` bzw. in der Ausstellung. Er ist nicht verloren, er wechselt nur den Ort.
+> 2. **Die HTML-Entity-Schreibweise `&#9733;` für die ★ bleibt Absicht** und der Grund bleibt derselbe: `FontGlyphCoverage` dekodiert Entities (in Task 4 direkt verprobt), die Zeichenprüfung greift also auch auf diese Schreibweise. Wer die Dekodierung für unnötig hält und entfernt, macht die Prüfung am **einzigen ausgelieferten Inhalt** still blind. Das galt für die geseedete Vorlage und gilt unverändert für den festen Block — der Hinweis muss mit ihm umziehen.
+
+
 **Files:**
 - Create: `src/Console/Commands/SeedTrainingCertificateTemplate.php`
 - Modify: `src/RecruitingServiceProvider.php` (Command registrieren)
@@ -3844,6 +3911,17 @@ git commit -m "feat(recruiting): Seed-Command fuer die Zertifikat-Vorlage ZERT-S
 ---
 
 ### Task 17: Guard-Landkarte abarbeiten — die 22 Handlungszeilen
+
+> **ENTFÄLLT durch den Zuschnitt v3 — vollständig, und das ist der Hauptgewinn der Entscheidung.**
+>
+> Die 22 Handlungszeilen existieren ausschließlich, weil eine Zertifikat-Zeile in `rec_contract_templates` für jede Query sichtbar wäre, die Vorlagen liest. Keine Zeile, nichts zu filtern.
+>
+> **Mitentfallen ist die Kopplung, die die Landkarte selbst als größtes Risiko benennt:** §B8 als **einzelne Ausfallstelle für 12 dieser Einträge**. Der erzwungene `code`-Präfix `ZERT-` war die einzige Garantie, dass die bestehenden Filter `AV%`, `AT-%`, `AV-default` und `IFSG` eine Zertifikat-Zeile nicht erwischen — ein Zertifikat mit `code = 'AV-ZERT'` hätte die §15/§16-Abfrage vor der Unterschrift bekommen. Dieses Risiko wird nicht bewacht und nicht verlagert, es existiert nicht mehr.
+>
+> **Das Merge-Gate dieses Pakets entfällt damit ebenfalls.** Es lautete „die 22 Zeilen müssen abgehakt sein"; abzuhaken ist nichts.
+>
+> **`docs/zertifikat/guard-landkarte-511451c.md` wird NICHT gelöscht.** Sie ist die versionierte Analyse für den Rückweg und trägt oben einen Vermerk: nicht ausgeführt, Grund, Datum, und dass der Grep in Zeile 1 gegen einen neuen Stand nachfahrbar ist. Der teure Teil war die Untersuchung, nicht die Ausführung.
+
 
 **Files:**
 - Consumes-Artefakt: `docs/zertifikat/guard-landkarte-511451c.md` (44 + 17 Zeilen, davon 22 mit Handlungsbedarf)

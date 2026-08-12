@@ -11,6 +11,34 @@ use Platform\Core\Traits\HasExtraFields;
 use Platform\Recruiting\Services\Zas\ZasLookupResolver;
 use Symfony\Component\Uid\UuidV7;
 
+/**
+ * ACHTUNG, Zertifikat-Teil dieser Klasse: er laeuft leer, und zwar mit Absicht.
+ *
+ * TYPE_CERTIFICATE, CERTIFICATE_CODE_PREFIX, scopeCertificates() und die zwei
+ * Invarianten im saving-Hook (requires_signature=false, code-Praefix 'ZERT-')
+ * haben seit dem Zuschnitt des Zertifikat-Pakets KEINEN Konsumenten mehr. Der
+ * Zertifikat-Inhalt steht als festes HTML in TrainingCertificateHtml, nicht als
+ * Vorlage in dieser Tabelle — es gibt also keine Zeile mit type='certificate',
+ * und die Invarianten werden nie ausgeloest.
+ *
+ * WARUM SIE TROTZDEM STEHEN BLEIBEN, statt zurueckgebaut zu werden: sie
+ * bewachen die Tuer fuer den Rueckweg. Legt jemand spaeter doch eine
+ * Zertifikat-Vorlage an — per Hand, per SQL oder ueber die MCP-Tools
+ * CreateContractTemplateTool/UpdateContractTemplateTool —, dann greift der
+ * Praefixzwang sofort, ohne dass jemand daran denken muss. Der Praefix ist die
+ * einzige Garantie, dass die bestehenden code-Muster-Filter ('AV%', 'AT-%',
+ * 'IFSG') so eine Zeile nicht erwischen; ohne ihn bekaeme ein Zertifikat mit
+ * code 'AV-ZERT' die §15/§16-Abfrage vor der Unterschrift.
+ *
+ * DAS IST EIN TOTER SCHALTER, und tote Schalter haben in diesem Repo schon
+ * einmal Zeit gekostet (config('recruiting.sidebar') zeigte auf eine Konfig,
+ * die nichts mehr steuerte). Deshalb steht es hier ausdruecklich: leer laufend
+ * ist der Soll-Zustand, nicht ein Symptom. Wer den Zertifikat-Teil "aufraeumen"
+ * will, entfernt damit den Schutz fuer den Rueckweg — dann bitte zusammen mit
+ * der type-Spalte (Migration 2026_08_12_000001) und mit einem Blick in
+ * docs/zertifikat/guard-landkarte-511451c.md, welche 22 Guards dann faellig
+ * werden.
+ */
 class RecContractTemplate extends Model
 {
     use SoftDeletes;
@@ -19,6 +47,8 @@ class RecContractTemplate extends Model
     protected $table = 'rec_contract_templates';
 
     public const TYPE_CONTRACT = 'contract';
+
+    /** Ohne Konsumenten — siehe Klassen-Docblock. */
     public const TYPE_CERTIFICATE = 'certificate';
 
     /**

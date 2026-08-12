@@ -1,3 +1,15 @@
+> # NICHT AUSGEFÜHRT — bewusst, am 12.08.2026
+>
+> **Diese Analyse wurde nicht abgearbeitet, und das ist die Entscheidung, nicht ein Versäumnis.** Der Zuschnitt des Zertifikat-Pakets wurde geändert: der Zertifikat-Inhalt steht als festes HTML in `src/Support/TrainingCertificateHtml.php`, nicht als Vorlage in `rec_contract_templates`. Damit landet **keine Zeile** in dieser Tabelle, und keine der 22 Handlungszeilen unten hat noch einen Anlass — es gibt nichts zu filtern.
+>
+> Mitentfallen ist die Kopplung, die diese Landkarte selbst als größtes Risiko benennt: **§B8 als einzelne Ausfallstelle für 12 Einträge.** Der erzwungene `code`-Präfix `ZERT-` war die einzige Garantie, dass die bestehenden Filter `AV%`, `AT-%`, `AV-default` und `IFSG` eine Zertifikat-Zeile nicht erwischen. Ohne Zeile existiert das Risiko nicht mehr — es wurde nicht verlagert und nicht bewacht, sondern beseitigt.
+>
+> **Warum die Datei bleibt:** sie ist die versionierte Analyse für den Rückweg. Soll HR den Text später doch selbst ändern können, wird der Inhalt wieder eine Vorlage — dann sind genau diese 22 Zeilen fällig. Der teure Teil ist die Untersuchung, nicht die Ausführung, und die ist hier erledigt.
+>
+> **Nachfahrbar:** der Grep in der nächsten Zeile ist das verwendete Kommando. Er ist gegen den Stand main `511451c` datiert; wer die Landkarte reaktiviert, fährt ihn gegen den dann aktuellen Stand und vergleicht. Die zwei ergänzenden Greps (ID-Ebene, `ContractPreSigningType`) stehen darunter und gehören dazu — der Haupt-Grep allein hat 14 Zeilen nicht gefunden.
+>
+> Was vom Zertifikat-Paket dennoch gebaut wurde und den Rückweg verbilligt: die Spalte `type` (Migration `2026_08_12_000001`) und die Invarianten in `RecContractTemplate` existieren, laufen aber leer. Siehe die Docblocks dort — sie sind ausdrücklich als tote Schalter markiert, damit niemand sie als Symptom missversteht und "aufräumt".
+
 `grep -rn "RecContractTemplate\|rec_contract_templates" --include=*.php --include=*.blade.php src/ database/ resources/ routes/ tests/ | grep -v worktrees`
 
 Ergänzend, weil `ContractPreSigningType` weder den Klassennamen noch den Tabellennamen enthält und vom Haupt-Grep nicht erfasst wird: `grep -rn "RESTTAGE_CODES\|forCode" src/Support/ContractPreSigningType.php src/Livewire/Public/ContractSigning.php`

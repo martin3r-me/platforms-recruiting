@@ -9,6 +9,20 @@ use Illuminate\Support\Facades\Schema;
  * derselben Tabelle, damit Editor, Platzhalter-Engine und Verwaltungsseite
  * mitbenutzt werden koennen.
  *
+ * ACHTUNG: DIESE SPALTE HAT KEINEN KONSUMENTEN. Der Zertifikat-Inhalt steht
+ * seit dem Zuschnitt des Pakets als festes HTML in TrainingCertificateHtml,
+ * nicht als Vorlage in dieser Tabelle — jede Zeile traegt also 'contract', und
+ * nichts filtert je auf 'certificate'. Die Spalte bleibt bewusst stehen: sie
+ * ist zusammen mit den Invarianten in RecContractTemplate (siehe deren
+ * Klassen-Docblock) der billige Teil des Rueckwegs, falls HR den Text spaeter
+ * doch selbst aendern soll. Ein toter Schalter, dessen Totsein der
+ * Soll-Zustand ist — nicht ein Symptom, dem man nachgehen muss. In diesem Repo
+ * hat so etwas schon einmal Zeit gekostet (config('recruiting.sidebar')),
+ * deshalb steht es hier statt nur im Chatverlauf.
+ * Der Index (team_id, type) ist damit ebenfalls ohne Nutzer. Er kostet
+ * Schreibaufwand, aber ein spaeteres Nachziehen kostet eine Migration auf einer
+ * dann gewachsenen Tabelle — bewusst behalten.
+ *
  * Bewusst NOT NULL mit Default: ein dritter Zustand "unbekannt" muesste in
  * jeder Query mitgedacht werden. Der Bestand wird durch den Default korrekt
  * zu 'contract'.

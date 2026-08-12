@@ -85,18 +85,18 @@ final class TestSchema
             $t->string('uuid', 36)->unique();
             $t->unsignedBigInteger('team_id');
             $t->unsignedBigInteger('rec_applicant_id');
-            $t->unsignedBigInteger('rec_contract_template_id');
+            $t->string('kind', 40);
             $t->longText('personalized_content')->nullable();
             $t->timestamp('issued_at')->nullable();
             $t->unsignedBigInteger('issued_by_user_id')->nullable();
             $t->timestamp('wa_sent_at')->nullable();
             $t->timestamps();
             // Der Constraint ist Teil der Invariante "ein Zertifikat pro
-            // Bewerber pro Vorlage" und muss im Test genauso greifen.
-            $t->unique(
-                ['rec_applicant_id', 'rec_contract_template_id'],
-                'rec_training_cert_applicant_tpl_unique'
-            );
+            // Bewerber pro Schulungsart" und muss im Test genauso greifen.
+            // Vorher war die zweite Spalte rec_contract_template_id; mit dem
+            // Zuschnitt "Inhalt als festes HTML statt als Vorlage" gibt es
+            // keine Vorlagen-Zeile mehr, und kind traegt die Dedup-Dimension.
+            $t->unique(['rec_applicant_id', 'kind']);
         });
     }
 }

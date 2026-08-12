@@ -1,9 +1,25 @@
-# Schulungszertifikat als HTML-Vorlage — Design
+# Schulungszertifikat als festes HTML — Design
 
-**Datum:** 2026-08-11 (Variante C, 2026-08-12) — **Revision v2, 2026-08-12**
+**Datum:** 2026-08-11 (Variante C, 2026-08-12) — **Revision v3, 2026-08-12: Zuschnitt geändert**
 **Modul:** platforms-recruiting
 **Status:** Entwurf, Gate 1 (Spec-Review) offen
 Code-Referenzen gegen main **`511451c`** (v1 stand gegen `8718f10`)
+
+> # Revision v3 — der Zuschnitt, und er ist maßgeblich
+>
+> **Das Zertifikat ist keine Vorlage mehr.** Der Inhalt steht als festes HTML in `src/Support/TrainingCertificateHtml.php`; es landet **keine Zeile** in `rec_contract_templates`. Alle Aussagen unten, die vom Gegenteil ausgehen, sind mit **[entfällt v3]** markiert oder tragen einen Verweis hierher. Wo v2 und v3 sich widersprechen, gilt v3.
+>
+> **Anlass:** Der Zuschnitt wurde in Frage gestellt, nachdem Tasks 0–6a gebaut waren. Das Dokument ist stumpf — festes Layout, **drei** variable Werte (Name, Schulungsdatum, Schulungsleiter), **eine** Schulungsart, ein Text, der sich praktisch nie ändert. Die Vorlagen-Infrastruktur trug also die Kosten einer Flexibilität, die niemand braucht.
+>
+> **Was der Zuschnitt beseitigt, nicht bewacht:**
+>
+> - **22 Guards in fremden Queries** (`docs/zertifikat/guard-landkarte-511451c.md`) — es gibt nichts zu filtern, wenn keine Zeile existiert. Die Datei bleibt als versionierte Analyse für den Rückweg, mit einem Vermerk oben.
+> - **§B8 als einzelne Ausfallstelle für 12 dieser Guards.** Der erzwungene `code`-Präfix `ZERT-` war die einzige Garantie, dass `AV%`, `AT-%`, `AV-default` und `IFSG` eine Zertifikat-Zeile nicht erwischen. Kein Präfix nötig, weil keine Zeile.
+> - **Ein Eingriff in `RecContractTemplate::resolveSource()`** — die Methode, deren Nachbarschaft in Task 6a gerade den ISO-Datums-Befund hergegeben hat. Der `schulung.`-Zweig entfällt.
+>
+> **Was bleibt und weiter gebraucht wird:** `TrainingLeaderResolver` (die drei variablen Werte müssen auch in festem HTML von irgendwo kommen — Schulungsdatum und Schulungsleiter aus der maßgeblichen Buchung, G10), die Ausstellung, die PDF-Route, beide Portale, der WhatsApp-Versand. Und alles aus Tasks 0–6a: nichts davon ist verloren.
+>
+> **Was aufgegeben wird**, ausdrücklich und mit Preis: siehe den Abschnitt **„Aufgegeben mit dem Zuschnitt v3"** in §Benannte Tradeoffs.
 
 > **Löst den Zertifikat-Teil von `2026-08-05-schulungszertifikat-bewertbarkeit-design.md` ab.**
 > Was von dort übernommen wird, steht namentlich in §Übernahme.
@@ -559,8 +575,21 @@ Literaltext, weil eine Vorlage pro Schulungsart existiert (G16 für den Ort):
 | `{{datum_heute}}` | `meta.datum_heute` |
 | `{{schulung_leiter}}` | `schulung.leiter` (§B7) |
 
-Damit ist die Vorlage formgleich mit einer Vertragsvorlage: HTML, Platzhalter,
-`field_mappings` — und im Textarea (G5) lesbar und editierbar.
+~~Damit ist die Vorlage formgleich mit einer Vertragsvorlage: HTML, Platzhalter,
+`field_mappings` — und im Textarea (G5) lesbar und editierbar.~~
+
+> **[geändert v3]** Es gibt keine Vorlage und keine `field_mappings`. Der Inhalt steht als Konstante in `TrainingCertificateHtml`, die Platzhalter werden bei der Ausstellung durch `str_replace` ersetzt. **Die vier Platzhalter der Tabelle oben bleiben als Form erhalten** — gleiche Schreibweise `{{…}}`, gleiche Namen. Nicht aus Nostalgie: `ResttagePlaceholder::hasUnresolvedPlaceholder()` prüft in Task 9 auf genau dieses Muster, und der Rückweg braucht dieselben Namen, wenn der Inhalt wieder in eine Vorlage wandert.
+>
+> Die Quellen ändern sich dabei nicht, nur ihr Aufrufer:
+>
+> | Platzhalter | v2: `field_mappings` → `resolveSource()` | v3: Ausstellungs-Service |
+> | --- | --- | --- |
+> | `{{kontakt_vorname}}` / `{{kontakt_nachname}}` | `contact.first_name` / `contact.last_name` | direkt am `CrmContact` |
+> | `{{schulung_datum}}` | `schulung.datum` (§B5) | `TrainingLeaderResolver::trainingDate()` |
+> | `{{schulung_leiter}}` | `schulung.leiter` (§B7) | `TrainingLeaderResolver::leaderNames()` |
+> | `{{datum_heute}}` | `meta.datum_heute` | `now()->format('d.m.Y')` |
+>
+> `TrainingLeaderResolver` bleibt also **vollständig** nötig; was entfällt, ist der `schulung.`-Zweig in `resolveSource()` — genau der Teil, der eine Bestandsmethode angefasst hätte.
 
 **E4 — Sonderzeichen laufen in DejaVu.** Die ★-Trenner der Kenntnisliste stehen
 in `<span class="zeichen">`, das per CSS auf `"DejaVu Sans"` schaltet. Grund:
@@ -631,7 +660,23 @@ Verzeichnis ohne die Datei.
 
 Zwei Knöpfe neben der Vorlage:
 
-**§E8 ist load-bearing. [v3]** Nicht mehr „nice to have neben der Test-Assertion":
+> **[entfällt v3] — und die Begründung ist wichtiger als die Streichung.**
+>
+> §E8 beschreibt zwei Knöpfe **im Vorlagen-Editor**. Es gibt keine Zertifikat-Vorlage mehr, also auch keinen Editor dafür — beide Knöpfe entfallen, nicht nur ihre Priorität.
+>
+> **Die „load-bearing"-Markierung unten wird ausdrücklich zurückgenommen.** Sie war richtig, solange sie galt, und sie fällt nicht weil wir sie uns nicht leisten wollen, sondern weil ihre Voraussetzung weg ist. Die Kette war: die Einseitigkeit ist keine strukturelle Garantie (§E5, gemessen: 20 Listenzeilen → 2 Seiten) → also hängt sie am Inhalt → der Inhalt liegt in einem Textarea, in das HR schreiben darf → also braucht es eine Stelle, an der ein Mensch die Seitenzahl **nach jeder HR-Bearbeitung** sieht.
+>
+> **Mit dem Zuschnitt v3 bricht das dritte Glied:** der Inhalt ist deploy-gebunden. Er ändert sich nur, wenn jemand `TrainingCertificateHtml` anfasst und deployt — und **genau dann** läuft der Render-Test. Damit übernimmt **Task 9** beide Aufgaben von §E8 vollständig und automatisch statt manuell und optional:
+>
+> - Seitenzahl: `testZwoelfKenntnisZeilenBleibenEineSeite` plus die Negativkontrolle `testZuVieleKenntnisZeilenErzeugenEineZweiteSeite` (Kriterium 1).
+> - Zeichenabdeckung: `FontGlyphCoverage::inspect()` mit `checkable === true` und leerem `missing` (Kriterium 3).
+> - Und weiterhin das, was §E8 nie konnte: `/BaseFont` (Kriterium 2), der einzige Wächter, der eine beschädigte Schriftdatei in jeder Stufe rot macht.
+>
+> **Wer §E8 reaktiviert, muss das mittlere Glied wiederherstellen** — also erst das Textarea zurückbringen (Rückweg, siehe Tradeoffs). Solange der Text deploy-gebunden ist, wäre ein Test-PDF-Knopf ein Bequemlichkeitswerkzeug, kein Wächter, und dürfte nicht als solcher geführt werden.
+>
+> Was von §E8 **inhaltlich** überlebt und in Task 4a schon gebaut ist: die drei Zustände der Glyph-Prüfung (`checkable` / `missing` / `hasWarning()`) und die Messung, dass eine *abgeschnittene* Schriftdatei damit prinzipiell nicht erkennbar ist. Beides steht weiter unten in diesem Abschnitt und bleibt gültig — es beschreibt jetzt nur eine Klasse, die der Render-Test benutzt, keinen Knopf.
+
+**§E8 war load-bearing. [v3 — zurückgenommen, siehe Kasten oben]** Nicht mehr „nice to have neben der Test-Assertion":
 seit die Einseitigkeit als strukturelle Garantie gekippt ist (§E5), ist das
 Test-PDF **die einzige Stelle, an der ein Mensch die Seitenzahl einer von HR
 bearbeiteten Vorlage überhaupt sieht.** Der Render-Test prüft nur die
@@ -709,8 +754,12 @@ Sie ist es nicht, und damit ist §E8 nicht die Bequemlichkeit, sondern der
 Wächter. Der Satz bleibt durchgestrichen stehen, weil er zweimal zitiert wurde
 und niemand ihn aus dem Gedächtnis wiederbeleben soll.
 
-**E10 — Nackte Elemente werden mitgestylt, und die erste Vorlage wird
-geseedet.** Der Vorlageninhalt (E3) benutzt ein kleines Klassen-Vokabular
+> **[teilweise entfällt v3]** Der **Seed-Command entfällt** — es gibt keine Vorlage zu seeden, der Inhalt ist Teil des Deploys. Das **Mitstylen nackter Elemente bleibt** und wird sogar wichtiger: es ist jetzt der Autor des festen HTML, der davon profitiert, und es hält die Tür für den Rückweg offen, weil ein späterer Vorlageninhalt dasselbe Vokabular vorfindet.
+>
+> Was mit dem Seed-Command mitentfällt: das Vorlagen-Vokabular muss nicht mehr in einer Editor-Hilfe erklärt werden (kein Editor), und die HTML-Entity-Schreibweise `&#9733;` für die ★ ist keine Absprache mehr, sondern eine Zeile im Klassencode. **Die Entity-Dekodierung in `FontGlyphCoverage` bleibt trotzdem nötig und getestet** — der feste HTML-Block benutzt sie weiter, und Task 9 prüft gegen genau diesen Inhalt.
+
+**E10 — Nackte Elemente werden mitgestylt, ~~und die erste Vorlage wird
+geseedet~~.** Der Vorlageninhalt (E3) benutzt ein kleines Klassen-Vokabular
 (`.lab`, `.val`, `.kurs`, `.intro`, `.skill`, `.zeichen`, die zwei
 Fuß-Klassen), das die Hülle definiert. Damit das kein Fallstrick wird, drei
 Maßnahmen — keine davon ein neues Konzept:
@@ -807,8 +856,20 @@ dem Model, erzwingt nichts selbst).
 **C3 — Weg (a): Ablehnung am HR-Schreibtisch.** Checkbox „☑ Teilnahme-Zertifikat
 ausstellen" im Ablehnen-Zweig des Resolve-Modals, sichtbar nur bei vorhandener
 `attended`-Buchung (bestehendes Batch-Muster `attendedApplicantIds()`),
-Vorlagen-Dropdown über die aktiven `certificate`-Vorlagen, bei genau einer
-vorausgewählt. Gilt für jeden Fall-Grund, nicht nur `insufficient_documents`.
+~~Vorlagen-Dropdown über die aktiven `certificate`-Vorlagen, bei genau einer
+vorausgewählt.~~ Gilt für jeden Fall-Grund, nicht nur `insufficient_documents`.
+
+> **[geändert v3] Kein Vorlagen-Dropdown** — es gibt nichts zu wählen. Die Checkbox allein, ohne zweites Feld. Damit fällt auch die Auto-Auswahl-Logik „bei genau einer Vorlage vorausgewählt" weg, die den Normalfall kaschieren sollte.
+>
+> **Dafür kommt ein Abschaltweg dazu, und der ist neu — nicht bloß umbenannt. [v3]** In v2 war `default_certificate_template_id` faktisch der Schalter: kein Wert gesetzt → nichts auszustellen. Mit festem HTML gibt es keinen solchen Wert mehr, und damit wäre der einzige Weg zurück ein Deploy. Deshalb:
+>
+> ```
+> RecApplicantSettings::DEFAULT_SETTINGS['issue_training_certificates'] => false
+> ```
+>
+> Ein Team-Setting „Zertifikate ausstellen: ja/nein", **Default aus**. Es gated beide Wege (C3 und C4) und wird an derselben Stelle geprüft wie `$canIssueCertificate` — also **vor** der Sichtbarkeit der Checkbox, nicht erst beim Ausstellen. Ist es aus, existiert das Feature für HR nicht, und kein Deploy ist nötig, um es stillzulegen.
+>
+> Default `false` heißt: nach dem Deploy passiert erst einmal nichts, bis jemand es bewusst einschaltet. Das ist die richtige Richtung für ein Feature, das personenbezogene Dokumente an abgelehnte Bewerber verschickt.
 
 **Platzierung und Kollisionsfreiheit sind geprüft (G22): [v2]** die Checkbox
 gehört direkt neben `sendRejectionMessage` (`hr-desk/index.blade.php:349-360`),
@@ -847,13 +908,19 @@ Fallback.
 **Bewusst automatisch statt per Knopf.** Weg (b) betrifft jeden neuen
 Mitarbeiter; ein Knopf wäre eine Aufgabe, die jemand vergisst.
 
-**C5 — Unique-Constraint auf `(rec_applicant_id, rec_contract_template_id)`**
+**C5 — Unique-Constraint auf `(rec_applicant_id, kind)` [geändert v3]**
 statt allein auf `rec_applicant_id` (Abweichung von §C1). Sonst blockiert die
 erste Schulungsart jede zweite für denselben Menschen. Weiterhin auf DB-Ebene:
 ein Doppelklick am Desk ist kein Sonderfall.
 
+> **Die zweite Spalte hieß in v2 `rec_contract_template_id`.** Sie war die Dedup-Dimension, weil die Vorlage die Schulungsart *war*. Ohne Vorlage trägt eine eigene Spalte `kind` (string, NOT NULL, **ohne** Default) diese Rolle; der Wert kommt aus einer Konstante am Model, nicht aus einem Formular.
+>
+> **Warum nicht einfach `unique(rec_applicant_id)`:** das ist der naheliegende Reflex und er verbaut die zweite Schulungsart. Mit `kind` braucht sie nur ein Deploy mit einem zweiten HTML-Block — kein Schemawechsel auf einer dann gewachsenen Tabelle. Der Fall „zweite Schulungsart" ist deutlich wahrscheinlicher als „HR will den Text editieren", also ist das die Tür, die offen bleiben muss.
+>
+> Nebenwirkung, die dabei herausfällt: der Constraint-Name muss nicht mehr handgepflegt werden. `rec_training_certificates_rec_applicant_id_kind_unique` ist 54 Zeichen und passt unter die MySQL-Grenze von 64 — die v2-Variante kam mit `…rec_applicant_id_rec_contract_template_id_unique` auf **74** und brauchte deshalb einen expliziten Kurznamen.
+
 Nebeneffekt: Wird ein abgelehnter Bewerber später doch eingestellt, greift das
-Constraint und Weg (b) legt kein zweites Zertifikat derselben Vorlage an. Die
+Constraint und Weg (b) legt kein zweites Zertifikat derselben Schulungsart an. Die
 Ausstellung behandelt diesen Fall als **Normalfall** (`firstOrCreate`-Semantik),
 nicht als Fehler.
 
@@ -1102,6 +1169,54 @@ aufsetzt. Sie berührt Bestandstests, die mit dem Zertifikat nichts zu tun
 haben — eigenes Ticket.
 
 ## Benannte Tradeoffs
+
+### Aufgegeben mit dem Zuschnitt v3
+
+Drei Dinge, bewusst und mit Preisschild. Sie stehen zuerst, weil sie die
+teuersten Zusagen dieser Spec sind.
+
+- **HR kann den Text nicht selbst ändern.** Jede Formulierung, jeder
+  Kenntnispunkt, jeder Tippfehler braucht einen Entwickler und ein Deploy. Bei
+  einem Text, der sich seit der Word-Vorlage nicht geändert hat, ist das
+  tragbar — bei einem, den jemand „nur schnell" anpassen will, ist es lästig.
+  **Was es dafür ausschließt:** dass HR das Layout zerlegt, die Fuß-Klassen
+  vergisst (dann fehlt der Schulungsleiter lautlos), die ★ ohne
+  `<span class="zeichen">` schreibt (dann steht `?` im PDF) oder die
+  Kenntnisliste auf 20 Zeilen erweitert (dann sind es zwei Seiten, §E5).
+- **Eine zweite Schulungsart braucht ein Deploy.** Sie braucht dank der
+  `kind`-Spalte **keinen** Schemawechsel und keine Migration — nur einen zweiten
+  HTML-Block und einen zweiten Konstantenwert. Das ist der wahrscheinlichere der
+  beiden Erweiterungsfälle, deshalb ist er der billigere.
+- **Der Rückweg kostet ungefähr das, was wir jetzt einsparen.** Wird der Inhalt
+  wieder eine Vorlage, kommen zurück: der `schulung.`-Zweig in
+  `resolveSource()`, der Vorlagen-Editor mit Typ-Dropdown, der Seed-Command und
+  **die 22 Guards aus der Landkarte** — die sind der Brocken. Dazu eine
+  Migration, die `kind` durch eine Vorlagen-ID ersetzt oder ergänzt.
+
+  **Zwei Dinge machen ihn billiger, als er klingt.** Die *Analyse* ist erledigt
+  und versioniert: `docs/zertifikat/guard-landkarte-511451c.md` bleibt liegen,
+  61 Zeilen, drei Greps, Gegenrichtung, mit dem Grep-Kommando in Zeile 1 und
+  einem Vermerk oben, dass sie nicht ausgeführt wurde. Nur die Ausführung fehlt,
+  nicht die Untersuchung. Und die *Tür* ist offen gelassen: die Spalte `type`
+  (Migration `2026_08_12_000001`) und die Invarianten in `RecContractTemplate`
+  existieren, laufen leer und sind an beiden Stellen als tote Schalter
+  kommentiert — der `ZERT-`-Präfixzwang greift sofort, wenn doch jemand eine
+  Zertifikat-Vorlage anlegt.
+
+  **Was der Rückweg NICHT kostet:** Datenmigration. Der Snapshot in
+  `personalized_content` ist vollständig; bereits ausgestellte Zertifikate
+  rendern unabhängig weiter.
+
+- **Ohne Snapshot wäre das Dokument nicht stabil — deshalb bleibt er, obwohl der
+  Text jetzt fest ist.** Er hält die drei variablen Werte zum
+  Ausstellungszeitpunkt fest. Ohne ihn würde bei jedem Download neu aufgelöst,
+  und ein im August ausgestelltes Zertifikat zeigte im Dezember ein anderes
+  Ausstellungsdatum — und womöglich einen anderen Schulungsleiter, weil
+  Interviewer an einer Buchung nachgetragen werden können (G10). Er sieht beim
+  nächsten Aufräumen redundant aus, jetzt wo der Text konstant ist. **Ist er
+  nicht.** Steht auch als Kommentar an der Migration.
+
+### Weiterhin gültig
 
 - **Der Letterpress-Charakter ist weg.** Oswald ist nah, aber nicht die
   Originalschrift; die Papierstruktur des Scans fehlt. Die Inline-Kontur ist
