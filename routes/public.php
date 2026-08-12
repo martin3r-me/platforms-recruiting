@@ -44,3 +44,12 @@ Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\Employee
 // Contract PDF Download (public, token-based)
 Route::get('/applicant/{token}/contract/{contractId}/pdf', [\Platform\Recruiting\Http\Controllers\ContractPdfController::class, '__invoke'])
     ->name('recruiting.public.contract-pdf');
+
+// Schulungszertifikat-PDF (public, ueber die Zertifikat-uuid).
+// Bewusst NICHT ueber den Applicant-Token wie die Vertrags-Route darueber: der
+// Token oeffnet auch Bewerbungsformular und Vertrags-PDFs, unbegrenzt und ohne
+// Rotation. Dieser Link geht per WhatsApp an abgelehnte Bewerber und soll genau
+// ein Dokument oeffnen. Wer hier auf {token} umbaut, macht aus einem
+// Trostpreis-Link einen Generalschluessel.
+Route::get('/zertifikat/{uuid}', [\Platform\Recruiting\Http\Controllers\TrainingCertificatePdfController::class, '__invoke'])
+    ->name('recruiting.public.training-certificate');
