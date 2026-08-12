@@ -16,11 +16,27 @@ namespace Platform\Recruiting\Support;
  * sie ueber alle Zertifikat-Vorlagen identisch sind und HR sie nicht
  * verschieben soll. Der Vorlageninhalt liefert nur Text.
  *
- * Datum und Unterschriftszeile sind absolut am Seitenfuss verankert. Damit
- * kann der fliessende Mittelteil keinen Seitenumbruch erzeugen — die
- * Einzelseiten-Eigenschaft ist strukturell erzwungen, nicht durch Abstaende
- * austariert. Als <table> funktioniert das in DomPDF 3.1.5 nicht: eine
- * bottom-verankerte Tabelle laeuft unten aus der Seite.
+ * Datum und Unterschriftszeile sind absolut am Seitenfuss verankert. Damit ist
+ * der FUSS aus dem Fluss genommen und kann nicht mehr durch Abstaende nach
+ * unten geschoben werden. Als <table> funktioniert das in DomPDF 3.1.5 nicht:
+ * eine bottom-verankerte Tabelle laeuft unten aus der Seite.
+ *
+ * KORREKTUR, wichtig: hier stand "damit kann der fliessende Mittelteil keinen
+ * Seitenumbruch erzeugen — die Einzelseiten-Eigenschaft ist strukturell
+ * erzwungen". Das ist FALSCH, gemessen mit den echten Assets:
+ *
+ *    4 Zeilen Kenntnisliste -> 1 Seite     20 Zeilen -> 2 SEITEN
+ *   10 Zeilen               -> 1 Seite     40 Zeilen -> 2 Seiten
+ *
+ * Die Verankerung erzwingt, dass der Fuss nicht umbricht, nicht dass das
+ * Dokument einseitig bleibt. Laeuft der Mittelteil ueber, liegt der absolut
+ * positionierte Fuss auf Seite 1, waehrend der Inhalt auf Seite 2 weiterlaeuft.
+ *
+ * Die Einseitigkeit ist damit KEINE Eigenschaft dieser Klasse, sondern eine des
+ * ausgelieferten Vorlageninhalts — und der liegt in einem Textarea, in das HR
+ * schreiben darf. Wer hier etwas aendert, darf die Einseitigkeit nicht als
+ * gegeben annehmen; sie haengt am Test-PDF-Knopf im Editor und an der
+ * Seitenzahl-Assertion des Render-Tests.
  */
 final class TrainingCertificateHtml
 {

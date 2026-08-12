@@ -1617,11 +1617,18 @@ namespace Platform\Recruiting\Support;
  * sie ueber alle Zertifikat-Vorlagen identisch sind und HR sie nicht
  * verschieben soll. Der Vorlageninhalt liefert nur Text.
  *
- * Datum und Unterschriftszeile sind absolut am Seitenfuss verankert. Damit
- * kann der fliessende Mittelteil keinen Seitenumbruch erzeugen — die
- * Einzelseiten-Eigenschaft ist strukturell erzwungen, nicht durch Abstaende
- * austariert. Als <table> funktioniert das in DomPDF 3.1.5 nicht: eine
- * bottom-verankerte Tabelle laeuft unten aus der Seite.
+ * Datum und Unterschriftszeile sind absolut am Seitenfuss verankert. Damit ist
+ * der FUSS aus dem Fluss genommen und kann nicht mehr durch Abstaende nach
+ * unten geschoben werden. Als <table> funktioniert das in DomPDF 3.1.5 nicht:
+ * eine bottom-verankerte Tabelle laeuft unten aus der Seite.
+ *
+ * KORREKTUR: hier stand "damit kann der fliessende Mittelteil keinen
+ * Seitenumbruch erzeugen — die Einzelseiten-Eigenschaft ist strukturell
+ * erzwungen". FALSCH, gemessen: 4 Zeilen Kenntnisliste 1 Seite, 10 Zeilen
+ * 1 Seite, 20 Zeilen 2 SEITEN, 40 Zeilen 2 Seiten. Die Einseitigkeit ist
+ * KEINE Eigenschaft dieser Klasse, sondern eine des Vorlageninhalts, und der
+ * liegt in einem Textarea, in das HR schreiben darf. Waechter sind die
+ * Seitenzahl-Anzeige am Test-PDF-Knopf und die Assertion im Render-Test.
  */
 final class TrainingCertificateHtml
 {
@@ -3471,6 +3478,7 @@ In `src/Livewire/ContractTemplates/Index.php`: `public string $type = 'contract'
 
 ```php
     public ?string $glyphCheckResult = null;
+    public ?string $testPdfHinweis = null;
 
     /**
      * Meldet Zeichen, die die Zertifikat-Schrift nicht kennt. DomPDF macht
@@ -3525,6 +3533,12 @@ In `src/Livewire/ContractTemplates/Index.php`: `public string $type = 'contract'
      * Optionen UND derselbe Asset-Resolver wie die Ausstellung. Wuerde die
      * Vorschau ihre Assets selbst aufloesen, koennte sie etwas anderes zeigen
      * als das ausgestellte Dokument — und genau dagegen existiert der Knopf.
+     *
+     * Dieser Knopf ist load-bearing, nicht Komfort: seit die Einseitigkeit
+     * nachweislich KEINE strukturelle Garantie ist (§E5, 20 Listenzeilen
+     * ergeben 2 Seiten), ist er die einzige Stelle, an der ein Mensch die
+     * Seitenzahl einer von HR bearbeiteten Vorlage ueberhaupt sieht. Der
+     * Render-Test prueft nur die ausgelieferte Vorlage.
      */
     public function testPdf()
     {
@@ -3543,8 +3557,21 @@ In `src/Livewire/ContractTemplates/Index.php`: `public string $type = 'contract'
             $pdf->setOption($key, $value);
         }
 
+        $bytes = $pdf->setPaper('a4')->output();
+
+        // Seitenzahl ANZEIGEN, nicht nur ausliefern: ein zweiseitiges
+        // Zertifikat sieht auf Seite 1 voellig normal aus, wer nicht scrollt
+        // merkt nichts. Kein Gate — das PDF geht trotzdem raus.
+        // Dasselbe Muster wie im Render-Test; grep -c "/Type /Page" findet auf
+        // einem DomPDF-PDF NULL Treffer (G13.6), ein Literal-Match waere hier
+        // also immer "1 Seite".
+        $seiten = preg_match_all('/\/Type\s*\/Page[^s]/', $bytes);
+        $this->testPdfHinweis = $seiten === 1
+            ? '1 Seite'
+            : $seiten . ' Seiten — Zertifikate sollen einseitig sein';
+
         return response()->streamDownload(
-            fn () => print($pdf->setPaper('a4')->output()),
+            fn () => print($bytes),
             'zertifikat-test.pdf'
         );
     }
@@ -3594,8 +3621,13 @@ Nach dem Textarea:
                     @if($glyphCheckResult)
                         <p class="text-xs text-[var(--ui-secondary)]">{!! $glyphCheckResult !!}</p>
                     @endif
+                    @if($testPdfHinweis)
+                        <p class="text-xs text-[var(--ui-secondary)]">{{ $testPdfHinweis }}</p>
+                    @endif
                 @endif
 ```
+
+**Zu verifizieren, nicht zu unterstellen — Reihenfolge von Download und Re-Render.** `testPdf()` setzt `$testPdfHinweis` **und** gibt eine `streamDownload`-Response zurück. Livewire v3 behandelt Datei-Downloads aus Actions gesondert (Datei als Payload neben dem normalen Component-Update), der Hinweis sollte also im selben Klick erscheinen. **Das ist erschlossen, nicht gemessen** — ohne gebootete App nicht prüfbar. Beim Bauen also ausdrücklich nachsehen: erscheint die Zeile nach *einem* Klick? Wenn nicht, ist der Hinweis nach einem Download wertlos, und die Seitenzahl muss anders sichtbar werden (z. B. `checkGlyphs()` zählt sie mit, oder ein eigener Knopf „Seiten zählen" ohne Download). **Nicht** stillschweigend so lassen, dass der Hinweis erst beim nächsten Speichern auftaucht — dann zeigt er die Seitenzahl der *vorherigen* Fassung, und das ist schlimmer als keine Anzeige.
 
 In der Liste, neben dem `is_active`-Badge (`:57`):
 

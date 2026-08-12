@@ -631,15 +631,67 @@ Verzeichnis ohne die Datei.
 
 Zwei Knöpfe neben der Vorlage:
 
+**§E8 ist load-bearing. [v3]** Nicht mehr „nice to have neben der Test-Assertion":
+seit die Einseitigkeit als strukturelle Garantie gekippt ist (§E5), ist das
+Test-PDF **die einzige Stelle, an der ein Mensch die Seitenzahl einer von HR
+bearbeiteten Vorlage überhaupt sieht.** Der Render-Test prüft nur die
+ausgelieferte Vorlage; jede spätere Bearbeitung im Textarea läuft ohne
+Netz. Fällt §E8 aus dem Scope, gibt es für den Fall „HR erweitert die
+Kenntnisliste auf 25 Zeilen" keinen Wächter mehr — auch keinen nachgelagerten.
+
 1. **„Test-PDF"** rendert mit Beispielwerten über dieselbe Hülle und dieselben
    Optionen (E1) und liefert das Ergebnis aus. Begründung: G13.5 ist
    inhaltsabhängig — ein langer Name oder eine längere Kenntnisliste kann das
    Layout sprengen, und ohne Vorschau merkt das erst der Bewerber.
+
+   **Die Seitenzahl wird ANGEZEIGT, nicht nur mitgeliefert. [v3]** Ein
+   zweiseitiges Zertifikat sieht auf Seite 1 völlig normal aus; wer nicht
+   scrollt, merkt nichts. Neben dem Knopf steht deshalb das Ergebnis im
+   Klartext, gezählt am erzeugten PDF mit demselben Muster wie im Render-Test
+   (`/\/Type\s*\/Page[^s]/`, **nicht** `grep` — G13.6):
+
+   - eine Seite → `1 Seite`
+   - mehr → `2 Seiten — Zertifikate sollen einseitig sein`
+
+   **Kein Gate**, aber sichtbar: gespeichert wird trotzdem, das PDF wird
+   trotzdem ausgeliefert. Der Grund gegen ein Gate ist derselbe wie bei der
+   Glyph-Prüfung — HR muss eine Vorlage auch in einem Zwischenstand speichern
+   können. Der Grund für die Anzeige ist, dass ein Hinweis, den man wegklicken
+   kann, hier nichts nützt: der Fehler ist nicht sichtbar, solange man ihn
+   nicht ausdrücklich benennt.
+
 2. **„Zeichen prüfen"** ruft eine pure Funktion auf:
 
 ```
-Support/FontGlyphCoverage::missing(string $content, string $fontPath): array
+Support/FontGlyphCoverage::inspect(string $content, string $fontPath): FontGlyphReport
 ```
+
+**Drei Zustände, nicht zwei. [v3]** `missing()` gab `[]` zurück für „nichts
+fehlt" **und** für „Font nicht parsbar" — eine kaputte Schrift bekam damit ein
+besseres Zeugnis als eine intakte, und dieser Knopf, die einzige Stelle, an der
+ein Mensch den stillen Helvetica-Fallback (G13.1) je bemerkt hätte, bestätigte
+das Gegenteil. `inspect()` trennt: `checkable` false = nicht prüfbar,
+`checkable` true mit leerem `missing` = nichts fehlt, sonst die Liste.
+`hasWarning()` ist in beiden Problemzuständen true. Bleibt eine **Warnung, kein
+Gate.**
+
+**Was der Knopf NICHT prüft, und woran man sich nicht gewöhnen darf. [v3]** Eine
+*abgeschnittene* Schriftdatei kann er prinzipiell nicht erkennen: gemessen liegt
+die `cmap` vollständig im erhaltenen Dateikopf, 40 % und 5 % der echten Datei
+liefern **identisch 737 Einträge** wie das Original. Erst wenn `FontLib` die
+Datei gar nicht mehr lädt (gemessen ab der 3-Byte-Stufe), wird `checkable` false.
+Für „ist die Schrift heil?" ist und bleibt `/BaseFont` im erzeugten PDF der
+einzige Wächter — also das Test-PDF und die Assertion im Render-Test.
+
+**Nebeneffekt, KEINE Absicherung. [v3]** In der Host-App wandelt Laravels
+`HandleExceptions::handleError()` jede PHP-Warning in eine `ErrorException` um;
+`FontGlyphCoverage::charMap()` fängt die mit `catch (\Throwable)` und liefert
+dadurch auch bei den Stufen 40 % und 5 % „nicht prüfbar". Der Knopf meldet in
+der App also real vier von fünf Beschädigungsstufen. **Darauf darf sich nichts
+verlassen:** das hängt an Laravels Error-Handler, nicht am Modul, gilt im
+CLI-Testlauf nicht, und ein geänderter Handler oder ein anderes
+`error_reporting` nimmt es wieder weg. Wer daraus ableitet, die Glyph-Prüfung
+decke kaputte Schriften ab, baut auf Zufall.
 
 Sie liest die `cmap` der Schriftdatei und gibt die Zeichen des Inhalts zurück,
 die darin fehlen — also genau die, die im PDF zu `?` würden (G13.3). **Am
@@ -650,8 +702,12 @@ Eingang, nicht am PDF**, weil der PDF-Text komprimiert und UTF-16BE-kodiert ist
 Bearbeitungen" geschlossen** — HR kann nach jeder Bearbeitung selbst prüfen, und
 derselbe Aufruf läuft als Assertion im Render-Test.
 
-Beides ist verzichtbar, wenn der Schnitt zu groß wird — dann bleibt nur die
-Assertion aus §Tests, und der Tradeoff kommt zurück.
+~~Beides ist verzichtbar, wenn der Schnitt zu groß wird — dann bleibt nur die
+Assertion aus §Tests, und der Tradeoff kommt zurück.~~ **GESTRICHEN [v3].** Das
+galt, solange die Einseitigkeit als strukturell erzwungen geführt wurde (§E5).
+Sie ist es nicht, und damit ist §E8 nicht die Bequemlichkeit, sondern der
+Wächter. Der Satz bleibt durchgestrichen stehen, weil er zweimal zitiert wurde
+und niemand ihn aus dem Gedächtnis wiederbeleben soll.
 
 **E10 — Nackte Elemente werden mitgestylt, und die erste Vorlage wird
 geseedet.** Der Vorlageninhalt (E3) benutzt ein kleines Klassen-Vokabular
@@ -1055,10 +1111,28 @@ haben — eigenes Ticket.
   „RHEINGEDECK GMBH" aus dem Scan-Bild, rechts steht „SCHULUNGSLEITER" in
   Oswald. Wegzukriegen wäre das nur durch Retusche der Bildunterschrift aus dem
   Unterschriften-Block, was am durchlaufenden Abstrich scheitert (E2).
+- **Die Einseitigkeit ist inhaltsabhängig und wird NICHT strukturell erzwungen.
+  [v3]** Der wichtigste Tradeoff des Pakets, und v1/v2 haben ihn als gelöst
+  geführt. Gemessen: 4 Zeilen Kenntnisliste → 1 Seite, 10 → 1 Seite, **20 → 2
+  Seiten**. Die Fuß-Verankerung (§E5) nimmt den Fuß aus dem Fluss, sie hindert
+  den Mittelteil nicht am Überlaufen. Die Einseitigkeit ist damit eine
+  Eigenschaft des ausgelieferten Vorlageninhalts — und der liegt in einem
+  Textarea, in das HR schreiben darf. **Wächter dagegen:** die
+  Seitenzahl-Anzeige am Test-PDF-Knopf (§E8, load-bearing) und die
+  Seitenzahl-Assertion im Render-Test (§Tests) für die ausgelieferte Vorlage.
+  Kein Gate, weil HR Zwischenstände speichern können muss. Widerspruch, den man
+  hätte sehen können: G13.5 stand als gemessener Fakt schon in v1
+  („Fließlayout garantiert keine Einzelseite") — §E5 hat ihm widersprochen und
+  niemand hat die zwei Stellen gegeneinander gelesen.
 - **Der stille Helvetica-Fallback bleibt ein Risiko im Betrieb.** G13.1 hat
   keinen Fehlerpfad; nur der Render-Test fängt ihn. Bricht die Schriftdatei
   oder wird `storage/fonts` unschreibbar, sieht das Zertifikat plötzlich anders
-  aus, ohne dass etwas protokolliert wird.
+  aus, ohne dass etwas protokolliert wird. **[v3]** Präzisierung: eine
+  *abgeschnittene* Datei fängt auch die Glyph-Prüfung nicht — die `cmap` liegt
+  im erhaltenen Kopf, 40 % und 5 % der Datei liefern identisch 737 Einträge wie
+  das Original. Nur `/BaseFont` im PDF unterscheidet die Stufen, also Test-PDF
+  und Render-Test. Dass der Editor-Knopf in der App trotzdem meist meldet, ist
+  ein Nebeneffekt von Laravels Error-Handler (§E8) und keine Absicherung.
 - **Abgelehnte, inaktive Bewerber behalten unbegrenzten Portalzugriff mit einem
   nie verfallenden Token (G20) — und wir hängen ein weiteres personenbezogenes
   Dokument dort hinein. [v2]** Bestandsbefund, nicht von diesem Paket
