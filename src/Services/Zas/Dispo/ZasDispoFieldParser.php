@@ -43,8 +43,14 @@ class ZasDispoFieldParser
         if ($v === '') {
             return null;
         }
-        $normalized = str_replace(',', '.', str_replace('.', '', $v));
-        return is_numeric($normalized) ? (float) $normalized : null;
+        // Deutsches Zahlenformat: optional 1.234-Tausenderpunkte, Komma als
+        // Dezimaltrenner. Nackte Punkt-Dezimalen ('1.5') sind mehrdeutig und
+        // werden BEWUSST abgelehnt (Contract: Unparsebares -> null).
+        if (!preg_match('/^-?(\d+|\d{1,3}(\.\d{3})+)(,\d+)?$/', $v)) {
+            return null;
+        }
+
+        return (float) str_replace(',', '.', str_replace('.', '', $v));
     }
 
     public static function int(?string $v): ?int

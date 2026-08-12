@@ -32,6 +32,9 @@ class ZasDispoFieldParserTest extends TestCase
         $this->assertSame(0.0, ZasDispoFieldParser::decimal('0'));
         $this->assertNull(ZasDispoFieldParser::decimal(''));
         $this->assertNull(ZasDispoFieldParser::decimal('abc'));
+        $this->assertSame(1234.56, ZasDispoFieldParser::decimal('1.234,56'));
+        $this->assertNull(ZasDispoFieldParser::decimal('1.5')); // mehrdeutig -> null, nie 15.0
+        $this->assertNull(ZasDispoFieldParser::decimal(null));
     }
 
     public function test_int(): void
@@ -39,6 +42,7 @@ class ZasDispoFieldParserTest extends TestCase
         $this->assertSame(2, ZasDispoFieldParser::int('2'));
         $this->assertNull(ZasDispoFieldParser::int(''));
         $this->assertNull(ZasDispoFieldParser::int('x'));
+        $this->assertNull(ZasDispoFieldParser::int(null));
     }
 
     public function test_text_converts_br_and_trims(): void
