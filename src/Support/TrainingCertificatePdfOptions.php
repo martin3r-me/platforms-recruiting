@@ -56,4 +56,48 @@ final class TrainingCertificatePdfOptions
             'isHtml5ParserEnabled' => true,
         ];
     }
+
+    /**
+     * Schiebt alle Optionen in ein DomPDF-Objekt und liefert, was gesetzt wurde.
+     *
+     * WARUM DIESE SCHLEIFE NICHT IM CONTROLLER STEHT: dort hatte sie keinen
+     * Falsifikator. Ein versehentlich entfernter oder abgebrochener Durchlauf
+     * liefert eine unkonfigurierte Engine — chroot fehlt, DomPDF verwirft das
+     * @font-face STUMM und das Zertifikat kommt in Helvetica heraus, ohne
+     * Exception und ohne Logzeile. Hier ist die Schleife gegen einen
+     * mitschreibenden Doppelgaenger pruefbar (TrainingCertificatePdfOptionsTest).
+     *
+     * fontDir und fontCache kommen von aussen dazu und stehen ABSICHTLICH nicht
+     * in for(): sie sind kein Rendering-Merkmal, sondern der Ort, an den DomPDF
+     * seine Font-Metriken schreibt, und dieser Ort ist pro Umgebung anders (in
+     * der Host-App config('dompdf.options.font_dir'), im Render-Test ein eigener
+     * Temp-Ordner). Der Aufrufer muss sie mit DomPdfFontDir::ensureWritable()
+     * zugesichert haben — ein fehlendes oder gesperrtes Verzeichnis ist ein
+     * TypeError mitten in render().
+     *
+     * $target ist absichtlich object und nicht auf eine Klasse festgelegt: der
+     * Controller uebergibt die laravel-dompdf-Huelle (Barryvdh\DomPDF\PDF), der
+     * Test einen Doppelgaenger. Beides muss nur setOption($key, $value) koennen.
+     *
+     * @param object $target etwas mit setOption($key, $value)
+     * @return array<string,mixed> die gesetzten Optionen, in gesetzter Reihenfolge
+     */
+    public static function applyTo(
+        object $target,
+        string $fontPath,
+        string $chroot,
+        string $fontDir,
+        string $fontCache
+    ): array {
+        $options = self::for($fontPath, $chroot) + [
+            'fontDir' => $fontDir,
+            'fontCache' => $fontCache,
+        ];
+
+        foreach ($options as $key => $value) {
+            $target->setOption($key, $value);
+        }
+
+        return $options;
+    }
 }

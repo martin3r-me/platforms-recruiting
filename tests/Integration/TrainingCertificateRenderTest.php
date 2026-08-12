@@ -7,6 +7,7 @@ use Dompdf\Options;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\DomPdfFontDir;
 use Platform\Recruiting\Support\FontGlyphCoverage;
 use Platform\Recruiting\Support\ResttagePlaceholder;
 use Platform\Recruiting\Support\TrainingCertificateAssets;
@@ -35,16 +36,56 @@ use Platform\Recruiting\Support\TrainingCertificatePdfOptions;
  * sind fontDir/fontCache (siehe render()) — beides betrifft nur, wohin DomPDF
  * seine Font-Metriken schreibt, nicht wie es rendert.
  *
+ * UND GENAU DARIN LIEGT DIE BLINDSTELLE DIESER KLASSE, benannt statt behauptet:
+ * weil render() fontDir/fontCache auf einen eigenen Temp-Ordner umbiegt und
+ * diesen vorher anlegt (prepareFontCacheDir()), kann dieser Test den
+ * Fehlerfall der AUSLIEFERUNG prinzipiell nicht finden — dort kommt der Pfad
+ * aus config('dompdf.options.font_dir') und zeigte auf ein Verzeichnis, das
+ * nicht existiert (storage/fonts), was einen TypeError mitten in render()
+ * ergibt: 500 auf 100 % der Aufrufe. Der Test war dagegen gruen. Wer ihn also
+ * fuer den vollstaendigen Nachweis dieses Wegs haelt, irrt in genau dieser
+ * Richtung. Die Absicherung liegt an zwei anderen Stellen: die Zusicherung des
+ * Verzeichnisses in DomPdfFontDir (mit zwei roten Faellen in
+ * DomPdfFontDirTest) und ihr Aufruf im Controller. Diese Blindstelle bleibt
+ * bestehen, und sie ist der Preis fuer die Isolation — sie hier zu schliessen
+ * hiesse, in den geteilten vendor-Fontordner der Host-App zu rendern.
+ *
  * Pdf::loadHTML() (die Facade, die der Controller benutzt) ist hier nicht
  * aufrufbar: sie braucht den App-Container, den diese Suite nicht bootet
  * (tests/bootstrap.php ist ein reiner Autoloader). Deshalb Dompbf\Dompdf direkt
  * — und deshalb ist die gemeinsame Options-Quelle load-bearing.
  *
- * ASSERTIONS AUSSCHLIESSLICH PER PCRE MIT \s*. grep und Literalvergleiche
- * finden die PDF-Marker NICHT: `grep -c "/Type /Page"` und `grep -c "/BaseFont"`
- * liefern auf einem DomPDF-PDF je 0 Treffer, weil die Marker ueber
- * Zeilenumbrueche verteilt sind und die Datei binaer ist. Wer so assertiert,
- * baut einen Test, der immer gruen ist.
+ * ASSERTIONS AUSSCHLIESSLICH PER PCRE MIT \s*, und die Begruendung dafuer stand
+ * hier zwei Commits lang FALSCH. Behauptet war "grep findet die Marker nicht,
+ * weil sie ueber Zeilenumbrueche verteilt sind". Sie sind es nicht. Am
+ * gerenderten, einseitigen Zertifikat (315786 Byte) gemessen:
+ *
+ *   /usr/bin/grep -ao "/Type /Pages\?" zert.pdf | sort | uniq -c
+ *      1 /Type /Page          <- die eine Seite
+ *      1 /Type /Pages         <- der Seitenbaum
+ *   /usr/bin/grep -c  "/Type /Page" zert.pdf   -> 2   (rc=0)
+ *   /usr/bin/grep -c  "/BaseFont"   zert.pdf   -> 4   (rc=0), bei ZWEI Schriften
+ *
+ * Die echten Gruende, warum Literalzaehlen hier nichts belegt, sind andere drei:
+ *
+ *  1. PRAEFIX. "/Type /Page" ist Praefix von "/Type /Pages". Ein Literalzaehler
+ *     liefert auf dem einseitigen Dokument 2 statt 1 — er zaehlt den Seitenbaum
+ *     mit. Deshalb ist das [^s] in pageCount() load-bearing, siehe dort.
+ *  2. ZEILEN, NICHT TREFFER. `grep -c` zaehlt Zeilen mit Treffer. Auf dieser
+ *     Datei stimmen beide Zahlen zufaellig ueberein (2 Marker auf 2 Zeilen,
+ *     4 /BaseFont auf 4 Zeilen) — die Zahl sieht also richtig aus, ohne dass sie
+ *     die gefragte Groesse messen wuerde. Und 4 /BaseFont sind zwei Schriften,
+ *     je einmal im Font- und im CID-Objekt: auch ohne -c waere die Trefferzahl
+ *     nicht die Zahl der Schriften (baseFonts() macht deshalb array_unique).
+ *  3. BINAERBEHANDLUNG, und sie ist werkzeugabhaengig. Das erste NUL-Byte liegt
+ *     bei Offset 469. BSD grep 2.6.0 zaehlt trotzdem (2 bzw. 4, rc=0); das
+ *     `grep` im Shell-Wrapper dieser Werkzeugkette ist ugrep 7.5.0 mit -I und
+ *     ueberspringt Binaerdateien ganz — keine Ausgabe, rc=1. Ein Nachweis, der
+ *     je nach grep auf PATH 2, 4 oder gar nichts liefert, ist kein Nachweis.
+ *
+ * Wer trotzdem literal zaehlen will, braucht also -a, ein Muster mit
+ * Wortgrenze und einen Zaehler fuer Treffer statt Zeilen — oder eben
+ * preg_match_all mit \s*, wie hier.
  */
 class TrainingCertificateRenderTest extends TestCase
 {
@@ -172,6 +213,29 @@ class TrainingCertificateRenderTest extends TestCase
     // PDF lesen
     // -----------------------------------------------------------------
 
+    /**
+     * Die Zahl der Seiten-Objekte im PDF.
+     *
+     * [^s] IST DER LOAD-BEARING TEIL DIESES MUSTERS, und ohne diesen Absatz
+     * sieht es wie ein Tippfehler aus: "/Type /Page" ist Praefix von
+     * "/Type /Pages", dem Seitenbaum, den DomPDF genau einmal schreibt. Das
+     * [^s] schliesst den Baum aus, indem es ein Zeichen VERLANGT, das kein "s"
+     * ist (auf ein Page-Objekt folgt dort ein Zeilenumbruch oder "/"). Gemessen
+     * am gebauten Pfad:
+     *
+     *                                        1 Seite   2 Seiten
+     *   /\/Type\s*\/Page[^s]/  (dieses)          1         2
+     *   /\/Type\s*\/Page/      (ohne [^s])       2         3
+     *   /\/Type\s*\/Pages/     (nur der Baum)    1         1
+     *
+     * Ohne [^s] ist jede Zahl um genau 1 zu hoch — und die Folge waere nicht
+     * bloss "ein Test rot": testNormalfallIstEineSeiteMitEingebetteterSchrift
+     * waere rot aus dem falschen Grund (2 statt 1, obwohl das Dokument stimmt),
+     * und testZwoelfKenntnisZeilenErzeugenEineZweiteSeite waere gruen aus dem
+     * falschen Grund (assertGreaterThan(1) ist auch bei EINER Seite erfuellt) —
+     * also genau die Negativkontrolle, die den Seitenzaehler falsifizieren soll,
+     * verliert ihre Aussage.
+     */
     private function pageCount(string $pdf): int
     {
         preg_match_all('/\/Type\s*\/Page[^s]/', $pdf, $m);
@@ -693,44 +757,38 @@ class TrainingCertificateRenderTest extends TestCase
     /**
      * Legt den Font-Ordner an und bricht mit Grund ab, wenn das nicht geht.
      *
-     * Der Rueckgabewert von mkdir() MUSS geprueft werden. Gemessen an
-     * ContractPdfRegressionTest mit nicht beschreibbarem Elternverzeichnis: ein
-     * ungeprueftes @mkdir scheiterte nicht spaeter, sondern liess die Klasse
-     * GRUEN — DomPDF faellt bei nicht existierendem Ordner still auf seinen
-     * Standard zurueck, und der ist der geteilte Fontordner der Host-App
+     * Die Mechanik (mkdir pruefen, Schreibbarkeit pruefen, Grund aus
+     * error_get_last() in die Meldung heben) steht seit dieser Runde in
+     * DomPdfFontDir und wird von dort benutzt statt hier ein zweites Mal
+     * geschrieben: dieselbe Zusicherung zweimal zu pflegen war schon bei den
+     * DomPDF-Optionen fast der Fehler, und die Support-Klasse hat als einzige
+     * einen Falsifikator fuer den nicht beschreibbaren Fall.
+     *
+     * Die KONSEQUENZ ist hier eine andere als in der Auslieferung, deshalb der
+     * eigene Text im catch: die Auslieferung faellt aus, dieser Test wuerde
+     * still ungenau. Der Rueckgabewert von mkdir() MUSS geprueft werden —
+     * gemessen an ContractPdfRegressionTest mit nicht beschreibbarem
+     * Elternverzeichnis: ein ungeprueftes @mkdir scheiterte nicht spaeter,
+     * sondern liess die Klasse GRUEN, weil DomPDF still auf den geteilten
+     * Fontordner der Host-App zurueckfaellt
      * (meingedeck/vendor/dompdf/dompdf/lib/fonts). Genau die Isolation, die
      * render() zusichert, waere dann lautlos weg.
-     *
-     * Das @ bleibt, damit die PHP-Warnung nicht unter failOnWarning="true" eine
-     * zweite, unvollstaendige Fehlermeldung erzeugt; der Grund wird aus
-     * error_get_last() geholt und in die eigene Meldung gehoben. Wer das @
-     * entfernt, muss den Grund weiterhin in die Meldung schreiben.
      */
     private function prepareFontCacheDir(): string
     {
-        $dir = self::fontCacheDir();
-
-        // mkdir(recursive) liefert false, wenn der Ordner schon existiert —
-        // render() laeuft mehrfach pro Klasse, das ist der Normalfall.
-        if (is_dir($dir)) {
-            return $dir;
-        }
-
-        if (!@mkdir($dir, 0777, true) && !is_dir($dir)) {
-            $grund = error_get_last()['message'] ?? 'PHP hat keinen Grund gemeldet';
+        try {
+            return DomPdfFontDir::ensureWritable(self::fontCacheDir());
+        } catch (\RuntimeException $e) {
             self::fail(sprintf(
-                'Font-Ordner konnte nicht angelegt werden: %s — %s. Der Test bricht hier '
-                . 'ab statt weiterzulaufen: ohne eigenen Ordner benutzt DomPDF still den '
-                . 'geteilten Fontordner der Host-App, und dann haengt das Ergebnis vom '
-                . 'dortigen, veraenderlichen Zustand ab — der Lauf waere gruen, aber die '
-                . 'zugesicherte Isolation weg. Pruefen: Schreibrechte auf %s.',
-                $dir,
-                $grund,
-                dirname($dir)
+                '%s Der Test bricht hier ab statt weiterzulaufen: ohne eigenen Ordner '
+                . 'benutzt DomPDF still den geteilten Fontordner der Host-App, und dann '
+                . 'haengt das Ergebnis vom dortigen, veraenderlichen Zustand ab — der Lauf '
+                . 'waere gruen, aber die zugesicherte Isolation weg. Pruefen: Schreibrechte '
+                . 'auf %s.',
+                $e->getMessage(),
+                dirname(self::fontCacheDir())
             ));
         }
-
-        return $dir;
     }
 
     /**

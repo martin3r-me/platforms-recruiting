@@ -96,6 +96,33 @@ final class TrainingCertificateContent
     }
 
     /**
+     * Ist der gespeicherte Schnappschuss unbrauchbar (leer, null, nur Weissraum)?
+     *
+     * Warum das hier steht und nicht als Bedingung im Controller: an dieser
+     * einen Frage haengt die Entscheidung, ob ein Dokument ausgeliefert oder mit
+     * 500 abgebrochen wird, und im Controller hatte sie keinen Falsifikator. Der
+     * teure Fall ist NICHT null — der faellt auf; es ist der Weissraum. Ein
+     * Inhalt aus " \n " wuerde die Huelle mit Logo, Headline und
+     * Unterschriftsblock erzeugen, aber ohne Name, Kurs und Datum: ein amtlich
+     * aussehendes Blatt, das nichts aussagt. Wer die Pruefung auf
+     * "$content === ''" verkuerzt, hat genau diesen Fall geoeffnet, und niemand
+     * erfaehrt davon, weil der Bewerber den Link per WhatsApp bekommt und nicht
+     * nachfragt.
+     *
+     * Die Spalte personalized_content ist nullable (Migration
+     * 2026_08_12_000002), der Fall ist also erreichbar.
+     *
+     * HTML-Weissraum wie "<p></p>" gilt hier ABSICHTLICH nicht als leer: das
+     * waere eine Inhaltspruefung, die mit dem Markup mitwandern muesste, und
+     * eine, die zu viel verwirft, verweigert echte Zertifikate. Wer sie
+     * braucht, braucht sie in der Ausstellung, nicht in der Auslieferung.
+     */
+    public static function isBlank(?string $content): bool
+    {
+        return trim((string) $content) === '';
+    }
+
+    /**
      * Die Rohfassung mit Platzhaltern — fuer Vorschau und Render-Test, die den
      * Text brauchen, ohne einen Bewerber aufzuloesen.
      */

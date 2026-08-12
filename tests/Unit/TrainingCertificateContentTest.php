@@ -162,4 +162,43 @@ class TrainingCertificateContentTest extends TestCase
         $this->assertStringContainsString('Service-Basisschulung', $content);
         $this->assertStringContainsString('Düsseldorf, den 12.08.2026', $content);
     }
+
+    // -----------------------------------------------------------------
+    // isBlank(): die Bedingung, an der der 500 im Controller haengt
+    // -----------------------------------------------------------------
+
+    public function testNullUndLeerstringGeltenAlsLeer(): void
+    {
+        $this->assertTrue(TrainingCertificateContent::isBlank(null));
+        $this->assertTrue(TrainingCertificateContent::isBlank(''));
+    }
+
+    /**
+     * DER TEURE FALL. null faellt auf, Weissraum nicht: die Huelle wuerde ein
+     * Dokument mit Logo, Headline und Unterschriftsblock erzeugen, aber ohne
+     * Name, Kurs und Datum. Wer die Bedingung im Controller auf
+     * "$content === ''" verkuerzt, macht diesen Test rot — das ist sein Zweck.
+     */
+    public function testNurWeissraumGiltAlsLeer(): void
+    {
+        $this->assertTrue(TrainingCertificateContent::isBlank(' '));
+        $this->assertTrue(TrainingCertificateContent::isBlank("\n\t  \r\n"));
+    }
+
+    public function testEchterInhaltGiltNichtAlsLeer(): void
+    {
+        // Der ausgestellte Inhalt selbst, nicht ein getippter String: ein Guard,
+        // der das ausgelieferte Dokument verwirft, ist der teuerste von allen.
+        $this->assertFalse(TrainingCertificateContent::isBlank(
+            TrainingCertificateContent::render($this->values())
+        ));
+    }
+
+    public function testHtmlWeissraumGiltABSICHTLICHNichtAlsLeer(): void
+    {
+        // Festgenagelt, damit die Grenze bewusst bleibt: "<p></p>" ist fuer
+        // isBlank() Inhalt. Wer das aendert, aendert es hier sichtbar und nicht
+        // beilaeufig im Controller.
+        $this->assertFalse(TrainingCertificateContent::isBlank('<p></p>'));
+    }
 }
