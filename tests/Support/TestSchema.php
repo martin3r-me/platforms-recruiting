@@ -31,9 +31,12 @@ use Illuminate\Database\Schema\Builder;
  *    unsignedBigInteger, NICHT foreignId()->constrained(). Grund: Das
  *    Test-Fixture hat keine teams-, users- oder rec_applicants-Tabellen.
  *    Mit constrained() müsste jeder Test diese Tabellen mit anlegen, nur
- *    damit ein Constraint hängt, das in SQLite in-memory ohnehin nicht
- *    erzwungen wird. Die Abfrageergebnisse sind identisch, und der Test
- *    wird dadurch schneller.
+ *    damit ein Constraint hängt. In der bestehenden Capsule-Konfiguration
+ *    der Integrationstests ist PRAGMA foreign_keys = 0 (gemessen 2026-08-12),
+ *    FK-Constraints werden dort also nicht erzwungen. Die Abfrageergebnisse
+ *    sind identisch, und Tests werden dadurch schneller. Wenn die
+ *    Verbindungskonfiguration sich ändert, muss diese Entscheidung neu
+ *    bewertet werden.
  *
  * 2. Indizes: Die echten Migrationen haben mehrere Indizes (z.B.
  *    index(['team_id','is_active']) auf rec_contract_templates), das
