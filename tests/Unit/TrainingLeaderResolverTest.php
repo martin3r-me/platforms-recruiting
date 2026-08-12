@@ -12,8 +12,13 @@ use Platform\Recruiting\Support\TrainingLeaderResolver;
  *
  * Alles landet in einem Dokument, das ein Bewerber liest. Deshalb ist die
  * Leitlinie: lieber ein leeres Feld als ein falsches. Ein fehlender
- * Schulungsleiter ist ein legitimes Zertifikat, kein Fehlerfall — daher
- * ueberall leere Rueckgabe statt Exception.
+ * Schulungsleiter ist ein legitimes Zertifikat, kein Fehlerfall — FEHLENDE
+ * Daten ergeben daher leere Rueckgabe statt Exception.
+ *
+ * Das gilt fuer fehlende Daten, nicht fuer einen verletzten Vertrag: ein
+ * vorhandener Schluessel mit kaputtem Wert knallt laut. Sonst steht das Feld
+ * leer da, niemand erfaehrt vom Produzenten-Bug, und weil "leer" auf diesem
+ * Dokument ein plausibler Zustand ist, faellt es auch nicht auf.
  */
 class TrainingLeaderResolverTest extends TestCase
 {
@@ -401,17 +406,135 @@ class TrainingLeaderResolverTest extends TestCase
 
     public function testKeinInterviewerErgibtLeerenString(): void
     {
-        // Kein Fehlerfall: ein Zertifikat ohne Schulungsleiter ist legitim.
+        // DOKUMENTATION, KEIN SCHUTZ: dieser Test ist strikt subsumiert von
+        // testLeiterUndDatumStammenAusDerselbenBuchung — dort ist die
+        // massgebliche Buchung ebenfalls eine attended-Buchung mit
+        // 'interviewers' => [], und dort wird dasselbe '' erwartet. Jede
+        // Mutation, die hier rot wird, wird auch dort rot.
+        //
+        // Er bleibt trotzdem stehen, weil er eine ENTSCHEIDUNG dokumentiert:
+        // eine leere LISTE ist die Aussage "kein Leiter bekannt" und ergibt ein
+        // leeres Feld — anders als ein leerer NAME in der Liste, der laut
+        // knallt (testLeererNameIstVertragsbruch). Wer diesen Test loeschen
+        // will, weil er subsumiert ist, loescht die einzige Stelle, an der der
+        // legitime Fall fuer sich allein steht.
         $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', [])];
 
         $this->assertSame('', TrainingLeaderResolver::leaderNames($bookings));
     }
 
-    public function testLeereNamenWerdenAussortiert(): void
+    public function testFehlenderInterviewersSchluesselIstLeerAberNullIstVertragsbruch(): void
     {
-        $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', ['', '  ', 'Echt'])];
+        // Die Regel ohne Ausnahme, an ihrer schaerfsten Kante: FEHLENDER
+        // Schluessel = fehlender Wert = still leer; VORHANDENER Schluessel mit
+        // Nicht-Liste = Vertragsbruch = laut. Vorher hat '?? []' beide Faelle
+        // zum selben leeren Feld gemacht (gemessen: 'interviewers' => null
+        // ergab '', ohne Warnung), und damit den Unterschied verwischt, auf dem
+        // die ganze Regel beruht.
+        $ohneSchluessel = [['id' => 1, 'status' => 'attended', 'starts_at' => '2026-07-24 14:00:00']];
 
-        $this->assertSame('Echt', TrainingLeaderResolver::leaderNames($bookings));
+        // Still heisst still: auch keine PHP-Warnung, sonst haengt die Aussage
+        // allein an failOnWarning="true".
+        $this->assertSame([], $this->warnungenBeim(
+            fn () => $this->assertSame('', TrainingLeaderResolver::leaderNames($ohneSchluessel))
+        ));
+
+        // 'interviewers' => '' liefert vorher einen rohen array_map-TypeError
+        // (gemessen) — laut, aber mit einer Meldung ueber PHP-Interna statt
+        // ueber den Vertrag. Jetzt nennt sie den Vertrag.
+        foreach ([null, '', 42] as $wert) {
+            $buchung = [
+                'id' => 1,
+                'status' => 'attended',
+                'starts_at' => '2026-07-24 14:00:00',
+                'interviewers' => $wert,
+            ];
+
+            try {
+                $ergebnis = TrainingLeaderResolver::leaderNames([$buchung]);
+                $this->fail(
+                    'Kein Vertragsbruch gemeldet fuer interviewers = '
+                    . get_debug_type($wert) . ", Ergebnis: '" . $ergebnis . "'"
+                );
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('erwartet list<string>', $e->getMessage());
+                $this->assertStringContainsString(get_debug_type($wert), $e->getMessage());
+            }
+        }
+    }
+
+    public function testLeererNameIstVertragsbruch(): void
+    {
+        // VERHALTENSAENDERUNG gegenueber der ersten Fassung: dort wurden leere
+        // Namen still herausgefiltert (['Anna', ''] ergab 'Anna', gemessen).
+        // Ein Eintrag ohne Namen ist aber kein fehlender Leiter — die Liste
+        // sagt "hier ist einer", und dann steht keiner da. Still weggefiltert
+        // bleibt das Feld im besten Fall leer und im schlechteren unauffaellig
+        // unvollstaendig ('Anna' statt zwei Leitern), ohne dass jemand vom
+        // Produzenten-Bug erfaehrt.
+        //
+        // Nur-Whitespace zaehlt mit: dafuer ist das trim() im Guard da.
+        foreach ([[''], ['   '], ["\t\n"], ['Anna', ''], ['', 'Anna']] as $liste) {
+            $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', $liste)];
+
+            try {
+                $ergebnis = TrainingLeaderResolver::leaderNames($bookings);
+                $this->fail('Kein Vertragsbruch gemeldet fuer ' . json_encode($liste) . ", Ergebnis: '" . $ergebnis . "'");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('leerer Name', $e->getMessage(), json_encode($liste));
+            }
+        }
+    }
+
+    public function testNumerischerNameIstVertragsbruch(): void
+    {
+        // Ebenfalls VERHALTENSAENDERUNG: ['Anna', '42'] ergab vorher
+        // 'Anna, 42' (gemessen) — eine Zahl als Name auf einem Dokument, still
+        // durch. Der Typ-Guard griff nicht, weil '42' ein String IST. Ein
+        // Schulungsleiter, der '42' heisst, ist ein kaputter Produzent
+        // (pluck('id') statt pluck('name')), kein fehlender Wert.
+        //
+        // ' 42' steht bewusst dabei: der Guard prueft den GETRIMMTEN Wert,
+        // sonst waere das Randleerzeichen ein Schlupfloch.
+        foreach (['42', '0', '3.14', '1e5', '-42', ' 42'] as $zahl) {
+            $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', ['Anna', $zahl])];
+
+            try {
+                $ergebnis = TrainingLeaderResolver::leaderNames($bookings);
+                $this->fail("Kein Vertragsbruch gemeldet fuer '{$zahl}', Ergebnis: '" . $ergebnis . "'");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('numerischer Name', $e->getMessage(), $zahl);
+            }
+        }
+    }
+
+    public function testNamenMitZiffernBleibenGueltig(): void
+    {
+        // Gegengewicht zum Numerik-Guard, und der Grund, warum dort
+        // is_numeric() steht und keine Ziffern-Suche: ein zu SCHARFER Guard
+        // macht das Zertifikatsfeld leer, derselbe Schaden aus der anderen
+        // Richtung. Ein Schulungsleiter darf 'Anna Müller-Lüdenscheidt 2'
+        // heissen. Wer is_numeric() durch preg_match('/\d/', …) ersetzt, wird
+        // hier rot — und genau dafuer stehen diese Zeilen.
+        //
+        // Die letzte Zeile ist keine Ziffern-Zeile, sondern der Beleg fuer das
+        // trim() im Guard: getrimmt wird der NAME, nicht nur die Leer-Pruefung,
+        // sonst stuende ' Anna Bergmann , Michel' auf dem Dokument.
+        $faelle = [
+            [['42a'], '42a'],
+            [['Anna 2'], 'Anna 2'],
+            [['Müller-42'], 'Müller-42'],
+            [['Anna Müller-Lüdenscheidt 2'], 'Anna Müller-Lüdenscheidt 2'],
+            [['0x1A'], '0x1A'],
+            [['Michel Zimmer', 'Anna 2'], 'Michel Zimmer, Anna 2'],
+            [['  Anna Bergmann  ', 'Michel'], 'Anna Bergmann, Michel'],
+        ];
+
+        foreach ($faelle as [$liste, $erwartet]) {
+            $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', $liste)];
+
+            $this->assertSame($erwartet, TrainingLeaderResolver::leaderNames($bookings), json_encode($liste));
+        }
     }
 
     public function testModelAlsInterviewerIstVertragsbruchUndKnalltLaut(): void
@@ -497,6 +620,18 @@ class TrainingLeaderResolverTest extends TestCase
 
     public function testLeereListe(): void
     {
+        // DOKUMENTATION, KEIN SCHUTZ: strikt subsumiert von
+        // testKeineAttendedBuchungErgibtLeereStrings — beide laufen in
+        // pickBooking() in denselben "$attended === []"-Zweig und erwarten
+        // dieselben zwei leeren Strings; die Warnungsfreiheit dieses Zweigs
+        // deckt zusaetzlich testLeeresBuchungsArrayLoestKeineWarnungAus ab.
+        //
+        // Er bleibt trotzdem stehen, weil er eine ENTSCHEIDUNG dokumentiert:
+        // GAR KEINE Buchung ist der haeufigste Fall in Produktion (Bewerber ohne
+        // Schulungstermin) und er ist kein Fehlerfall — leere Strings, keine
+        // Exception, kein Sonderpfad beim Aufrufer. Wer ihn loescht, weil er
+        // subsumiert ist, nimmt der Frage "was passiert bei einem Bewerber ohne
+        // Buchungen?" ihre wortwoertliche Antwort.
         $this->assertSame('', TrainingLeaderResolver::leaderNames([]));
         $this->assertSame('', TrainingLeaderResolver::trainingDate([]));
     }

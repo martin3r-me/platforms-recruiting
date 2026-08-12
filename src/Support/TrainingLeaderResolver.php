@@ -26,27 +26,31 @@ namespace Platform\Recruiting\Support;
  * FEHLENDE Daten ergeben leere Rueckgabe, nie eine Exception (bzw. null bei
  * pickBooking): die Werte landen in einem Dokument, und ein fehlender
  * Schulungsleiter ist ein legitimes Zertifikat, kein Fehlerfall. Ein leeres
- * Feld ist besser als ein falsches. Ein fehlender Schluessel gilt dabei als
+ * Feld ist besser als ein falsches. Ein FEHLENDER SCHLUESSEL gilt dabei als
  * fehlender Wert (kein 'status' => nicht attended, kein 'interviewers' =>
- * kein Leiter).
+ * kein Leiter). Ein VORHANDENER Schluessel mit kaputtem Wert dagegen nicht:
+ * das ist ein Vertragsbruch und knallt.
  *
- * Ein verletzter Eingabe-VERTRAG ist dagegen ein Programmierfehler und knallt
+ * Ein verletzter Eingabe-VERTRAG ist naemlich ein Programmierfehler und knallt
  * absichtlich: ein Buchungseintrag, der kein Array ist, scheitert schon am
- * array-Parameter des Filters; 'interviewers' muss eine Liste von STRINGS sein
- * und eine 'attended'-Buchung muss ihre 'id' mitbringen. Beides wird
- * durchgesetzt, nicht nur behauptet — ein Kommentar, der eine Garantie
- * beschreibt, die niemand prueft, ist teurer als kein Kommentar. Diese Faelle
- * stillzulegen wuerde nur den Produzenten-Bug verstecken, und zwar hinter
- * einem leeren oder — schlimmer — falschen Feld auf dem Zertifikat.
+ * array-Parameter des Filters; 'interviewers' muss — wenn der Schluessel da ist
+ * — eine Liste aus nicht-leeren, nicht-numerischen STRINGS sein, und eine
+ * 'attended'-Buchung muss ihre 'id' mitbringen. Beides wird durchgesetzt, nicht
+ * nur behauptet — ein Kommentar, der eine Garantie beschreibt, die niemand
+ * prueft, ist teurer als kein Kommentar. Diese Faelle stillzulegen wuerde nur
+ * den Produzenten-Bug verstecken, und zwar hinter einem leeren oder —
+ * schlimmer — falschen Feld auf dem Zertifikat.
  *
  * Fuer den Produzenten (Task 8) die scharfe Kante, gemessen gegen echtes
- * Illuminate: pluck('name') liefert eine Collection, kein Array — das
- * scheitert laut am array-Typ. Der gefaehrliche Nachbarfehler ist
- * ->interviewers->all(): das ergibt eine Liste von MODELS, und
+ * Illuminate: RICHTIG ist $booking->interviewers->pluck('name')->all().
+ * pluck('name') allein liefert eine Collection, kein Array — das scheitert laut
+ * am array-Typ. Der gefaehrliche Nachbarfehler ist ->interviewers->all(): das
+ * ergibt eine Liste von MODELS, und
  * Illuminate\Database\Eloquent\Model::__toString() liefert toJson(). Vorher
  * stand damit '{"id":7,"name":"Anna Bergmann"}, …' auf dem Zertifikat — ohne
- * Warnung, ohne Log, ohne roten Test. Richtig ist pluck('name')->all();
- * alles, was kein String ist, wirft jetzt.
+ * Warnung, ohne Log, ohne roten Test. Der vollstaendige Vertrag der Liste steht
+ * als vier Faelle am Docblock von leaderNames(); alles, was danach kein
+ * brauchbarer Name ist, wirft jetzt.
  *
  * Noch eine Kante fuer denselben Produzenten: users.name ist string NOT NULL,
  * users.lastname dagegen NULLABLE (gemessen in platform-core,
@@ -162,7 +166,49 @@ final class TrainingLeaderResolver
         return $attended[0];
     }
 
-    /** @param list<array<string,mixed>> $bookings */
+    /**
+     * Die Schulungsleiter der massgeblichen Buchung, mit ', ' verbunden.
+     *
+     * SO baut der Produzent die Liste: $booking->interviewers->pluck('name')->all().
+     * Das ergibt genau, was der Vertrag verlangt — eine Liste echter Strings, in
+     * jedem ein Name. Hat die Buchung keinen Leiter, gehoert [] hinein oder der
+     * Schluessel gar nicht ins Array.
+     *
+     * Der Vertrag als VIER FAELLE. Eine Regel, keine Ausnahme: fehlender
+     * Schluessel = fehlender Wert, vorhandener Schluessel mit falschem Wert =
+     * Vertragsbruch.
+     *  1. 'interviewers' fehlt ganz -> '', still. Kein Schluessel heisst "kein
+     *     Leiter bekannt", und ein Zertifikat ohne Schulungsleiter ist legitim.
+     *     Ebenso still leer: [] — eine leere LISTE ist die Aussage "keine".
+     *  2. 'interviewers' => null (oder '' oder ein Skalar) -> laut. Der
+     *     Schluessel ist da, der Wert ist keine Liste: kein fehlender Wert,
+     *     sondern ein kaputter Produzent. Bis Task 7 hat '?? []' genau diesen
+     *     Unterschied verwischt — die eine Ausnahme, die die Regel zu viel hatte.
+     *  3. Ein Element ist kein String (Model, array, bool, int, float, null)
+     *     -> laut. Siehe Klassen-Docblock: ein Model wuerde als JSON auf dem
+     *     Zertifikat landen.
+     *  4. Ein Element IST ein String, aber leer (auch nur Whitespace) oder
+     *     numerisch -> laut.
+     *
+     * Fall 4 ist die neue Kante und der Grund fuer diese Runde: '42' wurde
+     * vorher zu 'Anna, 42' und '' wurde still herausgefiltert. Beides ist
+     * derselbe Fehler wie Fall 3, nur eine Tuer weiter. Ein Schulungsleiter, der
+     * '42' heisst oder gar keinen Namen hat, ist kein fehlender Wert, sondern
+     * ein kaputter Produzent; filtert man ihn still weg, steht das Feld leer da
+     * und niemand erfaehrt, dass etwas nicht stimmte — und weil "leer" auf
+     * diesem Dokument ein plausibler Zustand ist, faellt es auch nicht auf.
+     *
+     * NUMERISCH heisst is_numeric(), NICHT "enthaelt Ziffern". Gemessen mit PHP
+     * 8.4.19: '42', '0', '3.14', '1e5', '-42', ' 42' sind numerisch und fallen
+     * heraus; '42a', 'Anna 2', 'Mueller-42' und 'Anna Mueller-Luedenscheidt 2'
+     * sind es nicht und bleiben gueltige Namen. Wer hier auf Ziffern prueft
+     * (preg_match('/\d/', …) o.ae.), macht den Guard zu scharf und das
+     * Zertifikatsfeld leer — derselbe Schaden aus der anderen Richtung.
+     * Festgenagelt ist beide Richtungen: testNumerischerNameIstVertragsbruch
+     * und testNamenMitZiffernBleibenGueltig.
+     *
+     * @param list<array<string,mixed>> $bookings
+     */
     public static function leaderNames(array $bookings): string
     {
         $booking = self::pickBooking($bookings);
@@ -180,27 +226,72 @@ final class TrainingLeaderResolver
             return '';
         }
 
-        $interviewers = $booking['interviewers'] ?? [];
+        // Fall 1: Schluessel fehlt ganz -> still leer. array_key_exists() statt
+        // '?? []', weil '??' auch 'interviewers' => null schluckt und damit
+        // "kein Leiter bekannt" und "kaputter Wert" zum selben leeren Feld
+        // macht. Der Unterschied ist die ganze Regel.
+        if (!array_key_exists('interviewers', $booking)) {
+            return '';
+        }
 
-        // Nicht-Strings werfen, statt sich in einen Namen zu verwandeln. Ein
-        // Model wuerde ueber __toString() als JSON auf dem Zertifikat landen,
-        // eine Zahl als Zahl — beides still. "Leeres Feld statt Exception" gilt
-        // fuer FEHLENDE Daten, nicht fuer einen verletzten Typ-Vertrag.
-        $names = array_values(array_filter(
-            array_map(
-                fn ($n) => is_string($n)
-                    ? trim($n)
-                    : throw new \InvalidArgumentException(
-                        'interviewers: erwartet list<string>, bekam '
-                        . get_debug_type($n) . '. Aus einer Relation wird das '
-                        . "mit pluck('name')->all(), nicht mit ->all()."
-                    ),
-                $interviewers
-            ),
-            fn (string $n) => $n !== ''
+        // Fall 2: Schluessel da, Wert ist keine Liste.
+        if (!is_array($booking['interviewers'])) {
+            throw new \InvalidArgumentException(
+                'interviewers: erwartet list<string>, bekam '
+                . get_debug_type($booking['interviewers'])
+                . '. Ist kein Leiter bekannt, gehoert [] hinein oder der '
+                . 'Schluessel gar nicht ins Array, nicht null.'
+            );
+        }
+
+        return implode(', ', array_map(
+            fn (mixed $n): string => self::interviewerName($n),
+            $booking['interviewers']
         ));
+    }
 
-        return implode(', ', $names);
+    /**
+     * Ein Listeneintrag als verwendbarer Name — oder laut.
+     *
+     * Die Faelle 3 und 4 des Vertrags aus leaderNames(): ein Eintrag, der kein
+     * String ist, verwandelt sich hier NICHT in einen Namen (ein Model wuerde
+     * ueber __toString() als JSON auf dem Zertifikat landen, eine Zahl als
+     * Zahl — beides still), und ein String, der leer oder numerisch ist, ist
+     * kein Name. "Leeres Feld statt Exception" gilt fuer FEHLENDE Daten, nicht
+     * fuer einen verletzten Vertrag.
+     */
+    private static function interviewerName(mixed $raw): string
+    {
+        if (!is_string($raw)) {
+            throw new \InvalidArgumentException(
+                'interviewers: erwartet list<string>, bekam '
+                . get_debug_type($raw) . '. Aus einer Relation wird das '
+                . "mit pluck('name')->all(), nicht mit ->all()."
+            );
+        }
+
+        // trim() ist hier Verhalten, nicht Kosmetik: ' Anna Bergmann ' ergibt
+        // 'Anna Bergmann' (sonst stuende das Leerzeichen vor dem Komma auf dem
+        // Zertifikat), und '   ' ist damit derselbe Fall wie ''.
+        $name = trim($raw);
+
+        if ($name === '') {
+            throw new \InvalidArgumentException(
+                'interviewers: leerer Name in der Liste. Ein Eintrag ohne Namen '
+                . 'ist kein fehlender Leiter, sondern ein kaputter Produzent — '
+                . 'ist kein Leiter bekannt, gehoert kein Eintrag in die Liste.'
+            );
+        }
+
+        if (is_numeric($name)) {
+            throw new \InvalidArgumentException(
+                "interviewers: numerischer Name '" . $name . "'. Das ist eine "
+                . 'Id, kein Name — die Liste kommt aus '
+                . "pluck('name')->all(), nicht aus pluck('id')->all()."
+            );
+        }
+
+        return $name;
     }
 
     /** @param list<array<string,mixed>> $bookings */
