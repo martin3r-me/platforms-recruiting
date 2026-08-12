@@ -18,10 +18,25 @@ class RecContractTemplate extends Model
 
     protected $table = 'rec_contract_templates';
 
+    public const TYPE_CONTRACT = 'contract';
+    public const TYPE_CERTIFICATE = 'certificate';
+
+    /**
+     * Zertifikat-Codes muessen mit diesem Praefix beginnen. Grund:
+     * ContractPreSigningType::forCode() entscheidet ALLEIN am code, ob ein
+     * Vorschalt-Schritt vor der Unterschrift laeuft (AT-140 → Resttage,
+     * Praefix AV- → §15/§16). Ein Zertifikat mit code 'AV-ZERT' bekaeme die
+     * §15/§16-Abfrage. Der Praefix macht die Kollision unmoeglich statt
+     * unwahrscheinlich — und er schuetzt zwoelf code-Muster-Filter in der
+     * Guard-Landkarte, die sonst nur auf eine Konvention vertrauen.
+     */
+    public const CERTIFICATE_CODE_PREFIX = 'ZERT-';
+
     protected $fillable = [
         'uuid',
         'name',
         'code',
+        'type',
         'description',
         'content',
         'field_mappings',
@@ -48,6 +63,35 @@ class RecContractTemplate extends Model
                 } while (self::where('uuid', $uuid)->exists());
                 $model->uuid = $uuid;
             }
+
+            // Spalten-Default 'contract' explizit im Attribut nachziehen:
+            // sonst bleibt $model->type nach dem Insert in PHP null, obwohl
+            // die DB-Zeile 'contract' hat (Eloquent liest DB-Defaults nicht
+            // automatisch zurueck). Der saving-Hook braucht einen echten
+            // Wert, nicht null, um contract von certificate zu unterscheiden.
+            if (empty($model->type)) {
+                $model->type = self::TYPE_CONTRACT;
+            }
+        });
+
+        static::saving(function (self $model) {
+            if ($model->type !== self::TYPE_CERTIFICATE) {
+                return;
+            }
+
+            // Invariante 1: ein Zertifikat unterschreibt niemand.
+            $model->requires_signature = false;
+
+            // Invariante 2: Praefix-Zwang. Exception statt stiller Korrektur —
+            // ein automatisch umgeschriebener code wuerde Verweise brechen,
+            // die der Aufrufer schon gesetzt hat.
+            $code = (string) $model->code;
+            if (!str_starts_with($code, self::CERTIFICATE_CODE_PREFIX)) {
+                throw new \InvalidArgumentException(
+                    'Zertifikat-Vorlagen brauchen einen code mit Praefix "'
+                    . self::CERTIFICATE_CODE_PREFIX . '" (bekommen: "' . $code . '").'
+                );
+            }
         });
     }
 
@@ -64,6 +108,16 @@ class RecContractTemplate extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    public function scopeContracts($query)
+    {
+        return $query->where('type', self::TYPE_CONTRACT);
+    }
+
+    public function scopeCertificates($query)
+    {
+        return $query->where('type', self::TYPE_CERTIFICATE);
     }
 
     public function scopeForTeam($query, $teamId)
