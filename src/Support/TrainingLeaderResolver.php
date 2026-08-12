@@ -48,13 +48,27 @@ namespace Platform\Recruiting\Support;
  * Warnung, ohne Log, ohne roten Test. Richtig ist pluck('name')->all();
  * alles, was kein String ist, wirft jetzt.
  *
+ * Noch eine Kante fuer denselben Produzenten: users.name ist string NOT NULL,
+ * users.lastname dagegen NULLABLE (gemessen in platform-core,
+ * 0001_01_01_000000_create_users_table.php). Wer die Liste
+ * als pluck('lastname')->all() oder [$u->name, $u->lastname] baut, hat
+ * potenziell null darin und laeuft in den Typ-Guard. Das ist richtig so — ein
+ * fehlender Nachname darf kein leerer Name auf einem Dokument werden —, aber
+ * der Hinweis hier ist billiger als der Vorfall.
+ *
  * 'starts_at' ist ein naiver 'Y-m-d H:i:s'-String oder null. Verglichen wird
- * ueber getTimestamp(), also absolute Zeitpunkte — formatiert wird aber in der
- * Zeitzone der EINGABE, nicht in der App-Zeitzone: '2026-07-24T23:30:00Z'
- * ergibt '24.07.2026', obwohl es in einer Europe/Berlin-App lokal schon der
- * 25.07. ist (gemessen). Beim gedachten Produzenten (naives Format aus einem
- * Carbon-Cast) faellt das nicht an; wer hier je Offsets hereingibt, muss
- * vorher in die App-Zeitzone konvertieren.
+ * ueber getTimestamp(), also absolute Zeitpunkte; FORMATIERT wird in der
+ * App-Zeitzone (date_default_timezone_get()), nicht in der Zeitzone der
+ * Eingabe. Ohne diese Normalisierung ergibt '2026-07-24T23:30:00Z' auf dem
+ * Zertifikat '24.07.2026', obwohl es in einer Europe/Berlin-App lokal schon
+ * der 25.07. ist (gemessen) — ein stiller Tagesfehler, und einer, der real
+ * erreichbar ist: Laravels serializeDate() macht aus einem datetime-Cast
+ * genau UTC-ISO, sobald der Produzent die Arrays ueber ->toArray() oder einen
+ * JSON-Umweg baut. Die Normalisierung ist deshalb DURCHGESETZT und gemessen
+ * (testOffsetDatenWerdenInDieAppZeitzoneNormalisiert setzt die Zeitzone
+ * selbst und stellt sie zurueck), nicht als Merksatz an den Aufrufer
+ * delegiert. Beim naiven 'Y-m-d H:i:s' aendert sie nichts: ein Wert ohne
+ * Offset gilt bereits als App-Zeitzone.
  *
  * Verglichen wird der geparste ZEITPUNKT, nicht der Rohstring. Ein
  * strcmp() auf 'starts_at' sortiert alles, was nicht mit einer Ziffer
@@ -157,8 +171,11 @@ final class TrainingLeaderResolver
         // ?? [] ergibt in PHP still [] (gemessen, keine Warnung), dieser Guard
         // ist also durch keinen Test aushebelbar. Er bleibt trotzdem stehen,
         // weil ohne ihn die Zeilen darunter auf einem ?array indizieren wuerden
-        // — fuer jeden Leser und jede Static Analysis ein Fehler, auch wenn PHP
-        // ihn schluckt. Dasselbe gilt fuer trainingDate().
+        // — fuer jeden Leser ein Fehler, auch wenn PHP ihn schluckt. Static
+        // Analysis als zweiten Zeugen aufzurufen waere unehrlich: dieses Modul
+        // hat keine (kein phpstan.neon, kein psalm.xml, composer.json ohne
+        // require-dev — gemessen). Die Leser-Begruendung traegt allein.
+        // Dasselbe gilt fuer trainingDate().
         if ($booking === null) {
             return '';
         }
@@ -215,7 +232,29 @@ final class TrainingLeaderResolver
      *  - UHRZEIT OHNE DATUM: '14:00:00' -> 12.08.2026. Derselbe Schaden wie
      *    leer, nur durch eine andere Tuer: das Zertifikat traegt sein eigenes
      *    Ausstellungsdatum als Schulungsdatum.
-     *  - RELATIV: 'now' -> heute, 'tomorrow' und '+1 day' -> 13.08.2026.
+     *  - RELATIV OHNE DATUM: 'now' -> heute, 'tomorrow' und '+1 day' ->
+     *    13.08.2026, 'yesterday' -> 11.08.2026. ACHTUNG beim Aufraeumen: diese
+     *    Familie faengt schon der Jahr-Guard (date_parse liefert year=false),
+     *    NICHT die relative-Klausel — gemessen, Klausel entfernt, alle vier
+     *    bleiben leer. Wer die Klausel an DIESER Zeile falsifizieren will,
+     *    misst das Falsche.
+     *  - DATUM PLUS RELATIVER ZUSATZ: '2026-07-24 +1 day' -> 25.07.2026,
+     *    '2026-07-24 next monday' -> 27.07.2026. errors=[], warnings=[],
+     *    year/month/day = 2026/7/24 — kein anderer Zweig haelt das auf, hier
+     *    traegt allein isset($parsed['relative']). Ohne sie verschiebt sich
+     *    das Datum still um 1-3 Tage, und die Suite bleibt gruen (gemessen).
+     *  - WOCHENTAGSNAME IM FORMAT: RFC2822 (Carbons toRfc2822String()),
+     *    HTTP-Date, RFC850, asctime. date_parse setzt dafuer relative.weekday,
+     *    also fallen sie ALLE aus — auch die, deren Wochentag stimmt. Das ist
+     *    Absicht und die konservative Seite:
+     *        new DateTimeImmutable('Mon, 24 Jul 2026 14:00:00 +0200')
+     *        -> 27.07.2026
+     *    Der 24.07.2026 ist ein FREITAG; PHP springt auf den genannten
+     *    Wochentag vor. Ein falscher Wochentagsname verschiebt das Datum also
+     *    still um Tage, ein leeres Feld tut das nicht. Wer RFC2822 hier
+     *    zulassen will, weil es "doch ein legitimes Format" ist, muss zuerst
+     *    den Wochentagsnamen gegen das Datum pruefen — sonst holt er genau
+     *    diesen Fehler zurueck. Der Vertrag ist ohnehin 'Y-m-d H:i:s'.
      *  - UNVOLLSTAENDIG: '2026' -> 12.08.2026, weil es als Uhrzeit 20:26 parst.
      *  - TEIL-NULLDATUM: '0000-00-00 …' -> 30.11.-0001 (sichtbarer Unsinn),
      *    '2026-00-00' -> 30.11.2025 — plausibel und deshalb schlimmer.
@@ -227,11 +266,19 @@ final class TrainingLeaderResolver
      * Verwertbar bleiben (ebenfalls gemessen): '2026-07-24 14:00:00',
      * '2026-7-05 10:00:00' (unpadierter Monat), '2026-07-24',
      * '2026-07-24T14:00:00Z', '…+09:00', '…14:00:00.000000' (Carbons
-     * Mikrosekunden) und '24.07.2026'.
+     * Mikrosekunden) und '24.07.2026'. Die beiden Offset-Formen werden in die
+     * App-Zeitzone normalisiert, siehe Klassen-Docblock.
+     *
+     * Kein trim(): der Parser vertraegt fuehrende und schliessende Leerzeichen
+     * und \n von sich aus (' 2026-07-24 ' -> 2026/7/24, err=0, wrn=0), und
+     * reiner Whitespace faellt ueber year=false heraus. Ein trim() hier war
+     * verhaltenstot — bitte nicht "zur Sicherheit" wieder einbauen. Der
+     * (string)-Cast dagegen traegt: er macht aus null den Leerstring, und der
+     * hat errors=1.
      */
     private static function moment(mixed $raw): ?\DateTimeImmutable
     {
-        $value = trim((string) $raw);
+        $value = (string) $raw;
 
         $parsed = date_parse($value);
 
@@ -247,7 +294,14 @@ final class TrainingLeaderResolver
         // stehen, weil aus einem Dokument-Renderer keine Exception fliegen
         // darf — die Policy dieser Klasse ist das leere Feld.
         try {
-            return new \DateTimeImmutable($value);
+            // Auf die App-Zeitzone normalisieren, BEVOR irgendwer formatiert:
+            // ein Wert mit Offset ('…T23:30:00Z' aus Laravels serializeDate())
+            // wuerde sonst in der Zeitzone der Eingabe gerendert und traegt in
+            // einer Europe/Berlin-App den falschen Tag. Den Vergleich in
+            // pickBooking() beruehrt das nicht: getTimestamp() ist derselbe
+            // absolute Zeitpunkt, setTimezone() aendert nur die Darstellung.
+            return (new \DateTimeImmutable($value))
+                ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
         } catch (\Throwable) {
             return null;
         }

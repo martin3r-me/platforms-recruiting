@@ -58,6 +58,27 @@ class TrainingLeaderResolverTest extends TestCase
         return $warnungen;
     }
 
+    /**
+     * Fuehrt $fn in einer FESTGELEGTEN App-Zeitzone aus und stellt die vorherige
+     * danach wieder her.
+     *
+     * Damit sind die Zeitzonen-Tests deterministisch statt abhaengig von
+     * date.timezone der ausfuehrenden Maschine (hier gemessen: UTC). Ohne das
+     * Setzen waere ein Offset-Test entweder ein Flake-Kandidat oder — schlimmer
+     * — auf einer UTC-Maschine gruen, ohne die Grenze ueberhaupt zu beruehren.
+     */
+    private function inZeitzone(string $zone, callable $fn): void
+    {
+        $vorher = date_default_timezone_get();
+        date_default_timezone_set($zone);
+
+        try {
+            $fn();
+        } finally {
+            date_default_timezone_set($vorher);
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Der Kern: welche Buchung ist die massgebliche
     // ---------------------------------------------------------------------
@@ -230,8 +251,33 @@ class TrainingLeaderResolverTest extends TestCase
 
     public function testRelativeAngabenSindKeinTermin(): void
     {
-        // 'now' und '+1 day' parsen anstandslos und ergeben heute bzw. morgen.
-        foreach (['now', 'tomorrow', '+1 day', '2026'] as $relativ) {
+        // Zwei GETRENNTE Familien in einem Test, und nur die zweite haengt an
+        // der relative-Klausel des Guards:
+        //
+        // 'now'/'tomorrow'/'+1 day'/'2026' faengt bereits der Jahr-Guard ab
+        // (date_parse liefert year=false). Nimmt man isset($parsed['relative'])
+        // heraus, bleiben diese vier leer und die Suite gruen — sie sind KEIN
+        // Falsifikator fuer die Klausel.
+        //
+        // Die letzten beiden sind es: bei beiden ist errors=[], warnings=[] und
+        // year/month/day = 2026/7/24, kein anderer Zweig haelt sie auf.
+        //  - '2026-07-24 +1 day'              -> 25.07.2026 (still ein Tag mehr)
+        //  - 'Mon, 24 Jul 2026 14:00:00 +0200' -> 27.07.2026
+        // Das zweite ist RFC2822, also Carbons toRfc2822String(). Der
+        // 24.07.2026 ist ein Freitag; steht dort 'Mon', springt PHP still drei
+        // Tage vor. Deshalb fallen Formate mit Wochentagsnamen hier komplett
+        // heraus, auch die korrekten — lieber ein leeres Feld auf dem
+        // Zertifikat als ein um Tage verschobenes Datum.
+        $faelle = [
+            'now',
+            'tomorrow',
+            '+1 day',
+            '2026',
+            '2026-07-24 +1 day',
+            'Mon, 24 Jul 2026 14:00:00 +0200',
+        ];
+
+        foreach ($faelle as $relativ) {
             $bookings = [$this->booking(1, 'attended', $relativ, ['X'])];
 
             $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings), $relativ);
@@ -252,6 +298,13 @@ class TrainingLeaderResolverTest extends TestCase
         // ein Carbon-Cast liefert je nach Aufrufer auch Mikrosekunden, ein
         // ISO-Offset oder ein reines Datum. Nichts davon darf der Guard
         // wegwerfen — sonst bleibt das Feld auf dem Zertifikat leer.
+        //
+        // Die Zeitzone wird hier FESTGELEGT, weil die beiden Offset-Zeilen
+        // sonst stillschweigend von date.timezone der Maschine abhaengen. Bei
+        // diesen Werten liegt die Tagesgrenze weit weg (14:00Z ist in Berlin
+        // 16:00, 14:00+09:00 ist dort 07:00), das Ergebnis ist also in beiden
+        // Zeitzonen der 24.07. — die Faelle NAHE der Tagesgrenze stehen in
+        // testOffsetDatenWerdenInDieAppZeitzoneNormalisiert.
         $formate = [
             '2026-07-24 14:00:00' => '24.07.2026',
             '2026-7-05 10:00:00' => '05.07.2026',
@@ -262,11 +315,77 @@ class TrainingLeaderResolverTest extends TestCase
             '24.07.2026' => '24.07.2026',
         ];
 
-        foreach ($formate as $eingabe => $erwartet) {
-            $bookings = [$this->booking(1, 'attended', (string) $eingabe, ['X'])];
+        $this->inZeitzone('Europe/Berlin', function () use ($formate): void {
+            foreach ($formate as $eingabe => $erwartet) {
+                $bookings = [$this->booking(1, 'attended', (string) $eingabe, ['X'])];
 
-            $this->assertSame($erwartet, TrainingLeaderResolver::trainingDate($bookings), (string) $eingabe);
-        }
+                $this->assertSame($erwartet, TrainingLeaderResolver::trainingDate($bookings), (string) $eingabe);
+            }
+        });
+    }
+
+    public function testOffsetDatenWerdenInDieAppZeitzoneNormalisiert(): void
+    {
+        // Ein Wert mit Offset darf nicht in der Zeitzone der EINGABE aufs
+        // Dokument. Ohne Normalisierung liefert '2026-07-24T23:30:00Z' das
+        // Datum '24.07.2026', obwohl es in einer Europe/Berlin-App lokal schon
+        // der 25.07. um 01:30 ist — ein stiller Tagesfehler auf einem Zeugnis.
+        //
+        // Das ist nicht theoretisch: Laravels serializeDate() macht aus einem
+        // datetime-Cast genau dieses UTC-ISO, sobald der Produzent (Task 8) die
+        // Buchungs-Arrays ueber ->toArray() oder einen JSON-Umweg baut.
+        //
+        // Der frueher hier stehende Docblock-Satz ("wer Offsets hereingibt,
+        // muss vorher konvertieren") hat nichts erzwungen. Ein Kommentar, der
+        // eine Falle benennt, ist keine Assertion.
+        //
+        // Die Zeitzone setzt der Test selbst und stellt sie im finally zurueck
+        // — damit deterministisch und kein Flake, egal was date.timezone der
+        // Maschine sagt (hier gemessen: UTC, wo die Grenze nie beruehrt wuerde).
+        $this->inZeitzone('Europe/Berlin', function (): void {
+            $faelle = [
+                // UTC-Abend -> in Berlin schon der naechste Tag.
+                '2026-07-24T23:30:00Z' => '25.07.2026',
+                '2026-07-24T22:30:00.000000Z' => '25.07.2026',
+                // Und in die andere Richtung: 01:30 in Japan ist in Berlin
+                // noch der Vortag, 18:30.
+                '2026-07-25T01:30:00+09:00' => '24.07.2026',
+                // Kontrolle: ein naiver Wert hat keinen Offset und gilt bereits
+                // als App-Zeitzone — die Normalisierung darf ihn nicht bewegen.
+                '2026-07-24 23:30:00' => '24.07.2026',
+            ];
+
+            foreach ($faelle as $eingabe => $erwartet) {
+                $bookings = [$this->booking(1, 'attended', (string) $eingabe, ['X'])];
+
+                $this->assertSame($erwartet, TrainingLeaderResolver::trainingDate($bookings), (string) $eingabe);
+            }
+        });
+    }
+
+    public function testAuswahlUeberAbsoluteZeitpunkteAuchBeiVerschiedenenOffsets(): void
+    {
+        // Gegenprobe: die Normalisierung darf nur die DARSTELLUNG aendern, nicht
+        // die Auswahl. Zwei Offset-Schreibweisen, deren Reihenfolge in jeder
+        // anderen Lesart kippt:
+        //   Id 9: '2026-07-25T00:30:00+09:00' = 24.07. 15:30 UTC (frueher)
+        //   Id 2: '2026-07-24T22:30:00Z'      = 24.07. 22:30 UTC (spaeter)
+        // Richtig gewinnt Id 2. Falsch waere jede der drei naheliegenden
+        // Abkuerzungen, und jede kippt das Ergebnis auf Id 9:
+        //   - strcmp auf den Rohstrings ('2026-07-25…' > '2026-07-24…'),
+        //   - latest('id'),
+        //   - das Datum im Offset der Eingabe formatieren (ergaebe 24.07.2026).
+        $this->inZeitzone('Europe/Berlin', function (): void {
+            $bookings = [
+                $this->booking(9, 'attended', '2026-07-25T00:30:00+09:00', ['Frueherer Zeitpunkt']),
+                $this->booking(2, 'attended', '2026-07-24T22:30:00Z', ['Spaeterer Zeitpunkt']),
+            ];
+
+            $this->assertSame('Spaeterer Zeitpunkt', TrainingLeaderResolver::leaderNames($bookings));
+            // In Berlin ist 22:30 UTC der 25.07. um 00:30 — der Tageswechsel
+            // liegt zwischen Eingabe-Offset und App-Zeitzone.
+            $this->assertSame('25.07.2026', TrainingLeaderResolver::trainingDate($bookings));
+        });
     }
 
     // ---------------------------------------------------------------------
@@ -345,14 +464,23 @@ class TrainingLeaderResolverTest extends TestCase
         // "Undefined array key" — in Tests rot, in Produktion eine Logzeile und
         // ein Tie-Break, der 0 gegen 0 vergleicht. Der Doc-Block behauptete
         // "'id' muss da sein"; jetzt stimmt das auch.
-        $ohneId = [
-            ['status' => 'attended', 'starts_at' => '2026-07-24 14:00:00', 'interviewers' => ['A']],
+        // Zweite Zeile: 'id' => null. Der Guard ist isset(), faengt das also
+        // mit ab — aber "faengt es ab" war bisher nur eine Behauptung im
+        // Report, von keinem Test gedeckt. Ein Produzent, der die id aus einer
+        // nullable Spalte oder einem ->first()?->id zieht, landet genau hier.
+        $faelle = [
+            'Schluessel fehlt' => ['status' => 'attended', 'starts_at' => '2026-07-24 14:00:00', 'interviewers' => ['A']],
+            'id ist null' => ['id' => null, 'status' => 'attended', 'starts_at' => '2026-07-24 14:00:00', 'interviewers' => ['A']],
         ];
 
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Buchung ohne id');
-
-        TrainingLeaderResolver::pickBooking($ohneId);
+        foreach ($faelle as $bezeichnung => $buchung) {
+            try {
+                $picked = TrainingLeaderResolver::pickBooking([$buchung]);
+                $this->fail("Kein Vertragsbruch gemeldet fuer '{$bezeichnung}', Ergebnis: " . json_encode($picked));
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('Buchung ohne id', $e->getMessage(), $bezeichnung);
+            }
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -389,6 +517,19 @@ class TrainingLeaderResolverTest extends TestCase
 
         $this->assertSame('', TrainingLeaderResolver::leaderNames($ohneInterviewer));
         $this->assertSame('24.07.2026', TrainingLeaderResolver::trainingDate($ohneInterviewer));
+
+        // Und die dritte Luecke, die bisher KEIN Test erreicht hat: eine
+        // attended-Buchung ohne den Schluessel 'starts_at'. Beide Zeilen oben
+        // haben ihn, der ??-Default in trainingDate() war damit ungedeckt. Kein
+        // Termin bekannt heisst leeres Datum, nicht "heute" und nicht Rauschen —
+        // die Warnung wird mitgemessen, damit die Assertion nicht allein an
+        // failOnWarning haengt.
+        $ohneStartsAt = [['id' => 7, 'status' => 'attended', 'interviewers' => ['A']]];
+
+        $this->assertSame([], $this->warnungenBeim(
+            fn () => $this->assertSame('', TrainingLeaderResolver::trainingDate($ohneStartsAt))
+        ));
+        $this->assertSame('A', TrainingLeaderResolver::leaderNames($ohneStartsAt));
     }
 
     public function testLeeresBuchungsArrayLoestKeineWarnungAus(): void
