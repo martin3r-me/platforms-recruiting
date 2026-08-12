@@ -28,6 +28,36 @@ class TrainingLeaderResolverTest extends TestCase
         ];
     }
 
+    /**
+     * Sammelt die PHP-Warnungen, die $fn auslöst, damit ein Guard, dessen
+     * einzige Wirkung "keine Warnung" ist, eine ECHTE Assertion bekommt.
+     *
+     * Ohne das waeren die betroffenen Guards nur ueber failOnWarning="true" in
+     * der phpunit.xml rot — laeuft die Suite mal ohne das Flag, sind sie
+     * ungeschuetzt, und die Bannerzeile "OK, but there were issues!" liest
+     * jeder als gruen.
+     *
+     * @return list<string>
+     */
+    private function warnungenBeim(callable $fn): array
+    {
+        $warnungen = [];
+
+        set_error_handler(function (int $no, string $str) use (&$warnungen): bool {
+            $warnungen[] = $str;
+
+            return true;
+        });
+
+        try {
+            $fn();
+        } finally {
+            restore_error_handler();
+        }
+
+        return $warnungen;
+    }
+
     // ---------------------------------------------------------------------
     // Der Kern: welche Buchung ist die massgebliche
     // ---------------------------------------------------------------------
@@ -70,6 +100,22 @@ class TrainingLeaderResolverTest extends TestCase
         ];
 
         $this->assertSame('Neu', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testBeideDatenUnbrauchbarEntscheidetDieHoehereId(): void
+    {
+        // Sind BEIDE Termine unbrauchbar, sind beide gleich unbekannt — dann
+        // muss der Tie-Break greifen, nicht die Ladereihenfolge. Die kleinere
+        // Id steht bewusst VORNE: mit "return 0" fuer den Fall (beide Daten
+        // unbrauchbar) laesst der stabile usort sie stehen und der falsche
+        // Leiter kommt aufs Zertifikat, ohne dass etwas rot wird.
+        $bookings = [
+            $this->booking(4, 'attended', null, ['Kleinere Id']),
+            $this->booking(7, 'attended', 'kaputt', ['Groessere Id']),
+        ];
+
+        $this->assertSame('Groessere Id', TrainingLeaderResolver::leaderNames($bookings));
+        $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings));
     }
 
     public function testNurAttendedZaehlt(): void
@@ -159,6 +205,70 @@ class TrainingLeaderResolverTest extends TestCase
         $this->assertSame('X', TrainingLeaderResolver::leaderNames($bookings));
     }
 
+    public function testUhrzeitOhneDatumErgibtNichtHeute(): void
+    {
+        // Derselbe Schaden wie der Leerstring, durch eine andere Tuer:
+        // new DateTimeImmutable('14:00:00') ist HEUTE um 14 Uhr (gemessen). Das
+        // Zertifikat wuerde sein eigenes Ausstellungsdatum als Schulungsdatum
+        // tragen. Ein Jahr-Guard faengt das nicht — das Jahr ist plausibel.
+        $bookings = [$this->booking(1, 'attended', '14:00:00', ['X'])];
+
+        $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings));
+        $this->assertSame('X', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testPartiellesNulldatumErgibtLeeresDatum(): void
+    {
+        // '2026-00-00' parst ohne Exception zu 30.11.2025 (gemessen) — Jahr
+        // plausibel, Rest kaputt, Ergebnis plausibel FALSCH. Das ist schlimmer
+        // als "30.11.-0001", weil niemand es auf dem Dokument bemerkt.
+        $bookings = [$this->booking(1, 'attended', '2026-00-00', ['X'])];
+
+        $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings));
+        $this->assertSame('X', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testRelativeAngabenSindKeinTermin(): void
+    {
+        // 'now' und '+1 day' parsen anstandslos und ergeben heute bzw. morgen.
+        foreach (['now', 'tomorrow', '+1 day', '2026'] as $relativ) {
+            $bookings = [$this->booking(1, 'attended', $relativ, ['X'])];
+
+            $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings), $relativ);
+        }
+    }
+
+    public function testNichtExistierendesDatumRolltNichtStillWeiter(): void
+    {
+        // '2026-02-30' gibt es nicht; PHP rollt still auf den 02.03.2026.
+        $bookings = [$this->booking(1, 'attended', '2026-02-30', ['X'])];
+
+        $this->assertSame('', TrainingLeaderResolver::trainingDate($bookings));
+    }
+
+    public function testGueltigeFormateBleibenVerwertbar(): void
+    {
+        // Gegengewicht zu den Guards oben: der Vertrag ist 'Y-m-d H:i:s', aber
+        // ein Carbon-Cast liefert je nach Aufrufer auch Mikrosekunden, ein
+        // ISO-Offset oder ein reines Datum. Nichts davon darf der Guard
+        // wegwerfen — sonst bleibt das Feld auf dem Zertifikat leer.
+        $formate = [
+            '2026-07-24 14:00:00' => '24.07.2026',
+            '2026-7-05 10:00:00' => '05.07.2026',
+            '2026-07-24' => '24.07.2026',
+            '2026-07-24T14:00:00Z' => '24.07.2026',
+            '2026-07-24T14:00:00+09:00' => '24.07.2026',
+            '2026-07-24 14:00:00.000000' => '24.07.2026',
+            '24.07.2026' => '24.07.2026',
+        ];
+
+        foreach ($formate as $eingabe => $erwartet) {
+            $bookings = [$this->booking(1, 'attended', (string) $eingabe, ['X'])];
+
+            $this->assertSame($erwartet, TrainingLeaderResolver::trainingDate($bookings), (string) $eingabe);
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Schulungsleiter
     // ---------------------------------------------------------------------
@@ -183,6 +293,66 @@ class TrainingLeaderResolverTest extends TestCase
         $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', ['', '  ', 'Echt'])];
 
         $this->assertSame('Echt', TrainingLeaderResolver::leaderNames($bookings));
+    }
+
+    public function testModelAlsInterviewerIstVertragsbruchUndKnalltLaut(): void
+    {
+        // Der wahrscheinlichste Produzenten-Fehler und vorher der STILLSTE:
+        // ->interviewers->all() liefert Models, und Model::__toString() liefert
+        // toJson() (gemessen gegen echtes Illuminate). Ohne Guard stand damit
+        // '{"id":7,"name":"Anna Bergmann"}' auf dem Zertifikat — keine Warnung,
+        // kein Log, kein roter Test. Genau der Fall, in den der frueher hier
+        // stehende Ratschlag ("ohne ->all() ist das ein Vertragsbruch")
+        // hineinfuehrte, statt ihn zu schliessen.
+        $model = new class {
+            public function __toString(): string
+            {
+                return '{"id":7,"name":"Anna Bergmann"}';
+            }
+        };
+
+        $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', [$model])];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('erwartet list<string>');
+
+        TrainingLeaderResolver::leaderNames($bookings);
+    }
+
+    public function testNichtStringAlsInterviewerIstVertragsbruch(): void
+    {
+        // Dieselbe Grenze fuer die ganze Familie. Wichtig ist die INT-Zeile:
+        // ohne Guard wurde daraus 'Anna, 42' — eine Zahl als Name auf einem
+        // Dokument. Auch 'Anna, 1' aus einem bool. Ein leeres Feld waere
+        // besser, ein lautes Scheitern beim Produzenten ist noch besser.
+        foreach ([42, true, 1.5, ['name' => 'Anna'], null] as $wert) {
+            $bookings = [$this->booking(1, 'attended', '2026-07-24 14:00:00', ['Anna', $wert])];
+
+            try {
+                $ergebnis = TrainingLeaderResolver::leaderNames($bookings);
+                $this->fail('Kein Vertragsbruch gemeldet fuer ' . get_debug_type($wert) . ", Ergebnis: '" . $ergebnis . "'");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString(get_debug_type($wert), $e->getMessage());
+            }
+        }
+    }
+
+    public function testAttendedBuchungOhneIdIstVertragsbruch(): void
+    {
+        // Vorher hing es an der ANZAHL der Buchungen, ob das auffaellt: bei
+        // EINER Buchung ruft usort den Comparator nie auf, die fehlende id
+        // wurde also nie gelesen (gemessen: 0 Warnungen). Bei zwei gab es zwei
+        // "Undefined array key" — in Tests rot, in Produktion eine Logzeile und
+        // ein Tie-Break, der 0 gegen 0 vergleicht. Der Doc-Block behauptete
+        // "'id' muss da sein"; jetzt stimmt das auch.
+        $ohneId = [
+            ['status' => 'attended', 'starts_at' => '2026-07-24 14:00:00', 'interviewers' => ['A']],
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Buchung ohne id');
+
+        TrainingLeaderResolver::pickBooking($ohneId);
     }
 
     // ---------------------------------------------------------------------
@@ -219,6 +389,31 @@ class TrainingLeaderResolverTest extends TestCase
 
         $this->assertSame('', TrainingLeaderResolver::leaderNames($ohneInterviewer));
         $this->assertSame('24.07.2026', TrainingLeaderResolver::trainingDate($ohneInterviewer));
+    }
+
+    public function testLeeresBuchungsArrayLoestKeineWarnungAus(): void
+    {
+        // Echte Assertion fuer einen Guard, dessen einzige Wirkung "keine
+        // Warnung" ist: ohne die Leer-Pruefung in pickBooking() greift
+        // $attended[0] auf ein leeres Array zu -> "Undefined array key 0".
+        // Das ist NUR ueber failOnWarning rot, und wer das Flag mal entfernt,
+        // verliert das Netz unbemerkt. Deshalb wird hier gemessen, nicht
+        // gehofft.
+        $this->assertSame([], $this->warnungenBeim(
+            fn () => TrainingLeaderResolver::pickBooking([])
+        ));
+    }
+
+    public function testFehlenderStatusSchluesselLoestKeineWarnungAus(): void
+    {
+        // Dasselbe fuer den ??-Default bei 'status': ohne ihn erzeugt jede
+        // Buchung ohne den Schluessel ein "Undefined array key \"status\"".
+        // Ein fehlender Schluessel ist hier ein fehlender WERT, kein Rauschen.
+        $ohneStatus = [['id' => 5, 'starts_at' => '2026-08-01 10:00:00']];
+
+        $this->assertSame([], $this->warnungenBeim(
+            fn () => TrainingLeaderResolver::leaderNames($ohneStatus)
+        ));
     }
 
     public function testPickBookingLiefertDieMassgeblicheBuchungUndSonstNull(): void
