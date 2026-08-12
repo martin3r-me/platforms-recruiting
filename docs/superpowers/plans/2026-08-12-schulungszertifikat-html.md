@@ -74,9 +74,9 @@
 
 > **Regressionstest Bestandsverträge:** Vor der ersten Änderung das PDF eines **bereits signierten** Arbeitsvertrags und eines IFSG rendern und ablegen. Nach dem Bau erneut rendern und vergleichen — nicht byteweise (PDFs enthalten Erzeugungszeit und Datei-ID), sondern: extrahierter Text identisch, Liste der eingebetteten Fonts identisch, Seitenzahl identisch, Firmenstempel weiterhin vorhanden.
 
-> **Die Font-Liste wird als SOLL eingefroren, inklusive `Times-Bold`.** Der Fallback fetter Zellen auf den Core-Font ist ein Bestandsmakel, keine Regression dieses Pakets. Wer ihn später behebt, muss den SOLL-Wert bewusst ändern — der Test soll nicht fehlschlagen, weil jemand etwas verbessert hat, und er soll nicht schweigen, wenn sich die Font-Situation ungeplant verschiebt.
+> **Die Font-Liste wird als SOLL eingefroren.** Wer die Font-Situation später bewusst ändert, aktualisiert den SOLL-Wert und begründet es im Commit — der Test soll nicht fehlschlagen, weil jemand etwas verbessert hat, und er soll nicht schweigen, wenn sich etwas ungeplant verschiebt.
 
-> Gemessen an einem Render mit dem echten `pdf/contract.blade.php`-Stylesheet: eingebettet sind `SUBAAB+DejaVuSans` **und** der Core-Font `Times-Bold`.
+> **SOLL-Wert (in Task 0 gemessen und korrigiert): `['DejaVuSans', 'DejaVuSans-Bold']`.** Eine frühere Messung mit einem Wegwerf-Skript hatte `Times-Bold` ergeben; das war ein Messfehler und ist in G24 der Spec richtiggestellt. Über die Produktion (dort `font_dir = storage_path('fonts')`) sagt keine der Messungen etwas.
 
 **Bewusste Abweichung von der Spec — hier benannt, nicht stillschweigend:** Die Spec verlangt unter „Regressionstest Bestandsverträge" als erstes Kriterium „**extrahierter Text identisch**". Das ist in diesem Test nicht umsetzbar: `personalizeContent()` braucht Models und DB, und der Runner bootet kein Laravel. Der Test ersetzt das Kriterium durch **Seitenzahl + Fontliste + md5 des Stylesheets** und rendert dazu einen festen Beispielinhalt durch das **echte** Stylesheet der Vertrags-Blade.
 
@@ -153,7 +153,7 @@ class ContractPdfRegressionTest extends TestCase
         $this->assertCount(1, $m[0]);
     }
 
-    public function testFontlisteIstEingefrorenInklusiveTimesBold(): void
+    public function testFontlisteIstEingefroren(): void
     {
         preg_match_all('/\/BaseFont\s*\/([A-Za-z0-9+\-]+)/', $this->render(), $m);
 
@@ -163,7 +163,7 @@ class ContractPdfRegressionTest extends TestCase
         )));
         sort($normalized);
 
-        $this->assertSame(['DejaVuSans', 'Times-Bold'], $normalized);
+        $this->assertSame(['DejaVuSans', 'DejaVuSans-Bold'], $normalized);
     }
 
     /**
@@ -192,7 +192,7 @@ class ContractPdfRegressionTest extends TestCase
 - [ ] **Step 2: Test laufen lassen**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ContractPdfRegressionTest`
-Expected: PASS (3 tests). Schlägt `testFontlisteIstEingefroren…` oder `testVertragsstylesheetIstUnveraendert` fehl, hat jemand die Vertrags-Blade angefasst — das ist der Zweck des Tests, kein Anlass, den SOLL-Wert nachzuziehen.
+Expected: PASS (3 tests). Schlägt `testFontlisteIstEingefroren` oder `testVertragsstylesheetIstUnveraendert` fehl, hat jemand die Vertrags-Blade angefasst — das ist der Zweck des Tests, kein Anlass, den SOLL-Wert nachzuziehen.
 
 - [ ] **Step 3: Gesamtsuite**
 
@@ -2706,6 +2706,15 @@ In `src/Livewire/HrDesk/Index.php`, in `confirmResolve()` **nach** dem `rejectCa
                 // pro Empfaenger faengt, und resolveConfig gibt
                 // Konfigurationsfehler als error-String zurueck.
                 if ($templateId !== null) {
+                    // $applicant wird in confirmResolve() heute NUR im
+                    // Jugendschutz-Zweig gesetzt (HrDesk/Index.php:171) —
+                    // hier deshalb selbst holen. $teamId (:145) und $case
+                    // (:148) sind im Scope.
+                    $applicant = $case->applicant;
+                    if (!$applicant) {
+                        return;
+                    }
+
                     $certificate = RecTrainingCertificate::where('rec_applicant_id', $applicant->id)
                         ->where('rec_contract_template_id', $templateId)
                         ->first();

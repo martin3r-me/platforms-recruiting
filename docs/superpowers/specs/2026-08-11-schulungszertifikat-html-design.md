@@ -42,7 +42,7 @@ mit **[v2]** markiert.
 (neues Muster im Modul); Guard-Landkarte als eigenes Artefakt; §D-Begründung
 korrigiert (§D1 bleibt); §F deckt beide Portale ab; Render-Test-Assertions
 mechanisch neu; Settings-Select vom Risiko zum Kopiermuster herabgestuft;
-`Times-Bold` als SOLL eingefroren; neue Fakten G18–G24.
+gemessene Fontliste als SOLL eingefroren; neue Fakten G18–G24. (G24 in Task 0 korrigiert — die Times-Bold-Behauptung war ein Messfehler.)
 
 **Was ausdrücklich NICHT geändert wurde:** §D1 (Zertifikat-UUID statt
 Applicant-Token) — der Portal-Fund stützt sie, siehe §D6.
@@ -443,13 +443,32 @@ Modal-Öffnung berechneten `$canIssueCertificate`.
 Download **nicht** erneut aufgerufen. Snapshot-Semantik bestätigt — die
 Zertifikat-Ablage (§C1) folgt derselben Logik.
 
-**G24 — Der Vertrags-PDF mischt heute schon zwei Fonts. [v2]** Gemessen an
-einem Render mit dem echten `pdf/contract.blade.php`-Stylesheet: eingebettet
-sind `SUBAAB+DejaVuSans` **und** der Core-Font `Times-Bold` — fette Zellen
-fallen auf Times zurück, weil unter dem Namen „DejaVu Sans" keine Bold-Variante
-registriert ist. **Außerhalb dieses Scopes**, aber als SOLL-Zustand im
-Regressionstest einzufrieren: sonst repariert jemand den Fallback und der Test
-schlägt fehl, obwohl nichts kaputtgegangen ist.
+**G24 — KORRIGIERT (2026-08-12, Task 0): die Times-Bold-Behauptung war ein
+Messfehler.** Die v2-Fassung dieses Fakts behauptete, der Vertrags-PDF mische
+`SUBAAB+DejaVuSans` mit dem Core-Font `Times-Bold`, fette Zellen fielen also auf
+Times zurück. Gemessen war das mit einem Wegwerf-Skript. Der Regressionstest aus
+Task 0 liefert in der kanonischen Testumgebung
+(`meingedeck/vendor/bin/phpunit`, dompdf 3.1.5) reproduzierbar
+**`['DejaVuSans', 'DejaVuSans-Bold']`** — kein Core-Font-Fallback. Dreimal
+wiederholt, plus Gegenproben gegen `installed-fonts.dist.json` und das
+UA-Stylesheet.
+
+Beide Messungen liefen mit identischem Stylesheet (md5 geprüft) und identischen
+Optionen; die Abweichung ließ sich nicht auf `defaultFont` zurückführen. Sie ist
+nicht aufgeklärt.
+
+**Was daraus folgt:**
+
+- Es gibt **keinen** belegten „Times-Bold-Bestandsmakel". Der Satz ist gestrichen.
+- Der SOLL-Wert des Regressionstests ist `['DejaVuSans', 'DejaVuSans-Bold']`,
+  gemessen in der Umgebung, in der der Test läuft. Für seinen Zweck —
+  Änderungserkennung — genügt das: er muss stabil sein, nicht
+  produktionsidentisch.
+- **Über die Produktion sagt keine der beiden Messungen etwas.** Dort ist
+  `font_dir = storage_path('fonts')` (G14), nicht das Font-Verzeichnis unter
+  `vendor/`. Wer wissen will, welche Fonts in einem live erzeugten Vertrags-PDF
+  stecken, muss ein echtes PDF von dort prüfen — **offener Punkt, nicht in
+  diesem Scope**.
 
 ## Architektur
 
@@ -882,11 +901,11 @@ enthalten Erzeugungszeit und Datei-ID), sondern:
 - Seitenzahl identisch,
 - Firmenstempel weiterhin vorhanden (`/Subtype /Image`-Zähler).
 
-**Die Font-Liste wird als SOLL eingefroren, inklusive `Times-Bold` (G24). [v2]**
-Der Fallback fetter Zellen auf den Core-Font ist ein Bestandsmakel, keine
-Regression dieses Pakets. Wer ihn später behebt, muss den SOLL-Wert bewusst
-ändern — der Test soll nicht fehlschlagen, weil jemand etwas verbessert hat, und
-er soll nicht schweigen, wenn sich die Font-Situation ungeplant verschiebt.
+**Die Font-Liste wird als SOLL eingefroren** — gemessener Wert
+`['DejaVuSans', 'DejaVuSans-Bold']` (G24, in Task 0 korrigiert). Wer die
+Font-Situation später bewusst ändert, aktualisiert den SOLL-Wert und begründet
+es im Commit — der Test soll nicht fehlschlagen, weil jemand etwas verbessert
+hat, und er soll nicht schweigen, wenn sich etwas ungeplant verschiebt.
 
 Weicht etwas ab, ist die Trennung aus G17 verletzt. Der Test läuft gegen einen
 echten Bestandsvertrag, nicht gegen eine Fixture — es geht um die Vorlagen, die
