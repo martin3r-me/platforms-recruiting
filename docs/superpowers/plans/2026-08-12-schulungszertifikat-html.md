@@ -728,6 +728,8 @@ git commit -m "feat(recruiting): type-Invarianten fuer Zertifikat-Vorlagen (Sign
 - Consumes: `FontLib\Font` aus `dompdf/php-font-lib` (transitive Abhängigkeit von DomPDF, liegt unter `meingedeck/vendor/dompdf/php-font-lib/src/FontLib/Font.php`)
 - Produces: `FontGlyphCoverage::missing(string $content, string $fontPath): array` — Liste der Zeichen (als UTF-8-Strings, dedupliziert, in Reihenfolge des ersten Auftretens), die die Schrift nicht hat. Leerer Array = alles abgedeckt. Nicht lesbare Fontdatei → leerer Array (Prüfung soll nichts blockieren).
 
+> ⚠️ **ÜBERHOLT DURCH TASK 4a.** Genau der letzte Satz — „nicht lesbare Fontdatei → leerer Array" — war der Fehler: damit bedeutete `[]` sowohl „nichts fehlt" als auch „nicht prüfbar", und eine kaputte Schrift bekam ein besseres Zeugnis als eine intakte. `missing()` existiert nicht mehr; die API ist `inspect(): FontGlyphReport` mit drei getrennten Zuständen. Dieser Abschnitt bleibt als Protokoll dessen stehen, was gebaut wurde; **maßgeblich ist Task 4a.**
+
 **Spec-Ausschnitt (wörtlich):**
 
 > **Custom Font = kein Glyph-Fallback.** Jedes Zeichen, das die eingebundene Schrift nicht hat, wird `?`. Konkret gemessen: ★ (U+2605) in Oswald ergab `STEHEMPFANG ? FLYING BUFFET`.
@@ -2479,7 +2481,7 @@ git commit -m "feat(recruiting): Zertifikat-Ablage und Ausstellungs-Service"
 - Test: `tests/Integration/TrainingCertificateRenderTest.php`
 
 **Interfaces:**
-- Consumes: `TrainingCertificateHtml::build()` (Task 6), `TrainingCertificatePdfOptions::for()` (Task 5), `TrainingCertificateAssets::resolve()` (Task 5a), `FontGlyphCoverage::missing()` (Task 4), `ResttagePlaceholder::hasUnresolvedPlaceholder()` (Bestand, `src/Support/ResttagePlaceholder.php:88-91`), Assets-Dateien aus Task 4
+- Consumes: `TrainingCertificateHtml::build()` (Task 6), `TrainingCertificatePdfOptions::for()` (Task 5), `TrainingCertificateAssets::resolve()` (Task 5a), **`FontGlyphCoverage::inspect()` (Task 4a — `missing()` existiert nicht mehr)**, `ResttagePlaceholder::hasUnresolvedPlaceholder()` (Bestand, `src/Support/ResttagePlaceholder.php:88-91`), Assets-Dateien aus Task 4
 - Produces: nichts — reiner Nachweis
 
 **Spec-Ausschnitt (wörtlich):**
@@ -2492,7 +2494,9 @@ git commit -m "feat(recruiting): Zertifikat-Ablage und Ausstellungs-Service"
 
 > **Mechanik-Auflage: keine `grep`- und keine Literal-String-Assertions.** `grep -c "/Type /Page"` und `grep -c "/BaseFont"` liefern auf einem DomPDF-PDF je 0 Treffer. Wer so assertiert, baut einen Test, der immer grün ist.
 
-**Zwei Nachträge zu Kriterium 1 und 3, aus dem Review zu Task 6:**
+**Drei Nachträge zu Kriterium 1 und 3:**
+
+**Zu 3 — die API heißt `inspect()`, nicht `missing()`.** Der Spec-Ausschnitt oben ist der Stand vor Task 4a. `FontGlyphCoverage::missing()` existiert nicht mehr; `inspect()` liefert ein `FontGlyphReport` mit drei getrennten Zuständen. Kriterium 3 lautet damit: `checkable === true` **und** `missing === []`. Nur `missing === []` zu prüfen wäre der alte Fehler in neuer Form — es wäre auch bei einer unlesbaren Schrift erfüllt, und der Test hätte dann nur belegt, dass die Schrift kaputt ist.
 
 **Zu 1 — der Worst Case ist die Listenlänge, nicht die Namenslänge.** Der Spec-Ausschnitt nennt „langer Doppelname, zwei Interviewer, längste Kursbezeichnung". Gemessen bricht keine dieser Dimensionen um; die Kenntnisliste tut es: 4 → 1 Seite, 10 → 1 Seite, **20 → 2 Seiten**. Der Prototyp hatte genau die sechs Zeilen der Originalvorlage, deshalb fiel das dort nicht auf. Beide Dimensionen testen, und die Listenlänge **mit Negativkontrolle** — eine Seitenzahl-Assertion ohne einen Fall, der wirklich zwei Seiten erzeugt, belegt nicht, dass sie auslösen kann.
 
@@ -2695,7 +2699,14 @@ class TrainingCertificateRenderTest extends TestCase
         $content = $this->content('Erika Mustermann', 'Michel Zimmer', 'Service-Basisschulung');
         $ohneZeichenSpans = preg_replace('#<span class="zeichen">.*?</span>#', '', $content);
 
-        $this->assertSame([], FontGlyphCoverage::missing($ohneZeichenSpans, $this->fontPath()));
+        // Task 4a: inspect() statt missing(). Beide Hälften prüfen — checkable
+        // muss true sein (sonst hat der Test nur belegt, dass die Schrift
+        // unlesbar ist) und missing leer.
+        $report = FontGlyphCoverage::inspect($ohneZeichenSpans, $this->fontPath());
+
+        $this->assertTrue($report->checkable, 'Die echte Schrift muss prüfbar sein.');
+        $this->assertSame([], $report->missing);
+        $this->assertFalse($report->hasWarning());
     }
 
     public function testKeineUnaufgeloestenPlatzhalter(): void
@@ -3439,7 +3450,7 @@ git commit -m "feat(recruiting): Zertifikat in MA- und Bewerber-Portal bei den V
 - Modify: `resources/views/livewire/contract-templates/index.blade.php`
 
 **Interfaces:**
-- Consumes: `FontGlyphCoverage::missing()` (Task 4), `TrainingCertificateAssets::resolve()` (Task 5a), `TrainingCertificateHtml` (Task 6), `TrainingCertificatePdfOptions` (Task 5), `RecContractTemplate::TYPE_*` (Task 3)
+- Consumes: **`FontGlyphCoverage::inspect()` (Task 4a — `missing()` existiert nicht mehr)**, `TrainingCertificateAssets::resolve()` (Task 5a), `TrainingCertificateHtml` (Task 6), `TrainingCertificatePdfOptions` (Task 5), `RecContractTemplate::TYPE_*` (Task 3)
 - Produces: nichts
 
 **Spec-Ausschnitt (wörtlich):**
@@ -3469,7 +3480,13 @@ In `src/Livewire/ContractTemplates/Index.php`: `public string $type = 'contract'
     public function checkGlyphs(): void
     {
         $assets = TrainingCertificateAssets::resolve($this->resourcesDir());
-        $missing = FontGlyphCoverage::missing((string) $this->content, $assets['font']);
+
+        // Task 4a: inspect() auf dem ROHEN Vorlageninhalt, nie auf der Ausgabe
+        // von TrainingCertificateHtml::build(). strip_tags() entfernt den
+        // <style>-Tag, nicht dessen Inhalt, und die Huelle hat einen
+        // CSS-Kommentar mit einem ★ darin — die Pruefung wuerde sonst ein
+        // Phantom-★ melden fuer eine Vorlage, in der kein Stern vorkommt.
+        $report = FontGlyphCoverage::inspect((string) $this->content, $assets['font']);
 
         $hinweis = '';
         if ($assets['missing'] !== []) {
@@ -3479,11 +3496,24 @@ In `src/Livewire/ContractTemplates/Index.php`: `public string $type = 'contract'
                 . implode(', ', $assets['missing']) . '.';
         }
 
-        $this->glyphCheckResult = ($missing === []
-            ? 'Alle Zeichen sind in der Schrift vorhanden.'
-            : 'Diese Zeichen fehlen in der Schrift und würden im PDF zu „?“: '
-              . implode(' ', $missing)
-              . ' — in <span class="zeichen">…</span> setzen.') . $hinweis;
+        // Drei Zustaende, drei Meldungen. Der dritte ist der Grund fuer Task 4a:
+        // vorher lieferte eine unparsbare Schrift denselben gruenen Text wie
+        // eine intakte, und dieser Knopf ist die einzige Stelle, an der ein
+        // Mensch den stillen Helvetica-Fallback je bemerken wuerde. Es bleibt
+        // eine WARNUNG, kein Gate — gespeichert wird trotzdem.
+        if (!$report->checkable) {
+            $text = 'Die Schrift konnte nicht gelesen werden — die Zeichen sind '
+                . 'damit UNGEPRUEFT. Das Zertifikat wuerde vermutlich in einer '
+                . 'Ersatzschrift gerendert. Bitte an die IT melden.';
+        } elseif ($report->missing === []) {
+            $text = 'Alle Zeichen sind in der Schrift vorhanden.';
+        } else {
+            $text = 'Diese Zeichen fehlen in der Schrift und würden im PDF zu „?“: '
+                . implode(' ', $report->missing)
+                . ' — in <span class="zeichen">…</span> setzen.';
+        }
+
+        $this->glyphCheckResult = $text . $hinweis;
     }
 ```
 
@@ -3610,7 +3640,7 @@ git commit -m "feat(recruiting): Vorlagen-Editor mit Typ, Test-PDF und Zeichen-P
 **Die Sterne stehen als HTML-Entity `&#9733;`, und das ist Absicht — nicht aufräumen.** Zwei Gründe, beide belegt:
 
 1. Oswald hat kein ★ (U+2605). Ohne den `<span class="zeichen">`-Umweg, der auf DejaVu schaltet, stünde `?` im PDF (G13.3). Die Entity ändert daran nichts — sie ist nur die Schreibweise —, aber sie macht sichtbar, dass hier ein Sonderzeichen steht, das eine eigene Behandlung braucht.
-2. **`FontGlyphCoverage::missing()` dekodiert HTML-Entities** (in Task 4 direkt verprobt: `'A &#9733; B'` → `["★"]`). Die Zeichenprüfung im Editor greift also auch auf die Entity-Schreibweise. Würde jemand die Entity durch ein wörtliches ★ ersetzen, bliebe die Prüfung weiterhin korrekt — würde jemand aber umgekehrt annehmen, Entities seien „nur Text" und die Dekodierung aus `FontGlyphCoverage` entfernen, wäre die Prüfung an der **einzigen ausgelieferten Vorlage** still blind.
+2. **`FontGlyphCoverage::inspect()` dekodiert HTML-Entities** (in Task 4 direkt verprobt: `'A &#9733; B'` → `["★"]`). Die Zeichenprüfung im Editor greift also auch auf die Entity-Schreibweise. Würde jemand die Entity durch ein wörtliches ★ ersetzen, bliebe die Prüfung weiterhin korrekt — würde jemand aber umgekehrt annehmen, Entities seien „nur Text" und die Dekodierung aus `FontGlyphCoverage` entfernen, wäre die Prüfung an der **einzigen ausgelieferten Vorlage** still blind.
 
 Wer den Seed-Inhalt anfasst, muss deshalb beides zusammen denken: die Entity und die Dekodierung. Ein Kommentar im Command hält das fest.
 
@@ -3702,7 +3732,7 @@ class SeedTrainingCertificateTemplate extends Command
         // CSS auf DejaVu schaltet. BEIDES ist Absicht, bitte nicht aufraeumen:
         //   - Oswald hat kein U+2605. Ohne den span-Umweg steht "?" im PDF,
         //     ohne Warnung (DomPDF macht bei Custom-Fonts keinen Fallback).
-        //   - FontGlyphCoverage::missing() dekodiert Entities, die
+        //   - FontGlyphCoverage::inspect() dekodiert Entities, die
         //     Zeichenpruefung im Vorlagen-Editor greift also auch hier.
         // Wer die Entity ersetzt, muss die Dekodierung in FontGlyphCoverage
         // mitdenken — sonst wird die Pruefung an der einzigen ausgelieferten
