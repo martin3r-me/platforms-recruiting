@@ -53,6 +53,27 @@ final class TrainingLeaderResolver
     private const ATTENDED = 'attended';
 
     /**
+     * WER HIER LANDET, WEIL EIN ZERTIFIKAT EIN FALSCHES DATUM TRAEGT: das ist
+     * die wahrscheinlichste Ursache, und sie ist Absicht.
+     *
+     * Es wird NICHT auf die Terminart gefiltert. Kriterium ist allein
+     * status='attended'. Hat ein Bewerber also eine spaetere 'attended'-Buchung
+     * an einem ANDEREN Termintyp — Vorstellungsgespraech, Nachtermin, was auch
+     * immer das Modul noch kennt —, dann wird DIESE die massgebliche
+     * "Schulungsbuchung", und ihr Datum und ihre Interviewer stehen auf dem
+     * Zertifikat.
+     *
+     * Das ist die bewusste Wahl, kein Versehen: ein Filter auf eine
+     * interview_type_id waere eine zweite, stillschweigende Definition von
+     * "Schulung" neben der, die das Modul benutzt — und die zweite Definition
+     * wuerde beim ersten neuen Termintyp still falsch. Lieber eine Regel, die
+     * man nachlesen kann, als zwei, die auseinanderlaufen.
+     *
+     * Beim Debuggen also NICHT hier den Termintyp einbauen, sondern zuerst
+     * nachsehen, welche 'attended'-Buchungen der Bewerber ueberhaupt hat. Ist
+     * eine davon fachlich keine Schulung, ist die Frage, warum sie 'attended'
+     * ist — nicht, warum dieser Resolver sie nimmt.
+     *
      * @param list<array{id: int, status: string, starts_at: ?string, interviewers: list<string>}> $bookings
      * @return array{id: int, status: string, starts_at: ?string, interviewers: list<string>}|null
      */
