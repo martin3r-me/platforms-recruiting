@@ -1329,8 +1329,39 @@ teuersten Zusagen dieser Spec sind.
   `Support/TrainingCertificateAssets`, die Controller, Editor-Vorschau und
   Render-Test gemeinsam benutzen — sonst liefe die Vorschau gegen andere
   Pfade als die Ausstellung. **[v2]**
-- **`storage/fonts` muss existieren und schreibbar sein** (G14) — dort legt
-  DomPDF den Font-Metrik-Cache an. Erster Render nach Deploy prüfen.
+- **`storage/fonts` wird beim ersten Render automatisch angelegt; schlägt das
+  fehl, gibt es einen sprechenden Fehler statt eines Fatals. [v3, hochgezogen]**
+  Vorher stand hier „muss existieren und schreibbar sein (G14) — erster Render
+  nach Deploy prüfen". Das war zu schwach, und der Review hat gezeigt, warum:
+
+  Gemessen im Host — `meingedeck/storage/` enthält nur `app`, `framework`,
+  `logs`, es gibt **kein** `config/dompdf.php`, und der Paket-Default zeigt auf
+  `storage_path('fonts')`. Mit fehlendem Verzeichnis:
+
+  ```
+  PHP Warning: fopen(.../zert_normal_….ufm): Failed to open stream: No such file or directory
+               in php-font-lib/src/FontLib/AdobeFontMetrics.php on line 44
+  -> TypeError: fwrite(): Argument #1 ($stream) must be of type resource, false given
+     in AdobeFontMetrics.php:226
+  ```
+
+  Der Fatal passiert in `render()`, also **vor jeder Ausgabe** → 500 auf **100 %**
+  der Aufrufe, auf genau dem Link, der per WhatsApp an abgelehnte Bewerber geht.
+  **Der erste echte Bewerber wäre der Fehlerfall gewesen.**
+
+  Warum es niemand bemerkt hätte: das Zertifikat ist das **erste
+  `@font-face`-PDF der ganzen Host-App**. Verträge rendern mit gebündeltem
+  DejaVu Sans und brauchen nie einen schreibbaren Fontordner.
+
+  **`storage/fonts` liegt nicht im Git** (`storage/` ist bis auf `.gitignore`-Reste
+  leer im Repo) — es fehlt also auf jedem neu aufgesetzten Server erneut. Genau
+  deshalb liegt die Absicherung im **Code** und nicht in einer Ops-Zeile: Ops-Wissen
+  verfällt beim nächsten Server, Code nicht. Die Klasse legt das Verzeichnis an,
+  prüft **Schreibbarkeit** (nicht nur Existenz — ein existierendes, nicht
+  beschreibbares Verzeichnis erzeugt denselben Fatal) und **wirft** mit Pfad und
+  Grund, wenn das nicht geht. **Kein Fallback auf ein anderes Verzeichnis** — das
+  ist genau, was DomPDF tut (stiller Rückfall auf
+  `vendor/dompdf/dompdf/lib/fonts`) und was die Isolation aufhebt.
 - **Nach Merge und Bump: die Route einmal live aufrufen. [v3]**
   `/recruiting/zertifikat/{uuid}` mit einem echten Datensatz, und **hinsehen**:
   wird das PDF **inline** angezeigt (nicht heruntergeladen), und steht der Text in

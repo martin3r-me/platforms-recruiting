@@ -41,6 +41,16 @@
 
 **1) Falsifizierbarkeitsfrage pro Test: welche plausible Änderung macht ihn rot?** Findet sich keine, ist der Test falsch formuliert oder überflüssig — er belegt dann Unverletzbares und täuscht Schutz vor. Gefunden an Fall 7 des Pin-Tests (Task 6a): er sollte belegen, dass der Lookup-Zweig nicht global übersetzt, aber diese Eigenschaft ist über den Codepfad prinzipiell nicht verletzbar, weil `ZasLookupResolver::loadLabelMap()` selbst guardet. Ein Test, dessen Aussage nicht kaputtzumachen ist, ist kein Test.
 
+**5) Eine Regel aus einer Messung braucht die ISOLIERTE Gegenprobe — sonst schreibt man die Ursache fest, die man vermutet hat, statt der gemessenen.**
+
+Dreimal in diesem Durchlauf passiert, jedes Mal mit demselben Ablauf: eine Messung schlägt fehl, die naheliegende Ursache wird festgeschrieben, und die Regel gilt danach als gemessen.
+
+- **Times-Bold (Task 0):** aus einer Fontliste geschlossen, die Ursache lag im Metrik-Cache. Nach 11 Konfigurationen nicht reproduzierbar, Spec-Fakt G24 als Messfehler zurückgenommen.
+- **§E5 (Task 6-Review):** „Einseitigkeit ist strukturell erzwungen" — aus dem Prototyp mit sechs Listenzeilen verallgemeinert. Bei 20 Zeilen zwei Seiten. Die Spec enthielt bei G13.5 längst das Gegenteil als gemessenen Fakt.
+- **`fontDir`/`chroot` (Task 9/10-Review):** „`fontDir` darf nie spät kommen" — der Ausfall kam vom `chroot`, nicht von `fontDir`. Die falsche Regel stand zwei Commits in der Spec und hätte den einzigen sauberen Fix für das `storage/fonts`-Problem **verboten**.
+
+Das Verfahren dagegen ist billig: **eine Variable pro Lauf ändern, und den Gutfall mitmessen.** Beim `fontDir`-Irrtum hätte ein einziger Lauf mit korrektem `chroot` und spätem `fontDir` die Regel widerlegt. Wer eine Regel formuliert, muss sagen können, welche Messung sie widerlegen würde — und diese Messung gefahren haben.
+
 **4) Vor jedem Dispatch: die im Brief genannten Methoden, Beziehungen und Klassennamen einmal gegen den AKTUELLEN CODE abgleichen — nicht gegen die Spec.**
 
 Anlass, und es ist der teuerste Fund des Tages: der Task-10-Brief enthielt `->with('contractTemplate')`. Die Beziehung existiert seit dem Zuschnitt v3 nicht mehr. Das wäre ein **500 auf jedem WhatsApp-Link** gewesen, und der erste Klick eines abgelehnten Bewerbers wäre der Fehlerfall gewesen. Ohne HTTP-Tests im Modul hätte es nichts gefangen — der Implementierer hat es per `method_exists` gefunden.
