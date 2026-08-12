@@ -41,6 +41,14 @@
 
 **1) Falsifizierbarkeitsfrage pro Test: welche plausible Änderung macht ihn rot?** Findet sich keine, ist der Test falsch formuliert oder überflüssig — er belegt dann Unverletzbares und täuscht Schutz vor. Gefunden an Fall 7 des Pin-Tests (Task 6a): er sollte belegen, dass der Lookup-Zweig nicht global übersetzt, aber diese Eigenschaft ist über den Codepfad prinzipiell nicht verletzbar, weil `ZasLookupResolver::loadLabelMap()` selbst guardet. Ein Test, dessen Aussage nicht kaputtzumachen ist, ist kein Test.
 
+**4) Vor jedem Dispatch: die im Brief genannten Methoden, Beziehungen und Klassennamen einmal gegen den AKTUELLEN CODE abgleichen — nicht gegen die Spec.**
+
+Anlass, und es ist der teuerste Fund des Tages: der Task-10-Brief enthielt `->with('contractTemplate')`. Die Beziehung existiert seit dem Zuschnitt v3 nicht mehr. Das wäre ein **500 auf jedem WhatsApp-Link** gewesen, und der erste Klick eines abgelehnten Bewerbers wäre der Fehlerfall gewesen. Ohne HTTP-Tests im Modul hätte es nichts gefangen — der Implementierer hat es per `method_exists` gefunden.
+
+**Die Herkunft ist der Punkt, nicht der Fund:** Spec und Plan wurden beim Zuschnitt gründlich nachgezogen, aber die **Briefe** werden aus dem Plan generiert und dann einzeln angereichert. Sie sind damit der letzte Ort, an dem v2-Stand überleben kann — und der einzige, der nie gegen den Code gelesen wird.
+
+Konkret vor dem Dispatch: jeden im Brief genannten Methodennamen, Relationsnamen und Klassennamen per `grep`/`method_exists` gegen `src/` prüfen. Das kostet eine Minute und fängt genau die Klasse von Fehlern, die erst im Betrieb auffällt.
+
 **3) Ein Kommentar, der eine Falle benennt, muss den sicheren Weg VORGEBEN — nicht den unsicheren beschreiben. Wo so ein Hinweis nötig ist, gehört stattdessen eine Assertion hin.**
 
 Zwei Vertreter in diesem Durchlauf, beide Male war die **Prosa** das Problem, nicht der Code:
@@ -2994,6 +3002,15 @@ git commit -m "feat(recruiting): Public-Route und Controller fuer Zertifikat-PDF
 ### Task 11: Ausstellung im Ablehnen-Zweig des HR-Schreibtischs
 
 > **GEÄNDERT durch den Zuschnitt v3.** Die Checkbox bleibt, das **Vorlagen-Dropdown entfällt** — samt der Logik „bei genau einer Vorlage vorausgewählt", die diesen Normalfall kaschieren sollte. `$certificateTemplateId` verschwindet aus der Komponente, `rejectCase()` bekommt einen `bool` statt einer `?int`. Neu: `$canIssueCertificate` prüft zusätzlich das Team-Setting `issue_training_certificates` (Default `false`) — ist es aus, erscheint die Checkbox nicht.
+>
+> **VERHALTEN, vom Auftraggeber ausdrücklich bestätigt statt nur aus der Spec übernommen — bindend:**
+>
+> - Die Zertifikat-Checkbox ist **optional und NICHT vorausgewählt.** HR setzt sie bewusst.
+> - Sichtbar **nur bei vorhandener `attended`-Buchung.**
+> - Gilt für **jeden Ablehnungsgrund**, keine Einschränkung auf bestimmte Gründe. Der konkrete Anlass ist heute die Nicht-EU-Ablehnung, **aber wir legen uns nicht auf eine Grundliste fest** — also keine `in_array($reason, [...])`-Bedingung, auch nicht „vorerst".
+> - **Ohne Haken läuft die Ablehnung exakt wie heute:** kein Zertifikat, kein Versand, kein zusätzlicher Query, kein veränderter Ablauf.
+>
+> Der letzte Punkt ist der, der einen Test braucht und nicht nur eine Zusicherung: **die Ablehnung ohne Haken muss nachweisbar unverändert sein.** Das ist die Fehlerklasse dieses Pakets in ihrer teuersten Form — ein Eingriff in `rejectCase()`, der im Normalfall etwas verschiebt, fällt niemandem auf, weil die Ablehnung ja funktioniert.
 
 
 **Files:**

@@ -504,6 +504,25 @@ nicht aufgeklärt.
 **E1 — Hülle und DomPDF-Optionen liegen in einer Support-Klasse, nicht in einer
 Blade. [v2]** (v1: `resources/views/pdf/training-certificate.blade.php`)
 
+> **Reihenfolge beim Setzen der Optionen — gemessen in Task 10, gilt für JEDEN
+> Renderpfad. [v3]** Der Controller setzt die fünf Optionen aus
+> `TrainingCertificatePdfOptions` **nach** `Pdf::loadHTML()`. Das sieht falsch aus
+> und ist es nicht: `@font-face` wird erst beim **Rendern** aufgelöst, nicht beim
+> Laden des HTML. Nachgemessen mit absichtlich falschem Start-`chroot` und
+> korrektem `chroot` erst nach `loadHtml()` — Oswald wird trotzdem eingebettet.
+>
+> **Die Ausnahme, und sie ist die eigentliche Regel: `fontDir` und `fontCache`
+> dürfen NIE spät kommen.** Sie entscheiden, wohin DomPDF seinen Font-Metrik-Cache
+> legt, und das passiert früher. Wer sie nachträglich setzt, misst oder rendert
+> gegen ein anderes Verzeichnis als das gemeinte — im Test wurde genau das einmal
+> als „Schrift greift nicht" fehlgedeutet, bevor die Isolation in Einzelprozessen
+> es als Artefakt des Messskripts entlarvte.
+>
+> Diese Zeile steht hier und nicht nur im Controller-Docblock, weil sie für jeden
+> **zweiten** Renderpfad gilt, den später jemand baut — Vorschau, Neuausstellung,
+> ein Batch-Export. Wer dort die Reihenfolge „aufräumt", weil sie unlogisch
+> aussieht, bekommt keinen Fehler, sondern ein anderes PDF.
+
 Zwei Klassen, beide ohne Laravel-Abhängigkeit und damit direkt unit-testbar
 (G19), nach dem Muster von `Support/ResttagePlaceholder` (G18):
 
@@ -1293,6 +1312,23 @@ teuersten Zusagen dieser Spec sind.
   Pfade als die Ausstellung. **[v2]**
 - **`storage/fonts` muss existieren und schreibbar sein** (G14) — dort legt
   DomPDF den Font-Metrik-Cache an. Erster Render nach Deploy prüfen.
+- **Nach Merge und Bump: die Route einmal live aufrufen. [v3]**
+  `/recruiting/zertifikat/{uuid}` mit einem echten Datensatz, und **hinsehen**:
+  wird das PDF **inline** angezeigt (nicht heruntergeladen), und steht der Text in
+  **Oswald** (nicht Helvetica)? Beides ist im Test abgesichert, aber der Test
+  rendert gegen die Arbeitskopie, nicht gegen das installierte Paket.
+- **Prüfen, dass `resources/fonts` und `resources/images/certificates` im
+  installierten Paket ankommen. [v3]** Das Modul wird als dist-Zip nach
+  `meingedeck/vendor/` installiert; fehlen die Verzeichnisse dort, gibt es
+  **ein PDF ohne Bilder in Helvetica — keinen Fehler, nur ein falsches
+  Dokument.** Genau die Fehlerklasse, die dieses Paket zehnmal getroffen hat: es
+  sieht plausibel aus, nichts wird rot, niemand erfährt davon.
+
+  Der Controller loggt jedes fehlende Asset als `warning` (§E1,
+  `TrainingCertificateAssets::resolve()`), das ist der einzige Kanal. Also
+  **nach dem ersten Live-Aufruf ins Log sehen**, nicht nur aufs PDF. Prüfbefehl
+  auf dem Server:
+  `ls -la meingedeck/vendor/martin3r/platform-recruiting/resources/fonts meingedeck/vendor/martin3r/platform-recruiting/resources/images/certificates`
 - **Keine `config/dompdf.php` nötig** (G14). Falls später eine angelegt wird,
   muss `chroot` weiterhin `base_path()` umfassen, sonst fällt die Schrift
   stumm weg.
