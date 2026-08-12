@@ -32,6 +32,20 @@ class RecContractTemplate extends Model
      */
     public const CERTIFICATE_CODE_PREFIX = 'ZERT-';
 
+    /**
+     * Spalten-Default 'contract' auch am frischen, noch nicht gespeicherten
+     * Objekt: `new self(['code' => 'AV-010'])` liest `type` schon vor einem
+     * `save()` als 'contract', genau wie die DB-Spalte es per Default tut.
+     * Bewusst NICHT im creating-Hook gesetzt — der feuert erst beim
+     * Speichern und liesse `$model->type` bis dahin `null`, obwohl Code wie
+     * tests/Integration/ContractPdfRegressionTest.php:161/182 Instanzen per
+     * `new` ohne save() baut und (perspektivisch, siehe Task 9/15) `type`
+     * lesen koennte.
+     */
+    protected $attributes = [
+        'type' => self::TYPE_CONTRACT,
+    ];
+
     protected $fillable = [
         'uuid',
         'name',
@@ -62,15 +76,6 @@ class RecContractTemplate extends Model
                     $uuid = UuidV7::generate();
                 } while (self::where('uuid', $uuid)->exists());
                 $model->uuid = $uuid;
-            }
-
-            // Spalten-Default 'contract' explizit im Attribut nachziehen:
-            // sonst bleibt $model->type nach dem Insert in PHP null, obwohl
-            // die DB-Zeile 'contract' hat (Eloquent liest DB-Defaults nicht
-            // automatisch zurueck). Der saving-Hook braucht einen echten
-            // Wert, nicht null, um contract von certificate zu unterscheiden.
-            if (empty($model->type)) {
-                $model->type = self::TYPE_CONTRACT;
             }
         });
 

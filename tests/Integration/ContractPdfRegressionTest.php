@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Tests\Integration;
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
+use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Http\Controllers\Concerns\RendersContractPdf;
 use Platform\Recruiting\Models\RecContract;
@@ -41,6 +42,38 @@ use Platform\Recruiting\Models\RecContractTemplate;
 class ContractPdfRegressionTest extends TestCase
 {
     private const MODULE_ROOT = __DIR__ . '/../..';
+
+    /**
+     * Aufraeumen der Model-Boot-Hygiene, die diese Klasse selbst kaputt
+     * macht. testFirmenstempelWirdBeiArbeitsvertragInjiziert() und
+     * testFirmenstempelWirdBeiIfsgNichtInjiziert() bauen RecContractTemplate
+     * und RecContract per `new` (kein ::create(), keine Capsule, kein
+     * Dispatcher). Das reicht, um Eloquent zu booten: `new` ruft
+     * bootIfNotBooted() auf, und Model::$booted ist PROZESSWEIT statisch,
+     * nicht pro Testklasse.
+     *
+     * Wird eine dieser beiden Model-Klassen dabei zum ERSTEN Mal im ganzen
+     * PHPUnit-Lauf gebootet (der Fall, wenn diese Klasse alphabetisch vor
+     * anderen Integrationstests liegt, die dieselben Modelle per ::create()
+     * verwenden), registrieren deren static::creating()-Hooks NICHTS: ohne
+     * gesetzten Dispatcher ist die Hook-Registrierung ein No-Op. Jede
+     * spaetere Testklasse erbt die Modelle dann als "bereits gebootet",
+     * aber mit toten Hooks — die eigene uuid-Generierung von
+     * RecContractTemplate feuert nicht mehr, und das Insert bricht mit
+     * "NOT NULL constraint failed: rec_contract_templates.uuid". Das
+     * Symptom taucht NUR im Gesamtlauf auf, nie im gefilterten Lauf dieser
+     * Klasse allein — eine der Fehlerarten, die man einmal drei Stunden
+     * sucht.
+     *
+     * Fix an der Quelle: hinter sich aufraeumen. Model::clearBootedModels()
+     * hier zwingt jede Model-Klasse (nicht nur die beiden hier benutzten),
+     * beim naechsten Gebrauch neu zu booten — gegen den Dispatcher, den die
+     * dann laufende Testklasse sich selbst aufsetzt.
+     */
+    public static function tearDownAfterClass(): void
+    {
+        Model::clearBootedModels();
+    }
 
     private function contractStylesheet(): string
     {

@@ -38,9 +38,16 @@ use Platform\Recruiting\Tests\Support\TestSchema;
  *    frischen Dispatcher. Beobachtetes Symptom im vollen Lauf: die
  *    uuid-Generierung aus dem BESTEHENDEN creating-Hook feuert nicht mehr,
  *    INSERT liefert "NOT NULL constraint failed: rec_contract_templates.uuid".
- *    Fix: Model::clearBootedModels() NACH dem Aufsetzen des eigenen
- *    Dispatchers, damit die naechste Nutzung jeder Model-Klasse (nicht nur
- *    dieser) ihre Hooks frisch gegen den aktuell aktiven Dispatcher zieht.
+ *
+ *    Die eigentliche Reparatur sitzt beim VERURSACHER:
+ *    ContractPdfRegressionTest::tearDownAfterClass() raeumt mit
+ *    Model::clearBootedModels() hinter sich auf, weil es die Klasse ist, die
+ *    Modelle ohne Dispatcher bootet. Der Model::clearBootedModels()-Aufruf
+ *    HIER in setUpBeforeClass() ist bewusst zusaetzliche, defensive
+ *    Absicherung, keine Reparatur: diese Klasse soll nicht davon abhaengen,
+ *    dass jede andere Testklasse im Prozess sich brav verhaelt — weder bei
+ *    einer kuenftigen Klasse zwischen Verursacher und hier, noch bei
+ *    --order-by=random (phpunit.xml setzt keine executionOrder).
  */
 class ContractTemplateTypeInvariantsTest extends TestCase
 {
@@ -57,10 +64,12 @@ class ContractTemplateTypeInvariantsTest extends TestCase
         $capsule->setAsGlobal();
         $capsule->bootEloquent();
 
-        // Siehe Klassen-Docblock Punkt 2: erzwingt ein Re-Boot aller
-        // Model-Klassen gegen DIESEN Dispatcher. Ohne diese Zeile bleiben
-        // creating/saving-Hooks stumm, wenn eine frueher laufende Testklasse
-        // dieselbe Model-Klasse bereits ohne Dispatcher gebootet hat.
+        // Defensive Absicherung, nicht die Reparatur (siehe Klassen-Docblock
+        // Punkt 2 — die eigentliche Reparatur sitzt in
+        // ContractPdfRegressionTest::tearDownAfterClass()). Erzwingt ein
+        // Re-Boot aller Model-Klassen gegen DIESEN Dispatcher, falls eine
+        // frueher laufende Testklasse dieselbe Model-Klasse bereits ohne
+        // Dispatcher gebootet und sich NICHT selbst aufgeraeumt hat.
         Model::clearBootedModels();
 
         TestSchema::contractTemplates($capsule->schema());
@@ -128,5 +137,20 @@ class ContractTemplateTypeInvariantsTest extends TestCase
 
         $this->assertSame(1, RecContractTemplate::query()->contracts()->count());
         $this->assertSame(1, RecContractTemplate::query()->certificates()->count());
+    }
+
+    /**
+     * Belegt den Unterschied zwischen $attributes-Default und einem
+     * creating-Hook: eine ungespeicherte Instanz (kein save(), keine DB,
+     * kein Hook feuert) muss 'type' trotzdem als 'contract' lesen — genau
+     * das Verhalten, das tests/Integration/ContractPdfRegressionTest.php
+     * an Zeile 161 und 182 mit `new RecContractTemplate([...])` bereits
+     * nutzt (dort bislang nur fuer 'code').
+     */
+    public function testUngespeicherteInstanzHatTypeDefaultContract(): void
+    {
+        $t = new RecContractTemplate(['code' => 'AV-010']);
+
+        $this->assertSame('contract', $t->type);
     }
 }
