@@ -82,7 +82,7 @@ class TrainingCertificateAssetsTest extends TestCase
         $this->assertSame(['fonts/Oswald-SemiBold.ttf'], $a['missing']);
     }
 
-    public function testNullByteBildWirdAlsFehlendGemeldet(): void
+    public function testLeeresBildWirdAlsFehlendGemeldet(): void
     {
         // Ein lesbares 0-Byte-Bild (abgebrochener Kopiervorgang, fehlgeschlagener
         // Deploy, voller Datentraeger, nicht geholtes LFS-Objekt) besteht den
@@ -103,7 +103,7 @@ class TrainingCertificateAssetsTest extends TestCase
         );
     }
 
-    public function testNullByteSchriftWirdGemeldetAberDerPfadBleibt(): void
+    public function testLeereSchriftWirdGemeldetAberDerPfadBleibt(): void
     {
         // Dieselbe Fehlerklasse wie beim Bild, aber fuer die Schrift: eine
         // lesbare 0-Byte-TTF-Datei besteht is_file/is_readable, ist aber keine
@@ -138,6 +138,32 @@ class TrainingCertificateAssetsTest extends TestCase
             'images/certificates/headline-zertifikat.png',
             'images/certificates/signature-block.png',
         ], $a['missing']);
+    }
+
+    public function testAllesLeerErgibtVierMeldungenInDerselbenReihenfolge(): void
+    {
+        // Der Test darueber laeuft gegen ein leeres Verzeichnis; dort greift in
+        // jedem Guard schon der erste Teilausdruck (!is_file). Die Reihenfolge
+        // waere damit nur fuer den Absent-Fall festgenagelt. Wer kuenftig den
+        // Font-Check hinter die IMAGES-Schleife zieht, braeche dann nur den
+        // Absent-Fall rot -- der Leer-Fall bliebe gruen, obwohl "missing" auch
+        // dort in falscher Reihenfolge kaeme. Deshalb dieselbe Assertion noch
+        // einmal fuer vier vorhandene, aber leere Dateien: hier laufen die
+        // Guards in ihren zweiten Zweig (filesize()===0 bzw. $binary===''),
+        // und die Reihenfolge muss trotzdem identisch sein.
+        $this->write('fonts/Oswald-SemiBold.ttf', '');
+        $this->write('images/certificates/logo.png', '');
+        $this->write('images/certificates/headline-zertifikat.png', '');
+        $this->write('images/certificates/signature-block.png', '');
+
+        $a = TrainingCertificateAssets::resolve($this->tmp);
+
+        $this->assertSame([
+            'fonts/Oswald-SemiBold.ttf',
+            'images/certificates/logo.png',
+            'images/certificates/headline-zertifikat.png',
+            'images/certificates/signature-block.png',
+        ], $a['missing'], 'Die Reihenfolge in "missing" muss im Leer-Fall dieselbe sein wie im Absent-Fall.');
     }
 
     public function testKeysSindImmerVollstaendig(): void

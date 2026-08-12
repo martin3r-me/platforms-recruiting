@@ -43,7 +43,22 @@ final class TrainingCertificateAssets
         // "missing" ist der einzige Kanal, ueber den das jemand erfaehrt.
         // filesize() statt file_get_contents(), weil der Pfad selbst benoetigt
         // wird, nicht der Inhalt.
-        if (!is_file($fontPath) || !is_readable($fontPath) || filesize($fontPath) === 0) {
+        //
+        // Groesse einmal in eine Variable, und das @ ist Absicht: schlaegt
+        // filesize() fehl, gibt es eine PHP-Warning aus. Unter Laravel wird die
+        // zur ErrorException, in dieser Suite laesst failOnWarning="true" den
+        // Test platzen — aus einer Meldung ueber ein fehlendes Asset wuerde also
+        // ein Abbruch statt eines Eintrags in "missing".
+        //
+        // false gilt wie 0 als fehlend, weil "false === 0" in PHP false ist: ein
+        // fehlgeschlagenes filesize() haette den Guard sonst passiert und die
+        // Schrift als in Ordnung gemeldet. Wenn wir die Groesse nicht bestimmen
+        // koennen, wissen wir nicht, ob die Schrift brauchbar ist — und die
+        // Richtung des Irrtums muss dann "melden" sein, nicht "schweigen",
+        // genau wie im Bildzweig unten, der false ebenfalls als fehlend fuehrt.
+        $size = is_file($fontPath) && is_readable($fontPath) ? @filesize($fontPath) : false;
+
+        if ($size === false || $size === 0) {
             // Pfad trotzdem zurueckgeben: das @font-face braucht ihn, und
             // TrainingCertificatePdfOptions prueft ihn gegen den chroot.
             $missing[] = self::FONT;
