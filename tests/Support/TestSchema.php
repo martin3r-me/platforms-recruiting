@@ -24,6 +24,21 @@ use Illuminate\Database\Schema\Builder;
  * und der Basis-Migration 2026_04_15_100000_create_rec_contract_tables.php.
  * Aendert sich dort etwas, gehoert es hier mit hinein. Sonst faellt es
  * niemandem auf.
+ *
+ * BEWUSSTE ABWEICHUNGEN VON DEN MIGRATIONEN:
+ *
+ * 1. Foreign Keys: Spalten wie team_id, rec_applicant_id, usw. sind
+ *    unsignedBigInteger, NICHT foreignId()->constrained(). Grund: Das
+ *    Test-Fixture hat keine teams-, users- oder rec_applicants-Tabellen.
+ *    Mit constrained() müsste jeder Test diese Tabellen mit anlegen, nur
+ *    damit ein Constraint hängt, das in SQLite in-memory ohnehin nicht
+ *    erzwungen wird. Die Abfrageergebnisse sind identisch, und der Test
+ *    wird dadurch schneller.
+ *
+ * 2. Indizes: Die echten Migrationen haben mehrere Indizes (z.B.
+ *    index(['team_id','is_active']) auf rec_contract_templates), das
+ *    Test-Schema hat keine. Grund: Indizes ändern kein Abfrageergebnis,
+ *    nur die Laufzeit. Sie sind für Korrektheitstests nicht nötig.
  */
 final class TestSchema
 {
@@ -44,7 +59,7 @@ final class TestSchema
             $t->string('type', 20)->default('contract');
             $t->text('description')->nullable();
             $t->longText('content')->nullable();
-            $t->text('field_mappings')->nullable();
+            $t->json('field_mappings')->nullable();
             $t->boolean('requires_signature')->default(true);
             $t->boolean('is_active')->default(true);
             $t->unsignedInteger('sort_order')->default(0);
