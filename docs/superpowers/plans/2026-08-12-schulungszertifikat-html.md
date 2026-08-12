@@ -30,6 +30,7 @@
 - `src/Support/TrainingCertificateAssets.php` — einzige Quelle der Asset-Auflösung (Schrift + drei Bilder + Liste der fehlenden)
 - `src/Support/TrainingCertificateHtml.php` — HTML-Hülle: Seitensetup, Styles, die drei Bilder
 - `src/Support/TrainingLeaderResolver.php` — Schulungsleiter-Namen aus einer Buchungsmenge
+- `tests/Support/TestSchema.php` — die EINZIGE Quelle des handgebauten Testschemas (siehe Task 2a)
 
 **Neu — Persistenz und Ausstellung:**
 - `database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php`
@@ -377,6 +378,143 @@ git commit -m "feat(recruiting): Tabelle rec_training_certificates"
 
 ---
 
+### Task 2a: `TestSchema` — eine Quelle für das handgebaute Testschema
+
+**Files:**
+- Create: `tests/Support/TestSchema.php`
+
+**Interfaces:**
+- Consumes: nichts
+- Produces:
+  - `TestSchema::contractTemplates(\Illuminate\Database\Schema\Builder $schema): void`
+  - `TestSchema::trainingCertificates(\Illuminate\Database\Schema\Builder $schema): void`
+
+  Konsumiert von Task 3, Task 8 und Task 17 — allen Integrationstests, die `rec_contract_templates` bzw. `rec_training_certificates` auf SQLite in-memory brauchen.
+
+**Warum dieser Task existiert — belegter Anlass, nicht Vorsorge:** Die erste Fassung dieses Plans baute `rec_contract_templates` an **drei** Stellen von Hand auf (Tasks 3, 8, 17). Beim Audit vor Task 2 stellte sich heraus, dass die drei Kopien **schon auseinandergelaufen waren**, bevor eine Zeile Code existierte: die Fassung in Task 3 enthielt die Spalte `description`, die beiden anderen nicht. Ein handgebautes Testschema, das von der Migration oder von den Geschwistertests abweicht, lässt Tests grün werden und bestätigt dabei einen Zustand, den die Produktion nicht hat. Genau das ist die gefährlichste Sorte Test: einer, der lügt.
+
+Die Konvention des Moduls verlangt reines PHPUnit ohne Laravel-Bootstrap; Integrationstests bauen Container und `Capsule` von Hand (Muster: `tests/Integration/DuplicateMatchQueryTest.php:28-45`). Das Schema von Hand zu bauen ist dort unvermeidlich — es dreimal zu tun nicht.
+
+**Wichtig:** Diese Klasse ist die Testabbildung der Migrationen aus Task 1 und Task 2. Ändert sich eine Migration, muss sie mitgezogen werden. Der Docblock sagt das ausdrücklich, damit die nächste Änderung nicht wieder Drift erzeugt.
+
+- [ ] **Step 1: Helper schreiben**
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Support;
+
+use Illuminate\Database\Schema\Builder;
+
+/**
+ * Die EINZIGE Quelle des handgebauten Testschemas fuer Zertifikat-Tests.
+ *
+ * Warum es das gibt: die Modul-Konvention ist reines PHPUnit ohne
+ * Laravel-Bootstrap (tests/bootstrap.php ist ein reiner Autoloader,
+ * orchestra/testbench ist nicht installiert). Integrationstests bauen
+ * Container und Capsule von Hand und muessen das Schema selbst anlegen.
+ *
+ * Das dreimal zu tun hat schon einmal Drift erzeugt: in der ersten Fassung
+ * des Umsetzungsplans hatte eine der drei Kopien die Spalte 'description',
+ * die anderen zwei nicht. Ein Testschema, das von der Migration abweicht,
+ * laesst Tests gruen werden und bestaetigt einen Zustand, den die Produktion
+ * nicht hat.
+ *
+ * ACHTUNG: Diese Klasse ist die Testabbildung der Migrationen
+ *   2026_08_12_000001_add_type_to_rec_contract_templates.php
+ *   2026_08_12_000002_create_rec_training_certificates_table.php
+ * und der Basis-Migration 2026_04_15_100000_create_rec_contract_tables.php.
+ * Aendert sich dort etwas, gehoert es hier mit hinein. Sonst faellt es
+ * niemandem auf.
+ */
+final class TestSchema
+{
+    /** Vollstaendig wie die Basis-Migration plus die type-Spalte aus Task 1. */
+    public static function contractTemplates(Builder $schema): void
+    {
+        if ($schema->hasTable('rec_contract_templates')) {
+            return;
+        }
+
+        $schema->create('rec_contract_templates', function ($t) {
+            $t->id();
+            $t->string('uuid', 36)->unique();
+            $t->string('name');
+            $t->string('code', 20)->nullable();
+            // NOT NULL mit Default — wie die Migration. Nicht nullable machen:
+            // ein dritter Zustand "unbekannt" wuerde die type-Filter aushebeln.
+            $t->string('type', 20)->default('contract');
+            $t->text('description')->nullable();
+            $t->longText('content')->nullable();
+            $t->text('field_mappings')->nullable();
+            $t->boolean('requires_signature')->default(true);
+            $t->boolean('is_active')->default(true);
+            $t->unsignedInteger('sort_order')->default(0);
+            $t->unsignedBigInteger('team_id');
+            $t->unsignedBigInteger('created_by_user_id')->nullable();
+            $t->timestamps();
+            $t->softDeletes();
+        });
+    }
+
+    /** Wie die Migration aus Task 2, inklusive Unique-Constraint. */
+    public static function trainingCertificates(Builder $schema): void
+    {
+        if ($schema->hasTable('rec_training_certificates')) {
+            return;
+        }
+
+        $schema->create('rec_training_certificates', function ($t) {
+            $t->id();
+            $t->string('uuid', 36)->unique();
+            $t->unsignedBigInteger('team_id');
+            $t->unsignedBigInteger('rec_applicant_id');
+            $t->unsignedBigInteger('rec_contract_template_id');
+            $t->longText('personalized_content')->nullable();
+            $t->timestamp('issued_at')->nullable();
+            $t->unsignedBigInteger('issued_by_user_id')->nullable();
+            $t->timestamp('wa_sent_at')->nullable();
+            $t->timestamps();
+            // Der Constraint ist Teil der Invariante "ein Zertifikat pro
+            // Bewerber pro Vorlage" und muss im Test genauso greifen.
+            $t->unique(
+                ['rec_applicant_id', 'rec_contract_template_id'],
+                'rec_training_cert_applicant_tpl_unique'
+            );
+        });
+    }
+}
+```
+
+- [ ] **Step 2: Syntax prüfen**
+
+Run: `php -l tests/Support/TestSchema.php`
+Expected: `No syntax errors detected`
+
+- [ ] **Step 3: Autoloader-Auflösung prüfen**
+
+Der Autoloader in `tests/bootstrap.php` mappt `Platform\Recruiting\Tests\` auf `tests/`. Prüf, dass die Klasse damit gefunden wird:
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml 2>&1 | tail -3`
+Expected: `OK (518 tests, 1493 assertions)` — unverändert. Die Klasse wird noch von keinem Test benutzt; dieser Schritt belegt nur, dass sie die Suite nicht bricht.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/Support/TestSchema.php
+git commit -m "test(recruiting): eine Quelle fuer das handgebaute Testschema
+
+Drei Integrationstests brauchen rec_contract_templates auf SQLite in-memory.
+Die drei handgebauten Kopien im Umsetzungsplan waren schon auseinander-
+gelaufen (eine hatte 'description', zwei nicht), bevor Code existierte. Ein
+Testschema, das von der Migration abweicht, laesst Tests gruen werden und
+bestaetigt einen Zustand, den die Produktion nicht hat.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 3: `type` am Model + saving-Hook mit zwei Invarianten
 
 **Files:**
@@ -417,6 +555,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Events\Dispatcher;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecContractTemplate;
+use Platform\Recruiting\Tests\Support\TestSchema;
 
 /**
  * §B8: ein saving-Hook, zwei Invarianten. Zwoelf "keiner"-Zeilen der
@@ -437,23 +576,7 @@ class ContractTemplateTypeInvariantsTest extends TestCase
         $capsule->setAsGlobal();
         $capsule->bootEloquent();
 
-        $capsule->schema()->create('rec_contract_templates', function ($t) {
-            $t->id();
-            $t->string('uuid', 36)->unique();
-            $t->string('name');
-            $t->string('code', 20)->nullable();
-            $t->string('type', 20)->default('contract');
-            $t->text('description')->nullable();
-            $t->longText('content')->nullable();
-            $t->text('field_mappings')->nullable();
-            $t->boolean('requires_signature')->default(true);
-            $t->boolean('is_active')->default(true);
-            $t->unsignedInteger('sort_order')->default(0);
-            $t->unsignedBigInteger('team_id');
-            $t->unsignedBigInteger('created_by_user_id')->nullable();
-            $t->timestamps();
-            $t->softDeletes();
-        });
+        TestSchema::contractTemplates($capsule->schema());
     }
 
     private function make(array $attrs): RecContractTemplate
@@ -1806,6 +1929,7 @@ use Illuminate\Events\Dispatcher;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Tests\Support\TestSchema;
 
 class IssueTrainingCertificateServiceTest extends TestCase
 {
@@ -1822,36 +1946,9 @@ class IssueTrainingCertificateServiceTest extends TestCase
         $capsule->setAsGlobal();
         $capsule->bootEloquent();
 
-        $capsule->schema()->create('rec_contract_templates', function ($t) {
-            $t->id();
-            $t->string('uuid', 36)->unique();
-            $t->string('name');
-            $t->string('code', 20)->nullable();
-            $t->string('type', 20)->default('contract');
-            $t->longText('content')->nullable();
-            $t->text('field_mappings')->nullable();
-            $t->boolean('requires_signature')->default(true);
-            $t->boolean('is_active')->default(true);
-            $t->unsignedInteger('sort_order')->default(0);
-            $t->unsignedBigInteger('team_id');
-            $t->unsignedBigInteger('created_by_user_id')->nullable();
-            $t->timestamps();
-            $t->softDeletes();
-        });
+        TestSchema::contractTemplates($capsule->schema());
 
-        $capsule->schema()->create('rec_training_certificates', function ($t) {
-            $t->id();
-            $t->string('uuid', 36)->unique();
-            $t->unsignedBigInteger('team_id');
-            $t->unsignedBigInteger('rec_applicant_id');
-            $t->unsignedBigInteger('rec_contract_template_id');
-            $t->longText('personalized_content')->nullable();
-            $t->timestamp('issued_at')->nullable();
-            $t->unsignedBigInteger('issued_by_user_id')->nullable();
-            $t->timestamp('wa_sent_at')->nullable();
-            $t->timestamps();
-            $t->unique(['rec_applicant_id', 'rec_contract_template_id'], 'rec_training_cert_applicant_tpl_unique');
-        });
+        TestSchema::trainingCertificates($capsule->schema());
     }
 
     protected function setUp(): void
@@ -2017,6 +2114,7 @@ namespace Platform\Recruiting\Services;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Tests\Support\TestSchema;
 
 /**
  * Stellt ein Schulungszertifikat aus.
@@ -3210,6 +3308,7 @@ namespace Platform\Recruiting\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecContractTemplate;
+use Platform\Recruiting\Tests\Support\TestSchema;
 
 /**
  * Legt die Zertifikat-Vorlage "Service-Basisschulung" an.
@@ -3377,6 +3476,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Events\Dispatcher;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecContractTemplate;
+use Platform\Recruiting\Tests\Support\TestSchema;
 
 /**
  * Die Guard-Landkarte hat 22 Handlungszeilen. Drei davon koennen einen
@@ -3401,22 +3501,7 @@ class CertificateTypeGuardsTest extends TestCase
         $capsule->setAsGlobal();
         $capsule->bootEloquent();
 
-        $capsule->schema()->create('rec_contract_templates', function ($t) {
-            $t->id();
-            $t->string('uuid', 36)->unique();
-            $t->string('name');
-            $t->string('code', 20)->nullable();
-            $t->string('type', 20)->default('contract');
-            $t->longText('content')->nullable();
-            $t->text('field_mappings')->nullable();
-            $t->boolean('requires_signature')->default(true);
-            $t->boolean('is_active')->default(true);
-            $t->unsignedInteger('sort_order')->default(0);
-            $t->unsignedBigInteger('team_id');
-            $t->unsignedBigInteger('created_by_user_id')->nullable();
-            $t->timestamps();
-            $t->softDeletes();
-        });
+        TestSchema::contractTemplates($capsule->schema());
     }
 
     public function testContractsScopeSchliesstZertifikateAus(): void
