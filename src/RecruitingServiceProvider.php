@@ -57,6 +57,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\CleanupInterviewWaitlist::class,
                 \Platform\Recruiting\Console\Commands\MigrateNonEuCases::class,
                 \Platform\Recruiting\Console\Commands\BackfillPhaseTransitions::class,
+                \Platform\Recruiting\Console\Commands\DispoReprocessCommand::class,
             ]);
         }
 

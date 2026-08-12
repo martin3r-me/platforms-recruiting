@@ -88,6 +88,15 @@ class ZasDispoInboundController extends Controller
             'row_count'  => $record->row_count,
         ]);
 
+        // Verarbeitung (Step 2 der Dispo-Reihe): echte Lieferungen sofort
+        // importieren. Fehler aendern die HTTP-Antwort NICHT — Rohdatei ist
+        // gespeichert, Reprocess jederzeit moeglich (recruiting:dispo-reprocess).
+        $import = null;
+        if (!$isTest) {
+            $import = app(\Platform\Recruiting\Services\Zas\Dispo\ZasDispoWebexportImporter::class)
+                ->import($record);
+        }
+
         // Schlanke Quittung im Echtbetrieb (keine Spaltenwerte nach aussen).
         $payload = [
             'status'      => 'received',
@@ -103,6 +112,16 @@ class ZasDispoInboundController extends Controller
                 'row_count'    => $record->row_count,
             ],
         ];
+
+        if ($import !== null) {
+            $payload['import'] = [
+                'blocks_found' => $import['blocks_found'],
+                'events'       => $import['events_created'] + $import['events_updated'],
+                'assignments'  => $import['assignments_created'] + $import['assignments_updated'],
+                'matched'      => $import['matched'],
+                'unmatched'    => $import['unmatched'],
+            ];
+        }
 
         // Volle Vorschau nur im Test-Modus (enthaelt echte Datenwerte).
         if ($isTest && $format === 'csv') {
