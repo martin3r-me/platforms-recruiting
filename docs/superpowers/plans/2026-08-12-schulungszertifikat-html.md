@@ -41,6 +41,15 @@
 
 **1) Falsifizierbarkeitsfrage pro Test: welche plausible Änderung macht ihn rot?** Findet sich keine, ist der Test falsch formuliert oder überflüssig — er belegt dann Unverletzbares und täuscht Schutz vor. Gefunden an Fall 7 des Pin-Tests (Task 6a): er sollte belegen, dass der Lookup-Zweig nicht global übersetzt, aber diese Eigenschaft ist über den Codepfad prinzipiell nicht verletzbar, weil `ZasLookupResolver::loadLabelMap()` selbst guardet. Ein Test, dessen Aussage nicht kaputtzumachen ist, ist kein Test.
 
+**3) Ein Kommentar, der eine Falle benennt, muss den sicheren Weg VORGEBEN — nicht den unsicheren beschreiben. Wo so ein Hinweis nötig ist, gehört stattdessen eine Assertion hin.**
+
+Zwei Vertreter in diesem Durchlauf, beide Male war die **Prosa** das Problem, nicht der Code:
+
+- `TrainingLeaderResolver` (Task 7): der Docblock schrieb „ohne `->all()` ist das ein Vertragsbruch". Das nennt die Falle und lässt offen, was richtig ist. Die naheliegende Halb-Befolgung — `->interviewers->all()`, das `->all()` befolgt, das `pluck('name')` vergessen — landet im **stillen** Fall: `Model::__toString()` liefert `toJson()`, also stand JSON auf dem Zertifikat, ohne Warnung, ohne roten Test. Der Hinweis führte in das Loch, das er schließen sollte. Ersetzt durch eine Typ-Prüfung, die wirft.
+- `DuplicateMatchQueryTest` (Task 6a): der Kommentar „PFLICHT, nicht Deko" an einem `Facade::clearResolvedInstances()`-Aufruf las sich als Notwendigkeit und hat die Suche nach dem tatsächlichen Verursacher verhindert — der Aufruf war Vorsorge, die Verschmutzung kam von woanders.
+
+Prüffrage vor jedem warnenden Kommentar: **kann ein Leser den Hinweis halb befolgen und dabei schlechter dastehen als ohne ihn?** Wenn ja, ist der Kommentar der falsche Mechanismus.
+
 **2) Die eine Fehlerklasse, die in diesem Paket siebenmal zugeschlagen hat: eine Bedingung, ein Guard oder eine Assertion, die plausibel aussieht und den Fehlerfall durchlässt, ohne dass etwas rot wird.** Vertreter bisher: Idempotenz-Guard für nur eine von zwei DDL-Operationen (Task 1); `try/catch` in einer Blueprint-Closure, das nichts fing, weil das SQL danach läuft (Task 1); `str_starts_with` ohne Verzeichnisgrenze (Task 5); `file_get_contents() !== false` bei einer lesbaren 0-Byte-Datei (Task 5a); `filesize() === 0` gegen `false` (Task 5a); vier Assertionen, die eine kaputte HTML-Hülle grün ließen (Task 6); `[]` als Rückgabe für „nichts fehlt" **und** „nicht prüfbar" (Task 4a). **Alle sieben standen in einem plausibel klingenden Auftragstext.** Wer einen Guard schreibt, muss die Mutation fahren, die ihn aushebelt — erschließen genügt nicht.
 
 ---
