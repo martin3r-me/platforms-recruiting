@@ -45,6 +45,7 @@ class ZasDispoImportPlanner
                 'name' => null, 'venue_text' => null, 'ort' => null,
                 'einsatzfirma' => null, 'starts_on' => null, 'ends_on' => null,
                 'source_meta' => [],
+                'is_placeholder' => false,
             ];
 
             $current['name']         ??= ZasDispoFieldParser::text($row['projektbezeichnung'] ?? null);
@@ -84,6 +85,7 @@ class ZasDispoImportPlanner
                     'name' => null, 'venue_text' => null, 'ort' => null,
                     'einsatzfirma' => null, 'starts_on' => null, 'ends_on' => null,
                     'source_meta' => [],
+                    'is_placeholder' => true,
                 ];
                 $stats['placeholder_events']++;
             }

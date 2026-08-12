@@ -91,10 +91,18 @@ class ZasDispoInboundController extends Controller
         // Verarbeitung (Step 2 der Dispo-Reihe): echte Lieferungen sofort
         // importieren. Fehler aendern die HTTP-Antwort NICHT — Rohdatei ist
         // gespeichert, Reprocess jederzeit moeglich (recruiting:dispo-reprocess).
+        // Der Importer faengt bereits alles selbst (Throwable) — dieser
+        // try/catch ist die zweite Absicherung, damit WIRKLICH nichts die
+        // 201-Antwort gefaehrden kann (Belt-and-braces).
         $import = null;
         if (!$isTest) {
-            $import = app(\Platform\Recruiting\Services\Zas\Dispo\ZasDispoWebexportImporter::class)
-                ->import($record);
+            try {
+                $import = app(\Platform\Recruiting\Services\Zas\Dispo\ZasDispoWebexportImporter::class)
+                    ->import($record);
+            } catch (\Throwable $e) {
+                Log::error('ZAS dispo import hook fehlgeschlagen', ['file_id' => $record->id, 'error' => $e->getMessage()]);
+                $import = null;
+            }
         }
 
         // Schlanke Quittung im Echtbetrieb (keine Spaltenwerte nach aussen).

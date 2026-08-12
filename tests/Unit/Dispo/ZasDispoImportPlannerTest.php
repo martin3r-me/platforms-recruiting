@@ -72,6 +72,8 @@ class ZasDispoImportPlannerTest extends TestCase
         $this->assertArrayHasKey('RG19077', $plan['events']);
         $this->assertNull($plan['events']['RG19077']['name']);
         $this->assertSame(1, $plan['stats']['placeholder_events']);
+        $this->assertTrue($plan['events']['RG19077']['is_placeholder']);
+        $this->assertFalse($plan['events']['RG19063']['is_placeholder']);
     }
 
     public function test_missing_detection_only_for_delivered_gap(): void

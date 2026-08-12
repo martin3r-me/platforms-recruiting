@@ -36,6 +36,7 @@ class ZasDispoWebexportImporter
             'matched' => 0, 'unmatched' => 0, 'ambiguous' => 0,
             'missing_marked' => 0, 'rematched_open' => 0,
             'skipped' => [], 'errors' => [],
+            'unmatched_pnrs' => [], 'ambiguous_pnrs' => [],
         ];
 
         try {
@@ -62,11 +63,16 @@ class ZasDispoWebexportImporter
 
             $summary['blocks_found'] = true;
 
-            $existingFuture = RecDispoAssignment::query()
-                ->whereDate('datum', '>=', now()->toDateString())
-                ->whereNull('missing_since')
-                ->pluck('ds_ref')
-                ->all();
+            // Eine Lieferung ohne {Dispo}-Block darf den Zukunfts-Bestand nicht
+            // als verschwunden markieren — missing-Erkennung nur, wenn ueberhaupt
+            // Einbuchungen mitgeliefert wurden.
+            $existingFuture = $dispoRows === []
+                ? []
+                : RecDispoAssignment::query()
+                    ->where('datum', '>=', now()->toDateString())
+                    ->whereNull('missing_since')
+                    ->pluck('ds_ref')
+                    ->all();
 
             $plan = $this->planner->plan($dispoRows, $dispo2Rows, $existingFuture, now()->toDateString());
             $summary['stats'] = $plan['stats'];
@@ -86,18 +92,49 @@ class ZasDispoWebexportImporter
                     }
 
                     $m = $matcher->match($attrs['pnr_raw']);
-                    $summary[$m['employee_id'] !== null ? 'matched' : ($m['reason'] === 'ambiguous' ? 'ambiguous' : 'unmatched')]++;
+                    self::tallyMatch($summary, $m, $attrs['pnr_raw']);
                 }
                 $summary['missing_marked'] = count($plan['missing_ds_refs']);
+
+                // Rematch-Parity: dieselbe Nachzuegler-Zaehlung wie im Live-Lauf,
+                // aber rein lesend und ohne die in dieser Lieferung bereits
+                // gezaehlten Assignments doppelt zu betrachten.
+                RecDispoAssignment::query()
+                    ->whereNull('rec_employee_id')
+                    ->whereNotIn('ds_ref', array_keys($plan['assignments']))
+                    ->orderBy('id')
+                    ->chunkById(500, function ($open) use ($matcher, &$summary) {
+                        foreach ($open as $assignment) {
+                            $m = $matcher->match($assignment->pnr_raw);
+                            if ($m['employee_id'] !== null) {
+                                $summary['rematched_open']++;
+                            }
+                        }
+                    });
+
                 return $summary;
             }
 
             DB::transaction(function () use ($plan, $matcher, &$summary) {
                 $eventIds = [];
                 foreach ($plan['events'] as $ref => $attrs) {
-                    $event = RecDispoEvent::updateOrCreate(['einsatz_ref' => $ref], $attrs);
+                    $isPlaceholder = $attrs['is_placeholder'] ?? false;
+                    unset($attrs['is_placeholder']);
+
+                    if ($isPlaceholder) {
+                        // Platzhalter (nur {Dispo}, kein {Dispo2}) duerfen NIE
+                        // bereits importierte Stammdaten (name/venue/ort/...)
+                        // mit Null ueberschreiben — nur anlegen, nie updaten.
+                        $event = RecDispoEvent::firstOrCreate(['einsatz_ref' => $ref], $attrs);
+                        if ($event->wasRecentlyCreated) {
+                            $summary['events_created']++;
+                        }
+                    } else {
+                        $event = RecDispoEvent::updateOrCreate(['einsatz_ref' => $ref], $attrs);
+                        $event->wasRecentlyCreated ? $summary['events_created']++ : $summary['events_updated']++;
+                    }
+
                     $eventIds[$ref] = $event->id;
-                    $event->wasRecentlyCreated ? $summary['events_created']++ : $summary['events_updated']++;
                 }
 
                 foreach ($plan['assignments'] as $dsRef => $attrs) {
@@ -115,7 +152,7 @@ class ZasDispoWebexportImporter
                     }
 
                     $m = $matcher->match($attrs['pnr_raw']);
-                    $summary[$m['employee_id'] !== null ? 'matched' : ($m['reason'] === 'ambiguous' ? 'ambiguous' : 'unmatched')]++;
+                    self::tallyMatch($summary, $m, $attrs['pnr_raw']);
 
                     RecDispoAssignment::updateOrCreate(
                         ['ds_ref' => $dsRef],
@@ -151,12 +188,22 @@ class ZasDispoWebexportImporter
                     });
             });
 
-            $file->update([
-                'detected_format' => 'blocks',
-                'parse_status'    => 'processed',
-                'processed_at'    => now(),
-                'notes'           => json_encode($summary, JSON_UNESCAPED_UNICODE),
-            ]);
+            // Die Daten sind an dieser Stelle bereits committet (Transaktion
+            // ist durch). Scheitert nur noch dieses Update, bleibt processed_at
+            // null -> naechster recruiting:dispo-reprocess-Lauf holt es idempotent
+            // nach (Upsert-Semantik). Nur loggen, HTTP-Antwort bleibt unberuehrt.
+            try {
+                $file->update([
+                    'detected_format' => 'blocks',
+                    'parse_status'    => 'processed',
+                    'processed_at'    => now(),
+                    'notes'           => json_encode($summary, JSON_UNESCAPED_UNICODE),
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('ZAS dispo import: Status-Update nach erfolgreichem Import fehlgeschlagen', [
+                    'file_id' => $file->id, 'error' => $e->getMessage(),
+                ]);
+            }
         } catch (\Throwable $e) {
             $summary['errors'][] = $e->getMessage();
             Log::error('ZAS dispo import fehlgeschlagen', ['file_id' => $file->id, 'error' => $e->getMessage()]);
@@ -168,14 +215,52 @@ class ZasDispoWebexportImporter
                     $summary[$k] = 0;
                 }
                 $summary['rolled_back'] = true;
-                $file->update([
-                    'parse_status' => 'failed',
-                    'processed_at' => now(),
-                    'notes'        => json_encode($summary, JSON_UNESCAPED_UNICODE),
-                ]);
+
+                try {
+                    $file->update([
+                        'parse_status' => 'failed',
+                        'processed_at' => now(),
+                        'notes'        => json_encode($summary, JSON_UNESCAPED_UNICODE),
+                    ]);
+                } catch (\Throwable $e2) {
+                    Log::error('ZAS dispo import: Status-Update nach fehlgeschlagenem Import fehlgeschlagen', [
+                        'file_id' => $file->id, 'error' => $e2->getMessage(),
+                    ]);
+                }
             }
         }
 
         return $summary;
+    }
+
+    /** @param array{employee_id: ?int, reason: string} $match */
+    private static function tallyMatch(array &$summary, array $match, ?string $pnrRaw): void
+    {
+        if ($match['employee_id'] !== null) {
+            $summary['matched']++;
+            return;
+        }
+
+        if ($match['reason'] === 'ambiguous') {
+            $summary['ambiguous']++;
+            self::recordPnr($summary['ambiguous_pnrs'], $pnrRaw);
+            return;
+        }
+
+        $summary['unmatched']++;
+        self::recordPnr($summary['unmatched_pnrs'], $pnrRaw);
+    }
+
+    /** @param list<string> $list */
+    private static function recordPnr(array &$list, ?string $pnrRaw): void
+    {
+        $pnr = trim((string) $pnrRaw);
+        if ($pnr === '') {
+            return;
+        }
+
+        if (count($list) < 50 && !in_array($pnr, $list, true)) {
+            $list[] = $pnr;
+        }
     }
 }
