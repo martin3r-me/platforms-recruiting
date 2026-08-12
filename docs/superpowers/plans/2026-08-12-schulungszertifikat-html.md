@@ -957,6 +957,104 @@ git commit -m "feat(recruiting): FontGlyphCoverage + Zertifikat-Assets"
 
 ---
 
+### Task 4a: Dritter Zustand für die Glyph-Prüfung — „nicht prüfbar" ist nicht „nichts fehlt"
+
+**Nachträglich eingefügt, nach Task 6, auf Grund einer Messung.** Task 4 ist bereits umgesetzt; dieser Task ändert seine Klasse. Grund: `missing()` gibt `[]` zurück für „nichts fehlt" **und** für „Font nicht parsbar". Damit bekommt eine kaputte Schrift ein *besseres* Zeugnis als eine intakte.
+
+**Gemessen** gegen die echte `Oswald-SemiBold.ttf` (109 120 Byte), Prüftext `STEHEMPFANG ★` (Oswald hat U+2605 nicht):
+
+| Zustand der Datei | `TrainingCertificateAssets::resolve()` | `FontGlyphCoverage::missing()` | `/BaseFont` im PDF |
+|---|---|---|---|
+| intakt (109 120 B) | schweigt | meldet `★` | `Oswald-SemiBold` |
+| abgeschnitten 40 % (43 648 B) | schweigt | meldet `★` | **`Helvetica`** |
+| abgeschnitten 5 % (5 456 B) | schweigt | meldet `★` | **`Helvetica`** |
+| 3 Byte | schweigt | **schweigt (= „nichts fehlt")** | **`Helvetica`** |
+| 0 Byte | meldet | **schweigt (= „nichts fehlt")** | **`Helvetica`** |
+
+**Warum das jetzt behoben wird und nicht als Folgeticket:** Der Editor-Knopf „Zeichen prüfen" (§E8) ist die **einzige Stelle, an der ein Mensch den stillen Helvetica-Fallback je bemerken würde** — die Spec führt ihn als benanntes Betriebsrisiko ohne Fehlerpfad (G13.1). In der jetzigen Form bestätigt der Knopf bei kaputtem Font das Gegenteil: grüner Haken. Solange die zwei Konsumenten (Task 9, Task 13) noch nicht existieren, ist die Änderung folgenlos; nach Task 13 wäre sie eine Änderung an ausgeliefertem UI-Verhalten.
+
+**Files:**
+- Create: `src/Support/FontGlyphReport.php`
+- Edit: `src/Support/FontGlyphCoverage.php`
+- Edit: `tests/Unit/FontGlyphCoverageTest.php`
+
+**Interfaces:**
+- Produces: `FontGlyphCoverage::inspect(string $content, string $fontPath): FontGlyphReport`
+- Entfällt: `FontGlyphCoverage::missing()` — siehe Auflage 2 unten.
+
+**Drei verbindliche Auflagen (Vorgaben des Auftraggebers, wörtlich):**
+
+> 1) **KEIN Gate.** Die Spec sagt „Hilfe, kein Gate", das bleibt. Der dritte Zustand ist eine Warnung („Schrift nicht prüfbar"), nicht ein Blocker — weder im Editor noch im Test-PDF-Weg.
+>
+> 2) **Drei Zustände klar getrennt, nicht ein Sonderwert in der Liste:** nichts fehlt / diese Zeichen fehlen / nicht prüfbar. Ein leeres Array darf nach dem Fix nur noch „nichts fehlt" bedeuten.
+>
+> 3) **Die fünf Beschädigungsstufen der Messtabelle als Testfälle mit**, nicht nur intakt und 0 Byte. Die 3-Byte-Stufe ist die interessante: dort schweigen beide Wege heute.
+
+**Auflage 2 erzwingt, dass `missing()` verschwindet, nicht dass eine Methode dazukommt.** Bliebe `missing()` bestehen, bedeutete sein leeres Array weiterhin beides — genau das, was Auflage 2 verbietet. Zwei Wege nebeneinander hätten außerdem den bekannten Effekt, dass der schwächere benutzt wird. Es gibt noch keine Konsumenten außer dem eigenen Test, der Bruch ist also kostenlos. *(Der Auftraggeber sagte „additiv"; gemeint war nachweislich „ohne ausgeliefertes Verhalten zu ändern" — das ist erfüllt. Diese Lesart ist hier ausdrücklich festgehalten, weil sie eine Auslegung ist.)*
+
+**Form des Rückgabewerts — und warum nicht `?array`:**
+
+```php
+final class FontGlyphReport
+{
+    /** @param list<string> $missing */
+    private function __construct(
+        public readonly bool $checkable,
+        public readonly array $missing,
+    ) {}
+
+    public static function notCheckable(): self;
+
+    /** @param list<string> $missing */
+    public static function checked(array $missing): self;
+
+    /** true, wenn es etwas zu melden gibt: fehlende Zeichen ODER nicht prüfbar. */
+    public function hasWarning(): bool;
+}
+```
+
+Ein nullbares Array (`?array`, `null` = nicht prüfbar) wäre kürzer und wäre **falsch**: `if (empty($result))` und `if (!$result)` behandeln `null` und `[]` gleich, und ein Aufrufer, der `if ($missing) { warnen }` schreibt, führt „nicht prüfbar" still als „alles in Ordnung". Das ist wörtlich die Fehlerklasse, die dieses Paket fünfmal getroffen hat. `hasWarning()` ist der Mechanismus dagegen: **ein** Aufruf, der in **beiden** Problemzuständen `true` ist. Wer die Unterscheidung für den Meldungstext braucht, liest `checkable` und `missing`.
+
+**Was „nicht prüfbar" auslöst.** Die bestehende private `charMap()` gibt schon heute `null` in genau diesen Fällen zurück — Datei fehlt oder unlesbar, `Font::load()` liefert `null`, eine Exception, oder `getUnicodeCharMap()` liefert kein Array. Die Änderung besteht **nicht** darin, neue Fälle zu erkennen, sondern darin, dieses `null` nicht mehr zu `[]` einzuschmelzen.
+
+**Eine offene Frage, die durch Messung zu entscheiden ist, nicht durch Meinung:** Was tut `getUnicodeCharMap()` bei einer beschädigten Datei, die noch parst — kommt je ein **leeres, aber gültiges Array** heraus? Falls ja, gilt es als **nicht prüfbar**, nicht als „alle Zeichen fehlen": eine Schrift mit null Glyphen ist keine Schrift, und eine Liste mit 40 gemeldeten Zeichen sähe wie ein Inhaltsproblem aus statt wie ein Schriftproblem. Miss das an allen fünf Stufen und halte das Ergebnis fest; tritt der Fall nicht auf, sag das ausdrücklich statt Code für einen unbelegten Fall zu schreiben.
+
+- [ ] **Step 1: Failing test schreiben**
+
+Die fünf Stufen brauchen beschädigte Kopien der echten Schrift. Sie werden in ein **temporäres Verzeichnis** geschrieben — `resources/fonts` bleibt unangetastet. Achtung: `sys_get_temp_dir()` ist auf diesem Rechner `/var/folders/6r/h4ndlx0s6ns5gj49vckp25w0v20knp/T`, nicht `/tmp`.
+
+Erwartete Zustände pro Stufe (aus der Messtabelle, `checkable` / `missing`):
+
+| Stufe | `checkable` | `missing` | `hasWarning()` |
+|---|---|---|---|
+| intakt | `true` | `['★']` | `true` |
+| 40 % | `true` | `['★']` | `true` |
+| 5 % | `true` | `['★']` | `true` |
+| 3 Byte | `false` | `[]` | `true` |
+| 0 Byte | `false` | `[]` | `true` |
+| Pfad existiert nicht | `false` | `[]` | `true` |
+| intakt, Text ohne `★` | `true` | `[]` | **`false`** |
+
+Die letzte Zeile ist die wichtigste: sie ist der **einzige** Fall, in dem `hasWarning()` falsch ist. Ohne sie wäre ein `hasWarning()`, das immer `true` liefert, grün.
+
+Die bestehenden Testfälle aus Task 4 (Zeichenabdeckung, Entity-Dekodierung, Markup-Entfernung, leerer Inhalt) bleiben inhaltlich erhalten und werden auf `inspect()` umgestellt. **Die Entity-Dekodierung nicht wegoptimieren** — sie ist in Task 16 als Absicht festgehalten, weil die einzige ausgelieferte Vorlage `&#9733;` benutzt.
+
+- [ ] **Step 2: Test laufen lassen, FAIL sehen, Ausgabe festhalten**
+
+- [ ] **Step 3: `FontGlyphReport` anlegen**
+
+- [ ] **Step 4: `FontGlyphCoverage::inspect()` implementieren, `missing()` entfernen**
+
+- [ ] **Step 5: Test laufen lassen, grün bestätigen, Gesamtsuite prüfen**
+
+- [ ] **Step 6: Mutationstest pro Zustand** — mindestens: `notCheckable()` durch `checked([])` ersetzen (muss die 3-Byte- und 0-Byte-Stufe rot machen), und `hasWarning()` auf `return $this->missing !== []` verkürzen (muss dieselben zwei Stufen rot machen). Die zweite Mutation ist die eigentliche: sie ist genau der Fehler, den dieser Task behebt. Rohe Ausgabe festhalten, mit `git checkout --` zurücksetzen, Sauberkeit nachweisen. Mutationen **nach** dem Commit fahren.
+
+- [ ] **Step 7: Commit**
+
+**Was dieser Task NICHT tut:** Er ändert nichts an Task 9, Assertion 2. Die Folgerung dort bleibt wörtlich stehen — `/BaseFont` ist der einzige Wächter, der jede Beschädigungsstufe rot macht, und wird **auch nach diesem Fix nicht** mit Verweis auf die Glyph-Prüfung aufgeweicht. Dieser Task macht die Glyph-Prüfung ehrlich, nicht zu einem Ersatz für sie.
+
+---
+
 ### Task 5: `TrainingCertificatePdfOptions` — geteilte Options-Quelle
 
 **Files:**
@@ -1361,7 +1459,9 @@ git commit -m "feat(recruiting): Asset-Resolver fuer Zertifikate — ein Resolve
 > .zert-fuss-rechts { position: absolute; left: 116mm; width: 66mm; bottom: 10mm; }
 > ```
 
-> **Datum und Unterschriftszeile sind am Seitenfuß verankert**, als Divs (nicht als Tabelle) mit `position: absolute; bottom: …`. Damit kann der fließende Mittelteil **keinen Seitenumbruch mehr erzeugen** — die Einzelseiten-Eigenschaft wird strukturell erzwungen statt durch Abstände austariert.
+> **Datum und Unterschriftszeile sind am Seitenfuß verankert**, als Divs (nicht als Tabelle) mit `position: absolute; bottom: …`. Damit ist der Fuß aus dem Fluss genommen und kann nicht mehr durch Abstände nach unten geschoben werden.
+
+**KORRIGIERT nach dem Review zu Task 6:** Der Spec-Ausschnitt sagte hier ursprünglich, damit könne der Mittelteil „keinen Seitenumbruch mehr erzeugen — die Einzelseiten-Eigenschaft wird strukturell erzwungen". Gemessen mit echten Assets: 4 Zeilen → 1 Seite, 10 → 1 Seite, **20 → 2 Seiten**, 40 → 2 Seiten. Die Verankerung erzwingt, dass **der Fuß** nicht umbricht, nicht dass das Dokument einseitig bleibt. Die Einzelseitigkeit braucht weiterhin einen Längen-Guard (Task 7/8, advisory) und einen Render-Test über die **Listenlänge** (Task 9), nicht nur über lange Namen. Die Spec ist an §E5 entsprechend korrigiert.
 
 > **`position:absolute` + `bottom` funktioniert bei Block-Divs, NICHT zuverlässig bei `<table>`.** Eine bottom-verankerte Tabelle lief unten aus der Seite; als zwei Divs korrekt.
 
@@ -2392,6 +2492,19 @@ git commit -m "feat(recruiting): Zertifikat-Ablage und Ausstellungs-Service"
 
 > **Mechanik-Auflage: keine `grep`- und keine Literal-String-Assertions.** `grep -c "/Type /Page"` und `grep -c "/BaseFont"` liefern auf einem DomPDF-PDF je 0 Treffer. Wer so assertiert, baut einen Test, der immer grün ist.
 
+**Zwei Nachträge zu Kriterium 1 und 3, aus dem Review zu Task 6:**
+
+**Zu 1 — der Worst Case ist die Listenlänge, nicht die Namenslänge.** Der Spec-Ausschnitt nennt „langer Doppelname, zwei Interviewer, längste Kursbezeichnung". Gemessen bricht keine dieser Dimensionen um; die Kenntnisliste tut es: 4 → 1 Seite, 10 → 1 Seite, **20 → 2 Seiten**. Der Prototyp hatte genau die sechs Zeilen der Originalvorlage, deshalb fiel das dort nicht auf. Beide Dimensionen testen, und die Listenlänge **mit Negativkontrolle** — eine Seitenzahl-Assertion ohne einen Fall, der wirklich zwei Seiten erzeugt, belegt nicht, dass sie auslösen kann.
+
+**Zu 3 — die Glyph-Prüfung läuft auf dem rohen Vorlageninhalt, NIE auf der Ausgabe von `TrainingCertificateHtml::build()`.** Grund, gemessen: `FontGlyphCoverage` benutzt `strip_tags()`, und `strip_tags()` entfernt den `<style>`-Tag, **nicht dessen Inhalt**. Die Hülle hat einen CSS-Kommentar mit einem `★` darin. Ergebnis bei einem Inhalt ohne jeden Stern:
+
+```
+Inhalt allein:  array ()
+Huelle+Inhalt:  array ( 0 => '★' )
+```
+
+Wer die Prüfung auf die zusammengebaute Hülle richtet, bekommt also eine **Phantom-Meldung** „★ fehlt in Oswald" für ein Zertifikat, in dem kein Stern vorkommt — und wird sie plausibel finden, weil die Aussage über Oswald ja stimmt. Für DomPDF ist der Kommentar harmlos (bewiesen: die entpackten Content-Streams sind bitgleich, ob der Kommentar da ist, fehlt, oder das `★` durch ASCII ersetzt wird), für den eigenen Glyph-Wächter ist er es nicht. Gilt genauso für den Editor-Knopf in Task 13.
+
 **Gemessene Referenz aus dem Prototyp** (`/Users/shaustein/Documents/dev/docs/zertifikat/mockups/prototyp/render_live.php` — **absoluter Pfad, außerhalb des Repos**, siehe Hinweis in Task 6; mit `isRemoteEnabled=false`): 315 802 Bytes, 1 Seite, `SUBAAB+Oswald-SemiBold` + `SUBAAC+DejaVuSans`, 6 Bildobjekte.
 
 **Was Assertion 2 tatsächlich abdeckt — gemessen, nicht erschlossen.** Ein beschädigter Font kommt in mehreren Abstufungen vor, und die drei Wächter des Pakets reagieren unterschiedlich. Gemessen gegen die echte `Oswald-SemiBold.ttf` (109 120 Byte), Prüftext `STEHEMPFANG ★`:
@@ -2546,6 +2659,33 @@ class TrainingCertificateRenderTest extends TestCase
         ));
 
         $this->assertSame(1, $this->pageCount($pdf));
+    }
+
+    /**
+     * Die Listenlaenge ist die Dimension, die tatsaechlich umbricht — nicht die
+     * Namenslaenge. Gemessen: 4 Zeilen 1 Seite, 10 Zeilen 1 Seite, 20 Zeilen
+     * 2 Seiten. Dieser Test nagelt die obere Grenze fest, die noch traegt.
+     * Er belegt zugleich, dass die Fuss-Verankerung die Einzelseitigkeit NICHT
+     * strukturell erzwingt — die urspruengliche Spec-Behauptung war falsch.
+     */
+    public function testZwoelfKenntnisZeilenBleibenEineSeite(): void
+    {
+        $pdf = $this->render($this->contentMitKenntnisZeilen(12));
+
+        $this->assertSame(1, $this->pageCount($pdf));
+    }
+
+    /**
+     * Negativkontrolle, ohne die der Test darueber wertlos ist: die
+     * Seitenzahl-Assertion muss ueberhaupt ausloesen koennen. Wuerde
+     * pageCount() immer 1 liefern (falsches Muster, siehe Mechanik-Auflage),
+     * bliebe dieser Test gruen und der darueber ebenfalls.
+     */
+    public function testZuVieleKenntnisZeilenErzeugenEineZweiteSeite(): void
+    {
+        $pdf = $this->render($this->contentMitKenntnisZeilen(24));
+
+        $this->assertGreaterThan(1, $this->pageCount($pdf));
     }
 
     public function testKeineFehlendenGlyphenImInhalt(): void

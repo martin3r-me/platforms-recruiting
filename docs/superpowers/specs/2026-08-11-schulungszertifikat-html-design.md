@@ -568,10 +568,34 @@ G13.3 — Oswald hat kein ★, und ohne diesen Umweg steht `?` auf dem Zertifika
 Gilt für jedes Zeichen außerhalb des Latin-Grundbestands.
 
 **E5 — Datum und Unterschriftszeile sind am Seitenfuß verankert**, als Divs
-(nicht als Tabelle) mit `position: absolute; bottom: …` (E1). Damit kann der
-fließende Mittelteil **keinen Seitenumbruch mehr erzeugen** — die
-Einzelseiten-Eigenschaft wird strukturell erzwungen statt durch Abstände
-austariert (G13.4, G13.5).
+(nicht als Tabelle) mit `position: absolute; bottom: …` (E1). Damit ist der Fuß
+aus dem Fluss genommen und kann nicht mehr durch Abstände nach unten geschoben
+werden (G13.4, G13.5).
+
+**KORRIGIERT [v3]:** v1 und v2 behaupteten hier, damit könne „der fließende
+Mittelteil **keinen Seitenumbruch mehr erzeugen** — die Einzelseiten-Eigenschaft
+wird strukturell erzwungen". **Das ist falsch, und zwar gemessen**, mit den
+echten Assets und wachsender Kenntnisliste:
+
+| Zeilen in der Kenntnisliste | Seiten im PDF |
+|---|---|
+| 4 (ausgelieferte Vorlage) | 1 |
+| 10 | 1 |
+| 20 | **2** |
+| 40 | **2** |
+
+Die Verankerung erzwingt, dass **der Fuß** nicht umbricht — nicht, dass das
+Dokument einseitig bleibt. Der Mittelteil kann weiterhin überlaufen, und dann
+liegt der absolut positionierte Fuß auf Seite 1, während der Inhalt auf Seite 2
+weiterläuft. 20 Zeilen à 12 pt sind für eine von HR gepflegte Vorlage nicht
+exotisch.
+
+Folge für die Umsetzung: die Einzelseitigkeit braucht **weiterhin einen
+Längen-Guard** über die Kenntnisliste (advisory, kein Gate — im Stil der
+`missing`-Liste aus §E1), und der Render-Test (§Tests) muss den Worst Case
+**über die Listenlänge** fahren, nicht nur über lange Namen und Kursbezeichnungen.
+Gefunden im Review zu Task 6, nicht bei der Prototyp-Messung: der Prototyp hatte
+genau die sechs Zeilen der Originalvorlage.
 
 **E6 — Papierfarbe `#FDF3E0`**, nicht der Scan-Ton `#FBDAA3` (G1). Der Scan hat
 einen warmen Farbstich, der digital vergilbt wirkt; die CSS-Farbe ist neutraler.
