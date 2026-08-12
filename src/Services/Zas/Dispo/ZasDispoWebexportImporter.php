@@ -74,7 +74,17 @@ class ZasDispoWebexportImporter
             $matcher = new ZasDispoMatcher($this->directory->map());
 
             if ($dryRun) {
-                foreach ($plan['assignments'] as $attrs) {
+                foreach ($plan['assignments'] as $dsRef => $attrs) {
+                    if ($attrs['datum'] === null) {
+                        $summary['errors'][] = "Assignment {$dsRef}: Datum unparsebar, uebersprungen";
+                        continue;
+                    }
+
+                    if ($attrs['einsatz_ref'] === '' || !array_key_exists($attrs['einsatz_ref'], $plan['events'])) {
+                        $summary['errors'][] = "Assignment {$dsRef}: keine Einsatz-ID — uebersprungen";
+                        continue;
+                    }
+
                     $m = $matcher->match($attrs['pnr_raw']);
                     $summary[$m['employee_id'] !== null ? 'matched' : ($m['reason'] === 'ambiguous' ? 'ambiguous' : 'unmatched')]++;
                 }
@@ -99,13 +109,18 @@ class ZasDispoWebexportImporter
                         continue;
                     }
 
+                    if ($einsatzRef === '' || !isset($eventIds[$einsatzRef])) {
+                        $summary['errors'][] = "Assignment {$dsRef}: keine Einsatz-ID — uebersprungen";
+                        continue;
+                    }
+
                     $m = $matcher->match($attrs['pnr_raw']);
                     $summary[$m['employee_id'] !== null ? 'matched' : ($m['reason'] === 'ambiguous' ? 'ambiguous' : 'unmatched')]++;
 
                     RecDispoAssignment::updateOrCreate(
                         ['ds_ref' => $dsRef],
                         $attrs + [
-                            'rec_dispo_event_id' => $eventIds[$einsatzRef] ?? null,
+                            'rec_dispo_event_id' => $eventIds[$einsatzRef],
                             'rec_employee_id'    => $m['employee_id'],
                             'last_seen_at'       => now(),
                             'missing_since'      => null,
@@ -146,6 +161,13 @@ class ZasDispoWebexportImporter
             $summary['errors'][] = $e->getMessage();
             Log::error('ZAS dispo import fehlgeschlagen', ['file_id' => $file->id, 'error' => $e->getMessage()]);
             if (!$dryRun) {
+                // Die Zaehler oben liefen bereits mit, aber ein Fehler in der
+                // DB::transaction() rollt alle Writes zurueck — die In-Memory-
+                // Zaehler wuerden sonst erfolgreiche Schreibvorgaenge vorspiegeln.
+                foreach (['events_created', 'events_updated', 'assignments_created', 'assignments_updated', 'missing_marked', 'rematched_open'] as $k) {
+                    $summary[$k] = 0;
+                }
+                $summary['rolled_back'] = true;
                 $file->update([
                     'parse_status' => 'failed',
                     'processed_at' => now(),
