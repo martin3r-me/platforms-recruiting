@@ -85,7 +85,24 @@ class DuplicateMatchQueryTest extends TestCase
      */
     private static function runRealMigrations(): void
     {
-        $modules = dirname(__DIR__, 3); // …/platform/modules
+        // Zwei verschiedene Wurzeln, bewusst getrennt aufgeloest:
+        //
+        //  - Das EIGENE Modul liegt immer zwei Ebenen ueber tests/Integration/,
+        //    egal ob der Test im Haupt-Checkout oder in einem Worktree laeuft.
+        //    Ein Worktree testet damit seine EIGENEN Migrationen, nicht die des
+        //    Haupt-Checkouts — sonst pruefte ein Feature-Branch fremdes Schema.
+        //  - platform-crm ist ein Nachbarmodul und existiert nur im
+        //    Geschwister-Layout unter platform/modules/. Dafuer wird nach oben
+        //    gesucht, bis ein Verzeichnis beide Module enthaelt.
+        //
+        // Vorher stand hier dirname(__DIR__, 3) mit dem Kommentar
+        // "…/platform/modules". Das trifft nur im Haupt-Checkout zu: in einem
+        // Worktree (…/platforms-recruiting/.claude/worktrees/<name>/tests/
+        // Integration/) landet man drei Ebenen hoeher bei .claude/worktrees,
+        // wo kein platform-crm liegt — der Test brach dort mit
+        // "Migration fehlt" und machte die Suite in JEDEM Worktree rot.
+        $ownModule = dirname(__DIR__, 2);
+        $modules = self::findModulesRoot();
 
         $files = [
             // CRM: Creates + Alters der drei Kontakt-Tabellen
@@ -119,13 +136,53 @@ class DuplicateMatchQueryTest extends TestCase
         ];
 
         foreach ($files as $relative) {
-            $path = $modules . '/' . $relative;
+            // Eigene Migrationen aus dem eigenen Arbeitsbaum, fremde aus dem
+            // Geschwister-Layout.
+            $path = str_starts_with($relative, 'platforms-recruiting/')
+                ? $ownModule . '/' . substr($relative, strlen('platforms-recruiting/'))
+                : $modules . '/' . $relative;
+
             if (!file_exists($path)) {
                 throw new \RuntimeException("Migration fehlt: {$path}");
             }
             $migration = require $path;
             $migration->up();
         }
+    }
+
+    /**
+     * Sucht von dieser Datei aus nach oben das Verzeichnis, in dem
+     * platform-crm und platforms-recruiting als Geschwister liegen
+     * (…/platform/modules). Funktioniert im Haupt-Checkout genauso wie in
+     * einem Worktree, weil nicht ueber eine feste Anzahl Ebenen gerechnet
+     * wird, sondern ueber den Inhalt.
+     *
+     * Begrenzt auf 10 Ebenen: ohne Obergrenze liefe die Suche bei einem
+     * kaputten Layout bis zum Dateisystem-Root und der Fehler kaeme als
+     * "Migration fehlt: /platform-crm/..." heraus, was in die falsche
+     * Richtung zeigt.
+     */
+    private static function findModulesRoot(): string
+    {
+        $dir = __DIR__;
+
+        for ($i = 0; $i < 10; $i++) {
+            $dir = dirname($dir);
+
+            if (is_dir($dir . '/platform-crm') && is_dir($dir . '/platforms-recruiting')) {
+                return $dir;
+            }
+
+            if ($dir === dirname($dir)) {
+                break; // Dateisystem-Root erreicht
+            }
+        }
+
+        throw new \RuntimeException(
+            'Modules-Root nicht gefunden: von ' . __DIR__ . ' aufwaerts liegt kein '
+            . 'Verzeichnis, das platform-crm und platforms-recruiting als Geschwister '
+            . 'enthaelt. Erwartet wird das Layout platform/modules/<modul>.'
+        );
     }
 
     private function applicant(array $attrs = []): RecApplicant
