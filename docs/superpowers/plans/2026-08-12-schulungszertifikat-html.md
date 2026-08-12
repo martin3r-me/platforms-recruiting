@@ -31,6 +31,7 @@
 - `src/Support/TrainingCertificateHtml.php` — HTML-Hülle: Seitensetup, Styles, die drei Bilder
 - `src/Support/TrainingLeaderResolver.php` — Schulungsleiter-Namen aus einer Buchungsmenge
 - `tests/Support/TestSchema.php` — die EINZIGE Quelle des handgebauten Testschemas (siehe Task 2a)
+- `tests/Integration/PlaceholderResolutionPinTest.php` — nagelt die Platzhalter-Auflösung der Bestandsvorlagen fest (Task 6a, muss vor Task 7 grün sein)
 
 **Neu — Persistenz und Ausstellung:**
 - `database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php`
@@ -1598,6 +1599,151 @@ git commit -m "feat(recruiting): HTML-Huelle des Schulungszertifikats als Suppor
 
 ---
 
+### Task 6a: Platzhalter-Auflösung der Bestandsvorlagen festnageln — VOR Task 7
+
+**Files:**
+- Test: `tests/Integration/PlaceholderResolutionPinTest.php`
+
+**Interfaces:**
+- Consumes: `RecContractTemplate::personalizeContent()` (Bestand, **unverändert**), `TestSchema` (Task 2a)
+- Produces: nichts — reine Absicherung
+
+**Warum dieser Task existiert, und warum als eigener Task VOR Task 7:**
+
+Task 0 friert das **Aussehen** des Vertrags-PDFs ein (Seitenzahl, Fontliste, Stylesheet-Hash, Stempel). Für die **Werte** — was `personalizeContent()` aus den `field_mappings` macht — gibt es bis hierher keinen Test. Task 7 hängt einen neuen `schulung.`-Zweig in `resolveSource()`.
+
+Der bisherige Schutz war ein Argument statt eines Tests: „keine Bestandsvorlage benutzt `schulung.*`, also ist der neue Zweig für sie unerreichbar". Das ist heute wahr — und bleibt wahr, bis jemand im Vorlagen-Editor ein Mapping tippt. Der Editor ist genau die Fläche, die dieses Paket erweitert (Task 15). **Ein Argument über Daten, die HR selbst ändern kann, ist kein Schutz.**
+
+Dazu ist `resolveSource()` eine Methode in Bewegung: in den neun Commits vor `511451c` bekam sie eine neue Signatur (`?ZasLookupResolver $lookups = null`) und einen neuen Lookup-Label-Zweig. Task 7 wäre die dritte Änderung in kurzer Folge.
+
+**Eigener Task, nicht Steps in Task 7** — sonst wäre der Schutz Teil derselben Änderung, gegen die er schützen soll. Er muss grün sein, *bevor* Task 7 anfängt.
+
+**Die festzunagelnden Mappings — mechanisch aus den 11 Live-Vorlagen abgeleitet (Stand 2026-08-12), nicht aus dem Gedächtnis.** Diese Aufstellung gehört als Kommentar in den Test:
+
+```
+Vorlagen: 11 (AV-default, AT-140, AV, IFSG, AV-010, AV-060, AV-110, AV-160,
+               AV-210, AV-260, AV-TEST)
+
+Alle verwendeten Quellen, sortiert, mit Anzahl der Vorlagen:
+   1x  applicant.extra_field.ausweisnummer
+   9x  applicant.extra_field.geburtsort
+   1x  applicant.extra_field.nationalitaet
+   1x  applicant.zuschlag
+  11x  contact.address.city
+  10x  contact.address.house_number
+  11x  contact.address.postal_code
+  11x  contact.address.street
+  11x  contact.birth_date
+  11x  contact.first_name
+  11x  contact.last_name
+   1x  contract.extra_field.stundenlohn
+   9x  contract.extra_field.vertragsbeginn
+   9x  contract.extra_field.vertragsende
+   1x  contract.extra_field.zuschlag
+  11x  meta.datum_heute
+   8x  settings.minimum_wage_hourly
+
+Distinkte Praefixe: applicant. contact. contract. meta. settings.
+schulung.* in Benutzung: NEIN
+```
+
+**Zweig-Reihenfolge in `resolveSource()` gegen `511451c`** — die Reihenfolge ist Teil des Verhaltens, der erste passende Zweig gewinnt: `contact.` (`:110`, darin `address.` `:126`), `applicant.` (`:139`, darin `extra_field.` `:142` mit Lookup-Label-Zweig `:145-160`), `contract.extra_field.` (`:184`, **nur wenn ein `$contract` übergeben ist**), `settings.` (`:189`), `text:` (`:205`), `meta.` (`:209`), danach `return ''`.
+
+**Die 13 Fälle, jeder als eigene Testmethode. Fall 1 steht bewusst vorn:**
+
+1. **Ein nicht gemapptes `{{resttage}}` bleibt unverändert stehen.** Der wertvollste Fall des ganzen Tasks, deshalb an erster Stelle. Begründung gehört als Kommentar an die Methode: Die AT-140-Zusatzvertrag-Logik (`Support/ResttagePlaceholder`) baut darauf, dass `personalizeContent()` nur die **gemappten** Platzhalter ersetzt und alles andere durchlässt — `{{resttage}}` wird erst beim Unterschreiben durch die Eingabe des Bewerbers gefüllt. Wer `personalizeContent()` später „aufräumt" und unbekannte Platzhalter leert, **bricht den Zusatzvertrag still**: ein Vertrag, dem die Zahl fehlt, ohne Fehlermeldung, ohne Log. Genau die Sorte Annahme, die nirgends steht, weil sie immer galt. Erst dieser Test schreibt sie fest.
+2. **`contact.first_name` / `contact.last_name`** → der Wert des verknüpften CRM-Kontakts.
+3. **`contact.birth_date`** → Format `d.m.Y`. Ein `Carbon` muss formatiert herauskommen, nicht als ISO-String.
+4. **`contact.address.city` / `.postal_code` / `.street` / `.house_number`** → aus der primären Postadresse; ohne Adresse leerer String.
+5. **`applicant.extra_field.geburtsort`** → Extra-Field-Wert als Text.
+6. **`applicant.extra_field.nationalitaet` MIT Lookup-Definition → das LABEL.** Nicht „nichtleerer String" assertieren, sondern den konkreten Labeltext. Der Zweig (`:145-160`) prüft `options['lookup_id']` an der Definition und löst über `ZasLookupResolver::resolveLabel()` auf. Fixture: Definition mit `lookup_id`, gespeicherter Maschinenwert (z.B. `tr`), Erwartung der Labeltext (z.B. `Türkei`). **Der Labeltext IST der Punkt dieses Falls** — ein Test, der nur Nichtleere prüft, schützt genau das Spezifische nicht: er bliebe grün, wenn der Maschinenwert `tr` im Dokument landet.
+7. **`applicant.extra_field.*` OHNE Lookup-Definition** → unveränderter Wert. Belegt, dass der Lookup-Zweig nur bei echten Lookup-Feldern greift.
+8. **`applicant.zuschlag` → deutsches Dezimalformat, zwei Stellen.** Nicht die Auflösung, sondern **die Formatierung** ist der Punkt (`:178-180`, `number_format($v, 2, ',', '.')`): aus `0.6` muss **`0,60`** werden. Assertiere den exakten String. Ein Test auf „enthält 0" oder „nichtleer" bliebe grün, wenn daraus `0.6` würde — und `0.6` in einem Arbeitsvertrag ist ein Zahlendreher mit Rechtsfolge.
+9. **`contract.extra_field.vertragsbeginn`** → Wert aus dem übergebenen Contract. **Und der Fall ohne Contract:** ohne `$contract` greift der Zweig nicht (`:184` verlangt `&& $contract`), Ergebnis leerer String. Beide Fälle.
+10. **`settings.minimum_wage_hourly`** → Float-Formatierung nach `:196-197`, deutsches Format, exakter String. Zusätzlich der Bool-Fall (`:200`: `true` → `'ja'`), falls mit vertretbarem Fixture-Aufwand erreichbar; sonst als nicht festgenagelt dokumentieren.
+11. **`meta.datum_heute`** → heutiges Datum in `d.m.Y`.
+12. **`meta.ort` → leerer String.** Der dokumentierte Dead End; wird er je versehentlich verdrahtet, muss dieser Test rot werden.
+13. **NEGATIVFALL: unbekanntes Präfix** → z.B. `voelligUnbekannt.feld` liefert **leeren String, wirft nicht**. Ohne diesen Fall fällt später nicht auf, wenn ein neuer Zweig die Fallback-Semantik ändert — etwa auf Exception oder auf den rohen Quellstring.
+
+**Durchgehende Auflage zur Assertion-Schärfe:** Wo eine Formatierung Teil des Verhaltens ist (Fälle 3, 6, 8, 10, 11), wird der **exakte erwartete String** assertiert, nicht Nichtleere und nicht „enthält". Genau dort steckt das Spezifische, das sonst unbemerkt wegbricht.
+
+**Fixture-Aufbau:** Muster `tests/Integration/DuplicateMatchQueryTest.php:25-70` (Container + Capsule + Facade-Verdrahtung) und `:86-129` — jener Test lädt die **echten Migrationsdateien** per `require` und ruft `up()` auf, statt Schemata von Hand zu bauen, und löst dabei zwei Wurzeln getrennt auf (eigenes Modul über `dirname(__DIR__, 2)`, Nachbarmodule über eine inhaltsbasierte Aufwärtssuche). Übernimm dieses Muster. Gebraucht werden: `rec_contract_templates` (über `TestSchema`, Task 2a), `rec_applicants`, `crm_contacts` samt Verknüpfungstabelle und Postadressen, `rec_contracts`, `rec_applicant_settings`, und die `core_extra_field_*`-Tabellen für Definitionen und Werte.
+
+**Zwei ehrliche Auflagen:**
+
+- **Der Fixture-Aufwand ist hier höher als in jedem anderen Task dieses Plans.** Ist eine der 13 Positionen ohne Änderung an Produktionscode nicht fixturebar, dann **dokumentiere sie im Docblock als nicht festgenagelt** und baue sie NICHT nach, indem du Produktionscode umbaust. Zweck dieses Tasks ist, Bestandsverhalten zu konservieren; Produktionscode anzufassen wäre das Gegenteil. Melde solche Fälle als Bedenken zurück.
+- **Wird der Test rot, hat der Bestand recht, nicht die Erwartung.** Korrigiere die Erwartung, melde die Abweichung als Bedenken, und passe unter keinen Umständen Produktionscode an, damit der Test grün wird.
+
+**Nicht anfassen:** `src/Models/RecContractTemplate.php` und alles andere unter `src/`. Dieser Task legt ausschließlich eine Testdatei an.
+
+- [ ] **Step 1: Test schreiben**
+
+Die 13 Fälle als je eigene Testmethode mit sprechendem Namen und sprechender Assertion-Meldung. Fall 1 als erste Methode in der Datei. Die Mapping-Aufstellung, die Zweig-Reihenfolge und der Datumsstand `2026-08-12` als Klassen-Docblock, mit dem Hinweis, wogegen festgenagelt wurde.
+
+Fixture-Skelett:
+
+```php
+public static function setUpBeforeClass(): void
+{
+    $container = Container::getInstance();
+    $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []]]));
+
+    $capsule = new Capsule();
+    $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+    $capsule->setEventDispatcher(new Dispatcher($container));
+    $capsule->setAsGlobal();
+    $capsule->bootEloquent();
+    Model::unguard();
+
+    // Schema-/DB-Facades auf Capsule verdrahten, damit die ECHTEN
+    // Migrationsdateien unveraendert laufen — Muster
+    // DuplicateMatchQueryTest:63-67
+    $container->instance('db', $capsule->getDatabaseManager());
+    $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
+    Facade::setFacadeApplication($container);
+
+    TestSchema::contractTemplates($capsule->schema());
+    // weitere Tabellen: echte Migrationsdateien laden wie in
+    // DuplicateMatchQueryTest:86-129
+}
+```
+
+- [ ] **Step 2: Test laufen lassen — er MUSS von Anfang an grün sein**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter PlaceholderResolutionPinTest`
+Expected: PASS.
+
+Anders als bei TDD-Tasks ist ein roter Lauf hier ein **Befund**, nicht der erwartete Ausgangspunkt: der Test beschreibt Verhalten, das es schon gibt.
+
+- [ ] **Step 3: Gesamtsuite**
+
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Expected: PASS, mit den neuen Tests dazugezählt.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/Integration/PlaceholderResolutionPinTest.php
+git commit -m "test(recruiting): Platzhalter-Aufloesung der Bestandsvorlagen festnagelt
+
+Task 0 friert das Aussehen des Vertrags-PDFs ein, dieser Test die Werte.
+Task 7 haengt einen neuen schulung.-Zweig in resolveSource(); der bisherige
+Schutz fuer die 17 in Benutzung befindlichen Mapping-Quellen war ein Argument
+ueber Live-Daten, die HR im Editor selbst aendern kann — kein Test.
+
+Erster Fall ist der wichtigste: ein nicht gemapptes {{resttage}} muss stehen
+bleiben. Die AT-140-Logik baut darauf; wer personalizeContent() spaeter
+aufraeumt und unbekannte Platzhalter leert, bricht den Zusatzvertrag still.
+
+Wo Formatierung Teil des Verhaltens ist (Dezimalkomma beim Zuschlag,
+Lookup-Label statt Maschinenwert, d.m.Y bei Datumsfeldern), wird der exakte
+String assertiert, nicht Nichtleere.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 7: `TrainingLeaderResolver` + `schulung.`-Zweig in `resolveSource()`
 
 **Files:**
@@ -1606,7 +1752,7 @@ git commit -m "feat(recruiting): HTML-Huelle des Schulungszertifikats als Suppor
 - Test: `tests/Unit/TrainingLeaderResolverTest.php`
 
 **Interfaces:**
-- Consumes: nichts
+- Consumes: **Task 6a muss grün sein, bevor dieser Task startet** — er nagelt die Auflösung der 17 in Benutzung befindlichen Mapping-Quellen fest, gegen die dieser Task einen neuen Zweig hängt.
 - Produces:
   - `TrainingLeaderResolver::pickBooking(array $bookings): ?array` — wählt aus einer Liste von Buchungen `['id' => int, 'status' => string, 'starts_at' => string|null, 'interviewers' => list<string>]` die maßgebliche aus
   - `TrainingLeaderResolver::leaderNames(array $bookings): string`

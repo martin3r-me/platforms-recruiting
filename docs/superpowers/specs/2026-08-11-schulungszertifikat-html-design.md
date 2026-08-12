@@ -321,21 +321,32 @@ Gründe, alle geprüft:**
    nirgends anfasst — es gibt nicht einmal mehr eine zweite Blade, die jemand
    versehentlich in ein gemeinsames Layout ziehen könnte.
 2. **Der `type`-Default trifft den Bestand richtig.** Die Spalte kommt als
-   `NOT NULL DEFAULT 'contract'` (§B1) — die 10 live vorhandenen Vorlagen
-   (7 aktive: `AV-default`, `AV-010`, `AV-060`, `AV-110`, `AV-160`, `AV-210`,
-   `AV-260`, plus `IFSG`; inaktiv: `AV`, `AV-TEST`) werden dadurch `contract`.
+   `NOT NULL DEFAULT 'contract'` (§B1) — die **11** live vorhandenen Vorlagen
+   (9 aktive: `AV-default`, `AV-010`, `AV-060`, `AV-110`, `AV-160`, `AV-210`,
+   `AV-260`, `IFSG`, **`AT-140`**; inaktiv: `AV`, `AV-TEST`) werden dadurch
+   `contract`. **[korrigiert 2026-08-12]** v2 sprach von 10 Vorlagen; `AT-140`
+   („Erklärung 140-Tage Tätigkeit") ist seither dazugekommen und hat bereits
+   einen echten Vertrag. Ihr `code` beginnt weder mit `ZERT-` noch kollidiert
+   sie mit dem Präfixzwang aus §B8 — sie wird schlicht `contract` wie alle
+   anderen.
    Jeder neue `type`-Filter (`where('type','contract')`) lässt sie also
    unverändert durch.
 3. **Der neue `schulung.`-Zweig kann bei Verträgen nicht feuern.**
    `resolveSource()` verzweigt über das Präfix der gemappten Quelle. Live
-   geprüft über alle 10 Vorlagen: verwendet werden ausschließlich
-   `contact.*`, `applicant.*`, `applicant.extra_field.*`,
-   `contract.extra_field.*`, `settings.*` und `meta.datum_heute` —
-   **kein einziges `schulung.*`**. Ein neuer Zweig am Ende der Kette ändert für
-   diese Mappings nichts.
+   geprüft über alle **11** Vorlagen und mechanisch aggregiert (2026-08-12):
+   **17 distinkte Quellen** über die fünf Präfixe `contact.`, `applicant.`,
+   `contract.`, `settings.`, `meta.` — **kein einziges `schulung.*`**. Ein
+   neuer Zweig am Ende der Kette ändert für diese Mappings nichts.
+
+   **Dieses Argument ist ab Task 6a nicht mehr die Absicherung, sondern nur
+   noch ihre Begründung. [v2-Nachtrag]** Es beschreibt einen Live-Datenstand,
+   den HR im Vorlagen-Editor jederzeit ändern kann — und der Editor ist genau
+   die Fläche, die dieses Paket erweitert. Festgenagelt wird das Verhalten
+   deshalb durch `tests/Integration/PlaceholderResolutionPinTest.php`
+   (Task 6a), der vor Task 7 grün sein muss.
 4. **Der `requires_signature`-Zwang ist an `type === 'certificate'` gebunden**
-   (§B8). Alle 10 Bestandsvorlagen haben live `requires_signature: true` und
-   `type` wird `contract` — der Hook greift bei keiner von ihnen. **Gleiches
+   (§B8). Alle **11** Bestandsvorlagen haben live `requires_signature: true`
+   und `type` wird `contract` — der Hook greift bei keiner von ihnen. **Gleiches
    gilt für den neuen `ZERT-`-Präfix-Zwang. [v2]**
 5. **Die Schrift wird nur im Zertifikat-Weg eingebunden.** Verträge rendern
    weiter in DejaVu Sans; auch ein fehlendes oder unschreibbares
