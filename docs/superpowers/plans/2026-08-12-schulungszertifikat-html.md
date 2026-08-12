@@ -2793,13 +2793,78 @@ class TrainingCertificateRenderTest extends TestCase
             ResttagePlaceholder::hasUnresolvedPlaceholder('<div class="val">{{kontakt_vorname}}</div>')
         );
     }
+
+    // ---------------------------------------------------------------------
+    // Drei Eigenschaften, die aus dem Task-6-Review hierher verschoben wurden.
+    // In Task 6 waeren sie Assertions auf einen String gewesen und dort als
+    // "unassertierte Geometrie" geparkt; hier sind sie Assertions auf ein
+    // wirklich gerendertes PDF. Gemessen war jeweils, dass eine kaputte
+    // Ausgabe die Suite gruen liess: .zert-logo von 40mm auf 400mm, eine leere
+    // p-Regel, und Inhalt vor Logo/Headline emittiert.
+    // ---------------------------------------------------------------------
+
+    public function testGeometrieDerBilderStimmt(): void
+    {
+        // Logo 40mm, Headline 116mm, Signatur 54mm bei 96 dpi. Geprueft wird
+        // die BREITE der platzierten Bildobjekte im PDF, nicht der CSS-String —
+        // eine Assertion auf "width: 40mm" im HTML haette 400mm nicht gefangen,
+        // weil DomPDF den Wert erst beim Rendern anwendet.
+        // Die Toleranz ist bewusst grob (DomPDF rundet auf Punkte); sie muss
+        // eng genug bleiben, dass ein Faktor 10 auffaellt.
+        $pdf = $this->render($this->content('Erika Mustermann', 'Michel Zimmer', 'Service-Basisschulung'));
+
+        $breiten = $this->bildBreitenInMm($pdf);   // aus dem /Width je XObject + der cm-Matrix
+        sort($breiten);
+
+        $this->assertCount(3, $breiten, 'Es muessen genau drei Bilder platziert sein.');
+        $this->assertEqualsWithDelta(40.0, $breiten[0], 1.5, 'Logo');
+        $this->assertEqualsWithDelta(54.0, $breiten[1], 1.5, 'Unterschriftsblock');
+        $this->assertEqualsWithDelta(116.0, $breiten[2], 1.5, 'Headline');
+    }
+
+    public function testBasisStylesWirkenUndSindNichtNurDeklariert(): void
+    {
+        // Ein nackter <p> muss anders aussehen als der Standard: zentriert,
+        // Grundschrift, eigener Abstand. Geprueft ueber die Y-Position der
+        // Textzeilen — eine leere Regel `p { }` laesst die Suite sonst gruen
+        // (in Task 6 gemessen), weil der Test nur die EXISTENZ des Selektors
+        // pruefte.
+        $mitAbstand = $this->render($this->content('A', 'B', 'C') . '<p>Erste Zeile</p><p>Zweite Zeile</p>');
+
+        $abstaende = $this->zeilenAbstaendeInPunkten($mitAbstand);
+
+        $this->assertNotEmpty($abstaende);
+        $this->assertGreaterThan(
+            12.0,
+            max($abstaende),
+            'Die p-Regel setzt margin 3mm; ohne wirksame Regel liegen die Zeilen dichter.'
+        );
+    }
+
+    public function testLogoUndHeadlineStehenVorDemInhalt(): void
+    {
+        // Reihenfolge im Fluss, nicht im Quelltext: Logo und Headline gehoeren
+        // nach OBEN. Ein Tausch von Inhalt und Bildern liess die Suite in
+        // Task 6 gruen, weil dort nur geprueft wurde, DASS beide vorkommen.
+        // Geprueft wird die Y-Position: im PDF-Koordinatensystem hat oben den
+        // GROESSEREN Wert.
+        $pdf = $this->render($this->content('Erika Mustermann', 'Michel Zimmer', 'Service-Basisschulung'));
+
+        $this->assertGreaterThan(
+            $this->obersteTextZeileY($pdf),
+            $this->obersteBildY($pdf),
+            'Logo/Headline muessen ueber der ersten Textzeile liegen.'
+        );
+    }
 }
 ```
+
+**Zu den drei verschobenen Eigenschaften — Auflage an den Implementierer:** die drei Helfer (`bildBreitenInMm()`, `zeilenAbstaendeInPunkten()`, `obersteBildY()`/`obersteTextZeileY()`) sind hier **nicht** ausgeschrieben, weil ihre Form von der tatsächlichen DomPDF-Ausgabe abhängt und ich sie nicht geraten haben will. Bau sie gegen ein echtes PDF und **halte die Rohausgabe im Report fest** (die relevanten Content-Stream-Zeilen), damit nachvollziehbar ist, woraus die Zahlen kommen. Es gilt die Mechanik-Auflage von oben: kein `grep`, kein Literal-Match, nur whitespace-toleranter PCRE — und **jede** der drei Assertions braucht die Mutation, die sie aushebelt (400mm statt 40mm, leere `p`-Regel, getauschte Reihenfolge). Bringt eine Mutation kein Rot, ist die Assertion falsch gebaut und **nicht** der Befund erledigt.
 
 - [ ] **Step 2: Test laufen lassen**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter TrainingCertificateRenderTest`
-Expected: PASS (6 tests). Bei `testNormalfall…` FAIL mit fehlendem `Oswald-SemiBold`: der `chroot` greift nicht — `TrainingCertificatePdfOptions::for()` prüfen, der Font-Pfad muss unterhalb des übergebenen chroot liegen. Bei `testAlleAssetsSindImRepoVorhanden` FAIL: Task 4 Step 3 wurde nicht ausgeführt oder eine Datei fehlt im Repo.
+Expected: PASS (11 tests) — 6 aus der Spec-Fassung, zwei zur Listenlaenge (mit Negativkontrolle) und drei aus dem Task-6-Review verschobene. Bei `testNormalfall…` FAIL mit fehlendem `Oswald-SemiBold`: der `chroot` greift nicht — `TrainingCertificatePdfOptions::for()` prüfen, der Font-Pfad muss unterhalb des übergebenen chroot liegen. Bei `testAlleAssetsSindImRepoVorhanden` FAIL: Task 4 Step 3 wurde nicht ausgeführt oder eine Datei fehlt im Repo.
 
 - [ ] **Step 3: Commit**
 
