@@ -29,7 +29,29 @@ final class TrainingCertificateHtml
      */
     public static function build(string $personalizedContent, array $assets): string
     {
-        $font = $assets['font'];
+        // Kein "?? null": ein leerer Pfad wird sonst wortlos zu url("") — und
+        // ein @font-face mit url("") ignoriert DomPDF STUMM und rendert in
+        // Helvetica, genau der Fehlermodus, gegen den der font-weight-Test
+        // unten schuetzt. Gemessen sind drei Eingaenge:
+        //   Key fehlt      -> PHP-Warning "Undefined array key", dann url("")
+        //   Leerstring     -> url(""), KEINE Meldung
+        //   null           -> url(""), KEINE Meldung
+        // "?? ''" fasst alle drei zusammen und macht auch den fehlenden Key zur
+        // Exception statt zur Warning — laut bleibt laut, still wird laut.
+        // Die Nachbarklassen behandeln dieselbe Fehlkonfiguration ebenso:
+        // TrainingCertificateAssets fuehrt eine 0-Byte-Fontdatei als "missing",
+        // TrainingCertificatePdfOptions::for() wirft. Aus resolve() kann der
+        // Pfad nie leer sein (dort immer $base . '/' . FONT), der Guard trifft
+        // also nur handgebaute Asset-Arrays.
+        $font = $assets['font'] ?? '';
+
+        if ($font === '') {
+            throw new \InvalidArgumentException(
+                'Leerer Font-Pfad: DomPDF ignoriert ein @font-face mit url("") STUMM '
+                . 'und rendert in Helvetica.'
+            );
+        }
+
         $logo = $assets['logo'] ?? null;
         $headline = $assets['headline'] ?? null;
         $signature = $assets['signature'] ?? null;

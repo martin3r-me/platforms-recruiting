@@ -26,6 +26,18 @@ class TrainingCertificateHtmlTest extends TestCase
         $this->assertStringContainsString('color: #3C4A63', $html);
     }
 
+    /**
+     * Ohne die Deklaration interpretiert DomPDF das Markup nicht als UTF-8 und
+     * jeder Umlaut aus dem Vorlageninhalt (Kursnamen, "Schulungsleiter",
+     * Ortsnamen) landet als Mojibake im PDF — wieder ohne Exception, ohne Log.
+     */
+    public function testCharsetIstDeklariert(): void
+    {
+        $html = TrainingCertificateHtml::build('<p>Prüfung in Köln</p>', $this->assets());
+
+        $this->assertStringContainsString('<meta charset="UTF-8">', $html);
+    }
+
     public function testFontWirdMitAbsolutemPfadEingebunden(): void
     {
         $html = TrainingCertificateHtml::build('', $this->assets());
@@ -33,6 +45,38 @@ class TrainingCertificateHtmlTest extends TestCase
         $this->assertStringContainsString(
             'src: url("/app/resources/fonts/Oswald-SemiBold.ttf") format("truetype")',
             $html
+        );
+    }
+
+    /**
+     * Der font-weight-Test unten prueft nur eine Feinheit der Bindung. Die
+     * Bindung selbst ist der Name: heisst die Familie am body anders als im
+     * @font-face — oder fordert der body ueberhaupt keine Familie an —, dann
+     * faellt DomPDF STUMM auf Helvetica zurueck. Beide Mutationen waren
+     * gemessen gruen:
+     *   body: font-family: sans-serif        (Bindung ganz weg)
+     *   @font-face: font-family: "Zertifikat" (Namen weichen ab)
+     * Geprueft wird deshalb nicht das Literal "Zert", sondern die Invariante:
+     * der body fordert genau die Familie an, die das @font-face definiert. Wer
+     * die Schrift umbenennt, muss beide Stellen mitziehen.
+     */
+    public function testBodyFordertDieImFontFaceDefinierteFamilieAn(): void
+    {
+        $html = TrainingCertificateHtml::build('', $this->assets());
+
+        $this->assertSame(
+            1,
+            preg_match('/@font-face\s*\{[^}]*font-family:\s*"([^"]+)"/', $html, $f),
+            'Das @font-face definiert keine benannte Familie.'
+        );
+
+        // Vorne verankert wie im font-weight-Test, damit "body {" nicht mitten
+        // in einem anderen Selektor trifft.
+        $this->assertMatchesRegularExpression(
+            '/(?:^|[\s;}])body\s*\{[^}]*font-family:\s*"' . preg_quote($f[1], '/') . '"/',
+            $html,
+            'body fordert die im @font-face definierte Familie ("' . $f[1] . '") nicht an '
+            . '— DomPDF rendert STUMM in Helvetica.'
         );
     }
 
@@ -141,6 +185,26 @@ class TrainingCertificateHtmlTest extends TestCase
         $this->assertStringContainsString('data:image/png;base64,CCCC', $html);
     }
 
+    /**
+     * Der Bilder-Test oben prueft nur, DASS die Signatur emittiert wird, der
+     * Fuss-Test nur, dass die CSS-Klasse bottom-verankert ist. Faellt die
+     * Klasse am <div> weg, hing das Bild im normalen Fluss — beide Tests
+     * blieben gruen, und die einzige Layout-Entscheidung dieser Huelle waere
+     * verschwunden. Geprueft wird deshalb der Zusammenhang: das Bild steckt im
+     * verankerten Container.
+     */
+    public function testSignaturbildStecktImVerankertenFussContainer(): void
+    {
+        $html = TrainingCertificateHtml::build('', $this->assets());
+
+        $this->assertMatchesRegularExpression(
+            '/<div class="zert-fuss-links">\s*<img class="zert-signatur"/',
+            $html,
+            'Das Unterschriftsbild steckt nicht in .zert-fuss-links und haengt '
+            . 'damit im normalen Fluss statt am Seitenfuss.'
+        );
+    }
+
     public function testFehlendesBildWirdWeggelassenOhneFehler(): void
     {
         $assets = $this->assets();
@@ -154,6 +218,55 @@ class TrainingCertificateHtmlTest extends TestCase
         $this->assertStringNotContainsString('<img class="zert-headline"', $html);
         $this->assertStringNotContainsString('data:image/png;base64,BBBB', $html);
         $this->assertStringContainsString('<img class="zert-logo"', $html);
+    }
+
+    /**
+     * Ein leerer Font-Pfad wuerde wortlos zu src: url("") — und ein
+     * @font-face mit url("") ignoriert DomPDF STUMM, das Zertifikat kaeme in
+     * Helvetica heraus. Leerstring und null sind beide still (keine
+     * PHP-Meldung), deshalb muss die Huelle selbst laut werden. Aus
+     * TrainingCertificateAssets::resolve() kann der Pfad nie leer sein; der
+     * Guard trifft handgebaute Asset-Arrays, etwa aus einem Test oder einem
+     * kuenftigen zweiten Aufrufer.
+     */
+    public function testLeererFontPfadWirftStattStummZuRendern(): void
+    {
+        $assets = $this->assets();
+        $assets['font'] = '';
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Leerer Font-Pfad');
+
+        TrainingCertificateHtml::build('', $assets);
+    }
+
+    public function testFontPfadNullWirftStattStummZuRendern(): void
+    {
+        $assets = $this->assets();
+        $assets['font'] = null;
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Leerer Font-Pfad');
+
+        TrainingCertificateHtml::build('', $assets);
+    }
+
+    /**
+     * Der fehlende Key war vorher laut (PHP-Warning, unter failOnWarning="true"
+     * ein Testabbruch, unter Laravel eine ErrorException) — aber die Warning
+     * kam VOR dem Rendern, das HTML wurde trotzdem mit url("") gebaut. Das
+     * "?? ''" im Guard macht daraus dieselbe Exception wie bei Leerstring und
+     * null: laut bleibt laut, und es entsteht kein halbfertiges HTML mehr.
+     */
+    public function testFehlenderFontKeyWirftEbenfalls(): void
+    {
+        $assets = $this->assets();
+        unset($assets['font']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Leerer Font-Pfad');
+
+        TrainingCertificateHtml::build('', $assets);
     }
 
     public function testInhaltWirdUnveraendertEingesetzt(): void
