@@ -237,14 +237,23 @@ class PlaceholderResolutionPinTest extends TestCase
         $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
         Facade::setFacadeApplication($container);
 
-        // PFLICHT, nicht Deko: Facade::$resolvedInstance ist prozessweit
-        // statisch und wird von setFacadeApplication() NICHT geleert.
-        // DuplicateMatchQueryTest bindet dieselben Keys ('db', 'db.schema')
-        // an SEINE Capsule; wer danach laeuft, bekommt beim Zugriff auf
-        // DB::/Schema:: dessen zwischengespeicherte Instanzen — also eine
-        // FREMDE in-memory-Datenbank. Gemessen im Gesamtlauf (nie im
-        // gefilterten): "no such table: core_extra_field_definitions",
-        // weil Schema:: und DB:: auf verschiedenen Verbindungen landeten.
+        // VORSORGE, nicht Pflicht — und das ist eine bewusste Unterscheidung:
+        // Facade::$resolvedInstance ist prozessweit statisch und wird von
+        // setFacadeApplication() NICHT geleert. Eine Testklasse, die dieselben
+        // Keys ('db', 'db.schema') an ihre eigene Capsule bindet und sie stehen
+        // laesst, vererbt uns beim Zugriff auf DB::/Schema:: ihre
+        // zwischengespeicherten Instanzen — also eine FREMDE in-memory-DB.
+        // Symptom: "no such table: core_extra_field_definitions" im Gesamtlauf,
+        // nie im gefilterten.
+        //
+        // Der HEUTE einzige Verursacher (DuplicateMatchQueryTest) raeumt seit
+        // dem Verursacher-Fix selbst auf, siehe dessen tearDownAfterClass().
+        // Dieser Aufruf ist damit aktuell NICHT load-bearing — gemessen: ohne
+        // ihn bleibt der Gesamtlauf gruen. Er bleibt trotzdem stehen, weil der
+        // naechste Integrationstest, der eine Capsule an die Facades bindet,
+        // sonst wieder genau hier einschlaegt und das Symptom nicht auf den
+        // Verursacher zeigt. Wer ihn entfernen will, muss zeigen, dass KEINE
+        // frueher laufende Klasse mehr Facade-Instanzen hinterlaesst.
         Facade::clearResolvedInstances();
 
         self::runRealMigrations();
@@ -263,6 +272,12 @@ class PlaceholderResolutionPinTest extends TestCase
         // Symmetrisch zum Aufraeumen oben: keine Facade-Instanz auf die
         // hier geschlossene in-memory-DB fuer nachfolgende Testklassen
         // hinterlassen.
+        //
+        // ACHTUNG, damit niemand daraus eine Notwendigkeit liest: dieser
+        // Aufruf ist HEUTE nicht load-bearing. Gemessen — ihn zu entfernen
+        // laesst den Gesamtlauf gruen, denn diese Klasse sortiert alphabetisch
+        // zuletzt, es laeuft niemand nach ihr. Er steht hier als Hygiene fuer
+        // den Tag, an dem eine Klasse mit spaeterem Namen dazukommt.
         Facade::clearResolvedInstances();
     }
 

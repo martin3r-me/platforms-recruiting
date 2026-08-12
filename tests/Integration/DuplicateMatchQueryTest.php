@@ -69,6 +69,30 @@ class DuplicateMatchQueryTest extends TestCase
         self::runRealMigrations();
     }
 
+    /**
+     * Diese Klasse ist der VERURSACHER einer prozessweiten Verschmutzung, und
+     * raeumt sie deshalb hier selbst auf.
+     *
+     * Mechanismus: Facade::setFacadeApplication() setzt nur static::$app, NICHT
+     * den prozessweit statischen $resolvedInstance-Cache. Die Migrationsliste
+     * oben benutzt ausschliesslich Schema:: — damit bleibt 'db.schema' auf DER
+     * HIER erzeugten Capsule gecacht, waehrend eine spaeter laufende Testklasse
+     * ihr 'db' frisch aus dem Container bekommt. Schema::create() und
+     * DB::table() landen dann auf VERSCHIEDENEN in-memory-Datenbanken, und die
+     * andere Klasse stirbt an "no such table: …" — im Gesamtlauf, nie im
+     * gefilterten Lauf.
+     *
+     * Gemessen: ohne diesen Aufruf brach PlaceholderResolutionPinTest im
+     * Gesamtlauf mit "no such table: core_extra_field_definitions"; mit ihm
+     * laeuft der Gesamtlauf gruen, selbst wenn der Pin-Test seinen eigenen
+     * Schutzaufruf nicht mehr hat. Der Fix sitzt bewusst hier und nicht dort:
+     * das Opfer kann sich nur selbst reparieren, die Quelle repariert alle.
+     */
+    public static function tearDownAfterClass(): void
+    {
+        Facade::clearResolvedInstances();
+    }
+
     protected function setUp(): void
     {
         foreach (['crm_phone_numbers', 'crm_contact_links', 'crm_contacts', 'rec_applicants'] as $table) {
