@@ -3352,6 +3352,20 @@ git commit -m "feat(recruiting): WhatsApp-Zustellung des Zertifikats mit Link al
 ### Task 13: Weg (b) — automatisch bei der Mitarbeiter-Anlage
 
 > **GEÄNDERT durch den Zuschnitt v3.** Keine Vorlagen-Auflösung mehr, kein `default_certificate_template_id`. Der Hook ruft `issue($applicant, null)` und prüft dasselbe Team-Setting `issue_training_certificates`. **Wichtig:** dieser Weg hat keine UI, das Setting ist hier also die einzige Bremse.
+>
+> **ZWEI AUFLAGEN, die in Task 8 gemessen wurden und hier fällig werden:**
+>
+> **1) `issue()` WIRFT bei ausgeschaltetem Schalter** (der Rückgabetyp ist nicht nullable). Dieser Weg hängt an der **Mitarbeiter-Anlage** — also muss er **vorher** `IssueTrainingCertificateService::isEnabledForTeam()` fragen und darf den Aufruf **nicht** in ein `try/catch` legen. Ein `try/catch` sähe defensiv aus und wäre das Gegenteil: es würde jede andere Ursache mitschlucken, und ein ausgeschaltetes Feature dürfte niemals die Anlage eines Mitarbeiters mitreißen — genauso wenig wie ein Fehler im Zertifikat.
+>
+> **2) Prüf, ob der Schalter beim Einschalten tatsächlich in der Settings-Zeile landet — und berichte das Ergebnis.** Gemessener Hintergrund: `RecApplicantSettings::getSetting()` liest
+>
+> ```php
+> $settings[$key] ?? $default ?? (self::DEFAULT_SETTINGS[$key] ?? null)
+> ```
+>
+> Bei einer **bestehenden** Settings-Zeile ohne den neuen Schlüssel — dem Zustand jedes heute existierenden Teams — trägt also allein der `DEFAULT_SETTINGS`-Eintrag. Solange der `false` ist, ist die Richtung sicher; der Mechanismus ist aber fragil, weil der Default die Arbeit tut statt eines gespeicherten Werts.
+>
+> Die Frage, die hier zu beantworten ist: **schreibt das Einschalten im Formular den Schlüssel wirklich in die `settings`-Spalte, oder zeigt die UI nur `true` an, während die Zeile den Schlüssel weiterhin nicht enthält?** Im zweiten Fall hängt der Live-Zustand weiter am Default, und ein späterer Default-Wechsel würde ihn still umdrehen. Miss es (Settings-Zeile vor und nach dem Speichern, roh), statt es zu erschließen — und wenn der Schlüssel nicht landet, ist das ein Befund und kein Detail.
 
 
 **Files:**

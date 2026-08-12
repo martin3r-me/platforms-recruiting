@@ -73,30 +73,20 @@ final class TestSchema
         });
     }
 
-    /** Wie die Migration aus Task 2, inklusive Unique-Constraint. */
-    public static function trainingCertificates(Builder $schema): void
-    {
-        if ($schema->hasTable('rec_training_certificates')) {
-            return;
-        }
-
-        $schema->create('rec_training_certificates', function ($t) {
-            $t->id();
-            $t->string('uuid', 36)->unique();
-            $t->unsignedBigInteger('team_id');
-            $t->unsignedBigInteger('rec_applicant_id');
-            $t->string('kind', 40);
-            $t->longText('personalized_content')->nullable();
-            $t->timestamp('issued_at')->nullable();
-            $t->unsignedBigInteger('issued_by_user_id')->nullable();
-            $t->timestamp('wa_sent_at')->nullable();
-            $t->timestamps();
-            // Der Constraint ist Teil der Invariante "ein Zertifikat pro
-            // Bewerber pro Schulungsart" und muss im Test genauso greifen.
-            // Vorher war die zweite Spalte rec_contract_template_id; mit dem
-            // Zuschnitt "Inhalt als festes HTML statt als Vorlage" gibt es
-            // keine Vorlagen-Zeile mehr, und kind traegt die Dedup-Dimension.
-            $t->unique(['rec_applicant_id', 'kind']);
-        });
-    }
+    // trainingCertificates() ist ENTFERNT, nicht vergessen.
+    //
+    // Die Methode war eine handgebaute Kopie der Migration
+    // 2026_08_12_000002_create_rec_training_certificates_table.php. Ihr einziger
+    // Konsument (IssueTrainingCertificateServiceTest) laedt inzwischen die
+    // ECHTEN Migrationen — unter anderem, damit diese Migration im Testlauf
+    // ueberhaupt einmal ausgefuehrt wird. Damit war die Kopie konsumentenlos.
+    //
+    // Ein Testschema ohne Konsument ist derselbe tote Schalter wie eine
+    // Konfiguration, die nichts mehr steuert: es sieht nach Absicherung aus,
+    // driftet aber unbemerkt von der Migration weg, und der naechste Leser
+    // haelt es fuer die maszgebliche Definition. Deshalb weg statt liegenlassen.
+    //
+    // Wer ein Schema fuer rec_training_certificates braucht: die echten
+    // Migrationen laden (Muster in IssueTrainingCertificateServiceTest), nicht
+    // diese Kopie wiederbeleben.
 }
