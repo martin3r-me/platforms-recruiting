@@ -56,6 +56,15 @@ class ContractPdfRegressionTest extends TestCase
         $options->set('defaultFont', 'DejaVu Sans');
         $options->set('isHtml5ParserEnabled', true);
 
+        // Eigener fontCache pro Lauf, damit der Test nicht in den geteilten
+        // vendor-Fontordner der Host-App (meingedeck) schreibt und sein
+        // Ergebnis nicht vom dortigen, veraenderlichen Zustand abhaengt.
+        // fontDir bleibt unangetastet — dort liegen die gebuendelten
+        // DejaVu-Fonts, die lesbar bleiben muessen.
+        $fontCache = sys_get_temp_dir() . '/rec-contract-pdf-fontcache-' . getmypid();
+        @mkdir($fontCache, 0777, true);
+        $options->set('fontCache', $fontCache);
+
         $dompdf = new Dompdf($options);
         $dompdf->loadHtml($html);
         $dompdf->setPaper('A4');
