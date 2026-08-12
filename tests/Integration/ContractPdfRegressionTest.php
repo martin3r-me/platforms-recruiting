@@ -73,6 +73,35 @@ class ContractPdfRegressionTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Model::clearBootedModels();
+        self::removeFontCache();
+    }
+
+    /**
+     * Den eigenen fontCache wieder wegraeumen. Ohne das bleibt pro Testlauf ein
+     * Verzeichnis liegen — gemessen 75 Stueck, bevor das auffiel. Der Name
+     * enthaelt die PID, also kollidiert nichts, aber es sammelt sich eben auch
+     * nie wieder auf. Task 9 wird dieses Muster kopieren, deshalb steht das
+     * Aufraeumen hier und nicht nur als Vorsatz.
+     */
+    private static function removeFontCache(): void
+    {
+        $dir = self::fontCacheDir();
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        foreach (glob($dir . '/*') ?: [] as $file) {
+            if (is_file($file)) {
+                @unlink($file);
+            }
+        }
+
+        @rmdir($dir);
+    }
+
+    private static function fontCacheDir(): string
+    {
+        return sys_get_temp_dir() . '/rec-contract-pdf-fontcache-' . getmypid();
     }
 
     private function contractStylesheet(): string
@@ -107,7 +136,8 @@ class ContractPdfRegressionTest extends TestCase
         // Ergebnis nicht vom dortigen, veraenderlichen Zustand abhaengt.
         // fontDir bleibt unangetastet — dort liegen die gebuendelten
         // DejaVu-Fonts, die lesbar bleiben muessen.
-        $fontCache = sys_get_temp_dir() . '/rec-contract-pdf-fontcache-' . getmypid();
+        // Aufgeraeumt wird in tearDownAfterClass() — siehe removeFontCache().
+        $fontCache = self::fontCacheDir();
         @mkdir($fontCache, 0777, true);
         $options->set('fontCache', $fontCache);
 
