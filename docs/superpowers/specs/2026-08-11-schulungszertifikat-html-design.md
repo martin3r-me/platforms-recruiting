@@ -1280,7 +1280,8 @@ teuersten Zusagen dieser Spec sind.
 - **Zwei-Push-Struktur:** Migrationen zuerst (`type`-Spalte,
   `rec_training_certificates`), Feature danach. Das Feature bringt eine neue
   öffentlich erreichbare Route; ein Feature-Deploy vor der Migration erzeugt
-  dort 500er.
+  dort 500er. **Bleibt gültig — Begründung weiter unten ausdrücklich
+  nachgeprüft. [v3]**
 - **Vier Assets müssen im Push sein** (E2). Fehlt ein Bild, rendert das PDF
   ohne dieses Element (G3-Semantik: `null` statt Fehler); fehlt die Schrift,
   läuft alles in Helvetica (G13.1). Beides ist kein Absturz und beides ist
@@ -1300,16 +1301,42 @@ teuersten Zusagen dieser Spec sind.
   Arbeitskopie (G19). [v2]**
 - **Kein `queue:restart`:** WA-Versand ist synchron, Ausstellung und Rendering
   laufen im Request. Kein Worker-Code in diesem Paket.
-- **Vor Live nötig, außerhalb Code:** `Oswald-SemiBold.ttf` aus
+- **Vor Live nötig, außerhalb Code [nachgezogen v3]:** `Oswald-SemiBold.ttf` aus
   `googlefonts/OswaldFont` samt `OFL.txt` ins Modul legen (G15), die drei
   freigestellten PNGs ablegen (besser: Logo und Unterschrift im Original von
-  RheinGedeck statt aus dem Scan), Zertifikat-Vorlage per Command anlegen
-  (E10.3), WhatsApp-Template bei Meta einreichen und genehmigen lassen
-  (**Body-Variable für den Link**, kein URL-Button), Settings
-  `training_certificate_wa_template_id` und `default_certificate_template_id`
-  setzen (Muster G21).
-- **Merge-Gate: `docs/zertifikat/guard-landkarte-511451c.md` — alle 20
-  Handlungszeilen abgehakt. [v2]**
+  RheinGedeck statt aus dem Scan), WhatsApp-Template bei Meta einreichen und
+  genehmigen lassen (**Body-Variable für den Link**, kein URL-Button), Setting
+  `training_certificate_wa_template_id` setzen (Muster G21).
+
+  **Entfallen:** ~~Zertifikat-Vorlage per Command anlegen (E10.3)~~ — der Inhalt
+  ist Teil des Deploys, es gibt keinen Seed-Command.
+  ~~Setting `default_certificate_template_id` setzen~~ — es gibt keine Vorlagen-ID.
+
+  **Neu, und es ist ein eigener Schritt, keine Fußnote:** Setting
+  `issue_training_certificates` auf `true` setzen. **Default ist `false`**, das
+  Feature ist nach dem Deploy also aus, bis jemand es bewusst einschaltet — und
+  das ist die gewollte Richtung für ein Feature, das personenbezogene Dokumente
+  an abgelehnte Bewerber verschickt. Wer nach dem Deploy testet und „es passiert
+  nichts" beobachtet, prüft zuerst dieses Setting. Es ist zugleich der
+  **Abschaltweg ohne Deploy**: in v2 war `default_certificate_template_id`
+  faktisch dieser Schalter (kein Wert → nichts auszustellen), und ohne Ersatz
+  wäre der einzige Weg zurück ein Deploy gewesen.
+
+- **Zwei-Push-Struktur bleibt nötig [v3, ausdrücklich geprüft].** Der Grund ist
+  unverändert vorhanden: das Feature bringt weiterhin eine neue öffentlich
+  erreichbare Route (`/recruiting/zertifikat/{uuid}`, §E9/Task 10), die auf
+  `rec_training_certificates` auflöst. Ein Feature-Deploy vor der Migration
+  erzeugt dort 500er. Der Zuschnitt v3 ändert daran nichts — er nimmt nur die
+  `type`-Spalte aus der *Notwendigkeit* heraus (sie hat keinen Konsumenten mehr),
+  nicht die Tabelle. Bliebe nur die `type`-Spalte, könnte man zusammenlegen; mit
+  `rec_training_certificates` nicht.
+- ~~**Merge-Gate: `docs/zertifikat/guard-landkarte-511451c.md` — alle 20
+  Handlungszeilen abgehakt. [v2]**~~ **ENTFÄLLT [v3].** Abzuhaken ist nichts: es
+  landet keine Zeile in `rec_contract_templates`, also greift keine der 22
+  Handlungszeilen. Die Datei bleibt als versionierte Analyse für den Rückweg
+  liegen und trägt oben einen Vermerk. **Damit hat dieses Paket kein
+  Merge-Gate-Artefakt mehr** — das ist eine Folge der Zuschnitt-Entscheidung und
+  soll nicht als Versehen gelesen werden.
 
 ## Betroffene Dateien
 

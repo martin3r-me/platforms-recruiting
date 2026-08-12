@@ -3514,7 +3514,7 @@ git commit -m "feat(recruiting): Zertifikat in MA- und Bewerber-Portal bei den V
 
 ### Task 15: Vorlagen-Editor — Typ, Test-PDF, Zeichen prüfen
 
-> **ENTFÄLLT durch den Zuschnitt v3, vollständig.**
+> **ENTFÄLLT — Zuschnitt v3, entschieden am 12.08.2026, vollständig. Der Task wird NICHT aus dem Plan gelöscht: eine Lücke in der Nummerierung liesse offen, ob hier etwas vergessen wurde oder bewusst wegfiel.**
 >
 > Es gibt keine Zertifikat-Vorlage, also nichts zu editieren: kein Typ-Dropdown, kein Badge, keine Vokabular-Hilfe, und **keine der beiden Knöpfe** (Test-PDF, Zeichen prüfen). Das ist mehr als das Zurücknehmen der „load-bearing"-Markierung an §E8 — die Knöpfe hatten ihren Platz im Editor, und der existiert nicht.
 >
@@ -3523,6 +3523,8 @@ git commit -m "feat(recruiting): Zertifikat in MA- und Bewerber-Portal bei den V
 > **Wer diesen Task reaktiviert, muss zuerst das Textarea zurückbringen.** Ein Test-PDF-Knopf über deploy-gebundenem Inhalt wäre ein Bequemlichkeitswerkzeug, kein Wächter, und darf nicht als solcher geführt werden.
 >
 > Was aus diesem Task **schon gebaut ist und bleibt:** `FontGlyphCoverage` samt drittem Zustand (Task 4/4a). Es beschreibt jetzt eine Klasse, die der Render-Test benutzt, keinen Knopf.
+>
+> **Reaktivierung** nur zusammen mit dem Rückweg, also wenn der Inhalt wieder eine Vorlage wird. Siehe Spec, Abschnitt „Aufgegeben mit dem Zuschnitt v3“, und die nicht ausgeführte Guard-Analyse in `docs/zertifikat/guard-landkarte-511451c.md`.
 
 
 **Files:**
@@ -3728,12 +3730,14 @@ git commit -m "feat(recruiting): Vorlagen-Editor mit Typ, Test-PDF und Zeichen-P
 
 ### Task 16: Seed-Command für die erste Zertifikat-Vorlage
 
-> **ENTFÄLLT durch den Zuschnitt v3.** Es gibt keine Vorlage zu seeden; der Inhalt ist Teil des Deploys.
+> **ENTFÄLLT — Zuschnitt v3, entschieden am 12.08.2026. Nicht gelöscht, aus demselben Grund wie Task 15 und 17: die Nummerierung soll zeigen, dass hier bewusst nichts steht.** Es gibt keine Vorlage zu seeden; der Inhalt ist Teil des Deploys.
 >
 > **Zwei Dinge aus diesem Task ziehen um, statt zu verschwinden:**
 >
 > 1. **Der Vorlageninhalt selbst** — das HTML mit den vier Platzhaltern und der Kenntnisliste — wird der feste Block in `TrainingCertificateHtml` bzw. in der Ausstellung. Er ist nicht verloren, er wechselt nur den Ort.
 > 2. **Die HTML-Entity-Schreibweise `&#9733;` für die ★ bleibt Absicht** und der Grund bleibt derselbe: `FontGlyphCoverage` dekodiert Entities (in Task 4 direkt verprobt), die Zeichenprüfung greift also auch auf diese Schreibweise. Wer die Dekodierung für unnötig hält und entfernt, macht die Prüfung am **einzigen ausgelieferten Inhalt** still blind. Das galt für die geseedete Vorlage und gilt unverändert für den festen Block — der Hinweis muss mit ihm umziehen.
+>
+> **Reaktivierung** nur zusammen mit dem Rückweg, also wenn der Inhalt wieder eine Vorlage wird. Siehe Spec, Abschnitt „Aufgegeben mit dem Zuschnitt v3“, und die nicht ausgeführte Guard-Analyse in `docs/zertifikat/guard-landkarte-511451c.md`.
 
 
 **Files:**
@@ -3912,7 +3916,7 @@ git commit -m "feat(recruiting): Seed-Command fuer die Zertifikat-Vorlage ZERT-S
 
 ### Task 17: Guard-Landkarte abarbeiten — die 22 Handlungszeilen
 
-> **ENTFÄLLT durch den Zuschnitt v3 — vollständig, und das ist der Hauptgewinn der Entscheidung.**
+> **ENTFÄLLT — Zuschnitt v3, entschieden am 12.08.2026, vollständig, und das ist der Hauptgewinn der Entscheidung. Nicht gelöscht: die Analyse dahinter lebt weiter, siehe unten.**
 >
 > Die 22 Handlungszeilen existieren ausschließlich, weil eine Zertifikat-Zeile in `rec_contract_templates` für jede Query sichtbar wäre, die Vorlagen liest. Keine Zeile, nichts zu filtern.
 >
