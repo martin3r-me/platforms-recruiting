@@ -597,7 +597,11 @@ Seite**, eingebettet `Oswald-SemiBold` + `DejaVuSans`, 6 Bildobjekte.
 **Nachgemessen mit `isRemoteEnabled = false`, also dem Live-Wert aus G14:
 byteidentisch. [v2]** (v1 hatte mit `true` gemessen — der Unterschied ist damit
 ausgeschlossen, nicht bloß unwahrscheinlich.) Prototyp und Messumgebung liegen
-unter `docs/zertifikat/mockups/prototyp/`.
+unter `/Users/shaustein/Documents/dev/docs/zertifikat/mockups/prototyp/` —
+**absoluter Pfad, außerhalb des Repos.** Die Schreibweise ohne Präfix war
+irreführend: das Repo hat ein eigenes `docs/zertifikat/`, das nur die
+Guard-Landkarte enthält, man landet dort also in einem existierenden
+Verzeichnis ohne die Datei.
 
 **E8 — Test-PDF und Glyph-Prüfung im Vorlagen-Editor. [v2]**
 

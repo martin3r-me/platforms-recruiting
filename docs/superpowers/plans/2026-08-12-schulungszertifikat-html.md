@@ -1373,7 +1373,18 @@ git commit -m "feat(recruiting): Asset-Resolver fuer Zertifikate — ein Resolve
 
 **Layout-Entscheidung, die dieser Task festlegt:** Die Hülle emittiert die drei Bilder an fixen Positionen — Logo und Headline oben im Fluss, der Unterschriften-Block absolut in `.zert-fuss-links`. Der Vorlageninhalt liefert **nur Text**: Labels, Name, Kursname, Datum, Kenntnisliste, die Ausstellungszeile und den rechten Fußblock mit dem Schulungsleiter. Grund: die Bilder sind über alle Zertifikat-Vorlagen identisch und dürfen von HR nicht verschoben werden.
 
-Geometrie aus dem verifizierten Prototyp (`docs/zertifikat/mockups/prototyp/render_live.php`): Logo 40 mm, Headline 116 mm, Unterschriftsbild 54 mm, Ausstellungszeile `bottom: 46mm`.
+Geometrie aus dem verifizierten Prototyp (`/Users/shaustein/Documents/dev/docs/zertifikat/mockups/prototyp/render_live.php` — **absoluter Pfad, außerhalb des Repos**; das Repo hat ein eigenes `docs/zertifikat/`, das nur die Guard-Landkarte enthält): Logo 40 mm, Headline 116 mm, Unterschriftsbild 54 mm, Ausstellungszeile `bottom: 46mm`.
+
+> **`font-weight` im `@font-face` ist `normal`, und das ist Absicht — nicht `600`.** Die ausgelieferte Datei heißt `Oswald-SemiBold.ttf`, also ist `font-weight: 600` die intuitive Deklaration. Sie fällt **stumm auf Helvetica** zurück, solange der `body` nicht ebenfalls `font-weight: 600` fordert. Gemessen mit intaktem Font, sonst identischen Optionen, `/BaseFont` im erzeugten PDF:
+>
+> | `@font-face` | `body` | `/BaseFont` |
+> |---|---|---|
+> | `normal` | (keine Angabe) | `Oswald-SemiBold` |
+> | `600` | (keine Angabe) | **`Helvetica`** |
+> | `600` | `font-weight:600` | `Oswald-SemiBold` |
+> | `bold` | `font-weight:bold` | `Oswald-SemiBold` |
+>
+> Dieselbe Fehlerklasse wie der fehlende `chroot`: keine Exception, kein Log, das PDF sieht auf den ersten Blick brauchbar aus. Wer die Deklaration an den Dateinamen „angleicht", muss den `body` mitziehen — oder er bricht die Schrift still. Gefangen wird das von Task 9, Assertion 2 (`/BaseFont` enthält `Oswald-SemiBold`); deshalb darf die Assertion nicht aufgeweicht werden.
 
 - [ ] **Step 1: Failing test schreiben**
 
@@ -2381,7 +2392,19 @@ git commit -m "feat(recruiting): Zertifikat-Ablage und Ausstellungs-Service"
 
 > **Mechanik-Auflage: keine `grep`- und keine Literal-String-Assertions.** `grep -c "/Type /Page"` und `grep -c "/BaseFont"` liefern auf einem DomPDF-PDF je 0 Treffer. Wer so assertiert, baut einen Test, der immer grün ist.
 
-**Gemessene Referenz aus dem Prototyp** (`docs/zertifikat/mockups/prototyp/render_live.php`, mit `isRemoteEnabled=false`): 315 802 Bytes, 1 Seite, `SUBAAB+Oswald-SemiBold` + `SUBAAC+DejaVuSans`, 6 Bildobjekte.
+**Gemessene Referenz aus dem Prototyp** (`/Users/shaustein/Documents/dev/docs/zertifikat/mockups/prototyp/render_live.php` — **absoluter Pfad, außerhalb des Repos**, siehe Hinweis in Task 6; mit `isRemoteEnabled=false`): 315 802 Bytes, 1 Seite, `SUBAAB+Oswald-SemiBold` + `SUBAAC+DejaVuSans`, 6 Bildobjekte.
+
+**Was Assertion 2 tatsächlich abdeckt — gemessen, nicht erschlossen.** Ein beschädigter Font kommt in mehreren Abstufungen vor, und die drei Wächter des Pakets reagieren unterschiedlich. Gemessen gegen die echte `Oswald-SemiBold.ttf` (109 120 Byte), Prüftext `STEHEMPFANG ★`:
+
+| Zustand der Datei | `TrainingCertificateAssets::resolve()` | `FontGlyphCoverage::missing()` | `/BaseFont` im PDF |
+|---|---|---|---|
+| intakt (109 120 B) | schweigt | meldet `★` | `Oswald-SemiBold` |
+| abgeschnitten 40 % (43 648 B) | schweigt | meldet `★` | **`Helvetica`** |
+| abgeschnitten 5 % (5 456 B) | schweigt | meldet `★` | **`Helvetica`** |
+| 3 Byte | schweigt | **schweigt (= „nichts fehlt")** | **`Helvetica`** |
+| 0 Byte | meldet | **schweigt (= „nichts fehlt")** | **`Helvetica`** |
+
+Daraus zwei verbindliche Folgerungen: **(a)** Assertion 2 ist der einzige Wächter, der jede Beschädigungsstufe rot macht — sie aufzuweichen nimmt dem Paket den einzigen wirksamen Schutz gegen stilles Helvetica. **(b)** Assertion 3 (`FontGlyphCoverage`) ist **kein** Schutz gegen einen kaputten Font: bei unparsbarer Datei liefert sie `[]`, was „nichts fehlt" bedeutet — eine kaputte Schrift bekommt dort ein besseres Zeugnis als eine intakte. Sie prüft Zeichenabdeckung, nichts sonst. Wer Assertion 2 mit Verweis auf Assertion 3 für redundant hält, irrt.
 
 **Haltung bei Fehlschlag — verbindlich:** Dieser Task ist ein **Erstnachweis**, keine Absicherung. Der Prototyp ist kein Code; bis hier grün ist, ist nicht belegt, dass die eine Seite und die eingebettete Schrift auch aus dem gebauten Pfad herauskommen. Schlägt eine Assertion fehl, ist das ein **Befund über den gebauten Pfad** — kein Anlass, die Erwartung anzupassen. Also: nicht die Seitenzahl-Erwartung auf 2 setzen, nicht die Font-Assertion aufweichen, nicht den Glyph-Test überspringen. Ursache im Pfad suchen (meist `chroot`, Asset-Pfad oder ein Abstand im Fließteil) und dort beheben.
 
