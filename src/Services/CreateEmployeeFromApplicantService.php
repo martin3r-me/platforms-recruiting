@@ -24,6 +24,10 @@ use Platform\Recruiting\Models\RecEmployee;
  *  - Setzt applicant.auto_pilot = false (kein weiterer Reminder am Bewerber)
  *  - Dupliziert den CRM-Contact-Link mit linkable_type='rec_employee'
  *  - Schreibt RecAutoPilotLog Type 'employee_created'
+ *  - Stellt das Schulungszertifikat aus (Weg b), HINTER dem Commit und nur
+ *    wenn der Team-Schalter an ist und eine attended-Buchung existiert. Kein
+ *    Versand. Scheitert das, bleibt der Mitarbeiter — siehe
+ *    issueTrainingCertificate() unten.
  *
  * Idempotent: existiert schon ein RecEmployee fuer diesen Applicant
  * (FK rec_applicant_id), wird der existierende zurueckgegeben — kein
@@ -40,7 +44,7 @@ class CreateEmployeeFromApplicantService
             return $existing;
         }
 
-        return DB::transaction(function () use ($applicant, $createdByUserId) {
+        $employee = DB::transaction(function () use ($applicant, $createdByUserId) {
             $applicant->loadMissing(['legalStatus', 'crmContactLinks.contact']);
 
             $extraValues = $this->collectExtraFieldValuesByName($applicant);
@@ -149,6 +153,99 @@ class CreateEmployeeFromApplicantService
 
             return $employee->fresh();
         });
+
+        // WEG (b) DER ZERTIFIKAT-AUSSTELLUNG, und die Stelle ist die Aussage:
+        // HIER, hinter dem schliessenden `});` der Transaktion, nicht in ihrer
+        // letzten Zeile. Innerhalb waere "alles oder nichts" die Zusage, und
+        // genau die will man hier nicht: ein Mitarbeiter OHNE Zertifikat ist ein
+        // legitimer Zustand, keine Mitarbeiter-Anlage wegen eines Defekts im
+        // Zertifikat-Pfad ist keiner. Wer den Aufruf in die Closure schiebt,
+        // braucht dort einen catch — also eine Ausnahme von einer Zusage, die
+        // man von vornherein nicht will.
+        //
+        // Der Unterschied zum Ablehnen-Zweig (HrDeskRoutingService, dort
+        // INNERHALB der Transaktion) ist echt: dort hat HR einen Haken bewusst
+        // gesetzt und wuerde sonst glauben, beides sei passiert. Hier hakt
+        // niemand etwas an.
+        $this->issueTrainingCertificate($applicant);
+
+        return $employee;
+    }
+
+    /**
+     * Jeder Teilnehmer, der Mitarbeiter wird, bekommt sein Zertifikat — ohne
+     * Zutun. Kein Versand: der neue Mitarbeiter bekommt seine Portal-Einladung
+     * ohnehin, und dort steht das Zertifikat (Spec §D3).
+     *
+     * ZWEI GATES, und ihre Reihenfolge ist gemessen, nicht beliebig:
+     *  1. der Team-Schalter. Dieser Weg hat keine UI, der Schalter ist die
+     *     einzige Bremse — und er ist per Default AUS, also der Zustand jedes
+     *     heute existierenden Teams. Deshalb steht er vorn: solange er aus ist,
+     *     kostet die Mitarbeiter-Anlage genau diesen einen Query mehr als
+     *     vorher und keinen zweiten.
+     *  2. die attended-Buchung. Direkteinstellungen und ZAS-Importe haben keine
+     *     Schulung; ein Zertifikat waere dort ein Dokument mit leerem Datum und
+     *     leerem Schulungsleiter, also eine falsche Aussage in Papierform.
+     * Beide Faelle sind KEIN Fehler und schreiben deshalb auch keine Log-Zeile.
+     *
+     * Der Schalter wird VORHER gefragt, statt den Wurf von issue() zu fangen:
+     * die Meldung "Ausstellung ist nicht eingeschaltet" im Fehler-Log waere eine
+     * Falschmeldung ueber einen Normalzustand.
+     *
+     * EIGENER SAVEPOINT um die Ausstellung, aus demselben Grund wie beim
+     * Kontaktbuch-Sync weiter oben: DirectHire\Index::createEmployee() ruft
+     * createOrUpdate() innerhalb einer EIGENEN DB::transaction() auf. Dann ist
+     * dieser Aufruf hier nicht hinter einem Commit, sondern nur hinter einem
+     * Savepoint (gemessen: transactionLevel 1 statt 0), und ein gefangener
+     * Statement-Fehler wuerde auf abort-on-error-Engines die Transaktion des
+     * Aufrufers vergiften — der Folgefehler waere dann die Mitarbeiter-Anlage,
+     * also genau das, was diese Methode nicht anfassen darf.
+     *
+     * \Throwable UND NICHT EINE LISTE, und das ist eine Messung, keine
+     * Bequemlichkeit: der Pfad wirft \RuntimeException (der Feature-Guard und
+     * jede QueryException, die ueber PDOException von RuntimeException erbt),
+     * \InvalidArgumentException (sechs Stellen in TrainingLeaderResolver und
+     * TrainingCertificateContent, also LogicException), \Exception
+     * (BindingResolutionException, wenn der Service nicht aufloesbar ist) und
+     * \Error (TypeError bei kaputten Modell-Daten). \Exception und \Error sind
+     * die beiden EINZIGEN Implementierungen von \Throwable in PHP — eine
+     * Aufzaehlung waere hier also nur eine laengere Schreibweise fuer
+     * \Throwable, die vortaeuscht, sie liesse etwas durch. Lieber ehrlich breit
+     * als kosmetisch verengt.
+     */
+    private function issueTrainingCertificate(RecApplicant $applicant): void
+    {
+        try {
+            $certificates = app(\Platform\Recruiting\Services\IssueTrainingCertificateService::class);
+
+            if (!$certificates->isEnabledForTeam((int) $applicant->team_id)) {
+                return;
+            }
+
+            $hatSchulungBesucht = $applicant->interviewBookings()
+                ->where('status', 'attended')
+                ->exists();
+
+            if (!$hatSchulungBesucht) {
+                return;
+            }
+
+            DB::transaction(fn () => $certificates->issue($applicant, null));
+        } catch (\Throwable $e) {
+            // Eigener Marker: ein Fehler bei der Ausstellung darf im Log nicht
+            // wie einer beim Bewertungs-Transfer aussehen. Und Log::error, nicht
+            // warning — ein Zertifikat, das ein Teilnehmer bekommen sollte und
+            // nicht bekommt, ist ein Fehler, auch wenn die Anlage weiterlief.
+            // Die Bewerber-ID muss mit, sonst ist die Zeile nicht nachverfolgbar
+            // (dieser Weg laeuft ohne angemeldeten Benutzer und ohne UI, in der
+            // die Meldung sonst auftauchen koennte).
+            Log::error('[CreateEmployeeFromApplicantService] Zertifikat-Ausstellung nach MA-Anlage fehlgeschlagen', [
+                'applicant_id' => $applicant->id,
+                'team_id'      => $applicant->team_id,
+                'exception'    => get_class($e),
+                'error'        => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
