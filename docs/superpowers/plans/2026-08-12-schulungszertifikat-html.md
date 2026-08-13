@@ -3280,6 +3280,18 @@ git commit -m "feat(recruiting): Zertifikat-Ausstellung im Ablehnen-Zweig des HR
 
 ### Task 12: WhatsApp-Zustellung für Weg (a)
 
+> **NACHTRAG nach der Umsetzung: warum der Template-Guard da ist. Er darf nicht als „das macht der Sender doch schon" wegfallen.**
+>
+> Der Guard prüft, dass das konfigurierte Meta-Template die Body-Variable `{{zertifikat_link}}` **wirklich enthält**, bevor gesendet wird. Er war nicht beauftragt und ist trotzdem richtig, und der Grund ist gemessen:
+>
+> **Ohne ihn füllt der Builder ein Template ohne die Variable mit dem BEISPIELTEXT.** Der Send **gelingt**, `wa_sent_at` wird gestempelt, und der abgelehnte Bewerber bekommt eine Nachricht **ohne Link**. Kein Fehler, kein rotes Signal, keine Log-Zeile — und das Dropdown in den Einstellungen listet **jedes genehmigte Template**, die Fehlkonfiguration ist also einen Klick entfernt.
+>
+> Das ist die Fehlerklasse dieses Pakets mit einem Menschen am anderen Ende: der Bewerber sieht eine sinnlose Nachricht, HR sieht einen erfolgreichen Versand, und niemand erfährt, dass das Dokument nie zugestellt wurde. Wer den Guard entfernt, weil `sendToMany` ja Fehler fängt, verwechselt „der Sender bricht nicht ab" mit „die Nachricht ist brauchbar".
+>
+> **Der bittere Zwilling, ebenfalls in dieser Umsetzung gefunden:** mein Brieftext sah `flash('error')` für den Fehlerfall vor. Die HR-Seite rendert nur `session('message')`, das Core-Layout nichts — **die Meldung, die HR sagt „lade das PDF herunter und verschick es von Hand", wäre unsichtbar geblieben.** Der Fallback für den Fehlerfall war selbst stumm. Daraus ist die Meldekanal-Auflage in Task 13, 14 und 18 geworden.
+>
+> **Zweiter Zusatz derselben Runde:** ein Doppelversand-Guard an `wa_sent_at` — zwei offene HR-Fälle zum selben Bewerber sind ein belegter Weg. Ein *fehlgeschlagener* Versand bleibt ausdrücklich wiederholbar.
+
 **Files:**
 - Modify: `src/Models/RecApplicantSettings.php`
 - Modify: `src/Livewire/HrDesk/Index.php` (`confirmResolve`, nach dem Commit)
@@ -3412,6 +3424,10 @@ git commit -m "feat(recruiting): WhatsApp-Zustellung des Zertifikats mit Link al
 >
 > **1) `issue()` WIRFT bei ausgeschaltetem Schalter** (der Rückgabetyp ist nicht nullable). Dieser Weg hängt an der **Mitarbeiter-Anlage** — also muss er **vorher** `IssueTrainingCertificateService::isEnabledForTeam()` fragen und darf den Aufruf **nicht** in ein `try/catch` legen. Ein `try/catch` sähe defensiv aus und wäre das Gegenteil: es würde jede andere Ursache mitschlucken, und ein ausgeschaltetes Feature dürfte niemals die Anlage eines Mitarbeiters mitreißen — genauso wenig wie ein Fehler im Zertifikat.
 >
+> **4) Meldekanal prüfen, nicht annehmen.** Geht eine Meldung dieses Tasks über einen Kanal, den die betroffene Seite **tatsächlich rendert**? Bei Task 12 wäre `flash('error')` unsichtbar geblieben: die HR-Seite rendert nur `session('message')`, das Core-Layout nichts. Das war der bittere Zwilling des Template-Guards — **der Fallback für den Fehlerfall wäre selbst stumm gewesen.** Also: den Kanal am Blade nachsehen, nicht am Framework-Wissen.
+>
+> **5) Der Template-Guard aus Task 12 gilt hier NICHT, und das ist der Grund, ihn zu erwähnen:** Weg (b) verschickt nichts (§D3). Wenn du also über einen WhatsApp-Versand nachdenkst, ist der Task falsch verstanden.
+>
 > **3) Das Query-Protokoll aus Task 11 mitnehmen — dieselbe Konstellation, derselbe blinde Fleck.** Dieser Task hängt einen Hook in einen **bestehenden** Ablauf (Mitarbeiter-Anlage), genau wie Task 11 in `rejectCase()`. Dort hat ein Zustands-Test **nicht** genügt: die Mutation „Settings-Lookup vor den Guard ziehen, nichts schreiben" ließ Zustand und Ablauf **völlig korrekt** und wäre grün durchgelaufen. Rot wurde sie erst durch eine Assertion auf das **Query-Protokoll**:
 >
 > ```
@@ -3530,6 +3546,10 @@ git commit -m "feat(recruiting): Zertifikat automatisch bei der Mitarbeiter-Anla
 ### Task 14: Beide Portale zeigen das Zertifikat
 
 > **GEÄNDERT durch den Zuschnitt v3, an einer Stelle die man leicht übersieht.** Der Spec-Ausschnitt unten setzt `display_name` = **Vorlagenname**. Es gibt keine Vorlage; `display_name` wird ein konstanter String („Teilnahme-Zertifikat" o. ä.), passend zur `kind`-Konstante. Alles andere an diesem Task bleibt unverändert — insbesondere die Pflicht-Reihenfolge des `issued`-Zweigs vor der `signed_at`-Bedingung und die Mitzählung in `ApplicantPortal:78`.
+>
+> **MELDEKANAL PRÜFEN, nicht annehmen** (aus Task 12, wo es teuer war): geht eine Meldung dieses Tasks über einen Kanal, den die jeweilige Portal-Seite **tatsächlich rendert**? Bei Task 12 wäre `flash('error')` unsichtbar geblieben — die HR-Seite rendert nur `session('message')`, das Core-Layout nichts. Hier betrifft es zwei verschiedene Blades in zwei verschiedenen Portalen; **prüf beide getrennt**, sie müssen nicht denselben Kanal haben.
+>
+> **Und das ist der zweite und letzte Blade-Task des Pakets.** `php tools/blade-check.php` war bis Task 11 im Worktree **tot** (Exit 2, Autoloader-Pfad fest vier Ebenen aufwärts) und ist dort repariert worden. Es ist hier das einzige Werkzeug, das überhaupt etwas prüft — Livewire-Komponenten sind im Modul nicht instanziierbar. Lauf es und nenn die Ausgabe.
 
 
 **Files:**
@@ -4226,3 +4246,37 @@ git commit -m "feat(recruiting): type-Guards an allen 22 Stellen der Guard-Landk
 **Deploy-Reihenfolge:** Migrationen (Task 1+2) zuerst pushen, Feature danach — Task 10 bringt eine öffentlich erreichbare Route, die ohne Tabelle 500er wirft. Danach `composer.lock`-Bump in `meingedeck`. Kein `queue:restart` (kein Worker-Code in diesem Paket).
 
 **Live-Sichttest** nach dem Deploy: die fünf Schritte aus der Spec, inklusive „Zeichen prüfen" mit einem eingefügten ★ und der Prüfung, dass das Bewerber-Portal nach der Ausstellung nicht mehr „leer" meldet.
+
+---
+
+### Task 18: Bedienelement für den Team-Schalter `issue_training_certificates`
+
+**Nachträglich eingefügt am 13.08.2026, nach Task 12.** Die Nummer 18 ist frei, weil die ursprüngliche Task 18 zu Task 0 wurde; 15, 16 und 17 bleiben als „entfällt" stehen und werden nicht neu belegt.
+
+**Anlass, gemessen:**
+
+```
+$ grep -rln "issue_training_certificates" resources/views/ src/Livewire/ | wc -l
+       0
+```
+
+Der Schalter existiert in `RecApplicantSettings::DEFAULT_SETTINGS` (Default `false`) und wird von Task 8, 11 und 13 geprüft — aber **kein Task des Plans legt ein Bedienelement dafür an.** Live wäre er damit nur per SQL einschaltbar, und weil der Default `false` ist, heißt das: **nach dem Deploy ist das Feature aus und niemand kann es über die Oberfläche einschalten.**
+
+Der Abschaltweg war eine ausdrückliche Vorgabe (§C3), damit man nicht deployen muss, um das Feature stillzulegen. Der Einschaltweg fehlt aus demselben Grund. Und ein Feature-Flag, das nur die Datenbank kennt, ist in einem halben Jahr ein toter Schalter — von denen hat dieses Paket schon zwei gefunden.
+
+**WARUM EIGENER TASK, NICHT IN TASK 14 EINGEBAUT** (Entscheidung des Auftraggebers): Task 14 ist der zweite Blade-Task und fällt in Dateien, die niemand testen kann (Livewire ist im Modul nicht instanziierbar). **Zwei Blade-Änderungen in einem Task heißt, dass beim ersten Klick nach dem Deploy zwei Dinge gleichzeitig falsch sein können.**
+
+**Files:**
+- Modify: das Einstellungs-Modal der Bewerber-Einstellungen (dieselbe Fläche, in der `minor_rejection_template_id` und `training_certificate_wa_template_id` sitzen)
+
+**AUFLAGE ZUM EINFÜGEPUNKT — der Grund ist gemessen, nicht vermutet.** Bei Task 12 hätte mein erster Vorschlag für den Einfügepunkt **den Jugendschutz-Hinweis von seinem Select getrennt.** Genau deshalb wird das nicht nebenbei gemacht. Der Task liefert im Report eine **Vorher-Nachher-Ansicht der betroffenen Modal-Sektion**, nicht nur den Zeilen-Diff — man muss sehen, was neben was steht.
+
+**AUFLAGE ZUM MELDEKANAL** (aus Task 12, wo es teuer war): prüf, ob Meldungen dieser Fläche über einen Kanal gehen, den die Seite **tatsächlich rendert**. Bei Task 12 wäre `flash('error')` unsichtbar geblieben — die HR-Seite rendert nur `session('message')`, das Core-Layout nichts. Der Fallback für den Fehlerfall wäre selbst stumm gewesen.
+
+**Erinnerung an ein Bestandsverhalten, das hier zählt:** `RecApplicantSettings::getSetting()` liest `$settings[$key] ?? $default ?? (DEFAULT_SETTINGS[$key] ?? null)`. Bei einer **bestehenden** Zeile ohne den Schlüssel trägt allein der Default. Das Bedienelement muss den Schlüssel beim Speichern also **wirklich in die `settings`-Spalte schreiben** — zeigt es nur `true` an, hängt der Live-Zustand weiter am Default. Task 13 hat die Auflage, das zu messen; nimm sein Ergebnis auf.
+
+- [ ] **Step 1: Einfügepunkt bestimmen und die Sektion vorher festhalten**
+- [ ] **Step 2: Schalter einbauen**
+- [ ] **Step 3: Blade-Check (`php tools/blade-check.php`) und Gesamtsuite**
+- [ ] **Step 4: Vorher-Nachher-Ansicht der Sektion in den Report**
+- [ ] **Step 5: Commit**
