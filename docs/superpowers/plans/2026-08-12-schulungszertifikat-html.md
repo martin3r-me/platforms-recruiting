@@ -41,6 +41,20 @@
 
 **1) Falsifizierbarkeitsfrage pro Test: welche plausible Änderung macht ihn rot?** Findet sich keine, ist der Test falsch formuliert oder überflüssig — er belegt dann Unverletzbares und täuscht Schutz vor. Gefunden an Fall 7 des Pin-Tests (Task 6a): er sollte belegen, dass der Lookup-Zweig nicht global übersetzt, aber diese Eigenschaft ist über den Codepfad prinzipiell nicht verletzbar, weil `ZasLookupResolver::loadLabelMap()` selbst guardet. Ein Test, dessen Aussage nicht kaputtzumachen ist, ist kein Test.
 
+**6) `try { … fail(); } catch (\RuntimeException …)` schluckt das eigene `fail()`.** `PHPUnit\Framework\AssertionFailedError` **ist** eine `\RuntimeException` (gemessen). Ein Test, der einen erwarteten Wurf so prüft, wird **grün**, wenn der Wurf ausbleibt — der `fail()`-Aufruf landet im eigenen `catch`.
+
+Zweimal in diesem Durchlauf aufgetreten (Task 8 und die Task-9/10-Fix-Runde), beide Male vom Implementierer selbst gefunden. Der dritte Auftritt wäre der teure: in Tasks 11–14 sind die Tests dann grün statt rot, und **niemand merkt es**, weil ein grüner Test keine Aufmerksamkeit erzeugt.
+
+Sicherer Weg — einer von beiden, nicht der `catch`-Block mit `fail()`:
+```php
+$this->expectException(\InvalidArgumentException::class);   // wenn nur der Typ zählt
+// oder: Exception in eine Variable fangen und danach assertieren
+$e = null;
+try { $fn(); } catch (\Throwable $caught) { $e = $caught; }
+$this->assertInstanceOf(\InvalidArgumentException::class, $e);
+```
+Fängt man selbst, dann `\Throwable` **außerhalb** des Assertion-Pfads, und die Prüfung passiert danach.
+
 **5) Eine Regel aus einer Messung braucht die ISOLIERTE Gegenprobe — sonst schreibt man die Ursache fest, die man vermutet hat, statt der gemessenen.**
 
 Dreimal in diesem Durchlauf passiert, jedes Mal mit demselben Ablauf: eine Messung schlägt fehl, die naheliegende Ursache wird festgeschrieben, und die Regel gilt danach als gemessen.

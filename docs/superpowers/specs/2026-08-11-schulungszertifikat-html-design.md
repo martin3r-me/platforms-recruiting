@@ -1313,6 +1313,22 @@ teuersten Zusagen dieser Spec sind.
   `wire:model.live` + explizitem `:value`, es gibt kein `@entangle` und keinen
   JSON_SET-Workaround im Code. **Kopiermuster, kein Risiko.** **[v2]**
 
+## Live-Sichtprüfung nach dem Deploy — die Liste, die kein Test abdecken kann [v3]
+
+**Warum es diese Liste gibt:** das Modul hat **kein Laravel im Testlauf** (G19). Sieben Eigenschaften des PDF-Controllers sind deshalb von keinem Test gedeckt — nicht aus Nachlässigkeit, sondern strukturell. Ein einziger Feature-Test **im Host-Projekt** würde sechs davon abdecken; im Modul geht das nicht. Die Liste ist beim **ersten Klick nach dem Deploy** abzugehen, in dieser Reihenfolge:
+
+| # | Zu prüfen | Woran man es sieht | Wenn falsch |
+|---|---|---|---|
+| 1 | Die Route antwortet überhaupt | `/recruiting/zertifikat/{uuid}` mit echter uuid → PDF, kein 500 | `storage/fonts` nicht anlegbar (§Deploy) — die Fehlermeldung nennt Pfad und Grund |
+| 2 | **`->stream()`, nicht `->download()`** | PDF wird **im Browser angezeigt**, kein Download-Dialog | Der WhatsApp-Link zwingt zum Download; Bewerber auf Mobilgeräten sehen nichts |
+| 3 | **Die Schrift ist wirklich Oswald** | Überschriften schmal und hoch, nicht Helvetica-breit. Im Zweifel: PDF-Eigenschaften → eingebettete Fonts | Stiller Helvetica-Fallback (G13.1) — kein Fehler, nur ein anderes Dokument |
+| 4 | Unbekannte uuid | erfundene uuid → **404**, keine Fehlerseite | `firstOrFail()` greift nicht |
+| 5 | Die drei Bilder sind da | Logo oben, „ZERTIFIKAT"-Schriftzug, Unterschriftsblock unten links | Assets fehlen im dist-Zip (§Deploy) — dann steht eine `warning`-Zeile im Log |
+| 6 | **Ins Log sehen, nicht nur aufs PDF** | nach dem ersten Aufruf: keine `warning` mit `missing` | Ein fehlendes Bild rendert das PDF **ohne Fehler** — das Log ist der einzige Kanal |
+| 7 | Die Reihenfolge der Render-Schritte | (nur bei Auffälligkeiten) — Optionen werden **nach** `loadHTML()` gesetzt, das ist Absicht (§E1) | Wer sie „aufräumt", bekommt kein Fehler, sondern ein anderes PDF |
+
+**Punkte 2 und 3 sind die wichtigsten**, weil sie beide zur Fehlerklasse dieses Pakets gehören: kein Absturz, kein rotes Signal, nur ein falsches Dokument. Ein Download statt einer Anzeige fällt erst auf, wenn ein Bewerber es meldet — und der meldet nichts, er klickt nur nicht weiter.
+
 ## Deploy
 
 - **Zwei-Push-Struktur:** Migrationen zuerst (`type`-Spalte,
