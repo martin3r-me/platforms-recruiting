@@ -699,3 +699,45 @@ DIE BRIEFTEXTE SIND DIE LETZTE STELLE MIT v2-STAND. Spec und Plan wurden beim
 Zuschnitt gruendlich nachgezogen; die Briefe werden aus dem Plan generiert und
 dann einzeln angereichert, und sie werden nie gegen den Code gelesen. Regel 4 ist
 deshalb keine Empfehlung, sondern ein Schritt vor dem Dispatch.
+
+## REGEL 8 — eine Assertion, die das verbotene Literal tragen muss, macht den Riegel unschliessbar
+
+Gezogen aus Task 4 des Button-Umbaus (2026-08-13), commit 1902598.
+
+DER FEHLER, in meinem eigenen Plan-Code: der Body-Weg wurde ersetzt, und der
+Abschluss-Schritt war ein Riegel-Grep — `grep -rn "BODY_VARIABLE\|zertifikat_link"
+src/ resources/ tests/` muss LEER sein, sonst ist der alte Weg halb da. Im selben
+Plan stand als Test:
+
+    $this->assertStringNotContainsString('zertifikat_link', $blade);
+
+Diese Assertion kann nur existieren, indem sie das Literal traegt, das sie
+verbietet. Sie ist damit selbst ein Treffer des Greps, den sie stuetzen soll — der
+Riegel ist nicht mehr schliessbar, und wer ihn schliessen will, muss den Test
+loeschen. Beides falsch.
+
+DIE FEHLERKLASSE, allgemein: sobald ein Aufraeum-Schritt mit einem Grep endet,
+darf keine Assertion das gesuchte Literal enthalten. Betroffen sind alle
+Negativ-Assertionen (`assertStringNotContainsString`, `assertNotContains`,
+`assertDoesNotMatchRegularExpression` mit fixem Muster) UND Testkommentare, die das
+Literal nennen. Beim Umbau war der zweite Treffer genau das: ein Kommentar in
+SettingsModalCertificateToggleTest, der den alten Variablennamen aussprach.
+
+DER AUSWEG ist nicht "Literal aufteilen" ('zertifikat' . '_link' waere die
+Umgehung, die den Grep austrickst und den naechsten Leser taeuscht), sondern die
+Assertion UMDREHEN: statt zu pruefen, dass das Alte fehlt, pruefen, dass das Neue
+da ist. Angewandt:
+
+    - assertStringNotContainsString('zertifikat_link', $blade)
+    + assertStringContainsString('URL-Button mit Variable an erster Position', $blade)
+
+Gleiche Zusage ("der Hinweis verlangt den Button, nicht die Body-Variable"),
+spezifischer, und der Riegel bleibt mechanisch leer.
+
+WANN DAS WIEDERKOMMT: bei jedem naechsten Riegel-Grep. Das Muster "wir ersetzen X
+durch Y und grepen X am Ende gegen" ist in diesem Modul die uebliche Form, einen
+Doppelweg auszuschliessen — F10 bis F12 der Folgeliste enthalten mindestens einen
+Kandidaten (F12 will `index: 0` an sechs Stellen ersetzen). Die Regel gehoert
+deshalb VOR den Plan, nicht in seine Nachlese: wer einen Riegel-Grep als
+Abschluss-Step schreibt, prueft im selben Zug seine Assertions gegen dasselbe
+Muster.

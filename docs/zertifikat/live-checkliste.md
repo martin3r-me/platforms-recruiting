@@ -36,8 +36,12 @@
       **Grund:** `getSetting()` liest `$settings[$key] ?? $default ?? DEFAULT_SETTINGS[$key]`. Bei einer bestehenden Zeile ohne den Schlüssel trägt allein der Default — schreibt das Formular nicht, bleibt das Feature für immer aus **und der Default verdeckt das.** Gemessen ist der Weg bis `save()`; **nicht** messbar war allein Livewires Hydration `wire:model` → Property, und genau die prüft dieser Punkt.
 - [ ] **B3 · `training_certificate_wa_template_id` setzen** (dasselbe Modal, direkt darunter) — auf das **Button-Template** aus A4.
       **Nach dem Deploy zeigt der Schlüssel noch auf das alte Body-Variablen-Template.** Das ist der bekannte, harmlose Zustand: es wird ausgestellt, es geht **nichts** raus, HR bekommt die Meldung mit „PDF herunterladen und manuell senden". Bewusst kein SQL im Deploy — HR stellt um, und bis dahin trägt der Guard.
-- [ ] **B4 · Sichttest am Hinweistext des Modals — Pflicht, nicht optional.** Unter dem Template-Select muss die erwartete Button-URL **im Klartext** stehen (`https://mitarbeiter.rheingedeck.de/recruiting/zertifikat/{{1}}`).
-      **Warum das kein Test abdeckt:** die URL wird zur Render-Zeit aus `route()` abgeleitet, damit sie Domain und Präfix der laufenden App trägt. Die Suite bootet kein Laravel und hat kein `route()`; der Reihenfolge-Test schneidet den Ausschnitt außerdem **vor** dem Hinweistext ab. Steht dort ein leerer `<code>`-Block oder ein Fehler, fällt es sonst zuerst HR auf.
+- [ ] **B4 · Sichttest am Hinweistext des Modals — DAS IST DIE EINZIGE PRÜFUNG DIESER ZEILE, DIE ES GIBT.** Kein optionaler Blick: unter dem Template-Select muss die erwartete Button-URL **im Klartext** stehen (`https://mitarbeiter.rheingedeck.de/recruiting/zertifikat/{{1}}`).
+      **Warum kein Test das abdeckt — drei Gründe, jeder einzeln ausreichend:**
+      · Die URL wird **zur Render-Zeit aus `route()` abgeleitet**, damit sie Domain und Präfix der laufenden App trägt. Genau das ist der Punkt der Ableitung (Spec W7) — und genau das kann die Suite nicht: sie bootet kein Laravel, es gibt dort kein `route()`.
+      · Der Pin-Test prüft nur, **dass** die Blade den Ausdruck `metaButtonUrl` benutzt, nicht **was** er rendert.
+      · Der Reihenfolge-Test (`SettingsModalCertificateToggleTest`) schneidet den geprüften Ausschnitt **vor** dem Hinweistext ab (`MARKER_ENDE = '@if('`), sieht ihn also gar nicht.
+      **Was schiefgehen kann:** ein leerer `<code>`-Block oder eine Fehlermeldung an der Stelle. Wird dieser Punkt übersprungen, fällt es zuerst HR auf — an der Konfigurationsstelle, an der das Meta-Template richtig gesetzt werden soll.
 
 ## C — Das PDF (sieben strukturell untestbare Punkte des Controllers)
 
