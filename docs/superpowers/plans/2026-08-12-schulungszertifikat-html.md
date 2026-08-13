@@ -73,6 +73,12 @@ Anlass, und es ist der teuerste Fund des Tages: der Task-10-Brief enthielt `->wi
 
 Konkret vor dem Dispatch: jeden im Brief genannten Methodennamen, Relationsnamen und Klassennamen per `grep`/`method_exists` gegen `src/` prüfen. Das kostet eine Minute und fängt genau die Klasse von Fehlern, die erst im Betrieb auffällt.
 
+**ERWEITERT nach Task 11, weil die Namensprüfung allein nicht reichte:** bei jeder **Bestandsmethode, deren Rückgabewert weiterverarbeitet wird, den tatsächlichen Rückgabetyp am Code prüfen — nicht am Namen.**
+
+Anlass: der Task-11-Brief enthielt `in_array($applicant->id, $this->attendedApplicantIds(), true)`. Der Name sagt „Liste von IDs", der Code liefert `pluck(...)->flip()`, also eine **Map `applicantId => Position`**. Die Werte sind `0, 1, 2 …`. Die Prüfung hätte gegen Positionen verglichen und die Checkbox **beim falschen Bewerber** eingeblendet — kein Fehler, keine Exception, nur die falsche Zeile. Der Bestand macht es in der Blade schon richtig, mit `isset()` auf dem Schlüssel.
+
+Regel 4 in ihrer ersten Fassung hätte das **nicht** gefangen: `attendedApplicantIds()` existiert, der Name stimmt, `method_exists` sagt ja. Was fehlte, war ein Blick in den Rumpf. `pluck->flip` sieht von außen aus wie eine Liste, und dieselbe Falle steckt in jedem `keyBy`, `mapWithKeys`, `->flip()` und jeder Methode, die `array_column` mit Indexspalte benutzt.
+
 **3) Ein Kommentar, der eine Falle benennt, muss den sicheren Weg VORGEBEN — nicht den unsicheren beschreiben. Wo so ein Hinweis nötig ist, gehört stattdessen eine Assertion hin.**
 
 Zwei Vertreter in diesem Durchlauf, beide Male war die **Prosa** das Problem, nicht der Code:
@@ -3034,6 +3040,8 @@ git commit -m "feat(recruiting): Public-Route und Controller fuer Zertifikat-PDF
 > - Gilt für **jeden Ablehnungsgrund**, keine Einschränkung auf bestimmte Gründe. Der konkrete Anlass ist heute die Nicht-EU-Ablehnung, **aber wir legen uns nicht auf eine Grundliste fest** — also keine `in_array($reason, [...])`-Bedingung, auch nicht „vorerst".
 > - **Ohne Haken läuft die Ablehnung exakt wie heute:** kein Zertifikat, kein Versand, kein zusätzlicher Query, kein veränderter Ablauf.
 >
+> **KOPPLUNG AN TASK 12 — Bedingung, nicht Kommentar.** Der Modal-Hinweis nennt den „Zertifikat-Link", und der wird erst mit **Task 12** (WhatsApp-Zustellung) real. Das ist bewusst so, **weil 11 und 12 zusammen ausgeliefert werden.** Wird Task 11 je **allein** deployed — oder Task 12 aus dem Paket herausgeschnitten —, ist der Halbsatz zu streichen, sonst verspricht die UI HR eine Nachricht, die nicht rausgeht. Wer den Zuschnitt hier ändert, prüft `resources/views/livewire/hr-desk/index.blade.php` auf „Zertifikat-Link".
+>
 > Der letzte Punkt ist der, der einen Test braucht und nicht nur eine Zusicherung: **die Ablehnung ohne Haken muss nachweisbar unverändert sein.** Das ist die Fehlerklasse dieses Pakets in ihrer teuersten Form — ein Eingriff in `rejectCase()`, der im Normalfall etwas verschiebt, fällt niemandem auf, weil die Ablehnung ja funktioniert.
 
 
@@ -3397,6 +3405,15 @@ git commit -m "feat(recruiting): WhatsApp-Zustellung des Zertifikats mit Link al
 > **ZWEI AUFLAGEN, die in Task 8 gemessen wurden und hier fällig werden:**
 >
 > **1) `issue()` WIRFT bei ausgeschaltetem Schalter** (der Rückgabetyp ist nicht nullable). Dieser Weg hängt an der **Mitarbeiter-Anlage** — also muss er **vorher** `IssueTrainingCertificateService::isEnabledForTeam()` fragen und darf den Aufruf **nicht** in ein `try/catch` legen. Ein `try/catch` sähe defensiv aus und wäre das Gegenteil: es würde jede andere Ursache mitschlucken, und ein ausgeschaltetes Feature dürfte niemals die Anlage eines Mitarbeiters mitreißen — genauso wenig wie ein Fehler im Zertifikat.
+>
+> **3) Das Query-Protokoll aus Task 11 mitnehmen — dieselbe Konstellation, derselbe blinde Fleck.** Dieser Task hängt einen Hook in einen **bestehenden** Ablauf (Mitarbeiter-Anlage), genau wie Task 11 in `rejectCase()`. Dort hat ein Zustands-Test **nicht** genügt: die Mutation „Settings-Lookup vor den Guard ziehen, nichts schreiben" ließ Zustand und Ablauf **völlig korrekt** und wäre grün durchgelaufen. Rot wurde sie erst durch eine Assertion auf das **Query-Protokoll**:
+>
+> ```
+> -Array &0 []
+> +Array &0 [ 0 => 'select * from "rec_applicant_settings" where ("team_id" = ?) limit 1' ]
+> ```
+>
+> Also: die Query-Zahl des unveränderten Pfades **messen, nicht schätzen** (in Task 11 waren es 4, meine Schätzung war 5) und als Konstante festnageln. Der Nachweis „die Mitarbeiter-Anlage läuft mit ausgeschaltetem Feature exakt wie heute" braucht diese Assertion, sonst ist er eine Annahme.
 >
 > **2) Prüf, ob der Schalter beim Einschalten tatsächlich in der Settings-Zeile landet — und berichte das Ergebnis.** Gemessener Hintergrund: `RecApplicantSettings::getSetting()` liest
 >
