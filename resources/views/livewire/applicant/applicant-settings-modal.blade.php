@@ -144,11 +144,12 @@
                          Der Schalter ist ein rohes <input type="checkbox"> wie die beiden
                          Nachbarn dieser Sektion (Duzen oben, Auto-Assign weiter unten). NICHT
                          auf x-ui-input-checkbox umstellen: das ist ein Toggle-Button, der den
-                         Wert per Alpine-entangle(...).live haelt — und entangle verliert in
-                         genau diesem Modal beim Speichern Werte (gemessen an
-                         x-ui-input-select). Fuer den Toggle ist das nicht gemessen; der
-                         Schalter ist die einzige Bremse des ganzen Features, also laeuft er auf
-                         dem Weg, der hier nachweislich schreibt. --}}
+                         Wert per Alpine-entangle haelt, und entangle ist hier der empfindliche
+                         Weg — es bindet nur, wenn der Schluessel schon beim Seitenaufbau in
+                         $settings steht (siehe Docblock von $settings in
+                         ApplicantSettingsModal). Ein rohes wire:model braucht diese
+                         Vorbedingung nicht. Der Schalter ist die einzige Bremse des ganzen
+                         Features, also laeuft er auf dem unempfindlicheren Weg. --}}
                     <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
                         <label class="flex items-center gap-3 cursor-pointer">
                             <input type="checkbox"

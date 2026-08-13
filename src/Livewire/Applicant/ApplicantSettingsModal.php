@@ -17,7 +17,24 @@ class ApplicantSettingsModal extends Component
     public $activeTab = 'general';
 
     public ?RecApplicantSettings $settingsModel = null;
-    public array $settings = [];
+
+    /**
+     * DEFAULT_SETTINGS und NICHT [] — die Schluessel muessen schon beim ersten
+     * Seitenaufbau existieren, sonst kommt keine Select-Auswahl je am Server an.
+     *
+     * Das Modal haengt versteckt in jeder Bewerberliste (index.blade.php:428);
+     * `openSettings()` laeuft erst beim Klick, Alpine initialisiert das x-data
+     * der Selects aber sofort. Ab 20 Optionen laeuft x-ui-input-select im
+     * Searchable-Modus, dessen einziger Rueckweg `@entangle` ist — und
+     * Livewires generateEntangleFunction steigt OHNE Bindung aus, wenn
+     * `$wire.get('settings.<key>')` in diesem Moment undefined ist (nur eine
+     * console.error, kein sichtbarer Fehler). Alpine initialisiert dasselbe
+     * x-data spaeter nicht erneut, das Binding bleibt also fuer die Lebensdauer
+     * der Seite tot: die Auswahl bleibt im Browser, `save()` schreibt den alten
+     * Wert zurueck. `null` als Wert ist unkritisch, es zaehlt allein die
+     * Existenz des Schluessels. Festgenagelt in SettingsModalEntangleKeysTest.
+     */
+    public array $settings = RecApplicantSettings::DEFAULT_SETTINGS;
 
     public $serviceHours = [];
     public $showServiceHoursForm = false;
