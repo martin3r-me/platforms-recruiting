@@ -10,6 +10,7 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Http\Controllers\TrainingCertificatePdfController;
+use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
 
 /**
  * Was routes/public.php ueber das Zertifikat-PDF zusagt.
@@ -170,6 +171,60 @@ class TrainingCertificatePublicRouteTest extends TestCase
         $route = $this->route(self::ROUTE_NAME);
 
         $this->assertSame(['uuid'], $route->parameterNames());
+    }
+
+    /**
+     * Die Form, die bei Meta in der Button-URL stehen muss — abgeleitet, nicht
+     * getippt.
+     *
+     * DIE ERWARTUNG STEHT IM TEST UND NICHT IM PRODUKTIVCODE (Spec W7/B1): eine
+     * Konstante mit dieser Form waere bei einem Praefix- oder Pfadwechsel still
+     * falsch geblieben. So wird dieser Test rot — und das ist die gewuenschte
+     * Wirkung, denn dann muss die Button-URL im Meta-Manager nachgezogen werden
+     * (Spec T1). Was dort wirklich hinterlegt ist, sieht kein Test.
+     *
+     * Das Praefix wird hier gesetzt wie in RecruitingServiceProvider.php:128 —
+     * der router()-Helfer dieser Klasse laedt bewusst ohne, weil er die
+     * Registrierung IN routes/public.php prueft.
+     *
+     * DAS AUFRAEUMEN STEHT IM finally, nicht am Ende des Testkoerpers: bei einer
+     * roten Assertion wird der Rest der Methode nicht mehr ausgefuehrt, und die
+     * Facade-Wurzel bliebe fuer SPAETERE Testklassen stehen — der Schaden faellt
+     * dann nur im Gesamtlauf auf und sieht wie ein fremder Fehler aus.
+     */
+    public function testFormDerMetaButtonUrlKommtAusDerRoute(): void
+    {
+        $container = new Container();
+        Container::setInstance($container);
+        $router = new Router(new Dispatcher($container), $container);
+        $container->instance('router', $router);
+        Facade::setFacadeApplication($container);
+
+        try {
+            $router->prefix('recruiting')->group(function () {
+                require dirname(__DIR__, 2) . '/routes/public.php';
+            });
+            $router->getRoutes()->refreshNameLookups();
+
+            $url = new \Illuminate\Routing\UrlGenerator(
+                $router->getRoutes(),
+                \Illuminate\Http\Request::create('https://mitarbeiter.rheingedeck.de')
+            );
+
+            $mitSentinel = $url->route(
+                TrainingCertificateWaTemplate::ROUTE_NAME,
+                ['uuid' => TrainingCertificateWaTemplate::UUID_SENTINEL]
+            );
+
+            $this->assertSame(
+                'https://mitarbeiter.rheingedeck.de/recruiting/zertifikat/{{1}}',
+                TrainingCertificateWaTemplate::metaButtonUrlFrom($mitSentinel),
+                'Aendert sich Praefix oder Pfad, muss die Button-URL bei Meta nachgezogen werden.'
+            );
+        } finally {
+            Facade::setFacadeApplication(null);
+            Container::setInstance(null);
+        }
     }
 
     /**

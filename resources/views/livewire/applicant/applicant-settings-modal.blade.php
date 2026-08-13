@@ -178,11 +178,22 @@
                             wire:model.live="settings.training_certificate_wa_template_id"
                         />
                     @endif
+                    {{-- Die Form der Button-URL wird aus der Route abgeleitet, nicht als getippter
+                         String gepflegt: Host, Praefix und Pfad stehen damit nur an einer Stelle.
+                         Der Ausdruck steht bewusst EINMAL in dieser Datei — er ist der Anker, mit
+                         dem SettingsModalCertificateToggleTest die Reihenfolge der Sektion prueft.
+                         KEINE Kurzform-Zuweisung mit runden Klammern hier: gemessen mit
+                         tools/blade-check.php verschluckt sie den naechsten @php-Block dieser Datei
+                         und erzeugt einen 500-ParseError. --}}
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
-                        Das Template braucht eine Body-Variable <code>zertifikat_link</code> — keinen URL-Button;
-                        WhatsApp macht die URL im Text automatisch klickbar. Fehlt die Variable, wird nichts
-                        versendet (sonst ginge eine Nachricht ohne Link raus) und die Ablehnung meldet es.
+                        Das Template braucht einen <strong>URL-Button mit Variable an erster Position</strong>;
+                        seine URL muss lauten: <code>{{ $this->metaButtonUrl }}</code>.
+                        Fehlt der Button oder steht er an einer anderen Position, wird nichts versendet
+                        (sonst ginge eine Nachricht ohne Link raus) und die Ablehnung meldet es.
                         Ohne Template wird das Zertifikat trotzdem ausgestellt und muss von Hand verschickt werden.
+                        <br>
+                        <strong>Wichtig bei einem Domainwechsel:</strong> die Basis-URL steht bei Meta und muss
+                        dort nachgezogen werden — das Modul kann nicht prüfen, ob sie stimmt.
                     </p>
 
                     {{-- Standard-Ansprechpartner --}}

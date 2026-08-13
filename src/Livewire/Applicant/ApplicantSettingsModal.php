@@ -362,6 +362,25 @@ class ApplicantSettingsModal extends Component
     }
 
     /**
+     * Die URL, die im Meta-Template hinter dem Zertifikat-Button stehen muss.
+     *
+     * Abgeleitet aus der Route (Spec W7): Host, Praefix und Pfad kommen alle aus
+     * der laufenden App, damit der Hinweistext nicht neben der Wirklichkeit
+     * steht. Was bei Meta WIRKLICH hinterlegt ist, sieht das Modul nie — deshalb
+     * steht der Preis im Hinweistext daneben.
+     */
+    #[Computed]
+    public function metaButtonUrl(): string
+    {
+        return \Platform\Recruiting\Support\TrainingCertificateWaTemplate::metaButtonUrlFrom(
+            route(
+                \Platform\Recruiting\Support\TrainingCertificateWaTemplate::ROUTE_NAME,
+                ['uuid' => \Platform\Recruiting\Support\TrainingCertificateWaTemplate::UUID_SENTINEL]
+            )
+        );
+    }
+
+    /**
      * Bereits konfigurierte Templates, die durch den Account-Filter (oder eine
      * zurückgezogene Meta-Freigabe) aus der Liste fallen, trotzdem anbieten —
      * sonst zeigt das Select "nicht gewählt", während der Wert gespeichert

@@ -169,7 +169,14 @@ class SettingsModalCertificateToggleTest extends TestCase
             'Zertifikat-Gruppenkommentar'  => self::MARKER_GRUPPE,
             'Zertifikat-Schalter'          => 'settings.' . IssueTrainingCertificateService::SETTING_ENABLED,
             'Zertifikat-Template-Select'   => 'name="settings.training_certificate_wa_template_id"',
-            'Zertifikat-Hinweis'           => 'zertifikat_link',
+            // Anker des Hinweistexts: der Ausdruck, mit dem die Blade die aus
+            // der Route abgeleitete Button-URL zieht. Vorher stand hier der Name
+            // der Body-Variable — mit dem Wechsel auf den URL-Button gibt es
+            // keinen solchen Namen mehr, den der Hinweis nennen koennte.
+            // Nachgemessen: der Ausdruck kommt genau einmal in der Datei vor
+            // (grep -c metaButtonUrl => 1); die substr_count-Pruefung unten
+            // haelt das fest.
+            'Zertifikat-Hinweis'           => 'metaButtonUrl',
             'Ansprechpartner-Select'       => 'name="settings.default_contact_user_id"',
         ];
 

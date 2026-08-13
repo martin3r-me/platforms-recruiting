@@ -3,19 +3,26 @@
 namespace Platform\Recruiting\Support;
 
 /**
- * Die drei Namen, an denen die WhatsApp-Zustellung des Schulungszertifikats
- * haengt — an EINER Stelle.
+ * Zwei Namen und eine FORM, an denen die WhatsApp-Zustellung des
+ * Schulungszertifikats haengt — an EINER Stelle.
  *
- * Sie muessen zusammenpassen, stehen aber an vier verschiedenen Orten im
- * Betrieb: die Einstellung im Bewerber-Einstellungs-Modal, die Body-Variable im
- * bei Meta genehmigten Template, der Route-Name in routes/public.php und der
- * Versand in TrainingCertificateWhatsAppDelivery. Drei Strings, vier Orte, und
- * ein Tippfehler faellt erst beim abgelehnten Bewerber auf — deshalb Konstanten
- * und nicht Literale.
+ * Die Namen muessen zusammenpassen, stehen aber an verschiedenen Orten im
+ * Betrieb: die Einstellung im Bewerber-Einstellungs-Modal, der Route-Name in
+ * routes/public.php und der Versand in TrainingCertificateWhatsAppDelivery. Ein
+ * Tippfehler faellt erst beim abgelehnten Bewerber auf — deshalb Konstanten und
+ * nicht Literale.
  *
- * Laravel-frei, damit der Unit-Test die Namen gegen die Blade-Datei pruefen
+ * DIE FORM IST NEU AN DIE STELLE DER BODY-VARIABLE GETRETEN (Spec W7): der Link
+ * geht als dynamischer URL-Button raus, es gibt also keinen Variablennamen mehr,
+ * den zwei Seiten gleich schreiben muessen. Stattdessen muss die bei Meta
+ * hinterlegte Button-URL auf das Pfadsegment der Zertifikat-Route enden.
+ * metaButtonUrlFrom() erzeugt diese Form aus der Route, statt sie als String zu
+ * pflegen — die Begruendung steht dort.
+ *
+ * Laravel-frei, damit der Unit-Test die Namen und den Sentinel-Tausch pruefen
  * kann, ohne einen Container zu bauen (WhatsAppTemplateBodyVariablesTest
- * ::testDerVariablennameStehtAnEinerStelle).
+ * ::testFormDerButtonUrlEntstehtAusDerRoute). route() ruft diese Klasse deshalb
+ * NICHT selbst auf.
  */
 final class TrainingCertificateWaTemplate
 {
@@ -23,28 +30,19 @@ final class TrainingCertificateWaTemplate
      * Team-Einstellung mit der ID des genehmigten Meta-Templates.
      *
      * Eigener Schluessel und NICHT comms_holding_template_id: dieses Template
-     * braucht die Body-Variable unten, die Holding-/Auto-Reply-Templates haben
-     * sie nicht.
+     * braucht den dynamischen URL-Button unten, die Holding-/Auto-Reply-
+     * Templates haben ihn nicht.
      */
     public const SETTINGS_KEY = 'training_certificate_wa_template_id';
 
     /**
-     * Die Body-Variable, in der der Link steckt: {{zertifikat_link}}.
+     * Urlsicherer Platzhalter fuer die Ableitung der Meta-Button-URL.
      *
-     * BODY-Variable und KEIN URL-Button, und das ist keine Stilfrage:
-     * HoldingTemplateComponents::build() iteriert nur ueber Komponenten mit
-     * type === 'BODY' — ein URL-Button bekaeme keinen Parameter und Meta wiese
-     * den Send ab (Spec G7). Der einzige Pfad im Modul, der URL-Buttons fuellt
-     * (Applicant/Show::sendManualTemplate), setzt dort den
-     * Bewerber-FORMULAR-Token ein (G8) und ist damit erst recht keine Option.
-     *
-     * SO ist das Template zu bauen, wenn hier jemand einen Button vermisst:
-     * Fliesstext mit {{zertifikat_link}} an der Stelle, an der die URL stehen
-     * soll. WhatsApp macht URLs im Text automatisch klickbar. Der Umbau von
-     * HoldingTemplateComponents ist der falsche Weg — der Pfad bedient auch
-     * Holding, Auto-Reply und Voice-Note-Antworten.
+     * GEMESSEN, nicht vermutet: {{1}} direkt durch route() zu schicken ergibt
+     * %7B%7B1%7D%7D — die Klammern werden kodiert. Deshalb ein Wort durch
+     * route() schicken und danach tauschen.
      */
-    public const BODY_VARIABLE = 'zertifikat_link';
+    public const UUID_SENTINEL = 'ZERTUUIDPLATZHALTER';
 
     /**
      * Die Position des dynamischen URL-Buttons im Meta-Template.
@@ -67,4 +65,25 @@ final class TrainingCertificateWaTemplate
      * 'uuid' — festgenagelt in TrainingCertificatePublicRouteTest.
      */
     public const ROUTE_NAME = 'recruiting.public.training-certificate';
+
+    /**
+     * Aus einer mit UUID_SENTINEL gebauten Route-URL die Form machen, die im
+     * Meta-Template hinter dem Button stehen muss.
+     *
+     * WARUM ABGELEITET UND NICHT ALS KONSTANTE: die Route registriert nur
+     * /zertifikat/{uuid} (routes/public.php), das Praefix "recruiting" kommt aus
+     * RecruitingServiceProvider.php:128, und der Host kommt aus dem Request. Ein
+     * getippter String waere eine dritte Stelle mit derselben Annahme — und ein
+     * Praefixwechsel haette ihn still falsch gemacht, statt einen Test rot zu
+     * machen. Die Erwartung an das Ergebnis steht deshalb im Test
+     * (TrainingCertificatePublicRouteTest), nicht hier.
+     *
+     * DIESE KLASSE BLEIBT LARAVEL-FREI: sie ruft route() nicht selbst, sondern
+     * nimmt die fertige URL. Den Aufruf macht die Livewire-Komponente, die den
+     * Hinweistext rendert.
+     */
+    public static function metaButtonUrlFrom(string $routeUrlWithSentinel): string
+    {
+        return str_replace(self::UUID_SENTINEL, '{{1}}', $routeUrlWithSentinel);
+    }
 }

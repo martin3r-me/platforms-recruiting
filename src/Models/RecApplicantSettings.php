@@ -58,13 +58,13 @@ class RecApplicantSettings extends Model
         // IssueTrainingCertificateService::SETTING_ENABLED.
         'issue_training_certificates' => false,
         // Schulungszertifikat: genehmigtes WhatsApp-Template, mit dem Weg (a)
-        // den PDF-Link nach der Ablehnung zustellt. Das Template MUSS eine
-        // Body-Variable {{zertifikat_link}} haben — ohne sie fuellt der Builder
-        // die vorhandenen Variablen mit dem Beispieltext und der Bewerber
-        // bekaeme eine Nachricht ohne Link (deshalb der Guard in
-        // TrainingCertificateWhatsAppDelivery). Leer = es wird trotzdem
-        // ausgestellt, nur nicht zugestellt: der Versand ist die Zugabe, nicht
-        // die Bedingung. Schluesselname steht in
+        // den PDF-Link nach der Ablehnung zustellt. Das Template MUSS einen
+        // dynamischen URL-Button an erster Position haben — der Link steckt im
+        // Button, nicht im Fliesstext. Fehlt er, verweigert der Guard in
+        // TrainingCertificateWhatsAppDelivery den Versand, statt eine Nachricht
+        // ohne Link rauszuschicken. Leer = es wird trotzdem ausgestellt, nur
+        // nicht zugestellt: der Versand ist die Zugabe, nicht die Bedingung.
+        // Schluesselname steht in
         // Support/TrainingCertificateWaTemplate::SETTINGS_KEY.
         'training_certificate_wa_template_id' => null,
         // Mitarbeiter-Portal — eigenes Template (Wording: "Willkommen
