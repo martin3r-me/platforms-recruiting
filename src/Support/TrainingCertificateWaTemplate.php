@@ -47,6 +47,17 @@ final class TrainingCertificateWaTemplate
     public const BODY_VARIABLE = 'zertifikat_link';
 
     /**
+     * Die Position des dynamischen URL-Buttons im Meta-Template.
+     *
+     * Eine echte geteilte Zahl: der Sendepfad setzt den Parameter auf diesen
+     * index, und der Guard prueft genau diese Position. Alle sechs
+     * Sendestellen im Modul hardcodieren 0 (Spec H3) — die Zahl ist damit
+     * geteilte Annahme, nicht Wahrheit; der Fall „Button an Position 1" wird
+     * hier sichtbar gemacht statt falsch gesendet.
+     */
+    public const URL_BUTTON_INDEX = 0;
+
+    /**
      * Die oeffentliche PDF-Route (Task 10), adressiert ueber die
      * Zertifikat-uuid.
      *
