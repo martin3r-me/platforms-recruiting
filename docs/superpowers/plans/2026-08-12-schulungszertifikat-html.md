@@ -4295,7 +4295,15 @@ Der Abschaltweg war eine ausdrückliche Vorgabe (§C3), damit man nicht deployen
 
 **AUFLAGE ZUM MELDEKANAL** (aus Task 12, wo es teuer war): prüf, ob Meldungen dieser Fläche über einen Kanal gehen, den die Seite **tatsächlich rendert**. Bei Task 12 wäre `flash('error')` unsichtbar geblieben — die HR-Seite rendert nur `session('message')`, das Core-Layout nichts. Der Fallback für den Fehlerfall wäre selbst stumm gewesen.
 
-**Erinnerung an ein Bestandsverhalten, das hier zählt:** `RecApplicantSettings::getSetting()` liest `$settings[$key] ?? $default ?? (DEFAULT_SETTINGS[$key] ?? null)`. Bei einer **bestehenden** Zeile ohne den Schlüssel trägt allein der Default. Das Bedienelement muss den Schlüssel beim Speichern also **wirklich in die `settings`-Spalte schreiben** — zeigt es nur `true` an, hängt der Live-Zustand weiter am Default. Task 13 hat die Auflage, das zu messen; nimm sein Ergebnis auf.
+**Erinnerung an ein Bestandsverhalten, das hier zählt:** `RecApplicantSettings::getSetting()` liest `$settings[$key] ?? $default ?? (DEFAULT_SETTINGS[$key] ?? null)`. Bei einer **bestehenden** Zeile ohne den Schlüssel trägt allein der Default. Das Bedienelement muss den Schlüssel beim Speichern also **wirklich in die `settings`-Spalte schreiben** — zeigt es nur `true` an, hängt der Live-Zustand weiter am Default.
+
+**HAND-OFF AUS TASK 13, und dieser Task muss ihn EINLÖSEN, nicht wiederholen.** Task 13 hat gemessen, dass der Schlüssel roh in der Spalte landet (`"issue_training_certificates":true`, wegen `array_merge` in `openSettings():53`, sogar ohne Haken als `:false`) — **aber als Reproduktion der zwei Modal-Zeilen, nicht mit gebooteter Livewire-Komponente.** Diese Einschränkung hat der Task-13-Implementierer selbst benannt.
+
+**Auflage:** belege es hier **mit gebooteter Komponente**, nicht als Reproduktion. Grund, wörtlich vom Auftraggeber:
+
+> Sonst haben wir am Ende einen Schalter, der im Formular richtig aussieht und in der Datenbank nicht ankommt — und das ist genau der Fall, den der `?? $default ??`-Fund aus Task 8 beschrieben hat.
+
+Wenn eine gebootete Livewire-Komponente im Modul nicht instanziierbar ist — und nach allem, was dieses Paket gemessen hat, ist sie es nicht —, dann ist das **die Antwort und muss so gemeldet werden**, samt dem, was stattdessen die Absicherung ist (Sichtprüfung mit `SELECT settings FROM rec_applicant_settings` vor und nach dem Speichern, als eigener Punkt in der Live-Sichtprüfungsliste). **Keine Reproduktion, die als Beleg auftritt.**
 
 - [ ] **Step 1: Einfügepunkt bestimmen und die Sektion vorher festhalten**
 - [ ] **Step 2: Schalter einbauen**

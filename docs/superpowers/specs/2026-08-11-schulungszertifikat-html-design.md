@@ -1194,6 +1194,21 @@ auch ohne die Commits dieses Branches. Die Arbeit an diesem Paket hat die
 hinzugekommen sind: drei zusätzliche Reihenfolgen brechen nur hier. Unter der
 tatsächlich konfigurierten Reihenfolge sind beide Stände grün.
 
+### Vier Vertreter desselben Defekts, gesammelt — das Material für die Basisklasse [v3]
+
+Der Defekt hat **nicht eine** Ursache, sondern vier verschiedene geteilte Statics. Das ist der Grund, warum punktuelle Fixes ihn nicht erledigen, und das Material, mit dem eine gemeinsame Integrations-Basisklasse später begründet wird:
+
+| # | Geteilter Zustand | Symptom | Gefunden in | Punktueller Fix |
+| --- | --- | --- | --- | --- |
+| 1 | `Model::$booted` (Eloquent) | `NOT NULL constraint failed: …uuid` — `creating`-Hooks fallen still aus | Task 0 / Task 3 | `Model::clearBootedModels()` beim Verursacher |
+| 2 | `Facade::$resolvedInstance` | `no such table: core_extra_field_definitions` — `Schema::` und `DB::` landen auf **verschiedenen** In-Memory-DBs, weil `setFacadeApplication()` den Instanz-Cache nicht leert | Task 6a | `Facade::clearResolvedInstances()` beim Verursacher (`DuplicateMatchQueryTest`) |
+| 3 | Globale Capsule / `Model::$resolver` | Klassen, die alphabetisch **nach** `PlaceholderResolutionPinTest` sortieren, erben dessen `setAsGlobal()`-Verbindung auf eine nicht mehr gebrauchte DB | Task 6a-Review | keiner — nur benannt |
+| 4 | Statischer Definitions-Cache in `HasExtraFields` (`"Klasse:id"`) | **leere** Cache-Einträge lecken in die nächste Testklasse und kippen zwei fremde Tests; gefiltert grün, im Gesamtlauf rot | Task 13 | Reset im `tearDown()` der neuen Klasse |
+
+**Das Muster über alle vier:** prozessweiter statischer Zustand, Symptom **nur im Gesamtlauf**, und der punktuelle Fix sitzt jeweils beim *Verursacher* oder beim *Opfer* — nie an einer Stelle, die alle vier abdeckt. Jede neue Integrationstestklasse muss heute vier Aufräumzeilen kennen, deren Notwendigkeit sie einzeln nicht beurteilen kann. In Task 12 trug **keine** der drei damals bekannten Zeilen, Grund war allein die alphabetische Reihenfolge — die Zeilen werden also auch dort geschrieben, wo sie nichts tun, weil niemand es messen kann.
+
+**Was die Basisklasse leisten müsste:** Container, Capsule, Facade-Instanzen, Eloquent-Boot-Cache und den `HasExtraFields`-Cache einheitlich in `setUpBeforeClass()`/`tearDownAfterClass()`. Erst dann wird `--order-by=random` überhaupt angreifbar, und erst dann verschwinden die drei Kopien der Auth-Guard-Stub-Klasse. **Nicht Teil dieses Pakets** — eigenes Ticket, und dieser Abschnitt ist seine Begründung.
+
 **Was in diesem Paket dagegen getan wurde** — punktuell, nicht strukturell:
 `ContractPdfRegressionTest` räumt in `tearDownAfterClass()` mit
 `Model::clearBootedModels()` hinter sich auf (es ist der Verursacher, weil es
