@@ -16,6 +16,7 @@ class RecPhase extends Model
         'uuid', 'team_id', 'rec_position_id', 'name', 'order',
         'auto_pilot_settings', 'auto_advance', 'is_active',
         'completion_type', 'completion_config', 'show_in_dashboard',
+        'allow_manual_booking',
     ];
 
     protected $casts = [
@@ -25,6 +26,7 @@ class RecPhase extends Model
         'auto_advance' => 'boolean',
         'completion_config' => 'array',
         'show_in_dashboard' => 'boolean',
+        'allow_manual_booking' => 'boolean',
     ];
 
     protected static function booted(): void
