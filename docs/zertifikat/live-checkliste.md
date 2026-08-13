@@ -1,6 +1,9 @@
 # Live-Checkliste Schulungszertifikat — am Stück abzuarbeiten
 
-**Stand:** 2026-08-13, Branch `feat/schulungszertifikat`, Suite `OK (746 tests, 2239 assertions)` / 0 Errors.
+**Stand:** 2026-08-13, nach `feat/zertifikat-wa-button`, Suite `OK (791 tests, 2387 assertions)` / 0 Errors.
+**Vorstand:** Branch `feat/schulungszertifikat`, Suite `OK (746 tests, 2239 assertions)`.
+
+> **Was der Button-Umbau an dieser Liste geändert hat — A4, D3 und D4 sind KORREKTUREN, keine Ergänzungen.** Der Zertifikat-Link geht nicht mehr als Body-Variable `{{zertifikat_link}}` im Fließtext raus, sondern als dynamischer URL-Button. Die drei Punkte verlangten vorher wörtlich das Gegenteil („kein URL-Button") — wer die alte Fassung abarbeitet, konfiguriert genau das Template, das der Guard ablehnt. Neu dazu: **B3** (Umstellfenster), **B4** (Sichttest Hinweistext), **D7** (Log-Marker), **D8** (kein Wiederversand). Begründungen in `docs/superpowers/specs/2026-08-13-zertifikat-wa-button-design.md`.
 **Zweck:** alles, was nach dem Deploy zu klicken oder zu prüfen ist, an einer Stelle. Gesammelt über den ganzen Durchlauf; die Einzelbegründungen stehen in Spec und Plan, hier steht nur, was zu tun ist und woran man es sieht.
 
 **Warum es diese Liste gibt:** das Modul hat kein Laravel im Testlauf. Livewire-Komponenten sind nicht instanziierbar, Blades werden nur an einer Stelle gerendert, HTTP-Pfade gar nicht. Die Punkte hier sind deshalb nicht Nachlässigkeit, sondern strukturell nicht testbar — jeder einzelne ist im Report des jeweiligen Tasks als solcher benannt.
@@ -16,7 +19,12 @@
       `ls -la meingedeck/vendor/martin3r/platform-recruiting/resources/fonts meingedeck/vendor/martin3r/platform-recruiting/resources/images/certificates`
       Erwartet: `Oswald-SemiBold.ttf` + `OFL.txt`, und drei PNGs.
       **Fehlen sie, gibt es ein PDF ohne Bilder in Helvetica — keinen Fehler, nur ein falsches Dokument.**
-- [ ] **A4 · WhatsApp-Template bei Meta einreichen und genehmigen lassen** — mit **Body-Variable** `{{zertifikat_link}}`, **kein URL-Button**. Ein Template ohne diese Variable wird vom Guard abgelehnt (siehe D3).
+- [ ] **A4 · WhatsApp-Template bei Meta einreichen und genehmigen lassen** — mit **dynamischem URL-Button an ERSTER Position**, dessen URL lautet:
+      `https://mitarbeiter.rheingedeck.de/recruiting/zertifikat/{{1}}`
+      **Keine Body-Variable für den Link.** Der Link steckt im Button; das Modul liefert nur die `uuid` als Button-Parameter, die Basis-URL steht bei Meta.
+      **Geändert am 2026-08-13** (`feat/zertifikat-wa-button`): hier stand vorher „mit Body-Variable `{{zertifikat_link}}`, **kein URL-Button**". Wer nach der alten Fassung konfiguriert, baut genau das Template, das der Guard ablehnt.
+      Der Anrede-Platzhalter im Body (`{{1}}`/`{{name}}`/`{{vorname}}`) bleibt erlaubt und wird mit dem Vornamen gefüllt.
+      **Der Preis dieser Form, benannt:** ändert sich die Domain, muss die Button-URL **bei Meta** nachgezogen werden. Kein Guard und kein Test im Modul kann sehen, was dort hinterlegt ist — eine Nachricht mit falscher Basis-URL geht erfolgreich raus und der Button führt ins Leere.
 - [ ] **A5 · Original-Assets von RheinGedeck** besorgen und die aus dem Scan freigestellten ersetzen (Logo, Unterschrift). Kosmetisch, aber vor dem ersten echten Bewerber besser.
 
 ## B — Der Schalter (ohne ihn passiert nichts)
@@ -26,7 +34,10 @@
       `SELECT settings FROM rec_applicant_settings WHERE team_id = <TEAM>;` **vor und nach** dem Speichern.
       Erwartet: `"issue_training_certificates":true` steht danach roh im JSON.
       **Grund:** `getSetting()` liest `$settings[$key] ?? $default ?? DEFAULT_SETTINGS[$key]`. Bei einer bestehenden Zeile ohne den Schlüssel trägt allein der Default — schreibt das Formular nicht, bleibt das Feature für immer aus **und der Default verdeckt das.** Gemessen ist der Weg bis `save()`; **nicht** messbar war allein Livewires Hydration `wire:model` → Property, und genau die prüft dieser Punkt.
-- [ ] **B3 · `training_certificate_wa_template_id` setzen** (dasselbe Modal, direkt darunter).
+- [ ] **B3 · `training_certificate_wa_template_id` setzen** (dasselbe Modal, direkt darunter) — auf das **Button-Template** aus A4.
+      **Nach dem Deploy zeigt der Schlüssel noch auf das alte Body-Variablen-Template.** Das ist der bekannte, harmlose Zustand: es wird ausgestellt, es geht **nichts** raus, HR bekommt die Meldung mit „PDF herunterladen und manuell senden". Bewusst kein SQL im Deploy — HR stellt um, und bis dahin trägt der Guard.
+- [ ] **B4 · Sichttest am Hinweistext des Modals — Pflicht, nicht optional.** Unter dem Template-Select muss die erwartete Button-URL **im Klartext** stehen (`https://mitarbeiter.rheingedeck.de/recruiting/zertifikat/{{1}}`).
+      **Warum das kein Test abdeckt:** die URL wird zur Render-Zeit aus `route()` abgeleitet, damit sie Domain und Präfix der laufenden App trägt. Die Suite bootet kein Laravel und hat kein `route()`; der Reihenfolge-Test schneidet den Ausschnitt außerdem **vor** dem Hinweistext ab. Steht dort ein leerer `<code>`-Block oder ein Fehler, fällt es sonst zuerst HR auf.
 
 ## C — Das PDF (sieben strukturell untestbare Punkte des Controllers)
 
@@ -45,9 +56,17 @@ Route: `/recruiting/zertifikat/{uuid}`, `uuid` aus `rec_training_certificates`.
 
 - [ ] **D1 · Checkbox erscheint nur bei vorhandener `attended`-Buchung**, ist **nicht vorausgewählt**, und gilt für **jeden** Ablehnungsgrund.
 - [ ] **D2 · Ohne Haken läuft die Ablehnung wie immer** — kein Zertifikat, kein Versand. (Im Test über das Query-Protokoll abgesichert, hier nur der Sichtcheck.)
-- [ ] **D3 · Mit Haken:** Zertifikat entsteht, WhatsApp geht raus, **und der Link in der Nachricht ist die Zertifikat-URL** — nicht der Bewerber-Token.
-      **Prüf den Link in der echten Nachricht.** Er muss auf `/recruiting/zertifikat/<uuid>` zeigen.
-- [ ] **D4 · Ein Template ohne `{{zertifikat_link}}` wird abgelehnt.** Testweise ein falsches Template einstellen: es darf **kein** Versand stattfinden und `wa_sent_at` leer bleiben. Ohne diesen Guard füllt der Builder den **Beispieltext** ein — der Send gelingt, und der Bewerber bekommt eine Nachricht ohne Link.
+- [ ] **D3 · Mit Haken:** Zertifikat entsteht, WhatsApp geht raus, **und die Nachricht trägt einen BUTTON** — keine URL im Fließtext.
+      **Am Gerät prüfen, nicht im Log:** Button antippen → das Zertifikat-PDF öffnet sich. Die aufgerufene Adresse muss `/recruiting/zertifikat/<uuid>` sein, nicht der Bewerber-Token.
+      **Das ist der Punkt, an dem eine falsche Basis-URL bei Meta auffällt** — und der einzige. Öffnet der Button eine 404 oder eine fremde Domain, ist das Meta-Template falsch, nicht das Modul.
+      **Geändert am 2026-08-13:** vorher „der Link in der Nachricht ist die Zertifikat-URL".
+- [ ] **D4 · Ein Template ohne dynamischen URL-Button an erster Position wird abgelehnt.** Testweise ein falsches Template einstellen: es darf **kein** Versand stattfinden und `wa_sent_at` leer bleiben.
+      **Zwei Fälle, zwei Meldungen — beide prüfen, weil sie verschiedene Anweisungen geben:**
+      · Template ganz ohne dynamischen Button → „hat keinen URL-Button mit Variable".
+      · Template mit Quick-Reply an Position 0 und URL-Button an Position 1 → „bitte ihn im Meta-Template an die erste Position verschieben". **Nicht** „kein Button gefunden" — das wäre falsch und schickt HR in die Suche nach einem Button, den es gibt.
+      **Geändert am 2026-08-13:** vorher „ein Template ohne `{{zertifikat_link}}`". Der Guard ist derselbe, sein Kriterium ist neu.
+- [ ] **D7 · Ins Log sehen, wenn etwas nicht rausgeht.** Jede Störung des Versands schreibt eine `error`-Zeile mit dem Marker `[TrainingCertificateWhatsAppDelivery]` und einer **unterscheidbaren** Ursache: Auflösung von Template/Kanal, leerer Pflicht-Parameter, `sendTemplate` hat geworfen, Zertifikat ohne `uuid` — und der Guard-Zweig ebenfalls. Alle vier Störungen tragen denselben Status `failed`; **welche es war, steht nur im Log.**
+- [ ] **D8 · Es gibt keinen „erneut senden"-Knopf, und das ist Absicht.** Ein zweiter Versuch läuft nur über eine zweite Ablehnung mit Haken und endet in `already_sent` — es geht nichts doppelt raus. Muss eine Nachricht wirklich erneut zugestellt werden, ist der Weg heute: PDF herunterladen und von Hand senden. (Nichts zu tun, nur damit die Frage beim ersten Fehlversand nicht offen ist.)
 - [ ] **D5 · Sind Jugendschutz-Absage und Zertifikat beide angehakt, gehen ZWEI Nachrichten raus.** Bewusst nicht zusammengelegt; die UI weist darauf hin.
 - [ ] **D6 · Scheitert der Versand, bleibt die Ablehnung bestehen** und `wa_sent_at` leer. Die Meldung an HR („PDF herunterladen und von Hand verschicken") muss **sichtbar** sein — sie läuft über `session('message')`, nicht über `flash('error')`.
 
