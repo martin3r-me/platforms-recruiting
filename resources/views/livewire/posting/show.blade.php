@@ -186,8 +186,11 @@
 
         {{-- Externe Referenzen --}}
         <x-ui-panel title="Externe Referenzen" subtitle="Unter welcher ID/welchem Titel läuft diese Anzeige auf den Portalen? Eingehende Portal-Mails werden darüber automatisch dieser Ausschreibung zugeordnet.">
-            {{-- Block-Form Pflicht: inline @php(...) ohne @endphp wird vom Raw-Block-Regex
-                 mit dem @endphp eines SPÄTEREN Blocks gepaart und verschluckt alles dazwischen. --}}
+            {{-- Block-Form Pflicht: die PHP-Kurzform mit runden Klammern wird vom
+                 Raw-Block-Regex mit dem Block-Ende eines SPAETEREN Blocks gepaart und
+                 verschluckt alles dazwischen. Die Direktiven-Woerter selbst duerfen hier
+                 ebenfalls nicht als Text stehen — gleiche Falle, der Regex laeuft vor dem
+                 Kommentar-Stripper; Waechter ist BladeCompileIntegrityTest. --}}
             @php
                 $refCode = $this->refCode;
             @endphp
