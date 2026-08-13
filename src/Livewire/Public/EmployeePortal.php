@@ -9,6 +9,9 @@ use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Support\TrainingCertificatePortalRows;
+use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
 
 /**
  * Mitarbeiter-Portal — Login-geschuetzter Bereich nach Bewerber→MA-
@@ -473,7 +476,7 @@ class EmployeePortal extends Component
         // des verlinkten Bewerbers, nicht ueber den MA-portal_token).
         $applicantToken = $employee->applicant->getOrCreatePublicFormLink()->token;
 
-        return $employee->applicant->contracts
+        $contractRows = $employee->applicant->contracts
             ->filter(fn ($c) => $c->status !== 'cancelled')
             ->map(function ($c) use ($applicantToken) {
                 $contractLink = $c->getOrCreatePublicFormLink();
@@ -498,6 +501,40 @@ class EmployeePortal extends Component
             })
             ->values()
             ->toArray();
+
+        return TrainingCertificatePortalRows::append(
+            $contractRows,
+            $this->certificateRows((int) $employee->applicant->id)
+        );
+    }
+
+    /**
+     * Die Zertifikat-Zeilen eines Bewerbers, in der Form der Vertragszeilen.
+     *
+     * KEIN Filter auf `kind`: ein Bewerber darf Zertifikate mehrerer
+     * Schulungsarten haben (die Dedup-Dimension der Tabelle ist
+     * (rec_applicant_id, kind)), und im Portal sollen alle liegen. Der
+     * kind-Filter gehoert an die AUSSTELLUNG (dort steht er, siehe
+     * CertificateIssuanceEligibility), nicht an die Anzeige.
+     *
+     * Die Route wird ueber die uuid adressiert, nicht ueber einen Token — der
+     * Grund steht bei TrainingCertificateWaTemplate::ROUTE_NAME und in
+     * routes/public.php.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function certificateRows(int $applicantId): array
+    {
+        return RecTrainingCertificate::query()
+            ->where('rec_applicant_id', $applicantId)
+            ->orderBy('issued_at')
+            ->get()
+            ->map(fn (RecTrainingCertificate $cert) => TrainingCertificatePortalRows::row(
+                $cert->id,
+                $cert->issued_at,
+                route(TrainingCertificateWaTemplate::ROUTE_NAME, ['uuid' => $cert->uuid]),
+            ))
+            ->all();
     }
 
     #[Computed]

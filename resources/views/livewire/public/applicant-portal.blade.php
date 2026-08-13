@@ -39,7 +39,20 @@
                                     {{ $c['display_name'] }}
                                 </h3>
                                 <div class="mt-2 text-xs">
-                                    @if($c['status'] === 'completed' || $c['signed_at'])
+                                    {{-- Der issued-Zweig steht VOR der Unterschrieben-Bedingung, und das ist Pflicht,
+                                         keine Stilfrage: die Zertifikat-Zeile traegt signed_at (das Ausstellungsdatum),
+                                         gewinnt also die Bedingung darunter und behauptete „Unterschrieben am ..." ueber
+                                         ein Dokument, das niemand unterschrieben hat. Gemessen an der gerenderten Blade
+                                         in PortalCertificateBadgeTest. --}}
+                                    @if($c['status'] === 'issued')
+                                        <span class="inline-flex items-center gap-1 text-green-700">
+                                            @svg('heroicon-o-academic-cap', 'w-4 h-4')
+                                            Ausgestellt
+                                            @if($c['signed_at'])
+                                                am {{ \Carbon\Carbon::parse($c['signed_at'])->format('d.m.Y') }}
+                                            @endif
+                                        </span>
+                                    @elseif($c['status'] === 'completed' || $c['signed_at'])
                                         <span class="inline-flex items-center gap-1 text-green-700">
                                             @svg('heroicon-o-check-circle', 'w-4 h-4')
                                             Unterschrieben

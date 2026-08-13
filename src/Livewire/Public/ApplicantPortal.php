@@ -5,6 +5,9 @@ namespace Platform\Recruiting\Livewire\Public;
 use Livewire\Component;
 use Platform\Core\Models\CorePublicFormLink;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Support\TrainingCertificatePortalRows;
+use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
 
 class ApplicantPortal extends Component
 {
@@ -49,7 +52,7 @@ class ApplicantPortal extends Component
         $contact = $applicant->crmContactLinks->first()?->contact;
         $this->applicantName = trim(($contact?->first_name ?? '') . ' ' . ($contact?->last_name ?? '')) ?: 'Bewerber';
 
-        $contracts = $applicant->contracts
+        $contractRows = $applicant->contracts
             ->filter(fn ($c) => $c->status !== 'cancelled')
             ->map(function ($c) {
                 $contractLink = $c->getOrCreatePublicFormLink();
@@ -74,8 +77,45 @@ class ApplicantPortal extends Component
             ->values()
             ->toArray();
 
-        $this->contracts = $contracts;
-        $this->state = count($this->contracts) === 0 ? 'empty' : 'ready';
+        // Zeilenliste UND Zustand aus EINEM Aufruf: der Zustand zaehlte vorher
+        // nur die Vertragszeilen. Ein abgelehnter Nicht-EU-Bewerber hat
+        // typischerweise keine Vertraege — wer die Zertifikate erst nach der
+        // Zustandszeile anhaengt, laesst das Portal sich fuer leer erklaeren,
+        // waehrend das Zertifikat darin liegt. Die Reihenfolge ist deshalb nicht
+        // kommentiert, sondern weggenommen (siehe appendWithState()).
+        [$this->contracts, $this->state] = TrainingCertificatePortalRows::appendWithState(
+            $contractRows,
+            $this->certificateRows((int) $applicant->id)
+        );
+    }
+
+    /**
+     * Die Zertifikat-Zeilen eines Bewerbers, in der Form der Vertragszeilen.
+     *
+     * Identisch zu EmployeePortal::certificateRows() — bewusst zweimal und
+     * nicht als geteilter Trait: die beiden Portale sind ansonsten voneinander
+     * unabhaengig, und die gemeinsame Zeilenform liegt schon an einer Stelle
+     * (TrainingCertificatePortalRows), also dort, wo ein Auseinanderlaufen
+     * wehtaete.
+     *
+     * KEIN Filter auf `kind`: ein Bewerber darf Zertifikate mehrerer
+     * Schulungsarten haben, im Portal sollen alle liegen. Der kind-Filter
+     * gehoert an die Ausstellung, nicht an die Anzeige.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function certificateRows(int $applicantId): array
+    {
+        return RecTrainingCertificate::query()
+            ->where('rec_applicant_id', $applicantId)
+            ->orderBy('issued_at')
+            ->get()
+            ->map(fn (RecTrainingCertificate $cert) => TrainingCertificatePortalRows::row(
+                $cert->id,
+                $cert->issued_at,
+                route(TrainingCertificateWaTemplate::ROUTE_NAME, ['uuid' => $cert->uuid]),
+            ))
+            ->all();
     }
 
     public function render()
