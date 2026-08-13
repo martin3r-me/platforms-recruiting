@@ -1020,10 +1020,18 @@ das niemand unterschrieben hat (§B8). Richtig ist „Ausgestellt am …". Ohne 
 Zweig gäbe der Rohwert-Fallback (`:133` bzw. analog) das Wort `issued` aus.
 
 Zwei Dinge sind **ohne Änderung** korrekt und nur deshalb festgehalten, weil sie
-die Wahl von `status = 'issued'` und `sign_url = null` begründen: der
+die Wahl von `status = 'issued'` und `sign_url = null` begründen: ~~der
 Unterschreiben-Button verlangt `sent`/`in_progress` (`:139` bzw. `:69`) →
-bleibt weg; der PDF-Button hängt allein an `pdf_url` (`:146`) → erscheint von
+bleibt weg~~; der PDF-Button hängt allein an `pdf_url` (`:146`) → erscheint von
 allein.
+
+> **KORRIGIERT [v3] — der Unterschreiben-Button ist DOPPELT verriegelt, nicht einfach.**
+>
+> Die einfache Fassung („verlangt `sent`/`in_progress`") war **falsch**, und die Art des Findens ist der Punkt: **die Mutation blieb grün, niemand hat die Prosa gelesen.** In Task 14 wurde `'issued'` probeweise in die Statusliste aufgenommen — der Button erschien **trotzdem nicht.**
+>
+> Tatsächlich sind es **zwei unabhängige Riegel**: `!signed_at && in_array($status, [...])`. Erst als der zweite Test die `signed_at`-Klausel entfernte, wurde die Mutation rot. Da Zertifikate `signed_at = issued_at` tragen, hält bei ihnen **schon der erste Riegel** — der Statuswert ist für den Button gar nicht ausschlaggebend.
+>
+> **Was `status = 'issued'` wirklich trägt: den Badge**, nicht die Button-Freiheit. Die Wahl bleibt richtig, die Begründung war es nicht. Wer den Statuswert später ändert, darf sich nicht auf diesen Absatz verlassen, sondern muss beide Riegel nachsehen.
 
 **F3 — `ApplicantPortal:78` muss Zertifikate mitzählen. [v2]** Die Zeile setzt
 `state = count($contracts) === 0 ? 'empty' : 'ready'` (G20). Ein abgelehnter

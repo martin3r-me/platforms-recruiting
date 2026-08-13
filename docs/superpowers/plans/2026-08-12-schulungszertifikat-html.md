@@ -79,6 +79,12 @@ Anlass, und es ist der teuerste Fund des Tages: der Task-10-Brief enthielt `->wi
 
 Konkret vor dem Dispatch: jeden im Brief genannten Methodennamen, Relationsnamen und Klassennamen per `grep`/`method_exists` gegen `src/` prüfen. Das kostet eine Minute und fängt genau die Klasse von Fehlern, die erst im Betrieb auffällt.
 
+**ERWEITERT nach Task 14: `with()`- und `load()`-Argumente sind Bestandsbezüge und werden mitgeprüft.**
+
+Anlass: der Task-14-Brief enthielt `->with('contractTemplate:id,name')`. Die Beziehung existiert am Zertifikat-Model **nicht** (`grep -c "contractTemplate" src/Models/RecTrainingCertificate.php` → `0`). Ein Eager-Load auf eine nicht existierende Beziehung **bricht die ganze Portalseite**, nicht nur die Zeile — teurer als der erste `contractTemplate`-Rest in Task 10, der „nur" die PDF-Route traf.
+
+Die Herkunft zeigt die Lücke: mein Zuschnitt-Banner hat den `display_name` zurückgenommen und das `->with()` daneben stehengelassen. Mein eigener Regel-4-Abgleich hat die `contracts()`-**Methoden** geprüft und die Eager-Loads im Codeblock **nicht**. Beziehungsnamen in `with()`, `load()`, `loadMissing()` und `has()`/`whereHas()` sind Strings, die kein Editor und kein `method_exists` prüft — und sie sind zweimal in Folge dieselbe Falle gewesen.
+
 **ERWEITERT nach Task 11, weil die Namensprüfung allein nicht reichte:** bei jeder **Bestandsmethode, deren Rückgabewert weiterverarbeitet wird, den tatsächlichen Rückgabetyp am Code prüfen — nicht am Namen.**
 
 Anlass: der Task-11-Brief enthielt `in_array($applicant->id, $this->attendedApplicantIds(), true)`. Der Name sagt „Liste von IDs", der Code liefert `pluck(...)->flip()`, also eine **Map `applicantId => Position`**. Die Werte sind `0, 1, 2 …`. Die Prüfung hätte gegen Positionen verglichen und die Checkbox **beim falschen Bewerber** eingeblendet — kein Fehler, keine Exception, nur die falsche Zeile. Der Bestand macht es in der Blade schon richtig, mit `isset()` auf dem Schlüssel.
