@@ -18,6 +18,7 @@ use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\SendContractsService;
+use Platform\Recruiting\Support\ManualBookingCandidates;
 use Platform\Core\Models\CoreLookup;
 
 class Index extends Component
@@ -233,34 +234,29 @@ class Index extends Component
             ->all();
     }
 
+    /**
+     * Kandidaten für die manuelle Buchung. Die Regel selbst steht in
+     * ManualBookingCandidates — dort ist sie ohne Livewire-Runtime gegen eine
+     * echte DB testbar (tests/Integration/ManualBookingCandidatesTest).
+     *
+     * Bis 08/2026 stand hier ein Filter auf auto_pilot_completed_at. Das war
+     * die alte 2-Phasen-Logik (Phase 2 = letzte Phase = fertig für die
+     * Schulung); bei den heutigen 4-Phasen-Stellen bedeutet derselbe Wert
+     * "Verträge sind raus" — also genau die Bewerber, die man NICHT mehr
+     * einbuchen will. Jetzt entscheidet der Phasen-Schalter
+     * allow_manual_booking.
+     */
     #[Computed]
     public function availableApplicants()
     {
-        $teamId = auth()->user()->currentTeam->id;
-
-        // Exclude applicants with any active booking (across all interviews)
-        $bookedIds = RecInterviewBooking::whereNotIn('status', ['cancelled'])
-            ->pluck('rec_applicant_id');
-
-        $query = RecApplicant::where('team_id', $teamId)
-            ->where('is_active', true)
-            ->whereNotNull('auto_pilot_completed_at')
-            ->whereNotIn('id', $bookedIds);
-
-        if ($this->interview->rec_position_id) {
-            // Stellen-Filter mit Bypass für Importierte: legacy CSV-Imports
-            // haben keine Postings/Positions — sie sollen aber in jede
-            // Schulung buchbar sein, unabhängig von der Termin-Stelle.
-            $query->where(function ($q) {
-                $q->whereHas('postings', function ($q) {
-                    $q->whereHas('position', function ($pq) {
-                        $pq->where('rec_positions.id', $this->interview->rec_position_id);
-                    });
-                })->orWhereNotNull('import_source');
-            });
-        }
-
-        return $query->with(['crmContactLinks.contact'])
+        return ManualBookingCandidates::query(
+            auth()->user()->currentTeam->id,
+            // ?: statt ?? — der alte Filter hing an einer Truthiness-Prüfung,
+            // eine 0 in rec_position_id darf also weiterhin "keine Stelle"
+            // heißen und nicht "Stelle 0" (die es nie gibt → leere Liste).
+            $this->interview->rec_position_id ?: null,
+        )
+            ->with(['crmContactLinks.contact'])
             ->get();
     }
 
