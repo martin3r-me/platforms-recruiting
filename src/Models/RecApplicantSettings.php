@@ -57,6 +57,16 @@ class RecApplicantSettings extends Model
         // stellt keine Zertifikate aus. Gelesen ueber
         // IssueTrainingCertificateService::SETTING_ENABLED.
         'issue_training_certificates' => false,
+        // Schulungszertifikat: genehmigtes WhatsApp-Template, mit dem Weg (a)
+        // den PDF-Link nach der Ablehnung zustellt. Das Template MUSS eine
+        // Body-Variable {{zertifikat_link}} haben — ohne sie fuellt der Builder
+        // die vorhandenen Variablen mit dem Beispieltext und der Bewerber
+        // bekaeme eine Nachricht ohne Link (deshalb der Guard in
+        // TrainingCertificateWhatsAppDelivery). Leer = es wird trotzdem
+        // ausgestellt, nur nicht zugestellt: der Versand ist die Zugabe, nicht
+        // die Bedingung. Schluesselname steht in
+        // Support/TrainingCertificateWaTemplate::SETTINGS_KEY.
+        'training_certificate_wa_template_id' => null,
         // Mitarbeiter-Portal — eigenes Template (Wording: "Willkommen
         // im Team, hier dein Portal-Zugang"). Greift wenn ein RecEmployee
         // angelegt wurde (Phase-Config-Flag creates_employee_on_completion).

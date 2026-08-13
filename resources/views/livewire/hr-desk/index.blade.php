@@ -18,6 +18,18 @@
             </div>
         @endif
 
+        {{-- Handlungsanweisungen (z.B. Zertifikat ausgestellt, WhatsApp-Versand
+             fehlgeschlagen: HR muss das PDF von Hand schicken).
+             EIGENER Kasten und eigener Flash-Schluessel, nicht der gruene oben:
+             ohne ihn waere jedes session()->flash('error', …) dieser Seite
+             UNSICHTBAR — sie rendert sonst nur session('message'), und HR
+             glaubte an eine Zustellung, die nicht passiert ist. --}}
+        @if(session()->has('error'))
+            <div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+                {{ session('error') }}
+            </div>
+        @endif
+
         @php $counts = $this->reasonCounts; @endphp
 
         {{-- Filter-Buttons --}}

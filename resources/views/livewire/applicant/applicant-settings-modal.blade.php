@@ -130,6 +130,31 @@
                         Solange Template oder Status fehlen, werden auch Unter-16-Fälle auf den HR-Schreibtisch gelegt — es geht nie eine stille Absage raus.
                     </p>
 
+                    {{-- Schulungszertifikat: Template fuer die Zustellung des PDF-Links.
+                         Steht NACH dem Jugendschutz-Hinweistext, nicht direkt hinter dem
+                         Jugendschutz-Select: der Hinweis darunter gehoert zum Jugendschutz,
+                         und dazwischen eingeschoben laese er sich als Erklaerung DIESES
+                         Selects. --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['training_certificate_wa_template_id'] ?? null"
+                            name="settings.training_certificate_wa_template_id"
+                            label="Schulungszertifikat — WhatsApp-Template mit Link"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model.live="settings.training_certificate_wa_template_id"
+                        />
+                    @endif
+                    <p class="text-xs text-[var(--ui-muted)] -mt-2">
+                        Das Template braucht eine Body-Variable <code>zertifikat_link</code> — keinen URL-Button;
+                        WhatsApp macht die URL im Text automatisch klickbar. Fehlt die Variable, wird nichts
+                        versendet (sonst ginge eine Nachricht ohne Link raus) und die Ablehnung meldet es.
+                        Ohne Template wird das Zertifikat trotzdem ausgestellt und muss von Hand verschickt werden.
+                    </p>
+
                     {{-- Standard-Ansprechpartner --}}
                     <x-ui-input-select
                         :value="$settings['default_contact_user_id'] ?? null"

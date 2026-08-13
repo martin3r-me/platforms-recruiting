@@ -18,6 +18,7 @@ use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\ContractSendEligibility;
 use Platform\Recruiting\Services\HrDeskRoutingService;
 use Platform\Recruiting\Services\IssueTrainingCertificateService;
+use Platform\Recruiting\Services\TrainingCertificateWhatsAppDelivery;
 use Platform\Recruiting\Support\CertificateIssuanceEligibility;
 
 /**
@@ -252,9 +253,38 @@ class Index extends Component
                 }
             }
 
-            session()->flash('message', $messageSent
+            // ZUSTELLUNG DES ZERTIFIKAT-LINKS — NACH DEM COMMIT (Spec D5).
+            //
+            // Hier steht absichtlich nur der Aufruf: jede Entscheidung (welches
+            // Zertifikat, welche Nummer, welcher Link, senden oder nicht) liegt
+            // in TrainingCertificateWhatsAppDelivery und ist dort gemessen —
+            // Livewire-Komponenten sind im Modul nicht instanziierbar.
+            //
+            // KEIN early return in diesem Block, auch nicht bei fehlenden Daten:
+            // die Ablehnung ist zu diesem Zeitpunkt committet, und ein return
+            // vor der Flash-Meldung und closeResolveModal() liesse HR mit einem
+            // offenen Modal ohne Rueckmeldung stehen.
+            $certificateNote = '';
+            $applicantForDelivery = $issueCertificate ? $case->applicant : null;
+            if ($applicantForDelivery !== null) {
+                $delivery = app(TrainingCertificateWhatsAppDelivery::class)
+                    ->deliver($applicantForDelivery);
+
+                if ($delivery['status'] === TrainingCertificateWhatsAppDelivery::STATUS_SENT) {
+                    $certificateNote = ' Zertifikat-Link per WhatsApp versendet.';
+                } elseif ($delivery['error'] !== null) {
+                    // 'error' und nicht 'message': die Meldung ist eine
+                    // Handlungsanweisung, keine Erfolgsmeldung. Die Blade
+                    // rendert dafuer einen eigenen, gelben Kasten — ohne den
+                    // waere dieser Flash unsichtbar (die Seite zeigt nur
+                    // session('message')).
+                    session()->flash('error', $delivery['error']);
+                }
+            }
+
+            session()->flash('message', ($messageSent
                 ? 'Bewerber abgelehnt — Absage-Nachricht versendet.'
-                : 'Bewerber abgelehnt.');
+                : 'Bewerber abgelehnt.') . $certificateNote);
         }
 
         unset($this->cases, $this->reasonCounts);
