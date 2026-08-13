@@ -160,6 +160,11 @@ class RecruitingServiceProvider extends ServiceProvider
         // Nicht-EU-Abzweig nach der Schulung: attended → HR-Schreibtisch.
         \Platform\Recruiting\Observers\RecInterviewBookingComplianceObserver::register();
 
+        // Buchung → Warteliste und Termin-Abos schließen. Am Model und nicht im
+        // Buchungs-Dialog, damit HR-Dialog, MCP-Tool und CSV-Sammelbuchung
+        // gleich behandelt werden (der öffentliche Pfad tut es schon selbst).
+        \Platform\Recruiting\Observers\RecInterviewBookingWaitlistObserver::register();
+
         // Phasen-Statistik: schreibt rec_phase_transitions bei jedem
         // Eloquent-Pfad, der rec_phase_id setzt/aendert (Ausnahmen siehe
         // Observer-Docblocks und FixApplicantPhase).
