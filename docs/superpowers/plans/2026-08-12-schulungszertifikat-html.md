@@ -41,6 +41,12 @@
 
 **1) Falsifizierbarkeitsfrage pro Test: welche plausible Änderung macht ihn rot?** Findet sich keine, ist der Test falsch formuliert oder überflüssig — er belegt dann Unverletzbares und täuscht Schutz vor. Gefunden an Fall 7 des Pin-Tests (Task 6a): er sollte belegen, dass der Lookup-Zweig nicht global übersetzt, aber diese Eigenschaft ist über den Codepfad prinzipiell nicht verletzbar, weil `ZasLookupResolver::loadLabelMap()` selbst guardet. Ein Test, dessen Aussage nicht kaputtzumachen ist, ist kein Test.
 
+**7) Bei jedem Suite-Vergleich BEIDE Zahlen nennen, plus die Fehlerzahl — nie nur „X tests".** Ein `Error` zählt den **Test**, aber nicht seine **Assertions**. Eine kaputte Baseline sieht auf der Testzahl deshalb unauffällig aus.
+
+Gemessen an genau diesem Fall: mit leerem `vendor/dompdf/dompdf/lib/fonts` lief die Suite als `689 tests / 1921 assertions / 9 Errors`, geheilt als `689 tests / 1939 assertions / 0`. **Gleiche Testzahl, +18 Assertions.** Neun Tests brachen ab, bevor sie assertieren konnten — darunter die sieben des Zertifikat-Render-Tests, also die Absicherung, die den 500er-Fund überhaupt erst möglich gemacht hat. Task 11 wurde gegen diese Baseline gemessen; die Differenz war korrekt, die Grundlage stumm kaputt.
+
+Also: `OK (689 tests, 1939 assertions)` als Ganzes zitieren, und bei `ERRORS!`/`FAILURES!` die Fehlerzahl mit. Wer „689 Tests wie vorher" schreibt, hat nichts belegt.
+
 **6) `try { … fail(); } catch (\RuntimeException …)` schluckt das eigene `fail()`.** `PHPUnit\Framework\AssertionFailedError` **ist** eine `\RuntimeException` (gemessen). Ein Test, der einen erwarteten Wurf so prüft, wird **grün**, wenn der Wurf ausbleibt — der `fail()`-Aufruf landet im eigenen `catch`.
 
 Zweimal in diesem Durchlauf aufgetreten (Task 8 und die Task-9/10-Fix-Runde), beide Male vom Implementierer selbst gefunden. Der dritte Auftritt wäre der teure: in Tasks 11–14 sind die Tests dann grün statt rot, und **niemand merkt es**, weil ein grüner Test keine Aufmerksamkeit erzeugt.
