@@ -58,6 +58,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\MigrateNonEuCases::class,
                 \Platform\Recruiting\Console\Commands\BackfillPhaseTransitions::class,
                 \Platform\Recruiting\Console\Commands\DispoReprocessCommand::class,
+                \Platform\Recruiting\Console\Commands\EnableManualBookingForPhases::class,
             ]);
         }
 
