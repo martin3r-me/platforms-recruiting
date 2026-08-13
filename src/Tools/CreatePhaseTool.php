@@ -67,6 +67,10 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                     'type' => 'boolean',
                     'description' => 'Optional: Soll diese Phase im Dashboard-Pipeline angezeigt werden? Default true.',
                 ],
+                'allow_manual_booking' => [
+                    'type' => 'boolean',
+                    'description' => 'Optional: Darf HR Bewerber aus dieser Phase manuell in Schulungstermine ein- und umbuchen? Default false. Typisch true ab der Buchungs-Phase (completion_type=booking).',
+                ],
                 'is_active' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Status. Default: true.',
@@ -123,6 +127,7 @@ class CreatePhaseTool implements ToolContract, ToolMetadataContract
                 'show_in_dashboard' => array_key_exists('show_in_dashboard', $arguments)
                     ? (bool) $arguments['show_in_dashboard']
                     : true,
+                'allow_manual_booking' => (bool) ($arguments['allow_manual_booking'] ?? false),
                 'is_active' => (bool)($arguments['is_active'] ?? true),
             ]);
 

@@ -172,7 +172,7 @@ final class BookingClosesWaitlistTest extends TestCase
         $this->assertFalse($this->offen($eintrag));
     }
 
-    public function test_log_unterscheidet_hr_von_selbstbuchung(): void
+    public function test_nur_die_hr_buchung_wird_geloggt(): void
     {
         $this->warteliste();
         $this->buchung();
@@ -181,11 +181,21 @@ final class BookingClosesWaitlistTest extends TestCase
         $this->buchung(['rec_applicant_id' => 44, 'created_by_user_id' => null]);
 
         $hr = Capsule::table('rec_auto_pilot_logs')->where('rec_applicant_id', 42)->first();
-        $selbst = Capsule::table('rec_auto_pilot_logs')->where('rec_applicant_id', 44)->first();
 
         $this->assertSame('waitlist_closed', $hr->type);
         $this->assertStringContainsString('HR', $hr->summary);
-        $this->assertStringNotContainsString('HR', $selbst->summary);
+        // Selbstbuchung: Warteliste zu, aber kein Log — sonst haette jede
+        // Bewerber-Timeline eine neue Zeile ohne Aussage.
+        $this->assertSame(0, Capsule::table('rec_auto_pilot_logs')->where('rec_applicant_id', 44)->count());
+    }
+
+    public function test_selbstbuchung_schliesst_die_warteliste_trotzdem(): void
+    {
+        $eintrag = $this->warteliste();
+
+        $this->buchung(['created_by_user_id' => null]);
+
+        $this->assertFalse($this->offen($eintrag));
     }
 
     public function test_ohne_offene_eintraege_kein_log(): void

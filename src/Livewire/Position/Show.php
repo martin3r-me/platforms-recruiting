@@ -148,18 +148,25 @@ class Show extends Component
                 ->map(fn ($value) => is_numeric($value) ? (int) $value : $value)
                 ->all();
             $phase->auto_pilot_settings = !empty($cleanedPhase) ? $cleanedPhase : null;
-
-            // Eigene Spalte, deshalb neben den JSON-Settings gesetzt. Der
-            // array_key_exists-Guard schuetzt vor dem Fall, dass eine Phase
-            // nach dem mount() dazukam — dann bleibt ihr Wert unangetastet
-            // statt stillschweigend auf false zu fallen.
-            if (array_key_exists($phaseId, $this->phaseAllowManualBooking)) {
-                $phase->allow_manual_booking = (bool) $this->phaseAllowManualBooking[$phaseId];
-            }
-
             $phase->save();
         }
         $this->phaseAutoPilotSettingsOriginal = $this->phaseAutoPilotSettings;
+
+        // allow_manual_booking in EIGENER Schleife über phaseAllowManualBooking,
+        // nicht in der Schleife oben: die läuft über phaseAutoPilotSettings, das
+        // nur mount() füllt. Das Blade rendert die Checkboxen aber aus
+        // $this->phases (frisch gelesen) — eine Phase, die eine parallele
+        // Sitzung anlegt, bekäme dort eine Checkbox, deren Umschalten oben nie
+        // ankäme. Livewire legt den Schlüssel beim Umschalten selbst an, diese
+        // Schleife sieht ihn also.
+        foreach ($this->phaseAllowManualBooking as $phaseId => $allowed) {
+            $phase = RecPhase::find($phaseId);
+            if (!$phase || (int) $phase->rec_position_id !== (int) $this->position->id) {
+                continue;
+            }
+            $phase->allow_manual_booking = (bool) $allowed;
+            $phase->save();
+        }
 
         session()->flash('message', 'Stelle erfolgreich aktualisiert.');
     }

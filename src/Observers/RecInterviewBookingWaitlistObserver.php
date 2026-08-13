@@ -59,27 +59,34 @@ class RecInterviewBookingWaitlistObserver
                 RecInterviewWaitlist::whereIn('id', $offene->pluck('id'))
                     ->update(['fulfilled_at' => now()]);
 
+                // Geloggt wird NUR die manuelle Buchung — dort ist das Schliessen
+                // eine bewusste HR-Entscheidung, die spaeter nicht wie ein Bug
+                // aussehen soll. Bucht der Bewerber selbst, war die Warteliste
+                // schon vorher stillschweigend erledigt; ein Log-Eintrag in jeder
+                // Bewerber-Timeline waere neues Rauschen ohne Aussage.
+                //
                 // created_by_user_id trennt die Pfade: der oeffentliche
-                // Buchungspfad setzt es nicht (Public/InterviewBooking.php:308-321),
-                // HR-Dialog, MCP-Tool und Sammelbuchung setzen es.
-                $durchHr = $booking->created_by_user_id !== null;
+                // Buchungspfad setzt es explizit auf null
+                // (Public/InterviewBooking.php), HR-Dialog, MCP-Tool und
+                // CSV-Sammelbuchung setzen die User-ID.
+                if ($booking->created_by_user_id === null) {
+                    return;
+                }
+
                 $anzahl = $offene->count();
                 $abos = $offene->whereNotNull('rec_interview_id')->count();
 
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $booking->rec_applicant_id,
                     'type'             => 'waitlist_closed',
-                    'summary'          => $durchHr
-                        ? "Warteliste geschlossen ({$anzahl} Eintrag/Einträge, davon {$abos} Termin-Abo) — manuelle Buchung durch HR (Buchung #{$booking->id})."
-                        : "Warteliste geschlossen ({$anzahl} Eintrag/Einträge, davon {$abos} Termin-Abo) — Bewerber hat selbst gebucht (Buchung #{$booking->id}).",
+                    'summary'          => "Warteliste geschlossen ({$anzahl} Eintrag/Einträge, davon {$abos} Termin-Abo) — manuelle Buchung durch HR (Buchung #{$booking->id}).",
                     'details'          => [
                         'booking_id'   => $booking->id,
                         'interview_id' => $booking->rec_interview_id,
                         'entry_ids'    => $offene->pluck('id')->all(),
-                        'by_hr'        => $durchHr,
                     ],
                 ]);
-            }, 'rec_interview_booking.saved.waitlist', $booking->id);
+            }, 'rec_interview_booking.saved.waitlist_close', $booking->id);
         });
     }
 

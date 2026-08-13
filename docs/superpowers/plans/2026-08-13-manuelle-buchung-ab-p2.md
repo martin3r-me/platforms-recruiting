@@ -1314,6 +1314,44 @@ Neun Befunde, acht umgesetzt, einer erledigt sich durch die späteren Tasks:
   gibt" bezog sich auf den Review-Stand (Tasks 1–3); Command und Checkbox sind
   mit Tasks 5/6 gelandet. Die Deploy-Kopplung steht jetzt oben ausdrücklich drin.
 
+## Review-Runde 2 (Tasks 4–6 + Fixes aus Runde 1, high)
+
+Acht Befunde, sieben umgesetzt, einer begründet abgelehnt:
+
+- **Abgesagte Schulung war der blinde Fleck** — der in Runde 1 eingebaute
+  HR-Schreibtisch-Ausschluss hat genau den Umbuchungs-Fall versteckt: sagt ein
+  Bewerber über den Portal-Link ab, legt `Public/InterviewBooking:596` einen Fall
+  mit `reason=applicant_cancelled_training` an und setzt `is_on_hr_desk`. Der
+  Schreibtisch hat keine Buchungs-Aktion — die Person wäre also unsichtbar
+  gewesen. Jetzt wird nach **Reason** gefiltert: Nicht-EU, keine Deutschkenntnisse
+  und minderjährig sperren weiter (dort hängt eine Freigabe dran), die abgesagte
+  Schulung nicht.
+- **Import-Bypass am Stellen-Filter eingegrenzt** — nach Runde 1 (`import_source`
+  allein) wäre ein Kölner Altbestands-Bewerber mit Posting in jedem Düsseldorfer
+  Termin buchbar gewesen. Der Bypass hängt jetzt am *fehlenden* Posting, also an
+  der Begründung, die er selbst nennt.
+- **Log-Zuordnung ehrlich gemacht** — `updateOrCreate` kann eine von HR angelegte,
+  dann stornierte Buchung wiederbeleben; buchte der Bewerber selbst neu, blieb die
+  HR-User-ID stehen und das Log hätte „durch HR" behauptet. Der öffentliche Pfad
+  setzt `created_by_user_id` jetzt explizit auf `null`.
+- **Kein Log mehr bei Selbstbuchung** — die Warteliste wird weiter geschlossen,
+  aber ohne neue Zeile in jeder Bewerber-Timeline. Geloggt wird nur die bewusste
+  HR-Entscheidung.
+- **Eindeutiger Log-Kontext** — der bestehende `RecInterviewWaitlistObserver`
+  benutzte dieselbe Kontext-Zeichenkette; ein geschluckter Fehler wäre nicht mehr
+  zuzuordnen gewesen.
+- **Checkbox-Speichern in eigener Schleife** — die alte Schleife lief über
+  `phaseAutoPilotSettings` (nur aus `mount()`), das Blade rendert aber aus
+  `$this->phases` (frisch). Eine parallel angelegte Phase bekam eine Checkbox,
+  deren Umschalten stillschweigend verfiel.
+- **MCP-Pfad vollständig** — `allow_manual_booking` ist jetzt auch in
+  `ListPhasesTool` lesbar und in `CreatePhaseTool` setzbar, nicht nur per Update.
+- *Abgelehnt:* `--from-order` auf Rang statt `order`-Wert umzustellen. Der Flag-Name
+  sagt „order", und Rang-Semantik wäre für jemanden, der ihn liest, die
+  überraschendere Variante. Stattdessen steht die Falle (lückenhafte Schemata wie
+  10/20/30) im Docblock und im Hilfetext, und der Dry-Run nennt jede Phase mit
+  ihrem `order`-Wert.
+
 ## Bekannte Nebenwirkungen (dem Kunden gesagt, kein Bug)
 
 - Ein manuell gebuchter Platz ist nicht garantiert: reagiert der Bewerber im Onboarding nicht auf die Erinnerungen, gibt der Auto-Pilot den Platz frei (`releaseSeats`, Standby) und benachrichtigt die Warteliste.

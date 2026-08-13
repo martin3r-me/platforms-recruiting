@@ -91,6 +91,16 @@ final class ManualBookingCandidatesTest extends TestCase
             $t->timestamps();
         });
 
+        $schema->create('rec_hr_desk_cases', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_applicant_id');
+            $t->integer('team_id');
+            $t->string('reason');
+            $t->string('status')->default('open');
+            $t->dateTime('opened_at')->nullable();
+            $t->timestamps();
+        });
+
         $schema->create('rec_applicant_posting', function ($t) {
             $t->increments('id');
             $t->integer('rec_applicant_id');
@@ -125,7 +135,7 @@ final class ManualBookingCandidatesTest extends TestCase
     {
         foreach ([
             'rec_applicants', 'rec_phases', 'rec_contracts', 'rec_interview_bookings',
-            'rec_positions', 'rec_postings', 'rec_applicant_posting',
+            'rec_positions', 'rec_postings', 'rec_applicant_posting', 'rec_hr_desk_cases',
         ] as $table) {
             Capsule::schema()->drop($table);
         }
@@ -145,6 +155,26 @@ final class ManualBookingCandidatesTest extends TestCase
             'rec_phase_id' => 2,
             'import_source' => null,
         ], $overrides));
+    }
+
+    private function hrFall(int $applicantId, string $reason, string $status = 'open'): void
+    {
+        Capsule::table('rec_hr_desk_cases')->insert([
+            'rec_applicant_id' => $applicantId,
+            'team_id'          => 3,
+            'reason'           => $reason,
+            'status'           => $status,
+            'opened_at'        => '2026-08-10 09:00:00',
+        ]);
+    }
+
+    private function posting(int $applicantId, int $postingId): void
+    {
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => $applicantId,
+            'rec_posting_id'   => $postingId,
+            'applied_at'       => '2026-07-01',
+        ]);
     }
 
     /** @return list<int> */
@@ -211,11 +241,33 @@ final class ManualBookingCandidatesTest extends TestCase
         $this->assertSame([], $this->ids());
     }
 
-    public function test_bewerber_am_hr_schreibtisch_erscheint_nicht(): void
+    public function test_offener_hr_fall_schliesst_aus(): void
     {
-        $this->applicant(['is_on_hr_desk' => true]);
+        $id = $this->applicant(['is_on_hr_desk' => true]);
+        $this->hrFall($id, 'non_eu_citizen');
 
         $this->assertSame([], $this->ids());
+    }
+
+    public function test_abgesagte_schulung_bleibt_buchbar(): void
+    {
+        // DER Umbuchungs-Fall: sagt ein Bewerber seine Schulung ueber den
+        // Portal-Link ab, legt Public/InterviewBooking:596 einen HR-Fall mit
+        // reason=applicant_cancelled_training an und setzt is_on_hr_desk.
+        // Genau diese Person will HR in einen anderen Termin setzen — der
+        // HR-Schreibtisch selbst hat keine Buchungs-Aktion.
+        $id = $this->applicant(['is_on_hr_desk' => true]);
+        $this->hrFall($id, 'applicant_cancelled_training');
+
+        $this->assertSame([$id], $this->ids());
+    }
+
+    public function test_erledigter_hr_fall_schliesst_nicht_aus(): void
+    {
+        $id = $this->applicant(['is_on_hr_desk' => true]);
+        $this->hrFall($id, 'non_eu_citizen', 'approved');
+
+        $this->assertSame([$id], $this->ids());
     }
 
     public function test_als_dublette_markierter_bewerber_erscheint_nicht(): void
@@ -303,25 +355,34 @@ final class ManualBookingCandidatesTest extends TestCase
     public function test_stellen_filter_laesst_nur_passende_stelle_durch(): void
     {
         $duesseldorf = $this->applicant();
-        Capsule::table('rec_applicant_posting')->insert([
-            'rec_applicant_id' => $duesseldorf, 'rec_posting_id' => 81, 'applied_at' => '2026-07-01',
-        ]);
+        $this->posting($duesseldorf, 81);
 
         $koeln = $this->applicant();
-        Capsule::table('rec_applicant_posting')->insert([
-            'rec_applicant_id' => $koeln, 'rec_posting_id' => 91, 'applied_at' => '2026-07-01',
-        ]);
+        $this->posting($koeln, 91);
 
         $this->assertSame([$duesseldorf], $this->ids(8));
         $this->assertSame([$koeln], $this->ids(9));
     }
 
-    public function test_importierte_umgehen_den_stellen_filter(): void
+    public function test_importierte_ohne_posting_umgehen_den_stellen_filter(): void
     {
         // Legacy-CSV-Importe haben keine Postings — sie sollen trotzdem in
         // jeden Termin buchbar bleiben, unabhaengig von der Termin-Stelle.
         $import = $this->applicant(['rec_phase_id' => null, 'import_source' => 'csv_import']);
 
         $this->assertSame([$import], $this->ids(8));
+    }
+
+    public function test_importierte_mit_posting_bleiben_an_ihrer_stelle(): void
+    {
+        // Sobald ein Import eine Stelle hat, gilt der Stellen-Filter auch fuer
+        // ihn — sonst waere ein Koelner Altbestands-Bewerber in jedem
+        // Duesseldorfer Termin buchbar. Die Begruendung des Bypass ("Importe
+        // haben keine Postings") traegt dann naemlich nicht mehr.
+        $import = $this->applicant(['rec_phase_id' => 1, 'import_source' => 'csv_import']);
+        $this->posting($import, 91);
+
+        $this->assertSame([], $this->ids(8));
+        $this->assertSame([$import], $this->ids(9));
     }
 }

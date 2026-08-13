@@ -28,12 +28,18 @@ use Platform\Recruiting\Support\ManualBookingBackfillPlanner;
  *
  * Der Schalter ist nur die halbe Bedingung: wer bereits versendete Vertraege
  * hat, erscheint trotzdem nicht im Dialog (ManualBookingCandidates).
+ *
+ * --from-order vergleicht den order-WERT der Phase, nicht ihren Rang in der
+ * Liste. Bei einem Schnitt 1/2/3/4 ist das dasselbe; benutzt eine Stelle ein
+ * lueckenhaftes Schema (10/20/30 — nichts erzwingt Lueckenlosigkeit), waehlt
+ * --from-order=2 ALLE Phasen inklusive "Bewerbung". Deshalb nennt der Dry-Run
+ * jede Phase mit ihrem order-Wert; wer ihn liest, sieht es sofort.
  */
 class EnableManualBookingForPhases extends Command
 {
     protected $signature = 'recruiting:enable-manual-booking
         {--position= : Kommaliste von Stellen-IDs (Pflicht)}
-        {--from-order=2 : Ab welcher Phasen-Ordnungszahl geschaltet wird}
+        {--from-order=2 : Ab welchem order-WERT der Phase geschaltet wird (nicht: die wievielte Phase)}
         {--dry-run : Nur anzeigen, welche Phasen geschaltet wuerden}';
 
     protected $description = 'Setzt allow_manual_booking auf den Phasen der genannten Stellen (ab --from-order).';

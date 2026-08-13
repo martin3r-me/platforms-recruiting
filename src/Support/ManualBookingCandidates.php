@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Support;
 
 use Illuminate\Database\Eloquent\Builder;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecHrDeskCase;
 
 /**
  * Wer erscheint im Buchungs-Dialog (InterviewBookings\Index) als Kandidat?
@@ -42,11 +43,21 @@ use Platform\Recruiting\Models\RecApplicant;
  *     'teilgenommen' und 'nicht erschienen' sperren also weiter; Umbuchen
  *     heisst absagen und im Zieltermin neu buchen.
  *
- *  4. Nicht geparkt, nicht am HR-Schreibtisch, nicht als Dublette markiert.
- *     Diese drei hat der alte Filter implizit miterledigt (sie haben nie
- *     auto_pilot_completed_at) — ohne sie taucht z.B. ein Bewerber mit offenem
- *     HR-Fall als buchbarer Kandidat auf, obwohl der Fall genau das verhindern
- *     soll. is_active bleibt bei allen drei Zustaenden true.
+ *  4. Nicht geparkt, nicht als Dublette markiert, kein offener HR-Fall —
+ *     ABER: ein Fall mit reason=applicant_cancelled_training zaehlt nicht als
+ *     Sperre. Diese Zustaende hat der alte Filter implizit miterledigt (sie
+ *     haben nie auto_pilot_completed_at), is_active bleibt bei allen true.
+ *
+ *     Die Ausnahme ist der Kern des Umbuchens: sagt ein Bewerber seine Schulung
+ *     ueber den Portal-Link ab, legt Public\InterviewBooking einen HR-Fall mit
+ *     genau diesem Reason an und setzt is_on_hr_desk. Wuerde der sperren, waere
+ *     die Person, die HR am dringendsten in einen anderen Termin setzen will,
+ *     unsichtbar — und der HR-Schreibtisch selbst hat keine Buchungs-Aktion.
+ *     Bei den uebrigen Reasons (Nicht-EU, keine Deutschkenntnisse,
+ *     minderjaehrig) ist die Sperre gewollt: dort haengt eine Freigabe dran.
+ *
+ *     Gefiltert wird ueber die offenen Faelle, nicht ueber das
+ *     is_on_hr_desk-Flag: das Flag kennt den Reason nicht.
  */
 final class ManualBookingCandidates
 {
@@ -56,8 +67,10 @@ final class ManualBookingCandidates
             ->where('team_id', $teamId)
             ->where('is_active', true)
             ->where('is_parked', false)
-            ->where('is_on_hr_desk', false)
             ->whereNull('duplicate_of_applicant_id')
+            ->whereDoesntHave('hrDeskCases', function ($c) {
+                $c->open()->where('reason', '!=', RecHrDeskCase::REASON_APPLICANT_CANCELLED_TRAINING);
+            })
             // Ueber ALLE Termine hinweg, nicht nur den aktuellen: ein Bewerber
             // darf nie in zwei Schulungen gleichzeitig stehen. Als
             // whereDoesntHave und nicht als pluck+whereNotIn, damit nicht jede
@@ -75,9 +88,15 @@ final class ManualBookingCandidates
             });
 
         if ($positionId !== null) {
-            // Stellen-Filter mit Bypass fuer Importierte: Legacy-CSV-Importe
-            // haben keine Postings/Positions — sie sollen aber in jede
-            // Schulung buchbar sein, unabhaengig von der Termin-Stelle.
+            // Stellen-Filter mit Bypass fuer Importierte OHNE Stelle: Legacy-CSV-
+            // Importe haben keine Postings, ihnen fehlt also die Grundlage fuer
+            // diesen Filter — sie sollen in jeden Termin buchbar sein.
+            //
+            // Der Bypass haengt bewusst am fehlenden Posting und nicht allein an
+            // import_source: sobald ein Import einer Stelle zugeordnet ist (HR
+            // haengt ihn um, Enrichment schluesselt ihn), traegt die Begruendung
+            // nicht mehr, und ein Koelner Altbestands-Bewerber waere sonst in
+            // jedem Duesseldorfer Termin buchbar.
             //
             // rec_position_id direkt am Posting statt ueber einen Join auf
             // rec_positions: die Spalte ist ein FK mit cascadeOnDelete
@@ -85,7 +104,9 @@ final class ManualBookingCandidates
             $query->where(function (Builder $q) use ($positionId) {
                 $q->whereHas('postings', function ($pq) use ($positionId) {
                     $pq->where('rec_position_id', $positionId);
-                })->orWhereNotNull('import_source');
+                })->orWhere(function (Builder $import) {
+                    $import->whereNotNull('import_source')->whereDoesntHave('postings');
+                });
             });
         }
 

@@ -317,6 +317,13 @@ class InterviewBooking extends Component
                     'cancelled_by'     => null,
                     'cancelled_at'     => null,
                     'seat_released_at' => null,
+                    // Explizit null: updateOrCreate kann eine alte, von HR
+                    // angelegte und dann stornierte Zeile wiederbeleben. Ohne
+                    // das Zuruecksetzen behielte sie die HR-User-ID, obwohl DIESE
+                    // Buchung der Bewerber selbst gemacht hat — und
+                    // RecInterviewBookingWaitlistObserver liest genau dieses Feld,
+                    // um HR-Buchung von Selbstbuchung zu unterscheiden.
+                    'created_by_user_id' => null,
                 ],
             );
 
@@ -335,6 +342,13 @@ class InterviewBooking extends Component
         $this->maybeSwitchPosition($applicant, $interview);
 
         // Bucht der Bewerber, ist seine Warteliste-Anfrage erfüllt.
+        //
+        // Im Normalfall hat RecInterviewBookingWaitlistObserver das schon in der
+        // Transaktion oben getan, dieses Update trifft dann 0 Zeilen. Es bleibt
+        // trotzdem stehen: der Observer-Body läuft in safelyRun(), ein Fehler
+        // dort wird geloggt und geschluckt — dann ist das hier der Rückfall für
+        // den Pfad, an dem es am meisten weh täte (Bewerber bucht selbst und
+        // bekäme sonst weiter "Termin frei geworden"-Nachrichten).
         RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
             ->open()
             ->update(['fulfilled_at' => now()]);

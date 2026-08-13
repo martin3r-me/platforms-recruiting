@@ -89,6 +89,7 @@ class ListPhasesTool implements ToolContract, ToolMetadataContract
                 'completion_type' => $phase->completion_type,
                 'completion_config' => $phase->completion_config,
                 'show_in_dashboard' => (bool) $phase->show_in_dashboard,
+                'allow_manual_booking' => (bool) $phase->allow_manual_booking,
                 'applicants_count' => $phase->applicants_count,
                 'extra_fields' => $phase->getExtraFieldDefinitions()->map(fn($def) => [
                     'id' => $def->id,
