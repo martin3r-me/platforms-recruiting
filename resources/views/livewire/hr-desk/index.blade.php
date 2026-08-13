@@ -359,6 +359,42 @@
                         </label>
                     </div>
                 @endif
+                {{--
+                  Zertifikat-Angebot. Eigener Block direkt neben der Absage-Nachricht,
+                  gleiches Gate ($resolvingAction === 'reject'), aber OHNE Grund-Bedingung:
+                  $canIssueCertificate hängt an der attended-Buchung und am Team-Schalter,
+                  nicht am Fall-Grund (Support/CertificateIssuanceEligibility).
+                --}}
+                @if($resolvingAction === 'reject' && $canIssueCertificate)
+                    <div class="p-3 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            {{-- .live NUR damit der Hinweis unten erscheinen kann; der Wert
+                                 selbst wäre auch deferred rechtzeitig da. --}}
+                            <input type="checkbox"
+                                   wire:model.live="issueCertificate"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">Teilnahme-Zertifikat ausstellen</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">Der Bewerber hat an der Schulung teilgenommen — das Zertifikat bleibt ihm als Nachweis.</p>
+                            </div>
+                        </label>
+                        {{--
+                          Der Hinweis hängt an $canSendRejectionMessage, NICHT an
+                          $sendRejectionMessage — und ist deshalb konditional formuliert
+                          ("ist … angehakt") statt behauptend. Grund: die Absage-Checkbox
+                          oben läuft über ein deferred wire:model, ihr Zustand erreicht den
+                          Server erst beim nächsten Roundtrip. Ein Hinweis, der auf ihren
+                          Wert prüft, bliebe nach dem Abwählen der Absage stehen und
+                          behauptete dann zwei Nachrichten, wo nur eine rausgeht. Wer hier
+                          auf $sendRejectionMessage umstellt, braucht dort ebenfalls .live.
+                        --}}
+                        @if($issueCertificate && $canSendRejectionMessage)
+                            <p class="mt-3 text-xs text-amber-800">
+                                Ist die Absage-Nachricht oben angehakt, gehen zwei WhatsApp-Nachrichten raus: die Absage und der Zertifikat-Link.
+                            </p>
+                        @endif
+                    </div>
+                @endif
                 <div class="space-y-1">
                     <label class="text-sm font-medium text-[var(--ui-secondary)]">Notiz {{ $resolvingAction === 'reject' ? '(empfohlen)' : '(optional)' }}</label>
                     <textarea wire:model="resolveNotes"

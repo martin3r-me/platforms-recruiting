@@ -26,9 +26,35 @@
  * Balance-Pruefung.
  */
 
-$autoload = __DIR__ . '/../../../../meingedeck/vendor/autoload.php';
-if (!is_file($autoload)) {
-    fwrite(STDERR, "Autoloader nicht gefunden: {$autoload}\n");
+/*
+ * Host-App SUCHEN statt einen festen relativen Pfad zu raten.
+ *
+ * Vorher stand hier __DIR__ . '/../../../../meingedeck/vendor/autoload.php'.
+ * Das stimmt nur, solange das Modul direkt unter platform/modules/ liegt. In
+ * einem git worktree (.claude/worktrees/<name>) liegt es zwei Ebenen tiefer,
+ * und dann brach dieses Skript mit "Autoloader nicht gefunden" und Exit 2 ab —
+ * also genau dort, wo Blade-Aenderungen entstehen und der Check gebraucht wird.
+ * Aufgefallen in Task 11, wo als erster Task dieses Pakets eine .blade.php
+ * angefasst wurde.
+ */
+$autoload = null;
+$dir = __DIR__;
+for ($i = 0; $i < 10; $i++) {
+    $candidate = $dir . '/meingedeck/vendor/autoload.php';
+    if (is_file($candidate)) {
+        $autoload = $candidate;
+        break;
+    }
+
+    $parent = dirname($dir);
+    if ($parent === $dir) {
+        break;
+    }
+    $dir = $parent;
+}
+
+if ($autoload === null) {
+    fwrite(STDERR, "Autoloader nicht gefunden: von " . __DIR__ . " aufwaerts liegt kein meingedeck/vendor/autoload.php\n");
     exit(2);
 }
 require $autoload;

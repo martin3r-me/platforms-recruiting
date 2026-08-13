@@ -273,16 +273,25 @@ class HrDeskRoutingService
         ]);
     }
 
-    public function rejectCase(RecHrDeskCase $case, int $userId, ?string $notes = null): void
+    /**
+     * @param  bool  $issueCertificate  Teilnahme-Zertifikat mit ausstellen. Kommt
+     *   vom Haken im Resolve-Modal, NICHT aus dem Fall-Grund — Kriterium ist die
+     *   attended-Buchung (Support/CertificateIssuanceEligibility). Default false:
+     *   ohne Haken laeuft die Ablehnung Query fuer Query wie vor dem Umbau
+     *   (Falsifikator: tests/Integration/HrDeskRejectionCertificateTest).
+     */
+    public function rejectCase(RecHrDeskCase $case, int $userId, ?string $notes = null, bool $issueCertificate = false): void
     {
-        // Fall-Abschluss und Bewerber-Update gehören zusammen: scheitert das
-        // zweite Update (z.B. FK), darf der Fall nicht geschlossen zurückbleiben.
-        DB::transaction(function () use ($case, $userId, $notes) {
-            $this->applyRejection($case, $userId, $notes);
+        // Fall-Abschluss, Bewerber-Update und Zertifikat gehören zusammen:
+        // scheitert das zweite Update (z.B. FK) oder die Ausstellung, darf der
+        // Fall nicht geschlossen zurückbleiben — und umgekehrt kein Zertifikat
+        // ohne Ablehnung entstehen.
+        DB::transaction(function () use ($case, $userId, $notes, $issueCertificate) {
+            $this->applyRejection($case, $userId, $notes, $issueCertificate);
         });
     }
 
-    private function applyRejection(RecHrDeskCase $case, int $userId, ?string $notes): void
+    private function applyRejection(RecHrDeskCase $case, int $userId, ?string $notes, bool $issueCertificate = false): void
     {
         $case->update([
             'status' => RecHrDeskCase::STATUS_REJECTED,
@@ -326,5 +335,58 @@ class HrDeskRoutingService
             'type' => 'hr_desk_rejected',
             'summary' => "Bewerber über HR-Schreibtisch abgelehnt." . ($notes ? " Notiz: {$notes}" : ''),
         ]);
+
+        if (!$issueCertificate) {
+            // DER NORMALFALL, und hier ist Schluss: kein Settings-Lookup, kein
+            // Query, kein Log — Query für Query wie vor dem Umbau. Der frühe
+            // return ist Absicht statt eines umschließenden if: er hält den
+            // Zertifikat-Zweig aus dem Normalfall heraus, anstatt ihn nur zu
+            // überspringen, und macht jede spätere Ergänzung unterhalb dieser
+            // Zeile automatisch zur Zertifikat-Sache.
+            return;
+        }
+
+        // $applicant ist hier garantiert nicht null — ein null wäre schon oben
+        // an $applicant->update() gescheitert. Wer dieses Update optional macht,
+        // braucht hier einen eigenen Guard.
+        $certificates = app(IssueTrainingCertificateService::class);
+
+        // Den Team-Schalter VORHER fragen statt issue() werfen zu lassen und den
+        // Wurf zu fangen: ein try/catch um issue() sähe defensiv aus und wäre
+        // das Gegenteil — es würde jede andere Ursache mitschlucken (kaputte
+        // Daten, DB-Fehler), und die MÜSSEN durchschlagen und die Ablehnung
+        // mit zurückrollen (alles oder nichts, deshalb sitzt der Aufruf
+        // innerhalb der Transaktion).
+        //
+        // Ein ausgeschalteter Schalter ist dagegen kein Fehler, sondern eine
+        // Konfigurationsaussage — z.B. wenn er umgelegt wird, während HR das
+        // Modal offen hat. Dann läuft die Ablehnung weiter (eine fehlende
+        // Ausstellung darf sie nicht mitreißen), aber mit Spur im Log: still
+        // verschwinden wäre das Schlimmste von beidem.
+        if (!$certificates->isEnabledForTeam((int) $applicant->team_id)) {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $applicant->id,
+                'type' => 'certificate_skipped',
+                'summary' => 'Teilnahme-Zertifikat war angehakt, wurde aber NICHT ausgestellt: die '
+                    . 'Einstellung ' . IssueTrainingCertificateService::SETTING_ENABLED
+                    . ' ist für dieses Team ausgeschaltet.',
+            ]);
+
+            return;
+        }
+
+        $certificate = $certificates->issue($applicant, $userId);
+
+        // wasRecentlyCreated, nicht unbedingt loggen: issue() ist idempotent und
+        // gibt ein bestehendes Zertifikat zurück (zweite Ablehnung, oder später
+        // Weg b). Ein Log "ausgestellt" wäre dann eine falsche Aussage über ein
+        // Dokument, das der Bewerber längst hat.
+        if ($certificate->wasRecentlyCreated) {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $applicant->id,
+                'type' => 'certificate_issued',
+                'summary' => 'Teilnahme-Zertifikat ausgestellt (HR-Schreibtisch, Ablehnung).',
+            ]);
+        }
     }
 }

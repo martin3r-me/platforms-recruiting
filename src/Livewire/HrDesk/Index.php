@@ -12,10 +12,13 @@ use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecAutoPilotLog;
+use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
 use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\ContractSendEligibility;
 use Platform\Recruiting\Services\HrDeskRoutingService;
+use Platform\Recruiting\Services\IssueTrainingCertificateService;
+use Platform\Recruiting\Support\CertificateIssuanceEligibility;
 
 /**
  * HR-Schreibtisch — fokussierte Bewerber-Case-Liste.
@@ -44,6 +47,12 @@ class Index extends Component
     // Template konfiguriert ist und der Bewerber eine Nummer hat.
     public bool $sendRejectionMessage = false;
     public bool $canSendRejectionMessage = false;
+    // Teilnahme-Zertifikat beim Ablehnen mit ausstellen. NICHT vorausgewählt
+    // (anders als sendRejectionMessage) — HR setzt den Haken bewusst. Sichtbar
+    // nur bei attended-Buchung und eingeschaltetem Team-Schalter, aber für
+    // JEDEN Ablehnungsgrund: Kriterium ist die Teilnahme, nicht der Grund.
+    public bool $issueCertificate = false;
+    public bool $canIssueCertificate = false;
 
     #[Computed]
     public function reasonCounts(): array
@@ -109,11 +118,13 @@ class Index extends Component
 
         $this->canSendRejectionMessage = false;
         $this->sendRejectionMessage = false;
+        $this->canIssueCertificate = false;
+        $this->issueCertificate = false;
         if ($action === 'reject') {
             $teamId = (int) Auth::user()->currentTeam->id;
             $case = RecHrDeskCase::forTeam($teamId)->find($caseId);
+            $applicant = $case?->applicant;
             if ($case?->reason === RecHrDeskCase::REASON_MINOR) {
-                $applicant = $case->applicant;
                 $templateOk = app(HoldingTemplateSender::class)
                     ->configuredTemplateName($teamId, 'minor_rejection_template_id') !== null;
                 $this->canSendRejectionMessage = $templateOk
@@ -122,6 +133,11 @@ class Index extends Component
                 // Default AN — bewusste Abwahl statt vergessener Absage.
                 $this->sendRejectionMessage = $this->canSendRejectionMessage;
             }
+
+            // Zertifikat-Angebot: bewusst OHNE Grund-Bedingung, also außerhalb
+            // des Minderjährigen-Zweigs. $issueCertificate bleibt false — nur
+            // die Sichtbarkeit wird hier entschieden.
+            $this->canIssueCertificate = $this->certificateAvailableFor($applicant, $teamId);
         }
 
         $this->resolveModalShow = true;
@@ -135,6 +151,44 @@ class Index extends Component
         $this->resolveNotes = '';
         $this->sendRejectionMessage = false;
         $this->canSendRejectionMessage = false;
+        $this->issueCertificate = false;
+        $this->canIssueCertificate = false;
+    }
+
+    /**
+     * Darf für diesen Bewerber ein Zertifikat angeboten und ausgestellt werden?
+     *
+     * Wird ZWEIMAL gebraucht, und der zweite Aufruf ist der wichtige:
+     * $canIssueCertificate und $issueCertificate sind öffentliche Livewire-
+     * Properties und damit vom Client schreibbar — beim Bestätigen muss die
+     * Frage deshalb erneut serverseitig gestellt werden, nicht nur beim Öffnen
+     * des Modals.
+     *
+     * NICHT billig (Team-Schalter + exists). Im Bestätigen-Pfad steht der Haken
+     * deshalb ZUERST im &&, damit eine Ablehnung ohne Haken keinen zusätzlichen
+     * Query kostet.
+     */
+    private function certificateAvailableFor(?RecApplicant $applicant, int $teamId): bool
+    {
+        if ($applicant === null) {
+            return false;
+        }
+
+        return CertificateIssuanceEligibility::isAvailable(
+            // attendedApplicantIds ist eine MAP applicantId => Position
+            // (pluck→flip), die Frage ist also isset() auf dem SCHLÜSSEL — so
+            // wie es die Card in der Blade-Datei auch tut. Ein
+            // in_array($applicant->id, ...) wäre hier still falsch: es prüfte
+            // gegen die Positions-Werte 0, 1, 2 …
+            isset($this->attendedApplicantIds[$applicant->id]),
+            app(IssueTrainingCertificateService::class)->isEnabledForTeam($teamId),
+            // Mit kind-Filter, weil die Dedup-Dimension von
+            // rec_training_certificates (Bewerber, Art) ist: ein Zertifikat
+            // einer ANDEREN Schulungsart darf das hier nicht verdecken.
+            RecTrainingCertificate::where('rec_applicant_id', $applicant->id)
+                ->where('kind', RecTrainingCertificate::KIND_SERVICE_BASIS)
+                ->exists(),
+        );
     }
 
     public function confirmResolve(): void
@@ -162,7 +216,15 @@ class Index extends Component
                 session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
             }
         } else {
-            $service->rejectCase($case, $userId, $notes);
+            // Der Haken steht ZUERST: er schließt die Nachprüfung im Normalfall
+            // kurz (PHP wertet die rechte Seite samt Argumenten nur bei true
+            // aus), damit eine Ablehnung ohne Haken exakt so viele Queries
+            // kostet wie vor dem Umbau. Die Nachprüfung selbst ist nicht
+            // optional — siehe certificateAvailableFor().
+            $issueCertificate = $this->issueCertificate
+                && $this->certificateAvailableFor($case->applicant, $teamId);
+
+            $service->rejectCase($case, $userId, $notes, $issueCertificate);
 
             $messageSent = false;
             if ($this->sendRejectionMessage
