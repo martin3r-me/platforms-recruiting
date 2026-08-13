@@ -3424,6 +3424,28 @@ git commit -m "feat(recruiting): WhatsApp-Zustellung des Zertifikats mit Link al
 >
 > **1) `issue()` WIRFT bei ausgeschaltetem Schalter** (der Rückgabetyp ist nicht nullable). Dieser Weg hängt an der **Mitarbeiter-Anlage** — also muss er **vorher** `IssueTrainingCertificateService::isEnabledForTeam()` fragen und darf den Aufruf **nicht** in ein `try/catch` legen. Ein `try/catch` sähe defensiv aus und wäre das Gegenteil: es würde jede andere Ursache mitschlucken, und ein ausgeschaltetes Feature dürfte niemals die Anlage eines Mitarbeiters mitreißen — genauso wenig wie ein Fehler im Zertifikat.
 >
+> **6) ENTSCHEIDUNG: die Ausstellung läuft HINTER dem Commit, nicht in der Transaktion. Der Codeblock weiter unten zeigt es falsch.**
+>
+> `createOrUpdate()` umschließt alles mit `DB::transaction()` (`src/Services/CreateEmployeeFromApplicantService.php:43`). Der Plantext hängte die Ausstellung dort hinein und fing sie mit `try/catch (\Throwable)` — das ist **beides falsch**, und zwar aus einem Grund:
+>
+> **Innerhalb der Transaktion ist „alles oder nichts" die Zusage. Genau die wollen wir bei Weg (b) nicht.** Ein Mitarbeiter **ohne** Zertifikat ist ein legitimer Zustand — das Zertifikat ist der Trostpreis, nicht Teil der Anlage-Invariante. Der umgekehrte Fall ist keiner: keine Mitarbeiter-Anlage, weil der Zertifikat-Pfad einen Defekt hat. Der `catch` wäre dort also eine **Ausnahme von einer Zusage, die man von vornherein nicht will**. Hinter dem Commit ist die richtige Zusage die Standardzusage.
+>
+> **Der Nebeneffekt ist der eigentliche Gewinn:** in der Transaktion hätte der Code eine ungemessene Voraussetzung getragen. Gemessen wurde: SQLite verträgt einen gefangenen Statement-Fehler (Transaktion bleibt benutzbar, `transactionLevel` unverändert, Commit greift), MySQL nach dokumentiertem Verhalten ebenfalls — **nicht gemessen** —, **Postgres nicht**: dort vergiftet jeder Fehler die Transaktion, und der Folgefehler wäre irreführend. Hinter dem Commit stellt sich die Frage nicht mehr. In einem Durchlauf mit vier gekippten Messungen ist „die Frage stellt sich nicht" mehr wert als „die Antwort ist vermutlich ok".
+>
+> **Der Unterschied zu Weg (a) ist echt und kein Widerspruch.** Bei (a) hat HR die Checkbox **bewusst gesetzt** und würde sonst glauben, beides sei passiert — dort soll ein gescheitertes Zertifikat die Ablehnung mitnehmen. Bei (b) hakt **niemand etwas an**, die Ausstellung ist ein Automatismus. Zwei verschiedene Zusagen mit zwei verschiedenen Gründen.
+>
+> **Drei Auflagen des Auftraggebers:**
+>
+> 1. Der Aufruf muss **zuverlässig nach dem Commit** laufen, nicht bloß nach der letzten Zeile im Transaktionsblock. **Zeig im Diff, wo genau er sitzt.**
+> 2. **Falsifikator:** Ausstellung wirft → Mitarbeiter ist trotzdem angelegt und committet, Log-Zeile da. Plus die Gegenprobe, dass ein erfolgreicher Lauf **beides** hat.
+> 3. `catch` als **Ausnahmeliste** statt `\Throwable`. **Umfasst die Liste faktisch alles, sag es** — dann nehmen wir `\Throwable` mit einem Kommentar, der das benennt. Lieber ehrlich breit als kosmetisch verengt.
+>
+> **Gestrichen, nicht umformuliert:** die Begründung im Codeblock „die Vorlage kann inzwischen gelöscht oder auf `type=contract` umgestellt worden sein" ist ein v2-Rest. Es gibt keine Vorlage. Eine Begründung, die auf nichts zeigt, ist schlimmer als keine.
+>
+> **Zwei weitere v2-Reste im Codeblock unten**, von Regel 4 vor dem Dispatch gefangen: `->issue($applicant, (int) $templateId, null)` — `$templateId` existiert nicht mehr, die Signatur ist `issue(RecApplicant, ?int $issuedByUserId)`. Und die Zeilenangabe `:106` ist um eins verschoben, `transferEvaluationToHrData()` steht auf `:105`.
+>
+> **Log:** `Log::error` (nicht `warning`), **eigener Marker** — ein Fehler bei der Ausstellung darf nicht wie einer beim Bewertungs-Transfer aussehen — und die **Applicant-ID** rein, sonst ist die Zeile nicht nachverfolgbar.
+>
 > **4) Meldekanal prüfen, nicht annehmen.** Geht eine Meldung dieses Tasks über einen Kanal, den die betroffene Seite **tatsächlich rendert**? Bei Task 12 wäre `flash('error')` unsichtbar geblieben: die HR-Seite rendert nur `session('message')`, das Core-Layout nichts. Das war der bittere Zwilling des Template-Guards — **der Fallback für den Fehlerfall wäre selbst stumm gewesen.** Also: den Kanal am Blade nachsehen, nicht am Framework-Wissen.
 >
 > **5) Der Template-Guard aus Task 12 gilt hier NICHT, und das ist der Grund, ihn zu erwähnen:** Weg (b) verschickt nichts (§D3). Wenn du also über einen WhatsApp-Versand nachdenkst, ist der Task falsch verstanden.
