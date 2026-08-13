@@ -535,6 +535,13 @@
                 <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
                     Es werden Bewerber für die Stelle <strong>{{ $this->interview->position?->title }}</strong> angezeigt, deren Phase manuelles Einbuchen erlaubt und für die noch keine Verträge versendet wurden — sowie alle importierten Bewerber (Altbestand, ohne Stellen-Bindung).
                 </div>
+            @else
+                {{-- Termin ohne Stelle: die Liste ist stellenübergreifend, das
+                     muss dastehen — sonst wundert sich HR über Namen aus einem
+                     anderen Standort. --}}
+                <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                    Dieser Termin ist keiner Stelle zugeordnet — angezeigt werden deshalb <strong>alle</strong> Bewerber des Teams, deren Phase manuelles Einbuchen erlaubt und für die noch keine Verträge versendet wurden, stellenübergreifend.
+                </div>
             @endif
             <x-ui-input-select
                 name="selectedApplicantId"

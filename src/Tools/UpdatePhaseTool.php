@@ -62,6 +62,10 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                     'type' => 'object',
                     'description' => 'Optional: Phasen-spezifische Konfiguration. Bekannte Keys: switch_position_on_booking (bool, nur sinnvoll mit completion_type=booking), confirm_booking_on_completion (bool, registriertes Interview wird bei Phasen-Abschluss automatisch auf "confirmed" gesetzt).',
                 ],
+                'allow_manual_booking' => [
+                    'type' => 'boolean',
+                    'description' => 'Optional: Darf HR Bewerber aus dieser Phase manuell in Schulungstermine ein- und umbuchen? Default false. true = die Bewerber erscheinen im Buchungs-Dialog eines Termins, sofern noch keine Verträge versendet sind und keine aktive Buchung besteht. Typisch gesetzt ab der Buchungs-Phase (completion_type=booking).',
+                ],
                 'show_in_dashboard' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Soll diese Phase im Dashboard-Pipeline angezeigt werden? Default true. false = Phase + ihre Bewerber sind im Dashboard ausgeblendet (z.B. für Sandbox-Stellen oder archivierte Phasen).',
@@ -94,7 +98,7 @@ class UpdatePhaseTool implements ToolContract, ToolMetadataContract
                 return ToolResult::error('ACCESS_DENIED', 'Kein Zugriff auf diese Phase.');
             }
 
-            $fields = ['name', 'order', 'auto_advance', 'is_active', 'show_in_dashboard'];
+            $fields = ['name', 'order', 'auto_advance', 'is_active', 'show_in_dashboard', 'allow_manual_booking'];
             foreach ($fields as $field) {
                 if (array_key_exists($field, $arguments)) {
                     $phase->{$field} = $arguments[$field] === '' ? null : $arguments[$field];

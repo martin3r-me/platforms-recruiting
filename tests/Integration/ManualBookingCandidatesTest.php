@@ -37,6 +37,9 @@ final class ManualBookingCandidatesTest extends TestCase
             $t->increments('id');
             $t->integer('team_id');
             $t->boolean('is_active')->default(true);
+            $t->boolean('is_parked')->default(false);
+            $t->boolean('is_on_hr_desk')->default(false);
+            $t->integer('duplicate_of_applicant_id')->nullable();
             $t->integer('rec_phase_id')->nullable();
             $t->string('import_source')->nullable();
             $t->timestamp('auto_pilot_completed_at')->nullable();
@@ -99,10 +102,12 @@ final class ManualBookingCandidatesTest extends TestCase
             $t->timestamps();
         });
 
-        // Phase 1 ohne Schalter, Phase 2 mit — beide an Stelle 8.
+        // Phase 1 ohne Schalter, Phase 2 mit, Phase 3 mit Schalter aber
+        // stillgelegt — alle an Stelle 8.
         Capsule::table('rec_phases')->insert([
             ['id' => 1, 'team_id' => 3, 'rec_position_id' => 8, 'name' => 'Bewerbung', 'order' => 1, 'allow_manual_booking' => false, 'is_active' => true, 'completion_type' => 'fields'],
             ['id' => 2, 'team_id' => 3, 'rec_position_id' => 8, 'name' => 'Schulung buchen', 'order' => 2, 'allow_manual_booking' => true, 'is_active' => true, 'completion_type' => 'booking'],
+            ['id' => 3, 'team_id' => 3, 'rec_position_id' => 8, 'name' => 'Stillgelegt', 'order' => 3, 'allow_manual_booking' => true, 'is_active' => false, 'completion_type' => 'fields'],
         ]);
 
         Capsule::table('rec_positions')->insert([
@@ -174,6 +179,51 @@ final class ManualBookingCandidatesTest extends TestCase
         $this->applicant(['rec_phase_id' => null]);
 
         $this->assertSame([], $this->ids());
+    }
+
+    public function test_importierter_bewerber_bleibt_auch_mit_phase_sichtbar(): void
+    {
+        // Ein CSV-Import startet phasenlos, bleibt es aber nicht: sobald ein
+        // Posting verknuepft wird, setzt reconcilePositionState() ihn auf die
+        // ERSTE Phase der Stelle (RecApplicant:1966 fasst "Phase fehlt"
+        // ausdruecklich mit; PhaseMatcher::sameOrderOrFirst(null, …) liefert
+        // die order-kleinste). Ohne diesen Fall verschwindet Altbestand
+        // stillschweigend aus dem Dialog, obwohl er heute sichtbar ist.
+        $id = $this->applicant(['rec_phase_id' => 1, 'import_source' => 'csv_import']);
+
+        $this->assertSame([$id], $this->ids());
+    }
+
+    public function test_stillgelegte_phase_zaehlt_nicht_trotz_schalter(): void
+    {
+        // Der Backfill-Planner ueberspringt inaktive Phasen bewusst; eine
+        // Phase, die NACH dem Schalten stillgelegt wird, darf ihre Bewerber
+        // nicht fuer immer buchbar halten.
+        $this->applicant(['rec_phase_id' => 3]);
+
+        $this->assertSame([], $this->ids());
+    }
+
+    public function test_geparkter_bewerber_erscheint_nicht(): void
+    {
+        $this->applicant(['is_parked' => true]);
+
+        $this->assertSame([], $this->ids());
+    }
+
+    public function test_bewerber_am_hr_schreibtisch_erscheint_nicht(): void
+    {
+        $this->applicant(['is_on_hr_desk' => true]);
+
+        $this->assertSame([], $this->ids());
+    }
+
+    public function test_als_dublette_markierter_bewerber_erscheint_nicht(): void
+    {
+        $original = $this->applicant();
+        $this->applicant(['duplicate_of_applicant_id' => $original]);
+
+        $this->assertSame([$original], $this->ids());
     }
 
     public function test_versendeter_vertrag_schliesst_aus(): void

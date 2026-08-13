@@ -127,6 +127,21 @@ class RecContract extends Model implements InheritsExtraFields
     }
 
     /**
+     * Tatsaechlich rausgegangene Vertraege: nicht storniert UND mit sent_at.
+     *
+     * EINE Quelle fuer dieses Praedikat — es haengt an zwei Stellen mit
+     * unterschiedlicher Blickrichtung: RecApplicant::hasAnyContractSent()
+     * (pro Bewerber) und ManualBookingCandidates (whereDoesntHave ueber viele).
+     * Zwei Kopien wuerden beim ersten neuen Status (z.B. 'voided') auseinander
+     * laufen, und die Folge waere still: der Buchungs-Dialog wuerde Bewerber
+     * anzeigen, deren Vertrag schon raus ist.
+     */
+    public function scopeSent($query)
+    {
+        return $query->whereNotIn('status', ['cancelled'])->whereNotNull('sent_at');
+    }
+
+    /**
      * Wenn `vertragsbeginn` gesetzt ist und `vertragsende` leer, wird das Ende
      * berechnet: +1 Jahr, Anfang Monat, −1 Tag (z.B. 15.05.2026 → 30.04.2027).
      * Liefert ['vertragsbeginn' => Y-m-d|null, 'vertragsende' => Y-m-d|null].

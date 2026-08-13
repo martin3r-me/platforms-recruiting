@@ -1825,10 +1825,9 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     public function hasAnyContractSent(): bool
     {
-        return $this->contracts()
-            ->whereNotIn('status', ['cancelled'])
-            ->whereNotNull('sent_at')
-            ->exists();
+        // Praedikat als Scope, damit ManualBookingCandidates dieselbe Definition
+        // benutzt statt einer zweiten Kopie (siehe RecContract::scopeSent()).
+        return $this->contracts()->sent()->exists();
     }
 
     /**

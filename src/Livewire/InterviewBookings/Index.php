@@ -299,6 +299,22 @@ class Index extends Component
                 return 'Dieser Kandidat ist bereits in einem Termin gebucht!';
             }
 
+            // Dieselbe Regel wie die Kandidatenliste, hier noch einmal im Lock
+            // geprueft. Die Validierung oben kennt nur exists:rec_applicants —
+            // ohne diesen Riegel bucht ein offen gebliebenes Modal auch dann,
+            // wenn der Kollege in der Zwischenzeit die Vertraege versendet oder
+            // den Bewerber geparkt hat; und eine manipulierte Livewire-Payload
+            // koennte einen Bewerber aus einem FREMDEN Team hereinreichen, der
+            // dann mit unserer team_id gestempelt wuerde.
+            $eligible = ManualBookingCandidates::query(
+                auth()->user()->currentTeam->id,
+                $locked->rec_position_id ?: null,
+            )->whereKey($this->selectedApplicantId)->exists();
+
+            if (!$eligible) {
+                return 'Dieser Bewerber ist nicht (mehr) manuell buchbar — bitte die Liste neu laden.';
+            }
+
             RecInterviewBooking::updateOrCreate(
                 [
                     'rec_interview_id' => $this->interviewId,

@@ -135,6 +135,10 @@ class DuplicatePosition extends Command
                 'completion_type' => $sourcePhase->completion_type,
                 'completion_config' => $sourcePhase->completion_config,
                 'show_in_dashboard' => $sourcePhase->show_in_dashboard,
+                // Ohne das haette die geklonte Stelle einen leeren
+                // Buchungs-Dialog, ohne Fehlermeldung: der Schalter fiele auf
+                // seinen Default false zurueck.
+                'allow_manual_booking' => $sourcePhase->allow_manual_booking,
             ]);
             $phaseIdMap[$sourcePhase->id] = $newPhase->id;
         }

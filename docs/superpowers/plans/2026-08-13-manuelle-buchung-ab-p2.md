@@ -1252,6 +1252,11 @@ git commit -m "feat(recruiting): Backfill-Command fuer den Phasen-Schalter mit D
 2. **`meingedeck` bumpen** (`composer.lock`) — ohne Bump ist nichts live.
 3. Forge-Deploy, dann `php artisan migrate` (die Spalte).
 4. `php artisan recruiting:enable-manual-booking --position=8,9,10,11,16 --dry-run` lesen, danach denselben Aufruf **ohne** `--dry-run`.
+
+   **Schritt 3 und 4 gehören in dasselbe Deploy-Fenster.** Zwischen Migration und
+   Backfill steht der Schalter überall auf `false` — der Buchungs-Dialog zeigt in
+   diesem Zeitraum nur CSV-Altbestand, HR kann also kurzzeitig gar nicht manuell
+   buchen. Nicht über Nacht liegen lassen.
 5. **`php artisan queue:restart`** — der neue Observer läuft auch in Queued Jobs, die sonst mit altem Code weiterlaufen.
 6. Sichtprüfungen live:
    - Stellen-Seite Düsseldorf allgemein: Checkbox an P2/P3/P4 gesetzt, Badge „HR-Buchung" sichtbar, Speichern hält.
@@ -1275,6 +1280,39 @@ git commit -m "feat(recruiting): Backfill-Command fuer den Phasen-Schalter mit D
   und `test_importierte_umgehen_den_stellen_filter` (Task 2, deckt den
   Bypass ab, den die alte Implementierung nur als Kommentar hatte) sowie
   `test_bereits_erfuellter_eintrag_wird_nicht_neu_gestempelt` (Task 4).
+
+## Review-Runde 1 (Tasks 1–3, high)
+
+Neun Befunde, acht umgesetzt, einer erledigt sich durch die späteren Tasks:
+
+- **Altbestand hätte verschwinden können** — die Import-Bedingung fragte
+  zusätzlich nach fehlender Phase. Ein CSV-Import startet phasenlos, bleibt es
+  aber nicht: `reconcilePositionState()` setzt ihn bei Posting-Verknüpfung auf
+  die erste Phase (`RecApplicant.php:1966` fasst „Phase fehlt" ausdrücklich mit).
+  Jetzt reicht `import_source`.
+- **Drei implizite Ausschlüsse nachgezogen** — `is_parked`, `is_on_hr_desk`,
+  `duplicate_of_applicant_id`. Die hatte der alte `auto_pilot_completed_at`-Filter
+  gratis miterledigt; alle drei Zustände lassen `is_active` auf true.
+- **`book()` prüft die Regel jetzt im Lock nach** — vorher nur
+  `exists:rec_applicants`, also kein Schutz gegen ein offen gebliebenes Modal
+  und keine Team-Prüfung.
+- **Stillgelegte Phasen zählen nicht mehr** — der Backfill überspringt inaktive
+  Phasen, die Query prüfte es nicht.
+- **`DuplicatePosition` klont den Schalter mit** — sonst hätte eine geklonte
+  Stelle ohne Fehlermeldung einen leeren Buchungs-Dialog.
+- **`UpdatePhaseTool` kann den Schalter setzen** — fehlte in der Feld-Whitelist,
+  der MCP-Pfad wäre still ins Nichts gelaufen.
+- **Vertrags-Prädikat hat eine Quelle** — `RecContract::scopeSent()`, benutzt von
+  `hasAnyContractSent()` und der Kandidaten-Query. Zwei Kopien wären beim ersten
+  neuen Status auseinandergelaufen.
+- **Unbegrenzte IN-Liste weg** — `whereDoesntHave('interviewBookings')` statt
+  `pluck()` über alle Buchungen aller Teams; Stellen-Filter ohne Join auf
+  `rec_positions` (FK mit `cascadeOnDelete`, verwaiste Postings gibt es nicht).
+- **Hinweistext für Termine ohne Stelle** — die Liste ist dort
+  stellenübergreifend, das stand nirgends.
+- *Erledigt:* der Befund „Migration verweist auf einen Command, den es nicht
+  gibt" bezog sich auf den Review-Stand (Tasks 1–3); Command und Checkbox sind
+  mit Tasks 5/6 gelandet. Die Deploy-Kopplung steht jetzt oben ausdrücklich drin.
 
 ## Bekannte Nebenwirkungen (dem Kunden gesagt, kein Bug)
 
