@@ -130,11 +130,41 @@
                         Solange Template oder Status fehlen, werden auch Unter-16-Fälle auf den HR-Schreibtisch gelegt — es geht nie eine stille Absage raus.
                     </p>
 
-                    {{-- Schulungszertifikat: Template fuer die Zustellung des PDF-Links.
-                         Steht NACH dem Jugendschutz-Hinweistext, nicht direkt hinter dem
-                         Jugendschutz-Select: der Hinweis darunter gehoert zum Jugendschutz,
-                         und dazwischen eingeschoben laese er sich als Erklaerung DIESES
-                         Selects. --}}
+                    {{-- SCHULUNGSZERTIFIKAT — drei Teile in dieser Reihenfolge:
+                         (1) Hauptschalter, (2) WhatsApp-Template, (3) Hinweis zum Template.
+
+                         Die Gruppe steht als Ganzes NACH dem Jugendschutz-Hinweistext, und
+                         zwischen dem Jugendschutz-Select und seinem Hinweis darf nichts
+                         eingeschoben werden: der Hinweis stuende dann unter einem fremden
+                         Bedienelement und laese sich als dessen Erklaerung. Dasselbe gilt fuer
+                         das Paar dieser Gruppe. Neues zum Zertifikat kommt UNTER den
+                         Template-Hinweis, alles Uebrige unter das Ansprechpartner-Select.
+                         Festgenagelt in SettingsModalCertificateToggleTest.
+
+                         Der Schalter ist ein rohes <input type="checkbox"> wie die beiden
+                         Nachbarn dieser Sektion (Duzen oben, Auto-Assign weiter unten). NICHT
+                         auf x-ui-input-checkbox umstellen: das ist ein Toggle-Button, der den
+                         Wert per Alpine-entangle(...).live haelt — und entangle verliert in
+                         genau diesem Modal beim Speichern Werte (gemessen an
+                         x-ui-input-select). Fuer den Toggle ist das nicht gemessen; der
+                         Schalter ist die einzige Bremse des ganzen Features, also laeuft er auf
+                         dem Weg, der hier nachweislich schreibt. --}}
+                    <div class="p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                                   wire:model="settings.issue_training_certificates"
+                                   class="w-5 h-5 text-[var(--ui-primary)] border-[var(--ui-border)] rounded focus:ring-[var(--ui-primary)]">
+                            <div>
+                                <span class="text-sm font-medium text-[var(--ui-secondary)]">Schulungszertifikate ausstellen</span>
+                                <p class="text-xs text-[var(--ui-muted)] mt-0.5">
+                                    Ohne Haken wird kein Zertifikat ausgestellt: bei der Absage auf dem HR-Schreibtisch
+                                    erscheint der Zertifikat-Haken nicht, und die Mitarbeiter-Anlage stellt keines aus.
+                                    Gilt team-weit und ist der einzige Weg, das Feature ohne Deploy an- oder abzuschalten.
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
                             :value="$settings['training_certificate_wa_template_id'] ?? null"
