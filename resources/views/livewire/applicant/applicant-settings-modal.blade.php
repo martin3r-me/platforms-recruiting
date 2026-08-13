@@ -186,16 +186,28 @@
                          KEINE Kurzform-Zuweisung mit runden Klammern hier: gemessen mit
                          tools/blade-check.php verschluckt sie den naechsten @php-Block dieser Datei
                          und erzeugt einen 500-ParseError. --}}
+                    {{-- DIAGNOSE 2026-08-13, BEWUSST DEAKTIVIERT — NICHT AUFRAEUMEN:
+                         Auf mitarbeiter.rheingedeck.de bricht das gerenderte Modal seit dem
+                         Zertifikat-Deploy exakt VOR diesem Absatz ab (alles danach fehlt im
+                         Server-HTML), und die unbalancierten Divs kollabieren die Flex-Kette
+                         der Bewerberliste auf Hoehe 0. Template, Kompilat, View-Cache, OPcache
+                         (PHP-Restart) und Livewire-Assets sind als Ursachen ausgeschlossen —
+                         dieser Kommentar ist der A/B-Test: heilt die Seite hiermit, liegt es
+                         an diesem Absatz (Verdacht: die literale Button-Variable aus der
+                         Meta-URL in der Response). Ergebnis entscheidet, wie der Hinweis
+                         zurueckkommt. Der Ausdrucksname unten im <code> ist zugleich der
+                         Reihenfolge-Anker von SettingsModalCertificateToggleTest.
                     <p class="text-xs text-[var(--ui-muted)] -mt-2">
                         Das Template braucht einen <strong>URL-Button mit Variable an erster Position</strong>;
-                        seine URL muss lauten: <code>{{ $this->metaButtonUrl }}</code>.
+                        seine URL muss lauten: <code>[metaButtonUrl]</code>.
                         Fehlt der Button oder steht er an einer anderen Position, wird nichts versendet
                         (sonst ginge eine Nachricht ohne Link raus) und die Ablehnung meldet es.
                         Ohne Template wird das Zertifikat trotzdem ausgestellt und muss von Hand verschickt werden.
                         <br>
                         <strong>Wichtig bei einem Domainwechsel:</strong> die Basis-URL steht bei Meta und muss
-                        dort nachgezogen werden — das Modul kann nicht prüfen, ob sie stimmt.
+                        dort nachgezogen werden — das Modul kann nicht pruefen, ob sie stimmt.
                     </p>
+                    --}}
 
                     {{-- Standard-Ansprechpartner --}}
                     <x-ui-input-select
