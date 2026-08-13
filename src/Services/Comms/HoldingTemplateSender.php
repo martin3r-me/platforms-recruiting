@@ -91,6 +91,37 @@ final class HoldingTemplateSender
     }
 
     /**
+     * Template + Kanal fuer einen Settings-Key — LESEND, ohne zu senden.
+     *
+     * WOZU: der Zertifikat-Versand ruft WhatsAppMetaService::sendTemplate()
+     * direkt, weil er einen dynamischen URL-Button fuellen muss, den
+     * HoldingTemplateComponents::build() strukturell nicht kann. Er braucht
+     * dafuer genau das, was resolveConfig() ohnehin ermittelt.
+     *
+     * WARUM DURCHREICHEN UND NICHT EXTRAHIEREN: die Kette in resolveConfig
+     * (Settings -> Template -> Account -> Kanal, vier Queries) sie in eine
+     * eigene Klasse zu ziehen, waere die sauberere Form und ein Refactoring an
+     * einem Pfad, der auch die Holding-Bestaetigung, den OOO-Auto-Reply und die
+     * Voice-Note-Antwort traegt. Bewusst als Folgepunkt notiert
+     * (docs/zertifikat/folgeliste.md F11), nicht in dem Paket, das den Versand
+     * umbaut.
+     *
+     * WARUM NICHT NACHBAUEN: das waere die zweite Kopie derselben Kette,
+     * inklusive der Regel „auto_pilot_wa_account_id gewinnt ueber
+     * $template->whatsapp_account_id" (`:115`). Solche Kopien hat das Modul
+     * genug.
+     *
+     * DIESE METHODE AENDERT NICHTS AM SENDEWEG. Sie ist ein Durchreicher; wer
+     * hier Logik ergaenzt, ergaenzt sie fuer sendToMany() mit.
+     *
+     * @return array{error: ?string, template: ?IntegrationsWhatsAppTemplate, channel: ?CommsChannel}
+     */
+    public function resolveTarget(int $teamId, string $settingsKey = 'comms_holding_template_id'): array
+    {
+        return $this->resolveConfig($teamId, $settingsKey);
+    }
+
+    /**
      * @return array{error: ?string, template: ?IntegrationsWhatsAppTemplate, channel: ?CommsChannel}
      */
     private function resolveConfig(int $teamId, string $settingsKey = 'comms_holding_template_id'): array
