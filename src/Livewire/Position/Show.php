@@ -17,6 +17,15 @@ class Show extends Component
     public array $phaseAutoPilotSettings = [];
     public array $phaseAutoPilotSettingsOriginal = [];
 
+    /**
+     * phase_id => Schalter "manuelles Einbuchen erlaubt".
+     *
+     * Bewusst NICHT in phaseAutoPilotSettings gemischt: das ist ein JSON-Feld
+     * (auto_pilot_settings), allow_manual_booking ist eine eigene Spalte —
+     * der Buchungs-Dialog filtert per DB-Query darauf.
+     */
+    public array $phaseAllowManualBooking = [];
+
     public function mount(RecPosition $position)
     {
         $this->position = $position->load(['postings', 'ownedByUser', 'createdByUser', 'jobTitle', 'phases']);
@@ -26,6 +35,7 @@ class Show extends Component
         // Load phase-level AutoPilot settings
         foreach ($this->position->phases as $phase) {
             $this->phaseAutoPilotSettings[$phase->id] = ($phase->auto_pilot_settings ?? []) + $this->phaseSettingsDefaults();
+            $this->phaseAllowManualBooking[$phase->id] = (bool) $phase->allow_manual_booking;
         }
         $this->phaseAutoPilotSettingsOriginal = $this->phaseAutoPilotSettings;
     }
@@ -138,6 +148,15 @@ class Show extends Component
                 ->map(fn ($value) => is_numeric($value) ? (int) $value : $value)
                 ->all();
             $phase->auto_pilot_settings = !empty($cleanedPhase) ? $cleanedPhase : null;
+
+            // Eigene Spalte, deshalb neben den JSON-Settings gesetzt. Der
+            // array_key_exists-Guard schuetzt vor dem Fall, dass eine Phase
+            // nach dem mount() dazukam — dann bleibt ihr Wert unangetastet
+            // statt stillschweigend auf false zu fallen.
+            if (array_key_exists($phaseId, $this->phaseAllowManualBooking)) {
+                $phase->allow_manual_booking = (bool) $this->phaseAllowManualBooking[$phaseId];
+            }
+
             $phase->save();
         }
         $this->phaseAutoPilotSettingsOriginal = $this->phaseAutoPilotSettings;

@@ -310,6 +310,12 @@
                                 @if(!$phase->show_in_dashboard)
                                     <x-ui-badge variant="muted" size="xs">Nicht im Dashboard</x-ui-badge>
                                 @endif
+                                @if($phase->allow_manual_booking)
+                                    <x-ui-badge variant="info" size="xs"
+                                        title="Bewerber in dieser Phase erscheinen im Buchungs-Dialog eines Schulungstermins und können von HR ein- und umgebucht werden.">
+                                        HR-Buchung
+                                    </x-ui-badge>
+                                @endif
                                 @php $autoPilotSettings = $phase->auto_pilot_settings ?? []; @endphp
                                 @if(($autoPilotSettings['auto_pilot_disabled'] ?? false) === true)
                                     <x-ui-badge variant="muted" size="xs"
@@ -338,6 +344,19 @@
                             @else
                                 <p class="text-sm text-[var(--ui-muted)] mb-4">Keine Extra-Felder definiert.</p>
                             @endif
+
+                            {{-- Manuelles Einbuchen: eigene Spalte, kein JSON-Setting --}}
+                            <div class="pt-4 border-t border-[var(--ui-border)]/30">
+                                <x-ui-input-checkbox
+                                    model="phaseAllowManualBooking.{{ $phase->id }}"
+                                    name="phaseAllowManualBooking.{{ $phase->id }}"
+                                    label="Manuelles Einbuchen erlaubt"
+                                    wire:model.live="phaseAllowManualBooking.{{ $phase->id }}"
+                                />
+                                <p class="mt-1 text-xs text-[var(--ui-muted)]">
+                                    Bewerber in dieser Phase erscheinen im Buchungs-Dialog eines Schulungstermins und können von HR ein- und umgebucht werden — solange noch keine Verträge versendet sind.
+                                </p>
+                            </div>
 
                             {{-- WA Template Overrides --}}
                             @if($this->availableWhatsAppTemplates->isNotEmpty())
