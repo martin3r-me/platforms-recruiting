@@ -18,12 +18,15 @@ class RecDispoEvent extends Model
 
     protected $fillable = [
         'uuid', 'einsatz_ref', 'name', 'venue_text', 'ort', 'einsatzfirma',
-        'starts_on', 'ends_on', 'anfahrt', 'dresscode', 'source_meta',
+        'starts_on', 'ends_on', 'anfahrt', 'dresscode',
+        'vorlauf_minuten',
+        'source_meta',
     ];
 
     protected $casts = [
         'starts_on'   => 'date:Y-m-d',
         'ends_on'     => 'date:Y-m-d',
+        'vorlauf_minuten' => 'integer',
         'source_meta' => 'array',
     ];
 

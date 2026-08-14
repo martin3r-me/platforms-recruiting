@@ -25,7 +25,13 @@ class RecDispoAssignment extends Model
     protected $fillable = [
         'uuid', 'ds_ref', 'rec_dispo_event_id', 'pnr_raw', 'rec_employee_id',
         'datum', 'von', 'bis', 'status_id', 'taetigkeit',
-        'last_seen_at', 'missing_since', 'source_meta',
+        'last_seen_at', 'missing_since',
+        'reminder_sent_at',
+        'reminder_message_id',
+        'confirmed_at',
+        'deletion_marked_at',
+        'deletion_confirmed_at',
+        'source_meta',
     ];
 
     protected $casts = [
@@ -33,6 +39,11 @@ class RecDispoAssignment extends Model
         'status_id'     => 'integer',
         'last_seen_at'  => 'datetime',
         'missing_since' => 'datetime',
+        'reminder_sent_at'      => 'datetime',
+        'reminder_message_id'   => 'integer',
+        'confirmed_at'          => 'datetime',
+        'deletion_marked_at'    => 'datetime',
+        'deletion_confirmed_at' => 'datetime',
         'source_meta'   => 'array',
     ];
 
@@ -53,5 +64,11 @@ class RecDispoAssignment extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(RecEmployee::class, 'rec_employee_id');
+    }
+
+    /** Versendete Bestaetigungs-Nachricht — fuer die Zustell-Status-Anzeige. */
+    public function reminderMessage(): BelongsTo
+    {
+        return $this->belongsTo(\Platform\Crm\Models\CommsWhatsAppMessage::class, 'reminder_message_id');
     }
 }
