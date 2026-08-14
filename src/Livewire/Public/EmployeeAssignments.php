@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Public;
 
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
@@ -19,9 +20,13 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
  */
 class EmployeeAssignments extends Component
 {
+    #[Locked]
     public string $token = '';
+    #[Locked]
     public ?int $employeeId = null;
+    #[Locked]
     public string $firstName = '';
+    #[Locked]
     public bool $tokenInvalid = false;
 
     public function mount(string $token): void

@@ -41,7 +41,10 @@ class Show extends Component
     #[Computed]
     public function dispoSettings(): array
     {
-        $settings = RecApplicantSettings::getOrCreateForTeam(auth()->user()->currentTeam->id);
+        // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
+        // dieselben Werte lesen; Fallback currentTeam wenn unkonfiguriert.
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
+        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
 
         return [
             'template_id'    => $settings->getSetting('dispo_confirmation_template_id') ? (int) $settings->getSetting('dispo_confirmation_template_id') : null,
@@ -63,11 +66,30 @@ class Show extends Component
             'datum'              => $a->datum->format('Y-m-d'),
         ])->all();
 
-        $employeeIds = array_values(array_unique(array_filter(array_column($assignments, 'employee_id'))));
+        // Vergangene Einsatztage nie anschreiben (Public-Seite/confirm() filtern
+        // ebenfalls datum >= heute) — nichts wird still uebersprungen, daher zaehlen.
+        $today = now()->toDateString();
+        $pastCount = 0;
+        $upcoming = [];
+        foreach ($assignments as $assignment) {
+            if ($assignment['datum'] < $today) {
+                $pastCount++;
+                continue;
+            }
+            $upcoming[] = $assignment;
+        }
+
+        $employeeIds = array_values(array_unique(array_filter(array_column($upcoming, 'employee_id'))));
         $phones = app(DispoEmployeeGateway::class)->phones($employeeIds);
 
-        return (new DispoRecipientPlanner())
-            ->plan($assignments, $phones, $this->includeReminders);
+        $result = (new DispoRecipientPlanner())
+            ->plan($upcoming, $phones, $this->includeReminders);
+
+        if ($pastCount > 0) {
+            $result['skipped']['past'] = $pastCount;
+        }
+
+        return $result;
     }
 
     public function openSendModal(): void

@@ -17,15 +17,18 @@ class Settings extends Component
 {
     public string $templateId = '';
     public string $contactLine = '';
-    public int $deadlineHours = 4;
+    public string $deadlineHours = '4';
     public bool $saved = false;
 
     public function mount(): void
     {
-        $settings = RecApplicantSettings::getOrCreateForTeam(auth()->user()->currentTeam->id);
+        // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
+        // dieselben Werte lesen; Fallback currentTeam wenn unkonfiguriert.
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
+        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $this->templateId    = (string) ($settings->getSetting('dispo_confirmation_template_id') ?? '');
         $this->contactLine   = (string) ($settings->getSetting('dispo_contact_line') ?? '');
-        $this->deadlineHours = (int) ($settings->getSetting('dispo_deadline_hours') ?? 4);
+        $this->deadlineHours = (string) ((int) ($settings->getSetting('dispo_deadline_hours') ?? 4));
     }
 
     #[Computed]
@@ -51,14 +54,17 @@ class Settings extends Component
             'deadlineHours' => 'required|integer|min:1|max:72',
         ]);
 
-        $settings = RecApplicantSettings::getOrCreateForTeam(auth()->user()->currentTeam->id);
+        // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
+        // dieselben Werte lesen; Fallback currentTeam wenn unkonfiguriert.
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
+        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
 
         // Konvertiere templateId-String zu Int oder null
         $templateId = ($this->templateId !== '' && ctype_digit($this->templateId)) ? (int) $this->templateId : null;
         $settings->setSetting('dispo_confirmation_template_id', $templateId);
 
         $settings->setSetting('dispo_contact_line', trim($this->contactLine) !== '' ? trim($this->contactLine) : null);
-        $settings->setSetting('dispo_deadline_hours', $this->deadlineHours);
+        $settings->setSetting('dispo_deadline_hours', (int) $this->deadlineHours);
         $settings->save();
 
         $this->saved = true;

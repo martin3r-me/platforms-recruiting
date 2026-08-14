@@ -129,7 +129,7 @@
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         <div>Sendet an <strong>{{ count($preview['recipients']) }}</strong> Mitarbeiter.</div>
                         @php
-                            $labels = ['not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet'];
+                            $labels = ['past' => 'in der Vergangenheit', 'not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet'];
                         @endphp
                         @foreach ($labels as $key => $label)
                             @if (($preview['skipped'][$key] ?? 0) > 0)
