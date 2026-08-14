@@ -15,7 +15,7 @@ use Platform\Recruiting\Models\RecApplicantSettings;
  */
 class Settings extends Component
 {
-    public ?int $templateId = null;
+    public string $templateId = '';
     public string $contactLine = '';
     public int $deadlineHours = 4;
     public bool $saved = false;
@@ -23,7 +23,7 @@ class Settings extends Component
     public function mount(): void
     {
         $settings = RecApplicantSettings::getOrCreateForTeam(auth()->user()->currentTeam->id);
-        $this->templateId    = $settings->getSetting('dispo_confirmation_template_id') ? (int) $settings->getSetting('dispo_confirmation_template_id') : null;
+        $this->templateId    = (string) ($settings->getSetting('dispo_confirmation_template_id') ?? '');
         $this->contactLine   = (string) ($settings->getSetting('dispo_contact_line') ?? '');
         $this->deadlineHours = (int) ($settings->getSetting('dispo_deadline_hours') ?? 4);
     }
@@ -46,13 +46,17 @@ class Settings extends Component
     public function save(): void
     {
         $this->validate([
-            'templateId'    => 'nullable|integer',
+            'templateId'    => 'nullable|string|max:20',
             'contactLine'   => 'nullable|string|max:255',
             'deadlineHours' => 'required|integer|min:1|max:72',
         ]);
 
         $settings = RecApplicantSettings::getOrCreateForTeam(auth()->user()->currentTeam->id);
-        $settings->setSetting('dispo_confirmation_template_id', $this->templateId);
+
+        // Konvertiere templateId-String zu Int oder null
+        $templateId = ($this->templateId !== '' && ctype_digit($this->templateId)) ? (int) $this->templateId : null;
+        $settings->setSetting('dispo_confirmation_template_id', $templateId);
+
         $settings->setSetting('dispo_contact_line', trim($this->contactLine) !== '' ? trim($this->contactLine) : null);
         $settings->setSetting('dispo_deadline_hours', $this->deadlineHours);
         $settings->save();
