@@ -41,6 +41,11 @@ Route::get('/portal/{token}', \Platform\Recruiting\Livewire\Public\ApplicantPort
 Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\EmployeePortal::class)
     ->name('recruiting.public.employee-portal');
 
+// Dispo-Einsatz-Seite (token-only, NICHT im MA-Portal verlinkt — Spec 2026-08-14).
+// Token am URL-Ende: Meta-URL-Buttons erlauben die Variable nur als Suffix.
+Route::get('/einsaetze/{token}', \Platform\Recruiting\Livewire\Public\EmployeeAssignments::class)
+    ->name('recruiting.public.employee-assignments');
+
 // Contract PDF Download (public, token-based)
 Route::get('/applicant/{token}/contract/{contractId}/pdf', [\Platform\Recruiting\Http\Controllers\ContractPdfController::class, '__invoke'])
     ->name('recruiting.public.contract-pdf');
