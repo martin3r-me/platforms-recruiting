@@ -38,7 +38,14 @@
     <div class="rounded-lg border border-gray-200 bg-white">
         <div class="border-b border-gray-100 px-4 py-3 font-medium">
             Einbuchungen ({{ $event->assignments->count() }})
-            {{-- Step 2 (Bestaetigungs-Flow): hier kommt der Sende-Button hin --}}
+            @php
+                $templateConfigured = $this->dispoSettings['template_id'] !== null;
+            @endphp
+            <button wire:click="openSendModal"
+                    @if (!$templateConfigured) disabled title="Kein Bestätigungs-Template konfiguriert (Disposition → Einstellungen)" @endif
+                    class="rounded px-3 py-1.5 text-sm font-medium {{ $templateConfigured ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed' }}">
+                Bestätigungen senden
+            </button>
         </div>
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
@@ -48,6 +55,7 @@
                     <th class="px-4 py-2 font-medium">Tätigkeit</th>
                     <th class="px-4 py-2 font-medium">Mitarbeiter</th>
                     <th class="px-4 py-2 font-medium">Status</th>
+                    <th class="px-4 py-2 font-medium">Bestätigung</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -73,11 +81,85 @@
                                 <span class="ml-1 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-600" title="Fehlt seit {{ $assignment->missing_since->format('d.m.Y H:i') }} im ZAS-Vollbestand">verschwunden</span>
                             @endif
                         </td>
+                        <td class="px-4 py-2">
+                            @php
+                                $msgStatus = $assignment->reminderMessage?->status;
+                            @endphp
+                            @if ($assignment->deletion_marked_at)
+                                <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">zur Löschung gemeldet</span>
+                            @elseif ($assignment->confirmed_at)
+                                <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800" title="{{ $assignment->confirmed_at->format('d.m.Y H:i') }}">✓ bestätigt</span>
+                            @elseif ($assignment->reminder_sent_at)
+                                <span class="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700" title="Gesendet {{ $assignment->reminder_sent_at->format('d.m.Y H:i') }}">angeschrieben</span>
+                                @if ($msgStatus === 'failed')
+                                    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">nicht zugestellt</span>
+                                @elseif (in_array($msgStatus, ['delivered', 'read'], true))
+                                    <span class="ml-1 rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">{{ $msgStatus === 'read' ? 'gelesen' : 'zugestellt' }}</span>
+                                @endif
+                            @else
+                                <span class="text-xs text-gray-400">—</span>
+                            @endif
+                        </td>
                     </tr>
                 @empty
-                    <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
+                    <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
                 @endforelse
             </tbody>
         </table>
     </div>
+
+    @if ($showSendModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="$set('showSendModal', false)">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Bestätigungen senden</h2>
+
+                @if ($sendResult === null)
+                    @php $preview = $this->sendPreview; @endphp
+                    <label class="block text-sm">
+                        <span class="mb-1 block text-gray-600">Vorlaufzeit: „Bitte X Minuten vorher da sein" (Pflicht)</span>
+                        <input type="number" min="0" max="480" wire:model="vorlaufMinuten" class="w-32 rounded border-gray-300">
+                    </label>
+                    @error('vorlaufMinuten') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+
+                    <label class="flex items-center gap-2 text-sm text-gray-600">
+                        <input type="checkbox" wire:model.live="includeReminders" class="rounded border-gray-300">
+                        Erinnerung an bereits Angeschriebene ohne Antwort erneut senden
+                    </label>
+
+                    <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
+                        <div>Sendet an <strong>{{ count($preview['recipients']) }}</strong> Mitarbeiter.</div>
+                        @php
+                            $labels = ['not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet'];
+                        @endphp
+                        @foreach ($labels as $key => $label)
+                            @if (($preview['skipped'][$key] ?? 0) > 0)
+                                <div class="text-gray-500">{{ $preview['skipped'][$key] }} × {{ $label }}</div>
+                            @endif
+                        @endforeach
+                    </div>
+
+                    <div class="flex justify-end gap-3">
+                        <button wire:click="$set('showSendModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                        <button wire:click="sendConfirmations" @if (count($preview['recipients']) === 0) disabled @endif
+                                class="rounded px-4 py-2 text-sm font-medium {{ count($preview['recipients']) > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed' }}">
+                            Jetzt senden
+                        </button>
+                    </div>
+                @else
+                    <div class="rounded bg-green-50 p-3 text-sm text-green-800">{{ $sendResult['sent'] }} Nachricht(en) gesendet.</div>
+                    @if ($sendResult['failed'] !== [])
+                        <div class="rounded bg-red-50 p-3 text-sm text-red-800">
+                            <div class="font-medium">{{ count($sendResult['failed']) }} fehlgeschlagen:</div>
+                            @foreach ($sendResult['failed'] as $failure)
+                                <div>MA #{{ $failure['employee_id'] }}: {{ $failure['error'] }}</div>
+                            @endforeach
+                        </div>
+                    @endif
+                    <div class="flex justify-end">
+                        <button wire:click="$set('showSendModal', false)" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
+                    </div>
+                @endif
+            </div>
+        </div>
+    @endif
 </div>
