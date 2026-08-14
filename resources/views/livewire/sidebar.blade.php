@@ -132,6 +132,10 @@
             @svg('heroicon-o-inbox-arrow-down', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">ZAS-Eingang</span>
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.dispo.settings')">
+            @svg('heroicon-o-cog-6-tooth', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Einstellungen</span>
+        </x-ui-sidebar-item>
     </x-ui-sidebar-list>
 
     {{-- Collapsed: Icons-only --}}
