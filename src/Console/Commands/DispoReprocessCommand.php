@@ -49,6 +49,24 @@ class DispoReprocessCommand extends Command
                 $summary['missing_marked'],
                 $summary['errors'] !== [] ? ' FEHLER: ' . implode(' | ', $summary['errors']) : ''
             ));
+
+            if ($dryRun && ($summary['blocks_found'] ?? false)) {
+                $this->line(sprintf(
+                    '    geplant: %d Events, %d Einbuchungen',
+                    $summary['stats']['events'] ?? 0,
+                    $summary['stats']['assignments'] ?? 0
+                ));
+            }
+
+            foreach (['unmatched_pnrs' => 'unbekannte PNr', 'ambiguous_pnrs' => 'mehrdeutige PNr'] as $key => $label) {
+                $list = $summary[$key] ?? [];
+                if ($list !== []) {
+                    $this->line(sprintf(
+                        '    %s (%d gesammelt, max 10 gezeigt): %s',
+                        $label, count($list), implode(', ', array_slice($list, 0, 10))
+                    ));
+                }
+            }
         }
 
         return self::SUCCESS;
