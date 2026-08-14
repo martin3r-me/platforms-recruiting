@@ -86,6 +86,14 @@ class DispoConfirmationSender
                     languageCode: $template->language ?? 'de',
                 );
 
+                if (($message->status ?? null) === 'failed') {
+                    $failed[] = [
+                        'employee_id' => $recipient['employee_id'],
+                        'error'       => (string) ($message->meta_payload['error']['message'] ?? 'Meta hat den Versand abgelehnt.'),
+                    ];
+                    continue;
+                }
+
                 RecDispoAssignment::query()
                     ->whereIn('id', $recipient['assignment_ids'])
                     ->update([
