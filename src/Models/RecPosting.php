@@ -126,6 +126,27 @@ class RecPosting extends Model
             });
     }
 
+    /**
+     * IST DIESE AUSSCHREIBUNG ONLINE? Veroeffentlicht UND aktiv — und sonst
+     * nichts. „Geschlossen" ist das exakte Gegenteil davon.
+     *
+     * DIE EINE Definition fuer alle Leser (Statistik-Seite: Zeilen-Flag
+     * `posting_closed`, Status-Filter, Kennzeichnung in der Auswahlliste). Sie lag
+     * vorher als woertliche Kopie an zwei Stellen; zwei auseinanderdriftende
+     * Begriffe von „geschlossen" waeren genau der Widerspruch, den die
+     * Statistik-Seite abschafft.
+     *
+     * ABGRENZUNG zu scopeOpen(): dort zaehlt `closes_at` mit. Hier bewusst NICHT —
+     * eine abgelaufene, aber noch veroeffentlichte Ausschreibung ist online
+     * erreichbar, und genau so liest sie der Kunde. „Offen" (bewerbbar) und
+     * „online" (sichtbar) sind zwei Fragen; wer die Laufzeit braucht, nimmt
+     * scopeOpen.
+     */
+    public function isOnline(): bool
+    {
+        return $this->status === 'published' && (bool) $this->is_active;
+    }
+
     public function externalRefs()
     {
         return $this->hasMany(RecPostingExternalRef::class, 'rec_posting_id');

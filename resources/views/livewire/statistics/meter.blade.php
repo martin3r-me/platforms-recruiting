@@ -1,5 +1,5 @@
 {{--
-    Belegung als Mini-Balken (dataviz: „Meter"). Die Fuellung traegt die
+    Belegung als Mini-Balken (dataviz: „Meter“). Die Fuellung traegt die
     Severity, die Spur ist ein hellerer Schritt derselben Rampe — damit liest
     man den Zustand ueber die ganze Breite, nicht nur an der Fuellkante.
 
@@ -11,7 +11,7 @@
     daneben zeigt den echten Prozentwert.
 
     Erwartet:
-      $taken       ?int    belegte Plaetze (null = nicht anwendbar → „–")
+      $taken       ?int    belegte Plaetze (null = nicht anwendbar → „–“)
       $max         ?int    Kapazitaet (null = unbegrenzt → nur Zahl, kein Balken)
       $title       string  Tooltip (Einheit + Zaehlregel)
       $borderLeft  bool    Trennlinie zur vorigen Spaltengruppe

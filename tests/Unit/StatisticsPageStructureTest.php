@@ -38,7 +38,10 @@ final class StatisticsPageStructureTest extends TestCase
         $page = $this->page();
 
         $guard = '@if (!$this->hasOrt())';
-        $this->assertSame(1, substr_count($page, $guard), 'genau ein Filial-Guard');
+        // Das ERSTE Vorkommen ist der Seiten-Guard. Weitere sind erlaubt und
+        // erwartet: der Block „Ausgeschieden" formuliert seinen Hinweis anders,
+        // wenn keine Filiale gewaehlt ist (dann ist die Auswahl das ganze Team).
+        $this->assertGreaterThanOrEqual(1, substr_count($page, $guard), 'Filial-Guard vorhanden');
 
         $guardPos = strpos($page, $guard);
         $elsePos = strpos($page, '@else', $guardPos);
@@ -55,19 +58,30 @@ final class StatisticsPageStructureTest extends TestCase
         }
     }
 
-    public function test_ohne_filiale_wird_nichts_gerechnet(): void
+    public function test_die_kacheln_stehen_hinter_dem_guard_die_bloecke_nicht(): void
     {
-        // Nicht nur eine Frage der Anzeige: cohort() laedt ohne Ort-Filter die
-        // Bewerber des ganzen Teams. Der Aufforderungs-Zweig darf die Kohorte
-        // deshalb nicht anfassen — sonst kostet ein Seitenaufruf ohne Filiale die
-        // volle Query-Last fuer eine Meldung.
+        // Die KACHELN gehoeren zur Filial-Ansicht (sie zeigen die Auswahl), die
+        // BLOECKE nicht: ohne gewaehlte Filiale steckt jede Bewerbung in Block 2
+        // oder 3, dort ist die Erklaerung am noetigsten. Frueher stand hier die
+        // Zusicherung „ohne Filiale wird nichts gerechnet" — sie war zweifach
+        // falsch: cohort() laedt die Bewerber des Teams ohnehin (der Filial-Filter
+        // greift danach in PHP), und die Bloecke MUESSEN rechnen.
+        //
+        // Dass die Bloecke in BEIDEN Zustaenden rendern und die richtigen Zahlen
+        // tragen, prueft StatisticsPageRenderTest an der gerenderten Seite —
+        // inklusive $this->closedPostingGroups und $this->unreachablePostingGroups.
         $page = $this->page();
         $elsePos = strpos($page, '@else', (int) strpos($page, '@if (!$this->hasOrt())'));
+        $this->assertNotFalse($elsePos);
 
-        foreach (['$this->cohort', '$this->tiles', '$this->closedPostingGroups', '$this->countIn('] as $needle) {
-            $first = strpos($page, $needle);
-            $this->assertNotFalse($first, "{$needle} kommt auf der Seite vor");
-            $this->assertGreaterThan($elsePos, $first, "{$needle} erst hinter dem Guard");
+        $tiles = strpos($page, '$this->tiles');
+        $this->assertNotFalse($tiles);
+        $this->assertGreaterThan($elsePos, $tiles, 'die KPI-Kacheln stehen hinter dem Guard');
+
+        // Beide Ablage-Bloecke lesen ihre eigenen Computed Properties — und zwar
+        // dort, wo der Guard sie nicht abschneidet.
+        foreach (['$this->closedPostingGroups', '$this->unreachablePostingGroups'] as $needle) {
+            $this->assertStringContainsString($needle, $page);
         }
     }
 
@@ -96,52 +110,39 @@ final class StatisticsPageStructureTest extends TestCase
         $this->assertGreaterThan($ohneFiliale, $rekonziliation);
     }
 
-    public function test_kein_attributwert_bricht_an_einem_anfuehrungszeichen_ab(): void
+    public function test_anfuehrungszeichen_in_den_views_sind_paarweise(): void
     {
-        // Gefundene Fehlerklasse (Review Task 10): ein Attributwert oeffnet mit dem
-        // typografischen „ und schliesst mit dem ASCII-" — damit endet das Attribut
-        // MITTEN im Satz, und der Rest des Textes wird vom Parser zu einem Dutzend
-        // Muell-Attributen. Betroffen waren genau die Texte, die eine Differenz
-        // erklaeren sollen (DOM-Beleg: title=[… „Import] plus 14 weitere
-        // Attribute). Im Code sieht man es nicht, im Browser fehlt der halbe Satz.
+        // QUELLTEXT-HYGIENE, ausdruecklich NICHT der Waechter gegen abbrechende
+        // Attribute — der steht in StatisticsPageRenderTest und prueft am
+        // gerenderten DOM.
         //
-        // Geprueft wird deshalb ueber ALLE Statistik-Views, nicht nur die Seite:
-        // dieselbe Sorte Text steht in beiden Tabellen und in den Partials.
+        // Warum die Trennung: ein Regex ueber den Quelltext schneidet Attributwerte
+        // am ersten ASCII-" ab, also VOR dem Schaden. Genau darauf war die fruehere
+        // Fassung dieses Tests gebaut — sie sah die Variante mit ZWEI ASCII-Quotes
+        // nicht (das title brach im DOM auf 35 statt 155 Zeichen, der Test blieb
+        // gruen) und taeuschte damit Sicherheit vor. Was hier bleibt, ist der
+        // billige Teil: gemischte Paare („ … ") in Blade-Texten und PHP-Strings
+        // finden, bevor sie in ein Attribut wandern.
         foreach ($this->statisticsViews() as $path) {
             $src = (string) file_get_contents($path);
             $name = basename($path);
 
-            preg_match_all('/="([^"]*)"/', $src, $matches, PREG_OFFSET_CAPTURE);
-            foreach ($matches[1] as [$value, $offset]) {
-                $line = substr_count(substr($src, 0, (int) $offset), "\n") + 1;
-                $this->assertSame(
-                    substr_count($value, '„'),
-                    substr_count($value, '“'),
-                    "{$name}:{$line}: Attributwert mit unbalanciertem Anführungszeichen — "
-                        . 'öffnendes „ ohne schließendes “ (ein ASCII-" beendet das Attribut): '
-                        . mb_substr($value, 0, 80),
+            $offset = 0;
+            while (($open = mb_strpos($src, '„', $offset)) !== false) {
+                $rest = mb_substr($src, $open + 1, 400);
+                $closeTypo = mb_strpos($rest, '“');
+                $closeAscii = mb_strpos($rest, '"');
+                $line = substr_count(mb_substr($src, 0, $open), "\n") + 1;
+
+                $mixed = $closeAscii !== false && ($closeTypo === false || $closeAscii < $closeTypo);
+                $this->assertFalse(
+                    $mixed,
+                    "{$name}:{$line}: gemischtes Anführungszeichen-Paar — geöffnet mit „, geschlossen mit \" "
+                        . 'statt “. In einem Attributwert endet das Attribut damit mitten im Satz: '
+                        . mb_substr($rest, 0, 60),
                 );
 
-                // Und derselbe Befund noch einmal so, wie der BROWSER ihn sieht:
-                // ein einzelnes Element mit diesem Wert muss GENAU EIN Attribut
-                // haben. Im Fehlerfall zerfiel der Rest des Satzes in ein Dutzend
-                // Müll-Attribute (gemessen 14, 16 und 17) — die Zusicherung hängt
-                // damit nicht an einer Zeichen-Zählung, sondern am Parser.
-                $dom = new \DOMDocument();
-                $previous = libxml_use_internal_errors(true);
-                $dom->loadHTML('<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
-                    . '<span title="' . $value . '">x</span>');
-                libxml_clear_errors();
-                libxml_use_internal_errors($previous);
-
-                $span = $dom->getElementsByTagName('span')->item(0);
-                $this->assertNotNull($span, "{$name}:{$line}: Attributwert zerlegt das Element");
-                $this->assertSame(
-                    1,
-                    $span->attributes->length,
-                    "{$name}:{$line}: der Attributwert endet vorzeitig — der Parser sieht "
-                        . $span->attributes->length . ' Attribute statt einem: ' . mb_substr($value, 0, 80),
-                );
+                $offset = $open + 1;
             }
         }
     }

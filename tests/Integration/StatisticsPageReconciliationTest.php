@@ -314,6 +314,44 @@ class StatisticsPageReconciliationTest extends TestCase
         );
     }
 
+    public function test_bei_status_alle_ist_die_ueberlappung_gewollt(): void
+    {
+        // GEGENSTUECK zur Partition oben, und ausdruecklich KEIN Fehler: bei Status
+        // „alle (auch geschlossene)" stehen die geschlossenen Ausschreibungen der
+        // gewaehlten Filiale in der TABELLE und zusaetzlich im Block. Die Mengen
+        // sind dann absichtlich nicht disjunkt — der Tooltip des Blocks sagt das
+        // auch. Ohne diese Zusicherung liest der naechste Leser die doppelten IDs
+        // als Bug und „korrigiert" sie; damit waere entweder die Tabelle unvollstaendig
+        // oder der Block keine vollstaendige Liste mehr.
+        $alle = $this->component('Essen', 'alle');
+        $cohort = $alle->cohort();
+
+        $inView = $this->idsOf($cohort['rows']);
+        sort($inView);
+        $this->assertSame([self::APP_ESSEN_ONLINE, self::APP_ESSEN_ZU], $inView,
+            'mit „alle" zeigt die Ansicht auch die geschlossene Ausschreibung dieser Filiale');
+
+        $doppelt = array_values(array_intersect($inView, $this->idsOf($cohort['closed_rows'])));
+        $this->assertSame([self::APP_ESSEN_ZU], $doppelt, 'genau die geschlossene Zeile dieser Filiale');
+
+        // Nachgerechnet: neun Eintraege fuer sieben Bewerbungen — 902 und 907 sind
+        // doppelt (907 in der Wuppertal-Ansicht und im Block).
+        $eintraege = [];
+        foreach (array_keys($alle->ortOptions()) as $ort) {
+            $eintraege = array_merge($eintraege, $this->idsOf($this->component($ort, 'alle')->cohort()['rows']));
+        }
+        $eintraege = array_merge($eintraege, $this->idsOf($cohort['closed_rows']), $this->idsOf($cohort['unreachable_rows']));
+        sort($eintraege);
+
+        $this->assertCount(9, $eintraege);
+        $this->assertSame($this->teamApplicantIds(), array_values(array_unique($eintraege)),
+            'die Vereinigung bleibt vollstaendig — nur eben mit Ueberlappung');
+
+        $mehrfach = array_values(array_unique(array_diff_assoc($eintraege, array_unique($eintraege))));
+        sort($mehrfach);
+        $this->assertSame([self::APP_ESSEN_ZU, self::APP_FREMD_ZU], $mehrfach);
+    }
+
     public function test_taetigkeits_filter_wirkt_auch_auf_die_bloecke(): void
     {
         // Asymmetrie der beiden Filter, und sie ist begruendet: wer eine TAETIGKEIT

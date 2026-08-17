@@ -19,7 +19,7 @@
     lesbar bleiben: der Blick bekommt Absaetze.
 
     Nullen tragen KEINE Pille: eine gefuellte Pille ist die Markierung fuer
-    „hier ist etwas passiert". Bei ueber der Haelfte leerer Zellen zog die
+    „hier ist etwas passiert“. Bei ueber der Haelfte leerer Zellen zog die
     graue Null vorher genauso viel Aufmerksamkeit wie ein echter Wert.
 --}}
 @foreach ($colDefs as $col)

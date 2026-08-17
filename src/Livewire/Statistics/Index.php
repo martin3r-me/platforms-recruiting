@@ -392,18 +392,13 @@ class Index extends Component
                     'location' => $p->position?->location,
                     'activity' => $p->activity,
                     'posting_title' => (string) $p->title,
-                    // „geschlossen" ist das EXAKTE Gegenteil von „online", und
-                    // online heisst status=published UND is_active. Alles andere
-                    // (draft, archiviert, deaktiviert) ist geschlossen.
-                    //
-                    // closes_at in der Vergangenheit gehoert absichtlich NICHT
-                    // dazu: eine abgelaufene, aber noch veroeffentlichte
-                    // Ausschreibung ist online erreichbar, und der Filter
-                    // postingStatusFilter (Task 10) baut auf derselben
-                    // Definition. Zwei auseinanderdriftende Begriffe von
-                    // „geschlossen" waeren genau der Widerspruch, den diese
-                    // Seite abschaffen soll.
-                    'posting_closed' => !($p->status === 'published' && (bool) $p->is_active),
+                    // „geschlossen" ist das EXAKTE Gegenteil von „online" — und die
+                    // Definition steht NICHT hier, sondern EINMAL im Model
+                    // (RecPosting::isOnline). Sie hatte vorher zwei woertliche
+                    // Kopien in dieser Datei (hier und in postingOptions), und zwei
+                    // auseinanderdriftende Begriffe von „geschlossen" waeren genau
+                    // der Widerspruch, den diese Seite abschaffen soll.
+                    'posting_closed' => !$p->isOnline(),
                 ])->all();
         }
 
@@ -803,7 +798,7 @@ class Index extends Component
         // Der Zusatz gilt nur, wenn dort wirklich Unterschriften liegen —
         // sonst waere die Spalte „Unterschrieben" gar nicht hoeher.
         $spaltenHinweis = ($totals['excluded_signed'] + $totals['without_posting_signed']) > 0
-            ? ' — deshalb ist die Spalte „Unterschrieben" höher als der Zähler hier.'
+            ? ' — deshalb ist die Spalte „Unterschrieben“ höher als der Zähler hier.'
             : '.';
 
         if ($totals['bedarf'] === null) {
@@ -1370,11 +1365,11 @@ class Index extends Component
      * geschlossener Ausschreibungen nicht mehr filterbar. Nicht online sind
      * gekennzeichnet, damit die Liste ehrlich bleibt.
      *
-     * Die Kennzeichnung folgt derselben EINEN Definition wie alles andere auf
-     * dieser Seite: nicht online = nicht (published UND aktiv). Vorher stand hier
-     * nur „(inaktiv)" nach is_active — eine ENTWURFS-Ausschreibung sah damit
-     * online aus, waehrend die Tabelle sie als geschlossen fuehrte. Zwei Lesarten
-     * desselben Zustands in derselben Filterleiste.
+     * Die Kennzeichnung liest dieselbe EINE Definition wie das Zeilen-Flag und der
+     * Status-Filter (RecPosting::isOnline). Vorher stand hier nur „(inaktiv)" nach
+     * is_active — eine ENTWURFS-Ausschreibung sah damit online aus, waehrend die
+     * Tabelle sie als geschlossen fuehrte: zwei Lesarten desselben Zustands in
+     * derselben Filterleiste.
      *
      * @return array<int,string>
      */
@@ -1385,8 +1380,7 @@ class Index extends Component
             ->orderBy('title')
             ->get(['id', 'title', 'status', 'is_active'])
             ->mapWithKeys(fn ($p) => [
-                $p->id => $p->title
-                    . (($p->status === 'published' && (bool) $p->is_active) ? '' : ' (nicht online)'),
+                $p->id => $p->title . ($p->isOnline() ? '' : ' (nicht online)'),
             ])->all();
     }
 

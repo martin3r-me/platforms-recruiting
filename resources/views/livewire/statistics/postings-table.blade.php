@@ -1,7 +1,7 @@
 {{--
     TABELLE 1 der Statistik-Seite: eine Zeile je AUSSCHREIBUNG mit Bedarf,
     Erfuellungsquote und zwei Ampeln. Sie beantwortet die Frage, mit der der
-    Kunde auf diese Seite kommt — „laeuft diese Ausschreibung auf Ziel?" —, und
+    Kunde auf diese Seite kommt — „laeuft diese Ausschreibung auf Ziel?“ —, und
     zwar in einer Zeile pro Ausschreibung statt in einem Baum ueber Ort,
     Taetigkeit und Zeilentyp.
 
@@ -44,7 +44,7 @@
     // korrekt ueber die order), den Task 10 beseitigt, indem der Ort zur
     // Pflichtauswahl wird.
     //
-    // Bewusst OHNE Fallback: ein „nimm halt alle Phasen" waere nach Task 10
+    // Bewusst OHNE Fallback: ein „nimm halt alle Phasen“ waere nach Task 10
     // toter Code und wuerde bis dahin Spalten aus fremden Phasensaetzen mischen.
     $phaseDefs = [];
     $phaseIndex = 0;
@@ -60,10 +60,10 @@
             'label' => $phaseName,
             'on' => $tint['on'],
             'total' => $tint['total'],
-            'title' => 'Bewerbungen, die Phase ' . $phaseOrder . ' („' . $phaseName . '") erreicht haben — '
+            'title' => 'Bewerbungen, die Phase ' . $phaseOrder . ' („' . $phaseName . '“) erreicht haben — '
                 . 'kumulativ: wer weiter ist, zählt hier mit. NETTO, also nur laufende Kohorten: '
                 . 'Geparkte, Abgesagte und ausgeschlossene Buckets tauchen im Phasen-Trichter nicht auf, '
-                . 'sind aber in „Bewerbungen" enthalten.',
+                . 'sind aber in „Bewerbungen“ enthalten.',
         ];
         $phaseIndex++;
     }
@@ -88,7 +88,7 @@
              'title' => 'confirmed/attended/no_show — registered zählt bewusst nicht (mehrdeutig).'],
             ['key' => 'teilgenommen', 'label' => 'Teilgenommen',
              'on' => 'bg-sky-400 text-sky-950', 'total' => 'bg-sky-500 text-sky-950',
-             'title' => 'Status attended. „Nicht erschienen" ist ein Abzweig und zählt hier NICHT mit.'],
+             'title' => 'Status attended. „Nicht erschienen“ ist ein Abzweig und zählt hier NICHT mit.'],
         ],
         $phaseDefs,
         [
@@ -107,7 +107,7 @@
             ['key' => 'offen_ids', 'label' => 'Noch offen', 'gstart' => true,
              'on' => 'bg-gray-100 text-gray-700', 'total' => 'bg-gray-200 text-gray-800',
              'onlyRunning' => true,
-             'title' => 'Weder unterschrieben noch „nicht erschienen" (Bewerbungen − Unterschrieben − Nicht erschienen). Nur für laufende Kohorten.'],
+             'title' => 'Weder unterschrieben noch „nicht erschienen“ (Bewerbungen − Unterschrieben − Nicht erschienen). Nur für laufende Kohorten.'],
         ],
     );
 
@@ -141,7 +141,7 @@
     $totalBedarf = $totalFulfilment['bedarf'];
     $totalPipeline = $this->pipelineTotalLight($groups);
 
-    $bedarfTitle = 'Benötigte Einstellungen (Feld „Bedarf" an der Ausschreibung). „–" heißt NICHT null, sondern nicht gepflegt — dann bleiben beide Ampeln grau.';
+    $bedarfTitle = 'Benötigte Einstellungen (Feld „Bedarf“ an der Ausschreibung). „–“ heißt NICHT null, sondern nicht gepflegt — dann bleiben beide Ampeln grau.';
     $einsatzTitle = 'kommt mit der Dispo';
 @endphp
 
@@ -232,7 +232,7 @@
                             $pipeline = $this->pipelineLight($group);
 
                             // Zeilen-Tint nach dem PIPELINE-Status: er ist die
-                            // vorwaertsgerichtete Frage („kommt genug rein?") und
+                            // vorwaertsgerichtete Frage („kommt genug rein?“) und
                             // damit die, auf die man handeln kann. Nur ein Tint,
                             // damit die Trichter-Farben lesbar bleiben.
                             $tint = match ($pipeline['status']) {
@@ -261,7 +261,7 @@
                                     @if ($group['posting_closed'])
                                         {{-- Neutral, nicht warnend: geschlossen ist ein Zustand,
                                              keine Handlungsaufforderung. Definition = exaktes
-                                             Gegenteil von „online" (published + aktiv); ein
+                                             Gegenteil von „online“ (published + aktiv); ein
                                              abgelaufenes closes_at gehoert NICHT dazu. --}}
                                         <span class="rounded-full bg-[var(--ui-muted-5)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--ui-muted)] ring-1 ring-[var(--ui-border)]/60"
                                               title="Nicht online: die Ausschreibung ist nicht veröffentlicht oder nicht aktiv. Ein abgelaufenes Laufzeitende allein gilt nicht als geschlossen.">
@@ -281,7 +281,7 @@
                             @include('recruiting::livewire.statistics.conversion', ['rows' => $groupRows, 'isTotal' => false])
                             <td class="border-l border-[var(--ui-border)]/60 px-3 py-2 text-center whitespace-nowrap tabular-nums font-semibold text-[color:var(--ui-secondary)]"
                                 title="{{ $bedarfTitle }}">
-                                {{-- „0" wird NICHT angezeigt: ein Bedarf von 0 ist
+                                {{-- „0“ wird NICHT angezeigt: ein Bedarf von 0 ist
                                      kein Nenner und zaehlt weder in der Quote noch
                                      in der Summe mit. Eine sichtbare 0, die
                                      nirgends mitrechnet, waere derselbe
@@ -337,9 +337,9 @@
                              jeder Zeile darueber, DARUNTER der Bruch in absoluten
                              Zahlen. Ohne den Bruch war die Zelle aus ihren eigenen
                              Nachbarn nicht nachrechenbar: die Spalte
-                             „Unterschrieben" zaehlt ALLE Ausschreibungen, der
+                             „Unterschrieben“ zaehlt ALLE Ausschreibungen, der
                              Zaehler hier nur die mit gepflegtem Bedarf — bei
-                             „Unterschrieben 9 / Bedarf 10" liest man 90 %, richtig
+                             „Unterschrieben 9 / Bedarf 10“ liest man 90 %, richtig
                              sind 50 %. Die Differenz steht als Fussnote unter der
                              Tabelle, damit sie nicht nur im Tooltip lebt. --}}
                         <td class="px-3 py-3 text-center whitespace-nowrap"
@@ -365,7 +365,7 @@
         {{-- Fussnote statt stillem Topf: die Erfuellungsquote der Gesamt-Zeile
              laesst Ausschreibungen ohne gepflegten Bedarf aus (sonst wuerden sie
              die Quote verwaessern). Damit die Zeile nachrechenbar bleibt, wird die
-             Differenz zur Spalte „Unterschrieben" hier BENANNT — die Zahlen
+             Differenz zur Spalte „Unterschrieben“ hier BENANNT — die Zahlen
              gehen auf: Zähler + hier genannte Unterschriften = Spaltenwert.
 
              Der Text kommt aus fulfilmentTotalLight() und ist damit derselbe wie
@@ -374,7 +374,7 @@
              getrennt, was hier getrennt gehoert — Ausschreibungen ohne
              gepflegten Bedarf sind das eine, Bewerbungen ohne Ausschreibung das
              andere —, und ohne jeden gepflegten Bedarf sagt der Text das
-             ausdruecklich statt „0 von 0" zu behaupten. --}}
+             ausdruecklich statt „0 von 0“ zu behaupten. --}}
         @if ($totalFulfilment['bedarf'] === null
             || $totalFulfilment['excluded_postings'] > 0
             || $totalFulfilment['without_posting_groups'] > 0)

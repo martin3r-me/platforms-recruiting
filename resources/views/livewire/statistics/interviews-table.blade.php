@@ -2,7 +2,7 @@
     TABELLE 2 der Statistik-Seite: eine Zeile je SCHULUNGSTERMIN mit Belegung,
     Trichter und aufklappbarer HERKUNFT der Teilnehmer. Sie beantwortet die
     Frage, die Tabelle 1 offen laesst — „wer sitzt in diesem Termin, und aus
-    welchen Ausschreibungen kommen die Leute?".
+    welchen Ausschreibungen kommen die Leute?“.
 
     ZWEI QUELLEN, und die Trennung ist der wichtigste Satz dieser Datei:
       - die TRICHTER-Zahlen kommen aus denselben Assigner-Zeilen wie Tabelle 1
@@ -55,7 +55,7 @@
             'label' => $phaseName,
             'on' => $tint['on'],
             'total' => $tint['total'],
-            'title' => 'Teilnehmer dieses Termins, die Phase ' . $phaseOrder . ' („' . $phaseName . '") erreicht haben — '
+            'title' => 'Teilnehmer dieses Termins, die Phase ' . $phaseOrder . ' („' . $phaseName . '“) erreicht haben — '
                 . 'kumulativ: wer weiter ist, zählt hier mit. NETTO, also nur laufende Kohorten.',
         ];
         $phaseIndex++;
@@ -70,14 +70,14 @@
         [
             // Standby steht DIREKT neben der Belegung und in ihrer Spaltengruppe:
             // es ist eine Eigenschaft der Buchung an diesem Termin („war gebucht,
-            // belegt aber keinen Platz mehr") und damit die Fussnote zur Belegung,
+            // belegt aber keinen Platz mehr“) und damit die Fussnote zur Belegung,
             // auch wenn es NICHT in ihren Balken einfliesst. Sieben bis elf Spalten
             // weiter rechts (je nach Zahl der Phasen-Spalten) las es sich nicht als
-            // das „(+Standby)" des Mockups.
+            // das „(+Standby)“ des Mockups.
             //
-            // Name und Vokabular bleiben unveraendert: die Spalte heisst „Standby"
-            // wie in V1 und Tabelle 1, und die Gruppe „Abzweige" existiert weiter
-            // (mit „Nicht erschienen"). Verschoben wird die Nachbarschaft, nicht
+            // Name und Vokabular bleiben unveraendert: die Spalte heisst „Standby“
+            // wie in V1 und Tabelle 1, und die Gruppe „Abzweige“ existiert weiter
+            // (mit „Nicht erschienen“). Verschoben wird die Nachbarschaft, nicht
             // die Benennung — drei Vokabulare fuer dieselbe Sache waeren teurer
             // als eine Gruppe mit einer Spalte.
             ['key' => 'standby', 'label' => 'Standby',
@@ -85,7 +85,7 @@
              'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at) — zählt in der Belegung links NICHT mit. Kohorten-Zahl, also gefiltert; die Belegung daneben ist es nicht.'],
             ['key' => 'ids', 'label' => 'Teilnehmer', 'gstart' => true,
              'on' => 'bg-sky-50 text-sky-900', 'total' => 'bg-sky-100 text-sky-950',
-             'title' => 'Bewerbungen, deren Kohorten-Zeile an diesem Termin hängt (Präzedenz-Kette Stufe 6) — Testbewerber sind immer ausgeschlossen. Bezugsgröße der anderen Spalten. NICHT dasselbe wie „Belegt": das zählt Buchungen am Termin, unabhängig von den Filtern dieser Seite.'],
+             'title' => 'Bewerbungen, deren Kohorten-Zeile an diesem Termin hängt (Präzedenz-Kette Stufe 6) — Testbewerber sind immer ausgeschlossen. Bezugsgröße der anderen Spalten. NICHT dasselbe wie „Belegt“: das zählt Buchungen am Termin, unabhängig von den Filtern dieser Seite.'],
             ['key' => 'kontaktiert', 'label' => 'Kontaktiert',
              'on' => 'bg-sky-100 text-sky-900', 'total' => 'bg-sky-200 text-sky-950',
              'title' => 'Anreicherungs-Proxy (enrichment_status), kein Kontaktnachweis'],
@@ -97,7 +97,7 @@
              'title' => 'confirmed/attended/no_show — registered zählt bewusst nicht (mehrdeutig).'],
             ['key' => 'teilgenommen', 'label' => 'Teilgenommen',
              'on' => 'bg-sky-400 text-sky-950', 'total' => 'bg-sky-500 text-sky-950',
-             'title' => 'Status attended. „Nicht erschienen" ist ein Abzweig und zählt hier NICHT mit.'],
+             'title' => 'Status attended. „Nicht erschienen“ ist ein Abzweig und zählt hier NICHT mit.'],
         ],
         $phaseDefs,
         [
@@ -113,7 +113,7 @@
             ['key' => 'offen_ids', 'label' => 'Noch offen', 'gstart' => true,
              'on' => 'bg-gray-100 text-gray-700', 'total' => 'bg-gray-200 text-gray-800',
              'onlyRunning' => true,
-             'title' => 'Weder unterschrieben noch „nicht erschienen" (Teilnehmer − Unterschrieben − Nicht erschienen).'],
+             'title' => 'Weder unterschrieben noch „nicht erschienen“ (Teilnehmer − Unterschrieben − Nicht erschienen).'],
         ],
     );
 
@@ -151,7 +151,7 @@
     }
 
     // Σ IST / Σ SOLL kommt aus belegungTotals() und NICHT aus einer Schleife hier:
-    // die Regel „Zähler und Nenner zählen dieselben Termine" ist die Stelle, an
+    // die Regel „Zähler und Nenner zählen dieselben Termine“ ist die Stelle, an
     // der diese Zeile schon einmal falsch war (12 / 8 → 150 % roter
     // Überbuchungs-Balken, ohne dass ein einzelner Termin überbucht war). In der
     // Komponente ist sie testbar, in einem Blade-Skriptblock nicht.
@@ -159,7 +159,7 @@
 
     // Das Token der Gesamt-Zeile trägt die SICHTBAREN Termine, damit das
     // Drill-down genau die Menge auflöst, die die Zeile anzeigt. Ein Token über
-    // „alle Schulungszeilen" (scope type_all) träfe auch Termine außerhalb dieser
+    // „alle Schulungszeilen“ (scope type_all) träfe auch Termine außerhalb dieser
     // Auswahl — die Modal-Länge passte dann nicht zur Zahl daneben.
     $allToken = $this->drillToken('interviews', 'Gesamt (Termine dieser Auswahl)', [
         'interviews' => $visibleInterviewIds,
@@ -245,7 +245,7 @@
                         @php
                             $interviewId = $interviewRow['interview_id'];
                             // rec_interviews.starts_at ist NOT NULL — kein
-                            // „ohne Datum"-Zweig, der nie laufen kann.
+                            // „ohne Datum“-Zweig, der nie laufen kann.
                             $dateLabel = $interviewRow['starts_at']->format('d.m.Y H:i');
                             $rowPrefix = $dateLabel . ' · ' . $interviewRow['type'];
                             // Die Termin-Liste ist PFLICHT im Token: die Zeile summiert
@@ -392,8 +392,8 @@
                         {{-- Σ IST / Σ SOLL über DIESELBE Auswahl (nur Termine MIT
                              Platzbegrenzung — unbegrenzte haben keinen Nenner, den
                              man addieren könnte, und die Datenzeile zeigt für sie
-                             „∞"). Hat kein Termin eine Begrenzung, ist `taken` null
-                             und die Zelle zeigt „–": kein Nenner, also keine
+                             „∞“). Hat kein Termin eine Begrenzung, ist `taken` null
+                             und die Zelle zeigt „–“: kein Nenner, also keine
                              Belegungs-Quote. Die belegten Plätze der ausgelassenen
                              Termine gehen nicht verloren, sie stehen im Text
                              darunter — derselbe Text wie im Tooltip, damit die
@@ -415,7 +415,7 @@
              benannt — sonst ist die Zelle aus den Zeilen darueber nicht
              nachrechenbar, weil dort Belegungen stehen, die hier fehlen. Der Text
              kommt aus belegungTotals() und ist derselbe wie im Tooltip; er nennt
-             „kleiner als die Zeilen darueber" nur, wenn an den unbegrenzten
+             „kleiner als die Zeilen darueber“ nur, wenn an den unbegrenzten
              Terminen wirklich Plaetze belegt sind. --}}
         @if ($belegung['unlimited_interviews'] > 0)
             <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
@@ -434,7 +434,7 @@
          Bewerbungen).
 
          Die Gruende sind eine AUSWAHL, keine vollstaendige Liste, und der Text
-         sagt das auch („zum Beispiel"). Es gibt mehr als die zwei naheliegenden:
+         sagt das auch („zum Beispiel“). Es gibt mehr als die zwei naheliegenden:
          ein Termin ohne Stelle oder an einer Stelle einer anderen Filiale faellt
          durch den Ort-Filter, obwohl der Teilnehmer zur gewaehlten Filiale
          gehoert (der Assigner bildet die Schulungszeile allein ueber die
