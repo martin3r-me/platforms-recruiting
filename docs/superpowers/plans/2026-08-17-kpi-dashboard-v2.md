@@ -756,11 +756,54 @@ In `resources/views/livewire/posting/show.blade.php` bei den bestehenden Feldern
 
 `x-ui-input-text` mit `type="number"` ist bewusst — `x-ui-input-number` existiert im UI-Paket **nicht** (dokumentierte Falle). `hint` ist das richtige Attribut für Hilfetext, nicht `help`.
 
-- [ ] **Step 3: Blade kompilieren und Suite laufen lassen**
+- [ ] **Step 3: Blade-Prüfskript anlegen und kompilieren**
 
-Run (Skript aus Task 8 verwenden, sobald es existiert; bis dahin):
-`php -l src/Livewire/Posting/Show.php`
-Expected: `No syntax errors detected`
+`php -l` prüft `.blade.php` **nicht** — ein unbalanciertes `@if` fällt erst im
+Browser als 500er auf. Deshalb hier das Prüfskript anlegen (falls
+`tools/blade-check.php` schon existiert, diesen Schritt überspringen):
+
+```php
+<?php
+// Kompiliert Blade-Dateien mit dem echten BladeCompiler und prueft das Kompilat
+// mit php -l. Faengt unbalancierte @if/@foreach und kaputte @php-Bloecke.
+require '/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/autoload.php';
+
+use Illuminate\Container\Container;
+use Illuminate\Filesystem\Filesystem;
+use Illuminate\View\Compilers\BladeCompiler;
+
+$c = new Container();
+Container::setInstance($c);
+$c->bind(\Illuminate\Contracts\View\Factory::class, fn () => new class implements \Illuminate\Contracts\View\Factory {
+    public function exists($view) { return true; }
+    public function file($path, $data = [], $mergeData = []) { return ''; }
+    public function make($view, $data = [], $mergeData = []) { return ''; }
+    public function share($key, $value = null) { return $value; }
+    public function composer($views, $callback) { return []; }
+    public function creator($views, $callback) { return []; }
+    public function addNamespace($namespace, $hints) { return $this; }
+    public function replaceNamespace($namespace, $hints) { return $this; }
+});
+$c->bind(\Illuminate\Contracts\Foundation\Application::class, fn () => new class {
+    public function getNamespace() { return 'App\\'; }
+});
+
+$compiler = new BladeCompiler(new Filesystem(), sys_get_temp_dir());
+$ok = true;
+foreach (array_slice($argv, 1) as $file) {
+    $out = $compiler->compileString(file_get_contents($file));
+    $tmp = sys_get_temp_dir() . '/blade-' . md5($file) . '.php';
+    file_put_contents($tmp, $out);
+    $lines = [];
+    exec('php -l ' . escapeshellarg($tmp) . ' 2>&1', $lines, $code);
+    printf("%-28s %s\n", basename($file), $code === 0 ? 'OK' : 'FEHLER: ' . implode(' ', $lines));
+    if ($code !== 0) { $ok = false; }
+}
+exit($ok ? 0 : 1);
+```
+
+Run: `php -l src/Livewire/Posting/Show.php && php tools/blade-check.php resources/views/livewire/posting/show.blade.php`
+Expected: `No syntax errors detected` und `show.blade.php  OK`
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml`
 Expected: alle Tests grün
@@ -1139,49 +1182,10 @@ Expected: PASS
 - Gesamt-Zeile: absolute Spalten als Summe, Bedarf als Summe, **Erfüllung über `sumPercent()`**, Pipeline-Ampel aus Σ Bewerbungen gegen Σ (Bedarf × Faktor) — **kein** Faktor in der Gesamt-Zeile, der lässt sich nicht addieren
 - Spalte „Erster Einsatz": zeigt „–" mit `title="kommt mit der Dispo"`
 
-- [ ] **Step 7: Blade-Prüfskript anlegen und alle Views prüfen**
+- [ ] **Step 7: Alle Views prüfen**
 
-`php -l` prüft `.blade.php` nicht. Skript unter `tools/blade-check.php` (existiert laut Projekt-Notiz bereits — mit `ls tools/blade-check.php` prüfen; falls nicht, aus dieser Vorlage anlegen):
-
-```php
-<?php
-// Kompiliert Blade-Dateien mit dem echten BladeCompiler und prueft das Kompilat
-// mit php -l. Faengt unbalancierte @if/@foreach und kaputte @php-Bloecke.
-require '/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/autoload.php';
-
-use Illuminate\Container\Container;
-use Illuminate\Filesystem\Filesystem;
-use Illuminate\View\Compilers\BladeCompiler;
-
-$c = new Container();
-Container::setInstance($c);
-$c->bind(\Illuminate\Contracts\View\Factory::class, fn () => new class implements \Illuminate\Contracts\View\Factory {
-    public function exists($view) { return true; }
-    public function file($path, $data = [], $mergeData = []) { return ''; }
-    public function make($view, $data = [], $mergeData = []) { return ''; }
-    public function share($key, $value = null) { return $value; }
-    public function composer($views, $callback) { return []; }
-    public function creator($views, $callback) { return []; }
-    public function addNamespace($namespace, $hints) { return $this; }
-    public function replaceNamespace($namespace, $hints) { return $this; }
-});
-$c->bind(\Illuminate\Contracts\Foundation\Application::class, fn () => new class {
-    public function getNamespace() { return 'App\\'; }
-});
-
-$compiler = new BladeCompiler(new Filesystem(), sys_get_temp_dir());
-$ok = true;
-foreach (array_slice($argv, 1) as $file) {
-    $out = $compiler->compileString(file_get_contents($file));
-    $tmp = sys_get_temp_dir() . '/blade-' . md5($file) . '.php';
-    file_put_contents($tmp, $out);
-    $lines = [];
-    exec('php -l ' . escapeshellarg($tmp) . ' 2>&1', $lines, $code);
-    printf("%-28s %s\n", basename($file), $code === 0 ? 'OK' : 'FEHLER: ' . implode(' ', $lines));
-    if ($code !== 0) { $ok = false; }
-}
-exit($ok ? 0 : 1);
-```
+Das Prüfskript `tools/blade-check.php` wurde in Task 5 angelegt (`php -l` prüft
+`.blade.php` nicht — ein unbalanciertes `@if` fällt erst im Browser auf).
 
 Run: `php tools/blade-check.php resources/views/livewire/statistics/*.blade.php resources/views/livewire/posting/show.blade.php resources/views/livewire/interview-schedule/index.blade.php`
 Expected: alle `OK`
