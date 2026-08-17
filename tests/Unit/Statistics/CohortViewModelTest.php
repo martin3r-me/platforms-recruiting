@@ -1272,26 +1272,57 @@ final class CohortViewModelTest extends TestCase
         $this->assertSame($terminIds, $herkunftIds);
     }
 
-    public function test_scope_interview_summiert_alle_ausschreibungen_eines_termins(): void
+    public function test_scope_interviews_summiert_einen_termin_wie_viele(): void
     {
+        // EIN Scope fuer beide Faelle: die Zeile eines Termins ist die Liste mit
+        // einem Eintrag, die Gesamt-Zeile die Liste der sichtbaren Termine. Ein
+        // eigener Einzel-Scope waere eine zweite Stelle, die gehaertet und
+        // gepflegt werden muss.
         $rows = [
             $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2], postingId: 10),
             $this->row('schulung', 'schulung:42', 'Essen', 'Bankett', [3], postingId: 11),
             $this->row('schulung', 'schulung:43', 'Essen', 'Service', [4], postingId: 10),
-            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [5], postingId: 10),
+            // Termin ausserhalb der Auswahl (inaktiv / anderer Zeitraum / ohne Stelle)
+            $this->row('schulung', 'schulung:99', 'Essen', 'Service', [5], postingId: 10),
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [6], postingId: 10),
         ];
         $vm = $this->vm();
 
-        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => 42], 'ids'));
-        $this->assertSame([4], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => 43], 'ids'));
-        // fail-closed: ohne Termin-Angabe trifft der Scope NICHTS, statt auf alle
-        // Termine zu passen (leeres Modal ist der harmlose Ausgang)
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview'], 'ids'));
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => null], 'ids'));
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => 999], 'ids'));
+        // Eine Termin-Zeile: alle Ausschreibungen dieses Termins
+        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => [42]], 'ids'));
+        // Die Gesamt-Zeile: nur die sichtbaren Termine, NICHT 99
+        $this->assertSame([1, 2, 3, 4], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => [42, 43]], 'ids'));
+        // fail-closed: leere oder fehlende Liste ist KEINE Abkuerzung fuer „alle"
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => []], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews'], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => 42], 'ids'), 'kein Array');
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => [777]], 'ids'));
     }
 
-    public function test_scope_interview_posting_trifft_genau_eine_herkunft(): void
+    public function test_termin_ids_aus_dem_token_werden_streng_geprueft(): void
+    {
+        // Gleiche Haertung fuer alle ID-Werte aus einem Token: (int) allein haette
+        // '42abc' und 42.9 stumm zu 42 gemacht und 'abc' zu 0 — ein
+        // Treffer-Versuch auf eine fremde Zeile, ausgeloest durch ein gecraftetes
+        // Token. Erlaubt sind nur echte Ganzzahlen und reine Ziffernfolgen.
+        $rows = [
+            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1], postingId: 10),
+        ];
+        $vm = $this->vm();
+
+        $this->assertSame([1], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => [42]], 'ids'));
+        $this->assertSame([1], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => ['42']], 'ids'),
+            'JSON-Token darf die ID als String liefern');
+        foreach ([['42abc'], [42.9], ['abc'], [null], [''], [true], [[42]], ['-42'], [' 42']] as $crafted) {
+            $this->assertSame(
+                [],
+                $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => $crafted], 'ids'),
+                'gecrafteter Wert ' . json_encode($crafted) . ' darf keine Zeile treffen',
+            );
+        }
+    }
+
+    public function test_scope_interviews_posting_trifft_genau_eine_herkunft(): void
     {
         $rows = [
             $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2], postingId: 10),
@@ -1302,41 +1333,61 @@ final class CohortViewModelTest extends TestCase
         ];
         $vm = $this->vm();
 
-        $spec = ['scope' => 'interview_posting', 'interview' => 42, 'posting' => 10];
+        $spec = ['scope' => 'interviews_posting', 'interviews' => [42], 'posting' => 10];
         $this->assertSame([1, 2], $vm->resolveIds($rows, $spec, 'ids'));
-        $this->assertSame([3], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42, 'posting' => 11], 'ids'));
+        $this->assertSame([3], $vm->resolveIds($rows, ['scope' => 'interviews_posting', 'interviews' => [42], 'posting' => 11], 'ids'));
         // Beide Angaben sind Pflicht — fehlt eine, trifft der Scope nichts
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42], 'ids'));
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'posting' => 10], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews_posting', 'interviews' => [42]], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews_posting', 'posting' => 10], 'ids'));
         // 'posting' => null ist ein ECHTER Wert (Bewerbungen ohne Zuordnung),
         // trifft hier aber nichts, weil beide Zeilen eine Ausschreibung haben
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42, 'posting' => null], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews_posting', 'interviews' => [42], 'posting' => null], 'ids'));
     }
 
-    public function test_scope_interviews_summiert_genau_die_sichtbaren_termine(): void
+    public function test_summen_belegung_zaehlt_auf_beiden_seiten_dieselben_termine(): void
     {
-        // Die Gesamt-Zeile von Tabelle 2 summiert nur die Termine der AUSWAHL.
-        // Deshalb traegt ihr Token die Liste der sichtbaren Termine: ein Token
-        // ueber „alle Schulungszeilen" wuerde auch Termine ausserhalb treffen und
-        // das Modal laenger machen als die Zahl daneben.
+        // DER Fall aus dem Review: Σ IST zaehlte alle sichtbaren Termine, Σ SOLL
+        // nur die mit gepflegter Kapazitaet — gemessen 12 / 8, also 150 % und ein
+        // roter „Ueberbuchung"-Balken, obwohl kein einzelner Termin ueberbucht
+        // war. Richtig sind 7 / 8, und die vier belegten Plaetze der Termine ohne
+        // Kapazitaet werden separat benannt statt in den Zaehler geschmuggelt.
         $rows = [
-            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2], postingId: 10),
-            $this->row('schulung', 'schulung:43', 'Essen', 'Service', [3], postingId: 10),
-            // Termin ausserhalb der Auswahl (inaktiv / anderer Zeitraum)
-            $this->row('schulung', 'schulung:99', 'Essen', 'Service', [4], postingId: 10),
-            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [5], postingId: 10),
+            ['max' => 8, 'seat_taking' => 7],
+            ['max' => null, 'seat_taking' => 4],   // Kapazitaet nicht gepflegt
+            ['max' => 0, 'seat_taking' => 1],      // 0 ist „nicht gepflegt", keine Kapazitaet
         ];
-        $vm = $this->vm();
 
-        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => [42, 43]], 'ids'));
-        // fail-closed: leere oder fehlende Liste ist KEINE Abkuerzung fuer „alle"
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => []], 'ids'));
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews'], 'ids'));
-        // Gecrafteter Token: nichts, was keine Termin-ID ist, wird zu einer
-        // ((int) 'abc' waere 0 und damit ein stiller Treffer-Versuch)
-        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => ['abc', null]], 'ids'));
-        // Strings aus dem JSON-Token bleiben brauchbar
-        $this->assertSame([3], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => ['43']], 'ids'));
+        $totals = $this->vm()->interviewTotals($rows);
+
+        $this->assertSame(7, $totals['taken'], 'Zaehler nur aus Terminen MIT Kapazitaet');
+        $this->assertSame(8, $totals['max']);
+        $this->assertSame(2, $totals['without_capacity_interviews']);
+        $this->assertSame(5, $totals['without_capacity_taken'], '4 + 1 belegte Plaetze bleiben benannt');
+        // Nachrechenbar: der alte Zaehler ist die Summe der beiden Zahlen
+        $this->assertSame(12, $totals['taken'] + $totals['without_capacity_taken']);
+    }
+
+    public function test_summen_belegung_ohne_gepflegte_kapazitaet_ist_keine_quote(): void
+    {
+        // Kein Nenner, also keine Belegungs-Quote — und deshalb auch KEIN Zaehler
+        // in der Zelle („0 von ∞" haette behauptet, es sei kein Platz belegt, „12
+        // von ∞" waere ein Zaehler ohne Nenner). Die Zahl ueberlebt im
+        // without_capacity_taken und wird von der View benannt.
+        $totals = $this->vm()->interviewTotals([
+            ['max' => null, 'seat_taking' => 3],
+            ['max' => null, 'seat_taking' => 0],
+        ]);
+
+        $this->assertNull($totals['max']);
+        $this->assertNull($totals['taken']);
+        $this->assertSame(2, $totals['without_capacity_interviews']);
+        $this->assertSame(3, $totals['without_capacity_taken']);
+
+        // Keine Termine: nichts erfunden
+        $this->assertSame(
+            ['taken' => null, 'max' => null, 'without_capacity_interviews' => 0, 'without_capacity_taken' => 0],
+            $this->vm()->interviewTotals([]),
+        );
     }
 
     public function test_herkunft_ohne_ausschreibung_bleibt_eine_eigene_unterzeile(): void
@@ -1356,7 +1407,7 @@ final class CohortViewModelTest extends TestCase
         $this->assertSame(2, $vm->countIn($cohort['rows'], 'ids'));
         $this->assertSame(
             [2],
-            $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42, 'posting' => null], 'ids'),
+            $vm->resolveIds($rows, ['scope' => 'interviews_posting', 'interviews' => [42], 'posting' => null], 'ids'),
             'die Unterzeile ohne Ausschreibung ist genauso anklickbar',
         );
     }

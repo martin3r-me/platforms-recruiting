@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Statistics;
 
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecInterview;
@@ -57,11 +58,18 @@ class Index extends Component
     public ?string $interviewTo = null;
 
     /**
-     * Leerstring-Falle (dieselbe wie bei filterFrom/filterTo, hier aber
-     * gefaehrlicher): ein geleertes Datumsfeld liefert '', und '2026-07-05' >= ''
-     * ist WAHR. Ohne Normalisierung auf null wuerde ein zurueckgesetztes Feld die
-     * Termin-Liste stumm beschneiden statt sie freizugeben — der Filter waere
-     * scheinbar aus, die Tabelle trotzdem leer.
+     * Ein geleertes Datumsfeld liefert '' — normalisiert wird auf null, damit die
+     * Property nur zwei Zustaende kennt: gesetzt oder nicht gesetzt.
+     *
+     * WAS DIESER HOOK NICHT TUT (hier stand vorher die falsche Begruendung): er
+     * repariert keinen Filter. `when('')` ueberspringt die Klausel bereits, ein
+     * Leerstring haette also nichts weggeschnitten. Der Wert hat in einer
+     * ?string-Property trotzdem nichts zu suchen: jeder spaetere Leser, der auf
+     * `!== null` prueft — die Anzeige des gewaehlten Zeitraums (Task 10), ein
+     * strikter Vergleich, eine Weitergabe an Code, der auf Y-m-d-Strings rechnet —
+     * muesste sonst '' und null getrennt behandeln, und DORT waere '' dann
+     * gefaehrlich, weil '2026-07-05' >= '' wahr ist. Der Hook haelt den Zustand
+     * sauber, statt sich auf das Verhalten von when() zu verlassen.
      */
     public function updatedInterviewFrom($value): void
     {
@@ -113,7 +121,22 @@ class Index extends Component
         $this->resetDrill();
     }
 
-    /** @var list<int> IDs fuer das Drill-down-Modal */
+    /**
+     * IDs fuer das Drill-down-Modal.
+     *
+     * #[Locked]: kein Pfad setzt diese Property vom Client — sie wird
+     * ausschliesslich in drill() aus den frisch berechneten Assigner-Zeilen
+     * gefuellt (resetDrill leert sie). Damit ist das TOKEN der einzige Weg in das
+     * Modal; eine clientseitig gesetzte ID-Liste wird von Livewire abgewiesen,
+     * statt sich auf den forTeam-Scope in drillApplicants() als letzte Instanz zu
+     * verlassen. Der bleibt trotzdem Pflicht (zwei Schlösser, nicht eins).
+     *
+     * NICHT locked ist $showDrill: die Modal-Komponente bindet es per wire:model
+     * (Schliessen im Client), ein Lock wuerde das Modal unschliessbar machen.
+     *
+     * @var list<int>
+     */
+    #[Locked]
     public array $drillIds = [];
     public string $drillLabel = '';
     public bool $showDrill = false;
@@ -792,6 +815,12 @@ class Index extends Component
      * Properties gibt es nur im Request), waehrend die Computed-Huelle darueber in
      * Produktion weiter genau eine Query-Runde kostet.
      *
+     * PROTECTED, obwohl der Test sie braucht: jede public Methode einer
+     * Livewire-Komponente ist vom Client als Action aufrufbar, und diese hier
+     * erwartet Eloquent-Objekte — ein gecrafteter Aufruf mit Arrays waere ein
+     * 500er auf Zuruf. Der Test kommt ueber eine Unterklasse heran (Probe), die
+     * Produktions-Oberflaeche bleibt zu.
+     *
      * ZWEI QUELLEN, und die Trennung ist Absicht:
      *  - TRICHTER: aus den Assigner-Zeilen ($rows) — dieselben Zeilen wie
      *    Tabelle 1, keine zweite Query und damit keine zweite Zaehlung derselben
@@ -808,15 +837,26 @@ class Index extends Component
      * verschwundener Termin waere keine.
      *
      * `outside` benennt die Gegenrichtung: Teilnehmer, deren Termin NICHT in
-     * dieser Auswahl liegt (inaktiv oder ausserhalb des Termin-Zeitraums). Sie
-     * stecken in Tabelle 1 und fehlen hier — sichtbar gemacht statt verschluckt,
-     * sonst ist die kleinere Summe von Tabelle 2 nicht nachvollziehbar.
+     * dieser Auswahl liegt. Sie stecken in Tabelle 1 und fehlen hier — sichtbar
+     * gemacht statt verschluckt, sonst ist die kleinere Summe von Tabelle 2 nicht
+     * nachvollziehbar.
+     *
+     * Die Gruende sind ausdruecklich NICHT abschliessend aufzaehlbar, und die
+     * Fussnote der View formuliert das auch so. Bekannt sind mindestens: der
+     * Termin ist inaktiv gesetzt; er liegt ausserhalb des Termin-Zeitraums; er
+     * haengt an KEINER Stelle oder an einer Stelle einer anderen Filiale
+     * (rec_interviews.rec_position_id ist nullable, und der Assigner bildet die
+     * Schulungszeile allein ueber die BUCHUNG — der Ort der Zeile kommt von der
+     * Ausschreibung des Bewerbers, nicht vom Termin); er ist geloescht
+     * (SoftDeletes). Eine Aufzaehlung, die sich vollstaendig gibt und es nicht
+     * ist, erklaert die Differenz falsch — und das ist schlimmer, als sie nicht zu
+     * erklaeren.
      *
      * @param  iterable<\Platform\Recruiting\Models\RecInterview>  $interviews
      * @param  list<array>  $rows  Assigner-Zeilen
      * @return array{rows:list<array>, outside:array{interviews:int, applications:int}}
      */
-    public function buildInterviewTable($interviews, array $rows): array
+    protected function buildInterviewTable($interviews, array $rows): array
     {
         $vm = $this->viewModel();
         $cohorts = $vm->interviewCohorts($rows);
@@ -866,6 +906,55 @@ class Index extends Component
             'rows' => $tableRows,
             'outside' => ['interviews' => $outsideInterviews, 'applications' => $outsideApplications],
         ];
+    }
+
+    /**
+     * Summen-Belegung der Termin-Tabelle samt Begruendungstext.
+     *
+     * Die Arithmetik liegt in CohortViewModel::interviewTotals (Σ Zaehler und
+     * Σ Nenner ueber DIESELBE Auswahl — nur Termine mit gepflegter Kapazitaet),
+     * hier kommt der Text dazu. Genau wie bei fulfilmentTotalLight() ist der
+     * `reason` EINE Quelle fuer Tooltip und sichtbare Fussnote: zwei
+     * Formulierungen derselben Differenz sind zwei Stellen, an denen eine Zahl
+     * falsch werden kann.
+     *
+     * Der Text nennt die ausgelassenen Termine MIT ihren belegten Plaetzen. Ohne
+     * diese Angabe waere die Zelle aus ihren Nachbarn nicht nachrechenbar: die
+     * Zeilen darueber zeigen Belegungen, die in dieser Summe nicht mitzaehlen.
+     *
+     * @param  list<array{max:?int, seat_taking:int}>  $interviewRows
+     * @return array{taken:?int, max:?int, without_capacity_interviews:int,
+     *               without_capacity_taken:int, reason:string}
+     */
+    public function belegungTotals(array $interviewRows): array
+    {
+        $totals = $this->viewModel()->interviewTotals($interviewRows);
+
+        $ausgelassen = $totals['without_capacity_interviews'];
+        $ausgelassenText = $ausgelassen === 0
+            ? ''
+            : $ausgelassen . ' ' . ($ausgelassen === 1 ? 'Termin' : 'Termine')
+                . ' ohne gepflegte Kapazität (' . $totals['without_capacity_taken'] . ' '
+                . ($totals['without_capacity_taken'] === 1 ? 'belegter Platz' : 'belegte Plätze') . ')';
+
+        if ($totals['max'] === null) {
+            // KEINE erfundene Kapazitaet und keine „0 von ∞"-Anzeige: ohne
+            // gepflegtes Maximum gibt es keinen Nenner, also keine Belegung.
+            // Die belegten Plaetze verschwinden trotzdem nicht — sie stehen im Text.
+            $totals['reason'] = 'An keinem Termin dieser Auswahl ist eine Kapazität gepflegt — '
+                . 'ohne Kapazität gibt es keine Belegungs-Quote (auch keine 0 %).'
+                . ($ausgelassenText === '' ? '' : ' Betroffen: ' . $ausgelassenText . '.');
+        } else {
+            $totals['reason'] = $totals['taken'] . ' von ' . $totals['max']
+                . ' Plätzen belegt (nur Termine mit gepflegter Kapazität — Zähler und Nenner '
+                . 'zählen dieselben Termine).'
+                . ($ausgelassenText === ''
+                    ? ''
+                    : ' NICHT in dieser Summe: ' . $ausgelassenText
+                        . ' — deshalb ist die Summe kleiner als die Belegungen der Zeilen darüber.');
+        }
+
+        return $totals;
     }
 
     #[Computed]
@@ -986,15 +1075,22 @@ class Index extends Component
      *
      * $scope: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
      *         | 'ort' (Ort-Summe) | 'posting' (alle Zeilen EINER Ausschreibung,
-     *         die Zeilen-Einheit der Ausschreibungs-Tabelle) | 'all' (Gesamt)
+     *         die Zeilen-Einheit der Ausschreibungs-Tabelle)
+     *         | 'interviews' (alle Zeilen der angegebenen TERMINE — die
+     *         Zeilen-Einheit der Termin-Tabelle, mit einem Eintrag fuer eine
+     *         Termin-Zeile und allen sichtbaren fuer ihre Gesamt-Zeile)
+     *         | 'interviews_posting' (eine Herkunfts-Unterzeile: Termin und
+     *         Ausschreibung) | 'type_all' (ein Zeilentyp ueber alle Gruppen)
+     *         | 'all' (Gesamt)
      *
      * $extra reist unveraendert durch (encodeScope hier, decodeScope in drill(),
      * von dort direkt in resolveIds) — Hin- und Rueckweg sind also fuer alle
      * Bestandteile derselbe, es gibt keine Feld-Liste, die man vergessen koennte.
-     * Fuer die Scopes 'row' und 'posting' ist seit v2 'posting' =>
+     * Fuer die Scopes 'row', 'posting' und 'interviews_posting' ist 'posting' =>
      * $row['posting_id'] PFLICHT: die Zeilen sind je Ausschreibung, 'key' allein
      * trifft sonst mehrere. Fehlt es, loest resolveIds fail-closed nichts auf
-     * (leeres Modal statt vermischter IDs).
+     * (leeres Modal statt vermischter IDs). Fuer die Termin-Scopes gilt dasselbe
+     * fuer 'interviews' => list<int>.
      */
     public function drillToken(string $scope, string $prefix, array $extra = []): string
     {
@@ -1042,9 +1138,12 @@ class Index extends Component
         if ($this->drillIds === []) {
             return collect();
         }
-        // forTeam ist Pflicht, NICHT Redundanz: $drillIds ist eine public
-        // Livewire-Property und damit clientseitig manipulierbar. Ohne den
-        // Scope liesse sich das Modal als Namens-Leak fuer fremde Teams nutzen.
+        // forTeam bleibt Pflicht, auch mit #[Locked] auf $drillIds: der Lock
+        // schliesst den direkten Weg (Client setzt die ID-Liste), der Scope den
+        // indirekten (ein Token benennt eine Menge, die die Kohorte nicht
+        // enthaelt). Zwei Schloesser fuer denselben Namens-Leak — das aeussere
+        // wegzulassen, weil das innere haelt, ist genau die Art Sparsamkeit, die
+        // sich beim naechsten Umbau raecht.
         return RecApplicant::forTeam($this->teamId())
             ->whereIn('id', $this->drillIds)
             ->with('crmContactLinks.contact')

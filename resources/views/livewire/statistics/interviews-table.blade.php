@@ -68,6 +68,21 @@
     // vorigen Spaltengruppe.
     $colDefs = array_merge(
         [
+            // Standby steht DIREKT neben der Belegung und in ihrer Spaltengruppe:
+            // es ist eine Eigenschaft der Buchung an diesem Termin („war gebucht,
+            // belegt aber keinen Platz mehr") und damit die Fussnote zur Belegung,
+            // auch wenn es NICHT in ihren Balken einfliesst. Sieben bis elf Spalten
+            // weiter rechts (je nach Zahl der Phasen-Spalten) las es sich nicht als
+            // das „(+Standby)" des Mockups.
+            //
+            // Name und Vokabular bleiben unveraendert: die Spalte heisst „Standby"
+            // wie in V1 und Tabelle 1, und die Gruppe „Abzweige" existiert weiter
+            // (mit „Nicht erschienen"). Verschoben wird die Nachbarschaft, nicht
+            // die Benennung — drei Vokabulare fuer dieselbe Sache waeren teurer
+            // als eine Gruppe mit einer Spalte.
+            ['key' => 'standby', 'label' => 'Standby',
+             'on' => 'bg-amber-100 text-amber-900', 'total' => 'bg-amber-200 text-amber-900',
+             'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at) — zählt in der Belegung links NICHT mit. Kohorten-Zahl, also gefiltert; die Belegung daneben ist es nicht.'],
             ['key' => 'ids', 'label' => 'Teilnehmer', 'gstart' => true,
              'on' => 'bg-sky-50 text-sky-900', 'total' => 'bg-sky-100 text-sky-950',
              'title' => 'Bewerbungen, deren Kohorten-Zeile an diesem Termin hängt (Präzedenz-Kette Stufe 6) — Testbewerber sind immer ausgeschlossen. Bezugsgröße der anderen Spalten. NICHT dasselbe wie „Belegt": das zählt Buchungen am Termin, unabhängig von den Filtern dieser Seite.'],
@@ -86,10 +101,7 @@
         ],
         $phaseDefs,
         [
-            ['key' => 'standby', 'label' => 'Standby', 'gstart' => true,
-             'on' => 'bg-amber-100 text-amber-900', 'total' => 'bg-amber-200 text-amber-900',
-             'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at) — zählt in der Belegung links NICHT mit.'],
-            ['key' => 'no_show', 'label' => 'Nicht erschienen',
+            ['key' => 'no_show', 'label' => 'Nicht erschienen', 'gstart' => true,
              'on' => 'bg-red-100 text-red-900', 'total' => 'bg-red-200 text-red-900',
              'title' => 'Status no_show — gebucht und bestätigt, aber nicht erschienen. Gilt als abgeschlossen.'],
             ['key' => 'vertrag_verschickt', 'label' => 'Vertrag verschickt', 'gstart' => true,
@@ -107,11 +119,15 @@
 
     $colGroups = [
         ['label' => 'Termin', 'span' => 3, 'title' => 'Wann, wo und für welche Ausschreibung.'],
-        ['label' => 'Belegung', 'span' => 1,
-         'title' => 'Plätze des Termins — belegt von allen platzbelegenden Buchungen, unabhängig von den Filtern dieser Seite.'],
+        // Belegung + Standby: beide beschreiben die Plätze dieses Termins. Die
+        // Zahlen stammen aus zwei Quellen (Belegung aus der Termin-Query, Standby
+        // aus der Kohorte) und werden deshalb nicht verrechnet — sie stehen
+        // nebeneinander, weil man sie zusammen liest.
+        ['label' => 'Belegung', 'span' => 2,
+         'title' => 'Plätze des Termins: belegt von allen platzbelegenden Buchungen (unabhängig von den Filtern dieser Seite), daneben die Standby-Buchungen, die keinen Platz mehr belegen.'],
         ['label' => 'Trichter', 'span' => 5 + count($phaseDefs),
          'title' => 'Der Weg durch den Prozess — jede Stufe ist eine Teilmenge der vorigen, die Farbe wird dabei dunkler. Die Phasen-Spalten kommen aus dem Phasensatz der gewählten Filiale.'],
-        ['label' => 'Abzweige', 'span' => 2,
+        ['label' => 'Abzweige', 'span' => 1,
          'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'],
         ['label' => 'Vertrag', 'span' => 2,
          'title' => 'Das Ziel: Vertrag verschickt und unterschrieben.'],
@@ -128,20 +144,18 @@
     // sobald Teilnehmer an Terminen außerhalb der Auswahl hängen; die Fußnote
     // unter der Tabelle benennt genau diese Differenz.
     $allRows = [];
-    $sumTaken = 0;
-    $sumMax = null;
     $visibleInterviewIds = [];
     foreach ($interviewRows as $interviewRow) {
         $allRows = array_merge($allRows, $interviewRow['rows']);
-        $sumTaken += $interviewRow['seat_taking'];
-        // Termine ohne Kapazität zählen im SOLL nicht mit (sonst stünde dort eine
-        // Summe, die weniger Termine umfasst als die Zeile behauptet). Ist an
-        // KEINEM Termin eine Kapazität gepflegt, bleibt das SOLL leer statt 0.
-        if ($interviewRow['max'] !== null && (int) $interviewRow['max'] > 0) {
-            $sumMax = ($sumMax ?? 0) + (int) $interviewRow['max'];
-        }
         $visibleInterviewIds[] = $interviewRow['interview_id'];
     }
+
+    // Σ IST / Σ SOLL kommt aus belegungTotals() und NICHT aus einer Schleife hier:
+    // die Regel „Zähler und Nenner zählen dieselben Termine" ist die Stelle, an
+    // der diese Zeile schon einmal falsch war (12 / 8 → 150 % roter
+    // Überbuchungs-Balken, ohne dass ein einzelner Termin überbucht war). In der
+    // Komponente ist sie testbar, in einem Blade-Skriptblock nicht.
+    $belegung = $this->belegungTotals($interviewRows);
 
     // Das Token der Gesamt-Zeile trägt die SICHTBAREN Termine, damit das
     // Drill-down genau die Menge auflöst, die die Zeile anzeigt. Ein Token über
@@ -230,15 +244,17 @@
                     @foreach ($interviewRows as $interviewRow)
                         @php
                             $interviewId = $interviewRow['interview_id'];
-                            $dateLabel = $interviewRow['starts_at']
-                                ? $interviewRow['starts_at']->format('d.m.Y H:i')
-                                : 'Termin ohne Datum';
+                            // rec_interviews.starts_at ist NOT NULL — kein
+                            // „ohne Datum"-Zweig, der nie laufen kann.
+                            $dateLabel = $interviewRow['starts_at']->format('d.m.Y H:i');
                             $rowPrefix = $dateLabel . ' · ' . $interviewRow['type'];
-                            // 'interview' ist PFLICHT im Token: die Zeile summiert die
-                            // Assigner-Zeilen ALLER Ausschreibungen dieses Termins.
+                            // Die Termin-Liste ist PFLICHT im Token: die Zeile summiert
+                            // die Assigner-Zeilen ALLER Ausschreibungen dieses Termins.
                             // Ohne die Angabe trifft der Scope fail-closed nichts
-                            // (leeres Modal statt vermischter IDs).
-                            $rowToken = $this->drillToken('interview', $rowPrefix, ['interview' => $interviewId]);
+                            // (leeres Modal statt vermischter IDs). Eine Termin-Zeile
+                            // ist die Liste mit einem Eintrag — dieselbe Tür, die die
+                            // Gesamt-Zeile mit allen sichtbaren Terminen benutzt.
+                            $rowToken = $this->drillToken('interviews', $rowPrefix, ['interviews' => [$interviewId]]);
                             $origins = $interviewRow['origins'];
                             $postingTitle = $interviewRow['posting_title'];
                         @endphp
@@ -314,12 +330,12 @@
                                 $originTitle = $origin['posting_title'] !== '' ? $origin['posting_title'] : 'ohne Titel';
                                 $originPrefix = $rowPrefix . ' · '
                                     . ($origin['posting_id'] === null ? 'ohne Ausschreibung' : $originTitle);
-                                // 'interview' UND 'posting' sind Pflicht: ohne den Termin
+                                // Termin UND Ausschreibung sind Pflicht: ohne den Termin
                                 // zaehlte die Ausschreibung ueber alle Termine mit, ohne
                                 // die Ausschreibung der ganze Termin. Beides waeren
                                 // Zahlen, die zur angeklickten Unterzeile nicht passen.
-                                $originToken = $this->drillToken('interview_posting', $originPrefix, [
-                                    'interview' => $interviewId,
+                                $originToken = $this->drillToken('interviews_posting', $originPrefix, [
+                                    'interviews' => [$interviewId],
                                     'posting' => $origin['posting_id'],
                                 ]);
                             @endphp
@@ -370,12 +386,21 @@
                             <span class="ml-1 text-xs font-normal text-[color:var(--ui-muted)]">
                                 ({{ count($interviewRows) }} {{ count($interviewRows) === 1 ? 'Termin' : 'Termine' }} dieser Auswahl)
                                 <span class="cursor-help"
-                                      title="Summe über die Termine dieser Auswahl — nicht über die ganze Kohorte. Teilnehmer an Terminen außerhalb der Auswahl (inaktiv oder außerhalb des Termin-Zeitraums) fehlen hier bewusst; sie stehen in der Ausschreibungs-Tabelle.">ⓘ</span>
+                                      title="Summe über die Termine dieser Auswahl — nicht über die ganze Kohorte. Teilnehmer an Terminen außerhalb der Auswahl fehlen hier bewusst (Gründe siehe Fußnote unter der Tabelle); sie stehen in der Ausschreibungs-Tabelle.">ⓘ</span>
                             </span>
                         </td>
+                        {{-- Σ IST / Σ SOLL über DIESELBE Auswahl (nur Termine mit
+                             gepflegter Kapazität). Ohne einen einzigen gepflegten
+                             Termin ist `taken` null und die Zelle zeigt „–": es gibt
+                             keinen Nenner, also keine Belegungs-Quote. Die belegten
+                             Plätze der ausgelassenen Termine gehen nicht verloren,
+                             sie stehen im Text darunter — derselbe Text wie im
+                             Tooltip, damit die Differenz nur an EINER Stelle
+                             formuliert ist. --}}
                         @include('recruiting::livewire.statistics.meter', [
-                            'taken' => $sumTaken, 'max' => $sumMax, 'borderLeft' => true, 'pad' => 'px-3 py-3',
-                            'title' => 'Σ belegte Plätze / Σ Kapazität der Termine dieser Auswahl. Termine ohne gepflegte Kapazität zählen im SOLL nicht mit; ist an keinem eine gepflegt, bleibt das SOLL leer statt 0.',
+                            'taken' => $belegung['taken'], 'max' => $belegung['max'],
+                            'borderLeft' => true, 'pad' => 'px-3 py-3',
+                            'title' => 'Σ belegte Plätze / Σ Kapazität der Termine dieser Auswahl. ' . $belegung['reason'],
                         ])
                         @include('recruiting::livewire.statistics.cells', ['rows' => $allRows, 'token' => $allToken, 'prefix' => 'Gesamt (Termine dieser Auswahl)', 'isTotal' => true])
                         @include('recruiting::livewire.statistics.conversion', ['rows' => $allRows, 'isTotal' => true])
@@ -384,21 +409,48 @@
             </table>
         </div>
 
-        {{-- Fussnote statt stiller Differenz: Tabelle 2 zeigt nur die Termine
-             dieser Auswahl. Teilnehmer an inaktiven oder ausserhalb des
-             Zeitraums liegenden Terminen fehlen hier — und ohne diesen Satz liest
-             man die kleinere Gesamt-Summe als Rechenfehler. Die Zahlen stehen
-             beide: wie viele Termine und wie viele Bewerbungen. --}}
-        @if ($outside['interviews'] > 0)
+        {{-- Fussnote zur Summen-Belegung: sie zaehlt nur Termine mit gepflegter
+             Kapazitaet (Zaehler UND Nenner). Was dadurch nicht mitzaehlt, wird
+             benannt — sonst ist die Zelle aus den Zeilen darueber nicht
+             nachrechenbar, weil dort Belegungen stehen, die hier fehlen. Der Text
+             kommt aus belegungTotals() und ist derselbe wie im Tooltip. --}}
+        @if ($belegung['without_capacity_interviews'] > 0)
             <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
-                Nicht in dieser Tabelle:
-                {{ $outside['applications'] }}
-                {{ $outside['applications'] === 1 ? 'Bewerbung' : 'Bewerbungen' }}
-                an {{ $outside['interviews'] }}
-                {{ $outside['interviews'] === 1 ? 'Termin' : 'Terminen' }}
-                außerhalb dieser Auswahl (inaktiv gesetzt oder außerhalb des Termin-Zeitraums) —
-                in der Ausschreibungs-Tabelle sind sie enthalten.
+                Belegung gesamt: {{ $belegung['reason'] }}
             </div>
         @endif
+    @endif
+
+    {{-- Fussnote statt stiller Differenz: Tabelle 2 zeigt nur die Termine dieser
+         Auswahl. Teilnehmer an anderen Terminen fehlen hier — ohne diesen Satz
+         liest man die kleinere Gesamt-Summe als Rechenfehler.
+
+         BEWUSST AUSSERHALB des Leer-Zweigs dieser Tabelle: bei NULL sichtbaren
+         Terminen ist die Erklaerung am noetigsten, und genau dort fehlte sie
+         vorher (die Seite verschwieg gemessen drei Termine mit fuenf
+         Bewerbungen).
+
+         Die Gruende sind eine AUSWAHL, keine vollstaendige Liste, und der Text
+         sagt das auch („zum Beispiel"). Es gibt mehr als die zwei naheliegenden:
+         ein Termin ohne Stelle oder an einer Stelle einer anderen Filiale faellt
+         durch den Ort-Filter, obwohl der Teilnehmer zur gewaehlten Filiale
+         gehoert (der Assigner bildet die Schulungszeile allein ueber die
+         Buchung), und geloeschte Termine tauchen ohnehin nicht auf. Eine
+         Aufzaehlung, die sich vollstaendig gibt und es nicht ist, erklaert die
+         Differenz falsch. --}}
+    @if ($outside['interviews'] > 0)
+        <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
+            Nicht in dieser Tabelle:
+            {{ $outside['applications'] }}
+            {{ $outside['applications'] === 1 ? 'Bewerbung' : 'Bewerbungen' }}
+            an {{ $outside['interviews'] }}
+            {{ $outside['interviews'] === 1 ? 'Termin' : 'Terminen' }},
+            {{ $outside['interviews'] === 1 ? 'der' : 'die' }} nicht in dieser Auswahl
+            {{ $outside['interviews'] === 1 ? 'liegt' : 'liegen' }} — zum Beispiel inaktiv gesetzt,
+            außerhalb des Termin-Zeitraums oder ohne Stelle bzw. an einer anderen Filiale
+            <span class="cursor-help"
+                  title="Ein Termin ohne Stelle oder mit einer Stelle einer anderen Filiale fällt durch den Ort-Filter, obwohl der Teilnehmer zur gewählten Filiale gehört: die Kohorten-Zeile hängt allein an der Buchung, ihr Ort kommt von der Ausschreibung des Bewerbers. Auch gelöschte Termine sind hier nicht dabei. Die Aufzählung ist deshalb eine Auswahl, keine vollständige Liste.">ⓘ</span>.
+            In der Ausschreibungs-Tabelle sind sie enthalten.
+        </div>
     @endif
 </x-ui-panel>

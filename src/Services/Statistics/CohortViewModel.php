@@ -248,16 +248,16 @@ final class CohortViewModel
      *
      * $spec['scope']: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
      *                 | 'ort' (Ort-Summe) | 'posting' (alle Zeilen EINER
-     *                 Ausschreibung) | 'interview' (alle Zeilen EINES Termins)
-     *                 | 'interviews' (Zeilen einer LISTE von Terminen, Gesamt-Zeile
-     *                 der Termin-Tabelle) | 'interview_posting' (eine
-     *                 Herkunfts-Unterzeile: ein Termin und eine Ausschreibung)
-     *                 | 'all' (Gesamt)
+     *                 Ausschreibung) | 'interviews' (alle Zeilen der angegebenen
+     *                 TERMINE — eine Termin-Zeile oder die Gesamt-Zeile von
+     *                 Tabelle 2) | 'interviews_posting' (eine Herkunfts-Unterzeile:
+     *                 Termin und Ausschreibung) | 'all' (Gesamt)
      *
-     * Die Scopes 'row', 'posting' und 'interview_posting' brauchen zusaetzlich
+     * Die Scopes 'row', 'posting' und 'interviews_posting' brauchen zusaetzlich
      * $spec['posting'] (?int, die posting_id; null = ohne Ausschreibung) — ohne
-     * diesen Schluessel treffen sie absichtlich nichts. 'interview' und
-     * 'interview_posting' brauchen $spec['interview'] (int, die Interview-ID).
+     * diesen Schluessel treffen sie absichtlich nichts. 'interviews' und
+     * 'interviews_posting' brauchen $spec['interviews'] (list<int>, die
+     * Interview-IDs; ein Termin ist die Liste mit einem Eintrag).
      *
      * KEIN array_unique: die Zeilen sind per Rekonziliations-Invariante disjunkt.
      * Ein unique wuerde eine Verletzung maskieren, statt sie aufzudecken — die
@@ -289,22 +289,24 @@ final class CohortViewModel
         $postingGiven = array_key_exists('posting', $spec);
         $posting = ($postingGiven && $spec['posting'] !== null) ? (int) $spec['posting'] : null;
 
-        // Termin-Tabelle (Tabelle 2). Anders als bei 'posting' ist null hier KEIN
-        // gueltiger Wert: eine Zeile ohne Termin ist keine Schulungszeile, es gibt
-        // also nichts, was ein Token mit interview=null benennen koennte. Fehlende
-        // oder leere Angabe ist deshalb fail-closed (leeres Modal).
-        $interview = isset($spec['interview']) ? (int) $spec['interview'] : null;
-
-        // Mehrere Termine (Gesamt-Zeile von Tabelle 2). Die Liste reist im Token
-        // mit, weil die Gesamt-Zeile nur die SICHTBAREN Termine summiert: ein
-        // Token ueber „alle Schulungszeilen" (type_all) traefe auch Termine
-        // ausserhalb der Auswahl, und die Modal-Laenge passte nicht zur Zahl.
-        // Nur Ziffernfolgen ueberleben — ein gecraftetes ['abc'] wuerde per
-        // (int) sonst stumm zur Termin-ID 0 und damit zu einem Treffer-Versuch.
+        // Termin-Tabelle (Tabelle 2): EINE Liste von Termin-IDs fuer beide
+        // Termin-Scopes — die Zeile eines Termins ist der Sonderfall mit genau
+        // einem Eintrag. Ein zweiter Schluessel fuer den Einzelfall waere eine
+        // zweite Stelle, die gehaertet und gepflegt werden muss.
+        //
+        // Die Liste reist im Token mit, weil die Gesamt-Zeile nur die SICHTBAREN
+        // Termine summiert: ein Token ueber „alle Schulungszeilen" (type_all)
+        // traefe auch Termine ausserhalb der Auswahl, und die Modal-Laenge passte
+        // nicht zur angezeigten Zahl.
+        //
+        // Anders als bei 'posting' ist null hier KEIN gueltiger Wert: eine Zeile
+        // ohne Termin ist keine Schulungszeile, es gibt also nichts, was ein Token
+        // mit interview=null benennen koennte. Leere Liste = fail-closed.
         $interviewList = [];
         foreach ((is_array($spec['interviews'] ?? null) ? $spec['interviews'] : []) as $value) {
-            if (is_int($value) || (is_string($value) && ctype_digit($value))) {
-                $interviewList[] = (int) $value;
+            $id = self::intId($value);
+            if ($id !== null) {
+                $interviewList[] = $id;
             }
         }
 
@@ -329,25 +331,23 @@ final class CohortViewModel
             // Angabe der Ausschreibung trifft der Scope nichts, statt auf alles
             // zu passen (ein leeres Modal ist der harmlose Ausgang).
             'posting' => fn ($row) => $postingGiven && ($row['posting_id'] ?? null) === $posting,
-            // ALLE Zeilen EINES TERMINS — die Zeilen-Einheit der Termin-Tabelle
-            // (Tabelle 2), die ueber die Ausschreibungen hinweg summiert. 'posting'
-            // schneidet quer dazu (eine Ausschreibung ueber alle Termine) und
-            // koennte diesen Scope nicht ersetzen; 'row' schneidet zu fein (eine
-            // Ausschreibung an einem Termin, siehe 'interview_posting').
-            'interview' => fn ($row) => $interview !== null
-                && self::interviewIdOf($row) === $interview,
-            // Eine HERKUNFTS-Unterzeile: Teilnehmer EINES Termins aus EINER
-            // Ausschreibung. Beide Angaben sind Pflicht, und zwar aus
-            // gegenlaeufigen Gruenden: ohne 'interview' zaehlte die Ausschreibung
-            // ueber alle Termine mit, ohne 'posting' der ganze Termin — beides
-            // waeren Zahlen, die zur angeklickten Unterzeile nicht passen.
-            // Die Gesamt-Zeile der Termin-Tabelle: alle Zeilen einer LISTE von
-            // Terminen. Leere oder fehlende Liste heisst nichts (fail-closed) —
-            // eine leere Liste ist keine „alle Termine"-Abkuerzung.
+            // ALLE Zeilen der angegebenen TERMINE — die Zeilen-Einheit der
+            // Termin-Tabelle (Tabelle 2), die ueber die Ausschreibungen hinweg
+            // summiert. Ein Termin (Datenzeile) oder mehrere (Gesamt-Zeile).
+            // 'posting' schneidet quer dazu (eine Ausschreibung ueber alle
+            // Termine) und koennte diesen Scope nicht ersetzen; 'type_all' traefe
+            // auch Termine ausserhalb der Auswahl (nachgerechnet: 9 statt 8 IDs).
+            // Leere oder fehlende Liste heisst nichts — keine „alle Termine"-Abkuerzung.
             'interviews' => fn ($row) => $interviewList !== []
                 && in_array(self::interviewIdOf($row), $interviewList, true),
-            'interview_posting' => fn ($row) => $interview !== null && $postingGiven
-                && self::interviewIdOf($row) === $interview
+            // Eine HERKUNFTS-Unterzeile: Teilnehmer EINES Termins (Liste mit einem
+            // Eintrag) aus EINER Ausschreibung. Beide Angaben sind Pflicht, und
+            // zwar aus gegenlaeufigen Gruenden: ohne den Termin zaehlte die
+            // Ausschreibung ueber alle Termine mit, ohne die Ausschreibung der
+            // ganze Termin — beides waeren Zahlen, die zur angeklickten
+            // Unterzeile nicht passen.
+            'interviews_posting' => fn ($row) => $interviewList !== [] && $postingGiven
+                && in_array(self::interviewIdOf($row), $interviewList, true)
                 && ($row['posting_id'] ?? null) === $posting,
             // Ein Zeilentyp ueber ALLE Gruppen hinweg — Grundlage der Kachel
             // „Ohne Termin", die nicht an einem Ort haengt.
@@ -855,6 +855,76 @@ final class CohortViewModel
         }
 
         return $cohorts;
+    }
+
+    /**
+     * Datenbank-ID aus einem Token-Wert — oder null, wenn es keine ist.
+     *
+     * EINE Stelle fuer alle ID-Werte aus einem Token, damit die Haertung nicht je
+     * Scope auseinanderlaeuft: `(int)` allein haette '500abc' und 500.9 stumm zu
+     * 500 gemacht und 'abc' zu 0 — ein Treffer-Versuch auf eine fremde Zeile,
+     * ausgeloest durch einen gecrafteten Token. Erlaubt sind deshalb nur echte
+     * Ganzzahlen und reine Ziffernfolgen (JSON liefert Zahlen als int, ein
+     * handgeschriebenes Token auch mal als String).
+     */
+    private static function intId(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        return (is_string($value) && $value !== '' && ctype_digit($value)) ? (int) $value : null;
+    }
+
+    /**
+     * Summen-Belegung der Termin-Tabelle: Σ belegte Plaetze gegen Σ Kapazitaet.
+     *
+     * Die tragende Regel steht im NENNER: gezaehlt werden NUR Termine mit
+     * gepflegter Kapazitaet, und zwar auf BEIDEN Seiten des Bruchs. Vorher zaehlte
+     * der Zaehler alle sichtbaren Termine und der Nenner nur die gepflegten —
+     * gemessen 12 / 8, also 150 % und ein roter „Ueberbuchung"-Balken, obwohl kein
+     * einzelner Termin ueberbucht war. Dieselbe Fehlerklasse, die in der
+     * Gesamt-Zeile von Tabelle 1 schon behoben ist (Σ Zaehler / Σ Nenner ueber
+     * dieselbe Auswahl).
+     *
+     * Ohne einen einzigen gepflegten Termin gibt es keinen Nenner und damit keine
+     * Belegung: `max` UND `taken` sind dann null, die Zelle zeigt „–". Bewusst
+     * nicht „0 von ∞" (das behauptete, es sei kein Platz belegt) und keine
+     * erfundene Kapazitaet. Die belegten Plaetze der ausgelassenen Termine gehen
+     * dabei nicht verloren — sie stehen in without_capacity_taken und werden von
+     * der View benannt.
+     *
+     * @param  list<array{max:?int, seat_taking:int}>  $interviewRows  Zeilen der Termin-Tabelle
+     * @return array{taken:?int, max:?int, without_capacity_interviews:int, without_capacity_taken:int}
+     */
+    public function interviewTotals(array $interviewRows): array
+    {
+        $taken = 0;
+        $max = null;
+        $withoutCapacityInterviews = 0;
+        $withoutCapacityTaken = 0;
+
+        foreach ($interviewRows as $row) {
+            $rowMax = $row['max'] ?? null;
+            $rowTaken = (int) ($row['seat_taking'] ?? 0);
+            // Dieselbe Bedingung wie in der Anzeige der Einzelzeile
+            // (meter.blade.php rechnet nur mit einem echten Maximum): „nicht
+            // gepflegt" ist null oder <= 0, nicht 0 Plaetze.
+            if ($rowMax === null || (int) $rowMax <= 0) {
+                $withoutCapacityInterviews++;
+                $withoutCapacityTaken += $rowTaken;
+                continue;
+            }
+            $max = ($max ?? 0) + (int) $rowMax;
+            $taken += $rowTaken;
+        }
+
+        return [
+            'taken' => $max === null ? null : $taken,
+            'max' => $max,
+            'without_capacity_interviews' => $withoutCapacityInterviews,
+            'without_capacity_taken' => $withoutCapacityTaken,
+        ];
     }
 
     /**
