@@ -314,7 +314,7 @@ class StatisticsInterviewsTableTest extends TestCase
 
         $this->assertSame(3, $belegung['taken']);
         $this->assertSame(12, $belegung['max']);
-        $this->assertSame(0, $belegung['without_capacity_interviews']);
+        $this->assertSame(0, $belegung['unlimited_interviews']);
         $this->assertStringContainsString('3 von 12 Plätzen belegt', $belegung['reason']);
         $this->assertStringNotContainsString('NICHT in dieser Summe', $belegung['reason']);
 
@@ -328,6 +328,43 @@ class StatisticsInterviewsTableTest extends TestCase
         }
         $this->assertSame($zeilenIst, $belegung['taken']);
         $this->assertSame($zeilenSoll, $belegung['max']);
+    }
+
+    public function test_fussnote_der_belegung_nennt_nur_echte_differenzen(): void
+    {
+        // Randfall aus dem Re-Review: ein unbegrenzter Termin OHNE Buchung darf
+        // benannt werden („1 Termin ohne Platzbegrenzung (0 belegte Plätze)"), aber
+        // der Zusatz „deshalb ist die Summe kleiner" waere falsch — 2 = 2. Eine
+        // benannte Differenz, die es nicht gibt, ist derselbe Regelbruch wie eine
+        // falsche Quote, nur am Rand. Der Zusatz haengt deshalb an den belegten
+        // PLAETZEN, nicht an der Zahl der Termine.
+        $component = $this->component();
+
+        $ohneBelegung = $component->belegungTotals([
+            ['max' => 5, 'seat_taking' => 2],
+            ['max' => null, 'seat_taking' => 0],
+        ]);
+        $this->assertSame(2, $ohneBelegung['taken']);
+        $this->assertSame(5, $ohneBelegung['max']);
+        $this->assertStringContainsString('1 Termin ohne Platzbegrenzung (0 belegte Plätze)', $ohneBelegung['reason']);
+        $this->assertStringNotContainsString('deshalb ist die Summe kleiner', $ohneBelegung['reason']);
+
+        // Mit belegten Plaetzen ist die Differenz echt — dann gehoert der Satz hin
+        $mitBelegung = $component->belegungTotals([
+            ['max' => 5, 'seat_taking' => 2],
+            ['max' => null, 'seat_taking' => 3],
+        ]);
+        $this->assertStringContainsString('1 Termin ohne Platzbegrenzung (3 belegte Plätze)', $mitBelegung['reason']);
+        $this->assertStringContainsString('deshalb ist die Summe kleiner', $mitBelegung['reason']);
+
+        // EINE Lesart fuer denselben Wert: die Datenzeile rendert „∞" (unbegrenzt),
+        // also heisst es auch hier „ohne Platzbegrenzung" und nicht „ohne gepflegte
+        // Kapazitaet" — zwei Woerter fuer denselben Zustand waeren zwei Lesarten.
+        $nurUnbegrenzt = $component->belegungTotals([['max' => null, 'seat_taking' => 4]]);
+        $this->assertNull($nurUnbegrenzt['taken']);
+        $this->assertStringContainsString('Kein Termin dieser Auswahl hat eine Platzbegrenzung', $nurUnbegrenzt['reason']);
+        $this->assertStringContainsString('(4 belegte Plätze)', $nurUnbegrenzt['reason']);
+        $this->assertStringNotContainsString('Kapazität', $nurUnbegrenzt['reason']);
     }
 
     public function test_fussnote_steht_auch_bei_null_sichtbaren_terminen(): void
@@ -348,7 +385,7 @@ class StatisticsInterviewsTableTest extends TestCase
         $belegung = $component->belegungTotals($table['rows']);
         $this->assertNull($belegung['taken']);
         $this->assertNull($belegung['max']);
-        $this->assertSame(0, $belegung['without_capacity_interviews']);
+        $this->assertSame(0, $belegung['unlimited_interviews']);
     }
 
     public function test_termin_ohne_stelle_fehlt_in_tabelle_2_und_wird_nicht_falsch_erklaert(): void

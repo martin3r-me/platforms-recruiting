@@ -877,42 +877,55 @@ final class CohortViewModel
     }
 
     /**
-     * Summen-Belegung der Termin-Tabelle: Σ belegte Plaetze gegen Σ Kapazitaet.
+     * Summen-Belegung der Termin-Tabelle: Σ belegte Plaetze gegen Σ Plaetze.
      *
-     * Die tragende Regel steht im NENNER: gezaehlt werden NUR Termine mit
-     * gepflegter Kapazitaet, und zwar auf BEIDEN Seiten des Bruchs. Vorher zaehlte
-     * der Zaehler alle sichtbaren Termine und der Nenner nur die gepflegten —
-     * gemessen 12 / 8, also 150 % und ein roter „Ueberbuchung"-Balken, obwohl kein
-     * einzelner Termin ueberbucht war. Dieselbe Fehlerklasse, die in der
-     * Gesamt-Zeile von Tabelle 1 schon behoben ist (Σ Zaehler / Σ Nenner ueber
-     * dieselbe Auswahl).
+     * Die tragende Regel steht im NENNER: gezaehlt werden NUR Termine MIT
+     * Platzbegrenzung, und zwar auf BEIDEN Seiten des Bruchs. Vorher zaehlte der
+     * Zaehler alle sichtbaren Termine und der Nenner nur die begrenzten — gemessen
+     * 12 / 8, also 150 % und ein roter „Ueberbuchung"-Balken, obwohl kein einzelner
+     * Termin ueberbucht war. Dieselbe Fehlerklasse, die in der Gesamt-Zeile von
+     * Tabelle 1 schon behoben ist (Σ Zaehler / Σ Nenner ueber dieselbe Auswahl).
      *
-     * Ohne einen einzigen gepflegten Termin gibt es keinen Nenner und damit keine
-     * Belegung: `max` UND `taken` sind dann null, die Zelle zeigt „–". Bewusst
+     * Ein Termin ohne max_participants ist UNBEGRENZT — so rendert es
+     * meter.blade.php in der Einzelzeile („1 / ∞"), und so heisst es auch hier und
+     * in der Fussnote. Unbegrenzt heisst: es gibt keinen Nenner, den man addieren
+     * koennte. Deshalb faellt so ein Termin aus dem Bruch, nicht weil ihm etwas
+     * fehlte.
+     *
+     * Hat KEIN Termin eine Begrenzung, gibt es keinen Nenner und damit keine
+     * Belegungs-Quote: `max` UND `taken` sind null, die Zelle zeigt „–". Bewusst
      * nicht „0 von ∞" (das behauptete, es sei kein Platz belegt) und keine
      * erfundene Kapazitaet. Die belegten Plaetze der ausgelassenen Termine gehen
-     * dabei nicht verloren — sie stehen in without_capacity_taken und werden von
-     * der View benannt.
+     * dabei nicht verloren — sie stehen in unlimited_taken und werden von der View
+     * benannt.
+     *
+     * UEBERBUCHUNG wird NICHT geklammert (Spec §4: sie ist ein Befund). Σ taken
+     * darf also groesser als Σ max sein; meter.blade.php faerbt dann rot und zeigt
+     * den echten Prozentwert. Ein min() hier waere eine stille Deckelung auf
+     * 100 % — die Zahl saehe gesund aus, obwohl sie es nicht ist (Test:
+     * test_summen_belegung_klammert_ueberbuchung_nicht).
      *
      * @param  list<array{max:?int, seat_taking:int}>  $interviewRows  Zeilen der Termin-Tabelle
-     * @return array{taken:?int, max:?int, without_capacity_interviews:int, without_capacity_taken:int}
+     * @return array{taken:?int, max:?int, unlimited_interviews:int, unlimited_taken:int}
      */
     public function interviewTotals(array $interviewRows): array
     {
         $taken = 0;
         $max = null;
-        $withoutCapacityInterviews = 0;
-        $withoutCapacityTaken = 0;
+        $unlimitedInterviews = 0;
+        $unlimitedTaken = 0;
 
         foreach ($interviewRows as $row) {
             $rowMax = $row['max'] ?? null;
             $rowTaken = (int) ($row['seat_taking'] ?? 0);
             // Dieselbe Bedingung wie in der Anzeige der Einzelzeile
-            // (meter.blade.php rechnet nur mit einem echten Maximum): „nicht
-            // gepflegt" ist null oder <= 0, nicht 0 Plaetze.
+            // (meter.blade.php rechnet nur mit einem echten Maximum): null ist
+            // „unbegrenzt", und eine 0 ist als Nenner unbrauchbar — dort zeichnet
+            // die Zelle ebenfalls keinen Balken. Beide fallen deshalb gleich aus
+            // dem Bruch.
             if ($rowMax === null || (int) $rowMax <= 0) {
-                $withoutCapacityInterviews++;
-                $withoutCapacityTaken += $rowTaken;
+                $unlimitedInterviews++;
+                $unlimitedTaken += $rowTaken;
                 continue;
             }
             $max = ($max ?? 0) + (int) $rowMax;
@@ -922,8 +935,8 @@ final class CohortViewModel
         return [
             'taken' => $max === null ? null : $taken,
             'max' => $max,
-            'without_capacity_interviews' => $withoutCapacityInterviews,
-            'without_capacity_taken' => $withoutCapacityTaken,
+            'unlimited_interviews' => $unlimitedInterviews,
+            'unlimited_taken' => $unlimitedTaken,
         ];
     }
 

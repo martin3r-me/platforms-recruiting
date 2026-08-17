@@ -1347,24 +1347,51 @@ final class CohortViewModelTest extends TestCase
     public function test_summen_belegung_zaehlt_auf_beiden_seiten_dieselben_termine(): void
     {
         // DER Fall aus dem Review: Σ IST zaehlte alle sichtbaren Termine, Σ SOLL
-        // nur die mit gepflegter Kapazitaet — gemessen 12 / 8, also 150 % und ein
-        // roter „Ueberbuchung"-Balken, obwohl kein einzelner Termin ueberbucht
-        // war. Richtig sind 7 / 8, und die vier belegten Plaetze der Termine ohne
-        // Kapazitaet werden separat benannt statt in den Zaehler geschmuggelt.
+        // nur die mit Platzbegrenzung — gemessen 12 / 8, also 150 % und ein roter
+        // „Ueberbuchung"-Balken, obwohl kein einzelner Termin ueberbucht war.
+        // Richtig sind 7 / 8, und die FUENF belegten Plaetze der unbegrenzten
+        // Termine (4 + 1) werden separat benannt statt in den Zaehler geschmuggelt.
         $rows = [
             ['max' => 8, 'seat_taking' => 7],
-            ['max' => null, 'seat_taking' => 4],   // Kapazitaet nicht gepflegt
-            ['max' => 0, 'seat_taking' => 1],      // 0 ist „nicht gepflegt", keine Kapazitaet
+            ['max' => null, 'seat_taking' => 4],   // unbegrenzt (Datenzeile zeigt „4 / ∞")
+            ['max' => 0, 'seat_taking' => 1],      // 0 ist als Nenner unbrauchbar, zaehlt wie unbegrenzt
         ];
 
         $totals = $this->vm()->interviewTotals($rows);
 
-        $this->assertSame(7, $totals['taken'], 'Zaehler nur aus Terminen MIT Kapazitaet');
+        $this->assertSame(7, $totals['taken'], 'Zaehler nur aus Terminen MIT Platzbegrenzung');
         $this->assertSame(8, $totals['max']);
-        $this->assertSame(2, $totals['without_capacity_interviews']);
-        $this->assertSame(5, $totals['without_capacity_taken'], '4 + 1 belegte Plaetze bleiben benannt');
+        $this->assertSame(2, $totals['unlimited_interviews']);
+        $this->assertSame(5, $totals['unlimited_taken'], '4 + 1 belegte Plaetze bleiben benannt');
         // Nachrechenbar: der alte Zaehler ist die Summe der beiden Zahlen
-        $this->assertSame(12, $totals['taken'] + $totals['without_capacity_taken']);
+        $this->assertSame(12, $totals['taken'] + $totals['unlimited_taken']);
+    }
+
+    public function test_summen_belegung_klammert_ueberbuchung_nicht(): void
+    {
+        // Ueberbuchung ist laut Spec §4 ein BEFUND und wird nicht geklammert: Σ
+        // belegt darf groesser als Σ Plaetze sein, meter.blade.php faerbt dann rot
+        // und zeigt den echten Prozentwert. Ein min($taken, $max) hier waere eine
+        // stille Deckelung auf 100 % — die Zahl saehe gesund aus, obwohl der Termin
+        // ueberbucht ist, und niemand wuerde es merken.
+        $totals = $this->vm()->interviewTotals([
+            ['max' => 5, 'seat_taking' => 7],
+        ]);
+
+        $this->assertSame(7, $totals['taken'], 'nicht auf 5 gedeckelt');
+        $this->assertSame(5, $totals['max']);
+        $this->assertGreaterThan($totals['max'], $totals['taken'], 'Ueberbuchung bleibt sichtbar');
+        // 7 / 5 = 140 % — genau der Wert, den die Zelle anzeigen soll
+        $this->assertSame(140, (int) round($totals['taken'] / $totals['max'] * 100));
+
+        // Auch in der Summe mehrerer Termine bleibt sie erhalten und wird nicht
+        // gegen einen unterbuchten Termin verrechnet-und-gedeckelt
+        $gemischt = $this->vm()->interviewTotals([
+            ['max' => 5, 'seat_taking' => 7],
+            ['max' => 3, 'seat_taking' => 1],
+        ]);
+        $this->assertSame(8, $gemischt['taken']);
+        $this->assertSame(8, $gemischt['max']);
     }
 
     public function test_summen_belegung_ohne_gepflegte_kapazitaet_ist_keine_quote(): void
@@ -1372,7 +1399,7 @@ final class CohortViewModelTest extends TestCase
         // Kein Nenner, also keine Belegungs-Quote — und deshalb auch KEIN Zaehler
         // in der Zelle („0 von ∞" haette behauptet, es sei kein Platz belegt, „12
         // von ∞" waere ein Zaehler ohne Nenner). Die Zahl ueberlebt im
-        // without_capacity_taken und wird von der View benannt.
+        // unlimited_taken und wird von der View benannt.
         $totals = $this->vm()->interviewTotals([
             ['max' => null, 'seat_taking' => 3],
             ['max' => null, 'seat_taking' => 0],
@@ -1380,12 +1407,12 @@ final class CohortViewModelTest extends TestCase
 
         $this->assertNull($totals['max']);
         $this->assertNull($totals['taken']);
-        $this->assertSame(2, $totals['without_capacity_interviews']);
-        $this->assertSame(3, $totals['without_capacity_taken']);
+        $this->assertSame(2, $totals['unlimited_interviews']);
+        $this->assertSame(3, $totals['unlimited_taken']);
 
         // Keine Termine: nichts erfunden
         $this->assertSame(
-            ['taken' => null, 'max' => null, 'without_capacity_interviews' => 0, 'without_capacity_taken' => 0],
+            ['taken' => null, 'max' => null, 'unlimited_interviews' => 0, 'unlimited_taken' => 0],
             $this->vm()->interviewTotals([]),
         );
     }

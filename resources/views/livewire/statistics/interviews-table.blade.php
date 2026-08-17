@@ -389,18 +389,19 @@
                                       title="Summe über die Termine dieser Auswahl — nicht über die ganze Kohorte. Teilnehmer an Terminen außerhalb der Auswahl fehlen hier bewusst (Gründe siehe Fußnote unter der Tabelle); sie stehen in der Ausschreibungs-Tabelle.">ⓘ</span>
                             </span>
                         </td>
-                        {{-- Σ IST / Σ SOLL über DIESELBE Auswahl (nur Termine mit
-                             gepflegter Kapazität). Ohne einen einzigen gepflegten
-                             Termin ist `taken` null und die Zelle zeigt „–": es gibt
-                             keinen Nenner, also keine Belegungs-Quote. Die belegten
-                             Plätze der ausgelassenen Termine gehen nicht verloren,
-                             sie stehen im Text darunter — derselbe Text wie im
-                             Tooltip, damit die Differenz nur an EINER Stelle
-                             formuliert ist. --}}
+                        {{-- Σ IST / Σ SOLL über DIESELBE Auswahl (nur Termine MIT
+                             Platzbegrenzung — unbegrenzte haben keinen Nenner, den
+                             man addieren könnte, und die Datenzeile zeigt für sie
+                             „∞"). Hat kein Termin eine Begrenzung, ist `taken` null
+                             und die Zelle zeigt „–": kein Nenner, also keine
+                             Belegungs-Quote. Die belegten Plätze der ausgelassenen
+                             Termine gehen nicht verloren, sie stehen im Text
+                             darunter — derselbe Text wie im Tooltip, damit die
+                             Differenz nur an EINER Stelle formuliert ist. --}}
                         @include('recruiting::livewire.statistics.meter', [
                             'taken' => $belegung['taken'], 'max' => $belegung['max'],
                             'borderLeft' => true, 'pad' => 'px-3 py-3',
-                            'title' => 'Σ belegte Plätze / Σ Kapazität der Termine dieser Auswahl. ' . $belegung['reason'],
+                            'title' => 'Σ belegte Plätze / Σ Plätze der Termine dieser Auswahl. ' . $belegung['reason'],
                         ])
                         @include('recruiting::livewire.statistics.cells', ['rows' => $allRows, 'token' => $allToken, 'prefix' => 'Gesamt (Termine dieser Auswahl)', 'isTotal' => true])
                         @include('recruiting::livewire.statistics.conversion', ['rows' => $allRows, 'isTotal' => true])
@@ -409,12 +410,14 @@
             </table>
         </div>
 
-        {{-- Fussnote zur Summen-Belegung: sie zaehlt nur Termine mit gepflegter
-             Kapazitaet (Zaehler UND Nenner). Was dadurch nicht mitzaehlt, wird
+        {{-- Fussnote zur Summen-Belegung: sie zaehlt nur Termine MIT
+             Platzbegrenzung (Zaehler UND Nenner). Was dadurch nicht mitzaehlt, wird
              benannt — sonst ist die Zelle aus den Zeilen darueber nicht
              nachrechenbar, weil dort Belegungen stehen, die hier fehlen. Der Text
-             kommt aus belegungTotals() und ist derselbe wie im Tooltip. --}}
-        @if ($belegung['without_capacity_interviews'] > 0)
+             kommt aus belegungTotals() und ist derselbe wie im Tooltip; er nennt
+             „kleiner als die Zeilen darueber" nur, wenn an den unbegrenzten
+             Terminen wirklich Plaetze belegt sind. --}}
+        @if ($belegung['unlimited_interviews'] > 0)
             <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
                 Belegung gesamt: {{ $belegung['reason'] }}
             </div>

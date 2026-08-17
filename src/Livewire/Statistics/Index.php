@@ -878,7 +878,9 @@ class Index extends Component
 
             $tableRows[] = [
                 'interview_id' => $interviewId,
-                // Carbon oder null — reine Anzeige, formatiert wird in der View
+                // Carbon (datetime-Cast, Spalte ist NOT NULL) — reine Anzeige,
+                // formatiert wird in der View; deshalb gibt es dort auch keinen
+                // „Termin ohne Datum"-Zweig
                 'starts_at' => $interview->starts_at,
                 'type' => $interview->interviewType?->name ?? 'ohne Terminart',
                 // freier Text und VERANSTALTUNGSORT: nur Info-Spalte, nie Filter
@@ -912,46 +914,71 @@ class Index extends Component
      * Summen-Belegung der Termin-Tabelle samt Begruendungstext.
      *
      * Die Arithmetik liegt in CohortViewModel::interviewTotals (Σ Zaehler und
-     * Σ Nenner ueber DIESELBE Auswahl — nur Termine mit gepflegter Kapazitaet),
-     * hier kommt der Text dazu. Genau wie bei fulfilmentTotalLight() ist der
-     * `reason` EINE Quelle fuer Tooltip und sichtbare Fussnote: zwei
-     * Formulierungen derselben Differenz sind zwei Stellen, an denen eine Zahl
-     * falsch werden kann.
+     * Σ Nenner ueber DIESELBE Auswahl — nur Termine MIT Platzbegrenzung), hier
+     * kommt der Text dazu. Genau wie bei fulfilmentTotalLight() ist der `reason`
+     * EINE Quelle fuer Tooltip und sichtbare Fussnote: zwei Formulierungen
+     * derselben Differenz sind zwei Stellen, an denen eine Zahl falsch werden kann.
+     *
+     * WORTWAHL: „ohne Platzbegrenzung", nicht „ohne gepflegte Kapazitaet". Die
+     * Datenzeile rendert fuer denselben Wert „1 / ∞" (meter.blade.php), liest ihn
+     * also als UNBEGRENZT — und dieselbe Lesart gilt in Tabelle 1. Zwei Woerter
+     * fuer denselben Zustand waeren zwei Lesarten, und die Fussnote wuerde der
+     * Zeile daneben widersprechen.
      *
      * Der Text nennt die ausgelassenen Termine MIT ihren belegten Plaetzen. Ohne
      * diese Angabe waere die Zelle aus ihren Nachbarn nicht nachrechenbar: die
      * Zeilen darueber zeigen Belegungen, die in dieser Summe nicht mitzaehlen.
      *
+     * PUBLIC, obwohl buildInterviewTable() genau deswegen protected ist — der
+     * Unterschied ist der Parametertyp, nicht die Sichtbarkeit an sich: diese
+     * Methode nimmt einfache Arrays, liest daraus zwei Zahlen und gibt Zahlen und
+     * Text zurueck. Ein gecrafteter Client-Aufruf rechnet also ueber seine eigenen
+     * Werte, laesst nichts liegen (Livewire verwirft Rueckgabewerte) und kommt an
+     * keine Daten. buildInterviewTable() erwartet dagegen ELOQUENT-Objekte und
+     * greift auf deren Relationen zu — dort ist ein Aufruf mit Arrays ein 500er
+     * auf Zuruf. Damit steht sie in derselben Reihe wie countIn() oder
+     * fulfilmentLight(), die aus demselben Grund public sind.
+     *
      * @param  list<array{max:?int, seat_taking:int}>  $interviewRows
-     * @return array{taken:?int, max:?int, without_capacity_interviews:int,
-     *               without_capacity_taken:int, reason:string}
+     * @return array{taken:?int, max:?int, unlimited_interviews:int,
+     *               unlimited_taken:int, reason:string}
      */
     public function belegungTotals(array $interviewRows): array
     {
         $totals = $this->viewModel()->interviewTotals($interviewRows);
 
-        $ausgelassen = $totals['without_capacity_interviews'];
+        $ausgelassen = $totals['unlimited_interviews'];
+        $ausgelassenePlaetze = $totals['unlimited_taken'];
         $ausgelassenText = $ausgelassen === 0
             ? ''
             : $ausgelassen . ' ' . ($ausgelassen === 1 ? 'Termin' : 'Termine')
-                . ' ohne gepflegte Kapazität (' . $totals['without_capacity_taken'] . ' '
-                . ($totals['without_capacity_taken'] === 1 ? 'belegter Platz' : 'belegte Plätze') . ')';
+                . ' ohne Platzbegrenzung (' . $ausgelassenePlaetze . ' '
+                . ($ausgelassenePlaetze === 1 ? 'belegter Platz' : 'belegte Plätze') . ')';
 
         if ($totals['max'] === null) {
             // KEINE erfundene Kapazitaet und keine „0 von ∞"-Anzeige: ohne
-            // gepflegtes Maximum gibt es keinen Nenner, also keine Belegung.
+            // Platzbegrenzung gibt es keinen Nenner, also keine Belegungs-Quote.
             // Die belegten Plaetze verschwinden trotzdem nicht — sie stehen im Text.
-            $totals['reason'] = 'An keinem Termin dieser Auswahl ist eine Kapazität gepflegt — '
-                . 'ohne Kapazität gibt es keine Belegungs-Quote (auch keine 0 %).'
+            $totals['reason'] = 'Kein Termin dieser Auswahl hat eine Platzbegrenzung — '
+                . 'ohne Begrenzung gibt es keine Belegungs-Quote (auch keine 0 %).'
                 . ($ausgelassenText === '' ? '' : ' Betroffen: ' . $ausgelassenText . '.');
         } else {
+            // Der Zusatz „deshalb ist die Summe kleiner" haengt an den belegten
+            // PLAETZEN, nicht an der Zahl der Termine: ein unbegrenzter Termin ohne
+            // Buchung laesst die Summe unveraendert, und eine benannte Differenz,
+            // die es nicht gibt, ist derselbe Regelbruch wie eine falsche Quote —
+            // nur am Rand. (Bestand [5/2] + [∞/0]: „1 Termin ohne Platzbegrenzung
+            // (0 belegte Plätze)" ist richtig, „deshalb kleiner" waere falsch,
+            // denn 2 = 2.)
             $totals['reason'] = $totals['taken'] . ' von ' . $totals['max']
-                . ' Plätzen belegt (nur Termine mit gepflegter Kapazität — Zähler und Nenner '
+                . ' Plätzen belegt (nur Termine mit Platzbegrenzung — Zähler und Nenner '
                 . 'zählen dieselben Termine).'
                 . ($ausgelassenText === ''
                     ? ''
                     : ' NICHT in dieser Summe: ' . $ausgelassenText
-                        . ' — deshalb ist die Summe kleiner als die Belegungen der Zeilen darüber.');
+                        . ($ausgelassenePlaetze > 0
+                            ? ' — deshalb ist die Summe kleiner als die Belegungen der Zeilen darüber.'
+                            : '.'));
         }
 
         return $totals;
