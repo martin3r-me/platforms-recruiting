@@ -47,6 +47,13 @@ Dazu ein Feld an `rec_interviews`:
 **Nichts wird geraten.** Fehlt ein Wert, fehlt die Ampel — eine erfundene Ampel
 ist schlimmer als keine.
 
+**Der Trichter rechnet netto** (Entscheidung 2026-08-17): Die Zeile einer
+Ausschreibung zählt nur Bewerbungen, die noch im Rennen sind. Geparkte,
+Abgesagte, Dubletten, nicht Zugeordnete und Bewerbungen ohne Datum stehen in
+einem eigenen Block darunter — für die KPIs nicht direkt relevant, aber
+sichtbar, damit die Differenz zur Gesamtmenge benannt ist. Damit bleibt es eine
+echte Partition wie in V1: jede Bewerbung in genau einer Zeile, Σ = Gesamtmenge.
+
 **Faktor als freie Zahl, nicht als Auswahl 1–5.** Begründung: der gemessene Wert
 liegt außerhalb dieses Bereichs (siehe §7).
 
