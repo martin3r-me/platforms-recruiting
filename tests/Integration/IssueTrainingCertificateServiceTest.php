@@ -277,11 +277,13 @@ class IssueTrainingCertificateServiceTest extends TestCase
      *  2. Die Auswahlregel: von zwei 'attended'-Buchungen gewinnt die mit dem
      *     SPAETEREN Termin, nicht das juengere Insert — und eine 'no_show'-
      *     Buchung mit noch spaeterem Termin zaehlt gar nicht.
-     *  3. Den PRODUZENTEN-Vertrag zu TrainingLeaderResolver: zwei Interviewer
-     *     stehen als "Anna Bergmann, Bea Klein" im Dokument. Der stille
-     *     Nachbarfehler waere ->interviewers->all() statt
-     *     ->interviewers->pluck('name')->all(): dann stuende JSON auf dem
-     *     Zertifikat (Model::__toString() liefert toJson()).
+     *  3. Dass die Auswahl im DATUM ankommt. Der Name des Schulungsleiters
+     *     stand hier bis zum 17.08.2026 mit auf dem Dokument und war der
+     *     zweite Zeuge derselben Auswahl; seit dort eine Unterschrift als Bild
+     *     steht, traegt das Datum die Aussage allein. Die Namen der drei
+     *     Buchungen sind trotzdem unterschiedlich gesetzt: taucht einer davon
+     *     im Dokument auf, ist der Leiter-Name zurueckgekommen, ohne dass es
+     *     jemand wollte.
      */
     public function testAusstellungLegtZeileMitSnapshotUndUuidAn(): void
     {
@@ -305,7 +307,8 @@ class IssueTrainingCertificateServiceTest extends TestCase
         $content = (string) $cert->personalized_content;
         $this->assertStringContainsString('Erika Mustermann', $content);
         $this->assertStringContainsString('24.07.2026', $content);
-        $this->assertStringContainsString('Anna Bergmann, Bea Klein', $content);
+        $this->assertStringNotContainsString('Anna Bergmann', $content);
+        $this->assertStringNotContainsString('Bea Klein', $content);
         $this->assertStringNotContainsString('Falscher Leiter', $content);
         $this->assertStringNotContainsString('Nie Erschienen', $content);
         // Kein JSON aus einem Model — der Nachbarfehler oben.
@@ -316,7 +319,7 @@ class IssueTrainingCertificateServiceTest extends TestCase
     /**
      * Ein Bewerber ohne 'attended'-Buchung bekommt ein Zertifikat mit LEEREN
      * Feldern, keine Exception. Das ist die Policy von TrainingLeaderResolver
-     * und sie gilt hier weiter: ein fehlender Schulungsleiter ist ein legitimes
+     * und sie gilt hier weiter: ein fehlendes Schulungsdatum ist ein legitimes
      * Dokument, kein Fehlerfall — ein leeres Feld ist besser als ein falsches.
      * Wer daraus einen Vollstaendigkeits-Guard macht, blockiert die Ausstellung
      * fuer genau die Faelle, in denen HR nachtraegt.
@@ -331,7 +334,9 @@ class IssueTrainingCertificateServiceTest extends TestCase
 
         $content = (string) $cert->personalized_content;
         $this->assertStringContainsString('Erika Mustermann', $content);
-        $this->assertStringContainsString('<div class="leiter"></div>', $content);
+        // Das leere Datumsfeld bleibt als Element stehen — sichtbar leer, statt
+        // die Zeile zu verschlucken.
+        $this->assertStringContainsString('<div class="val"></div>', $content);
         $this->assertStringNotContainsString('Anna Bergmann', $content);
         $this->assertDoesNotMatchRegularExpression('/\{\{[^{}]+\}\}/', $content);
         // Weg (b) stellt ohne angemeldeten Benutzer aus.
@@ -363,9 +368,11 @@ class IssueTrainingCertificateServiceTest extends TestCase
 
         $this->assertSame($erste->id, $zweite->id);
         $this->assertSame(1, $this->certificateCount($applicant));
-        $this->assertStringContainsString('Anna Bergmann', (string) $zweite->personalized_content);
         $this->assertStringNotContainsString('Neue Leiterin', (string) $zweite->personalized_content);
+        // Das Datum der ERSTEN Schulung, nicht der nachgetragenen: das ist der
+        // Nachweis, dass der Snapshot steht.
         $this->assertStringContainsString('24.07.2026', (string) $zweite->personalized_content);
+        $this->assertStringNotContainsString('10.08.2026', (string) $zweite->personalized_content);
         $this->assertSame(7, (int) $zweite->issued_by_user_id, 'Der erste Aussteller bleibt stehen.');
     }
 

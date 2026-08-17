@@ -20,26 +20,29 @@ class TrainingCertificateContentTest extends TestCase
             'kontakt_vorname' => 'Erika',
             'kontakt_nachname' => 'Mustermann',
             'schulung_datum' => '24.07.2026',
-            'schulung_leiter' => 'Anna Bergmann, Bea Klein',
             'datum_heute' => '12.08.2026',
         ], $overrides);
     }
 
     /**
-     * Die fuenf Werte landen im Dokument, und danach steht KEIN {{...}} mehr
+     * Die vier Werte landen im Dokument, und danach steht KEIN {{...}} mehr
      * darin. Die zweite Haelfte ist die wichtigere: ein Zertifikat mit
      * "{{schulung_datum}}" im Text geht an den Bewerber, ohne dass irgendwo
      * ein Fehler auftaucht.
      */
-    public function testAlleFuenfWerteWerdenEingesetzt(): void
+    public function testAlleVierWerteWerdenEingesetzt(): void
     {
         $content = TrainingCertificateContent::render($this->values());
 
         $this->assertStringContainsString('Erika', $content);
         $this->assertStringContainsString('Mustermann', $content);
         $this->assertStringContainsString('24.07.2026', $content);
-        $this->assertStringContainsString('Anna Bergmann, Bea Klein', $content);
         $this->assertStringContainsString('12.08.2026', $content);
+        // Und die Gegenprobe zum Wegfall des Namens: der Inhalt baut den
+        // rechten Fussblock nicht mehr. Er kommt seit 17.08.2026 aus
+        // TrainingCertificateHtml, weil dort das Unterschriften-Asset liegt.
+        $this->assertStringNotContainsString('zert-fuss-rechts', $content);
+        $this->assertStringNotContainsString('Schulungsleiter', $content);
         $this->assertDoesNotMatchRegularExpression('/\{\{[^{}]+\}\}/', $content);
     }
 
@@ -49,7 +52,7 @@ class TrainingCertificateContentTest extends TestCase
      * Muster, und der Rueckweg (Vorlage statt festes HTML) braucht dieselben
      * Namen. Deshalb wird die Rohfassung festgenagelt, nicht nur das Ergebnis.
      */
-    public function testDieRohfassungTraegtGenauDieFuenfBekanntenPlatzhalter(): void
+    public function testDieRohfassungTraegtGenauDieVierBekanntenPlatzhalter(): void
     {
         preg_match_all('/\{\{[^{}]+\}\}/', TrainingCertificateContent::template(), $treffer);
 
@@ -59,7 +62,6 @@ class TrainingCertificateContentTest extends TestCase
                 '{{kontakt_nachname}}',
                 '{{schulung_datum}}',
                 '{{datum_heute}}',
-                '{{schulung_leiter}}',
             ],
             $treffer[0],
             'Schreibweise und Satz der Platzhalter sind Vertrag (Task 9 prueft dasselbe Muster).'
@@ -85,20 +87,22 @@ class TrainingCertificateContentTest extends TestCase
 
     /**
      * LEER ist erlaubt und muss still durchgehen — die Gegenrichtung zum Test
-     * darueber. TrainingLeaderResolver liefert bewusst '' fuer "kein
-     * Schulungsleiter bekannt" (ein leeres Feld ist besser als ein falsches),
+     * darueber. TrainingLeaderResolver liefert bewusst '' fuer "keine
+     * attended-Buchung bekannt" (ein leeres Feld ist besser als ein falsches),
      * und ein Guard, der "leer" mit "fehlt" verwechselt, wuerde die Ausstellung
      * fuer genau diese legitimen Faelle sprengen.
      */
     public function testLeererWertGehtStillDurch(): void
     {
         $content = TrainingCertificateContent::render($this->values([
-            'schulung_leiter' => '',
             'schulung_datum' => '',
         ]));
 
         $this->assertDoesNotMatchRegularExpression('/\{\{[^{}]+\}\}/', $content);
-        $this->assertStringContainsString('<div class="leiter"></div>', $content);
+        // Das leere Feld bleibt als leeres Element stehen, statt die Zeile zu
+        // verschlucken: ein Zertifikat ohne Schulungsdatum sieht dann
+        // unvollstaendig aus — und genau das soll es.
+        $this->assertStringContainsString('<div class="val"></div>', $content);
     }
 
     /**

@@ -26,11 +26,19 @@ final class TrainingCertificateAssets
         'logo' => 'images/certificates/logo.png',
         'headline' => 'images/certificates/headline-zertifikat.png',
         'signature' => 'images/certificates/signature-block.png',
+        // Unterschrift + Firmenstempel des Schulungsleiters, unten rechts.
+        // EIN festes Bild fuer alle Zertifikate, nicht pro Person: die
+        // Terminverwaltung erlaubt mehrere Interviewer pro Schulung
+        // (RecInterview::interviewers ist belongsToMany), und "welche
+        // Unterschrift" haette bei zweien keine Antwort. Deshalb traegt das
+        // Dokument seit dem 17.08.2026 auch NICHT mehr den Namen des Leiters —
+        // die Unterschrift steht an seiner Stelle.
+        'leader_signature' => 'images/certificates/signature-schulungsleiter.png',
     ];
 
     /**
      * @param string $resourcesDir absoluter Pfad auf das resources/-Verzeichnis des Moduls
-     * @return array{font: string, logo: ?string, headline: ?string, signature: ?string, missing: list<string>}
+     * @return array{font: string, logo: ?string, headline: ?string, signature: ?string, leader_signature: ?string, missing: list<string>}
      */
     public static function resolve(string $resourcesDir): array
     {

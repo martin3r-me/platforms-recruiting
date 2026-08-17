@@ -134,15 +134,13 @@ class TrainingCertificateRenderTest extends TestCase
      */
     private function inhalt(
         string $vorname = 'Erika',
-        string $nachname = 'Mustermann',
-        string $leiter = 'Michel Zimmer'
+        string $nachname = 'Mustermann'
     ): string {
         return TrainingCertificateContent::render([
             'kontakt_vorname' => $vorname,
             'kontakt_nachname' => $nachname,
             'schulung_datum' => '24.07.2026',
             'datum_heute' => '05.08.2026',
-            'schulung_leiter' => $leiter,
         ]);
     }
 
@@ -631,7 +629,8 @@ class TrainingCertificateRenderTest extends TestCase
 
     public function testGeometrieDerBilderStimmt(): void
     {
-        // Logo 40mm, Unterschriftsblock 54mm, Headline 116mm bei 96 dpi.
+        // Logo 40mm, Leiter-Unterschrift 48mm, Unterschriftsblock 54mm,
+        // Headline 116mm bei 96 dpi.
         // Geprueft wird die BREITE der platzierten Bildobjekte im PDF, nicht der
         // CSS-String — eine Assertion auf "width: 40mm" im HTML haette 400mm
         // nicht gefangen, weil DomPDF den Wert erst beim Rendern anwendet.
@@ -642,10 +641,11 @@ class TrainingCertificateRenderTest extends TestCase
         $breiten = $this->bildBreitenInMm($pdf);
         sort($breiten);
 
-        $this->assertCount(3, $breiten, 'Es muessen genau drei Bilder platziert sein.');
+        $this->assertCount(4, $breiten, 'Es muessen genau vier Bilder platziert sein.');
         $this->assertEqualsWithDelta(40.0, $breiten[0], 1.5, 'Logo');
-        $this->assertEqualsWithDelta(54.0, $breiten[1], 1.5, 'Unterschriftsblock');
-        $this->assertEqualsWithDelta(116.0, $breiten[2], 1.5, 'Headline');
+        $this->assertEqualsWithDelta(48.0, $breiten[1], 1.5, 'Unterschrift Schulungsleiter');
+        $this->assertEqualsWithDelta(54.0, $breiten[2], 1.5, 'Unterschriftsblock RheinGedeck');
+        $this->assertEqualsWithDelta(116.0, $breiten[3], 1.5, 'Headline');
     }
 
     public function testBasisStylesWirkenUndSindNichtNurDeklariert(): void
@@ -660,8 +660,8 @@ class TrainingCertificateRenderTest extends TestCase
         // Render OHNE die <p>-Elemente. Ein Filter auf "Zeilen mit 11.5pt und
         // 1.125pt" waere zirkulaer: er fand im Fehlerfall gar keine Zeile und
         // haette dann ueber eine leere Menge assertiert.
-        $ohne = $this->textZeilen($this->render($this->inhalt('A', 'B', 'C')));
-        $mit = $this->textZeilen($this->render($this->inhalt('A', 'B', 'C') . '<p>Erste Zeile</p><p>Zweite Zeile</p>'));
+        $ohne = $this->textZeilen($this->render($this->inhalt('A', 'B')));
+        $mit = $this->textZeilen($this->render($this->inhalt('A', 'B') . '<p>Erste Zeile</p><p>Zweite Zeile</p>'));
 
         $neu = $this->nurNeueZeilen($ohne, $mit);
 

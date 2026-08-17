@@ -109,7 +109,10 @@ class IssueTrainingCertificateService
             'kontakt_vorname' => trim((string) ($contact->first_name ?? '')),
             'kontakt_nachname' => trim((string) ($contact->last_name ?? '')),
             'schulung_datum' => TrainingLeaderResolver::trainingDate($bookings),
-            'schulung_leiter' => TrainingLeaderResolver::leaderNames($bookings),
+            // KEIN 'schulung_leiter' mehr: das Dokument zeigt unten rechts die
+            // Unterschrift des Schulungsleiters als Bild statt seinen Namen
+            // (17.08.2026). Ein hier uebergebener Wert liefe ins Leere —
+            // render() ersetzt nur, was in PLACEHOLDERS steht.
             'datum_heute' => Carbon::now()->format('d.m.Y'),
         ]);
     }

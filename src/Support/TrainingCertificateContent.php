@@ -42,7 +42,13 @@ final class TrainingCertificateContent
         'kontakt_nachname',
         'schulung_datum',
         'datum_heute',
-        'schulung_leiter',
+        // 'schulung_leiter' ENTFAELLT seit 17.08.2026: unten rechts steht die
+        // Unterschrift des Schulungsleiters als Bild, nicht sein Name als Text
+        // (TrainingCertificateHtml, Asset leader_signature). Der Platzhalter ist
+        // damit nicht bloss unbenutzt, sondern falsch — stuende er hier noch,
+        // verlangte render() einen Wert fuer etwas, das das Dokument nicht mehr
+        // zeigt. TrainingLeaderResolver::trainingDate() bleibt und liefert
+        // weiter schulung_datum.
     ];
 
     /** Die eine ausgelieferte Schulungsart, passend zu RecTrainingCertificate::KIND_SERVICE_BASIS. */
@@ -173,12 +179,6 @@ final class TrainingCertificateContent
 <div class="intro">Bei der Schulung wurden folgende Grundkenntnisse vermittelt:</div>
 {$liste}
 <div class="zert-datum">Düsseldorf, den {{datum_heute}}</div>
-
-<div class="zert-fuss-rechts">
-  <div class="leiter">{{schulung_leiter}}</div>
-  <div class="linie"></div>
-  <div class="cap">Schulungsleiter</div>
-</div>
 HTML;
     }
 

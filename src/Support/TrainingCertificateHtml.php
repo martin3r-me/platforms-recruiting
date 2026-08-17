@@ -85,6 +85,26 @@ final class TrainingCertificateHtml
             : '<div class="zert-fuss-links"><img class="zert-signatur" src="' . $signature
               . '" alt="RheinGedeck GmbH"></div>';
 
+        // Der rechte Fussblock gehoert HIERHER und nicht in den Vorlageninhalt,
+        // seit dort ein Bild steht statt eines Namens: die Assets kommen nur in
+        // diese Methode, und ein Marker im Inhalt, den build() nachtraeglich
+        // ersetzt, waere eine Kopplung ueber einen String. Damit sind beide
+        // Fussbloecke jetzt symmetrisch — links wie rechts baut sie die Huelle.
+        //
+        // LINIE UND BILDUNTERSCHRIFT STEHEN AUCH OHNE BILD. Fehlt das Asset,
+        // bleibt eine leere Unterschriftslinie mit ihrer Beschriftung — also
+        // genau das Dokument, das es vor dem 17.08.2026 gab. Ein Zertifikat
+        // ohne die Linie saehe dagegen aus, als fehle dort etwas.
+        $leaderSignature = $assets['leader_signature'] ?? null;
+
+        $leaderImg = $leaderSignature === null
+            ? ''
+            : '<div class="zert-leiter-sig"><img src="' . $leaderSignature
+              . '" alt="Schulungsleiter"></div>';
+
+        $leaderHtml = '<div class="zert-fuss-rechts">' . $leaderImg
+            . '<div class="linie"></div><div class="cap">Schulungsleiter</div></div>';
+
         return <<<HTML
 <!DOCTYPE html>
 <html lang="de"><head><meta charset="UTF-8"><style>
@@ -98,6 +118,17 @@ final class TrainingCertificateHtml
   .zert-logo     { width:  40mm; }
   .zert-headline { width: 116mm; margin: 4mm 0 6mm; }
   .zert-signatur { width:  54mm; }
+
+  /* Unterschrift des Schulungsleiters. Die zwei Zahlen sind an einem echten
+     Scan ausgemessen, nicht geschaetzt, und beide haengen aneinander:
+       48mm  — Breite. Der Block hat 66mm; breiter geht, macht das Bild aber
+               HOEHER, und nach oben kommt bei 46mm die Datumszeile
+               (.zert-datum). Bei 48mm ist das Bild 36mm hoch und bleibt frei.
+       -12mm — zieht das Bild ueber die Linie nach unten, sodass der Abstrich
+               sie kreuzt statt darueber zu schweben. Ohne den Versatz schwebt
+               die Unterschrift, und der linke Block tut es auch nicht. */
+  .zert-leiter-sig     { margin-bottom: -12mm; }
+  .zert-leiter-sig img { width: 48mm; }
 
   /* Fuss-Verankerung: Divs, nicht Tabelle (DomPDF-Einschraenkung) */
   .zert-datum       { position: absolute; left:  18mm; width: 174mm; bottom: 46mm;
@@ -129,6 +160,7 @@ final class TrainingCertificateHtml
 {$headlineHtml}
 {$personalizedContent}
 {$signatureHtml}
+{$leaderHtml}
 </body></html>
 HTML;
     }

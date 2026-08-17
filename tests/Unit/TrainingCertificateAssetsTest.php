@@ -21,7 +21,8 @@ class TrainingCertificateAssetsTest extends TestCase
         // Aufraeumen, damit Testlaeufe sich nicht gegenseitig sehen.
         foreach (['fonts/Oswald-SemiBold.ttf', 'images/certificates/logo.png',
                   'images/certificates/headline-zertifikat.png',
-                  'images/certificates/signature-block.png'] as $f) {
+                  'images/certificates/signature-block.png',
+                  'images/certificates/signature-schulungsleiter.png'] as $f) {
             @unlink($this->tmp . '/' . $f);
         }
         @rmdir($this->tmp . '/images/certificates');
@@ -41,6 +42,7 @@ class TrainingCertificateAssetsTest extends TestCase
         $this->write('images/certificates/logo.png');
         $this->write('images/certificates/headline-zertifikat.png');
         $this->write('images/certificates/signature-block.png');
+        $this->write('images/certificates/signature-schulungsleiter.png');
     }
 
     public function testAlleAssetsVorhanden(): void
@@ -54,6 +56,10 @@ class TrainingCertificateAssetsTest extends TestCase
         $this->assertSame('data:image/png;base64,' . base64_encode('PNGDATA'), $a['logo']);
         $this->assertNotNull($a['headline']);
         $this->assertNotNull($a['signature']);
+        $this->assertNotNull(
+            $a['leader_signature'],
+            'Die Unterschrift des Schulungsleiters ist das vierte Bild und darf nicht fehlen.'
+        );
     }
 
     public function testFehlendesBildWirdNullUndGemeldet(): void
@@ -128,7 +134,7 @@ class TrainingCertificateAssetsTest extends TestCase
         );
     }
 
-    public function testAllesFehltErgibtVierMeldungenInFesterReihenfolge(): void
+    public function testAllesFehltErgibtFuenfMeldungenInFesterReihenfolge(): void
     {
         $a = TrainingCertificateAssets::resolve($this->tmp);
 
@@ -137,10 +143,11 @@ class TrainingCertificateAssetsTest extends TestCase
             'images/certificates/logo.png',
             'images/certificates/headline-zertifikat.png',
             'images/certificates/signature-block.png',
+            'images/certificates/signature-schulungsleiter.png',
         ], $a['missing']);
     }
 
-    public function testAllesLeerErgibtVierMeldungenInDerselbenReihenfolge(): void
+    public function testAllesLeerErgibtFuenfMeldungenInDerselbenReihenfolge(): void
     {
         // Der Test darueber laeuft gegen ein leeres Verzeichnis; dort greift in
         // jedem Guard schon der erste Teilausdruck (!is_file). Die Reihenfolge
@@ -148,13 +155,14 @@ class TrainingCertificateAssetsTest extends TestCase
         // Font-Check hinter die IMAGES-Schleife zieht, braeche dann nur den
         // Absent-Fall rot -- der Leer-Fall bliebe gruen, obwohl "missing" auch
         // dort in falscher Reihenfolge kaeme. Deshalb dieselbe Assertion noch
-        // einmal fuer vier vorhandene, aber leere Dateien: hier laufen die
+        // einmal fuer fuenf vorhandene, aber leere Dateien: hier laufen die
         // Guards in ihren zweiten Zweig (filesize()===0 bzw. $binary===''),
         // und die Reihenfolge muss trotzdem identisch sein.
         $this->write('fonts/Oswald-SemiBold.ttf', '');
         $this->write('images/certificates/logo.png', '');
         $this->write('images/certificates/headline-zertifikat.png', '');
         $this->write('images/certificates/signature-block.png', '');
+        $this->write('images/certificates/signature-schulungsleiter.png', '');
 
         $a = TrainingCertificateAssets::resolve($this->tmp);
 
@@ -163,6 +171,7 @@ class TrainingCertificateAssetsTest extends TestCase
             'images/certificates/logo.png',
             'images/certificates/headline-zertifikat.png',
             'images/certificates/signature-block.png',
+            'images/certificates/signature-schulungsleiter.png',
         ], $a['missing'], 'Die Reihenfolge in "missing" muss im Leer-Fall dieselbe sein wie im Absent-Fall.');
     }
 
@@ -172,6 +181,9 @@ class TrainingCertificateAssetsTest extends TestCase
         $keys = array_keys($a);
         sort($keys);
 
-        $this->assertSame(['font', 'headline', 'logo', 'missing', 'signature'], $keys);
+        $this->assertSame(
+            ['font', 'headline', 'leader_signature', 'logo', 'missing', 'signature'],
+            $keys
+        );
     }
 }
