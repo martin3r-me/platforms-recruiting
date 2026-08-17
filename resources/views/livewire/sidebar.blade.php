@@ -128,6 +128,16 @@
             @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">Veranstaltungen</span>
         </x-ui-sidebar-item>
+        @php
+            $dispoUnread = \Platform\Recruiting\Services\Zas\Dispo\DispoUnreadCounter::count();
+        @endphp
+        <x-ui-sidebar-item :href="route('recruiting.dispo.conversations')">
+            @svg('heroicon-o-chat-bubble-left-right', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Kommunikation</span>
+            @if ($dispoUnread > 0)
+                <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600">{{ $dispoUnread }}</span>
+            @endif
+        </x-ui-sidebar-item>
         <x-ui-sidebar-item :href="route('recruiting.dispo.index')">
             @svg('heroicon-o-inbox-arrow-down', 'w-4 h-4 text-[var(--ui-secondary)]')
             <span class="ml-2 text-sm">ZAS-Eingang</span>
