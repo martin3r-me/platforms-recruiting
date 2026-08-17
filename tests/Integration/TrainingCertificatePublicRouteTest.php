@@ -48,6 +48,21 @@ class TrainingCertificatePublicRouteTest extends TestCase
         'recruiting.public.contract-pdf',
     ];
 
+    /**
+     * NACH dem Zertifikat dazugekommen. Jede Zeile hier ist eine bewusste
+     * Entscheidung fuer eine weitere OEFFENTLICHE Route — genau das, was die
+     * Assertion unten erzwingen soll.
+     *
+     * 'employee-assignments': oeffentliche Einsatz-Seite mit Sammel-Bestaetigen,
+     * token-only (commit d917e1a). Sie hat diesen Test rot gemacht, und das war
+     * seine Aufgabe: eine neue Route, die allein mit einem Token erreichbar ist,
+     * soll nicht nebenbei mitlaufen. Eingetragen heisst hier "gesehen und
+     * gewollt", nicht "weggeklickt".
+     */
+    private const SPAETER = [
+        'recruiting.public.employee-assignments',
+    ];
+
     private ?Container $container = null;
 
     private ?Router $router = null;
@@ -245,7 +260,7 @@ class TrainingCertificatePublicRouteTest extends TestCase
         // Route ist in diesem Modul eine Entscheidung und soll hier auffallen,
         // nicht nebenbei mitlaufen.
         sort($namen);
-        $erwartet = array_merge(self::BESTAND, [self::ROUTE_NAME]);
+        $erwartet = array_merge(self::BESTAND, self::SPAETER, [self::ROUTE_NAME]);
         sort($erwartet);
 
         $this->assertSame($erwartet, $namen);
