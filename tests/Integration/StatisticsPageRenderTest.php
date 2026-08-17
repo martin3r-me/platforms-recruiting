@@ -21,10 +21,18 @@ use PHPUnit\Framework\TestCase;
  *
  * Zwei Zusicherungen, die sich nur hier belegen lassen:
  *
- * 1. DIE VIER BLOECKE STEHEN AUSSERHALB DES FILIAL-GUARDS. Ohne gewaehlte Filiale
- *    (oder wenn gar kein Standort gepflegt ist) steckt JEDE Bewerbung in Block 2
- *    oder 3 — dort ist die Erklaerung am noetigsten. Stuenden die Bloecke im
- *    @else, zeigte die Seite in genau diesem Zustand nur die Aufforderung.
+ * 1. DIE VIER BLOECKE STEHEN AUSSERHALB DES FILIAL-GUARDS. Stuenden sie im @else,
+ *    zeigte die Seite ohne gewaehlte Filiale ausschliesslich die Aufforderung.
+ *    Genau zu unterscheiden sind dabei zwei Zustaende, und nur der zweite ist der
+ *    scharfe:
+ *      - Standorte GEPFLEGT, aber keine Filiale gewaehlt: die Bloecke zeigen, was
+ *        in keiner Filial-Ansicht steht (geschlossen bzw. ohne Zuordnung). Die
+ *        uebrigen Bewerbungen stecken in der Auswahl — sichtbar wird sie mit der
+ *        Filialwahl.
+ *      - KEIN Standort gepflegt: dann ist jede Bewerbung entweder geschlossen oder
+ *        ohne erreichbare Filiale, die Bloecke benennen also den GANZEN Bestand
+ *        (im Test nachgerechnet: 2 + 5 = 7 von 7). Ohne Bloecke waere die Seite
+ *        hier vollstaendig stumm.
  *
  * 2. KEIN ATTRIBUTWERT BRICHT VORZEITIG AB. Der Vorgaenger dieses Tests war eine
  *    Tautologie: er schnitt die Attributwerte mit einem Regex am ersten ASCII-"
@@ -190,11 +198,18 @@ class StatisticsPageRenderTest extends TestCase
             $this->assertStringContainsString('An keiner Stelle ist ein Standort gepflegt', $html);
             $this->assertStringContainsString('Blöcke unter dieser Meldung', $html);
 
-            // unveraendert 2 geschlossene (1002 Entwurf, 1005 geschlossen), aber
-            // jetzt 3 ohne erreichbare Filiale: 1001 haengt an einer Ausschreibung,
-            // deren Stelle den Standort gerade verloren hat, dazu 1003 und 1004
+            // unveraendert 2 geschlossene (1002 Entwurf, 1005 geschlossen) — aber
+            // jetzt ist JEDE andere Bewerbung ohne erreichbare Filiale: 1001, 1006
+            // und 1007 haengen an Ausschreibungen, deren Stelle den Standort gerade
+            // verloren hat, dazu 1003 (Stelle ohne Standort) und 1004 (ohne
+            // Ausschreibung). 2 + 5 = 7 = alle Bewerbungen des Bestands: in diesem
+            // Zustand benennen die Bloecke wirklich alles.
             $this->assertSame(2, $this->blockTotal($html, 'Geschlossene Ausschreibungen'));
-            $this->assertSame(3, $this->blockTotal($html, 'Ohne Filial-Zuordnung'));
+            $this->assertSame(5, $this->blockTotal($html, 'Ohne Filial-Zuordnung'));
+            $this->assertSame(
+                7,
+                (int) Capsule::table('rec_applicants')->where('team_id', self::TEAM)->where('is_test', 0)->count(),
+            );
         } finally {
             Capsule::table('rec_positions')->where('id', 71)->update(['location' => 'Essen']);
             Capsule::table('rec_positions')->where('id', 73)->update(['location' => 'Wuppertal']);
@@ -215,6 +230,65 @@ class StatisticsPageRenderTest extends TestCase
         // wie ohne Auswahl
         $this->assertSame(2, $this->blockTotal($html, 'Geschlossene Ausschreibungen'));
         $this->assertSame(2, $this->blockTotal($html, 'Ohne Filial-Zuordnung'));
+    }
+
+    public function test_die_termin_tabelle_rendert_zeile_herkunft_und_belegung(): void
+    {
+        // Tabelle 2 war die Tabelle, die am laengsten von NICHTS ausgefuehrt wurde.
+        // Hier laeuft sie mit Daten: eine Termin-Zeile, zwei Herkunfts-Unterzeilen
+        // (zwei Ausschreibungen) und die Summenzeile.
+        $html = $this->renderPage('Essen');
+
+        $this->assertStringNotContainsString('Keine Schulungstermine in dieser Auswahl', $html);
+        $this->assertStringContainsString('10.08.2026 10:00', $html, 'die Termin-Zeile');
+        $this->assertStringContainsString('(2 Ausschreibungen)', $html, 'zwei Herkuenfte');
+        $this->assertSame(2, substr_count($html, 'Herkunft:'), 'eine Unterzeile je Ausschreibung');
+        $this->assertStringContainsString('Bahnhof Duisburg, Gleis 3', $html, 'Veranstaltungsort');
+
+        // BELEGUNG (meter.blade.php): zwei belegte Plaetze von sechs, Balken 33 %.
+        // Ohne diese Zusicherung ueberlebt eine Mutation im Balken-Partial jeden
+        // Test — die Zelle rendert dann zwar Unsinn, aber sie rendert.
+        $this->assertStringContainsString('style="width: 33%"', $html, 'Balken 2 von 6');
+        $this->assertSame(['taken' => 2, 'max' => 6], $this->meterZahlen($html, 0), 'IST/SOLL der Termin-Zeile');
+
+        // Die Summenzeile rechnet ueber dieselbe Auswahl (ein Termin) und zeigt
+        // deshalb dieselben Zahlen — und keine erfundene Quote.
+        $this->assertStringContainsString('Termin dieser Auswahl', $html);
+    }
+
+    /**
+     * Zahlen des n-ten Belegungs-Balkens der Seite, so wie sie im DOM stehen
+     * („2 / 6“). Der Balken-Container ist das div mit fester Breite
+     * (meter.blade.php).
+     *
+     * @return array{taken:int, max:?int}
+     */
+    private function meterZahlen(string $html, int $index): array
+    {
+        $xpath = new \DOMXPath($this->dom($html));
+        $meters = $xpath->query('descendant-or-self::div[contains(@class, "mx-auto w-20")]');
+        $this->assertGreaterThan($index, $meters->length, 'kein Belegungs-Balken gerendert');
+
+        $zeile = trim((string) preg_replace('/\s+/u', ' ', $meters->item($index)->textContent));
+        $this->assertMatchesRegularExpression('#^(\d+) / (\d+|∞)#u', $zeile, "unerwartete Belegung: {$zeile}");
+        preg_match('#^(\d+) / (\d+|∞)#u', $zeile, $treffer);
+
+        return [
+            'taken' => (int) $treffer[1],
+            'max' => $treffer[2] === '∞' ? null : (int) $treffer[2],
+        ];
+    }
+
+    /** Gerenderte Seite als DOM — mit UTF-8-Hinweis, sonst zerfallen die Umlaute. */
+    private function dom(string $html): \DOMDocument
+    {
+        $dom = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $dom->loadHTML('<meta http-equiv="Content-Type" content="text/html; charset=utf-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        return $dom;
     }
 
     // -----------------------------------------------------------------
@@ -249,6 +323,51 @@ class StatisticsPageRenderTest extends TestCase
         $this->assertStringNotContainsString('folgt der aktuellen Auswahl', $html);
     }
 
+    public function test_der_leer_text_behauptet_nichts_ueber_die_gesamtheit(): void
+    {
+        // DERSELBE Fehler wie im Blocktext, nur im leeren Zweig: „Keine geschlossene
+        // Ausschreibung mit Bewerbungen" ist eine Aussage ueber die Gesamtheit, gilt
+        // aber nur fuer die Auswahl. Mit Taetigkeit „Service" fallen BEIDE
+        // geschlossenen Ausschreibungen (Bankett, Küche) nur durch den Filter heraus.
+        $mitFilter = $this->renderPage('Essen', 'Service');
+
+        $this->assertSame(0, $this->blockTotal($mitFilter, 'Geschlossene Ausschreibungen'), 'leergefiltert');
+        $this->assertStringContainsString(
+            'In dieser Auswahl keine geschlossene Ausschreibung mit Bewerbungen',
+            $mitFilter,
+        );
+        $this->assertStringNotContainsString('>Keine geschlossene Ausschreibung mit Bewerbungen.', $mitFilter);
+
+        // Und die Gegenrichtung fuer den anderen Block: mit „Bankett" ist der Block
+        // „Ohne Filial-Zuordnung" leergefiltert (1003 ist Service, 1004 hat keine
+        // Taetigkeit).
+        $bankett = $this->renderPage('Essen', 'Bankett');
+        $this->assertSame(0, $this->blockTotal($bankett, 'Ohne Filial-Zuordnung'));
+        $this->assertStringContainsString(
+            'In dieser Auswahl hängt jede Bewerbung an einer Ausschreibung mit gepflegtem Standort',
+            $bankett,
+        );
+
+        // OHNE Filter darf der knappe Satz stehen — geprueft im echten Leerzustand:
+        // ohne die Pivot-Zeilen der geschlossenen Ausschreibungen ist der Block leer,
+        // und dann ist „keine geschlossene Ausschreibung" die Wahrheit.
+        Capsule::table('rec_applicant_posting')->whereIn('rec_applicant_id', [1002, 1005])->delete();
+
+        try {
+            $ohneFilter = $this->renderPage('Essen');
+
+            $this->assertSame(0, $this->blockTotal($ohneFilter, 'Geschlossene Ausschreibungen'));
+            $this->assertStringContainsString('Keine geschlossene Ausschreibung mit Bewerbungen.', $ohneFilter);
+            $this->assertStringNotContainsString('In dieser Auswahl keine geschlossene', $ohneFilter);
+        } finally {
+            $now = self::HEUTE;
+            Capsule::table('rec_applicant_posting')->insert([
+                ['rec_applicant_id' => 1002, 'rec_posting_id' => 711, 'created_at' => $now, 'updated_at' => $now],
+                ['rec_applicant_id' => 1005, 'rec_posting_id' => 713, 'created_at' => $now, 'updated_at' => $now],
+            ]);
+        }
+    }
+
     /**
      * DIE Zusicherung: jedes Element im gerenderten DOM traegt nur bekannte
      * Attribute, und in jedem Attributwert ist jedes typografische
@@ -256,14 +375,8 @@ class StatisticsPageRenderTest extends TestCase
      */
     private function assertAttributesIntact(string $html, string $label): void
     {
-        $dom = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $dom->loadHTML('<meta http-equiv="Content-Type" content="text/html; charset=utf-8">' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
         $geprueft = 0;
-        foreach ((new \DOMXPath($dom))->query('//*') as $element) {
+        foreach ((new \DOMXPath($this->dom($html)))->query('descendant-or-self::*') as $element) {
             if (!$element instanceof \DOMElement) {
                 continue;
             }
@@ -279,12 +392,29 @@ class StatisticsPageRenderTest extends TestCase
                         . 'Ist das Attribut echt, gehört es in ERLAUBTE_ATTRIBUTE.',
                 );
 
-                $this->assertSame(
-                    substr_count($attribute->nodeValue, '„'),
-                    substr_count($attribute->nodeValue, '“'),
-                    "{$label}: Attribut {$name} mit unbalanciertem Anführungszeichen: "
-                        . mb_substr($attribute->nodeValue, 0, 80),
-                );
+                // Balance der Anfuehrungszeichen — mit „ als Oeffner und BEIDEN
+                // Schliessern (deutsch “ wie englisch ”). Ohne das englische
+                // Zeichen gaebe ein Zitat in englischer Typografie falsches Rot,
+                // und ein falsches Rot ist die schnellste Art, einen Waechter
+                // abzuschalten.
+                //
+                // GRENZE, absichtlich: ein englisch GEOEFFNETES Zitat (“…) zaehlt
+                // hier nicht als Oeffner — „ ist die Konvention dieser Views. So ein
+                // Fall wird von der Whitelist oben gefangen, nicht hier: bricht der
+                // Wert vorzeitig ab, entstehen unbekannte Attribute.
+                $offen = substr_count((string) $attribute->nodeValue, '„');
+                $zu = substr_count((string) $attribute->nodeValue, '“')
+                    + substr_count((string) $attribute->nodeValue, '”');
+
+                if ($offen > 0) {
+                    $this->assertGreaterThanOrEqual(
+                        $offen,
+                        $zu,
+                        "{$label}: Attribut {$name} mit unbalanciertem Anführungszeichen "
+                            . "({$offen} geöffnet, {$zu} geschlossen): "
+                            . mb_substr((string) $attribute->nodeValue, 0, 80),
+                    );
+                }
             }
         }
 
@@ -294,14 +424,8 @@ class StatisticsPageRenderTest extends TestCase
     /** Die Zahl im Kopf eines Blocks (die Pille neben dem Titel). */
     private function blockTotal(string $html, string $title): int
     {
-        $dom = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $dom->loadHTML('<meta http-equiv="Content-Type" content="text/html; charset=utf-8">' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-
-        $xpath = new \DOMXPath($dom);
-        $titleSpan = $xpath->query('//span[normalize-space(text())="' . $title . '"]')->item(0);
+        $xpath = new \DOMXPath($this->dom($html));
+        $titleSpan = $xpath->query('descendant-or-self::span[normalize-space(text())="' . $title . '"]')->item(0);
         $this->assertNotNull($titleSpan, "Block „{$title}“ nicht gefunden");
 
         $next = $titleSpan->nextSibling;
@@ -521,6 +645,29 @@ class StatisticsPageRenderTest extends TestCase
              'title' => 'Küchenhilfe alt', 'activity' => 'Küche', 'status' => 'closed', 'is_active' => 1,
              'published_at' => null, 'closes_at' => null,
              'bedarf' => null, 'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+            // ZWEITE online-Ausschreibung derselben Filiale: nur so bekommt der
+            // Termin unten zwei HERKUNFTS-Unterzeilen
+            ['id' => 714, 'uuid' => 'ppost-714', 'team_id' => self::TEAM, 'rec_position_id' => 71,
+             'title' => 'Aushilfe Service', 'activity' => 'Service', 'status' => 'published', 'is_active' => 1,
+             'published_at' => null, 'closes_at' => null,
+             'bedarf' => null, 'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        // TERMIN mit Buchungen: ohne ihn rendert Tabelle 2 nur ihre Leer-Meldung —
+        // Datenzeile, Herkunfts-Unterzeilen, Belegung und Summenzeile blieben
+        // ungerendert, und genau diese Tabelle war die, die am laengsten von nichts
+        // ausgefuehrt wurde.
+        Capsule::table('rec_interview_types')->insert([
+            ['id' => 81, 'uuid' => 'ptype-81', 'team_id' => self::TEAM, 'name' => 'Schulung',
+             'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_interviews')->insert([
+            ['id' => 720, 'uuid' => 'piv-720', 'team_id' => self::TEAM, 'interview_type_id' => 81,
+             'rec_position_id' => 71, 'rec_posting_id' => 710,
+             'title' => 'Schulung August', 'location' => 'Bahnhof Duisburg, Gleis 3',
+             'starts_at' => '2026-08-10 10:00:00', 'max_participants' => 6,
+             'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicants')->insert([
@@ -537,6 +684,12 @@ class StatisticsPageRenderTest extends TestCase
              'rec_phase_id' => 101, 'is_parked' => 0, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 1005, 'uuid' => 'papp-1005', 'team_id' => self::TEAM, 'applied_at' => '2026-07-05',
              'rec_phase_id' => 104, 'is_parked' => 0, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // 1006 und 1007 sitzen im Termin, und zwar aus ZWEI verschiedenen
+            // Ausschreibungen -> zwei Herkunfts-Unterzeilen
+            ['id' => 1006, 'uuid' => 'papp-1006', 'team_id' => self::TEAM, 'applied_at' => '2026-07-06',
+             'rec_phase_id' => 101, 'is_parked' => 0, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 1007, 'uuid' => 'papp-1007', 'team_id' => self::TEAM, 'applied_at' => '2026-07-07',
+             'rec_phase_id' => 101, 'is_parked' => 0, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicant_posting')->insert([
@@ -544,6 +697,18 @@ class StatisticsPageRenderTest extends TestCase
             ['rec_applicant_id' => 1002, 'rec_posting_id' => 711, 'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => 1003, 'rec_posting_id' => 712, 'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => 1005, 'rec_posting_id' => 713, 'created_at' => $now, 'updated_at' => $now],
+            ['rec_applicant_id' => 1006, 'rec_posting_id' => 710, 'created_at' => $now, 'updated_at' => $now],
+            ['rec_applicant_id' => 1007, 'rec_posting_id' => 714, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        // Zwei belegte Plaetze von sechs -> Belegungsbalken 33 %
+        Capsule::table('rec_interview_bookings')->insert([
+            ['id' => 901, 'uuid' => 'pivb-901', 'team_id' => self::TEAM, 'rec_interview_id' => 720,
+             'rec_applicant_id' => 1006, 'status' => 'confirmed', 'seat_released_at' => null,
+             'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 902, 'uuid' => 'pivb-902', 'team_id' => self::TEAM, 'rec_interview_id' => 720,
+             'rec_applicant_id' => 1007, 'status' => 'attended', 'seat_released_at' => null,
+             'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
     }
 }

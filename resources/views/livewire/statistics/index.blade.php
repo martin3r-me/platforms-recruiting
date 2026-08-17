@@ -495,7 +495,14 @@
                 'summary' => count($closed['list']) . ' '
                     . (count($closed['list']) === 1 ? 'Ausschreibung' : 'Ausschreibungen') . ', nicht online',
                 'data' => $closed,
-                'empty' => 'Keine geschlossene Ausschreibung mit Bewerbungen.',
+                // Auch der LEER-Text darf keine Aussage ueber die Gesamtheit machen,
+                // solange ein einschraenkender Filter aktiv ist: „keine geschlossene
+                // Ausschreibung“ ist dann schlicht falsch — sie wurde nur
+                // weggefiltert. Derselbe Fehler wie im Blocktext, nur im leeren Zweig.
+                'empty' => $narrowed
+                    ? 'In dieser Auswahl keine geschlossene Ausschreibung mit Bewerbungen — '
+                        . 'ohne Tätigkeits-, Ausschreibungs- und Quellen-Filter können es mehr sein.'
+                    : 'Keine geschlossene Ausschreibung mit Bewerbungen.',
                 'note' => 'Nicht online heißt: nicht veröffentlicht oder nicht aktiv — ein abgelaufenes '
                     . 'Laufzeitende allein gilt nicht als geschlossen. Diese Liste ist bewusst NICHT auf die '
                     . 'gewählte Filiale eingeschränkt, deshalb steht der Ort an jeder Zeile.' . $narrowNote,
@@ -521,7 +528,10 @@
                 'title' => 'Ohne Filial-Zuordnung',
                 'summary' => 'über keine Filial-Auswahl erreichbar',
                 'data' => $unreachable,
-                'empty' => 'Jede Bewerbung hängt an einer Ausschreibung mit gepflegtem Standort.',
+                'empty' => $narrowed
+                    ? 'In dieser Auswahl hängt jede Bewerbung an einer Ausschreibung mit gepflegtem Standort — '
+                        . 'ohne Tätigkeits-, Ausschreibungs- und Quellen-Filter können es mehr sein.'
+                    : 'Jede Bewerbung hängt an einer Ausschreibung mit gepflegtem Standort.',
                 'note' => 'Diese Bewerbungen stehen in KEINER Filial-Ansicht — nicht in dieser und in keiner '
                     . 'anderen. Zwei Gründe gibt es: an der Stelle der Ausschreibung ist kein Standort '
                     . 'gepflegt („ohne Ort“), oder an der Bewerbung hängt überhaupt keine Ausschreibung '

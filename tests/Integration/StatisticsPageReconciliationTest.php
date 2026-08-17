@@ -347,7 +347,12 @@ class StatisticsPageReconciliationTest extends TestCase
         $this->assertSame($this->teamApplicantIds(), array_values(array_unique($eintraege)),
             'die Vereinigung bleibt vollstaendig — nur eben mit Ueberlappung');
 
-        $mehrfach = array_values(array_unique(array_diff_assoc($eintraege, array_unique($eintraege))));
+        // array_count_values sagt direkt, was gemeint ist: welche ID kommt mehr als
+        // einmal vor. Ein array_diff_assoc gegen array_unique haette dasselbe
+        // gemeint, aber ueber die REIHENFOLGE der Schluessel — in einem Test, der die
+        // Rekonziliation bewacht, hat eine sortierungsabhaengige Konstruktion nichts
+        // zu suchen.
+        $mehrfach = array_keys(array_filter(array_count_values($eintraege), fn ($n) => $n > 1));
         sort($mehrfach);
         $this->assertSame([self::APP_ESSEN_ZU, self::APP_FREMD_ZU], $mehrfach);
     }
