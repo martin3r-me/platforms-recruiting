@@ -1193,6 +1193,174 @@ final class CohortViewModelTest extends TestCase
         $this->assertNull($this->vm()->sumBedarf([['bedarf' => null]]));
     }
 
+    public function test_termin_kohorten_sammeln_nur_die_schulungszeilen_je_termin(): void
+    {
+        $rows = [
+            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2], postingId: 10),
+            $this->row('schulung', 'schulung:42', 'Essen', 'Bankett', [4], postingId: 11),
+            $this->row('schulung', 'schulung:43', 'Essen', 'Service', [6], postingId: 10),
+            // Nicht-Schulungszeilen haengen an keinem Termin und duerfen in
+            // Tabelle 2 nicht auftauchen
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [7], postingId: 10),
+            $this->row('geparkt', '-', 'Essen', 'Service', [8], postingId: 10),
+        ];
+
+        $cohorts = $this->vm()->interviewCohorts($rows);
+
+        $this->assertSame([42, 43], array_keys($cohorts), 'Schluessel ist die Interview-ID');
+        $this->assertSame(42, $cohorts[42]['interview_id']);
+        $this->assertCount(2, $cohorts[42]['rows'], 'zwei Ausschreibungen, ein Termin');
+        $this->assertSame(3, $this->vm()->countIn($cohorts[42]['rows'], 'ids'));
+        $this->assertCount(1, $cohorts[43]['rows']);
+        // Die Herkunft ist die Gruppierung je Ausschreibung — eine Unterzeile
+        // pro Ausschreibung der Teilnehmer, nicht pro Assigner-Zeile
+        $this->assertSame([10, 11], array_map(fn ($o) => $o['posting_id'], $cohorts[42]['origins']));
+        $this->assertSame([10], array_map(fn ($o) => $o['posting_id'], $cohorts[43]['origins']));
+    }
+
+    public function test_herkunft_summiert_sich_genau_zur_zeile_des_termins(): void
+    {
+        // DIE tragende Zusicherung von Tabelle 2: die Unterzeilen sind dieselben
+        // Assigner-Zeilen wie die Termin-Zeile, nur nach Ausschreibung gruppiert.
+        // Ihre Summe MUSS die Termin-Zeile ergeben — keine Luecke (jemand fehlt)
+        // und keine Doppelzaehlung (jemand steht in zwei Unterzeilen). Sonst
+        // haette die Seite genau den Widerspruch, wegen dem sie gebaut wird.
+        $rows = [
+            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2, 3], [
+                'unterschrieben' => [1],
+                'standby' => [3],
+                'gebucht' => [1, 2, 3],
+                'phase_reached' => [1 => [1, 2, 3], 2 => [1]],
+            ], postingId: 10),
+            $this->row('schulung', 'schulung:42', 'Essen', 'Bankett', [4, 5], [
+                'unterschrieben' => [4],
+                'gebucht' => [4, 5],
+                'phase_reached' => [1 => [4, 5]],
+            ], postingId: 11),
+            // Fremder Termin und Nicht-Schulungszeile derselben Ausschreibung:
+            // duerfen in die Summe des Termins 42 NICHT einsickern
+            $this->row('schulung', 'schulung:43', 'Essen', 'Service', [6], postingId: 10),
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [7], postingId: 10),
+        ];
+
+        $vm = $this->vm();
+        $cohort = $vm->interviewCohorts($rows)[42];
+
+        $spalten = ['ids', 'gebucht', 'unterschrieben', 'standby',
+            CohortViewModel::phaseColumnKey(1), CohortViewModel::phaseColumnKey(2)];
+
+        foreach ($spalten as $column) {
+            $termin = $vm->countIn($cohort['rows'], $column);
+            $herkunft = 0;
+            foreach ($cohort['origins'] as $origin) {
+                $herkunft += $vm->countIn($origin['rows'], $column);
+            }
+            $this->assertSame($termin, $herkunft, "Spalte {$column}: Summe der Herkunft = Zeile des Termins");
+        }
+
+        // ... und zwar personengleich, nicht nur zahlengleich: die vereinigten
+        // IDs der Unterzeilen sind exakt die IDs der Termin-Zeile (kein
+        // array_unique — eine Doppelzaehlung soll auffallen, nicht verschwinden)
+        $herkunftIds = [];
+        foreach ($cohort['origins'] as $origin) {
+            $herkunftIds = array_merge($herkunftIds, $vm->resolveIds($origin['rows'], ['scope' => 'all'], 'ids'));
+        }
+        $terminIds = $vm->resolveIds($cohort['rows'], ['scope' => 'all'], 'ids');
+        sort($herkunftIds);
+        sort($terminIds);
+        $this->assertSame([1, 2, 3, 4, 5], $terminIds, 'Termin 42 hat fuenf Teilnehmer');
+        $this->assertSame($terminIds, $herkunftIds);
+    }
+
+    public function test_scope_interview_summiert_alle_ausschreibungen_eines_termins(): void
+    {
+        $rows = [
+            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2], postingId: 10),
+            $this->row('schulung', 'schulung:42', 'Essen', 'Bankett', [3], postingId: 11),
+            $this->row('schulung', 'schulung:43', 'Essen', 'Service', [4], postingId: 10),
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [5], postingId: 10),
+        ];
+        $vm = $this->vm();
+
+        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => 42], 'ids'));
+        $this->assertSame([4], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => 43], 'ids'));
+        // fail-closed: ohne Termin-Angabe trifft der Scope NICHTS, statt auf alle
+        // Termine zu passen (leeres Modal ist der harmlose Ausgang)
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview'], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => null], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview', 'interview' => 999], 'ids'));
+    }
+
+    public function test_scope_interview_posting_trifft_genau_eine_herkunft(): void
+    {
+        $rows = [
+            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2], postingId: 10),
+            $this->row('schulung', 'schulung:42', 'Essen', 'Bankett', [3], postingId: 11),
+            // dieselbe Ausschreibung auf einem ANDEREN Termin: der Scope 'posting'
+            // allein wuerde sie mitzaehlen, die Herkunfts-Unterzeile darf das nicht
+            $this->row('schulung', 'schulung:43', 'Essen', 'Service', [4], postingId: 10),
+        ];
+        $vm = $this->vm();
+
+        $spec = ['scope' => 'interview_posting', 'interview' => 42, 'posting' => 10];
+        $this->assertSame([1, 2], $vm->resolveIds($rows, $spec, 'ids'));
+        $this->assertSame([3], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42, 'posting' => 11], 'ids'));
+        // Beide Angaben sind Pflicht — fehlt eine, trifft der Scope nichts
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'posting' => 10], 'ids'));
+        // 'posting' => null ist ein ECHTER Wert (Bewerbungen ohne Zuordnung),
+        // trifft hier aber nichts, weil beide Zeilen eine Ausschreibung haben
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42, 'posting' => null], 'ids'));
+    }
+
+    public function test_scope_interviews_summiert_genau_die_sichtbaren_termine(): void
+    {
+        // Die Gesamt-Zeile von Tabelle 2 summiert nur die Termine der AUSWAHL.
+        // Deshalb traegt ihr Token die Liste der sichtbaren Termine: ein Token
+        // ueber „alle Schulungszeilen" wuerde auch Termine ausserhalb treffen und
+        // das Modal laenger machen als die Zahl daneben.
+        $rows = [
+            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1, 2], postingId: 10),
+            $this->row('schulung', 'schulung:43', 'Essen', 'Service', [3], postingId: 10),
+            // Termin ausserhalb der Auswahl (inaktiv / anderer Zeitraum)
+            $this->row('schulung', 'schulung:99', 'Essen', 'Service', [4], postingId: 10),
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [5], postingId: 10),
+        ];
+        $vm = $this->vm();
+
+        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => [42, 43]], 'ids'));
+        // fail-closed: leere oder fehlende Liste ist KEINE Abkuerzung fuer „alle"
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => []], 'ids'));
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews'], 'ids'));
+        // Gecrafteter Token: nichts, was keine Termin-ID ist, wird zu einer
+        // ((int) 'abc' waere 0 und damit ein stiller Treffer-Versuch)
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => ['abc', null]], 'ids'));
+        // Strings aus dem JSON-Token bleiben brauchbar
+        $this->assertSame([3], $vm->resolveIds($rows, ['scope' => 'interviews', 'interviews' => ['43']], 'ids'));
+    }
+
+    public function test_herkunft_ohne_ausschreibung_bleibt_eine_eigene_unterzeile(): void
+    {
+        // Fall 3 der Zuordnungsregel: Teilnehmer ohne Ausschreibung. Sie gehoeren
+        // in die Summe des Termins und brauchen eine eigene Unterzeile — sonst
+        // fehlten sie in der Herkunft und die Summe ginge nicht auf.
+        $rows = [
+            $this->row('schulung', 'schulung:42', 'Essen', 'Service', [1], postingId: 10),
+            $this->row('schulung', 'schulung:42', 'ohne Ausschreibung', 'ohne Ausschreibung', [2], postingId: null),
+        ];
+        $vm = $this->vm();
+        $cohort = $vm->interviewCohorts($rows)[42];
+
+        $this->assertSame([10, null], array_map(fn ($o) => $o['posting_id'], $cohort['origins']),
+            'ohne Ausschreibung sortiert als Befund ans Ende');
+        $this->assertSame(2, $vm->countIn($cohort['rows'], 'ids'));
+        $this->assertSame(
+            [2],
+            $vm->resolveIds($rows, ['scope' => 'interview_posting', 'interview' => 42, 'posting' => null], 'ids'),
+            'die Unterzeile ohne Ausschreibung ist genauso anklickbar',
+        );
+    }
+
     /**
      * Zeile MIT Ausschreibungs-Stammdaten, wie sie Index.php nach dem Assign
      * anhaengt (Bedarf/Faktor/Laufzeit kommen aus rec_postings, nicht aus dem

@@ -42,6 +42,39 @@ class Index extends Component
         $this->resetDrill();
     }
 
+    /**
+     * Zeitraum der TERMIN-Tabelle (Tabelle 2) — bewusst getrennt von
+     * filterFrom/filterTo: dort ist der Zeitraum das BEWERBUNGSDATUM, hier der
+     * Zeitpunkt des Termins. Ein Termin hat einen Zeitpunkt, eine Ausschreibung
+     * hat ein Ziel; deshalb filtert Tabelle 1 nicht nach Datum und Tabelle 2 nicht
+     * nach Bewerbungseingang.
+     *
+     * Y-m-d-STRINGS, keine Datums-Objekte: x-ui-input-date darf nie per
+     * wire:model an ein datetime-Cast gebunden werden (bekannte Falle dieses
+     * Projekts — Livewire kann Carbon nicht sauber hydrieren).
+     */
+    public ?string $interviewFrom = null;
+    public ?string $interviewTo = null;
+
+    /**
+     * Leerstring-Falle (dieselbe wie bei filterFrom/filterTo, hier aber
+     * gefaehrlicher): ein geleertes Datumsfeld liefert '', und '2026-07-05' >= ''
+     * ist WAHR. Ohne Normalisierung auf null wuerde ein zurueckgesetztes Feld die
+     * Termin-Liste stumm beschneiden statt sie freizugeben — der Filter waere
+     * scheinbar aus, die Tabelle trotzdem leer.
+     */
+    public function updatedInterviewFrom($value): void
+    {
+        $this->interviewFrom = $value ?: null;
+        $this->resetDrill();
+    }
+
+    public function updatedInterviewTo($value): void
+    {
+        $this->interviewTo = $value ?: null;
+        $this->resetDrill();
+    }
+
     public ?string $ortFilter = null;
     public ?string $activityFilter = null;
 
@@ -100,6 +133,8 @@ class Index extends Component
     {
         $this->filterFrom = null;
         $this->filterTo = null;
+        $this->interviewFrom = null;
+        $this->interviewTo = null;
         $this->ortFilter = null;
         $this->activityFilter = null;
         $this->postingFilter = null;
@@ -693,6 +728,144 @@ class Index extends Component
                 'max' => $i->max_participants,
                 'seat_taking' => (int) $i->seat_taking_count,
             ]])->all();
+    }
+
+    /**
+     * Die Termine der Auswahl (Tabelle 2). Der Zeitraum-Filter gehoert HIERHIN:
+     * ein Termin hat einen Zeitpunkt, eine Ausschreibung hat ein Ziel.
+     *
+     * `is_active = true` filtert die Test-Termine mit heraus, sobald HR sie
+     * inaktiv gesetzt hat — Termine haben kein is_test-Flag (dokumentierter
+     * Befund), inaktiv ist der einzige Weg.
+     *
+     * ORT: eingegrenzt ueber die STELLE des Termins (rec_interviews.rec_position_id
+     * → rec_positions.location), also genau so, wie Tabelle 1 den Ort herleitet.
+     * Ohne diese Einschraenkung stuenden hier die Termine aller Filialen, waehrend
+     * Tabelle 1 eine einzige zeigt — genau das Nebeneinander, das der Kunde
+     * reklamiert hat. Ist kein Ort gewaehlt, wird nicht eingeschraenkt (Task 10
+     * macht den Ort zur Pflichtauswahl).
+     *
+     * NICHT gefiltert wird auf `rec_interviews.location`: das ist freier Text und
+     * der VERANSTALTUNGSORT (Bahnhof, Hotel, Treffpunktbeschreibung). Er kann vom
+     * Ort der Stelle abweichen und wird nur angezeigt — ein Filter darauf haette
+     * Termine verschluckt, die sehr wohl zur Filiale gehoeren.
+     *
+     * Query-Budget (Abnahmekriterium §2): DREI Queries — eine fuer die Termine
+     * (Belegung als Subselect, Ort als Sub-Query), zwei fuer die Eager Loads
+     * (Terminart, Ausschreibung). Kein N+1 ueber die Termine; die Belegung kommt
+     * bewusst per withCount und nicht ueber takenSeatsCount() je Termin.
+     *
+     * @return \Illuminate\Support\Collection<int,\Platform\Recruiting\Models\RecInterview>
+     */
+    #[Computed]
+    public function interviews()
+    {
+        return RecInterview::forTeam($this->teamId())
+            ->where('is_active', true)
+            ->when($this->ortFilter, fn ($q) => $q->whereHas('position',
+                fn ($p) => $p->where('location', $this->ortFilter)))
+            ->when($this->interviewFrom, fn ($q) => $q->where('starts_at', '>=', $this->interviewFrom))
+            ->when($this->interviewTo, fn ($q) => $q->where('starts_at', '<=', $this->interviewTo . ' 23:59:59'))
+            ->with(['interviewType:id,name', 'posting:id,title'])
+            ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
+            ->orderByDesc('starts_at')
+            ->get();
+    }
+
+    /**
+     * Tabelle 2 als fertiger Anzeige-Baum: `['rows' => …, 'outside' => …]`.
+     *
+     * @return array{rows:list<array>, outside:array{interviews:int, applications:int}}
+     */
+    #[Computed]
+    public function interviewTable(): array
+    {
+        return $this->buildInterviewTable($this->interviews, $this->cohort['rows']);
+    }
+
+    /**
+     * Termin-Query und Kohorten-Zeilen zu EINER Tabellenzeile je Termin
+     * zusammenfuehren.
+     *
+     * Nimmt beide Quellen als ARGUMENTE, statt sie sich selbst zu holen: so laeuft
+     * dieselbe Zusammenfuehrung im Test ohne Livewire-Lifecycle (Computed
+     * Properties gibt es nur im Request), waehrend die Computed-Huelle darueber in
+     * Produktion weiter genau eine Query-Runde kostet.
+     *
+     * ZWEI QUELLEN, und die Trennung ist Absicht:
+     *  - TRICHTER: aus den Assigner-Zeilen ($rows) — dieselben Zeilen wie
+     *    Tabelle 1, keine zweite Query und damit keine zweite Zaehlung derselben
+     *    Menschen.
+     *  - BELEGUNG (IST/SOLL): aus dem Termin (seat_taking_count,
+     *    max_participants), weil Plaetze eine Eigenschaft des TERMINS sind und
+     *    nicht der Kohorte. Sie ignoriert alle Filter der Seite.
+     * Die beiden koennen deshalb auseinandergehen (Testbewerber, Bewerbungen
+     * ausserhalb des Bewerbungs-Zeitraums, andere Filiale) — und sie duerfen NICHT
+     * gegeneinander gerechnet werden. Die Spaltenkoepfe der View sagen das auch.
+     *
+     * Termine OHNE Kohorten-Teilnehmer bleiben eine Zeile: „fuenf Plaetze, einer
+     * belegt, keiner davon in dieser Auswahl" ist eine Aussage, ein
+     * verschwundener Termin waere keine.
+     *
+     * `outside` benennt die Gegenrichtung: Teilnehmer, deren Termin NICHT in
+     * dieser Auswahl liegt (inaktiv oder ausserhalb des Termin-Zeitraums). Sie
+     * stecken in Tabelle 1 und fehlen hier — sichtbar gemacht statt verschluckt,
+     * sonst ist die kleinere Summe von Tabelle 2 nicht nachvollziehbar.
+     *
+     * @param  iterable<\Platform\Recruiting\Models\RecInterview>  $interviews
+     * @param  list<array>  $rows  Assigner-Zeilen
+     * @return array{rows:list<array>, outside:array{interviews:int, applications:int}}
+     */
+    public function buildInterviewTable($interviews, array $rows): array
+    {
+        $vm = $this->viewModel();
+        $cohorts = $vm->interviewCohorts($rows);
+
+        $tableRows = [];
+        $shown = [];
+        foreach ($interviews as $interview) {
+            $interviewId = (int) $interview->id;
+            $shown[$interviewId] = true;
+            $cohort = $cohorts[$interviewId] ?? ['rows' => [], 'origins' => []];
+
+            // Ausschreibung des Termins, Rueckfall auf den Termin-Titel. Kein
+            // "ohne Titel"-Erfinden: ist beides leer, bleibt die Zelle leer und die
+            // View schreibt den Befund hin.
+            $postingTitle = (string) ($interview->posting?->title ?? '');
+            if ($postingTitle === '') {
+                $postingTitle = (string) ($interview->title ?? '');
+            }
+
+            $tableRows[] = [
+                'interview_id' => $interviewId,
+                // Carbon oder null — reine Anzeige, formatiert wird in der View
+                'starts_at' => $interview->starts_at,
+                'type' => $interview->interviewType?->name ?? 'ohne Terminart',
+                // freier Text und VERANSTALTUNGSORT: nur Info-Spalte, nie Filter
+                'location' => $interview->location,
+                'posting_title' => $postingTitle,
+                'has_posting' => $interview->posting !== null,
+                'max' => $interview->max_participants,
+                'seat_taking' => (int) ($interview->seat_taking_count ?? 0),
+                'rows' => $cohort['rows'],
+                'origins' => $cohort['origins'],
+            ];
+        }
+
+        $outsideInterviews = 0;
+        $outsideApplications = 0;
+        foreach ($cohorts as $interviewId => $cohort) {
+            if (isset($shown[$interviewId])) {
+                continue;
+            }
+            $outsideInterviews++;
+            $outsideApplications += $vm->countIn($cohort['rows'], 'ids');
+        }
+
+        return [
+            'rows' => $tableRows,
+            'outside' => ['interviews' => $outsideInterviews, 'applications' => $outsideApplications],
+        ];
     }
 
     #[Computed]

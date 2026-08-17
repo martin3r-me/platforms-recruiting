@@ -248,11 +248,16 @@ final class CohortViewModel
      *
      * $spec['scope']: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
      *                 | 'ort' (Ort-Summe) | 'posting' (alle Zeilen EINER
-     *                 Ausschreibung) | 'all' (Gesamt)
+     *                 Ausschreibung) | 'interview' (alle Zeilen EINES Termins)
+     *                 | 'interviews' (Zeilen einer LISTE von Terminen, Gesamt-Zeile
+     *                 der Termin-Tabelle) | 'interview_posting' (eine
+     *                 Herkunfts-Unterzeile: ein Termin und eine Ausschreibung)
+     *                 | 'all' (Gesamt)
      *
-     * Die Scopes 'row' und 'posting' brauchen zusaetzlich $spec['posting'] (?int,
-     * die posting_id; null = ohne Ausschreibung) — ohne diesen Schluessel treffen
-     * sie absichtlich nichts.
+     * Die Scopes 'row', 'posting' und 'interview_posting' brauchen zusaetzlich
+     * $spec['posting'] (?int, die posting_id; null = ohne Ausschreibung) — ohne
+     * diesen Schluessel treffen sie absichtlich nichts. 'interview' und
+     * 'interview_posting' brauchen $spec['interview'] (int, die Interview-ID).
      *
      * KEIN array_unique: die Zeilen sind per Rekonziliations-Invariante disjunkt.
      * Ein unique wuerde eine Verletzung maskieren, statt sie aufzudecken — die
@@ -284,6 +289,25 @@ final class CohortViewModel
         $postingGiven = array_key_exists('posting', $spec);
         $posting = ($postingGiven && $spec['posting'] !== null) ? (int) $spec['posting'] : null;
 
+        // Termin-Tabelle (Tabelle 2). Anders als bei 'posting' ist null hier KEIN
+        // gueltiger Wert: eine Zeile ohne Termin ist keine Schulungszeile, es gibt
+        // also nichts, was ein Token mit interview=null benennen koennte. Fehlende
+        // oder leere Angabe ist deshalb fail-closed (leeres Modal).
+        $interview = isset($spec['interview']) ? (int) $spec['interview'] : null;
+
+        // Mehrere Termine (Gesamt-Zeile von Tabelle 2). Die Liste reist im Token
+        // mit, weil die Gesamt-Zeile nur die SICHTBAREN Termine summiert: ein
+        // Token ueber „alle Schulungszeilen" (type_all) traefe auch Termine
+        // ausserhalb der Auswahl, und die Modal-Laenge passte nicht zur Zahl.
+        // Nur Ziffernfolgen ueberleben — ein gecraftetes ['abc'] wuerde per
+        // (int) sonst stumm zur Termin-ID 0 und damit zu einem Treffer-Versuch.
+        $interviewList = [];
+        foreach ((is_array($spec['interviews'] ?? null) ? $spec['interviews'] : []) as $value) {
+            if (is_int($value) || (is_string($value) && ctype_digit($value))) {
+                $interviewList[] = (int) $value;
+            }
+        }
+
         $matches = match ((string) ($spec['scope'] ?? 'all')) {
             // fail-closed wie beim unbekannten Scope: ein row-Token OHNE
             // Ausschreibungs-Angabe (alter/gecrafteter Token) liefert NICHTS,
@@ -305,6 +329,26 @@ final class CohortViewModel
             // Angabe der Ausschreibung trifft der Scope nichts, statt auf alles
             // zu passen (ein leeres Modal ist der harmlose Ausgang).
             'posting' => fn ($row) => $postingGiven && ($row['posting_id'] ?? null) === $posting,
+            // ALLE Zeilen EINES TERMINS — die Zeilen-Einheit der Termin-Tabelle
+            // (Tabelle 2), die ueber die Ausschreibungen hinweg summiert. 'posting'
+            // schneidet quer dazu (eine Ausschreibung ueber alle Termine) und
+            // koennte diesen Scope nicht ersetzen; 'row' schneidet zu fein (eine
+            // Ausschreibung an einem Termin, siehe 'interview_posting').
+            'interview' => fn ($row) => $interview !== null
+                && self::interviewIdOf($row) === $interview,
+            // Eine HERKUNFTS-Unterzeile: Teilnehmer EINES Termins aus EINER
+            // Ausschreibung. Beide Angaben sind Pflicht, und zwar aus
+            // gegenlaeufigen Gruenden: ohne 'interview' zaehlte die Ausschreibung
+            // ueber alle Termine mit, ohne 'posting' der ganze Termin — beides
+            // waeren Zahlen, die zur angeklickten Unterzeile nicht passen.
+            // Die Gesamt-Zeile der Termin-Tabelle: alle Zeilen einer LISTE von
+            // Terminen. Leere oder fehlende Liste heisst nichts (fail-closed) —
+            // eine leere Liste ist keine „alle Termine"-Abkuerzung.
+            'interviews' => fn ($row) => $interviewList !== []
+                && in_array(self::interviewIdOf($row), $interviewList, true),
+            'interview_posting' => fn ($row) => $interview !== null && $postingGiven
+                && self::interviewIdOf($row) === $interview
+                && ($row['posting_id'] ?? null) === $posting,
             // Ein Zeilentyp ueber ALLE Gruppen hinweg — Grundlage der Kachel
             // „Ohne Termin", die nicht an einem Ort haengt.
             'type_all' => fn ($row) => $row['type'] === $type,
@@ -760,6 +804,57 @@ final class CohortViewModel
         });
 
         return $groups;
+    }
+
+    /**
+     * Eine Zeile je SCHULUNGSTERMIN (Tabelle 2) samt HERKUNFT der Teilnehmer —
+     * `interview_id => [interview_id, rows, origins]`.
+     *
+     * Die tragende Entscheidung dieser Tabelle steht hier, nicht in der View:
+     * die Trichter-Zahlen eines Termins kommen aus DENSELBEN Assigner-Zeilen wie
+     * Tabelle 1, es gibt keine zweite Zaehlung. Daraus folgt alles andere:
+     *  - die ZEILE eines Termins ist die Vereinigung seiner Assigner-Zeilen;
+     *  - die HERKUNFTS-Unterzeilen sind genau diese Zeilen, gruppiert nach
+     *    Ausschreibung — deshalb ist `origins` nichts anderes als
+     *    postingGroups() auf der Teilmenge des Termins. Ein zweiter
+     *    Gruppierungs-Weg waere die Stelle, an der die Summe der Unterzeilen
+     *    irgendwann von der Termin-Zeile abweicht;
+     *  - Summe der Unterzeilen = Zeile des Termins, per Konstruktion (die
+     *    Assigner-Zeilen sind laut Rekonziliations-Invariante disjunkt).
+     *
+     * Was hier NICHT herkommt: die BELEGUNG (IST/SOLL/Standby-Plaetze). Plaetze
+     * sind eine Eigenschaft des TERMINS, nicht der Kohorte, und stammen deshalb
+     * aus der Termin-Query der Livewire-Komponente. Die beiden Zahlen duerfen
+     * auseinandergehen (ein Testbewerber belegt einen Platz und steckt in keiner
+     * Kohorte) — sie gegeneinander zu rechnen ist ein Fehler.
+     *
+     * Nicht-Schulungszeilen haengen an keinem Termin (interviewIdOf ist null) und
+     * kommen in dieser Tabelle gar nicht vor; sie bleiben in Tabelle 1 sichtbar.
+     *
+     * @param  list<array>  $rows  Assigner-Zeilen
+     * @return array<int, array{interview_id:int, rows:list<array>, origins:list<array>}>
+     */
+    public function interviewCohorts(array $rows): array
+    {
+        $byInterview = [];
+        foreach ($rows as $row) {
+            $interviewId = self::interviewIdOf($row);
+            if ($interviewId === null) {
+                continue;
+            }
+            $byInterview[$interviewId][] = $row;
+        }
+
+        $cohorts = [];
+        foreach ($byInterview as $interviewId => $interviewRows) {
+            $cohorts[(int) $interviewId] = [
+                'interview_id' => (int) $interviewId,
+                'rows' => $interviewRows,
+                'origins' => $this->postingGroups($interviewRows),
+            ];
+        }
+
+        return $cohorts;
     }
 
     /**
