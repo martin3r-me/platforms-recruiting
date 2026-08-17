@@ -392,29 +392,40 @@ class StatisticsPageRenderTest extends TestCase
                         . 'Ist das Attribut echt, gehört es in ERLAUBTE_ATTRIBUTE.',
                 );
 
-                // Balance der Anfuehrungszeichen — mit „ als Oeffner und BEIDEN
-                // Schliessern (deutsch “ wie englisch ”). Ohne das englische
-                // Zeichen gaebe ein Zitat in englischer Typografie falsches Rot,
-                // und ein falsches Rot ist die schnellste Art, einen Waechter
-                // abzuschalten.
+                // BALANCE der typografischen Anfuehrungszeichen, und zwar ohne
+                // Vorbedingung — jeder Wert wird gerechnet.
                 //
-                // GRENZE, absichtlich: ein englisch GEOEFFNETES Zitat (“…) zaehlt
-                // hier nicht als Oeffner — „ ist die Konvention dieser Views. So ein
-                // Fall wird von der Whitelist oben gefangen, nicht hier: bricht der
-                // Wert vorzeitig ab, entstehen unbekannte Attribute.
-                $offen = substr_count((string) $attribute->nodeValue, '„');
-                $zu = substr_count((string) $attribute->nodeValue, '“')
-                    + substr_count((string) $attribute->nodeValue, '”');
+                // Runde 3 hatte hier `if ($offen > 0)` stehen, und das war ein
+                // Rueckschritt: ein VERWAISTER SCHLIESSER (Import“, oeffnendes „
+                // verloren) hat keinen Oeffner, wurde also nie geprueft und blieb
+                // gruen. Die damalige Begruendung („faengt die Whitelist") trifft
+                // fuer diesen Fall nicht zu — ein verwaister Schliesser bricht kein
+                // Attribut auf, er ist nur ein halbes Zitat, und niemand sonst sieht
+                // ihn. Deshalb gibt es jetzt keine Vorbedingung mehr.
+                //
+                // Das Zeichen “ ist zweideutig: deutscher SCHLIESSER und englischer
+                // OEFFNER. Aufgeloest wird das ueber die Gleichung statt ueber eine
+                // Fallunterscheidung — jedes “ gehoert zu genau einem „ (deutsches
+                // Paar) oder zu genau einem ” (englisches Paar):
+                //
+                //     Anzahl(“) === Anzahl(„) + Anzahl(”)
+                //
+                // Damit sind „…“ und “…” beide in Ordnung (kein falsches Rot fuer
+                // englische Typografie), waehrend „…" (gemischt), …“ (verwaister
+                // Schliesser) und „… (verwaister Oeffner) rot werden. Zwei ASCII-
+                // Quotes ("…") faengt die Whitelist oben, nicht diese Gleichung.
+                $wert = (string) $attribute->nodeValue;
+                $mitte = substr_count($wert, '“');
+                $deutschOffen = substr_count($wert, '„');
+                $englischZu = substr_count($wert, '”');
 
-                if ($offen > 0) {
-                    $this->assertGreaterThanOrEqual(
-                        $offen,
-                        $zu,
-                        "{$label}: Attribut {$name} mit unbalanciertem Anführungszeichen "
-                            . "({$offen} geöffnet, {$zu} geschlossen): "
-                            . mb_substr((string) $attribute->nodeValue, 0, 80),
-                    );
-                }
+                $this->assertSame(
+                    $deutschOffen + $englischZu,
+                    $mitte,
+                    "{$label}: Attribut {$name} mit unbalanciertem Anführungszeichen "
+                        . "(„ {$deutschOffen}, “ {$mitte}, ” {$englischZu}): "
+                        . mb_substr($wert, 0, 80),
+                );
             }
         }
 
