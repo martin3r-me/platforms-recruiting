@@ -129,6 +129,7 @@ class Index extends Component
         return RecDispoAssignment::query()
             ->with('event')
             ->where('rec_employee_id', $employeeId)
+            ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereDate('datum', '>=', now()->toDateString())
             ->whereNull('missing_since')
             ->orderBy('datum')->orderBy('von')
@@ -193,12 +194,19 @@ class Index extends Component
         }
 
         try {
-            app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendText(
+            $message = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendText(
                 channel: $channel,
                 to:      (string) $thread->remote_phone_number,
                 message: $text,
                 sender:  auth()->user(),
             );
+
+            if (($message->status ?? null) === 'failed') {
+                $this->sendError = 'Meta hat den Versand abgelehnt: '
+                    . (string) ($message->meta_payload['error']['message'] ?? 'unbekannter Grund');
+                return; // replyText NICHT leeren
+            }
+
             $this->replyText = '';
             unset($this->threads, $this->messages, $this->selected);
         } catch (\Throwable $e) {
