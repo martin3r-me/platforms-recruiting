@@ -147,6 +147,15 @@ class Index extends Component
         return $this->ortFilter !== null && $this->ortFilter !== '';
     }
 
+    /**
+     * Request-Cache der Ortsliste (siehe ortOptions()). PRIVATE, also nicht Teil
+     * des Livewire-Snapshots — der Wert wird pro Request neu geholt und kann vom
+     * Client nicht gesetzt werden.
+     *
+     * @var array<string,string>|null
+     */
+    private ?array $ortOptionsCache = null;
+
     // Absichtlich UNTYPED (Abweichung vom Brief-Entwurf, der ?int vorsah):
     // ein geleertes <select> sendet '', und Livewire wuerde '' in eine
     // typisierte ?int-Property nicht sauber hydrieren (TypeError bzw. 0).
@@ -431,21 +440,54 @@ class Index extends Component
             ];
         }, $result['rows']);
 
-        // GESCHLOSSENE Ausschreibungen einmal beiseitelegen, BEVOR die Filter
-        // greifen — Grundlage des Blocks „Geschlossene Ausschreibungen" unter den
-        // Tabellen.
+        // ------------------------------------------------------------------
+        // ZWEI ABLAGEN, beide aus dem UNGEFILTERTEN Assign-Ergebnis, beide
+        // Grundlage eines eigenen Blocks unter den Tabellen. Sie sind das Netz
+        // gegen die einzige stille Luecke, die diese Seite haben kann: eine
+        // Bewerbung, die aus der Filial-Ansicht faellt und nirgends benannt wird.
         //
-        // Bewusst OHNE Ort-Filter: eine Ausschreibung an einer Stelle ohne
-        // gepflegten Standort passt auf keine Filiale und faellt aus der
-        // ortsgefilterten Ansicht heraus — dieser Block ist genau der Ort, an dem
-        // das benannt wird (gemessen rund 929 Bewerbungen). Waere er mitgefiltert,
-        // verschwiegen beide Ansichten dieselben Zeilen.
+        // Warum die Rekonziliation (Block 3) dieses Netz NICHT ersetzt: `total_ids`
+        // wird nach dem Filtern NEU gebildet (unten). Σ Zeilen == Gesamtmenge gilt
+        // damit per Konstruktion INNERHALB der Auswahl — was vor dem Filter
+        // herausfiel, kann der Hinweis nie sehen.
         //
+        // Der TAETIGKEITS-Filter wirkt auf beide Ablagen, der ORT-Filter nicht.
+        // Das ist keine Schlamperei, sondern die Asymmetrie der beiden Filter: wer
+        // eine Taetigkeit waehlt, will keine fremde sehen — wer eine Filiale
+        // waehlt, kann die Zeilen OHNE Filiale ueber keine Auswahl je erreichen.
+        $inActivity = fn ($r) => $this->activityFilter === null
+            || $r['group']['taetigkeit'] === $this->activityFilter;
+
+        // (1) GESCHLOSSENE Ausschreibungen — Block „Geschlossene Ausschreibungen".
         // 'posting_closed' kommt aus derselben Quelle wie der Status-Filter unten
         // (eine Definition von „online", siehe $postingStatusFilter).
         $result['closed_rows'] = array_values(array_filter(
             $result['rows'],
-            fn ($r) => ($r['posting_closed'] ?? false) === true,
+            fn ($r) => ($r['posting_closed'] ?? false) === true && $inActivity($r),
+        ));
+
+        // (2) Zeilen, die ueber KEINE Filial-Auswahl erreichbar sind — Block „Ohne
+        // Filial-Zuordnung". Das sind die Bewerbungen an Stellen OHNE gepflegten
+        // Standort (Gruppe „ohne Ort", gemessen rund 929) und die Bewerbungen ohne
+        // jede Ausschreibung (Fall 3 der Zuordnungsregel, Gruppe „ohne
+        // Ausschreibung").
+        //
+        // ERREICHBARKEIT statt Namensliste: eine Gruppe ist genau dann waehlbar,
+        // wenn sie in der Ortsliste des Filters vorkommt. Damit haengt die
+        // Definition an derselben Quelle wie das <select> und nicht an kopierten
+        // Fallback-Literalen des Assigners („ohne Ort"/„ohne Ausschreibung") — die
+        // koennten auseinanderlaufen, die Ortsliste kann es nicht.
+        //
+        // posting_closed === false ist PFLICHT: die geschlossenen zeigt schon
+        // Ablage (1). Ohne diese Bedingung stuenden dieselben Zeilen in zwei
+        // Bloecken, und zwei Bloecke, die dasselbe zaehlen, sind wieder eine Zahl,
+        // die niemand nachrechnen kann.
+        $selectableOrte = $this->ortOptions(); // eine Query pro Request, siehe dort
+        $result['unreachable_rows'] = array_values(array_filter(
+            $result['rows'],
+            fn ($r) => ($r['posting_closed'] ?? false) === false
+                && !array_key_exists((string) $r['group']['ort'], $selectableOrte)
+                && $inActivity($r),
         ));
 
         // Ort-, Taetigkeits- und Status-Filter wirken auf die GRUPPE (nach dem
@@ -609,6 +651,22 @@ class Index extends Component
     public function closedPostingGroups(): array
     {
         return $this->viewModel()->postingGroups($this->cohort['closed_rows']);
+    }
+
+    /**
+     * Die Zeilen, die ueber KEINE Filial-Auswahl erreichbar sind — Grundlage des
+     * Blocks „Ohne Filial-Zuordnung" (Bewerbungen an Stellen ohne gepflegten
+     * Standort und Bewerbungen ohne jede Ausschreibung).
+     *
+     * Gruppiert wie Tabelle 1 und wie der Block der geschlossenen
+     * Ausschreibungen — drei Listen, eine Lesart.
+     *
+     * @return list<array>
+     */
+    #[Computed]
+    public function unreachablePostingGroups(): array
+    {
+        return $this->viewModel()->postingGroups($this->cohort['unreachable_rows']);
     }
 
     /**
@@ -1186,10 +1244,10 @@ class Index extends Component
      * (leeres Modal statt vermischter IDs). Fuer die Termin-Scopes gilt dasselbe
      * fuer 'interviews' => list<int>.
      *
-     * $extra kennt zusaetzlich 'set' => 'closed' (Block „Geschlossene
-     * Ausschreibungen"): das waehlt nicht den Zuschnitt, sondern die ZEILENMENGE,
-     * gegen die drill() aufloest — siehe dort. Ohne den Schluessel ist es die
-     * Auswahl der Seite.
+     * $extra kennt zusaetzlich 'set' => 'closed' | 'unreachable' (die beiden
+     * Bloecke unter den Tabellen): das waehlt nicht den Zuschnitt, sondern die
+     * ZEILENMENGE, gegen die drill() aufloest — siehe dort. Ohne den Schluessel ist
+     * es die Auswahl der Seite.
      */
     public function drillToken(string $scope, string $prefix, array $extra = []): string
     {
@@ -1228,15 +1286,17 @@ class Index extends Component
         // — dieselbe Menge, aus der die angeklickte Zahl gerechnet wurde, sonst
         // passte die Modal-Laenge nicht zur Zahl daneben.
         //
-        // 'closed' ist die beiseitegelegte Menge der geschlossenen Ausschreibungen
-        // (Block unter den Tabellen): sie steht bei Status „online" absichtlich
-        // NICHT in der Auswahl, ihre Zahlen muessen aber anklickbar sein. Ein
-        // unbekannter Wert faellt auf die Auswahl zurueck; beide Mengen stammen aus
-        // derselben team-gescopten Kohorte, ein gecraftetes 'set' oeffnet also
-        // nichts, was die Seite nicht ohnehin zeigt.
-        $rows = ($spec['set'] ?? null) === 'closed'
-            ? $this->cohort['closed_rows']
-            : $this->cohort['rows'];
+        // 'closed' und 'unreachable' sind die beiden beiseitegelegten Mengen der
+        // Bloecke unter den Tabellen: sie stehen absichtlich NICHT in der Auswahl
+        // (Status-Filter bzw. Filial-Filter), ihre Zahlen muessen aber anklickbar
+        // sein. Ein unbekannter Wert faellt auf die Auswahl zurueck; alle drei
+        // Mengen stammen aus derselben team-gescopten Kohorte, ein gecraftetes
+        // 'set' oeffnet also nichts, was die Seite nicht ohnehin zeigt.
+        $rows = match ($spec['set'] ?? null) {
+            'closed' => $this->cohort['closed_rows'],
+            'unreachable' => $this->cohort['unreachable_rows'],
+            default => $this->cohort['rows'],
+        };
 
         $this->drillIds = $vm->resolveIdsFromClient($rows, $spec, $column);
 
@@ -1264,11 +1324,23 @@ class Index extends Component
             ->get();
     }
 
-    /** @return array<string,string> */
+    /**
+     * Die waehlbaren Filialen — und damit mehr als eine Select-Liste: cohort()
+     * entscheidet an derselben Liste, welche Zeilen ueber KEINE Auswahl erreichbar
+     * sind (Block „Ohne Filial-Zuordnung"), und mount() nimmt den ersten Eintrag
+     * als Vorbelegung.
+     *
+     * Eigener Cache, obwohl #[Computed]: die Liste wird pro Request aus drei
+     * Richtungen gelesen (View als Property, cohort() und mount() als Methode),
+     * und der Livewire-Cache greift nur beim Property-Zugriff. Ohne das Feld waere
+     * dieselbe Liste drei Queries — Query-Budget ist Abnahmekriterium §2.
+     *
+     * @return array<string,string>
+     */
     #[Computed]
     public function ortOptions(): array
     {
-        return RecPosition::forTeam($this->teamId())
+        return $this->ortOptionsCache ??= RecPosition::forTeam($this->teamId())
             ->whereNotNull('location')
             ->where('location', '!=', '')
             ->distinct()
@@ -1295,8 +1367,14 @@ class Index extends Component
     /**
      * Bewusst ALLE Ausschreibungen, nicht nur aktive (Abweichung vom Brief):
      * eine Statistik-Seite blickt zurueck — mit ->active() waeren die Kohorten
-     * geschlossener Ausschreibungen nicht mehr filterbar. Inaktive sind
+     * geschlossener Ausschreibungen nicht mehr filterbar. Nicht online sind
      * gekennzeichnet, damit die Liste ehrlich bleibt.
+     *
+     * Die Kennzeichnung folgt derselben EINEN Definition wie alles andere auf
+     * dieser Seite: nicht online = nicht (published UND aktiv). Vorher stand hier
+     * nur „(inaktiv)" nach is_active — eine ENTWURFS-Ausschreibung sah damit
+     * online aus, waehrend die Tabelle sie als geschlossen fuehrte. Zwei Lesarten
+     * desselben Zustands in derselben Filterleiste.
      *
      * @return array<int,string>
      */
@@ -1305,9 +1383,10 @@ class Index extends Component
     {
         return RecPosting::forTeam($this->teamId())
             ->orderBy('title')
-            ->get(['id', 'title', 'is_active'])
+            ->get(['id', 'title', 'status', 'is_active'])
             ->mapWithKeys(fn ($p) => [
-                $p->id => $p->title . ($p->is_active ? '' : ' (inaktiv)'),
+                $p->id => $p->title
+                    . (($p->status === 'published' && (bool) $p->is_active) ? '' : ' (nicht online)'),
             ])->all();
     }
 

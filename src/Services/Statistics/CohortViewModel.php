@@ -173,14 +173,22 @@ final class CohortViewModel
     /**
      * IDs aller Zeilen, die auf $spec passen.
      *
-     * $spec['scope']: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
-     *                 | 'ort' (Ort-Summe) | 'posting' (alle Zeilen EINER
-     *                 Ausschreibung) | 'interviews' (alle Zeilen der angegebenen
-     *                 TERMINE — eine Termin-Zeile oder die Gesamt-Zeile von
-     *                 Tabelle 2) | 'interviews_posting' (eine Herkunfts-Unterzeile:
-     *                 Termin und Ausschreibung) | 'all' (Gesamt)
+     * $spec['scope']: 'posting' (alle Zeilen EINER Ausschreibung — die
+     *                 Zeilen-Einheit von Tabelle 1 und der beiden Bloecke)
+     *                 | 'interviews' (alle Zeilen der angegebenen TERMINE — eine
+     *                 Termin-Zeile oder die Gesamt-Zeile von Tabelle 2)
+     *                 | 'interviews_posting' (eine Herkunfts-Unterzeile: Termin und
+     *                 Ausschreibung) | 'type_all' (ein Zeilentyp ueber alle Gruppen)
+     *                 | 'all' (Gesamt)
      *
-     * Die Scopes 'row', 'posting' und 'interviews_posting' brauchen zusaetzlich
+     * ENTFALLEN mit Task 10: 'row' (genau eine Zeile), 'type' (Bucket in einer
+     * Gruppe) und 'ort' (Ort-Summe). Sie gehoerten zur Kohorten-Tabelle mit ihrem
+     * Baum Ort → Taetigkeit → Zeilentyp; nach deren Ersetzung erzeugte keine View
+     * mehr solche Token (per grep geprueft). Die Zuschnitte, die es weiter gibt,
+     * sind gruoeber und liegen anders: eine Ausschreibung ('posting'), ein Termin
+     * ('interviews'), ein Zeilentyp ueber alles ('type_all').
+     *
+     * Die Scopes 'posting' und 'interviews_posting' brauchen zusaetzlich
      * $spec['posting'] (?int, die posting_id; null = ohne Ausschreibung) — ohne
      * diesen Schluessel treffen sie absichtlich nichts. 'interviews' und
      * 'interviews_posting' brauchen $spec['interviews'] (list<int>, die
@@ -195,19 +203,12 @@ final class CohortViewModel
      */
     public function resolveIds(array $rows, array $spec, string $column): array
     {
-        $ort = isset($spec['ort']) ? (string) $spec['ort'] : null;
-        $act = isset($spec['act']) ? (string) $spec['act'] : null;
         $type = isset($spec['type']) ? (string) $spec['type'] : null;
-        $key = isset($spec['key']) ? (string) $spec['key'] : null;
 
-        // Ab v2 haengt JEDE Zeile an einer Ausschreibung (CohortAssigner bildet den
-        // Zeilen-Schluessel mit der posting_id als fuehrendem Bestandteil). Der
-        // Row-Key im Token ist aber der SCHMALE key des Assigners ("schulung:42",
-        // "ohne_schulung:2|Onboarding") — der ist seitdem nicht mehr eindeutig:
-        // zwei Ausschreibungen derselben Gruppe mit gleichem Typ und gleichem key
-        // sind zwei Zeilen, und ein row-Token passte auf beide. Das Modal zeigte
-        // dann die IDs beider Ausschreibungen unter dem Label einer einzigen.
-        // Deshalb ist die Ausschreibung ein eigenes Vergleichskriterium.
+        // Die Ausschreibung ist ein eigenes Vergleichskriterium, weil seit v2 JEDE
+        // Zeile an einer haengt (der CohortAssigner fuehrt die posting_id im
+        // Zeilen-Schluessel) — der schmale `key` des Assigners ("schulung:42",
+        // "ohne_schulung:2|Onboarding") ist dagegen nicht eindeutig.
         //
         // isset() reicht hier NICHT: posting_id ist bei Bewerbungen ohne Zuordnung
         // legitim null (Fall 3 der Zuordnungsregel), und isset(null) ist false.
@@ -238,25 +239,15 @@ final class CohortViewModel
         }
 
         $matches = match ((string) ($spec['scope'] ?? 'all')) {
-            // fail-closed wie beim unbekannten Scope: ein row-Token OHNE
-            // Ausschreibungs-Angabe (alter/gecrafteter Token) liefert NICHTS,
-            // statt auf alle Ausschreibungen der Gruppe zu passen. Ein leeres
-            // Modal ist der harmlose Ausgang; die stille Vermischung zweier
-            // Ausschreibungen unter einem Label ist genau der Fehler, den diese
-            // Seite nicht machen darf.
-            'row' => fn ($row) => $postingGiven
-                && $row['type'] === $type && $row['key'] === $key
-                && $row['group']['ort'] === $ort && $row['group']['taetigkeit'] === $act
-                && ($row['posting_id'] ?? null) === $posting,
-            'type' => fn ($row) => $row['type'] === $type
-                && $row['group']['ort'] === $ort && $row['group']['taetigkeit'] === $act,
-            'ort' => fn ($row) => $row['group']['ort'] === $ort,
             // ALLE Zeilen einer Ausschreibung — die Zeilen-Einheit der
-            // Ausschreibungs-Tabelle (Tabelle 1), die ueber die Zeilentypen
-            // hinweg summiert. 'type'/'ort' schneiden anders und koennten sie
-            // nicht ersetzen. Dieselbe fail-closed-Regel wie bei 'row': ohne
-            // Angabe der Ausschreibung trifft der Scope nichts, statt auf alles
-            // zu passen (ein leeres Modal ist der harmlose Ausgang).
+            // Ausschreibungs-Tabelle (Tabelle 1) und der beiden Bloecke, die ueber
+            // die Zeilentypen hinweg summiert.
+            //
+            // fail-closed wie beim unbekannten Scope: OHNE Ausschreibungs-Angabe
+            // (alter oder gecrafteter Token) trifft der Scope NICHTS, statt auf
+            // alles zu passen. Ein leeres Modal ist der harmlose Ausgang; die
+            // stille Vermischung zweier Ausschreibungen unter einem Label ist
+            // genau der Fehler, den diese Seite nicht machen darf.
             'posting' => fn ($row) => $postingGiven && ($row['posting_id'] ?? null) === $posting,
             // ALLE Zeilen der angegebenen TERMINE — die Zeilen-Einheit der
             // Termin-Tabelle (Tabelle 2), die ueber die Ausschreibungen hinweg

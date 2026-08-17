@@ -7,8 +7,17 @@
       2. KPI-Kacheln — lesen ausschliesslich aus dem Kohorten-Ergebnis.
       3. Tabelle 1 (Ausschreibungen) und Tabelle 2 (Schulungstermine), je ein
          fertiger Abschnitt mit eigenem Panel.
-      4. Drei Blöcke: Ausgeschieden, Geschlossene Ausschreibungen, Rekonziliation.
+      4. Vier Blöcke: Ausgeschieden, Geschlossene Ausschreibungen, Ohne
+         Filial-Zuordnung, Rekonziliation.
       5. Drill-down-Modal.
+
+    DIE BLÖCKE SIND KEIN ANHANG. Gemessen zeigte die Seite bei einer Filiale mit
+    Status „online“ eine von sieben Bewerbungen — die anderen sechs steckten in
+    geschlossenen Ausschreibungen, an Stellen ohne gepflegten Standort oder an
+    keiner Ausschreibung, und der Rekonziliations-Hinweis schwieg dazu (er rechnet
+    innerhalb der Auswahl, siehe Block 4). Blöcke 2 und 3 benennen genau diese
+    Mengen; zusammen mit den Tabellen erfassen sie jede Bewerbung des Teams genau
+    einmal (Test: StatisticsPageReconciliationTest).
 
     DIE FILIALE IST PFLICHT, und das ist keine Kosmetik: phaseLabels() liest den
     Phasensatz der gefilterten Filiale, und `where('location', null)` macht Laravel
@@ -67,15 +76,17 @@
          uebermalt (Overlay-Bug, Live-Check 2026-08-04). --}}
     <x-ui-panel title="Statistik" subtitle="Eine Filiale, zwei Tabellen — jede Zahl ist anklickbar und zeigt die Personen dahinter" class="relative z-30">
         <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-            {{-- PFLICHTAUSWAHL: kein nullable, kein „alle Orte". Die Seite zeigt
-                 immer genau eine Filiale — siehe Kopfkommentar. --}}
+            {{-- PFLICHTAUSWAHL: KEIN nullable-Attribut und kein nullLabel — „alle
+                 Orte" gibt es nicht mehr, die Seite zeigt immer genau eine Filiale
+                 (siehe Kopfkommentar). `nullable` ist in x-ui-input-select ohnehin
+                 standardmaessig false; ein ausdrueckliches :nullable="false" waere
+                 nur Rauschen an der Stelle, an der die Absicht steht. --}}
             <x-ui-input-select
                 name="ortFilter"
                 label="Filiale"
                 hint="Pflichtauswahl"
                 size="sm"
                 :options="$this->ortOptions"
-                :nullable="false"
                 :required="true"
                 wire:model.live="ortFilter"
             />
@@ -84,7 +95,6 @@
                 label="Ausschreibungen"
                 size="sm"
                 :options="$statusOptions"
-                :nullable="false"
                 wire:model.live="postingStatusFilter"
             />
             <x-ui-input-select
@@ -155,6 +165,14 @@
                     </div>
                 </div>
             @else
+                {{-- SICHERHEITSNETZ, kein Regelfall: mit gepflegten Standorten belegt
+                     mount() die Pflichtauswahl, dieser Zweig ist also normalerweise
+                     nicht erreichbar. NICHT LOESCHEN — er faengt die Zustaende, in
+                     denen die Vorbelegung nicht gegriffen hat (Livewire-Hydrierung
+                     mit leerem Ort, ein Ort, der zwischen zwei Requests
+                     verschwindet). Ohne ihn stuende an dieser Stelle eine leere
+                     Seite ohne Erklaerung, und phaseLabels() liefe in den
+                     whereNull-Fall. --}}
                 <div class="py-8 text-center text-sm text-[color:var(--ui-muted)]">
                     Bitte oben eine Filiale wählen.
                     <div class="mt-2 text-xs">
@@ -294,49 +312,72 @@
             }
 
             // ---------------------------------------------------------------
-            // Block 2: Geschlossene Ausschreibungen
+            // Blöcke 2 und 3: die beiden Mengen, die aus der Auswahl fallen
             // ---------------------------------------------------------------
-            // Die Zeilen stammen aus cohort()['closed_rows'] und sind bewusst NICHT
-            // ortsgefiltert: eine Ausschreibung an einer Stelle ohne gepflegten
-            // Standort passt auf keine Filiale (gemessen rund 929 Bewerbungen) und
-            // waere sonst nirgends sichtbar. Deshalb steht der Ort an jeder Zeile.
-            $closedGroups = $this->closedPostingGroups;
-            $closedTotal = 0;
-            $closedList = [];
-            foreach ($closedGroups as $closedGroup) {
-                $count = $this->countIn($closedGroup['rows'], 'ids');
-                $closedTotal += $count;
+            // Beide Listen sind gleich gebaut (eine Zeile je Ausschreibung, mit Ort
+            // und Drill-down) und werden deshalb von EINEM Bauplan erzeugt: zwei
+            // Kopien desselben Markups liefen beim nächsten Umbau auseinander, und
+            // gerade diese beiden Blöcke müssen sich wie eine Lesart lesen.
+            //
+            // Das Token trägt zwei Angaben, beide Pflicht: 'posting' ist der
+            // Zuschnitt (ohne ihn trifft der Scope fail-closed nichts), 'set' die
+            // ZEILENMENGE. Ohne 'set' löste der Klick gegen die Auswahl auf — und
+            // dort stehen diese Zeilen gerade nicht.
+            $sideList = function (array $groups, string $set): array {
+                $list = [];
+                $total = 0;
 
-                $orte = [];
-                foreach ($closedGroup['rows'] as $closedRow) {
-                    $ortLabel = (string) ($closedRow['group']['ort'] ?? '');
-                    if ($ortLabel !== '' && !in_array($ortLabel, $orte, true)) {
-                        $orte[] = $ortLabel;
+                foreach ($groups as $group) {
+                    $count = $this->countIn($group['rows'], 'ids');
+                    $total += $count;
+
+                    $orte = [];
+                    foreach ($group['rows'] as $row) {
+                        $ortLabel = (string) ($row['group']['ort'] ?? '');
+                        if ($ortLabel !== '' && !in_array($ortLabel, $orte, true)) {
+                            $orte[] = $ortLabel;
+                        }
                     }
+
+                    $title = $group['posting_title'] !== '' ? $group['posting_title'] : 'ohne Titel';
+                    $list[] = [
+                        'title' => $group['posting_id'] === null ? 'ohne Ausschreibung' : $title,
+                        'orte' => implode(', ', $orte),
+                        'count' => $count,
+                        'token' => $this->drillToken('posting', $title, [
+                            'posting' => $group['posting_id'],
+                            'set' => $set,
+                        ]),
+                    ];
                 }
 
-                $closedTitle = $closedGroup['posting_title'] !== '' ? $closedGroup['posting_title'] : 'ohne Titel';
-                $closedList[] = [
-                    'title' => $closedTitle,
-                    'orte' => implode(', ', $orte),
-                    'count' => $count,
-                    // 'set' => 'closed' waehlt die ZEILENMENGE (die beiseitegelegten
-                    // Zeilen), 'posting' den Zuschnitt. Beide sind Pflicht: ohne
-                    // 'posting' trifft der Scope fail-closed nichts, ohne 'set'
-                    // loeste er gegen die Auswahl auf — und dort sind diese Zeilen
-                    // bei Status „online" gar nicht.
-                    'token' => $this->drillToken('posting', $closedTitle, [
-                        'posting' => $closedGroup['posting_id'],
-                        'set' => 'closed',
-                    ]),
-                ];
-            }
+                return ['list' => $list, 'total' => $total];
+            };
+
+            // Block 2 — GESCHLOSSENE Ausschreibungen (aus cohort()['closed_rows']).
+            // Bewusst nicht ortsgefiltert: hier stehen auch die geschlossenen
+            // Ausschreibungen ANDERER Filialen und die an Stellen ohne gepflegten
+            // Standort. Der Ort steht deshalb an jeder Zeile.
+            $closed = $sideList($this->closedPostingGroups, 'closed');
+
+            // Block 3 — OHNE FILIAL-ZUORDNUNG (aus cohort()['unreachable_rows']).
+            // Die Mengen, die über KEINE Filial-Auswahl erreichbar sind: Stellen
+            // ohne gepflegten Standort (gemessen rund 929 Bewerbungen) und
+            // Bewerbungen ohne jede Ausschreibung. Ohne diesen Block wären sie
+            // nirgends — und der Rekonziliations-Hinweis darunter kann sie nicht
+            // finden, weil er innerhalb der Auswahl rechnet (siehe dort).
+            $unreachable = $sideList($this->unreachablePostingGroups, 'unreachable');
 
             // ---------------------------------------------------------------
-            // Block 3: Rekonziliation
+            // Block 4: Rekonziliation
             // ---------------------------------------------------------------
             // Unveraendert uebernommen: Summe der Zeilen MUSS die Gesamtmenge sein
             // (Spec §4). Abweichung wird sichtbar gemacht, nicht still korrigiert.
+            //
+            // WAS DIESER HINWEIS NICHT KANN: total_ids wird nach dem Filtern neu
+            // gebildet (Index::cohort()), er prueft also die Auswahl gegen sich
+            // selbst. Was VOR dem Filter herausfiel, sehen nur die Bloecke 2 und 3 —
+            // deshalb sind sie keine Kosmetik, sondern das eigentliche Netz.
             $rowSum = $this->countIn($this->cohort['rows'], 'ids');
             $totalIds = count($this->cohort['total_ids']);
         @endphp
@@ -366,7 +407,7 @@
                         stehen sie einzeln, damit benannt ist, was die Differenz zwischen „Bewerbungen" und dem
                         laufenden Trichter ausmacht.
                         <span class="cursor-help"
-                              title="Nicht aufgeführt ist der Zeilentyp „Import" (Altbestand): er ist ebenfalls in den Zahlen oben enthalten, aber kein Ausscheide-Grund, sondern eine Herkunft.">ⓘ</span>
+                              title="Nicht aufgeführt ist der Zeilentyp „Import“ (Altbestand): er ist ebenfalls in den Zahlen oben enthalten, aber kein Ausscheide-Grund, sondern eine Herkunft.">ⓘ</span>
                     </div>
                     <ul class="divide-y divide-[var(--ui-border)]/60">
                         @foreach ($excludedRows as $row)
@@ -398,73 +439,114 @@
 
         {{-- ------------------------------------------------------------------ --}}
         {{-- Block 2: Geschlossene Ausschreibungen                              --}}
+        {{-- Block 3: Ohne Filial-Zuordnung                                     --}}
+        {{--                                                                    --}}
+        {{-- Gleiches Markup, zwei Mengen — deshalb EIN Durchlauf ueber zwei     --}}
+        {{-- Beschreibungen statt zweimal derselbe Block. Was sie unterscheidet, --}}
+        {{-- steht im Text jedes Blocks, nicht in der Struktur.                 --}}
         {{-- ------------------------------------------------------------------ --}}
-        <x-ui-panel>
-            <div x-data="{ open: false }">
-                <button
-                    type="button"
-                    x-on:click="open = !open"
-                    class="flex w-full items-center gap-2 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)] cursor-pointer"
-                >
-                    <span x-text="open ? '▾' : '▸'" class="text-[color:var(--ui-muted)]">▸</span>
-                    <span class="font-semibold text-[color:var(--ui-secondary)]">Geschlossene Ausschreibungen</span>
-                    <span class="rounded-full bg-[var(--ui-muted-5)] px-2 py-0.5 text-xs font-medium tabular-nums text-[color:var(--ui-muted)] ring-1 ring-[var(--ui-border)]/60">
-                        {{ $closedTotal }}
-                    </span>
-                    <span class="ml-auto text-xs text-[color:var(--ui-muted)]">
-                        {{ count($closedList) }} {{ count($closedList) === 1 ? 'Ausschreibung' : 'Ausschreibungen' }}, nicht online
-                    </span>
-                </button>
+        @php
+            $sideBlocks = [
+                [
+                    'title' => 'Geschlossene Ausschreibungen',
+                    'summary' => count($closed['list']) . ' '
+                        . (count($closed['list']) === 1 ? 'Ausschreibung' : 'Ausschreibungen') . ', nicht online',
+                    'data' => $closed,
+                    'empty' => 'Keine geschlossene Ausschreibung mit Bewerbungen.',
+                    'note' => 'Nicht online heißt: nicht veröffentlicht oder nicht aktiv — ein abgelaufenes '
+                        . 'Laufzeitende allein gilt nicht als geschlossen. Diese Liste ist bewusst NICHT auf die '
+                        . 'gewählte Filiale eingeschränkt, deshalb steht der Ort an jeder Zeile.',
+                    'noteHint' => 'Der Tätigkeits-Filter wirkt in diesem Block MIT, der Filial-Filter nicht: wer '
+                        . 'eine Tätigkeit wählt, will keine fremde sehen — wer eine Filiale wählt, könnte die '
+                        . 'Zeilen ohne Filiale über keine Auswahl erreichen. '
+                        . 'Asymmetrie, die man kennen muss: GESCHLOSSENE Ausschreibungen anderer Filialen '
+                        . 'sind hier sichtbar (der Ort steht dran). ONLINE-Ausschreibungen anderer Filialen sind es '
+                        . 'nicht — die sieht man, indem man oben die Filiale wechselt. Bei Status „alle (auch '
+                        . 'geschlossene)“ stehen die geschlossenen Ausschreibungen der gewählten Filiale '
+                        . 'zusätzlich in der Tabelle oben; dieser Block ist die vollständige Liste, die Tabelle '
+                        . 'die Auswahl.',
+                ],
+                [
+                    'title' => 'Ohne Filial-Zuordnung',
+                    'summary' => 'über keine Filial-Auswahl erreichbar',
+                    'data' => $unreachable,
+                    'empty' => 'Jede Bewerbung hängt an einer Ausschreibung mit gepflegtem Standort.',
+                    'note' => 'Diese Bewerbungen stehen in KEINER Filial-Ansicht — nicht in dieser und in keiner '
+                        . 'anderen. Zwei Gründe gibt es: an der Stelle der Ausschreibung ist kein Standort '
+                        . 'gepflegt („ohne Ort“), oder an der Bewerbung hängt überhaupt keine Ausschreibung '
+                        . '(„ohne Ausschreibung“). Gepflegt wird der Standort an der STELLE, nicht an der '
+                        . 'Ausschreibung.',
+                    'noteHint' => 'Der Tätigkeits-Filter wirkt auch hier mit, der Filial-Filter nicht. '
+                        . 'Warum dieser Block überhaupt nötig ist: der Rekonziliations-Hinweis darunter '
+                        . 'rechnet innerhalb der Auswahl (die Gesamtmenge wird nach dem Filtern neu gebildet) und '
+                        . 'kann eine Bewerbung, die vor dem Filter herausfiel, nicht sehen. Hier sind nur '
+                        . 'ONLINE-Ausschreibungen aufgeführt; die geschlossenen stehen im Block darüber, damit '
+                        . 'nichts doppelt gezählt wird.',
+                ],
+            ];
+        @endphp
 
-                <div x-show="open" style="display: none;" class="mt-3 border-t border-[var(--ui-border)]/60 pt-3">
-                    <div class="mb-3 text-xs text-[color:var(--ui-muted)]">
-                        Nicht online heißt: nicht veröffentlicht oder nicht aktiv — ein abgelaufenes Laufzeitende
-                        allein gilt nicht als geschlossen.
-                        Diese Liste ist bewusst NICHT auf die gewählte Filiale eingeschränkt: eine Ausschreibung
-                        an einer Stelle ohne gepflegten Standort gehört zu keiner Filiale und wäre sonst nirgends
-                        sichtbar. Der Ort steht deshalb an jeder Zeile.
-                        <span class="cursor-help"
-                              title="Bei Status „alle (auch geschlossene)" stehen die Ausschreibungen der gewählten Filiale zusätzlich in der Tabelle oben — dieser Block ist die vollständige Liste, die Tabelle die Auswahl.">ⓘ</span>
-                    </div>
+        @foreach ($sideBlocks as $block)
+            <x-ui-panel>
+                <div x-data="{ open: false }">
+                    <button
+                        type="button"
+                        x-on:click="open = !open"
+                        class="flex w-full items-center gap-2 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)] cursor-pointer"
+                    >
+                        <span x-text="open ? '▾' : '▸'" class="text-[color:var(--ui-muted)]">▸</span>
+                        <span class="font-semibold text-[color:var(--ui-secondary)]">{{ $block['title'] }}</span>
+                        <span class="rounded-full bg-[var(--ui-muted-5)] px-2 py-0.5 text-xs font-medium tabular-nums text-[color:var(--ui-muted)] ring-1 ring-[var(--ui-border)]/60">
+                            {{ $block['data']['total'] }}
+                        </span>
+                        <span class="ml-auto text-xs text-[color:var(--ui-muted)]">{{ $block['summary'] }}</span>
+                    </button>
 
-                    @if ($closedList === [])
-                        <div class="py-4 text-center text-sm text-[color:var(--ui-muted)]">
-                            Keine geschlossene Ausschreibung mit Bewerbungen.
+                    <div x-show="open" style="display: none;" class="mt-3 border-t border-[var(--ui-border)]/60 pt-3">
+                        <div class="mb-3 text-xs text-[color:var(--ui-muted)]">
+                            {{ $block['note'] }}
+                            <span class="cursor-help" title="{{ $block['noteHint'] }}">ⓘ</span>
                         </div>
-                    @else
-                        <ul class="divide-y divide-[var(--ui-border)]/60">
-                            @foreach ($closedList as $closed)
-                                <li class="flex items-center justify-between gap-3 py-2">
-                                    <span class="min-w-0 text-sm text-[color:var(--ui-secondary)]">
-                                        <span class="block truncate" title="{{ $closed['title'] }}">{{ $closed['title'] }}</span>
-                                        @if ($closed['orte'] !== '')
-                                            <span class="block text-xs text-[color:var(--ui-muted)]"
-                                                  title="Ort der Stelle. „ohne Ort" heißt: an der Stelle ist kein Standort gepflegt — diese Bewerbungen fallen aus jeder Filial-Ansicht heraus.">
-                                                {{ $closed['orte'] }}
-                                            </span>
+
+                        @if ($block['data']['list'] === [])
+                            <div class="py-4 text-center text-sm text-[color:var(--ui-muted)]">
+                                {{ $block['empty'] }}
+                            </div>
+                        @else
+                            <ul class="divide-y divide-[var(--ui-border)]/60">
+                                @foreach ($block['data']['list'] as $entry)
+                                    <li class="flex items-center justify-between gap-3 py-2">
+                                        <span class="min-w-0 text-sm text-[color:var(--ui-secondary)]">
+                                            <span class="block truncate" title="{{ $entry['title'] }}">{{ $entry['title'] }}</span>
+                                            @if ($entry['orte'] !== '')
+                                                <span class="block text-xs text-[color:var(--ui-muted)]"
+                                                      title="Ort der Stelle. „ohne Ort“ heißt: an der Stelle ist kein Standort gepflegt; „ohne Ausschreibung“ heißt: an der Bewerbung hängt keine. Beides fällt aus jeder Filial-Ansicht heraus.">
+                                                    {{ $entry['orte'] }}
+                                                </span>
+                                            @endif
+                                        </span>
+                                        @if ($entry['count'] > 0)
+                                            <button
+                                                type="button"
+                                                wire:click="drill(@js($entry['token']), @js('ids'))"
+                                                wire:loading.attr="disabled"
+                                                title="Personen dieser Zeile anzeigen"
+                                                class="inline-flex min-w-[2rem] shrink-0 items-center justify-center rounded-full bg-[var(--ui-muted-5)] px-2 py-0.5 text-xs font-medium tabular-nums text-[color:var(--ui-secondary)] ring-1 ring-[var(--ui-border)]/60 hover:ring-[var(--ui-border)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)] transition-all cursor-pointer"
+                                            >{{ $entry['count'] }}</button>
+                                        @else
+                                            <span class="shrink-0 text-xs text-[color:var(--ui-muted)] tabular-nums">0</span>
                                         @endif
-                                    </span>
-                                    @if ($closed['count'] > 0)
-                                        <button
-                                            type="button"
-                                            wire:click="drill(@js($closed['token']), @js('ids'))"
-                                            wire:loading.attr="disabled"
-                                            title="Personen dieser geschlossenen Ausschreibung anzeigen"
-                                            class="inline-flex min-w-[2rem] shrink-0 items-center justify-center rounded-full bg-[var(--ui-muted-5)] px-2 py-0.5 text-xs font-medium tabular-nums text-[color:var(--ui-secondary)] ring-1 ring-[var(--ui-border)]/60 hover:ring-[var(--ui-border)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)] transition-all cursor-pointer"
-                                        >{{ $closed['count'] }}</button>
-                                    @else
-                                        <span class="shrink-0 text-xs text-[color:var(--ui-muted)] tabular-nums">0</span>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    </div>
                 </div>
-            </div>
-        </x-ui-panel>
+            </x-ui-panel>
+        @endforeach
 
         {{-- ------------------------------------------------------------------ --}}
-        {{-- Block 3: Rekonziliation                                            --}}
+        {{-- Block 4: Rekonziliation                                            --}}
         {{-- ------------------------------------------------------------------ --}}
         @if ($rowSum !== $totalIds)
             {{-- Rekonziliations-Invariante verletzt: die Summe der Zeilen MUSS die

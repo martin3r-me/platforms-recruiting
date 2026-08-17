@@ -71,26 +71,88 @@ final class StatisticsPageStructureTest extends TestCase
         }
     }
 
-    public function test_die_drei_bloecke_stehen_unter_den_tabellen(): void
+    public function test_die_vier_bloecke_stehen_unter_den_tabellen(): void
     {
         $page = $this->page();
 
         $afterTables = strpos($page, "@include('recruiting::livewire.statistics.interviews-table')");
         $this->assertNotFalse($afterTables);
 
-        // Reihenfolge wie im Auftrag: Ausgeschieden, Geschlossene
-        // Ausschreibungen, Rekonziliation.
+        // Reihenfolge: Ausgeschieden, Geschlossene Ausschreibungen, Ohne
+        // Filial-Zuordnung, Rekonziliation.
         $ausgeschieden = strpos($page, '>Ausgeschieden<');
-        $geschlossen = strpos($page, '>Geschlossene Ausschreibungen<');
+        $geschlossen = strpos($page, "'title' => 'Geschlossene Ausschreibungen'");
+        $ohneFiliale = strpos($page, "'title' => 'Ohne Filial-Zuordnung'");
         $rekonziliation = strpos($page, 'Rekonziliation verletzt:');
 
-        $this->assertNotFalse($ausgeschieden, 'Block „Ausgeschieden"');
-        $this->assertNotFalse($geschlossen, 'Block „Geschlossene Ausschreibungen"');
-        $this->assertNotFalse($rekonziliation, 'Block „Rekonziliation"');
+        $this->assertNotFalse($ausgeschieden, 'Block „Ausgeschieden“');
+        $this->assertNotFalse($geschlossen, 'Block „Geschlossene Ausschreibungen“');
+        $this->assertNotFalse($ohneFiliale, 'Block „Ohne Filial-Zuordnung“');
+        $this->assertNotFalse($rekonziliation, 'Block „Rekonziliation“');
 
         $this->assertGreaterThan($afterTables, $ausgeschieden);
         $this->assertGreaterThan($ausgeschieden, $geschlossen);
-        $this->assertGreaterThan($geschlossen, $rekonziliation);
+        $this->assertGreaterThan($geschlossen, $ohneFiliale);
+        $this->assertGreaterThan($ohneFiliale, $rekonziliation);
+    }
+
+    public function test_kein_attributwert_bricht_an_einem_anfuehrungszeichen_ab(): void
+    {
+        // Gefundene Fehlerklasse (Review Task 10): ein Attributwert oeffnet mit dem
+        // typografischen „ und schliesst mit dem ASCII-" — damit endet das Attribut
+        // MITTEN im Satz, und der Rest des Textes wird vom Parser zu einem Dutzend
+        // Muell-Attributen. Betroffen waren genau die Texte, die eine Differenz
+        // erklaeren sollen (DOM-Beleg: title=[… „Import] plus 14 weitere
+        // Attribute). Im Code sieht man es nicht, im Browser fehlt der halbe Satz.
+        //
+        // Geprueft wird deshalb ueber ALLE Statistik-Views, nicht nur die Seite:
+        // dieselbe Sorte Text steht in beiden Tabellen und in den Partials.
+        foreach ($this->statisticsViews() as $path) {
+            $src = (string) file_get_contents($path);
+            $name = basename($path);
+
+            preg_match_all('/="([^"]*)"/', $src, $matches, PREG_OFFSET_CAPTURE);
+            foreach ($matches[1] as [$value, $offset]) {
+                $line = substr_count(substr($src, 0, (int) $offset), "\n") + 1;
+                $this->assertSame(
+                    substr_count($value, '„'),
+                    substr_count($value, '“'),
+                    "{$name}:{$line}: Attributwert mit unbalanciertem Anführungszeichen — "
+                        . 'öffnendes „ ohne schließendes “ (ein ASCII-" beendet das Attribut): '
+                        . mb_substr($value, 0, 80),
+                );
+
+                // Und derselbe Befund noch einmal so, wie der BROWSER ihn sieht:
+                // ein einzelnes Element mit diesem Wert muss GENAU EIN Attribut
+                // haben. Im Fehlerfall zerfiel der Rest des Satzes in ein Dutzend
+                // Müll-Attribute (gemessen 14, 16 und 17) — die Zusicherung hängt
+                // damit nicht an einer Zeichen-Zählung, sondern am Parser.
+                $dom = new \DOMDocument();
+                $previous = libxml_use_internal_errors(true);
+                $dom->loadHTML('<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
+                    . '<span title="' . $value . '">x</span>');
+                libxml_clear_errors();
+                libxml_use_internal_errors($previous);
+
+                $span = $dom->getElementsByTagName('span')->item(0);
+                $this->assertNotNull($span, "{$name}:{$line}: Attributwert zerlegt das Element");
+                $this->assertSame(
+                    1,
+                    $span->attributes->length,
+                    "{$name}:{$line}: der Attributwert endet vorzeitig — der Parser sieht "
+                        . $span->attributes->length . ' Attribute statt einem: ' . mb_substr($value, 0, 80),
+                );
+            }
+        }
+    }
+
+    /** @return list<string> */
+    private function statisticsViews(): array
+    {
+        $views = glob(dirname(__DIR__, 2) . '/resources/views/livewire/statistics/*.blade.php') ?: [];
+        $this->assertNotEmpty($views);
+
+        return $views;
     }
 
     public function test_der_zeitraum_ist_das_termindatum(): void
@@ -121,8 +183,11 @@ final class StatisticsPageStructureTest extends TestCase
         $this->assertNotFalse($selectEnd);
 
         $select = substr($page, $selectStart, $selectEnd - $selectStart);
-        $this->assertStringContainsString(':nullable="false"', $select);
         $this->assertStringContainsString(':required="true"', $select);
+        // Kein nullLabel und kein nullable=true: „alle Orte" gibt es nicht mehr.
+        // Ein ausdrueckliches :nullable="false" braucht es nicht — false ist der
+        // Standard der Komponente.
         $this->assertStringNotContainsString('nullLabel', $select);
+        $this->assertStringNotContainsString(':nullable="true"', $select);
     }
 }
