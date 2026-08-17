@@ -1,6 +1,7 @@
 # Live-Checkliste Schulungszertifikat — am Stück abzuarbeiten
 
-**Stand:** 2026-08-13, nach `feat/zertifikat-wa-button`, Suite `OK (791 tests, 2387 assertions)` / 0 Errors.
+**Stand:** 2026-08-17, nach der Leiter-Unterschrift (`221efbd`), Suite `OK (850 tests, 2500 assertions)` / 0 Errors.
+**Vorstand:** 2026-08-13, nach `feat/zertifikat-wa-button`, Suite `OK (791 tests, 2387 assertions)`.
 **Vorstand:** Branch `feat/schulungszertifikat`, Suite `OK (746 tests, 2239 assertions)`.
 
 > **Was der Button-Umbau an dieser Liste geändert hat — A4, D3 und D4 sind KORREKTUREN, keine Ergänzungen.** Der Zertifikat-Link geht nicht mehr als Body-Variable `{{zertifikat_link}}` im Fließtext raus, sondern als dynamischer URL-Button. Die drei Punkte verlangten vorher wörtlich das Gegenteil („kein URL-Button") — wer die alte Fassung abarbeitet, konfiguriert genau das Template, das der Guard ablehnt. Neu dazu: **B3** (Umstellfenster), **B4** (Sichttest Hinweistext), **D7** (Log-Marker), **D8** (kein Wiederversand). Begründungen in `docs/superpowers/specs/2026-08-13-zertifikat-wa-button-design.md`.
@@ -57,6 +58,12 @@ Route: `/recruiting/zertifikat/{uuid}`, `uuid` aus `rec_training_certificates`.
       **Offen beim Kunden:** der Stempel trägt die **Meerbuscher** Adresse, während im Dokument „Düsseldorf, den …" steht. Freigabe dafür fehlt noch.
 - [ ] **C5 · Ins Log sehen, nicht nur aufs PDF.** Nach dem ersten Aufruf: keine `warning` mit `missing`. Ein fehlendes Bild rendert das PDF **ohne Fehler** — das Log ist der einzige Kanal.
 - [ ] **C6 · Unbekannte uuid → 404**, keine Fehlerseite.
+- [ ] **C8 · EIN Zertifikat aufrufen, das VOR dem 17.08.2026 ausgestellt wurde** — und zwar genau eines, gezielt.
+      **Erwartet:** unten rechts nur die Unterschrift. **Kein Name** quer darüber, **eine** Linie, **eine** Bildunterschrift.
+      **Warum das ein eigener Punkt ist:** der Inhalt eines Zertifikats liegt als Snapshot in der Datenbank und ist bewusst unveränderlich. Alte Snapshots tragen den rechten Fußblock noch selbst, mit dem Namen des Schulungsleiters — und die Hülle baut ihn seit dem 17.08. auch. Beide sind absolut auf dieselbe Position gesetzt, sie können sich nicht ausweichen. Gemessen stand „MICHEL ZIMMER" quer über der neuen Unterschrift, mit zwei Linien und zwei Bildunterschriften. **Kein Fehler, kein Log** — nur ein kaputtes Dokument beim Bewerber.
+      Behoben in `221efbd`, beim Rendern statt in der Datenbank. Dieser Punkt prüft, dass der Fix auch live greift.
+      **`SELECT uuid, issued_at FROM rec_training_certificates WHERE issued_at < '2026-08-17' ORDER BY issued_at LIMIT 1;`** → `/recruiting/zertifikat/<uuid>` öffnen.
+      Gibt die Abfrage nichts zurück, gibt es keine Altdokumente und der Punkt ist erledigt, ohne ihn zu klicken.
 - [ ] **C7 · Genau eine Seite.** Bei der ausgelieferten Kenntnisliste (sechs Zeilen) sicher; die gemessene Obergrenze ist **elf** Zeilen, ab zwölf sind es zwei Seiten.
 
 ## D — Ausstellung und Zustellung, Weg (a): Ablehnung am HR-Schreibtisch
