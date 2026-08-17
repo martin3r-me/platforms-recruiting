@@ -19,6 +19,7 @@ class RecInterview extends Model
         'uuid',
         'interview_type_id',
         'rec_position_id',
+        'rec_posting_id',
         'title',
         'description',
         'location',
@@ -67,6 +68,11 @@ class RecInterview extends Model
     public function position(): BelongsTo
     {
         return $this->belongsTo(RecPosition::class, 'rec_position_id');
+    }
+
+    public function posting(): BelongsTo
+    {
+        return $this->belongsTo(RecPosting::class, 'rec_posting_id');
     }
 
     public function interviewers(): BelongsToMany

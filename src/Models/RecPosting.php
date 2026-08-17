@@ -12,12 +12,15 @@ class RecPosting extends Model
     protected $fillable = [
         'uuid', 'rec_position_id', 'team_id', 'title', 'description', 'activity',
         'status', 'published_at', 'closes_at', 'is_active', 'created_by_user_id',
+        'bedarf', 'bewerbungs_faktor',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'published_at' => 'datetime',
         'closes_at' => 'datetime',
+        'bedarf' => 'integer',
+        'bewerbungs_faktor' => 'float',
     ];
 
     protected static function booted(): void
