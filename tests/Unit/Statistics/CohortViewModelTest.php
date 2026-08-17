@@ -796,4 +796,284 @@ final class CohortViewModelTest extends TestCase
         $this->assertTrue($vm->isCensoredForRows([$reif], $today, null));
         $this->assertTrue($vm->isCensoredForRows([$reif, $reif], $today, null));
     }
+
+    // -----------------------------------------------------------------
+    // Task 8: Summen-Arithmetik, Ausschreibungs-Zeilen, Phasen-Spalten
+    // -----------------------------------------------------------------
+
+    public function test_summen_prozent_wird_neu_gerechnet_nicht_gemittelt(): void
+    {
+        // Der Klassiker, der Prozentzahlen kaputtmacht: Mittelwert der
+        // Zeilen-Prozente statt Summe/Summe. Hier weichen beide deutlich ab.
+        // Zeile A: 1 von 1 = 100 %, Zeile B: 1 von 99 = 1 %
+        // Mittelwert waere 50,5 %, korrekt sind 2 von 100 = 2 %.
+        $rows = [
+            ['bedarf' => 1,  'columns' => ['unterschrieben' => [1]]],
+            ['bedarf' => 99, 'columns' => ['unterschrieben' => [2]]],
+        ];
+
+        $this->assertSame(2, $this->vm()->sumPercent($rows, 'unterschrieben', 'bedarf'));
+    }
+
+    public function test_summen_prozent_ohne_bedarf_ist_null(): void
+    {
+        $this->assertSame(
+            null,
+            $this->vm()->sumPercent([['bedarf' => null, 'columns' => ['unterschrieben' => [1]]]], 'unterschrieben', 'bedarf'),
+        );
+        $this->assertSame(null, $this->vm()->sumPercent([], 'unterschrieben', 'bedarf'));
+    }
+
+    public function test_summen_prozent_ueberspringt_zaehler_ohne_nenner(): void
+    {
+        // Eine Ausschreibung ohne gepflegten Bedarf darf die Quote NICHT
+        // aufblasen: sie liefert weder Nenner noch Zaehler. Sonst waere die
+        // Gesamt-Quote von der Pflege-Disziplin abhaengig statt vom Ergebnis.
+        $rows = [
+            ['bedarf' => 10,   'columns' => ['unterschrieben' => [1, 2, 3, 4, 5]]],
+            ['bedarf' => null, 'columns' => ['unterschrieben' => [6, 7, 8, 9]]],
+            // 0 ist kein Nenner (Division), zaehlt also wie "nicht gepflegt"
+            ['bedarf' => 0,    'columns' => ['unterschrieben' => [10]]],
+        ];
+
+        $this->assertSame(50, $this->vm()->sumPercent($rows, 'unterschrieben', 'bedarf'));
+    }
+
+    public function test_phasen_spalte_ist_order_qualifiziert_erreichbar(): void
+    {
+        // Der Zugriff, den flatColumn() bis hierher verweigert hat: nicht die
+        // ganze verschachtelte Spalte, sondern EINE Phase daraus.
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [1, 2, 3], columns: [
+                'phase_reached' => [1 => [1, 2, 3], 2 => [2, 3], 3 => [3]],
+            ], postingId: 48),
+        ];
+        $vm = $this->vm();
+
+        $this->assertSame([1, 2, 3], $vm->idsOf($rows[0], CohortViewModel::phaseColumnKey(1)));
+        $this->assertSame([2, 3], $vm->idsOf($rows[0], CohortViewModel::phaseColumnKey(2)));
+        $this->assertSame([3], $vm->idsOf($rows[0], CohortViewModel::phaseColumnKey(3)));
+        // Phase ohne Eintrag ist eine leere MENGE, kein Fehler: eine Filiale kann
+        // mehr Phasen haben, als in dieser Zeile erreicht wurden.
+        $this->assertSame([], $vm->idsOf($rows[0], CohortViewModel::phaseColumnKey(4)));
+
+        // countIn/resolveIds laufen ueber denselben Weg — angezeigte Zahl und
+        // Modal-Laenge koennen dadurch nicht auseinanderlaufen.
+        $this->assertSame(3, $vm->countIn($rows, CohortViewModel::phaseColumnKey(1)));
+        $this->assertSame(2, $vm->countIn($rows, CohortViewModel::phaseColumnKey(2)));
+        $this->assertSame(0, $vm->countIn($rows, CohortViewModel::phaseColumnKey(9)));
+    }
+
+    public function test_phasen_spalte_ohne_order_bleibt_gesperrt(): void
+    {
+        // Der order-qualifizierte Zugriff ist eine ZUSAETZLICHE Tuer, keine
+        // Aufweichung: die flache Lesart von phase_reached bleibt verboten
+        // (count() darauf zaehlt Phasen statt Bewerbungen).
+        $row = $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [1, 2], columns: [
+            'phase_reached' => [1 => [1, 2], 2 => [2]],
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->vm()->idsOf($row, 'phase_reached');
+    }
+
+    public function test_unbrauchbare_phasen_order_wirft_innen_und_ist_an_der_grenze_still(): void
+    {
+        // Merkregel des Branches: innen laut (Programmierfehler), an der
+        // Client-Grenze still (Eingabe). Der Spaltenname reist bei drill() aus
+        // dem Request herein, ist also manipulierbar.
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [7], columns: [
+                'phase_reached' => [1 => [7]],
+            ]),
+        ];
+        $vm = $this->vm();
+
+        foreach (['phase_reached:', 'phase_reached:zwei', 'phase_reached:-1', 'phase_reached:1.5'] as $kaputt) {
+            try {
+                $vm->idsOf($rows[0], $kaputt);
+                $this->fail("'{$kaputt}' haette laut abbrechen muessen");
+            } catch (\InvalidArgumentException $e) {
+                $this->assertStringContainsString('phase_reached', $e->getMessage());
+            }
+
+            // ... derselbe Aufruf an der Client-Grenze: leere Auswahl statt Fehlerseite
+            $this->assertSame([], $vm->resolveIdsFromClient($rows, ['scope' => 'all'], $kaputt));
+        }
+
+        // Der brauchbare Weg bleibt offen — das Abfangen darf nicht zum
+        // pauschalen "immer leer" verkommen.
+        $this->assertSame([7], $vm->resolveIdsFromClient($rows, ['scope' => 'all'], CohortViewModel::phaseColumnKey(1)));
+    }
+
+    public function test_scope_posting_summiert_alle_zeilen_einer_ausschreibung(): void
+    {
+        // Die Ausschreibungs-Tabelle hat EINE Zeile je Ausschreibung, die ueber
+        // alle Zeilentypen dieser Ausschreibung summiert. Das braucht einen
+        // eigenen Scope; 'type'/'ort' schneiden anders.
+        $rows = [
+            $this->row('schulung', 'schulung:1', 'Essen', 'Service', [1], postingId: 7),
+            $this->row('geparkt', '-', 'Essen', 'Service', [2], postingId: 7),
+            $this->row('schulung', 'schulung:1', 'Essen', 'Bankett', [3], postingId: 7),
+            $this->row('schulung', 'schulung:1', 'Essen', 'Service', [4], postingId: 8),
+            $this->row('geparkt', '-', 'ohne Ausschreibung', 'ohne Ausschreibung', [5]),
+        ];
+        $vm = $this->vm();
+
+        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'posting', 'posting' => 7], 'ids'));
+        $this->assertSame([4], $vm->resolveIds($rows, ['scope' => 'posting', 'posting' => 8], 'ids'));
+        // Die Zeilen ohne Zuordnung (Fall 3) sind nur mit explizitem null erreichbar
+        $this->assertSame([5], $vm->resolveIds($rows, ['scope' => 'posting', 'posting' => null], 'ids'));
+
+        // fail-closed wie bei scope 'row': ohne Angabe der Ausschreibung trifft
+        // das Token NICHTS, statt auf alle Zeilen zu passen.
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'posting'], 'ids'));
+    }
+
+    public function test_posting_gruppen_bilden_eine_zeile_je_ausschreibung(): void
+    {
+        $rows = [
+            $this->targetRow(7, ['bedarf' => 10, 'bewerbungs_faktor' => 8.0], 'Kellner', 'Service',
+                ids: [1, 2], columns: ['unterschrieben' => [1], 'phase_reached' => [1 => [1, 2], 2 => [1]]]),
+            $this->targetRow(7, ['bedarf' => 10, 'bewerbungs_faktor' => 8.0], 'Kellner', 'Service',
+                ids: [3], columns: ['unterschrieben' => [3], 'phase_reached' => [1 => [3]]], type: 'geparkt'),
+            $this->targetRow(4, ['bedarf' => null, 'bewerbungs_faktor' => null], 'Aushilfe', 'Bankett',
+                ids: [4], columns: []),
+            $this->targetRow(null, [], '', 'ohne Ausschreibung', ids: [5], columns: []),
+        ];
+
+        $groups = $this->vm()->postingGroups($rows);
+
+        // Sortierung: echte Ausschreibungen alphabetisch, "ohne Ausschreibung" ans Ende
+        $this->assertSame([4, 7, null], array_column($groups, 'posting_id'));
+        $this->assertSame(['Aushilfe', 'Kellner', ''], array_column($groups, 'posting_title'));
+
+        // Zwei Zeilen derselben Ausschreibung werden EINE Tabellenzeile
+        $kellner = $groups[1];
+        $this->assertCount(2, $kellner['rows']);
+        $this->assertSame([1, 2, 3], $kellner['ids']);
+        $this->assertSame([1, 3], $kellner['columns']['unterschrieben']);
+        // verschachtelte Spalte wird je order vereinigt, nicht platt gemacht
+        $this->assertSame([1, 2, 3], $kellner['columns']['phase_reached'][1]);
+        $this->assertSame([1], $kellner['columns']['phase_reached'][2]);
+        // Stammdaten der Ausschreibung reisen mit (Aufrufer haengt sie an die Zeilen)
+        $this->assertSame(10, $kellner['bedarf']);
+        $this->assertSame(8.0, $kellner['bewerbungs_faktor']);
+        $this->assertSame('2026-01-01', $kellner['published_ymd']);
+        $this->assertSame('2026-03-01', $kellner['closes_ymd']);
+        $this->assertSame(['Service'], $kellner['taetigkeiten']);
+        $this->assertFalse($kellner['posting_closed']);
+
+        // Nicht gepflegt bleibt null — kein Default, kein Raten
+        $this->assertNull($groups[0]['bedarf']);
+        $this->assertNull($groups[0]['bewerbungs_faktor']);
+        $this->assertNull($groups[2]['bedarf']);
+        $this->assertNull($groups[2]['published_ymd']);
+
+        // Keine Zeile geht verloren und es kommt keine hinzu (vier Assigner-Zeilen
+        // mit fuenf Bewerbungen werden drei Anzeige-Zeilen)
+        $this->assertSame(
+            count($rows),
+            array_sum(array_map(fn ($g) => count($g['rows']), $groups)),
+        );
+        $this->assertSame(
+            $this->vm()->countIn($rows, 'ids'),
+            array_sum(array_map(fn ($g) => count($g['ids']), $groups)),
+        );
+    }
+
+    public function test_posting_gruppen_zeigen_geschlossen_wenn_eine_zeile_es_sagt(): void
+    {
+        // posting_closed ist eine Eigenschaft der AUSSCHREIBUNG, nicht der Zeile —
+        // alle Zeilen einer Ausschreibung tragen denselben Wert. Die Gruppe darf
+        // ihn nicht verlieren, egal aus welcher Zeile sie ihn liest.
+        $rows = [
+            array_merge(
+                $this->targetRow(7, ['bedarf' => 3], 'Kellner', 'Service', ids: [1]),
+                ['posting_closed' => true],
+            ),
+            array_merge(
+                $this->targetRow(7, ['bedarf' => 3], 'Kellner', 'Service', ids: [2], type: 'geparkt'),
+                ['posting_closed' => true],
+            ),
+        ];
+
+        $groups = $this->vm()->postingGroups($rows);
+
+        $this->assertCount(1, $groups);
+        $this->assertTrue($groups[0]['posting_closed']);
+    }
+
+    public function test_pipeline_summen_zaehlen_nur_gepflegte_ausschreibungen(): void
+    {
+        // Gesamt-Zeile: Σ Bewerbungen gegen Σ (Bedarf x Faktor). Der Faktor selbst
+        // laesst sich NICHT addieren, deshalb reist nur das fertige Ziel weiter.
+        // Ausschreibungen ohne Bedarf/Faktor liefern weder Ziel noch Bewerbungen —
+        // sonst stuende ein Zaehler ohne Nenner in der Quote.
+        $groups = [
+            ['bedarf' => 10, 'bewerbungs_faktor' => 8.0, 'ids' => range(1, 40)],
+            // 3 x 7,5 = 22,5 -> 23: je Ausschreibung aufgerundet wie in TargetLight,
+            // nicht erst die Summe
+            ['bedarf' => 3, 'bewerbungs_faktor' => 7.5, 'ids' => [41, 42]],
+            ['bedarf' => null, 'bewerbungs_faktor' => 8.0, 'ids' => range(50, 99)],
+            ['bedarf' => 5, 'bewerbungs_faktor' => null, 'ids' => [100]],
+        ];
+
+        $this->assertSame(
+            ['bewerbungen' => 42, 'target' => 103],
+            $this->vm()->pipelineTotals($groups),
+        );
+
+        // Keine einzige gepflegte Ausschreibung -> kein Ziel (null, nicht 0)
+        $this->assertSame(
+            ['bewerbungen' => 0, 'target' => null],
+            $this->vm()->pipelineTotals([['bedarf' => null, 'bewerbungs_faktor' => null, 'ids' => [1, 2]]]),
+        );
+        $this->assertSame(['bewerbungen' => 0, 'target' => null], $this->vm()->pipelineTotals([]));
+    }
+
+    public function test_bedarf_summe_folgt_derselben_regel_wie_die_quote(): void
+    {
+        // Der Bedarf in der Gesamt-Zeile ist der Nenner der Erfuellungs-Quote —
+        // beide muessen dieselben Ausschreibungen zaehlen, sonst passt die
+        // angezeigte Quote nicht zur angezeigten Summe.
+        $groups = [
+            ['bedarf' => 10, 'columns' => ['unterschrieben' => [1, 2]]],
+            ['bedarf' => null, 'columns' => ['unterschrieben' => [3]]],
+            ['bedarf' => 0, 'columns' => ['unterschrieben' => [4]]],
+            ['bedarf' => 30, 'columns' => ['unterschrieben' => [5, 6]]],
+        ];
+
+        $this->assertSame(40, $this->vm()->sumBedarf($groups));
+        $this->assertSame(10, $this->vm()->sumPercent($groups, 'unterschrieben', 'bedarf'));
+        $this->assertNull($this->vm()->sumBedarf([]));
+        $this->assertNull($this->vm()->sumBedarf([['bedarf' => null]]));
+    }
+
+    /**
+     * Zeile MIT Ausschreibungs-Stammdaten, wie sie Index.php nach dem Assign
+     * anhaengt (Bedarf/Faktor/Laufzeit kommen aus rec_postings, nicht aus dem
+     * Assigner — der kennt keine Stammdaten).
+     */
+    private function targetRow(
+        ?int $postingId,
+        array $target,
+        string $title = '',
+        string $taetigkeit = 'Service',
+        array $ids = [],
+        array $columns = [],
+        string $type = 'ohne_schulung',
+    ): array {
+        return array_merge(
+            $this->row($type, $type . ':1|Neu', 'Essen', $taetigkeit, $ids, $columns, postingId: $postingId),
+            [
+                'posting_title' => $title,
+                'bedarf' => null,
+                'bewerbungs_faktor' => null,
+                'published_ymd' => $postingId === null ? null : '2026-01-01',
+                'closes_ymd' => $postingId === null ? null : '2026-03-01',
+            ],
+            $target,
+        );
+    }
 }

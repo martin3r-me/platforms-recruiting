@@ -23,6 +23,13 @@ final class CohortViewModel
     public const FALLBACKS = ['ohne Ort', 'ohne Ausschreibung', 'ohne Tätigkeit'];
 
     /**
+     * Praefix des order-qualifizierten Zugriffs auf die verschachtelte Spalte
+     * `phase_reached` (siehe phaseColumnKey/phaseIds). Bewusst mit ':' statt
+     * '_': der Trenner darf in keinem echten Spaltenschluessel vorkommen.
+     */
+    public const PHASE_COLUMN_PREFIX = 'phase_reached:';
+
+    /**
      * Reine ANZEIGE-Reihenfolge: Erfolgspfad zuerst (Schulung, dann noch offene
      * Bewerbungen), Befunde und Sonderfaelle danach.
      *
@@ -121,21 +128,66 @@ final class CohortViewModel
      *
      * Der Vertrag ist FLACH: eine Spalte ist eine ID-Menge. `phase_reached` ist
      * dagegen nach Phasen-`order` verschachtelt (`[order => ids]`) und passt hier
-     * nicht hinein — der order-qualifizierte Zugriff kommt in Task 8. Wer es
-     * trotzdem versucht, bekommt eine Exception statt einer stillen Zahl (siehe
-     * flatColumn).
+     * nicht hinein. Erreichbar ist sie nur ORDER-QUALIFIZIERT, also je Phase
+     * ("phase_reached:3", siehe phaseColumnKey). Die flache Lesart bleibt
+     * verboten und liefert eine Exception statt einer stillen Zahl (flatColumn).
      *
      * @return list<int>
      */
     public function idsOf(array $row, string $column): array
     {
-        return match ($column) {
-            'ids' => $row['ids'] ?? [],
-            'hr_desk_ids' => $row['hr_desk_ids'] ?? [],
-            'uneindeutig_ids' => $row['uneindeutig_ids'] ?? [],
-            'offen_ids' => $row['offen_ids'] ?? [],
+        return match (true) {
+            $column === 'ids' => $row['ids'] ?? [],
+            $column === 'hr_desk_ids' => $row['hr_desk_ids'] ?? [],
+            $column === 'uneindeutig_ids' => $row['uneindeutig_ids'] ?? [],
+            $column === 'offen_ids' => $row['offen_ids'] ?? [],
+            str_starts_with($column, self::PHASE_COLUMN_PREFIX) => $this->phaseIds($row, $column),
             default => $this->flatColumn($row, $column),
         };
+    }
+
+    /**
+     * Spaltenschluessel einer einzelnen Phase des Trichters. EINE Quelle fuer
+     * View (Spaltendefinition), Zaehlung und Drill-down — ein zweites
+     * Zusammenbauen des Strings an der Klickstelle waere die Sorte Kopie, die
+     * beim naechsten Umbenennen auseinanderlaeuft.
+     */
+    public static function phaseColumnKey(int $order): string
+    {
+        return self::PHASE_COLUMN_PREFIX . $order;
+    }
+
+    /**
+     * IDs EINER Phase aus der verschachtelten Spalte `phase_reached`.
+     *
+     * Eine leere Menge ist ein normaler Datenfall (die Filiale hat mehr Phasen,
+     * als diese Zeile erreicht hat, oder die Zeile ist ein ausgeschlossener
+     * Bucket und fuellt den Trichter gar nicht) — deshalb `[]` und kein Fehler.
+     *
+     * Eine unbrauchbare order dagegen ist ein PROGRAMMIERFEHLER des Aufrufers
+     * und bricht laut ab, genau wie die flache Lesart in flatColumn(): eine
+     * still auf 0 zusammenfallende Phasen-Spalte saehe wie ein Messwert aus
+     * ("niemand hat diese Phase erreicht"), und solche Zahlen soll diese Seite
+     * abschaffen. An der Client-Grenze wird derselbe Fall wieder still —
+     * resolveIdsFromClient fangt InvalidArgumentException ab, weil $column bei
+     * drill() aus dem Request kommt (Merkregel: innen laut, an der Grenze still).
+     *
+     * @return list<int>
+     */
+    private function phaseIds(array $row, string $column): array
+    {
+        $order = substr($column, strlen(self::PHASE_COLUMN_PREFIX));
+        // ctype_digit statt is_numeric: '-1', '1.5', '1e2' und '' sind KEINE
+        // Phasen-order. is_numeric haette sie alle durchgelassen und (int) haette
+        // daraus stumme Treffer gemacht.
+        if ($order === '' || !ctype_digit($order)) {
+            throw new \InvalidArgumentException(
+                "Spalte '{$column}' hat keine brauchbare Phasen-order. Erwartet wird "
+                . self::PHASE_COLUMN_PREFIX . '{ganze Zahl} (siehe phaseColumnKey).'
+            );
+        }
+
+        return $row['columns']['phase_reached'][(int) $order] ?? [];
     }
 
     /**
@@ -148,17 +200,20 @@ final class CohortViewModel
      * einer Zelle, und genau solche Zahlen soll diese Seite abschaffen — der
      * Kunde konnte die alten nicht nachvollziehen. Ein verschachtelter
      * Spaltenwert ist ein Programmierfehler des Aufrufers (z.B. `phase_reached`
-     * in die `$colDefs` der View aufgenommen, ohne den Zugriff je Phase zu
-     * bauen), kein Datenfall — also fail-loud statt fail-quiet.
+     * in die `$colDefs` der View aufgenommen, statt den order-qualifizierten
+     * Zugriff phaseColumnKey() zu benutzen), kein Datenfall — also fail-loud
+     * statt fail-quiet.
      *
-     * Geprueft wird die FORM, nicht der Spaltenname: kommt in Task 8 eine zweite
+     * Geprueft wird die FORM, nicht der Spaltenname: kommt eine zweite
      * verschachtelte Spalte dazu, greift die Sperre ohne Pflege einer Namensliste.
      *
-     * Heute unerreichbar: `$colDefs` (index.blade.php) listet die Spalten
-     * einzeln auf und enthaelt `phase_reached` nicht; `tiles()` summiert
-     * namentlich. Ein gecrafteter `drill(token, 'phase_reached')`-Aufruf lief
-     * schon vorher in einen Fehler (verschachtelte Arrays in `whereIn`) — jetzt
-     * eben in einen sprechenden.
+     * Die Sperre bleibt auch mit dem Zugriff je Phase (phaseIds) noetig: der ist
+     * eine zusaetzliche Tuer fuer "phase_reached:3", keine Aufweichung der
+     * flachen Lesart. `$colDefs` (index.blade.php) listet die Spalten einzeln
+     * auf und enthaelt `phase_reached` nicht; `tiles()` summiert namentlich. Ein
+     * gecrafteter `drill(token, 'phase_reached')`-Aufruf lief schon vorher in
+     * einen Fehler (verschachtelte Arrays in `whereIn`) — jetzt eben in einen
+     * sprechenden.
      *
      * @return list<int>
      */
@@ -192,11 +247,12 @@ final class CohortViewModel
      * IDs aller Zeilen, die auf $spec passen.
      *
      * $spec['scope']: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
-     *                 | 'ort' (Ort-Summe) | 'all' (Gesamt)
+     *                 | 'ort' (Ort-Summe) | 'posting' (alle Zeilen EINER
+     *                 Ausschreibung) | 'all' (Gesamt)
      *
-     * Scope 'row' braucht seit v2 zusaetzlich $spec['posting'] (?int, die
-     * posting_id der Zeile; null = ohne Ausschreibung) — ohne diesen Schluessel
-     * trifft er absichtlich nichts.
+     * Die Scopes 'row' und 'posting' brauchen zusaetzlich $spec['posting'] (?int,
+     * die posting_id; null = ohne Ausschreibung) — ohne diesen Schluessel treffen
+     * sie absichtlich nichts.
      *
      * KEIN array_unique: die Zeilen sind per Rekonziliations-Invariante disjunkt.
      * Ein unique wuerde eine Verletzung maskieren, statt sie aufzudecken — die
@@ -242,6 +298,13 @@ final class CohortViewModel
             'type' => fn ($row) => $row['type'] === $type
                 && $row['group']['ort'] === $ort && $row['group']['taetigkeit'] === $act,
             'ort' => fn ($row) => $row['group']['ort'] === $ort,
+            // ALLE Zeilen einer Ausschreibung — die Zeilen-Einheit der
+            // Ausschreibungs-Tabelle (Tabelle 1), die ueber die Zeilentypen
+            // hinweg summiert. 'type'/'ort' schneiden anders und koennten sie
+            // nicht ersetzen. Dieselbe fail-closed-Regel wie bei 'row': ohne
+            // Angabe der Ausschreibung trifft der Scope nichts, statt auf alles
+            // zu passen (ein leeres Modal ist der harmlose Ausgang).
+            'posting' => fn ($row) => $postingGiven && ($row['posting_id'] ?? null) === $posting,
             // Ein Zeilentyp ueber ALLE Gruppen hinweg — Grundlage der Kachel
             // „Ohne Termin", die nicht an einem Ort haengt.
             'type_all' => fn ($row) => $row['type'] === $type,
@@ -446,6 +509,209 @@ final class CohortViewModel
         return count($rows) > 1
             ? $this->isCensoredAggregate($rows, $todayYmd, $tthMedian)
             : $this->isCensored($this->maxAppliedAt($rows), $todayYmd, $tthMedian);
+    }
+
+    /**
+     * Prozentwert einer Summen-Zeile: Summe der Zaehler geteilt durch Summe der
+     * Nenner — NIEMALS der Mittelwert der Zeilen-Prozente. Bei 1/1 und 1/99
+     * ergaebe der Mittelwert 50 %, richtig sind 2 %.
+     *
+     * null = kein Nenner gepflegt, also keine Quote (nicht 0 %).
+     *
+     * @param  list<array>  $rows
+     */
+    public function sumPercent(array $rows, string $numeratorColumn, string $bedarfKey): ?int
+    {
+        $numerator = 0;
+        $denominator = 0;
+        foreach ($rows as $row) {
+            $bedarf = $row[$bedarfKey] ?? null;
+            if ($bedarf === null || $bedarf <= 0) {
+                continue;
+            }
+            $denominator += (int) $bedarf;
+            $numerator += count($row['columns'][$numeratorColumn] ?? []);
+        }
+
+        return $denominator > 0 ? (int) round($numerator / $denominator * 100) : null;
+    }
+
+    /**
+     * Summe der gepflegten Bedarfe — der NENNER der Erfuellungs-Quote und damit
+     * genau dieselbe Auswahl wie in sumPercent(): eine Ausschreibung ohne
+     * gepflegten Bedarf (null oder <= 0) zaehlt in keinem von beiden mit.
+     * Stuende in der Bedarf-Zelle eine andere Summe als die, gegen die die Quote
+     * daneben rechnet, waere die Zeile nicht nachrechenbar — und Nachrechenbarkeit
+     * ist der Grund fuer diese Seite.
+     *
+     * null = kein einziger Bedarf gepflegt (nicht 0).
+     *
+     * @param  list<array>  $rows
+     */
+    public function sumBedarf(array $rows, string $bedarfKey = 'bedarf'): ?int
+    {
+        $sum = null;
+        foreach ($rows as $row) {
+            $bedarf = $row[$bedarfKey] ?? null;
+            if ($bedarf === null || $bedarf <= 0) {
+                continue;
+            }
+            $sum = ($sum ?? 0) + (int) $bedarf;
+        }
+
+        return $sum;
+    }
+
+    /**
+     * Bezugsgroessen der Pipeline-Ampel in der Gesamt-Zeile: Σ Bewerbungen gegen
+     * Σ (Bedarf x Faktor).
+     *
+     * Warum das Ziel schon hier fertig gerechnet wird und nicht als Faktor
+     * weiterreist: ein Faktor laesst sich nicht addieren (8,0 und 12,0 ergeben
+     * nicht 20,0). Aufgerundet wird JE AUSSCHREIBUNG, genau wie in
+     * TargetLight::pipeline — die Summe der Einzelziele ist das Ziel, nicht das
+     * Ziel der Summe (3 x 7,5 = 23, nicht 22,5).
+     *
+     * Nur Ausschreibungen mit Bedarf UND Faktor zaehlen, und zwar auf BEIDEN
+     * Seiten des Bruchs: eine ungepflegte Ausschreibung wuerde sonst Bewerbungen
+     * in den Zaehler geben, ohne einen Nenner beizusteuern — die Gesamt-Ampel
+     * stuende dann auf Gruen, weil jemand ein Feld nicht gefuellt hat.
+     *
+     * target = null heisst "keine einzige Ausschreibung gepflegt" (nicht 0) und
+     * fuehrt in TargetLight zur grauen Ampel.
+     *
+     * @param  list<array>  $rows  Zeilen mit 'bedarf', 'bewerbungs_faktor', 'ids'
+     * @return array{bewerbungen:int, target:?int}
+     */
+    public function pipelineTotals(array $rows): array
+    {
+        $bewerbungen = 0;
+        $target = null;
+        foreach ($rows as $row) {
+            $bedarf = $row['bedarf'] ?? null;
+            $faktor = $row['bewerbungs_faktor'] ?? null;
+            if ($bedarf === null || $faktor === null || $bedarf <= 0 || $faktor <= 0) {
+                continue;
+            }
+            $target = ($target ?? 0) + (int) ceil($bedarf * $faktor);
+            $bewerbungen += count($row['ids'] ?? []);
+        }
+
+        return ['bewerbungen' => $bewerbungen, 'target' => $target];
+    }
+
+    /**
+     * Eine Zeile je AUSSCHREIBUNG (Tabelle 1 der Statistik-Seite): die
+     * Assigner-Zeilen einer Ausschreibung werden zu einer Anzeige-Zeile
+     * zusammengefasst — der Kunde fragt "laeuft diese Ausschreibung auf Ziel",
+     * nicht "wie verteilt sich sie ueber die Zeilentypen".
+     *
+     * Rein umsortierend wie groups(): keine Zeile geht verloren, keine kommt
+     * hinzu (siehe Test), damit die Rekonziliations-Invariante die Gruppierung
+     * ueberlebt.
+     *
+     * Die Stammdaten (bedarf, bewerbungs_faktor, published_ymd, closes_ymd)
+     * haengt der AUFRUFER an die Zeilen (Livewire-Komponente, aus rec_postings) —
+     * diese Klasse hat keine DB. Sie sind je Ausschreibung identisch, deshalb
+     * genuegt die erste Zeile als Quelle. Fehlt ein Wert, bleibt er null: "leer
+     * heisst nicht gepflegt", und eine nicht gepflegte Ausschreibung bekommt eine
+     * graue Ampel statt einer erfundenen.
+     *
+     * Die Gruppe traegt zusaetzlich die VEREINIGTEN Mengen ('ids', 'columns'),
+     * damit sie sich fuer sumPercent()/pipelineTotals() wie eine Zeile verhaelt.
+     * Das ist keine zweite Wahrheit: die Vereinigung ist eine reine
+     * Konkatenation disjunkter Zeilenmengen (Rekonziliations-Invariante) und
+     * zaehlt damit identisch zu countIn() ueber 'rows'. Die Zellen der Tabelle
+     * rechnen weiter ueber 'rows', weil dort auch das Drill-down haengt.
+     *
+     * @param  list<array>  $rows  Assigner-Zeilen, um die Stammdaten ergaenzt
+     * @return list<array{posting_id:?int, posting_title:string, posting_closed:bool,
+     *                    taetigkeiten:list<string>, bedarf:?int, bewerbungs_faktor:?float,
+     *                    published_ymd:?string, closes_ymd:?string,
+     *                    ids:list<int>, columns:array<string,mixed>, rows:list<array>}>
+     */
+    public function postingGroups(array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $postingId = $row['posting_id'] ?? null;
+            // '-' als Buckt-Schluessel fuer "ohne Ausschreibung": ein leerer
+            // Array-Schluessel wuerde mit der Ausschreibung 0 kollidieren.
+            $bucket = $postingId === null ? '-' : (string) $postingId;
+
+            if (!isset($groups[$bucket])) {
+                $groups[$bucket] = [
+                    'posting_id' => $postingId,
+                    'posting_title' => (string) ($row['posting_title'] ?? ''),
+                    'posting_closed' => (bool) ($row['posting_closed'] ?? false),
+                    'taetigkeiten' => [],
+                    'bedarf' => $row['bedarf'] ?? null,
+                    'bewerbungs_faktor' => $row['bewerbungs_faktor'] ?? null,
+                    'published_ymd' => $row['published_ymd'] ?? null,
+                    'closes_ymd' => $row['closes_ymd'] ?? null,
+                    'ids' => [],
+                    'columns' => [],
+                    'rows' => [],
+                ];
+            }
+
+            $group = &$groups[$bucket];
+            $group['rows'][] = $row;
+            $group['ids'] = array_merge($group['ids'], $row['ids'] ?? []);
+            $taetigkeit = (string) ($row['group']['taetigkeit'] ?? '');
+            if ($taetigkeit !== '' && !in_array($taetigkeit, $group['taetigkeiten'], true)) {
+                $group['taetigkeiten'][] = $taetigkeit;
+            }
+            foreach (($row['columns'] ?? []) as $column => $value) {
+                $group['columns'][$column] = $this->mergeColumn($group['columns'][$column] ?? null, $value);
+            }
+            unset($group);
+        }
+
+        // Anzeige-Reihenfolge: echte Ausschreibungen alphabetisch (Titel ist das,
+        // was der Kunde liest), "ohne Ausschreibung" als Befund ans Ende — dieselbe
+        // Regel wie fuer die Fallback-Gruppen in groups().
+        $groups = array_values($groups);
+        usort($groups, function ($a, $b) {
+            $fa = $a['posting_id'] === null ? 1 : 0;
+            $fb = $b['posting_id'] === null ? 1 : 0;
+            if ($fa !== $fb) {
+                return $fa <=> $fb;
+            }
+            $cmp = strnatcasecmp($a['posting_title'], $b['posting_title']);
+
+            // Tie-Break ueber die ID: zwei Ausschreibungen duerfen gleich heissen,
+            // die Reihenfolge muss trotzdem stabil sein (sonst springen Zeilen
+            // zwischen zwei Aufrufen).
+            return $cmp !== 0 ? $cmp : ((int) $a['posting_id'] <=> (int) $b['posting_id']);
+        });
+
+        return $groups;
+    }
+
+    /**
+     * Zwei Spaltenwerte vereinigen — flach (list<int>) wie verschachtelt
+     * (phase_reached: [order => ids]). Die Form entscheidet, nicht der Name,
+     * genau wie in flatColumn(): eine neue verschachtelte Spalte funktioniert
+     * ohne Pflege einer Namensliste.
+     */
+    private function mergeColumn(mixed $carry, mixed $value): array
+    {
+        $value = is_array($value) ? $value : [];
+        $carry = is_array($carry) ? $carry : [];
+
+        // Verschachtelt: je order vereinigen. Ein array_merge auf der obersten
+        // Ebene wuerde die order-Schluessel neu durchnummerieren und die Phasen
+        // gegeneinander verschieben.
+        if (($value !== [] && is_array(reset($value))) || ($carry !== [] && is_array(reset($carry)))) {
+            foreach ($value as $order => $ids) {
+                $carry[$order] = array_merge($carry[$order] ?? [], is_array($ids) ? $ids : []);
+            }
+
+            return $carry;
+        }
+
+        return array_merge($carry, $value);
     }
 
     /**

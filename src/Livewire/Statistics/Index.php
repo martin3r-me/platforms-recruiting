@@ -2,15 +2,19 @@
 
 namespace Platform\Recruiting\Livewire\Statistics;
 
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecInterview;
+use Platform\Recruiting\Models\RecPhase;
+use Platform\Recruiting\Models\RecPhaseTransition;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\Statistics\CohortAssigner;
 use Platform\Recruiting\Services\Statistics\CohortViewModel;
+use Platform\Recruiting\Services\Statistics\TargetLight;
 
 /**
  * Statistik-Seite (Spec §3/§4): duenne Livewire-Schale um den CohortAssigner.
@@ -164,11 +168,35 @@ class Index extends Component
             ])
             ->get();
 
+        // Zwei Lookups VOR der Schleife, beide aggregiert ueber die ganze Menge:
+        // je Bewerber bzw. je Ausschreibung eine Query pro Seitenaufruf, nicht
+        // eine pro Datensatz (Query-Budget ist Abnahmekriterium §2).
+        $maxLoggedPhaseOrder = $this->maxLoggedPhaseOrder($teamId, $applicants->pluck('id')->all());
+        $postingTargets = $this->postingTargets(
+            $teamId,
+            $applicants->flatMap(fn ($a) => $a->postings->pluck('id'))->unique()->values()->all(),
+        );
+
         $rows = [];
         $bookings = [];
         $pivots = [];
         foreach ($applicants as $a) {
             $signed = $a->contracts->whereNotNull('signed_at')->sortBy('signed_at')->first();
+
+            // Trichter-Tiefe = MAXIMUM aus aktueller Phase und Transition-Log.
+            // Beide Quellen sind fuer sich unvollstaendig, und zwar auf
+            // gegenlaeufige Weise:
+            //  - das LOG ueberlebt Umbenennungen, verliert aber die `order`,
+            //    wenn die Phase geloescht wurde (to_phase_id ist dann null oder
+            //    der Join greift nicht) — dort ist es blind;
+            //  - die AKTUELLE Phase kennt nur den Jetzt-Zustand: wer
+            //    zurueckgesetzt wurde, hatte die tiefere Phase trotzdem erreicht.
+            // Das Maximum nimmt von beiden das Beste. Lueckenlos-kumulativ macht
+            // daraus der CohortAssigner (wer Phase 4 erreicht hat, hat 1–3
+            // durchlaufen), hier wird nur die Tiefe bestimmt.
+            $phaseOrder = $a->phase?->order;
+            $loggedOrder = $maxLoggedPhaseOrder[$a->id] ?? null;
+
             $rows[] = [
                 'id' => $a->id,
                 'is_test' => (bool) $a->is_test,
@@ -181,7 +209,13 @@ class Index extends Component
                 'hr_desk' => (bool) $a->is_on_hr_desk,
                 'phase_position_id' => $a->phase?->rec_position_id,
                 'phase_name' => $a->phase?->name,
-                'phase_order' => $a->phase?->order,
+                'phase_order' => $phaseOrder,
+                // null nur, wenn KEINE der beiden Quellen etwas weiss — dann
+                // bleibt die Trichter-Spalte fuer diese Bewerbung leer, statt
+                // eine Phase 0 zu erfinden.
+                'phase_order_reached' => ($phaseOrder === null && $loggedOrder === null)
+                    ? null
+                    : max((int) $phaseOrder, (int) $loggedOrder),
                 'enrichment_status' => $a->enrichment_status,
                 'contract_sent' => $a->contracts->whereNotNull('sent_at')->isNotEmpty(),
                 'contract_signed' => $signed !== null,
@@ -206,10 +240,44 @@ class Index extends Component
                     'position_id' => $p->rec_position_id,
                     'location' => $p->position?->location,
                     'activity' => $p->activity,
+                    'posting_title' => (string) $p->title,
+                    // „geschlossen" ist das EXAKTE Gegenteil von „online", und
+                    // online heisst status=published UND is_active. Alles andere
+                    // (draft, archiviert, deaktiviert) ist geschlossen.
+                    //
+                    // closes_at in der Vergangenheit gehoert absichtlich NICHT
+                    // dazu: eine abgelaufene, aber noch veroeffentlichte
+                    // Ausschreibung ist online erreichbar, und der Filter
+                    // postingStatusFilter (Task 10) baut auf derselben
+                    // Definition. Zwei auseinanderdriftende Begriffe von
+                    // „geschlossen" waeren genau der Widerspruch, den diese
+                    // Seite abschaffen soll.
+                    'posting_closed' => !($p->status === 'published' && (bool) $p->is_active),
                 ])->all();
         }
 
         $result = (new CohortAssigner())->assign($rows, $bookings, $pivots, $this->filterFrom, $this->filterTo);
+
+        // Ziel-Werte an die Zeilen haengen. Der Assigner ist eine pure Klasse
+        // ohne DB und kennt keine Ausschreibungs-Stammdaten — Bedarf, Faktor und
+        // Laufzeit sind deshalb Beigabe des Aufrufers.
+        //
+        // Kein Default, kein Raten: fehlt der Eintrag (oder haengt die Zeile an
+        // keiner Ausschreibung), bleibt jedes Feld null. „Leer heisst nicht
+        // gepflegt" ist die tragende Regel dieses Features — eine nicht
+        // gepflegte Ausschreibung zeigt eine graue Ampel, nie eine erfundene.
+        $result['rows'] = array_map(function (array $row) use ($postingTargets) {
+            $target = $row['posting_id'] !== null
+                ? ($postingTargets[$row['posting_id']] ?? null)
+                : null;
+
+            return $row + [
+                'bedarf' => $target['bedarf'] ?? null,
+                'bewerbungs_faktor' => $target['bewerbungs_faktor'] ?? null,
+                'published_ymd' => $target['published_ymd'] ?? null,
+                'closes_ymd' => $target['closes_ymd'] ?? null,
+            ];
+        }, $result['rows']);
 
         // Ort-/Taetigkeits-Filter wirken auf die GRUPPE (nach dem Assign, damit
         // die Rekonziliation innerhalb der Auswahl geschlossen bleibt)
@@ -221,6 +289,87 @@ class Index extends Component
         }
 
         return $result;
+    }
+
+    /**
+     * Hoechste im Transition-Log erreichte Phasen-`order` je Bewerber —
+     * `rec_applicant_id => MAX(rec_phases.order)`.
+     *
+     * EINE aggregierte Query fuer die ganze Menge, nicht eine pro Bewerber: die
+     * Statistik-Seite laedt bei weit gestelltem Zeitraum das halbe Team, und ein
+     * N+1 an dieser Stelle waere im Betrieb nicht mehr einzufangen.
+     *
+     * Der INNER JOIN ist Absicht: gehoert die Zielphase eines Log-Eintrags nicht
+     * mehr zu einem Phasensatz (Phase geloescht → to_phase_id per nullOnDelete
+     * null), gibt es keine `order` und der Eintrag traegt nichts bei. Er wird
+     * damit nicht geraten, sondern uebersprungen — die aktuelle Phase des
+     * Bewerbers deckt diesen Fall ab (Maximum aus beiden Quellen, siehe cohort()).
+     *
+     * `order` ist in MySQL ein reserviertes Wort und muss im MAX() gequotet
+     * werden; die Quotierung kommt aus der Grammatik der Verbindung, damit sie
+     * nicht auf einen Dialekt festgenagelt ist.
+     *
+     * @param  list<int>  $applicantIds
+     * @return array<int,int>
+     */
+    private function maxLoggedPhaseOrder(int $teamId, array $applicantIds): array
+    {
+        if ($applicantIds === []) {
+            return [];
+        }
+
+        $orderColumn = DB::getQueryGrammar()->wrap('rec_phases.order');
+
+        return RecPhaseTransition::query()
+            ->where('rec_phase_transitions.team_id', $teamId)
+            ->whereIn('rec_phase_transitions.rec_applicant_id', $applicantIds)
+            ->join('rec_phases', 'rec_phases.id', '=', 'rec_phase_transitions.to_phase_id')
+            ->groupBy('rec_phase_transitions.rec_applicant_id')
+            ->select('rec_phase_transitions.rec_applicant_id')
+            ->selectRaw('MAX(' . $orderColumn . ') as max_order')
+            // toBase(): reine Zahlen, keine Model-Hydrierung fuer zwei Spalten
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn ($r) => [(int) $r->rec_applicant_id => (int) $r->max_order])
+            ->all();
+    }
+
+    /**
+     * Ziel-Stammdaten der Ausschreibungen: `posting_id => [bedarf, faktor,
+     * published_ymd, closes_ymd]`.
+     *
+     * Bewusst eine EIGENE Query, obwohl `postings` oben schon eager geladen ist:
+     * so haengt die Ampel nicht daran, welche Spalten der Eager-Load gerade
+     * mitnimmt. Wuerde dort je eine Spaltenliste stehen, waere `bedarf` still
+     * null — und still null heisst hier „nicht gepflegt", also graue Ampel ohne
+     * Fehlermeldung. Genau diese Sorte stiller Fehlanzeige soll die Seite nicht
+     * haben.
+     *
+     * Datumsformat: TargetLight rechnet auf Y-m-d-STRINGS (pure Klasse, kein
+     * Carbon) — die Umwandlung passiert hier, an der Systemgrenze.
+     *
+     * forTeam ist Pflicht, nicht Redundanz: die IDs stammen aus geladenen
+     * Bewerbern, aber der Scope ist die Zusicherung, dass diese Seite nie
+     * Fremd-Team-Daten liest.
+     *
+     * @param  list<int>  $postingIds
+     * @return array<int, array{bedarf:?int, bewerbungs_faktor:?float, published_ymd:?string, closes_ymd:?string}>
+     */
+    private function postingTargets(int $teamId, array $postingIds): array
+    {
+        if ($postingIds === []) {
+            return [];
+        }
+
+        return RecPosting::forTeam($teamId)
+            ->whereIn('id', $postingIds)
+            ->get(['id', 'bedarf', 'bewerbungs_faktor', 'published_at', 'closes_at'])
+            ->mapWithKeys(fn ($p) => [(int) $p->id => [
+                'bedarf' => $p->bedarf,
+                'bewerbungs_faktor' => $p->bewerbungs_faktor,
+                'published_ymd' => $p->published_at?->toDateString(),
+                'closes_ymd' => $p->closes_at?->toDateString(),
+            ]])->all();
     }
 
     /**
@@ -247,6 +396,148 @@ class Index extends Component
     private function viewModel(): CohortViewModel
     {
         return new CohortViewModel();
+    }
+
+    /**
+     * Eine Zeile je Ausschreibung (Tabelle 1) — inklusive der Ziel-Stammdaten,
+     * die cohort() an die Zeilen gehaengt hat. Gruppierung und Sortierung liegen
+     * im CohortViewModel, weil sie dort ohne Laravel/DB testbar sind.
+     *
+     * @return list<array>
+     */
+    #[Computed]
+    public function postingGroups(): array
+    {
+        return $this->viewModel()->postingGroups($this->cohort['rows']);
+    }
+
+    /** @return array<int,string> order => Name, aus dem Phasensatz der gefilterten Filiale */
+    #[Computed]
+    public function phaseLabels(): array
+    {
+        $positionIds = RecPosition::forTeam($this->teamId())
+            ->where('location', $this->ortFilter)
+            ->pluck('id');
+
+        return RecPhase::forTeam($this->teamId())
+            ->whereIn('rec_position_id', $positionIds)
+            ->where('is_active', true)
+            ->orderBy('order')
+            ->pluck('name', 'order')
+            ->all();
+    }
+
+    /**
+     * Spaltenschluessel einer Phasen-Spalte ("phase_reached:3"). Die Spalte
+     * `phase_reached` ist verschachtelt und darf NIE flach gelesen werden —
+     * count() darauf zaehlt Phasen statt Bewerbungen. Der Schluessel kommt
+     * deshalb aus dem ViewModel, nicht aus der View.
+     */
+    public function phaseColumnKey(int $order): string
+    {
+        return CohortViewModel::phaseColumnKey($order);
+    }
+
+    /**
+     * Prozent einer Summen-Zeile aus absoluten Summen — nicht der Mittelwert der
+     * Zeilen-Prozente (1/1 und 1/99 sind 2 %, nicht 50 %).
+     *
+     * @param  list<array>  $rows
+     */
+    public function sumPercent(array $rows, string $numeratorColumn = 'unterschrieben', string $bedarfKey = 'bedarf'): ?int
+    {
+        return $this->viewModel()->sumPercent($rows, $numeratorColumn, $bedarfKey);
+    }
+
+    /**
+     * Summe der gepflegten Bedarfe (null = keiner gepflegt). Dieselbe Auswahl wie
+     * der Nenner von sumPercent().
+     *
+     * @param  list<array>  $rows
+     */
+    public function sumBedarf(array $rows): ?int
+    {
+        return $this->viewModel()->sumBedarf($rows);
+    }
+
+    /**
+     * Erfuellungs-Ampel einer Ausschreibungs-Zeile: Unterschriften gegen Bedarf,
+     * ABSOLUT (keine Hochrechnung — Unterschriften kommen schubweise nach jeder
+     * Schulung, ein linearer Verlauf waere irrefuehrend).
+     *
+     * Gezaehlt wird ueber countIn() auf den Zeilen der Gruppe, also ueber
+     * denselben Weg wie die Zelle daneben und wie das Drill-down.
+     *
+     * @return array{status:string, pct:?int, reason:string}
+     */
+    public function fulfilmentLight(array $group): array
+    {
+        return TargetLight::fulfilment(
+            $this->countIn($group['rows'], 'unterschrieben'),
+            $group['bedarf'] ?? null,
+        );
+    }
+
+    /**
+     * Pipeline-Ampel einer Ausschreibungs-Zeile: Bewerbungen gegen Bedarf x
+     * Faktor, hochgerechnet auf das Laufzeitende. Die Uhr sitzt HIER, die Regel
+     * in TargetLight — `today` reist als Y-m-d-String hinein, damit die pure
+     * Klasse ohne Uhr testbar bleibt.
+     *
+     * @return array{status:string, pct:?int, projected:?int, target:?int, reason:string}
+     */
+    public function pipelineLight(array $group): array
+    {
+        return TargetLight::pipeline(
+            $this->countIn($group['rows'], 'ids'),
+            $group['bedarf'] ?? null,
+            $group['bewerbungs_faktor'] ?? null,
+            $group['published_ymd'] ?? null,
+            $group['closes_ymd'] ?? null,
+            now()->toDateString(),
+        );
+    }
+
+    /**
+     * Pipeline-Ampel der GESAMT-Zeile: Σ Bewerbungen gegen Σ (Bedarf x Faktor).
+     *
+     * Zwei Dinge, die hier absichtlich anders laufen als in einer Zeile:
+     *  - KEIN Faktor. Faktoren lassen sich nicht addieren (8,0 und 12,0 sind
+     *    nicht 20,0), deshalb reist nur das fertig gerechnete Ziel weiter. Der
+     *    Faktor 1,0 unten ist reine Durchleitung: er macht aus dem Ziel dasselbe
+     *    Ziel und haelt die Schwellen (60/90 %) in TargetLight — eine eigene
+     *    Ampel-Arithmetik hier waere eine zweite Wahrheit.
+     *  - KEINE Hochrechnung. Jede Ausschreibung hat ihre eigene Laufzeit; eine
+     *    gemeinsame gibt es nicht, also wird absolut verglichen (published/closes
+     *    bewusst null → absolute Lesart in TargetLight).
+     *
+     * Der `reason` wird ersetzt, weil der von TargetLight fuer den Einzelfall
+     * formuliert ist („kein Laufzeitende gepflegt") und in der Gesamt-Zeile
+     * schlicht falsch waere.
+     *
+     * @param  list<array>  $groups
+     * @return array{status:string, pct:?int, projected:?int, target:?int, reason:string}
+     */
+    public function pipelineTotalLight(array $groups): array
+    {
+        $totals = $this->viewModel()->pipelineTotals($groups);
+        $light = TargetLight::pipeline(
+            $totals['bewerbungen'],
+            $totals['target'],
+            1.0,
+            null,
+            null,
+            now()->toDateString(),
+        );
+
+        $light['reason'] = $totals['target'] === null
+            ? 'An keiner Ausschreibung dieser Auswahl sind Bedarf und Faktor gepflegt — keine Aussage möglich.'
+            : $totals['bewerbungen'] . ' Bewerbungen gegen ' . $totals['target']
+                . ' benötigte (Summe aus Bedarf × Faktor). Ohne Hochrechnung, weil jede '
+                . 'Ausschreibung ihre eigene Laufzeit hat. Gezählt werden nur Ausschreibungen '
+                . 'mit gepflegtem Bedarf UND Faktor — auf beiden Seiten des Bruchs.';
+
+        return $light;
     }
 
     /** Interview-ID einer Schulungszeile aus dem Row-Key ("schulung:42"). */
@@ -405,14 +696,16 @@ class Index extends Component
      * Konstanten aus der View, keine Nutzerdaten.
      *
      * $scope: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
-     *         | 'ort' (Ort-Summe) | 'all' (Gesamt)
+     *         | 'ort' (Ort-Summe) | 'posting' (alle Zeilen EINER Ausschreibung,
+     *         die Zeilen-Einheit der Ausschreibungs-Tabelle) | 'all' (Gesamt)
      *
      * $extra reist unveraendert durch (encodeScope hier, decodeScope in drill(),
      * von dort direkt in resolveIds) — Hin- und Rueckweg sind also fuer alle
      * Bestandteile derselbe, es gibt keine Feld-Liste, die man vergessen koennte.
-     * Fuer Scope 'row' ist seit v2 'posting' => $row['posting_id'] PFLICHT: die
-     * Zeilen sind je Ausschreibung, 'key' allein trifft sonst mehrere. Fehlt es,
-     * loest resolveIds fail-closed nichts auf (leeres Modal statt vermischter IDs).
+     * Fuer die Scopes 'row' und 'posting' ist seit v2 'posting' =>
+     * $row['posting_id'] PFLICHT: die Zeilen sind je Ausschreibung, 'key' allein
+     * trifft sonst mehrere. Fehlt es, loest resolveIds fail-closed nichts auf
+     * (leeres Modal statt vermischter IDs).
      */
     public function drillToken(string $scope, string $prefix, array $extra = []): string
     {
