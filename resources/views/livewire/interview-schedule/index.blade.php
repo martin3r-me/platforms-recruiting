@@ -233,6 +233,15 @@
                     wire:model="rec_position_id"
                 />
             </div>
+            <x-ui-input-select
+                name="rec_posting_id"
+                label="Ausschreibung"
+                :options="$this->postingOptions"
+                :nullable="true"
+                nullLabel="keine Zuordnung"
+                wire:model="rec_posting_id"
+                hint="Für welche Ausschreibung diese Schulung stattfindet. Ohne Zuordnung wird in der Statistik der Titel angezeigt."
+            />
             <div class="space-y-2">
                 @php $eventLocations = $this->availableEventLocations; @endphp
                 @if($eventLocations->isNotEmpty())
@@ -385,6 +394,15 @@
                     wire:model="rec_position_id"
                 />
             </div>
+            <x-ui-input-select
+                name="rec_posting_id"
+                label="Ausschreibung"
+                :options="$this->postingOptions"
+                :nullable="true"
+                nullLabel="keine Zuordnung"
+                wire:model="rec_posting_id"
+                hint="Für welche Ausschreibung diese Schulung stattfindet. Ohne Zuordnung wird in der Statistik der Titel angezeigt."
+            />
             <div class="space-y-2">
                 @php $eventLocations = $this->availableEventLocations; @endphp
                 @if($eventLocations->isNotEmpty())

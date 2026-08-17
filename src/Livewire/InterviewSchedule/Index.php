@@ -8,6 +8,7 @@ use Platform\Recruiting\Models\RecEventLocation;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewType;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Models\RecPosting;
 
 class Index extends Component
 {
@@ -24,6 +25,7 @@ class Index extends Component
     public $description = '';
     public $interview_type_id = '';
     public $rec_position_id = '';
+    public $rec_posting_id = '';
     public $location = '';
     public $starts_at = '';
     public $ends_at = '';
@@ -45,6 +47,7 @@ class Index extends Component
         'description' => 'nullable|string',
         'interview_type_id' => 'nullable|integer|exists:rec_interview_types,id',
         'rec_position_id' => 'nullable|integer|exists:rec_positions,id',
+        'rec_posting_id' => 'nullable|integer|exists:rec_postings,id',
         'location' => 'nullable|string|max:255',
         'starts_at' => 'required|date',
         'ends_at' => 'nullable|date|after_or_equal:starts_at',
@@ -102,6 +105,22 @@ class Index extends Component
             ->where('is_active', true)
             ->orderBy('title')
             ->get();
+    }
+
+    /** @return array<int,string> */
+    #[Computed]
+    public function postingOptions(): array
+    {
+        if ($this->rec_position_id === '' || $this->rec_position_id === null) {
+            return [];
+        }
+
+        return RecPosting::query()
+            ->where('team_id', auth()->user()->currentTeam->id)
+            ->where('rec_position_id', (int) $this->rec_position_id)
+            ->orderBy('title')
+            ->pluck('title', 'id')
+            ->all();
     }
 
     #[Computed]
@@ -195,6 +214,7 @@ class Index extends Component
         $this->description = $m->description ?? '';
         $this->interview_type_id = $m->interview_type_id ?? '';
         $this->rec_position_id = $m->rec_position_id ?? '';
+        $this->rec_posting_id = $m->rec_posting_id ?? '';
         $this->location = $m->location ?? '';
         $this->starts_at = $m->starts_at?->format('Y-m-d\TH:i') ?? '';
         $this->ends_at = $m->ends_at?->format('Y-m-d\TH:i') ?? '';
@@ -259,6 +279,7 @@ class Index extends Component
             'description' => $this->description ?: null,
             'interview_type_id' => $this->interview_type_id ?: null,
             'rec_position_id' => $this->rec_position_id ?: null,
+            'rec_posting_id' => $this->rec_posting_id !== '' ? (int) $this->rec_posting_id : null,
             'location' => $this->location ?: null,
             'starts_at' => $this->starts_at,
             'ends_at' => $this->ends_at ?: null,
@@ -310,6 +331,7 @@ class Index extends Component
         $this->description = '';
         $this->interview_type_id = '';
         $this->rec_position_id = '';
+        $this->rec_posting_id = '';
         $this->location = '';
         $this->starts_at = '';
         $this->ends_at = '';
