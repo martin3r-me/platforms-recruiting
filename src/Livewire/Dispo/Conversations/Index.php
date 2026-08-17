@@ -55,37 +55,31 @@ class Index extends Component
             $query->where('is_unread', true);
         }
 
-        $now = now();
+        $rows = $query->limit(200)->get();
 
-        return $query->limit(200)->get()->map(function ($t) use ($now) {
-            $employeeId = $this->matcher->match($t->remote_phone_number);
-            $contact = $employeeId !== null ? ($this->contactNames[$employeeId] ?? null) : null;
+        $matchedIds = $rows
+            ->map(fn ($t) => $this->matcher->match($t->remote_phone_number))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
 
-            return [
-                'id'           => (int) $t->id,
-                'label'        => $contact ?? (string) $t->remote_phone_number,
-                'employee_id'  => $employeeId,
-                'preview'      => (string) ($t->last_message_preview ?? ''),
-                'is_unread'    => (bool) $t->is_unread,
-                'last_at'      => optional($t->last_inbound_at ?? $t->last_outbound_at)->format('d.m.Y H:i'),
-                'window_open'  => DispoTimeCalculator::isReplyWindowOpen($t->last_inbound_at, $now),
-            ];
-        })->all();
-    }
-
-    /** @return array<int, string> employee_id => Anzeigename (einmal je Render geladen) */
-    #[Computed]
-    public function contactNames(): array
-    {
-        $ids = [];
-        if ($this->channelId !== null) {
-            $phones = app(DispoEmployeeGateway::class)->phoneDirectory();
-            $ids = array_keys($phones);
-        }
-
-        return $ids === [] ? [] : collect(app(DispoEmployeeGateway::class)->contacts($ids))
+        $names = $matchedIds === [] ? [] : collect(app(DispoEmployeeGateway::class)->contacts($matchedIds))
             ->map(fn ($c) => $c['name'])
             ->all();
+
+        return $rows->map(function ($t) use ($names) {
+            $employeeId = $this->matcher->match($t->remote_phone_number);
+
+            return [
+                'id'          => (int) $t->id,
+                'label'       => ($employeeId !== null ? ($names[$employeeId] ?? null) : null) ?? (string) $t->remote_phone_number,
+                'employee_id' => $employeeId,
+                'preview'     => (string) ($t->last_message_preview ?? ''),
+                'is_unread'   => (bool) $t->is_unread,
+                'last_at'     => optional($t->last_inbound_at ?? $t->last_outbound_at)->format('d.m.Y H:i'),
+            ];
+        })->all();
     }
 
     #[Computed]
@@ -162,9 +156,13 @@ class Index extends Component
 
     public function toggleUnread(int $threadId): void
     {
+        if ($this->channelId === null) {
+            return;
+        }
+
         $thread = CommsWhatsAppThread::query()
             ->whereKey($threadId)
-            ->where('comms_channel_id', $this->channelId ?? 0)
+            ->where('comms_channel_id', $this->channelId)
             ->first();
         if ($thread) {
             $thread->is_unread ? $thread->markAsRead() : $thread->markAsUnread();
