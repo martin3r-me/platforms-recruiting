@@ -194,6 +194,21 @@ class Index extends Component
         unset($this->selectedTemplateInfo);
     }
 
+    /**
+     * Wechselt der Nutzer die Stelle, nachdem bereits eine Ausschreibung
+     * gewählt wurde, würde sonst eine Ausschreibung der ALTEN Stelle am
+     * Termin hängen bleiben — genau die stille Fehlzuordnung, die die
+     * Einschränkung der Auswahlliste auf die gewählte Stelle verhindern
+     * soll. Deshalb: Auswahl zuruecksetzen und den Computed-Cache der
+     * Optionsliste invalidieren, sonst zeigt das Select noch die alten
+     * (zur neuen Stelle nicht mehr passenden) Ausschreibungen.
+     */
+    public function updatedRecPositionId(): void
+    {
+        $this->rec_posting_id = '';
+        unset($this->postingOptions);
+    }
+
     #[Computed]
     public function teamUsers()
     {
