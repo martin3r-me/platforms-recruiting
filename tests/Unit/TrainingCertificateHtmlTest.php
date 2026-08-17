@@ -278,4 +278,57 @@ class TrainingCertificateHtmlTest extends TestCase
             TrainingCertificateHtml::build($content, $this->assets())
         );
     }
+
+    /**
+     * ALTBESTAND: ein vor dem 17.08.2026 ausgestellter Snapshot traegt den
+     * rechten Fussblock selbst, mit dem NAMEN des Schulungsleiters. Die Huelle
+     * baut ihn seither auch — beide sind absolut auf dieselbe Position gesetzt.
+     *
+     * GEMESSEN, bevor dieser Test entstand: das PDF zeigte "MICHEL ZIMMER" quer
+     * ueber der neuen Unterschrift, mit zwei Linien und zwei Bildunterschriften.
+     * Kein Fehler, kein Log — nur ein kaputtes Dokument beim Bewerber.
+     */
+    public function testAlterSnapshotBringtKeinenZweitenLeiterBlockMit(): void
+    {
+        $alt = <<<'SNAP'
+<div class="val">Erika Mustermann</div>
+<div class="zert-datum">Düsseldorf, den 05.08.2026</div>
+
+<div class="zert-fuss-rechts">
+  <div class="leiter">Michel Zimmer</div>
+  <div class="linie"></div>
+  <div class="cap">Schulungsleiter</div>
+</div>
+SNAP;
+
+        $html = TrainingCertificateHtml::build($alt, $this->assets());
+
+        $this->assertStringNotContainsString(
+            'Michel Zimmer',
+            $html,
+            'Der Name aus dem alten Snapshot darf nicht mehr im Dokument stehen.'
+        );
+        $this->assertSame(
+            1,
+            substr_count($html, '<div class="zert-fuss-rechts">'),
+            'Genau EIN rechter Fussblock — der aus der Huelle.'
+        );
+        // Und der Rest des Snapshots bleibt unberuehrt: aufgeraeumt wird nur,
+        // was die Huelle selbst wieder anbaut.
+        $this->assertStringContainsString('Erika Mustermann', $html);
+        $this->assertStringContainsString('Düsseldorf, den 05.08.2026', $html);
+    }
+
+    /**
+     * Ein NEUER Snapshot enthaelt den Block nicht — die Aufraeumzeile darf dort
+     * nichts anfassen, und der Block der Huelle muss trotzdem genau einmal
+     * stehen.
+     */
+    public function testNeuerSnapshotBekommtGenauEinenLeiterBlock(): void
+    {
+        $html = TrainingCertificateHtml::build('<div class="val">Erika</div>', $this->assets());
+
+        $this->assertSame(1, substr_count($html, '<div class="zert-fuss-rechts">'));
+        $this->assertStringContainsString('<div class="cap">Schulungsleiter</div>', $html);
+    }
 }

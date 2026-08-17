@@ -105,6 +105,19 @@ final class TrainingCertificateHtml
         $leaderHtml = '<div class="zert-fuss-rechts">' . $leaderImg
             . '<div class="linie"></div><div class="cap">Schulungsleiter</div></div>';
 
+        // ALTBESTAND: Zertifikate, die VOR dem 17.08.2026 ausgestellt wurden,
+        // haben ihren Inhalt als Snapshot in der Datenbank — und der enthaelt
+        // den rechten Fussblock noch selbst, mit dem NAMEN des Schulungsleiters.
+        // Ohne diese Zeile rendert so ein Dokument beide Bloecke uebereinander:
+        // gemessen stand "MICHEL ZIMMER" quer ueber der neuen Unterschrift, mit
+        // zwei Linien und zwei Bildunterschriften. Beide sind absolut auf
+        // dieselbe Position gesetzt, sie koennen sich also nicht ausweichen.
+        //
+        // KEINE Datenmigration: der Snapshot ist bewusst unveraenderlich (er ist
+        // der Grund, warum ein zugestelltes Zertifikat stabil bleibt). Deshalb
+        // wird beim RENDERN aufgeraeumt, nicht in der Zeile.
+        $personalizedContent = self::ohneAltenLeiterBlock($personalizedContent);
+
         return <<<HTML
 <!DOCTYPE html>
 <html lang="de"><head><meta charset="UTF-8"><style>
@@ -163,5 +176,30 @@ final class TrainingCertificateHtml
 {$leaderHtml}
 </body></html>
 HTML;
+    }
+
+    /**
+     * Entfernt den rechten Fussblock, wenn er im Vorlageninhalt steckt.
+     *
+     * DAS MUSTER IST ABSICHTLICH ENG und beschreibt genau die historische Form
+     * (drei einfache Divs, keine tiefere Verschachtelung). Ein tolerantes
+     * ".*?</div>" koennte bei einem anders geformten Snapshot mehr wegnehmen als
+     * gemeint — und stiller Inhaltsverlust auf einem Zertifikat ist schlimmer
+     * als ein sichtbarer Doppelblock. Trifft das Muster nicht, bleibt der
+     * Doppelgaenger also stehen und faellt auf. Das ist die gewollte
+     * Fehlerrichtung.
+     *
+     * Aufgeraeumt wird nur, was die Huelle selbst wieder anbaut; alles andere
+     * am Snapshot bleibt unberuehrt.
+     */
+    private static function ohneAltenLeiterBlock(string $content): string
+    {
+        $muster = '#<div class="zert-fuss-rechts">\s*'
+            . '<div class="leiter">[^<]*</div>\s*'
+            . '<div class="linie"></div>\s*'
+            . '<div class="cap">[^<]*</div>\s*'
+            . '</div>#s';
+
+        return (string) preg_replace($muster, '', $content);
     }
 }
