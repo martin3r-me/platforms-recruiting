@@ -119,6 +119,12 @@ final class CohortViewModel
      * Fall 2 der Zuordnungsregel) und die offen-Menge werden damit genauso
      * anklickbar wie jede Zahl.
      *
+     * Der Vertrag ist FLACH: eine Spalte ist eine ID-Menge. `phase_reached` ist
+     * dagegen nach Phasen-`order` verschachtelt (`[order => ids]`) und passt hier
+     * nicht hinein — der order-qualifizierte Zugriff kommt in Task 8. Wer es
+     * trotzdem versucht, bekommt eine Exception statt einer stillen Zahl (siehe
+     * flatColumn).
+     *
      * @return list<int>
      */
     public function idsOf(array $row, string $column): array
@@ -128,8 +134,46 @@ final class CohortViewModel
             'hr_desk_ids' => $row['hr_desk_ids'] ?? [],
             'uneindeutig_ids' => $row['uneindeutig_ids'] ?? [],
             'offen_ids' => $row['offen_ids'] ?? [],
-            default => $row['columns'][$column] ?? [],
+            default => $this->flatColumn($row, $column),
         };
+    }
+
+    /**
+     * Spaltenwert als flache ID-Menge — mit lautem Abbruch bei verschachtelten
+     * Spalten.
+     *
+     * Warum eine Exception und nicht einfach `[]` oder das Verschachtelte selbst:
+     * `count()` auf `phase_reached` zaehlt PHASEN, nicht Bewerbungen (gemessen im
+     * Review: 44 statt 25). Das ist eine plausibel aussehende falsche Zahl in
+     * einer Zelle, und genau solche Zahlen soll diese Seite abschaffen — der
+     * Kunde konnte die alten nicht nachvollziehen. Ein verschachtelter
+     * Spaltenwert ist ein Programmierfehler des Aufrufers (z.B. `phase_reached`
+     * in die `$colDefs` der View aufgenommen, ohne den Zugriff je Phase zu
+     * bauen), kein Datenfall — also fail-loud statt fail-quiet.
+     *
+     * Geprueft wird die FORM, nicht der Spaltenname: kommt in Task 8 eine zweite
+     * verschachtelte Spalte dazu, greift die Sperre ohne Pflege einer Namensliste.
+     *
+     * Heute unerreichbar: `$colDefs` (index.blade.php) listet die Spalten
+     * einzeln auf und enthaelt `phase_reached` nicht; `tiles()` summiert
+     * namentlich. Ein gecrafteter `drill(token, 'phase_reached')`-Aufruf lief
+     * schon vorher in einen Fehler (verschachtelte Arrays in `whereIn`) — jetzt
+     * eben in einen sprechenden.
+     *
+     * @return list<int>
+     */
+    private function flatColumn(array $row, string $column): array
+    {
+        $value = $row['columns'][$column] ?? [];
+        if ($value !== [] && is_array(reset($value))) {
+            throw new \InvalidArgumentException(
+                "Spalte '{$column}' ist verschachtelt (z.B. phase_reached: [order => ids]) und "
+                . 'hat in idsOf()/countIn() keine flache ID-Menge. Zugriff je Phase '
+                . 'order-qualifiziert bauen (Task 8), nicht ueber den flachen Spalten-Vertrag.'
+            );
+        }
+
+        return $value;
     }
 
     /**

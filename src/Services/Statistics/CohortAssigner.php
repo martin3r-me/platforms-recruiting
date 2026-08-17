@@ -154,11 +154,22 @@ final class CohortAssigner
                 $row['uneindeutig_ids'][] = $a['id']; // Marker (Fall 2), kein Zeilentyp
             }
 
-            // Phase-Trichter, NETTO: nur laufende Kohorten zaehlen mit. Geparkte,
-            // Abgesagte und die ausgeschlossenen Buckets stehen laut
-            // Praezedenz-Kette in eigenen Zeilen und duerfen in KEINER
-            // Trichter-Spalte einer Ausschreibungs-Zeile mitlaufen — sonst zeigt
-            // der Trichter Leute, die gar nicht mehr im Rennen sind.
+            // Phase-Trichter, NETTO: nur laufende Kohorten (RUNNING_TYPES) fuellen
+            // phase_reached. Geparkte, Abgesagte und die ausgeschlossenen Buckets
+            // haben eigene Zeilen (Praezedenz-Kette) und bleiben dort mit LEERER
+            // phase_reached stehen — sonst zeigt der Phasen-Trichter Leute, die
+            // gar nicht mehr im Rennen sind.
+            //
+            // ACHTUNG, haeufiges Missverstaendnis: netto rechnet NUR phase_reached.
+            // Die alten Spalten sind es NICHT und werden es hier auch nicht:
+            //  - kontaktiert, vertrag_verschickt, unterschrieben (und tth_days)
+            //    fuellen JEDEN Zeilentyp, auch geparkt/abgesagt/dublette/import/
+            //    unrouted/ohne_datum/unbekannter_status;
+            //  - gebucht/bestaetigt/teilgenommen/no_show/standby nur auf
+            //    Schulungszeilen (sie haengen an der gewonnenen Buchung);
+            //  - offen_ids ist wie phase_reached auf RUNNING_TYPES begrenzt
+            //    (Nachlauf unter der Schleife).
+            // Wer das aendert, aendert Bestandszahlen — nicht beilaeufig tun.
             //
             // KUMULATIV und lueckenlos von 1 an: wer Phase 4 erreicht hat, hat 1
             // bis 3 durchlaufen, unabhaengig davon, ob das Transition-Log jeden
@@ -265,12 +276,7 @@ final class CohortAssigner
     private function groupFor(array $a, array $pivots): array
     {
         if ($pivots === []) {
-            // Fall 3: keine Zuordnung. posting_id bleibt null, Titel leer, closed
-            // false — den Platzhalter im Zeilen-Schluessel setzt assign().
-            return [
-                'ort' => 'ohne Ausschreibung', 'taetigkeit' => 'ohne Ausschreibung', 'uneindeutig' => false,
-                'posting_id' => null, 'posting_title' => '', 'posting_closed' => false,
-            ];
+            return self::noAssignment(); // Fall 3
         }
         // Fall 1: alle Pivots, die zur Position von rec_phase_id passen. Review-Fix 4:
         // bei mehreren Treffern deterministisch die kleinste posting_id, nicht Array-Reihenfolge.
@@ -284,6 +290,17 @@ final class CohortAssigner
         $candidates = $uneindeutig ? $pivots : $matching;
         usort($candidates, fn ($x, $y) => $x['posting_id'] <=> $y['posting_id']);
         $match = $candidates[0];
+        // Eine Pivot-Zeile ohne posting_id ist KEINE Zuordnung — sie fuehrt auf
+        // denselben Ausgang wie Fall 3. Ein blosser (int)-Cast waere hier still
+        // falsch: (int) null ist 0, und 0 saehe wie eine echte Ausschreibung aus.
+        // Alle Bewerbungen mit null-Pivot wuerden dann unter der Phantom-
+        // Ausschreibung 0 zu EINER Zeile verschmelzen, statt als "ohne
+        // Ausschreibung" auszuweisen. Heute nicht ausloesbar (posting_id ist ein
+        // Primaerschluessel), aber die Klasse behandelt den Fall sonst ueberall
+        // saeuberlich — diese eine Stelle darf nicht die Ausnahme sein.
+        if (($match['posting_id'] ?? null) === null) {
+            return self::noAssignment();
+        }
         return [
             'ort' => ($match['location'] !== null && $match['location'] !== '') ? $match['location'] : 'ohne Ort',
             'taetigkeit' => ($match['activity'] !== null && $match['activity'] !== '') ? $match['activity'] : 'ohne Tätigkeit',
@@ -294,6 +311,23 @@ final class CohortAssigner
             'posting_id' => (int) $match['posting_id'],
             'posting_title' => (string) ($match['posting_title'] ?? ''),
             'posting_closed' => (bool) ($match['posting_closed'] ?? false),
+        ];
+    }
+
+    /**
+     * „Keine Ausschreibungs-Zuordnung" — Fall 3 der Zuordnungsregel und der
+     * Ausgang fuer eine Pivot-Zeile ohne posting_id. Als eine Quelle, damit die
+     * beiden Wege nicht auseinanderlaufen koennen; den Platzhalter im
+     * Zeilen-Schluessel setzt assign().
+     *
+     * @return array{ort:string, taetigkeit:string, uneindeutig:bool,
+     *               posting_id:null, posting_title:string, posting_closed:bool}
+     */
+    private static function noAssignment(): array
+    {
+        return [
+            'ort' => 'ohne Ausschreibung', 'taetigkeit' => 'ohne Ausschreibung', 'uneindeutig' => false,
+            'posting_id' => null, 'posting_title' => '', 'posting_closed' => false,
         ];
     }
 }

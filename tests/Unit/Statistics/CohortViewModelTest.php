@@ -196,6 +196,51 @@ final class CohortViewModelTest extends TestCase
         $this->assertSame([], $vm->idsOf($row, 'gibt_es_nicht'));
     }
 
+    public function test_verschachtelte_spalte_wird_laut_abgelehnt_statt_falsch_gezaehlt(): void
+    {
+        // Review-Befund M4: phase_reached ist [order => ids] und passt nicht in
+        // den flachen Spalten-Vertrag. count() darauf zaehlt PHASEN statt
+        // Bewerbungen — eine plausibel aussehende falsche Zahl in einer Zelle,
+        // also genau das, was diese Seite abschaffen soll. Der order-qualifizierte
+        // Zugriff kommt in Task 8; bis dahin (und danach) ist die Fehlnutzung ein
+        // Programmierfehler und muss knallen, nicht schweigen.
+        $row = $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [1, 2, 3], columns: [
+            'phase_reached' => [1 => [1, 2, 3], 2 => [2, 3]],
+        ]);
+        $vm = $this->vm();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/phase_reached/');
+        $vm->idsOf($row, 'phase_reached');
+    }
+
+    public function test_countIn_reicht_die_ablehnung_der_verschachtelten_spalte_durch(): void
+    {
+        // countIn/resolveIds laufen ueber idsOf — die Sperre darf nicht auf dem
+        // Weg durch den Aggregations-Pfad verloren gehen (das ist der Pfad, den
+        // die View benutzt).
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [1, 2, 3], columns: [
+                'phase_reached' => [1 => [1, 2, 3], 2 => [2, 3]],
+            ]),
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->vm()->countIn($rows, 'phase_reached');
+    }
+
+    public function test_leere_verschachtelte_spalte_bleibt_eine_leere_menge(): void
+    {
+        // Die Sperre prueft die FORM des Inhalts, nicht den Spaltennamen: auf
+        // einer ausgeschiedenen Zeile ist phase_reached leer und damit von einer
+        // flachen leeren Spalte nicht zu unterscheiden — das darf nicht knallen,
+        // sonst waere jede geparkt-Zeile ein Absturzkandidat.
+        $row = $this->row('geparkt', '-', 'Essen', 'Service', [1], columns: ['phase_reached' => []]);
+
+        $this->assertSame([], $this->vm()->idsOf($row, 'phase_reached'));
+        $this->assertSame(0, $this->vm()->countIn([$row], 'phase_reached'));
+    }
+
     public function test_scope_row_trifft_genau_eine_zeile(): void
     {
         $rows = [
