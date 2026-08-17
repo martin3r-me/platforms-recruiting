@@ -229,6 +229,51 @@ final class CohortViewModelTest extends TestCase
         $this->vm()->countIn($rows, 'phase_reached');
     }
 
+    public function test_client_grenze_liefert_bei_verschachtelter_spalte_leer_statt_zu_werfen(): void
+    {
+        // Genau der Weg, den drill() nimmt: $column kommt aus dem Request und ist
+        // manipulierbar (drill() ist eine oeffentliche Livewire-Methode). Ein
+        // gecrafteter drill(token, 'phase_reached') darf KEINE Fehlerseite
+        // erzeugen, sondern eine leere Auswahl — dieselbe fail-closed-Regel wie
+        // fuer einen unbrauchbaren Token und einen unbekannten Scope.
+        // Die Sperre selbst bleibt laut: siehe die flatColumn-Tests oben.
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [1, 2, 3], columns: [
+                'phase_reached' => [1 => [1, 2, 3], 2 => [2, 3]],
+            ], postingId: 48),
+        ];
+        $vm = $this->vm();
+
+        // kein expectException: dieser Aufruf darf nicht werfen
+        $this->assertSame([], $vm->resolveIdsFromClient($rows, ['scope' => 'all'], 'phase_reached'));
+        $this->assertSame([], $vm->resolveIdsFromClient($rows, [
+            'scope' => 'row', 'ort' => 'Essen', 'act' => 'Service',
+            'type' => 'ohne_schulung', 'key' => 'ohne_schulung:1|Neu', 'posting' => 48,
+        ], 'phase_reached'));
+
+        // ... und der Weg bleibt fuer alles Brauchbare voll funktionsfaehig —
+        // das Abfangen darf nicht zum pauschalen "immer leer" verkommen
+        $this->assertSame([1, 2, 3], $vm->resolveIdsFromClient($rows, ['scope' => 'all'], 'ids'));
+        $this->assertSame([1, 2, 3], $vm->resolveIdsFromClient($rows, [
+            'scope' => 'row', 'ort' => 'Essen', 'act' => 'Service',
+            'type' => 'ohne_schulung', 'key' => 'ohne_schulung:1|Neu', 'posting' => 48,
+        ], 'ids'));
+        // unbekannter Spaltenname verhaelt sich unveraendert (leer, kein Wurf)
+        $this->assertSame([], $vm->resolveIdsFromClient($rows, ['scope' => 'all'], 'gibt_es_nicht'));
+    }
+
+    public function test_client_grenze_verschluckt_nur_die_form_sperre(): void
+    {
+        // Gefangen wird bewusst NUR InvalidArgumentException (die Form-Sperre aus
+        // flatColumn). Ein pauschales catch \Throwable haette jeden echten Defekt
+        // in der Aufloesung zu einem stillen "keine Treffer" gemacht — genau die
+        // Fehlerklasse, die diese Seite abschaffen soll.
+        // Beleg mit einem echten Defekt: eine malformte Zeile (kein Array) laeuft
+        // in den TypeError von idsOf() und bleibt sichtbar.
+        $this->expectException(\TypeError::class);
+        $this->vm()->resolveIdsFromClient(['keine Zeile, sondern ein String'], ['scope' => 'all'], 'ids');
+    }
+
     public function test_leere_verschachtelte_spalte_bleibt_eine_leere_menge(): void
     {
         // Die Sperre prueft die FORM des Inhalts, nicht den Spaltennamen: auf

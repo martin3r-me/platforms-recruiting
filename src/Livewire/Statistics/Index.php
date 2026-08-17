@@ -427,6 +427,17 @@ class Index extends Component
      * Assigner-Zeilen aufgeloest — das Token benennt nur eine Menge, es liefert
      * keine IDs. Damit kann ein manipuliertes Token nichts sehen, was die
      * aktuelle (team-gescopte) Kohorte nicht ohnehin enthaelt.
+     *
+     * Diese Methode ist die CLIENT-GRENZE: $token, $column und $columnLabel
+     * kommen aus dem Request. Alle drei Bestandteile werden hier deshalb nach
+     * derselben Regel behandelt — unbrauchbar heisst LEERE Auswahl, nicht
+     * Fehlerseite:
+     *  - Token nicht dekodierbar  → Abbruch (unten),
+     *  - Scope unbekannt          → resolveIds trifft nichts (fail-closed dort),
+     *  - Spalte unbrauchbar       → resolveIdsFromClient liefert [].
+     * Innen gilt die andere Regel: ein verschachtelter Spaltenwert ist ein
+     * Programmierfehler und wirft in CohortViewModel::flatColumn weiter. Was von
+     * draussen kommt, ist Eingabe; was drinnen passiert, ist Code.
      */
     public function drill(string $token, string $column = 'ids', string $columnLabel = ''): void
     {
@@ -436,7 +447,7 @@ class Index extends Component
             return;
         }
 
-        $this->drillIds = $vm->resolveIds($this->cohort['rows'], $spec, $column);
+        $this->drillIds = $vm->resolveIdsFromClient($this->cohort['rows'], $spec, $column);
 
         $prefix = (string) ($spec['prefix'] ?? '');
         $this->drillLabel = $columnLabel === '' ? $prefix : trim($prefix . ' — ' . $columnLabel);

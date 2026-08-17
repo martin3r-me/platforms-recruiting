@@ -263,6 +263,38 @@ final class CohortViewModel
     }
 
     /**
+     * CLIENT-GRENZE: wie resolveIds, aber fail-closed statt laut — fuer alles, was
+     * aus einem Request kommt (drill() in der Livewire-Komponente).
+     *
+     * Die Trennlinie, und sie ist beabsichtigt:
+     *  - INNEN laut. Ein verschachtelter Spaltenwert in idsOf()/flatColumn() ist
+     *    ein Programmierfehler des Aufrufers (phase_reached ohne den
+     *    order-qualifizierten Zugriff aus Task 8) und muss knallen, sonst zeigt
+     *    eine Zelle eine plausible falsche Zahl.
+     *  - AN DER GRENZE still. Was von draussen kommt, ist EINGABE, nicht Code:
+     *    $column stammt bei drill() aus dem Request und ist damit manipulierbar.
+     *    Eine unbrauchbare Angabe liefert deshalb eine leere Menge — dieselbe
+     *    Regel, die hier schon fuer einen unbrauchbaren Token (decodeScope →
+     *    null) und einen unbekannten Scope (default → nichts) gilt. Ein
+     *    gecrafteter Request darf die Seite nicht sprengen.
+     *
+     * Fangt bewusst NUR InvalidArgumentException (die Form-Sperre aus
+     * flatColumn) — alles andere waere ein echter Defekt und soll sichtbar
+     * bleiben, kein pauschales catch \Throwable.
+     *
+     * @param  list<array>  $rows
+     * @return list<int>
+     */
+    public function resolveIdsFromClient(array $rows, array $spec, string $column): array
+    {
+        try {
+            return $this->resolveIds($rows, $spec, $column);
+        } catch (\InvalidArgumentException) {
+            return [];
+        }
+    }
+
+    /**
      * Conversion einer Zeilenmenge in Prozent (unterschrieben / Bewerbungen).
      *
      * null bedeutet „keine Quote", NICHT 0 %: ohne Bewerbungen ist nichts
