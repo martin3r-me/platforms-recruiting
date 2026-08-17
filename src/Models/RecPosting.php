@@ -41,6 +41,41 @@ class RecPosting extends Model
         });
     }
 
+    /**
+     * Leere Eingabe ('', null, reine Leerzeichen) wird schon beim SCHREIBEN
+     * zu NULL, nicht erst beim Lesen.
+     *
+     * Grund: der `integer`-Cast in $casts wirkt nur beim LESEN
+     * (getAttribute), nicht beim Schreiben. Ohne diesen Setter landet ein
+     * per wire:model geleertes Formularfeld ('' auf dem Attribut) roh in
+     * $attributes; Livewire liest den Wert vor dem Speichern zurueck, der
+     * Cast macht daraus sofort int(0) — und 0 bedeutet fachlich "Ziel
+     * erreicht mit null Personen", nicht "nicht gepflegt" (Spec: nichts
+     * wird geraten, fehlt ein Wert, fehlt die Ampel). Eine bewusste "0" ist
+     * KEINE leere Eingabe und bleibt 0. Bitte NICHT als Redundanz zum Cast
+     * entfernen — der Cast kann das Schreiben nicht abdecken.
+     */
+    public function setBedarfAttribute($value): void
+    {
+        $this->attributes['bedarf'] = ($value === null || trim((string) $value) === '') ? null : $value;
+    }
+
+    /**
+     * Gleicher Mechanismus wie setBedarfAttribute() — siehe dort fuer die
+     * ausfuehrliche Begruendung (Cast wirkt nur beim Lesen).
+     *
+     * Hier ist die Wirkung eines fehlenden Setters gravierender: '' wuerde
+     * ueber den `float`-Cast zu float(0.0), das scheitert an der
+     * Validierungsregel min:0.1 — und weil `save()` bei fehlgeschlagener
+     * Validierung komplett abbricht, liesse sich dann das GESAMTE Formular
+     * nicht mehr speichern (Titel, Status, Datum inklusive), sobald der
+     * Faktor einmal gefuellt war und wieder geleert wird.
+     */
+    public function setBewerbungsFaktorAttribute($value): void
+    {
+        $this->attributes['bewerbungs_faktor'] = ($value === null || trim((string) $value) === '') ? null : $value;
+    }
+
     public function position()
     {
         return $this->belongsTo(RecPosition::class, 'rec_position_id');
