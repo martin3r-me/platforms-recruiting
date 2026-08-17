@@ -19,13 +19,21 @@ use Platform\Recruiting\Support\SeatStandbyPolicy;
  *                     // unbekannter_status|geparkt|abgesagt|ohne_schulung
  *     key: string,    // z.B. "schulung:42", "ohne_schulung:2|Onboarding"
  *     group: array{ort:string, taetigkeit:string, uneindeutig:bool},
+ *     posting_id: ?int,        // v2: die Ausschreibung fuehrt den Zeilen-Schluessel,
+ *     posting_title: string,   // jede Ausschreibung bekommt ihre eigene Zeile.
+ *     posting_closed: bool,    // Ohne Zuordnung (Fall 3): null / '' / false.
  *     ids: list<int>,
  *     hr_desk_ids: list<int>,
  *     uneindeutig_ids: list<int>,  // Fall 2 der Zuordnungsregel (Spec §4): kein
  *                                  // Pivot passte zur Phase-Position, Fallback griff
  *     columns: array{kontaktiert:list<int>, gebucht:list<int>, bestaetigt:list<int>,
  *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>,
- *                    vertrag_verschickt:list<int>, unterschrieben:list<int>},
+ *                    vertrag_verschickt:list<int>, unterschrieben:list<int>,
+ *                    phase_reached:array<int,list<int>>},
+ *                    // phase_reached[$order] = Bewerbungen, die die Phase mit dieser
+ *                    // order erreicht haben — KUMULATIV und lueckenlos von 1 an, und
+ *                    // NETTO: nur laufende Zeilentypen (RUNNING_TYPES) fuellen es,
+ *                    // Geparkte/Abgesagte/Buckets tauchen im Trichter nicht auf.
  *     tth_days: list<int>,  // Eingang→Unterschrift DIESER Zeile (P5: Kacheln
  *                           // aggregieren ueber dieselben gefilterten Zeilen)
  *     offen_ids: list<int>,       // Right-Censoring (Spec §6): ids − unterschrieben
@@ -83,18 +91,46 @@ final class CohortAssigner
             $totalIds[] = $a['id'];
 
             [$type, $key, $booking] = $this->rowTypeFor($a, $bookingsByApplicant[$a['id']] ?? []);
-            $group = $this->groupFor($a, $pivotsByApplicant[$a['id']] ?? []);
+            $assignment = $this->groupFor($a, $pivotsByApplicant[$a['id']] ?? []);
+            // group behaelt sein Shape (Ort/Taetigkeit/uneindeutig) — die
+            // Ausschreibungs-Felder sitzen auf der ZEILE, nicht in der Gruppe:
+            // die Gruppierung der Anzeige (CohortViewModel) liest group und darf
+            // von der neuen Granularitaet nichts mitbekommen.
+            $group = [
+                'ort' => $assignment['ort'],
+                'taetigkeit' => $assignment['taetigkeit'],
+                'uneindeutig' => $assignment['uneindeutig'],
+            ];
 
-            $rowKey = $type . '|' . $key . '|' . $group['ort'] . '|' . $group['taetigkeit'];
+            // v2: die Ausschreibung fuehrt den Zeilen-Schluessel — zwei
+            // Ausschreibungen derselben Ort/Taetigkeit-Gruppe bilden getrennte
+            // Zeilen (frueher waren sie zu einer Gruppenzeile verschmolzen, und
+            // genau das konnte der Kunde nicht nachvollziehen). Der bisherige
+            // Gruppierungs-Anteil bleibt vollstaendig erhalten, damit die
+            // Praezedenz-Kette und die Fallbacks weiter trennen wie bisher.
+            //
+            // 'ohne' ist ein STABILER Platzhalter fuer Bewerbungen ohne
+            // Zuordnung (Fall 3): ein leerer Anteil wuerde den Schluessel
+            // kollabieren lassen und koennte mit einer echten posting_id
+            // kollidieren. Im Row-Shape bleibt posting_id trotzdem null.
+            $postingPart = $assignment['posting_id'] === null
+                ? 'ohne'
+                : (string) $assignment['posting_id'];
+            $rowKey = 'posting:' . $postingPart
+                . '|' . $type . '|' . $key . '|' . $group['ort'] . '|' . $group['taetigkeit'];
             if (!isset($rows[$rowKey])) {
                 $rows[$rowKey] = [
                     'type' => $type, 'key' => $key, 'group' => $group,
+                    'posting_id' => $assignment['posting_id'],
+                    'posting_title' => $assignment['posting_title'],
+                    'posting_closed' => $assignment['posting_closed'],
                     'ids' => [], 'hr_desk_ids' => [], 'uneindeutig_ids' => [], 'tth_days' => [],
                     'max_applied_at' => null,
                     'columns' => [
                         'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [],
                         'vertrag_verschickt' => [], 'unterschrieben' => [],
+                        'phase_reached' => [],
                     ],
                 ];
             }
@@ -116,6 +152,24 @@ final class CohortAssigner
             }
             if ($group['uneindeutig']) {
                 $row['uneindeutig_ids'][] = $a['id']; // Marker (Fall 2), kein Zeilentyp
+            }
+
+            // Phase-Trichter, NETTO: nur laufende Kohorten zaehlen mit. Geparkte,
+            // Abgesagte und die ausgeschlossenen Buckets stehen laut
+            // Praezedenz-Kette in eigenen Zeilen und duerfen in KEINER
+            // Trichter-Spalte einer Ausschreibungs-Zeile mitlaufen — sonst zeigt
+            // der Trichter Leute, die gar nicht mehr im Rennen sind.
+            //
+            // KUMULATIV und lueckenlos von 1 an: wer Phase 4 erreicht hat, hat 1
+            // bis 3 durchlaufen, unabhaengig davon, ob das Transition-Log jeden
+            // Zwischenschritt protokolliert hat (Entscheidung 2026-08-17). Ein
+            // Zaehlen nur der protokollierten Schritte haette den Trichter an der
+            // Log-Vollstaendigkeit haengen lassen.
+            $reached = $a['phase_order_reached'] ?? null;
+            if ($reached !== null && in_array($type, self::RUNNING_TYPES, true)) {
+                for ($order = 1; $order <= (int) $reached; $order++) {
+                    $row['columns']['phase_reached'][$order][] = $a['id'];
+                }
             }
 
             if ($a['enrichment_status'] !== null && $a['enrichment_status'] !== 'no_contact') {
@@ -199,11 +253,24 @@ final class CohortAssigner
         return ['ohne_schulung', 'ohne_schulung:' . $phaseKey, null];
     }
 
-    /** Zuordnungsregel (Spec §4, fuenf Faelle) → Gruppe, nie Zeilentyp */
+    /**
+     * Zuordnungsregel (Spec §4, fuenf Faelle) → Gruppe UND Ausschreibung, nie
+     * Zeilentyp. Die Auswahl-Logik der fuenf Faelle ist unveraendert; sie gibt
+     * jetzt zusaetzlich aus, WELCHE Ausschreibung gewonnen hat, damit die Zeile
+     * daran haengen kann.
+     *
+     * @return array{ort:string, taetigkeit:string, uneindeutig:bool,
+     *               posting_id:?int, posting_title:string, posting_closed:bool}
+     */
     private function groupFor(array $a, array $pivots): array
     {
         if ($pivots === []) {
-            return ['ort' => 'ohne Ausschreibung', 'taetigkeit' => 'ohne Ausschreibung', 'uneindeutig' => false]; // Fall 3
+            // Fall 3: keine Zuordnung. posting_id bleibt null, Titel leer, closed
+            // false — den Platzhalter im Zeilen-Schluessel setzt assign().
+            return [
+                'ort' => 'ohne Ausschreibung', 'taetigkeit' => 'ohne Ausschreibung', 'uneindeutig' => false,
+                'posting_id' => null, 'posting_title' => '', 'posting_closed' => false,
+            ];
         }
         // Fall 1: alle Pivots, die zur Position von rec_phase_id passen. Review-Fix 4:
         // bei mehreren Treffern deterministisch die kleinste posting_id, nicht Array-Reihenfolge.
@@ -221,6 +288,12 @@ final class CohortAssigner
             'ort' => ($match['location'] !== null && $match['location'] !== '') ? $match['location'] : 'ohne Ort',
             'taetigkeit' => ($match['activity'] !== null && $match['activity'] !== '') ? $match['activity'] : 'ohne Tätigkeit',
             'uneindeutig' => $uneindeutig,
+            // Titel/closed sind reine Anzeige-Beigaben der gewonnenen Zuordnung.
+            // Mit ??-Fallback, weil sie erst mit v2 in den Pivot-Shape kommen und
+            // ein Aufrufer-Stand ohne sie die Seite nicht zerlegen soll.
+            'posting_id' => (int) $match['posting_id'],
+            'posting_title' => (string) ($match['posting_title'] ?? ''),
+            'posting_closed' => (bool) ($match['posting_closed'] ?? false),
         ];
     }
 }

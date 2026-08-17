@@ -14,6 +14,7 @@ class CohortAssignerTest extends TestCase
             'duplicate' => false, 'unrouted' => false, 'import' => false,
             'parked' => false, 'rejected' => false, 'hr_desk' => false,
             'phase_position_id' => null, 'phase_name' => null, 'phase_order' => null,
+            'phase_order_reached' => null,
             'enrichment_status' => 'enriched', 'contract_sent' => false,
             'contract_signed' => false, 'applied_to_signed_days' => null,
         ];
@@ -31,6 +32,7 @@ class CohortAssignerTest extends TestCase
     {
         return $overrides + [
             'posting_id' => $postingId, 'position_id' => 1, 'location' => null, 'activity' => null,
+            'posting_title' => 'Ausschreibung ' . $postingId, 'posting_closed' => false,
         ];
     }
 
@@ -192,9 +194,25 @@ class CohortAssignerTest extends TestCase
             ],
             null, null
         );
-        $this->assertCount(1, $result['rows'], 'beide landen in derselben Gruppe (gleicher Ort/Taetigkeit-Fallback)');
-        $this->assertSame([1, 2], $result['rows'][0]['ids']);
-        $this->assertSame([1], $result['rows'][0]['uneindeutig_ids'], 'nur Bewerber 1 hat keinen passenden Pivot-Treffer');
+        // v2 (2026-08-17): die Ausschreibung fuehrt den Zeilen-Schluessel, also
+        // trennen Posting 100 und 200 die Zeilen — die GRUPPE ist weiterhin
+        // dieselbe (gleicher Ort/Taetigkeit-Fallback), was hier mitgeprueft wird.
+        // Gegenstand des Tests bleibt unveraendert der uneindeutig-Marker.
+        $this->assertCount(2, $result['rows'], 'je Ausschreibung eine Zeile');
+        $byPosting = [];
+        foreach ($result['rows'] as $row) {
+            $byPosting[$row['posting_id']] = $row;
+        }
+        $ortAct = fn (array $row) => [$row['group']['ort'], $row['group']['taetigkeit']];
+        $this->assertSame(
+            $ortAct($byPosting[100]),
+            $ortAct($byPosting[200]),
+            'beide landen in derselben Gruppe (gleicher Ort/Taetigkeit-Fallback)'
+        );
+        $this->assertSame([1], $byPosting[100]['ids']);
+        $this->assertSame([1], $byPosting[100]['uneindeutig_ids'], 'nur Bewerber 1 hat keinen passenden Pivot-Treffer');
+        $this->assertSame([2], $byPosting[200]['ids']);
+        $this->assertSame([], $byPosting[200]['uneindeutig_ids'], 'Bewerber 2 hat einen passenden Pivot-Treffer');
     }
 
     public function test_abgesagt_schlaegt_geparkt(): void
@@ -326,5 +344,98 @@ class CohortAssignerTest extends TestCase
             $this->assertArrayHasKey('offen_ids', $row, 'Shape-Zusage gilt fuer JEDEN Zeilentyp');
             $this->assertArrayHasKey('max_applied_at', $row);
         }
+    }
+
+    // ---------------------------------------------------------------- //
+    // v2: Zeilen je Ausschreibung, Phase-erreicht-Spalten, netto       //
+    // ---------------------------------------------------------------- //
+
+    public function test_zeilen_werden_nach_ausschreibung_gebildet(): void
+    {
+        $rows = (new CohortAssigner())->assign(
+            [
+                $this->applicant(1, ['phase_position_id' => 5]),
+                $this->applicant(2, ['phase_position_id' => 5]),
+                $this->applicant(3, ['phase_position_id' => 5]),
+            ],
+            [],
+            [
+                1 => [['posting_id' => 48, 'position_id' => 5, 'location' => 'MGL', 'activity' => 'Catering',
+                       'posting_title' => 'Cateringhilfe', 'posting_closed' => false]],
+                2 => [['posting_id' => 48, 'position_id' => 5, 'location' => 'MGL', 'activity' => 'Catering',
+                       'posting_title' => 'Cateringhilfe', 'posting_closed' => false]],
+                3 => [['posting_id' => 46, 'position_id' => 5, 'location' => 'MGL', 'activity' => 'Zapfer',
+                       'posting_title' => 'Zapfer', 'posting_closed' => false]],
+            ],
+            null,
+            null,
+        )['rows'];
+
+        // Zwei Ausschreibungen -> zwei Zeilen, nicht eine Gruppe
+        $byPosting = [];
+        foreach ($rows as $row) {
+            $byPosting[$row['posting_id']][] = $row;
+        }
+        $this->assertSame([48, 46], array_keys($byPosting));
+        $this->assertSame([1, 2], $byPosting[48][0]['ids']);
+        $this->assertSame('Cateringhilfe', $byPosting[48][0]['posting_title']);
+        $this->assertSame([3], $byPosting[46][0]['ids']);
+    }
+
+    public function test_phase_erreicht_ist_kumulativ(): void
+    {
+        $rows = (new CohortAssigner())->assign(
+            [
+                $this->applicant(1, ['phase_order_reached' => 1]),
+                $this->applicant(2, ['phase_order_reached' => 2]),
+                $this->applicant(3, ['phase_order_reached' => 4]),
+            ],
+            [], [], null, null,
+        )['rows'];
+
+        $row = $rows[0];
+        // Wer Phase 4 erreicht hat, hat auch 1, 2 und 3 erreicht
+        $this->assertSame([1, 2, 3], $row['columns']['phase_reached'][1]);
+        $this->assertSame([2, 3], $row['columns']['phase_reached'][2]);
+        $this->assertSame([3], $row['columns']['phase_reached'][3]);
+        $this->assertSame([3], $row['columns']['phase_reached'][4]);
+        $this->assertArrayNotHasKey(5, $row['columns']['phase_reached']);
+    }
+
+    public function test_ausgeschiedene_zaehlen_nicht_im_trichter(): void
+    {
+        // Entscheidung 2026-08-17: der Trichter rechnet netto. Geparkte und
+        // Abgesagte stehen in eigenen Zeilen (Praezedenz-Kette) und tauchen in
+        // KEINER Trichter-Spalte einer Ausschreibungs-Zeile auf.
+        $result = (new CohortAssigner())->assign(
+            [
+                $this->applicant(1, ['phase_order_reached' => 2]),
+                $this->applicant(2, ['phase_order_reached' => 2, 'parked' => true]),
+                $this->applicant(3, ['phase_order_reached' => 2, 'rejected' => true]),
+            ],
+            [], [], null, null,
+        );
+
+        $laufend = array_values(array_filter($result['rows'], fn ($r) => $r['type'] === 'ohne_schulung'));
+        $this->assertSame([1], $laufend[0]['columns']['phase_reached'][2]);
+
+        // aber die Rekonziliation bleibt vollstaendig: alle drei sind erfasst
+        $this->assertCount(3, $result['total_ids']);
+        $typen = array_column($result['rows'], 'type');
+        $this->assertContains('geparkt', $typen);
+        $this->assertContains('abgesagt', $typen);
+    }
+
+    public function test_geschlossene_ausschreibung_wird_markiert(): void
+    {
+        $rows = (new CohortAssigner())->assign(
+            [$this->applicant(1, ['phase_position_id' => 5])],
+            [],
+            [1 => [['posting_id' => 37, 'position_id' => 5, 'location' => 'MGL', 'activity' => 'Alles',
+                    'posting_title' => 'MGL allgemein', 'posting_closed' => true]]],
+            null, null,
+        )['rows'];
+
+        $this->assertTrue($rows[0]['posting_closed']);
     }
 }
