@@ -90,12 +90,19 @@ allgemein (4). Der Effekt ist also nicht selten, sondern nimmt zu (~2 Fälle pro
 Tag). Betroffene Bewerber-IDs: 2320, 2328, 2424, 2498, 2603, 2604, 2611, 2612,
 2622, 2685, 2726, 2767, 2768, 2772, 2807.
 
-**Entscheidung:** Die Schwelle der Regel ist klar überschritten → **Task 6b wird
-eingeschoben** (nach Task 2, weil das Feld gebraucht wird, und nach Task 6, damit
-HR die Zuordnung pflegen kann — also unmittelbar vor dem Stufe-1-Deploy).
-In V2 ist die Ausschreibung die Zeile; ohne den Fix sitzen 15 Bewerber (und
-wachsend) in Zeilen, auf die sie sich nie beworben haben, und zählen gegen einen
-fremden Bedarf.
+**Entscheidung (Auftraggeber, 2026-08-17): eigenes Ticket, nicht in diesem
+Branch.** Der Fix würde den Buchungs-Flow berühren, und dieser Branch soll die
+Statistik nicht mit einer Änderung am Buchen vermischen. V2 wird also ohne ihn
+gebaut. Folge, bewusst in Kauf genommen: die betroffenen Bewerber sitzen in
+Zeilen, auf die sie sich nie beworben haben, und zählen gegen einen fremden
+Bedarf — sichtbar bleibt das über den vorhandenen „Zuordnung unklar"-Marker
+(`uneindeutig_ids`), der in Task 8 an der Zeile gerendert wird.
+
+**Folge-Ticket (außerhalb dieses Plans):** `switchToPosition()` soll die
+Ausschreibung des gebuchten Termins nehmen (`rec_interviews.rec_posting_id` aus
+Task 2), wenn sie gesetzt ist, und nur sonst auf die heutige Auswahl der ersten
+aktiven Ausschreibung zurückfallen — dann mit einem `matched_via`-Vermerk, damit
+der Fall messbar bleibt.
 
 ---
 
@@ -731,7 +738,7 @@ git commit -m "feat(recruiting): TargetLight — Pipeline-Ampel als Hochrechnung
 
 - [ ] **Step 1: Validierung ergänzen**
 
-In `src/Livewire/Posting/Show.php` in `rules()` aufnehmen (Model-Binding wie bei `posting.title`, kein Datums-Problem):
+In `src/Livewire/Posting/Show.php` in `rules()` aufnehmen (Model-Binding wie bei `posting.title`):
 
 ```php
 'posting.bedarf' => 'nullable|integer|min:0|max:10000',
@@ -739,6 +746,18 @@ In `src/Livewire/Posting/Show.php` in `rules()` aufnehmen (Model-Binding wie bei
 ```
 
 `save()` braucht keine Änderung — `$this->posting->save()` schreibt die model-gebundenen Felder mit.
+
+> **KORREKTUR aus Fix-Runde 1 (2026-08-17):** Der Satz „Model-Binding, kein
+> Datums-Problem" war falsch. Ein primitiver Cast (`integer`/`float`) wirkt nur
+> beim **Lesen** — ein leeres Eingabefeld setzt `''` auf das Attribut, und
+> Livewire liest daraus `int(0)` bzw. `float(0.0)` zurück. Folge: leeres
+> Bedarf-Feld wird als **0** gespeichert („Ziel erreicht mit null Personen"
+> statt „nicht gepflegt"), und ein einmal gefülltes Faktor-Feld lässt sich nie
+> wieder leeren, weil `0.0` an `min:0.1` scheitert und dann das **gesamte**
+> Formular blockiert. Fix per **Mutatoren an `RecPosting`** (Entscheidung des
+> Auftraggebers), damit die Regel „leer heißt nicht gepflegt" für jeden
+> Schreibweg gilt und nicht nur für dieses Formular. Getestet in der
+> Integration-Suite, weil Eloquent-Mutatoren einen Container brauchen.
 
 - [ ] **Step 2: Eingabefelder ins Blade**
 
