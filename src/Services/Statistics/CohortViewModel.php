@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Services\Statistics;
 
+use Platform\Recruiting\Support\YmdDate;
+
 /**
  * Anzeige-Logik der Statistik-Seite (Spec §3) — absichtlich frei von Livewire,
  * Laravel und DB: Gruppierung/Sortierung der Assigner-Zeilen und die Aufloesung
@@ -275,7 +277,7 @@ final class CohortViewModel
             return true;
         }
 
-        $age = self::ageInDays($rowMaxAppliedAt, $todayYmd);
+        $age = YmdDate::daysBetween($rowMaxAppliedAt, $todayYmd);
         if ($age === null) {
             return true;
         }
@@ -340,32 +342,6 @@ final class CohortViewModel
         return count($rows) > 1
             ? $this->isCensoredAggregate($rows, $todayYmd, $tthMedian)
             : $this->isCensored($this->maxAppliedAt($rows), $todayYmd, $tthMedian);
-    }
-
-    /** Ganze Tage zwischen zwei Y-m-d-Strings; negativ moeglich, null = unlesbar. */
-    private static function ageInDays(string $fromYmd, string $toYmd): ?int
-    {
-        $from = self::parseYmd($fromYmd);
-        $to = self::parseYmd($toYmd);
-        if ($from === null || $to === null) {
-            return null;
-        }
-
-        return (int) floor(($to->getTimestamp() - $from->getTimestamp()) / 86400);
-    }
-
-    private static function parseYmd(string $value): ?\DateTimeImmutable
-    {
-        // '!' nullt alle Zeitfelder, fixe UTC-Zone → die Differenz ist exakt in
-        // Tagen, ohne Sommerzeit-Effekte.
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value, new \DateTimeZone('UTC'));
-        if ($date === false) {
-            return null;
-        }
-
-        // Round-Trip-Pruefung: createFromFormat rollt '2026-02-30' still auf
-        // '2026-03-02' weiter. Ein solches Datum ist kaputt, kein Datum.
-        return $date->format('Y-m-d') === $value ? $date : null;
     }
 
     /**
