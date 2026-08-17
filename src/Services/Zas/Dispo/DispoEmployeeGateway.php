@@ -40,7 +40,11 @@ class DispoEmployeeGateway
     /** @return array<int, ?string> employee_id => Roh-Telefonnummer (nur aktive MA mit Nummer) */
     public function phoneDirectory(): array
     {
+        // Team-Anker wie Resolver/Settings — Cross-Tenant-Nummern duerfen weder matchen noch Ambiguitaet ausloesen.
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()?->currentTeam?->id);
+
         return RecEmployee::query()
+            ->when($teamId > 0, fn ($q) => $q->where('team_id', $teamId))
             ->where('is_active', true)
             ->whereNotNull('phone')
             ->where('phone', '!=', '')
