@@ -126,12 +126,28 @@ class StatisticsCohortWiringTest extends TestCase
         Carbon::setTestNow();
     }
 
-    private function cohortRows(?string $ort = null): array
+    /**
+     * Komponente fuer die Verdrahtungs-Tests — mit Status „alle".
+     *
+     * Der Bestand dieser Klasse enthaelt absichtlich eine DRAFT-Ausschreibung
+     * (POSTING_ZU), und die faellt seit Task 10 mit dem Standard „online" aus der
+     * Auswahl. Die Tests hier pruefen den Weg von der Query bis zur Zeile; dafuer
+     * muessen beide Ausschreibungen drin sein. Der Filter selbst wird in
+     * test_status_filter_nimmt_geschlossene_ausschreibungen_aus_der_auswahl()
+     * geprueft, also genau einmal und an seiner eigenen Stelle.
+     */
+    private function component(?string $ort = null, string $status = 'alle'): Index
     {
         $component = new Index();
         $component->ortFilter = $ort;
+        $component->postingStatusFilter = $status;
 
-        return $component->cohort()['rows'];
+        return $component;
+    }
+
+    private function cohortRows(?string $ort = null): array
+    {
+        return $this->component($ort)->cohort()['rows'];
     }
 
     /**
@@ -266,7 +282,7 @@ class StatisticsCohortWiringTest extends TestCase
         // gepflegtem Bedarf. Die Spalte „Unterschrieben" zeigt 2, die Quote rechnet
         // mit 1 von 10 — genau die Stelle, an der die Zeile ohne benannte
         // Bezugsgroessen unlesbar war ("2 von 10, also 20 %?").
-        $component = new Index();
+        $component = $this->component();
         $groups = (new CohortViewModel())->postingGroups($component->cohort()['rows']);
         $light = $component->fulfilmentTotalLight($groups);
 
@@ -328,7 +344,7 @@ class StatisticsCohortWiringTest extends TestCase
         // Der Weg, den die View geht: cohort()-Zeilen -> postingGroups() ->
         // TargetLight. Zeigt in einem Zug, dass die angehaengten Stammdaten in
         // der Gruppe UND in der Ampel ankommen.
-        $component = new Index();
+        $component = $this->component();
         $groups = (new CohortViewModel())->postingGroups($component->cohort()['rows']);
 
         $bedarfe = [];
@@ -382,6 +398,195 @@ class StatisticsCohortWiringTest extends TestCase
 
         // Inaktive Phasen gehoeren nicht in die Kopfzeile
         $this->assertArrayNotHasKey(4, $component->phaseLabels());
+
+        // Die Phasen der ANDEREN Filiale haben denselben `order`, aber eigene
+        // Namen — genau deshalb ist der Ort Pflicht und die Kopfzeile nicht fest
+        // verdrahtet.
+        $component->ortFilter = 'Wuppertal';
+        $this->assertSame([1 => 'Eingang', 3 => 'Probearbeit'], $component->phaseLabels());
+    }
+
+    public function test_ort_ist_pflichtauswahl_und_wird_vorbelegt(): void
+    {
+        // Erster Seitenaufruf: mount() belegt die Pflichtauswahl mit dem ersten
+        // Ort. Ohne diese Vorbelegung stuende die Seite beim ersten Aufruf ohne
+        // Zahlen da — und phaseLabels() waere in dem Zustand die Falle, um die es
+        // hier geht (where('location', null) wird zu whereNull).
+        $component = new Index();
+        $this->assertFalse($component->hasOrt(), 'vor mount() ist nichts gewaehlt');
+
+        $component->mount();
+        $this->assertSame('Essen', $component->ortFilter, 'erster Ort alphabetisch');
+        $this->assertTrue($component->hasOrt());
+
+        // Eine bestehende Auswahl (Livewire-Hydrierung) wird NICHT ueberschrieben
+        $hydriert = new Index();
+        $hydriert->ortFilter = 'Wuppertal';
+        $hydriert->mount();
+        $this->assertSame('Wuppertal', $hydriert->ortFilter);
+
+        // '' zaehlt wie „nichts gewaehlt": ein geleertes Select oder eine
+        // Hydrierung an der updated-Hook vorbei darf nicht als gewaehlte Filiale
+        // durchgehen, sonst zeigt die Seite leere Tabellen statt der Aufforderung.
+        $leer = new Index();
+        $leer->ortFilter = '';
+        $this->assertFalse($leer->hasOrt());
+        $leer->mount();
+        $this->assertSame('Essen', $leer->ortFilter, 'aus einem Leerstring wird die Vorbelegung');
+
+        // Zuruecksetzen heisst Ausgangszustand, nicht „nichts gewaehlt"
+        $reset = new Index();
+        $reset->ortFilter = 'Wuppertal';
+        $reset->postingStatusFilter = 'alle';
+        $reset->interviewFrom = '2026-01-01';
+        $reset->resetFilters();
+        $this->assertTrue($reset->hasOrt(), 'nach dem Zuruecksetzen steht wieder eine Filiale');
+        $this->assertSame('Essen', $reset->ortFilter);
+        $this->assertSame('online', $reset->postingStatusFilter);
+        $this->assertNull($reset->interviewFrom);
+    }
+
+    public function test_status_filter_nimmt_geschlossene_ausschreibungen_aus_der_auswahl(): void
+    {
+        // EINE Definition von „online" (published UND aktiv): der Filter liest nur
+        // das Feld posting_closed, das cohort() als exaktes Gegenteil setzt.
+        $online = new Index(); // Standard ist 'online'
+        $this->assertSame('online', $online->postingStatusFilter);
+        $cohort = $online->cohort();
+
+        $postingIds = array_map(fn ($row) => $row['posting_id'], $cohort['rows']);
+        $this->assertNotContains(self::POSTING_ZU, $postingIds, 'die draft-Ausschreibung ist nicht online');
+        $this->assertContains(self::POSTING_OFFEN, $postingIds);
+
+        // Rekonziliation bleibt geschlossen: total_ids wird aus den verbliebenen
+        // Zeilen neu gebildet, die Gesamt-Zeile ist also weiter die Addition ihrer
+        // Zeilen. (Ein Anzeige-Filter haette hier eine stille Differenz erzeugt.)
+        $this->assertSame(
+            $online->countIn($cohort['rows'], 'ids'),
+            count($cohort['total_ids']),
+            'Summe der Zeilen = Gesamtmenge',
+        );
+
+        // Die herausgefilterten Zeilen sind NICHT verschwunden: sie liegen
+        // beiseite und tragen den Block „Geschlossene Ausschreibungen".
+        $closedIds = array_map(fn ($row) => $row['posting_id'], $cohort['closed_rows']);
+        $this->assertSame([self::POSTING_ZU], array_values(array_unique($closedIds)));
+        $this->assertSame(1, $online->countIn($cohort['closed_rows'], 'ids'));
+
+        // Gruppiert wie die Tabelle. Bewusst ueber das ViewModel und nicht ueber
+        // das Computed closedPostingGroups(): das liest $this->cohort als
+        // PROPERTY, und Computed Properties gibt es nur im Livewire-Lebenszyklus.
+        // Gerechnet wird derselbe Aufruf mit denselben Zeilen; dass die Huelle das
+        // Ergebnis in die View traegt, prueft der Render-Test.
+        $closedGroups = (new CohortViewModel())->postingGroups($cohort['closed_rows']);
+        $this->assertCount(1, $closedGroups);
+        $this->assertTrue($closedGroups[0]['posting_closed']);
+        $this->assertSame('Aushilfe Bankett', $closedGroups[0]['posting_title']);
+
+        // Mit 'alle' ist die geschlossene Ausschreibung wieder in der Auswahl
+        $alle = $this->component();
+        $this->assertContains(
+            self::POSTING_ZU,
+            array_map(fn ($row) => $row['posting_id'], $alle->cohort()['rows']),
+        );
+
+        // Unbekannter Wert faellt auf 'online' zurueck — sonst wirkte ein
+        // gecrafteter oder geleerter Wert wie 'alle'.
+        $krumm = new Index();
+        $krumm->updatedPostingStatusFilter('');
+        $this->assertSame('online', $krumm->postingStatusFilter);
+        $krumm->updatedPostingStatusFilter('alle');
+        $this->assertSame('alle', $krumm->postingStatusFilter);
+    }
+
+    public function test_drill_down_des_geschlossenen_blocks_trifft_seine_personen(): void
+    {
+        // Die Zahl im Block „Geschlossene Ausschreibungen" wird aus closed_rows
+        // gerechnet — also muss ihr Token auch gegen closed_rows aufloesen, sonst
+        // bleibt das Modal leer (die Zeilen sind bei Status „online" nicht in der
+        // Auswahl).
+        $component = new Index();
+        $vm = new CohortViewModel();
+        $cohort = $component->cohort();
+
+        $token = $component->drillToken('posting', 'Aushilfe Bankett', [
+            'posting' => self::POSTING_ZU,
+            'set' => 'closed',
+        ]);
+        $spec = $vm->decodeScope($token);
+
+        $this->assertSame([102], $vm->resolveIdsFromClient($cohort['closed_rows'], $spec, 'ids'));
+        // Gegenprobe: dieselbe Auswahl OHNE die beiseitegelegte Menge trifft
+        // nichts — genau deshalb reist 'set' im Token mit.
+        $this->assertSame([], $vm->resolveIdsFromClient($cohort['rows'], $spec, 'ids'));
+    }
+
+    public function test_zeitraum_filtert_nur_die_termine_nicht_den_bewerbungseingang(): void
+    {
+        // Task 10: filterFrom/filterTo (Bewerbungsdatum) sind ENTFALLEN. Ein
+        // Termin-Zeitraum darf die Kohorte nicht beschneiden — sonst rechnete die
+        // Erfuellungsquote einen Ausschnitt der Bewerbungen gegen den vollen
+        // Bedarf.
+        $this->assertFalse(
+            property_exists(Index::class, 'filterFrom'),
+            'kein Bewerbungs-Zeitraum mehr auf der Statistik-Seite',
+        );
+        $this->assertFalse(property_exists(Index::class, 'filterTo'));
+
+        $ohne = $this->component();
+        $mit = $this->component();
+        $mit->interviewFrom = '2027-01-01';
+        $mit->interviewTo = '2027-01-31';
+
+        $this->assertSame(
+            count($ohne->cohort()['total_ids']),
+            count($mit->cohort()['total_ids']),
+            'der Termin-Zeitraum laesst die Kohorte unberuehrt',
+        );
+
+        // ... und die Bewerbungen von Juli 2026 sind trotz des Zeitraums 2027 alle
+        // noch da (vier Bewerber im Bestand, keiner ist Testbewerber)
+        $this->assertSame(4, count($mit->cohort()['total_ids']));
+    }
+
+    public function test_bewerbung_ohne_datum_bleibt_eine_eigene_zeile(): void
+    {
+        // Der Zeilentyp 'ohne_datum' haengt an Stufe 2 der Praezedenz-Kette
+        // (applied_at IS NULL) und NICHT am Zeitraum — er muss den Wegfall des
+        // Bewerbungs-Zeitraums unveraendert ueberleben, sonst fehlt er im Block
+        // „Ausgeschieden" und die Rekonziliation stimmt nicht mehr.
+        Capsule::table('rec_applicants')->insert([
+            ['id' => 199, 'uuid' => 'app-199', 'team_id' => self::TEAM, 'applied_at' => null,
+             'rec_phase_id' => 1, 'is_test' => 0,
+             'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+        Capsule::table('rec_applicant_posting')->insert([
+            ['rec_applicant_id' => 199, 'rec_posting_id' => self::POSTING_OFFEN,
+             'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+
+        try {
+            $component = $this->component();
+            $cohort = $component->cohort();
+
+            $ohneDatum = array_values(array_filter($cohort['rows'], fn ($r) => $r['type'] === 'ohne_datum'));
+            $this->assertCount(1, $ohneDatum);
+            $this->assertSame([199], $ohneDatum[0]['ids']);
+            $this->assertNull($ohneDatum[0]['max_applied_at'], 'ohne Datum gibt es keinen Kohorten-Anker');
+
+            // Rekonziliation: die Zeile zaehlt in der Gesamtmenge mit
+            $this->assertContains(199, $cohort['total_ids']);
+            $this->assertSame(
+                $component->countIn($cohort['rows'], 'ids'),
+                count($cohort['total_ids']),
+            );
+        } finally {
+            // Der Bestand ist klassenweit — die Zusatz-Zeile darf nicht in die
+            // anderen Tests dieser Klasse lecken (kein order-by=random, aber die
+            // Reihenfolge ist trotzdem keine Zusicherung).
+            Capsule::table('rec_applicant_posting')->where('rec_applicant_id', 199)->delete();
+            Capsule::table('rec_applicants')->where('id', 199)->delete();
+        }
     }
 
     // -----------------------------------------------------------------

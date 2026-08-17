@@ -53,130 +53,13 @@ final class CohortViewModelTest extends TestCase
         ];
     }
 
-    public function test_echte_orte_stehen_alphabetisch_vor_den_fallback_gruppen(): void
-    {
-        $rows = [
-            $this->row('ohne_datum', '-', 'ohne Ort', 'Service'),
-            $this->row('ohne_datum', '-', 'Wuppertal', 'Service'),
-            $this->row('ohne_datum', '-', 'ohne Ausschreibung', 'ohne Ausschreibung'),
-            $this->row('ohne_datum', '-', 'Essen', 'Service'),
-        ];
-
-        $this->assertSame(
-            ['Essen', 'Wuppertal', 'ohne Ausschreibung', 'ohne Ort'],
-            array_keys($this->vm()->groups($rows)),
-        );
-    }
-
-    public function test_taetigkeiten_sortieren_fallbacks_ebenfalls_ans_ende(): void
-    {
-        $rows = [
-            $this->row('ohne_datum', '-', 'Essen', 'ohne Tätigkeit'),
-            $this->row('ohne_datum', '-', 'Essen', 'Spülhilfe'),
-            $this->row('ohne_datum', '-', 'Essen', 'Bankett'),
-        ];
-
-        $groups = $this->vm()->groups($rows);
-
-        $this->assertSame(
-            ['Bankett', 'Spülhilfe', 'ohne Tätigkeit'],
-            array_keys($groups['Essen']['activities']),
-        );
-    }
-
-    /**
-     * Erwartet wird die ANZEIGE-Reihenfolge (Erfolgspfad zuerst), NICHT die
-     * Praezedenz-Kette des Assigners — die lautet ohne_datum, dublette, unrouted,
-     * import, schulung/unbekannter_status, abgesagt, geparkt, ohne_schulung.
-     * Die Kette bestimmt die Zeilen-Zuordnung, diese Liste nur die Sortierung.
-     */
-    public function test_zeilen_folgen_der_anzeige_reihenfolge(): void
-    {
-        // absichtlich in verdrehter Reihenfolge eingefuettert
-        $rows = [
-            $this->row('unbekannter_status', '-', 'Essen', 'Service'),
-            $this->row('abgesagt', '-', 'Essen', 'Service'),
-            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service'),
-            $this->row('import', '-', 'Essen', 'Service'),
-            $this->row('schulung', 'schulung:7', 'Essen', 'Service'),
-            $this->row('geparkt', '-', 'Essen', 'Service'),
-            $this->row('dublette', '-', 'Essen', 'Service'),
-            $this->row('unrouted', '-', 'Essen', 'Service'),
-            $this->row('ohne_datum', '-', 'Essen', 'Service'),
-        ];
-
-        $ordered = array_map(
-            fn ($r) => $r['type'],
-            $this->vm()->groups($rows)['Essen']['activities']['Service'],
-        );
-
-        $this->assertSame([
-            'schulung', 'ohne_schulung', 'geparkt', 'abgesagt', 'dublette',
-            'unrouted', 'import', 'ohne_datum', 'unbekannter_status',
-        ], $ordered);
-    }
-
-    public function test_schulungen_stehen_chronologisch_neueste_zuerst(): void
-    {
-        $rows = [
-            $this->row('schulung', 'schulung:1', 'Essen', 'Service'),
-            $this->row('schulung', 'schulung:2', 'Essen', 'Service'),
-            $this->row('schulung', 'schulung:3', 'Essen', 'Service'),
-        ];
-        $startsAt = [
-            1 => '2026-05-01 09:00:00',
-            2 => '2026-08-01 09:00:00',
-            3 => '2026-06-15 09:00:00',
-        ];
-
-        $keys = array_map(
-            fn ($r) => $r['key'],
-            $this->vm()->groups($rows, $startsAt)['Essen']['activities']['Service'],
-        );
-
-        $this->assertSame(['schulung:2', 'schulung:3', 'schulung:1'], $keys);
-    }
-
-    public function test_phasen_zeilen_sortieren_natuerlich_nach_phasen_reihenfolge(): void
-    {
-        // Naive String-Sortierung wuerde "10" vor "2" stellen
-        $rows = [
-            $this->row('ohne_schulung', 'ohne_schulung:10|Abschluss', 'Essen', 'Service'),
-            $this->row('ohne_schulung', 'ohne_schulung:2|Screening', 'Essen', 'Service'),
-        ];
-
-        $keys = array_map(
-            fn ($r) => $r['key'],
-            $this->vm()->groups($rows)['Essen']['activities']['Service'],
-        );
-
-        $this->assertSame(['ohne_schulung:2|Screening', 'ohne_schulung:10|Abschluss'], $keys);
-    }
-
-    public function test_gruppierung_verliert_und_erfindet_keine_zeile(): void
-    {
-        $rows = [
-            $this->row('schulung', 'schulung:1', 'Essen', 'Service', [1, 2]),
-            $this->row('geparkt', '-', 'Essen', 'Bankett', [3]),
-            $this->row('dublette', '-', 'ohne Ort', 'ohne Tätigkeit', [4]),
-            $this->row('import', '-', 'Wuppertal', 'Service', [5, 6]),
-        ];
-
-        $flat = [];
-        foreach ($this->vm()->groups($rows) as $group) {
-            foreach ($group['activities'] as $actRows) {
-                $flat = array_merge($flat, $actRows);
-            }
-        }
-
-        $this->assertCount(count($rows), $flat, 'Gruppierung ist rein umsortierend');
-        $ids = [];
-        foreach ($flat as $row) {
-            $ids = array_merge($ids, $row['ids']);
-        }
-        sort($ids);
-        $this->assertSame([1, 2, 3, 4, 5, 6], $ids);
-    }
+    // Die Tests zum Anzeige-Baum Ort → Taetigkeit → Zeilen sind mit Task 10
+    // entfallen: die Kohorten-Tabelle, die ihn gerendert hat, ist durch die
+    // Ausschreibungs- und die Termin-Tabelle ERSETZT (Kunden-Entscheidung), und
+    // CohortViewModel::groups() ist damit gestrichen. Was sie zugesichert haben,
+    // sichern die Tests zu postingGroups()/interviewCohorts() weiter zu: rein
+    // umsortierend (keine Zeile geht verloren oder kommt hinzu), Fallbacks am
+    // Ende, stabile Sortierung.
 
     public function test_ids_of_loest_zeilen_mengen_und_spalten_auf(): void
     {
@@ -486,19 +369,22 @@ final class CohortViewModelTest extends TestCase
         ));
     }
 
-    public function test_unbekannter_zeilentyp_landet_am_ende_statt_zu_verschwinden(): void
+    public function test_unbekannter_zeilentyp_verschwindet_nicht(): void
     {
+        // Frueher gegen die Sortierung von groups() geprueft (unbekannter Typ ans
+        // Ende statt raus). Die Zusicherung bleibt, nur die Tabelle ist eine
+        // andere: postingGroups() summiert ueber die Zeilentypen und darf einen
+        // Typ, den sie nicht kennt, nicht verschlucken.
         $rows = [
-            $this->row('brandneuer_typ', '-', 'Essen', 'Service', [1]),
-            $this->row('schulung', 'schulung:1', 'Essen', 'Service', [2]),
+            $this->row('brandneuer_typ', '-', 'Essen', 'Service', [1], [], [], [], 7),
+            $this->row('schulung', 'schulung:1', 'Essen', 'Service', [2], [], [], [], 7),
         ];
 
-        $ordered = array_map(
-            fn ($r) => $r['type'],
-            $this->vm()->groups($rows)['Essen']['activities']['Service'],
-        );
+        $groups = $this->vm()->postingGroups($rows);
 
-        $this->assertSame(['schulung', 'brandneuer_typ'], $ordered);
+        $this->assertCount(1, $groups);
+        $this->assertSame([1, 2], $groups[0]['ids']);
+        $this->assertSame(2, $this->vm()->countIn($groups[0]['rows'], 'ids'));
     }
 
     // ------------------------------------------------- //

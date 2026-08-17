@@ -26,29 +26,18 @@ use Platform\Recruiting\Services\Statistics\TargetLight;
  */
 class Index extends Component
 {
-    public ?string $filterFrom = null;
-    public ?string $filterTo = null;
-
-    // P6: geleerte x-ui-input-date liefern '' — auf null normalisieren,
-    // damit SQL-when() und Assigner dieselbe Menge sehen
-    public function updatedFilterFrom($value): void
-    {
-        $this->filterFrom = $value ?: null;
-        $this->resetDrill();
-    }
-
-    public function updatedFilterTo($value): void
-    {
-        $this->filterTo = $value ?: null;
-        $this->resetDrill();
-    }
-
     /**
-     * Zeitraum der TERMIN-Tabelle (Tabelle 2) — bewusst getrennt von
-     * filterFrom/filterTo: dort ist der Zeitraum das BEWERBUNGSDATUM, hier der
-     * Zeitpunkt des Termins. Ein Termin hat einen Zeitpunkt, eine Ausschreibung
-     * hat ein Ziel; deshalb filtert Tabelle 1 nicht nach Datum und Tabelle 2 nicht
-     * nach Bewerbungseingang.
+     * DER Zeitraum der Seite — und er gehoert der TERMIN-Tabelle (Tabelle 2):
+     * gefiltert wird das TERMINDATUM, nicht das Bewerbungsdatum.
+     *
+     * Die Unterscheidung ist die Stelle, an der man sich hier vergreifen kann,
+     * deshalb steht sie ausdruecklich da: ein Termin hat einen Zeitpunkt, eine
+     * Ausschreibung hat ein ZIEL. Tabelle 1 fragt „laeuft diese Ausschreibung auf
+     * Ziel?" — ein Bewerbungs-Zeitraum wuerde dort den Zaehler beschneiden und den
+     * Nenner (Bedarf) stehen lassen, also eine Erfuellungsquote gegen einen
+     * Ausschnitt der Bewerbungen rechnen. Genau darum ist der frueher hier
+     * vorhandene Zeitraum auf das Bewerbungsdatum (filterFrom/filterTo) mit Task 10
+     * ENTFALLEN und nicht bloss umbenannt.
      *
      * Y-m-d-STRINGS, keine Datums-Objekte: x-ui-input-date darf nie per
      * wire:model an ein datetime-Cast gebunden werden (bekannte Falle dieses
@@ -83,8 +72,80 @@ class Index extends Component
         $this->resetDrill();
     }
 
+    /**
+     * PFLICHTAUSWAHL (Kunden-Entscheidung): die Seite zeigt immer genau eine
+     * Filiale, „alle Orte" gibt es nicht mehr. Vorbelegt wird in mount() mit dem
+     * ersten Ort; ohne gewaehlten Ort zeigt die Seite eine Aufforderung statt
+     * einer Tabelle (Guard hasOrt() in der View).
+     *
+     * Der Pflicht-Ort ist keine Kosmetik, sondern haelt phaseLabels() ehrlich:
+     * dort wird der Phasensatz der GEFILTERTEN Filiale gelesen, und
+     * `where('location', null)` macht Laravel zu einem `whereNull` — die
+     * Spaltenkoepfe kaemen dann aus dem Phasensatz ORTLOSER Stellen, waehrend die
+     * Zahlen darunter alle Orte enthalten.
+     */
     public ?string $ortFilter = null;
     public ?string $activityFilter = null;
+
+    /**
+     * Status der Ausschreibungen: 'online' (Standard) oder 'alle'.
+     *
+     * „online" heisst status = 'published' UND is_active — und diese Definition
+     * wird hier NICHT zum zweiten Mal hergeleitet: cohort() setzt je Zeile
+     * `posting_closed` als das exakte Gegenteil davon (Task 8), dieser Filter
+     * liest nur dieses eine Feld. Zwei auseinanderdriftende Begriffe von
+     * „geschlossen" waeren genau der Widerspruch, den diese Seite abschafft.
+     *
+     * Absichtlich UNTYPED wie die anderen Select-Properties: ein geleertes
+     * <select> sendet '', und Livewire hydriert das nicht sauber in eine
+     * typisierte Property.
+     */
+    public $postingStatusFilter = 'online';
+
+    /**
+     * Vorbelegung der Pflichtauswahl. Bewusst NUR, wenn nichts gesetzt ist: ein
+     * Ort aus der URL/Session (Livewire-Hydrierung) darf nicht ueberschrieben
+     * werden.
+     *
+     * Ist an keiner Stelle ein Standort gepflegt, bleibt der Filter null — die
+     * View sagt dann, dass es nichts zu waehlen gibt, statt eine leere Tabelle zu
+     * zeigen.
+     */
+    public function mount(): void
+    {
+        $this->applyOrtDefault();
+    }
+
+    /**
+     * Erster Ort als Vorbelegung, falls keiner gesetzt ist — EINE Stelle fuer
+     * mount() und resetFilters(), damit „zuruecksetzen" denselben
+     * Ausgangszustand herstellt wie ein frischer Seitenaufruf.
+     */
+    private function applyOrtDefault(): void
+    {
+        if ($this->hasOrt()) {
+            return;
+        }
+
+        // ortOptions() als METHODE, nicht als Computed-Property: mount() laeuft im
+        // Livewire-Lebenszyklus, diese Klasse wird aber auch nackt getestet (kein
+        // Lifecycle, also kein __get auf Computed Properties). Kostet dieselbe eine
+        // Query und ist an beiden Orten dasselbe Ergebnis.
+        $options = $this->ortOptions();
+        $this->ortFilter = $options === [] ? null : (string) array_key_first($options);
+    }
+
+    /**
+     * Ist eine Filiale gewaehlt? '' zaehlt wie null — ein geleertes <select>
+     * schickt einen Leerstring, und eine Livewire-Hydrierung kann ihn an der
+     * updated-Hook vorbei in die Property tragen. Ohne diese Gleichsetzung waere
+     * '' ein „gewaehlter Ort", der auf keine Filiale passt: die Seite zeigte dann
+     * leere Tabellen statt der Aufforderung.
+     */
+    public function hasOrt(): bool
+    {
+        return $this->ortFilter !== null && $this->ortFilter !== '';
+    }
 
     // Absichtlich UNTYPED (Abweichung vom Brief-Entwurf, der ?int vorsah):
     // ein geleertes <select> sendet '', und Livewire wuerde '' in eine
@@ -106,6 +167,19 @@ class Index extends Component
     public function updatedActivityFilter($value): void
     {
         $this->activityFilter = ($value === '' || $value === null) ? null : (string) $value;
+        $this->resetDrill();
+    }
+
+    /**
+     * Zwei Zustaende, kein dritter: alles, was nicht ausdruecklich 'alle' ist,
+     * faellt auf 'online' zurueck. Ein unbekannter Wert (geleertes Select,
+     * gecrafteter Request) wuerde sonst wie 'alle' wirken, weil der Filter unten
+     * nur auf 'alle' prueft — und damit waere die engere Standard-Auswahl per
+     * Zufall aufgehoben.
+     */
+    public function updatedPostingStatusFilter($value): void
+    {
+        $this->postingStatusFilter = $value === 'alle' ? 'alle' : 'online';
         $this->resetDrill();
     }
 
@@ -152,16 +226,23 @@ class Index extends Component
         $this->showDrill = false;
     }
 
+    /**
+     * Zuruecksetzen heisst AUSGANGSZUSTAND, nicht „alles leer": der Ort ist
+     * Pflichtauswahl und wird deshalb wieder vorbelegt (wie in mount()), der
+     * Status faellt auf 'online' zurueck. Ein null-Ort haette die Seite auf die
+     * Aufforderung zurueckgeworfen — ein „Filter zurücksetzen", nach dem keine
+     * Zahlen mehr dastehen, liest sich als Defekt.
+     */
     public function resetFilters(): void
     {
-        $this->filterFrom = null;
-        $this->filterTo = null;
         $this->interviewFrom = null;
         $this->interviewTo = null;
-        $this->ortFilter = null;
         $this->activityFilter = null;
         $this->postingFilter = null;
         $this->sourcePlatformFilter = null;
+        $this->postingStatusFilter = 'online';
+        $this->ortFilter = null;
+        $this->applyOrtDefault();
         $this->resetDrill();
     }
 
@@ -183,21 +264,20 @@ class Index extends Component
         $postingId = $this->postingFilter !== null ? (int) $this->postingFilter : null;
 
         // P2: Vorfilter spiegeln die PHP-Logik verlustfrei (is_test = Stufe 1,
-        // Zeitraum mit NULL-Ausnahme = Stufe 2, Posting-/Quellen-Filter =
-        // Mengeneinschraenkung P3) — Rekonziliation unveraendert, aber die
-        // Query laedt nie das ganze Team (Query-Budget ist Abnahmekriterium §2).
-        // rec_applicants.applied_at ist eine echte DATE-Spalte (Migration
-        // 2026_02_09_000005) — '<=' vergleicht also exakt wie der Assigner auf
-        // toDateString(), kein Tages-Abschnitt.
+        // Posting-/Quellen-Filter = Mengeneinschraenkung P3) — Rekonziliation
+        // unveraendert, aber die Query laedt nie das ganze Team (Query-Budget ist
+        // Abnahmekriterium §2).
+        //
+        // KEIN Zeitraum-Vorfilter mehr: mit Task 10 ist der Zeitraum das
+        // TERMINDATUM (interviewFrom/interviewTo, Tabelle 2) und kein
+        // Bewerbungsdatum. Die Bewerber-Menge dieser Query ist damit die volle
+        // Auswahl der Seite — eingeschraenkt wird sie danach ueber die Gruppe
+        // (Ort/Taetigkeit/Status), nicht ueber applied_at.
+        //
         // Falls Q10 grosse Zahlen zeigt: chunkById(500) + assign() pro Chunk
         // fuettern — der Assigner akkumuliert zeilenweise, ist also streamfaehig.
         $applicants = RecApplicant::forTeam($teamId)
             ->where('is_test', false)
-            ->when($this->filterFrom || $this->filterTo, fn ($q) => $q->where(fn ($q2) => $q2
-                ->whereNull('applied_at')
-                ->orWhere(fn ($q3) => $q3
-                    ->when($this->filterFrom, fn ($q4) => $q4->where('applied_at', '>=', $this->filterFrom))
-                    ->when($this->filterTo, fn ($q4) => $q4->where('applied_at', '<=', $this->filterTo)))))
             // P3: Ausschreibungs-Filter schraenkt die BEWERBER-Menge ein (Spec §4),
             // nicht nur die Pivot-Liste — sonst fuellt sich "ohne Ausschreibung"
             // mit dem gesamten Rest des Teams.
@@ -318,7 +398,17 @@ class Index extends Component
                 ])->all();
         }
 
-        $result = (new CohortAssigner())->assign($rows, $bookings, $pivots, $this->filterFrom, $this->filterTo);
+        // null, null als Zeitraum: die SIGNATUR des Assigners bleibt unveraendert
+        // (er ist fertig und wird hier nicht angefasst), aber die Seite hat keinen
+        // Bewerbungs-Zeitraum mehr — der Zeitraum ist das Termindatum und wirkt in
+        // der Termin-Query, nicht in der Kohortenbildung. Der Assigner filtert
+        // damit nichts nach Datum; sein Zeitraum-Zweig bleibt fuer Aufrufer und
+        // Tests bestehen (dort ist er weiter geprueft).
+        //
+        // Der Zeilentyp 'ohne_datum' haengt NICHT am Zeitraum, sondern an Stufe 2
+        // der Praezedenz-Kette (applied_at IS NULL) — er bleibt also unveraendert
+        // Teil der Rekonziliations-Kette und steht weiter im Block „Ausgeschieden".
+        $result = (new CohortAssigner())->assign($rows, $bookings, $pivots, null, null);
 
         // Ziel-Werte an die Zeilen haengen. Der Assigner ist eine pure Klasse
         // ohne DB und kennt keine Ausschreibungs-Stammdaten — Bedarf, Faktor und
@@ -341,12 +431,38 @@ class Index extends Component
             ];
         }, $result['rows']);
 
-        // Ort-/Taetigkeits-Filter wirken auf die GRUPPE (nach dem Assign, damit
-        // die Rekonziliation innerhalb der Auswahl geschlossen bleibt)
-        if ($this->ortFilter !== null || $this->activityFilter !== null) {
+        // GESCHLOSSENE Ausschreibungen einmal beiseitelegen, BEVOR die Filter
+        // greifen — Grundlage des Blocks „Geschlossene Ausschreibungen" unter den
+        // Tabellen.
+        //
+        // Bewusst OHNE Ort-Filter: eine Ausschreibung an einer Stelle ohne
+        // gepflegten Standort passt auf keine Filiale und faellt aus der
+        // ortsgefilterten Ansicht heraus — dieser Block ist genau der Ort, an dem
+        // das benannt wird (gemessen rund 929 Bewerbungen). Waere er mitgefiltert,
+        // verschwiegen beide Ansichten dieselben Zeilen.
+        //
+        // 'posting_closed' kommt aus derselben Quelle wie der Status-Filter unten
+        // (eine Definition von „online", siehe $postingStatusFilter).
+        $result['closed_rows'] = array_values(array_filter(
+            $result['rows'],
+            fn ($r) => ($r['posting_closed'] ?? false) === true,
+        ));
+
+        // Ort-, Taetigkeits- und Status-Filter wirken auf die GRUPPE (nach dem
+        // Assign, damit die Rekonziliation innerhalb der Auswahl geschlossen
+        // bleibt): total_ids wird aus den verbliebenen Zeilen neu gebildet, die
+        // Gesamt-Zeile der Tabelle ist also weiter die Addition ihrer Zeilen.
+        //
+        // Der Status-Filter gehoert hierher und nicht in die Anzeige: waere er nur
+        // ein Anzeige-Filter, zeigte die Gesamt-Zeile mehr als die Summe der
+        // sichtbaren Zeilen — dieselbe stille Differenz, wegen der diese Seite
+        // gebaut wird.
+        $onlineOnly = $this->postingStatusFilter !== 'alle';
+        if ($this->ortFilter !== null || $this->activityFilter !== null || $onlineOnly) {
             $result['rows'] = array_values(array_filter($result['rows'], fn ($r) =>
                 ($this->ortFilter === null || $r['group']['ort'] === $this->ortFilter)
-                && ($this->activityFilter === null || $r['group']['taetigkeit'] === $this->activityFilter)));
+                && ($this->activityFilter === null || $r['group']['taetigkeit'] === $this->activityFilter)
+                && (!$onlineOnly || ($r['posting_closed'] ?? false) === false)));
             $result['total_ids'] = array_merge(...array_map(fn ($r) => $r['ids'], $result['rows']) ?: [[]]);
         }
 
@@ -456,27 +572,6 @@ class Index extends Component
             ]])->all();
     }
 
-    /**
-     * Anzeige-Baum fuer die Tabelle: Ort → Taetigkeit → Zeilen, Zeilen in der
-     * Reihenfolge der Praezedenz-Kette. Die Gruppierung ist reine Darstellung —
-     * addiert wird ausschliesslich ueber die Zeilen des Assigners, damit
-     * Gruppen-Summe und Gesamt-Summe per Konstruktion die Rekonziliation
-     * erfuellen (Spec §4). Logik in CohortViewModel, weil sie dort ohne
-     * Laravel/DB testbar ist (Modul-Konvention).
-     *
-     * @return array<string, array{ort:string, activities:array<string, list<array>>}>
-     */
-    #[Computed]
-    public function groups(): array
-    {
-        $startsAt = [];
-        foreach ($this->interviewMeta as $interviewId => $meta) {
-            $startsAt[$interviewId] = (string) ($meta['starts_at'] ?? '');
-        }
-
-        return $this->viewModel()->groups($this->cohort['rows'], $startsAt);
-    }
-
     private function viewModel(): CohortViewModel
     {
         return new CohortViewModel();
@@ -492,7 +587,28 @@ class Index extends Component
     #[Computed]
     public function postingGroups(): array
     {
+        // Der Status-Filter sitzt in cohort() (Zeilen-Ebene), nicht hier: waere er
+        // ein Anzeige-Filter, zeigte die Gesamt-Zeile der Tabelle mehr als die
+        // Summe ihrer sichtbaren Zeilen.
         return $this->viewModel()->postingGroups($this->cohort['rows']);
+    }
+
+    /**
+     * Die Zeilen GESCHLOSSENER Ausschreibungen, gruppiert wie Tabelle 1 — Grundlage
+     * des Blocks „Geschlossene Ausschreibungen".
+     *
+     * Bewusst dieselbe Gruppierung wie die Tabelle (postingGroups), damit ein
+     * Eintrag dort genauso zu lesen ist wie eine Zeile oben. Die Menge stammt aber
+     * aus `closed_rows` und ist damit NICHT ortsgefiltert: eine Ausschreibung an
+     * einer Stelle ohne gepflegten Standort gehoert zu keiner Filiale und waere
+     * sonst nirgends sichtbar.
+     *
+     * @return list<array>
+     */
+    #[Computed]
+    public function closedPostingGroups(): array
+    {
+        return $this->viewModel()->postingGroups($this->cohort['closed_rows']);
     }
 
     /**
@@ -500,13 +616,14 @@ class Index extends Component
      * lesen statt fest verdrahten; bei mehreren Stellen am Ort gewinnt der letzte
      * Name je `order`, was unkritisch ist, weil geklonte Phasen gleich heissen.
      *
-     * OHNE Ort-Filter ist die Liste NICHT leer, und das ist eine Falle: Laravel
-     * macht aus `where('location', null)` ein `whereNull`, die Kopfzeilen kommen
-     * dann aus dem Phasensatz ORTLOSER Stellen, waehrend die Zahlen darunter alle
-     * Orte enthalten. Kosmetisch schief, aber nicht falsch gezaehlt (die Spalten
-     * zaehlen ueber die `order`). Task 10 macht den Ort zur Pflichtauswahl und
-     * beseitigt den Fall — bis dahin bewusst KEIN Fallback, der waere danach
-     * toter Code.
+     * DER ORT IST PFLICHT, und diese Methode ist der Grund: Laravel macht aus
+     * `where('location', null)` ein `whereNull` — ohne gewaehlten Ort kaemen die
+     * Kopfzeilen aus dem Phasensatz ORTLOSER Stellen, waehrend die Zahlen darunter
+     * alle Orte enthalten. Seit Task 10 ist der Fall im Anzeige-Pfad nicht mehr
+     * erreichbar: die View rendert beide Tabellen nur hinter dem Guard hasOrt(),
+     * und ohne Ort steht dort die Aufforderung, eine Filiale zu waehlen. Deshalb
+     * steht hier weiterhin KEIN Fallback — er waere toter Code und wuerde Spalten
+     * aus fremden Phasensaetzen mischen.
      *
      * Kostet zwei Queries (Stellen des Orts, dann deren Phasen).
      *
@@ -536,28 +653,6 @@ class Index extends Component
     public function phaseColumnKey(int $order): string
     {
         return CohortViewModel::phaseColumnKey($order);
-    }
-
-    /**
-     * Prozent einer Summen-Zeile aus absoluten Summen — nicht der Mittelwert der
-     * Zeilen-Prozente (1/1 und 1/99 sind 2 %, nicht 50 %).
-     *
-     * @param  list<array>  $rows
-     */
-    public function sumPercent(array $rows, string $numeratorColumn = 'unterschrieben', string $bedarfKey = 'bedarf'): ?int
-    {
-        return $this->viewModel()->sumPercent($rows, $numeratorColumn, $bedarfKey);
-    }
-
-    /**
-     * Summe der gepflegten Bedarfe (null = keiner gepflegt). Dieselbe Auswahl wie
-     * der Nenner von sumPercent().
-     *
-     * @param  list<array>  $rows
-     */
-    public function sumBedarf(array $rows): ?int
-    {
-        return $this->viewModel()->sumBedarf($rows);
     }
 
     /**
@@ -714,45 +809,6 @@ class Index extends Component
         return $light;
     }
 
-    /** Interview-ID einer Schulungszeile aus dem Row-Key ("schulung:42"). */
-    public function interviewIdOf(array $row): ?int
-    {
-        return CohortViewModel::interviewIdOf($row);
-    }
-
-    #[Computed]
-    public function interviewMeta(): array
-    {
-        $ids = [];
-        foreach ($this->cohort['rows'] as $row) {
-            if ($row['type'] === 'schulung') {
-                $ids[] = (int) substr($row['key'], strlen('schulung:'));
-            }
-        }
-        if ($ids === []) {
-            return [];
-        }
-        // withCount statt takenSeatsCount() pro Termin: die Methode feuert je
-        // Termin ein eigenes COUNT (N+1, und das Query-Budget ist ein
-        // Abnahmekriterium §2). Der seatTaking-Scope ist derselbe — die zentrale
-        // Zaehlregel bleibt die einzige Wahrheit, nur eben in einem Query.
-        // forTeam ist Pflicht: die IDs stammen aus den Row-Keys des Assigners und
-        // damit indirekt aus einer public Livewire-Property — ohne Scope waere das
-        // ein Leck fuer Termindaten fremder Teams. (Einzige Query hier, die den
-        // Scope zunaechst nicht hatte.)
-        return RecInterview::forTeam($this->teamId())
-            ->with('interviewType:id,name')
-            ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
-            ->whereIn('id', $ids)->get()
-            ->mapWithKeys(fn ($i) => [$i->id => [
-                'starts_at' => $i->starts_at,
-                'location' => $i->location, // nur Info-Spalte (Spec §3)
-                'type' => $i->interviewType?->name ?? 'ohne Terminart',
-                'max' => $i->max_participants,
-                'seat_taking' => (int) $i->seat_taking_count,
-            ]])->all();
-    }
-
     /**
      * Die Termine der Auswahl (Tabelle 2). Der Zeitraum-Filter gehoert HIERHIN:
      * ein Termin hat einen Zeitpunkt, eine Ausschreibung hat ein Ziel.
@@ -765,8 +821,18 @@ class Index extends Component
      * → rec_positions.location), also genau so, wie Tabelle 1 den Ort herleitet.
      * Ohne diese Einschraenkung stuenden hier die Termine aller Filialen, waehrend
      * Tabelle 1 eine einzige zeigt — genau das Nebeneinander, das der Kunde
-     * reklamiert hat. Ist kein Ort gewaehlt, wird nicht eingeschraenkt (Task 10
-     * macht den Ort zur Pflichtauswahl).
+     * reklamiert hat. Der Ort ist seit Task 10 Pflichtauswahl; das `when()` bleibt
+     * trotzdem stehen, weil diese Methode auch ohne den View-Guard aufrufbar ist
+     * (Tests, ein gecrafteter Action-Aufruf) und dann NICHT die Termine aller
+     * Filialen als „eine Filiale" ausgeben soll — ohne Ort schraenkt sie nicht ein,
+     * gerendert wird in diesem Zustand aber keine Tabelle.
+     *
+     * KEIN Status-Filter: `postingStatusFilter` ist eine Eigenschaft der
+     * AUSSCHREIBUNG und wirkt auf die Kohorten-Zeilen (Tabelle 1). Ein Termin ist
+     * nicht veroeffentlicht, er findet statt — ihn nach dem Status seiner
+     * Ausschreibung zu verstecken hiesse, einen stattgefundenen Termin zu
+     * verschweigen. Seine Teilnehmer-Zahlen folgen dem Filter trotzdem, weil sie
+     * aus den Kohorten-Zeilen kommen; die Belegung bleibt die des Termins.
      *
      * NICHT gefiltert wird auf `rec_interviews.location`: das ist freier Text und
      * der VERANSTALTUNGSORT (Bahnhof, Hotel, Treffpunktbeschreibung). Er kann vom
@@ -828,9 +894,10 @@ class Index extends Component
      *  - BELEGUNG (IST/SOLL): aus dem Termin (seat_taking_count,
      *    max_participants), weil Plaetze eine Eigenschaft des TERMINS sind und
      *    nicht der Kohorte. Sie ignoriert alle Filter der Seite.
-     * Die beiden koennen deshalb auseinandergehen (Testbewerber, Bewerbungen
-     * ausserhalb des Bewerbungs-Zeitraums, andere Filiale) — und sie duerfen NICHT
-     * gegeneinander gerechnet werden. Die Spaltenkoepfe der View sagen das auch.
+     * Die beiden koennen deshalb auseinandergehen (Testbewerber, andere Filiale,
+     * Bewerbungen an einer geschlossenen Ausschreibung bei Status „online") — und
+     * sie duerfen NICHT gegeneinander gerechnet werden. Die Spaltenkoepfe der View
+     * sagen das auch.
      *
      * Termine OHNE Kohorten-Teilnehmer bleiben eine Zeile: „fuenf Plaetze, einer
      * belegt, keiner davon in dieser Auswahl" ist eine Aussage, ein
@@ -1118,6 +1185,11 @@ class Index extends Component
      * trifft sonst mehrere. Fehlt es, loest resolveIds fail-closed nichts auf
      * (leeres Modal statt vermischter IDs). Fuer die Termin-Scopes gilt dasselbe
      * fuer 'interviews' => list<int>.
+     *
+     * $extra kennt zusaetzlich 'set' => 'closed' (Block „Geschlossene
+     * Ausschreibungen"): das waehlt nicht den Zuschnitt, sondern die ZEILENMENGE,
+     * gegen die drill() aufloest — siehe dort. Ohne den Schluessel ist es die
+     * Auswahl der Seite.
      */
     public function drillToken(string $scope, string $prefix, array $extra = []): string
     {
@@ -1152,7 +1224,21 @@ class Index extends Component
             return;
         }
 
-        $this->drillIds = $vm->resolveIdsFromClient($this->cohort['rows'], $spec, $column);
+        // WELCHE Zeilenmenge das Token benennt. Standard ist die Auswahl der Seite
+        // — dieselbe Menge, aus der die angeklickte Zahl gerechnet wurde, sonst
+        // passte die Modal-Laenge nicht zur Zahl daneben.
+        //
+        // 'closed' ist die beiseitegelegte Menge der geschlossenen Ausschreibungen
+        // (Block unter den Tabellen): sie steht bei Status „online" absichtlich
+        // NICHT in der Auswahl, ihre Zahlen muessen aber anklickbar sein. Ein
+        // unbekannter Wert faellt auf die Auswahl zurueck; beide Mengen stammen aus
+        // derselben team-gescopten Kohorte, ein gecraftetes 'set' oeffnet also
+        // nichts, was die Seite nicht ohnehin zeigt.
+        $rows = ($spec['set'] ?? null) === 'closed'
+            ? $this->cohort['closed_rows']
+            : $this->cohort['rows'];
+
+        $this->drillIds = $vm->resolveIdsFromClient($rows, $spec, $column);
 
         $prefix = (string) ($spec['prefix'] ?? '');
         $this->drillLabel = $columnLabel === '' ? $prefix : trim($prefix . ' — ' . $columnLabel);

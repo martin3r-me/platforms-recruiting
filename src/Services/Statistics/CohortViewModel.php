@@ -17,43 +17,11 @@ use Platform\Recruiting\Support\YmdDate;
 final class CohortViewModel
 {
     /**
-     * Fallback-Werte des Assigners (groupFor). Es sind Befunde, keine echten
-     * Orte/Taetigkeiten — sie sortieren deshalb immer ans Ende ihrer Ebene.
-     */
-    public const FALLBACKS = ['ohne Ort', 'ohne Ausschreibung', 'ohne Tätigkeit'];
-
-    /**
      * Praefix des order-qualifizierten Zugriffs auf die verschachtelte Spalte
      * `phase_reached` (siehe phaseColumnKey/phaseIds). Bewusst mit ':' statt
      * '_': der Trenner darf in keinem echten Spaltenschluessel vorkommen.
      */
     public const PHASE_COLUMN_PREFIX = 'phase_reached:';
-
-    /**
-     * Reine ANZEIGE-Reihenfolge: Erfolgspfad zuerst (Schulung, dann noch offene
-     * Bewerbungen), Befunde und Sonderfaelle danach.
-     *
-     * Das ist bewusst NICHT die Praezedenz-Kette der Spec §4 und darf auch nicht
-     * mit ihr verwechselt werden: die Kette entscheidet im CohortAssigner, WELCHE
-     * Zeile eine Person bekommt (Stufe 1 = is_test bis Stufe 8 = Phase). Hier wird
-     * nur sortiert — eine Aenderung an dieser Liste verschiebt Zeilen in der
-     * Tabelle, sie ordnet niemanden um.
-     *
-     * Vollstaendig gehalten, damit die Sortierung erwartbar bleibt; ein hier
-     * fehlender Typ landet mit 99 am Ende und bleibt sichtbar, statt still zu
-     * verschwinden (siehe Test).
-     */
-    private const TYPE_ORDER = [
-        'schulung' => 0,
-        'ohne_schulung' => 1,
-        'geparkt' => 2,
-        'abgesagt' => 3,
-        'dublette' => 4,
-        'unrouted' => 5,
-        'import' => 6,
-        'ohne_datum' => 7,
-        'unbekannter_status' => 8,
-    ];
 
     /** Interview-ID einer Schulungszeile aus dem Row-Key ("schulung:42"). */
     public static function interviewIdOf(array $row): ?int
@@ -64,60 +32,19 @@ final class CohortViewModel
         return (int) substr((string) $row['key'], strlen('schulung:'));
     }
 
-    /**
-     * Anzeige-Baum Ort → Taetigkeit → Zeilen. Rein umsortierend: es geht keine
-     * Zeile verloren und es kommt keine hinzu (siehe Test), damit die
-     * Rekonziliations-Invariante die Gruppierung ueberlebt.
+    /*
+     * ENTFALLEN mit Task 10: groups() (Anzeige-Baum Ort → Taetigkeit → Zeilen)
+     * samt FALLBACKS und TYPE_ORDER. Die Kohorten-Tabelle, die diesen Baum
+     * gerendert hat, ist durch die Ausschreibungs- und die Termin-Tabelle ERSETZT
+     * (Kunden-Entscheidung); nach dem Entfernen des Computed `groups()` in der
+     * Livewire-Komponente hatte die Methode keinen Aufrufer mehr.
      *
-     * @param  list<array>  $rows  Assigner-Zeilen
-     * @param  array<int,string>  $startsAtByInterview  interview_id => sortierbarer Zeitstempel
-     * @return array<string, array{ort:string, activities:array<string, list<array>>}>
+     * Die Ort-/Taetigkeits-Dimension ist damit nicht verschwunden, sie ist nur
+     * kein BAUM mehr: der Ort ist Pflicht-FILTER der Seite, die Taetigkeit steht
+     * als Zeile in der Ausschreibungs-Tabelle. Gruppiert wird ueber
+     * postingGroups() und interviewCohorts(), und die tragen dieselbe Zusicherung
+     * („rein umsortierend", je mit Test).
      */
-    public function groups(array $rows, array $startsAtByInterview = []): array
-    {
-        $byFallbackThenName = function ($a, $b) {
-            $fa = in_array((string) $a, self::FALLBACKS, true) ? 1 : 0;
-            $fb = in_array((string) $b, self::FALLBACKS, true) ? 1 : 0;
-            return $fa !== $fb ? $fa <=> $fb : strcasecmp((string) $a, (string) $b);
-        };
-
-        $byPrecedenceChain = function ($x, $y) use ($startsAtByInterview) {
-            $cmp = (self::TYPE_ORDER[$x['type']] ?? 99) <=> (self::TYPE_ORDER[$y['type']] ?? 99);
-            if ($cmp !== 0) {
-                return $cmp;
-            }
-            // Schulungen chronologisch, neueste zuerst — dieselbe Leserichtung
-            // wie der Termin-Tie-Break im Assigner
-            if ($x['type'] === 'schulung') {
-                $sx = (string) ($startsAtByInterview[self::interviewIdOf($x)] ?? '');
-                $sy = (string) ($startsAtByInterview[self::interviewIdOf($y)] ?? '');
-                if ($sx !== $sy) {
-                    return strcmp($sy, $sx);
-                }
-            }
-            // ohne_schulung nach Phasen-Reihenfolge (key = "ohne_schulung:{order}|{name}")
-            return strnatcmp((string) $x['key'], (string) $y['key']);
-        };
-
-        $buckets = [];
-        foreach ($rows as $row) {
-            $buckets[$row['group']['ort']][$row['group']['taetigkeit']][] = $row;
-        }
-        uksort($buckets, $byFallbackThenName);
-
-        $groups = [];
-        foreach ($buckets as $ort => $activities) {
-            uksort($activities, $byFallbackThenName);
-            $sorted = [];
-            foreach ($activities as $act => $actRows) {
-                usort($actRows, $byPrecedenceChain);
-                $sorted[(string) $act] = $actRows;
-            }
-            $groups[(string) $ort] = ['ort' => (string) $ort, 'activities' => $sorted];
-        }
-
-        return $groups;
-    }
 
     /**
      * Spaltenschluessel einer Zeile aufloesen. Neben den columns-Schluesseln auch
@@ -723,9 +650,8 @@ final class CohortViewModel
      * zusammengefasst — der Kunde fragt "laeuft diese Ausschreibung auf Ziel",
      * nicht "wie verteilt sich sie ueber die Zeilentypen".
      *
-     * Rein umsortierend wie groups(): keine Zeile geht verloren, keine kommt
-     * hinzu (siehe Test), damit die Rekonziliations-Invariante die Gruppierung
-     * ueberlebt.
+     * Rein umsortierend: keine Zeile geht verloren, keine kommt hinzu (siehe
+     * Test), damit die Rekonziliations-Invariante die Gruppierung ueberlebt.
      *
      * Die Stammdaten (bedarf, bewerbungs_faktor, published_ymd, closes_ymd)
      * haengt der AUFRUFER an die Zeilen (Livewire-Komponente, aus rec_postings) —
@@ -786,8 +712,8 @@ final class CohortViewModel
         }
 
         // Anzeige-Reihenfolge: echte Ausschreibungen alphabetisch (Titel ist das,
-        // was der Kunde liest), "ohne Ausschreibung" als Befund ans Ende — dieselbe
-        // Regel wie fuer die Fallback-Gruppen in groups().
+        // was der Kunde liest), "ohne Ausschreibung" als Befund ans Ende: ein
+        // Befund ist keine Ausschreibung und sortiert deshalb nie zwischen sie.
         $groups = array_values($groups);
         usort($groups, function ($a, $b) {
             $fa = $a['posting_id'] === null ? 1 : 0;
