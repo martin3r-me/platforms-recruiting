@@ -6,7 +6,11 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\Translation\ArrayLoader;
+use Illuminate\Translation\Translator;
+use Illuminate\Validation\Validator;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Livewire\Posting\Show as PostingForm;
 use Platform\Recruiting\Models\RecPosting;
 use Symfony\Component\Uid\UuidV7;
 
@@ -154,19 +158,114 @@ class PostingTargetFieldsTest extends TestCase
     }
 
     /**
-     * Eine bewusste "0" ist KEINE leere Eingabe und darf nicht zu NULL
-     * werden — das waere das Gegenteil des Fixes.
+     * UMGEKEHRTE ZUSICHERUNG (Abschluss-Review Task 10): eine 0 ist „NICHT
+     * GEPFLEGT" und wird zu NULL.
+     *
+     * Hier stand vorher das Gegenteil („eine bewusste 0 bleibt 0"). Diese
+     * Entscheidung aus Task 5 ist aufgehoben, und zwar aus zwei Gruenden:
+     *  - FACHLICH hat sie nie gegolten: alle Leser der Statistik behandeln den
+     *    Bedarf 0 als nicht gepflegt (graue Ampel, „–", nicht im Nenner der Quote).
+     *    Eine 0 war damit ein Wert, der sich wie „leer" verhaelt, aber wie eine
+     *    Angabe aussieht.
+     *  - PRAKTISCH blockierte sie das Formular: mit `min:1` in den Regeln wirft
+     *    save() auf `posting.bedarf` — und Livewire validiert das GANZE Formular,
+     *    verwirft also die Aenderung an einem voellig anderen Feld (gemessen: Titel
+     *    geaendert, Titel weg, Fehler am Bedarf).
+     *
+     * Die Regel sitzt deshalb am FELD (Setter UND Getter in RecPosting), damit sie
+     * fuer jeden Schreibweg gilt und den Bestand mitliest.
      */
-    public function test_bewusste_null_bleibt_null_als_zahl(): void
+    public function test_null_heisst_nicht_gepflegt_und_wird_zu_null(): void
     {
-        $posting = $this->makePosting(['bedarf' => '0', 'bewerbungs_faktor' => '0']);
+        // ueber den Setter, als String wie als Zahl
+        $ausString = $this->makePosting(['bedarf' => '0', 'bewerbungs_faktor' => '0']);
+        $this->assertNull($ausString->bedarf);
+        $this->assertNull($ausString->bewerbungs_faktor);
 
-        $this->assertSame(0, $posting->bedarf);
-        $this->assertSame(0.0, $posting->bewerbungs_faktor);
+        $ausZahl = $this->makePosting(['bedarf' => 0, 'bewerbungs_faktor' => 0.0]);
+        $this->assertNull($ausZahl->bedarf);
+        $this->assertNull($ausZahl->bewerbungs_faktor);
+
+        // ... und nach frischem Laden aus der DB (der Setter hat NULL geschrieben)
+        $fresh = RecPosting::find($ausString->id);
+        $this->assertNull($fresh->bedarf);
+        $this->assertNull($fresh->bewerbungs_faktor);
+    }
+
+    /**
+     * Der BESTAND: eine 0, die schon in der Datenbank liegt (per Massen-Update, SQL
+     * von Hand oder aus der Zeit vor dieser Regel), kommt beim Lesen als „nicht
+     * gepflegt" an — sonst blockiert sie das Formular an einem Feld, das gerade
+     * niemand angefasst hat.
+     */
+    public function test_bestandsdatensatz_mit_null_liest_wie_nicht_gepflegt(): void
+    {
+        $posting = $this->makePosting(['bedarf' => 7, 'bewerbungs_faktor' => 8.0]);
+
+        // Am Model VORBEI geschrieben — genau der Weg, den der Setter nicht sieht
+        Capsule::table('rec_postings')->where('id', $posting->id)->update([
+            'bedarf' => 0,
+            'bewerbungs_faktor' => 0,
+        ]);
 
         $fresh = RecPosting::find($posting->id);
-        $this->assertSame(0, $fresh->bedarf);
-        $this->assertSame(0.0, $fresh->bewerbungs_faktor);
+        $this->assertNull($fresh->bedarf, 'die 0 aus dem Bestand liest wie nicht gepflegt');
+        $this->assertNull($fresh->bewerbungs_faktor);
+
+        // Und damit besteht der Datensatz die Formular-Validierung: `min:1` bzw.
+        // `min:0.1` greifen nur noch auf echte Angaben, nicht auf den Bestand.
+        $regeln = (new PostingFormProbe())->probeRules();
+        $validator = new Validator(
+            new Translator(new ArrayLoader(), 'de'),
+            [
+                'posting' => [
+                    'title' => 'Ein neuer Titel',
+                    'status' => 'published',
+                    'is_active' => true,
+                    'bedarf' => $fresh->bedarf,
+                    'bewerbungs_faktor' => $fresh->bewerbungs_faktor,
+                ],
+            ],
+            $regeln,
+        );
+
+        $this->assertFalse(
+            $validator->fails(),
+            'ein Bestandsdatensatz mit 0 darf das Formular nicht blockieren: ' . $validator->errors()->toJson(),
+        );
+
+        // GEGENPROBE, sonst beweist der Test nur, dass die Regeln nichts pruefen:
+        // eine 0, die trotzdem ankommt (Weg ohne Setter), faellt am Guertel auf.
+        $mitNull = new Validator(
+            new Translator(new ArrayLoader(), 'de'),
+            [
+                'posting' => [
+                    'title' => 'Ein neuer Titel',
+                    'status' => 'published',
+                    'is_active' => true,
+                    'bedarf' => 0,
+                    'bewerbungs_faktor' => 0,
+                ],
+            ],
+            $regeln,
+        );
+        $this->assertTrue($mitNull->fails());
+        $this->assertArrayHasKey('posting.bedarf', $mitNull->errors()->toArray());
+    }
+
+    /**
+     * Ein Wert UNTER der Schwelle des Faktors verhaelt sich wie die 0: die Regel
+     * (min:0.1) wuerde ihn abweisen, also darf er nicht als Angabe gelesen werden.
+     * Regel und Feld teilen dafuer eine Konstante.
+     */
+    public function test_wert_unter_der_schwelle_gilt_als_nicht_gepflegt(): void
+    {
+        $posting = $this->makePosting(['bedarf' => 1, 'bewerbungs_faktor' => 0.05]);
+
+        $this->assertSame(1, $posting->bedarf, 'die kleinste echte Angabe bleibt');
+        $this->assertNull($posting->bewerbungs_faktor, '0,05 liegt unter min:0.1');
+        $this->assertSame(RecPosting::BEDARF_MIN, 1);
+        $this->assertSame(RecPosting::FAKTOR_MIN, 0.1);
     }
 
     public function test_normaler_wert_kommt_unveraendert_an(): void
@@ -179,5 +278,18 @@ class PostingTargetFieldsTest extends TestCase
         $fresh = RecPosting::find($posting->id);
         $this->assertSame(12, $fresh->bedarf);
         $this->assertSame(7.5, $fresh->bewerbungs_faktor);
+    }
+}
+
+/**
+ * Reicht die Validierungsregeln des Ausschreibungs-Formulars heraus, ohne den
+ * Livewire-Lebenszyklus: rules() ist public, aber die Komponente selbst braucht
+ * fuer validate() eine gebootete App. Geprueft wird hier die REGEL, nicht Livewire.
+ */
+final class PostingFormProbe extends PostingForm
+{
+    public function probeRules(): array
+    {
+        return $this->rules();
     }
 }

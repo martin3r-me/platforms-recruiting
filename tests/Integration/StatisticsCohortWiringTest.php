@@ -247,33 +247,57 @@ class StatisticsCohortWiringTest extends TestCase
         $this->assertArrayNotHasKey(2, $row['columns']['phase_reached']);
     }
 
-    public function test_posting_ohne_lookup_eintrag_bleibt_grau_statt_null(): void
+    public function test_die_ausschreibung_eines_fremden_teams_bildet_keine_zeile_mehr(): void
     {
-        // Die Ausschreibung des fremden Teams haengt per Pivot am Bewerber (die
-        // Relation ist nicht team-gescopt), steht aber nicht im forTeam-gescopten
-        // Stammdaten-Lookup. Ihr gepflegter Bedarf 50 darf NICHT durchsickern,
-        // und es darf auch keine 0 erfunden werden: null heisst „nicht gepflegt",
-        // die Ampel bleibt grau.
-        $component = new Index();
-        $rows = $component->cohort()['rows'];
-        $row = $this->rowOf($rows, self::POSTING_FREMD, 'ohne_schulung');
+        // GEAENDERTE ZUSICHERUNG (Abschluss-Review Task 10). Frueher hiess dieser
+        // Test test_posting_ohne_lookup_eintrag_bleibt_grau_statt_null und pruefte,
+        // dass die Ausschreibung eines FREMDEN Teams als eigene Zeile erscheint —
+        // mit Titel aus dem Pivot und grauen Ampeln, weil der team-gescopte
+        // Stammdaten-Lookup ihren Bedarf 50 nicht liefert.
+        //
+        // Das war die Absicherung gegen das Durchsickern von ZAHLEN. Mit der
+        // Ausschreibungs-Tabelle kam der TITEL dazu, und damit war der fremde Titel
+        // sichtbar (belegt am Bewerber, dessen einzige Ausschreibung die fremde ist).
+        // Deshalb ist der Pivot jetzt team-gescopt, und die Zusicherung ist
+        // strenger: die fremde Ausschreibung bildet GAR KEINE Zeile.
+        //
+        // Die Bewerbung verschwindet dabei nicht — sie faellt in „ohne
+        // Ausschreibung" (Fall 3) und wird vom Block „Ohne Filial-Zuordnung"
+        // benannt. Beides steht unten im Test.
+        $component = $this->component();
+        $cohort = $component->cohort();
+        $rows = $cohort['rows'];
 
-        $this->assertSame('Fremdes Team', $row['posting_title'], 'Titel kommt aus dem Pivot');
-        $this->assertNull($row['bedarf'], 'Bedarf 50 des fremden Teams darf nicht durchsickern');
-        $this->assertNull($row['bewerbungs_faktor']);
-        $this->assertNull($row['published_ymd']);
-        $this->assertNull($row['closes_ymd']);
+        $this->assertSame(
+            [],
+            array_values(array_filter($rows, fn ($row) => $row['posting_id'] === self::POSTING_FREMD)),
+            'keine Zeile fuer die Ausschreibung des fremden Teams',
+        );
+        $this->assertStringNotContainsString(
+            'Fremdes Team',
+            json_encode(array_map(fn ($row) => $row['posting_title'], $rows), JSON_UNESCAPED_UNICODE),
+            'auch der Titel nicht',
+        );
 
-        $group = null;
-        foreach ((new CohortViewModel())->postingGroups($rows) as $candidate) {
-            if ($candidate['posting_id'] === self::POSTING_FREMD) {
-                $group = $candidate;
-            }
-        }
-        $this->assertNotNull($group);
-        $this->assertSame('grey', $component->pipelineLight($group)['status']);
-        $this->assertSame('grey', $component->fulfilmentLight($group)['status']);
-        $this->assertNull($component->fulfilmentLight($group)['pct'], 'keine Quote, nicht 0 %');
+        // Der Bewerber 104 haengt NUR an der fremden Ausschreibung: seine Zeile ist
+        // jetzt „ohne Ausschreibung" — vollstaendig enthalten, nur ohne Ziel.
+        $ohne = array_values(array_filter($rows, fn ($row) => $row['posting_id'] === null));
+        $this->assertCount(1, $ohne);
+        $this->assertSame([104], $ohne[0]['ids']);
+        $this->assertSame('ohne Ausschreibung', $ohne[0]['group']['ort']);
+        $this->assertNull($ohne[0]['bedarf'], 'Bedarf 50 des fremden Teams sickert weiterhin nicht durch');
+
+        // Rekonziliation bleibt geschlossen, und der vierte Block benennt die Zeile
+        $this->assertContains(104, $cohort['total_ids']);
+        $this->assertSame(
+            $component->countIn($rows, 'ids'),
+            count($cohort['total_ids']),
+        );
+        $this->assertContains(
+            104,
+            (new CohortViewModel())->resolveIds($cohort['unreachable_rows'], ['scope' => 'all'], 'ids'),
+            'die Bewerbung steht im Block „Ohne Filial-Zuordnung"',
+        );
     }
 
     public function test_gesamt_zeile_nennt_ihre_bezugsgroessen(): void
@@ -290,16 +314,22 @@ class StatisticsCohortWiringTest extends TestCase
         $this->assertSame(1, $light['signed'], 'Zaehler der Quote');
         $this->assertSame(10, $light['bedarf']);
         $this->assertSame(10, $light['pct']);
-        $this->assertSame(2, $light['excluded_postings'], 'Ausschreibung ohne Bedarf + Ausschreibung ohne Lookup-Eintrag');
-        $this->assertSame(1, $light['excluded_signed']);
-        // In diesem Bestand haengt jede Bewerbung an einer Ausschreibung
-        $this->assertSame(0, $light['without_posting_groups']);
-        $this->assertSame(0, $light['without_posting_signed']);
-        // Die Zahlen gehen auf: Zaehler + ausgelassene = Spaltenwert
+
+        // Seit der Pivot team-gescopt ist, bildet die Ausschreibung des fremden
+        // Teams keine Zeile mehr — ihr Bewerber (104, MIT Unterschrift) steht in
+        // „ohne Ausschreibung". Der Fall wandert damit von „Ausschreibung ohne
+        // gepflegten Bedarf" in den Null-Bucket, und das ist genau der Grund, warum
+        // fulfilmentTotals die zwei Toepfe TRENNT: an einer Ausschreibung ohne
+        // Bedarf kann man etwas pflegen, an einer Bewerbung ohne Ausschreibung nicht.
+        $this->assertSame(1, $light['excluded_postings'], 'nur noch die Ausschreibung ohne gepflegten Bedarf');
+        $this->assertSame(0, $light['excluded_signed'], 'dort liegt keine Unterschrift');
+        $this->assertSame(1, $light['without_posting_groups'], 'die Bewerbung ohne (eigene) Ausschreibung');
+        $this->assertSame(1, $light['without_posting_signed']);
+        // Die Zahlen gehen weiter auf: Zaehler + ausgelassene = Spaltenwert
         $this->assertSame(2, $light['signed'] + $light['excluded_signed'] + $light['without_posting_signed']);
         $this->assertStringContainsString('NICHT in dieser Quote', $light['reason']);
-        $this->assertStringContainsString('2 Ausschreibungen ohne gepflegten Bedarf', $light['reason']);
-        $this->assertStringNotContainsString('ohne Ausschreibung', $light['reason']);
+        $this->assertStringContainsString('1 Ausschreibung ohne gepflegten Bedarf', $light['reason']);
+        $this->assertStringContainsString('die Bewerbungen ohne Ausschreibung (1 Unterschrift)', $light['reason']);
     }
 
     public function test_fussnote_ohne_jeden_gepflegten_bedarf_erfindet_keine_null(): void

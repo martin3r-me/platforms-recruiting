@@ -363,6 +363,26 @@ class StatisticsPageRenderTest extends TestCase
         $this->assertStringNotContainsString('aber nicht das ganze Team', $alle);
     }
 
+    public function test_der_auswahl_hinweis_nennt_jede_aktive_filterdimension(): void
+    {
+        // Aufgezaehlt werden die TATSAECHLICH aktiven Dimensionen. Eine feste Liste
+        // liess die FILIALE aus, obwohl sie Block 1 genauso schneidet — und bei
+        // Filiale plus Status „alle" stand gar kein Zusatz, obwohl die Zahlen
+        // geschnitten sind.
+        $mitFiliale = $this->renderPage('Essen', null, 'alle');
+        $this->assertStringContainsString('Die Zahlen folgen der aktuellen Auswahl (Filiale)', $mitFiliale);
+
+        $mitStatus = $this->renderPage('Essen');
+        $this->assertStringContainsString('aktuellen Auswahl (Filiale, Status)', $mitStatus);
+
+        $mitDrei = $this->renderPage('Essen', 'Service');
+        $this->assertStringContainsString('aktuellen Auswahl (Filiale, Status, Tätigkeit)', $mitDrei);
+
+        // Ohne jede Einschraenkung (keine Filiale, Status „alle") faellt der Zusatz weg
+        $ohne = $this->renderPage(null, null, 'alle');
+        $this->assertStringNotContainsString('Die Zahlen folgen der aktuellen Auswahl', $ohne);
+    }
+
     public function test_kapazitaet_null_wird_wie_unbegrenzt_angezeigt(): void
     {
         // Erreichbar ueber die Termin-Pflege (max_participants ist `min:0`). Die

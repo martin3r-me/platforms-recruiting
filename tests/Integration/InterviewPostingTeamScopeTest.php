@@ -15,6 +15,7 @@ use Illuminate\Validation\Validator;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\InterviewSchedule\Index as SchedulePage;
 use Platform\Recruiting\Livewire\Statistics\Index as StatisticsPage;
+use Platform\Recruiting\Services\Statistics\CohortViewModel;
 
 /**
  * ZWEI SCHLOESSER gegen dieselbe Luecke: die Ausschreibung eines FREMDEN Teams darf
@@ -176,6 +177,53 @@ class InterviewPostingTeamScopeTest extends TestCase
         $this->assertStringNotContainsString(self::FREMD_TITEL, json_encode($zeile, JSON_UNESCAPED_UNICODE));
     }
 
+    public function test_der_pivot_traegt_die_fremde_ausschreibung_nicht_in_die_tabelle(): void
+    {
+        // DIE DRITTE TUER: nicht der Termin, sondern der BEWERBER. Sein Pivot zeigt
+        // auf die fremde Ausschreibung (RecApplicant::postings() ist ungescopt,
+        // eigenes Ticket) — bis Task 10 fiel das kaum auf, weil die Seite nur Ort und
+        // Taetigkeit daraus las. Mit der Ausschreibungs-Tabelle kam der TITEL dazu,
+        // und damit stand er im DOM. Der Eager Load in cohort() ist deshalb gescopt.
+        $component = new StatisticsPage();
+        $cohort = $component->cohort();
+        $rows = $cohort['rows'];
+
+        // Der Titel steckt in KEINER Zeile — auch nicht in einem Nebenfeld
+        $this->assertStringNotContainsString(
+            self::FREMD_TITEL,
+            json_encode($rows, JSON_UNESCAPED_UNICODE),
+        );
+
+        // ... und in keiner ANZEIGE-Zeile der Tabelle (postingGroups ist genau die
+        // Quelle, aus der Tabelle 1 ihre Zeilen rendert)
+        $gruppen = (new CohortViewModel())->postingGroups($rows);
+        $this->assertStringNotContainsString(
+            self::FREMD_TITEL,
+            json_encode(array_map(fn ($g) => $g['posting_title'], $gruppen), JSON_UNESCAPED_UNICODE),
+        );
+        $this->assertNotContains(
+            self::POSTING_FREMD,
+            array_map(fn ($g) => $g['posting_id'], $gruppen),
+        );
+
+        // Die Bewerbung VERSCHWINDET nicht: Fall 3 („ohne Ausschreibung"), in der
+        // Gesamtmenge und im Block „Ohne Filial-Zuordnung" benannt.
+        $ohneAusschreibung = array_values(array_filter($rows, fn ($row) => $row['posting_id'] === null));
+        $this->assertCount(1, $ohneAusschreibung);
+        $this->assertSame([1010], $ohneAusschreibung[0]['ids']);
+        $this->assertContains(1010, $cohort['total_ids']);
+        $this->assertContains(
+            1010,
+            (new CohortViewModel())->resolveIds($cohort['unreachable_rows'], ['scope' => 'all'], 'ids'),
+        );
+
+        // GEGENPROBE: die eigene Ausschreibung bleibt eine ganz normale Zeile
+        $eigen = array_values(array_filter($rows, fn ($row) => $row['posting_id'] === self::POSTING_EIGEN));
+        $this->assertCount(1, $eigen);
+        $this->assertSame([1011], $eigen[0]['ids']);
+        $this->assertSame('Kellner (m/w/d)', $eigen[0]['posting_title']);
+    }
+
     public function test_die_auswahllisten_der_statistik_zeigen_keine_fremde_ausschreibung(): void
     {
         // Gegenprobe an der zweiten Stelle, an der Ausschreibungs-Titel gerendert
@@ -298,6 +346,29 @@ class InterviewPostingTeamScopeTest extends TestCase
              'title' => 'Schulung August', 'location' => 'Essen, Zentrale',
              'starts_at' => '2026-08-10 10:00:00', 'max_participants' => 5,
              'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_phases')->insert([
+            ['id' => 101, 'uuid' => 'sph-101', 'team_id' => self::TEAM, 'rec_position_id' => 81,
+             'name' => 'Eingang', 'order' => 1, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        // Zwei Bewerber, die den DRITTEN Weg abdecken (Pivot statt Termin):
+        //  - 1010 haengt NUR an der fremden Ausschreibung,
+        //  - 1011 an der eigenen (Gegenprobe, damit der Test nicht einfach alles
+        //    wegnimmt).
+        Capsule::table('rec_applicants')->insert([
+            ['id' => 1010, 'uuid' => 'sapp-1010', 'team_id' => self::TEAM, 'applied_at' => '2026-07-01',
+             'rec_phase_id' => 101, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 1011, 'uuid' => 'sapp-1011', 'team_id' => self::TEAM, 'applied_at' => '2026-07-02',
+             'rec_phase_id' => 101, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_applicant_posting')->insert([
+            ['rec_applicant_id' => 1010, 'rec_posting_id' => self::POSTING_FREMD,
+             'created_at' => $now, 'updated_at' => $now],
+            ['rec_applicant_id' => 1011, 'rec_posting_id' => self::POSTING_EIGEN,
+             'created_at' => $now, 'updated_at' => $now],
         ]);
     }
 }

@@ -195,7 +195,12 @@ class StatisticsTablesRenderTest extends TestCase
         // beides an der Zahl und nicht nur in der Spalten-Überschrift — 8 % in der
         // Summe neben 8 % in der Zeile ist Zufall, die Rechnungen sind zwei.
         $this->assertStringContainsString('3 von 80', $html, 'Gesamt-Zeile ohne Hochrechnung');
-        $this->assertStringContainsString('IN DEN ZEILEN hochgerechnet', $html, 'die Überschrift gilt für beide Zeilenarten');
+        $this->assertStringContainsString('hochgerechnet', $html, 'die Zeile sagt, welche Rechnung gilt');
+        $this->assertStringContainsString(
+            'IN EINER ZEILE MIT GEPFLEGTER LAUFZEIT hochgerechnet',
+            $html,
+            'die Überschrift gilt für alle drei Zeilenarten (mit Laufzeit, ohne Laufzeit, Gesamt)',
+        );
 
         // Freier Nutzertext im Spaltenkopf: der Phasenname mit Apostroph erscheint
         // NUR kodiert — weder im wire:click noch in einem title-Attribut steht er
@@ -203,6 +208,40 @@ class StatisticsTablesRenderTest extends TestCase
         // Attribut.
         $this->assertStringContainsString('Telefonat &#039;kurz&#039;', $html, 'Name sichtbar, aber kodiert');
         $this->assertStringNotContainsString("Telefonat 'kurz'", $html, 'nirgends roh');
+    }
+
+    public function test_pipeline_ohne_gepflegte_laufzeit_nennt_ihre_zahlen(): void
+    {
+        // DER HAEUFIGERE Zeilenzustand, und bis zum Abschluss-Review von KEINEM Test
+        // gerendert: `closes_at` ist optional und publish() setzt nur `published_at`.
+        // TargetLight vergleicht dann ABSOLUT und liefert `projected = null` — die
+        // Zelle verlangte aber genau diesen Wert und zeigte deshalb eine nackte
+        // Prozentzahl ohne jede Bezugsgroesse. Genau diese Zahl hat der Kunde
+        // reklamiert.
+        Capsule::table('rec_postings')->where('id', self::POSTING_KELLNER)->update(['closes_at' => null]);
+
+        try {
+            $html = $this->render('postings-table', 'Essen');
+
+            // 3 Bewerbungen gegen das ganze Ziel 80 = 4 % — ohne Hochrechnung
+            $this->assertStringContainsString('3 von 80', $html, 'Bezugsgrößen auch im Absolut-Zweig');
+            $this->assertStringContainsString('Ziel: 10 × 8', $html, 'das Ziel bleibt benannt');
+            $this->assertStringContainsString('absolut', $html, 'die Zeile sagt, dass NICHT hochgerechnet wird');
+            $this->assertStringContainsString(
+                'Ohne Hochrechnung, weil an dieser Ausschreibung kein Start oder kein Laufzeitende gepflegt ist',
+                $html,
+                'und der Tooltip sagt, warum',
+            );
+
+            // Die Spalte verspricht hier keine Hochrechnung mehr
+            $this->assertStringContainsString('OHNE gepflegten Start oder Laufzeitende', $html);
+
+            // Und die Spaltenzahl bleibt in diesem Zweig ebenfalls heil
+            $this->assertRowsMatchGroups($this->columnCounts($html), 'Ausschreibungs-Tabelle ohne Laufzeit');
+        } finally {
+            Capsule::table('rec_postings')->where('id', self::POSTING_KELLNER)
+                ->update(['closes_at' => '2026-09-30 23:59:59']);
+        }
     }
 
     public function test_termin_tabelle_haelt_ihre_spaltenzahl_auch_in_den_unterzeilen(): void

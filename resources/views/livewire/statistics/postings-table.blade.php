@@ -150,10 +150,12 @@
     // darunter 138 % — ohne diesen Satz liest man das als Rechenfehler. Die Zahlen,
     // aus denen der Prozentwert entsteht, stehen zusätzlich in jeder Zelle.
     $pipelineTitle = 'Bewerbungen gegen das Ziel (Bedarf × Faktor). '
-        . 'IN DEN ZEILEN hochgerechnet auf das Laufzeitende: dieselbe Zahl heißt bei drei Wochen '
-        . 'Restlaufzeit Alarm und bei sechs Monaten Plan. IN DER GESAMT-ZEILE absolut, weil es keine '
-        . 'gemeinsame Laufzeit gibt — Zeilen-Prozente und Summen-Prozent können deshalb auseinandergehen. '
-        . 'Unter jedem Prozentwert steht der Bruch, aus dem er entsteht. '
+        . 'IN EINER ZEILE MIT GEPFLEGTER LAUFZEIT hochgerechnet auf das Laufzeitende: dieselbe Zahl heißt '
+        . 'bei drei Wochen Restlaufzeit Alarm und bei sechs Monaten Plan. OHNE gepflegten Start oder '
+        . 'Laufzeitende — der häufigere Fall, weil das Enddatum optional ist — absolut gegen das ganze '
+        . 'Ziel. IN DER GESAMT-ZEILE ebenfalls absolut, weil es keine gemeinsame Laufzeit gibt. '
+        . 'Zeilen-Prozente und Summen-Prozent können deshalb auseinandergehen; unter jedem Prozentwert '
+        . 'steht der Bruch, aus dem er entsteht, und daneben, welche der beiden Rechnungen gilt. '
         . 'Grün ab 90 %, gelb ab 60 %. Grau in den ersten sieben Tagen und ohne gepflegte Werte.';
     $einsatzTitle = 'kommt mit der Dispo';
 @endphp
@@ -255,6 +257,22 @@
                                 default => '',
                             };
                             $taetigkeiten = implode(', ', $group['taetigkeiten']);
+
+                            // ZWEI RECHNUNGEN, eine Spalte — und die Zelle muss sagen,
+                            // welche gilt:
+                            //  - mit gepflegter Laufzeit rechnet TargetLight HOCH
+                            //    ($pipeline['projected']),
+                            //  - ohne Laufzeit vergleicht es ABSOLUT (dort ist
+                            //    'projected' null, das Ziel aber gesetzt).
+                            // Der zweite Fall ist der HAEUFIGERE: closes_at ist
+                            // optional, und publish() setzt nur published_at. Er
+                            // zeigte vorher eine nackte Prozentzahl ohne jede
+                            // Bezugsgroesse — genau die Zahl, die der Kunde
+                            // reklamiert hat.
+                            $pipelineHochgerechnet = $pipeline['projected'] !== null;
+                            $pipelineZaehler = $pipelineHochgerechnet
+                                ? $pipeline['projected']
+                                : $this->countIn($groupRows, 'ids');
                         @endphp
                         <tr class="group transition-colors hover:bg-[var(--ui-muted-5)] {{ $tint }}">
                             {{-- Erste Spalte klebt links: die Tabelle scrollt horizontal,
@@ -319,9 +337,15 @@
                             <td class="px-3 py-2 text-center whitespace-nowrap"
                                 title="{{ $pipeline['reason'] }}">
                                 @include('recruiting::livewire.statistics.light', ['light' => $pipeline, 'label' => 'Pipeline'])
-                                @if ($pipeline['target'] !== null && $pipeline['projected'] !== null)
+                                {{-- Bedingung ist das ZIEL, nicht die Hochrechnung:
+                                     sobald ein Ziel steht, gibt es einen Bruch — mit
+                                     Laufzeit einen hochgerechneten, ohne Laufzeit
+                                     einen absoluten. Der Zusatz sagt, welcher. --}}
+                                @if ($pipeline['target'] !== null)
                                     <div class="text-[11px] font-normal tabular-nums text-[color:var(--ui-muted)]">
-                                        {{ $pipeline['projected'] }} von {{ $pipeline['target'] }}
+                                        {{ $pipelineZaehler }} von {{ $pipeline['target'] }}
+                                        <span class="cursor-help"
+                                              title="{{ $pipelineHochgerechnet ? 'Hochgerechnet auf das Laufzeitende: die bisherigen Bewerbungen, verlängert auf die gepflegte Laufzeit.' : 'Ohne Hochrechnung, weil an dieser Ausschreibung kein Start oder kein Laufzeitende gepflegt ist — verglichen werden die bisherigen Bewerbungen gegen das ganze Ziel.' }}">{{ $pipelineHochgerechnet ? 'hochgerechnet' : 'absolut' }}</span>
                                     </div>
                                     <div class="text-[11px] font-normal tabular-nums text-[color:var(--ui-muted)]"
                                          title="Das Ziel ist Bedarf × Faktor. Der Faktor sagt, wie viele Bewerbungen es je Einstellung braucht (Feld „Bewerbungs-Faktor“ an der Ausschreibung).">
@@ -421,6 +445,31 @@
             || $totalFulfilment['without_posting_groups'] > 0)
             <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
                 Erfüllung gesamt: {{ $totalFulfilment['reason'] }}
+            </div>
+        @endif
+
+        {{-- DASSELBE fuer die Pipeline, die denselben stillen Topf hat: ihre
+             Gesamt-Zeile zaehlt nur Ausschreibungen mit gepflegtem Bedarf UND
+             Faktor, die Spalte „Bewerbungen“ daneben zaehlt alle. Ohne diesen Satz
+             steht „Bewerbungen 4“ neben „3 von 80“, und die Differenz ist nirgends
+             benannt — genau das Problem, wegen dem diese Seite gebaut wird. Die
+             Erfuellungs-Spalte hatte ihre Fussnote schon, die Pipeline nicht.
+
+             Der Text kommt aus pipelineTotalLight() (derselbe wie im Tooltip), die
+             Differenz wird hier dazu benannt: Σ Bewerbungen der Auswahl minus die,
+             die in der Quote stecken. --}}
+        @php
+            $pipelineAussen = $rowSum - $totalPipeline['bewerbungen'];
+        @endphp
+        @if ($totalPipeline['target'] === null || $pipelineAussen > 0)
+            <div class="mt-1 text-xs text-[color:var(--ui-muted)]">
+                Pipeline gesamt: {{ $totalPipeline['reason'] }}
+                @if ($pipelineAussen > 0)
+                    NICHT im Zähler: {{ $pipelineAussen }}
+                    {{ $pipelineAussen === 1 ? 'Bewerbung' : 'Bewerbungen' }} an Ausschreibungen ohne
+                    gepflegten Bedarf oder Faktor (oder ohne Ausschreibung) — deshalb ist die Spalte
+                    „Bewerbungen“ höher als der Zähler hier.
+                @endif
             </div>
         @endif
     @endif

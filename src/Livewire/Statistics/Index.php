@@ -301,6 +301,25 @@ class Index extends Component
             // ->when($this->ortFilter, fn ($q) => $q->whereHas('postings.position',
             //     fn ($p) => $p->where('location', $this->ortFilter)))
             ->with([
+                // TEAM-SCOPE auf dem Pivot, nicht nur auf den Stammdaten-Lookups.
+                //
+                // RecApplicant::postings() ist eine ungescopte belongsToMany (eigenes
+                // Ticket, hier nicht angefasst) — die Relation folgt also jeder
+                // Pivot-Zeile, auch einer, die auf die Ausschreibung eines FREMDEN
+                // Teams zeigt. Bis Task 10 fiel das kaum auf, weil die Seite nur Ort
+                // und Taetigkeit daraus las; seit der Ausschreibungs-Tabelle steht
+                // dort der TITEL, und genau der ist damit sichtbar geworden
+                // (nachgewiesen an einem Bewerber, dessen einzige Ausschreibung die
+                // fremde war). Dieser Branch hat den Titel hinzugefuegt, also schliesst
+                // er die Tuer.
+                //
+                // Die Bewerbungen VERSCHWINDEN dadurch nicht: ohne verbleibende
+                // Pivot-Zeile greift Fall 3 der Zuordnungsregel („ohne
+                // Ausschreibung"), die Zeile bleibt in der Gesamtmenge und wird vom
+                // Block „Ohne Filial-Zuordnung" benannt (Test). Die SCHREIBSEITE
+                // (Dashboard::assignPosting, die exists-Regeln an den
+                // Bewerber-Formularen) ist ihr eigenes Ticket.
+                'postings' => fn ($q) => $q->forTeam($teamId),
                 'postings.position',
                 // kein withTrashed(): der Assigner verwirft deleted ohnehin —
                 // SoftDeleted gar nicht erst laden
@@ -1265,10 +1284,10 @@ class Index extends Component
      * $extra reist unveraendert durch (encodeScope hier, decodeScope in drill(),
      * von dort direkt in resolveIds) — Hin- und Rueckweg sind also fuer alle
      * Bestandteile derselbe, es gibt keine Feld-Liste, die man vergessen koennte.
-     * Fuer die Scopes 'row', 'posting' und 'interviews_posting' ist 'posting' =>
-     * $row['posting_id'] PFLICHT: die Zeilen sind je Ausschreibung, 'key' allein
-     * trifft sonst mehrere. Fehlt es, loest resolveIds fail-closed nichts auf
-     * (leeres Modal statt vermischter IDs). Fuer die Termin-Scopes gilt dasselbe
+     * Fuer die Scopes 'posting' und 'interviews_posting' ist 'posting' =>
+     * $row['posting_id'] PFLICHT: die Zeilen sind je Ausschreibung, ohne die Angabe
+     * traefe der Zuschnitt mehrere. Fehlt sie, loest resolveIds fail-closed nichts
+     * auf (leeres Modal statt vermischter IDs). Fuer die Termin-Scopes gilt dasselbe
      * fuer 'interviews' => list<int>.
      *
      * $extra kennt zusaetzlich 'set' => 'closed' | 'unreachable' (die beiden

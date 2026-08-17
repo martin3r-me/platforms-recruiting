@@ -41,14 +41,16 @@ class Show extends Component
             'posting.is_active' => 'boolean',
             'publishedAt' => 'nullable|date_format:Y-m-d',
             'closesAt' => 'nullable|date_format:Y-m-d',
-            // min:1, nicht min:0 — Regel und Anzeige sagen jetzt dasselbe: die
-            // Statistik liest einen Bedarf von 0 als NICHT GEPFLEGT (sie zeigt „–“,
-            // laesst die Zeile aus der Erfuellungsquote und haelt beide Ampeln grau,
-            // weil 0 kein Nenner ist). Eine speicherbare 0 war damit ein Wert, der
-            // sich wie „leer“ verhaelt, aber wie eine Angabe aussieht. Wer keinen
-            // Bedarf hat, laesst das Feld leer.
-            'posting.bedarf' => 'nullable|integer|min:1|max:10000',
-            'posting.bewerbungs_faktor' => 'nullable|numeric|min:0.1|max:99.9',
+            // Die Schwellen kommen aus dem MODEL, nicht aus einem Literal hier: dort
+            // normalisieren Setter und Getter alles darunter auf null („nicht
+            // gepflegt", siehe RecPosting). Waeren es zwei Zahlen, koennte die Regel
+            // strenger werden als das Feld — und dann blockiert ein Bestandswert das
+            // ganze Formular an einem Feld, das gerade niemand angefasst hat.
+            //
+            // Die Regel bleibt als Guertel: sie faengt eine 0, die auf einem Weg
+            // ankommt, der den Setter nicht durchlaeuft (Massen-Update, DB von Hand).
+            'posting.bedarf' => 'nullable|integer|min:' . RecPosting::BEDARF_MIN . '|max:10000',
+            'posting.bewerbungs_faktor' => 'nullable|numeric|min:' . RecPosting::FAKTOR_MIN . '|max:99.9',
         ];
     }
 

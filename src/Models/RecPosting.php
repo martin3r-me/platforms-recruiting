@@ -42,38 +42,91 @@ class RecPosting extends Model
     }
 
     /**
-     * Leere Eingabe ('', null, reine Leerzeichen) wird schon beim SCHREIBEN
-     * zu NULL, nicht erst beim Lesen.
+     * KLEINSTE SINNVOLLE WERTE der beiden Ziel-Felder — eine Definition fuer das
+     * Model UND fuer die Validierungsregeln des Formulars (Posting\Show::rules).
+     * Lagen sie getrennt, waere die Regel irgendwann strenger oder laxer als das
+     * Feld, und genau daran haengt hier ein Formular, das sich nicht speichern
+     * laesst.
+     */
+    public const BEDARF_MIN = 1;
+    public const FAKTOR_MIN = 0.1;
+
+    /**
+     * „NICHT GEPFLEGT" ist EIN Zustand, und er heisst NULL — am Feld, nicht in
+     * fuenf Lesern.
      *
-     * Grund: der `integer`-Cast in $casts wirkt nur beim LESEN
-     * (getAttribute), nicht beim Schreiben. Ohne diesen Setter landet ein
-     * per wire:model geleertes Formularfeld ('' auf dem Attribut) roh in
-     * $attributes; Livewire liest den Wert vor dem Speichern zurueck, der
-     * Cast macht daraus sofort int(0) — und 0 bedeutet fachlich "Ziel
-     * erreicht mit null Personen", nicht "nicht gepflegt" (Spec: nichts
-     * wird geraten, fehlt ein Wert, fehlt die Ampel). Eine bewusste "0" ist
-     * KEINE leere Eingabe und bleibt 0. Bitte NICHT als Redundanz zum Cast
-     * entfernen — der Cast kann das Schreiben nicht abdecken.
+     * Was hier alles als „nicht gepflegt" ankommt: null, '' und reine Leerzeichen
+     * (ein per wire:model geleertes Formularfeld) UND die 0. Die 0 ist der Teil,
+     * der sich mit Task 10 geaendert hat, und zwar in beide Richtungen (Setter und
+     * Getter), weil sie sonst nur halb verschwindet:
+     *
+     *  - FACHLICH gibt es keinen Bedarf 0. Alle Leser der Statistik behandeln ihn
+     *    laengst als nicht gepflegt (graue Ampel, „–", nicht im Nenner der Quote) —
+     *    eine speicherbare 0 war damit ein Wert, der sich wie „leer" verhaelt, aber
+     *    wie eine Angabe aussieht.
+     *  - PRAKTISCH blockierte sie das Formular: mit `min:1` in den Regeln wirft
+     *    save() auf `posting.bedarf`, und weil Livewire die Validierung fuer das
+     *    ganze Formular macht, verwirft es dabei die Aenderung an einem voellig
+     *    anderen Feld (gemessen: Titel geaendert, Titel weg, Fehler am Bedarf). Der
+     *    Getter raeumt deshalb auch den BESTAND auf, den es schon gibt.
+     *
+     * Der Getter uebernimmt zugleich die Aufgabe des `integer`-Casts: sobald ein
+     * Get-Mutator existiert, wendet Eloquent den Cast NICHT mehr an (siehe
+     * transformModelValue) — die Umwandlung passiert hier von Hand.
+     *
+     * ACHTUNG, frueher stand hier das Gegenteil („eine bewusste 0 bleibt 0"). Das
+     * war die Entscheidung von Task 5 und ist mit Task 10 aufgehoben: die Anzeige
+     * hatte sie ohnehin nie als Angabe gelesen. Bitte nicht zurueckdrehen, ohne die
+     * fuenf Leser mitzudrehen.
      */
     public function setBedarfAttribute($value): void
     {
-        $this->attributes['bedarf'] = ($value === null || trim((string) $value) === '') ? null : $value;
+        $this->attributes['bedarf'] = self::alsGepflegteZahl($value, (float) self::BEDARF_MIN);
+    }
+
+    public function getBedarfAttribute($value): ?int
+    {
+        $gepflegt = self::alsGepflegteZahl($value, (float) self::BEDARF_MIN);
+
+        return $gepflegt === null ? null : (int) $gepflegt;
     }
 
     /**
-     * Gleicher Mechanismus wie setBedarfAttribute() — siehe dort fuer die
-     * ausfuehrliche Begruendung (Cast wirkt nur beim Lesen).
+     * Gleicher Bauplan wie beim Bedarf — mit der Schwelle des Faktors (0,1).
      *
-     * Hier ist die Wirkung eines fehlenden Setters gravierender: '' wuerde
-     * ueber den `float`-Cast zu float(0.0), das scheitert an der
-     * Validierungsregel min:0.1 — und weil `save()` bei fehlgeschlagener
-     * Validierung komplett abbricht, liesse sich dann das GESAMTE Formular
-     * nicht mehr speichern (Titel, Status, Datum inklusive), sobald der
-     * Faktor einmal gefuellt war und wieder geleert wird.
+     * Die Wirkung eines fehlenden Setters war hier immer schon gravierender: ''
+     * wuerde ueber den float-Cast zu 0.0, das scheitert an min:0.1, und save()
+     * bricht fuer das GESAMTE Formular ab (Titel, Status, Datum inklusive), sobald
+     * der Faktor einmal gefuellt war und wieder geleert wird. Ein Bestandswert
+     * unter der Schwelle (0, 0.05) hat dieselbe Wirkung — deshalb liest der Getter
+     * ihn als nicht gepflegt statt ihn ins Formular zu tragen.
      */
     public function setBewerbungsFaktorAttribute($value): void
     {
-        $this->attributes['bewerbungs_faktor'] = ($value === null || trim((string) $value) === '') ? null : $value;
+        $this->attributes['bewerbungs_faktor'] = self::alsGepflegteZahl($value, self::FAKTOR_MIN);
+    }
+
+    public function getBewerbungsFaktorAttribute($value): ?float
+    {
+        $gepflegt = self::alsGepflegteZahl($value, self::FAKTOR_MIN);
+
+        return $gepflegt === null ? null : (float) $gepflegt;
+    }
+
+    /**
+     * Leer oder unterhalb der Schwelle → null, sonst der Wert unveraendert.
+     *
+     * Bewusst EINE Stelle fuer beide Felder und beide Richtungen (Setter/Getter):
+     * vier Kopien derselben Bedingung waeren vier Stellen, an denen „nicht
+     * gepflegt" verschieden ausfallen kann.
+     */
+    private static function alsGepflegteZahl(mixed $value, float $min): mixed
+    {
+        if ($value === null || trim((string) $value) === '') {
+            return null;
+        }
+
+        return ((float) $value) < $min ? null : $value;
     }
 
     public function position()

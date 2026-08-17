@@ -319,10 +319,31 @@
         // Ein gemeinsames Flag hätte die Blöcke 2/3 im Standardzustand („online“)
         // dauerhaft als unvollständig ausgewiesen, obwohl sie es nicht sind — und
         // eine Warnung, die immer steht, liest niemand mehr.
-        $auswahlBeschnitten = $narrowed || $this->postingStatusFilter !== 'alle';
+        // Aufgezählt werden die TATSÄCHLICH aktiven Dimensionen, und die FILIALE
+        // gehört dazu: sie schneidet Block 1 genauso (gemessen 7 → 4). Eine feste
+        // Liste hätte sie ausgelassen — und bei Filiale plus Status „alle“ hätte
+        // gar kein Zusatz gestanden, obwohl die Zahlen dann geschnitten sind.
+        $auswahlFilter = [];
+        if ($this->hasOrt()) {
+            $auswahlFilter[] = 'Filiale';
+        }
+        if ($this->postingStatusFilter !== 'alle') {
+            $auswahlFilter[] = 'Status';
+        }
+        if ($this->activityFilter !== null) {
+            $auswahlFilter[] = 'Tätigkeit';
+        }
+        if ($this->postingFilter !== null) {
+            $auswahlFilter[] = 'Ausschreibung';
+        }
+        if ($this->sourcePlatformFilter !== null) {
+            $auswahlFilter[] = 'Quelle';
+        }
+
+        $auswahlBeschnitten = $auswahlFilter !== [];
 
         $auswahlNote = $auswahlBeschnitten
-            ? ' Die Zahlen folgen der aktuellen Auswahl (Status, Tätigkeit, Ausschreibung, Quelle) — '
+            ? ' Die Zahlen folgen der aktuellen Auswahl (' . implode(', ', $auswahlFilter) . ') — '
                 . 'im Team können es mehr sein.'
             : '';
 
