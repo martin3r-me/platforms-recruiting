@@ -13,6 +13,16 @@ use Platform\Recruiting\Models\RecDispoEvent;
  * Template traegt whatsapp_account_id -> Account.phone_number -> CommsChannel
  * via sender_identifier. Components werden hier selbst gebaut — bewusst NICHT
  * sendManualTemplate (bekannter Form-Token-Bug).
+ *
+ * Body-Variablen-Vertrag des genehmigten Meta-Templates (Namenskonvention
+ * `dispo_einsatz_bestaetigung`), Reihenfolge ist bindend, alle Werte MUESSEN
+ * nicht-leere Strings sein (Meta lehnt leere Parameter ab):
+ * {{1}} Vorname (contact['first_name'], Fallback contact['name'] falls leer — Meta lehnt leere Parameter ab)
+ * {{2}} erster Einsatztag (d.m.Y)
+ * {{3}} VA-Name (event->name ?? event->einsatz_ref)
+ * {{4}} Vorlauf-Minuten (event->vorlauf_minuten, Modal-Pflichtfeld; ?? 0 nur Belt-and-Braces)
+ * {{5}} Schichtzeit des ERSTEN Einsatztags, siehe firstShiftLabel()
+ * URL-Button (index 0): portal_token
  */
 class DispoConfirmationSender
 {
@@ -50,6 +60,14 @@ class DispoConfirmationSender
         $contacts = $this->gateway->contacts(array_column($recipients, 'employee_id'));
         $service  = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class);
 
+        $assignmentTimes = collect();
+        if ($recipients !== []) {
+            $assignmentTimes = RecDispoAssignment::query()
+                ->whereIn('id', array_merge(...array_column($recipients, 'assignment_ids')))
+                ->get(['id', 'datum', 'von', 'bis'])
+                ->keyBy('id');
+        }
+
         $sent = 0;
         $failed = [];
 
@@ -65,9 +83,11 @@ class DispoConfirmationSender
                     [
                         'type' => 'body',
                         'parameters' => [
-                            ['type' => 'text', 'text' => $contact['name']],
+                            ['type' => 'text', 'text' => ($contact['first_name'] !== '' ? $contact['first_name'] : $contact['name'])],
                             ['type' => 'text', 'text' => \Carbon\Carbon::parse($recipient['first_datum'])->format('d.m.Y')],
                             ['type' => 'text', 'text' => (string) ($event->name ?? $event->einsatz_ref)],
+                            ['type' => 'text', 'text' => (string) ($event->vorlauf_minuten ?? 0)],
+                            ['type' => 'text', 'text' => $this->firstShiftLabel($recipient['assignment_ids'], $assignmentTimes)],
                         ],
                     ],
                     [
@@ -110,5 +130,36 @@ class DispoConfirmationSender
         }
 
         return ['ok' => true, 'message' => null, 'sent' => $sent, 'failed' => $failed];
+    }
+
+    /**
+     * Schichtzeit-Label fuer {{5}}: der chronologisch ERSTE Einsatztag dieses
+     * Empfaengers auf dieser VA. Sortierung [datum, von] aufsteigend, dabei
+     * steht eine Zeile ohne von-Zeit innerhalb desselben Tages hinten.
+     * "16:00 bis 22:00", nur-von -> "16:00", keine von-Zeit -> Fallback
+     * "siehe Infoseite" (Meta akzeptiert keine leeren Parameter).
+     *
+     * @param list<int> $assignmentIds
+     */
+    private function firstShiftLabel(array $assignmentIds, \Illuminate\Support\Collection $times): string
+    {
+        $first = collect($assignmentIds)
+            ->map(fn (int $id) => $times->get($id))
+            ->filter()
+            ->sort(function ($a, $b) {
+                $byDatum = $a->datum <=> $b->datum;
+                if ($byDatum !== 0) {
+                    return $byDatum;
+                }
+
+                return ($a->von ?? '99:99') <=> ($b->von ?? '99:99');
+            })
+            ->first();
+
+        if ($first === null || $first->von === null) {
+            return 'siehe Infoseite';
+        }
+
+        return $first->bis !== null ? "{$first->von} bis {$first->bis}" : $first->von;
     }
 }

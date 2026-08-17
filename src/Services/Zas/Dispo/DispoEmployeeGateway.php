@@ -12,7 +12,7 @@ use Platform\Recruiting\Models\RecEmployee;
  */
 class DispoEmployeeGateway
 {
-    /** @return array<int, array{name: string, phone: ?string, portal_token: string}> */
+    /** @return array<int, array{name: string, first_name: string, phone: ?string, portal_token: string}> */
     public function contacts(array $employeeIds): array
     {
         if ($employeeIds === []) {
@@ -24,6 +24,7 @@ class DispoEmployeeGateway
             ->get(['id', 'first_name', 'last_name', 'phone', 'portal_token'])
             ->mapWithKeys(fn ($e) => [(int) $e->id => [
                 'name'         => trim($e->first_name . ' ' . $e->last_name),
+                'first_name'   => trim((string) $e->first_name),
                 'phone'        => ($e->phone !== null && trim($e->phone) !== '') ? trim($e->phone) : null,
                 'portal_token' => (string) $e->portal_token,
             ]])
