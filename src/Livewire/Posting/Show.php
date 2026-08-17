@@ -41,6 +41,8 @@ class Show extends Component
             'posting.is_active' => 'boolean',
             'publishedAt' => 'nullable|date_format:Y-m-d',
             'closesAt' => 'nullable|date_format:Y-m-d',
+            'posting.bedarf' => 'nullable|integer|min:0|max:10000',
+            'posting.bewerbungs_faktor' => 'nullable|numeric|min:0.1|max:99.9',
         ];
     }
 

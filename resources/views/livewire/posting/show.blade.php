@@ -58,6 +58,23 @@
                 <x-ui-input-checkbox model="posting.is_active" name="posting.is_active" label="Aktiv" wire:model.live="posting.is_active" />
                 <x-ui-input-date name="publishedAt" label="Startdatum" wire:model.live="publishedAt" :nullable="true" />
                 <x-ui-input-date name="closesAt" label="Enddatum" wire:model.live="closesAt" :nullable="true" />
+                <x-ui-input-text
+                    name="posting.bedarf"
+                    label="Bedarf (Personen)"
+                    type="number"
+                    min="0"
+                    wire:model="posting.bedarf"
+                    hint="Wie viele Personen über diese Ausschreibung eingestellt werden sollen. Leer = keine Erfüllungs-Ampel."
+                />
+                <x-ui-input-text
+                    name="posting.bewerbungs_faktor"
+                    label="Faktor (Bewerbungen pro Einstellung)"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    wire:model="posting.bewerbungs_faktor"
+                    hint="Erfahrungswert im Team: 7–10 Bewerbungen pro Einstellung. Leer = keine Pipeline-Ampel."
+                />
             </div>
             @if($publishedAt && $closesAt)
                 @php
