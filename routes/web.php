@@ -102,3 +102,5 @@ Route::get('/dispo-events/{eventId}', \Platform\Recruiting\Livewire\Dispo\Events
     ->whereNumber('eventId');
 Route::get('/dispo-settings', \Platform\Recruiting\Livewire\Dispo\Settings::class)
     ->name('recruiting.dispo.settings');
+Route::get('/dispo-kommunikation', \Platform\Recruiting\Livewire\Dispo\Conversations\Index::class)
+    ->name('recruiting.dispo.conversations');
