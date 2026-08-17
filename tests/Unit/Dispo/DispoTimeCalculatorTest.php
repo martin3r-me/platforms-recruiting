@@ -30,4 +30,14 @@ class DispoTimeCalculatorTest extends TestCase
     {
         $this->assertSame('2026-08-19 20:00', DispoTimeCalculator::confirmationDeadline('2026-08-20', null, 4));
     }
+
+    public function test_reply_window(): void
+    {
+        $now = new \DateTimeImmutable('2026-08-17 12:00:00');
+        $this->assertTrue(\Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator::isReplyWindowOpen(new \DateTimeImmutable('2026-08-17 11:00:00'), $now));
+        $this->assertTrue(\Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator::isReplyWindowOpen(new \DateTimeImmutable('2026-08-16 12:00:01'), $now));
+        $this->assertFalse(\Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator::isReplyWindowOpen(new \DateTimeImmutable('2026-08-16 12:00:00'), $now)); // exakt 24h -> zu
+        $this->assertFalse(\Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator::isReplyWindowOpen(new \DateTimeImmutable('2026-08-15 12:00:00'), $now));
+        $this->assertFalse(\Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator::isReplyWindowOpen(null, $now));
+    }
 }

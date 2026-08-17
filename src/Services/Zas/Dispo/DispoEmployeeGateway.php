@@ -36,4 +36,16 @@ class DispoEmployeeGateway
     {
         return array_map(fn ($c) => $c['phone'], $this->contacts($employeeIds));
     }
+
+    /** @return array<int, ?string> employee_id => Roh-Telefonnummer (nur aktive MA mit Nummer) */
+    public function phoneDirectory(): array
+    {
+        return RecEmployee::query()
+            ->where('is_active', true)
+            ->whereNotNull('phone')
+            ->where('phone', '!=', '')
+            ->pluck('phone', 'id')
+            ->map(fn ($p) => (string) $p)
+            ->all();
+    }
 }

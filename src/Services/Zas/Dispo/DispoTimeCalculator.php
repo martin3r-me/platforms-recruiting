@@ -30,4 +30,16 @@ class DispoTimeCalculator
 
         return $start->sub(new \DateInterval('PT' . $deadlineHours . 'H'))->format('Y-m-d H:i');
     }
+
+    /** WhatsApp-Antwortfenster: offen solange $now STRIKT vor lastInbound+24h liegt. */
+    public static function isReplyWindowOpen(?\DateTimeInterface $lastInboundAt, \DateTimeInterface $now): bool
+    {
+        if ($lastInboundAt === null) {
+            return false;
+        }
+
+        $deadline = \DateTimeImmutable::createFromInterface($lastInboundAt)->add(new \DateInterval('PT24H'));
+
+        return $now < $deadline;
+    }
 }
