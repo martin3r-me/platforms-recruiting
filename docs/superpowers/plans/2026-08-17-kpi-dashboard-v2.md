@@ -80,12 +80,22 @@ WHERE a.team_id = 3 AND l.type = 'position_switched';
 - Unter ~5 Fällen insgesamt: nichts tun. Stattdessen in Task 8 an der betroffenen Zeile den bestehenden „Zuordnung unklar"-Marker nutzen (existiert schon als `uneindeutig_ids`).
 - Mehr als das: den notierten Mini-Fix (`project_switch_position_posting_bug`: Log + `matched_via` setzen, alte Verknüpfung NICHT behalten) als Task 1b vor Stufe 2 einschieben.
 
-Ergebnis (Zahl + Entscheidung) als Kommentar in `docs/superpowers/plans/2026-08-17-kpi-dashboard-v2.md` unter diesen Task schreiben und committen:
+**ERGEBNIS (gemessen 2026-08-17 über `recruiting.enrichment_logs.GET`, Typ
+`position_switched`):**
 
-```bash
-git add docs/superpowers/plans/2026-08-17-kpi-dashboard-v2.md
-git commit -m "docs(recruiting): Messung Stellen-Wechsel-Effekt — Ergebnis und Entscheidung"
-```
+**15 Stellen-Wechsel**, alle „durch Schulungs-Buchung", zwischen 2026-07-18 und
+2026-08-16 — davon **11 in den letzten sechs Tagen**. Ziel-Stellen: Köln
+allgemein (5), Düsseldorf allgemein (3), Düsseldorf – Messe (2), Mönchengladbach
+allgemein (4). Der Effekt ist also nicht selten, sondern nimmt zu (~2 Fälle pro
+Tag). Betroffene Bewerber-IDs: 2320, 2328, 2424, 2498, 2603, 2604, 2611, 2612,
+2622, 2685, 2726, 2767, 2768, 2772, 2807.
+
+**Entscheidung:** Die Schwelle der Regel ist klar überschritten → **Task 6b wird
+eingeschoben** (nach Task 2, weil das Feld gebraucht wird, und nach Task 6, damit
+HR die Zuordnung pflegen kann — also unmittelbar vor dem Stufe-1-Deploy).
+In V2 ist die Ausschreibung die Zeile; ohne den Fix sitzen 15 Bewerber (und
+wachsend) in Zeilen, auf die sie sich nie beworben haben, und zählen gegen einen
+fremden Bedarf.
 
 ---
 
