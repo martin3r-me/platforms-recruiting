@@ -575,16 +575,33 @@ final class CohortViewModel
      * genau diese Sorte Zahl reklamiert („woher kommt die 96?"). Die Quote bleibt
      * richtig — sie darf nicht von ungepflegten Ausschreibungen verwaessert
      * werden —, aber ihr Bezug muss sichtbar sein: `signed`/`bedarf` sind der
-     * Bruch, `excluded_*` benennt die Differenz zur Spalte daneben.
+     * Bruch, die `excluded_*`/`without_posting_*`-Werte benennen die Differenz
+     * zur Spalte daneben.
+     *
+     * Die beiden Gruende, aus der Quote zu fallen, werden GETRENNT gezaehlt und
+     * duerfen nicht vermischt werden:
+     *  - `excluded_postings`: echte Ausschreibungen, an denen kein Bedarf
+     *    gepflegt ist. Das ist ein Pflege-Hinweis („trag den Bedarf nach").
+     *  - `without_posting_*`: die Zeile „ohne Ausschreibung" (Fall 3 der
+     *    Zuordnungsregel). Dort gibt es keine Ausschreibung, an der man etwas
+     *    pflegen KOENNTE — sie als „Ausschreibung ohne gepflegten Bedarf" zu
+     *    zaehlen machte die genannte Zahl um eins zu gross und passte nicht zu
+     *    dem, was die Tabelle als Zeilen zeigt.
+     * Die Summen sind von der Trennung unberuehrt; sie betrifft die Beschriftung,
+     * und eine Differenz falsch zu benennen ist schlimmer als sie nicht zu
+     * erklaeren.
      *
      * @param  list<array>  $rows
-     * @return array{signed:int, bedarf:?int, pct:?int, excluded_groups:int, excluded_signed:int}
+     * @return array{signed:int, bedarf:?int, pct:?int, excluded_postings:int,
+     *               excluded_signed:int, without_posting_groups:int, without_posting_signed:int}
      */
     public function fulfilmentTotals(array $rows, string $numeratorColumn = 'unterschrieben', string $bedarfKey = 'bedarf'): array
     {
         $signed = 0;
-        $excludedGroups = 0;
+        $excludedPostings = 0;
         $excludedSigned = 0;
+        $withoutPostingGroups = 0;
+        $withoutPostingSigned = 0;
         foreach ($rows as $row) {
             $bedarf = $row[$bedarfKey] ?? null;
             $count = count($row['columns'][$numeratorColumn] ?? []);
@@ -593,8 +610,13 @@ final class CohortViewModel
             // einen Bruch, der nicht zu ihrem Prozentwert passt. Ein Test haelt
             // die drei gegeneinander fest.
             if ($bedarf === null || $bedarf <= 0) {
-                $excludedGroups++;
-                $excludedSigned += $count;
+                if (($row['posting_id'] ?? null) === null) {
+                    $withoutPostingGroups++;
+                    $withoutPostingSigned += $count;
+                } else {
+                    $excludedPostings++;
+                    $excludedSigned += $count;
+                }
                 continue;
             }
             $signed += $count;
@@ -606,8 +628,10 @@ final class CohortViewModel
             // Der Prozentwert kommt aus der EINEN benannten Quelle, nicht aus
             // einer zweiten Division hier.
             'pct' => $this->sumPercent($rows, $numeratorColumn, $bedarfKey),
-            'excluded_groups' => $excludedGroups,
+            'excluded_postings' => $excludedPostings,
             'excluded_signed' => $excludedSigned,
+            'without_posting_groups' => $withoutPostingGroups,
+            'without_posting_signed' => $withoutPostingSigned,
         ];
     }
 

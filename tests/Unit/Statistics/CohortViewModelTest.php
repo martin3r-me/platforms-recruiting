@@ -1040,8 +1040,8 @@ final class CohortViewModelTest extends TestCase
         // Bedarf haengen und deshalb nicht in der Quote stecken. Die Quote bleibt
         // richtig; sichtbar sein muss, WORAUS sie entsteht und was fehlt.
         $groups = [
-            ['bedarf' => 10,   'columns' => ['unterschrieben' => [1, 2, 3, 4, 5]]],
-            ['bedarf' => null, 'columns' => ['unterschrieben' => [6, 7, 8, 9]]],
+            ['posting_id' => 7, 'bedarf' => 10,   'columns' => ['unterschrieben' => [1, 2, 3, 4, 5]]],
+            ['posting_id' => 8, 'bedarf' => null, 'columns' => ['unterschrieben' => [6, 7, 8, 9]]],
         ];
 
         $totals = $this->vm()->fulfilmentTotals($groups);
@@ -1049,15 +1049,47 @@ final class CohortViewModelTest extends TestCase
         $this->assertSame(5, $totals['signed'], 'Zaehler: nur die gepflegte Ausschreibung');
         $this->assertSame(10, $totals['bedarf']);
         $this->assertSame(50, $totals['pct']);
-        $this->assertSame(1, $totals['excluded_groups']);
+        $this->assertSame(1, $totals['excluded_postings']);
         $this->assertSame(4, $totals['excluded_signed']);
+        $this->assertSame(0, $totals['without_posting_groups']);
 
         // Die Zahlen muessen aufgehen: Zaehler + ausgelassene = Spaltenwert
         $this->assertSame(
             9,
-            $totals['signed'] + $totals['excluded_signed'],
+            $totals['signed'] + $totals['excluded_signed'] + $totals['without_posting_signed'],
             'Summe muss die Spalte „Unterschrieben" ergeben, sonst ist die Zeile nicht nachrechenbar',
         );
+    }
+
+    public function test_erfuellung_gesamt_zaehlt_ohne_ausschreibung_nicht_als_ausschreibung(): void
+    {
+        // Off-by-one in der Beschriftung: die Zeile „ohne Ausschreibung" (Fall 3
+        // der Zuordnungsregel) faellt aus derselben Quote, ist aber KEINE
+        // „Ausschreibung ohne gepflegten Bedarf" — dort gibt es nichts, woran man
+        // einen Bedarf pflegen koennte. Eine Ausschreibung plus Null-Bucket ergab
+        // vorher „2 Ausschreibungen ohne gepflegten Bedarf", also im Alltag
+        // regelmaessig eine zu viel. Die Summen waren nie betroffen, nur die
+        // Beschriftung — und diese Fussnote existiert, um eine Differenz zu
+        // BENENNEN.
+        $groups = [
+            ['posting_id' => 7,    'bedarf' => 20,   'columns' => ['unterschrieben' => [1, 2]]],
+            ['posting_id' => 8,    'bedarf' => null, 'columns' => ['unterschrieben' => [3]]],
+            ['posting_id' => null, 'bedarf' => null, 'columns' => ['unterschrieben' => [4, 5]]],
+        ];
+
+        $totals = $this->vm()->fulfilmentTotals($groups);
+
+        $this->assertSame(1, $totals['excluded_postings'], 'nur die echte Ausschreibung ohne Bedarf');
+        $this->assertSame(1, $totals['excluded_signed']);
+        $this->assertSame(1, $totals['without_posting_groups'], 'der Null-Bucket wird getrennt gezaehlt');
+        $this->assertSame(2, $totals['without_posting_signed']);
+
+        // Die Summe bleibt vollstaendig: 2 + 1 + 2 = 5 = Spalte „Unterschrieben"
+        $this->assertSame(
+            5,
+            $totals['signed'] + $totals['excluded_signed'] + $totals['without_posting_signed'],
+        );
+        $this->assertSame(10, $totals['pct'], '2 von 20');
     }
 
     public function test_erfuellung_gesamt_haelt_prozent_und_absolutzahlen_zusammen(): void
@@ -1066,10 +1098,10 @@ final class CohortViewModelTest extends TestCase
         // Ausschreibungen zaehlen — die Bedingung steht in drei Methoden, dieser
         // Test haelt sie gegeneinander fest (0 und null zaehlen nirgends).
         $groups = [
-            ['bedarf' => 7,    'columns' => ['unterschrieben' => [1, 2, 3]]],
-            ['bedarf' => 0,    'columns' => ['unterschrieben' => [4]]],
-            ['bedarf' => null, 'columns' => ['unterschrieben' => [5]]],
-            ['bedarf' => 13,   'columns' => ['unterschrieben' => [6, 7]]],
+            ['posting_id' => 1, 'bedarf' => 7,    'columns' => ['unterschrieben' => [1, 2, 3]]],
+            ['posting_id' => 2, 'bedarf' => 0,    'columns' => ['unterschrieben' => [4]]],
+            ['posting_id' => 3, 'bedarf' => null, 'columns' => ['unterschrieben' => [5]]],
+            ['posting_id' => 4, 'bedarf' => 13,   'columns' => ['unterschrieben' => [6, 7]]],
         ];
         $vm = $this->vm();
         $totals = $vm->fulfilmentTotals($groups);
@@ -1081,25 +1113,29 @@ final class CohortViewModelTest extends TestCase
             $totals['pct'],
             'der angezeigte Prozentwert muss aus den angezeigten Absolutzahlen folgen',
         );
-        $this->assertSame(2, $totals['excluded_groups'], 'bedarf 0 zaehlt wie ungepflegt');
+        $this->assertSame(2, $totals['excluded_postings'], 'bedarf 0 zaehlt wie ungepflegt');
         $this->assertSame(2, $totals['excluded_signed']);
     }
 
     public function test_erfuellung_gesamt_ohne_gepflegten_bedarf_ist_keine_quote(): void
     {
         $totals = $this->vm()->fulfilmentTotals([
-            ['bedarf' => null, 'columns' => ['unterschrieben' => [1, 2]]],
+            ['posting_id' => 9, 'bedarf' => null, 'columns' => ['unterschrieben' => [1, 2]]],
         ]);
 
         $this->assertNull($totals['bedarf']);
         $this->assertNull($totals['pct'], 'keine Quote, nicht 0 %');
         $this->assertSame(0, $totals['signed']);
-        $this->assertSame(1, $totals['excluded_groups']);
+        $this->assertSame(1, $totals['excluded_postings']);
         $this->assertSame(2, $totals['excluded_signed']);
 
         $leer = $this->vm()->fulfilmentTotals([]);
         $this->assertSame(
-            ['signed' => 0, 'bedarf' => null, 'pct' => null, 'excluded_groups' => 0, 'excluded_signed' => 0],
+            [
+                'signed' => 0, 'bedarf' => null, 'pct' => null,
+                'excluded_postings' => 0, 'excluded_signed' => 0,
+                'without_posting_groups' => 0, 'without_posting_signed' => 0,
+            ],
             $leer,
         );
     }
@@ -1129,11 +1165,14 @@ final class CohortViewModelTest extends TestCase
         $this->assertNull($group['published_ymd']);
         $this->assertNull($group['closes_ymd']);
 
-        // ... und die Quote nimmt sie nicht in den Bruch auf
+        // ... und die Quote nimmt sie nicht in den Bruch auf — als Ausschreibung
+        // ohne gepflegten Bedarf, NICHT als „ohne Ausschreibung": die posting_id
+        // ist gesetzt, es fehlt nur der Stammdaten-Eintrag.
         $totals = $this->vm()->fulfilmentTotals([$group]);
         $this->assertNull($totals['pct']);
-        $this->assertSame(1, $totals['excluded_groups']);
+        $this->assertSame(1, $totals['excluded_postings']);
         $this->assertSame(1, $totals['excluded_signed']);
+        $this->assertSame(0, $totals['without_posting_groups']);
     }
 
     public function test_bedarf_summe_folgt_derselben_regel_wie_die_quote(): void

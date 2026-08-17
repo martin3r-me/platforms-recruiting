@@ -366,17 +366,20 @@
              laesst Ausschreibungen ohne gepflegten Bedarf aus (sonst wuerden sie
              die Quote verwaessern). Damit die Zeile nachrechenbar bleibt, wird die
              Differenz zur Spalte „Unterschrieben" hier BENANNT — die Zahlen
-             gehen auf: Zähler + hier genannte Unterschriften = Spaltenwert. --}}
-        @if ($totalFulfilment['excluded_groups'] > 0)
+             gehen auf: Zähler + hier genannte Unterschriften = Spaltenwert.
+
+             Der Text kommt aus fulfilmentTotalLight() und ist damit derselbe wie
+             im Tooltip: zwei Formulierungen derselben Differenz waeren zwei
+             Stellen, an denen eine Zahl falsch werden kann. Dort wird auch
+             getrennt, was hier getrennt gehoert — Ausschreibungen ohne
+             gepflegten Bedarf sind das eine, Bewerbungen ohne Ausschreibung das
+             andere —, und ohne jeden gepflegten Bedarf sagt der Text das
+             ausdruecklich statt „0 von 0" zu behaupten. --}}
+        @if ($totalFulfilment['bedarf'] === null
+            || $totalFulfilment['excluded_postings'] > 0
+            || $totalFulfilment['without_posting_groups'] > 0)
             <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
-                Erfüllung gesamt: {{ $totalFulfilment['signed'] }} von
-                {{ $totalFulfilment['bedarf'] ?? 0 }} benötigten Einstellungen.
-                Nicht in dieser Quote:
-                {{ $totalFulfilment['excluded_groups'] }}
-                {{ $totalFulfilment['excluded_groups'] === 1 ? 'Ausschreibung' : 'Ausschreibungen' }}
-                ohne gepflegten Bedarf mit {{ $totalFulfilment['excluded_signed'] }}
-                {{ $totalFulfilment['excluded_signed'] === 1 ? 'Unterschrift' : 'Unterschriften' }} —
-                in der Spalte „Unterschrieben" sind sie enthalten.
+                Erfüllung gesamt: {{ $totalFulfilment['reason'] }}
             </div>
         @endif
     @endif

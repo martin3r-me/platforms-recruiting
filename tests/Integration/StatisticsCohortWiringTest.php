@@ -274,11 +274,53 @@ class StatisticsCohortWiringTest extends TestCase
         $this->assertSame(1, $light['signed'], 'Zaehler der Quote');
         $this->assertSame(10, $light['bedarf']);
         $this->assertSame(10, $light['pct']);
-        $this->assertSame(2, $light['excluded_groups'], 'Ausschreibung ohne Bedarf + Ausschreibung ohne Lookup-Eintrag');
+        $this->assertSame(2, $light['excluded_postings'], 'Ausschreibung ohne Bedarf + Ausschreibung ohne Lookup-Eintrag');
         $this->assertSame(1, $light['excluded_signed']);
+        // In diesem Bestand haengt jede Bewerbung an einer Ausschreibung
+        $this->assertSame(0, $light['without_posting_groups']);
+        $this->assertSame(0, $light['without_posting_signed']);
         // Die Zahlen gehen auf: Zaehler + ausgelassene = Spaltenwert
-        $this->assertSame(2, $light['signed'] + $light['excluded_signed']);
+        $this->assertSame(2, $light['signed'] + $light['excluded_signed'] + $light['without_posting_signed']);
         $this->assertStringContainsString('NICHT in dieser Quote', $light['reason']);
+        $this->assertStringContainsString('2 Ausschreibungen ohne gepflegten Bedarf', $light['reason']);
+        $this->assertStringNotContainsString('ohne Ausschreibung', $light['reason']);
+    }
+
+    public function test_fussnote_ohne_jeden_gepflegten_bedarf_erfindet_keine_null(): void
+    {
+        // „0 von 0 benötigten Einstellungen" behauptete, es sei nichts noetig und
+        // nichts erreicht — beides erfunden. Ohne gepflegten Bedarf gibt es keinen
+        // Nenner, also keine Quote; der Text muss genau das sagen.
+        $component = new Index();
+        $light = $component->fulfilmentTotalLight([
+            ['posting_id' => 5, 'bedarf' => null, 'ids' => [1], 'columns' => ['unterschrieben' => [1]]],
+        ]);
+
+        $this->assertNull($light['bedarf']);
+        $this->assertNull($light['pct'], 'keine Quote, nicht 0 %');
+        $this->assertSame('grey', $light['status']);
+        $this->assertStringContainsString('Kein Bedarf gepflegt', $light['reason']);
+        $this->assertStringNotContainsString('0 von 0', $light['reason']);
+        $this->assertStringContainsString('1 Ausschreibung ohne gepflegten Bedarf', $light['reason']);
+    }
+
+    public function test_fussnote_trennt_ausschreibung_ohne_bedarf_von_ohne_ausschreibung(): void
+    {
+        // Die genannten Zahlen muessen zu den ZEILEN der Tabelle passen: eine
+        // Ausschreibung ohne Bedarf ist ein Pflege-Hinweis, die Zeile „ohne
+        // Ausschreibung" ist etwas anderes — dort gibt es nichts zu pflegen.
+        $component = new Index();
+        $light = $component->fulfilmentTotalLight([
+            ['posting_id' => 5, 'bedarf' => 4, 'ids' => [1], 'columns' => ['unterschrieben' => [1]]],
+            ['posting_id' => 6, 'bedarf' => null, 'ids' => [2], 'columns' => ['unterschrieben' => [2]]],
+            ['posting_id' => null, 'bedarf' => null, 'ids' => [3], 'columns' => ['unterschrieben' => [3]]],
+        ]);
+
+        $this->assertSame(25, $light['pct'], '1 von 4');
+        $this->assertStringContainsString('1 von 4 benötigten Einstellungen', $light['reason']);
+        $this->assertStringContainsString('1 Ausschreibung ohne gepflegten Bedarf (1 Unterschrift)', $light['reason']);
+        $this->assertStringContainsString('die Bewerbungen ohne Ausschreibung (1 Unterschrift)', $light['reason']);
+        $this->assertStringNotContainsString('2 Ausschreibungen', $light['reason'], 'der Null-Bucket ist keine Ausschreibung');
     }
 
     public function test_ausschreibungs_zeilen_tragen_bedarf_und_ampel_bis_in_die_tabelle(): void

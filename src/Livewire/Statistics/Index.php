@@ -311,11 +311,17 @@ class Index extends Component
      * einem Stellenwechsel zu gross — und Stellenwechsel sind kein Randfall
      * (gemessen: 15, elf davon in sechs Tagen).
      *
-     * Zwei Wege fallen dadurch bewusst heraus, beide konservativ (keine erfundene
-     * Tiefe, die aktuelle Phase deckt den Live-Zustand ohnehin ab):
-     *  - Log-Eintraege ohne `rec_position_id` (Spalte ist nullable);
-     *  - Bewerber ohne aktuelle Phase — sie haben keine Stelle, gegen die man
-     *    vergleichen koennte.
+     * Zwei Wege fallen dadurch bewusst heraus, beide konservativ — lieber ein zu
+     * flacher Trichter als eine erfundene Stufe:
+     *  - Log-Eintraege ohne `rec_position_id` (Spalte ist nullable). Hier deckt
+     *    die aktuelle Phase den Live-Zustand ab, es fehlt nur die Historie.
+     *  - Bewerber OHNE aktuelle Phase: sie haben keine Stelle, gegen die man
+     *    vergleichen koennte, also greift der Join nicht. Hier deckt die aktuelle
+     *    Phase eben NICHTS ab — `phase_order_reached` bleibt null und die Zeile
+     *    steht mit leerer `phase_reached` im Trichter, obwohl das Log Stufen
+     *    kennt. Bewusst so: ohne Stelle ist nicht entscheidbar, zu welchem
+     *    Phasensatz die geloggte `order` gehoert, und eine Spalte im Trichter
+     *    einer fremden Stelle waere eine Falschzahl.
      *
      * Der INNER JOIN auf die ZIELPHASE ist ebenfalls Absicht: gehoert sie nicht
      * mehr zu einem Phasensatz (Phase geloescht → to_phase_id per nullOnDelete
@@ -546,13 +552,22 @@ class Index extends Component
      * Farb-Arithmetik hier waere die zweite Wahrheit.
      *
      * Der `reason` wird ersetzt, weil er in der Gesamt-Zeile die Bezugsgroessen
-     * benennen muss: welche absoluten Zahlen den Prozentwert bilden und wie viele
-     * Ausschreibungen wegen fehlendem Bedarf NICHT darin stecken. Ohne diese
-     * Angabe widerspricht die Quote scheinbar der Spalte „Unterschrieben"
-     * daneben, die alle Ausschreibungen zaehlt.
+     * benennen muss: welche absoluten Zahlen den Prozentwert bilden und was
+     * wegen fehlendem Bedarf NICHT darin steckt. Ohne diese Angabe widerspricht
+     * die Quote scheinbar der Spalte „Unterschrieben" daneben, die alle
+     * Ausschreibungen zaehlt. Er ist EINE Quelle fuer Tooltip und sichtbare
+     * Fussnote — zwei Formulierungen derselben Differenz koennten auseinanderlaufen.
+     *
+     * Zwei Dinge, die der Text streng trennt (siehe fulfilmentTotals):
+     *  - Ausschreibungen ohne gepflegten Bedarf (Pflege-Hinweis) und
+     *  - die Zeile „ohne Ausschreibung", wo es nichts zu pflegen GIBT.
+     * Ohne die Trennung war die genannte Zahl regelmaessig um eins zu gross und
+     * passte nicht zu den Zeilen der Tabelle.
      *
      * @param  list<array>  $groups
-     * @return array{status:string, pct:?int, reason:string, signed:int, bedarf:?int, excluded_groups:int, excluded_signed:int}
+     * @return array{status:string, pct:?int, reason:string, signed:int, bedarf:?int,
+     *               excluded_postings:int, excluded_signed:int,
+     *               without_posting_groups:int, without_posting_signed:int}
      */
     public function fulfilmentTotalLight(array $groups): array
     {
@@ -560,17 +575,39 @@ class Index extends Component
         $light = TargetLight::fulfilment($totals['signed'], $totals['bedarf']);
         $light['pct'] = $totals['pct'];
 
-        $light['reason'] = $totals['bedarf'] === null
-            ? 'An keiner Ausschreibung dieser Auswahl ist ein Bedarf gepflegt — keine Quote möglich.'
-            : $totals['signed'] . ' von ' . $totals['bedarf'] . ' benötigten Einstellungen unterschrieben'
-                . ' (nur Ausschreibungen mit gepflegtem Bedarf).'
-                . ($totals['excluded_groups'] > 0
-                    ? ' NICHT in dieser Quote: ' . $totals['excluded_groups'] . ' '
-                        . ($totals['excluded_groups'] === 1 ? 'Ausschreibung' : 'Ausschreibungen')
-                        . ' ohne gepflegten Bedarf mit ' . $totals['excluded_signed'] . ' '
-                        . ($totals['excluded_signed'] === 1 ? 'Unterschrift' : 'Unterschriften')
-                        . ' — deshalb ist die Spalte „Unterschrieben" höher als der Zähler hier.'
-                    : '');
+        // Was aus der Quote fällt, einzeln benannt — nie zusammengezählt.
+        $ausserhalb = [];
+        if ($totals['excluded_postings'] > 0) {
+            $ausserhalb[] = $totals['excluded_postings'] . ' '
+                . ($totals['excluded_postings'] === 1 ? 'Ausschreibung' : 'Ausschreibungen')
+                . ' ohne gepflegten Bedarf (' . $totals['excluded_signed'] . ' '
+                . ($totals['excluded_signed'] === 1 ? 'Unterschrift' : 'Unterschriften') . ')';
+        }
+        if ($totals['without_posting_groups'] > 0) {
+            $ausserhalb[] = 'die Bewerbungen ohne Ausschreibung ('
+                . $totals['without_posting_signed'] . ' '
+                . ($totals['without_posting_signed'] === 1 ? 'Unterschrift' : 'Unterschriften') . ')';
+        }
+        $ausserhalbText = $ausserhalb === [] ? '' : implode(' und ', $ausserhalb);
+        // Der Zusatz gilt nur, wenn dort wirklich Unterschriften liegen —
+        // sonst waere die Spalte „Unterschrieben" gar nicht hoeher.
+        $spaltenHinweis = ($totals['excluded_signed'] + $totals['without_posting_signed']) > 0
+            ? ' — deshalb ist die Spalte „Unterschrieben" höher als der Zähler hier.'
+            : '.';
+
+        if ($totals['bedarf'] === null) {
+            // KEINE erfundene Null: ohne gepflegten Bedarf gibt es keinen Nenner
+            // und damit keine Quote. „0 von 0" hätte behauptet, es sei nichts
+            // nötig und nichts erreicht.
+            $light['reason'] = 'Kein Bedarf gepflegt — ohne Bedarf gibt es keine Quote (auch keine 0 %).'
+                . ($ausserhalbText === '' ? '' : ' Betroffen: ' . $ausserhalbText . '.');
+        } else {
+            $light['reason'] = $totals['signed'] . ' von ' . $totals['bedarf']
+                . ' benötigten Einstellungen unterschrieben (nur Ausschreibungen mit gepflegtem Bedarf).'
+                . ($ausserhalbText === ''
+                    ? ''
+                    : ' NICHT in dieser Quote: ' . $ausserhalbText . $spaltenHinweis);
+        }
 
         // Die Absolutzahlen reisen mit, damit die Zelle sie anzeigen kann, ohne
         // sie ein zweites Mal zu berechnen.
