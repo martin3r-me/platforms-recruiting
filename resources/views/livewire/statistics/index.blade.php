@@ -350,6 +350,8 @@
                                         $rowPrefix = $dateLabel . ' · ' . ($meta['type'] ?? 'ohne Terminart');
                                         $rowToken = $this->drillToken('row', $rowPrefix, [
                                             'ort' => $ort, 'act' => $act, 'type' => $row['type'], 'key' => $row['key'],
+                                            // seit v2 Pflicht: key allein ist nicht eindeutig (Zeilen je Ausschreibung)
+                                            'posting' => $row['posting_id'],
                                         ]);
 
                                         $max = $meta['max'] ?? null;
@@ -439,6 +441,8 @@
                                             $phasePrefix = 'Ohne Schulung · ' . $phaseName;
                                             $phaseToken = $this->drillToken('row', $phasePrefix, [
                                                 'ort' => $ort, 'act' => $act, 'type' => $row['type'], 'key' => $row['key'],
+                                                // seit v2 Pflicht: key allein ist nicht eindeutig (Zeilen je Ausschreibung)
+                                                'posting' => $row['posting_id'],
                                             ]);
                                         @endphp
                                         {{-- style statt x-cloak: im Projekt ist keine [x-cloak]-CSS-Regel
@@ -465,6 +469,8 @@
                                         $bucketLabel = $typeLabels[$row['type']] ?? $row['type'];
                                         $bRowToken = $this->drillToken('row', $bucketLabel, [
                                             'ort' => $ort, 'act' => $act, 'type' => $row['type'], 'key' => $row['key'],
+                                            // seit v2 Pflicht: key allein ist nicht eindeutig (Zeilen je Ausschreibung)
+                                            'posting' => $row['posting_id'],
                                         ]);
                                     @endphp
                                     <tr class="group transition-colors hover:bg-[var(--ui-muted-5)]">

@@ -406,6 +406,13 @@ class Index extends Component
      *
      * $scope: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
      *         | 'ort' (Ort-Summe) | 'all' (Gesamt)
+     *
+     * $extra reist unveraendert durch (encodeScope hier, decodeScope in drill(),
+     * von dort direkt in resolveIds) — Hin- und Rueckweg sind also fuer alle
+     * Bestandteile derselbe, es gibt keine Feld-Liste, die man vergessen koennte.
+     * Fuer Scope 'row' ist seit v2 'posting' => $row['posting_id'] PFLICHT: die
+     * Zeilen sind je Ausschreibung, 'key' allein trifft sonst mehrere. Fehlt es,
+     * loest resolveIds fail-closed nichts auf (leeres Modal statt vermischter IDs).
      */
     public function drillToken(string $scope, string $prefix, array $extra = []): string
     {

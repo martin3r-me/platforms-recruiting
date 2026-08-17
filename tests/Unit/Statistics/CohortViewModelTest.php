@@ -30,11 +30,17 @@ final class CohortViewModelTest extends TestCase
         array $columns = [],
         array $hrDesk = [],
         array $uneindeutig = [],
+        ?int $postingId = null,
     ): array {
         return [
             'type' => $type,
             'key' => $key,
             'group' => ['ort' => $ort, 'taetigkeit' => $taetigkeit, 'uneindeutig' => $uneindeutig !== []],
+            // seit v2: jede Assigner-Zeile haengt an einer Ausschreibung
+            // (null = ohne Zuordnung, Fall 3 der Zuordnungsregel)
+            'posting_id' => $postingId,
+            'posting_title' => $postingId === null ? '' : 'Ausschreibung ' . $postingId,
+            'posting_closed' => false,
             'ids' => $ids,
             'hr_desk_ids' => $hrDesk,
             'uneindeutig_ids' => $uneindeutig,
@@ -202,9 +208,77 @@ final class CohortViewModelTest extends TestCase
         $ids = $this->vm()->resolveIds($rows, [
             'scope' => 'row', 'ort' => 'Essen', 'act' => 'Service',
             'type' => 'schulung', 'key' => 'schulung:1',
+            // alle vier Zeilen haben posting_id null — die Ausschreibungs-Dimension
+            // ist hier absichtlich konstant, damit der Test allein Ort/Taetigkeit/
+            // Typ/Key prueft. Die Ausschreibung hat ihren eigenen Test unten.
+            'posting' => null,
         ], 'ids');
 
         $this->assertSame([1], $ids);
+    }
+
+    public function test_scope_row_trennt_zwei_ausschreibungen_derselben_gruppe(): void
+    {
+        // Regression: seit v2 bildet der CohortAssigner je Ausschreibung eine
+        // Zeile, aber $row['key'] ist weiterhin der schmale Schluessel
+        // ("ohne_schulung:1|Neu"). Ort, Taetigkeit, Typ UND Key sind hier bei
+        // beiden Zeilen identisch — ohne die posting_id im Token passte das
+        // row-Token auf beide und das Modal zeigte 1, 2 UND 3 unter dem Label
+        // einer einzigen Ausschreibung.
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [1, 2], postingId: 48),
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [3], postingId: 46),
+        ];
+        $vm = $this->vm();
+
+        $spec = fn (?int $posting) => [
+            'scope' => 'row', 'ort' => 'Essen', 'act' => 'Service',
+            'type' => 'ohne_schulung', 'key' => 'ohne_schulung:1|Neu', 'posting' => $posting,
+        ];
+
+        $this->assertSame([1, 2], $vm->resolveIds($rows, $spec(48), 'ids'));
+        $this->assertSame([3], $vm->resolveIds($rows, $spec(46), 'ids'));
+        // eine Ausschreibung, die in dieser Gruppe nicht vorkommt, trifft nichts
+        $this->assertSame([], $vm->resolveIds($rows, $spec(99), 'ids'));
+        // und die Summe der Einzel-Aufloesungen deckt die Gruppe genau ab
+        $this->assertSame(
+            $vm->resolveIds($rows, ['scope' => 'type', 'ort' => 'Essen', 'act' => 'Service', 'type' => 'ohne_schulung'], 'ids'),
+            array_merge($vm->resolveIds($rows, $spec(48), 'ids'), $vm->resolveIds($rows, $spec(46), 'ids')),
+        );
+    }
+
+    public function test_scope_row_ohne_ausschreibung_im_token_trifft_fail_closed_nichts(): void
+    {
+        // Ein alter oder gecrafteter Token ohne 'posting' darf NICHT auf alle
+        // Ausschreibungen der Gruppe passen — sonst ist genau die Vermischung
+        // zurueck, die der Zusatz-Vergleich verhindert. Leeres Modal ist der
+        // harmlose Ausgang (gleiche Haltung wie beim unbekannten Scope).
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [1], postingId: 48),
+            $this->row('ohne_schulung', 'ohne_schulung:1|Neu', 'Essen', 'Service', [2], postingId: 46),
+        ];
+
+        $this->assertSame([], $this->vm()->resolveIds($rows, [
+            'scope' => 'row', 'ort' => 'Essen', 'act' => 'Service',
+            'type' => 'ohne_schulung', 'key' => 'ohne_schulung:1|Neu',
+        ], 'ids'));
+    }
+
+    public function test_scope_row_trifft_die_zeile_ohne_ausschreibung_nur_mit_explizitem_null(): void
+    {
+        // Fall 3 der Zuordnungsregel (keine Ausschreibung) ist eine echte Zeile
+        // und muss anklickbar bleiben. 'posting' => null ist dafuer VORHANDEN und
+        // null — nicht dasselbe wie ein fehlender Schluessel (isset() haette
+        // beides verwechselt, daher array_key_exists im ViewModel).
+        $rows = [
+            $this->row('geparkt', '-', 'ohne Ausschreibung', 'ohne Ausschreibung', [7], postingId: null),
+            $this->row('geparkt', '-', 'ohne Ausschreibung', 'ohne Ausschreibung', [8], postingId: 48),
+        ];
+
+        $this->assertSame([7], $this->vm()->resolveIds($rows, [
+            'scope' => 'row', 'ort' => 'ohne Ausschreibung', 'act' => 'ohne Ausschreibung',
+            'type' => 'geparkt', 'key' => '-', 'posting' => null,
+        ], 'ids'));
     }
 
     public function test_scope_type_summiert_den_bucket_einer_gruppe(): void
@@ -274,6 +348,7 @@ final class CohortViewModelTest extends TestCase
             'act' => 'Spülhilfe "Nacht"',
             'type' => 'ohne_schulung',
             'key' => 'ohne_schulung:1|Neu',
+            'posting' => 48,
         ];
 
         $token = $vm->encodeScope($spec);
@@ -293,7 +368,7 @@ final class CohortViewModelTest extends TestCase
         $token = $vm->encodeScope([
             'scope' => 'row', 'prefix' => 'Geparkt',
             'ort' => "Köln O'Brien", 'act' => 'Spülhilfe "Nacht"',
-            'type' => 'geparkt', 'key' => '-',
+            'type' => 'geparkt', 'key' => '-', 'posting' => null,
         ]);
 
         $spec = $vm->decodeScope($token);
