@@ -17,7 +17,7 @@
 - [ ] **Kein `queue:restart`** nötig: kein Worker-Code im Paket. (Nichts zu tun, nur damit die Frage nicht offen bleibt.)
 - [ ] **A3 · Assets im installierten Paket prüfen:**
       `ls -la meingedeck/vendor/martin3r/platform-recruiting/resources/fonts meingedeck/vendor/martin3r/platform-recruiting/resources/images/certificates`
-      Erwartet: `Oswald-SemiBold.ttf` + `OFL.txt`, und drei PNGs.
+      Erwartet: `Oswald-SemiBold.ttf` + `OFL.txt`, und **vier** PNGs — seit 17.08.2026 ist `signature-schulungsleiter.png` dabei.
       **Fehlen sie, gibt es ein PDF ohne Bilder in Helvetica — keinen Fehler, nur ein falsches Dokument.**
 - [ ] **A4 · WhatsApp-Template bei Meta einreichen und genehmigen lassen** — mit **dynamischem URL-Button an ERSTER Position**, dessen URL lautet:
       `https://mitarbeiter.rheingedeck.de/recruiting/zertifikat/{{1}}`
@@ -51,7 +51,10 @@ Route: `/recruiting/zertifikat/{uuid}`, `uuid` aus `rec_training_certificates`.
       Schlägt es fehl: `storage/fonts` nicht anlegbar. Die Fehlermeldung nennt Pfad und Grund. **Das Verzeichnis liegt nicht im Git und fehlt auf jedem neu aufgesetzten Server erneut** — der Code legt es an, aber wenn die Rechte fehlen, sagt er es laut.
 - [ ] **C2 · Das PDF wird im Browser ANGEZEIGT**, kein Download-Dialog (`->stream()`, nicht `->download()`). Sonst zwingt der WhatsApp-Link zum Download, und auf Mobilgeräten sehen Bewerber nichts.
 - [ ] **C3 · Die Schrift ist wirklich Oswald** — Überschriften schmal und hoch, nicht Helvetica-breit. Im Zweifel PDF-Eigenschaften → eingebettete Fonts. Ein stiller Helvetica-Fallback ist kein Fehler, nur ein anderes Dokument.
-- [ ] **C4 · Die drei Bilder sind da:** Logo oben, „ZERTIFIKAT"-Schriftzug, Unterschriftsblock unten links.
+- [ ] **C4 · Die vier Bilder sind da:** Logo oben, „ZERTIFIKAT"-Schriftzug, Unterschriftsblock unten links, **Unterschrift des Schulungsleiters unten rechts**.
+      **Geändert am 17.08.2026:** unten rechts stand vorher der *Name* des Schulungsleiters als Text. Jetzt steht dort seine Unterschrift mit Firmenstempel als Bild — ein festes Bild für alle Zertifikate, nicht pro Person. Ein Termin kann mehrere Interviewer haben; „welche Unterschrift" hätte bei zweien keine Antwort.
+      **Worauf zu achten ist:** die Unterschrift muss die Linie **kreuzen**, nicht darüber schweben (wie links), und der Stempeltext „RheinGedeck GmbH" muss lesbar sein. Fehlt das Bild, bleibt eine leere Unterschriftslinie — kein Fehler, aber ein Zertifikat ohne Unterschrift.
+      **Offen beim Kunden:** der Stempel trägt die **Meerbuscher** Adresse, während im Dokument „Düsseldorf, den …" steht. Freigabe dafür fehlt noch.
 - [ ] **C5 · Ins Log sehen, nicht nur aufs PDF.** Nach dem ersten Aufruf: keine `warning` mit `missing`. Ein fehlendes Bild rendert das PDF **ohne Fehler** — das Log ist der einzige Kanal.
 - [ ] **C6 · Unbekannte uuid → 404**, keine Fehlerseite.
 - [ ] **C7 · Genau eine Seite.** Bei der ausgelieferten Kenntnisliste (sechs Zeilen) sicher; die gemessene Obergrenze ist **elf** Zeilen, ab zwölf sind es zwei Seiten.

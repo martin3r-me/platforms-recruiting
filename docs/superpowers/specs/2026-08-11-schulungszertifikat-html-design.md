@@ -584,6 +584,29 @@ dank G14 ohne Config-Änderung, lokal wie live.
 **E2 — Vier Assets, geteilt über alle Zertifikat-Vorlagen.** Nicht pro Design,
 nicht pro Schulungsart:
 
+> **[geändert 17.08.2026] Es sind FÜNF.** Dazugekommen ist
+> `resources/images/certificates/signature-schulungsleiter.png` — Unterschrift
+> des Schulungsleiters mit Firmenstempel, Data-URI wie die anderen, unten rechts
+> mit 48 mm Breite und −12 mm Versatz (Zahlen und Begründung stehen in
+> `TrainingCertificateHtml`). **Ein festes Bild für alle Zertifikate, nicht pro
+> Person:** ein Termin kann mehrere Interviewer haben (`belongsToMany`), „welche
+> Unterschrift" hätte bei zweien keine Antwort — und pro Person bräuchte es eine
+> Ablage für Unterschriftsbilder, eine Upload-Oberfläche und eine Regel, wer
+> wessen hochladen darf. Bewusst nicht gebaut.
+>
+> **Damit entfällt `{{schulung_leiter}}`** aus §E3 und aus `PLACEHOLDERS`: das
+> Dokument zeigt an dieser Stelle eine Unterschrift, keinen Namen.
+> `TrainingLeaderResolver` bleibt vollständig nötig — `trainingDate()` liefert
+> weiter `{{schulung_datum}}`; nur `leaderNames()` hat keinen Aufrufer mehr und
+> steht bewusst weiter da, weil seine Tests die geteilte Buchungsauswahl
+> abdecken, an der `trainingDate()` hängt.
+>
+> **Der rechte Fußblock wandert in die Hülle.** Er stand im Vorlageninhalt,
+> solange dort ein Name eingesetzt wurde; ein Bild braucht das Asset, und Assets
+> kommen nur in `TrainingCertificateHtml::build()`. Beide Fußblöcke baut jetzt
+> die Hülle — links wie rechts. Linie und Bildunterschrift stehen auch ohne
+> Asset.
+
 | Datei | Zweck | Einbindung |
 | --- | --- | --- |
 | `resources/fonts/Oswald-SemiBold.ttf` | Grundschrift | Pfad + `chroot` (G13.1, G14) |
@@ -1359,7 +1382,7 @@ teuersten Zusagen dieser Spec sind.
   öffentlich erreichbare Route; ein Feature-Deploy vor der Migration erzeugt
   dort 500er. **Bleibt gültig — Begründung weiter unten ausdrücklich
   nachgeprüft. [v3]**
-- **Vier Assets müssen im Push sein** (E2). Fehlt ein Bild, rendert das PDF
+- **Fünf Assets müssen im Push sein** (E2, seit 17.08.2026). Fehlt ein Bild, rendert das PDF
   ohne dieses Element (G3-Semantik: `null` statt Fehler); fehlt die Schrift,
   läuft alles in Helvetica (G13.1). Beides ist kein Absturz und beides ist
   falsch — deshalb loggt **der aufrufende Controller** jedes fehlende Asset als
