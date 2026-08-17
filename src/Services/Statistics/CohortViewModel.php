@@ -563,6 +563,55 @@ final class CohortViewModel
     }
 
     /**
+     * Bezugsgroessen der Erfuellungs-Quote in der Gesamt-Zeile — die Zahlen, aus
+     * denen sumPercent() seinen Prozentwert bildet, PLUS das, was nicht darin
+     * steckt.
+     *
+     * Warum das eigene Zahlen braucht und der Prozentwert allein nicht reicht:
+     * die Quote zaehlt nur Ausschreibungen mit gepflegtem Bedarf, die
+     * Spalte „Unterschrieben" daneben zaehlt ALLE. Bei „Unterschrieben 9" und
+     * „Bedarf 10" liest jeder 90 %, angezeigt werden aber 50 % (5 von 10, weil
+     * vier Unterschriften an Ausschreibungen ohne Bedarf haengen). Der Kunde hat
+     * genau diese Sorte Zahl reklamiert („woher kommt die 96?"). Die Quote bleibt
+     * richtig — sie darf nicht von ungepflegten Ausschreibungen verwaessert
+     * werden —, aber ihr Bezug muss sichtbar sein: `signed`/`bedarf` sind der
+     * Bruch, `excluded_*` benennt die Differenz zur Spalte daneben.
+     *
+     * @param  list<array>  $rows
+     * @return array{signed:int, bedarf:?int, pct:?int, excluded_groups:int, excluded_signed:int}
+     */
+    public function fulfilmentTotals(array $rows, string $numeratorColumn = 'unterschrieben', string $bedarfKey = 'bedarf'): array
+    {
+        $signed = 0;
+        $excludedGroups = 0;
+        $excludedSigned = 0;
+        foreach ($rows as $row) {
+            $bedarf = $row[$bedarfKey] ?? null;
+            $count = count($row['columns'][$numeratorColumn] ?? []);
+            // Dieselbe Bedingung wie in sumPercent() und sumBedarf() — die drei
+            // MUESSEN dieselben Ausschreibungen zaehlen, sonst zeigt die Zelle
+            // einen Bruch, der nicht zu ihrem Prozentwert passt. Ein Test haelt
+            // die drei gegeneinander fest.
+            if ($bedarf === null || $bedarf <= 0) {
+                $excludedGroups++;
+                $excludedSigned += $count;
+                continue;
+            }
+            $signed += $count;
+        }
+
+        return [
+            'signed' => $signed,
+            'bedarf' => $this->sumBedarf($rows, $bedarfKey),
+            // Der Prozentwert kommt aus der EINEN benannten Quelle, nicht aus
+            // einer zweiten Division hier.
+            'pct' => $this->sumPercent($rows, $numeratorColumn, $bedarfKey),
+            'excluded_groups' => $excludedGroups,
+            'excluded_signed' => $excludedSigned,
+        ];
+    }
+
+    /**
      * Bezugsgroessen der Pipeline-Ampel in der Gesamt-Zeile: Σ Bewerbungen gegen
      * Σ (Bedarf x Faktor).
      *

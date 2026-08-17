@@ -6,6 +6,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Statistics\Index;
@@ -46,6 +47,17 @@ class StatisticsCohortWiringTest extends TestCase
 
     /** Ausschreibung NICHT online (draft) — also geschlossen. */
     private const POSTING_ZU = 11;
+
+    /** Ausschreibung eines FREMDEN Teams: taucht im Pivot auf, nicht im Stammdaten-Lookup. */
+    private const POSTING_FREMD = 12;
+
+    /**
+     * Feste Uhr. Ohne sie haengt die Pipeline-Ampel am Kalender: nach dem
+     * 30.09.2026 kippt die Hochrechnung in „Laufzeit vorbei", vor dem 08.07.2026
+     * in „zu frueh fuer eine Aussage" — der Test waere an einem Stichtag rot
+     * geworden, ohne dass jemand etwas geaendert hat.
+     */
+    private const HEUTE = '2026-08-17 10:00:00';
 
     public static function setUpBeforeClass(): void
     {
@@ -96,6 +108,9 @@ class StatisticsCohortWiringTest extends TestCase
             }
         });
 
+        // Feste Uhr fuer die Hochrechnung der Pipeline-Ampel (siehe HEUTE).
+        Carbon::setTestNow(Carbon::parse(self::HEUTE));
+
         self::runRealMigrations();
         self::seed();
     }
@@ -106,6 +121,9 @@ class StatisticsCohortWiringTest extends TestCase
         // static::$app, nicht den prozessweiten $resolvedInstance-Cache.
         Facade::clearResolvedInstances();
         Container::getInstance()->forgetInstance(AuthFactory::class);
+        // PFLICHT: die Testuhr ist statisch und wuerde sonst in jede spaeter im
+        // selben Prozess laufende Testklasse hineinreichen.
+        Carbon::setTestNow();
     }
 
     private function cohortRows(?string $ort = null): array
@@ -116,23 +134,33 @@ class StatisticsCohortWiringTest extends TestCase
         return $component->cohort()['rows'];
     }
 
-    /** Genau eine Zeile suchen — der Test soll nicht an der Zeilenreihenfolge haengen. */
-    private function rowOf(array $rows, ?int $postingId, string $type): array
+    /**
+     * Genau EINE Zeile suchen — der Test soll nicht an der Zeilenreihenfolge
+     * haengen, und bei mehreren Treffern soll er nicht still die erste nehmen
+     * (die Zeilen sind je Ausschreibung UND Phase, „posting + type" ist also
+     * nicht eindeutig).
+     */
+    private function rowOf(array $rows, ?int $postingId, string $type, ?string $keyContains = null): array
     {
-        foreach ($rows as $row) {
-            if ($row['posting_id'] === $postingId && $row['type'] === $type) {
-                return $row;
-            }
-        }
+        $hits = array_values(array_filter($rows, fn ($row) => $row['posting_id'] === $postingId
+            && $row['type'] === $type
+            && ($keyContains === null || str_contains($row['key'], $keyContains))));
 
-        $this->fail("Keine Zeile mit posting_id=" . var_export($postingId, true) . " und type={$type}");
+        $this->assertCount(
+            1,
+            $hits,
+            'genau eine Zeile erwartet fuer posting_id=' . var_export($postingId, true)
+                . ", type={$type}, key~" . var_export($keyContains, true),
+        );
+
+        return $hits[0];
     }
 
     public function test_ausschreibungs_titel_und_status_kommen_an_der_zeile_an(): void
     {
         $rows = $this->cohortRows();
 
-        $offen = $this->rowOf($rows, self::POSTING_OFFEN, 'ohne_schulung');
+        $offen = $this->rowOf($rows, self::POSTING_OFFEN, 'ohne_schulung', 'Telefonat');
         $this->assertSame('Kellner (m/w/d)', $offen['posting_title'], 'Titel der Ausschreibung');
         $this->assertFalse($offen['posting_closed'], 'published + is_active ist online, nicht geschlossen');
 
@@ -146,7 +174,7 @@ class StatisticsCohortWiringTest extends TestCase
     {
         $rows = $this->cohortRows();
 
-        $offen = $this->rowOf($rows, self::POSTING_OFFEN, 'ohne_schulung');
+        $offen = $this->rowOf($rows, self::POSTING_OFFEN, 'ohne_schulung', 'Telefonat');
         $this->assertSame(10, $offen['bedarf']);
         $this->assertSame(8.0, $offen['bewerbungs_faktor']);
         $this->assertSame('2026-07-01', $offen['published_ymd'], 'Y-m-d-String, kein Carbon');
@@ -168,7 +196,7 @@ class StatisticsCohortWiringTest extends TestCase
         // Bewerber 101 steht in Phase 2, das Log kennt Phase 3 (spaeter
         // zurueckgesetzt) -> Maximum ist 3, kumulativ also 1, 2 und 3.
         // Bewerber 102 steht in Phase 1 ohne Log-Eintrag -> nur Phase 1.
-        $offen = $this->rowOf($rows, self::POSTING_OFFEN, 'ohne_schulung');
+        $offen = $this->rowOf($rows, self::POSTING_OFFEN, 'ohne_schulung', 'Telefonat');
         $phasen = $offen['columns']['phase_reached'];
 
         $this->assertSame([101], $phasen[3] ?? [], 'Log gewinnt gegen die niedrigere aktuelle Phase');
@@ -182,6 +210,75 @@ class StatisticsCohortWiringTest extends TestCase
         $zu = $this->rowOf($rows, self::POSTING_ZU, 'ohne_schulung');
         $this->assertSame([102], $zu['columns']['phase_reached'][1] ?? []);
         $this->assertArrayNotHasKey(2, $zu['columns']['phase_reached'], 'ohne Log-Eintrag endet der Trichter bei der aktuellen Phase');
+    }
+
+    public function test_log_einer_anderen_stelle_macht_den_trichter_nicht_tiefer(): void
+    {
+        // Bewerber 103 steht in Phase 1 der Stelle 1, hat aber ein Log auf der
+        // Stelle 2 mit order 3. Phasen sind pro Stelle geklont — diese order ist
+        // im Trichter DIESER Ausschreibung keine erreichte Stufe. Ohne die
+        // Einschraenkung auf die aktuelle Stelle waere die Trichter-Tiefe nach
+        // jedem Stellenwechsel zu gross (gemessen: 15 Wechsel, elf in sechs Tagen).
+        $rows = $this->cohortRows();
+        $row = $this->rowOf($rows, self::POSTING_OFFEN, 'ohne_schulung', 'Eingang');
+
+        $this->assertSame([103], $row['columns']['phase_reached'][1] ?? []);
+        $this->assertArrayNotHasKey(
+            3,
+            $row['columns']['phase_reached'],
+            'order 3 stammt aus dem Phasensatz der ANDEREN Stelle und darf nicht zaehlen',
+        );
+        $this->assertArrayNotHasKey(2, $row['columns']['phase_reached']);
+    }
+
+    public function test_posting_ohne_lookup_eintrag_bleibt_grau_statt_null(): void
+    {
+        // Die Ausschreibung des fremden Teams haengt per Pivot am Bewerber (die
+        // Relation ist nicht team-gescopt), steht aber nicht im forTeam-gescopten
+        // Stammdaten-Lookup. Ihr gepflegter Bedarf 50 darf NICHT durchsickern,
+        // und es darf auch keine 0 erfunden werden: null heisst „nicht gepflegt",
+        // die Ampel bleibt grau.
+        $component = new Index();
+        $rows = $component->cohort()['rows'];
+        $row = $this->rowOf($rows, self::POSTING_FREMD, 'ohne_schulung');
+
+        $this->assertSame('Fremdes Team', $row['posting_title'], 'Titel kommt aus dem Pivot');
+        $this->assertNull($row['bedarf'], 'Bedarf 50 des fremden Teams darf nicht durchsickern');
+        $this->assertNull($row['bewerbungs_faktor']);
+        $this->assertNull($row['published_ymd']);
+        $this->assertNull($row['closes_ymd']);
+
+        $group = null;
+        foreach ((new CohortViewModel())->postingGroups($rows) as $candidate) {
+            if ($candidate['posting_id'] === self::POSTING_FREMD) {
+                $group = $candidate;
+            }
+        }
+        $this->assertNotNull($group);
+        $this->assertSame('grey', $component->pipelineLight($group)['status']);
+        $this->assertSame('grey', $component->fulfilmentLight($group)['status']);
+        $this->assertNull($component->fulfilmentLight($group)['pct'], 'keine Quote, nicht 0 %');
+    }
+
+    public function test_gesamt_zeile_nennt_ihre_bezugsgroessen(): void
+    {
+        // Zwei Unterschriften im Bestand, aber nur eine an einer Ausschreibung mit
+        // gepflegtem Bedarf. Die Spalte „Unterschrieben" zeigt 2, die Quote rechnet
+        // mit 1 von 10 — genau die Stelle, an der die Zeile ohne benannte
+        // Bezugsgroessen unlesbar war ("2 von 10, also 20 %?").
+        $component = new Index();
+        $groups = (new CohortViewModel())->postingGroups($component->cohort()['rows']);
+        $light = $component->fulfilmentTotalLight($groups);
+
+        $this->assertSame(2, $component->countIn($component->cohort()['rows'], 'unterschrieben'), 'Spaltenwert');
+        $this->assertSame(1, $light['signed'], 'Zaehler der Quote');
+        $this->assertSame(10, $light['bedarf']);
+        $this->assertSame(10, $light['pct']);
+        $this->assertSame(2, $light['excluded_groups'], 'Ausschreibung ohne Bedarf + Ausschreibung ohne Lookup-Eintrag');
+        $this->assertSame(1, $light['excluded_signed']);
+        // Die Zahlen gehen auf: Zaehler + ausgelassene = Spaltenwert
+        $this->assertSame(2, $light['signed'] + $light['excluded_signed']);
+        $this->assertStringContainsString('NICHT in dieser Quote', $light['reason']);
     }
 
     public function test_ausschreibungs_zeilen_tragen_bedarf_und_ampel_bis_in_die_tabelle(): void
@@ -211,9 +308,14 @@ class StatisticsCohortWiringTest extends TestCase
         $this->assertSame(10, $component->fulfilmentLight($offen)['pct']);
         $this->assertSame('red', $component->fulfilmentLight($offen)['status']);
 
-        // Pipeline: Bedarf und Faktor sind gepflegt, also KEINE graue Ampel
-        $this->assertNotSame('grey', $component->pipelineLight($offen)['status']);
-        $this->assertSame(80, $component->pipelineLight($offen)['target'], '10 x 8,0 benoetigte Bewerbungen');
+        // Pipeline gegen die FESTE Uhr (17.08.2026) exakt nachgerechnet:
+        // Laufzeit 01.07.–30.09. = 91 Tage, davon 47 vergangen; 2 Bewerbungen
+        // hochgerechnet ergeben round(2 / 47 * 91) = 4 von 80 benoetigten = 5 %.
+        $pipeline = $component->pipelineLight($offen);
+        $this->assertSame(80, $pipeline['target'], '10 x 8,0 benoetigte Bewerbungen');
+        $this->assertSame(4, $pipeline['projected']);
+        $this->assertSame(5, $pipeline['pct']);
+        $this->assertSame('red', $pipeline['status']);
 
         // Ungepflegte Ausschreibung bleibt grau — nichts wird geraten
         $zu = null;
@@ -296,11 +398,15 @@ class StatisticsCohortWiringTest extends TestCase
 
     private static function seed(): void
     {
-        $now = '2026-08-17 10:00:00';
+        $now = self::HEUTE;
 
         Capsule::table('rec_positions')->insert([
-            'id' => 1, 'uuid' => 'pos-1', 'team_id' => self::TEAM, 'title' => 'Kellner',
-            'location' => 'Essen', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now,
+            ['id' => 1, 'uuid' => 'pos-1', 'team_id' => self::TEAM, 'title' => 'Kellner',
+             'location' => 'Essen', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            // zweite Stelle mit EIGENEM, geklontem Phasensatz — Grundlage des
+            // Stellenwechsel-Falls
+            ['id' => 2, 'uuid' => 'pos-2', 'team_id' => self::TEAM, 'title' => 'Küche',
+             'location' => 'Wuppertal', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_phases')->insert([
@@ -313,6 +419,11 @@ class StatisticsCohortWiringTest extends TestCase
             // inaktiv: darf in phaseLabels() nicht auftauchen
             ['id' => 4, 'uuid' => 'ph-4', 'team_id' => self::TEAM, 'rec_position_id' => 1,
              'name' => 'Archiv', 'order' => 4, 'is_active' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // geklonter Satz der ZWEITEN Stelle: gleiche orders, eigene IDs
+            ['id' => 5, 'uuid' => 'ph-5', 'team_id' => self::TEAM, 'rec_position_id' => 2,
+             'name' => 'Eingang', 'order' => 1, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 6, 'uuid' => 'ph-6', 'team_id' => self::TEAM, 'rec_position_id' => 2,
+             'name' => 'Probearbeit', 'order' => 3, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_postings')->insert([
@@ -326,6 +437,14 @@ class StatisticsCohortWiringTest extends TestCase
              'title' => 'Aushilfe Bankett', 'activity' => 'Bankett', 'status' => 'draft', 'is_active' => 1,
              'published_at' => null, 'closes_at' => null,
              'bedarf' => null, 'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+            // FREMDES Team: haengt per Pivot am Bewerber (die Relation ist nicht
+            // team-gescopt), taucht aber im forTeam-gescopten Stammdaten-Lookup
+            // NICHT auf. Bedarf 50 ist absichtlich gepflegt — genau dieser Wert
+            // darf nicht durchsickern.
+            ['id' => self::POSTING_FREMD, 'uuid' => 'post-12', 'team_id' => 99, 'rec_position_id' => 1,
+             'title' => 'Fremdes Team', 'activity' => 'Service', 'status' => 'published', 'is_active' => 1,
+             'published_at' => '2026-07-01 08:00:00', 'closes_at' => '2026-09-30 23:59:59',
+             'bedarf' => 50, 'bewerbungs_faktor' => 4.0, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicants')->insert([
@@ -333,11 +452,21 @@ class StatisticsCohortWiringTest extends TestCase
              'rec_phase_id' => 2, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 102, 'uuid' => 'app-102', 'team_id' => self::TEAM, 'applied_at' => '2026-07-11',
              'rec_phase_id' => 1, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // 103: STELLENWECHSEL — steht heute in Phase 1 der Stelle 1, hat aber
+            // ein Log auf der Stelle 2 (order 3). Diese Tiefe gehoert nicht in den
+            // Trichter dieser Ausschreibung.
+            ['id' => 103, 'uuid' => 'app-103', 'team_id' => self::TEAM, 'applied_at' => '2026-07-12',
+             'rec_phase_id' => 1, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // 104: haengt an der Ausschreibung des fremden Teams
+            ['id' => 104, 'uuid' => 'app-104', 'team_id' => self::TEAM, 'applied_at' => '2026-07-13',
+             'rec_phase_id' => 1, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicant_posting')->insert([
             ['rec_applicant_id' => 101, 'rec_posting_id' => self::POSTING_OFFEN, 'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => 102, 'rec_posting_id' => self::POSTING_ZU, 'created_at' => $now, 'updated_at' => $now],
+            ['rec_applicant_id' => 103, 'rec_posting_id' => self::POSTING_OFFEN, 'created_at' => $now, 'updated_at' => $now],
+            ['rec_applicant_id' => 104, 'rec_posting_id' => self::POSTING_FREMD, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         // 101 war schon in Phase 3 und wurde auf 2 zurueckgesetzt: das Log kennt
@@ -353,16 +482,30 @@ class StatisticsCohortWiringTest extends TestCase
             ['team_id' => self::TEAM, 'rec_applicant_id' => 101, 'rec_position_id' => 1,
              'from_phase_id' => 3, 'to_phase_id' => 2, 'trigger' => 'manual', 'source' => 'live',
              'occurred_at' => '2026-07-14 09:00:00', 'created_at' => $now, 'updated_at' => $now],
+            // 103 war auf der ANDEREN Stelle in Phase order 3 (Phase-ID 6).
+            // Nach dem Wechsel auf Stelle 1 ist das im Trichter dieser
+            // Ausschreibung keine erreichte Stufe.
+            ['team_id' => self::TEAM, 'rec_applicant_id' => 103, 'rec_position_id' => 2,
+             'from_phase_id' => 5, 'to_phase_id' => 6, 'trigger' => 'manual', 'source' => 'live',
+             'occurred_at' => '2026-07-13 09:00:00', 'created_at' => $now, 'updated_at' => $now],
         ]);
 
-        // Eine Unterschrift, damit die Erfuellungs-Quote einen Zaehler hat
+        // Zwei Unterschriften, und zwar bewusst UNGLEICH verteilt: eine an der
+        // gepflegten Ausschreibung (zaehlt in der Quote), eine an der
+        // Ausschreibung ohne Ziel (zaehlt in der Spalte „Unterschrieben", aber
+        // nicht in der Quote). Das ist der Fall, in dem die Gesamt-Zeile ohne
+        // benannte Bezugsgroessen unlesbar war.
         Capsule::table('rec_contracts')->insert([
             // rec_contract_template_id ist NOT NULL; welche Vorlage es ist, spielt
             // fuer die Zaehlung keine Rolle (SQLite erzwingt den FK hier nicht).
-            'uuid' => 'con-1', 'team_id' => self::TEAM, 'rec_applicant_id' => 101,
-            'rec_contract_template_id' => 1,
-            'status' => 'signed', 'sent_at' => '2026-07-20 10:00:00', 'signed_at' => '2026-07-21 10:00:00',
-            'created_at' => $now, 'updated_at' => $now,
+            ['uuid' => 'con-1', 'team_id' => self::TEAM, 'rec_applicant_id' => 101,
+             'rec_contract_template_id' => 1,
+             'status' => 'signed', 'sent_at' => '2026-07-20 10:00:00', 'signed_at' => '2026-07-21 10:00:00',
+             'created_at' => $now, 'updated_at' => $now],
+            ['uuid' => 'con-2', 'team_id' => self::TEAM, 'rec_applicant_id' => 104,
+             'rec_contract_template_id' => 1,
+             'status' => 'signed', 'sent_at' => '2026-07-22 10:00:00', 'signed_at' => '2026-07-23 10:00:00',
+             'created_at' => $now, 'updated_at' => $now],
         ]);
     }
 }

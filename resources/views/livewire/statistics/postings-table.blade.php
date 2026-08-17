@@ -37,26 +37,30 @@
     // Phasen-Spalten aus dem Phasensatz der gefilterten Filiale. NICHT fest
     // verdrahtet: Phasen sind pro Stelle geklont und frei benannt.
     //
-    // Ist kein Ort gewaehlt, ist die Liste leer und die Trichter-Gruppe zeigt
-    // keine Phasen-Spalten — Zwischenzustand, bis der Ort Pflichtauswahl wird.
-    // Bewusst OHNE Fallback: ein „nimm halt alle Phasen" waere danach toter Code
-    // und wuerde bis dahin Spalten aus fremden Phasensaetzen mischen.
+    // Ohne Ort-Filter ist die Liste NICHT leer: Laravel macht aus
+    // where('location', null) ein whereNull, die Koepfe kommen dann aus dem
+    // Phasensatz ORTLOSER Stellen, waehrend die Zahlen darunter alle Orte
+    // enthalten. Ein kosmetisch schiefer Zwischenzustand (die Spalten zaehlen
+    // korrekt ueber die order), den Task 10 beseitigt, indem der Ort zur
+    // Pflichtauswahl wird.
+    //
+    // Bewusst OHNE Fallback: ein „nimm halt alle Phasen" waere nach Task 10
+    // toter Code und wuerde bis dahin Spalten aus fremden Phasensaetzen mischen.
     $phaseDefs = [];
     $phaseIndex = 0;
     foreach ($this->phaseLabels as $phaseOrder => $phaseName) {
         $tint = $phaseTints[min($phaseIndex, count($phaseTints) - 1)];
-        // Phasennamen sind freier Nutzertext und landen in cells.blade.php im
-        // wire:click-Ausdruck. Ein Apostroph darin wuerde den Ausdruck zerlegen
-        // (der Browser dekodiert HTML-Entities VOR dem Parsen) — deshalb hier
-        // einmal auf typografische Zeichen umgestellt. Derselbe Grund, aus dem
-        // die Zeilen-Token base64-kodiert reisen (CohortViewModel::encodeScope).
-        $safeName = str_replace(['"', "'"], ['”', '’'], (string) $phaseName);
+        // Der Name wird UNVERAENDERT uebernommen — Kopf, Tooltip und
+        // Modal-Titel muessen zeigen, was HR eingetragen hat. Das Quoting im
+        // wire:click-Ausdruck loest @js in cells.blade.php, nicht eine
+        // Verfremdung der Stammdaten.
+        $phaseName = (string) $phaseName;
         $phaseDefs[] = [
             'key' => $this->phaseColumnKey((int) $phaseOrder),
-            'label' => $safeName,
+            'label' => $phaseName,
             'on' => $tint['on'],
             'total' => $tint['total'],
-            'title' => 'Bewerbungen, die Phase ' . $phaseOrder . ' („' . $safeName . '") erreicht haben — '
+            'title' => 'Bewerbungen, die Phase ' . $phaseOrder . ' („' . $phaseName . '") erreicht haben — '
                 . 'kumulativ: wer weiter ist, zählt hier mit. NETTO, also nur laufende Kohorten: '
                 . 'Geparkte, Abgesagte und ausgeschlossene Buckets tauchen im Phasen-Trichter nicht auf, '
                 . 'sind aber in „Bewerbungen" enthalten.',
@@ -123,11 +127,19 @@
          'title' => 'Wann die Eingestellten das erste Mal arbeiten — kommt mit der Dispo.'],
     ];
 
-    // 1 Ausschreibungs-Spalte + Zahlen + Conversion + Bedarf/Erfüllung/Pipeline + Erster Einsatz
-    $colSpanAll = count($colDefs) + 6;
-
     $groups = $this->postingGroups;
     $allToken = $this->drillToken('all', 'Gesamt');
+
+    // Gesamt-Zeile: alles vorab, damit die Fusszeile nur noch ausgibt.
+    $rowSum = $this->countIn($this->cohort['rows'], 'ids');
+    $totalIds = count($this->cohort['total_ids']);
+    // Erfuellung der Gesamt-Zeile: Prozentwert aus sumPercent() (Σ/Σ, nie der
+    // Mittelwert der Zeilen-Prozente), Ampelpunkt und Begruendung aus TargetLight
+    // — arithmetisch dieselbe Rechnung. $totalFulfilment traegt zusaetzlich die
+    // absoluten Bezugsgroessen, damit die Zelle nachrechenbar ist.
+    $totalFulfilment = $this->fulfilmentTotalLight($groups);
+    $totalBedarf = $totalFulfilment['bedarf'];
+    $totalPipeline = $this->pipelineTotalLight($groups);
 
     $bedarfTitle = 'Benötigte Einstellungen (Feld „Bedarf" an der Ausschreibung). „–" heißt NICHT null, sondern nicht gepflegt — dann bleiben beide Ampeln grau.';
     $einsatzTitle = 'kommt mit der Dispo';
@@ -269,7 +281,13 @@
                             @include('recruiting::livewire.statistics.conversion', ['rows' => $groupRows, 'isTotal' => false])
                             <td class="border-l border-[var(--ui-border)]/60 px-3 py-2 text-center whitespace-nowrap tabular-nums font-semibold text-[color:var(--ui-secondary)]"
                                 title="{{ $bedarfTitle }}">
-                                @if ($group['bedarf'] === null)
+                                {{-- „0" wird NICHT angezeigt: ein Bedarf von 0 ist
+                                     kein Nenner und zaehlt weder in der Quote noch
+                                     in der Summe mit. Eine sichtbare 0, die
+                                     nirgends mitrechnet, waere derselbe
+                                     Widerspruch wie eine Quote mit stillem
+                                     anderem Bezug. --}}
+                                @if ($group['bedarf'] === null || $group['bedarf'] <= 0)
                                     <span class="text-xs font-normal text-[color:var(--ui-muted)]">–</span>
                                 @else
                                     {{ $group['bedarf'] }}
@@ -296,16 +314,6 @@
                     <tr class="border-t-2 border-[var(--ui-border)] font-bold">
                         <td class="sticky bottom-0 left-0 z-30 bg-[var(--ui-surface)] px-4 py-3 text-[color:var(--ui-secondary)]">
                             Gesamt
-                            @php
-                                $rowSum = $this->countIn($this->cohort['rows'], 'ids');
-                                $totalIds = count($this->cohort['total_ids']);
-                                $totalBedarf = $this->sumBedarf($groups);
-                                // Erfuellung der Gesamt-Zeile NEU gerechnet aus absoluten
-                                // Summen (Σ Unterschriften / Σ Bedarf) — der Mittelwert der
-                                // Zeilen-Prozente waere bei 1/1 und 1/99 50 % statt 2 %.
-                                $totalFulfilment = $this->sumPercent($groups);
-                                $totalPipeline = $this->pipelineTotalLight($groups);
-                            @endphp
                             @if ($rowSum !== $totalIds)
                                 {{-- Rekonziliations-Invariante verletzt: Zeilensumme muss die
                                      Gesamtmenge sein. Sichtbar machen statt still korrigieren. --}}
@@ -325,12 +333,22 @@
                                 {{ $totalBedarf }}
                             @endif
                         </td>
-                        <td class="px-3 py-3 text-center whitespace-nowrap text-xs tabular-nums"
-                            title="Σ Unterschriften geteilt durch Σ Bedarf — neu gerechnet aus den absoluten Summen, nicht der Mittelwert der Zeilen-Prozente. Nur Ausschreibungen mit gepflegtem Bedarf zählen mit.">
-                            @if ($totalFulfilment === null)
-                                <span class="font-normal text-[color:var(--ui-muted)]">–</span>
-                            @else
-                                {{ $totalFulfilment }} %
+                        {{-- Erfuellung der Gesamt-Zeile: derselbe Ampelpunkt wie in
+                             jeder Zeile darueber, DARUNTER der Bruch in absoluten
+                             Zahlen. Ohne den Bruch war die Zelle aus ihren eigenen
+                             Nachbarn nicht nachrechenbar: die Spalte
+                             „Unterschrieben" zaehlt ALLE Ausschreibungen, der
+                             Zaehler hier nur die mit gepflegtem Bedarf — bei
+                             „Unterschrieben 9 / Bedarf 10" liest man 90 %, richtig
+                             sind 50 %. Die Differenz steht als Fussnote unter der
+                             Tabelle, damit sie nicht nur im Tooltip lebt. --}}
+                        <td class="px-3 py-3 text-center whitespace-nowrap"
+                            title="Σ Unterschriften geteilt durch Σ Bedarf, neu gerechnet aus den absoluten Summen (nicht der Mittelwert der Zeilen-Prozente). {{ $totalFulfilment['reason'] }}">
+                            @include('recruiting::livewire.statistics.light', ['light' => $totalFulfilment, 'label' => 'Erfüllung gesamt'])
+                            @if ($totalFulfilment['bedarf'] !== null)
+                                <div class="text-[11px] font-normal tabular-nums text-[color:var(--ui-muted)]">
+                                    {{ $totalFulfilment['signed'] }} von {{ $totalFulfilment['bedarf'] }}
+                                </div>
                             @endif
                         </td>
                         <td class="px-3 py-3 text-center">
@@ -343,5 +361,23 @@
                 </tfoot>
             </table>
         </div>
+
+        {{-- Fussnote statt stillem Topf: die Erfuellungsquote der Gesamt-Zeile
+             laesst Ausschreibungen ohne gepflegten Bedarf aus (sonst wuerden sie
+             die Quote verwaessern). Damit die Zeile nachrechenbar bleibt, wird die
+             Differenz zur Spalte „Unterschrieben" hier BENANNT — die Zahlen
+             gehen auf: Zähler + hier genannte Unterschriften = Spaltenwert. --}}
+        @if ($totalFulfilment['excluded_groups'] > 0)
+            <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
+                Erfüllung gesamt: {{ $totalFulfilment['signed'] }} von
+                {{ $totalFulfilment['bedarf'] ?? 0 }} benötigten Einstellungen.
+                Nicht in dieser Quote:
+                {{ $totalFulfilment['excluded_groups'] }}
+                {{ $totalFulfilment['excluded_groups'] === 1 ? 'Ausschreibung' : 'Ausschreibungen' }}
+                ohne gepflegten Bedarf mit {{ $totalFulfilment['excluded_signed'] }}
+                {{ $totalFulfilment['excluded_signed'] === 1 ? 'Unterschrift' : 'Unterschriften' }} —
+                in der Spalte „Unterschrieben" sind sie enthalten.
+            </div>
+        @endif
     @endif
 </x-ui-panel>

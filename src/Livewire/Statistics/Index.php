@@ -169,8 +169,12 @@ class Index extends Component
             ->get();
 
         // Zwei Lookups VOR der Schleife, beide aggregiert ueber die ganze Menge:
-        // je Bewerber bzw. je Ausschreibung eine Query pro Seitenaufruf, nicht
-        // eine pro Datensatz (Query-Budget ist Abnahmekriterium §2).
+        // ZWEI zusaetzliche Queries pro Seitenaufruf (eine fuer das
+        // Transition-Log, eine fuer die Ausschreibungs-Stammdaten), nicht eine
+        // pro Datensatz. Die Ausschreibungs-Tabelle kostet damit insgesamt vier
+        // Queries mehr als vorher — die beiden hier plus zwei in phaseLabels()
+        // (Stellen des Orts, dann deren Phasen). Query-Budget ist
+        // Abnahmekriterium §2, deshalb steht die Zahl hier und nicht "ein paar".
         $maxLoggedPhaseOrder = $this->maxLoggedPhaseOrder($teamId, $applicants->pluck('id')->all());
         $postingTargets = $this->postingTargets(
             $teamId,
@@ -299,11 +303,23 @@ class Index extends Component
      * Statistik-Seite laedt bei weit gestelltem Zeitraum das halbe Team, und ein
      * N+1 an dieser Stelle waere im Betrieb nicht mehr einzufangen.
      *
-     * Der INNER JOIN ist Absicht: gehoert die Zielphase eines Log-Eintrags nicht
+     * Gezaehlt werden NUR Log-Eintraege zur AKTUELLEN STELLE des Bewerbers
+     * (`rec_phase_transitions.rec_position_id` gegen die Stelle seiner aktuellen
+     * Phase). Grund: Phasen sind pro Stelle geklont, und eine `order` aus dem
+     * Phasensatz einer ANDEREN Stelle ist im Trichter dieser Ausschreibung keine
+     * erreichte Stufe. Ohne die Einschraenkung wuerde die Trichter-Tiefe nach
+     * einem Stellenwechsel zu gross — und Stellenwechsel sind kein Randfall
+     * (gemessen: 15, elf davon in sechs Tagen).
+     *
+     * Zwei Wege fallen dadurch bewusst heraus, beide konservativ (keine erfundene
+     * Tiefe, die aktuelle Phase deckt den Live-Zustand ohnehin ab):
+     *  - Log-Eintraege ohne `rec_position_id` (Spalte ist nullable);
+     *  - Bewerber ohne aktuelle Phase — sie haben keine Stelle, gegen die man
+     *    vergleichen koennte.
+     *
+     * Der INNER JOIN auf die ZIELPHASE ist ebenfalls Absicht: gehoert sie nicht
      * mehr zu einem Phasensatz (Phase geloescht → to_phase_id per nullOnDelete
-     * null), gibt es keine `order` und der Eintrag traegt nichts bei. Er wird
-     * damit nicht geraten, sondern uebersprungen — die aktuelle Phase des
-     * Bewerbers deckt diesen Fall ab (Maximum aus beiden Quellen, siehe cohort()).
+     * null), gibt es keine `order` und der Eintrag traegt nichts bei.
      *
      * `order` ist in MySQL ein reserviertes Wort und muss im MAX() gequotet
      * werden; die Quotierung kommt aus der Grammatik der Verbindung, damit sie
@@ -318,12 +334,16 @@ class Index extends Component
             return [];
         }
 
-        $orderColumn = DB::getQueryGrammar()->wrap('rec_phases.order');
+        $orderColumn = DB::getQueryGrammar()->wrap('to_phase.order');
 
         return RecPhaseTransition::query()
             ->where('rec_phase_transitions.team_id', $teamId)
             ->whereIn('rec_phase_transitions.rec_applicant_id', $applicantIds)
-            ->join('rec_phases', 'rec_phases.id', '=', 'rec_phase_transitions.to_phase_id')
+            ->join('rec_phases as to_phase', 'to_phase.id', '=', 'rec_phase_transitions.to_phase_id')
+            // Stelle des Bewerbers = Stelle seiner aktuellen Phase
+            ->join('rec_applicants', 'rec_applicants.id', '=', 'rec_phase_transitions.rec_applicant_id')
+            ->join('rec_phases as current_phase', 'current_phase.id', '=', 'rec_applicants.rec_phase_id')
+            ->whereColumn('rec_phase_transitions.rec_position_id', 'current_phase.rec_position_id')
             ->groupBy('rec_phase_transitions.rec_applicant_id')
             ->select('rec_phase_transitions.rec_applicant_id')
             ->selectRaw('MAX(' . $orderColumn . ') as max_order')
@@ -411,7 +431,23 @@ class Index extends Component
         return $this->viewModel()->postingGroups($this->cohort['rows']);
     }
 
-    /** @return array<int,string> order => Name, aus dem Phasensatz der gefilterten Filiale */
+    /**
+     * Phasen sind pro Stelle geklont und frei benannt, deshalb aus der Auswahl
+     * lesen statt fest verdrahten; bei mehreren Stellen am Ort gewinnt der letzte
+     * Name je `order`, was unkritisch ist, weil geklonte Phasen gleich heissen.
+     *
+     * OHNE Ort-Filter ist die Liste NICHT leer, und das ist eine Falle: Laravel
+     * macht aus `where('location', null)` ein `whereNull`, die Kopfzeilen kommen
+     * dann aus dem Phasensatz ORTLOSER Stellen, waehrend die Zahlen darunter alle
+     * Orte enthalten. Kosmetisch schief, aber nicht falsch gezaehlt (die Spalten
+     * zaehlen ueber die `order`). Task 10 macht den Ort zur Pflichtauswahl und
+     * beseitigt den Fall — bis dahin bewusst KEIN Fallback, der waere danach
+     * toter Code.
+     *
+     * Kostet zwei Queries (Stellen des Orts, dann deren Phasen).
+     *
+     * @return array<int,string> order => Name, aus dem Phasensatz der gefilterten Filiale
+     */
     #[Computed]
     public function phaseLabels(): array
     {
@@ -496,6 +532,49 @@ class Index extends Component
             $group['closes_ymd'] ?? null,
             now()->toDateString(),
         );
+    }
+
+    /**
+     * Erfuellungs-Ampel der GESAMT-Zeile — mit demselben Ampelpunkt wie jede
+     * Zeile darueber, damit die Gesamt-Zeile sich liest wie der Rest der Tabelle.
+     *
+     * Status und Begruendung kommen aus TargetLight::fulfilment(Σ, Σ), der
+     * Prozentwert weiterhin aus sumPercent(). Das sind KEINE zwei Wahrheiten:
+     * beide rechnen Σ Zaehler / Σ Nenner und sind arithmetisch identisch (im
+     * Review nachgerechnet) — sumPercent() bleibt die benannte Quelle der Zahl,
+     * TargetLight die einzige Quelle der Schwellen (60/90 %). Eine eigene
+     * Farb-Arithmetik hier waere die zweite Wahrheit.
+     *
+     * Der `reason` wird ersetzt, weil er in der Gesamt-Zeile die Bezugsgroessen
+     * benennen muss: welche absoluten Zahlen den Prozentwert bilden und wie viele
+     * Ausschreibungen wegen fehlendem Bedarf NICHT darin stecken. Ohne diese
+     * Angabe widerspricht die Quote scheinbar der Spalte „Unterschrieben"
+     * daneben, die alle Ausschreibungen zaehlt.
+     *
+     * @param  list<array>  $groups
+     * @return array{status:string, pct:?int, reason:string, signed:int, bedarf:?int, excluded_groups:int, excluded_signed:int}
+     */
+    public function fulfilmentTotalLight(array $groups): array
+    {
+        $totals = $this->viewModel()->fulfilmentTotals($groups);
+        $light = TargetLight::fulfilment($totals['signed'], $totals['bedarf']);
+        $light['pct'] = $totals['pct'];
+
+        $light['reason'] = $totals['bedarf'] === null
+            ? 'An keiner Ausschreibung dieser Auswahl ist ein Bedarf gepflegt — keine Quote möglich.'
+            : $totals['signed'] . ' von ' . $totals['bedarf'] . ' benötigten Einstellungen unterschrieben'
+                . ' (nur Ausschreibungen mit gepflegtem Bedarf).'
+                . ($totals['excluded_groups'] > 0
+                    ? ' NICHT in dieser Quote: ' . $totals['excluded_groups'] . ' '
+                        . ($totals['excluded_groups'] === 1 ? 'Ausschreibung' : 'Ausschreibungen')
+                        . ' ohne gepflegten Bedarf mit ' . $totals['excluded_signed'] . ' '
+                        . ($totals['excluded_signed'] === 1 ? 'Unterschrift' : 'Unterschriften')
+                        . ' — deshalb ist die Spalte „Unterschrieben" höher als der Zähler hier.'
+                    : '');
+
+        // Die Absolutzahlen reisen mit, damit die Zelle sie anzeigen kann, ohne
+        // sie ein zweites Mal zu berechnen.
+        return $light + $totals;
     }
 
     /**

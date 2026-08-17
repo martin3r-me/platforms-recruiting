@@ -1032,6 +1032,110 @@ final class CohortViewModelTest extends TestCase
         $this->assertSame(['bewerbungen' => 0, 'target' => null], $this->vm()->pipelineTotals([]));
     }
 
+    public function test_erfuellung_gesamt_nennt_ihre_bezugsgroessen_und_die_ausgelassenen(): void
+    {
+        // Genau der Fall aus dem Review: die Spalte „Unterschrieben" zeigt 9, der
+        // Bedarf 10 — wer das liest, erwartet 90 %. Angezeigt werden 50 %, weil
+        // vier der neun Unterschriften an einer Ausschreibung OHNE gepflegten
+        // Bedarf haengen und deshalb nicht in der Quote stecken. Die Quote bleibt
+        // richtig; sichtbar sein muss, WORAUS sie entsteht und was fehlt.
+        $groups = [
+            ['bedarf' => 10,   'columns' => ['unterschrieben' => [1, 2, 3, 4, 5]]],
+            ['bedarf' => null, 'columns' => ['unterschrieben' => [6, 7, 8, 9]]],
+        ];
+
+        $totals = $this->vm()->fulfilmentTotals($groups);
+
+        $this->assertSame(5, $totals['signed'], 'Zaehler: nur die gepflegte Ausschreibung');
+        $this->assertSame(10, $totals['bedarf']);
+        $this->assertSame(50, $totals['pct']);
+        $this->assertSame(1, $totals['excluded_groups']);
+        $this->assertSame(4, $totals['excluded_signed']);
+
+        // Die Zahlen muessen aufgehen: Zaehler + ausgelassene = Spaltenwert
+        $this->assertSame(
+            9,
+            $totals['signed'] + $totals['excluded_signed'],
+            'Summe muss die Spalte „Unterschrieben" ergeben, sonst ist die Zeile nicht nachrechenbar',
+        );
+    }
+
+    public function test_erfuellung_gesamt_haelt_prozent_und_absolutzahlen_zusammen(): void
+    {
+        // sumPercent(), sumBedarf() und fulfilmentTotals() muessen exakt dieselben
+        // Ausschreibungen zaehlen — die Bedingung steht in drei Methoden, dieser
+        // Test haelt sie gegeneinander fest (0 und null zaehlen nirgends).
+        $groups = [
+            ['bedarf' => 7,    'columns' => ['unterschrieben' => [1, 2, 3]]],
+            ['bedarf' => 0,    'columns' => ['unterschrieben' => [4]]],
+            ['bedarf' => null, 'columns' => ['unterschrieben' => [5]]],
+            ['bedarf' => 13,   'columns' => ['unterschrieben' => [6, 7]]],
+        ];
+        $vm = $this->vm();
+        $totals = $vm->fulfilmentTotals($groups);
+
+        $this->assertSame($vm->sumBedarf($groups), $totals['bedarf']);
+        $this->assertSame($vm->sumPercent($groups, 'unterschrieben', 'bedarf'), $totals['pct']);
+        $this->assertSame(
+            (int) round($totals['signed'] / $totals['bedarf'] * 100),
+            $totals['pct'],
+            'der angezeigte Prozentwert muss aus den angezeigten Absolutzahlen folgen',
+        );
+        $this->assertSame(2, $totals['excluded_groups'], 'bedarf 0 zaehlt wie ungepflegt');
+        $this->assertSame(2, $totals['excluded_signed']);
+    }
+
+    public function test_erfuellung_gesamt_ohne_gepflegten_bedarf_ist_keine_quote(): void
+    {
+        $totals = $this->vm()->fulfilmentTotals([
+            ['bedarf' => null, 'columns' => ['unterschrieben' => [1, 2]]],
+        ]);
+
+        $this->assertNull($totals['bedarf']);
+        $this->assertNull($totals['pct'], 'keine Quote, nicht 0 %');
+        $this->assertSame(0, $totals['signed']);
+        $this->assertSame(1, $totals['excluded_groups']);
+        $this->assertSame(2, $totals['excluded_signed']);
+
+        $leer = $this->vm()->fulfilmentTotals([]);
+        $this->assertSame(
+            ['signed' => 0, 'bedarf' => null, 'pct' => null, 'excluded_groups' => 0, 'excluded_signed' => 0],
+            $leer,
+        );
+    }
+
+    public function test_ausschreibung_ohne_lookup_eintrag_bleibt_ohne_ziel(): void
+    {
+        // Die tragende Regel dieses Features: eine gesetzte posting_id, zu der der
+        // Stammdaten-Lookup NICHTS liefert (z.B. Ausschreibung eines anderen
+        // Teams — postingTargets ist forTeam-gescopt), darf keine Zahl erfinden.
+        // Erwartet wird durchgehend null, damit die Ampel grau bleibt; eine 0
+        // waere „Ziel erreicht mit null Personen".
+        $rows = [
+            // genau die Zeile, die Index.php baut, wenn $postingTargets[$id] fehlt:
+            // posting_id und Titel aus dem Pivot, alle vier Ziel-Felder null
+            $this->targetRow(77, [
+                'bedarf' => null, 'bewerbungs_faktor' => null,
+                'published_ymd' => null, 'closes_ymd' => null,
+            ], 'Fremde Ausschreibung', 'Service', ids: [1], columns: ['unterschrieben' => [1]]),
+        ];
+
+        $group = $this->vm()->postingGroups($rows)[0];
+
+        $this->assertSame(77, $group['posting_id']);
+        $this->assertSame('Fremde Ausschreibung', $group['posting_title'], 'Titel kommt aus dem Pivot, nicht aus dem Lookup');
+        $this->assertNull($group['bedarf']);
+        $this->assertNull($group['bewerbungs_faktor']);
+        $this->assertNull($group['published_ymd']);
+        $this->assertNull($group['closes_ymd']);
+
+        // ... und die Quote nimmt sie nicht in den Bruch auf
+        $totals = $this->vm()->fulfilmentTotals([$group]);
+        $this->assertNull($totals['pct']);
+        $this->assertSame(1, $totals['excluded_groups']);
+        $this->assertSame(1, $totals['excluded_signed']);
+    }
+
     public function test_bedarf_summe_folgt_derselben_regel_wie_die_quote(): void
     {
         // Der Bedarf in der Gesamt-Zeile ist der Nenner der Erfuellungs-Quote —
