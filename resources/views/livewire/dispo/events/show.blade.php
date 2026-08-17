@@ -116,8 +116,13 @@
                 @if ($sendResult === null)
                     @php $preview = $this->sendPreview; @endphp
                     <label class="block text-sm">
-                        <span class="mb-1 block text-gray-600">Vorlaufzeit: „Bitte X Minuten vorher da sein" (Pflicht)</span>
-                        <input type="number" min="0" max="480" wire:model="vorlaufMinuten" class="w-32 rounded border-gray-300">
+                        <span class="mb-1 block font-medium text-gray-700">Vorlaufzeit <span class="text-red-600">*</span></span>
+                        <div class="flex items-center gap-2">
+                            <input type="number" min="0" max="480" wire:model="vorlaufMinuten" placeholder="z. B. 30"
+                                   class="w-28 rounded-lg border border-gray-300 px-3 py-2 text-base focus:border-blue-500 focus:ring-blue-500">
+                            <span class="text-sm text-gray-600">Minuten vor Dienstbeginn</span>
+                        </div>
+                        <span class="mt-1 block text-xs text-gray-500">Steht in der WhatsApp („Check in X min vor Dienstbeginn") und bestimmt die „Bitte sei um … Uhr da"-Zeit auf der Einsatz-Seite.</span>
                     </label>
                     @error('vorlaufMinuten') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 

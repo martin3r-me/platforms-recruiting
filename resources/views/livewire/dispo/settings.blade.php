@@ -7,7 +7,7 @@
     <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-4">
         <label class="block text-sm">
             <span class="mb-1 block text-gray-600">Bestätigungs-Template (WhatsApp, freigegeben)</span>
-            <select wire:model="templateId" class="w-full rounded border-gray-300">
+            <select wire:model="templateId" class="w-full rounded-lg border border-gray-300 px-3 py-2">
                 <option value="">— kein Template gewählt (Sende-Button deaktiviert) —</option>
                 @foreach ($this->templates as $template)
                     <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
@@ -18,12 +18,12 @@
 
         <label class="block text-sm">
             <span class="mb-1 block text-gray-600">Ansprechpartner-Zeile (auf der Einsatz-Seite)</span>
-            <input type="text" wire:model="contactLine" placeholder="Fragen? Melde dich bei ..." class="w-full rounded border-gray-300">
+            <input type="text" wire:model="contactLine" placeholder="Fragen? Melde dich bei ..." class="w-full rounded-lg border border-gray-300 px-3 py-2">
         </label>
 
         <label class="block text-sm">
             <span class="mb-1 block text-gray-600">Bestätigungs-Deadline (Stunden vor Einsatzbeginn)</span>
-            <input type="number" min="1" max="72" wire:model="deadlineHours" class="w-32 rounded border-gray-300">
+            <input type="number" min="1" max="72" wire:model="deadlineHours" class="w-32 rounded-lg border border-gray-300 px-3 py-2">
         </label>
 
         <div class="flex items-center gap-3">

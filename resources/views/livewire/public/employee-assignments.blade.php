@@ -4,60 +4,71 @@
             Dieser Link ist ungültig. Bitte melde dich bei deinem Ansprechpartner.
         </div>
     @else
-        <h1 class="text-lg font-semibold">Hallo {{ $firstName }}, deine Einsätze</h1>
+        <div>
+            <h1 class="text-xl font-bold text-gray-900">Hallo {{ $firstName }} 👋</h1>
+            <p class="text-sm text-gray-500">Hier sind deine anstehenden Einsätze.</p>
+        </div>
 
         @forelse ($this->eventGroups as $group)
-            <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-                <div>
-                    <div class="text-base font-semibold">{{ $group['name'] }}</div>
+            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div class="border-b border-gray-100 bg-gray-50 px-4 py-3">
+                    <div class="text-base font-bold text-gray-900">{{ $group['name'] }}</div>
                     @if ($group['venue_text'])
-                        <div class="mt-1 whitespace-pre-line text-sm text-gray-600">{{ $group['venue_text'] }}</div>
+                        <div class="mt-0.5 whitespace-pre-line text-sm text-gray-600">{{ $group['venue_text'] }}</div>
                     @endif
                 </div>
 
-                <div class="divide-y divide-gray-100 rounded border border-gray-100">
+                <div class="space-y-3 p-4">
                     @foreach ($group['days'] as $day)
-                        <div class="flex items-start justify-between gap-2 p-2 text-sm">
-                            <div>
-                                <div class="font-medium">{{ $day['datum'] }}</div>
-                                @if ($day['arrival'])
-                                    <div class="font-semibold">Sei um {{ $day['arrival'] }} Uhr da</div>
+                        <div class="rounded-lg border border-gray-200 p-3">
+                            <div class="flex items-center justify-between">
+                                <div class="text-sm font-semibold text-gray-900">{{ $day['datum'] }}</div>
+                                @if ($day['confirmed'])
+                                    <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">✓ bestätigt</span>
                                 @endif
-                                <div class="text-gray-600">
-                                    @if ($day['taetigkeit']){{ $day['taetigkeit'] }} · @endif
-                                    @if ($day['von']){{ $day['von'] }}@if ($day['bis'])–{{ $day['bis'] }}@endif Uhr @endif
-                                </div>
                             </div>
-                            @if ($day['confirmed'])
-                                <span class="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">✓</span>
+                            @if ($day['arrival'])
+                                <div class="mt-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">
+                                    Bitte sei um {{ $day['arrival'] }} Uhr da
+                                </div>
                             @endif
+                            <div class="mt-2 text-sm text-gray-600">
+                                @if ($day['taetigkeit'])<span class="font-medium text-gray-800">{{ $day['taetigkeit'] }}</span> · @endif
+                                @if ($day['von'])Schicht {{ $day['von'] }}@if ($day['bis'])–{{ $day['bis'] }}@endif Uhr @endif
+                            </div>
                         </div>
                     @endforeach
+
+                    @if ($group['dresscode'])
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Kleidung</div>
+                            <div class="mt-1 whitespace-pre-line text-sm text-gray-800">{{ $group['dresscode'] }}</div>
+                        </div>
+                    @endif
+                    @if ($group['anfahrt'])
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Anfahrt</div>
+                            <div class="mt-1 whitespace-pre-line text-sm text-gray-800">{{ $group['anfahrt'] }}</div>
+                        </div>
+                    @endif
+
+                    @if ($group['all_confirmed'])
+                        <div class="rounded-lg bg-green-50 p-3 text-center text-sm font-semibold text-green-800">✓ Bestätigt — danke!</div>
+                    @else
+                        <button wire:click="confirm({{ $group['event_id'] }})"
+                                class="w-full rounded-xl bg-green-600 px-4 py-3.5 text-base font-bold text-white shadow-sm hover:bg-green-700 active:bg-green-800">
+                            @if (count($group['days']) > 1) Alle {{ count($group['days']) }} Einsätze bestätigen @else Einsatz bestätigen @endif
+                        </button>
+                        <p class="text-center text-xs text-gray-500">Bitte bestätige bis {{ $group['days'][0]['deadline'] }} Uhr — sonst wird deine Einbuchung storniert.</p>
+                    @endif
                 </div>
 
-                @if ($group['dresscode'])
-                    <div class="text-sm"><span class="font-medium">Kleidung:</span> <span class="whitespace-pre-line">{{ $group['dresscode'] }}</span></div>
-                @endif
-                @if ($group['anfahrt'])
-                    <div class="text-sm"><span class="font-medium">Anfahrt:</span> <span class="whitespace-pre-line">{{ $group['anfahrt'] }}</span></div>
-                @endif
-
-                @if ($group['all_confirmed'])
-                    <div class="rounded bg-green-50 p-3 text-center text-sm font-medium text-green-800">✓ Bestätigt — danke!</div>
-                @else
-                    <button wire:click="confirm({{ $group['event_id'] }})"
-                            class="w-full rounded bg-green-600 px-4 py-3 text-base font-semibold text-white hover:bg-green-700">
-                        @if (count($group['days']) > 1) Alle {{ count($group['days']) }} Einsätze bestätigen @else Einsatz bestätigen @endif
-                    </button>
-                    <p class="text-xs text-gray-500">Bitte bestätige bis {{ $group['days'][0]['deadline'] }} Uhr — sonst wird deine Einbuchung storniert.</p>
-                @endif
-
                 @if ($group['contact_line'])
-                    <p class="text-xs text-gray-500">{{ $group['contact_line'] }}</p>
+                    <div class="border-t border-gray-100 px-4 py-2.5 text-center text-xs text-gray-500">{{ $group['contact_line'] }}</div>
                 @endif
             </div>
         @empty
-            <div class="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
+            <div class="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-600">
                 Aktuell liegen keine offenen Einsätze für dich vor.
             </div>
         @endforelse
