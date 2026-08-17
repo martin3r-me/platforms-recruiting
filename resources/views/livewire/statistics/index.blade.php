@@ -216,11 +216,19 @@
                  'muted' => false, 'title' => 'Aktive Bewerbungen ohne Schulungstermin — in der Ausschreibungs-Tabelle stecken sie in den Phasen-Spalten.'],
                 ['label' => 'Unterschriften', 'value' => $tiles['unterschrieben'], 'column' => 'unterschrieben', 'token' => $allToken,
                  'muted' => false, 'title' => 'Bewerbungen mit mindestens einem unterschriebenen Vertrag.'],
-                ['label' => 'Conversion', 'value' => $tiles['conversion'] . ' %', 'column' => null, 'token' => null,
-                 'muted' => $overallCensored,
-                 'title' => $overallCensored
-                    ? $this->censorNote()
-                    : 'Unterschriften geteilt durch alle Bewerbungen der Auswahl. Enthält auch sehr junge Bewerbungen, die noch keine Zeit zur Unterschrift hatten — bei einer Auswahl über viele Zeiträume fällt das kaum ins Gewicht, bei einer einzelnen frischen Schulung schon (dort ist die Quote in der Tabelle ausgegraut).'],
+                // „–“ statt „0 %“, wenn es keine Bewerbungen gibt: die Kachel liest
+                // dieselbe Quelle wie die Gesamt-Zeile der Tabelle (conversionOf),
+                // und dort heißt null „keine Quote“. 0 % hätte behauptet, es sei
+                // etwas gescheitert.
+                ['label' => 'Conversion',
+                 'value' => $tiles['conversion'] !== null ? $tiles['conversion'] . ' %' : '–',
+                 'column' => null, 'token' => null,
+                 'muted' => $overallCensored || $tiles['conversion'] === null,
+                 'title' => $tiles['conversion'] === null
+                    ? 'Keine Bewerbungen in dieser Auswahl — keine Quote (auch keine 0 %).'
+                    : ($overallCensored
+                        ? $this->censorNote()
+                        : 'Unterschriften geteilt durch alle Bewerbungen der Auswahl. Enthält auch sehr junge Bewerbungen, die noch keine Zeit zur Unterschrift hatten — bei einer Auswahl über viele Zeiträume fällt das kaum ins Gewicht, bei einer einzelnen frischen Schulung schon (dort ist die Quote in der Tabelle ausgegraut).')],
                 ['label' => 'Time-to-Hire (Median)', 'value' => $tiles['tth_median'] !== null ? $tiles['tth_median'] . ' Tage' : '–',
                  'column' => null, 'token' => null, 'muted' => false,
                  'title' => 'Median der Tage von Bewerbungseingang bis Unterschrift. Ist zugleich die Schwelle, ab der eine Kohorte als reif gilt und ihre Quote nicht mehr ausgegraut wird.'],
@@ -300,6 +308,22 @@
         $narrowNote = $narrowed
             ? ' Die Liste folgt der aktuellen Auswahl (Tätigkeit, Ausschreibung, Quelle) und ist deshalb '
                 . 'NICHT vollständig.'
+            : '';
+
+        // Der STATUS-Filter schneidet ZUSÄTZLICH — aber nur die AUSWAHL (Block 1
+        // liest cohort()['rows']), nicht die beiden Ablage-Blöcke: die legt cohort()
+        // vor dem Status-Filter beiseite und sie sind unabhängig von ihm vollständig.
+        // Deshalb zwei Flags statt einem:
+        //   $narrowed          → Blöcke 2 und 3 (Tätigkeit/Ausschreibung/Quelle),
+        //   $auswahlBeschnitten → Block 1 (dieselben plus Status).
+        // Ein gemeinsames Flag hätte die Blöcke 2/3 im Standardzustand („online“)
+        // dauerhaft als unvollständig ausgewiesen, obwohl sie es nicht sind — und
+        // eine Warnung, die immer steht, liest niemand mehr.
+        $auswahlBeschnitten = $narrowed || $this->postingStatusFilter !== 'alle';
+
+        $auswahlNote = $auswahlBeschnitten
+            ? ' Die Zahlen folgen der aktuellen Auswahl (Status, Tätigkeit, Ausschreibung, Quelle) — '
+                . 'im Team können es mehr sein.'
             : '';
 
         // ---------------------------------------------------------------
@@ -446,11 +470,20 @@
                     stehen sie einzeln, damit benannt ist, was die Differenz zwischen „Bewerbungen“ und dem
                     laufenden Trichter ausmacht.
                     @if (!$this->hasOrt())
-                        Ohne gewählte Filiale ist die Auswahl das ganze Team; die Tabellen dazu erscheinen,
-                        sobald oben eine Filiale gewählt ist.
+                        {{-- „das ganze Team“ gilt nur, wenn AUSSER der Filiale nichts
+                             einschränkt — der Status-Filter steht standardmäßig auf
+                             „online“ und schneidet schon (gemessen: „Abgesagt 1“ bei
+                             zwei Absagen im Team). --}}
+                        @if ($auswahlBeschnitten)
+                            Ohne gewählte Filiale umfasst die Auswahl alle Filialen, aber nicht das ganze Team:
+                            Status, Tätigkeit, Ausschreibung und Quelle schneiden weiter.
+                        @else
+                            Ohne gewählte Filiale ist die Auswahl das ganze Team; die Tabellen dazu erscheinen,
+                            sobald oben eine Filiale gewählt ist.
+                        @endif
                     @endif
                     <span class="cursor-help"
-                          title="Nicht aufgeführt ist der Zeilentyp „Import“ (Altbestand): er ist ebenfalls in den Zahlen der Auswahl enthalten, aber kein Ausscheide-Grund, sondern eine Herkunft.{{ $narrowNote }}">ⓘ</span>
+                          title="Nicht aufgeführt ist der Zeilentyp „Import“ (Altbestand): er ist ebenfalls in den Zahlen der Auswahl enthalten, aber kein Ausscheide-Grund, sondern eine Herkunft.{{ $auswahlNote }}">ⓘ</span>
                 </div>
                 <ul class="divide-y divide-[var(--ui-border)]/60">
                     @foreach ($excludedRows as $row)

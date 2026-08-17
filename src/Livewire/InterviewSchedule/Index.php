@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\InterviewSchedule;
 
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Platform\Recruiting\Models\RecEventLocation;
@@ -42,25 +43,49 @@ class Index extends Component
     /** Selected event-location id; '' = freier Eingabe-Modus, '0' = (nicht genutzt) */
     public $selectedEventLocationId = '';
 
-    protected $rules = [
-        'title' => 'nullable|string|max:255',
-        'description' => 'nullable|string',
-        'interview_type_id' => 'nullable|integer|exists:rec_interview_types,id',
-        'rec_position_id' => 'nullable|integer|exists:rec_positions,id',
-        'rec_posting_id' => 'nullable|integer|exists:rec_postings,id',
-        'location' => 'nullable|string|max:255',
-        'starts_at' => 'required|date',
-        'ends_at' => 'nullable|date|after_or_equal:starts_at',
-        'min_participants' => 'nullable|integer|min:0',
-        'max_participants' => 'nullable|integer|min:0',
-        'status' => 'required|in:planned,confirmed,cancelled,completed',
-        'language' => 'required|in:de,en',
-        'is_active' => 'boolean',
-        'selectedInterviewers' => 'array',
-        'reminder_wa_template_id' => 'nullable|integer',
-        'reminder_hours_before' => 'nullable|integer|min:1',
-        'reminder_wa_template_variables' => 'array',
-    ];
+    /**
+     * Regeln als METHODE, nicht als Property: die drei Fremdschluessel muessen auf
+     * das eigene Team eingeschraenkt werden, und dafuer braucht die Regel die
+     * team_id zur Laufzeit.
+     *
+     * WARUM das kein Schoenheitsfehler war: `exists:rec_postings,id` prueft nur, ob
+     * die ID irgendwo existiert — auch in einem FREMDEN Team. Ein gecrafteter
+     * Livewire-Request konnte damit eine fremde Ausschreibung an einen eigenen
+     * Termin haengen, und die Statistik-Seite zeigte deren Titel dann in der
+     * Termin-Tabelle an (gemessen: „GEHEIM Fremdteam Ausschreibung" in der Ansicht
+     * eines anderen Teams). Die Anzeige ist inzwischen zusaetzlich gescopt
+     * (Statistics\Index::interviews), aber die Zuordnung darf gar nicht erst
+     * entstehen: geprueft wird an der Eingangstuer, nicht erst an der Ausgabe.
+     *
+     * Terminart und Stelle tragen dieselbe Luecke und werden mitgescopt — es ist
+     * dieselbe Regel-Art auf denselben Tabellen, und ein halb gescopter Satz
+     * Regeln laedt dazu ein, die Luecke fuer „so gemeint" zu halten.
+     */
+    protected function rules(): array
+    {
+        $teamId = (int) auth()->user()->currentTeam->id;
+        $imTeam = fn (string $table) => Rule::exists($table, 'id')->where('team_id', $teamId);
+
+        return [
+            'title' => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'interview_type_id' => ['nullable', 'integer', $imTeam('rec_interview_types')],
+            'rec_position_id' => ['nullable', 'integer', $imTeam('rec_positions')],
+            'rec_posting_id' => ['nullable', 'integer', $imTeam('rec_postings')],
+            'location' => 'nullable|string|max:255',
+            'starts_at' => 'required|date',
+            'ends_at' => 'nullable|date|after_or_equal:starts_at',
+            'min_participants' => 'nullable|integer|min:0',
+            'max_participants' => 'nullable|integer|min:0',
+            'status' => 'required|in:planned,confirmed,cancelled,completed',
+            'language' => 'required|in:de,en',
+            'is_active' => 'boolean',
+            'selectedInterviewers' => 'array',
+            'reminder_wa_template_id' => 'nullable|integer',
+            'reminder_hours_before' => 'nullable|integer|min:1',
+            'reminder_wa_template_variables' => 'array',
+        ];
+    }
 
     public function render()
     {

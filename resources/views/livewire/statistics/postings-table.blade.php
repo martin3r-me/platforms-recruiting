@@ -142,6 +142,19 @@
     $totalPipeline = $this->pipelineTotalLight($groups);
 
     $bedarfTitle = 'Benötigte Einstellungen (Feld „Bedarf“ an der Ausschreibung). „–“ heißt NICHT null, sondern nicht gepflegt — dann bleiben beide Ampeln grau.';
+
+    // Die Überschrift muss für BEIDE Zeilenarten gelten, und sie rechnen
+    // unterschiedlich: eine Ausschreibungs-Zeile hat eine Laufzeit und wird auf
+    // deren Ende HOCHGERECHNET, die Gesamt-Zeile hat keine gemeinsame Laufzeit und
+    // vergleicht ABSOLUT. Genau deshalb kann eine Zeile 163 % zeigen und die Summe
+    // darunter 138 % — ohne diesen Satz liest man das als Rechenfehler. Die Zahlen,
+    // aus denen der Prozentwert entsteht, stehen zusätzlich in jeder Zelle.
+    $pipelineTitle = 'Bewerbungen gegen das Ziel (Bedarf × Faktor). '
+        . 'IN DEN ZEILEN hochgerechnet auf das Laufzeitende: dieselbe Zahl heißt bei drei Wochen '
+        . 'Restlaufzeit Alarm und bei sechs Monaten Plan. IN DER GESAMT-ZEILE absolut, weil es keine '
+        . 'gemeinsame Laufzeit gibt — Zeilen-Prozente und Summen-Prozent können deshalb auseinandergehen. '
+        . 'Unter jedem Prozentwert steht der Bruch, aus dem er entsteht. '
+        . 'Grün ab 90 %, gelb ab 60 %. Grau in den ersten sieben Tagen und ohne gepflegte Werte.';
     $einsatzTitle = 'kommt mit der Dispo';
 @endphp
 
@@ -204,7 +217,7 @@
                             <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                         </th>
                         <th class="sticky top-7 z-20 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
-                            title="Bewerbungen gegen Bedarf × Faktor, HOCHGERECHNET auf das Laufzeitende: dieselbe Zahl heißt bei drei Wochen Restlaufzeit Alarm und bei sechs Monaten Plan. Grün ab 90 %, gelb ab 60 %. Grau in den ersten sieben Tagen und ohne gepflegte Werte.">
+                            title="{{ $pipelineTitle }}">
                             Pipeline
                             <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                         </th>
@@ -296,8 +309,25 @@
                             <td class="px-3 py-2 text-center">
                                 @include('recruiting::livewire.statistics.light', ['light' => $fulfilment, 'label' => 'Erfüllung'])
                             </td>
-                            <td class="px-3 py-2 text-center">
+                            {{-- Pipeline MIT ihren Bezugsgroessen, genau wie die
+                                 Erfuellung der Gesamt-Zeile: unter dem Prozentwert
+                                 steht der Bruch, aus dem er entsteht
+                                 (hochgerechnete Bewerbungen / Ziel), und das ZIEL
+                                 wird als Bedarf × Faktor benannt. Der Faktor stand
+                                 vorher NIRGENDS auf der Seite, obwohl er der Nenner
+                                 ist — die Zahl war damit nicht pruefbar. --}}
+                            <td class="px-3 py-2 text-center whitespace-nowrap"
+                                title="{{ $pipeline['reason'] }}">
                                 @include('recruiting::livewire.statistics.light', ['light' => $pipeline, 'label' => 'Pipeline'])
+                                @if ($pipeline['target'] !== null && $pipeline['projected'] !== null)
+                                    <div class="text-[11px] font-normal tabular-nums text-[color:var(--ui-muted)]">
+                                        {{ $pipeline['projected'] }} von {{ $pipeline['target'] }}
+                                    </div>
+                                    <div class="text-[11px] font-normal tabular-nums text-[color:var(--ui-muted)]"
+                                         title="Das Ziel ist Bedarf × Faktor. Der Faktor sagt, wie viele Bewerbungen es je Einstellung braucht (Feld „Bewerbungs-Faktor“ an der Ausschreibung).">
+                                        Ziel: {{ $group['bedarf'] }} × {{ rtrim(rtrim(number_format((float) $group['bewerbungs_faktor'], 1, ',', '.'), '0'), ',') }}
+                                    </div>
+                                @endif
                             </td>
                             <td class="border-l border-[var(--ui-border)]/60 px-3 py-2 text-center whitespace-nowrap">
                                 <span class="cursor-help text-xs text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>
@@ -351,8 +381,19 @@
                                 </div>
                             @endif
                         </td>
-                        <td class="px-3 py-3 text-center">
+                        {{-- Auch hier der Bruch unter dem Prozentwert — und ohne
+                             Hochrechnung, weil es keine gemeinsame Laufzeit gibt.
+                             Die Zeilen darueber rechnen hochgerechnet; dass die
+                             beiden Prozentwerte deshalb auseinandergehen koennen,
+                             steht im Spaltenkopf UND hier im Tooltip. --}}
+                        <td class="px-3 py-3 text-center whitespace-nowrap"
+                            title="Σ Bewerbungen geteilt durch Σ Ziel (Bedarf × Faktor), ABSOLUT — die Zeilen darüber sind auf ihr jeweiliges Laufzeitende hochgerechnet, hier gibt es keine gemeinsame Laufzeit. Deshalb ist dieser Prozentwert kein Mittel der Zeilen-Prozente. {{ $totalPipeline['reason'] }}">
                             @include('recruiting::livewire.statistics.light', ['light' => $totalPipeline, 'label' => 'Pipeline gesamt'])
+                            @if ($totalPipeline['target'] !== null)
+                                <div class="text-[11px] font-normal tabular-nums text-[color:var(--ui-muted)]">
+                                    {{ $totalPipeline['bewerbungen'] }} von {{ $totalPipeline['target'] }}
+                                </div>
+                            @endif
                         </td>
                         <td class="border-l border-[var(--ui-border)]/60 px-3 py-3 text-center whitespace-nowrap">
                             <span class="cursor-help text-xs font-normal text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>

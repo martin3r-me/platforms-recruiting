@@ -392,7 +392,9 @@
                         {{-- Σ IST / Σ SOLL über DIESELBE Auswahl (nur Termine MIT
                              Platzbegrenzung — unbegrenzte haben keinen Nenner, den
                              man addieren könnte, und die Datenzeile zeigt für sie
-                             „∞“). Hat kein Termin eine Begrenzung, ist `taken` null
+                             „∞“; das gilt auch für eine gepflegte 0, die per
+                             Validierung möglich ist und überall wie „unbegrenzt“
+                             gelesen wird). Hat kein Termin eine Begrenzung, ist `taken` null
                              und die Zelle zeigt „–“: kein Nenner, also keine
                              Belegungs-Quote. Die belegten Plätze der ausgelassenen
                              Termine gehen nicht verloren, sie stehen im Text

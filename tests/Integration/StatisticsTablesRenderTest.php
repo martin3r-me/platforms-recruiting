@@ -180,6 +180,23 @@ class StatisticsTablesRenderTest extends TestCase
         $this->assertCount(1, $counts['foot'], 'genau eine Gesamt-Zeile');
         $this->assertStringNotContainsString('Alt-Ausschreibung', $html, 'draft ist nicht online');
 
+        // PIPELINE-ZAHLEN, an der festen Uhr nachgerechnet: Bedarf 10 × Faktor 8 =
+        // Ziel 80. Laufzeit 01.07.–30.09. sind 91 Tage, am 17.08. davon 47 vergangen.
+        // An der Ausschreibung „Kellner" hängen DREI Bewerbungen (601, 603, 605 —
+        // der Testbewerber 606 zählt nie mit), hochgerechnet round(3 / 47 * 91) = 6.
+        //
+        // Ohne diese Zahlen war die Pipeline-Quote die einzige der Seite, die
+        // niemand prüfen konnte: der FAKTOR — ihr Nenner — stand nirgends.
+        $this->assertStringContainsString('6 von 80', $html, 'hochgerechnete Bewerbungen gegen Ziel');
+        $this->assertStringContainsString('Ziel: 10 × 8', $html, 'das Ziel als Bedarf × Faktor');
+
+        // Die Gesamt-Zeile nennt ihre Bezugsgrößen ebenfalls und rechnet ABSOLUT
+        // (3 von 80), die Zeile darüber hochgerechnet (6 von 80). Genau deshalb steht
+        // beides an der Zahl und nicht nur in der Spalten-Überschrift — 8 % in der
+        // Summe neben 8 % in der Zeile ist Zufall, die Rechnungen sind zwei.
+        $this->assertStringContainsString('3 von 80', $html, 'Gesamt-Zeile ohne Hochrechnung');
+        $this->assertStringContainsString('IN DEN ZEILEN hochgerechnet', $html, 'die Überschrift gilt für beide Zeilenarten');
+
         // Freier Nutzertext im Spaltenkopf: der Phasenname mit Apostroph erscheint
         // NUR kodiert — weder im wire:click noch in einem title-Attribut steht er
         // roh. Roh waere er dort ein zerlegter JS-Ausdruck bzw. ein abgeschnittenes

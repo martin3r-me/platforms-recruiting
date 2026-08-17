@@ -835,11 +835,16 @@ final class CohortViewModel
         foreach ($interviewRows as $row) {
             $rowMax = $row['max'] ?? null;
             $rowTaken = (int) ($row['seat_taking'] ?? 0);
-            // Dieselbe Bedingung wie in der Anzeige der Einzelzeile
-            // (meter.blade.php rechnet nur mit einem echten Maximum): null ist
-            // „unbegrenzt", und eine 0 ist als Nenner unbrauchbar — dort zeichnet
-            // die Zelle ebenfalls keinen Balken. Beide fallen deshalb gleich aus
-            // dem Bruch.
+            // Dieselbe Bedingung wie in der Anzeige der Einzelzeile: null ist
+            // „unbegrenzt“, und eine 0 ist als Nenner unbrauchbar — beide fallen
+            // gleich aus dem Bruch.
+            //
+            // Eine gepflegte 0 IST erreichbar (max_participants ist per Validierung
+            // `min:0`), sie ist also kein theoretischer Fall. Bis 08/2026 schrieb
+            // meter.blade.php dafuer „1 / 0“, waehrend diese Methode denselben Termin
+            // als „ohne Platzbegrenzung“ zaehlte — die Anzeige liest die 0 jetzt
+            // ebenfalls als ∞ (dort dokumentiert). Wer eine der beiden Stellen
+            // aendert, muss die andere mitaendern; sie sind eine Entscheidung.
             if ($rowMax === null || (int) $rowMax <= 0) {
                 $unlimitedInterviews++;
                 $unlimitedTaken += $rowTaken;

@@ -837,8 +837,15 @@ class Index extends Component
      * formuliert ist („kein Laufzeitende gepflegt") und in der Gesamt-Zeile
      * schlicht falsch waere.
      *
+     * Die Absolutzahlen reisen mit (`bewerbungen`, `target`) — wie bei
+     * fulfilmentTotalLight, und aus demselben Grund: die Zelle zeigt den Bruch
+     * unter dem Prozentwert an, damit er aus seinen eigenen Nachbarn nachrechenbar
+     * ist. Ohne sie war die Pipeline-Quote der Gesamt-Zeile die einzige Zahl der
+     * Seite, die niemand pruefen konnte.
+     *
      * @param  list<array>  $groups
-     * @return array{status:string, pct:?int, projected:?int, target:?int, reason:string}
+     * @return array{status:string, pct:?int, projected:?int, target:?int, reason:string,
+     *               bewerbungen:int}
      */
     public function pipelineTotalLight(array $groups): array
     {
@@ -859,7 +866,11 @@ class Index extends Component
                 . 'Ausschreibung ihre eigene Laufzeit hat. Gezählt werden nur Ausschreibungen '
                 . 'mit gepflegtem Bedarf UND Faktor — auf beiden Seiten des Bruchs.';
 
-        return $light;
+        // + $totals: 'bewerbungen' und 'target' fuer die Anzeige des Bruchs.
+        // 'target' steckt schon in $light (derselbe Wert, aus TargetLight) — der
+        // Merge darf ihn also nicht ueberschreiben, tut es aber auch nicht: beide
+        // kommen aus pipelineTotals.
+        return $light + $totals;
     }
 
     /**
@@ -908,7 +919,23 @@ class Index extends Component
                 fn ($p) => $p->where('location', $this->ortFilter)))
             ->when($this->interviewFrom, fn ($q) => $q->where('starts_at', '>=', $this->interviewFrom))
             ->when($this->interviewTo, fn ($q) => $q->where('starts_at', '<=', $this->interviewTo . ' 23:59:59'))
-            ->with(['interviewType:id,name', 'posting:id,title'])
+            // BEIDE Eager Loads team-gescopt, nicht nur spaltenbeschraenkt.
+            // `posting:id,title` allein war ein Leck: der Fremdschluessel am Termin
+            // war (bis zur Haertung der Validierung in InterviewSchedule\Index)
+            // ungeprueft setzbar, und die Relation folgt ihm ohne Rueckfrage — der
+            // TITEL einer fremden Ausschreibung stand dann in dieser Tabelle
+            // (gemessen: „GEHEIM Fremdteam Ausschreibung" in der Ansicht eines
+            // anderen Teams).
+            //
+            // Zwei Schloesser, wie beim Drill-down: die Validierung verhindert die
+            // Zuordnung, der Scope hier verhindert die ANZEIGE einer Zuordnung, die
+            // es trotzdem gibt (Altbestand, Direkt-Import, SQL von Hand). Faellt der
+            // Titel weg, zeigt die Tabelle den Termin-Titel — der Termin selbst
+            // gehoert ja dem Team.
+            ->with([
+                'interviewType' => fn ($q) => $q->forTeam($this->teamId())->select('id', 'name'),
+                'posting' => fn ($q) => $q->forTeam($this->teamId())->select('id', 'title'),
+            ])
             ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
             ->orderByDesc('starts_at')
             ->get();
@@ -1132,7 +1159,13 @@ class Index extends Component
             'gebucht' => $sum('gebucht'),
             'ohne_termin' => $ohneTermin,
             'unterschrieben' => $signed,
-            'conversion' => $total > 0 ? (int) round($signed / $total * 100) : 0,
+            // DIESELBE Quelle wie die Tabelle (conversionOf), nicht dieselbe
+            // Rechnung noch einmal: null heisst „keine Bewerbungen, also keine
+            // Quote" — nicht 0 %. Vorher stand hier `$total > 0 ? … : 0`, und die
+            // Kachel zeigte in einer leeren Auswahl 0 %, waehrend die Gesamt-Zeile
+            // der Tabelle daneben „–" zeigte. Zwei Zahlen fuer dieselbe Frage, und
+            // die falsche behauptete, es sei etwas gescheitert.
+            'conversion' => $this->viewModel()->conversionOf($c['rows']),
             'tth_median' => $n > 0
                 ? ($n % 2 === 0
                     ? (int) round(($tth[$n / 2 - 1] + $tth[$n / 2]) / 2)
@@ -1220,9 +1253,8 @@ class Index extends Component
      * Die Spalte reist daneben im Klartext: Spaltenschluessel und -label sind
      * Konstanten aus der View, keine Nutzerdaten.
      *
-     * $scope: 'row' (genau eine Zeile) | 'type' (Bucket in einer Gruppe)
-     *         | 'ort' (Ort-Summe) | 'posting' (alle Zeilen EINER Ausschreibung,
-     *         die Zeilen-Einheit der Ausschreibungs-Tabelle)
+     * $scope: 'posting' (alle Zeilen EINER Ausschreibung, die Zeilen-Einheit der
+     *         Ausschreibungs-Tabelle und der beiden Bloecke)
      *         | 'interviews' (alle Zeilen der angegebenen TERMINE — die
      *         Zeilen-Einheit der Termin-Tabelle, mit einem Eintrag fuer eine
      *         Termin-Zeile und allen sichtbaren fuer ihre Gesamt-Zeile)

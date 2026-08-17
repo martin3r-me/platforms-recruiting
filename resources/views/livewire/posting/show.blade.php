@@ -62,9 +62,9 @@
                     name="posting.bedarf"
                     label="Bedarf (Personen)"
                     type="number"
-                    min="0"
+                    min="1"
                     wire:model="posting.bedarf"
-                    hint="Wie viele Personen über diese Ausschreibung eingestellt werden sollen. Leer = keine Erfüllungs-Ampel."
+                    hint="Wie viele Personen über diese Ausschreibung eingestellt werden sollen. Leer = keine Erfüllungs-Ampel (eine 0 gilt genauso als nicht gepflegt und ist deshalb nicht speicherbar)."
                 />
                 <x-ui-input-text
                     name="posting.bewerbungs_faktor"

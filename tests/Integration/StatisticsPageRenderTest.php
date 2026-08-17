@@ -15,6 +15,7 @@ use Illuminate\View\Engines\EngineResolver;
 use Illuminate\View\Factory as ViewFactory;
 use Illuminate\View\FileViewFinder;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Services\Statistics\CohortViewModel;
 
 /**
  * DIE GANZE SEITE gerendert — und am DOM geprueft.
@@ -279,6 +280,27 @@ class StatisticsPageRenderTest extends TestCase
         ];
     }
 
+    /**
+     * Der WERT einer KPI-Kachel, ueber ihr Label gefunden: im Markup steht der Wert
+     * im Element VOR dem Label-Block, beides in derselben Kachel.
+     */
+    private function kpiWert(string $html, string $label): string
+    {
+        $xpath = new \DOMXPath($this->dom($html));
+        $labelBlock = $xpath->query(
+            'descendant-or-self::div[contains(@class, "text-sm")][starts-with(normalize-space(text()), "' . $label . '")]',
+        )->item(0);
+        $this->assertNotNull($labelBlock, "keine Kachel mit dem Label „{$label}“");
+
+        $wert = $labelBlock->previousSibling;
+        while ($wert !== null && !$wert instanceof \DOMElement) {
+            $wert = $wert->previousSibling;
+        }
+        $this->assertNotNull($wert, "kein Wert-Element in der Kachel „{$label}“");
+
+        return trim($wert->textContent);
+    }
+
     /** Gerenderte Seite als DOM — mit UTF-8-Hinweis, sonst zerfallen die Umlaute. */
     private function dom(string $html): \DOMDocument
     {
@@ -289,6 +311,76 @@ class StatisticsPageRenderTest extends TestCase
         libxml_use_internal_errors($previous);
 
         return $dom;
+    }
+
+    public function test_die_conversion_kachel_liest_dieselbe_quelle_wie_die_tabelle(): void
+    {
+        // DER VIERTE FALL von „richtig gerechnet, falsch beschriftet": die Kachel
+        // zeigte 0 %, wo die Gesamt-Zeile der Tabelle „–" zeigt. Die Regel steht im
+        // CohortViewModel („keine Bewerbungen heisst keine Quote, nicht 0 %"), die
+        // Kachel hatte sie neu erfunden — und es gab dort ueberhaupt keine
+        // Zusicherung: `tiles()['conversion']` liess sich auf jeden Wert setzen,
+        // ohne dass ein Test rot wurde.
+        $vm = new CohortViewModel();
+
+        $mitDaten = new StatisticsRenderProbe();
+        $mitDaten->ortFilter = 'Essen';
+        $this->assertSame(
+            $vm->conversionOf($mitDaten->cohort['rows']),
+            $mitDaten->tiles['conversion'],
+            'die Kachel rechnet nicht selbst, sie liest conversionOf',
+        );
+
+        // LEERE Auswahl: keine Quote, NICHT 0 %. Derselbe Wert wie in der Tabelle.
+        $leer = new StatisticsRenderProbe();
+        $leer->ortFilter = 'Essen';
+        $leer->activityFilter = 'Gibt es nicht';
+        $this->assertSame([], $leer->cohort['rows'], 'die Auswahl ist wirklich leer');
+        $this->assertNull($leer->tiles['conversion']);
+        $this->assertNull($vm->conversionOf($leer->cohort['rows']));
+
+        // ... und die Seite zeigt dort „–", nicht „0 %"
+        $html = $this->renderPage('Essen', 'Gibt es nicht');
+        $this->assertSame('–', $this->kpiWert($html, 'Conversion'));
+        $this->assertStringContainsString('Keine Bewerbungen in dieser Auswahl — keine Quote', $html);
+
+        // Gegenprobe mit Daten: dort steht eine echte Quote in Prozent
+        $this->assertMatchesRegularExpression('/^\d+ %$/', $this->kpiWert($this->renderPage('Essen'), 'Conversion'));
+    }
+
+    public function test_ohne_filiale_behauptet_der_block_nicht_das_ganze_team(): void
+    {
+        // Der Status-Filter steht standardmaessig auf „online" und schneidet schon —
+        // „die Auswahl ist das ganze Team" waere dann falsch (gemessen: „Abgesagt 1"
+        // bei zwei Absagen im Team).
+        $online = $this->renderPage(null);
+        $this->assertStringContainsString('aber nicht das ganze Team', $online);
+        $this->assertStringNotContainsString('ist die Auswahl das ganze Team', $online);
+
+        // Mit Status „alle" und ohne weitere Filter ist die Aussage wieder wahr
+        $alle = $this->renderPage(null, null, 'alle');
+        $this->assertStringContainsString('ist die Auswahl das ganze Team', $alle);
+        $this->assertStringNotContainsString('aber nicht das ganze Team', $alle);
+    }
+
+    public function test_kapazitaet_null_wird_wie_unbegrenzt_angezeigt(): void
+    {
+        // Erreichbar ueber die Termin-Pflege (max_participants ist `min:0`). Die
+        // Summen-Rechnung zaehlt so einen Termin als „ohne Platzbegrenzung", die
+        // Zelle schrieb aber „2 / 0" und behauptete damit eine Ueberbuchung, die
+        // niemand nachrechnen kann.
+        Capsule::table('rec_interviews')->where('id', 720)->update(['max_participants' => 0]);
+
+        try {
+            $html = $this->renderPage('Essen');
+
+            $this->assertSame(['taken' => 2, 'max' => null], $this->meterZahlen($html, 0), 'die 0 liest wie ∞');
+            $this->assertStringContainsString('/&nbsp;∞', $html);
+            $this->assertStringNotContainsString('/&nbsp;0', $html, 'keine Kapazität 0 in der Anzeige');
+            $this->assertStringNotContainsString('style="width:', $html, 'ohne Nenner kein Balken');
+        } finally {
+            Capsule::table('rec_interviews')->where('id', 720)->update(['max_participants' => 6]);
+        }
     }
 
     // -----------------------------------------------------------------
@@ -452,11 +544,12 @@ class StatisticsPageRenderTest extends TestCase
     // Render-Werkzeug
     // -----------------------------------------------------------------
 
-    private function renderPage(?string $ort, ?string $activity = null): string
+    private function renderPage(?string $ort, ?string $activity = null, string $status = 'online'): string
     {
         $component = new StatisticsRenderProbe();
         $component->ortFilter = $ort;
         $component->activityFilter = $activity;
+        $component->postingStatusFilter = $status;
 
         $viewsRoot = dirname(__DIR__, 2) . '/resources/views';
 

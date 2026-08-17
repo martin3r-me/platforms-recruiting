@@ -41,7 +41,13 @@ class Show extends Component
             'posting.is_active' => 'boolean',
             'publishedAt' => 'nullable|date_format:Y-m-d',
             'closesAt' => 'nullable|date_format:Y-m-d',
-            'posting.bedarf' => 'nullable|integer|min:0|max:10000',
+            // min:1, nicht min:0 — Regel und Anzeige sagen jetzt dasselbe: die
+            // Statistik liest einen Bedarf von 0 als NICHT GEPFLEGT (sie zeigt „–“,
+            // laesst die Zeile aus der Erfuellungsquote und haelt beide Ampeln grau,
+            // weil 0 kein Nenner ist). Eine speicherbare 0 war damit ein Wert, der
+            // sich wie „leer“ verhaelt, aber wie eine Angabe aussieht. Wer keinen
+            // Bedarf hat, laesst das Feld leer.
+            'posting.bedarf' => 'nullable|integer|min:1|max:10000',
             'posting.bewerbungs_faktor' => 'nullable|numeric|min:0.1|max:99.9',
         ];
     }
