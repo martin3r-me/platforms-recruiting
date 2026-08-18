@@ -36,7 +36,7 @@ class RecApplicant extends Model implements InheritsExtraFields
     protected $table = 'rec_applicants';
 
     protected $fillable = [
-        'uuid', 'public_token', 'rec_applicant_status_id', 'rec_phase_id', 'progress', 'notes', 'applied_at',
+        'uuid', 'public_token', 'rec_applicant_status_id', 'rec_phase_id', 'rec_position_id', 'progress', 'notes', 'applied_at',
         'is_active', 'is_parked', 'parked_at', 'is_on_hr_desk', 'rejected_at',
         'auto_pilot', 'auto_pilot_completed_at', 'auto_pilot_state_id',
         'auto_pilot_reminder_count', 'auto_pilot_last_reminder_at',
@@ -280,6 +280,37 @@ class RecApplicant extends Model implements InheritsExtraFields
     public function positions(): Collection
     {
         return $this->postings->map(fn ($posting) => $posting->position)->filter()->unique('id')->values();
+    }
+
+    /**
+     * DIE Stelle der Bewerbung — wo die Person bearbeitet wird.
+     *
+     * Nicht verwechseln mit positions(): das liefert die Stellen der verknuepften
+     * ANZEIGEN, also woher die Bewerbung kam. Beides war bis hierher dasselbe Feld,
+     * und genau daran hat sich der Stellenwechsel die KPI-Zahlen verdorben.
+     */
+    public function position()
+    {
+        return $this->belongsTo(RecPosition::class, 'rec_position_id');
+    }
+
+    /**
+     * Hat sich die Person auf einen Schulungsort festgelegt?
+     *
+     * Die Regel war bisher an drei Stellen abgeleitet (u. a.
+     * InterviewBooking::resolvePositionIdsForApplicant) — hier steht sie einmal.
+     * Eine STORNIERTE Buchung zaehlt nicht: wer storniert, waehlt neu und soll
+     * wieder die Termine aller Wunschorte sehen.
+     */
+    public function istFestgelegt(): bool
+    {
+        if (($this->phase?->order ?? 0) >= 3) {
+            return true;
+        }
+
+        return $this->interviewBookings()
+            ->whereNotIn('status', ['cancelled'])
+            ->exists();
     }
 
     public function applicantStatus()
