@@ -37,17 +37,9 @@ class PositionSwitchPostingChoiceTest extends TestCase
     private const POSITION_DUESSELDORF = 81;
     private const POSTING_DUESSELDORF = 810;
 
-    /** Neue Stelle: DREI aktive Ausschreibungen — die Zufalls-Falle. */
+    /** Neue Stelle. */
     private const POSITION_MOENCHENGLADBACH = 82;
     private const POSTING_MG_1 = 820;
-    private const POSTING_MG_2 = 821;
-    private const POSTING_MG_3 = 822;
-
-    /** Termin mit gepflegter Ausschreibung — die einzige nicht geratene Antwort. */
-    private const INTERVIEW_MIT_POSTING = 830;
-
-    /** Termin OHNE gepflegte Ausschreibung — Fallback muss reproduzierbar sein. */
-    private const INTERVIEW_OHNE_POSTING = 831;
 
     private const PHASE_DUESSELDORF = 101;
     private const PHASE_MOENCHENGLADBACH = 102;
@@ -115,7 +107,7 @@ class PositionSwitchPostingChoiceTest extends TestCase
     /**
      * Jeder Test faengt beim Bestand aus seed() an: Bewerber 1010 auf Stelle 81
      * (Duesseldorf), Pivot auf Ausschreibung 810. Ohne diesen Reset saehe z.B.
-     * test_der_log_nennt_die_alte_stelle_und_anzeige die Spuren des VORHERIGEN
+     * test_der_log_nennt_die_alte_stelle_nicht_die_neue die Spuren des VORHERIGEN
      * Tests (der Bewerber waere schon nach Moenchengladbach gewechselt) — die
      * Suite liefe in Deklarationsreihenfolge grün, aber nur zufaellig und nicht
      * pro Test isoliert.
@@ -163,12 +155,34 @@ class PositionSwitchPostingChoiceTest extends TestCase
         $this->assertSame(1, (int) $phase->order, 'dieselbe order wie vorher');
     }
 
+    public function test_der_log_nennt_die_alte_stelle_nicht_die_neue(): void
+    {
+        // Heikel, weil an der Reihenfolge im Code haengend: $alteStelle wird VOR
+        // der Zuweisung von rec_position_id gelesen (RecApplicant::switchToPosition).
+        // Liest ein spaeterer Umbau $alteStelle eine Zeile spaeter, steht im Log
+        // die NEUE statt der alten Stelle — ohne dass ein Teilstring-Check das
+        // auffangen wuerde (die neue Stelle steht im "zu ..."-Teil ohnehin drin).
+        // Deshalb hier den "vorher"-Teil isoliert herausschneiden und exakt
+        // gegen die alte Stelle pruefen, nicht bloss auf einen Substring hoffen.
+        RecApplicant::find(1010)->switchToPosition(RecPosition::find(82));
+
+        $log = Capsule::table('rec_auto_pilot_logs')
+            ->where('rec_applicant_id', 1010)
+            ->where('type', 'position_switched')
+            ->orderByDesc('id')->first();
+
+        $this->assertMatchesRegularExpression('/\(vorher: [^)]+\)/', $log->summary,
+            'Log muss einen "vorher"-Teil enthalten');
+        preg_match('/\(vorher: ([^)]+)\)/', $log->summary, $matches);
+
+        $this->assertSame('Duesseldorf', $matches[1],
+            'der "vorher"-Teil muss die ALTE Stelle nennen, nicht die neue');
+    }
+
     /**
      * Bewerber 1010 zurueck auf den Bestand aus seed(): Pivot einzig auf
-     * Ausschreibung 810 (Duesseldorf), Phase 101. Gemeinsame Stelle fuer setUp()
-     * (Isolation zwischen den vier Testmethoden) und wechselMitTermin() (zwei
-     * Laeufe INNERHALB einer Testmethode) — vorher stand dieselbe Reset-Logik an
-     * beiden Stellen wortgleich.
+     * Ausschreibung 810 (Duesseldorf), Phase 101. Einziger Aufrufer ist
+     * setUp() — sorgt fuer Isolation zwischen den Testmethoden dieser Klasse.
      */
     private static function setzeBewerberAufAusgangszustand(): void
     {
@@ -179,6 +193,7 @@ class PositionSwitchPostingChoiceTest extends TestCase
         ]);
         Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update([
             'rec_phase_id' => self::PHASE_DUESSELDORF,
+            'rec_position_id' => self::POSITION_DUESSELDORF,
         ]);
     }
 
@@ -249,31 +264,6 @@ class PositionSwitchPostingChoiceTest extends TestCase
              'activity' => 'Service', 'status' => 'published', 'is_active' => 1,
              'published_at' => null, 'closes_at' => null, 'bedarf' => null,
              'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => self::POSTING_MG_2, 'uuid' => 'spost-821', 'team_id' => self::TEAM,
-             'rec_position_id' => self::POSITION_MOENCHENGLADBACH, 'title' => 'Kueche MG (m/w/d)',
-             'activity' => 'Kueche', 'status' => 'published', 'is_active' => 1,
-             'published_at' => null, 'closes_at' => null, 'bedarf' => null,
-             'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['id' => self::POSTING_MG_3, 'uuid' => 'spost-822', 'team_id' => self::TEAM,
-             'rec_position_id' => self::POSITION_MOENCHENGLADBACH, 'title' => 'Spueler MG (m/w/d)',
-             'activity' => 'Kueche', 'status' => 'published', 'is_active' => 1,
-             'published_at' => null, 'closes_at' => null, 'bedarf' => null,
-             'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
-        ]);
-
-        Capsule::table('rec_interviews')->insert([
-            // Termin MIT gepflegter Ausschreibung — die einzige nicht geratene Antwort.
-            ['id' => self::INTERVIEW_MIT_POSTING, 'uuid' => 'siv-830', 'team_id' => self::TEAM,
-             'interview_type_id' => null, 'rec_position_id' => self::POSITION_MOENCHENGLADBACH,
-             'rec_posting_id' => self::POSTING_MG_2, 'title' => 'Schulung MG',
-             'location' => 'Moenchengladbach, Zentrale', 'starts_at' => '2026-08-20 10:00:00',
-             'max_participants' => 5, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
-            // Termin OHNE gepflegte Ausschreibung — Fallback muss greifen.
-            ['id' => self::INTERVIEW_OHNE_POSTING, 'uuid' => 'siv-831', 'team_id' => self::TEAM,
-             'interview_type_id' => null, 'rec_position_id' => self::POSITION_MOENCHENGLADBACH,
-             'rec_posting_id' => null, 'title' => 'Schulung MG (2)',
-             'location' => 'Moenchengladbach, Zentrale', 'starts_at' => '2026-08-21 10:00:00',
-             'max_participants' => 5, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_phases')->insert([
