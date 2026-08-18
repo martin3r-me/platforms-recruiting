@@ -36,6 +36,9 @@ class ApplicantPositionFieldTest extends TestCase
     private const POSITION_DUESSELDORF = 81;
     private const POSITION_MOENCHENGLADBACH = 82;
 
+    /** Anzeige der Stelle 81, mit Bewerber 1010 verpivotet (bisheriger Weg). */
+    private const POSTING_DUESSELDORF = 810;
+
     private const PHASE_EINGANG = 101;
     private const PHASE_ONBOARDING = 103;
 
@@ -182,6 +185,23 @@ class ApplicantPositionFieldTest extends TestCase
         $this->assertFalse(RecApplicant::find(1013)->istFestgelegt(), 'eine STORNIERTE Buchung zaehlt nicht');
     }
 
+    public function test_die_fassade_liest_das_feld(): void
+    {
+        // Pivot zeigt auf Stelle 81, Feld auf 82 — das FELD gewinnt.
+        Capsule::table('rec_applicants')->where('id', 1010)->update(['rec_position_id' => 82]);
+
+        $this->assertSame(82, RecApplicant::find(1010)->primaryPosition()?->id);
+    }
+
+    public function test_ohne_feld_gilt_der_bisherige_weg(): void
+    {
+        // Bestandsdaten vor dem Backfill: das Feld ist leer, die Antwort muss
+        // exakt die von heute sein (Stelle der fruehesten Anzeige).
+        Capsule::table('rec_applicants')->where('id', 1010)->update(['rec_position_id' => null]);
+
+        $this->assertSame(81, RecApplicant::find(1010)->primaryPosition()?->id);
+    }
+
     // -----------------------------------------------------------------
     // Werkzeug
     // -----------------------------------------------------------------
@@ -298,6 +318,20 @@ class ApplicantPositionFieldTest extends TestCase
             ['id' => self::APPLICANT_STORNIERTE_BUCHUNG, 'uuid' => 'sapp-1013', 'team_id' => self::TEAM,
              'applied_at' => '2026-07-01', 'rec_phase_id' => self::PHASE_EINGANG, 'is_test' => 0,
              'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        // Anzeige der Stelle 81, verknuepft mit Bewerber 1010 — der "bisherige
+        // Weg" (Stelle der fruehesten verknuepften Anzeige), den primaryPosition()
+        // als Fallback nutzt, solange rec_position_id leer ist.
+        Capsule::table('rec_postings')->insert([
+            'id' => self::POSTING_DUESSELDORF, 'uuid' => 'spstg-81', 'rec_position_id' => self::POSITION_DUESSELDORF,
+            'team_id' => self::TEAM, 'title' => 'Duesseldorf Anzeige', 'status' => 'published',
+            'is_active' => 1, 'created_at' => $now, 'updated_at' => $now,
+        ]);
+
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => self::APPLICANT_OHNE_FESTLEGUNG, 'rec_posting_id' => self::POSTING_DUESSELDORF,
+            'applied_at' => '2026-07-01', 'created_at' => $now, 'updated_at' => $now,
         ]);
 
         Capsule::table('rec_interview_bookings')->insert([

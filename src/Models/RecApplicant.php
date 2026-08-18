@@ -1884,11 +1884,25 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
-     * Returns the applicant's primary position — the earliest applied posting's
-     * position. Used as the canonical "current Stelle" for the applicant.
+     * DIE Stelle der Bewerbung.
+     *
+     * Liest das Feld rec_position_id. Der frueher hier stehende Weg (Stelle der
+     * fruehesten verknuepften Anzeige) bleibt als Fallback, solange das Feld leer
+     * ist — und zwar DAUERHAFT, nicht nur bis zum Backfill: entstehen Bewerbungen
+     * ueber einen Weg, an dem das Setzen vergessen wurde, ist ein veralteter Wert
+     * besser als gar keiner. Ein entfernter Fallback machte daraus einen stillen
+     * Datenfehler.
+     *
+     * Wer die Stelle braucht, ruft diese Methode — nicht postings->first(). Genau
+     * das Raten an zehn Stellen war der Grund, warum der Stellenwechsel den Pivot
+     * umschreiben musste.
      */
     public function primaryPosition(): ?RecPosition
     {
+        if ($this->rec_position_id !== null) {
+            return $this->position;
+        }
+
         return $this->postings
             ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
             ->first()
