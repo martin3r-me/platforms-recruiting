@@ -578,7 +578,7 @@ Danach in allen fünf Anlege-Wegen **nach** dem `attach()` der Anzeige aufrufen.
             $applicant->stelleAusAnzeigeUebernehmen();
 ```
 
-Die anderen vier Stellen genauso: `ImportApplicantsCsvService.php` (nach dem Attach im Import-Zweig), `Applicant/Index.php` (nach dem Attach in der manuellen Anlage), `CreateApplicantTool.php:175`, `BulkCreateApplicantsTool.php:196`. Wo ein Weg gar keine Anzeige anhängt, den Aufruf trotzdem setzen — er ist dann wirkungslos, aber der nächste Leser sieht, dass der Weg bedacht wurde.
+Die anderen vier Stellen genauso: `ImportApplicantsCsvService.php` (nach dem Attach im Import-Zweig), `Applicant/Index.php` (nach dem Attach in der manuellen Anlage), `CreateApplicantTool.php:175`, `BulkCreateApplicantsTool.php:196`. Den Aufruf **nur** dort setzen, wo tatsächlich eine Anzeige angehängt wird — ein wirkungsloser Aufruf an einem Weg ohne Anzeige wäre toter Code. Gibt es einen Anlege-Weg ohne Anzeigen-Verknüpfung, im Bericht benennen statt ihn zu dekorieren.
 
 - [ ] **Step 4: Tests grün + volle Suite**
 
