@@ -59,6 +59,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\BackfillPhaseTransitions::class,
                 \Platform\Recruiting\Console\Commands\DispoReprocessCommand::class,
                 \Platform\Recruiting\Console\Commands\EnableManualBookingForPhases::class,
+                \Platform\Recruiting\Console\Commands\BackfillApplicantPosition::class,
             ]);
         }
 

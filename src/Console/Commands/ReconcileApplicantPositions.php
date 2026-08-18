@@ -132,10 +132,7 @@ class ReconcileApplicantPositions extends Command
             // reconcilePositionState() nicht selbst auf (siehe Klassendoc), darum
             // steht der Gate-Aufruf hier separat — und zwar VOR primaryPosition(),
             // sonst liest der Rest des Loop-Durchlaufs den alten Stand.
-            $ausAnzeige = $applicant->postings
-                ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
-                ->first()
-                ?->rec_position_id;
+            $ausAnzeige = $applicant->fruehesteAnzeige()?->rec_position_id;
 
             if ($ausAnzeige !== null && (int) $ausAnzeige !== (int) $applicant->rec_position_id) {
                 if ($applicant->istFestgelegt()) {

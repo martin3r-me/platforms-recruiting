@@ -295,6 +295,30 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Die FRUEHESTE verknuepfte Anzeige (RecPosting), sortiert nach
+     * Bewerbungsdatum mit Fallback auf created_at (Altbestand ohne applied_at).
+     *
+     * Das ist die Definition von "woher die Bewerbung urspruenglich kam" — bis
+     * zum rec_position_id-Feld war das exakt die Stelle einer Bewerbung
+     * (primaryPosition() hat nichts anderes berechnet). Diese Sortier-Regel
+     * stand bis hierher wortgleich an VIER Stellen (primaryPosition(),
+     * stelleAusAnzeigeUebernehmen(), reconcilePositionState() und
+     * ReconcileApplicantPositions::reconcile()) — fuenf Kopien derselben Regel
+     * sind fuenf Stellen, an denen sie auseinanderlaufen kann, und "welche
+     * Anzeige ist die Herkunft" ist die Regel, an der das ganze Stellenwechsel-
+     * Paket haengt. Jetzt EINE Kopie, alle Aufrufer (inkl. des Backfill-
+     * Kommandos) rufen nur noch sie.
+     */
+    public function fruehesteAnzeige(): ?RecPosting
+    {
+        $this->loadMissing('postings');
+
+        return $this->postings
+            ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
+            ->first();
+    }
+
+    /**
      * Hat sich die Person auf einen Schulungsort festgelegt?
      *
      * Die Regel war bisher an drei Stellen abgeleitet (u. a.
@@ -1903,10 +1927,7 @@ class RecApplicant extends Model implements InheritsExtraFields
             return $this->position;
         }
 
-        return $this->postings
-            ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
-            ->first()
-            ?->position;
+        return $this->fruehesteAnzeige()?->position;
     }
 
     /**
@@ -1926,11 +1947,7 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
-        $this->loadMissing('postings');
-        $positionId = $this->postings
-            ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
-            ->first()
-            ?->rec_position_id;
+        $positionId = $this->fruehesteAnzeige()?->rec_position_id;
 
         if ($positionId === null) {
             return;
@@ -2019,10 +2036,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         // Festlegung: eine Anzeigen-Korrektur darf niemanden aus der Filiale
         // ziehen, in der er zur Schulung angemeldet ist.
         if (! $this->istFestgelegt()) {
-            $ausAnzeige = $this->postings
-                ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
-                ->first()
-                ?->rec_position_id;
+            $ausAnzeige = $this->fruehesteAnzeige()?->rec_position_id;
 
             if ($ausAnzeige !== null && (int) $ausAnzeige !== (int) $this->rec_position_id) {
                 $this->rec_position_id = (int) $ausAnzeige;
