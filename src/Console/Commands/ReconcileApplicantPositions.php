@@ -132,14 +132,22 @@ class ReconcileApplicantPositions extends Command
             // reconcilePositionState() nicht selbst auf (siehe Klassendoc), darum
             // steht der Gate-Aufruf hier separat — und zwar VOR primaryPosition(),
             // sonst liest der Rest des Loop-Durchlaufs den alten Stand.
+            //
+            // Das In-Memory-Setzen von rec_position_id passiert UNABHAENGIG von
+            // $dryRun — sonst liest primaryPosition() gleich darunter im Trockenlauf
+            // noch die alte Stelle und der Zaehler phaseAligned faellt zu niedrig
+            // aus (Befund: Review final-review.md, --dry-run unterberichtet).
+            // Persistiert (->save()) wird weiterhin nur im echten Lauf.
             $ausAnzeige = $applicant->fruehesteAnzeige()?->rec_position_id;
 
             if ($ausAnzeige !== null && (int) $ausAnzeige !== (int) $applicant->rec_position_id) {
                 if ($applicant->istFestgelegt()) {
                     $festgelegtSkipped++;
-                } elseif (!$dryRun) {
+                } else {
                     $applicant->rec_position_id = (int) $ausAnzeige;
-                    $applicant->save();
+                    if (!$dryRun) {
+                        $applicant->save();
+                    }
                 }
             }
 

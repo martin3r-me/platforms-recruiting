@@ -1089,7 +1089,7 @@ git commit -m "feat(recruiting): Backfill-Kommando fuer die Stelle der Bewerbung
 - [ ] **Step 2:** ff auf `main` mergen (nach Freigabe), meingedeck `composer.lock` bumpen und pushen
 - [ ] **Step 3:** `php artisan migrate`
 - [ ] **Step 4:** `php artisan recruiting:backfill-applicant-position --dry-run`, Zahlen prüfen (erwartet: fast alle Bewerbungen bekommen eine Stelle, „ohne Anzeige" nur die bekannten Fälle, ~15 markierte Altfälle), dann ohne `--dry-run`
-- [ ] **Step 5:** **`php artisan queue:restart`** — `HrDeskRoutingService` liest die Fassade und wird über den Buchungs-Observer (`Observers/RecInterviewBookingComplianceObserver.php:52`) auch in Worker-Prozessen ausgelöst
+- [ ] **Step 5:** **`php artisan queue:restart`** — `MatchApplicantToPostingJob` (`ShouldQueue`) ruft `IncomingApplicationService::assignPosting()` → `stelleAusAnzeigeUebernehmen()`; ohne Restart verarbeiten laufende Worker-Prozesse eingehende Bewerbungen noch mit dem alten Code und setzen `rec_position_id` nicht (Review-Korrektur: NICHT `HrDeskRoutingService`/der Buchungs-Observer — der ruft nie `approveCase()`, die einzige Stelle dort, die die Fassade liest)
 - [ ] **Step 6: Live-Prüfungen**
 
 1. Ein Bewerber in Phase 1 mit zwei Wunschorten sieht die Termine **beider** Orte

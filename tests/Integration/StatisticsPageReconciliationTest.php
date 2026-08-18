@@ -174,7 +174,7 @@ class StatisticsPageReconciliationTest extends TestCase
      * METHODE (kein Lifecycle, also kein __get auf Computed Properties),
      * postingGroups() ueber die pure CohortViewModel-Instanz.
      *
-     * @return array{count:int, ids:list<int>, reason:string}
+     * @return array{count:int, reason:string}
      */
     private function fremdeFilialeZahlen(string $ort): array
     {

@@ -174,7 +174,9 @@ Fassade:
 Die acht bestehenden `primaryPosition()`-Nutzer bleiben unverändert — darunter die
 **MA-Anlage** (`CreateEmployeeFromApplicantService.php:62` setzt damit die
 `rec_position_id` des Mitarbeiters) und das HR-Desk-Routing
-(`HrDeskRoutingService.php:247`). Sie merken nur, dass der Wert exakt ist statt
+(`HrDeskRoutingService.php:247`, nur in `approveCase()`, ausgelöst über die
+synchrone Livewire-Aktion in `HrDesk/Index.php`, NICHT über den Buchungs-Observer
+— der ruft `approveCase()` nie). Sie merken nur, dass der Wert exakt ist statt
 abgeleitet.
 
 ## 7. Warteliste und Termin-Abo (Abnahmekriterium)
@@ -301,13 +303,18 @@ Filiale eingestellt", Erweiterung des Rekonziliations-Tests.
 
 Deploy jeder Stufe: ff auf `main`, meingedeck-Bump, `php artisan migrate`.
 
-**Stufe 1 braucht `queue:restart`.** Kein Job liest die Fassade direkt, aber
-`HrDeskRoutingService` (`:247`) tut es und wird über den Buchungs-Observer ausgelöst
-(`Observers/RecInterviewBookingComplianceObserver.php:52`) — der feuert überall, wo eine
-Buchung gespeichert wird, also auch in Worker-Prozessen. Ohne Neustart liefe die alte
-Implementierung der Fassade dort weiter. Stufe 0 und Stufe 2 brauchen keinen Neustart:
-Stufe 0 ändert nur `switchToPosition()`, das ausschließlich von der Buchungsseite
-(`InterviewBooking.php:530`) gerufen wird, Stufe 2 nur Views.
+**Stufe 1 braucht `queue:restart`.** `MatchApplicantToPostingJob` implementiert
+`ShouldQueue` und ruft in seinem `handle()` `IncomingApplicationService::assignPosting()`,
+die wiederum `RecApplicant::stelleAusAnzeigeUebernehmen()` aufruft — also genau den
+neuen Schreibweg der Stufe 1. Läuft ein Worker-Prozess mit altem Code weiter, setzt er
+`rec_position_id` bei asynchron gematchten Bewerbungen nicht. Ohne Neustart bliebe das
+unbemerkt inkonsistent. (Korrektur eines früheren Entwurfs dieses Dokuments: NICHT
+`HrDeskRoutingService`/der Buchungs-Observer — der ruft `approveCase()`, die einzige
+Stelle dort, die die Fassade liest, nie; `approveCase()` läuft ausschließlich synchron
+über die Livewire-Aktion in `HrDesk/Index.php`, also immer mit frisch geladenem Code.)
+Stufe 0 und Stufe 2 brauchen keinen Neustart: Stufe 0 ändert nur `switchToPosition()`,
+das ausschließlich von der Buchungsseite (`InterviewBooking.php:530`) gerufen wird,
+Stufe 2 nur Views.
 
 ## 13. Bewusst nicht enthalten
 

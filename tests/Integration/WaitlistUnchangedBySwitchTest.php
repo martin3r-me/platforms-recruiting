@@ -127,6 +127,7 @@ class WaitlistUnchangedBySwitchTest extends TestCase
     {
         Facade::clearResolvedInstances();
         Container::getInstance()->forgetInstance(AuthFactory::class);
+        Model::clearBootedModels();
         Carbon::setTestNow();
     }
 

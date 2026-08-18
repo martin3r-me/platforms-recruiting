@@ -127,6 +127,20 @@ class ReconcileApplicantPositionsGateTest extends TestCase
         Carbon::setTestNow();
     }
 
+    /**
+     * Jeder Test faengt beim Bestand aus setUpBeforeClass an. Beide Tests
+     * dieser Klasse laufen reconcile() im echten Modus und schreiben dabei
+     * rec_position_id/rec_phase_id/owned_by_user_id um — ohne diesen Reset
+     * waere das Ergebnis von der Ausfuehrungsreihenfolge abhaengig (Muster aus
+     * BackfillApplicantPositionTest::setzeBestandAufAusgangszustand()).
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        self::setzeBestandAufAusgangszustand();
+    }
+
     public function test_festgelegte_bewerbung_bleibt_stehen_nicht_festgelegte_wird_nachgezogen(): void
     {
         $probe = new ReconcileApplicantPositionsProbe();
@@ -151,6 +165,103 @@ class ReconcileApplicantPositionsGateTest extends TestCase
             (int) RecApplicant::find(self::APPLICANT_FESTGELEGT)->rec_position_id,
             'die Festlegung (aktive Buchung) gewinnt gegen die Anzeigen-Korrektur — das Kommando darf sie nicht zuruecksetzen'
         );
+    }
+
+    /**
+     * Review-Befund (final-review.md, Punkt 1): --dry-run meldete phaseAligned
+     * mit 0 statt 1, weil der Vorab-Abgleich der Stelle (Zeilen ~135-146)
+     * rec_position_id nur im echten Lauf ins Objekt schrieb — der folgende
+     * primaryPosition()-Aufruf las im Trockenlauf darum noch die ALTE Stelle,
+     * und phaseElsewhere kam nie auf true. Genau dieser Bestand (APPLICANT_
+     * OHNE_FESTLEGUNG) loest das aus: Phase steht auf der alten Stelle 81, die
+     * korrigierte Anzeige zeigt auf 82.
+     *
+     * Zwei Zusicherungen in einem Test, absichtlich auf demselben Bestand:
+     *  1. Trockenlauf und echter Lauf melden DIESELBEN Zaehler (der eigentliche
+     *     Fix — kein hartkodierter Erwartungswert, sonst waere der Vergleich
+     *     nur eine Behauptung).
+     *  2. Nach dem Trockenlauf ist die Datenbank UNVERAENDERT (der Trockenlauf
+     *     darf die Parität nicht durch heimliches Schreiben erkaufen).
+     */
+    public function test_dry_run_meldet_dieselben_zahlen_wie_der_echte_lauf_und_schreibt_nichts(): void
+    {
+        $vorher = self::schnappschuss();
+
+        $dry = (new ReconcileApplicantPositionsProbe())
+            ->probeReconcile(dryRun: true, teamId: (string) self::TEAM, limit: 0, includeInactive: false);
+
+        $this->assertSame(
+            $vorher,
+            self::schnappschuss(),
+            'im Trockenlauf darf sich an der Datenbank NICHTS aendern'
+        );
+
+        // Vorflug: das Szenario muss die Phasenausrichtung ueberhaupt ausloesen
+        // — sonst waere jede folgende Gleichheit (auch 0 === 0) wertlos belegt.
+        $this->assertGreaterThan(0, $dry['phaseAligned'],
+            'Vorflug: der Bestand muss mindestens eine Phasenausrichtung ausloesen'
+        );
+
+        $real = (new ReconcileApplicantPositionsProbe())
+            ->probeReconcile(dryRun: false, teamId: (string) self::TEAM, limit: 0, includeInactive: false);
+
+        foreach (['checked', 'phaseAligned', 'ownerFilled', 'changed', 'festgelegtSkipped'] as $zaehler) {
+            $this->assertSame(
+                $real[$zaehler],
+                $dry[$zaehler],
+                "Zaehler '{$zaehler}': Trockenlauf ({$dry[$zaehler]}) und echter Lauf ({$real[$zaehler]}) muessen uebereinstimmen"
+            );
+        }
+
+        // Gegenprobe: der echte Lauf hat jetzt tatsaechlich geschrieben — sonst
+        // waere obige Uebereinstimmung nur, weil BEIDE Laeufe nichts tun.
+        $this->assertSame(
+            self::POSITION_MOENCHENGLADBACH,
+            (int) RecApplicant::find(self::APPLICANT_OHNE_FESTLEGUNG)->rec_position_id
+        );
+    }
+
+    /**
+     * Feste Momentaufnahme aller Spalten, die reconcile() ueberhaupt anfassen
+     * kann, fuer beide Bewerbungen dieses Bestands — inkl. der Nebenwirkungen
+     * von reconcilePositionState() (Auto-Pilot-Log, Feldwerte).
+     *
+     * @return array{applicants: array<int, array<string, mixed>>, autoPilotLogs: int, extraFieldValues: int}
+     */
+    private static function schnappschuss(): array
+    {
+        $applicants = Capsule::table('rec_applicants')
+            ->whereIn('id', [self::APPLICANT_OHNE_FESTLEGUNG, self::APPLICANT_FESTGELEGT])
+            ->orderBy('id')
+            ->get(['id', 'rec_position_id', 'rec_phase_id', 'owned_by_user_id', 'is_unrouted', 'updated_at'])
+            ->map(fn ($row) => (array) $row)
+            ->all();
+
+        return [
+            'applicants' => $applicants,
+            'autoPilotLogs' => Capsule::table('rec_auto_pilot_logs')->count(),
+            'extraFieldValues' => Capsule::table('core_extra_field_values')->count(),
+        ];
+    }
+
+    /**
+     * Setzt genau die Spalten zurueck, die reconcile() im echten Lauf schreibt
+     * — der Bestand wird geteilt (setUpBeforeClass), fast jeder Test hier ruft
+     * reconcile() im echten Modus.
+     */
+    private static function setzeBestandAufAusgangszustand(): void
+    {
+        Capsule::table('rec_applicants')
+            ->whereIn('id', [self::APPLICANT_OHNE_FESTLEGUNG, self::APPLICANT_FESTGELEGT])
+            ->update([
+                'rec_position_id' => self::POSITION_DUESSELDORF,
+                'rec_phase_id' => self::PHASE_EINGANG,
+                'owned_by_user_id' => null,
+                'is_unrouted' => 0,
+            ]);
+
+        Capsule::table('rec_auto_pilot_logs')->delete();
+        Capsule::table('core_extra_field_values')->delete();
     }
 
     // -----------------------------------------------------------------

@@ -1068,7 +1068,7 @@ class Index extends Component
      *
      * @param  list<array>  $groups  postingGroups()-Ergebnis (Tabelle 1)
      * @param  array{applicant_position_ids:array<int,?int>, posting_position_ids:array<int,?int>}  $cohort
-     * @return array{count:int, ids:list<int>, reason:string}
+     * @return array{count:int, reason:string}
      */
     public function fremdeFilialeTotals(array $groups, array $cohort): array
     {
@@ -1098,11 +1098,11 @@ class Index extends Component
 
         return [
             'count' => $count,
-            'ids' => $ids,
             'reason' => $count === 0
                 ? ''
                 : $count . ' ' . ($count === 1 ? 'Unterschrift zählt' : 'Unterschriften zählen')
-                    . ' bei der Anzeige, über die die Bewerbung kam — '
+                    . ' bei der Anzeige, über die '
+                    . ($count === 1 ? 'die Bewerbung kam' : 'die Bewerbungen kamen') . ' — '
                     . ($count === 1 ? 'eingestellt wurde die Person' : 'eingestellt wurden die Personen')
                     . ' aber in einer anderen Filiale (Kunden-Entscheidung: die Herkunft zählt, '
                     . 'nicht der Einstellungsort — der Bedarf der Einstellungs-Filiale wird '
