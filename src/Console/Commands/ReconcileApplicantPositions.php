@@ -24,6 +24,9 @@ use Platform\Recruiting\Models\RecApplicant;
  *   php artisan recruiting:reconcile-applicant-positions --team-id=3
  *
  * @see \Platform\Recruiting\Models\RecApplicant::reconcilePositionState()
+ * @see self::reconcile() Reine Abgleichs-Logik ohne Konsolen-I/O, ohne
+ *      Artisan-Lebenszyklus testbar (Probe-Muster, siehe
+ *      tests/Integration/ReconcileApplicantPositionsGateTest.php).
  */
 class ReconcileApplicantPositions extends Command
 {
@@ -40,16 +43,69 @@ class ReconcileApplicantPositions extends Command
         $dryRun = (bool) $this->option('dry-run');
         $teamId = $this->option('team-id');
         $limit = max(0, (int) $this->option('limit'));
+        $includeInactive = (bool) $this->option('include-inactive');
 
         if ($dryRun) {
             $this->warn('DRY-RUN — es wird nichts geschrieben.');
         }
 
+        // $emit gibt jede Zeile GENAU an der Stelle im Loop aus, an der sie vorher
+        // inline ausgegeben wurde (Live-Fortschritt bei langen Laeufen bleibt
+        // erhalten) — reconcile() selbst fasst keine Konsole an und ist darum ohne
+        // Artisan-Lebenszyklus aufrufbar.
+        $report = $this->reconcile($dryRun, $teamId, $limit, $includeInactive,
+            function (string $type, string $text): void {
+                $type === 'error' ? $this->error($text) : $this->line($text);
+            });
+
+        if (!empty($report['multiPosting'])) {
+            $this->warn('');
+            $this->warn('MEHRFACH-POSTING — Phase NICHT angefasst (manuell prüfen ob ein Standort falsch):');
+            foreach ($report['multiPosting'] as $line) {
+                $this->line($line);
+            }
+        }
+
+        $this->info('');
+        $this->info("Geprüft:                    {$report['checked']}");
+        $this->info("Einzel-Posting geheilt:     {$report['changed']}" . ($dryRun ? ' (dry-run)' : ''));
+        $this->info("  davon Phase+Felder:       {$report['phaseAligned']}");
+        $this->info("  davon Owner gefüllt:      {$report['ownerFilled']}");
+        $this->info('Mehrfach-Posting (manuell): ' . count($report['multiPosting']));
+        $this->info("Wegen Festlegung übersprungen: {$report['festgelegtSkipped']}");
+        if ($report['errors'] > 0) {
+            $this->warn("Fehler:                     {$report['errors']}");
+            return Command::FAILURE;
+        }
+
+        return Command::SUCCESS;
+    }
+
+    /**
+     * Die eigentliche Abgleichs-Logik, herausgehoben aus handle() — OHNE jeden
+     * Zugriff auf $this->option()/$this->line() & Co., damit sie ohne Artisan
+     * (kein Input/Output, kein Service Container) direkt aufrufbar ist. $emit
+     * ist optional: handle() reicht einen Callback durch, der wortgleich
+     * dieselben Zeilen ausgibt wie vor dieser Extraktion; Tests lassen ihn weg
+     * und werten stattdessen die Rueckgabe (Zaehler) sowie den DB-Zustand aus.
+     *
+     * Verhalten unveraendert — nur der Ort, an dem der Code steht, hat sich
+     * geaendert (siehe Task-6-Fix-Bericht).
+     *
+     * @return array{
+     *     checked:int, phaseAligned:int, ownerFilled:int, changed:int,
+     *     errors:int, festgelegtSkipped:int, multiPosting:list<string>,
+     * }
+     */
+    protected function reconcile(bool $dryRun, ?string $teamId, int $limit, bool $includeInactive, ?callable $emit = null): array
+    {
+        $emit ??= function (string $type, string $text): void {};
+
         $query = RecApplicant::query()
             ->whereHas('postings')
             ->with(['postings.position', 'phase', 'team']);
 
-        if (!$this->option('include-inactive')) {
+        if (!$includeInactive) {
             $query->where('is_active', true);
         }
         if ($teamId) {
@@ -123,7 +179,7 @@ class ReconcileApplicantPositions extends Command
             if ($ownerEmpty)     { $parts[] = 'Owner gefüllt'; $ownerFilled++; }
             if ($applicant->is_unrouted) { $parts[] = 'is_unrouted→false'; }
 
-            $this->line(sprintf(
+            $emit('line', sprintf(
                 ' #%-5d %-26s : %s',
                 $applicant->id,
                 mb_substr($this->displayName($applicant), 0, 26),
@@ -136,34 +192,14 @@ class ReconcileApplicantPositions extends Command
                     $changed++;
                 } catch (\Throwable $e) {
                     $errors++;
-                    $this->error(" Fehler bei #{$applicant->id}: {$e->getMessage()}");
+                    $emit('error', " Fehler bei #{$applicant->id}: {$e->getMessage()}");
                 }
             } else {
                 $changed++;
             }
         }
 
-        if (!empty($multiPosting)) {
-            $this->warn('');
-            $this->warn('MEHRFACH-POSTING — Phase NICHT angefasst (manuell prüfen ob ein Standort falsch):');
-            foreach ($multiPosting as $line) {
-                $this->line($line);
-            }
-        }
-
-        $this->info('');
-        $this->info("Geprüft:                    {$checked}");
-        $this->info("Einzel-Posting geheilt:     {$changed}" . ($dryRun ? ' (dry-run)' : ''));
-        $this->info("  davon Phase+Felder:       {$phaseAligned}");
-        $this->info("  davon Owner gefüllt:      {$ownerFilled}");
-        $this->info('Mehrfach-Posting (manuell): ' . count($multiPosting));
-        $this->info("Wegen Festlegung übersprungen: {$festgelegtSkipped}");
-        if ($errors > 0) {
-            $this->warn("Fehler:                     {$errors}");
-            return Command::FAILURE;
-        }
-
-        return Command::SUCCESS;
+        return compact('checked', 'phaseAligned', 'ownerFilled', 'changed', 'errors', 'festgelegtSkipped', 'multiPosting');
     }
 
     private function displayName(RecApplicant $applicant): string
