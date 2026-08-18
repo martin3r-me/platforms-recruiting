@@ -173,6 +173,7 @@ class IncomingApplicationService
                     'match_confidence' => $match->confidence,
                 ],
             ]);
+            $applicant->stelleAusAnzeigeUebernehmen();
 
             // Verantwortlichen per Kaskade setzen, falls noch keiner gesetzt ist.
             // Sonst hängen Auto-Start-Bewerber ownerlos in der AutoPilot-Query fest.

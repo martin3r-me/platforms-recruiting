@@ -282,6 +282,7 @@ class Index extends Component
             $applicant->postings()->attach($this->posting_id, [
                 'applied_at' => $this->applied_at,
             ]);
+            $applicant->stelleAusAnzeigeUebernehmen();
             // Phase + Verantwortlicher aus der Stelle ableiten (sonst ownerlos).
             $applicant->reconcilePositionState();
         }

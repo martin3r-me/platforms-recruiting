@@ -202,6 +202,32 @@ class ApplicantPositionFieldTest extends TestCase
         $this->assertSame(81, RecApplicant::find(1010)->primaryPosition()?->id);
     }
 
+    public function test_beim_verknuepfen_einer_anzeige_wird_die_stelle_gesetzt(): void
+    {
+        // Der gemeinsame Nenner aller fuenf Anlege-Wege: sie haengen eine Anzeige
+        // an. Geprueft wird der Effekt, nicht jeder Weg einzeln — die Wege selbst
+        // brauchen eine gebootete App.
+        $applicant = RecApplicant::create([
+            'uuid' => 'apf-neu-1', 'team_id' => self::TEAM, 'applied_at' => '2026-08-01',
+        ]);
+        $applicant->postings()->attach(810, ['applied_at' => '2026-08-01']);
+        $applicant->refresh()->stelleAusAnzeigeUebernehmen();
+
+        $this->assertSame(81, (int) $applicant->fresh()->rec_position_id);
+    }
+
+    public function test_ohne_anzeige_bleibt_die_stelle_leer(): void
+    {
+        // Import ohne Bindung, Inbound ohne Match: kein Raten, kein Default.
+        // "Leer heisst nicht gepflegt" — die Statistik benennt diese Faelle.
+        $applicant = RecApplicant::create([
+            'uuid' => 'apf-neu-2', 'team_id' => self::TEAM, 'applied_at' => '2026-08-01',
+        ]);
+        $applicant->stelleAusAnzeigeUebernehmen();
+
+        $this->assertNull($applicant->fresh()->rec_position_id);
+    }
+
     // -----------------------------------------------------------------
     // Werkzeug
     // -----------------------------------------------------------------

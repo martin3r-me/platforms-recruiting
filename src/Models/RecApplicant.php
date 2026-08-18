@@ -1910,6 +1910,37 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Setzt die Stelle aus der verknuepften Anzeige — EINE Stelle fuer alle fuenf
+     * Anlege-Wege (Inbound, CSV-Import, manuelle Anlage, zwei MCP-Werkzeuge).
+     *
+     * Fuenf Kopien derselben Zuweisung waeren fuenf Stellen, an denen sie beim
+     * naechsten neuen Anlege-Weg vergessen wird — dieses Modul hat das mit der
+     * Taetigkeit und mit der Ausschreibung am Termin schon zweimal erlebt.
+     *
+     * Ueberschreibt NICHT: ist die Stelle schon gesetzt, gilt sie. Sonst wuerde ein
+     * nachtraeglich verknuepftes Posting eine Festlegung zurueckdrehen.
+     */
+    public function stelleAusAnzeigeUebernehmen(): void
+    {
+        if ($this->rec_position_id !== null) {
+            return;
+        }
+
+        $this->loadMissing('postings');
+        $positionId = $this->postings
+            ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
+            ->first()
+            ?->rec_position_id;
+
+        if ($positionId === null) {
+            return;
+        }
+
+        $this->rec_position_id = (int) $positionId;
+        $this->save();
+    }
+
+    /**
      * Switch the applicant to a new position: replaces the posting links with
      * a single new one in the target position, and remaps rec_phase_id to
      * the matching phase (same `order`) in the new position.

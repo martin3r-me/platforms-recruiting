@@ -196,6 +196,7 @@ class BulkCreateApplicantsTool implements ToolContract, ToolMetadataContract
                             $applicant->postings()->attach($posting->id, [
                                 'applied_at' => $item['applied_at'] ?? now()->toDateString(),
                             ]);
+                            $applicant->stelleAusAnzeigeUebernehmen();
                         }
 
                         return [

@@ -175,6 +175,7 @@ class CreateApplicantTool implements ToolContract, ToolMetadataContract
                     $applicant->postings()->attach($posting->id, [
                         'applied_at' => $arguments['applied_at'] ?? now()->toDateString(),
                     ]);
+                    $applicant->stelleAusAnzeigeUebernehmen();
                 }
 
                 return [$applicant, $contact, $posting];
