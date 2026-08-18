@@ -54,6 +54,30 @@
                     <label class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Stelle</label>
                     <div class="text-sm text-[var(--ui-muted)]">{{ $posting->position?->title ?? '–' }}</div>
                 </div>
+                {{--
+                    Taetigkeit: bis Task „editierbar machen" war sie NUR beim Anlegen
+                    pflegbar, danach kam man ueber die Oberflaeche nicht mehr dran.
+                    Die Statistik gruppiert nach diesem Wert und liest ihn zur
+                    ANZEIGEZEIT aus der Ausschreibung — eine Korrektur hier ordnet
+                    deshalb alle Bewerbungen dieser Ausschreibung neu ein, auch
+                    rueckwirkend. Genau das ist beim Geradeziehen gewollt.
+
+                    Textfeld mit datalist, kein Select: die Liste schlaegt die
+                    bereits vergebenen Taetigkeiten vor, laesst aber neue zu.
+                --}}
+                <x-ui-input-text
+                    name="posting.activity"
+                    label="Tätigkeit"
+                    wire:model.live="posting.activity"
+                    placeholder="z.B. Servicekraft, Abräumer, Logistiker"
+                    list="activity-suggestions-show"
+                    hint="Gruppiert die Statistik. Bitte die vorgeschlagene Schreibweise nehmen, wenn es sie schon gibt — „Abräumer“ und „Abräumer/in“ wären sonst zwei Tätigkeiten. Leer = ohne Tätigkeit."
+                />
+                <datalist id="activity-suggestions-show">
+                    @foreach($this->availableActivities as $suggestion)
+                        <option value="{{ $suggestion }}"></option>
+                    @endforeach
+                </datalist>
                 <x-ui-input-select name="posting.status" label="Status" :options="[['value' => 'draft', 'label' => 'Entwurf'], ['value' => 'published', 'label' => 'Veröffentlicht'], ['value' => 'closed', 'label' => 'Geschlossen']]" optionValue="value" optionLabel="label" wire:model.live="posting.status" />
                 <x-ui-input-checkbox model="posting.is_active" name="posting.is_active" label="Aktiv" wire:model.live="posting.is_active" />
                 <x-ui-input-date name="publishedAt" label="Startdatum" wire:model.live="publishedAt" :nullable="true" />

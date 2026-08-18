@@ -279,6 +279,57 @@ class PostingTargetFieldsTest extends TestCase
         $this->assertSame(12, $fresh->bedarf);
         $this->assertSame(7.5, $fresh->bewerbungs_faktor);
     }
+
+    // -----------------------------------------------------------------
+    // Taetigkeit: im Detail-Formular pflegbar, „leer" heisst NULL
+    // -----------------------------------------------------------------
+
+    public function test_taetigkeit_wird_getrimmt_und_leer_heisst_null(): void
+    {
+        // Das Detail-Formular bindet direkt an das Attribut und schreibt beim
+        // Leeren '' — der Anlege-Dialog normalisierte von Hand auf null. Ohne
+        // Setter gaebe es damit zwei Schreibweisen fuer „nicht gepflegt" in einer
+        // Spalte, und jeder Leser muesste beide kennen.
+        $leer = $this->makePosting(['activity' => '']);
+        $this->assertNull($leer->activity, 'Leerstring direkt nach dem Setzen');
+        $this->assertNull(RecPosting::find($leer->id)->activity, 'und nach frischem Laden');
+
+        $blanks = $this->makePosting(['activity' => '   ']);
+        $this->assertNull($blanks->activity, 'reine Leerzeichen sind keine Angabe');
+
+        $getrimmt = $this->makePosting(['activity' => '  Abraeumer  ']);
+        $this->assertSame('Abraeumer', $getrimmt->activity, 'Rand-Leerzeichen wuerden eine eigene Taetigkeit bilden');
+        $this->assertSame('Abraeumer', RecPosting::find($getrimmt->id)->activity);
+    }
+
+    public function test_die_regel_der_taetigkeit_passt_zur_spaltenbreite(): void
+    {
+        // Waere die Regel weiter als string(60), schluege erst die Datenbank fehl —
+        // und Livewire verwirft dann die Aenderung am GANZEN Formular, auch an
+        // Feldern, die gerade niemand angefasst hat (gemessen beim Bedarf).
+        $regeln = (new PostingFormProbe())->probeRules();
+
+        $this->assertSame('nullable|string|max:60', $regeln['posting.activity']);
+    }
+
+    public function test_ein_bestandswert_mit_leerstring_blockiert_das_formular_nicht(): void
+    {
+        // '' kann aus der Zeit VOR dem Setter in der Spalte liegen (Import, MCP,
+        // SQL von Hand). Er muss die Regel bestehen, sonst blockiert er beim
+        // naechsten Speichern ein Formular, an dem gerade jemand anderes arbeitet.
+        $posting = $this->makePosting(['activity' => 'Service']);
+        Capsule::table('rec_postings')->where('id', $posting->id)->update(['activity' => '']);
+
+        $fresh = RecPosting::find($posting->id);
+
+        $validator = new Validator(
+            new Translator(new ArrayLoader(), 'de'),
+            ['posting' => ['title' => $fresh->title, 'activity' => $fresh->activity]],
+            ['posting.title' => 'required|string|max:255', 'posting.activity' => (new PostingFormProbe())->probeRules()['posting.activity']],
+        );
+
+        $this->assertFalse($validator->fails(), $validator->errors()->toJson());
+    }
 }
 
 /**

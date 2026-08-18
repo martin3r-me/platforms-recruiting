@@ -129,6 +129,28 @@ class RecPosting extends Model
         return ((float) $value) < $min ? null : $value;
     }
 
+    /**
+     * Taetigkeit: getrimmt, und leer heisst NULL — nicht ''.
+     *
+     * Der Anlege-Dialog normalisierte schon von Hand (`$this->activity ?: null`),
+     * das Detail-Formular bindet dagegen direkt an das Attribut und wuerde beim
+     * Leeren einen Leerstring schreiben. Damit gaebe es zwei Schreibweisen fuer
+     * „nicht gepflegt" in derselben Spalte — und die Leser muessten beide kennen
+     * (die Statistik prueft heute `whereNotNull` UND `!= ''`, genau deswegen).
+     * Am Feld normalisiert gilt die Regel fuer jeden Schreibweg: beide Formulare,
+     * MCP-Werkzeuge, Importe.
+     *
+     * Nur Setter, kein Getter: anders als beim Bedarf gibt es hier keinen
+     * Bestandswert, der ein Formular blockieren koennte — die Regel ist
+     * `nullable|string|max:60`, und ein '' aus dem Bestand besteht sie.
+     */
+    public function setActivityAttribute($value): void
+    {
+        $getrimmt = trim((string) ($value ?? ''));
+
+        $this->attributes['activity'] = $getrimmt === '' ? null : $getrimmt;
+    }
+
     public function position()
     {
         return $this->belongsTo(RecPosition::class, 'rec_position_id');

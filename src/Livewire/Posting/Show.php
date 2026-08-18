@@ -37,6 +37,11 @@ class Show extends Component
         return [
             'posting.title' => 'required|string|max:255',
             'description' => 'nullable|string',
+            // max:60 ist die SPALTENBREITE (string(60), Migration
+            // 2026_04_27_000001) — nicht geraten. Waere die Regel weiter, schlaege
+            // erst die Datenbank fehl, und Livewire verwirft dabei die Aenderung am
+            // ganzen Formular; dieselbe Falle wie beim Bedarf.
+            'posting.activity' => 'nullable|string|max:60',
             'posting.status' => 'required|in:draft,published,closed',
             'posting.is_active' => 'boolean',
             'publishedAt' => 'nullable|date_format:Y-m-d',
@@ -102,6 +107,30 @@ class Show extends Component
     {
         $this->posting->commsChannels()->detach($channelId);
         $this->posting->load('commsChannels');
+    }
+
+    /**
+     * Vorschlaege fuer die Taetigkeit: die bereits vergebenen Werte des Teams.
+     *
+     * Dieselbe Liste wie im Anlege-Dialog (Posting\Index::availableActivities) —
+     * absichtlich, denn sie ist der einzige Schutz gegen Varianten desselben
+     * Begriffs („Abraeumer" / „Abräumer/in"), und die Statistik gruppiert nach dem
+     * Wert. Ein Lookup waere der strengere Weg, ist aber ein eigenes Paket
+     * (Migration + Bereinigung des Bestands).
+     *
+     * Die eigene Taetigkeit steht mit drin: das Feld ist ein Textfeld mit datalist,
+     * kein Select — die Liste schlaegt vor, sie schraenkt nicht ein.
+     */
+    #[Computed]
+    public function availableActivities()
+    {
+        return RecPosting::forTeam(auth()->user()->currentTeam->id)
+            ->whereNotNull('activity')
+            ->where('activity', '!=', '')
+            ->distinct()
+            ->orderBy('activity')
+            ->pluck('activity')
+            ->values();
     }
 
     #[Computed]
