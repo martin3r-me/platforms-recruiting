@@ -228,6 +228,46 @@ class ApplicantPositionFieldTest extends TestCase
         $this->assertNull($applicant->fresh()->rec_position_id);
     }
 
+    public function test_eine_bereits_gesetzte_stelle_wird_nicht_ueberschrieben(): void
+    {
+        // Die tragende Nicht-Ueberschreib-Regel: eine SPAETER verknuepfte Anzeige
+        // einer ANDEREN Stelle darf eine bereits FESTGELEGTE Stelle nicht
+        // zurueckdrehen — sonst wuerde ein nachtraeglich verknuepftes Posting eine
+        // Festlegung rueckgaengig machen.
+        Capsule::table('rec_postings')->insert([
+            'id' => 811, 'uuid' => 'spstg-82', 'rec_position_id' => self::POSITION_MOENCHENGLADBACH,
+            'team_id' => self::TEAM, 'title' => 'Moenchengladbach Anzeige', 'status' => 'published',
+            'is_active' => 1, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        $applicant = RecApplicant::create([
+            'uuid' => 'apf-neu-3', 'team_id' => self::TEAM, 'applied_at' => '2026-08-01',
+            'rec_position_id' => self::POSITION_DUESSELDORF,
+        ]);
+        $applicant->postings()->attach(811, ['applied_at' => '2026-08-01']);
+        $applicant->refresh()->stelleAusAnzeigeUebernehmen();
+
+        $this->assertSame(
+            self::POSITION_DUESSELDORF,
+            (int) $applicant->fresh()->rec_position_id,
+            'die bereits gesetzte Stelle bleibt stehen'
+        );
+
+        // Gegenprobe im selben Test: bei LEERER Stelle setzt derselbe Aufruf sie
+        // wirklich — sonst behauptet der Test oben bloss "nichts passiert".
+        $applicantOhneFestlegung = RecApplicant::create([
+            'uuid' => 'apf-neu-4', 'team_id' => self::TEAM, 'applied_at' => '2026-08-01',
+        ]);
+        $applicantOhneFestlegung->postings()->attach(811, ['applied_at' => '2026-08-01']);
+        $applicantOhneFestlegung->refresh()->stelleAusAnzeigeUebernehmen();
+
+        $this->assertSame(
+            self::POSITION_MOENCHENGLADBACH,
+            (int) $applicantOhneFestlegung->fresh()->rec_position_id,
+            'ohne vorherige Festlegung setzt derselbe Aufruf die Stelle'
+        );
+    }
+
     // -----------------------------------------------------------------
     // Werkzeug
     // -----------------------------------------------------------------
