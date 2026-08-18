@@ -39,6 +39,9 @@ class ApplicantPositionFieldTest extends TestCase
     /** Anzeige der Stelle 81, mit Bewerber 1010 verpivotet (bisheriger Weg). */
     private const POSTING_DUESSELDORF = 810;
 
+    /** Anzeige der Stelle 82 — Ziel der HR-Korrektur in den Nachzieh-Tests. */
+    private const POSTING_MOENCHENGLADBACH = 820;
+
     private const PHASE_EINGANG = 101;
     private const PHASE_ONBOARDING = 103;
 
@@ -268,14 +271,56 @@ class ApplicantPositionFieldTest extends TestCase
         );
     }
 
+    public function test_vor_der_festlegung_zieht_die_stelle_mit(): void
+    {
+        // HR korrigiert eine falsch zugeordnete Anzeige: Stelle 81 -> 82.
+        Capsule::table('rec_applicants')->where('id', 1010)->update(['rec_position_id' => 81]);
+        Capsule::table('rec_applicant_posting')->where('rec_applicant_id', 1010)->delete();
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => 1010, 'rec_posting_id' => 820,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        RecApplicant::find(1010)->reconcilePositionState();
+
+        $this->assertSame(82, (int) RecApplicant::find(1010)->rec_position_id);
+    }
+
+    public function test_nach_der_festlegung_bleibt_die_stelle_stehen(): void
+    {
+        // 1012 hat eine aktive Buchung. Eine Korrektur der Anzeige darf ihn nicht
+        // aus der Filiale ziehen, in der er zur Schulung angemeldet ist.
+        Capsule::table('rec_applicants')->where('id', 1012)->update(['rec_position_id' => 81]);
+        Capsule::table('rec_applicant_posting')->where('rec_applicant_id', 1012)->delete();
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => 1012, 'rec_posting_id' => 820,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        RecApplicant::find(1012)->reconcilePositionState();
+
+        $this->assertSame(81, (int) RecApplicant::find(1012)->rec_position_id,
+            'die Festlegung gewinnt gegen die Anzeigen-Korrektur');
+    }
+
     // -----------------------------------------------------------------
     // Werkzeug
     // -----------------------------------------------------------------
 
     /**
      * Setzt den Teil des Bestands zurueck, den die Tests dieser Klasse
-     * veraendern: Stelle 82 (von test_eine_geloeschte_stelle_... geloescht)
-     * und rec_position_id von Bewerber 1010 (von zwei Tests gesetzt).
+     * veraendern: Stelle 82 (von test_eine_geloeschte_stelle_... geloescht),
+     * rec_position_id von Bewerber 1010 und 1012 (von mehreren Tests gesetzt)
+     * sowie die Anzeigen-Verknuepfung (Pivot) beider Bewerber (von den
+     * Nachzieh-Tests test_vor/nach_der_festlegung umgehaengt auf Posting 820).
+     *
+     * Stolperfalle (per Debug gefunden, nicht nur vermutet): rec_postings.
+     * rec_position_id ist cascadeOnDelete. Das Loeschen von Stelle 82 in
+     * test_eine_geloeschte_stelle_... nimmt darum Posting 820 GLEICH MIT —
+     * ohne diesen zweiten Wiederherstell-Block liefe test_vor_der_festlegung_
+     * zieht_die_stelle_mit() je nach Ausfuehrungsreihenfolge gegen ein
+     * verwaistes Pivot (Posting existiert nicht mehr) und postings() waere
+     * durch den inneren Join der BelongsToMany leer.
      */
     private static function setzeBestandAufAusgangszustand(): void
     {
@@ -287,6 +332,14 @@ class ApplicantPositionFieldTest extends TestCase
             ]);
         }
 
+        if (!Capsule::table('rec_postings')->where('id', self::POSTING_MOENCHENGLADBACH)->exists()) {
+            Capsule::table('rec_postings')->insert([
+                'id' => self::POSTING_MOENCHENGLADBACH, 'uuid' => 'spstg-820', 'rec_position_id' => self::POSITION_MOENCHENGLADBACH,
+                'team_id' => self::TEAM, 'title' => 'Moenchengladbach Anzeige', 'status' => 'published',
+                'is_active' => 1, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+            ]);
+        }
+
         // nullOnDelete an rec_interviews.rec_position_id leert dieses Feld beim
         // Loeschen der Stelle mit — fuer den Termin-Bestand wiederherstellen.
         Capsule::table('rec_interviews')->where('id', self::INTERVIEW)->update([
@@ -295,6 +348,18 @@ class ApplicantPositionFieldTest extends TestCase
 
         Capsule::table('rec_applicants')->where('id', 1010)->update([
             'rec_position_id' => null,
+        ]);
+        Capsule::table('rec_applicants')->where('id', 1012)->update([
+            'rec_position_id' => null,
+        ]);
+
+        // Pivot von 1010 und 1012 auf den seed()-Ausgangszustand zuruecksetzen:
+        // 1010 zeigt auf Posting 810 (Stelle 81), 1012 hat urspruenglich gar
+        // keine Anzeige verknuepft.
+        Capsule::table('rec_applicant_posting')->whereIn('rec_applicant_id', [1010, 1012])->delete();
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => self::APPLICANT_OHNE_FESTLEGUNG, 'rec_posting_id' => self::POSTING_DUESSELDORF,
+            'applied_at' => '2026-07-01', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
         ]);
     }
 
@@ -398,6 +463,15 @@ class ApplicantPositionFieldTest extends TestCase
         Capsule::table('rec_applicant_posting')->insert([
             'rec_applicant_id' => self::APPLICANT_OHNE_FESTLEGUNG, 'rec_posting_id' => self::POSTING_DUESSELDORF,
             'applied_at' => '2026-07-01', 'created_at' => $now, 'updated_at' => $now,
+        ]);
+
+        // Anzeige der Stelle 82 — Ziel einer HR-Korrektur in den Nachzieh-Tests
+        // (test_vor/nach_der_festlegung). Wird dort per Pivot verknuepft, nicht
+        // hier — nur die Anzeige selbst muss existieren.
+        Capsule::table('rec_postings')->insert([
+            'id' => self::POSTING_MOENCHENGLADBACH, 'uuid' => 'spstg-820', 'rec_position_id' => self::POSITION_MOENCHENGLADBACH,
+            'team_id' => self::TEAM, 'title' => 'Moenchengladbach Anzeige', 'status' => 'published',
+            'is_active' => 1, 'created_at' => $now, 'updated_at' => $now,
         ]);
 
         Capsule::table('rec_interview_bookings')->insert([

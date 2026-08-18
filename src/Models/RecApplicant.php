@@ -2014,6 +2014,22 @@ class RecApplicant extends Model implements InheritsExtraFields
     {
         $this->loadMissing(['postings.position', 'phase', 'team']);
 
+        // Die Stelle folgt der korrigierten Anzeige — aber nur, solange sich die
+        // Person nicht festgelegt hat. Ab aktiver Buchung oder Phase 3 gewinnt die
+        // Festlegung: eine Anzeigen-Korrektur darf niemanden aus der Filiale
+        // ziehen, in der er zur Schulung angemeldet ist.
+        if (! $this->istFestgelegt()) {
+            $ausAnzeige = $this->postings
+                ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
+                ->first()
+                ?->rec_position_id;
+
+            if ($ausAnzeige !== null && (int) $ausAnzeige !== (int) $this->rec_position_id) {
+                $this->rec_position_id = (int) $ausAnzeige;
+                $this->save();
+            }
+        }
+
         $primaryPosition = $this->primaryPosition();
         if (!$primaryPosition) {
             return; // keine Stelle verknüpft → nichts abzugleichen

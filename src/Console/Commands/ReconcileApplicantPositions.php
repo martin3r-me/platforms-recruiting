@@ -64,10 +64,31 @@ class ReconcileApplicantPositions extends Command
         $ownerFilled = 0;
         $changed = 0;
         $errors = 0;
+        $festgelegtSkipped = 0;
         $multiPosting = [];
 
         foreach ($query->cursor() as $applicant) {
             $checked++;
+
+            // Dieselbe Regel wie RecApplicant::reconcilePositionState(): die Stelle
+            // folgt einer korrigierten Anzeige nur, solange die Person sich nicht
+            // festgelegt hat (aktive Buchung oder Phase ≥ 3). Dieses Kommando ruft
+            // reconcilePositionState() nicht selbst auf (siehe Klassendoc), darum
+            // steht der Gate-Aufruf hier separat — und zwar VOR primaryPosition(),
+            // sonst liest der Rest des Loop-Durchlaufs den alten Stand.
+            $ausAnzeige = $applicant->postings
+                ->sortBy(fn ($p) => $p->pivot?->applied_at ?? $p->pivot?->created_at)
+                ->first()
+                ?->rec_position_id;
+
+            if ($ausAnzeige !== null && (int) $ausAnzeige !== (int) $applicant->rec_position_id) {
+                if ($applicant->istFestgelegt()) {
+                    $festgelegtSkipped++;
+                } elseif (!$dryRun) {
+                    $applicant->rec_position_id = (int) $ausAnzeige;
+                    $applicant->save();
+                }
+            }
 
             $primaryPosition = $applicant->primaryPosition();
             if (!$primaryPosition) {
@@ -136,6 +157,7 @@ class ReconcileApplicantPositions extends Command
         $this->info("  davon Phase+Felder:       {$phaseAligned}");
         $this->info("  davon Owner gefüllt:      {$ownerFilled}");
         $this->info('Mehrfach-Posting (manuell): ' . count($multiPosting));
+        $this->info("Wegen Festlegung übersprungen: {$festgelegtSkipped}");
         if ($errors > 0) {
             $this->warn("Fehler:                     {$errors}");
             return Command::FAILURE;
