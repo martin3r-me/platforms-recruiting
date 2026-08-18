@@ -7,26 +7,34 @@
       2. KPI-Kacheln — lesen ausschliesslich aus dem Kohorten-Ergebnis.
       3. Tabelle 1 (Ausschreibungen) und Tabelle 2 (Schulungstermine), je ein
          fertiger Abschnitt mit eigenem Panel.
-      4. Vier Blöcke: Ausgeschieden, Geschlossene Ausschreibungen, Ohne
-         Filial-Zuordnung, Rekonziliation.
+      4. Fünf Blöcke: Ausgeschieden, Geschlossene Ausschreibungen, Ohne
+         Filial-Zuordnung, Herkunft unbekannt, Rekonziliation.
       5. Drill-down-Modal.
 
     DIE BLÖCKE SIND KEIN ANHANG. Gemessen zeigte die Seite bei einer Filiale mit
     Status „online“ eine von sieben Bewerbungen — die anderen sechs steckten in
     geschlossenen Ausschreibungen, an Stellen ohne gepflegten Standort oder an
     keiner Ausschreibung, und der Rekonziliations-Hinweis schwieg dazu (er rechnet
-    innerhalb der Auswahl, siehe Block 4). Blöcke 2 und 3 benennen genau diese
+    innerhalb der Auswahl, siehe Block 5). Blöcke 2, 3 und 4 benennen genau diese
     Mengen; zusammen mit den Tabellen erfassen sie jede Bewerbung des Teams genau
     einmal (Test: StatisticsPageReconciliationTest).
+
+    Block 4 (Task 10, „Herkunft unbekannt“) ist ein SONDERFALL von Block 3: eine
+    als Stellenwechsel markierte Verknüpfung (matched_via = 'position_switch',
+    rein historisch — rund 15 Altfälle, kein wachsender Topf) sieht der Assigner
+    genauso an wie eine Bewerbung ganz ohne Ausschreibung und würde ohne
+    Sonderbehandlung in Block 3 landen. Index::cohort() schließt diese
+    Bewerbungen dort ausdrücklich aus, damit sie NUR in Block 4 stehen — sonst
+    zählte eine Bewerbung doppelt.
 
     DIE FILIALE IST PFLICHT, und das ist keine Kosmetik: phaseLabels() liest den
     Phasensatz der gefilterten Filiale, und `where('location', null)` macht Laravel
     zu einem `whereNull` — die Spaltenköpfe kämen dann aus dem Phasensatz ORTLOSER
     Stellen über Zahlen aller Orte. Hinter dem Guard `$this->hasOrt()` stehen
     deshalb die KACHELN und die beiden TABELLEN; ohne Filiale steht dort eine
-    Aufforderung. Die vier Blöcke stehen AUSSERHALB des Guards — genau ohne
-    Filialauswahl steckt jede Bewerbung in Block 2 oder 3, dort ist die Erklärung
-    also am nötigsten (Begründung an der Stelle).
+    Aufforderung. Die fünf Blöcke stehen AUSSERHALB des Guards — genau ohne
+    Filialauswahl steckt jede Bewerbung in Block 2, 3 oder 4, dort ist die
+    Erklärung also am nötigsten (Begründung an der Stelle).
 
     Die alte Kohorten-Tabelle (Baum Ort → Tätigkeit → Zeilentyp) ist ERSETZT
     (Kunden-Entscheidung); mit ihr sind das Computed `groups()`, `interviewMeta()`
@@ -158,9 +166,9 @@
     @if (!$this->hasOrt())
         {{-- KEINE Kacheln und KEINE Tabellen ohne Filiale (Guard, siehe
              Kopfkommentar): die Phasen-Spaltenkoepfe kaemen sonst aus dem
-             Phasensatz ortloser Stellen ueber Zahlen aller Orte. Die vier Bloecke
-             unter dieser Meldung rendern trotzdem — sie brauchen phaseLabels()
-             nicht und benennen, wo die Bewerbungen stecken. --}}
+             Phasensatz ortloser Stellen ueber Zahlen aller Orte. Die fuenf
+             Bloecke unter dieser Meldung rendern trotzdem — sie brauchen
+             phaseLabels() nicht und benennen, wo die Bewerbungen stecken. --}}
         <x-ui-panel title="Filiale wählen">
             @if ($this->ortOptions === [])
                 <div class="py-8 text-center text-sm text-[color:var(--ui-muted)]">
@@ -281,10 +289,10 @@
     @endif
 
     {{-- ------------------------------------------------------------------ --}}
-    {{-- DIE VIER BLÖCKE STEHEN AUSSERHALB DES FILIAL-GUARDS.                --}}
+    {{-- DIE FÜNF BLÖCKE STEHEN AUSSERHALB DES FILIAL-GUARDS.                --}}
     {{--                                                                    --}}
     {{-- Genau dann, wenn keine Filiale gewählt ist (oder gar keine gepflegt --}}
-    {{-- ist), steckt JEDE Bewerbung in Block 2 oder 3 — dort ist die        --}}
+    {{-- ist), steckt JEDE Bewerbung in Block 2, 3 oder 4 — dort ist die     --}}
     {{-- Erklärung also am nötigsten. Stünden die Blöcke im @else, zeigte    --}}
     {{-- die Seite in diesem Zustand ausschließlich die Aufforderung, und    --}}
     {{-- die Regel „was aus der Ansicht fällt, wird benannt“ gälte gerade    --}}
@@ -312,12 +320,12 @@
             : '';
 
         // Der STATUS-Filter schneidet ZUSÄTZLICH — aber nur die AUSWAHL (Block 1
-        // liest cohort()['rows']), nicht die beiden Ablage-Blöcke: die legt cohort()
+        // liest cohort()['rows']), nicht die drei Ablage-Blöcke: die legt cohort()
         // vor dem Status-Filter beiseite und sie sind unabhängig von ihm vollständig.
         // Deshalb zwei Flags statt einem:
-        //   $narrowed          → Blöcke 2 und 3 (Tätigkeit/Ausschreibung/Quelle),
+        //   $narrowed          → Blöcke 2, 3 und 4 (Tätigkeit/Ausschreibung/Quelle),
         //   $auswahlBeschnitten → Block 1 (dieselben plus Status).
-        // Ein gemeinsames Flag hätte die Blöcke 2/3 im Standardzustand („online“)
+        // Ein gemeinsames Flag hätte die Blöcke 2–4 im Standardzustand („online“)
         // dauerhaft als unvollständig ausgewiesen, obwohl sie es nicht sind — und
         // eine Warnung, die immer steht, liest niemand mehr.
         // Aufgezählt werden die TATSÄCHLICH aktiven Dimensionen, und die FILIALE
@@ -397,18 +405,25 @@
         }
 
         // ---------------------------------------------------------------
-        // Blöcke 2 und 3: die beiden Mengen, die aus der Auswahl fallen
+        // Blöcke 2, 3 und 4: die drei Mengen, die aus der Auswahl fallen
         // ---------------------------------------------------------------
-        // Beide Listen sind gleich gebaut (eine Zeile je Ausschreibung, mit Ort
-        // und Drill-down) und werden deshalb von EINEM Bauplan erzeugt: zwei
+        // Alle drei Listen sind gleich gebaut (eine Zeile je Ausschreibung, mit
+        // Ort und Drill-down) und werden deshalb von EINEM Bauplan erzeugt: drei
         // Kopien desselben Markups liefen beim nächsten Umbau auseinander, und
-        // gerade diese beiden Blöcke müssen sich wie eine Lesart lesen.
+        // gerade diese drei Blöcke müssen sich wie eine Lesart lesen.
         //
         // Das Token trägt zwei Angaben, beide Pflicht: 'posting' ist der
         // Zuschnitt (ohne ihn trifft der Scope fail-closed nichts), 'set' die
         // ZEILENMENGE. Ohne 'set' löste der Klick gegen die Auswahl auf — und
         // dort stehen diese Zeilen gerade nicht.
-        $sideList = function (array $groups, string $set): array {
+        //
+        // $nullTitle ist NUR fürs Label einer posting_id===null-Zeile ein
+        // Parameter, weil dieselbe Form zwei verschiedene Befunde trägt: „ohne
+        // Ausschreibung“ heißt in Block 3 wörtlich das (Fall 3 der
+        // Zuordnungsregel), in Block 4 (Task 10) ist die Ausschreibung dagegen
+        // schlicht nicht mehr REKONSTRUIERBAR — zwei Ursachen, die dasselbe Wort
+        // nicht tragen sollten.
+        $sideList = function (array $groups, string $set, string $nullTitle = 'ohne Ausschreibung'): array {
             $list = [];
             $total = 0;
 
@@ -426,7 +441,7 @@
 
                 $title = $group['posting_title'] !== '' ? $group['posting_title'] : 'ohne Titel';
                 $list[] = [
-                    'title' => $group['posting_id'] === null ? 'ohne Ausschreibung' : $title,
+                    'title' => $group['posting_id'] === null ? $nullTitle : $title,
                     'orte' => implode(', ', $orte),
                     'count' => $count,
                     'token' => $this->drillToken('posting', $title, [
@@ -453,16 +468,31 @@
         // finden, weil er innerhalb der Auswahl rechnet (siehe dort).
         $unreachable = $sideList($this->unreachablePostingGroups, 'unreachable');
 
+        // Block 4 — HERKUNFT UNBEKANNT (aus cohort()['unknown_origin_rows'],
+        // Task 10). Stellenwechsel-Altfälle: die einzige Verknüpfung dieser
+        // Bewerbungen ist als Wechsel markiert (matched_via = 'position_switch')
+        // — rein historisch, der laufende Betrieb erzeugt den Marker nicht mehr
+        // (rund 15 Altfälle, kein wachsender Topf). Der Assigner sieht sie
+        // mangels verbliebener Verknüpfung wie eine Bewerbung ganz OHNE
+        // Ausschreibung; Index::cohort() schließt sie deshalb ausdrücklich aus
+        // Block 3 aus, damit sie NUR hier stehen (Disjunktheit, Test:
+        // StatisticsPageReconciliationTest).
+        $herkunftUnbekannt = $sideList(
+            $this->unknownOriginPostingGroups,
+            'unknown_origin',
+            'Stellenwechsel — ursprüngliche Anzeige nicht mehr bekannt',
+        );
+
         // ---------------------------------------------------------------
-        // Block 4: Rekonziliation
+        // Block 5: Rekonziliation
         // ---------------------------------------------------------------
         // Unveraendert uebernommen: Summe der Zeilen MUSS die Gesamtmenge sein
         // (Spec §4). Abweichung wird sichtbar gemacht, nicht still korrigiert.
         //
         // WAS DIESER HINWEIS NICHT KANN: total_ids wird nach dem Filtern neu
         // gebildet (Index::cohort()), er prueft also die Auswahl gegen sich
-        // selbst. Was VOR dem Filter herausfiel, sehen nur die Bloecke 2 und 3 —
-        // deshalb sind sie keine Kosmetik, sondern das eigentliche Netz.
+        // selbst. Was VOR dem Filter herausfiel, sehen nur die Bloecke 2, 3 und
+        // 4 — deshalb sind sie keine Kosmetik, sondern das eigentliche Netz.
         $rowSum = $this->countIn($this->cohort['rows'], 'ids');
         $totalIds = count($this->cohort['total_ids']);
     @endphp
@@ -538,9 +568,10 @@
     {{-- ------------------------------------------------------------------ --}}
     {{-- Block 2: Geschlossene Ausschreibungen                              --}}
     {{-- Block 3: Ohne Filial-Zuordnung                                     --}}
+    {{-- Block 4: Herkunft unbekannt (Task 10)                              --}}
     {{--                                                                    --}}
-    {{-- Gleiches Markup, zwei Mengen — deshalb EIN Durchlauf ueber zwei     --}}
-    {{-- Beschreibungen statt zweimal derselbe Block. Was sie unterscheidet, --}}
+    {{-- Gleiches Markup, drei Mengen — deshalb EIN Durchlauf ueber drei     --}}
+    {{-- Beschreibungen statt dreimal derselbe Block. Was sie unterscheidet, --}}
     {{-- steht im Text jedes Blocks, nicht in der Struktur.                 --}}
     {{-- ------------------------------------------------------------------ --}}
     @php
@@ -602,6 +633,34 @@
                         ? ' Mit aktivem Tätigkeits-, Ausschreibungs- oder Quellen-Filter ist auch diese Liste '
                             . 'ein Ausschnitt — Zeilen, die diese Filter ausschließen, fehlen hier ebenso wie '
                             . 'oben.'
+                        : ' Ohne einschränkende Filter ist die Liste vollständig.'),
+            ],
+            [
+                'title' => 'Herkunft unbekannt',
+                'summary' => 'Stellenwechsel-Altfälle, keine Anzeige zuordenbar',
+                'data' => $herkunftUnbekannt,
+                'empty' => $narrowed
+                    ? 'In dieser Auswahl kein Stellenwechsel-Altfall mit unbekannter Herkunft — '
+                        . 'ohne Tätigkeits-, Ausschreibungs- und Quellen-Filter können es mehr sein.'
+                    : 'Kein Stellenwechsel-Altfall mit unbekannter Herkunft.',
+                // WICHTIG: kein laufendes Geschehen behaupten. Der Marker entsteht im
+                // Betrieb nicht mehr (Stellenwechsel fasst den Pivot seit dem Umbau
+                // nicht mehr an) — gesetzt wurde er von einem frueheren
+                // Zwischenstand und vom Backfill-Kommando. Der Text darf deshalb
+                // nicht wie eine wachsende Warnung klingen.
+                'note' => 'Diese Bewerbungen haben AUSSCHLIESSLICH eine als Stellenwechsel markierte '
+                    . 'Verknüpfung — das ist keine Bewerbung auf die verlinkte Anzeige, sondern ein '
+                    . 'technisches Artefakt eines früheren Stellenwechsels. Ihre ursprüngliche Anzeige ist '
+                    . 'nicht mehr bekannt. Rein historisch: rund 15 Altfälle, der laufende Betrieb erzeugt '
+                    . 'diesen Marker nicht mehr — kein wachsender Topf.' . $narrowNote,
+                'noteHint' => 'Der Tätigkeits-Filter wirkt auch hier mit, der Filial-Filter nicht — dieselbe '
+                    . 'Asymmetrie wie in den beiden Blöcken darüber. Ohne diesen Block wären diese Bewerbungen '
+                    . 'von einer Bewerbung ganz ohne Ausschreibung nicht zu unterscheiden gewesen: der Assigner '
+                    . 'sieht beide gleich („ohne Ausschreibung“), Index::cohort() schließt sie deshalb aus '
+                    . 'Block 3 aus, damit keine Bewerbung in zwei Blöcken steht.'
+                    . ($narrowed
+                        ? ' Mit aktivem Tätigkeits-, Ausschreibungs- oder Quellen-Filter ist auch diese Liste '
+                            . 'ein Ausschnitt.'
                         : ' Ohne einschränkende Filter ist die Liste vollständig.'),
             ],
         ];
@@ -667,7 +726,7 @@
     @endforeach
 
     {{-- ------------------------------------------------------------------ --}}
-    {{-- Block 4: Rekonziliation                                            --}}
+    {{-- Block 5: Rekonziliation                                            --}}
     {{-- ------------------------------------------------------------------ --}}
     @if ($rowSum !== $totalIds)
         {{-- Rekonziliations-Invariante verletzt: die Summe der Zeilen MUSS die

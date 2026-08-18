@@ -383,6 +383,12 @@ class Index extends Component
         $rows = [];
         $bookings = [];
         $pivots = [];
+        // Ablage fuer Task 10 (Block „Herkunft unbekannt"): applicant_id => true,
+        // wenn die einzige(n) unter der aktuellen Ausschreibungs-Auswahl passende(n)
+        // Verknuepfung(en) AUSSCHLIESSLICH als Stellenwechsel markiert sind (siehe
+        // Schleife unten). Getrennt von $pivots, weil der Assigner diese Information
+        // nicht braucht — er sieht nur die (bereits marker-gefilterte) Pivot-Liste.
+        $unknownOrigin = [];
         foreach ($applicants as $a) {
             $signed = $a->contracts->whereNotNull('signed_at')->sortBy('signed_at')->first();
 
@@ -436,8 +442,26 @@ class Index extends Component
                 // selbstkorrigierend, falls die Relation je geaendert wird
                 'deleted' => $b->deleted_at !== null,
             ])->all();
-            $pivots[$a->id] = $a->postings
-                ->filter(fn ($p) => $postingId === null || (int) $p->id === $postingId)
+            // Postings NACH dem Ausschreibungs-Filter der Seite ($postingId), aber
+            // VOR dem Marker-Filter — die Menge, die ohne den Marker in
+            // $pivots[$a->id] gelandet waere. Erst DANACH wird der Marker
+            // abgezogen: nur wenn diese Zwischenmenge nicht leer ist und der
+            // Marker sie komplett leerraeumt, ist die Bewerbung ein „Herkunft
+            // unbekannt"-Altfall — nicht schon dann, wenn der Ausschreibungs-Filter
+            // der Seite ohnehin nichts trifft (das bleibt schlicht „ohne
+            // Ausschreibung", Fall 3).
+            $postingsUnderFilter = $a->postings
+                ->filter(fn ($p) => $postingId === null || (int) $p->id === $postingId);
+            // Verknuepfungen aus einem Stellenwechsel sind KEINE Bewerbung auf diese
+            // Anzeige (Marker aus switchToPosition bzw. dem Backfill, historisch —
+            // der laufende Betrieb erzeugt ihn nicht mehr). Sie zaehlen in keiner
+            // Anzeigen-Zeile mit — sonst bekaeme die Anzeige eine Bewerbung, die sie
+            // nie erhalten hat. Benannt werden sie im eigenen Block weiter unten.
+            $postingsOhneMarker = $postingsUnderFilter
+                ->filter(fn ($p) => $p->pivot?->matched_via !== 'position_switch');
+            $unknownOrigin[$a->id] = $postingsUnderFilter->isNotEmpty() && $postingsOhneMarker->isEmpty();
+
+            $pivots[$a->id] = $postingsOhneMarker
                 ->map(fn ($p) => [
                     'posting_id' => $p->id,
                     'position_id' => $p->rec_position_id,
@@ -464,7 +488,39 @@ class Index extends Component
         // Der Zeilentyp 'ohne_datum' haengt NICHT am Zeitraum, sondern an Stufe 2
         // der Praezedenz-Kette (applied_at IS NULL) — er bleibt also unveraendert
         // Teil der Rekonziliations-Kette und steht weiter im Block „Ausgeschieden".
-        $result = (new CohortAssigner())->assign($rows, $bookings, $pivots, null, null);
+        //
+        // ZWEI ASSIGN-AUFRUFE, EINE POPULATIONS-TRENNUNG (Task 10): Bewerbungen mit
+        // $unknownOrigin[$id] === true (Stellenwechsel-Altfaelle) werden VOR dem
+        // Assign aus der Hauptpopulation herausgenommen und in einem ZWEITEN,
+        // unabhaengigen Aufruf zugeordnet. Der Assigner selbst bleibt dadurch
+        // unveraendert (pure Klasse, siehe Klassendoc) und bekommt schlicht zwei
+        // disjunkte Eingaben. Das ist staerker als ein Filter NACH dem Assign:
+        // eine solche Bewerbung kann so INNERHALB des Assigners nie in denselben
+        // Zeilen-Bucket fallen wie eine echte „ohne Ausschreibung"-Bewerbung
+        // (Fall 3) — obwohl beide dieselbe Gruppe („ohne Ausschreibung") und
+        // womoeglich denselben Zeilentyp haetten —, weil der Assigner die beiden
+        // Mengen nie gemeinsam sieht. Ein nachtraeglicher Filter auf dem
+        // GRUPPIERTEN Ergebnis koennte das nicht: der Assigner buendelt
+        // Bewerbungen mit identischem (type, key, group, posting) in EINER Zeile
+        // mit einer 'ids'-LISTE, nicht in einer Zeile je Bewerbung — ein Filter
+        // haette entweder die ganze gemischte Zeile behalten oder verworfen.
+        $switchedIds = array_flip(array_keys(array_filter($unknownOrigin)));
+        $isSwitched = fn (array $r): bool => isset($switchedIds[$r['id']]);
+
+        $result = (new CohortAssigner())->assign(
+            array_values(array_filter($rows, fn ($r) => !$isSwitched($r))),
+            array_diff_key($bookings, $switchedIds),
+            array_diff_key($pivots, $switchedIds),
+            null,
+            null,
+        );
+        $unknownOriginAssign = (new CohortAssigner())->assign(
+            array_values(array_filter($rows, $isSwitched)),
+            array_intersect_key($bookings, $switchedIds),
+            array_intersect_key($pivots, $switchedIds),
+            null,
+            null,
+        );
 
         // Ziel-Werte an die Zeilen haengen. Der Assigner ist eine pure Klasse
         // ohne DB und kennt keine Ausschreibungs-Stammdaten — Bedarf, Faktor und
@@ -474,7 +530,13 @@ class Index extends Component
         // keiner Ausschreibung), bleibt jedes Feld null. „Leer heisst nicht
         // gepflegt" ist die tragende Regel dieses Features — eine nicht
         // gepflegte Ausschreibung zeigt eine graue Ampel, nie eine erfundene.
-        $result['rows'] = array_map(function (array $row) use ($postingTargets) {
+        //
+        // BEIDE Assign-Ergebnisse bekommen dieselbe Beigabe (auch wenn
+        // posting_id in $unknownOriginAssign['rows'] immer null ist und der
+        // Ziel-Lookup dort folglich immer null bleibt): ein Zeilen-Shape, das an
+        // einer Stelle Ziel-Felder traegt und an der anderen nicht, waere eine
+        // zweite Form, die postingGroups() nicht mehr blind vertrauen koennte.
+        $attachTargets = function (array $row) use ($postingTargets): array {
             $target = $row['posting_id'] !== null
                 ? ($postingTargets[$row['posting_id']] ?? null)
                 : null;
@@ -485,23 +547,26 @@ class Index extends Component
                 'published_ymd' => $target['published_ymd'] ?? null,
                 'closes_ymd' => $target['closes_ymd'] ?? null,
             ];
-        }, $result['rows']);
+        };
+        $result['rows'] = array_map($attachTargets, $result['rows']);
+        $unknownOriginAssign['rows'] = array_map($attachTargets, $unknownOriginAssign['rows']);
 
         // ------------------------------------------------------------------
-        // ZWEI ABLAGEN, beide aus dem UNGEFILTERTEN Assign-Ergebnis, beide
-        // Grundlage eines eigenen Blocks unter den Tabellen. Sie sind das Netz
-        // gegen die einzige stille Luecke, die diese Seite haben kann: eine
-        // Bewerbung, die aus der Filial-Ansicht faellt und nirgends benannt wird.
+        // DREI ABLAGEN, Grundlage je eines eigenen Blocks unter den Tabellen.
+        // Sie sind das Netz gegen die einzige stille Luecke, die diese Seite
+        // haben kann: eine Bewerbung, die aus der Filial-Ansicht faellt und
+        // nirgends benannt wird.
         //
-        // Warum die Rekonziliation (Block 3) dieses Netz NICHT ersetzt: `total_ids`
+        // Warum die Rekonziliation (Block 5) dieses Netz NICHT ersetzt: `total_ids`
         // wird nach dem Filtern NEU gebildet (unten). Σ Zeilen == Gesamtmenge gilt
         // damit per Konstruktion INNERHALB der Auswahl — was vor dem Filter
         // herausfiel, kann der Hinweis nie sehen.
         //
-        // Der TAETIGKEITS-Filter wirkt auf beide Ablagen, der ORT-Filter nicht.
-        // Das ist keine Schlamperei, sondern die Asymmetrie der beiden Filter: wer
-        // eine Taetigkeit waehlt, will keine fremde sehen — wer eine Filiale
-        // waehlt, kann die Zeilen OHNE Filiale ueber keine Auswahl je erreichen.
+        // Der TAETIGKEITS-Filter wirkt auf alle drei Ablagen, der ORT-Filter auf
+        // keine. Das ist keine Schlamperei, sondern die Asymmetrie der beiden
+        // Filter: wer eine Taetigkeit waehlt, will keine fremde sehen — wer eine
+        // Filiale waehlt, kann die Zeilen OHNE Filiale ueber keine Auswahl je
+        // erreichen.
         $inActivity = fn ($r) => $this->activityFilter === null
             || $r['group']['taetigkeit'] === $this->activityFilter;
 
@@ -513,11 +578,29 @@ class Index extends Component
             fn ($r) => ($r['posting_closed'] ?? false) === true && $inActivity($r),
         ));
 
-        // (2) Zeilen, die ueber KEINE Filial-Auswahl erreichbar sind — Block „Ohne
+        // (2) STELLENWECHSEL-ALTFAELLE (Task 10) — Block „Herkunft unbekannt".
+        // Stammt aus dem ZWEITEN, unabhaengigen Assign-Aufruf oben — strukturell
+        // disjunkt von $result['rows'] (Ablage 1/3), weil keine einzige dieser
+        // Bewerbungen je in dessen Eingabe stand. Der Assigner sieht diese
+        // Bewerbungen mangels verbliebener Pivot-Zeile als „ohne Ausschreibung"
+        // (posting_id null, Fall 3 der Zuordnungsregel) — der Unterschied zu einer
+        // Bewerbung ganz ohne Verknuepfung ist real (hier ist eine Anzeige
+        // bekannt, nur eben keine ZUVERLAESSIGE), deshalb der eigene Block statt
+        // desselben Fallback-Namens.
+        //
+        // Rein historisch (Docblock der Klasse): der Marker entsteht im laufenden
+        // Betrieb nicht mehr, gesetzt wurde er von einem frueheren Zwischenstand
+        // und vom Backfill-Kommando — rund 15 Altfaelle, kein wachsender Topf.
+        $result['unknown_origin_rows'] = array_values(array_filter($unknownOriginAssign['rows'], $inActivity));
+
+        // (3) Zeilen, die ueber KEINE Filial-Auswahl erreichbar sind — Block „Ohne
         // Filial-Zuordnung". Das sind die Bewerbungen an Stellen OHNE gepflegten
         // Standort (Gruppe „ohne Ort", gemessen rund 929) und die Bewerbungen ohne
         // jede Ausschreibung (Fall 3 der Zuordnungsregel, Gruppe „ohne
-        // Ausschreibung").
+        // Ausschreibung"). Die Stellenwechsel-Altfaelle (Ablage 2) koennen hier
+        // NICHT auftauchen — sie stehen gar nicht in $result['rows']/total_ids
+        // dieser Auswahl (siehe die Populations-Trennung oben), keine gesonderte
+        // Ausschluss-Bedingung noetig.
         //
         // ERREICHBARKEIT statt Namensliste: eine Gruppe ist genau dann waehlbar,
         // wenn sie in der Ortsliste des Filters vorkommt. Damit haengt die
@@ -714,6 +797,21 @@ class Index extends Component
     public function unreachablePostingGroups(): array
     {
         return $this->viewModel()->postingGroups($this->cohort['unreachable_rows']);
+    }
+
+    /**
+     * Die Zeilen der Stellenwechsel-Altfaelle — Grundlage des Blocks „Herkunft
+     * unbekannt" (Task 10). Gruppiert wie die drei Bloecke darueber; alle Zeilen
+     * haben `posting_id === null` (der Assigner kennt keine verbliebene
+     * Verknuepfung mehr), postingGroups() fasst sie deshalb zu genau EINER
+     * Gruppe zusammen.
+     *
+     * @return list<array>
+     */
+    #[Computed]
+    public function unknownOriginPostingGroups(): array
+    {
+        return $this->viewModel()->postingGroups($this->cohort['unknown_origin_rows']);
     }
 
     /**
@@ -1323,10 +1421,10 @@ class Index extends Component
      * auf (leeres Modal statt vermischter IDs). Fuer die Termin-Scopes gilt dasselbe
      * fuer 'interviews' => list<int>.
      *
-     * $extra kennt zusaetzlich 'set' => 'closed' | 'unreachable' (die beiden
-     * Bloecke unter den Tabellen): das waehlt nicht den Zuschnitt, sondern die
-     * ZEILENMENGE, gegen die drill() aufloest — siehe dort. Ohne den Schluessel ist
-     * es die Auswahl der Seite.
+     * $extra kennt zusaetzlich 'set' => 'closed' | 'unreachable' | 'unknown_origin'
+     * (die drei Bloecke unter den Tabellen): das waehlt nicht den Zuschnitt,
+     * sondern die ZEILENMENGE, gegen die drill() aufloest — siehe dort. Ohne den
+     * Schluessel ist es die Auswahl der Seite.
      */
     public function drillToken(string $scope, string $prefix, array $extra = []): string
     {
@@ -1365,15 +1463,17 @@ class Index extends Component
         // — dieselbe Menge, aus der die angeklickte Zahl gerechnet wurde, sonst
         // passte die Modal-Laenge nicht zur Zahl daneben.
         //
-        // 'closed' und 'unreachable' sind die beiden beiseitegelegten Mengen der
-        // Bloecke unter den Tabellen: sie stehen absichtlich NICHT in der Auswahl
-        // (Status-Filter bzw. Filial-Filter), ihre Zahlen muessen aber anklickbar
-        // sein. Ein unbekannter Wert faellt auf die Auswahl zurueck; alle drei
-        // Mengen stammen aus derselben team-gescopten Kohorte, ein gecraftetes
-        // 'set' oeffnet also nichts, was die Seite nicht ohnehin zeigt.
+        // 'closed', 'unreachable' und 'unknown_origin' sind die drei beiseite-
+        // gelegten Mengen der Bloecke unter den Tabellen: sie stehen absichtlich
+        // NICHT in der Auswahl (Status-Filter, Filial-Filter bzw. gar keiner
+        // Auswahl zugehoerig), ihre Zahlen muessen aber anklickbar sein. Ein
+        // unbekannter Wert faellt auf die Auswahl zurueck; alle vier Mengen
+        // stammen aus derselben team-gescopten Kohorte, ein gecraftetes 'set'
+        // oeffnet also nichts, was die Seite nicht ohnehin zeigt.
         $rows = match ($spec['set'] ?? null) {
             'closed' => $this->cohort['closed_rows'],
             'unreachable' => $this->cohort['unreachable_rows'],
+            'unknown_origin' => $this->cohort['unknown_origin_rows'],
             default => $this->cohort['rows'],
         };
 

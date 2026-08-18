@@ -61,6 +61,16 @@ class StatisticsPageReconciliationTest extends TestCase
     /** Testbewerber: steht in KEINER der Mengen (Stufe 1 der Praezedenz-Kette). */
     private const APP_TEST = 908;
 
+    /**
+     * Fall 8 (Task 10): die EINZIGE Verknuepfung ist als Stellenwechsel markiert
+     * (matched_via = 'position_switch', rein historisch — Backfill/frueherer
+     * Zwischenstand). Der Assigner sieht mangels verbliebener Pivot-Zeile „ohne
+     * Ausschreibung" (wie Fall 5), die Herkunft ist aber nicht wirklich unbekannt
+     * im Sinne von Fall 5, sondern ein technisches Artefakt — deshalb eigener
+     * Block „Herkunft unbekannt", NICHT der Block „Ohne Filial-Zuordnung".
+     */
+    private const APP_GEWANDERT = 909;
+
     private const POSTING_ESSEN_ONLINE = 610;
     private const POSTING_ESSEN_ZU = 611;
     private const POSTING_OHNE_ORT_ONLINE = 612;
@@ -170,20 +180,23 @@ class StatisticsPageReconciliationTest extends TestCase
             $inViews = array_merge($inViews, $this->idsOf($this->component($ort)->cohort()['rows']));
         }
 
-        // (b) die beiden Bloecke. Sie sind filial-UNABHAENGIG, deshalb genuegt eine
+        // (b) die drei Bloecke. Sie sind filial-UNABHAENGIG, deshalb genuegt eine
         //     beliebige Ansicht — und genau das wird hier gleich mitgeprueft.
         $cohort = $this->component('Essen')->cohort();
         $inClosed = $this->idsOf($cohort['closed_rows']);
         $inUnreachable = $this->idsOf($cohort['unreachable_rows']);
+        $inUnknownOrigin = $this->idsOf($cohort['unknown_origin_rows']);
 
         $wuppertal = $this->component('Wuppertal')->cohort();
         $this->assertSame($inClosed, $this->idsOf($wuppertal['closed_rows']),
             'der Block der geschlossenen Ausschreibungen haengt nicht an der gewaehlten Filiale');
         $this->assertSame($inUnreachable, $this->idsOf($wuppertal['unreachable_rows']),
             'der Block ohne Filial-Zuordnung haengt nicht an der gewaehlten Filiale');
+        $this->assertSame($inUnknownOrigin, $this->idsOf($wuppertal['unknown_origin_rows']),
+            'der Block Herkunft unbekannt haengt nicht an der gewaehlten Filiale');
 
         // DIE PARTITION
-        $alle = array_merge($inViews, $inClosed, $inUnreachable);
+        $alle = array_merge($inViews, $inClosed, $inUnreachable, $inUnknownOrigin);
         sort($alle);
 
         $this->assertSame(
@@ -240,27 +253,63 @@ class StatisticsPageReconciliationTest extends TestCase
         );
         $this->assertNotContains(self::APP_FREMD_ONLINE, $closed);
         $this->assertNotContains(self::APP_FREMD_ONLINE, $unreachable);
+
+        // Fall 8 (Task 10): die einzige Verknuepfung ist als Stellenwechsel
+        // markiert — der Assigner sieht „ohne Ausschreibung" wie Fall 5, die
+        // Bewerbung darf aber NICHT im selben Block landen (Doppelzaehlung waere
+        // die Folge, wenn ein Test das uebersaehe). Eigener Block, eigene Menge.
+        $unknownOrigin = $this->idsOf($cohort['unknown_origin_rows']);
+        $this->assertSame([self::APP_GEWANDERT], $unknownOrigin, 'Fall 8: eigener Block „Herkunft unbekannt"');
+        $this->assertNotContains(self::APP_GEWANDERT, $this->idsOf($cohort['rows']));
+        $this->assertNotContains(self::APP_GEWANDERT, $closed);
+        $this->assertNotContains(self::APP_GEWANDERT, $unreachable, 'kein zweiter Topf fuer denselben Fall');
+    }
+
+    /**
+     * Dedizierter Test fuer Task 10 (Brief Step 1), unabhaengig von den
+     * umfassenderen Partitions-Tests oben: Bewerber APP_GEWANDERT hat als
+     * einzige Verknuepfung eine als Wechsel markierte (matched_via =
+     * 'position_switch'), die echte Herkunft ist nicht mehr bekannt. Er darf
+     * KEINER Anzeige zugeschlagen werden — sonst zaehlt eine Anzeige
+     * (POSTING_ESSEN_ONLINE) eine Bewerbung, die sie nie erhielt — sondern wird
+     * im eigenen Block benannt.
+     */
+    public function test_gewanderte_bewerbung_zaehlt_in_keiner_anzeigen_zeile_sondern_im_eigenen_block(): void
+    {
+        $cohort = $this->component('Essen')->cohort();
+
+        $inZeilen = collect($cohort['rows'])->flatMap(fn ($r) => $r['ids'])->all();
+        $this->assertNotContains(self::APP_GEWANDERT, $inZeilen);
+
+        $this->assertContains(
+            self::APP_GEWANDERT,
+            collect($cohort['unknown_origin_rows'])->flatMap(fn ($r) => $r['ids'])->all(),
+            'aber sie wird benannt',
+        );
     }
 
     public function test_der_gemessene_befund_ist_jetzt_vollstaendig_benannt(): void
     {
         // Der Auslöser: „1 von 7" in der Ansicht, drei im Block der Geschlossenen,
-        // drei nirgends. Die drei „nirgends" sind jetzt zwei im neuen Block plus
-        // eine Bewerbung, die man mit einem Filialwechsel sieht.
+        // drei nirgends. Die drei „nirgends" sind jetzt zwei im Block „Ohne
+        // Filial-Zuordnung" plus eine Bewerbung, die man mit einem Filialwechsel
+        // sieht. Dazu kommt (Task 10) ein achter Bestandsfall, der ausschliesslich
+        // im neuen Block „Herkunft unbekannt" steht.
         $cohort = $this->component('Essen')->cohort();
         $component = $this->component('Essen');
 
-        $this->assertSame(7, count($this->teamApplicantIds()), 'sieben echte Bewerbungen im Bestand');
+        $this->assertSame(8, count($this->teamApplicantIds()), 'acht echte Bewerbungen im Bestand');
         $this->assertSame(1, $component->countIn($cohort['rows'], 'ids'), 'die Ansicht zeigt eine');
         $this->assertSame(3, $component->countIn($cohort['closed_rows'], 'ids'), 'Block 2 nennt drei');
         $this->assertSame(2, $component->countIn($cohort['unreachable_rows'], 'ids'), 'Block 3 nennt zwei');
+        $this->assertSame(1, $component->countIn($cohort['unknown_origin_rows'], 'ids'), 'Block 4 nennt eine');
         $this->assertSame(
             1,
             $component->countIn($this->component('Wuppertal')->cohort()['rows'], 'ids'),
             'die siebte steht in der anderen Filiale',
         );
 
-        // Und der Rekonziliations-Hinweis (Block 4) schweigt dabei zu Recht: er
+        // Und der Rekonziliations-Hinweis (Block 5) schweigt dabei zu Recht: er
         // rechnet innerhalb der Auswahl, und dort stimmt die Summe.
         $this->assertSame(
             $component->countIn($cohort['rows'], 'ids'),
@@ -271,7 +320,7 @@ class StatisticsPageReconciliationTest extends TestCase
     public function test_die_zahlen_der_bloecke_sind_anklickbar(): void
     {
         // Eine Zahl, die man nicht aufloesen kann, ist auf dieser Seite keine Zahl.
-        // Beide Bloecke tragen 'set' im Token, weil ihre Zeilen NICHT in der
+        // Alle drei Bloecke tragen 'set' im Token, weil ihre Zeilen NICHT in der
         // Auswahl stehen — ohne den Schluessel bliebe das Modal leer.
         $component = $this->component('Essen');
         $cohort = $component->cohort();
@@ -312,6 +361,28 @@ class StatisticsPageReconciliationTest extends TestCase
             [],
             $vm->resolveIdsFromClient($cohort['rows'], $vm->decodeScope($unreachableToken), 'ids'),
         );
+
+        // Block „Herkunft unbekannt" (Task 10): auch der Stellenwechsel-Altfall
+        // ist eine Zeile mit posting = null und muss anklickbar bleiben.
+        $unknownOriginToken = $component->drillToken('posting', 'Stellenwechsel', [
+            'posting' => null,
+            'set' => 'unknown_origin',
+        ]);
+        $this->assertSame(
+            [self::APP_GEWANDERT],
+            $vm->resolveIdsFromClient($cohort['unknown_origin_rows'], $vm->decodeScope($unknownOriginToken), 'ids'),
+        );
+
+        // Disjunktheit auch hier bewiesen: derselbe Token (posting = null) trifft
+        // in `unreachable_rows` NICHT den Stellenwechsel-Altfall — der steht dort
+        // nicht (Index::cohort() schliesst ihn aus). Fall 5 hat dort ebenfalls
+        // posting = null, resolveIds() faellt also nicht auf ein leeres Ergebnis
+        // zurueck — es traefe Fall 5, wenn der Altfall dort noch stuende. Die
+        // Zusicherung ist deshalb NotContains, nicht Same([]).
+        $this->assertNotContains(
+            self::APP_GEWANDERT,
+            $vm->resolveIdsFromClient($cohort['unreachable_rows'], $vm->decodeScope($unknownOriginToken), 'ids'),
+        );
     }
 
     public function test_bei_status_alle_ist_die_ueberlappung_gewollt(): void
@@ -334,16 +405,22 @@ class StatisticsPageReconciliationTest extends TestCase
         $doppelt = array_values(array_intersect($inView, $this->idsOf($cohort['closed_rows'])));
         $this->assertSame([self::APP_ESSEN_ZU], $doppelt, 'genau die geschlossene Zeile dieser Filiale');
 
-        // Nachgerechnet: neun Eintraege fuer sieben Bewerbungen — 902 und 907 sind
-        // doppelt (907 in der Wuppertal-Ansicht und im Block).
+        // Nachgerechnet: zehn Eintraege fuer acht Bewerbungen — 902 und 907 sind
+        // doppelt (907 in der Wuppertal-Ansicht und im Block), 909 (Fall 8, Task
+        // 10) steckt einfach im Block „Herkunft unbekannt".
         $eintraege = [];
         foreach (array_keys($alle->ortOptions()) as $ort) {
             $eintraege = array_merge($eintraege, $this->idsOf($this->component($ort, 'alle')->cohort()['rows']));
         }
-        $eintraege = array_merge($eintraege, $this->idsOf($cohort['closed_rows']), $this->idsOf($cohort['unreachable_rows']));
+        $eintraege = array_merge(
+            $eintraege,
+            $this->idsOf($cohort['closed_rows']),
+            $this->idsOf($cohort['unreachable_rows']),
+            $this->idsOf($cohort['unknown_origin_rows']),
+        );
         sort($eintraege);
 
-        $this->assertCount(9, $eintraege);
+        $this->assertCount(10, $eintraege);
         $this->assertSame($this->teamApplicantIds(), array_values(array_unique($eintraege)),
             'die Vereinigung bleibt vollstaendig — nur eben mit Ueberlappung');
 
@@ -431,8 +508,9 @@ class StatisticsPageReconciliationTest extends TestCase
     /**
      * Der Bestand ist die VOLLSTAENDIGE Fall-Liste: Standort gepflegt/nicht
      * gepflegt x online/geschlossen, dazu eine Bewerbung ohne Ausschreibung, eine
-     * fremde Filiale und ein Testbewerber. Genau darum kann der Test oben eine
-     * Partition behaupten.
+     * fremde Filiale, ein Testbewerber und (Task 10) ein Stellenwechsel-Altfall
+     * mit einer als Marker gesetzten Verknuepfung. Genau darum kann der Test oben
+     * eine Partition behaupten.
      */
     private static function seed(): void
     {
@@ -514,6 +592,13 @@ class StatisticsPageReconciliationTest extends TestCase
             ['id' => self::APP_TEST, 'uuid' => 'kapp-908', 'team_id' => self::TEAM,
              'applied_at' => '2026-07-08', 'rec_phase_id' => 91, 'is_test' => 1,
              'created_at' => $now, 'updated_at' => $now],
+            // Fall 8 (Task 10): steht formal an einer Essener Online-Ausschreibung,
+            // die einzige Verknuepfung dorthin ist aber als Stellenwechsel markiert
+            // (siehe rec_applicant_posting unten) — sie zaehlt deshalb NICHT als
+            // Bewerbung auf POSTING_ESSEN_ONLINE.
+            ['id' => self::APP_GEWANDERT, 'uuid' => 'kapp-909', 'team_id' => self::TEAM,
+             'applied_at' => '2026-07-09', 'rec_phase_id' => 91, 'is_test' => 0,
+             'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicant_posting')->insert([
@@ -531,6 +616,21 @@ class StatisticsPageReconciliationTest extends TestCase
              'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => self::APP_TEST, 'rec_posting_id' => self::POSTING_ESSEN_ONLINE,
              'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        // Eigener insert()-Aufruf: Laravel bildet die Spaltenliste eines Batch-
+        // Inserts aus der ERSTEN Zeile, eine zusaetzliche Spalte in einer
+        // spaeteren Zeile bricht mit "all VALUES must have the same number of
+        // terms" (SQLite). matched_via steht deshalb nicht in der Liste oben.
+        Capsule::table('rec_applicant_posting')->insert([
+            // matched_via = 'position_switch': die Verknuepfung ist ein Artefakt
+            // eines frueheren Stellenwechsels (Backfill bzw. frueherer
+            // Zwischenstand), keine Bewerbung auf POSTING_ESSEN_ONLINE. Genau
+            // dieser Fall darf nach Task 10 weder die Anzeige-Zeile noch den Block
+            // „Ohne Filial-Zuordnung" fuellen — er gehoert ausschliesslich in den
+            // Block „Herkunft unbekannt".
+            'rec_applicant_id' => self::APP_GEWANDERT, 'rec_posting_id' => self::POSTING_ESSEN_ONLINE,
+            'matched_via' => 'position_switch', 'created_at' => $now, 'updated_at' => $now,
         ]);
     }
 }
