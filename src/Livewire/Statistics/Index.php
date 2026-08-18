@@ -170,7 +170,34 @@ class Index extends Component
     public function updatedOrtFilter($value): void
     {
         $this->ortFilter = ($value === '' || $value === null) ? null : (string) $value;
+        $this->verwerfeUngueltigeAusschreibung();
         $this->resetDrill();
+    }
+
+    /**
+     * Faellt die gewaehlte Ausschreibung durch einen Wechsel von Filiale oder
+     * Status aus der Auswahlliste, wird sie VERWORFEN.
+     *
+     * Ohne das bliebe eine Ausschreibung stehen, die es in der neuen Auswahl gar
+     * nicht gibt: die Tabellen waeren leer, und im Dropdown stuende ein Titel, der
+     * dort nicht mehr zur Wahl steht — der Nutzer saehe nicht, WARUM nichts kommt.
+     * Dieselbe Falle wie beim Stellenwechsel im Termin-Formular (Task 6).
+     *
+     * postingOptions() wird hier als METHODE gerufen, nicht als Property: diese
+     * Klasse wird auch nackt getestet (kein Livewire-Lebenszyklus, also kein __get
+     * auf #[Computed]) — derselbe Grund wie bei ortOptions() in applyOrtDefault().
+     * Ein Invalidieren des Computed-Caches braucht es dabei nicht: dieser Hook
+     * laeuft VOR dem Rendern, und die Property wird erst beim Rendern aufgeloest.
+     */
+    private function verwerfeUngueltigeAusschreibung(): void
+    {
+        if ($this->postingFilter === null) {
+            return;
+        }
+
+        if (! array_key_exists((int) $this->postingFilter, $this->postingOptions())) {
+            $this->postingFilter = null;
+        }
     }
 
     public function updatedActivityFilter($value): void
@@ -189,6 +216,7 @@ class Index extends Component
     public function updatedPostingStatusFilter($value): void
     {
         $this->postingStatusFilter = $value === 'alle' ? 'alle' : 'online';
+        $this->verwerfeUngueltigeAusschreibung();
         $this->resetDrill();
     }
 
@@ -270,7 +298,12 @@ class Index extends Component
         // der Pivot-Filter unten aber strikt. Mit einem gecrafteten Snapshot
         // ("5" statt 5) waere die Bewerber-Menge gefiltert, die Pivot-Liste
         // aber leer geblieben — jede Zeile waere in "ohne Ausschreibung" gelandet.
-        $postingId = $this->postingFilter !== null ? (int) $this->postingFilter : null;
+        // `?: null` statt `!== null`: ein Leerstring (Livewire-Hydrierung an der
+        // updated-Hook vorbei) wuerde zu 0 casten, und 0 passt auf keine
+        // Ausschreibung — der Pivot-Filter unten haette dann JEDE Zuordnung
+        // verworfen und jede Bewerbung als „ohne Ausschreibung" gezeigt, waehrend
+        // der Vorfilter der Query wegen when(0) gar nicht greift.
+        $postingId = ((int) $this->postingFilter) ?: null;
 
         // P2: Vorfilter spiegeln die PHP-Logik verlustfrei (is_test = Stufe 1,
         // Posting-/Quellen-Filter = Mengeneinschraenkung P3) — Rekonziliation
@@ -1427,12 +1460,38 @@ class Index extends Component
     #[Computed]
     public function postingOptions(): array
     {
-        return RecPosting::forTeam($this->teamId())
+        // Die Liste FOLGT den beiden Filtern links von ihr. Vorher standen hier
+        // alle Ausschreibungen des Teams: bei Filiale „Duesseldorf" und Status
+        // „nur online" waren also Moenchengladbach- und offline-Ausschreibungen
+        // waehlbar, deren Auswahl die Tabellen dann leer gezeigt haette. Eine
+        // Auswahlliste, die mehr anbietet als die Ansicht enthaelt, ist genau die
+        // Sorte Widerspruch, gegen die diese Seite gebaut ist.
+        //
+        // Ohne gewaehlte Filiale gibt es nichts zu waehlen — die Seite zeigt dort
+        // ohnehin die Aufforderung statt einer Tabelle.
+        if (! $this->hasOrt()) {
+            return [];
+        }
+
+        // Der Ort haengt an der STELLE, nicht an der Ausschreibung — dieselbe
+        // Herleitung wie in cohort() und in phaseLabels(), damit die drei nicht
+        // auseinanderlaufen koennen.
+        $postings = RecPosting::forTeam($this->teamId())
+            ->whereHas('position', fn ($q) => $q->where('location', $this->ortFilter))
             ->orderBy('title')
-            ->get(['id', 'title', 'status', 'is_active'])
-            ->mapWithKeys(fn ($p) => [
-                $p->id => $p->title . ($p->isOnline() ? '' : ' (nicht online)'),
-            ])->all();
+            ->get(['id', 'title', 'status', 'is_active', 'rec_position_id']);
+
+        // „online" wird auch hier nicht neu hergeleitet, sondern ueber
+        // RecPosting::isOnline() gelesen — dieselbe Quelle wie posting_closed.
+        if ($this->postingStatusFilter !== 'alle') {
+            $postings = $postings->filter(fn ($p) => $p->isOnline());
+        }
+
+        // Der Zusatz bleibt fuer den Fall „alle": dort stehen offene und
+        // geschlossene nebeneinander und muessen unterscheidbar sein.
+        return $postings->mapWithKeys(fn ($p) => [
+            $p->id => $p->title . ($p->isOnline() ? '' : ' (nicht online)'),
+        ])->all();
     }
 
     /** @return array<int,string> */

@@ -49,6 +49,12 @@ class InterviewPostingTeamScopeTest extends TestCase
     /** Ausschreibung des fremden Teams — darf nirgends erscheinen. */
     private const POSTING_FREMD = 899;
 
+    /** Eigene Ausschreibung an einer ANDEREN Filiale (Koeln). */
+    private const POSTING_ANDERE_FILIALE = 811;
+
+    /** Eigene Ausschreibung in Essen, aber ENTWURF — also nicht online. */
+    private const POSTING_ENTWURF = 812;
+
     private const FREMD_TITEL = 'GEHEIM Fremdteam Ausschreibung';
 
     /** Termin, an dem die FREMDE Ausschreibung haengt (der gecraftete Zustand). */
@@ -229,11 +235,85 @@ class InterviewPostingTeamScopeTest extends TestCase
         // Gegenprobe an der zweiten Stelle, an der Ausschreibungs-Titel gerendert
         // werden: die Filterleiste. Sie war schon forTeam-gescopt — der Test haelt
         // es fest, damit die Liste beim naechsten Umbau nicht aufgeht.
-        $options = (new StatisticsPage())->postingOptions();
+        $component = new StatisticsPage();
+        $component->ortFilter = 'Essen';
+
+        $options = $component->postingOptions();
 
         $this->assertArrayHasKey(self::POSTING_EIGEN, $options);
         $this->assertArrayNotHasKey(self::POSTING_FREMD, $options);
         $this->assertStringNotContainsString(self::FREMD_TITEL, implode(' | ', $options));
+    }
+
+    // -----------------------------------------------------------------
+    // Die Auswahlliste folgt den Filtern links von ihr
+    // -----------------------------------------------------------------
+
+    public function test_die_auswahlliste_zeigt_nur_ausschreibungen_der_gewaehlten_filiale(): void
+    {
+        // Der Befund aus dem Live-Blick: bei Filiale „Essen" standen auch
+        // Ausschreibungen anderer Filialen zur Wahl. Wer eine davon waehlt, sieht
+        // leere Tabellen und erfaehrt nicht, warum.
+        $component = new StatisticsPage();
+        $component->ortFilter = 'Essen';
+
+        $essen = $component->postingOptions();
+        $this->assertArrayHasKey(self::POSTING_EIGEN, $essen);
+        $this->assertArrayNotHasKey(self::POSTING_ANDERE_FILIALE, $essen, 'die andere Filiale gehoert nicht in diese Auswahl');
+
+        // GEGENPROBE, sonst zeigte der Test nur, dass die Liste leer ist
+        $component->ortFilter = 'Koeln';
+        $andere = $component->postingOptions();
+        $this->assertArrayHasKey(self::POSTING_ANDERE_FILIALE, $andere);
+        $this->assertArrayNotHasKey(self::POSTING_EIGEN, $andere);
+
+        // Ohne Filiale gibt es nichts zu waehlen — die Seite zeigt dort die
+        // Aufforderung statt einer Tabelle.
+        $component->ortFilter = null;
+        $this->assertSame([], $component->postingOptions());
+    }
+
+    public function test_die_auswahlliste_folgt_dem_status_filter(): void
+    {
+        $component = new StatisticsPage();
+        $component->ortFilter = 'Essen';
+
+        // Standard „nur online": der Entwurf ist nicht waehlbar
+        $component->postingStatusFilter = 'online';
+        $this->assertArrayNotHasKey(self::POSTING_ENTWURF, $component->postingOptions());
+
+        // Bei „alle" ist er waehlbar UND als nicht online gekennzeichnet — sonst
+        // waeren zwei Lesarten desselben Zustands in derselben Filterleiste.
+        $component->postingStatusFilter = 'alle';
+        $alle = $component->postingOptions();
+        $this->assertArrayHasKey(self::POSTING_ENTWURF, $alle);
+        $this->assertStringContainsString('(nicht online)', $alle[self::POSTING_ENTWURF]);
+        $this->assertStringNotContainsString('(nicht online)', $alle[self::POSTING_EIGEN]);
+    }
+
+    public function test_ein_filterwechsel_verwirft_eine_ungueltig_gewordene_ausschreibung(): void
+    {
+        // Sonst bliebe eine Ausschreibung stehen, die es in der neuen Auswahl nicht
+        // gibt: leere Tabellen, und im Dropdown ein Titel, der dort nicht mehr zur
+        // Wahl steht. Dieselbe Falle wie beim Stellenwechsel im Termin-Formular.
+        $component = new StatisticsPage();
+        $component->ortFilter = 'Essen';
+        $component->postingFilter = self::POSTING_EIGEN;
+
+        $component->updatedOrtFilter('Koeln');
+        $this->assertNull($component->postingFilter, 'die Essen-Ausschreibung passt nicht zur anderen Filiale');
+
+        // Statuswechsel genauso: der Entwurf faellt weg, sobald nur online gilt
+        $component->ortFilter = 'Essen';
+        $component->postingStatusFilter = 'alle';
+        $component->postingFilter = self::POSTING_ENTWURF;
+        $component->updatedPostingStatusFilter('online');
+        $this->assertNull($component->postingFilter);
+
+        // GEGENPROBE: eine Auswahl, die weiter gueltig ist, bleibt stehen
+        $component->postingFilter = self::POSTING_EIGEN;
+        $component->updatedPostingStatusFilter('alle');
+        $this->assertSame(self::POSTING_EIGEN, $component->postingFilter);
     }
 
     // -----------------------------------------------------------------
@@ -316,6 +396,8 @@ class InterviewPostingTeamScopeTest extends TestCase
         Capsule::table('rec_positions')->insert([
             ['id' => 81, 'uuid' => 'spos-81', 'team_id' => self::TEAM, 'title' => 'Kellner',
              'location' => 'Essen', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 82, 'uuid' => 'spos-82', 'team_id' => self::TEAM, 'title' => 'Kellner Koeln',
+             'location' => 'Koeln', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 991, 'uuid' => 'spos-991', 'team_id' => self::FREMDES_TEAM, 'title' => 'Fremde Stelle',
              'location' => 'Essen', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
@@ -331,6 +413,16 @@ class InterviewPostingTeamScopeTest extends TestCase
             ['id' => self::POSTING_EIGEN, 'uuid' => 'spost-810', 'team_id' => self::TEAM,
              'rec_position_id' => 81, 'title' => 'Kellner (m/w/d)', 'activity' => 'Service',
              'status' => 'published', 'is_active' => 1, 'published_at' => null, 'closes_at' => null,
+             'bedarf' => null, 'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+            // Andere Filiale: darf bei Essen nicht in der Auswahlliste stehen
+            ['id' => self::POSTING_ANDERE_FILIALE, 'uuid' => 'spost-811', 'team_id' => self::TEAM,
+             'rec_position_id' => 82, 'title' => 'Kellner Koeln (m/w/d)', 'activity' => 'Service',
+             'status' => 'published', 'is_active' => 1, 'published_at' => null, 'closes_at' => null,
+             'bedarf' => null, 'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+            // Entwurf in Essen: nur bei Status „alle" waehlbar, dann markiert
+            ['id' => self::POSTING_ENTWURF, 'uuid' => 'spost-812', 'team_id' => self::TEAM,
+             'rec_position_id' => 81, 'title' => 'Spueler (m/w/d)', 'activity' => 'Kueche',
+             'status' => 'draft', 'is_active' => 1, 'published_at' => null, 'closes_at' => null,
              'bedarf' => null, 'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
             ['id' => self::POSTING_FREMD, 'uuid' => 'spost-899', 'team_id' => self::FREMDES_TEAM,
              'rec_position_id' => 991, 'title' => self::FREMD_TITEL, 'activity' => 'Service',

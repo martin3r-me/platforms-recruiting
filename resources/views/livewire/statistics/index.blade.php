@@ -66,7 +66,8 @@
 
     $statusNote = '„Online“ heißt veröffentlicht UND aktiv. Alles andere (Entwurf, archiviert, deaktiviert) gilt '
         . 'als geschlossen — ein abgelaufenes Laufzeitende allein nicht. Geschlossene Ausschreibungen stehen im '
-        . 'Block unter den Tabellen, auch wenn sie hier ausgefiltert sind.';
+        . 'Block unter den Tabellen, auch wenn sie hier ausgefiltert sind. Die Auswahl „Einzelne Ausschreibung“ '
+        . 'folgt diesem Status und der gewählten Filiale — dort steht nur, was in dieser Ansicht auch vorkommt.';
 @endphp
 
 <div class="space-y-6 p-6">
@@ -96,7 +97,7 @@
             />
             <x-ui-input-select
                 name="postingStatusFilter"
-                label="Ausschreibungen"
+                label="Status"
                 size="sm"
                 :options="$statusOptions"
                 wire:model.live="postingStatusFilter"
@@ -112,7 +113,7 @@
             />
             <x-ui-input-select
                 name="postingFilter"
-                label="Ausschreibung"
+                label="Einzelne Ausschreibung"
                 size="sm"
                 :options="$this->postingOptions"
                 :nullable="true"
