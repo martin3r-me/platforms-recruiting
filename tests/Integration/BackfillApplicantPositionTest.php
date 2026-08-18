@@ -34,7 +34,15 @@ use Platform\Recruiting\Support\PhaseTransitionTrigger;
  *  - 1015: GEGENPROBE zur Markierung — sein Pivot traegt bereits eine ECHTE
  *    Match-Information aus dem Inbound-Matching (matched_via='inbound'). Auch
  *    er hat einen position_switch-Log-Eintrag, aber die Markierung darf diesen
- *    Wert nicht ueberschreiben (whereNull('matched_via') beim Markieren).
+ *    Wert nicht ueberschreiben (whereNull('matched_via') beim Markieren). 1014
+ *    UND 1015 zusammen belegen ausserdem, dass der 'markiert'-Zaehler die
+ *    tatsaechlich GESCHRIEBENEN Zeilen zaehlt (hier: 1), nicht die Kandidaten
+ *    aus dem Transition-Log (hier: 2) — Review-Befund, siehe Fix-Bericht.
+ *  - 1020: FREMDES TEAM — leeres Feld, eigene Anzeige, aber Team 9 statt 8.
+ *    Belegt, dass --team-id wirklich eine Grenze zieht (mit Gegenprobe ohne
+ *    Einschraenkung).
+ *  - 1030: KEINE Anzeige verknuepft — die tragende Regel "bleibt leer, kein
+ *    Raten" (ohneAnzeige-Zweig).
  *
  * Aufbau wie die anderen Integrationstests des Moduls (Container + Capsule von
  * Hand, ECHTE Migrationen per glob, auth() als Attrappe, feste Uhr) — Kopf aus
@@ -43,13 +51,16 @@ use Platform\Recruiting\Support\PhaseTransitionTrigger;
 class BackfillApplicantPositionTest extends TestCase
 {
     private const TEAM = 8;
+    private const FREMDES_TEAM = 9;
 
     private const POSITION_ESSEN = 81;
     private const POSITION_KOELN = 82;
+    private const POSITION_FREMD = 91;
 
     private const POSTING_ESSEN = 810;
     private const POSTING_ALTFALL = 814;
     private const POSTING_ECHTER_MATCH = 815;
+    private const POSTING_FREMD = 910;
 
     private const PHASE_EINGANG = 101;
 
@@ -61,6 +72,12 @@ class BackfillApplicantPositionTest extends TestCase
 
     /** Gegenprobe: Transition-Log position_switch, ABER echter Match-Wert im Pivot. */
     private const APPLICANT_ECHTER_MATCH = 1015;
+
+    /** Fremdes Team (9): leeres Feld, eigene Anzeige — belegt die --team-id-Grenze. */
+    private const APPLICANT_FREMD = 1020;
+
+    /** Kein Pivot-Eintrag ueberhaupt — der ohneAnzeige-Zweig. */
+    private const APPLICANT_OHNE_ANZEIGE = 1030;
 
     private const HEUTE = '2026-08-18 10:00:00';
 
@@ -191,6 +208,71 @@ class BackfillApplicantPositionTest extends TestCase
             'eine echte Match-Information darf der Backfill nicht ueberschreiben');
     }
 
+    public function test_der_zaehler_meldet_nur_geschriebene_zeilen(): void
+    {
+        // Review-Befund: zwei Kandidaten stehen im Transition-Log (1014
+        // ungeschuetzt, 1015 durch matched_via='inbound' geschuetzt) — der
+        // Zaehler darf NUR den einen tatsaechlich geschriebenen Fall melden,
+        // nicht die Kandidatenzahl aus dem Log. Vor dem Fix meldete das
+        // Kommando hier 2 (siehe Fix-Bericht fuer die Gegenprobe).
+        $report = $this->runBackfill();
+
+        $this->assertSame(1, $report['markiert'],
+            'ein durch matched_via geschuetzter Altfall darf nicht mitgezaehlt werden');
+    }
+
+    public function test_team_id_grenzt_die_bearbeitung_ein(): void
+    {
+        // Nur TEAM (8) wird bearbeitet — 1020 im FREMDEN Team (9) hat ebenso
+        // ein leeres Feld und eine eigene Anzeige, bleibt aber unberuehrt.
+        $this->runBackfill(teamId: (string) self::TEAM);
+
+        $this->assertSame(81, (int) RecApplicant::find(self::APPLICANT_LEER)->rec_position_id,
+            'das eigene Team wird bearbeitet');
+        $this->assertNull(RecApplicant::find(self::APPLICANT_FREMD)->rec_position_id,
+            'ein anderes Team bleibt von --team-id unberuehrt');
+
+        // GEGENPROBE im selben Testlauf: ohne Einschraenkung wird auch das
+        // fremde Team erfasst — sonst bewiese der Test oben nur, dass 1020
+        // zufaellig nie erfasst wird, nicht dass die Option eine Grenze zieht.
+        $this->runBackfill();
+
+        $this->assertSame(self::POSITION_FREMD, (int) RecApplicant::find(self::APPLICANT_FREMD)->rec_position_id,
+            'ohne --team-id wird auch das fremde Team bearbeitet');
+    }
+
+    public function test_ohne_anzeige_bleibt_das_feld_leer(): void
+    {
+        // 1030 hat KEINE Pivot-Verknuepfung — die tragende Regel des Features:
+        // "bleibt leer, kein Raten". Der ohneAnzeige-Zweig ist trivial im Code,
+        // war bisher aber unbelegt.
+        $report = $this->runBackfill();
+
+        $this->assertNull(RecApplicant::find(self::APPLICANT_OHNE_ANZEIGE)->rec_position_id);
+        $this->assertGreaterThanOrEqual(1, $report['ohneAnzeige']);
+    }
+
+    public function test_ein_zweiter_lauf_aendert_nichts(): void
+    {
+        // Idempotenz war bisher nur behauptet (Docblock), nicht geprueft.
+        $this->runBackfill();
+
+        $nachErstemLauf = (int) RecApplicant::find(self::APPLICANT_LEER)->rec_position_id;
+        $matchedViaNachErstemLauf = Capsule::table('rec_applicant_posting')
+            ->where('rec_applicant_id', self::APPLICANT_ALTFALL)->value('matched_via');
+
+        $zweiterLauf = $this->runBackfill();
+
+        $this->assertSame($nachErstemLauf, (int) RecApplicant::find(self::APPLICANT_LEER)->rec_position_id,
+            'ein zweiter Lauf darf ein bereits gefuelltes Feld nicht anfassen');
+        $this->assertSame($matchedViaNachErstemLauf, Capsule::table('rec_applicant_posting')
+            ->where('rec_applicant_id', self::APPLICANT_ALTFALL)->value('matched_via'),
+            'ein zweiter Lauf darf eine bereits gesetzte Markierung nicht anfassen');
+
+        $this->assertSame(0, $zweiterLauf['gesetzt'], 'zweiter Lauf: nichts mehr zu setzen');
+        $this->assertSame(0, $zweiterLauf['markiert'], 'zweiter Lauf: nichts mehr zu markieren');
+    }
+
     // -----------------------------------------------------------------
     // Werkzeug
     // -----------------------------------------------------------------
@@ -247,13 +329,14 @@ class BackfillApplicantPositionTest extends TestCase
      * Setzt genau die Spalten und Zeilen zurueck, die die Tests dieser Klasse
      * anfassen — der Bestand wird geteilt (setUpBeforeClass).
      *
-     *  - rec_applicants.rec_position_id (1010 leer, 1014/1015 auf ihrer
-     *    festgelegten Stelle)
+     *  - rec_applicants.rec_position_id (1010/1020/1030 leer, 1014/1015 auf
+     *    ihrer festgelegten Stelle)
      *  - rec_applicant_posting.matched_via (1014 leer, 1015 'inbound')
      */
     private static function setzeBestandAufAusgangszustand(): void
     {
-        Capsule::table('rec_applicants')->where('id', self::APPLICANT_LEER)
+        Capsule::table('rec_applicants')
+            ->whereIn('id', [self::APPLICANT_LEER, self::APPLICANT_FREMD, self::APPLICANT_OHNE_ANZEIGE])
             ->update(['rec_position_id' => null]);
         Capsule::table('rec_applicants')->whereIn('id', [self::APPLICANT_ALTFALL, self::APPLICANT_ECHTER_MATCH])
             ->update(['rec_position_id' => self::POSITION_KOELN]);
@@ -274,6 +357,9 @@ class BackfillApplicantPositionTest extends TestCase
              'created_at' => $now, 'updated_at' => $now],
             ['id' => self::POSITION_KOELN, 'uuid' => 'bap-pos-82', 'team_id' => self::TEAM,
              'title' => 'Koeln', 'location' => 'Koeln', 'is_active' => 1,
+             'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::POSITION_FREMD, 'uuid' => 'bap-pos-91', 'team_id' => self::FREMDES_TEAM,
+             'title' => 'Fremdes Team', 'location' => 'Woanders', 'is_active' => 1,
              'created_at' => $now, 'updated_at' => $now],
         ]);
 
@@ -296,6 +382,9 @@ class BackfillApplicantPositionTest extends TestCase
             ['id' => self::POSTING_ECHTER_MATCH, 'uuid' => 'bap-pstg-815', 'rec_position_id' => self::POSITION_KOELN,
              'team_id' => self::TEAM, 'title' => 'Verwaiste Anzeige (echter Match)', 'status' => 'published',
              'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::POSTING_FREMD, 'uuid' => 'bap-pstg-910', 'rec_position_id' => self::POSITION_FREMD,
+             'team_id' => self::FREMDES_TEAM, 'title' => 'Fremde Anzeige', 'status' => 'published',
+             'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicants')->insert([
@@ -308,6 +397,15 @@ class BackfillApplicantPositionTest extends TestCase
             ['id' => self::APPLICANT_ECHTER_MATCH, 'uuid' => 'bap-app-1015', 'team_id' => self::TEAM,
              'applied_at' => '2026-07-03', 'rec_phase_id' => self::PHASE_EINGANG, 'rec_position_id' => self::POSITION_KOELN,
              'is_active' => 1, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // Fremdes Team: kein rec_phase_id noetig (die Spalte ist nullable,
+            // das Kommando liest sie nicht).
+            ['id' => self::APPLICANT_FREMD, 'uuid' => 'bap-app-1020', 'team_id' => self::FREMDES_TEAM,
+             'applied_at' => '2026-07-04', 'rec_phase_id' => null, 'rec_position_id' => null,
+             'is_active' => 1, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // Keine Anzeige verknuepft (kein Pivot-Eintrag weiter unten).
+            ['id' => self::APPLICANT_OHNE_ANZEIGE, 'uuid' => 'bap-app-1030', 'team_id' => self::TEAM,
+             'applied_at' => '2026-07-05', 'rec_phase_id' => self::PHASE_EINGANG, 'rec_position_id' => null,
+             'is_active' => 1, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicant_posting')->insert([
@@ -317,6 +415,8 @@ class BackfillApplicantPositionTest extends TestCase
              'applied_at' => '2026-07-02', 'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => self::APPLICANT_ECHTER_MATCH, 'rec_posting_id' => self::POSTING_ECHTER_MATCH,
              'applied_at' => '2026-07-03', 'created_at' => $now, 'updated_at' => $now],
+            ['rec_applicant_id' => self::APPLICANT_FREMD, 'rec_posting_id' => self::POSTING_FREMD,
+             'applied_at' => '2026-07-04', 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         // Transition-Log: beide Altfaelle wechselten vor dem Umbau die Stelle.

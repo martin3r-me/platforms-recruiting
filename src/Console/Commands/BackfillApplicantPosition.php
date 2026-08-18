@@ -23,11 +23,13 @@ use Platform\Recruiting\Support\PhaseTransitionTrigger;
  *
  * Verhalten:
  *  - Fuellt NUR leere rec_position_id (whereNull) — ein gepflegter Wert wird
- *    NIE ueberschrieben. Idempotent, gefahrlos mehrfach lauffaehig.
- *  - Altfaelle: ~15 Bewerbungen haben VOR diesem Umbau bereits die Stelle
- *    gewechselt; ihre Pivot-Verknuepfung ist keine echte Bewerbung auf diese
- *    Anzeige — die urspruengliche Anzeige wurde geloescht und ist nicht
- *    rekonstruierbar. Erkennbar am Transition-Log (trigger =
+ *    NIE ueberschrieben. Idempotent, gefahrlos mehrfach lauffaehig (belegt:
+ *    ein zweiter Lauf setzt und markiert nichts mehr).
+ *  - Altfaelle: laut Auftrag GESCHAETZT (nicht gemessen) ~15 Bewerbungen haben
+ *    VOR diesem Umbau bereits die Stelle gewechselt; ihre Pivot-Verknuepfung
+ *    ist keine echte Bewerbung auf diese Anzeige — die urspruengliche Anzeige
+ *    wurde geloescht und ist nicht rekonstruierbar. Erkennbar am Transition-Log
+ *    (trigger =
  *    PhaseTransitionTrigger::POSITION_SWITCH); die vorhandene Verknuepfung
  *    wird im Pivot markiert (matched_via = 'position_switch'), NUR wenn
  *    matched_via noch leer ist — eine echte Match-Information aus dem
@@ -86,12 +88,14 @@ class BackfillApplicantPosition extends Command
      */
     protected function backfill(bool $dryRun, ?string $teamId): array
     {
+        $teamId = $teamId !== null ? (int) $teamId : null;
+
         $gesetzt = 0;
         $ohneAnzeige = 0;
 
         RecApplicant::query()
             ->whereNull('rec_position_id')
-            ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
+            ->when($teamId, fn ($q) => $q->forTeam($teamId))
             ->with('postings')
             ->chunkById(500, function ($applicants) use ($dryRun, &$gesetzt, &$ohneAnzeige) {
                 foreach ($applicants as $applicant) {
@@ -115,25 +119,30 @@ class BackfillApplicantPosition extends Command
 
         // Altfaelle: vor dem Umbau bereits gewechselte Bewerbungen, deren Pivot
         // keine echte Bewerbung auf diese Anzeige ist (siehe Klassendoc).
-        $altfaelle = DB::table('rec_phase_transitions')
+        $kandidaten = DB::table('rec_phase_transitions')
             ->where('trigger', PhaseTransitionTrigger::POSITION_SWITCH)
             ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
             ->distinct()
             ->pluck('rec_applicant_id');
 
-        if (! $dryRun && $altfaelle->isNotEmpty()) {
-            // whereNull('matched_via') ist Pflicht: eine echte Match-Information
-            // aus dem Inbound-Matching darf nicht ueberschrieben werden.
-            DB::table('rec_applicant_posting')
-                ->whereIn('rec_applicant_id', $altfaelle)
-                ->whereNull('matched_via')
-                ->update(['matched_via' => PhaseTransitionTrigger::POSITION_SWITCH]);
-        }
+        // whereNull('matched_via') ist Pflicht: eine echte Match-Information aus
+        // dem Inbound-Matching darf nicht ueberschrieben werden. $markiert zaehlt
+        // die TATSAECHLICH betroffenen Zeilen (update()-Rueckgabewert bzw. im
+        // Dry-Run dieselbe Bedingung als count()) — NICHT die Kandidatenzahl aus
+        // dem Transition-Log, sonst zaehlt ein durch matched_via geschuetzter
+        // Altfall faelschlich mit (das war der Zaehlfehler vor diesem Fix).
+        $markierbar = DB::table('rec_applicant_posting')
+            ->whereIn('rec_applicant_id', $kandidaten)
+            ->whereNull('matched_via');
+
+        $markiert = $dryRun
+            ? $markierbar->count()
+            : $markierbar->update(['matched_via' => PhaseTransitionTrigger::POSITION_SWITCH]);
 
         return [
             'gesetzt' => $gesetzt,
             'ohneAnzeige' => $ohneAnzeige,
-            'markiert' => $altfaelle->count(),
+            'markiert' => $markiert,
         ];
     }
 }
