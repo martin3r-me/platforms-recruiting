@@ -527,7 +527,7 @@ class InterviewBooking extends Component
             return;
         }
 
-        $applicant->switchToPosition($bookedPosition);
+        $applicant->switchToPosition($bookedPosition, $interview);
     }
 
     public function cancelAndRebook(): void

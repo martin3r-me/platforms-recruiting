@@ -1,0 +1,321 @@
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Auth\Factory as AuthFactory;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Facade;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecInterview;
+use Platform\Recruiting\Models\RecPosition;
+
+/**
+ * Wenn ein Bewerber eine Schulung in einer anderen Filiale bucht, wechselt er die
+ * Stelle — und dabei wurde ihm bislang eine ZUFAELLIGE Ausschreibung der neuen
+ * Stelle angehaengt (`->where('is_active', true)->first()` ohne Sortierung). Das
+ * verfaelscht die activity-Dimension der KPI-Statistik, weil die Bewerbung in
+ * einer Anzeigen-Zeile landet, die nichts mit dem gebuchten Termin zu tun hat.
+ *
+ * Die richtige Antwort ist die Ausschreibung des GEBUCHTEN TERMINS: die Person
+ * geht zu genau dieser Schulung, das ist die einzige nicht geratene Zuordnung.
+ * Ist am Termin keine Ausschreibung gepflegt (das Feld `rec_posting_id` ist neu),
+ * entscheidet die kleinste ID — beliebig, aber reproduzierbar; vorher entschied
+ * die Reihenfolge, in der die Datenbank die Zeilen lieferte.
+ *
+ * Aufbau wie die anderen Integrationstests des Moduls (Container + Capsule von
+ * Hand, ECHTE Migrationen per glob, auth() als Attrappe, feste Uhr) — Kopf aus
+ * InterviewPostingTeamScopeTest kopiert, nur der Bestand ist neu.
+ */
+class PositionSwitchPostingChoiceTest extends TestCase
+{
+    private const TEAM = 8;
+
+    /** Alte Stelle: eine Ausschreibung. */
+    private const POSITION_DUESSELDORF = 81;
+    private const POSTING_DUESSELDORF = 810;
+
+    /** Neue Stelle: DREI aktive Ausschreibungen — die Zufalls-Falle. */
+    private const POSITION_MOENCHENGLADBACH = 82;
+    private const POSTING_MG_1 = 820;
+    private const POSTING_MG_2 = 821;
+    private const POSTING_MG_3 = 822;
+
+    /** Termin mit gepflegter Ausschreibung — die einzige nicht geratene Antwort. */
+    private const INTERVIEW_MIT_POSTING = 830;
+
+    /** Termin OHNE gepflegte Ausschreibung — Fallback muss reproduzierbar sein. */
+    private const INTERVIEW_OHNE_POSTING = 831;
+
+    private const PHASE_DUESSELDORF = 101;
+    private const PHASE_MOENCHENGLADBACH = 102;
+
+    private const APPLICANT = 1010;
+
+    private const HEUTE = '2026-08-18 10:00:00';
+
+    public static function setUpBeforeClass(): void
+    {
+        $container = Container::getInstance();
+
+        $capsule = new Capsule();
+        $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $capsule->setAsGlobal();
+        $capsule->bootEloquent();
+        Model::unguard();
+        Model::unsetEventDispatcher();
+
+        $container->instance('db', $capsule->getDatabaseManager());
+        $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
+        Facade::setFacadeApplication($container);
+
+        $container->instance(AuthFactory::class, new class(self::TEAM) implements AuthFactory
+        {
+            public function __construct(private int $teamId) {}
+
+            public function user(): object
+            {
+                return new class($this->teamId)
+                {
+                    public object $currentTeam;
+
+                    public function __construct(int $teamId)
+                    {
+                        $this->currentTeam = (object) ['id' => $teamId];
+                    }
+                };
+            }
+
+            public function guard($name = null)
+            {
+                return $this;
+            }
+
+            public function shouldUse($name)
+            {
+                // nicht benutzt: switchToPosition() ruft nur auth()->user() indirekt
+            }
+        });
+
+        Carbon::setTestNow(Carbon::parse(self::HEUTE));
+
+        self::runRealMigrations();
+        self::seed();
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        Facade::clearResolvedInstances();
+        Container::getInstance()->forgetInstance(AuthFactory::class);
+        Carbon::setTestNow();
+    }
+
+    /**
+     * Jeder Test faengt beim Bestand aus seed() an: Bewerber 1010 auf Stelle 81
+     * (Duesseldorf), Pivot auf Ausschreibung 810. Ohne diesen Reset saehe z.B.
+     * test_der_log_nennt_die_alte_stelle_und_anzeige die Spuren des VORHERIGEN
+     * Tests (der Bewerber waere schon nach Moenchengladbach gewechselt) — die
+     * Suite liefe in Deklarationsreihenfolge grün, aber nur zufaellig und nicht
+     * pro Test isoliert.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Capsule::table('rec_applicant_posting')->where('rec_applicant_id', 1010)->delete();
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => 1010, 'rec_posting_id' => self::POSTING_DUESSELDORF,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+        Capsule::table('rec_applicants')->where('id', 1010)->update([
+            'rec_phase_id' => self::PHASE_DUESSELDORF,
+        ]);
+    }
+
+    public function test_der_wechsel_nimmt_die_ausschreibung_des_gebuchten_termins(): void
+    {
+        $applicant = RecApplicant::find(1010);
+        $interview = RecInterview::find(830);
+
+        $applicant->switchToPosition(RecPosition::find(82), $interview);
+
+        $applicant->load('postings');
+        $this->assertSame([821], $applicant->postings->pluck('id')->all(),
+            'die Ausschreibung des Termins gewinnt, nicht eine beliebige der Stelle');
+    }
+
+    public function test_ohne_ausschreibung_am_termin_ist_der_fallback_stabil(): void
+    {
+        // Zweimal derselbe Ausgangszustand muss dieselbe Ausschreibung ergeben —
+        // vorher entschied die Reihenfolge, in der die Datenbank die Zeilen liefert.
+        $ersteWahl = $this->wechselMitTermin(831);
+        $zweiteWahl = $this->wechselMitTermin(831);
+
+        $this->assertSame($ersteWahl, $zweiteWahl, 'der Fallback muss reproduzierbar sein');
+        $this->assertContains($ersteWahl, [820, 821, 822]);
+    }
+
+    public function test_die_verknuepfung_ist_als_wechsel_markiert(): void
+    {
+        $applicant = RecApplicant::find(1010);
+        $applicant->switchToPosition(RecPosition::find(82), RecInterview::find(830));
+
+        $pivot = Capsule::table('rec_applicant_posting')
+            ->where('rec_applicant_id', 1010)->first();
+
+        $this->assertSame('position_switch', $pivot->matched_via,
+            'ohne Marker kann die Statistik sie nicht von einer echten Bewerbung unterscheiden');
+    }
+
+    public function test_der_log_nennt_die_alte_stelle_und_anzeige(): void
+    {
+        $applicant = RecApplicant::find(1010);
+        $applicant->switchToPosition(RecPosition::find(82), RecInterview::find(830));
+
+        $log = Capsule::table('rec_auto_pilot_logs')
+            ->where('rec_applicant_id', 1010)
+            ->where('type', 'position_switched')
+            ->orderByDesc('id')->first();
+
+        $this->assertStringContainsString('Duesseldorf', $log->summary, 'alte Stelle');
+        $this->assertStringContainsString('Kellner (m/w/d)', $log->summary, 'alte Anzeige');
+    }
+
+    // -----------------------------------------------------------------
+    // Werkzeug
+    // -----------------------------------------------------------------
+
+    private function wechselMitTermin(int $interviewId): int
+    {
+        Capsule::table('rec_applicant_posting')->where('rec_applicant_id', 1010)->delete();
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => 1010, 'rec_posting_id' => 810,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+        Capsule::table('rec_applicants')->where('id', 1010)->update(['rec_phase_id' => 101]);
+
+        $applicant = RecApplicant::find(1010);
+        $applicant->switchToPosition(RecPosition::find(82), RecInterview::find($interviewId));
+
+        return (int) Capsule::table('rec_applicant_posting')
+            ->where('rec_applicant_id', 1010)->value('rec_posting_id');
+    }
+
+    // -----------------------------------------------------------------
+    // Schema und Datenbestand
+    // -----------------------------------------------------------------
+
+    private static function runRealMigrations(): void
+    {
+        $core = self::packageRootOf(\Platform\Core\Models\CoreExtraFieldDefinition::class);
+
+        $files = [
+            $core . '/database/migrations/2026_02_07_000001_create_core_extra_field_definitions_table.php',
+            $core . '/database/migrations/2026_02_07_000002_create_core_extra_field_values_table.php',
+        ];
+
+        $own = glob(dirname(__DIR__, 2) . '/database/migrations/*.php');
+        sort($own);
+
+        foreach (array_merge($files, $own) as $path) {
+            if (!file_exists($path)) {
+                throw new \RuntimeException("Migration fehlt: {$path}");
+            }
+            $migration = require $path;
+            $migration->up();
+        }
+    }
+
+    private static function packageRootOf(string $class): string
+    {
+        $dir = dirname((new \ReflectionClass($class))->getFileName());
+
+        for ($i = 0; $i < 10; $i++) {
+            if (is_dir($dir . '/database/migrations')) {
+                return $dir;
+            }
+            $parent = dirname($dir);
+            if ($parent === $dir) {
+                break;
+            }
+            $dir = $parent;
+        }
+
+        throw new \RuntimeException('Paketwurzel nicht gefunden: ' . $class);
+    }
+
+    private static function seed(): void
+    {
+        $now = self::HEUTE;
+
+        Capsule::table('rec_positions')->insert([
+            ['id' => self::POSITION_DUESSELDORF, 'uuid' => 'spos-81', 'team_id' => self::TEAM,
+             'title' => 'Duesseldorf', 'location' => 'Duesseldorf', 'is_active' => 1,
+             'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::POSITION_MOENCHENGLADBACH, 'uuid' => 'spos-82', 'team_id' => self::TEAM,
+             'title' => 'Moenchengladbach', 'location' => 'Moenchengladbach', 'is_active' => 1,
+             'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_postings')->insert([
+            ['id' => self::POSTING_DUESSELDORF, 'uuid' => 'spost-810', 'team_id' => self::TEAM,
+             'rec_position_id' => self::POSITION_DUESSELDORF, 'title' => 'Kellner (m/w/d)',
+             'activity' => 'Service', 'status' => 'published', 'is_active' => 1,
+             'published_at' => null, 'closes_at' => null, 'bedarf' => null,
+             'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::POSTING_MG_1, 'uuid' => 'spost-820', 'team_id' => self::TEAM,
+             'rec_position_id' => self::POSITION_MOENCHENGLADBACH, 'title' => 'Kellner MG (m/w/d)',
+             'activity' => 'Service', 'status' => 'published', 'is_active' => 1,
+             'published_at' => null, 'closes_at' => null, 'bedarf' => null,
+             'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::POSTING_MG_2, 'uuid' => 'spost-821', 'team_id' => self::TEAM,
+             'rec_position_id' => self::POSITION_MOENCHENGLADBACH, 'title' => 'Kueche MG (m/w/d)',
+             'activity' => 'Kueche', 'status' => 'published', 'is_active' => 1,
+             'published_at' => null, 'closes_at' => null, 'bedarf' => null,
+             'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::POSTING_MG_3, 'uuid' => 'spost-822', 'team_id' => self::TEAM,
+             'rec_position_id' => self::POSITION_MOENCHENGLADBACH, 'title' => 'Spueler MG (m/w/d)',
+             'activity' => 'Kueche', 'status' => 'published', 'is_active' => 1,
+             'published_at' => null, 'closes_at' => null, 'bedarf' => null,
+             'bewerbungs_faktor' => null, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_interviews')->insert([
+            // Termin MIT gepflegter Ausschreibung — die einzige nicht geratene Antwort.
+            ['id' => self::INTERVIEW_MIT_POSTING, 'uuid' => 'siv-830', 'team_id' => self::TEAM,
+             'interview_type_id' => null, 'rec_position_id' => self::POSITION_MOENCHENGLADBACH,
+             'rec_posting_id' => self::POSTING_MG_2, 'title' => 'Schulung MG',
+             'location' => 'Moenchengladbach, Zentrale', 'starts_at' => '2026-08-20 10:00:00',
+             'max_participants' => 5, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            // Termin OHNE gepflegte Ausschreibung — Fallback muss greifen.
+            ['id' => self::INTERVIEW_OHNE_POSTING, 'uuid' => 'siv-831', 'team_id' => self::TEAM,
+             'interview_type_id' => null, 'rec_position_id' => self::POSITION_MOENCHENGLADBACH,
+             'rec_posting_id' => null, 'title' => 'Schulung MG (2)',
+             'location' => 'Moenchengladbach, Zentrale', 'starts_at' => '2026-08-21 10:00:00',
+             'max_participants' => 5, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_phases')->insert([
+            ['id' => self::PHASE_DUESSELDORF, 'uuid' => 'sph-101', 'team_id' => self::TEAM,
+             'rec_position_id' => self::POSITION_DUESSELDORF, 'name' => 'Eingang', 'order' => 1,
+             'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::PHASE_MOENCHENGLADBACH, 'uuid' => 'sph-102', 'team_id' => self::TEAM,
+             'rec_position_id' => self::POSITION_MOENCHENGLADBACH, 'name' => 'Eingang', 'order' => 1,
+             'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_applicants')->insert([
+            ['id' => self::APPLICANT, 'uuid' => 'sapp-1010', 'team_id' => self::TEAM,
+             'applied_at' => '2026-07-01', 'rec_phase_id' => self::PHASE_DUESSELDORF, 'is_test' => 0,
+             'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        Capsule::table('rec_applicant_posting')->insert([
+            ['rec_applicant_id' => self::APPLICANT, 'rec_posting_id' => self::POSTING_DUESSELDORF,
+             'created_at' => $now, 'updated_at' => $now],
+        ]);
+    }
+}
