@@ -125,14 +125,7 @@ class PositionSwitchPostingChoiceTest extends TestCase
     {
         parent::setUp();
 
-        Capsule::table('rec_applicant_posting')->where('rec_applicant_id', 1010)->delete();
-        Capsule::table('rec_applicant_posting')->insert([
-            'rec_applicant_id' => 1010, 'rec_posting_id' => self::POSTING_DUESSELDORF,
-            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
-        ]);
-        Capsule::table('rec_applicants')->where('id', 1010)->update([
-            'rec_phase_id' => self::PHASE_DUESSELDORF,
-        ]);
+        self::setzeBewerberAufAusgangszustand();
     }
 
     public function test_der_wechsel_nimmt_die_ausschreibung_des_gebuchten_termins(): void
@@ -149,13 +142,22 @@ class PositionSwitchPostingChoiceTest extends TestCase
 
     public function test_ohne_ausschreibung_am_termin_ist_der_fallback_stabil(): void
     {
-        // Zweimal derselbe Ausgangszustand muss dieselbe Ausschreibung ergeben —
-        // vorher entschied die Reihenfolge, in der die Datenbank die Zeilen liefert.
+        // Die eigentliche Behauptung: die REGEL ist "kleinste ID unter den aktiven
+        // Ausschreibungen der Stelle" — 820 unter [820, 821, 822]. Ein reiner
+        // Zwei-Laeufe-Vergleich wuerde das NICHT zeigen: zwei Aufrufe im selben
+        // Prozess auf einer unveraenderten SQLite-Tabelle liefern ohnehin dieselbe
+        // Reihenfolge, weil hier die rowid-Ordnung zufaellig der ID-Ordnung
+        // entspricht. Ein Test, der nur zwei Laeufe vergleicht, faengt deshalb
+        // KEINE Aenderung der Regel (orderByDesc, Sortierung nach created_at,
+        // "die neueste zuerst", ...) — er bliebe in dieser Umgebung immer gruen.
+        // Deshalb zuerst die konkrete Ausschreibung behaupten.
         $ersteWahl = $this->wechselMitTermin(831);
-        $zweiteWahl = $this->wechselMitTermin(831);
+        $this->assertSame(820, $ersteWahl, 'die kleinste aktive ID der neuen Stelle muss gewinnen');
 
+        // Zweite Assertion zusaetzlich, kostet nichts: derselbe Ausgangszustand
+        // muss zweimal hintereinander dieselbe Ausschreibung ergeben.
+        $zweiteWahl = $this->wechselMitTermin(831);
         $this->assertSame($ersteWahl, $zweiteWahl, 'der Fallback muss reproduzierbar sein');
-        $this->assertContains($ersteWahl, [820, 821, 822]);
     }
 
     public function test_die_verknuepfung_ist_als_wechsel_markiert(): void
@@ -190,18 +192,32 @@ class PositionSwitchPostingChoiceTest extends TestCase
 
     private function wechselMitTermin(int $interviewId): int
     {
-        Capsule::table('rec_applicant_posting')->where('rec_applicant_id', 1010)->delete();
-        Capsule::table('rec_applicant_posting')->insert([
-            'rec_applicant_id' => 1010, 'rec_posting_id' => 810,
-            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
-        ]);
-        Capsule::table('rec_applicants')->where('id', 1010)->update(['rec_phase_id' => 101]);
+        self::setzeBewerberAufAusgangszustand();
 
         $applicant = RecApplicant::find(1010);
         $applicant->switchToPosition(RecPosition::find(82), RecInterview::find($interviewId));
 
         return (int) Capsule::table('rec_applicant_posting')
             ->where('rec_applicant_id', 1010)->value('rec_posting_id');
+    }
+
+    /**
+     * Bewerber 1010 zurueck auf den Bestand aus seed(): Pivot einzig auf
+     * Ausschreibung 810 (Duesseldorf), Phase 101. Gemeinsame Stelle fuer setUp()
+     * (Isolation zwischen den vier Testmethoden) und wechselMitTermin() (zwei
+     * Laeufe INNERHALB einer Testmethode) — vorher stand dieselbe Reset-Logik an
+     * beiden Stellen wortgleich.
+     */
+    private static function setzeBewerberAufAusgangszustand(): void
+    {
+        Capsule::table('rec_applicant_posting')->where('rec_applicant_id', self::APPLICANT)->delete();
+        Capsule::table('rec_applicant_posting')->insert([
+            'rec_applicant_id' => self::APPLICANT, 'rec_posting_id' => self::POSTING_DUESSELDORF,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update([
+            'rec_phase_id' => self::PHASE_DUESSELDORF,
+        ]);
     }
 
     // -----------------------------------------------------------------
