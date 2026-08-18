@@ -71,6 +71,15 @@ class StatisticsPageReconciliationTest extends TestCase
      */
     private const APP_GEWANDERT = 909;
 
+    /**
+     * Fall 9 (Task 11): kam ueber POSTING_ESSEN_ONLINE (Stelle 61, Essen) und
+     * hat dort unterschrieben — festgelegt (rec_position_id) ist sie aber auf
+     * die Wuppertaler Stelle (62). Die Unterschrift zaehlt bei Essen (Kunden-
+     * Entscheidung), die Fussnote „Einstellungen in anderer Filiale" benennt
+     * den Versatz.
+     */
+    private const APP_ANDERE_FILIALE = 910;
+
     private const POSTING_ESSEN_ONLINE = 610;
     private const POSTING_ESSEN_ZU = 611;
     private const POSTING_OHNE_ORT_ONLINE = 612;
@@ -158,6 +167,24 @@ class StatisticsPageReconciliationTest extends TestCase
         return (new CohortViewModel())->resolveIds($rows, ['scope' => 'all'], 'ids');
     }
 
+    /**
+     * Zahl und Text der Fussnote „Einstellungen in anderer Filiale" (Task 11)
+     * fuer eine gewaehlte Filiale — derselbe Aufbau wie die anderen
+     * *TotalLight()-Aufrufe in StatisticsCohortWiringTest: cohort() als
+     * METHODE (kein Lifecycle, also kein __get auf Computed Properties),
+     * postingGroups() ueber die pure CohortViewModel-Instanz.
+     *
+     * @return array{count:int, ids:list<int>, reason:string}
+     */
+    private function fremdeFilialeZahlen(string $ort): array
+    {
+        $component = $this->component($ort);
+        $cohort = $component->cohort();
+        $groups = (new CohortViewModel())->postingGroups($cohort['rows']);
+
+        return $component->fremdeFilialeTotals($groups, $cohort);
+    }
+
     /** @return list<int> */
     private function teamApplicantIds(): array
     {
@@ -221,8 +248,12 @@ class StatisticsPageReconciliationTest extends TestCase
         // Richtige zeigen (z. B. wenn alles im selben Block laege).
         $cohort = $this->component('Essen')->cohort();
 
-        $this->assertSame([self::APP_ESSEN_ONLINE], $this->idsOf($cohort['rows']),
-            'Fall 1: gewaehlte Filiale + online steht in den Tabellen — und sonst nichts');
+        // Fall 9 (Task 11) steht in DERSELBEN Zeile wie Fall 1: dieselbe Anzeige,
+        // dieselbe Phase, kein Termin — nur eine abweichende rec_position_id.
+        $essenOnline = $this->idsOf($cohort['rows']);
+        sort($essenOnline);
+        $this->assertSame([self::APP_ESSEN_ONLINE, self::APP_ANDERE_FILIALE], $essenOnline,
+            'Fall 1 + Fall 9: gewaehlte Filiale + online steht in den Tabellen — und sonst nichts');
 
         $closed = $this->idsOf($cohort['closed_rows']);
         sort($closed);
@@ -294,12 +325,13 @@ class StatisticsPageReconciliationTest extends TestCase
         // drei nirgends. Die drei „nirgends" sind jetzt zwei im Block „Ohne
         // Filial-Zuordnung" plus eine Bewerbung, die man mit einem Filialwechsel
         // sieht. Dazu kommt (Task 10) ein achter Bestandsfall, der ausschliesslich
-        // im neuen Block „Herkunft unbekannt" steht.
+        // im neuen Block „Herkunft unbekannt" steht, und (Task 11) ein neunter,
+        // der in derselben Zeile wie Fall 1 steht, aber anderswo eingestellt wurde.
         $cohort = $this->component('Essen')->cohort();
         $component = $this->component('Essen');
 
-        $this->assertSame(8, count($this->teamApplicantIds()), 'acht echte Bewerbungen im Bestand');
-        $this->assertSame(1, $component->countIn($cohort['rows'], 'ids'), 'die Ansicht zeigt eine');
+        $this->assertSame(9, count($this->teamApplicantIds()), 'neun echte Bewerbungen im Bestand');
+        $this->assertSame(2, $component->countIn($cohort['rows'], 'ids'), 'die Ansicht zeigt zwei (Fall 1 + Fall 9)');
         $this->assertSame(3, $component->countIn($cohort['closed_rows'], 'ids'), 'Block 2 nennt drei');
         $this->assertSame(2, $component->countIn($cohort['unreachable_rows'], 'ids'), 'Block 3 nennt zwei');
         $this->assertSame(1, $component->countIn($cohort['unknown_origin_rows'], 'ids'), 'Block 4 nennt eine');
@@ -399,15 +431,16 @@ class StatisticsPageReconciliationTest extends TestCase
 
         $inView = $this->idsOf($cohort['rows']);
         sort($inView);
-        $this->assertSame([self::APP_ESSEN_ONLINE, self::APP_ESSEN_ZU], $inView,
+        $this->assertSame([self::APP_ESSEN_ONLINE, self::APP_ESSEN_ZU, self::APP_ANDERE_FILIALE], $inView,
             'mit „alle" zeigt die Ansicht auch die geschlossene Ausschreibung dieser Filiale');
 
         $doppelt = array_values(array_intersect($inView, $this->idsOf($cohort['closed_rows'])));
         $this->assertSame([self::APP_ESSEN_ZU], $doppelt, 'genau die geschlossene Zeile dieser Filiale');
 
-        // Nachgerechnet: zehn Eintraege fuer acht Bewerbungen — 902 und 907 sind
+        // Nachgerechnet: elf Eintraege fuer neun Bewerbungen — 902 und 907 sind
         // doppelt (907 in der Wuppertal-Ansicht und im Block), 909 (Fall 8, Task
-        // 10) steckt einfach im Block „Herkunft unbekannt".
+        // 10) steckt einfach im Block „Herkunft unbekannt", 910 (Fall 9, Task 11)
+        // steckt einfach in der Essener Ansicht (dieselbe Zeile wie Fall 1).
         $eintraege = [];
         foreach (array_keys($alle->ortOptions()) as $ort) {
             $eintraege = array_merge($eintraege, $this->idsOf($this->component($ort, 'alle')->cohort()['rows']));
@@ -420,7 +453,7 @@ class StatisticsPageReconciliationTest extends TestCase
         );
         sort($eintraege);
 
-        $this->assertCount(10, $eintraege);
+        $this->assertCount(11, $eintraege);
         $this->assertSame($this->teamApplicantIds(), array_values(array_unique($eintraege)),
             'die Vereinigung bleibt vollstaendig — nur eben mit Ueberlappung');
 
@@ -432,6 +465,18 @@ class StatisticsPageReconciliationTest extends TestCase
         $mehrfach = array_keys(array_filter(array_count_values($eintraege), fn ($n) => $n > 1));
         sort($mehrfach);
         $this->assertSame([self::APP_ESSEN_ZU, self::APP_FREMD_ZU], $mehrfach);
+    }
+
+    public function test_einstellungen_in_anderer_filiale_werden_beziffert(): void
+    {
+        // Fall 9 (APP_ANDERE_FILIALE) kam ueber die Essener Anzeige, hat sich
+        // aber auf die Wuppertaler Stelle festgelegt und unterschrieben. Die
+        // Unterschrift zaehlt bei der Essener Anzeige (Entscheidung der Spec) —
+        // dass die Person woanders arbeitet, wird genannt.
+        $zahlen = $this->fremdeFilialeZahlen('Essen');
+
+        $this->assertSame(1, $zahlen['count']);
+        $this->assertStringContainsString('anderen Filiale', $zahlen['reason']);
     }
 
     public function test_taetigkeits_filter_wirkt_auch_auf_die_bloecke(): void
@@ -601,6 +646,21 @@ class StatisticsPageReconciliationTest extends TestCase
              'created_at' => $now, 'updated_at' => $now],
         ]);
 
+        // Eigener insert()-Aufruf, aus demselben Grund wie beim matched_via-Pivot
+        // unten: rec_position_id steht in KEINER Zeile des Batches oben, eine
+        // zusaetzliche Spalte in nur dieser einen Zeile wuerde mit "all VALUES
+        // must have the same number of terms" brechen (SQLite).
+        //
+        // Fall 9 (Task 11): rec_position_id (62, Wuppertal) weicht von der
+        // Stelle der Anzeige ab, ueber die die Bewerbung kam (POSTING_ESSEN_ONLINE
+        // haengt an Stelle 61, Essen) — genau der Fall, den die neue Fussnote
+        // beziffert.
+        Capsule::table('rec_applicants')->insert([
+            'id' => self::APP_ANDERE_FILIALE, 'uuid' => 'kapp-910', 'team_id' => self::TEAM,
+            'applied_at' => '2026-07-10', 'rec_phase_id' => 91, 'rec_position_id' => 62, 'is_test' => 0,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+
         Capsule::table('rec_applicant_posting')->insert([
             ['rec_applicant_id' => self::APP_ESSEN_ONLINE, 'rec_posting_id' => self::POSTING_ESSEN_ONLINE,
              'created_at' => $now, 'updated_at' => $now],
@@ -615,6 +675,11 @@ class StatisticsPageReconciliationTest extends TestCase
             ['rec_applicant_id' => self::APP_FREMD_ZU, 'rec_posting_id' => self::POSTING_FREMD_ZU,
              'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => self::APP_TEST, 'rec_posting_id' => self::POSTING_ESSEN_ONLINE,
+             'created_at' => $now, 'updated_at' => $now],
+            // Fall 9 (Task 11): eine ganz normale Bewerbung auf POSTING_ESSEN_ONLINE,
+            // ohne matched_via-Marker — sie zaehlt deshalb in der Essener Zeile
+            // wie APP_ESSEN_ONLINE, nur mit abweichender rec_position_id.
+            ['rec_applicant_id' => self::APP_ANDERE_FILIALE, 'rec_posting_id' => self::POSTING_ESSEN_ONLINE,
              'created_at' => $now, 'updated_at' => $now],
         ]);
 
@@ -631,6 +696,34 @@ class StatisticsPageReconciliationTest extends TestCase
             // Block „Herkunft unbekannt".
             'rec_applicant_id' => self::APP_GEWANDERT, 'rec_posting_id' => self::POSTING_ESSEN_ONLINE,
             'matched_via' => 'position_switch', 'created_at' => $now, 'updated_at' => $now,
+        ]);
+
+        // APP_ESSEN_ONLINE bekommt nachtraeglich ihre eigene rec_position_id (61,
+        // Essen) — DIESELBE wie die Stelle der Anzeige, ueber die sie kam. Ohne
+        // diese Zeile waere sie in der Essener Ansicht die einzige weitere
+        // Unterschrift, und „nur Unterschriften mit abweichender Stelle zaehlen"
+        // liesse sich nicht von „alle Unterschriften zaehlen" unterscheiden — die
+        // Mutationsprobe braeuchte dann einen zweiten Fall, um rot zu werden.
+        Capsule::table('rec_applicants')->where('id', self::APP_ESSEN_ONLINE)
+            ->update(['rec_position_id' => 61]);
+
+        // Vertraege: Fall 1 (APP_ESSEN_ONLINE) unterschreibt PASSEND zur Anzeige
+        // (Stelle 61 = Stelle 61) und darf in der Fussnote NICHT auftauchen; Fall 9
+        // (APP_ANDERE_FILIALE) unterschreibt bei derselben Anzeige, aber mit
+        // ABWEICHENDER Stelle (62) und muss die einzige gezaehlte sein. Minimaler
+        // Stammdatensatz (Template), damit der Fremdschluessel der Vertragszeilen
+        // gueltig ist.
+        Capsule::table('rec_contract_templates')->insert([
+            'id' => 1, 'uuid' => 'kct-1', 'team_id' => self::TEAM, 'name' => 'Standardvertrag',
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+        Capsule::table('rec_contracts')->insert([
+            ['id' => 1, 'uuid' => 'kc-1', 'rec_applicant_id' => self::APP_ESSEN_ONLINE,
+             'rec_contract_template_id' => 1, 'team_id' => self::TEAM, 'status' => 'completed',
+             'signed_at' => $now, 'sent_at' => $now, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 2, 'uuid' => 'kc-2', 'rec_applicant_id' => self::APP_ANDERE_FILIALE,
+             'rec_contract_template_id' => 1, 'team_id' => self::TEAM, 'status' => 'completed',
+             'signed_at' => $now, 'sent_at' => $now, 'created_at' => $now, 'updated_at' => $now],
         ]);
     }
 }

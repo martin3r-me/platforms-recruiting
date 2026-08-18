@@ -140,6 +140,11 @@
     $totalFulfilment = $this->fulfilmentTotalLight($groups);
     $totalBedarf = $totalFulfilment['bedarf'];
     $totalPipeline = $this->pipelineTotalLight($groups);
+    // Task 11: Unterschriften, die bei DIESER Anzeige zaehlen, obwohl die
+    // Person sich in einer ANDEREN Filiale eingestellt hat — Zahl und Text
+    // kommen aus fremdeFilialeTotals(), derselben EINEN Quelle wie bei den
+    // beiden Fussnoten oben.
+    $fremdeFiliale = $this->fremdeFilialeTotals($groups, $this->cohort);
 
     $bedarfTitle = 'Benötigte Einstellungen (Feld „Bedarf“ an der Ausschreibung). „–“ heißt NICHT null, sondern nicht gepflegt — dann bleiben beide Ampeln grau.';
 
@@ -470,6 +475,25 @@
                     gepflegten Bedarf oder Faktor (oder ohne Ausschreibung) — deshalb ist die Spalte
                     „Bewerbungen“ höher als der Zähler hier.
                 @endif
+            </div>
+        @endif
+
+        {{-- DRITTE Fussnote unter Tabelle 1 (Task 11), dasselbe Muster wie die
+             beiden darueber: eine Zahl und ein Satz, der sie erklaert. Eine
+             Unterschrift steckt in DIESER Zeile, weil sie ueber diese Anzeige
+             kam — auch dann, wenn die Person sich am Ende auf einer ANDEREN
+             Stelle festgelegt hat (rec_applicants.rec_position_id weicht von
+             der Stelle der Anzeige ab). Kunden-Entscheidung: die
+             Herkunfts-Anzeige zaehlt, nicht die Stelle der Einstellung — der
+             Preis davon (der Bedarf der Einstellungs-Filiale wird nicht
+             bedient) wird hier BENANNT statt verschwiegen.
+
+             Der Text kommt aus fremdeFilialeTotals() und ist damit dieselbe
+             EINE Quelle wie im Wert selbst — keine zweite Formulierung, die
+             auseinanderlaufen koennte. --}}
+        @if ($fremdeFiliale['count'] > 0)
+            <div class="mt-1 text-xs text-[color:var(--ui-muted)]">
+                {{ $fremdeFiliale['reason'] }}
             </div>
         @endif
     @endif

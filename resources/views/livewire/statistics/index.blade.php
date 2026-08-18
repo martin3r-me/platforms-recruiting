@@ -699,8 +699,15 @@
                                     <span class="min-w-0 text-sm text-[color:var(--ui-secondary)]">
                                         <span class="block truncate" title="{{ $entry['title'] }}">{{ $entry['title'] }}</span>
                                         @if ($entry['orte'] !== '')
+                                            {{-- Task 11 (Textfehler-Fix): „ohne Ausschreibung“ heißt hier NICHT
+                                                 immer „an der Bewerbung hängt keine Ausschreibung“ — für die
+                                                 Stellenwechsel-Altfälle (Block „Herkunft unbekannt“) stimmt das
+                                                 sachlich nicht, die haben sehr wohl eine Ausschreibung, nur eine
+                                                 disqualifizierte Verknüpfung dazu (matched_via = 'position_switch').
+                                                 Der Text hier gilt deshalb für BEIDE Ursachen, ohne das generische
+                                                 Label des Assigners (CohortAssigner::noAssignment) anzufassen. --}}
                                             <span class="block text-xs text-[color:var(--ui-muted)]"
-                                                  title="Ort der Stelle. „ohne Ort“ heißt: an der Stelle ist kein Standort gepflegt; „ohne Ausschreibung“ heißt: an der Bewerbung hängt keine. Beides fällt aus jeder Filial-Ansicht heraus.">
+                                                  title="Ort der Stelle. „ohne Ort“ heißt: an der Stelle ist kein Standort gepflegt; „ohne Ausschreibung“ heißt: es gibt keine verwendbare Verknüpfung zu einer Ausschreibung mehr — entweder, weil an der Bewerbung wirklich keine hängt, oder weil die einzige Verknüpfung nachträglich als Stellenwechsel disqualifiziert wurde. Beides fällt aus jeder Filial-Ansicht heraus.">
                                                 {{ $entry['orte'] }}
                                             </span>
                                         @endif

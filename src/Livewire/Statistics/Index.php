@@ -380,6 +380,18 @@ class Index extends Component
             $applicants->flatMap(fn ($a) => $a->postings->pluck('id'))->unique()->values()->all(),
         );
 
+        // Positions-Lookups fuer den Fussnoten-Block „Einstellungen in anderer
+        // Filiale" (Task 11): woher eine Bewerbung tatsaechlich kam (Stelle der
+        // ANZEIGE, aus dem geladenen Posting) gegen wohin sie sich festgelegt
+        // hat (Stelle der BEWERBUNG, rec_applicants.rec_position_id). Beide
+        // Karten kommen aus der schon geladenen $applicants-Menge — KEINE
+        // weitere Query, derselbe Grund wie bei $postingTargets oben.
+        $applicantPositionIds = $applicants->pluck('rec_position_id', 'id')->all();
+        $postingPositionIds = $applicants->flatMap(fn ($a) => $a->postings)
+            ->unique('id')
+            ->mapWithKeys(fn ($p) => [(int) $p->id => $p->rec_position_id])
+            ->all();
+
         $rows = [];
         $bookings = [];
         $pivots = [];
@@ -637,6 +649,14 @@ class Index extends Component
                 && (!$onlineOnly || ($r['posting_closed'] ?? false) === false)));
             $result['total_ids'] = array_merge(...array_map(fn ($r) => $r['ids'], $result['rows']) ?: [[]]);
         }
+
+        // Reine Beigabe fuer fremdeFilialeTotals() (Task 11) — dieselben zwei
+        // Karten wie oben, unveraendert vom Ort-/Taetigkeits-/Status-Filter:
+        // die Fussnote liest je Zeile die Stelle der Anzeige und vergleicht sie
+        // gegen die Stelle der jeweiligen Bewerbung, der Filter oben hat darauf
+        // keinen Einfluss.
+        $result['applicant_position_ids'] = $applicantPositionIds;
+        $result['posting_position_ids'] = $postingPositionIds;
 
         return $result;
     }
@@ -1021,6 +1041,73 @@ class Index extends Component
         // Merge darf ihn also nicht ueberschreiben, tut es aber auch nicht: beide
         // kommen aus pipelineTotals.
         return $light + $totals;
+    }
+
+    /**
+     * Einstellungen in ANDERER Filiale (Task 11, Kunden-Entscheidung): eine
+     * Unterschrift zaehlt bei der ANZEIGE, ueber die die Bewerbung kam — auch
+     * dann, wenn die Person sich am Ende auf einer ANDEREN Stelle festgelegt
+     * hat (rec_applicants.rec_position_id weicht von der Stelle der Anzeige
+     * dieser Zeile ab). Der BEDARF haengt dagegen an der Stelle, an der Leute
+     * gebraucht werden — wer ueber die Duesseldorfer Anzeige kam und in
+     * Moenchengladbach unterschreibt, bedient den Bedarf von Moenchengladbach
+     * nicht. Dieser Block beziffert genau diesen Versatz, statt ihn zu
+     * verschweigen.
+     *
+     * KEIN neuer Rechenweg: gezaehlt wird ueber dieselbe Spalte
+     * 'unterschrieben' wie die Erfuellungsquote (idsOf()), nur zusaetzlich
+     * gegen die beiden Positions-Karten aus cohort() geprueft (dieselbe Quelle
+     * fuer Zahl und Text wie bei den beiden Fussnoten darueber). Eine Zeile
+     * ohne Ausschreibung (posting_id null) kann hier nie auftauchen — ohne
+     * Anzeige gibt es keine „Stelle der Anzeige", gegen die man vergleichen
+     * koennte.
+     *
+     * Fehlt die Stelle der Bewerbung (rec_position_id noch nicht gepflegt),
+     * zaehlt die Unterschrift hier NICHT als Abweichung: „leer heisst nicht
+     * gepflegt", nicht „garantiert woanders eingestellt".
+     *
+     * @param  list<array>  $groups  postingGroups()-Ergebnis (Tabelle 1)
+     * @param  array{applicant_position_ids:array<int,?int>, posting_position_ids:array<int,?int>}  $cohort
+     * @return array{count:int, ids:list<int>, reason:string}
+     */
+    public function fremdeFilialeTotals(array $groups, array $cohort): array
+    {
+        $vm = $this->viewModel();
+        $applicantPositionIds = $cohort['applicant_position_ids'] ?? [];
+        $postingPositionIds = $cohort['posting_position_ids'] ?? [];
+
+        $ids = [];
+        foreach ($groups as $group) {
+            $postingId = $group['posting_id'] ?? null;
+            if ($postingId === null) {
+                continue;
+            }
+            $postingPositionId = $postingPositionIds[$postingId] ?? null;
+            if ($postingPositionId === null) {
+                continue;
+            }
+            foreach ($vm->idsOf($group, 'unterschrieben') as $id) {
+                $applicantPositionId = $applicantPositionIds[$id] ?? null;
+                if ($applicantPositionId !== null && (int) $applicantPositionId !== (int) $postingPositionId) {
+                    $ids[] = $id;
+                }
+            }
+        }
+
+        $count = count($ids);
+
+        return [
+            'count' => $count,
+            'ids' => $ids,
+            'reason' => $count === 0
+                ? ''
+                : $count . ' ' . ($count === 1 ? 'Unterschrift zählt' : 'Unterschriften zählen')
+                    . ' bei der Anzeige, über die die Bewerbung kam — '
+                    . ($count === 1 ? 'eingestellt wurde die Person' : 'eingestellt wurden die Personen')
+                    . ' aber in einer anderen Filiale (Kunden-Entscheidung: die Herkunft zählt, '
+                    . 'nicht der Einstellungsort — der Bedarf der Einstellungs-Filiale wird '
+                    . 'dadurch nicht bedient).',
+        ];
     }
 
     /**
