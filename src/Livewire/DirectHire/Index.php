@@ -74,11 +74,16 @@ class Index extends Component
                 'crmContactLinks.contact.emailAddresses',
                 'crmContactLinks.contact.phoneNumbers',
                 'phase',
+                // 'position' ist die eigene Stelle der Bewerbung (die Fassade liest
+                // sie), 'postings.position' bleibt fuer deren Fallback noetig.
+                // Ohne BEIDE Eager Loads laedt die Gruppierung unten pro Bewerber
+                // nach — bei einer Liste ein N+1.
+                'position',
                 'postings.position',
             ])
             ->orderByDesc('created_at')
             ->get()
-            ->groupBy(fn (RecApplicant $a) => $a->postings->first()?->position?->id)
+            ->groupBy(fn (RecApplicant $a) => $a->primaryPosition()?->id)
             ->all();
     }
 
@@ -86,13 +91,13 @@ class Index extends Component
     {
         $applicant = RecApplicant::query()
             ->forTeam((int) Auth::user()->currentTeam->id)
-            ->with('postings.position.phases')
+            ->with(['position.phases', 'postings.position.phases'])
             ->find($applicantId);
         if (!$applicant) {
             return;
         }
 
-        $position = $applicant->postings->first()?->position;
+        $position = $applicant->primaryPosition();
         if (!$position || !$position->is_direct_hire) {
             return;
         }
@@ -265,11 +270,11 @@ class Index extends Component
 
         $applicant = RecApplicant::query()
             ->forTeam($teamId)
-            ->with(['phase', 'postings.position'])
+            ->with(['phase', 'position', 'postings.position'])
             ->find($this->maApplicantId);
 
         // Guards: existiert, aktiv, Direkteinstellung, Datenerfassung komplett.
-        $position = $applicant?->postings->first()?->position;
+        $position = $applicant?->primaryPosition();
         if (!$applicant || !$applicant->is_active || !$position || !$position->is_direct_hire) {
             $this->addError('maContractTemplateId', 'Bewerber nicht gefunden oder keine Direkteinstellung.');
             return;

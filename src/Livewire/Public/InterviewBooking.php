@@ -135,14 +135,14 @@ class InterviewBooking extends Component
             return false;
         }
 
-        $applicant = RecApplicant::with('postings.position')->find($this->applicantId);
+        $applicant = RecApplicant::with(['position', 'postings.position'])->find($this->applicantId);
         if (!$applicant) {
             return false;
         }
 
         return WaitlistEnrollmentPlanner::resolveWunschorte(
             $applicant->getExtraField('beschaftigungsort'),
-            $applicant->postings->first()?->position?->beschaftigungsort_lookup_value,
+            $applicant->primaryPosition()?->beschaftigungsort_lookup_value,
         ) !== [];
     }
 
@@ -172,7 +172,7 @@ class InterviewBooking extends Component
             return [];
         }
 
-        $applicant = RecApplicant::with('postings.position', 'phase')->find($this->applicantId);
+        $applicant = RecApplicant::with('position', 'postings.position', 'phase')->find($this->applicantId);
         if (!$applicant) {
             return [];
         }
@@ -207,23 +207,24 @@ class InterviewBooking extends Component
      * allowed to see.
      *
      * Multi-Standort-Logik:
-     *  - Committed (in Phase >=3 oder hat aktives Booking): nur primary-Stelle
+     *  - Festgelegt (RecApplicant::istFestgelegt()): nur die eigene Stelle
      *  - Sonst: Wunsch-Mapping (`beschaftigungsort` → Stelle via Mapping-Spalte)
-     *           plus primary als Fallback
+     *           plus die eigene Stelle als Fallback
      *
      * Falls Mapping nirgends gepflegt ist, fällt der Filter auf den heutigen
-     * Effekt zurück (primary-Stelle = ihre Termine).
+     * Effekt zurück (eigene Stelle = ihre Termine).
+     *
+     * Die Stelle kommt aus primaryPosition(), nicht mehr aus der verknüpften
+     * Anzeige: ein Stellenwechsel fasst den Pivot nicht mehr an, ein Raten aus
+     * der fruehesten verknuepften Anzeige zeigte einem festgelegten Bewerber
+     * danach weiter die Termine der ALTEN Filiale. Die Festlegungs-Regel steht
+     * jetzt nur noch im Modell — sie war hier selbst hergeleitet.
      */
     private function resolvePositionIdsForApplicant(RecApplicant $applicant): array
     {
-        $primaryId = $applicant->postings->first()?->rec_position_id;
+        $primaryId = $applicant->primaryPosition()?->id;
 
-        $isCommitted = ($applicant->phase?->order ?? 0) >= 3
-            || RecInterviewBooking::where('rec_applicant_id', $applicant->id)
-                ->whereNotIn('status', ['cancelled'])
-                ->exists();
-
-        if ($isCommitted) {
+        if ($applicant->istFestgelegt()) {
             return $primaryId ? [$primaryId] : [];
         }
 
@@ -239,7 +240,7 @@ class InterviewBooking extends Component
             // duerfen sich nicht im Wunsch-Match vermischen. Sonst wuerde
             // ein alter Bewerber (in P1/P2 ohne Booking) eine neue Stelle
             // sehen — Buchung darauf laesst Phase-Modell auseinanderlaufen.
-            $primaryTitle = $applicant->postings->first()?->position?->title ?? '';
+            $primaryTitle = $applicant->primaryPosition()?->title ?? '';
             $primaryIsLegacy = str_contains($primaryTitle, ' bis ');
 
             $query = RecPosition::forTeam($applicant->team_id)
@@ -360,17 +361,17 @@ class InterviewBooking extends Component
 
     public function joinWaitlist(): void
     {
-        $applicant = RecApplicant::with(['phase', 'postings.position'])->find($this->applicantId);
+        $applicant = RecApplicant::with(['phase', 'position', 'postings.position'])->find($this->applicantId);
         if (!$applicant || !$this->waitlistEnabled) {
             return;
         }
 
         // Snapshot der bestätigten Wunschorte — gleiche Quelle wie
         // resolvePositionIdsForApplicant() (beschaftigungsort-Extra-Field),
-        // Fallback auf den Ort der primären Stelle.
+        // Fallback auf den Ort der eigenen Stelle (primaryPosition()).
         $wunschOrte = WaitlistEnrollmentPlanner::resolveWunschorte(
             $applicant->getExtraField('beschaftigungsort'),
-            $applicant->postings->first()?->position?->beschaftigungsort_lookup_value,
+            $applicant->primaryPosition()?->beschaftigungsort_lookup_value,
         );
 
         $entry = $this->waitlistEntry;
@@ -406,7 +407,7 @@ class InterviewBooking extends Component
 
     public function joinInterviewWaitlist(int $interviewId): void
     {
-        $applicant = RecApplicant::with(['phase', 'postings.position'])->find($this->applicantId);
+        $applicant = RecApplicant::with(['phase', 'position', 'postings.position'])->find($this->applicantId);
         if (!$applicant || !$this->waitlistEnabled) {
             return;
         }
@@ -461,7 +462,7 @@ class InterviewBooking extends Component
                 'armed'            => true,
                 'wunschorte'       => WaitlistEnrollmentPlanner::resolveWunschorte(
                     $applicant->getExtraField('beschaftigungsort'),
-                    $applicant->postings->first()?->position?->beschaftigungsort_lookup_value,
+                    $applicant->primaryPosition()?->beschaftigungsort_lookup_value,
                 ),
                 'enrolled_at'      => now(),
             ]);

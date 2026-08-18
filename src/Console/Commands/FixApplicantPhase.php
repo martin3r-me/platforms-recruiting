@@ -18,8 +18,8 @@ use Platform\Recruiting\Models\RecApplicant;
  *
  * Logik:
  *   - Findet Bewerber mit rec_phase_id IS NULL UND mind. 1 Posting
- *   - Setzt rec_phase_id auf firstPhase() der primaeren Position
- *     (= erste verlinkte Posting via $primaryPosting->position->firstPhase())
+ *   - Setzt rec_phase_id auf firstPhase() der Stelle der Bewerbung
+ *     (RecApplicant::primaryPosition() — eigenes Feld, Anzeige als Fallback)
  *   - Bewerber ohne Postings (Initiativ, Imports) bleiben unangefasst
  *
  * Aufruf:
@@ -51,7 +51,7 @@ class FixApplicantPhase extends Command
         $query = RecApplicant::query()
             ->whereNull('rec_phase_id')
             ->whereHas('postings')
-            ->with(['postings.position.phases']);
+            ->with(['position.phases', 'postings.position.phases']);
 
         if ($teamId) {
             $query->where('team_id', (int) $teamId);
@@ -63,28 +63,28 @@ class FixApplicantPhase extends Command
 
         $checked = 0;
         $changed = 0;
-        $skippedNoPosting = 0;
+        $skippedNoPosition = 0;
         $skippedNoFirstPhase = 0;
         $errors = 0;
 
         foreach ($query->cursor() as $applicant) {
             $checked++;
 
-            // Primaere Position = erstes verlinktes Posting (gleiche
-            // Heuristik wie IncomingApplicationService::handleInboundMessage)
-            $primaryPosting = $applicant->postings->first();
-            if (!$primaryPosting || !$primaryPosting->position) {
-                $skippedNoPosting++;
+            // DIE Stelle der Bewerbung — aus dem eigenen Feld, mit der
+            // verknuepften Anzeige als Fallback (RecApplicant::primaryPosition()).
+            $primaryPosition = $applicant->primaryPosition();
+            if (!$primaryPosition) {
+                $skippedNoPosition++;
                 continue;
             }
 
-            $firstPhase = $primaryPosting->position->firstPhase();
+            $firstPhase = $primaryPosition->firstPhase();
             if (!$firstPhase) {
                 $this->line(sprintf(
                     ' #%-5d %-30s : Position "%s" hat KEINE active firstPhase → skip',
                     $applicant->id,
                     $this->displayName($applicant),
-                    $primaryPosting->position->title,
+                    $primaryPosition->title,
                 ));
                 $skippedNoFirstPhase++;
                 continue;
@@ -96,7 +96,7 @@ class FixApplicantPhase extends Command
                 $this->displayName($applicant),
                 $firstPhase->id,
                 $firstPhase->name,
-                $primaryPosting->position->title,
+                $primaryPosition->title,
             ));
 
             if (!$dryRun) {
@@ -137,7 +137,7 @@ class FixApplicantPhase extends Command
         $this->info('');
         $this->info("Geprüft:                       {$checked}");
         $this->info("Geändert (Phase gesetzt):      {$changed}" . ($dryRun ? ' (dry-run)' : ''));
-        $this->info("Skipped (kein Posting):        {$skippedNoPosting}");
+        $this->info("Skipped (keine Stelle):        {$skippedNoPosition}");
         $this->info("Skipped (keine firstPhase):    {$skippedNoFirstPhase}");
         if ($errors > 0) {
             $this->warn("Fehler:                        {$errors}");

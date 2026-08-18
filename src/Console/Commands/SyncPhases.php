@@ -53,9 +53,9 @@ class SyncPhases extends Command
         // 2. Aktive Bewerber ohne Phase → Phase 1 der primären Position zuweisen
         $applicantsWithoutPhase = RecApplicant::where('is_active', true)
             ->whereNull('rec_phase_id')
-            ->with(['postings' => function ($q) {
+            ->with(['position', 'postings' => function ($q) {
                 $q->orderBy('rec_applicant_posting.id');
-            }])
+            }, 'postings.position'])
             ->get();
 
         $assigned = 0;
@@ -65,20 +65,22 @@ class SyncPhases extends Command
             $this->info("Aktive Bewerber ohne Phase: {$applicantsWithoutPhase->count()}");
 
             foreach ($applicantsWithoutPhase as $applicant) {
-                $primaryPosting = $applicant->postings->first();
+                // DIE Stelle der Bewerbung — aus dem eigenen Feld, mit der
+                // verknuepften Anzeige als Fallback (RecApplicant::primaryPosition()).
+                $primaryPosition = $applicant->primaryPosition();
 
-                if (!$primaryPosting) {
+                if (!$primaryPosition) {
                     $skipped++;
                     continue;
                 }
 
-                $phase = RecPhase::where('rec_position_id', $primaryPosting->rec_position_id)
+                $phase = RecPhase::where('rec_position_id', $primaryPosition->id)
                     ->where('is_active', true)
                     ->orderBy('order')
                     ->first();
 
                 if (!$phase) {
-                    $this->warn("  ! Keine Phase für Position {$primaryPosting->rec_position_id} — Bewerber {$applicant->id} übersprungen");
+                    $this->warn("  ! Keine Phase für Position {$primaryPosition->id} — Bewerber {$applicant->id} übersprungen");
                     $skipped++;
                     continue;
                 }
@@ -94,7 +96,7 @@ class SyncPhases extends Command
             }
 
             $this->info($dryRun
-                ? "Würde {$assigned} Bewerber zuweisen, {$skipped} übersprungen (kein Posting/keine Phase)."
+                ? "Würde {$assigned} Bewerber zuweisen, {$skipped} übersprungen (keine Stelle/keine Phase)."
                 : "{$assigned} Bewerber zugewiesen, {$skipped} übersprungen.");
         } else {
             $this->info('Alle aktiven Bewerber haben bereits eine Phase.');
