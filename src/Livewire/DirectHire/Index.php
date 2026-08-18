@@ -59,7 +59,7 @@ class Index extends Component
     #[Computed]
     public function applicantsByPosition(): array
     {
-        $positionIds = $this->positions->pluck('id')->all();
+        $positionIds = $this->positions->pluck('id')->map(fn ($id) => (int) $id)->all();
 
         if (empty($positionIds)) {
             return [];
@@ -83,8 +83,51 @@ class Index extends Component
             ])
             ->orderByDesc('created_at')
             ->get()
-            ->groupBy(fn (RecApplicant $a) => $a->primaryPosition()?->id)
+            ->groupBy(fn (RecApplicant $a) => $this->gruppeFuer($a, $positionIds))
             ->all();
+    }
+
+    /**
+     * Unter welcher Stelle erscheint dieser Bewerber in der Liste?
+     *
+     * Normalfall: unter seiner eigenen Stelle (primaryPosition()).
+     *
+     * Rueckfall — und der Grund, warum diese Methode existiert: geholt werden
+     * Bewerber ueber die ANZEIGE (whereHas oben), gruppiert wird ueber die eigene
+     * STELLE, und das Blade rendert NUR Gruppen, deren Schluessel in $positions
+     * steht. Seit ein Stellenwechsel nur noch das Feld setzt und die Anzeige
+     * stehen laesst, koennen die beiden Dimensionen auseinanderfallen: wer sich
+     * ueber eine Direct-Hire-Anzeige bewirbt und danach eine Schulung an einer
+     * Filiale OHNE Direkteinstellung bucht, hat eine eigene Stelle, die in
+     * $positions nicht vorkommt. Ohne diesen Rueckfall landete er unter einem
+     * Schluessel, den niemand abfragt — er verschwaende lautlos aus der Liste,
+     * ohne Fehler, es fehlte nur eine Zeile.
+     *
+     * Deshalb: faellt die eigene Stelle nicht in die Liste, gruppieren wir ihn
+     * unter der Stelle DER ANZEIGE, ueber die der Filter ihn geholt hat — die
+     * Bedeutung des Filters bleibt damit unveraendert. Fruehestes Posting
+     * zuerst, gleiche Reihenfolge wie der Fallback in primaryPosition().
+     *
+     * Bitte nicht "glatt ziehen": die zwei Dimensionen sind gewollt (die Anzeige
+     * sagt, woher die Bewerbung kam, die Stelle, wo sie bearbeitet wird), und den
+     * Filter auf die Stelle umzustellen wuerde Bewerber aus der Liste WERFEN,
+     * die heute drinstehen.
+     *
+     * @param  list<int>  $positionIds
+     */
+    private function gruppeFuer(RecApplicant $applicant, array $positionIds): ?int
+    {
+        $eigene = $applicant->primaryPosition()?->id;
+
+        if ($eigene !== null && in_array((int) $eigene, $positionIds, true)) {
+            return (int) $eigene;
+        }
+
+        $ausAnzeige = $applicant->postings
+            ->sortBy(fn ($posting) => $posting->pivot?->applied_at ?? $posting->pivot?->created_at)
+            ->first(fn ($posting) => in_array((int) $posting->rec_position_id, $positionIds, true));
+
+        return $ausAnzeige !== null ? (int) $ausAnzeige->rec_position_id : $eigene;
     }
 
     public function startDataCollection(int $applicantId): void
