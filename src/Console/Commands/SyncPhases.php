@@ -53,9 +53,10 @@ class SyncPhases extends Command
         // 2. Aktive Bewerber ohne Phase → Phase 1 der primären Position zuweisen
         $applicantsWithoutPhase = RecApplicant::where('is_active', true)
             ->whereNull('rec_phase_id')
-            ->with(['position', 'postings' => function ($q) {
-                $q->orderBy('rec_applicant_posting.id');
-            }, 'postings.position'])
+            // Ohne orderBy-Closure: primaryPosition() sortiert die Anzeigen selbst
+            // (fruehestes applied_at/created_at des Pivots). Die frueher hier noetige
+            // Reihenfolge waere jetzt reine Dekoration.
+            ->with(['position', 'postings.position'])
             ->get();
 
         $assigned = 0;

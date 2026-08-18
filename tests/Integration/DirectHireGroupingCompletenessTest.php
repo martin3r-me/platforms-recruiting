@@ -7,7 +7,16 @@ use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Illuminate\Events\Dispatcher;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\Support\ViewErrorBag;
+use Illuminate\View\Compilers\BladeCompiler;
+use Illuminate\View\Component;
+use Illuminate\View\Engines\CompilerEngine;
+use Illuminate\View\Engines\EngineResolver;
+use Illuminate\View\Factory as ViewFactory;
+use Illuminate\View\FileViewFinder;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\DirectHire\Index as DirekteinstellungsSeite;
 
@@ -65,6 +74,12 @@ class DirectHireGroupingCompletenessTest extends TestCase
     private const BEWERBER_OHNE_FELD = 1032;
 
     private const HEUTE = '2026-08-18 10:00:00';
+
+    /** Temporaeres Verzeichnis fuer Blade-Cache und x-ui-*-Stubs. */
+    private string $cacheDir;
+
+    /** Session-Attrappe: session()->flash() der Seite schreibt hier hinein. */
+    private static object $sessionAttrappe;
 
     public static function setUpBeforeClass(): void
     {
@@ -164,6 +179,21 @@ class DirectHireGroupingCompletenessTest extends TestCase
         $container->instance(AuthFactory::class, $attrappe);
         $container->instance('auth', $attrappe);
 
+        // Fuer Component::getErrorBag() (siehe viewAttrappe()). seiteRendern()
+        // tauscht diese Bindung waehrend des Renderns gegen die echte View-Factory
+        // und stellt sie danach wieder her.
+        $container->instance('view', self::viewAttrappe());
+
+        // Livewires Fehler-Bag liegt in einem DataStore, den store() ueber app()
+        // holt. Ohne EINE Instanz im Container baut der Container bei jedem Zugriff
+        // eine neue — addError() schriebe dann in einen Store, den getErrorBag()
+        // nie wieder sieht ("Call to a member function add() on null"). In
+        // Produktion registriert Livewires ServiceProvider ihn als Singleton.
+        $container->instance(
+            \Livewire\Mechanisms\DataStore::class,
+            new \Livewire\Mechanisms\DataStore(),
+        );
+
         Carbon::setTestNow(Carbon::parse(self::HEUTE));
 
         self::runRealMigrations();
@@ -190,8 +220,57 @@ class DirectHireGroupingCompletenessTest extends TestCase
         Facade::clearResolvedInstances();
         Container::getInstance()->forgetInstance(AuthFactory::class);
         Container::getInstance()->forgetInstance('auth');
+        Container::getInstance()->forgetInstance('view');
+        Container::getInstance()->forgetInstance('session');
+        Container::getInstance()->forgetInstance(\Livewire\Mechanisms\DataStore::class);
         Model::clearBootedModels();
         Carbon::setTestNow();
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->cacheDir = sys_get_temp_dir() . '/direkteinstellung-' . getmypid() . '-' . uniqid();
+        @mkdir($this->cacheDir . '/views/components', 0777, true);
+        $this->uiStubsSchreiben();
+
+        // Frisch pro Test: startDataCollection() flasht bei fehlender Phase 2.
+        self::$sessionAttrappe = new class
+        {
+            /** @var array<string,mixed> */
+            private array $werte = [];
+
+            public function flash($key, $value = null): void
+            {
+                $this->werte[$key] = $value;
+            }
+
+            public function has($key): bool
+            {
+                return array_key_exists($key, $this->werte);
+            }
+
+            public function get($key, $default = null)
+            {
+                return $this->werte[$key] ?? $default;
+            }
+        };
+        Container::getInstance()->instance('session', self::$sessionAttrappe);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (['/views/components', '/views', ''] as $sub) {
+            foreach (glob($this->cacheDir . $sub . '/*') ?: [] as $file) {
+                if (is_file($file)) {
+                    @unlink($file);
+                }
+            }
+            @rmdir($this->cacheDir . $sub);
+        }
+
+        parent::tearDown();
     }
 
     public function test_kein_gefilterter_bewerber_faellt_aus_der_liste(): void
@@ -237,6 +316,75 @@ class DirectHireGroupingCompletenessTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // Kein Blindgaenger-Knopf
+    // -----------------------------------------------------------------
+
+    public function test_die_aktion_meldet_sich_statt_still_zu_scheitern(): void
+    {
+        // Bewerber 1030 steht in der Gruppe Essen, seine EIGENE Stelle (83) ist
+        // aber keine Direkteinstellung. startDataCollection() stieg dafuer bisher
+        // ohne ein Wort aus — der Nutzer klickt, nichts passiert, nichts steht da.
+        $seite = new DirekteinstellungsProbe();
+
+        $seite->startDataCollection(self::BEWERBER_AUSSERHALB);
+
+        $this->assertTrue($seite->getErrorBag()->has('startDataCollection'),
+            'die Aktion muss eine sichtbare Meldung setzen, nicht still aussteigen');
+        $this->assertStringContainsString(
+            'nicht für Direkteinstellung eingerichtet',
+            $seite->getErrorBag()->first('startDataCollection'),
+        );
+        $this->assertStringContainsString('Neuss', $seite->getErrorBag()->first('startDataCollection'),
+            'die Meldung nennt die Stelle, damit HR weiss, wo es klemmt');
+
+        // Und es wurde nichts geschrieben: die Phase steht unveraendert.
+        $this->assertSame(self::PHASE_EINGANG,
+            (int) Capsule::table('rec_applicants')->where('id', self::BEWERBER_AUSSERHALB)->value('rec_phase_id'));
+    }
+
+    public function test_die_meldung_kommt_nur_fuer_diesen_fall(): void
+    {
+        // Gegenprobe, sonst belegt der Test oben nur "es meldet sich immer".
+        // 1031 sitzt auf Koeln, einer echten Direct-Hire-Stelle: dieselbe Aktion
+        // laeuft durch die Stellen-Guards durch und scheitert erst an der
+        // fehlenden Phase 2 — auf dem alten Weg (session-Flash), nicht am
+        // Stellen-Fehler.
+        $seite = new DirekteinstellungsProbe();
+
+        $seite->startDataCollection(self::BEWERBER_UMGEHAENGT);
+
+        $this->assertFalse($seite->getErrorBag()->has('startDataCollection'),
+            'eine eingerichtete Stelle darf den Stellen-Fehler nicht ausloesen');
+        $this->assertStringContainsString('keine Phase 2', (string) self::$sessionAttrappe->get('message'));
+    }
+
+    public function test_der_knopf_fehlt_fuer_eine_stelle_ohne_direkteinstellung(): void
+    {
+        $html = $this->seiteRendern();
+
+        // Vorflug: die Seite ist wirklich gerendert und beide Zeilen stehen drin.
+        // Ohne ihn wuerde die Nicht-Enthalten-Zusicherung unten auch bei einer
+        // leeren Seite gruen sein.
+        $this->assertStringContainsString('Datenerfassung starten', $html, 'rendert die Seite ueberhaupt?');
+        $this->assertStringContainsString('#' . self::BEWERBER_AUSSERHALB, $html);
+        $this->assertStringContainsString('#' . self::BEWERBER_UMGEHAENGT, $html);
+
+        // DIE Zusicherung: kein Knopf, der auf diese Zeile losgeht.
+        $this->assertStringNotContainsString(
+            'startDataCollection(' . self::BEWERBER_AUSSERHALB . ')', $html,
+            'fuer eine Stelle ohne Direkteinstellung darf der Knopf nicht im Markup stehen');
+
+        // Gegenprobe im gleichen DOM: die normalen Zeilen haben ihn.
+        $this->assertStringContainsString(
+            'startDataCollection(' . self::BEWERBER_UMGEHAENGT . ')', $html);
+        $this->assertStringContainsString(
+            'startDataCollection(' . self::BEWERBER_OHNE_FELD . ')', $html);
+
+        // Statt eines toten Knopfs steht dort der Grund.
+        $this->assertStringContainsString('Stelle ohne Direkteinstellung', $html);
+    }
+
+    // -----------------------------------------------------------------
     // Werkzeug
     // -----------------------------------------------------------------
 
@@ -265,6 +413,140 @@ class DirectHireGroupingCompletenessTest extends TestCase
         $probe = new DirekteinstellungsProbe();
 
         return $probe->positionsAbfragen()->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * Rendert die ECHTE Blade der Seite und gibt das Markup zurueck.
+     *
+     * Werkzeug wie in StatisticsPageRenderTest/StatisticsTablesRenderTest: eigener
+     * BladeCompiler auf ein temporaeres Verzeichnis, Stubs fuer die x-ui-*-
+     * Komponenten des Fremdpakets, und eine Engine, die die kompilierte View an die
+     * Komponente bindet ($this in der Blade = die Komponente, wie in Produktion).
+     * Zwei Zusatzstuecke, die diese Seite braucht: eine url-Attrappe fuer route()
+     * und ein $errors-ViewErrorBag, weil das neue Fehlerband @error benutzt.
+     */
+    private function seiteRendern(): string
+    {
+        $probe = new DirekteinstellungsProbe();
+        $probe->positions = $probe->positionsAbfragen();
+
+        $viewsRoot = dirname(__DIR__, 2) . '/resources/views';
+
+        $files = new Filesystem();
+        $compiler = new BladeCompiler($files, $this->cacheDir);
+
+        $resolver = new EngineResolver();
+        $resolver->register('blade', fn () => new GebundeneBladeEngine($compiler, $files, $probe));
+
+        $finder = new FileViewFinder($files, [$this->cacheDir . '/views', $viewsRoot]);
+        $finder->addNamespace('recruiting', $viewsRoot);
+
+        $factory = new ViewFactory($resolver, $finder, new Dispatcher(new Container()));
+
+        $container = Container::getInstance();
+        $container->instance(\Illuminate\Contracts\View\Factory::class, $factory);
+        $container->instance('view', $factory);
+        $container->instance('url', new class
+        {
+            public function route($name, $parameters = [], $absolute = true): string
+            {
+                return '/' . $name;
+            }
+        });
+        // Der ComponentTagCompiler RAET bei jedem <x-ui-*>-Tag zuerst einen
+        // Klassennamen und fragt dafuer app(Application::class)->getNamespace().
+        // Container::instance() prueft den Typ nicht, deshalb reicht ein Objekt mit
+        // genau dieser Methode; danach greift die View-Aufloesung auf die Stubs.
+        $container->instance(\Illuminate\Contracts\Foundation\Application::class, new class
+        {
+            public function getNamespace(): string
+            {
+                return 'App\\';
+            }
+        });
+
+        // Illuminate\View\Component cacht die View-Factory und die aufgeloesten
+        // Komponenten-Views in STATISCHEN Feldern — prozessweit, ueber Testklassen
+        // hinweg. Wer zuerst rendert, gewinnt: ohne dieses Aufraeumen benutzte
+        // StatisticsPageRenderTest anschliessend MEINE Factory, fand seine eigenen
+        // Stubs nicht mehr und starb an "Target class [config] does not exist"
+        // (gemessen: 12 Fehler). Vor UND nach dem Rendern zuruecksetzen.
+        Component::forgetFactory();
+        Component::flushCache();
+
+        try {
+            return $factory->make('recruiting::livewire.direct-hire.index', $this->viewDaten($probe))->render();
+        } finally {
+            Component::forgetFactory();
+            Component::flushCache();
+            $container->forgetInstance(\Illuminate\Contracts\View\Factory::class);
+            $container->forgetInstance('url');
+            $container->forgetInstance(\Illuminate\Contracts\Foundation\Application::class);
+            // 'view' bleibt gebunden, aber wieder als Mini-Attrappe: getErrorBag()
+            // der Komponente liest app('view')->getShared() (siehe setUpBeforeClass).
+            $container->instance('view', self::viewAttrappe());
+        }
+    }
+
+    /**
+     * Die View-Daten, die Livewire in Produktion mitgibt: ALLE public Properties
+     * der Komponente plus der geteilte $errors-Bag. Die Blade liest z. B.
+     * $maApplicantId und $createdEmployeePortalLink bar (nicht ueber $this) — ohne
+     * sie waeren das "Undefined variable"-Warnungen, und phpunit.xml hat
+     * failOnWarning="true".
+     *
+     * @return array<string,mixed>
+     */
+    private function viewDaten(DirekteinstellungsProbe $probe): array
+    {
+        $daten = ['errors' => new ViewErrorBag()];
+
+        foreach ((new \ReflectionObject($probe))->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            $daten[$property->getName()] = $property->isInitialized($probe)
+                ? $property->getValue($probe)
+                : null;
+        }
+
+        return $daten;
+    }
+
+    /**
+     * Stubs fuer die sechs x-ui-*-Komponenten, die diese Seite benutzt. Sie liegen
+     * in einem Fremdpaket, das ohne Host-App nicht aufloest; die Stubs reichen ihre
+     * String-Attribute und Slots durch, damit das gepruefte Markup entsteht.
+     */
+    private function uiStubsSchreiben(): void
+    {
+        $bag = '{{ $attributes->filter(fn ($value) => is_string($value) || is_numeric($value)) }}';
+
+        $stubs = [
+            'ui-page'            => '<div data-stub="page">{{ $navbar ?? \'\' }}{{ $actionbar ?? \'\' }}{{ $slot }}</div>',
+            'ui-page-navbar'     => '<div data-stub="navbar" ' . $bag . '></div>',
+            'ui-page-actionbar'  => '<div data-stub="actionbar">{{ $slot }}</div>',
+            'ui-page-container'  => '<div data-stub="container">{{ $slot }}</div>',
+            'ui-panel'           => '<div data-stub="panel">{{ $title ?? \'\' }}{{ $subtitle ?? \'\' }}{{ $slot }}</div>',
+            'ui-button'          => '<button type="button" ' . $bag . '>{{ $slot }}</button>',
+        ];
+
+        foreach ($stubs as $name => $markup) {
+            file_put_contents($this->cacheDir . '/views/components/' . $name . '.blade.php', $markup);
+        }
+    }
+
+    /**
+     * Minimal-'view' fuer Component::getErrorBag(): ohne bereits gesetzte Fehler
+     * liest Livewire dort app('view')->getShared()['errors']. Ohne diese Bindung
+     * stirbt schon addError() an "Target class [view] does not exist".
+     */
+    private static function viewAttrappe(): object
+    {
+        return new class
+        {
+            public function getShared(): array
+            {
+                return ['errors' => new ViewErrorBag()];
+            }
+        };
     }
 
     // -----------------------------------------------------------------
@@ -383,6 +665,28 @@ final class DirekteinstellungsProbe extends DirekteinstellungsSeite
     /** Echte Property — die Elternmethode liest $this->positions ohne __get(). */
     public $positions;
 
+    /** @var array<string,mixed> */
+    private array $memo = [];
+
+    /**
+     * Loest #[Computed]-Zugriffe der Blade ($this->applicantsByPosition,
+     * $this->availableContractTemplates) als Methodenaufruf auf und merkt sich das
+     * Ergebnis — in Produktion macht das die Livewire-Laufzeit, die es hier nicht
+     * gibt. Muster aus StatisticsTablesRenderTest::StatisticsRenderProbe.
+     */
+    public function __get($property)
+    {
+        if (method_exists($this, $property)) {
+            if (!array_key_exists($property, $this->memo)) {
+                $this->memo[$property] = $this->{$property}();
+            }
+
+            return $this->memo[$property];
+        }
+
+        return parent::__get($property);
+    }
+
     public function positionsAbfragen()
     {
         return parent::positions();
@@ -392,5 +696,48 @@ final class DirekteinstellungsProbe extends DirekteinstellungsSeite
     public function gruppenAbfragen(): array
     {
         return parent::applicantsByPosition();
+    }
+}
+
+/**
+ * Blade-Engine, die die kompilierte View an die Komponente bindet — damit `$this`
+ * in der Blade dasselbe bedeutet wie in Produktion. Ohne die Bindung zeigt `$this`
+ * in einer kompilierten Blade auf das Filesystem-Objekt (PhpEngine include-t ueber
+ * files->getRequire), und jeder `$this`-Zugriff der Seite waere ein Fehler.
+ * Gleiches Werkzeug wie BoundCompilerEngine in StatisticsTablesRenderTest; eigener
+ * Name, weil Testklassen nicht ueber den Autoloader auffindbar sind und diese Datei
+ * je nach Reihenfolge auch allein laufen muss.
+ */
+final class GebundeneBladeEngine extends CompilerEngine
+{
+    public function __construct(BladeCompiler $compiler, Filesystem $files, private object $component)
+    {
+        parent::__construct($compiler, $files);
+    }
+
+    protected function evaluatePath($path, $data)
+    {
+        $obLevel = ob_get_level();
+        ob_start();
+
+        try {
+            $render = \Closure::bind(
+                function (string $__probePath, array $__probeData) {
+                    extract($__probeData, EXTR_SKIP);
+                    include $__probePath;
+                },
+                $this->component,
+                $this->component::class,
+            );
+            $render($path, $data);
+        } catch (\Throwable $e) {
+            while (ob_get_level() > $obLevel) {
+                ob_end_clean();
+            }
+
+            throw $e;
+        }
+
+        return ltrim((string) ob_get_clean());
     }
 }

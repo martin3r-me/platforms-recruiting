@@ -59,7 +59,7 @@ class Index extends Component
     #[Computed]
     public function applicantsByPosition(): array
     {
-        $positionIds = $this->positions->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $positionIds = $this->listenStellenIds();
 
         if (empty($positionIds)) {
             return [];
@@ -119,7 +119,7 @@ class Index extends Component
     {
         $eigene = $applicant->primaryPosition()?->id;
 
-        if ($eigene !== null && in_array((int) $eigene, $positionIds, true)) {
+        if ($this->stehtInDerListe($eigene, $positionIds)) {
             return (int) $eigene;
         }
 
@@ -130,18 +130,87 @@ class Index extends Component
         return $ausAnzeige !== null ? (int) $ausAnzeige->rec_position_id : $eigene;
     }
 
+    /**
+     * Die Stellen, die die Seite ueberhaupt rendert (aktive Direct-Hire-Stellen
+     * des Teams, ggf. auf "nur meine" eingeschraenkt) — als int-Liste fuer die
+     * strikten in_array-Vergleiche.
+     *
+     * @return list<int>
+     */
+    private function listenStellenIds(): array
+    {
+        return $this->positions->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * DIE Unterscheidung: steht die eigene Stelle der Bewerbung in der Liste?
+     *
+     * Sie entscheidet zwei Dinge, und darf deshalb nur an EINER Stelle stehen:
+     * unter welchem Schluessel der Bewerber gruppiert wird (gruppeFuer) und ob
+     * die Zeile den Knopf "Datenerfassung starten" ueberhaupt anbietet (Blade
+     * ueber eigeneStelleIstDirekteinstellung). Zwei Herleitungen derselben Regel
+     * waeren genau der Fehler, aus dem dieses Paket kommt.
+     *
+     * Nimmt die Stellen-ID, nicht die Bewerbung: so liest jeder Aufrufer
+     * primaryPosition() genau EINMAL.
+     *
+     * @param  list<int>  $positionIds
+     */
+    private function stehtInDerListe(?int $positionId, array $positionIds): bool
+    {
+        return $positionId !== null && in_array($positionId, $positionIds, true);
+    }
+
+    /**
+     * Fuers Blade: darf diese Zeile "Datenerfassung starten" anbieten?
+     *
+     * Nein, wenn die eigene Stelle der Bewerbung keine (aktive) Direct-Hire-
+     * Stelle ist — dann sitzt der Bewerber nur ueber seine ANZEIGE in dieser
+     * Gruppe (siehe gruppeFuer), und startDataCollection() koennte gar nichts
+     * tun. Ein Knopf, der nichts tut, ist schlimmer als kein Knopf.
+     */
+    public function eigeneStelleIstDirekteinstellung(RecApplicant $applicant): bool
+    {
+        return $this->stehtInDerListe(
+            $applicant->primaryPosition()?->id,
+            $this->listenStellenIds(),
+        );
+    }
+
     public function startDataCollection(int $applicantId): void
     {
+        $this->resetErrorBag('startDataCollection');
+
         $applicant = RecApplicant::query()
             ->forTeam((int) Auth::user()->currentTeam->id)
-            ->with(['position.phases', 'postings.position.phases'])
+            ->with(['position', 'postings.position'])
             ->find($applicantId);
         if (!$applicant) {
+            $this->addError('startDataCollection', 'Bewerber nicht gefunden.');
             return;
         }
 
+        // Diese drei Ausgaenge waren bis hierher STILL: der Klick tat nichts und
+        // sagte nichts. Sichtbar geworden ist das, seit eine Bewerbung eine eigene
+        // Stelle haben kann, die keine Direkteinstellung ist — die Zeile steht dann
+        // ueber ihre ANZEIGE in der Gruppe (siehe gruppeFuer). Das Blade bietet den
+        // Knopf dafuer gar nicht mehr an; dieser Zweig sichert den Wire-Pfad ab und
+        // erklaert HR im Zweifel, was zu tun ist.
         $position = $applicant->primaryPosition();
-        if (!$position || !$position->is_direct_hire) {
+        if (!$position) {
+            $this->addError('startDataCollection',
+                'Diese Bewerbung hat keine Stelle — die Datenerfassung kann nicht starten. '
+                . 'Ordne der Bewerbung zuerst eine Direkteinstellungs-Stelle zu.');
+            return;
+        }
+
+        if (!$position->is_direct_hire) {
+            $this->addError('startDataCollection', sprintf(
+                'Die Stelle „%s“ dieser Bewerbung ist nicht für Direkteinstellung eingerichtet — '
+                . 'die Datenerfassung kann dort nicht starten. Setze die Stelle auf Direkteinstellung '
+                . 'oder ordne die Bewerbung einer Direkteinstellungs-Stelle zu.',
+                $position->title,
+            ));
             return;
         }
 

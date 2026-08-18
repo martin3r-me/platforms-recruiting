@@ -48,10 +48,15 @@ class FixApplicantPhase extends Command
         }
 
         // Bewerber mit rec_phase_id IS NULL UND mind. 1 Posting
+        // KEIN with(): dieses Kommando laeuft unten ueber cursor(), und cursor()
+        // laedt niemals eager (Builder::cursor() ruft eagerLoadRelations nicht auf).
+        // Ein Eager Load hier wuerde einen Schutz vortaeuschen, den es nicht gibt.
+        // Die Relationen werden pro Zeile nachgeladen — bei einem Heil-Kommando
+        // ueber wenige Bewerber ist das gewollt guenstiger als der Speicher eines
+        // chunkById-Umbaus.
         $query = RecApplicant::query()
             ->whereNull('rec_phase_id')
-            ->whereHas('postings')
-            ->with(['position.phases', 'postings.position.phases']);
+            ->whereHas('postings');
 
         if ($teamId) {
             $query->where('team_id', (int) $teamId);

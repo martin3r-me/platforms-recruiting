@@ -325,12 +325,16 @@ class WaitlistUnchangedBySwitchTest extends TestCase
         // — die Verhaltenstests oben deckeln nur die Buchungsseite ab, nicht die
         // Direkteinstellung und die beiden Heil-Kommandos (die brauchen eine
         // gebootete App).
-        // Erwartete Aufrufe von ->primaryPosition() je Datei. Die Buchungsseite
-        // hat 6 statt 5: maybeSwitchPosition() rief die Fassade schon vor diesem
-        // Umbau (Stufe 0 des Pakets), die fuenf umgestellten Leser kommen dazu.
+        // Erwartete Aufrufe von ->primaryPosition() je Datei. Zwei Zahlen liegen
+        // ueber den umgestellten Lesern, beide mit Grund:
+        //  - Buchungsseite 6 statt 5: maybeSwitchPosition() rief die Fassade schon
+        //    vor diesem Umbau (Stufe 0 des Pakets).
+        //  - Direkteinstellung 4 statt 3: eigeneStelleIstDirekteinstellung() ist
+        //    dazugekommen (das Blade fragt damit, ob es den Knopf "Datenerfassung
+        //    starten" anbieten darf) — dieselbe Regel, aber ein eigener Leser.
         $erwartet = [
             'src/Livewire/Public/InterviewBooking.php'   => 6,
-            'src/Livewire/DirectHire/Index.php'          => 3,
+            'src/Livewire/DirectHire/Index.php'          => 4,
             'src/Console/Commands/FixApplicantPhase.php' => 1,
             'src/Console/Commands/SyncPhases.php'        => 1,
         ];

@@ -27,6 +27,14 @@
             </div>
         @endif
 
+        {{-- startDataCollection() stieg bei nicht startbaren Bewerbungen still aus.
+             Ohne dieses Band waere die Meldung gesetzt und unsichtbar. --}}
+        @error('startDataCollection')
+            <div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                {{ $message }}
+            </div>
+        @enderror
+
         @if($createdEmployeePortalLink)
             <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
                 <div class="flex items-start justify-between gap-3">
@@ -210,12 +218,24 @@
                                                             </button>
                                                         @else
                                                             @if($phaseOrder === 1 || $phaseOrder === null)
-                                                                <button type="button"
-                                                                        wire:click="startDataCollection({{ $applicant->id }})"
-                                                                        wire:confirm="Datenerfassung starten?"
-                                                                        class="text-xs px-2 py-1.5 rounded-md bg-[var(--ui-primary)] text-white hover:opacity-90">
-                                                                    Datenerfassung starten
-                                                                </button>
+                                                                {{-- Der Bewerber kann in dieser Gruppe stehen, obwohl seine EIGENE
+                                                                     Stelle keine Direkteinstellung ist — dann sitzt er hier nur
+                                                                     ueber seine Anzeige (siehe Index::gruppeFuer). Der Knopf
+                                                                     wuerde nichts tun, also gibt es ihn nicht. Die Unterscheidung
+                                                                     kommt aus der Komponente, sie wird hier NICHT neu hergeleitet. --}}
+                                                                @if($this->eigeneStelleIstDirekteinstellung($applicant))
+                                                                    <button type="button"
+                                                                            wire:click="startDataCollection({{ $applicant->id }})"
+                                                                            wire:confirm="Datenerfassung starten?"
+                                                                            class="text-xs px-2 py-1.5 rounded-md bg-[var(--ui-primary)] text-white hover:opacity-90">
+                                                                        Datenerfassung starten
+                                                                    </button>
+                                                                @else
+                                                                    <span class="text-xs text-[var(--ui-muted)]"
+                                                                          title="Die Stelle dieser Bewerbung ist nicht fuer Direkteinstellung eingerichtet — die Bewerbung steht hier ueber ihre Anzeige.">
+                                                                        Stelle ohne Direkteinstellung
+                                                                    </span>
+                                                                @endif
                                                                 <button type="button"
                                                                         wire:click="parkApplicant({{ $applicant->id }})"
                                                                         wire:confirm="Diesen Bewerber parken?"
