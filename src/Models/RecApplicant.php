@@ -1941,43 +1941,26 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
-     * Switch the applicant to a new position: replaces the posting links with
-     * a single new one in the target position, and remaps rec_phase_id to
-     * the matching phase (same `order`) in the new position.
+     * Legt die Bewerbung auf eine Stelle fest: setzt die Stelle, mappt die Phase
+     * auf dieselbe `order` der neuen Stelle und haengt die Extra-Feld-Werte um.
      *
-     * Field-Werte werden NICHT umgehängt — sie bleiben unter den alten
-     * Phase-Definition-IDs. HCM-Export greift via `name`-Join darauf zu.
-     * In-App-UI sieht alte Werte nach Switch leer (siehe TODO 3.5a).
+     * Der Pivod wird NICHT angefasst — er sagt, woher die Bewerbung kam, und das
+     * aendert sich durch eine Festlegung nicht. Vorher loeschte diese Methode die
+     * Verknuepfung und haengte eine beliebige Anzeige der neuen Stelle an; die
+     * Statistik zaehlte die Bewerbung danach bei einer Anzeige, auf die sich
+     * niemand beworben hatte.
+     *
+     * $interview wird nicht mehr gebraucht (bis Stufe 0 waehlte es die Anzeige) und
+     * bleibt nur als Parameter erhalten, solange Aufrufer es uebergeben.
      */
     public function switchToPosition(RecPosition $newPosition, ?RecInterview $interview = null): void
     {
-        DB::transaction(function () use ($newPosition, $interview) {
+        DB::transaction(function () use ($newPosition) {
             $currentOrder = $this->phase?->order;
+            $alteStelle = $this->primaryPosition()?->title;
 
-            // VOR dem Loesen festhalten: danach ist die Herkunft nicht mehr lesbar.
-            $this->loadMissing('postings.position');
-            $alteAnzeigen = $this->postings->pluck('title')->filter()->implode(', ');
-            $alteStellen = $this->postings
-                ->map(fn ($p) => $p->position?->title)->filter()->unique()->implode(', ');
+            $this->rec_position_id = $newPosition->id;
 
-            $this->postings()->detach();
-
-            $newPosting = $this->postingFuerStellenwechsel($newPosition, $interview);
-            if (!$newPosting) {
-                throw new \RuntimeException(
-                    "Stelle '{$newPosition->title}' hat keine aktive Ausschreibung — Switch nicht möglich."
-                );
-            }
-
-            $this->postings()->attach($newPosting->id, [
-                'applied_at' => now()->toDateString(),
-                // Diese Verknuepfung ist KEINE Bewerbung auf diese Anzeige. Der Marker
-                // ist die einzige Spur davon, sobald die alte Verknuepfung geloescht
-                // ist — die Statistik zaehlt sie damit nicht als Bewerbung mit.
-                'matched_via' => 'position_switch',
-            ]);
-
-            // 3. Phase auf neue Stelle mappen (gleicher order)
             if ($currentOrder !== null) {
                 $newPhase = RecPhase::where('rec_position_id', $newPosition->id)
                     ->where('order', $currentOrder)
@@ -1987,6 +1970,7 @@ class RecApplicant extends Model implements InheritsExtraFields
                     $this->rec_phase_id = $newPhase->id;
                 }
             }
+
             PhaseTransitionTrigger::set($this->id, PhaseTransitionTrigger::POSITION_SWITCH);
             try {
                 $this->save();
@@ -1994,60 +1978,17 @@ class RecApplicant extends Model implements InheritsExtraFields
                 PhaseTransitionTrigger::forget($this->id);
             }
 
-            // 4. Extra-Field-Werte vom alten Definitionen-Set auf das neue
-            // umhaengen. Hintergrund: Definitionen sind position-spezifisch
-            // (jede geklonte Stelle hat eigene Definition-IDs), Werte hängen
-            // an definition_id. Ohne Remapping wirken bereits ausgefuellte
-            // Felder beim Form-Render der neuen Position als leer und
-            // muessen nochmal eingetragen werden.
             $this->remapExtraFieldValuesToPosition($newPosition);
 
-            // 5. Audit-Log
             try {
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $this->id,
                     'type' => 'position_switched',
                     'summary' => "Stelle gewechselt zu \"{$newPosition->title}\" durch Schulungs-Buchung"
-                        . ($alteStellen !== '' ? " (vorher Stelle: {$alteStellen})" : '')
-                        . ($alteAnzeigen !== '' ? ", Anzeige: {$alteAnzeigen}" : '')
-                        . '.',
+                        . ($alteStelle !== null ? " (vorher: {$alteStelle})" : '') . '.',
                 ]);
             } catch (\Throwable) {}
         });
-    }
-
-    /**
-     * Welche Ausschreibung der neuen Stelle bekommt die Verknuepfung?
-     *
-     * Vorher stand hier `->where('is_active', true)->first()` OHNE Sortierung: die
-     * Auswahl haing davon ab, in welcher Reihenfolge die Datenbank die Zeilen
-     * liefert, und war damit nicht reproduzierbar. Gemessen wurden 15 Wechsel,
-     * davon 11 in sechs Tagen — jeder verschob eine Bewerbung in eine
-     * Statistik-Zeile, in die sie nicht gehoert.
-     *
-     * 1. Die Ausschreibung des GEBUCHTEN TERMINS ist die richtige Antwort: die
-     *    Person geht zu genau dieser Schulung. Sie muss zur neuen Stelle gehoeren,
-     *    sonst haetten wir das Problem nur verschoben.
-     * 2. Ist am Termin keine gepflegt (das Feld ist neu), entscheidet die kleinste
-     *    ID — beliebig, aber stabil. Reproduzierbar zu sein ist hier mehr wert als
-     *    klug zu sein.
-     */
-    private function postingFuerStellenwechsel(RecPosition $newPosition, ?RecInterview $interview): ?RecPosting
-    {
-        if ($interview?->rec_posting_id !== null) {
-            $ausTermin = $newPosition->postings()
-                ->where('rec_postings.id', $interview->rec_posting_id)
-                ->first();
-
-            if ($ausTermin) {
-                return $ausTermin;
-            }
-        }
-
-        return $newPosition->postings()
-            ->where('is_active', true)
-            ->orderBy('rec_postings.id')
-            ->first();
     }
 
     /**

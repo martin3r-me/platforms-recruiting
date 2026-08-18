@@ -10,7 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecApplicant;
-use Platform\Recruiting\Models\RecInterview;
+use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPosition;
 
 /**
@@ -20,11 +20,10 @@ use Platform\Recruiting\Models\RecPosition;
  * verfaelscht die activity-Dimension der KPI-Statistik, weil die Bewerbung in
  * einer Anzeigen-Zeile landet, die nichts mit dem gebuchten Termin zu tun hat.
  *
- * Die richtige Antwort ist die Ausschreibung des GEBUCHTEN TERMINS: die Person
- * geht zu genau dieser Schulung, das ist die einzige nicht geratene Zuordnung.
- * Ist am Termin keine Ausschreibung gepflegt (das Feld `rec_posting_id` ist neu),
- * entscheidet die kleinste ID — beliebig, aber reproduzierbar; vorher entschied
- * die Reihenfolge, in der die Datenbank die Zeilen lieferte.
+ * Diese Fassung des Tests prueft die neue Antwort auf das Problem: keine
+ * Ausschreibung wird mehr ausgewaehlt, weil der Pivot beim Stellenwechsel gar
+ * nicht mehr angefasst wird. Die Bewerbung bleibt bei der Anzeige, die sie
+ * tatsaechlich gebracht hat — das ist die einzige nicht geratene Zuordnung.
  *
  * Aufbau wie die anderen Integrationstests des Moduls (Container + Capsule von
  * Hand, ECHTE Migrationen per glob, auth() als Attrappe, feste Uhr) — Kopf aus
@@ -128,77 +127,40 @@ class PositionSwitchPostingChoiceTest extends TestCase
         self::setzeBewerberAufAusgangszustand();
     }
 
-    public function test_der_wechsel_nimmt_die_ausschreibung_des_gebuchten_termins(): void
+    public function test_der_wechsel_setzt_die_stelle(): void
     {
         $applicant = RecApplicant::find(1010);
-        $interview = RecInterview::find(830);
 
-        $applicant->switchToPosition(RecPosition::find(82), $interview);
+        $applicant->switchToPosition(RecPosition::find(82));
 
-        $applicant->load('postings');
-        $this->assertSame([821], $applicant->postings->pluck('id')->all(),
-            'die Ausschreibung des Termins gewinnt, nicht eine beliebige der Stelle');
+        $this->assertSame(82, (int) $applicant->fresh()->rec_position_id);
+        $this->assertSame(82, $applicant->fresh()->primaryPosition()?->id);
     }
 
-    public function test_ohne_ausschreibung_am_termin_ist_der_fallback_stabil(): void
+    public function test_der_wechsel_laesst_die_herkunft_unberuehrt(): void
     {
-        // Die eigentliche Behauptung: die REGEL ist "kleinste ID unter den aktiven
-        // Ausschreibungen der Stelle" — 820 unter [820, 821, 822]. Ein reiner
-        // Zwei-Laeufe-Vergleich wuerde das NICHT zeigen: zwei Aufrufe im selben
-        // Prozess auf einer unveraenderten SQLite-Tabelle liefern ohnehin dieselbe
-        // Reihenfolge, weil hier die rowid-Ordnung zufaellig der ID-Ordnung
-        // entspricht. Ein Test, der nur zwei Laeufe vergleicht, faengt deshalb
-        // KEINE Aenderung der Regel (orderByDesc, Sortierung nach created_at,
-        // "die neueste zuerst", ...) — er bliebe in dieser Umgebung immer gruen.
-        // Deshalb zuerst die konkrete Ausschreibung behaupten.
-        $ersteWahl = $this->wechselMitTermin(831);
-        $this->assertSame(820, $ersteWahl, 'die kleinste aktive ID der neuen Stelle muss gewinnen');
+        // Das ist der Kern des ganzen Umbaus: die Bewerbung bleibt bei der Anzeige,
+        // die sie gebracht hat. Vorher wurde sie geloescht und durch eine beliebige
+        // Anzeige der neuen Stelle ersetzt.
+        $vorher = Capsule::table('rec_applicant_posting')
+            ->where('rec_applicant_id', 1010)->get()->toArray();
 
-        // Zweite Assertion zusaetzlich, kostet nichts: derselbe Ausgangszustand
-        // muss zweimal hintereinander dieselbe Ausschreibung ergeben.
-        $zweiteWahl = $this->wechselMitTermin(831);
-        $this->assertSame($ersteWahl, $zweiteWahl, 'der Fallback muss reproduzierbar sein');
+        RecApplicant::find(1010)->switchToPosition(RecPosition::find(82));
+
+        $nachher = Capsule::table('rec_applicant_posting')
+            ->where('rec_applicant_id', 1010)->get()->toArray();
+
+        $this->assertEquals($vorher, $nachher, 'kein detach, kein attach, kein neues applied_at');
     }
 
-    public function test_die_verknuepfung_ist_als_wechsel_markiert(): void
+    public function test_die_phase_wandert_weiter_mit(): void
     {
-        $applicant = RecApplicant::find(1010);
-        $applicant->switchToPosition(RecPosition::find(82), RecInterview::find(830));
+        RecApplicant::find(1010)->switchToPosition(RecPosition::find(82));
 
-        $pivot = Capsule::table('rec_applicant_posting')
-            ->where('rec_applicant_id', 1010)->first();
+        $phase = RecPhase::find(RecApplicant::find(1010)->rec_phase_id);
 
-        $this->assertSame('position_switch', $pivot->matched_via,
-            'ohne Marker kann die Statistik sie nicht von einer echten Bewerbung unterscheiden');
-    }
-
-    public function test_der_log_nennt_die_alte_stelle_und_anzeige(): void
-    {
-        $applicant = RecApplicant::find(1010);
-        $applicant->switchToPosition(RecPosition::find(82), RecInterview::find(830));
-
-        $log = Capsule::table('rec_auto_pilot_logs')
-            ->where('rec_applicant_id', 1010)
-            ->where('type', 'position_switched')
-            ->orderByDesc('id')->first();
-
-        $this->assertStringContainsString('Duesseldorf', $log->summary, 'alte Stelle');
-        $this->assertStringContainsString('Kellner (m/w/d)', $log->summary, 'alte Anzeige');
-    }
-
-    // -----------------------------------------------------------------
-    // Werkzeug
-    // -----------------------------------------------------------------
-
-    private function wechselMitTermin(int $interviewId): int
-    {
-        self::setzeBewerberAufAusgangszustand();
-
-        $applicant = RecApplicant::find(1010);
-        $applicant->switchToPosition(RecPosition::find(82), RecInterview::find($interviewId));
-
-        return (int) Capsule::table('rec_applicant_posting')
-            ->where('rec_applicant_id', 1010)->value('rec_posting_id');
+        $this->assertSame(82, (int) $phase->rec_position_id, 'Phase gehoert jetzt zur neuen Stelle');
+        $this->assertSame(1, (int) $phase->order, 'dieselbe order wie vorher');
     }
 
     /**
