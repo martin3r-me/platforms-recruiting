@@ -58,7 +58,6 @@ class EmployeeAssignments extends Component
 
         $settings = RecApplicantSettings::getOrCreateForTeam((int) config('recruiting.zas.inbound_team_id'));
         $deadlineHours = (int) ($settings->getSetting('dispo_deadline_hours') ?? 4);
-        $contactLine   = $settings->getSetting('dispo_contact_line');
 
         $assignments = RecDispoAssignment::query()
             ->with('event')
@@ -81,7 +80,7 @@ class EmployeeAssignments extends Component
                 'venue_text'   => $event->venue_text ?? $event->ort,
                 'anfahrt'      => $event->anfahrt,
                 'dresscode'    => $event->dresscode,
-                'contact_line' => $contactLine,
+                'contact_line' => $event->ansprechpartner,
                 'all_confirmed' => true,
                 'days'         => [],
             ];

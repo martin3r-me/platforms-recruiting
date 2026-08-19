@@ -16,7 +16,6 @@ use Platform\Recruiting\Models\RecApplicantSettings;
 class Settings extends Component
 {
     public string $templateId = '';
-    public string $contactLine = '';
     public string $deadlineHours = '4';
     public bool $saved = false;
 
@@ -27,7 +26,6 @@ class Settings extends Component
         $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
         $this->templateId    = (string) ($settings->getSetting('dispo_confirmation_template_id') ?? '');
-        $this->contactLine   = (string) ($settings->getSetting('dispo_contact_line') ?? '');
         $this->deadlineHours = (string) ((int) ($settings->getSetting('dispo_deadline_hours') ?? 4));
     }
 
@@ -50,7 +48,6 @@ class Settings extends Component
     {
         $this->validate([
             'templateId'    => 'nullable|string|max:20',
-            'contactLine'   => 'nullable|string|max:255',
             'deadlineHours' => 'required|integer|min:1|max:72',
         ]);
 
@@ -63,7 +60,6 @@ class Settings extends Component
         $templateId = ($this->templateId !== '' && ctype_digit($this->templateId)) ? (int) $this->templateId : null;
         $settings->setSetting('dispo_confirmation_template_id', $templateId);
 
-        $settings->setSetting('dispo_contact_line', trim($this->contactLine) !== '' ? trim($this->contactLine) : null);
         $settings->setSetting('dispo_deadline_hours', (int) $this->deadlineHours);
         $settings->save();
 

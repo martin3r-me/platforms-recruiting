@@ -21,6 +21,7 @@ class Show extends Component
 
     public bool $showSendModal = false;
     public string $vorlaufMinuten = '';
+    public string $ansprechpartner = '';
     public bool $includeReminders = false;
     /** @var array{sent:int, failed:list<array{employee_id:int, error:string}>}|null */
     public ?array $sendResult = null;
@@ -95,6 +96,7 @@ class Show extends Component
     public function openSendModal(): void
     {
         $this->vorlaufMinuten = (string) ($this->event->vorlauf_minuten ?? '');
+        $this->ansprechpartner = (string) ($this->event->ansprechpartner ?? '');
         $this->includeReminders = false;
         $this->sendResult = null;
         $this->showSendModal = true;
@@ -102,7 +104,10 @@ class Show extends Component
 
     public function sendConfirmations(): void
     {
-        $this->validate(['vorlaufMinuten' => 'required|integer|min:0|max:480'], [], ['vorlaufMinuten' => 'Vorlaufzeit']);
+        $this->validate([
+            'vorlaufMinuten'  => 'required|integer|min:0|max:480',
+            'ansprechpartner' => 'nullable|string|max:255',
+        ], [], ['vorlaufMinuten' => 'Vorlaufzeit']);
 
         $templateId = $this->dispoSettings['template_id'];
         if ($templateId === null) {
@@ -111,7 +116,10 @@ class Show extends Component
         }
 
         $event = RecDispoEvent::findOrFail($this->eventId);
-        $event->update(['vorlauf_minuten' => (int) $this->vorlaufMinuten]);
+        $event->update([
+            'vorlauf_minuten' => (int) $this->vorlaufMinuten,
+            'ansprechpartner' => trim($this->ansprechpartner) !== '' ? trim($this->ansprechpartner) : null,
+        ]);
 
         $preview = $this->sendPreview;
         $result = app(DispoConfirmationSender::class)

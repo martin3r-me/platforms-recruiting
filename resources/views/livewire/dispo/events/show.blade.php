@@ -126,6 +126,13 @@
                     </label>
                     @error('vorlaufMinuten') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
+                    <label class="block text-sm">
+                        <span class="mb-1 block font-medium text-gray-700">Ansprechpartner vor Ort <span class="text-gray-400">(optional)</span></span>
+                        <input type="text" wire:model="ansprechpartner" placeholder="z. B. Sheran (0170 1234567)"
+                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
+                        <span class="mt-1 block text-xs text-gray-500">Erscheint auf der Einsatz-Seite als „Dein Ansprechpartner ist …".</span>
+                    </label>
+
                     <label class="flex items-center gap-2 text-sm text-gray-600">
                         <input type="checkbox" wire:model.live="includeReminders" class="rounded border-gray-300">
                         Erinnerung an bereits Angeschriebene ohne Antwort erneut senden
