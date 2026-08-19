@@ -141,6 +141,41 @@ class ZasInboundRowMapper
         if ($status !== '') {
             $hr['export_status'] = mb_strtoupper($status); // "go" → "GO"
         }
+
+        // StatusMASeit — Tag der Umstellung GO→MA. Bewusst NICHT in HR_DATES:
+        // dort bedeutet ein leerer Wert "nicht anfassen", hier muss er LOESCHEN
+        // koennen (ZAS leert das Feld beim Zuruecksetzen auf GO).
+        //
+        // Damit eine kaputte Lieferung (Spalte versehentlich leer) nicht den
+        // ganzen Bestand abraeumt, ist das Loeschen an die Status-Spalte
+        // derselben Zeile gekoppelt: nur ein Status != MA bestaetigt die
+        // Rueckstellung. Konvention nach oben: Key fehlt = nicht anfassen,
+        // Key = null = aktiv leeren.
+        $statusUpper = mb_strtoupper($status);
+        $maSince     = $get('StatusMASeit');
+        if (!array_key_exists('StatusMASeit', $row)) {
+            // Bewusst OHNE Warnung: eine Lieferung ohne die Spalte traegt keine
+            // Information ueber das Feld (z.B. jede Lieferung vor dem ZAS-Ausbau).
+            // Eine Warnung pro Zeile waere hunderte Zeilen Rauschen; ob die Spalte
+            // dabei war, steht ohnehin in den erkannten Spalten der Lieferung.
+            $maSince = '';
+        } elseif ($statusUpper === '') {
+            $warnings[] = "status_ma_since: Status fehlt in derselben Zeile — Wert unveraendert (Loeschen nur mit Status-Bestaetigung)";
+        } elseif ($statusUpper === 'MA') {
+            $d = $this->date($maSince);
+            if ($d !== null) {
+                $hr['status_ma_since'] = $d;
+            } else {
+                // Leer oder unparsebar BEI Status=MA ist kein Zuruecksetzen,
+                // sondern ein Lieferfehler — Bestandswert bleibt stehen.
+                $warnings[] = "status_ma_since: Status=MA, aber '{$maSince}' ist kein gueltiges Datum (TT.MM.JJJJ erwartet) — Wert unveraendert";
+            }
+        } else {
+            $hr['status_ma_since'] = null;
+            if ($maSince !== '') {
+                $warnings[] = "status_ma_since: Status={$statusUpper}, aber Datum '{$maSince}' geliefert — Wert geleert";
+            }
+        }
         $anst = $get('Anstellungsart');
         if ($anst !== '') {
             $res = $this->lookups->resolve('anstellungsart', $anst, true);

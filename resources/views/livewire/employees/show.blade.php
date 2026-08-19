@@ -203,6 +203,8 @@
                                 $hrValue = $employee->ensureHrData()->getAttribute($key);
                                 $isMissing = !$isReadonly && ($hrValue === null || $hrValue === '' || $hrValue === []);
                                 $inputBorder = $isMissing ? 'border-red-300' : 'border-[var(--ui-border)]';
+                                // Date-Casts wuerden als "2026-08-19 00:00:00" gerendert.
+                                $displayValue = $hrValue instanceof \DateTimeInterface ? $hrValue->format('d.m.Y') : $hrValue;
                             @endphp
                             <div>
                                 <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">{{ $label }}</label>
@@ -215,7 +217,7 @@
                                          'empty' setzen, sonst wird ein Wert angezeigt, den niemand
                                          gesetzt hat. --}}
                                     <div class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white text-[var(--ui-secondary)]">
-                                        {{ $hrValue ?: ($meta['empty'] ?? $meta['options'][0] ?? 'GO') }}
+                                        {{ $displayValue ?: ($meta['empty'] ?? $meta['options'][0] ?? 'GO') }}
                                     </div>
 
                                 @elseif($type === 'lookup')

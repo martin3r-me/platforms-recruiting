@@ -26,6 +26,7 @@ class RecEmployeeHrData extends Model
         'contract_sent_date',
         'contract_end_date',
         'export_status',
+        'status_ma_since',
         'employment_classification',
         // Iteration 4
         'linen_package_items',
@@ -44,6 +45,7 @@ class RecEmployeeHrData extends Model
         'contract_signed_at'  => 'date',
         'contract_sent_date'  => 'date',
         'contract_end_date'   => 'date',
+        'status_ma_since'     => 'date',
         'linen_package_items' => 'array',
         'qualifications'      => 'array',
         'star_rating'         => 'integer',

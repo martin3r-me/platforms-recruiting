@@ -87,6 +87,7 @@ class ZasInboundController extends Controller
             'processed_at' => $isTest ? null : now(),
             'notes'        => json_encode([
                 'created'  => $import['created'],
+                'updated'  => $import['updated'],
                 'skipped'  => $import['skipped'],
                 'failed'   => $import['failed'],
                 'warnings' => $import['warnings'],

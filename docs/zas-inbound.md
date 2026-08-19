@@ -104,6 +104,37 @@ im Test-Modus:
 - Metadaten + erkannte Struktur: Tabelle `rec_zas_inbound_files`
   (`status`: `received` → später `processed`/`failed`).
 
+## Statusfelder: `Status` + `StatusMASeit`
+
+Bestehende Mitarbeiter (Treffer über UUID oder `ZasPersonalNr`) werden **nicht mehr
+komplett übersprungen**: für sie synchronisiert der Import gezielt **nur** die beiden
+Statusfelder `export_status` und `status_ma_since`. Alles andere bleibt unangetastet —
+ZAS soll keine HR-gepflegten Felder überschreiben. Solche Zeilen erscheinen im Bericht
+unter `updated` (mit `changed`), unveränderte weiterhin unter `skipped`.
+
+`StatusMASeit` ist der Tag, an dem in ZAS von Status GO auf MA umgestellt wurde
+(Kundenwunsch 2026-08-18). Format `TT.MM.JJJJ`. Sonderfall gegenüber allen anderen
+Datumsspalten: **leer bedeutet hier löschen**, nicht „nicht anfassen" — ZAS leert das
+Feld beim Zurücksetzen auf GO. Damit eine kaputte Lieferung nicht den ganzen Bestand
+abräumt, ist das Löschen an die `Status`-Spalte derselben Zeile gekoppelt:
+
+| `Status` | `StatusMASeit` | Wirkung |
+|----------|----------------|---------|
+| `MA`     | Datum          | Datum wird gesetzt |
+| ≠ `MA`   | leer           | Datum wird geleert |
+| ≠ `MA`   | Datum          | Datum wird geleert + Warnung (ZAS hat nicht mitgelöscht) |
+| `MA`     | leer/ungültig  | Wert bleibt stehen + Warnung (sieht nach Lieferfehler aus) |
+| Spalte fehlt | —          | Wert bleibt unangetastet + Warnung |
+| `Status` fehlt | —        | Wert bleibt unangetastet + Warnung (Löschen nur mit Status-Bestätigung) |
+
+Das Feld geht **nicht** in die Pull-Exporte zurück: ZAS besitzt es, ein Echo würde nur
+Re-Exporte auslösen. Aus demselben Grund stellt der Sync `zas_changed_at` nach dem
+Schreiben auf seinen vorherigen Wert zurück (nicht auf `null` — ein bereits gesetzter
+Marker stammt aus einer echten Änderung und würde sonst verschluckt).
+
+Im HR-Backend ist beides **readonly** (Mitarbeiter-Detail, gelber HR-Block), weil
+umgestellt wird in ZAS. Filterbar nach Zeitraum in der Mitarbeiter-Liste.
+
 ## Konfiguration
 
 | Env                          | Default | Zweck                                  |

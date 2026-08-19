@@ -7,8 +7,13 @@ use Platform\Recruiting\Models\RecEmployee;
 
 /**
  * Verarbeitet ZAS-Inbound-Datenzeilen: legt MA an, die bei uns noch nicht
- * existieren (Neuanlage-only). Bestehende (UUID- oder personnel_number-Match) werden
- * uebersprungen. Pro Zeile gekapselt — eine fehlerhafte Zeile stoppt nicht den Rest.
+ * existieren, und synchronisiert bei bestehenden (UUID- oder
+ * personnel_number-Match) AUSSCHLIESSLICH die Statusfelder. Pro Zeile
+ * gekapselt — eine fehlerhafte Zeile stoppt nicht den Rest.
+ *
+ * Warum kein Voll-Update bei Treffern: ZAS wuerde damit HR-gepflegte Felder
+ * ueberschreiben. Gesynct wird nur, was ZAS gehoert — der Status und sein
+ * Umstellungsdatum (Kundenwunsch 2026-08-18, "seit wann steht jemand auf MA").
  */
 class ZasInboundEmployeeImporter
 {
@@ -18,6 +23,7 @@ class ZasInboundEmployeeImporter
     {
         $teamId = config('recruiting.zas.inbound_team_id');
         $created = [];
+        $updated = [];
         $skipped = [];
         $failed = [];
         $warnings = [];
@@ -52,7 +58,26 @@ class ZasInboundEmployeeImporter
                 // Matching-Kaskade
                 $existing = $this->findExisting($mapped['uuid'], $mapped['personnel_number'], $teamId);
                 if ($existing !== null) {
-                    $skipped[] = ['personnel_number' => $mapped['personnel_number'], 'employee_id' => $existing->id, 'reason' => 'exists'];
+                    $changes = $this->statusSyncChanges($existing, $mapped['hr']);
+                    if ($changes === []) {
+                        $skipped[] = ['personnel_number' => $mapped['personnel_number'], 'employee_id' => $existing->id, 'reason' => 'exists'];
+                        continue;
+                    }
+                    if ($dryRun) {
+                        $updated[] = [
+                            'would_update'     => true,
+                            'employee_id'      => $existing->id,
+                            'personnel_number' => $mapped['personnel_number'],
+                            'changed'          => array_keys($changes),
+                        ];
+                        continue;
+                    }
+                    $this->syncStatusFields($existing, $changes);
+                    $updated[] = [
+                        'employee_id'      => $existing->id,
+                        'personnel_number' => $mapped['personnel_number'],
+                        'changed'          => array_keys($changes),
+                    ];
                     continue;
                 }
 
@@ -77,9 +102,70 @@ class ZasInboundEmployeeImporter
             }
         }
 
-        $status = $failed !== [] ? ($created !== [] || $skipped !== [] ? 'partial' : 'failed') : 'processed';
+        $status = $failed !== [] ? ($created !== [] || $updated !== [] || $skipped !== [] ? 'partial' : 'failed') : 'processed';
 
-        return compact('status', 'created', 'skipped', 'failed', 'warnings');
+        return compact('status', 'created', 'updated', 'skipped', 'failed', 'warnings');
+    }
+
+    /**
+     * Felder, die bei einem Treffer ueberhaupt angefasst werden duerfen.
+     * Bewusst kurz: alles andere gehoert HR, nicht ZAS.
+     */
+    protected const STATUS_SYNC_FIELDS = ['export_status', 'status_ma_since'];
+
+    /**
+     * Ermittelt die tatsaechlichen Aenderungen an den Statusfeldern.
+     *
+     * Ein Feld, das der Mapper NICHT gesetzt hat, fehlt hier als Key und wird
+     * nicht angefasst — so bleibt "nicht geliefert" (bzw. Lieferfehler)
+     * unterscheidbar von "aktiv geleert" (Key mit null).
+     *
+     * @param  array<string,mixed> $hr Mapper-Ausgabe fuer rec_employee_hr_data
+     * @return array<string,mixed> nur die abweichenden Felder
+     */
+    protected function statusSyncChanges(RecEmployee $existing, array $hr): array
+    {
+        $hrRow = $existing->hrData;
+        $norm = static fn ($v) => $v instanceof \DateTimeInterface ? $v->format('Y-m-d') : ($v === null ? null : (string) $v);
+
+        $changes = [];
+        foreach (self::STATUS_SYNC_FIELDS as $field) {
+            if (!array_key_exists($field, $hr)) {
+                continue;
+            }
+            if ($norm($hrRow?->getAttribute($field)) !== $norm($hr[$field])) {
+                $changes[$field] = $hr[$field];
+            }
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Schreibt die Statusfelder und stellt den Export-Marker exakt so wieder
+     * her, wie er vorher war.
+     *
+     * Grund: der HrData-save triggert den RecEmployeeExportObserver, der wegen
+     * export_status in RELEVANT_HR_FIELDS zas_changed_at setzt. Wir wuerden ZAS
+     * damit den Wert zurueckschicken, den ZAS uns gerade geliefert hat — bei
+     * einer Bestandslieferung mit hunderten Zeilen also den Update-Export
+     * fluten. Absichtlich RESTAURIEREN statt hart auf null: ein vorher
+     * gesetzter Marker stammt aus einer echten Aenderung und wuerde sonst
+     * verschluckt, der Export ginge verloren.
+     *
+     * @param array<string,mixed> $changes
+     */
+    protected function syncStatusFields(RecEmployee $existing, array $changes): void
+    {
+        DB::transaction(function () use ($existing, $changes): void {
+            $marker = DB::table('rec_employees')->where('id', $existing->id)->value('zas_changed_at');
+
+            $existing->ensureHrData()->fill($changes)->save();
+
+            DB::table('rec_employees')
+                ->where('id', $existing->id)
+                ->update(['zas_changed_at' => $marker]);
+        });
     }
 
     protected function findExisting(?string $uuid, ?string $personnelNumber, $teamId): ?RecEmployee

@@ -256,7 +256,11 @@ class Show extends Component
     {
         return [
             'Vertrags-Status (HR-only, ZAS-Export)' => [
-                'export_status'        => ['type' => 'inline_select', 'label' => 'Status (immer GO)', 'options' => ['GO'], 'readonly' => true],
+                'export_status'        => ['type' => 'inline_select', 'label' => 'Status (aus ZAS)', 'options' => ['GO', 'MA'], 'empty' => 'GO', 'readonly' => true],
+                // Kommt ausschliesslich aus dem ZAS-Inbound (Spalte StatusMASeit).
+                // Readonly wie der Status selbst: umgestellt wird in ZAS, ein
+                // Editieren hier wuerde beide Seiten auseinanderlaufen lassen.
+                'status_ma_since'      => ['type' => 'date', 'label' => 'MA-Status seit (aus ZAS)', 'empty' => 'steht nicht auf MA', 'readonly' => true],
                 'contract_sent_date'   => ['type' => 'date', 'label' => 'Vertrags-Datum (Snapshot)'],
                 'contract_signed_at'   => ['type' => 'date', 'label' => 'Vertrag zurueck am'],
                 'contract_end_date'    => ['type' => 'date', 'label' => 'Befristet bis'],
