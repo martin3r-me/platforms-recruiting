@@ -50,7 +50,25 @@
                     </select>
                 </div>
 
-                @if($search !== '' || $positionFilter || $activeFilter !== 'active')
+                <div>
+                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Auf MA gestellt von</label>
+                    <input
+                        type="date"
+                        wire:model.live="maSinceFrom"
+                        class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                    />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">bis</label>
+                    <input
+                        type="date"
+                        wire:model.live="maSinceTo"
+                        class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                    />
+                </div>
+
+                @if($search !== '' || $positionFilter || $activeFilter !== 'active' || $maSinceFrom !== '' || $maSinceTo !== '')
                     <button
                         type="button"
                         wire:click="resetFilters"
@@ -96,6 +114,12 @@
                             <div class="flex items-center gap-3 flex-shrink-0">
                                 @if($emp->employed_since)
                                     <span class="text-xs text-[var(--ui-muted)]">seit {{ $emp->employed_since->format('d.m.Y') }}</span>
+                                @endif
+                                @if($emp->hrData?->status_ma_since)
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                                          title="In ZAS auf Status MA gestellt am {{ $emp->hrData->status_ma_since->format('d.m.Y') }}">
+                                        MA seit {{ $emp->hrData->status_ma_since->format('d.m.Y') }}
+                                    </span>
                                 @endif
                                 @if($emp->is_active)
                                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">

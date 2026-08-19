@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Platform\Crm\Models\CrmContactLink;
@@ -208,6 +209,35 @@ class RecEmployee extends Model
     public function hrData(): HasOne
     {
         return $this->hasOne(RecEmployeeHrData::class, 'rec_employee_id');
+    }
+
+    /**
+     * Zeitraum-Filter auf das ZAS-Umstellungsdatum GO→MA
+     * (rec_employee_hr_data.status_ma_since), beidseitig inklusiv.
+     *
+     * Leere Grenzen werden ignoriert — so koennen die <input type="date">-Felder
+     * der MA-Liste ihre Leerstrings direkt durchreichen. Sobald aber EINE Grenze
+     * gesetzt ist, fallen MA ohne Datum heraus: sie stehen nicht auf MA (oder
+     * ZAS hat noch nicht geliefert) und gehoeren damit in keinen Zeitraum.
+     */
+    public function scopeStatusMaSinceBetween(Builder $query, ?string $from, ?string $to): Builder
+    {
+        $from = ($from === null || $from === '') ? null : $from;
+        $to   = ($to === null || $to === '') ? null : $to;
+
+        if ($from === null && $to === null) {
+            return $query;
+        }
+
+        return $query->whereHas('hrData', function (Builder $hr) use ($from, $to): void {
+            $hr->whereNotNull('status_ma_since');
+            if ($from !== null) {
+                $hr->whereDate('status_ma_since', '>=', $from);
+            }
+            if ($to !== null) {
+                $hr->whereDate('status_ma_since', '<=', $to);
+            }
+        });
     }
 
     /**

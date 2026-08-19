@@ -11,7 +11,8 @@ use Platform\Recruiting\Models\RecPosition;
  * HR-Backend-Liste aller Mitarbeiter (rec_employees).
  *
  * Losgeloest vom Bewerber-Funnel. Filterbar nach Stelle + Status +
- * Such-Text. Click auf MA fuehrt zur Show-Page wo HR alle Felder
+ * Such-Text + Zeitraum der ZAS-Umstellung auf MA (Kundenwunsch 2026-08-18:
+ * "alle anschreiben, die in einem bestimmten Zeitraum umgestellt wurden"). Click auf MA fuehrt zur Show-Page wo HR alle Felder
  * editieren kann (auch die Login-stabilen first_name/last_name/
  * birth_date/identity_card_number, im MA-Portal sind die verboten).
  */
@@ -20,6 +21,14 @@ class Index extends Component
     public string $search = '';
     public ?int $positionFilter = null;
     public string $activeFilter = 'active'; // 'active' | 'inactive' | 'all'
+
+    /**
+     * Zeitraum "auf MA umgestellt" — Y-m-d-Strings direkt aus den
+     * <input type="date">-Feldern. Bewusst KEINE Datums-Objekte: an einen
+     * date-Cast gebundene Livewire-Properties verlieren die Eingabe.
+     */
+    public string $maSinceFrom = '';
+    public string $maSinceTo   = '';
 
     public function updatingSearch(): void
     {
@@ -31,6 +40,8 @@ class Index extends Component
         $this->search = '';
         $this->positionFilter = null;
         $this->activeFilter = 'active';
+        $this->maSinceFrom = '';
+        $this->maSinceTo = '';
     }
 
     #[Computed]
@@ -46,8 +57,10 @@ class Index extends Component
     {
         $teamId = auth()->user()->currentTeam->id;
 
-        $query = RecEmployee::with(['position', 'applicant'])
-            ->where('team_id', $teamId);
+        // hrData eager laden: die Liste zeigt das MA-Datum pro Zeile.
+        $query = RecEmployee::with(['position', 'applicant', 'hrData'])
+            ->where('team_id', $teamId)
+            ->statusMaSinceBetween($this->maSinceFrom, $this->maSinceTo);
 
         if ($this->activeFilter === 'active') {
             $query->where('is_active', true);
