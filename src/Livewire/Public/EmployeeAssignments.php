@@ -29,6 +29,8 @@ class EmployeeAssignments extends Component
     #[Locked]
     public bool $tokenInvalid = false;
 
+    public bool $showPast = false;
+
     public function mount(string $token): void
     {
         $this->token = $token;
@@ -100,6 +102,48 @@ class EmployeeAssignments extends Component
             if ($assignment->confirmed_at === null) {
                 $groups[$key]['all_confirmed'] = false;
             }
+        }
+
+        return array_values($groups);
+    }
+
+    /**
+     * Vergangene Auftrags-Einsaetze des MA, kompakt gruppiert pro VA (nur Anzeige,
+     * eingeklappt per Default). Kein Filter auf missing/deletion_marked — vergangen
+     * ist vergangen. #[Computed]: nie im State.
+     *
+     * @return list<array<string, mixed>>
+     */
+    #[Computed]
+    public function pastEventGroups(): array
+    {
+        if ($this->employeeId === null) {
+            return [];
+        }
+
+        $assignments = RecDispoAssignment::query()
+            ->with('event')
+            ->where('rec_employee_id', $this->employeeId)
+            ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
+            ->whereDate('datum', '<', now()->toDateString())
+            ->orderByDesc('datum')->orderByDesc('von')
+            ->limit(30)
+            ->get();
+
+        $groups = [];
+        foreach ($assignments as $assignment) {
+            $event = $assignment->event;
+            $key = $event->id;
+
+            $groups[$key] ??= [
+                'name' => $event->name ?? $event->einsatz_ref,
+                'days' => [],
+            ];
+
+            $groups[$key]['days'][] = [
+                'datum'     => $assignment->datum->format('d.m.Y'),
+                'confirmed' => $assignment->confirmed_at !== null,
+            ];
         }
 
         return array_values($groups);

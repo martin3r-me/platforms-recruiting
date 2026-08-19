@@ -74,5 +74,28 @@
                 Aktuell liegen keine offenen Einsätze für dich vor.
             </div>
         @endforelse
+
+        @if ($this->pastEventGroups !== [])
+            <div class="pt-2">
+                <button wire:click="$toggle('showPast')" class="flex w-full items-center justify-between rounded-lg px-1 py-2 text-sm text-gray-500 hover:text-gray-700">
+                    <span>Vergangene Einsätze</span>
+                    <span class="text-xs">{{ $showPast ? '▲ ausblenden' : '▼ anzeigen' }}</span>
+                </button>
+                @if ($showPast)
+                    <div class="mt-1 divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white">
+                        @foreach ($this->pastEventGroups as $group)
+                            <div class="px-3 py-2 text-sm">
+                                <div class="font-medium text-gray-700">{{ $group['name'] }}</div>
+                                <div class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
+                                    @foreach ($group['days'] as $day)
+                                        <span>{{ $day['datum'] }}@if ($day['confirmed']) ✓@endif</span>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+        @endif
     @endif
 </div>
