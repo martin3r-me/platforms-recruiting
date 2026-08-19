@@ -17,8 +17,9 @@
         </label>
 
         <label class="block text-sm">
-            <span class="mb-1 block text-gray-600">Ansprechpartner-Zeile (auf der Einsatz-Seite)</span>
-            <input type="text" wire:model="contactLine" placeholder="Fragen? Melde dich bei ..." class="w-full rounded-lg border border-gray-300 px-3 py-2">
+            <span class="mb-1 block text-gray-600">Ansprechpartner (Name, optional mit Telefon)</span>
+            <input type="text" wire:model="contactLine" placeholder="z. B. Sheran (0170 1234567)" class="w-full rounded-lg border border-gray-300 px-3 py-2">
+            <span class="mt-1 block text-xs text-gray-400">Erscheint auf der Einsatz-Seite als „Dein Ansprechpartner ist …".</span>
         </label>
 
         <label class="block text-sm">

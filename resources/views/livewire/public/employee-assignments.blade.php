@@ -64,7 +64,9 @@
                 </div>
 
                 @if ($group['contact_line'])
-                    <div class="border-t border-gray-100 px-4 py-2.5 text-center text-xs text-gray-500">{{ $group['contact_line'] }}</div>
+                    <div class="border-t border-gray-100 px-4 py-3 text-center text-sm text-gray-600">
+                        Dein Ansprechpartner ist <span class="font-medium text-gray-800">{{ $group['contact_line'] }}</span>
+                    </div>
                 @endif
             </div>
         @empty
