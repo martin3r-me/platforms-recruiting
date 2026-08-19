@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
@@ -30,10 +31,15 @@ class EmployeePortal extends Component
 {
     use WithFileUploads;
 
+    #[Locked]
     public string $state = 'loading';
+    #[Locked]
     public ?int $employeeId = null;
+    #[Locked]
     public string $token = '';
+    #[Locked]
     public string $displayName = '';
+    #[Locked]
     public bool $duzen = false;
 
     // Login-Form
