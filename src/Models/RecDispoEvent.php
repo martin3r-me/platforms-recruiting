@@ -20,6 +20,7 @@ class RecDispoEvent extends Model
         'uuid', 'einsatz_ref', 'name', 'venue_text', 'ort', 'einsatzfirma',
         'starts_on', 'ends_on', 'anfahrt', 'dresscode',
         'vorlauf_minuten',
+        'ansprechpartner',
         'source_meta',
     ];
 
