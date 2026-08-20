@@ -79,9 +79,9 @@ class EmployeeAssignments extends Component
             $groups[$key] ??= [
                 'event_id'     => $event->id,
                 'name'         => $event->name ?? $event->einsatz_ref,
-                'venue_text'   => $event->venue_text ?? $event->ort,
-                'anfahrt'      => $event->anfahrt,
-                'dresscode'    => $event->dresscode,
+                'adresse'      => $event->venue_text,
+                'zusatz_ort'   => $event->ort,
+                'kleidung'     => $event->dresscode,
                 'contact_line' => $event->ansprechpartner,
                 'all_confirmed' => true,
                 'days'         => [],
@@ -89,13 +89,14 @@ class EmployeeAssignments extends Component
 
             $arrival = DispoTimeCalculator::arrivalTime($assignment->von, $event->vorlauf_minuten);
             $groups[$key]['days'][] = [
-                'datum'      => $assignment->datum->format('d.m.Y'),
-                'von'        => $assignment->von,
-                'bis'        => $assignment->bis,
-                'taetigkeit' => $assignment->taetigkeit,
-                'arrival'    => $arrival,
-                'confirmed'  => $assignment->confirmed_at !== null,
-                'deadline'   => \Carbon\Carbon::parse(
+                'datum'           => $assignment->datum->format('d.m.Y'),
+                'von'             => $assignment->von,
+                'bis'             => $assignment->bis,
+                'taetigkeit'      => $assignment->taetigkeit,
+                'arrival'         => $arrival,
+                'confirmed'       => $assignment->confirmed_at !== null,
+                'individual_note' => $assignment->individual_note,
+                'deadline'        => \Carbon\Carbon::parse(
                     DispoTimeCalculator::confirmationDeadline($assignment->datum->format('Y-m-d'), $assignment->von, $deadlineHours)
                 )->format('d.m.Y H:i'),
             ];

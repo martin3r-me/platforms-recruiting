@@ -13,12 +13,28 @@
             <div class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                 <div class="border-b border-gray-100 bg-gray-50 px-4 py-3">
                     <div class="text-base font-bold text-gray-900">{{ $group['name'] }}</div>
-                    @if ($group['venue_text'])
-                        <div class="mt-0.5 whitespace-pre-line text-sm text-gray-600">{{ $group['venue_text'] }}</div>
-                    @endif
                 </div>
 
                 <div class="space-y-3 p-4">
+                    @if ($group['adresse'])
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Ort / Adresse</div>
+                            <div class="mt-1 whitespace-pre-line text-sm text-gray-800">{{ $group['adresse'] }}</div>
+                        </div>
+                    @endif
+                    @if ($group['zusatz_ort'])
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Anfahrt / wo genau</div>
+                            <div class="mt-1 whitespace-pre-line text-sm text-gray-800">{{ $group['zusatz_ort'] }}</div>
+                        </div>
+                    @endif
+                    @if ($group['kleidung'])
+                        <div class="rounded-lg bg-gray-50 p-3">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Kleidung / Infos</div>
+                            <div class="mt-1 whitespace-pre-line text-sm text-gray-800">{{ $group['kleidung'] }}</div>
+                        </div>
+                    @endif
+
                     @foreach ($group['days'] as $day)
                         <div class="rounded-lg border border-gray-200 p-3">
                             <div class="flex items-center justify-between">
@@ -36,21 +52,14 @@
                                 @if ($day['taetigkeit'])<span class="font-medium text-gray-800">{{ $day['taetigkeit'] }}</span> · @endif
                                 @if ($day['von'])Schicht {{ $day['von'] }}@if ($day['bis'])–{{ $day['bis'] }}@endif Uhr @endif
                             </div>
+                            @if ($day['individual_note'])
+                                <div class="mt-2 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                    <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Hinweis für dich</div>
+                                    <div class="mt-0.5 whitespace-pre-line">{{ $day['individual_note'] }}</div>
+                                </div>
+                            @endif
                         </div>
                     @endforeach
-
-                    @if ($group['dresscode'])
-                        <div class="rounded-lg bg-gray-50 p-3">
-                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Kleidung</div>
-                            <div class="mt-1 whitespace-pre-line text-sm text-gray-800">{{ $group['dresscode'] }}</div>
-                        </div>
-                    @endif
-                    @if ($group['anfahrt'])
-                        <div class="rounded-lg bg-gray-50 p-3">
-                            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Anfahrt</div>
-                            <div class="mt-1 whitespace-pre-line text-sm text-gray-800">{{ $group['anfahrt'] }}</div>
-                        </div>
-                    @endif
 
                     @if ($group['all_confirmed'])
                         <div class="rounded-lg bg-green-50 p-3 text-center text-sm font-semibold text-green-800">✓ Bestätigt — danke!</div>
