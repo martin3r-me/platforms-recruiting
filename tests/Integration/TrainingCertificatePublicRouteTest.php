@@ -61,6 +61,7 @@ class TrainingCertificatePublicRouteTest extends TestCase
      */
     private const SPAETER = [
         'recruiting.public.employee-assignments',
+        'recruiting.public.portal-mockup',
     ];
 
     private ?Container $container = null;

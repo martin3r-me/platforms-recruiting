@@ -46,6 +46,11 @@ Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\Employee
 Route::get('/einsaetze/{token}', \Platform\Recruiting\Livewire\Public\EmployeeAssignments::class)
     ->name('recruiting.public.employee-assignments');
 
+// Design-Vorschau des Mitarbeiterportals — statische HTML-Datei hinter einem
+// Zahlencode. Nur zum Zeigen, enthaelt ausschliesslich Beispieldaten.
+Route::match(['GET', 'POST'], '/entwurf/portal', \Platform\Recruiting\Http\Controllers\PortalMockupController::class)
+    ->name('recruiting.public.portal-mockup');
+
 // Contract PDF Download (public, token-based)
 Route::get('/applicant/{token}/contract/{contractId}/pdf', [\Platform\Recruiting\Http\Controllers\ContractPdfController::class, '__invoke'])
     ->name('recruiting.public.contract-pdf');
