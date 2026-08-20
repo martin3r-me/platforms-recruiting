@@ -25,7 +25,7 @@ class ZasDispoImportPlannerTest extends TestCase
             . "12.04.2026;FC;RG77;RG19063;1;;830999;13:00;17:30;1;0;Supervisor;;30,00;\r\n"
             . "{Dispo2}\r\n"
             . "12.04.2026;Rhein-Energie-Stadion<br/>Aachener Straße 999;RG19063;Supervisor 13:00-17:30;1;116340;1.FC Köln vs. Bremen;CGN;400;RG26;13:00;17:30;Köln;1. FC Köln GmbH & Co. KGaA ;;2;Supervisor;_;51;\r\n"
-            . "13.04.2026;Rhein-Energie-Stadion<br/>Aachener Straße 999;RG19063;Abbau 09:00-12:00;2;116999;;CGN;400;RG27;09:00;12:00;Köln;;;2;Abbau;_;51;\r\n"
+            . "13.04.2026;Rhein-Energie-Stadion<br/>Aachener Straße 999;RG19063;Abbau 09:00-12:00;2;116999;;CGN;400;RG27;09:00;12:00;Köln;;Schwarze Hose, weißes Hemd;2;Abbau;_;51;\r\n"
         );
 
         return [$result['known']['Dispo'], $result['known']['Dispo2']];
@@ -44,6 +44,23 @@ class ZasDispoImportPlannerTest extends TestCase
         $this->assertSame('2026-04-12', $event['starts_on']);
         $this->assertSame('2026-04-13', $event['ends_on']);
         $this->assertSame('CGN', $event['source_meta']['filiale']);
+        $this->assertSame('CGN', $event['filiale']);
+        $this->assertSame('Schwarze Hose, weißes Hemd', $event['dresscode']); // erster nicht-leerer Wert (Zeile 12.04. war leer)
+    }
+
+    public function test_filiale_and_dresscode_are_null_when_source_field_empty(): void
+    {
+        $dispo2 = [[
+            'datum' => '12.04.2026', 'text' => '', 'einsatz_id' => 'RG1',
+            'taetigkeit_von_bis' => '', 'anzahl' => '', 'dispoposten_id' => '1',
+            'projektbezeichnung' => '', 'filiale' => '', 'filial_nr' => '',
+            'taetigk_id' => '', 'von' => '', 'bis' => '', 'ort' => '', 'einsatzfirma' => '',
+            'mitarbeiter_info' => '', 'status_id' => '', 'taetigkeit' => '', 'interne_bem' => '', 'id_firma' => '',
+        ]];
+        $plan = $this->planner->plan([], $dispo2, [], '2026-04-01');
+
+        $this->assertNull($plan['events']['RG1']['filiale']);
+        $this->assertNull($plan['events']['RG1']['dresscode']);
     }
 
     public function test_builds_assignments_with_source_meta(): void

@@ -43,7 +43,8 @@ class ZasDispoImportPlanner
             $current = $events[$ref] ?? [
                 'einsatz_ref' => $ref,
                 'name' => null, 'venue_text' => null, 'ort' => null,
-                'einsatzfirma' => null, 'starts_on' => null, 'ends_on' => null,
+                'einsatzfirma' => null, 'filiale' => null, 'dresscode' => null,
+                'starts_on' => null, 'ends_on' => null,
                 'source_meta' => [],
                 'is_placeholder' => false,
             ];
@@ -52,6 +53,8 @@ class ZasDispoImportPlanner
             $current['venue_text']   ??= ZasDispoFieldParser::text($row['text'] ?? null);
             $current['ort']          ??= ZasDispoFieldParser::text($row['ort'] ?? null);
             $current['einsatzfirma'] ??= ZasDispoFieldParser::text($row['einsatzfirma'] ?? null);
+            $current['filiale']      ??= ZasDispoFieldParser::text($row['filiale'] ?? null);
+            $current['dresscode']    ??= ZasDispoFieldParser::text($row['mitarbeiter_info'] ?? null);
 
             $date = ZasDispoFieldParser::date($row['datum'] ?? null);
             if ($date !== null) {
@@ -83,7 +86,8 @@ class ZasDispoImportPlanner
                 $events[$einsatzRef] = [
                     'einsatz_ref' => $einsatzRef,
                     'name' => null, 'venue_text' => null, 'ort' => null,
-                    'einsatzfirma' => null, 'starts_on' => null, 'ends_on' => null,
+                    'einsatzfirma' => null, 'filiale' => null, 'dresscode' => null,
+                    'starts_on' => null, 'ends_on' => null,
                     'source_meta' => [],
                     'is_placeholder' => true,
                 ];
