@@ -24,7 +24,7 @@ class RecDispoAssignment extends Model
 
     protected $fillable = [
         'uuid', 'ds_ref', 'rec_dispo_event_id', 'pnr_raw', 'rec_employee_id',
-        'datum', 'von', 'bis', 'status_id', 'taetigkeit',
+        'datum', 'von', 'bis', 'status_id', 'taetigkeit', 'individual_note',
         'last_seen_at', 'missing_since',
         'reminder_sent_at',
         'reminder_message_id',

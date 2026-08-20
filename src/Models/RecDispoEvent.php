@@ -17,7 +17,7 @@ class RecDispoEvent extends Model
     protected $table = 'rec_dispo_events';
 
     protected $fillable = [
-        'uuid', 'einsatz_ref', 'name', 'venue_text', 'ort', 'einsatzfirma',
+        'uuid', 'einsatz_ref', 'name', 'venue_text', 'ort', 'einsatzfirma', 'filiale',
         'starts_on', 'ends_on', 'anfahrt', 'dresscode',
         'vorlauf_minuten',
         'ansprechpartner',
