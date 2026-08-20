@@ -24,15 +24,24 @@
     </div>
 
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div class="rounded-lg border border-gray-200 bg-white p-4">
-            <div class="text-sm font-medium text-gray-500">Ort / Venue</div>
-            <div class="mt-1 whitespace-pre-line text-sm">{{ $event->venue_text ?? $event->ort ?? '—' }}</div>
-        </div>
-        <div class="rounded-lg border border-gray-200 bg-white p-4">
-            <div class="text-sm font-medium text-gray-500">Anfahrt / Dresscode</div>
-            <div class="mt-1 whitespace-pre-line text-sm">{{ $event->anfahrt ?? 'Anfahrt: folgt von ZAS' }}</div>
-            <div class="mt-1 whitespace-pre-line text-sm">{{ $event->dresscode ?? 'Dresscode: folgt von ZAS' }}</div>
-        </div>
+        @if ($event->venue_text)
+            <div class="rounded-lg border border-gray-200 bg-white p-4">
+                <div class="text-sm font-medium text-gray-500">Adresse</div>
+                <div class="mt-1 whitespace-pre-line text-sm">{{ $event->venue_text }}</div>
+            </div>
+        @endif
+        @if ($event->ort)
+            <div class="rounded-lg border border-gray-200 bg-white p-4">
+                <div class="text-sm font-medium text-gray-500">Anfahrt / wo genau</div>
+                <div class="mt-1 whitespace-pre-line text-sm">{{ $event->ort }}</div>
+            </div>
+        @endif
+        @if ($event->dresscode)
+            <div class="rounded-lg border border-gray-200 bg-white p-4">
+                <div class="text-sm font-medium text-gray-500">Kleidung / Infos</div>
+                <div class="mt-1 whitespace-pre-line text-sm">{{ $event->dresscode }}</div>
+            </div>
+        @endif
     </div>
 
     <div class="rounded-lg border border-gray-200 bg-white">
@@ -56,6 +65,7 @@
                     <th class="px-4 py-2 font-medium">Mitarbeiter</th>
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
+                    <th class="px-4 py-2 font-medium">Hinweis</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -100,9 +110,23 @@
                                 <span class="text-xs text-gray-400">—</span>
                             @endif
                         </td>
+                        <td class="px-4 py-2">
+                            @if ($assignment->rec_employee_id)
+                                <div class="flex items-center gap-1">
+                                    <input type="text" wire:model="notes.{{ $assignment->rec_employee_id }}"
+                                           placeholder="Hinweis für diesen MA"
+                                           class="w-40 rounded border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:ring-blue-500">
+                                    <button wire:click="saveNote({{ $assignment->rec_employee_id }})"
+                                            class="rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                                            title="Speichern">
+                                        Speichern
+                                    </button>
+                                </div>
+                            @endif
+                        </td>
                     </tr>
                 @empty
-                    <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
+                    <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
                 @endforelse
             </tbody>
         </table>

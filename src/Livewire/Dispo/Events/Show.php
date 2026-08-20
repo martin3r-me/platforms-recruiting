@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\Dispo\Events;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
@@ -26,9 +27,42 @@ class Show extends Component
     /** @var array{sent:int, failed:list<array{employee_id:int, error:string}>}|null */
     public ?array $sendResult = null;
 
+    /** Individueller Hinweis pro Mitarbeiter, keyed by rec_employee_id → Text. */
+    public array $notes = [];
+
     public function mount(int $eventId): void
     {
         $this->eventId = $eventId;
+        $this->loadNotes();
+    }
+
+    /** Vorbelegung von $notes aus dem ersten nicht-leeren individual_note pro MA. */
+    private function loadNotes(): void
+    {
+        foreach ($this->event->assignments as $assignment) {
+            $employeeId = $assignment->rec_employee_id;
+            if ($employeeId === null) {
+                continue;
+            }
+            $this->notes[$employeeId] ??= '';
+            if ($this->notes[$employeeId] === '' && !empty($assignment->individual_note)) {
+                $this->notes[$employeeId] = $assignment->individual_note;
+            }
+        }
+    }
+
+    /** Schreibt den Hinweis auf ALLE Einbuchungen dieses MA fuer diese VA. */
+    public function saveNote(int $employeeId): void
+    {
+        $value = trim((string) ($this->notes[$employeeId] ?? ''));
+        $this->notes[$employeeId] = $value;
+
+        RecDispoAssignment::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->where('rec_employee_id', $employeeId)
+            ->update(['individual_note' => $value !== '' ? $value : null]);
+
+        unset($this->event); // Computed-Cache invalidieren
     }
 
     #[Computed]
