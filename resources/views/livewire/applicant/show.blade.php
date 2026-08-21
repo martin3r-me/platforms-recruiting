@@ -484,7 +484,7 @@
                         && str_starts_with($selectedTemplate->code, 'AV-')
                         && !$applicant->contracts->contains(fn($c) =>
                             $c->contractTemplate?->code === 'IFSG'
-                            && in_array($c->status, ['pending', 'sent', 'in_progress'])
+                            && $c->status !== 'cancelled'
                         );
                 @endphp
 

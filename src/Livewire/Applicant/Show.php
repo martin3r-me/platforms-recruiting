@@ -780,9 +780,19 @@ class Show extends Component
 
     /**
      * Rule: whenever an Arbeitsvertrag (code AV-*) is assigned, the
-     * Infektionsschutzgesetz (code IFSG) goes with it — unless an active
-     * IFSG contract already exists for the applicant. Returns true if a
-     * new IFSG contract was created.
+     * Infektionsschutzgesetz (code IFSG) goes with it — unless the applicant
+     * ALREADY HAS ONE, in any status but 'cancelled'. Returns true if a new
+     * IFSG contract was created.
+     *
+     * Die Statusmenge war lange nur pending/sent/in_progress. Ein laengst
+     * unterschriebener IFSG (= 'completed') zaehlte damit nicht, und jede
+     * weitere AV-Zuweisung legte ein zweites Exemplar daneben, das der
+     * Mitarbeiter erneut unterschreiben sollte — sichtbar geworden beim
+     * Ersetzen eines Arbeitsvertrags wegen falschem Zuschlag.
+     *
+     * Folge fuer den Sonderfall Folgebelehrung: die haengt jetzt nicht mehr
+     * am Automatismus. Wer sie braucht, weist IFSG ueber das Dropdown
+     * ausdruecklich zu — sichtbare Entscheidung statt stiller Nebenwirkung.
      */
     private function autoAttachIfsgTemplate(): bool
     {
@@ -796,12 +806,7 @@ class Show extends Component
             return false;
         }
 
-        $existing = $this->applicant->contracts()
-            ->where('rec_contract_template_id', $ifsg->id)
-            ->whereIn('status', ['pending', 'sent', 'in_progress'])
-            ->exists();
-
-        if ($existing) {
+        if (RecContract::hasNonCancelledForTemplate($this->applicant->id, $ifsg->id)) {
             return false;
         }
 

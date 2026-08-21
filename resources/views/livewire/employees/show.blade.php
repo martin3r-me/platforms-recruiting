@@ -286,21 +286,137 @@
                     <div class="space-y-2">
                         @foreach($contracts as $c)
                             <div class="flex items-center justify-between gap-3 p-2 bg-white border border-[var(--ui-border)]/60 rounded-md">
-                                <div class="flex items-center gap-2 text-sm">
+                                <div class="flex items-center gap-2 text-sm flex-wrap">
                                     @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600')
                                     <span class="font-medium">{{ $c['display_name'] }}</span>
                                     <span class="text-xs text-[var(--ui-muted)]">am {{ \Carbon\Carbon::parse($c['signed_at'])->format('d.m.Y') }}</span>
+                                    @if($c['superseded_by'])
+                                        <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                                            ersetzt durch #{{ $c['superseded_by'] }}
+                                        </span>
+                                    @endif
                                 </div>
-                                <a href="{{ $c['pdf_url'] }}" target="_blank"
-                                   class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 text-emerald-800 bg-emerald-50 text-xs font-medium rounded-md hover:bg-emerald-100 transition-colors">
-                                    @svg('heroicon-o-document-arrow-down', 'w-3.5 h-3.5')
-                                    PDF
-                                </a>
+                                <div class="flex items-center gap-2">
+                                    @if($c['can_reissue'])
+                                        <button type="button" wire:click="openReissueModal({{ $c['id'] }})"
+                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)] transition-colors">
+                                            @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
+                                            Neu ausstellen
+                                        </button>
+                                    @endif
+                                    <a href="{{ $c['pdf_url'] }}" target="_blank"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 text-emerald-800 bg-emerald-50 text-xs font-medium rounded-md hover:bg-emerald-100 transition-colors">
+                                        @svg('heroicon-o-document-arrow-down', 'w-3.5 h-3.5')
+                                        PDF
+                                    </a>
+                                </div>
                             </div>
                         @endforeach
                     </div>
                 </div>
             @endif
+
+            {{-- Offene Vertraege (ausgestellt, noch nicht unterschrieben) --}}
+            @php $openContracts = $this->openContracts; @endphp
+            @if(!empty($openContracts))
+                <div class="mt-4 p-4 bg-blue-50/40 border border-blue-200 rounded-lg">
+                    <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-3">Offene Vertraege</h3>
+                    <div class="space-y-2">
+                        @foreach($openContracts as $oc)
+                            <div class="flex items-center justify-between gap-3 p-2 bg-white border border-[var(--ui-border)]/60 rounded-md">
+                                <div class="flex items-center gap-2 text-sm flex-wrap">
+                                    @svg('heroicon-o-clock', 'w-4 h-4 text-blue-600')
+                                    <span class="font-medium">{{ $oc['display_name'] }}</span>
+                                    @if($oc['code'])
+                                        <span class="text-xs text-[var(--ui-muted)]">({{ $oc['code'] }})</span>
+                                    @endif
+                                    <span class="text-xs text-[var(--ui-muted)]">
+                                        {{ $oc['sent_at'] ? 'versendet am ' . \Carbon\Carbon::parse($oc['sent_at'])->format('d.m.Y') : 'noch nicht versendet' }}
+                                    </span>
+                                </div>
+                                @if($oc['sign_url'])
+                                    <div x-data="{ copied: false }" class="flex items-center gap-2">
+                                        <input type="text" readonly value="{{ $oc['sign_url'] }}"
+                                               class="w-64 text-xs px-2 py-1 border border-[var(--ui-border)] rounded bg-white" />
+                                        <button type="button"
+                                                @click="navigator.clipboard.writeText('{{ $oc['sign_url'] }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-800 bg-blue-50 text-xs font-medium rounded-md hover:bg-blue-100 transition-colors">
+                                            <span x-show="!copied">Link kopieren</span>
+                                            <span x-show="copied" x-cloak>Kopiert</span>
+                                        </button>
+                                    </div>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                    <p class="text-xs text-[var(--ui-muted)] mt-2">
+                        Der Mitarbeiter kann auch ueber das Portal unterschreiben — der Link hier ist fuer den Einzelversand.
+                    </p>
+                </div>
+            @endif
+
+            {{-- Vertrag neu ausstellen --}}
+            <x-ui-modal size="sm" model="reissueModalShow">
+                <x-slot name="header">Vertrag neu ausstellen</x-slot>
+                <div class="p-4 space-y-4">
+                    <p class="text-xs text-[var(--ui-muted)]">
+                        Der unterschriebene Vertrag bleibt als Beleg erhalten und wird als ersetzt markiert.
+                        Der neue Vertrag entsteht aus derselben Vorlage mit dem neuen Zuschlag — ohne
+                        Infektionsschutz-Erklaerung, die ist ja schon unterschrieben.
+                    </p>
+
+                    <div>
+                        <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Neuer Zuschlag (€/Std)</label>
+                        <input type="text" wire:model="reissueZuschlag" placeholder="1,60"
+                               class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Vertragsbeginn</label>
+                        <input type="date" wire:model="reissueBeginn"
+                               class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Beginn des ersetzten Vertrags uebernehmen.</p>
+                    </div>
+
+                    <div>
+                        <span class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Grund</span>
+                        <label class="flex items-start gap-2 p-2 border border-[var(--ui-border)] rounded-md cursor-pointer">
+                            <input type="radio" wire:model="reissueReason" value="correction" class="mt-0.5" />
+                            <span class="text-sm">
+                                <span class="font-medium">Korrektur</span>
+                                <span class="block text-xs text-[var(--ui-muted)]">
+                                    Vertrag war falsch, Mitarbeiter noch nicht im Einsatz — keine Meldung ans Lohnbuero.
+                                </span>
+                            </span>
+                        </label>
+                        <label class="flex items-start gap-2 p-2 border border-[var(--ui-border)] rounded-md cursor-pointer mt-2">
+                            <input type="radio" wire:model="reissueReason" value="raise" class="mt-0.5" />
+                            <span class="text-sm">
+                                <span class="font-medium">Erhoehung</span>
+                                <span class="block text-xs text-[var(--ui-muted)]">
+                                    Aenderung im laufenden Verhaeltnis — erscheint in den Lohnaenderungen.
+                                </span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Notiz (optional)</label>
+                        <textarea wire:model="reissueNote" rows="2"
+                                  class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                                  placeholder="z.B. Zuschlag bei Versand falsch angesetzt"></textarea>
+                    </div>
+                </div>
+                <x-slot name="footer">
+                    <div class="flex items-center justify-end gap-2">
+                        <x-ui-button variant="secondary" wire:click="closeReissueModal">Abbrechen</x-ui-button>
+                        <x-ui-button variant="primary" wire:click="reissueContract"
+                                     wire:loading.attr="disabled" wire:target="reissueContract">
+                            Neu ausstellen
+                        </x-ui-button>
+                    </div>
+                </x-slot>
+            </x-ui-modal>
 
             {{-- Sticky Save --}}
             <div class="sticky bottom-0 bg-[var(--ui-surface)] pt-4 mt-6 flex items-center justify-between gap-3 border-t border-[var(--ui-border)]">

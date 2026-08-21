@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Platform\Core\Contracts\InheritsExtraFields;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Core\Traits\HasPublicFormLink;
@@ -30,6 +31,7 @@ class RecContract extends Model implements InheritsExtraFields
         'sent_at',
         'completed_at',
         'notes',
+        'superseded_by_contract_id',
         'pre_signing_data',
         'created_by_user_id',
     ];
@@ -110,6 +112,48 @@ class RecContract extends Model implements InheritsExtraFields
     public function team(): BelongsTo
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');
+    }
+
+    /**
+     * Der Vertrag, der diesen hier abgeloest hat (ReissueContractService).
+     * Gesetzt heisst: dieses Stueck ist Archiv, nicht der gueltige Stand.
+     */
+    public function supersededBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'superseded_by_contract_id');
+    }
+
+    public function supersedes(): HasMany
+    {
+        return $this->hasMany(self::class, 'superseded_by_contract_id');
+    }
+
+    public function isSuperseded(): bool
+    {
+        return $this->superseded_by_contract_id !== null;
+    }
+
+    /**
+     * Hat der Bewerber schon einen nicht-stornierten Vertrag aus dieser
+     * Vorlage — in JEDEM Status, also auch `completed`?
+     *
+     * Das ist die Frage, die der IFSG-Auto-Anhaenger stellen muss. Er fragte
+     * lange nur nach pending/sent/in_progress; ein laengst unterschriebener
+     * IFSG zaehlte damit nicht, und jede weitere AV-Zuweisung legte einen
+     * zweiten daneben, den der Mitarbeiter erneut unterschreiben sollte.
+     *
+     * ABSICHTLICH NICHT hier verwendet: die Duplikat-Pruefung in
+     * assignContract(). Die fragt weiter nur nach offenen Vertraegen, weil
+     * ihre Folge das Stornieren des gefundenen ist — auf einen signierten
+     * Vertrag angewandt waere das genau der Datenverlust, den der
+     * Ersetzen-Weg vermeidet.
+     */
+    public static function hasNonCancelledForTemplate(int $applicantId, int $templateId): bool
+    {
+        return self::where('rec_applicant_id', $applicantId)
+            ->where('rec_contract_template_id', $templateId)
+            ->whereNotIn('status', ['cancelled'])
+            ->exists();
     }
 
     public function extraFieldParents(): array

@@ -8,8 +8,10 @@ use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
 use Platform\Core\Models\ContextFile;
 use Platform\Core\Services\ContextFileService;
+use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Services\ReissueContractService;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 
 /**
@@ -29,6 +31,17 @@ class Show extends Component
     public array $hrFieldValues = [];
     public ?string $flash = null;
     public ?string $flashError = null;
+
+    // Vertrag neu ausstellen (siehe reissueContract())
+    public bool $reissueModalShow = false;
+    public ?int $reissueContractId = null;
+    // Nullable, nicht `string`: ein geleertes Input (besonders type=date)
+    // schickt null, und Livewire wuerde das in eine getypte string-Property
+    // schreiben wollen — TypeError beim Hydrieren, mitten im Dialog.
+    public ?string $reissueZuschlag = '';
+    public ?string $reissueBeginn = '';
+    public string $reissueReason = ReissueContractService::REASON_CORRECTION;
+    public ?string $reissueNote = '';
 
     // File-Upload-Properties (separat, eine pro File-Field)
     public $uploadIdentityFront = null;
@@ -106,15 +119,156 @@ class Show extends Component
                     $code !== null && str_starts_with($code, 'AT-') => 'Zusatzvereinbarung (' . $code . ')',
                     default                                         => $c->contractTemplate?->name ?? 'Vertrag',
                 };
+                $isAv = $code !== null && (str_starts_with($code, 'AV-') || $code === 'AV');
                 return [
-                    'id'           => $c->id,
-                    'display_name' => $displayName,
-                    'signed_at'    => $c->signed_at,
-                    'pdf_url'      => route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id]),
+                    'id'            => $c->id,
+                    'display_name'  => $displayName,
+                    'signed_at'     => $c->signed_at,
+                    'pdf_url'       => route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id]),
+                    'superseded_by' => $c->superseded_by_contract_id,
+                    // Ersetzen gilt nur fuer Arbeitsvertraege und nur einmal
+                    // — ein bereits ersetzter ist Archiv.
+                    'can_reissue'   => $isAv && $c->superseded_by_contract_id === null,
                 ];
             })
             ->values()
             ->toArray();
+    }
+
+    /**
+     * Noch nicht unterschriebene Vertraege des verknuepften Bewerbers, mit
+     * Signaturlink. Ohne diese Liste waere der Link aus dem Ersetzen-Dialog
+     * nach dem naechsten Seitenaufbau verloren, und HR muesste in die
+     * Bewerber-Akte wechseln, um ihn erneut zu erzeugen.
+     *
+     * Liest den Token NUR, wenn es schon einen gibt — getOrCreatePublicFormLink()
+     * gehoert nicht in einen Lesepfad, der bei jedem Seitenaufbau laeuft.
+     * Vertraege aus dem Ersetzen-Dialog und aus dem regulaeren Versand haben
+     * ihren Link bereits; alles andere zeigt schlicht keinen an.
+     */
+    #[Computed]
+    public function openContracts(): array
+    {
+        $emp = $this->employee();
+        if (!$emp?->applicant) {
+            return [];
+        }
+
+        return $emp->applicant->contracts
+            ->filter(fn ($c) => !in_array($c->status, ['completed', 'cancelled'], true))
+            ->map(function ($c) {
+                return [
+                    'id'           => $c->id,
+                    'display_name' => $c->contractTemplate?->name ?? 'Vertrag',
+                    'code'         => $c->contractTemplate?->code,
+                    'status'       => $c->status,
+                    'sent_at'      => $c->sent_at,
+                    'sign_url'     => $c->publicFormLink
+                        ? route('recruiting.public.contract-signing', ['token' => $c->publicFormLink->token])
+                        : null,
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+    public function openReissueModal(int $contractId): void
+    {
+        $emp = $this->employee();
+        $contract = $emp?->applicant?->contracts->firstWhere('id', $contractId);
+        if (!$contract) {
+            $this->flashError = 'Vertrag nicht gefunden.';
+            return;
+        }
+
+        $zuschlag = $emp->applicant->zuschlag;
+        $beginn = $contract->getExtraField('vertragsbeginn');
+
+        $this->reissueContractId = $contractId;
+        $this->reissueZuschlag = $zuschlag !== null ? number_format((float) $zuschlag, 2, ',', '.') : '';
+        $this->reissueBeginn = is_string($beginn) ? $beginn : '';
+        $this->reissueNote = '';
+        // Vorbelegung nach Wirksamkeit: liegt der Vertragsbeginn in der
+        // Zukunft, hat der alte Vertrag nie gewirkt — dann ist es eine
+        // Korrektur und das Lohnbuero hat nichts davon. HR kann umschalten.
+        $this->reissueReason = $this->beginnIsFuture((string) $this->reissueBeginn)
+            ? ReissueContractService::REASON_CORRECTION
+            : ReissueContractService::REASON_RAISE;
+        $this->reissueModalShow = true;
+    }
+
+    public function closeReissueModal(): void
+    {
+        $this->reissueModalShow = false;
+        $this->reissueContractId = null;
+        $this->reissueNote = '';
+    }
+
+    private function beginnIsFuture(?string $beginn): bool
+    {
+        if ($beginn === null || $beginn === '') {
+            return false;
+        }
+        try {
+            return \Carbon\Carbon::parse($beginn)->startOfDay()->isFuture();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Ersetzt den unterschriebenen Arbeitsvertrag durch einen neuen mit
+     * korrigiertem Zuschlag. Die Arbeit macht ReissueContractService — hier
+     * steht nur Eingabepruefung und Rueckmeldung.
+     */
+    public function reissueContract(): void
+    {
+        $this->flash = null;
+        $this->flashError = null;
+
+        $emp = $this->employee();
+        $contract = $emp?->applicant?->contracts->firstWhere('id', $this->reissueContractId);
+        if (!$contract) {
+            $this->flashError = 'Vertrag nicht gefunden.';
+            return;
+        }
+
+        $raw = trim((string) $this->reissueZuschlag);
+        // Gleiche Validierung wie Nachbereitung/HR-Schreibtisch
+        // (setDeskZuschlag): Ziffern, optional Komma/Punkt, max 2 Stellen.
+        if (!preg_match('/^\d{1,3}([.,]\d{1,2})?$/', $raw)) {
+            $this->flashError = 'Zuschlag muss eine Zahl sein (z.B. 1,60).';
+            return;
+        }
+        $zuschlag = round((float) str_replace(',', '.', $raw), 2);
+
+        try {
+            $result = app(ReissueContractService::class)->reissue(
+                $contract,
+                $zuschlag,
+                $this->reissueReason,
+                (string) $this->reissueBeginn !== '' ? (string) $this->reissueBeginn : null,
+                (string) $this->reissueNote !== '' ? trim((string) $this->reissueNote) : null,
+                auth()->id(),
+            );
+        } catch (\Throwable $e) {
+            $this->flashError = 'Neu ausstellen fehlgeschlagen: ' . $e->getMessage();
+            return;
+        }
+
+        $new = $result['contract'];
+        // Signaturlink jetzt anlegen — die Liste "Offene Vertraege" liest ihn
+        // danach bei jedem Seitenaufbau, ohne selbst Token zu erzeugen.
+        $new->getOrCreatePublicFormLink();
+
+        $this->reissueModalShow = false;
+        $this->reissueContractId = null;
+        unset($this->employee, $this->signedContracts, $this->openContracts);
+
+        $this->flash = 'Neuer Vertrag #' . $new->id . ' ausgestellt. Signaturlink steht unten unter "Offene Vertraege".'
+            . ($result['payroll_reported']
+                ? ' Die Zuschlagsaenderung steht in den Lohnaenderungen.'
+                : '');
     }
 
     #[Computed]

@@ -134,9 +134,28 @@ class RecApplicantSettings extends Model
         ],
     ];
 
+    /**
+     * Felder, die in der Lohnaenderungs-Liste und im CSV-Export ein Label
+     * brauchen, aber NICHT vom Observer getrackt werden koennen — weil es
+     * keine Spalte auf rec_employees ist.
+     *
+     * Der Zuschlag steht auf rec_applicants; gemeldet wird er ausdruecklich
+     * von ReissueContractService, wenn HR einen Vertrag im laufenden
+     * Verhaeltnis erhoeht. Er gehoert deshalb NICHT in
+     * PAYROLL_TRACKABLE_FIELDS: diese Liste fuellt die Checkbox-Auswahl im
+     * Settings-Modal, und ein Haken dort wuerde auf eine Spalte zeigen, die
+     * der Observer nie in getChanges() sieht — ein Schalter, der nichts tut.
+     */
+    const PAYROLL_DISPLAY_ONLY_FIELDS = [
+        'zuschlag' => 'Zuschlag',
+    ];
+
     public static function payrollFieldLabels(): array
     {
-        return array_merge(...array_values(self::PAYROLL_TRACKABLE_FIELDS));
+        return array_merge(
+            ...array_values(self::PAYROLL_TRACKABLE_FIELDS),
+            ...[self::PAYROLL_DISPLAY_ONLY_FIELDS],
+        );
     }
 
     public function team(): BelongsTo
