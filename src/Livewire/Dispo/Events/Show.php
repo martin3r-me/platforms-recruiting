@@ -30,6 +30,12 @@ class Show extends Component
     /** Individueller Hinweis pro Mitarbeiter, keyed by rec_employee_id → Text. */
     public array $notes = [];
 
+    // Hinweis-Modal (komfortables Bearbeiten statt engem Inline-Feld).
+    public bool $showNoteModal = false;
+    public ?int $noteEmployeeId = null;
+    public string $noteEmployeeName = '';
+    public string $noteDraft = '';
+
     public function mount(int $eventId): void
     {
         $this->eventId = $eventId;
@@ -63,6 +69,38 @@ class Show extends Component
             ->update(['individual_note' => $value !== '' ? $value : null]);
 
         unset($this->event); // Computed-Cache invalidieren
+    }
+
+    /** Oeffnet das Hinweis-Modal fuer einen (gematchten) Mitarbeiter. */
+    public function openNote(int $employeeId): void
+    {
+        $this->noteEmployeeId = $employeeId;
+        $this->noteDraft = (string) ($this->notes[$employeeId] ?? '');
+
+        $employee = $this->event->assignments->firstWhere('rec_employee_id', $employeeId)?->employee;
+        $this->noteEmployeeName = $employee ? trim($employee->first_name . ' ' . $employee->last_name) : '';
+
+        $this->showNoteModal = true;
+    }
+
+    /** Uebernimmt den Modal-Entwurf und speichert ihn (nur bei gesetzter MA). */
+    public function saveNoteFromModal(): void
+    {
+        if ($this->noteEmployeeId === null) {
+            return;
+        }
+
+        $this->notes[$this->noteEmployeeId] = $this->noteDraft;
+        $this->saveNote($this->noteEmployeeId);
+        $this->closeNoteModal();
+    }
+
+    public function closeNoteModal(): void
+    {
+        $this->showNoteModal = false;
+        $this->noteEmployeeId = null;
+        $this->noteEmployeeName = '';
+        $this->noteDraft = '';
     }
 
     #[Computed]

@@ -112,16 +112,17 @@
                         </td>
                         <td class="px-4 py-2">
                             @if ($assignment->rec_employee_id)
-                                <div class="flex items-center gap-1">
-                                    <input type="text" wire:model="notes.{{ $assignment->rec_employee_id }}"
-                                           placeholder="Hinweis für diesen MA"
-                                           class="w-40 rounded border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:ring-blue-500">
-                                    <button wire:click="saveNote({{ $assignment->rec_employee_id }})"
-                                            class="rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
-                                            title="Speichern">
-                                        Speichern
-                                    </button>
-                                </div>
+                                @php $note = trim($notes[$assignment->rec_employee_id] ?? ''); @endphp
+                                <button type="button" wire:click="openNote({{ $assignment->rec_employee_id }})"
+                                        class="group flex max-w-[14rem] items-center gap-1 text-left text-xs {{ $note !== '' ? 'text-gray-700' : 'text-gray-400' }} hover:text-blue-600"
+                                        title="{{ $note !== '' ? $note : 'Hinweis hinzufügen' }}">
+                                    @if ($note !== '')
+                                        <span class="truncate">{{ $note }}</span>
+                                        <span class="shrink-0 text-blue-500 opacity-0 group-hover:opacity-100">✎</span>
+                                    @else
+                                        <span>✎ Hinweis hinzufügen</span>
+                                    @endif
+                                </button>
                             @endif
                         </td>
                     </tr>
@@ -195,6 +196,23 @@
                         <button wire:click="$set('showSendModal', false)" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
                     </div>
                 @endif
+            </div>
+        </div>
+    @endif
+
+    @if ($showNoteModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="closeNoteModal">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Hinweis für {{ $noteEmployeeName !== '' ? $noteEmployeeName : 'diesen Mitarbeiter' }}</h2>
+                <p class="text-sm text-gray-500">Erscheint auf der Einsatz-Seite dieses Mitarbeiters unter „Hinweis für dich" — für alle Tage dieser Veranstaltung.</p>
+
+                <textarea wire:model="noteDraft" rows="5" placeholder="z. B. Bitte am Nebeneingang melden, Türcode 1234"
+                          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+
+                <div class="flex justify-end gap-3">
+                    <button wire:click="closeNoteModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                    <button wire:click="saveNoteFromModal" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                </div>
             </div>
         </div>
     @endif
