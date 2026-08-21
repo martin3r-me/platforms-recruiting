@@ -135,6 +135,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Filialen (zentrale Zuordnung Nummer → Filiale)
+    |--------------------------------------------------------------------------
+    |
+    | Die Filialnummer ist der kanonische Schluessel: sie kommt aus dem
+    | ZAS-Webexport als {Dispo2} filial_nr UND liegt als rec_positions.cost_center
+    | an den Recruiting-Stellen. Diese Map ist die eine Wahrheit fuer beide Welten
+    | (aufgeloest ueber Platform\Recruiting\Support\Filialen).
+    | 'code' = ZAS-Kuerzel (Anzeige, Kundenwunsch), 'name' = Klarname (Reserve).
+    */
+    'filialen' => [
+        100 => ['code' => 'DUS & ES', 'name' => 'Düsseldorf & Essen'],
+        200 => ['code' => 'MGL', 'name' => 'Mönchengladbach'],
+        400 => ['code' => 'CGN', 'name' => 'Köln'],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | FLYNK-Sync (Ausschreibungen → Website-Tasks)
     |--------------------------------------------------------------------------
     |

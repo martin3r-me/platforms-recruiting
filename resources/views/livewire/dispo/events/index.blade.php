@@ -20,8 +20,8 @@
             <label class="text-xs font-medium text-gray-500">Filiale</label>
             <select wire:model.live="filialeFilter" class="rounded border border-gray-300 px-2 py-1 text-sm">
                 <option value="">Alle</option>
-                @foreach ($this->filialeOptions as $filialeOption)
-                    <option value="{{ $filialeOption }}">{{ $filialeOption }}</option>
+                @foreach ($this->filialeOptions as $filialeNr => $filialeLabel)
+                    <option value="{{ $filialeNr }}">{{ $filialeLabel }}</option>
                 @endforeach
             </select>
         </div>
@@ -53,7 +53,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-2">{{ $event->name ?? $event->einsatz_ref }}</td>
-                        <td class="px-4 py-2">{{ $event->filiale ?? '—' }}</td>
+                        <td class="px-4 py-2">{{ $event->filiale_label ?? '—' }}</td>
                         <td class="px-4 py-2">{{ $event->einsatzfirma ?? '—' }}</td>
                         <td class="px-4 py-2 whitespace-nowrap">
                             {{ $event->assignments_count }} gesamt · {{ $event->matched_count }} zugeordnet

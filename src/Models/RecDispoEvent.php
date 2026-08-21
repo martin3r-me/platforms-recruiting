@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Platform\Recruiting\Support\Filialen;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -17,7 +18,7 @@ class RecDispoEvent extends Model
     protected $table = 'rec_dispo_events';
 
     protected $fillable = [
-        'uuid', 'einsatz_ref', 'name', 'venue_text', 'ort', 'einsatzfirma', 'filiale',
+        'uuid', 'einsatz_ref', 'name', 'venue_text', 'ort', 'einsatzfirma', 'filiale', 'filial_nr',
         'starts_on', 'ends_on', 'anfahrt', 'dresscode',
         'vorlauf_minuten',
         'ansprechpartner',
@@ -27,9 +28,19 @@ class RecDispoEvent extends Model
     protected $casts = [
         'starts_on'   => 'date:Y-m-d',
         'ends_on'     => 'date:Y-m-d',
+        'filial_nr'   => 'integer',
         'vorlauf_minuten' => 'integer',
         'source_meta' => 'array',
     ];
+
+    /**
+     * Anzeige-Label der Filiale: kanonisch aus der Nummer (zentrale Map),
+     * Fallback auf den ZAS-Roh-Text, sonst null.
+     */
+    public function getFilialeLabelAttribute(): ?string
+    {
+        return Filialen::code($this->filial_nr) ?? ($this->filiale ?: null);
+    }
 
     protected static function booted(): void
     {

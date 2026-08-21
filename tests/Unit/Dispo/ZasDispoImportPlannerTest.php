@@ -45,6 +45,7 @@ class ZasDispoImportPlannerTest extends TestCase
         $this->assertSame('2026-04-13', $event['ends_on']);
         $this->assertSame('CGN', $event['source_meta']['filiale']);
         $this->assertSame('CGN', $event['filiale']);
+        $this->assertSame(400, $event['filial_nr']); // Feld 9, als int (kanonischer Schluessel)
         $this->assertSame('Schwarze Hose, weißes Hemd', $event['dresscode']); // erster nicht-leerer Wert (Zeile 12.04. war leer)
     }
 
@@ -60,6 +61,7 @@ class ZasDispoImportPlannerTest extends TestCase
         $plan = $this->planner->plan([], $dispo2, [], '2026-04-01');
 
         $this->assertNull($plan['events']['RG1']['filiale']);
+        $this->assertNull($plan['events']['RG1']['filial_nr']);
         $this->assertNull($plan['events']['RG1']['dresscode']);
     }
 

@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\Dispo\Events;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecDispoEvent;
+use Platform\Recruiting\Support\Filialen;
 
 /**
  * Disposition → Veranstaltungen: VAs aus dem ZAS-Webexport.
@@ -20,16 +21,29 @@ class Index extends Component
 
     public string $filialeFilter = '';
 
+    /**
+     * Filter-Optionen: nur tatsaechlich vorkommende Filialnummern, beschriftet
+     * ueber die zentrale Map (Fallback: Roh-Text bzw. die Nummer selbst).
+     *
+     * @return array<int, string> Nummer => Anzeige-Label
+     */
     #[Computed]
     public function filialeOptions(): array
     {
-        return RecDispoEvent::query()
-            ->whereNotNull('filiale')
-            ->where('filiale', '!=', '')
+        $present = RecDispoEvent::query()
+            ->whereNotNull('filial_nr')
             ->distinct()
-            ->orderBy('filiale')
-            ->pluck('filiale')
+            ->orderBy('filial_nr')
+            ->pluck('filial_nr')
             ->all();
+
+        $options = [];
+        foreach ($present as $nr) {
+            $nr = (int) $nr;
+            $options[$nr] = Filialen::code($nr) ?? ('#' . $nr);
+        }
+
+        return $options;
     }
 
     private function isValidDate(string $value): bool
@@ -60,8 +74,8 @@ class Index extends Component
         );
 
         $query->when(
-            $this->filialeFilter !== '',
-            fn ($q) => $q->where('filiale', $this->filialeFilter)
+            $this->filialeFilter !== '' && ctype_digit($this->filialeFilter),
+            fn ($q) => $q->where('filial_nr', (int) $this->filialeFilter)
         );
 
         $events = $query->orderByRaw('starts_on IS NULL, starts_on ASC')->get();
