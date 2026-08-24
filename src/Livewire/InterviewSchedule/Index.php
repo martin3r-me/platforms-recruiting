@@ -93,8 +93,60 @@ class Index extends Component
             ->layout('platform::layouts.app');
     }
 
+    /**
+     * Ergebnis der EINEN Termin-Abfrage, pro Request gemerkt.
+     *
+     * WARUM nicht allein #[Computed]: Livewires Computed-Cache greift nur beim
+     * Zugriff als PROPERTY. Die Aufteilung in anstehend/vergangen ruft
+     * interviews() aber als Methode auf (sonst haengt sie am Livewire-Lebenszyklus
+     * und ist im Test nicht aufrufbar) — ohne diese Merkstelle liefe dieselbe
+     * Abfrage pro Gruppe und fuer die Seitenleiste erneut, also dreimal je
+     * Seitenaufruf. Privat, damit Livewire die Collection nicht zu
+     * serialisieren versucht.
+     */
+    private $loadedInterviews = null;
+
     #[Computed]
     public function interviews()
+    {
+        return $this->loadedInterviews ??= $this->loadInterviews();
+    }
+
+    /**
+     * Anstehende Termine — die Uebersicht zeigt sie offen.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    #[Computed]
+    public function upcomingInterviews()
+    {
+        return $this->interviews()->reject(fn ($interview) => $this->isPast($interview))->values();
+    }
+
+    /**
+     * Vergangene Termine — eingeklappt unter den anstehenden, damit die Liste
+     * nicht mit Altbestand zulaeuft.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    #[Computed]
+    public function pastInterviews()
+    {
+        return $this->interviews()->filter(fn ($interview) => $this->isPast($interview))->values();
+    }
+
+    /**
+     * Vorbei ist ein Termin, wenn sein ENDE hinter uns liegt — nicht schon sein
+     * Start. Ein Termin, der gerade laeuft, waere sonst genau in dem Moment
+     * eingeklappt, in dem man ihn braucht. Fehlt das Ende, bleibt nur der Start.
+     */
+    private function isPast(RecInterview $interview): bool
+    {
+        return ($interview->ends_at ?? $interview->starts_at)->lt(now());
+    }
+
+    /** Die eine Abfrage hinter der Uebersicht — Filter, Suche, Eager Loads. */
+    private function loadInterviews()
     {
         return RecInterview::where('team_id', auth()->user()->currentTeam->id)
             ->when($this->search, function ($q) {
