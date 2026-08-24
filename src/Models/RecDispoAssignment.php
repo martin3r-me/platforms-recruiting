@@ -79,4 +79,16 @@ class RecDispoAssignment extends Model
     {
         return $this->belongsTo(\Platform\Crm\Models\CommsWhatsAppMessage::class, 'reminder_message_id');
     }
+
+    /** Eskalations-Nachricht Stufe 1 (14-Uhr-Reminder) — fuer die Zustell-Status-Anzeige. */
+    public function escalation1Message(): BelongsTo
+    {
+        return $this->belongsTo(\Platform\Crm\Models\CommsWhatsAppMessage::class, 'escalation_1_message_id');
+    }
+
+    /** Eskalations-Nachricht Stufe 2 (15-Uhr-Final) — fuer die Zustell-Status-Anzeige. */
+    public function escalation2Message(): BelongsTo
+    {
+        return $this->belongsTo(\Platform\Crm\Models\CommsWhatsAppMessage::class, 'escalation_2_message_id');
+    }
 }

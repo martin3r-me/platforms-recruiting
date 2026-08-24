@@ -107,7 +107,10 @@ class Show extends Component
     public function event(): RecDispoEvent
     {
         return RecDispoEvent::query()
-            ->with(['assignments' => fn ($q) => $q->with(['employee', 'reminderMessage'])->orderBy('datum')->orderBy('von')])
+            ->with([
+                'alarmMessage',
+                'assignments' => fn ($q) => $q->with(['employee', 'reminderMessage', 'escalation1Message', 'escalation2Message'])->orderBy('datum')->orderBy('von'),
+            ])
             ->findOrFail($this->eventId);
     }
 

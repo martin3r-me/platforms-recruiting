@@ -12,7 +12,12 @@
 
     <div class="flex items-center justify-between">
         <div>
-            <h1 class="text-xl font-semibold">{{ $event->name ?? $event->einsatz_ref }}</h1>
+            <h1 class="text-xl font-semibold">
+                {{ $event->name ?? $event->einsatz_ref }}
+                @if ($event->alarmMessage?->status === 'failed')
+                    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 align-middle text-xs text-red-800">Alarm nicht zugestellt</span>
+                @endif
+            </h1>
             <p class="text-sm text-gray-500">
                 {{ $event->einsatz_ref }}
                 @if ($event->starts_on) · {{ $event->starts_on->format('d.m.Y') }}@endif
@@ -94,6 +99,8 @@
                         <td class="px-4 py-2">
                             @php
                                 $msgStatus = $assignment->reminderMessage?->status;
+                                $escalation1Status = $assignment->escalation1Message?->status;
+                                $escalation2Status = $assignment->escalation2Message?->status;
                             @endphp
                             @if ($assignment->deletion_marked_at)
                                 <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">zur Löschung gemeldet</span>
@@ -108,6 +115,12 @@
                                 @endif
                             @else
                                 <span class="text-xs text-gray-400">—</span>
+                            @endif
+                            @if ($escalation1Status === 'failed')
+                                <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">14-Uhr nicht zugestellt</span>
+                            @endif
+                            @if ($escalation2Status === 'failed')
+                                <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">15-Uhr nicht zugestellt</span>
                             @endif
                         </td>
                         <td class="px-4 py-2">

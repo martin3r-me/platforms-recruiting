@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Platform\Recruiting\Support\Filialen;
 use Symfony\Component\Uid\UuidV7;
@@ -56,5 +57,11 @@ class RecDispoEvent extends Model
     public function assignments(): HasMany
     {
         return $this->hasMany(RecDispoAssignment::class, 'rec_dispo_event_id');
+    }
+
+    /** Versendete Alarm-Nachricht (16-Uhr-Alarm ans Diensthandy) — fuer die Zustell-Status-Anzeige. */
+    public function alarmMessage(): BelongsTo
+    {
+        return $this->belongsTo(\Platform\Crm\Models\CommsWhatsAppMessage::class, 'alarm_message_id');
     }
 }

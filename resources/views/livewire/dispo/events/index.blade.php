@@ -52,7 +52,12 @@
                                 – {{ $event->ends_on->format('d.m.Y') }}
                             @endif
                         </td>
-                        <td class="px-4 py-2">{{ $event->name ?? $event->einsatz_ref }}</td>
+                        <td class="px-4 py-2">
+                            {{ $event->name ?? $event->einsatz_ref }}
+                            @if ($event->has_failed_send || $event->alarm_failed)
+                                <span class="ml-1 text-red-600" title="Mindestens eine Zustellung fehlgeschlagen">⚠</span>
+                            @endif
+                        </td>
                         <td class="px-4 py-2">{{ $event->filiale_label ?? '—' }}</td>
                         <td class="px-4 py-2">{{ $event->einsatzfirma ?? '—' }}</td>
                         <td class="px-4 py-2 whitespace-nowrap">

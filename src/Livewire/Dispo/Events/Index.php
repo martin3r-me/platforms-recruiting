@@ -57,6 +57,16 @@ class Index extends Component
             ->withCount([
                 'assignments',
                 'assignments as matched_count' => fn ($q) => $q->whereNotNull('rec_employee_id'),
+            ])
+            // Roll-up-Warnicon: irgendein Stufen- oder Alarm-Versand dieser VA fehlgeschlagen.
+            // Als korrelierte EXISTS-Subqueries statt Eager-Load je Nachricht — kein N+1.
+            ->withExists([
+                'assignments as has_failed_send' => fn ($q) => $q->where(function ($q2) {
+                    $q2->whereHas('reminderMessage', fn ($m) => $m->where('status', 'failed'))
+                        ->orWhereHas('escalation1Message', fn ($m) => $m->where('status', 'failed'))
+                        ->orWhereHas('escalation2Message', fn ($m) => $m->where('status', 'failed'));
+                }),
+                'alarmMessage as alarm_failed' => fn ($q) => $q->where('status', 'failed'),
             ]);
 
         if (!$this->showPast) {
