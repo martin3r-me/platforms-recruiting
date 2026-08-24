@@ -58,6 +58,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\MigrateNonEuCases::class,
                 \Platform\Recruiting\Console\Commands\BackfillPhaseTransitions::class,
                 \Platform\Recruiting\Console\Commands\DispoReprocessCommand::class,
+                \Platform\Recruiting\Console\Commands\DispoEscalateCommand::class,
                 \Platform\Recruiting\Console\Commands\EnableManualBookingForPhases::class,
                 \Platform\Recruiting\Console\Commands\BackfillApplicantPosition::class,
             ]);
@@ -216,6 +217,13 @@ class RecruitingServiceProvider extends ServiceProvider
         Schedule::command('recruiting:cleanup-interview-waitlist')
             ->hourly()
             ->withoutOverlapping(10)
+            ->runInBackground();
+
+        // Dispo-Eskalation (Runde 2): 14/15 Uhr Reminder, 16 Uhr Rausnahme +
+        // Portalsperre + Alarm. No-op solange dispo_escalation_enabled=false.
+        Schedule::command('recruiting:dispo-escalate')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(5)
             ->runInBackground();
     }
 

@@ -37,6 +37,23 @@ class DispoEmployeeGateway
         return array_map(fn ($c) => $c['phone'], $this->contacts($employeeIds));
     }
 
+    /**
+     * Sperrt das MA-Portal (Eskalations-Stufe 3: 16-Uhr-Rausnahme). Idempotent —
+     * ein bereits gesperrter MA wird NICHT ueberschrieben (Grund/Zeitpunkt der
+     * ERSTEN Sperre bleiben erhalten). Kein Employee zu der ID -> no-op.
+     */
+    public function lockPortal(int $employeeId, string $reason): void
+    {
+        $employee = RecEmployee::find($employeeId);
+        if ($employee === null || $employee->portal_locked_at !== null) {
+            return;
+        }
+
+        $employee->portal_locked_at = now();
+        $employee->portal_locked_reason = $reason;
+        $employee->save();
+    }
+
     /** @return array<int, ?string> employee_id => Roh-Telefonnummer (nur aktive MA mit Nummer) */
     public function phoneDirectory(): array
     {
