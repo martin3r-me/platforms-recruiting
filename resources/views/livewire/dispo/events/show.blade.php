@@ -152,7 +152,22 @@
                 <h2 class="text-lg font-semibold">Bestätigungen senden</h2>
 
                 @if ($sendResult === null)
-                    @php $preview = $this->sendPreview; @endphp
+                    @php
+                        $preview = $this->sendPreview;
+                        $eventDays = $this->eventDays;
+                    @endphp
+                    @if (count($eventDays) > 1)
+                        <label class="block text-sm">
+                            <span class="mb-1 block font-medium text-gray-700">Tag</span>
+                            <select wire:model.live="sendDay" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
+                                <option value="">Alle Tage</option>
+                                @foreach ($eventDays as $day)
+                                    @php $dayLabel = implode('.', array_reverse(explode('-', $day))); @endphp
+                                    <option value="{{ $day }}">{{ $dayLabel }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                    @endif
                     <label class="block text-sm">
                         <span class="mb-1 block font-medium text-gray-700">Vorlaufzeit <span class="text-red-600">*</span></span>
                         <div class="flex items-center gap-2">

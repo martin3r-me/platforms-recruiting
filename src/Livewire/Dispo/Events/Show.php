@@ -24,6 +24,8 @@ class Show extends Component
     public string $vorlaufMinuten = '';
     public string $ansprechpartner = '';
     public bool $includeReminders = false;
+    /** Auswahl bei Mehrtages-VA: leer = alle Tage, sonst Y-m-d. */
+    public string $sendDay = '';
     /** @var array{sent:int, failed:list<array{employee_id:int, error:string}>}|null */
     public ?array $sendResult = null;
 
@@ -128,6 +130,26 @@ class Show extends Component
         ];
     }
 
+    /**
+     * Distinkte kommende Einsatztage dieser VA (Y-m-d, sortiert). Nur bei
+     * Mehrtages-VA (> 1) im Sende-Modal relevant — siehe Blade.
+     *
+     * @return list<string>
+     */
+    #[Computed]
+    public function eventDays(): array
+    {
+        $today = now()->toDateString();
+
+        return $this->event->assignments
+            ->map(fn ($a) => $a->datum->format('Y-m-d'))
+            ->filter(fn ($d) => $d >= $today)
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+    }
+
     #[Computed]
     public function sendPreview(): array
     {
@@ -141,6 +163,15 @@ class Show extends Component
             'deletion_marked_at' => $a->deletion_marked_at?->toDateTimeString(),
             'datum'              => $a->datum->format('Y-m-d'),
         ])->all();
+
+        // Tages-Auswahl (Mehrtages-VA): VOR der Vergangenheits-Filterung
+        // anwenden, damit "past"-Zaehlung nur den gewaehlten Tag betrifft.
+        if ($this->sendDay !== '') {
+            $assignments = array_values(array_filter(
+                $assignments,
+                fn ($a) => $a['datum'] === $this->sendDay
+            ));
+        }
 
         // Vergangene Einsatztage nie anschreiben (Public-Seite/confirm() filtern
         // ebenfalls datum >= heute) — nichts wird still uebersprungen, daher zaehlen.
@@ -173,6 +204,7 @@ class Show extends Component
         $this->vorlaufMinuten = (string) ($this->event->vorlauf_minuten ?? '');
         $this->ansprechpartner = (string) ($this->event->ansprechpartner ?? '');
         $this->includeReminders = false;
+        $this->sendDay = '';
         $this->sendResult = null;
         $this->showSendModal = true;
     }

@@ -57,6 +57,7 @@ class Index extends Component
             ->withCount([
                 'assignments',
                 'assignments as matched_count' => fn ($q) => $q->whereNotNull('rec_employee_id'),
+                'assignments as confirmed_count' => fn ($q) => $q->whereNotNull('confirmed_at'),
             ])
             // Roll-up-Warnicon: irgendein Stufen- oder Alarm-Versand dieser VA fehlgeschlagen.
             // Als korrelierte EXISTS-Subqueries statt Eager-Load je Nachricht — kein N+1.

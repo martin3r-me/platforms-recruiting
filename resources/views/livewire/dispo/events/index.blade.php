@@ -43,7 +43,7 @@
             <tbody class="divide-y divide-gray-100">
                 @forelse ($events as $event)
                     @php
-                        $open = $event->assignments_count - $event->matched_count;
+                        $open = $event->assignments_count - $event->confirmed_count;
                     @endphp
                     <tr>
                         <td class="px-4 py-2 whitespace-nowrap">
@@ -61,7 +61,7 @@
                         <td class="px-4 py-2">{{ $event->filiale_label ?? '—' }}</td>
                         <td class="px-4 py-2">{{ $event->einsatzfirma ?? '—' }}</td>
                         <td class="px-4 py-2 whitespace-nowrap">
-                            {{ $event->assignments_count }} gesamt · {{ $event->matched_count }} zugeordnet
+                            {{ $event->assignments_count }} gesamt · {{ $event->confirmed_count }} bestätigt
                             @if ($open > 0)
                                 <span class="ml-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs text-orange-600">{{ $open }} offen</span>
                             @endif
