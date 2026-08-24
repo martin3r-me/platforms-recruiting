@@ -172,6 +172,29 @@ class Show extends Component
             ->toArray();
     }
 
+    /**
+     * HR-Entsperrung des MA-Portal-Zugangs (Eskalations-Stufe-3-Sperre,
+     * siehe DispoEmployeeGateway::lockPortal). Leert Zeitpunkt + Grund —
+     * serverseitig, nur ueber diese HR-Sicht erreichbar. Kein Fehler bei
+     * einem bereits entsperrten MA (idempotent, wie das Setzen selbst).
+     */
+    public function unlockPortal(): void
+    {
+        $employee = $this->employee();
+        if (!$employee) {
+            $this->flashError = 'Mitarbeiter nicht gefunden.';
+            return;
+        }
+
+        $employee->portal_locked_at = null;
+        $employee->portal_locked_reason = null;
+        $employee->save();
+
+        $this->flash = 'Portalzugang entsperrt.';
+        $this->flashError = null;
+        unset($this->employee);
+    }
+
     public function openReissueModal(int $contractId): void
     {
         $emp = $this->employee();

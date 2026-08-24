@@ -72,6 +72,27 @@
                 </div>
             @endif
 
+            {{-- Portalsperre (Eskalations-Stufe 3) — nur sichtbar wenn gesetzt --}}
+            @if($employee->portal_locked_at)
+                <div class="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-start gap-2 text-sm text-red-900">
+                        @svg('heroicon-o-lock-closed', 'w-5 h-5 mt-0.5 flex-shrink-0 text-red-600')
+                        <div>
+                            <div class="font-medium">MA-Portal-Zugang gesperrt seit {{ $employee->portal_locked_at->format('d.m.Y H:i') }}</div>
+                            @if($employee->portal_locked_reason)
+                                <div class="text-red-800 mt-0.5">{{ $employee->portal_locked_reason }}</div>
+                            @endif
+                        </div>
+                    </div>
+                    <button wire:click="unlockPortal"
+                            wire:confirm="Portalzugang wirklich entsperren?"
+                            class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition-colors">
+                        @svg('heroicon-o-lock-open', 'w-4 h-4')
+                        Portalzugang entsperren
+                    </button>
+                </div>
+            @endif
+
             {{-- Felder — responsive grid (1 col mobile, 2 col md, 3 col xl) --}}
             <div class="mt-4 space-y-5">
                 @foreach($this->fieldGroups() as $section => $fields)

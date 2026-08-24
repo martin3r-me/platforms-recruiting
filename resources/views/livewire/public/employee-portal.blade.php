@@ -9,8 +9,16 @@
             @endif
         </div>
 
+        {{-- PORTAL GESPERRT (Eskalations-Stufe 3) — serverseitig gesetzt, hat Vorrang vor jedem State --}}
+        @if($portalLocked)
+            <div class="p-6 bg-red-50 border border-red-200 rounded-lg text-center">
+                @svg('heroicon-o-lock-closed', 'w-10 h-10 text-red-600 mx-auto mb-3')
+                <h2 class="text-lg font-medium text-red-900 mb-1">Zugang gesperrt</h2>
+                <p class="text-sm text-red-700">{{ $duzen ? 'Dein Portalzugang wurde gesperrt. Bitte kontaktiere deine Ansprechperson in der Personalabteilung (HR).' : 'Ihr Portalzugang wurde gesperrt. Bitte kontaktieren Sie Ihre Ansprechperson in der Personalabteilung (HR).' }}</p>
+            </div>
+
         {{-- LOADING --}}
-        @if($state === 'loading')
+        @elseif($state === 'loading')
             <div class="text-center py-12">
                 <p class="text-sm text-[var(--ui-muted)]">Lade Portal...</p>
             </div>

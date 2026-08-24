@@ -3,6 +3,10 @@
         <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
             Dieser Link ist ungültig. Bitte melde dich bei deinem Ansprechpartner.
         </div>
+    @elseif ($portalLocked)
+        <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            Zugang gesperrt — bitte kontaktiere deine Ansprechperson in der Personalabteilung (HR).
+        </div>
     @else
         <div>
             <h1 class="text-xl font-bold text-gray-900">Hallo {{ $firstName }} 👋</h1>

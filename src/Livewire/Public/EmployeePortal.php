@@ -42,6 +42,17 @@ class EmployeePortal extends Component
     #[Locked]
     public bool $duzen = false;
 
+    /**
+     * Server-only-Sperrflag (Eskalations-Stufe 3, DispoEmployeeGateway::
+     * lockPortal). #[Locked] verhindert Client-Ueberschreiben per
+     * $wire.set — wird ausschliesslich in mount()/verify()/den
+     * datenaendernden Actions aus rec_employees.portal_locked_at gesetzt,
+     * nie per wire:model gebunden. Wenn true, zeigt das Blade den
+     * Sperr-Screen statt Inhalte; keine Feldwerte werden geladen.
+     */
+    #[Locked]
+    public bool $portalLocked = false;
+
     // Login-Form
     public string $birthDateInput = '';
     public string $idCardLast4Input = '';
@@ -99,6 +110,15 @@ class EmployeePortal extends Component
         $this->displayName = trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) ?: 'Mitarbeiter';
         $this->duzen = $employee->usesInformalAddress();
 
+        // Eskalations-Stufe-3-Sperre (DispoEmployeeGateway::lockPortal):
+        // serverseitig VOR jedem Feldladen pruefen — keine Daten laden,
+        // Blade zeigt nur den Sperr-Screen. Kein Client-Bypass moeglich,
+        // portalLocked ist #[Locked].
+        if ($employee->portal_locked_at !== null) {
+            $this->portalLocked = true;
+            return;
+        }
+
         // Initial-Werte fuer alle editierbaren Felder laden (Direct-Edit-UX)
         $this->loadFieldValues($employee);
 
@@ -129,6 +149,13 @@ class EmployeePortal extends Component
         $employee = $this->employee();
         if (!$employee) {
             $this->state = 'tokenInvalid';
+            return;
+        }
+
+        // Erneut pruefen: der MA kann zwischen mount() und verify() gesperrt
+        // worden sein (Eskalations-Cron laeuft unabhaengig vom Request).
+        if ($employee->portal_locked_at !== null) {
+            $this->portalLocked = true;
             return;
         }
 
@@ -199,11 +226,17 @@ class EmployeePortal extends Component
      */
     public function saveAll(): void
     {
-        if ($this->state !== 'verified') {
+        if ($this->state !== 'verified' || $this->portalLocked) {
             return;
         }
         $employee = $this->employee();
         if (!$employee) {
+            return;
+        }
+        // Frisch pruefen — eine zwischenzeitliche Sperre darf den Save
+        // nicht mehr durchlassen, unabhaengig vom gecachten Session-State.
+        if ($employee->portal_locked_at !== null) {
+            $this->portalLocked = true;
             return;
         }
 
@@ -290,11 +323,15 @@ class EmployeePortal extends Component
      */
     private function handleFileUpload(string $employeeField, string $propertyName): void
     {
-        if ($this->state !== 'verified') {
+        if ($this->state !== 'verified' || $this->portalLocked) {
             return;
         }
         $employee = $this->employee();
         if (!$employee) {
+            return;
+        }
+        if ($employee->portal_locked_at !== null) {
+            $this->portalLocked = true;
             return;
         }
         $file = $this->{$propertyName};

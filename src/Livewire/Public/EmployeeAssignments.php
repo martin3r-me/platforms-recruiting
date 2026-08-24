@@ -29,6 +29,16 @@ class EmployeeAssignments extends Component
     #[Locked]
     public bool $tokenInvalid = false;
 
+    /**
+     * Server-only-Sperrflag (Eskalations-Stufe 3, DispoEmployeeGateway::
+     * lockPortal), analog EmployeePortal::$portalLocked. #[Locked] verhindert
+     * Client-Ueberschreiben; wird ausschliesslich aus rec_employees.
+     * portal_locked_at gesetzt. Zeigt bei true den Sperr-Screen statt der
+     * Einsatz-Liste und gated confirm().
+     */
+    #[Locked]
+    public bool $portalLocked = false;
+
     public bool $showPast = false;
 
     public function mount(string $token): void
@@ -43,6 +53,10 @@ class EmployeeAssignments extends Component
 
         $this->employeeId = (int) $employee->id;
         $this->firstName  = (string) $employee->first_name;
+
+        if ($employee->portal_locked_at !== null) {
+            $this->portalLocked = true;
+        }
     }
 
     /**
@@ -54,7 +68,7 @@ class EmployeeAssignments extends Component
     #[Computed]
     public function eventGroups(): array
     {
-        if ($this->employeeId === null) {
+        if ($this->employeeId === null || $this->portalLocked) {
             return [];
         }
 
@@ -118,7 +132,7 @@ class EmployeeAssignments extends Component
     #[Computed]
     public function pastEventGroups(): array
     {
-        if ($this->employeeId === null) {
+        if ($this->employeeId === null || $this->portalLocked) {
             return [];
         }
 
@@ -153,7 +167,15 @@ class EmployeeAssignments extends Component
     /** Sammel-Bestaetigen: ALLE kommenden Auftrags-Einsaetze dieser VA (idempotent). */
     public function confirm(int $eventId): void
     {
-        if ($this->employeeId === null) {
+        if ($this->employeeId === null || $this->portalLocked) {
+            return;
+        }
+
+        // Frisch pruefen — die Sperre kann nach mount() gesetzt worden sein
+        // (Eskalations-Cron laeuft unabhaengig vom Request); ohne diesen
+        // Re-Check koennte ein bereits offener Tab die Sperre umgehen.
+        if (RecEmployee::query()->whereKey($this->employeeId)->whereNotNull('portal_locked_at')->exists()) {
+            $this->portalLocked = true;
             return;
         }
 
