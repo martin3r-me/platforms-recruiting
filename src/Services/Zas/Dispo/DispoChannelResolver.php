@@ -60,7 +60,7 @@ class DispoChannelResolver
     /** Auflösung inkl. DB: Event -> CommsChannel (Filial-Kanal oder Default #28). */
     public function resolveForEvent(\Platform\Recruiting\Models\RecDispoEvent $event): ?\Platform\Crm\Models\CommsChannel
     {
-        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: (auth()->user()->currentTeam->id ?? 0));
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: (auth()->user()?->currentTeam?->id ?? 0));
         $map = \Platform\Recruiting\Models\RecDispoFilialeSettings::query()
             ->where('team_id', $teamId)->whereNotNull('comms_channel_id')
             ->pluck('comms_channel_id', 'filial_nr')->map(fn ($v) => (int) $v)->all();
