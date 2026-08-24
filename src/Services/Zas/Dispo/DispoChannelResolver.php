@@ -17,6 +17,29 @@ class DispoChannelResolver
         return (new self())->defaultChannel();
     }
 
+    /** IDs aller aktiven WhatsApp-Kanäle des Dispo-WABA-Accounts (Lückenlosigkeit). */
+    public static function dispoChannelIds(): array
+    {
+        $default = (new self())->defaultChannel();
+        if ($default === null) {
+            return [];
+        }
+        $meta = is_array($default->meta) ? $default->meta : (json_decode((string) ($default->meta ?? '[]'), true) ?: []);
+        $accountId = isset($meta['integrations_whatsapp_account_id']) ? (int) $meta['integrations_whatsapp_account_id'] : 0;
+        if ($accountId === 0) {
+            return [(int) $default->id]; // Fallback: nur der Default-Kanal
+        }
+
+        return \Platform\Crm\Models\CommsChannel::query()
+            ->where('type', 'whatsapp')->where('is_active', true)
+            ->get()
+            ->filter(function ($c) use ($accountId) {
+                $m = is_array($c->meta) ? $c->meta : (json_decode((string) ($c->meta ?? '[]'), true) ?: []);
+                return (int) ($m['integrations_whatsapp_account_id'] ?? 0) === $accountId;
+            })
+            ->map(fn ($c) => (int) $c->id)->values()->all();
+    }
+
     /** Bestehende Default-Kanal-Auflösung (unverändert aus resolve() extrahiert). */
     private function defaultChannel(): ?\Platform\Crm\Models\CommsChannel
     {

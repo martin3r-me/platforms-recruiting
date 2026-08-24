@@ -18,19 +18,19 @@ class DispoUnreadCounter
     public static function count(): int
     {
         try {
-            // Kanal-Aufloesung ist teuer (4 Queries) und stabil — 5 Min cachen.
+            // Kanal-Aufloesung ist teuer (mehrere Queries) und stabil — 5 Min cachen.
             // Der Count selbst bleibt live (Badge reagiert sofort auf markRead).
-            $channelId = (int) \Illuminate\Support\Facades\Cache::remember(
-                'dispo_unread_channel_id',
+            $channelIds = \Illuminate\Support\Facades\Cache::remember(
+                'dispo_unread_channel_ids',
                 300,
-                fn () => DispoChannelResolver::resolve()?->id ?? 0
+                fn () => DispoChannelResolver::dispoChannelIds()
             );
-            if ($channelId === 0) {
+            if ($channelIds === []) {
                 return 0;
             }
 
             return CommsWhatsAppThread::query()
-                ->where('comms_channel_id', $channelId)
+                ->whereIn('comms_channel_id', $channelIds)
                 ->where('is_unread', true)
                 ->count();
         } catch (\Throwable) {
