@@ -75,7 +75,7 @@ class ZasDispoInboundController extends Controller
             'header_columns'    => $structure['columns'] !== [] ? $structure['columns'] : null,
             'row_count'         => $format === 'csv' ? $structure['row_count'] : null,
             'is_test'           => $isTest,
-            'parse_status'      => in_array($format, ['csv', 'json'], true) ? 'viewable' : 'unparseable',
+            'parse_status'      => in_array($format, ['csv', 'json', 'blocks'], true) ? 'viewable' : 'unparseable',
             'received_ip'       => $request->ip(),
         ]);
 

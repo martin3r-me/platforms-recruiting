@@ -16,16 +16,27 @@ class DispoInboundInspector
 {
     private const DELIMITERS = [';', ',', "\t", '|'];
 
+    /** Block-Marker einer ZAS-Webexport-Zeile, z. B. {Personal}, {Dispo2} — keine Quotes/Doppelpunkte, sonst waere es JSON. */
+    private const BLOCK_MARKER_PATTERN = '/^\{[A-Za-z0-9ÄÖÜäöüß_ \-]+\}$/u';
+
     /**
-     * Grobformat anhand des Inhalts: 'csv' | 'json' | 'unknown'.
-     * Heuristik: valides JSON gewinnt; sonst gilt eine Header-Zeile mit
-     * bekanntem Trennzeichen als CSV; alles andere ist unknown (Roh-Ansicht).
+     * Grobformat anhand des Inhalts: 'blocks' | 'csv' | 'json' | 'unknown'.
+     * Heuristik: ein Block-Marker (z. B. {Personal}) als erste Zeile gewinnt
+     * VOR der JSON-Erkennung (der ZAS-Webexport beginnt so, waere sonst ein
+     * Fehlversuch als JSON und faelschlich 'unknown'); sonst gewinnt valides
+     * JSON; sonst gilt eine Header-Zeile mit bekanntem Trennzeichen als CSV;
+     * alles andere ist unknown (Roh-Ansicht).
      */
     public function detectFormat(string $content): string
     {
         $trimmed = trim($content);
         if ($trimmed === '') {
             return 'unknown';
+        }
+
+        $firstLine = (string) (preg_split('/\r\n|\r|\n/', $trimmed)[0] ?? '');
+        if (preg_match(self::BLOCK_MARKER_PATTERN, trim($firstLine)) === 1) {
+            return 'blocks';
         }
 
         if (str_starts_with($trimmed, '{') || str_starts_with($trimmed, '[')) {
