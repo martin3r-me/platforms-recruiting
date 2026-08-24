@@ -101,12 +101,20 @@ class DispoEscalateCommandTest extends TestCase
             public int $calls = 0;
             /** @var list<array{to:string,templateName:string,components:array}> */
             public array $log = [];
+            /** @var list<string> 'to'-Werte, fuer die Meta status=failed liefert (kein Wurf). */
+            public array $failFor = [];
+            /** @var list<string> 'to'-Werte, fuer die sendTemplate() eine Exception wirft. */
+            public array $throwFor = [];
 
             public function sendTemplate($channel, string $to, string $templateName, array $components = [], string $languageCode = 'de', $sender = null, bool $isAutoReply = false): object
             {
                 $this->calls++;
                 $this->log[] = ['to' => $to, 'templateName' => $templateName, 'components' => $components];
-                return (object) ['id' => 9000 + $this->calls, 'status' => 'sent'];
+                if (in_array($to, $this->throwFor, true)) {
+                    throw new \RuntimeException('Simulierter Netzwerkfehler (Test)');
+                }
+                $status = in_array($to, $this->failFor, true) ? 'failed' : 'sent';
+                return (object) ['id' => 9000 + $this->calls, 'status' => $status];
             }
         };
         Container::getInstance()->instance(WhatsAppMetaService::class, $this->stub);
@@ -247,6 +255,148 @@ class DispoEscalateCommandTest extends TestCase
         $this->assertNull($row->escalation_1_at);
         $this->assertNull($row->deletion_marked_at);
         $this->assertNull(RecEmployee::find(self::$employeeId)->portal_locked_at);
+    }
+
+    /**
+     * Meta-`failed`-Pfad Stufe 1: kein Wurf, das Message-Objekt sagt failed —
+     * das ist eine DEFINITIVE Ablehnung (anders als eine Exception): trotzdem
+     * stempeln (feuert einmal), kein Retry im idempotenten Re-Lauf.
+     */
+    public function test_stage1_meta_failed_status_still_stamps_once_and_is_not_retried(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-FAIL1', 'name' => 'Test-VA', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create([
+            'ds_ref' => 'DS-FAIL1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeId,
+            'rec_employee_id' => self::$employeeId, 'datum' => '2026-08-26', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => '2026-08-20 10:00:00',
+        ]);
+
+        $employeePhone = RecEmployee::find(self::$employeeId)->phone;
+        $this->stub->failFor[] = $employeePhone;
+
+        $planner = new DispoEscalationPlanner();
+        $resolver = new DispoChannelResolver();
+        $gateway = new DispoEmployeeGateway();
+
+        $first = $this->probe()->probeEscalate($planner, $resolver, $gateway, $this->at('2026-08-25 14:01:00'), false);
+        $this->assertSame(1, $first['stage1']);
+        $this->assertSame(1, $this->stub->calls, 'Genau ein Sende-Versuch trotz failed-Status.');
+
+        $row = RecDispoAssignment::where('ds_ref', 'DS-FAIL1')->first();
+        $this->assertNotNull($row->escalation_1_at, 'Meta failed ist eine definitive Ablehnung -> trotzdem gestempelt.');
+        $this->assertNotNull($row->escalation_1_message_id);
+        $firstAt = $row->escalation_1_at;
+        $firstMessageId = $row->escalation_1_message_id;
+
+        // Zweiter Lauf im selben Fenster -> kein Retry trotz failed-Status.
+        $second = $this->probe()->probeEscalate($planner, $resolver, $gateway, $this->at('2026-08-25 14:05:00'), false);
+        $this->assertSame(0, $second['stage1']);
+        $this->assertSame(1, $this->stub->calls, 'Kein zweiter Sende-Versuch — failed wird nicht alle 5 Minuten neu versucht.');
+
+        $row->refresh();
+        $this->assertSame($firstAt->toDateTimeString(), $row->escalation_1_at->toDateTimeString());
+        $this->assertSame($firstMessageId, $row->escalation_1_message_id);
+    }
+
+    /**
+     * Meta-`failed`-Pfad Alarm: gleiche Regel wie Stufe 1/2 — stempeln (feuert
+     * einmal), kein Re-Alarm. Der zweite Lauf feuert hier ohnehin nicht erneut,
+     * weil die Einbuchung nach Stufe 3 aus der Zielmenge faellt
+     * (deletion_marked_at gesetzt) — das ist der Idempotenz-Beleg.
+     */
+    public function test_alarm_meta_failed_status_stamps_once_and_is_not_retried(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-FAIL3', 'name' => 'Test-VA-Alarm', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create([
+            'ds_ref' => 'DS-FAIL3', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeId,
+            'rec_employee_id' => self::$employeeId, 'datum' => '2026-08-26', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => '2026-08-20 10:00:00',
+        ]);
+
+        $this->stub->failFor[] = self::DUTY_PHONE;
+
+        $planner = new DispoEscalationPlanner();
+        $resolver = new DispoChannelResolver();
+        $gateway = new DispoEmployeeGateway();
+
+        $report = $this->probe()->probeEscalate($planner, $resolver, $gateway, $this->at('2026-08-25 16:01:00'), false);
+        $this->assertSame(1, $report['stage3']);
+        $this->assertSame(1, $this->stub->calls);
+
+        $event->refresh();
+        $this->assertNotNull($event->alarm_message_id, 'Trotz Meta failed-Status wird der Alarm gestempelt (feuert einmal).');
+
+        $second = $this->probe()->probeEscalate($planner, $resolver, $gateway, $this->at('2026-08-25 16:05:00'), false);
+        $this->assertSame(0, $second['stage3'], 'Die Einbuchung ist jetzt deletion_marked_at -> faellt aus der Zielmenge.');
+        $this->assertSame(1, $this->stub->calls, 'Kein zweiter Alarm-Versuch.');
+    }
+
+    /**
+     * DAS ist der Kern von Review-Fund A: eine geworfene Sende-Exception bei
+     * EINER Zeile darf die restliche Zielmenge NICHT abbrechen. Zwei Zeilen
+     * im selben Lauf, eine wirft — die andere muss trotzdem normal gestempelt
+     * werden, und die geworfene bleibt ungestempelt (heilt sich selbst).
+     */
+    public function test_send_exception_does_not_stamp_and_does_not_abort_the_batch(): void
+    {
+        $second = RecEmployee::create([
+            'team_id' => self::TEAM, 'first_name' => 'Klaus', 'last_name' => 'Zweit',
+            'phone' => '+49 151 99999999', 'portal_token' => 'tok-dispo-escalate-batch', 'is_active' => true,
+        ]);
+
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-EXC', 'name' => 'Test-VA', 'filial_nr' => self::FILIAL_NR]);
+        $base = [
+            'rec_dispo_event_id' => $event->id, 'datum' => '2026-08-26', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => '2026-08-20 10:00:00',
+        ];
+        RecDispoAssignment::create(array_merge($base, ['ds_ref' => 'DS-EXC-BAD', 'pnr_raw' => 'RG' . self::$employeeId, 'rec_employee_id' => self::$employeeId]));
+        RecDispoAssignment::create(array_merge($base, ['ds_ref' => 'DS-EXC-OK', 'pnr_raw' => 'RG' . $second->id, 'rec_employee_id' => $second->id]));
+
+        $badPhone = RecEmployee::find(self::$employeeId)->phone;
+        $this->stub->throwFor[] = $badPhone;
+
+        $report = $this->probe()->probeEscalate(
+            new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(),
+            $this->at('2026-08-25 14:01:00'), false
+        );
+
+        $this->assertSame(2, $report['stage1'], 'Beide Zeilen waren faellig (der Zaehler zaehlt Faelligkeit, nicht Erfolg).');
+        $this->assertSame(2, $this->stub->calls, 'Fuer beide Zeilen wurde ein Sende-Versuch unternommen.');
+
+        $bad = RecDispoAssignment::where('ds_ref', 'DS-EXC-BAD')->first();
+        $this->assertNull($bad->escalation_1_at, 'Exception -> kein Stempel, heilt sich beim naechsten Lauf.');
+
+        $ok = RecDispoAssignment::where('ds_ref', 'DS-EXC-OK')->first();
+        $this->assertNotNull($ok->escalation_1_at, 'Zweite Zeile wird trotz Exception bei der ersten normal verarbeitet — Batch bricht nicht ab.');
+        $this->assertNotNull($ok->escalation_1_message_id);
+    }
+
+    /** Optionaler Skip-Branch-Test: fehlendes Template -> kein Stempel, kein Crash. */
+    public function test_missing_template_is_skipped_without_crash(): void
+    {
+        $settings = RecApplicantSettings::where('team_id', self::TEAM)->first();
+        $overridden = self::baselineSettings();
+        $overridden['dispo_escalation_template_1_id'] = null;
+        $settings->settings = $overridden;
+        $settings->save();
+
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-NOTPL', 'name' => 'Test-VA', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create([
+            'ds_ref' => 'DS-NOTPL', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeId,
+            'rec_employee_id' => self::$employeeId, 'datum' => '2026-08-26',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => '2026-08-20 10:00:00',
+        ]);
+
+        $report = $this->probe()->probeEscalate(
+            new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(),
+            $this->at('2026-08-25 14:01:00'), false
+        );
+
+        $this->assertSame(1, $report['stage1'], 'Zaehlt weiterhin als faellig.');
+        $this->assertSame(0, $this->stub->calls, 'Ohne Template wird gar nicht gesendet — kein Crash.');
+
+        $row = RecDispoAssignment::where('ds_ref', 'DS-NOTPL')->first();
+        $this->assertNull($row->escalation_1_at);
     }
 
     /** @return array<string,mixed> */

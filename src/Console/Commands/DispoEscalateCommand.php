@@ -29,6 +29,15 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationPlanner;
  * einmal); $message->status === 'failed' wird NIE als Erfolg gewertet,
  * sondern nur geloggt (kein Retry-Spam alle 5 Minuten).
  *
+ * Batch-Robustheit: JEDE einzelne Sende-Operation (Stufe 1/2, Stufe-3-Block,
+ * Alarm) steckt in ihrem eigenen try/catch — eine geworfene Exception
+ * (Netzwerk/Timeout) darf NIE die restliche Zielmenge abbrechen, sonst geht
+ * z. B. der Alarm fuer bereits per deletion_marked_at rausgenommene MA still
+ * verloren (naechster Lauf schliesst sie ja aus der Zielmenge aus). Eine
+ * geworfene Exception bei Stufe 1/2 stempelt NICHT (transienter Fehler heilt
+ * sich im 14-16-Uhr-Fenster selbst); ein Meta-`failed`-Status (kein Wurf) wird
+ * weiterhin gestempelt (definitive Ablehnung, Retry bringt nichts).
+ *
  * @see self::escalate() Reine Engine-Logik ohne $this->option()/$this->warn(),
  *      per Probe-Muster (siehe ReconcileApplicantPositionsGateTest) ohne
  *      Artisan-Lebenszyklus direkt aufrufbar — siehe
@@ -122,13 +131,28 @@ class DispoEscalateCommand extends Command
             }
 
             if ($stage === 3) {
-                $a->deletion_marked_at = now();
-                $a->save();
-                $gateway->lockPortal(
-                    (int) $a->rec_employee_id,
-                    sprintf('Dispo: Einsatz %s am %s nicht bestaetigt', $a->event->einsatz_ref, $a->datum->format('d.m.Y'))
-                );
-                $removedByEvent[$a->rec_dispo_event_id][] = $a;
+                $deletionSaved = false;
+                try {
+                    $a->deletion_marked_at = now();
+                    $a->save();
+                    $deletionSaved = true;
+                } catch (\Throwable $e) {
+                    $emit('warn', "Stufe 3 uebersprungen (Markierung fehlgeschlagen) fuer Einbuchung #{$a->id}: {$e->getMessage()}");
+                }
+
+                if ($deletionSaved) {
+                    try {
+                        $gateway->lockPortal(
+                            (int) $a->rec_employee_id,
+                            sprintf('Dispo: Einsatz %s am %s nicht bestaetigt', $a->event->einsatz_ref, $a->datum->format('d.m.Y'))
+                        );
+                    } catch (\Throwable $e) {
+                        // Deletion ist bereits gespeichert — die Sperre holt HR/der naechste
+                        // Lauf nach; Batch nicht deswegen abbrechen.
+                        $emit('warn', "Portalsperre fehlgeschlagen fuer MA {$a->rec_employee_id} (Einbuchung #{$a->id}): {$e->getMessage()}");
+                    }
+                    $removedByEvent[$a->rec_dispo_event_id][] = $a;
+                }
                 continue;
             }
 
@@ -169,13 +193,20 @@ class DispoEscalateCommand extends Command
                 ],
             ];
 
-            $message = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendTemplate(
-                channel:      $channel,
-                to:           $contact['phone'],
-                templateName: $template->name,
-                components:   $components,
-                languageCode: $template->language ?? 'de',
-            );
+            try {
+                $message = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendTemplate(
+                    channel:      $channel,
+                    to:           $contact['phone'],
+                    templateName: $template->name,
+                    components:   $components,
+                    languageCode: $template->language ?? 'de',
+                );
+            } catch (\Throwable $e) {
+                // KEIN Stempel — transienter Fehler (Netzwerk/Timeout) heilt sich im
+                // 14-16-Uhr-Fenster beim naechsten Lauf selbst. Batch laeuft weiter.
+                $emit('warn', "Stufe {$stage} Sende-Fehler fuer Einbuchung #{$a->id}: {$e->getMessage()}");
+                continue;
+            }
 
             // Meta-Falle: Stufe stempeln (feuert einmal, egal ob Meta ablehnt) —
             // Fehlschlag wird geloggt, nicht alle 5 Minuten neu versucht.
@@ -238,13 +269,20 @@ class DispoEscalateCommand extends Command
                 ],
             ];
 
-            $message = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendTemplate(
-                channel:      $channel,
-                to:           $fs->duty_phone,
-                templateName: $template->name,
-                components:   $components,
-                languageCode: $template->language ?? 'de',
-            );
+            try {
+                $message = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendTemplate(
+                    channel:      $channel,
+                    to:           $fs->duty_phone,
+                    templateName: $template->name,
+                    components:   $components,
+                    languageCode: $template->language ?? 'de',
+                );
+            } catch (\Throwable $e) {
+                // alarm_message_id bleibt ungesetzt — geloggt, Batch laeuft weiter
+                // (die naechsten Alarme anderer VAs sollen nicht mit abbrechen).
+                $emit('warn', "Alarm VA {$eventId}: Sende-Fehler: {$e->getMessage()}");
+                continue;
+            }
 
             $event->alarm_message_id = $message->id ?? null;
             $event->save();
