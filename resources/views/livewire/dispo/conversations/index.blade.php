@@ -7,11 +7,24 @@
         </div>
     </div>
 
-    @if ($this->channelId === null)
+    @if ($this->channelIds === [])
         <div class="rounded-lg border border-gray-200 bg-white p-6 text-sm text-gray-600">
             Kein Dispo-Kanal konfiguriert — bitte in <a href="{{ route('recruiting.dispo.settings') }}" class="text-blue-600 hover:underline">Disposition → Einstellungen</a> ein Bestätigungs-Template wählen.
         </div>
     @else
+        {{-- Filial-Tabs --}}
+        <div class="mb-4 flex flex-wrap gap-2 text-sm">
+            @foreach ($this->filialeTabs as $tab)
+                <button wire:click="$set('tabFilial', '{{ $tab['key'] }}')"
+                        class="rounded border px-3 py-1 {{ $tabFilial === $tab['key'] ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50' }}">
+                    {{ $tab['label'] }}
+                    @if ($tab['unread'] > 0)
+                        <span class="ml-1 rounded-full px-1.5 text-xs {{ $tabFilial === $tab['key'] ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700' }}">{{ $tab['unread'] }}</span>
+                    @endif
+                </button>
+            @endforeach
+        </div>
+
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {{-- Thread-Liste --}}
             <div class="rounded-lg border border-gray-200 bg-white lg:col-span-1">
@@ -25,7 +38,12 @@
                             </span>
                             <span class="shrink-0 text-xs text-gray-400">{{ $thread['last_at'] }}</span>
                         </div>
-                        <div class="mt-0.5 truncate text-xs text-gray-500">{{ $thread['preview'] }}</div>
+                        <div class="mt-0.5 flex items-center justify-between gap-2">
+                            <div class="truncate text-xs text-gray-500">{{ $thread['preview'] }}</div>
+                            @if ($tabFilial === '')
+                                <span class="shrink-0 rounded border border-gray-200 px-1.5 py-0.5 text-[10px] uppercase text-gray-400">{{ $thread['filiale'] }}</span>
+                            @endif
+                        </div>
                     </button>
                 @empty
                     <div class="p-6 text-center text-sm text-gray-500">Noch keine Nachrichten auf der Dispo-Nummer.</div>
