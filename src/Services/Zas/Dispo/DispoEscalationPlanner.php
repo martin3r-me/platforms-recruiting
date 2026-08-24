@@ -25,7 +25,7 @@ class DispoEscalationPlanner
         $t = fn (string $hhmm): \DateTimeImmutable => $now->modify($hhmm); // gleicher Tag wie $now
 
         // Stufe 3 (Rausnahme) hat Vorrang, wenn ihre Zeit erreicht ist.
-        if ($now >= $t($times[3]) && $state['escalation_1_at'] !== null && $state['escalation_2_at'] !== null && $sent <= $t($times[3])) {
+        if ($now >= $t($times[3]) && $sent <= $t($times[2])) {
             return 3;
         }
         if ($now >= $t($times[2]) && $state['escalation_2_at'] === null && $sent <= $t($times[2])) {

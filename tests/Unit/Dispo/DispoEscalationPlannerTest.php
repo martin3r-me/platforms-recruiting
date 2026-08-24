@@ -47,4 +47,8 @@ class DispoEscalationPlannerTest extends TestCase
     public function test_not_sent_yields_null(): void {
         $this->assertNull($this->p->dueStage($this->state(['reminder_sent_at' => null]), $this->at('16:01'), $this->times));
     }
+    public function test_stage3_wins_even_when_prior_stages_unstamped(): void {
+        // Verpasstes Fenster: um 16:01 unbestaetigt, keine Vorstempel -> sofort Stufe 3
+        $this->assertSame(3, $this->p->dueStage($this->state(), $this->at('16:01'), $this->times));
+    }
 }
