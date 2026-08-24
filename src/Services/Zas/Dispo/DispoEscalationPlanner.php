@@ -31,7 +31,7 @@ class DispoEscalationPlanner
         if ($now >= $t($times[2]) && $state['escalation_2_at'] === null && $sent <= $t($times[2])) {
             return 2;
         }
-        if ($now >= $t($times[1]) && $state['escalation_1_at'] === null && $sent <= $t($times[1])) {
+        if ($now >= $t($times[1]) && $state['escalation_1_at'] === null && $state['escalation_2_at'] === null && $sent <= $t($times[1])) {
             return 1;
         }
         return null;

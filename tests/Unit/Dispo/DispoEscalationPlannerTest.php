@@ -51,4 +51,11 @@ class DispoEscalationPlannerTest extends TestCase
         // Verpasstes Fenster: um 16:01 unbestaetigt, keine Vorstempel -> sofort Stufe 3
         $this->assertSame(3, $this->p->dueStage($this->state(), $this->at('16:01'), $this->times));
     }
+    public function test_stage1_does_not_fire_after_stage2_already_stamped(): void {
+        // Scheduler-Ausfall 14–15h: Stufe 2 lief um 15:01, danach darf Stufe 1 nicht nachrutschen
+        $this->assertNull($this->p->dueStage(
+            $this->state(['escalation_2_at' => $this->at('15:01')]),
+            $this->at('15:06'), $this->times
+        ));
+    }
 }
