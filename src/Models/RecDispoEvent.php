@@ -22,6 +22,7 @@ class RecDispoEvent extends Model
         'starts_on', 'ends_on', 'anfahrt', 'dresscode',
         'vorlauf_minuten',
         'ansprechpartner',
+        'alarm_message_id',
         'source_meta',
     ];
 
@@ -30,6 +31,7 @@ class RecDispoEvent extends Model
         'ends_on'     => 'date:Y-m-d',
         'filial_nr'   => 'integer',
         'vorlauf_minuten' => 'integer',
+        'alarm_message_id' => 'integer',
         'source_meta' => 'array',
     ];
 

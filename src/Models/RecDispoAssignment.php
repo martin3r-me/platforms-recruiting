@@ -31,6 +31,10 @@ class RecDispoAssignment extends Model
         'confirmed_at',
         'deletion_marked_at',
         'deletion_confirmed_at',
+        'escalation_1_at',
+        'escalation_2_at',
+        'escalation_1_message_id',
+        'escalation_2_message_id',
         'source_meta',
     ];
 
@@ -44,6 +48,10 @@ class RecDispoAssignment extends Model
         'confirmed_at'          => 'datetime',
         'deletion_marked_at'    => 'datetime',
         'deletion_confirmed_at' => 'datetime',
+        'escalation_1_at'       => 'datetime',
+        'escalation_2_at'       => 'datetime',
+        'escalation_1_message_id' => 'integer',
+        'escalation_2_message_id' => 'integer',
         'source_meta'   => 'array',
     ];
 
