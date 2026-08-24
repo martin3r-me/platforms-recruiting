@@ -72,7 +72,6 @@
                                 class="w-full rounded-xl bg-green-600 px-4 py-3.5 text-base font-bold text-white shadow-sm hover:bg-green-700 active:bg-green-800">
                             @if (count($group['days']) > 1) Alle {{ count($group['days']) }} Einsätze bestätigen @else Einsatz bestätigen @endif
                         </button>
-                        <p class="text-center text-xs text-gray-500">Bitte bestätige bis {{ $group['days'][0]['deadline'] }} Uhr — sonst wird deine Einbuchung storniert.</p>
                     @endif
                 </div>
 

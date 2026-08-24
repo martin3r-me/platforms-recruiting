@@ -9,10 +9,11 @@ use Platform\Recruiting\Models\RecDispoEvent;
 /**
  * Versendet Bestaetigungs-Templates ueber den Dispo-Kanal.
  *
- * Kanal-Aufloesung nach bestehendem Muster (RecEmployee::sendPortalNotification):
- * Template traegt whatsapp_account_id -> Account.phone_number -> CommsChannel
- * via sender_identifier. Components werden hier selbst gebaut — bewusst NICHT
- * sendManualTemplate (bekannter Form-Token-Bug).
+ * Kanal-Aufloesung ueber DispoChannelResolver::resolveForEvent() (Filial-Kanal
+ * der Veranstaltung, sonst Default-Dispo-Kanal) — identisch zur Eskalation,
+ * damit Erstversand und Erinnerungen/Alarm von derselben Nummer kommen.
+ * Components werden hier selbst gebaut — bewusst NICHT sendManualTemplate
+ * (bekannter Form-Token-Bug).
  *
  * Body-Variablen-Vertrag des genehmigten Meta-Templates (Namenskonvention
  * `dispo_einsatz_bestaetigung`), Reihenfolge ist bindend, alle Werte MUESSEN
@@ -44,17 +45,9 @@ class DispoConfirmationSender
             return ['ok' => false, 'message' => 'Template nicht gefunden oder nicht genehmigt.', 'sent' => 0, 'failed' => []];
         }
 
-        $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($template->whatsapp_account_id);
-        if (!$account || !$account->active) {
-            return ['ok' => false, 'message' => 'WhatsApp-Account des Templates nicht aktiv.', 'sent' => 0, 'failed' => []];
-        }
-
-        $channel = \Platform\Crm\Models\CommsChannel::where('type', 'whatsapp')
-            ->where('is_active', true)
-            ->where('sender_identifier', $account->phone_number)
-            ->first();
+        $channel = app(\Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver::class)->resolveForEvent($event);
         if (!$channel) {
-            return ['ok' => false, 'message' => 'Kein aktiver Kanal fuer den Template-Account.', 'sent' => 0, 'failed' => []];
+            return ['ok' => false, 'message' => 'Kein aktiver Kanal fuer diese Veranstaltung.', 'sent' => 0, 'failed' => []];
         }
 
         $contacts = $this->gateway->contacts(array_column($recipients, 'employee_id'));

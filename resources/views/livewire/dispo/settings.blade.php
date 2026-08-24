@@ -13,12 +13,7 @@
                     <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
                 @endforeach
             </select>
-            <span class="mt-1 block text-xs text-gray-400">Der Sende-Kanal ergibt sich aus dem WhatsApp-Account des Templates (Dispo-Nummer).</span>
-        </label>
-
-        <label class="block text-sm">
-            <span class="mb-1 block text-gray-600">Bestätigungs-Deadline (Stunden vor Einsatzbeginn)</span>
-            <input type="number" min="1" max="72" wire:model="deadlineHours" class="w-32 rounded-lg border border-gray-300 px-3 py-2">
+            <span class="mt-1 block text-xs text-gray-400">Der Sende-Kanal ergibt sich aus der Filial-Zuordnung unten, sonst aus dem WhatsApp-Account dieses Templates (Dispo-Nummer).</span>
         </label>
 
         <div class="border-t border-gray-200 pt-4 space-y-4">

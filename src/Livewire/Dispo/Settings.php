@@ -19,7 +19,6 @@ use Platform\Recruiting\Support\Filialen;
 class Settings extends Component
 {
     public string $templateId = '';
-    public string $deadlineHours = '4';
     public bool $saved = false;
 
     // Eskalation (teamweit) — bewusst als String-Properties gebunden
@@ -45,7 +44,6 @@ class Settings extends Component
         // dieselben Werte lesen; Fallback currentTeam wenn unkonfiguriert.
         $settings = RecApplicantSettings::getOrCreateForTeam($this->teamId());
         $this->templateId    = (string) ($settings->getSetting('dispo_confirmation_template_id') ?? '');
-        $this->deadlineHours = (string) ((int) ($settings->getSetting('dispo_deadline_hours') ?? 4));
 
         $this->escalationEnabled     = $settings->getSetting('dispo_escalation_enabled') ? '1' : '';
         $this->escalationTime1       = (string) ($settings->getSetting('dispo_escalation_time_1') ?: '14:00');
@@ -112,7 +110,6 @@ class Settings extends Component
     {
         $this->validate([
             'templateId'            => 'nullable|string|max:20',
-            'deadlineHours'         => 'required|integer|min:1|max:72',
             'escalationTime1'       => 'required|date_format:H:i',
             'escalationTime2'       => 'required|date_format:H:i',
             'escalationTime3'       => 'required|date_format:H:i',
@@ -128,8 +125,6 @@ class Settings extends Component
         // Konvertiere templateId-String zu Int oder null
         $templateId = ($this->templateId !== '' && ctype_digit($this->templateId)) ? (int) $this->templateId : null;
         $settings->setSetting('dispo_confirmation_template_id', $templateId);
-
-        $settings->setSetting('dispo_deadline_hours', (int) $this->deadlineHours);
 
         $settings->setSetting('dispo_escalation_enabled', $this->escalationEnabled !== '');
         $settings->setSetting('dispo_escalation_time_1', $this->escalationTime1);

@@ -20,17 +20,6 @@ class DispoTimeCalculatorTest extends TestCase
         $this->assertSame('23:30', DispoTimeCalculator::arrivalTime('00:15', 45));
     }
 
-    public function test_confirmation_deadline(): void
-    {
-        $this->assertSame('2026-08-20 12:00', DispoTimeCalculator::confirmationDeadline('2026-08-20', '16:00', 4));
-        $this->assertSame('2026-08-20 00:30', DispoTimeCalculator::confirmationDeadline('2026-08-20', '04:30', 4));
-    }
-
-    public function test_confirmation_deadline_without_von_is_conservative(): void
-    {
-        $this->assertSame('2026-08-19 20:00', DispoTimeCalculator::confirmationDeadline('2026-08-20', null, 4));
-    }
-
     public function test_reply_window(): void
     {
         $now = new \DateTimeImmutable('2026-08-17 12:00:00');

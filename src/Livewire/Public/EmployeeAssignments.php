@@ -5,7 +5,6 @@ namespace Platform\Recruiting\Livewire\Public;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
-use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
@@ -72,9 +71,6 @@ class EmployeeAssignments extends Component
             return [];
         }
 
-        $settings = RecApplicantSettings::getOrCreateForTeam((int) config('recruiting.zas.inbound_team_id'));
-        $deadlineHours = (int) ($settings->getSetting('dispo_deadline_hours') ?? 4);
-
         $assignments = RecDispoAssignment::query()
             ->with('event')
             ->where('rec_employee_id', $this->employeeId)
@@ -110,9 +106,6 @@ class EmployeeAssignments extends Component
                 'arrival'         => $arrival,
                 'confirmed'       => $assignment->confirmed_at !== null,
                 'individual_note' => $assignment->individual_note,
-                'deadline'        => \Carbon\Carbon::parse(
-                    DispoTimeCalculator::confirmationDeadline($assignment->datum->format('Y-m-d'), $assignment->von, $deadlineHours)
-                )->format('d.m.Y H:i'),
             ];
             if ($assignment->confirmed_at === null) {
                 $groups[$key]['all_confirmed'] = false;

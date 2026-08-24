@@ -125,8 +125,7 @@ class Show extends Component
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
 
         return [
-            'template_id'    => $settings->getSetting('dispo_confirmation_template_id') ? (int) $settings->getSetting('dispo_confirmation_template_id') : null,
-            'deadline_hours' => (int) ($settings->getSetting('dispo_deadline_hours') ?? 4),
+            'template_id' => $settings->getSetting('dispo_confirmation_template_id') ? (int) $settings->getSetting('dispo_confirmation_template_id') : null,
         ];
     }
 
