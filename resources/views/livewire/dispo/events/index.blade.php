@@ -36,7 +36,7 @@
                     <th class="px-4 py-2 font-medium">Filiale</th>
                     <th class="px-4 py-2 font-medium">Kunde</th>
                     <th class="px-4 py-2 font-medium">Disposition</th>
-                    <th class="px-4 py-2 font-medium">Kleidung</th>
+                    <th class="px-4 py-2 font-medium text-center">Kleidung</th>
                     <th class="px-4 py-2"></th>
                 </tr>
             </thead>
