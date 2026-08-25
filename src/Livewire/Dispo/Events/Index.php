@@ -74,15 +74,22 @@ class Index extends Component
             $query->where(fn ($q) => $q->whereNull('ends_on')->orWhereDate('ends_on', '>=', now()->toDateString()));
         }
 
-        $query->when(
-            $this->dateFrom !== '' && $this->isValidDate($this->dateFrom),
-            fn ($q) => $q->whereDate('starts_on', '>=', $this->dateFrom)
-        );
-
-        $query->when(
-            $this->dateTo !== '' && $this->isValidDate($this->dateTo),
-            fn ($q) => $q->whereDate('starts_on', '<=', $this->dateTo)
-        );
+        // Zeitraum-Filter = "findet im Zeitraum statt" (Ueberlappung), nicht nur
+        // Startdatum: eine VA erscheint, wenn sie mindestens eine Einbuchung
+        // (Schicht) an einem Tag im gewaehlten Bereich hat. Sonst fielen mehrtaegige
+        // VAs raus, die vor "von" beginnen aber in den Zeitraum reinlaufen.
+        $hasFrom = $this->dateFrom !== '' && $this->isValidDate($this->dateFrom);
+        $hasTo   = $this->dateTo !== '' && $this->isValidDate($this->dateTo);
+        if ($hasFrom || $hasTo) {
+            $query->whereHas('assignments', function ($q) use ($hasFrom, $hasTo) {
+                if ($hasFrom) {
+                    $q->whereDate('datum', '>=', $this->dateFrom);
+                }
+                if ($hasTo) {
+                    $q->whereDate('datum', '<=', $this->dateTo);
+                }
+            });
+        }
 
         $query->when(
             $this->filialeFilter !== '' && ctype_digit($this->filialeFilter),
