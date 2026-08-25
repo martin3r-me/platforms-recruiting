@@ -192,6 +192,30 @@
 
                 $hasPanel = !empty($group['adresse']) || !empty($group['zusatz_ort']) || !empty($group['kleidung']);
                 $singleNote = ($dayCount <= 1 && $first) ? ($first['individual_note'] ?? null) : null;
+
+                // Beacon-Label VORBERECHNEN in reinem PHP. WICHTIG: diese Blade-Version
+                // kompiliert an ein Wortzeichen geklebte Direktiven NICHT (da@if / da@else /
+                // Uhr@endif → \B@ matcht nicht), was die if/else-Struktur zerschiesst. Deshalb
+                // hier kein Inline-@if im Markup — vgl. Blade-Pitfall-Memo.
+                $firstArr = $first['arrival'] ?? null;
+                $firstVon = $first['von'] ?? null;
+                $firstBis = $first['bis'] ?? null;
+                $schichtStr = $firstVon ? ('Schicht ' . $firstVon . ($firstBis ? '–' . $firstBis : '') . ' Uhr') : '';
+                $beaconLbl = '';
+                if ($first) {
+                    if ($dayCount > 1) {
+                        $beaconLbl = '<b>Erster Tag · ' . e($labelDate($first['datum'])) . '</b> — sei um ' . e((string) $beaconBig) . ' Uhr da';
+                        if ($firstVon) {
+                            $beaconLbl .= ' (Schicht ' . e($firstVon) . ($firstBis ? '–' . e($firstBis) : '') . ')';
+                        }
+                        $beaconLbl .= '<br><span class="sub">Die weiteren Tage haben eigene Zeiten — siehe unten.</span>';
+                    } else {
+                        $beaconLbl = $firstArr ? ('Bitte sei um <b>' . e($firstArr) . ' Uhr</b> da') : 'Schichtbeginn';
+                        if ($schichtStr !== '') {
+                            $beaconLbl .= '<br>' . e($schichtStr);
+                        }
+                    }
+                }
             @endphp
 
             <article class="evcard">
@@ -214,15 +238,7 @@
                     @if ($beaconBig)
                         <div class="beacon">
                             <div class="big">{{ $beaconBig }}</div>
-                            <div class="lbl">
-                                @if ($dayCount > 1)
-                                    <b>Erster Tag · {{ $labelDate($first['datum']) }}</b> — sei um {{ $beaconBig }} Uhr da@if ($first['von'])&nbsp;(Schicht {{ $first['von'] }}@if ($first['bis'])–{{ $first['bis'] }}@endif).@endif<br>
-                                    <span class="sub">Die weiteren Tage haben eigene Zeiten — siehe unten.</span>
-                                @else
-                                    @if ($first['arrival'])Bitte sei um <b>{{ $first['arrival'] }} Uhr</b> da@else Schichtbeginn @endif
-                                    @if ($first['von'])<br>Schicht {{ $first['von'] }}@if ($first['bis'])–{{ $first['bis'] }}@endif Uhr@endif
-                                @endif
-                            </div>
+                            <div class="lbl">{!! $beaconLbl !!}</div>
                         </div>
                     @endif
                 </header>
