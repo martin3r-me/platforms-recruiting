@@ -131,6 +131,15 @@ return [
 
         // Team, dem von ZAS importierte Mitarbeiter zugeordnet werden (Pflicht fuer Import).
         'inbound_team_id'        => env('RECRUITING_ZAS_INBOUND_TEAM_ID'),
+
+        // Maximale Datenzeilen pro Inbound-Lieferung. Die Verarbeitung laeuft
+        // synchron im Request (gemessen: ~2-3 Sekunden pro 100 Zeilen), eine zu
+        // grosse Lieferung liefe in den nginx/PHP-Timeout. Absprache mit ZAS
+        // sind Pakete a rund 100 Zeilen; der Wert hier ist die harte Grenze.
+        // 0 schaltet den Waechter ab (Notausgang fuer eine Sonderlieferung).
+        // Abgewiesene Lieferungen bleiben roh gespeichert und lassen sich per
+        // recruiting:zas-inbound-reprocess portionsweise verarbeiten.
+        'inbound_max_rows'       => (int) env('RECRUITING_ZAS_INBOUND_MAX_ROWS', 300),
     ],
 
     /*

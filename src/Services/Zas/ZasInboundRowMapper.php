@@ -57,6 +57,44 @@ class ZasInboundRowMapper
         'Nation'        => ['birth_country', 'geburtsland', false],
     ];
 
+    /**
+     * Zeichen-Obergrenzen der Zielspalten (Stand der Migrationen).
+     *
+     * Warum ueberhaupt: ein zu langer Wert in einem NEBENfeld liess bisher die
+     * ganze Zeile in SQLSTATE 22001 laufen — der Mensch fehlte danach komplett
+     * im System (Massenimport 2026-08-25: `Fuehrerschein` enthielt einen
+     * Freitext-Satz gegen string(32)).
+     *
+     * Wird eine Grenze ueberschritten, bleibt das Feld LEER und es gibt eine
+     * Warnung MIT Originalwert. Bewusst kein Kappen: ein abgeschnittener Satz
+     * ist ein plausibel aussehender Falschwert. Gleiche Haltung wie date()
+     * weiter unten — fehlende Daten fallen auf, falsche nicht.
+     *
+     * Pflegehinweis: Spaltenbreite in einer Migration geaendert? Hier mit.
+     */
+    private const MAX_LENGTHS = [
+        // rec_employees — Stammdaten
+        'first_name' => 120, 'last_name' => 120, 'birth_name' => 120, 'birth_place' => 120,
+        'identity_card_number' => 64,
+        // Kontakt / Adresse
+        'phone' => 64, 'email' => 255,
+        'street' => 255, 'house_number' => 16, 'zip' => 16, 'city' => 120,
+        'country_code' => 64,
+        // Bank
+        'bank_institute' => 120, 'iban' => 64, 'bic' => 32, 'account_holder' => 120,
+        // Steuer / Versicherung
+        'tax_class' => 1, 'steuer_id' => 32, 'sozialversicherungsnummer' => 32,
+        'health_insurance' => 64,
+        // Lookup-Ziele (koennen Rohwerte tragen, wenn kein Treffer)
+        'gender' => 32, 'marital_status' => 32, 'religion' => 32,
+        'employment_type' => 64, 'birth_country' => 64,
+        // Sonstiges
+        'drivers_license_class' => 32, 'recruited_by_personnel_number' => 64,
+        'cost_center' => 32, 'shirt_size' => 8,
+        // rec_employee_hr_data
+        'employment_classification' => 32,
+    ];
+
     /** CSV-Spalte → rec_employee_hr_data-Datumsspalte */
     private const HR_DATES = [
         'VertragVersendetAm' => 'contract_sent_date',
@@ -75,9 +113,15 @@ class ZasInboundRowMapper
 
         foreach (self::DIRECT as $col => $field) {
             $v = $get($col);
-            if ($v !== '') {
-                $employee[$field] = $v;
+            if ($v === '') {
+                continue;
             }
+            $tooLong = $this->lengthWarning($field, $v);
+            if ($tooLong !== null) {
+                $warnings[] = $tooLong;
+                continue;
+            }
+            $employee[$field] = $v;
         }
         foreach (self::DATES as $col => $field) {
             $v = $get($col);
@@ -117,6 +161,13 @@ class ZasInboundRowMapper
                 continue;
             }
             $res = $this->lookups->resolve($lookup, $v, $prefix);
+            // Ohne Lookup-Treffer landet der ROHWERT in der Spalte — der kann
+            // beliebig lang sein (Freitext in einem Code-Feld).
+            $tooLong = $this->lengthWarning($field, (string) $res['value']);
+            if ($tooLong !== null) {
+                $warnings[] = $tooLong;
+                continue;
+            }
             $employee[$field] = $res['value'];
             if (!$res['matched']) {
                 $warnings[] = "{$field}: '{$v}' roh gespeichert (kein Lookup-Treffer)";
@@ -124,7 +175,16 @@ class ZasInboundRowMapper
         }
 
         // Land → country_code (kein Lookup; Default 'de' wenn leer)
+        // Ein unbrauchbar langer Wert wird wie "nicht geliefert" behandelt und
+        // faellt auf denselben Default zurueck — mit Warnung.
         $land = $get('Land');
+        if ($land !== '') {
+            $tooLong = $this->lengthWarning('country_code', $land);
+            if ($tooLong !== null) {
+                $warnings[] = $tooLong;
+                $land = '';
+            }
+        }
         $employee['country_code'] = $land !== '' ? $land : 'de';
 
         // HR-Daten
@@ -178,10 +238,15 @@ class ZasInboundRowMapper
         }
         $anst = $get('Anstellungsart');
         if ($anst !== '') {
-            $res = $this->lookups->resolve('anstellungsart', $anst, true);
-            $hr['employment_classification'] = $res['value'];
-            if (!$res['matched']) {
-                $warnings[] = "employment_classification: '{$anst}' roh gespeichert (kein Lookup-Treffer)";
+            $res     = $this->lookups->resolve('anstellungsart', $anst, true);
+            $tooLong = $this->lengthWarning('employment_classification', (string) $res['value']);
+            if ($tooLong !== null) {
+                $warnings[] = $tooLong;
+            } else {
+                $hr['employment_classification'] = $res['value'];
+                if (!$res['matched']) {
+                    $warnings[] = "employment_classification: '{$anst}' roh gespeichert (kein Lookup-Treffer)";
+                }
             }
         }
 
@@ -192,6 +257,30 @@ class ZasInboundRowMapper
             'hr'       => $hr,
             'warnings' => $warnings,
         ];
+    }
+
+    /**
+     * Prueft die Zeichenlaenge gegen die Zielspalte.
+     *
+     * @return string|null Warntext, wenn der Wert NICHT gespeichert werden darf;
+     *                     null, wenn er passt (oder die Spalte keine Grenze hat).
+     *
+     * mb_strlen statt strlen: MySQL-VARCHAR(n) zaehlt unter utf8mb4 Zeichen,
+     * nicht Bytes — mit strlen wuerden Werte mit Umlauten grundlos abgewiesen.
+     */
+    private function lengthWarning(string $field, string $value): ?string
+    {
+        $max = self::MAX_LENGTHS[$field] ?? null;
+        if ($max === null) {
+            return null;
+        }
+        $len = mb_strlen($value);
+        if ($len <= $max) {
+            return null;
+        }
+
+        return "{$field}: Wert ist {$len} Zeichen lang, erlaubt sind {$max} — nicht uebernommen,"
+            . " bitte in ZAS pruefen: '{$value}'";
     }
 
     /**

@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeHrData;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
+use Platform\Recruiting\Services\Zas\ZasInboundDuplicateFinder;
 use Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter;
 use Platform\Recruiting\Services\Zas\ZasInboundRowMapper;
 use Platform\Recruiting\Services\Zas\ZasLookupReverseResolver;
@@ -108,7 +109,10 @@ class ZasInboundStatusSyncTest extends TestCase
 
     private function importer(): ZasInboundEmployeeImporter
     {
-        return new ZasInboundEmployeeImporter(new ZasInboundRowMapper(new ZasLookupReverseResolver()));
+        return new ZasInboundEmployeeImporter(
+            new ZasInboundRowMapper(new ZasLookupReverseResolver()),
+            new ZasInboundDuplicateFinder()
+        );
     }
 
     /** @param array<string,mixed> $hr */

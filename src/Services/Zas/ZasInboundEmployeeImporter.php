@@ -3,21 +3,32 @@
 namespace Platform\Recruiting\Services\Zas;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
 
 /**
  * Verarbeitet ZAS-Inbound-Datenzeilen: legt MA an, die bei uns noch nicht
- * existieren, und synchronisiert bei bestehenden (UUID- oder
- * personnel_number-Match) AUSSCHLIESSLICH die Statusfelder. Pro Zeile
- * gekapselt — eine fehlerhafte Zeile stoppt nicht den Rest.
+ * existieren, und beruehrt bei bestehenden (UUID- oder personnel_number-Match)
+ * nur eine sehr kurze Liste von Feldern. Pro Zeile gekapselt — eine fehlerhafte
+ * Zeile stoppt nicht den Rest.
  *
  * Warum kein Voll-Update bei Treffern: ZAS wuerde damit HR-gepflegte Felder
- * ueberschreiben. Gesynct wird nur, was ZAS gehoert — der Status und sein
- * Umstellungsdatum (Kundenwunsch 2026-08-18, "seit wann steht jemand auf MA").
+ * ueberschreiben. Angefasst wird nur, was ZAS gehoert:
+ *
+ *  - Status + Umstellungsdatum (Kundenwunsch 2026-08-18, "seit wann MA")
+ *  - die Personalnummer, und zwar NUR in ein leeres Feld — sie wird bei ZAS
+ *    vergeben und war bei 108 von 112 eigenen MA nie eingetragen, weil das
+ *    Abtippen als Handarbeit gedacht war (Befund Massenimport 2026-08-25).
+ *
+ * Vor einer Neuanlage laeuft zusaetzlich eine Dublettenpruefung, die nur
+ * MELDET (siehe ZasInboundDuplicateFinder) — der Importer fuehrt nie zusammen.
  */
 class ZasInboundEmployeeImporter
 {
-    public function __construct(private ZasInboundRowMapper $mapper) {}
+    public function __construct(
+        private ZasInboundRowMapper $mapper,
+        private ZasInboundDuplicateFinder $duplicates,
+    ) {}
 
     public function import(array $rows, $inbound, bool $dryRun): array
     {
@@ -27,6 +38,7 @@ class ZasInboundEmployeeImporter
         $skipped = [];
         $failed = [];
         $warnings = [];
+        $suspected = [];
 
         foreach ($rows as $index => $row) {
             try {
@@ -35,7 +47,7 @@ class ZasInboundEmployeeImporter
                 $structureIssue = $this->detectRowStructureIssue($row);
                 if ($structureIssue !== null) {
                     $pn = trim((string) ($row['ZasPersonalNr'] ?? ''));
-                    $failed[] = ['personnel_number' => $pn !== '' ? $pn : null, 'reason' => "Zeile " . ($index + 1) . ": {$structureIssue}"];
+                    $failed[] = $this->failure($pn !== '' ? $pn : null, "Zeile " . ($index + 1) . ": {$structureIssue}", $inbound, $dryRun);
                     continue;
                 }
 
@@ -51,7 +63,7 @@ class ZasInboundEmployeeImporter
                 // Guard 2: ohne ZAS-Personalnummer kein Dubletten-Schluessel —
                 // ein Re-Send wuerde die Zeile doppelt anlegen. Abweisen.
                 if (!$mapped['personnel_number']) {
-                    $failed[] = ['personnel_number' => null, 'reason' => "Zeile " . ($index + 1) . ": ZasPersonalNr fehlt — nicht importiert (kein Dubletten-Schluessel)"];
+                    $failed[] = $this->failure(null, "Zeile " . ($index + 1) . ": ZasPersonalNr fehlt — nicht importiert (kein Dubletten-Schluessel)", $inbound, $dryRun);
                     continue;
                 }
 
@@ -59,31 +71,52 @@ class ZasInboundEmployeeImporter
                 $existing = $this->findExisting($mapped['uuid'], $mapped['personnel_number'], $teamId);
                 if ($existing !== null) {
                     $changes = $this->statusSyncChanges($existing, $mapped['hr']);
-                    if ($changes === []) {
+                    $pnrFill = $this->personnelNumberFill($existing, $mapped['personnel_number']);
+
+                    if ($changes === [] && $pnrFill === null) {
                         $skipped[] = ['personnel_number' => $mapped['personnel_number'], 'employee_id' => $existing->id, 'reason' => 'exists'];
                         continue;
                     }
+
+                    $changedFields = array_keys($changes);
+                    if ($pnrFill !== null) {
+                        $changedFields[] = 'personnel_number';
+                    }
+
                     if ($dryRun) {
                         $updated[] = [
                             'would_update'     => true,
                             'employee_id'      => $existing->id,
                             'personnel_number' => $mapped['personnel_number'],
-                            'changed'          => array_keys($changes),
+                            'changed'          => $changedFields,
                         ];
                         continue;
                     }
-                    $this->syncStatusFields($existing, $changes);
+                    $this->syncMatchedFields($existing, $changes, $pnrFill);
                     $updated[] = [
                         'employee_id'      => $existing->id,
                         'personnel_number' => $mapped['personnel_number'],
-                        'changed'          => array_keys($changes),
+                        'changed'          => $changedFields,
                     ];
                     continue;
                 }
 
                 if (!$teamId) {
-                    $failed[] = ['personnel_number' => $mapped['personnel_number'], 'reason' => 'RECRUITING_ZAS_INBOUND_TEAM_ID nicht konfiguriert'];
+                    $failed[] = $this->failure($mapped['personnel_number'], 'RECRUITING_ZAS_INBOUND_TEAM_ID nicht konfiguriert', $inbound, $dryRun);
                     continue;
+                }
+
+                // Kein Schluessel gefunden — bevor wir daraus "neue Person"
+                // ableiten, gegen die belastbaren Merkmale nachsehen. Ergebnis
+                // ist eine MELDUNG, kein Zusammenfuehren: zwei Menschen koennen
+                // sich Telefon oder Konto legitim teilen.
+                $suspicions = $this->duplicates->suspicions($mapped['employee'], $teamId);
+                if ($suspicions !== []) {
+                    $suspected[] = [
+                        'personnel_number' => $mapped['personnel_number'],
+                        'name'             => trim(($mapped['employee']['last_name'] ?? '') . ', ' . ($mapped['employee']['first_name'] ?? '')),
+                        'matches'          => $suspicions,
+                    ];
                 }
 
                 if ($dryRun) {
@@ -98,13 +131,15 @@ class ZasInboundEmployeeImporter
                 $employee = $this->createEmployee($mapped, $teamId, $inbound->id);
                 $created[] = ['employee_id' => $employee->id, 'personnel_number' => $employee->personnel_number];
             } catch (\Throwable $e) {
-                $failed[] = ['personnel_number' => $row['ZasPersonalNr'] ?? null, 'reason' => $e->getMessage()];
+                $failed[] = $this->failure($row['ZasPersonalNr'] ?? null, $e->getMessage(), $inbound, $dryRun);
             }
         }
 
+        // Ein Verdacht aendert den Status NICHT: die Zeile ist ordnungsgemaess
+        // verarbeitet worden, sie braucht nur menschlichen Blick.
         $status = $failed !== [] ? ($created !== [] || $updated !== [] || $skipped !== [] ? 'partial' : 'failed') : 'processed';
 
-        return compact('status', 'created', 'updated', 'skipped', 'failed', 'warnings');
+        return compact('status', 'created', 'updated', 'skipped', 'failed', 'warnings', 'suspected');
     }
 
     /**
@@ -142,6 +177,60 @@ class ZasInboundEmployeeImporter
     }
 
     /**
+     * Baut den failed-Eintrag UND schreibt ihn ins Log.
+     *
+     * Warum ins Log: bis 2026-08-25 existierte eine abgewiesene Zeile nur im
+     * JSON der notes-Spalte und in der HTTP-Antwort an ZAS. Beides verschwindet,
+     * wenn der Abschluss-Schreibvorgang der Lieferung scheitert — und in die
+     * notes-Spalte schaut ohnehin niemand von sich aus. Das Log ist die Spur,
+     * die uebrig bleibt.
+     *
+     * Bewusst nur FEHLER, keine Warnungen: eine 600er-Lieferung erzeugt
+     * hunderte Lookup-Warnungen, die im Bericht stehen und dort hingehoeren.
+     *
+     * @return array{personnel_number: ?string, reason: string}
+     */
+    protected function failure(?string $personnelNumber, string $reason, $inbound, bool $dryRun): array
+    {
+        Log::warning('ZAS-Inbound: Zeile nicht importiert', [
+            'inbound_file_id'  => $inbound->id ?? null,
+            'personnel_number' => $personnelNumber,
+            'reason'           => $reason,
+            'dry_run'          => $dryRun,
+        ]);
+
+        return ['personnel_number' => $personnelNumber, 'reason' => $reason];
+    }
+
+    /**
+     * Entscheidet, ob die gelieferte ZAS-Personalnummer nachgetragen wird.
+     *
+     * NUR in ein leeres Feld. Der Wert wird bei ZAS vergeben und sollte laut
+     * Ursprungsdesign von HR abgetippt werden — was faktisch fast nie passiert
+     * ist (Befund 2026-08-25: 108 von 112 eigenen MA ohne Nummer). Ohne Nummer
+     * fehlt der Dubletten-Schluessel UND der MA taucht nicht in der
+     * Dispo-Matching-Map auf (DispoEmployeeDirectory filtert auf
+     * whereNotNull('personnel_number')).
+     *
+     * Ein bereits gefuellter Wert wird NIE angefasst: er kann von HR bewusst
+     * gesetzt worden sein, und ein stiller Wechsel der Personalnummer waere in
+     * Lohn und Dispo gleichzeitig folgenschwer.
+     *
+     * @return string|null nachzutragende Nummer, oder null wenn nichts zu tun
+     */
+    protected function personnelNumberFill(RecEmployee $existing, ?string $delivered): ?string
+    {
+        if ($delivered === null || trim($delivered) === '') {
+            return null;
+        }
+        if (trim((string) $existing->personnel_number) !== '') {
+            return null;
+        }
+
+        return $delivered;
+    }
+
+    /**
      * Schreibt die Statusfelder und stellt den Export-Marker exakt so wieder
      * her, wie er vorher war.
      *
@@ -153,18 +242,30 @@ class ZasInboundEmployeeImporter
      * gesetzter Marker stammt aus einer echten Aenderung und wuerde sonst
      * verschluckt, der Export ginge verloren.
      *
-     * @param array<string,mixed> $changes
+     * Die Personalnummer wird in DERSELBEN direkten Anweisung geschrieben wie
+     * die Marker-Wiederherstellung — bewusst ohne Eloquent: so ist ausgeschlossen,
+     * dass irgendein Observer-Pfad (Export-Marker, Lohn-Tracking) anspringt.
+     *
+     * @param array<string,mixed> $changes  Statusfelder fuer rec_employee_hr_data
+     * @param string|null         $pnrFill  nachzutragende Personalnummer, oder null
      */
-    protected function syncStatusFields(RecEmployee $existing, array $changes): void
+    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill): void
     {
-        DB::transaction(function () use ($existing, $changes): void {
+        DB::transaction(function () use ($existing, $changes, $pnrFill): void {
             $marker = DB::table('rec_employees')->where('id', $existing->id)->value('zas_changed_at');
 
-            $existing->ensureHrData()->fill($changes)->save();
+            if ($changes !== []) {
+                $existing->ensureHrData()->fill($changes)->save();
+            }
+
+            $employeeUpdate = ['zas_changed_at' => $marker];
+            if ($pnrFill !== null) {
+                $employeeUpdate['personnel_number'] = $pnrFill;
+            }
 
             DB::table('rec_employees')
                 ->where('id', $existing->id)
-                ->update(['zas_changed_at' => $marker]);
+                ->update($employeeUpdate);
         });
     }
 

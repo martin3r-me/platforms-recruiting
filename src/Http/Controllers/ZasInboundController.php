@@ -9,6 +9,8 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Platform\Recruiting\Models\RecZasInboundFile;
+use Platform\Recruiting\Services\Zas\ZasInboundCsvParser;
+use Platform\Recruiting\Services\Zas\ZasInboundSizeGuard;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -28,10 +30,17 @@ use Symfony\Component\Uid\UuidV7;
  * ?dry_run=true → Lieferung wird als Test markiert (is_test=true). Annehmen +
  *                 Speichern passiert trotzdem, damit sich die Verbindung real
  *                 durchtesten laesst.
+ *
+ * status-Werte: received → processed | partial | failed, sowie `rejected`,
+ * wenn die Lieferung mehr Zeilen hat als erlaubt (ZasInboundSizeGuard). Auch
+ * eine abgewiesene Lieferung bleibt roh gespeichert.
  */
 class ZasInboundController extends Controller
 {
-    public function __construct(private \Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter $importer) {}
+    public function __construct(
+        private \Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter $importer,
+        private ZasInboundCsvParser $parser,
+    ) {}
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -54,7 +63,7 @@ class ZasInboundController extends Controller
         Storage::disk($disk)->put($path, $content);
 
         // Best-Effort-Strukturerkennung (darf nie den Empfang scheitern lassen).
-        $structure = $this->inspect($content);
+        $structure = $this->parser->parse($content);
 
         $record = RecZasInboundFile::create([
             'uuid'              => $uuid,
@@ -80,17 +89,45 @@ class ZasInboundController extends Controller
             'column_count' => count($structure['columns']),
         ]);
 
+        // Paketgroessen-Waechter: die Verarbeitung laeuft synchron im Request,
+        // eine zu grosse Lieferung liefe in den Timeout. Die Rohdatei ist an
+        // dieser Stelle schon gespeichert — sie ist also nicht verloren und
+        // kann per recruiting:zas-inbound-reprocess portionsweise laufen.
+        $maxRows   = (int) config('recruiting.zas.inbound_max_rows', ZasInboundSizeGuard::DEFAULT_MAX_ROWS);
+        $rejection = ZasInboundSizeGuard::rejectionReason((int) $structure['row_count'], $maxRows);
+        if ($rejection !== null) {
+            $record->update([
+                'status' => 'rejected',
+                'notes'  => json_encode(['rejected' => $rejection], JSON_UNESCAPED_UNICODE),
+            ]);
+
+            Log::warning('ZAS inbound CSV abgewiesen (zu viele Zeilen)', [
+                'id'        => $record->id,
+                'row_count' => $structure['row_count'],
+                'max_rows'  => $maxRows,
+            ]);
+
+            return response()->json([
+                'status'   => 'rejected',
+                'id'       => $record->id,
+                'uuid'     => $record->uuid,
+                'message'  => $rejection,
+                'detected' => ['row_count' => $structure['row_count'], 'max_rows' => $maxRows],
+            ], 422)->header('Cache-Control', 'no-store');
+        }
+
         $import = $this->importer->import($structure['rows'], $record, $isTest);
 
         $record->update([
             'status'       => $isTest ? 'received' : $import['status'],
             'processed_at' => $isTest ? null : now(),
             'notes'        => json_encode([
-                'created'  => $import['created'],
-                'updated'  => $import['updated'],
-                'skipped'  => $import['skipped'],
-                'failed'   => $import['failed'],
-                'warnings' => $import['warnings'],
+                'created'   => $import['created'],
+                'updated'   => $import['updated'],
+                'skipped'   => $import['skipped'],
+                'failed'    => $import['failed'],
+                'warnings'  => $import['warnings'],
+                'suspected' => $import['suspected'],
             ], JSON_UNESCAPED_UNICODE),
         ]);
 
@@ -143,83 +180,5 @@ class ZasInboundController extends Controller
             $mimeType = $request->header('Content-Type');
         }
         return $raw;
-    }
-
-    /**
-     * Best-Effort-Analyse: Trennzeichen, Header-Spalten, Datenzeilen-Anzahl
-     * und eine Vorschau der ersten Datenzeile (Header→Wert-Map).
-     *
-     * @return array{delimiter: ?string, columns: array<int, string>, row_count: int, first_data_row: ?array<string, string>}
-     */
-    protected function inspect(string $content): array
-    {
-        // UTF-8-BOM strippen (ZAS-Exporte tragen sie; Eingang vermutlich auch).
-        $clean = preg_replace('/^\xEF\xBB\xBF/', '', $content) ?? $content;
-
-        $lines = preg_split('/\r\n|\r|\n/', $clean) ?: [];
-        $lines = array_values(array_filter($lines, fn ($l) => trim($l) !== ''));
-
-        if ($lines === []) {
-            return ['delimiter' => null, 'columns' => [], 'row_count' => 0, 'first_data_row' => null, 'rows' => []];
-        }
-
-        $headerLine = $lines[0];
-        $delimiter  = $this->detectDelimiter($headerLine);
-        $columns    = array_map('trim', str_getcsv($headerLine, $delimiter, '"', ''));
-
-        $rowCount     = max(0, count($lines) - 1);
-        $firstDataRow = null;
-        if (isset($lines[1])) {
-            $values       = array_map('trim', str_getcsv($lines[1], $delimiter, '"', ''));
-            $firstDataRow = $this->zip($columns, $values);
-        }
-
-        $rows = [];
-        foreach (array_slice($lines, 1) as $line) {
-            $values = array_map('trim', str_getcsv($line, $delimiter, '"', ''));
-            $rows[] = $this->zip($columns, $values);
-        }
-
-        return [
-            'delimiter'      => $delimiter,
-            'columns'        => $columns,
-            'row_count'      => $rowCount,
-            'first_data_row' => $firstDataRow,
-            'rows'           => $rows,
-        ];
-    }
-
-    /**
-     * Ermittelt das wahrscheinlichste Trennzeichen anhand der Header-Zeile.
-     * ZAS-Exporte nutzen Semikolon — Eingang ist aber noch ungewiss.
-     */
-    protected function detectDelimiter(string $line): string
-    {
-        $candidates = [';' => 0, ',' => 0, "\t" => 0, '|' => 0];
-        foreach (array_keys($candidates) as $char) {
-            $candidates[$char] = substr_count($line, $char);
-        }
-        arsort($candidates);
-        $best = array_key_first($candidates);
-        return $candidates[$best] > 0 ? $best : ';';
-    }
-
-    /**
-     * Verbindet Header-Spalten mit Werten zu einer Map. Laengenunterschiede
-     * werden tolerant aufgefuellt (Vorschau-Zweck, keine strikte Validierung).
-     *
-     * @param array<int, string> $columns
-     * @param array<int, string> $values
-     * @return array<string, string>
-     */
-    protected function zip(array $columns, array $values): array
-    {
-        $out = [];
-        $count = max(count($columns), count($values));
-        for ($i = 0; $i < $count; $i++) {
-            $key = $columns[$i] ?? ('col_' . $i);
-            $out[$key] = $values[$i] ?? '';
-        }
-        return $out;
     }
 }
