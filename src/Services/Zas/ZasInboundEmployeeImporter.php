@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services\Zas;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Support\ZasPersonnelNumber;
 
 /**
  * Verarbeitet ZAS-Inbound-Datenzeilen: legt MA an, die bei uns noch nicht
@@ -33,6 +34,11 @@ class ZasInboundEmployeeImporter
     public function import(array $rows, $inbound, bool $dryRun): array
     {
         $teamId = config('recruiting.zas.inbound_team_id');
+        // Eigener Firmen-Praefix: ZAS liefert die Personalnummer bis zur
+        // Umstellung noch blank, bei uns steht sie praefixt. Ohne diese
+        // Normalisierung wuerde jede Zeile der Uebergangszeit eine Dublette
+        // anlegen, weil '353' nicht auf 'RG353' trifft.
+        $prefix = (string) config('recruiting.zas.company_prefix', '');
         $created = [];
         $updated = [];
         $skipped = [];
@@ -52,6 +58,7 @@ class ZasInboundEmployeeImporter
                 }
 
                 $mapped = $this->mapper->map($row);
+                $mapped['personnel_number'] = ZasPersonnelNumber::normalize($mapped['personnel_number'], $prefix);
                 // PersNr in jeder Warnung: macht den Sammel-Bericht nach dem
                 // Massenimport pro Person zuordenbar ("Zeile 12" allein sagt
                 // HR nichts, wenn 9 Paeckchen a 100 Zeilen durchlaufen).

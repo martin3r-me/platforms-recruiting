@@ -140,6 +140,21 @@ return [
         // Abgewiesene Lieferungen bleiben roh gespeichert und lassen sich per
         // recruiting:zas-inbound-reprocess portionsweise verarbeiten.
         'inbound_max_rows'       => (int) env('RECRUITING_ZAS_INBOUND_MAX_ROWS', 300),
+
+        // Eigener Firmen-Praefix an der ZAS-Personalnummer.
+        //
+        // ZAS bedient zwei Firmen (RG und MA) und vergibt in beiden dieselben
+        // Ziffernfolgen — 276, 322, 325 und 353 existieren doppelt. Die
+        // Dispo-Lieferung traegt den Praefix seit jeher (`RG353`), der
+        // Mitarbeiter-Export wird darauf umgestellt. Bis dahin kommen dort
+        // blanke Nummern, die wir beim Import selbst praefixen; damit gibt es
+        // keinen Stichtag, an dem beide Seiten gleichzeitig umschalten muessen.
+        //
+        // Eine Nummer OHNE Praefix gilt ueberall als die eigene Firma. Ein
+        // fremder Praefix wird nie ueberschrieben und trifft in der
+        // Dispo-Zuordnung auch nie einen unserer Mitarbeiter.
+        // Leerer Wert schaltet Normalisierung und Praefix-Matching ab.
+        'company_prefix'         => env('RECRUITING_ZAS_COMPANY_PREFIX', \Platform\Recruiting\Support\ZasPersonnelNumber::DEFAULT_PREFIX),
     ],
 
     /*
@@ -156,7 +171,9 @@ return [
     'filialen' => [
         100 => ['code' => 'DUS & ES', 'name' => 'Düsseldorf & Essen'],
         200 => ['code' => 'MGL', 'name' => 'Mönchengladbach'],
+        300 => ['code' => 'WUP', 'name' => 'Wuppertal'],
         400 => ['code' => 'CGN', 'name' => 'Köln'],
+        1100 => ['code' => 'DUS-V', 'name' => 'Düsseldorf Verwaltung'],
     ],
 
     /*

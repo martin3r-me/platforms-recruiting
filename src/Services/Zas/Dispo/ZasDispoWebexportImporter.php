@@ -77,7 +77,12 @@ class ZasDispoWebexportImporter
             $plan = $this->planner->plan($dispoRows, $dispo2Rows, $existingFuture, now()->toDateString());
             $summary['stats'] = $plan['stats'];
 
-            $matcher = new ZasDispoMatcher($this->directory->map());
+            // Eigener Firmen-Praefix: ohne ihn wuerde 'MA353' wieder auf einen
+            // RG-Mitarbeiter mit der Nummer 353 gezogen.
+            $matcher = new ZasDispoMatcher(
+                $this->directory->map(),
+                (string) config('recruiting.zas.company_prefix', '')
+            );
 
             if ($dryRun) {
                 foreach ($plan['assignments'] as $dsRef => $attrs) {
