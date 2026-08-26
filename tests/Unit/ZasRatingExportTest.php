@@ -31,20 +31,36 @@ class ZasRatingExportTest extends TestCase
         return $hr;
     }
 
-    public function test_die_fuenf_bewertungsspalten_stehen_am_ende(): void
+    public function test_die_fuenf_bewertungsspalten_stehen_als_block_zusammen(): void
     {
         // Konvention im Modul: neue Spalten immer ans Ende, nie dazwischen —
         // der ZAS-Importer liest positional (Spec F6).
         //
-        // HINWEIS fuer den naechsten, der Spalten anhaengt: diese Assertion
-        // pinnt den aktuellen Schluss der Liste. Sie MUSS dann auf dasselbe
-        // Muster umgestellt werden wie in ZasArbeitsschutzExportTest
-        // (Block-Kontiguitaet ab array_search statt array_slice(-n)) — sonst
-        // schlaegt sie fehl, obwohl das Anhaengen genau richtig war.
-        $this->assertSame(
-            array_values(RatingCriteria::zasColumns()),
-            array_slice(ZasEmployeeFieldResolver::COLUMNS, -5),
-        );
+        // Geprueft wird deshalb die Kontiguitaet des Blocks, nicht mehr seine
+        // Lage am Listenende: seit 2026-08-26 haengt hinter den Bewertungen die
+        // von ZAS angefragte Spalte `Firma`. Wer weitere Spalten anhaengt,
+        // laesst diese Assertion unveraendert — sie bleibt gueltig.
+        // (Muster uebernommen aus ZasArbeitsschutzExportTest.)
+        $columns  = ZasEmployeeFieldResolver::COLUMNS;
+        $expected = array_values(RatingCriteria::zasColumns());
+        $start    = array_search($expected[0], $columns, true);
+
+        $this->assertNotFalse($start, 'Erste Bewertungsspalte fehlt im Export.');
+        $this->assertSame($expected, array_slice($columns, $start, count($expected)));
+    }
+
+    public function test_firma_ist_die_letzte_spalte(): void
+    {
+        // Von ZAS angefragt; steht bewusst hinter allem anderen, damit sich
+        // keine bestehende Spaltenposition verschiebt.
+        $this->assertSame('Firma', array_slice(ZasEmployeeFieldResolver::COLUMNS, -1)[0]);
+    }
+
+    public function test_firma_loest_einen_update_export_aus(): void
+    {
+        // Die Spalte wird exportiert — also muss eine Korrektur in der
+        // HR-Maske auch bei ZAS ankommen. Ohne Eintrag hier bliebe sie liegen.
+        $this->assertContains('company', RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS);
     }
 
     public function test_spaltennamen_sind_eindeutig(): void

@@ -22,6 +22,9 @@ class Index extends Component
     public ?int $positionFilter = null;
     public string $activeFilter = 'active'; // 'active' | 'inactive' | 'all'
 
+    /** Firmenzugehoerigkeit (RG/MA) — leer heisst alle. */
+    public string $companyFilter = '';
+
     /**
      * Zeitraum "auf MA umgestellt" — Y-m-d-Strings direkt aus den
      * <input type="date">-Feldern. Bewusst KEINE Datums-Objekte: an einen
@@ -40,6 +43,7 @@ class Index extends Component
         $this->search = '';
         $this->positionFilter = null;
         $this->activeFilter = 'active';
+        $this->companyFilter = '';
         $this->maSinceFrom = '';
         $this->maSinceTo = '';
     }
@@ -66,6 +70,10 @@ class Index extends Component
             $query->where('is_active', true);
         } elseif ($this->activeFilter === 'inactive') {
             $query->where('is_active', false);
+        }
+
+        if ($this->companyFilter !== '') {
+            $query->where('company', $this->companyFilter);
         }
 
         if ($this->positionFilter) {

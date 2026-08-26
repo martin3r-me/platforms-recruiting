@@ -74,6 +74,7 @@ class RecEmployee extends Model
         'has_car',
         'recruited_by_personnel_number',
         'personnel_number',
+        'company',
         'cost_center',
 
         // Iteration 3 — vollstaendiges HR-Field-Set

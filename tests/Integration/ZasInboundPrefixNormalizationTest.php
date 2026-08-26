@@ -75,6 +75,7 @@ class ZasInboundPrefixNormalizationTest extends TestCase
             $t->string('iban')->nullable();
             $t->string('country_code')->nullable();
             $t->string('personnel_number')->nullable();
+            $t->string('company')->nullable();
             $t->integer('rec_applicant_id')->nullable();
             $t->boolean('is_active')->default(true);
             $t->dateTime('zas_changed_at')->nullable();
@@ -206,6 +207,39 @@ class ZasInboundPrefixNormalizationTest extends TestCase
         $this->assertSame([], $report['created'], 'darf keine Dublette anlegen');
         $this->assertSame(1, Capsule::table('rec_employees')->count());
         $this->assertSame('353', $employee->fresh()->personnel_number, 'Bestandswert bleibt unangetastet');
+    }
+
+    public function test_firma_wird_aus_dem_praefix_gesetzt(): void
+    {
+        $this->importer()->import([$this->row('MA1000000878')], (object) ['id' => 1], false);
+
+        $this->assertSame('MA', Capsule::table('rec_employees')->value('company'));
+    }
+
+    public function test_blanke_nummer_ergibt_die_eigene_firma(): void
+    {
+        $this->importer()->import([$this->row('353')], (object) ['id' => 1], false);
+
+        $this->assertSame('RG', Capsule::table('rec_employees')->value('company'));
+    }
+
+    public function test_firma_wird_bei_treffer_nachgetragen(): void
+    {
+        $employee = $this->existing('RG353');
+
+        $this->importer()->import([$this->row('RG353')], (object) ['id' => 1], false);
+
+        $this->assertSame('RG', $employee->fresh()->company);
+    }
+
+    public function test_gesetzte_firma_wird_nicht_ueberschrieben(): void
+    {
+        // Von HR gepflegt oder bewusst korrigiert — ZAS darf das nicht kippen.
+        $employee = $this->existing('RG353', ['company' => 'MA']);
+
+        $this->importer()->import([$this->row('RG353')], (object) ['id' => 1], false);
+
+        $this->assertSame('MA', $employee->fresh()->company);
     }
 
     public function test_nachtrag_schreibt_die_praefixte_form(): void

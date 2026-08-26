@@ -51,6 +51,18 @@
                 </div>
 
                 <div>
+                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Firma</label>
+                    <select
+                        wire:model.live="companyFilter"
+                        class="border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white"
+                    >
+                        <option value="">Alle</option>
+                        <option value="RG">RG</option>
+                        <option value="MA">MA</option>
+                    </select>
+                </div>
+
+                <div>
                     <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Auf MA gestellt von</label>
                     <input
                         type="date"
@@ -68,7 +80,7 @@
                     />
                 </div>
 
-                @if($search !== '' || $positionFilter || $activeFilter !== 'active' || $maSinceFrom !== '' || $maSinceTo !== '')
+                @if($search !== '' || $positionFilter || $activeFilter !== 'active' || $companyFilter !== '' || $maSinceFrom !== '' || $maSinceTo !== '')
                     <button
                         type="button"
                         wire:click="resetFilters"

@@ -59,6 +59,13 @@ class ZasInboundEmployeeImporter
 
                 $mapped = $this->mapper->map($row);
                 $mapped['personnel_number'] = ZasPersonnelNumber::normalize($mapped['personnel_number'], $prefix);
+                // Die Firma steckt im Praefix der Nummer. Fehlt er, gilt die
+                // eigene — ZAS liefert blanke Nummern nur fuer unsere Firma.
+                $company = ZasPersonnelNumber::prefixOf($mapped['personnel_number'])
+                    ?? ($prefix !== '' ? $prefix : null);
+                if ($company !== null) {
+                    $mapped['employee']['company'] = $company;
+                }
                 // PersNr in jeder Warnung: macht den Sammel-Bericht nach dem
                 // Massenimport pro Person zuordenbar ("Zeile 12" allein sagt
                 // HR nichts, wenn 9 Paeckchen a 100 Zeilen durchlaufen).
@@ -79,8 +86,12 @@ class ZasInboundEmployeeImporter
                 if ($existing !== null) {
                     $changes = $this->statusSyncChanges($existing, $mapped['hr']);
                     $pnrFill = $this->personnelNumberFill($existing, $mapped['personnel_number']);
+                    // Firma ebenfalls nur nachtragen, nie ueberschreiben.
+                    $companyFill = ($company !== null && trim((string) $existing->company) === '')
+                        ? $company
+                        : null;
 
-                    if ($changes === [] && $pnrFill === null) {
+                    if ($changes === [] && $pnrFill === null && $companyFill === null) {
                         $skipped[] = ['personnel_number' => $mapped['personnel_number'], 'employee_id' => $existing->id, 'reason' => 'exists'];
                         continue;
                     }
@@ -88,6 +99,9 @@ class ZasInboundEmployeeImporter
                     $changedFields = array_keys($changes);
                     if ($pnrFill !== null) {
                         $changedFields[] = 'personnel_number';
+                    }
+                    if ($companyFill !== null) {
+                        $changedFields[] = 'company';
                     }
 
                     if ($dryRun) {
@@ -99,7 +113,7 @@ class ZasInboundEmployeeImporter
                         ];
                         continue;
                     }
-                    $this->syncMatchedFields($existing, $changes, $pnrFill);
+                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill);
                     $updated[] = [
                         'employee_id'      => $existing->id,
                         'personnel_number' => $mapped['personnel_number'],
@@ -254,11 +268,12 @@ class ZasInboundEmployeeImporter
      * dass irgendein Observer-Pfad (Export-Marker, Lohn-Tracking) anspringt.
      *
      * @param array<string,mixed> $changes  Statusfelder fuer rec_employee_hr_data
-     * @param string|null         $pnrFill  nachzutragende Personalnummer, oder null
+     * @param string|null         $pnrFill     nachzutragende Personalnummer, oder null
+     * @param string|null         $companyFill nachzutragende Firma, oder null
      */
-    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill): void
+    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null): void
     {
-        DB::transaction(function () use ($existing, $changes, $pnrFill): void {
+        DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill): void {
             $marker = DB::table('rec_employees')->where('id', $existing->id)->value('zas_changed_at');
 
             if ($changes !== []) {
@@ -268,6 +283,9 @@ class ZasInboundEmployeeImporter
             $employeeUpdate = ['zas_changed_at' => $marker];
             if ($pnrFill !== null) {
                 $employeeUpdate['personnel_number'] = $pnrFill;
+            }
+            if ($companyFill !== null) {
+                $employeeUpdate['company'] = $companyFill;
             }
 
             DB::table('rec_employees')

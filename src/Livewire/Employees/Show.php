@@ -415,6 +415,10 @@ class Show extends Component
             // gerendert (gelb) — speisen Lohn-/ZAS-Export. MA-Portal sieht sie NIE.
             'ZAS / Abrechnung (HR-only)' => [
                 'personnel_number' => ['type' => 'text', 'label' => 'Personalnummer (ZAS)'],
+                // Steckt normalerweise im Praefix der Personalnummer und wird
+                // beim Import daraus gesetzt. Aenderbar bleibt es fuer eigene
+                // Neuanlagen, die noch keine Nummer von ZAS haben.
+                'company'          => ['type' => 'inline_select', 'label' => 'Firma', 'options' => ['RG', 'MA']],
                 'cost_center'      => ['type' => 'text', 'label' => 'Kostenstelle (Vorrang vor Stelle)'],
             ],
             'Arbeitsschutz (HR-only)' => [

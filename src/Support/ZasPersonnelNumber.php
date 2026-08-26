@@ -41,6 +41,22 @@ final class ZasPersonnelNumber
     }
 
     /**
+     * Firmenkuerzel aus der Nummer — `MA1000000878` ergibt `MA`.
+     *
+     * Der Praefix IST die Firmenzugehoerigkeit; ZAS liefert ihn seit 08/2026
+     * mit. Eine blanke Nummer traegt die Information nicht in sich, dann muss
+     * sie von aussen kommen (Vorgabe oder HR-Eingabe).
+     */
+    public static function prefixOf(?string $value): ?string
+    {
+        if (!preg_match('/^(\p{L}+)/u', trim((string) $value), $m)) {
+            return null;
+        }
+
+        return mb_strtoupper($m[1]);
+    }
+
+    /**
      * @param  string $ownPrefix eigener Firmen-Praefix; leer schaltet ab
      * @return string|null normalisierte Nummer, oder null wenn nichts geliefert
      */

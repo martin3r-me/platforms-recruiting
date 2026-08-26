@@ -61,6 +61,10 @@ class RecEmployeeExportObserver
 
         // Sonstiges
         'drivers_license_class', 'has_car', 'recruited_by_personnel_number',
+        // Firma (RG/MA) — wird exportiert, eine HR-Korrektur soll ZAS also
+        // erreichen. Der Import selbst schreibt sie observer-frei und loest
+        // damit keinen Rueckexport der gerade empfangenen Werte aus.
+        'company',
         // personnel_number bewusst NICHT hier — Feld ist HR-only im
         // MA-Backend, geht aktuell nicht in den ZAS-Export → Aenderung
         // soll auch keinen Update-Pull ausloesen. Wenn PersNr spaeter

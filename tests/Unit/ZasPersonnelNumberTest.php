@@ -58,6 +58,22 @@ class ZasPersonnelNumberTest extends TestCase
         $this->assertSame('353', ZasPersonnelNumber::normalize('353', ''));
     }
 
+    public function test_liest_die_firma_aus_der_nummer(): void
+    {
+        $this->assertSame('MA', ZasPersonnelNumber::prefixOf('MA1000000878'));
+        $this->assertSame('RG', ZasPersonnelNumber::prefixOf('RG17944'));
+        $this->assertSame('RG', ZasPersonnelNumber::prefixOf('  rg17944 '), 'Grossschreibung vereinheitlichen');
+    }
+
+    public function test_ohne_praefix_keine_firma(): void
+    {
+        // Wer keine Nummer oder eine blanke hat, traegt keine Firmenangabe in
+        // sich — die muss dann von aussen kommen (Default oder HR-Eingabe).
+        $this->assertNull(ZasPersonnelNumber::prefixOf('353'));
+        $this->assertNull(ZasPersonnelNumber::prefixOf(''));
+        $this->assertNull(ZasPersonnelNumber::prefixOf(null));
+    }
+
     public function test_erkennt_ob_eine_nummer_schon_einen_praefix_traegt(): void
     {
         $this->assertTrue(ZasPersonnelNumber::hasPrefix('RG353'));

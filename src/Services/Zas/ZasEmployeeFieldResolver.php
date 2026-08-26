@@ -114,6 +114,13 @@ class ZasEmployeeFieldResolver
         'BewertungAuffassungsgabe',
         'BewertungAuftreten',
         'BewertungTeamintegration',
+
+        // Firma (ans Ende, nie dazwischen) — von ZAS angefragt (Michel
+        // 2026-08-26): fuer den Rueckimport braucht ZAS die Firmenzugehoerigkeit
+        // zusaetzlich zur Kostenstelle, weil bei unseren Neuanlagen noch keine
+        // Personalnummer existiert, aus deren Praefix sie ablesbar waere. Die
+        // Kostenstelle taugt dafuer nicht: 100/200/300/400 gibt es fuer RG UND MA.
+        'Firma',
     ];
 
     /**
@@ -268,6 +275,7 @@ class ZasEmployeeFieldResolver
             'Zuschlag'                          => $this->getZuschlag($employee),
             'UUID'                              => (string) $employee->uuid,
             'ZasPersonalNr'                     => $employee->personnel_number,
+            'Firma'                             => $employee->company,
 
             // Arbeitsschutz
             'Ersthelfer'              => $this->boolLabel($employee->is_first_aider),
