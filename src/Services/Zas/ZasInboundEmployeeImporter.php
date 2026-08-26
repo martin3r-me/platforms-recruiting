@@ -233,9 +233,10 @@ class ZasInboundEmployeeImporter
      * Dispo-Matching-Map auf (DispoEmployeeDirectory filtert auf
      * whereNotNull('personnel_number')).
      *
-     * Ein bereits gefuellter Wert wird NIE angefasst: er kann von HR bewusst
-     * gesetzt worden sein, und ein stiller Wechsel der Personalnummer waere in
-     * Lohn und Dispo gleichzeitig folgenschwer.
+     * Ein bereits gefuellter Wert wird sonst NIE angefasst: er kann von HR
+     * bewusst gesetzt worden sein, und ein stiller Wechsel der Personalnummer
+     * waere in Lohn und Dispo gleichzeitig folgenschwer. Einzige Ausnahme ist
+     * die Langform derselben Nummer (siehe unten).
      *
      * @return string|null nachzutragende Nummer, oder null wenn nichts zu tun
      */
@@ -244,11 +245,22 @@ class ZasInboundEmployeeImporter
         if ($delivered === null || trim($delivered) === '') {
             return null;
         }
-        if (trim((string) $existing->personnel_number) !== '') {
-            return null;
+        $current = trim((string) $existing->personnel_number);
+        if ($current === '') {
+            return $delivered;
         }
 
-        return $delivered;
+        // Ausnahme vom Nie-Ueberschreiben: liefert ZAS die volle Form genau der
+        // Nummer, die wir gekuerzt gespeichert haben, ist das dieselbe Kennung
+        // in der massgeblichen Schreibweise. Wir uebernehmen sie, weil wir die
+        // Nummer im Rueck-Export zurueckschicken — mit der gekuerzten Form
+        // wuerden wir ZAS einen Wert nennen, der dort im Zweifel zu einem
+        // anderen Menschen gehoert.
+        if (ZasPersonnelNumber::shortenedForm($delivered) === $current) {
+            return $delivered;
+        }
+
+        return null;
     }
 
     /**

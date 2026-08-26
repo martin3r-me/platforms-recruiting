@@ -256,6 +256,30 @@ class ZasInboundPrefixNormalizationTest extends TestCase
         $this->assertSame(1, Capsule::table('rec_employees')->count());
     }
 
+    public function test_lange_lieferung_hebt_die_gespeicherte_nummer_an(): void
+    {
+        // Wir schicken die Personalnummer im Rueck-Export an ZAS zurueck. Bleibt
+        // bei uns die gekuerzte Form stehen, waehrend ZAS die volle fuehrt,
+        // senden wir eine Nummer, die dort im Zweifel zu einem ANDEREN Menschen
+        // gehoert. Dieselbe Kennung in der massgeblichen Schreibweise zu
+        // uebernehmen ist kein Ueberschreiben gepflegter Daten.
+        $employee = $this->existing('RG17944');
+
+        $this->importer()->import([$this->row('RG1000017944')], (object) ['id' => 1], false);
+
+        $this->assertSame('RG1000017944', $employee->fresh()->personnel_number);
+    }
+
+    public function test_andere_nummer_hebt_nichts_an(): void
+    {
+        // Nur die exakte Langform der gespeicherten Nummer darf sie ersetzen.
+        $employee = $this->existing('RG17944');
+
+        $this->importer()->import([$this->row('RG99999')], (object) ['id' => 1], false);
+
+        $this->assertSame('RG17944', $employee->fresh()->personnel_number);
+    }
+
     public function test_lange_lieferung_greift_nicht_auf_die_andere_firma_ueber(): void
     {
         // MA1000017944 kuerzt sich zu MA17944 — und darf unseren RG17944
