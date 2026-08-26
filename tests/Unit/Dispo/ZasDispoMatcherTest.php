@@ -80,6 +80,63 @@ class ZasDispoMatcherTest extends TestCase
         $this->assertSame(['employee_id' => 9, 'reason' => 'exact'], $matcher->match('353'));
     }
 
+    public function test_gekuerzte_dispo_nummer_findet_die_volle_form(): void
+    {
+        // ZAS liefert die Mitarbeiter ungekuerzt (MA1000000878), die Dispo
+        // kuerzt weiterhin um eine Milliarde (MA878). Michel behaelt das im
+        // "alten Web" bewusst so, also rechnen wir es hier um.
+        $this->assertSame(
+            ['employee_id' => 5, 'reason' => 'shortened'],
+            $this->matcher(['MA1000000878' => 5])->match('MA878')
+        );
+    }
+
+    public function test_volle_nummer_trifft_weiterhin_exakt(): void
+    {
+        $this->assertSame(
+            ['employee_id' => 5, 'reason' => 'exact'],
+            $this->matcher(['MA1000000878' => 5])->match('MA1000000878')
+        );
+    }
+
+    public function test_echte_kurze_nummer_gewinnt_vor_dem_alias(): void
+    {
+        $this->assertSame(
+            ['employee_id' => 9, 'reason' => 'exact'],
+            $this->matcher(['MA878' => 9])->match('MA878')
+        );
+    }
+
+    public function test_echte_kurze_und_gekuerzte_lange_sind_mehrdeutig(): void
+    {
+        // Genau der Fall, vor dem Herr Michel gewarnt hat: gaebe es eine echte
+        // 878 UND eine 1000000878, meint die Dispo-Zeile 'MA878' eine von
+        // beiden und wir koennen nicht wissen welche. Dann lieber gar nicht.
+        $this->assertSame(
+            ['employee_id' => null, 'reason' => 'ambiguous'],
+            $this->matcher(['MA878' => 9, 'MA1000000878' => 5])->match('MA878')
+        );
+    }
+
+    public function test_nummern_unter_der_schwelle_bekommen_keinen_alias(): void
+    {
+        // Unter einer Milliarde greift die Kuerzung bei ZAS nicht — wir duerfen
+        // dort also auch nichts dazuerfinden.
+        $matcher = $this->matcher(['MA97933' => 3]);
+
+        $this->assertSame(['employee_id' => 3, 'reason' => 'exact'], $matcher->match('MA97933'));
+        $this->assertSame(['employee_id' => null, 'reason' => 'none'], $matcher->match('MA1000097933'));
+    }
+
+    public function test_alias_gilt_auch_fuer_die_eigene_firma(): void
+    {
+        // Die Kuerzungsregel haengt an der Nummer, nicht an der Firma.
+        $this->assertSame(
+            ['employee_id' => 4, 'reason' => 'shortened'],
+            $this->matcher(['RG1000000276' => 4])->match('RG276')
+        );
+    }
+
     public function test_unbekannte_nummer(): void
     {
         $this->assertSame(
