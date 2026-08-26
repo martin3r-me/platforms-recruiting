@@ -193,6 +193,21 @@ class ZasInboundPrefixNormalizationTest extends TestCase
         );
     }
 
+    public function test_bestand_ohne_praefix_wird_trotz_normalisierung_gefunden(): void
+    {
+        // Deploy-Fenster: Code ist live, die Migration lief noch nicht. Bei uns
+        // steht also 353, geliefert wird 353, normalisiert RG353. Ohne Suche in
+        // beiden Formen entstuende hier eine Dublette — und zwar genau in den
+        // Minuten zwischen zwei Deploys.
+        $employee = $this->existing('353');
+
+        $report = $this->importer()->import([$this->row('353')], (object) ['id' => 1], false);
+
+        $this->assertSame([], $report['created'], 'darf keine Dublette anlegen');
+        $this->assertSame(1, Capsule::table('rec_employees')->count());
+        $this->assertSame('353', $employee->fresh()->personnel_number, 'Bestandswert bleibt unangetastet');
+    }
+
     public function test_nachtrag_schreibt_die_praefixte_form(): void
     {
         // Bestands-MA ohne Nummer, Treffer ueber UUID: nachgetragen wird die

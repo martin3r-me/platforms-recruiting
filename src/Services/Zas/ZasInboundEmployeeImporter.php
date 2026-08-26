@@ -75,7 +75,7 @@ class ZasInboundEmployeeImporter
                 }
 
                 // Matching-Kaskade
-                $existing = $this->findExisting($mapped['uuid'], $mapped['personnel_number'], $teamId);
+                $existing = $this->findExisting($mapped['uuid'], $mapped['personnel_number'], $teamId, $prefix);
                 if ($existing !== null) {
                     $changes = $this->statusSyncChanges($existing, $mapped['hr']);
                     $pnrFill = $this->personnelNumberFill($existing, $mapped['personnel_number']);
@@ -276,7 +276,19 @@ class ZasInboundEmployeeImporter
         });
     }
 
-    protected function findExisting(?string $uuid, ?string $personnelNumber, $teamId): ?RecEmployee
+    /**
+     * Matching-Kaskade UUID → Personalnummer.
+     *
+     * Bei der Nummer werden ZWEI Formen gesucht: die normalisierte (praefixte)
+     * und die blanke. Grund ist das Uebergangsfenster — solange die Migration
+     * noch nicht gelaufen ist, steht im Bestand die blanke Nummer, waehrend der
+     * Import bereits praefixt. Ohne die zweite Form entstuende genau dann eine
+     * Dublette, und zwar in den Minuten zwischen zwei Deploys.
+     *
+     * Ein FREMDER Praefix wird nicht abgestreift: `MA353` darf niemals den
+     * blanken 353 eines RG-Mitarbeiters finden.
+     */
+    protected function findExisting(?string $uuid, ?string $personnelNumber, $teamId, string $ownPrefix = ''): ?RecEmployee
     {
         if ($uuid) {
             $byUuid = RecEmployee::where('uuid', $uuid)->first();
@@ -284,12 +296,24 @@ class ZasInboundEmployeeImporter
                 return $byUuid;
             }
         }
-        if ($personnelNumber) {
-            return RecEmployee::where('personnel_number', $personnelNumber)
-                ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
-                ->first();
+
+        if (!$personnelNumber) {
+            return null;
         }
-        return null;
+
+        $candidates = [$personnelNumber];
+        if ($ownPrefix !== '' && str_starts_with($personnelNumber, $ownPrefix)) {
+            $bare = substr($personnelNumber, strlen($ownPrefix));
+            if ($bare !== '') {
+                $candidates[] = $bare;
+            }
+        }
+
+        return RecEmployee::whereIn('personnel_number', $candidates)
+            ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
+            // Liegen beide Formen vor, gewinnt die exakte.
+            ->orderByRaw('personnel_number = ? DESC', [$personnelNumber])
+            ->first();
     }
 
     protected function createEmployee(array $mapped, int $teamId, int $inboundId): RecEmployee
