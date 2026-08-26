@@ -320,6 +320,18 @@ class ZasInboundEmployeeImporter
         }
 
         $candidates = [$personnelNumber];
+
+        // ZAS liefert seit 08/2026 ungekuerzt, frueher gekuerzt — dieselbe
+        // Person kann bei uns also in der kurzen Form liegen, waehrend die
+        // Lieferung die lange bringt. Ohne diesen Kandidaten waere das eine
+        // Dublette, und zwar fuer jeden, zu dem ZAS unsere UUID nicht hat.
+        // Der Praefix bleibt dabei erhalten, MA1000017944 findet also niemals
+        // einen RG17944.
+        $shortened = ZasPersonnelNumber::shortenedForm($personnelNumber);
+        if ($shortened !== null) {
+            $candidates[] = $shortened;
+        }
+
         if ($ownPrefix !== '' && str_starts_with($personnelNumber, $ownPrefix)) {
             $bare = substr($personnelNumber, strlen($ownPrefix));
             if ($bare !== '') {

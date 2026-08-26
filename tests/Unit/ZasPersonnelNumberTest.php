@@ -74,6 +74,24 @@ class ZasPersonnelNumberTest extends TestCase
         $this->assertNull(ZasPersonnelNumber::prefixOf(null));
     }
 
+    public function test_gekuerzte_form_zieht_eine_milliarde_ab(): void
+    {
+        // Die Altlast-Regel von ZAS: im Dispo-Export (und frueher auch im
+        // Mitarbeiter-Export) wird oberhalb einer Milliarde gekuerzt.
+        $this->assertSame('MA878', ZasPersonnelNumber::shortenedForm('MA1000000878'));
+        $this->assertSame('RG17944', ZasPersonnelNumber::shortenedForm('RG1000017944'));
+    }
+
+    public function test_kurze_nummern_haben_keine_gekuerzte_form(): void
+    {
+        // Unter der Schwelle kuerzt ZAS nicht — wir duerfen dort nichts erfinden.
+        $this->assertNull(ZasPersonnelNumber::shortenedForm('MA97933'));
+        $this->assertNull(ZasPersonnelNumber::shortenedForm('RG17944'));
+        $this->assertNull(ZasPersonnelNumber::shortenedForm('MA1000000000'));
+        $this->assertNull(ZasPersonnelNumber::shortenedForm(''));
+        $this->assertNull(ZasPersonnelNumber::shortenedForm(null));
+    }
+
     public function test_erkennt_ob_eine_nummer_schon_einen_praefix_traegt(): void
     {
         $this->assertTrue(ZasPersonnelNumber::hasPrefix('RG353'));

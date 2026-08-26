@@ -41,6 +41,32 @@ final class ZasPersonnelNumber
     }
 
     /**
+     * Die Form, in der ZAS eine Nummer oberhalb einer Milliarde ausgibt, wenn
+     * gekuerzt wird: `MA1000000878` wird zu `MA878`.
+     *
+     * Altlast aus einem frueheren Nummernkreis (`If PNr > 1000000000 Then
+     * PNr - 1000000000`). Der Dispo-Export kuerzt weiterhin, der
+     * Mitarbeiter-Export nicht mehr — dieselbe Person kann uns also in beiden
+     * Formen begegnen. Deterministische Umrechnung, kein Raten.
+     *
+     * Unterhalb der Schwelle gibt es keine zweite Form; dort liefert die
+     * Methode null, damit niemand eine erfindet.
+     */
+    public static function shortenedForm(?string $value): ?string
+    {
+        if (!preg_match('/^(\p{L}*)(\d{10,18})$/u', trim((string) $value), $m)) {
+            return null;
+        }
+
+        $numeric = (int) $m[2];
+        if ($numeric <= 1000000000) {
+            return null;
+        }
+
+        return $m[1] . ($numeric - 1000000000);
+    }
+
+    /**
      * Firmenkuerzel aus der Nummer — `MA1000000878` ergibt `MA`.
      *
      * Der Praefix IST die Firmenzugehoerigkeit; ZAS liefert ihn seit 08/2026

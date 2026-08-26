@@ -52,7 +52,7 @@ class ZasDispoMatcher
         }
 
         foreach ($byPnr as $pnr => $id) {
-            $short = self::shortenedForm((string) $pnr);
+            $short = ZasPersonnelNumber::shortenedForm((string) $pnr);
             if ($short === null) {
                 continue;
             }
@@ -94,30 +94,6 @@ class ZasDispoMatcher
         }
 
         return ['employee_id' => null, 'reason' => 'none'];
-    }
-
-    /**
-     * Die Form, in der die Disposition eine Nummer ueber einer Milliarde
-     * ausgibt: ZAS zieht dort 1.000.000.000 ab (Altlast aus einem frueheren
-     * Nummernkreis). Der Mitarbeiter-Export liefert seit 08/2026 die volle
-     * Nummer, die Dispo bleibt bei der gekuerzten — Stand mit ZAS abgestimmt.
-     *
-     * Deterministische Umrechnung, kein Raten: aus `MA1000000878` wird `MA878`.
-     * Nummern unterhalb der Schwelle bekommen keinen Alias, dort kuerzt ZAS
-     * ebenfalls nicht.
-     */
-    private static function shortenedForm(string $value): ?string
-    {
-        if (!preg_match('/^(\p{L}*)(\d{10,18})$/u', trim($value), $m)) {
-            return null;
-        }
-
-        $numeric = (int) $m[2];
-        if ($numeric <= 1000000000) {
-            return null;
-        }
-
-        return $m[1] . ($numeric - 1000000000);
     }
 
     /**

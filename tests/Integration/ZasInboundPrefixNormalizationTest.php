@@ -242,6 +242,32 @@ class ZasInboundPrefixNormalizationTest extends TestCase
         $this->assertSame('MA', $employee->fresh()->company);
     }
 
+    public function test_lange_lieferung_findet_gekuerzten_bestand(): void
+    {
+        // Szenario ab der ZAS-Umstellung auf ungekuerzte Nummern: bei uns steht
+        // die gekuerzte Form aus frueheren Lieferungen, geliefert wird die
+        // volle. Ohne diesen Kandidaten waere das fuer jeden ohne UUID eine
+        // Dublette — und die Nummer ist gleichzeitig unser Dubletten-Schluessel.
+        $this->existing('RG17944');
+
+        $report = $this->importer()->import([$this->row('RG1000017944')], (object) ['id' => 1], false);
+
+        $this->assertSame([], $report['created'], 'darf keine Dublette anlegen');
+        $this->assertSame(1, Capsule::table('rec_employees')->count());
+    }
+
+    public function test_lange_lieferung_greift_nicht_auf_die_andere_firma_ueber(): void
+    {
+        // MA1000017944 kuerzt sich zu MA17944 — und darf unseren RG17944
+        // niemals finden.
+        $this->existing('RG17944');
+
+        $report = $this->importer()->import([$this->row('MA1000017944')], (object) ['id' => 1], false);
+
+        $this->assertCount(1, $report['created']);
+        $this->assertSame(2, Capsule::table('rec_employees')->count());
+    }
+
     public function test_nachtrag_schreibt_die_praefixte_form(): void
     {
         // Bestands-MA ohne Nummer, Treffer ueber UUID: nachgetragen wird die
