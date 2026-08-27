@@ -83,9 +83,6 @@
             ['key' => 'gebucht', 'label' => 'Gebucht',
              'on' => 'bg-sky-200 text-sky-900', 'total' => 'bg-sky-300 text-sky-950',
              'title' => 'Hat eine kohorten-relevante Buchung auf einem Schulungstermin (Rang ≥ 1). Storno zählt nicht.'],
-            ['key' => 'bestaetigt', 'label' => 'Bestätigt',
-             'on' => 'bg-sky-300 text-sky-950', 'total' => 'bg-sky-400 text-sky-950',
-             'title' => 'confirmed/attended/no_show — registered zählt bewusst nicht (mehrdeutig).'],
             ['key' => 'teilgenommen', 'label' => 'Teilgenommen',
              'on' => 'bg-sky-400 text-sky-950', 'total' => 'bg-sky-500 text-sky-950',
              'title' => 'Status attended. „Nicht erschienen“ ist ein Abzweig und zählt hier NICHT mit.'],
@@ -97,7 +94,7 @@
              'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at).'],
             ['key' => 'no_show', 'label' => 'Nicht erschienen',
              'on' => 'bg-red-100 text-red-900', 'total' => 'bg-red-200 text-red-900',
-             'title' => 'Status no_show — gebucht und bestätigt, aber nicht erschienen. Gilt als abgeschlossen.'],
+             'title' => 'Status no_show — gebucht, aber nicht erschienen. Gilt als abgeschlossen.'],
             ['key' => 'vertrag_verschickt', 'label' => 'Vertrag verschickt', 'gstart' => true,
              'on' => 'bg-emerald-50 text-emerald-900', 'total' => 'bg-emerald-100 text-emerald-900',
              'title' => 'Mindestens ein Vertrag mit sent_at. Stornierte Verträge sind ausgeschlossen.'],
@@ -113,7 +110,7 @@
 
     $colGroups = [
         ['label' => '', 'span' => 1, 'title' => ''],
-        ['label' => 'Trichter', 'span' => 5 + count($phaseDefs),
+        ['label' => 'Trichter', 'span' => 4 + count($phaseDefs),
          'title' => 'Der Weg durch den Prozess — jede Stufe ist eine Teilmenge der vorigen, die Farbe wird dabei dunkler. Die Phasen-Spalten kommen aus dem Phasensatz der gewählten Filiale.'],
         ['label' => 'Abzweige', 'span' => 2,
          'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'],

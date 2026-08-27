@@ -166,11 +166,17 @@ class StatisticsTablesRenderTest extends TestCase
 
         $counts = $this->columnCounts($html);
 
-        // Die Phasen-Spalten sind wirklich dabei: Trichter = 5 feste Stufen + 3
+        // Die Phasen-Spalten sind wirklich dabei: Trichter = 4 feste Stufen + 3
         // Phasen der Filiale Essen. Ohne diese Zusicherung koennte die
         // Spalten-Invariante auch mit NULL Phasen-Spalten „stimmen".
-        $this->assertSame(8, $counts['groups_by_label']['Trichter'], 'fünf Stufen + drei Phasen');
-        $this->assertSame(16 + 3, $counts['group_sum'], 'Gruppenköpfe der Ausschreibungs-Tabelle');
+        $this->assertSame(7, $counts['groups_by_label']['Trichter'], 'vier Stufen + drei Phasen');
+        $this->assertSame(15 + 3, $counts['group_sum'], 'Gruppenköpfe der Ausschreibungs-Tabelle');
+
+        // „Bestätigt" ist raus (Kunden-Entscheidung 27.08.2026): die Spalte zaehlte
+        // confirmed/attended/no_show — also auch Nicht-Erschienene ohne jede
+        // Reaktion — und wurde als „hat den Reminder bestaetigt" gelesen.
+        $this->assertStringNotContainsString('Bestätigt', $html);
+        $this->assertStringContainsString('Teilgenommen', $html, 'Gegenprobe: die Nachbarspalte steht');
 
         $this->assertRowsMatchGroups($counts, 'Ausschreibungs-Tabelle');
 
@@ -252,8 +258,9 @@ class StatisticsTablesRenderTest extends TestCase
 
         $counts = $this->columnCounts($html);
 
-        $this->assertSame(8, $counts['groups_by_label']['Trichter'], 'fünf Stufen + drei Phasen');
-        $this->assertSame(15 + 3, $counts['group_sum'], 'Gruppenköpfe der Termin-Tabelle');
+        $this->assertSame(7, $counts['groups_by_label']['Trichter'], 'vier Stufen + drei Phasen');
+        $this->assertSame(14 + 3, $counts['group_sum'], 'Gruppenköpfe der Termin-Tabelle');
+        $this->assertStringNotContainsString('Bestätigt', $html, 'gleiche Spaltenlogik wie Tabelle 1');
 
         $this->assertRowsMatchGroups($counts, 'Termin-Tabelle');
 

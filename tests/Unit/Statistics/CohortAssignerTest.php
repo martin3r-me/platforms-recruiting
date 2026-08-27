@@ -170,7 +170,11 @@ class CohortAssignerTest extends TestCase
         );
         $row = array_values(array_filter($result['rows'], fn ($r) => $r['type'] === 'schulung'))[0];
         $this->assertSame([1, 2, 3, 4], $row['columns']['gebucht'], 'Rang>=1: alle');
-        $this->assertSame([2, 3, 4], $row['columns']['bestaetigt'], 'Rang>=2 inkl. no_show');
+        // „Bestaetigt" (Rang >= 2) gibt es nicht mehr: der Status wird nach der
+        // Schulung mit attended/no_show ueberschrieben, die Spalte konnte eine
+        // Reminder-Bestaetigung also nie abbilden — 7 Nicht-Erschienene ohne
+        // jede Reaktion zaehlten live als „bestaetigt" (Befund 25.08.2026).
+        $this->assertArrayNotHasKey('bestaetigt', $row['columns']);
         $this->assertSame([4], $row['columns']['teilgenommen'], 'Rang>=3 OHNE no_show');
         $this->assertSame([3], $row['columns']['no_show']);
         $this->assertSame([4], $row['columns']['unterschrieben']);

@@ -502,6 +502,8 @@ final class StatisticsRowProbe extends StatisticsPage
     /** @return list<array> */
     public function probeInterviewRows(StatisticsPage $statistics): array
     {
-        return $this->buildInterviewTable($statistics->interviews(), $statistics->cohort()['rows'])['rows'];
+        $cohort = $statistics->cohort();
+
+        return $this->buildInterviewTable($statistics->interviews(), $cohort['termin_rows'], $cohort['rows'])['rows'];
     }
 }

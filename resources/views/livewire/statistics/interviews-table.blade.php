@@ -8,11 +8,16 @@
       - die TRICHTER-Zahlen kommen aus denselben Assigner-Zeilen wie Tabelle 1
         (CohortViewModel::interviewCohorts), also aus EINER Zaehlung. Zwei
         Tabellen, die dieselben Menschen unterschiedlich zaehlen, waeren derselbe
-        Fehler, wegen dem diese Seite gebaut wird;
+        Fehler, wegen dem diese Seite gebaut wird. Genommen wird aber die
+        UNGEFILTERTE Menge (cohort()['termin_rows']): Ort, Taetigkeit und Status
+        sind Eigenschaften der Ausschreibung und sieben Tabelle 1 — ein Termin hat
+        Teilnehmer, keine Herkunft. Wer ueber die Koelner Anzeige kam und in
+        Duesseldorf teilgenommen hat, steht in der Duesseldorfer Termin-Zeile; die
+        Herkunfts-Unterzeile sagt, woher er kam;
       - die BELEGUNG (IST/SOLL) kommt aus der Termin-Query, weil Plaetze eine
         Eigenschaft des TERMINS sind und nicht der Kohorte. Sie ignoriert alle
         Filter der Seite.
-    Die beiden Zahlen koennen deshalb auseinandergehen — ein Testbewerber belegt
+    Die beiden Zahlen koennen weiterhin auseinandergehen — ein Testbewerber belegt
     einen Platz und steckt in keiner Kohorte — und duerfen NICHT gegeneinander
     gerechnet werden. Der Spaltenkopf sagt das auch dem Leser.
 
@@ -82,19 +87,16 @@
             // als eine Gruppe mit einer Spalte.
             ['key' => 'standby', 'label' => 'Standby',
              'on' => 'bg-amber-100 text-amber-900', 'total' => 'bg-amber-200 text-amber-900',
-             'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at) — zählt in der Belegung links NICHT mit. Kohorten-Zahl, also gefiltert; die Belegung daneben ist es nicht.'],
+             'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at) — zählt in der Belegung links NICHT mit.'],
             ['key' => 'ids', 'label' => 'Teilnehmer', 'gstart' => true,
              'on' => 'bg-sky-50 text-sky-900', 'total' => 'bg-sky-100 text-sky-950',
-             'title' => 'Bewerbungen, deren Kohorten-Zeile an diesem Termin hängt (Präzedenz-Kette Stufe 6) — Testbewerber sind immer ausgeschlossen. Bezugsgröße der anderen Spalten. NICHT dasselbe wie „Belegt“: das zählt Buchungen am Termin, unabhängig von den Filtern dieser Seite.'],
+             'title' => 'Alle Bewerbungen mit kohorten-relevanter Buchung auf diesem Termin (Präzedenz-Kette Stufe 6), unabhängig vom Filiale-, Tätigkeits- und Status-Filter — die Herkunft steht in den Unterzeilen. Testbewerber sind immer ausgeschlossen. Bezugsgröße der anderen Spalten. NICHT dasselbe wie „Belegt“: das zählt Plätze, nicht Bewerbungen (ein Testbewerber belegt einen Platz und steht hier nicht).'],
             ['key' => 'kontaktiert', 'label' => 'Kontaktiert',
              'on' => 'bg-sky-100 text-sky-900', 'total' => 'bg-sky-200 text-sky-950',
              'title' => 'Anreicherungs-Proxy (enrichment_status), kein Kontaktnachweis'],
             ['key' => 'gebucht', 'label' => 'Gebucht',
              'on' => 'bg-sky-200 text-sky-900', 'total' => 'bg-sky-300 text-sky-950',
              'title' => 'Hat eine kohorten-relevante Buchung auf diesem Termin (Rang ≥ 1). Storno zählt nicht.'],
-            ['key' => 'bestaetigt', 'label' => 'Bestätigt',
-             'on' => 'bg-sky-300 text-sky-950', 'total' => 'bg-sky-400 text-sky-950',
-             'title' => 'confirmed/attended/no_show — registered zählt bewusst nicht (mehrdeutig).'],
             ['key' => 'teilgenommen', 'label' => 'Teilgenommen',
              'on' => 'bg-sky-400 text-sky-950', 'total' => 'bg-sky-500 text-sky-950',
              'title' => 'Status attended. „Nicht erschienen“ ist ein Abzweig und zählt hier NICHT mit.'],
@@ -103,7 +105,7 @@
         [
             ['key' => 'no_show', 'label' => 'Nicht erschienen', 'gstart' => true,
              'on' => 'bg-red-100 text-red-900', 'total' => 'bg-red-200 text-red-900',
-             'title' => 'Status no_show — gebucht und bestätigt, aber nicht erschienen. Gilt als abgeschlossen.'],
+             'title' => 'Status no_show — gebucht, aber nicht erschienen. Gilt als abgeschlossen.'],
             ['key' => 'vertrag_verschickt', 'label' => 'Vertrag verschickt', 'gstart' => true,
              'on' => 'bg-emerald-50 text-emerald-900', 'total' => 'bg-emerald-100 text-emerald-900',
              'title' => 'Mindestens ein Vertrag mit sent_at. Stornierte Verträge sind ausgeschlossen.'],
@@ -125,7 +127,7 @@
         // nebeneinander, weil man sie zusammen liest.
         ['label' => 'Belegung', 'span' => 2,
          'title' => 'Plätze des Termins: belegt von allen platzbelegenden Buchungen (unabhängig von den Filtern dieser Seite), daneben die Standby-Buchungen, die keinen Platz mehr belegen.'],
-        ['label' => 'Trichter', 'span' => 5 + count($phaseDefs),
+        ['label' => 'Trichter', 'span' => 4 + count($phaseDefs),
          'title' => 'Der Weg durch den Prozess — jede Stufe ist eine Teilmenge der vorigen, die Farbe wird dabei dunkler. Die Phasen-Spalten kommen aus dem Phasensatz der gewählten Filiale.'],
         ['label' => 'Abzweige', 'span' => 1,
          'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'],
@@ -165,7 +167,7 @@
         'interviews' => $visibleInterviewIds,
     ]);
 
-    $belegungTitle = 'Einheit: BUCHUNGEN. Platzbelegende Buchungen des Termins nach zentraler Zählregel (Standby zählt nicht), gegen die Kapazität des Termins — unabhängig von Zeitraum-, Orts- und Ausschreibungs-Filter. Kann darum höher sein als die Trichter-Spalten daneben, die nur die gefilterte Kohorte zählen. Die beiden Zahlen sind zwei Einheiten und werden nicht gegeneinander gerechnet.';
+    $belegungTitle = 'Einheit: BUCHUNGEN. Platzbelegende Buchungen des Termins nach zentraler Zählregel (Standby zählt nicht), gegen die Kapazität des Termins. Die Trichter-Spalten daneben zählen Bewerbungen — im Normalfall dieselbe Zahl, Abweichungen haben einen Grund (Testbewerber belegt einen Platz, Buchung mit unbekanntem Status). Die beiden Zahlen sind zwei Einheiten und werden nicht gegeneinander gerechnet.';
 @endphp
 
 <x-ui-panel title="Schulungstermine" subtitle="Eine Zeile je Termin — Belegung, Trichter und Herkunft der Teilnehmer">
@@ -442,7 +444,11 @@
          gehoert (der Assigner bildet die Schulungszeile allein ueber die
          Buchung), und geloeschte Termine tauchen ohnehin nicht auf. Eine
          Aufzaehlung, die sich vollstaendig gibt und es nicht ist, erklaert die
-         Differenz falsch. --}}
+         Differenz falsch.
+
+         Gerechnet wird die Differenz gegen die AUSWAHL (Tabelle 1), nicht gegen
+         die ungefilterte Termin-Menge: Teilnehmer fremder Filialen an fremden
+         Terminen fehlen in beiden Tabellen und sind keine Differenz. --}}
     @if ($outside['interviews'] > 0)
         <div class="mt-2 text-xs text-[color:var(--ui-muted)]">
             Nicht in dieser Tabelle:

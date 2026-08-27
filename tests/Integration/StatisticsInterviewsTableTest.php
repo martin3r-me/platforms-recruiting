@@ -223,13 +223,14 @@ class StatisticsInterviewsTableTest extends TestCase
         $august = $this->rowOf($table, self::INTERVIEW_AUGUST);
 
         // Belegung: Eigenschaft des TERMINS (zentrale Zaehlregel seatTaking),
-        // unabhaengig von der Kohorte. Drei Buchungen, davon eine mit
-        // freigegebenem Platz (Standby) -> zwei belegte Plaetze von acht.
-        $this->assertSame(2, $august['seat_taking'], 'IST aus der Termin-Query');
+        // unabhaengig von der Kohorte. Vier Buchungen, davon eine mit
+        // freigegebenem Platz (Standby) -> drei belegte Plaetze von acht.
+        $this->assertSame(3, $august['seat_taking'], 'IST aus der Termin-Query');
         $this->assertSame(8, $august['max'], 'SOLL aus max_participants');
 
-        // Trichter: aus den Assigner-Zeilen, also derselben Quelle wie Tabelle 1
-        $this->assertSame(3, $component->countIn($august['rows'], 'ids'), 'drei Teilnehmer in der Kohorte');
+        // Trichter: aus den Assigner-Zeilen, also derselben Quelle wie Tabelle 1 —
+        // ALLE Teilnehmer des Termins, auch der aus der Wuppertaler Anzeige (208)
+        $this->assertSame(4, $component->countIn($august['rows'], 'ids'), 'vier Teilnehmer am Termin');
         $this->assertSame(1, $component->countIn($august['rows'], 'standby'));
 
         // Anzeige-Spalten des Termins
@@ -244,19 +245,64 @@ class StatisticsInterviewsTableTest extends TestCase
         $this->assertFalse($juli['has_posting']);
     }
 
+    public function test_termin_zeile_zaehlt_alle_teilnehmer_des_termins_nicht_nur_die_der_filiale(): void
+    {
+        // Live-Befund (Schulung 25.08.2026): 16 Buchungen auf attended, die Zeile
+        // zeigte 11 — vier Teilnehmer kamen ueber Koelner Anzeigen und fielen bei
+        // Filiale „Duesseldorf" aus dem Trichter, obwohl die Schulung in
+        // Duesseldorf stattfand und sie da waren. Wer teilgenommen hat, hat
+        // teilgenommen: der Ort-, Taetigkeits- und Status-Filter gehoert an die
+        // AUSSCHREIBUNGS-Zeilen (Tabelle 1), nicht an die Teilnehmer eines
+        // Termins. Die Herkunft bleibt sichtbar — als Unterzeile, nicht als Sieb.
+        $component = $this->component('Essen');
+        $table = $this->tableOf($component);
+        $august = $this->rowOf($table, self::INTERVIEW_AUGUST);
+
+        $this->assertSame(4, $component->countIn($august['rows'], 'ids'), 'alle vier Buchungen des Termins');
+        $this->assertSame(2, $component->countIn($august['rows'], 'teilgenommen'), '204 (Essen) UND 208 (Wuppertal)');
+        $this->assertContains(
+            self::POSTING_KUECHE,
+            array_map(fn ($o) => $o['posting_id'], $august['origins']),
+            'die fremde Herkunft steht als Unterzeile da, statt wegzufallen',
+        );
+
+        // Tabelle 1 bleibt die Filiale: 208 ist KEINE Essener Bewerbung
+        $vm = new CohortViewModel();
+        $this->assertNotContains(208, $vm->resolveIds($component->cohort()['rows'], ['scope' => 'all'], 'ids'),
+            'die Ausschreibungs-Tabelle der Filiale Essen zaehlt ihn nicht');
+
+        // Die Termin-Menge ist die UNGEFILTERTE Kohorte — und das Drill-down des
+        // Termins loest genau die vier auf, die die Zeile zeigt
+        $terminToken = $component->drillToken('interviews', 'Schulung August', [
+            'interviews' => [self::INTERVIEW_AUGUST],
+        ]);
+        $this->assertSame(
+            [201, 203, 204, 208],
+            $vm->resolveIdsFromClient($component->cohort()['termin_rows'], $vm->decodeScope($terminToken), 'ids'),
+        );
+
+        // Die Fussnote „nicht in dieser Tabelle" bleibt auf die AUSWAHL bezogen:
+        // 205 (inaktiver Termin) und 207 (Termin ohne Stelle) sind Essener
+        // Bewerbungen, deren Termin fehlt. Wuppertaler Termine fehlen hier zwar
+        // auch, sind aber keine Differenz zu Tabelle 1 — die zeigt sie ebenso
+        // nicht.
+        $this->assertSame(2, $table['outside']['interviews']);
+        $this->assertSame(2, $table['outside']['applications']);
+    }
+
     public function test_herkunft_summiert_sich_zur_zeile_des_termins(): void
     {
         // Dieselbe Zusicherung wie im Unit-Test, aber am ECHTEN Bestand: die
         // Unterzeilen sind die Assigner-Zeilen des Termins, nach Ausschreibung
-        // gruppiert. Zwei Ausschreibungen, drei Teilnehmer, keine Doppelzaehlung.
+        // gruppiert. Drei Ausschreibungen, vier Teilnehmer, keine Doppelzaehlung.
         $component = $this->component('Essen');
         $table = $this->tableOf($component);
         $august = $this->rowOf($table, self::INTERVIEW_AUGUST);
 
         $this->assertSame(
-            [self::POSTING_BANKETT, self::POSTING_SERVICE],
+            [self::POSTING_BANKETT, self::POSTING_SERVICE, self::POSTING_KUECHE],
             array_map(fn ($o) => $o['posting_id'], $august['origins']),
-            'eine Unterzeile pro Ausschreibung der Teilnehmer, alphabetisch nach Titel',
+            'eine Unterzeile pro Ausschreibung der Teilnehmer, alphabetisch nach Titel — auch die fremde Filiale',
         );
 
         foreach (['ids', 'gebucht', 'standby', 'unterschrieben'] as $column) {
@@ -286,7 +332,7 @@ class StatisticsInterviewsTableTest extends TestCase
         ]);
         $this->assertSame(
             [204],
-            $vm->resolveIdsFromClient($component->cohort()['rows'], $vm->decodeScope($token), 'ids'),
+            $vm->resolveIdsFromClient($component->cohort()['termin_rows'], $vm->decodeScope($token), 'ids'),
         );
 
         // Der Termin selbst loest die Vereinigung auf — dieselbe Menge, die die
@@ -296,26 +342,26 @@ class StatisticsInterviewsTableTest extends TestCase
             'interviews' => [self::INTERVIEW_AUGUST],
         ]);
         $this->assertSame(
-            [201, 203, 204],
-            $vm->resolveIdsFromClient($component->cohort()['rows'], $vm->decodeScope($terminToken), 'ids'),
+            [201, 203, 204, 208],
+            $vm->resolveIdsFromClient($component->cohort()['termin_rows'], $vm->decodeScope($terminToken), 'ids'),
         );
     }
 
     public function test_summen_belegung_ist_aus_ihren_eigenen_zahlen_nachrechenbar(): void
     {
-        // Am echten Bestand: August 2 von 8 belegt, Juli 1 von 4 — beide Termine
-        // haben eine gepflegte Kapazitaet, also 3 von 12 und kein ausgelassener
-        // Termin. Der Prozentwert (25 %) ist aus den beiden Zeilen darueber
+        // Am echten Bestand: August 3 von 8 belegt, Juli 1 von 4 — beide Termine
+        // haben eine gepflegte Kapazitaet, also 4 von 12 und kein ausgelassener
+        // Termin. Der Prozentwert (33 %) ist aus den beiden Zeilen darueber
         // nachrechenbar, und genau das war der Punkt: vorher zaehlte der Zaehler
         // mehr Termine als der Nenner.
         $component = $this->component('Essen');
         $table = $this->tableOf($component);
         $belegung = $component->belegungTotals($table['rows']);
 
-        $this->assertSame(3, $belegung['taken']);
+        $this->assertSame(4, $belegung['taken']);
         $this->assertSame(12, $belegung['max']);
         $this->assertSame(0, $belegung['unlimited_interviews']);
-        $this->assertStringContainsString('3 von 12 Plätzen belegt', $belegung['reason']);
+        $this->assertStringContainsString('4 von 12 Plätzen belegt', $belegung['reason']);
         $this->assertStringNotContainsString('NICHT in dieser Summe', $belegung['reason']);
 
         // Zaehler und Nenner zaehlen dieselben Termine — die Summe der Zeilen
@@ -426,11 +472,14 @@ class StatisticsInterviewsTableTest extends TestCase
         $this->assertSame(2, $table['outside']['interviews']);
         $this->assertSame(2, $table['outside']['applications']);
 
-        // Ohne ausgeschlossene Termine bleibt die Fussnote weg
-        $ohneFilter = $this->component('Wuppertal');
-        $wuppertal = $this->tableOf($ohneFilter);
-        $this->assertSame(0, $wuppertal['outside']['interviews']);
-        $this->assertSame(0, $wuppertal['outside']['applications']);
+        // Die Gegenrichtung des Koeln-Falls: unter Filiale Wuppertal steht 208 in
+        // Tabelle 1 (seine Anzeige ist Wuppertal), sein Termin (Essen) aber nicht
+        // in Tabelle 2 — genau EINE benannte Differenz, keine mehr und keine
+        // weniger. Der Wuppertaler Termin selbst zaehlt nicht: dort sitzt nur ein
+        // Testbewerber, also keine Kohorten-Zeile.
+        $wuppertal = $this->tableOf($this->component('Wuppertal'));
+        $this->assertSame(1, $wuppertal['outside']['interviews']);
+        $this->assertSame(1, $wuppertal['outside']['applications']);
     }
 
     public function test_termin_ohne_kohorten_teilnehmer_bleibt_eine_zeile(): void
@@ -617,6 +666,13 @@ class StatisticsInterviewsTableTest extends TestCase
             // erscheint in Tabelle 2 trotzdem nicht.
             ['id' => 207, 'uuid' => 'ivapp-207', 'team_id' => self::TEAM, 'applied_at' => '2026-07-26',
              'rec_phase_id' => 1, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // Der KOELN-FALL (Live-Befund 25.08.2026): kam ueber die Wuppertaler
+            // Ausschreibung (mehrere Wunschorte), hat sich selbst in den Essener
+            // Termin gebucht und war da. Seine Kohorten-Zeile gehoert zur Filiale
+            // Wuppertal (Herkunft), sein Termin zur Filiale Essen — die
+            // Termin-Zeile muss ihn trotzdem zaehlen.
+            ['id' => 208, 'uuid' => 'ivapp-208', 'team_id' => self::TEAM, 'applied_at' => '2026-07-27',
+             'rec_phase_id' => 2, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicant_posting')->insert([
@@ -627,6 +683,7 @@ class StatisticsInterviewsTableTest extends TestCase
             ['rec_applicant_id' => 205, 'rec_posting_id' => self::POSTING_SERVICE, 'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => 206, 'rec_posting_id' => self::POSTING_KUECHE, 'created_at' => $now, 'updated_at' => $now],
             ['rec_applicant_id' => 207, 'rec_posting_id' => self::POSTING_SERVICE, 'created_at' => $now, 'updated_at' => $now],
+            ['rec_applicant_id' => 208, 'rec_posting_id' => self::POSTING_KUECHE, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_interview_bookings')->insert([
@@ -658,6 +715,9 @@ class StatisticsInterviewsTableTest extends TestCase
             ['id' => 407, 'uuid' => 'ivb-407', 'team_id' => self::TEAM, 'rec_interview_id' => self::INTERVIEW_OHNE_STELLE,
              'rec_applicant_id' => 207, 'status' => 'confirmed', 'seat_released_at' => null, 'is_active' => 1,
              'created_at' => $now, 'updated_at' => $now],
+            ['id' => 408, 'uuid' => 'ivb-408', 'team_id' => self::TEAM, 'rec_interview_id' => self::INTERVIEW_AUGUST,
+             'rec_applicant_id' => 208, 'status' => 'attended', 'seat_released_at' => null, 'is_active' => 1,
+             'created_at' => $now, 'updated_at' => $now],
         ]);
     }
 }
@@ -680,6 +740,8 @@ final class InterviewTableProbe extends Index
     /** @return array{rows:list<array>, outside:array{interviews:int, applications:int}} */
     public function probeInterviewTable(): array
     {
-        return $this->buildInterviewTable($this->interviews(), $this->cohort()['rows']);
+        $cohort = $this->cohort();
+
+        return $this->buildInterviewTable($this->interviews(), $cohort['termin_rows'], $cohort['rows']);
     }
 }

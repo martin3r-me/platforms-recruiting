@@ -26,7 +26,7 @@ use Platform\Recruiting\Support\SeatStandbyPolicy;
  *     hr_desk_ids: list<int>,
  *     uneindeutig_ids: list<int>,  // Fall 2 der Zuordnungsregel (Spec §4): kein
  *                                  // Pivot passte zur Phase-Position, Fallback griff
- *     columns: array{kontaktiert:list<int>, gebucht:list<int>, bestaetigt:list<int>,
+ *     columns: array{kontaktiert:list<int>, gebucht:list<int>,
  *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>,
  *                    vertrag_verschickt:list<int>, unterschrieben:list<int>,
  *                    phase_reached:array<int,list<int>>},
@@ -127,7 +127,7 @@ final class CohortAssigner
                     'ids' => [], 'hr_desk_ids' => [], 'uneindeutig_ids' => [], 'tth_days' => [],
                     'max_applied_at' => null,
                     'columns' => [
-                        'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
+                        'kontaktiert' => [], 'gebucht' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [],
                         'vertrag_verschickt' => [], 'unterschrieben' => [],
                         'phase_reached' => [],
@@ -165,7 +165,7 @@ final class CohortAssigner
             //  - kontaktiert, vertrag_verschickt, unterschrieben (und tth_days)
             //    fuellen JEDEN Zeilentyp, auch geparkt/abgesagt/dublette/import/
             //    unrouted/ohne_datum/unbekannter_status;
-            //  - gebucht/bestaetigt/teilgenommen/no_show/standby nur auf
+            //  - gebucht/teilgenommen/no_show/standby nur auf
             //    Schulungszeilen (sie haengen an der gewonnenen Buchung);
             //  - offen_ids ist wie phase_reached auf RUNNING_TYPES begrenzt
             //    (Nachlauf unter der Schleife).
@@ -189,7 +189,12 @@ final class CohortAssigner
             if ($type === 'schulung' && $booking !== null) {
                 $rank = BookingStatusGroups::rank($booking['status']);
                 if ($rank >= 1) { $row['columns']['gebucht'][] = $a['id']; }
-                if ($rank >= 2) { $row['columns']['bestaetigt'][] = $a['id']; }
+                // Rang 2 („bestaetigt") hat keine Spalte mehr (27.08.2026): der
+                // Status wird nach der Schulung mit attended/no_show
+                // ueberschrieben, die Zahl las sich als „hat den Reminder
+                // bestaetigt" und enthielt Nicht-Erschienene ohne jede Reaktion.
+                // Wer das wirklich wissen will, braucht das Log
+                // (booking_confirmed_by_reply), nicht den Status.
                 if ($rank >= 3) { $row['columns']['teilgenommen'][] = $a['id']; }
                 if ($booking['status'] === 'no_show') { $row['columns']['no_show'][] = $a['id']; }
                 // Review-Fix 2: keine zweite Wahrheit fuer Standby — die Policy

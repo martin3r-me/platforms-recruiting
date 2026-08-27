@@ -92,6 +92,23 @@ nur 2× `confirmed` — eine exklusive Zählung zeigte „Bestätigt: 2" neben
 *sinken*, wenn Leute weiterkommen (wer im Einsatz ist, fiele aus
 „unterschrieben") — eine Kennzahl, die bei Fortschritt fällt, ist kaputt.
 
+> **Änderung 27.08.2026 — Spalte „Bestätigt" entfernt (beide Tabellen).** Der
+> Rang-2-Schritt (`confirmed`/`no_show`) wurde vom Kunden als „hat den
+> WhatsApp-Reminder bestätigt" gelesen. Das kann die Spalte nicht leisten: der
+> Status wird nach der Schulung mit `attended`/`no_show` überschrieben, und
+> Nicht-Erschienene ohne jede Reaktion zählten mit (Schulung 25.08.2026: 18 =
+> 11 teilgenommen + 7 nicht erschienen, davon mindestens zwei ohne Antwort auf
+> die Erinnerungen). Die echte Reminder-Bestätigung steht im AutoPilot-Log
+> (`booking_confirmed_by_reply`) — eine eigene Spalte daraus ist ein eigener
+> Auftrag, wenn der Kunde die Zahl braucht.
+>
+> **Gleicher Tag — Tabelle 2 zählt alle Teilnehmer eines Termins:** Ort-,
+> Tätigkeits- und Status-Filter sieben nur noch die Ausschreibungs-Zeilen
+> (Tabelle 1). Wer über eine Kölner Anzeige kam und in Düsseldorf teilgenommen
+> hat, steht in der Düsseldorfer Termin-Zeile; die Herkunfts-Unterzeile nennt
+> die Anzeige (`cohort()['termin_rows']`). Vorher zeigte die Zeile 11 bei 16
+> `attended`.
+
 Die exklusive Frage „wo hängen die Leute jetzt?" beantwortet die
 **Phasen-Aufschlüsselung**, nicht die Trichter-Zeile. Beides steht nebeneinander,
 ohne sich zu widersprechen.

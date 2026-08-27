@@ -46,7 +46,7 @@ final class CohortViewModelTest extends TestCase
             'uneindeutig_ids' => $uneindeutig,
             'tth_days' => [],
             'columns' => array_merge([
-                'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
+                'kontaktiert' => [], 'gebucht' => [],
                 'teilgenommen' => [], 'standby' => [], 'no_show' => [],
                 'vertrag_verschickt' => [], 'unterschrieben' => [],
             ], $columns),

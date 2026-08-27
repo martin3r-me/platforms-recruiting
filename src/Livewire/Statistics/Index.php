@@ -641,6 +641,26 @@ class Index extends Component
         // ein Anzeige-Filter, zeigte die Gesamt-Zeile mehr als die Summe der
         // sichtbaren Zeilen — dieselbe stille Differenz, wegen der diese Seite
         // gebaut wird.
+        //
+        // TERMIN-MENGE fuer Tabelle 2, festgehalten VOR dem Auswahl-Filter: alle
+        // Kohorten-Zeilen beider Assign-Aufrufe, also jede Buchung des Teams
+        // (ausser Testbewerbern, Stufe 1). Ort, Taetigkeit und Status sind
+        // Eigenschaften der AUSSCHREIBUNG und sieben deshalb die Ausschreibungs-
+        // Zeilen (Tabelle 1) — ein Termin hat aber Teilnehmer, keine Herkunft.
+        // Wer ueber die Koelner Anzeige kam und in Duesseldorf teilgenommen hat,
+        // hat in Duesseldorf teilgenommen (Live-Befund 25.08.2026: 16 attended, die
+        // Zeile zeigte 11). Die Herkunft bleibt als Unterzeile sichtbar, faellt
+        // aber nicht mehr als Sieb vor die Zahl.
+        //
+        // Die Stellenwechsel-Altfaelle (zweiter Assign-Aufruf) gehoeren hier
+        // dazu: ihre Buchung ist echt, nur ihre Anzeige ist unbekannt — in der
+        // Termin-Zeile stehen sie unter „ohne Ausschreibung".
+        //
+        // Nicht erfasst bleiben die Vorfilter der Bewerber-QUERY („Einzelne
+        // Ausschreibung", Quelle): sie bestimmen, WELCHE Bewerbungen die Seite
+        // ueberhaupt laedt, und wirken damit auf beide Tabellen gleich.
+        $result['termin_rows'] = array_merge($result['rows'], $unknownOriginAssign['rows']);
+
         $onlineOnly = $this->postingStatusFilter !== 'alle';
         if ($this->ortFilter !== null || $this->activityFilter !== null || $onlineOnly) {
             $result['rows'] = array_values(array_filter($result['rows'], fn ($r) =>
@@ -1132,8 +1152,9 @@ class Index extends Component
      * AUSSCHREIBUNG und wirkt auf die Kohorten-Zeilen (Tabelle 1). Ein Termin ist
      * nicht veroeffentlicht, er findet statt — ihn nach dem Status seiner
      * Ausschreibung zu verstecken hiesse, einen stattgefundenen Termin zu
-     * verschweigen. Seine Teilnehmer-Zahlen folgen dem Filter trotzdem, weil sie
-     * aus den Kohorten-Zeilen kommen; die Belegung bleibt die des Termins.
+     * verschweigen. Seine Teilnehmer-Zahlen folgen dem Filter ebenfalls NICHT
+     * (cohort()['termin_rows']) — nur die Herkunfts-Unterzeilen zeigen, aus
+     * welcher Ausschreibung wer kam.
      *
      * NICHT gefiltert wird auf `rec_interviews.location`: das ist freier Text und
      * der VERANSTALTUNGSORT (Bahnhof, Hotel, Treffpunktbeschreibung). Er kann vom
@@ -1186,7 +1207,7 @@ class Index extends Component
     #[Computed]
     public function interviewTable(): array
     {
-        return $this->buildInterviewTable($this->interviews, $this->cohort['rows']);
+        return $this->buildInterviewTable($this->interviews, $this->cohort['termin_rows'], $this->cohort['rows']);
     }
 
     /**
@@ -1205,16 +1226,18 @@ class Index extends Component
      * Produktions-Oberflaeche bleibt zu.
      *
      * ZWEI QUELLEN, und die Trennung ist Absicht:
-     *  - TRICHTER: aus den Assigner-Zeilen ($rows) — dieselben Zeilen wie
-     *    Tabelle 1, keine zweite Query und damit keine zweite Zaehlung derselben
-     *    Menschen.
+     *  - TRICHTER: aus den Assigner-Zeilen ($terminRows) — dieselbe Zaehlung wie
+     *    Tabelle 1 (ein Assigner-Lauf, keine zweite Query), aber die UNGEFILTERTE
+     *    Menge: Ort-, Taetigkeits- und Status-Filter sieben Ausschreibungs-Zeilen,
+     *    ein Termin hat dagegen Teilnehmer und keine Herkunft (siehe cohort(),
+     *    termin_rows). Die Herkunft steht als Unterzeile darunter.
      *  - BELEGUNG (IST/SOLL): aus dem Termin (seat_taking_count,
      *    max_participants), weil Plaetze eine Eigenschaft des TERMINS sind und
      *    nicht der Kohorte. Sie ignoriert alle Filter der Seite.
-     * Die beiden koennen deshalb auseinandergehen (Testbewerber, andere Filiale,
-     * Bewerbungen an einer geschlossenen Ausschreibung bei Status „online") — und
-     * sie duerfen NICHT gegeneinander gerechnet werden. Die Spaltenkoepfe der View
-     * sagen das auch.
+     * Die beiden koennen weiterhin auseinandergehen (Testbewerber belegen einen
+     * Platz und stehen in keiner Kohorte; eine Buchung mit unbekanntem Status
+     * belegt, zaehlt aber nicht) — und sie duerfen NICHT gegeneinander gerechnet
+     * werden. Die Spaltenkoepfe der View sagen das auch.
      *
      * Termine OHNE Kohorten-Teilnehmer bleiben eine Zeile: „fuenf Plaetze, einer
      * belegt, keiner davon in dieser Auswahl" ist eine Aussage, ein
@@ -1223,7 +1246,10 @@ class Index extends Component
      * `outside` benennt die Gegenrichtung: Teilnehmer, deren Termin NICHT in
      * dieser Auswahl liegt. Sie stecken in Tabelle 1 und fehlen hier — sichtbar
      * gemacht statt verschluckt, sonst ist die kleinere Summe von Tabelle 2 nicht
-     * nachvollziehbar.
+     * nachvollziehbar. Gerechnet wird das ueber $auswahlRows (die GEFILTERTE
+     * Menge, also Tabelle 1): eine Wuppertaler Buchung an einem Wuppertaler
+     * Termin ist bei Filiale Essen keine Differenz — beide Tabellen zeigen sie
+     * nicht.
      *
      * Die Gruende sind ausdruecklich NICHT abschliessend aufzaehlbar, und die
      * Fussnote der View formuliert das auch so. Bekannt sind mindestens: der
@@ -1237,13 +1263,14 @@ class Index extends Component
      * erklaeren.
      *
      * @param  iterable<\Platform\Recruiting\Models\RecInterview>  $interviews
-     * @param  list<array>  $rows  Assigner-Zeilen
+     * @param  list<array>  $terminRows  Assigner-Zeilen OHNE Auswahl-Filter (cohort()['termin_rows'])
+     * @param  list<array>  $auswahlRows  Assigner-Zeilen der Auswahl (cohort()['rows']), nur fuer `outside`
      * @return array{rows:list<array>, outside:array{interviews:int, applications:int}}
      */
-    protected function buildInterviewTable($interviews, array $rows): array
+    protected function buildInterviewTable($interviews, array $terminRows, array $auswahlRows): array
     {
         $vm = $this->viewModel();
-        $cohorts = $vm->interviewCohorts($rows);
+        $cohorts = $vm->interviewCohorts($terminRows);
 
         $tableRows = [];
         $shown = [];
@@ -1280,7 +1307,7 @@ class Index extends Component
 
         $outsideInterviews = 0;
         $outsideApplications = 0;
-        foreach ($cohorts as $interviewId => $cohort) {
+        foreach ($vm->interviewCohorts($auswahlRows) as $interviewId => $cohort) {
             if (isset($shown[$interviewId])) {
                 continue;
             }
@@ -1557,11 +1584,18 @@ class Index extends Component
         // unbekannter Wert faellt auf die Auswahl zurueck; alle vier Mengen
         // stammen aus derselben team-gescopten Kohorte, ein gecraftetes 'set'
         // oeffnet also nichts, was die Seite nicht ohnehin zeigt.
+        //
+        // Termin-Scopes ('interviews', 'interviews_posting') zeigen auf die
+        // UNGEFILTERTE Termin-Menge: die Zahlen von Tabelle 2 sind daraus
+        // gerechnet (buildInterviewTable), und ein Klick auf die 16 muss 16
+        // Personen oeffnen — nicht die 11, die zufaellig zur Filiale gehoeren.
         $rows = match ($spec['set'] ?? null) {
             'closed' => $this->cohort['closed_rows'],
             'unreachable' => $this->cohort['unreachable_rows'],
             'unknown_origin' => $this->cohort['unknown_origin_rows'],
-            default => $this->cohort['rows'],
+            default => in_array($spec['scope'] ?? null, ['interviews', 'interviews_posting'], true)
+                ? $this->cohort['termin_rows']
+                : $this->cohort['rows'],
         };
 
         $this->drillIds = $vm->resolveIdsFromClient($rows, $spec, $column);
