@@ -9,8 +9,9 @@ use Symfony\Component\Uid\UuidV7;
 
 /**
  * Datei-Lifecycle der Anhaenge (Runde 3, #8): genau eine Datei pro MA und VA,
- * erneutes Hochladen ersetzt (alte Datei wird geloescht). Filesystem wird
- * injiziert, damit Integration-Tests ohne Laravel-Container laufen
+ * erneutes Hochladen ersetzt (alte Datei wird geloescht, aber erst NACHDEM
+ * die Zeile gespeichert ist — verwaiste Datei < verwaiste Zeile). Filesystem
+ * wird injiziert, damit Integration-Tests ohne Laravel-Container laufen
  * (Flysystem-Local auf Temp-Verzeichnis); Produktion nutzt ::default().
  */
 class DispoAttachmentStore
@@ -56,7 +57,7 @@ class DispoAttachmentStore
         $this->files->put($path, $contents);
 
         if ($existing !== null) {
-            $this->deleteFile($existing->stored_path);
+            $oldPath = $existing->stored_path;
             $existing->fill([
                 'uuid'               => $uuid,
                 'disk'               => $this->diskName,
@@ -66,6 +67,7 @@ class DispoAttachmentStore
                 'size_bytes'         => strlen($contents),
                 'uploaded_by_user_id' => $userId,
             ])->save();
+            $this->deleteFile($oldPath);
 
             return $existing->refresh();
         }

@@ -214,6 +214,8 @@ class DispoEscalateCommandTest extends TestCase
         $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 14:01:00'));
 
         $this->assertSame(0, $report['population']);
+        $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-VORTAG-TODAY')->value('escalation_1_at'));
+        $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-VORTAG-TODAY')->value('deletion_marked_at'));
     }
 
     public function test_event_time_override_wins_over_settings_in_vortag_mode(): void

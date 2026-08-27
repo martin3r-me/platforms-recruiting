@@ -88,7 +88,13 @@
                 @empty
                     <tr>
                         <td colspan="8" class="px-4 py-8 text-center text-gray-500">
-                            Noch keine Veranstaltungen verarbeitet. Sie entstehen automatisch aus den ZAS-Lieferungen.
+                            @php
+                                $filterActive = $dateFrom !== '' || $dateTo !== '' || $filialeFilter !== '';
+                                $emptyText = $filterActive
+                                    ? 'Keine Veranstaltungen im gewählten Zeitraum bzw. für diese Filiale — Filter leeren zeigt alle kommenden.'
+                                    : 'Noch keine Veranstaltungen verarbeitet. Sie entstehen automatisch aus den ZAS-Lieferungen.';
+                            @endphp
+                            {{ $emptyText }}
                         </td>
                     </tr>
                 @endforelse

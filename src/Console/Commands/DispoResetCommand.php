@@ -27,7 +27,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
 class DispoResetCommand extends Command
 {
     protected $signature = 'recruiting:dispo-reset {--force}';
-    protected $description = 'Leert die Dispo-Tabellen (Veranstaltungen + Einbuchungen) fuer einen sauberen Start';
+    protected $description = 'Leert die Dispo-Tabellen (Veranstaltungen + Einbuchungen + Anhaenge inkl. Dateien) fuer einen sauberen Start';
 
     public function handle(): int
     {
