@@ -9,11 +9,13 @@ use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
+use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationPlanner;
 
 /**
  * Eskalations-Engine (Spec §3): laeuft alle 5 Minuten, verankert am
  * konfigurierten inbound_team_id (CLI/Scheduler-Kontext -> kein auth()).
+ * Zielmenge seit Runde 3: heute + morgen, Modus pro VA (DispoEscalationConfig).
  *
  * Stufe 1 (time_1) / Stufe 2 (time_2): Reminder-/Final-Template ueber den
  * per Filiale aufgeloesten Kanal (DispoChannelResolver::resolveForEvent).
@@ -97,15 +99,19 @@ class DispoEscalateCommand extends Command
             return ['skipped' => true, 'population' => 0, 'stage1' => 0, 'stage2' => 0, 'stage3' => 0];
         }
 
-        $times = [
+        $defaults = [
             1 => (string) ($settings->getSetting('dispo_escalation_time_1') ?: '14:00'),
             2 => (string) ($settings->getSetting('dispo_escalation_time_2') ?: '15:00'),
             3 => (string) ($settings->getSetting('dispo_escalation_time_3') ?: '16:00'),
         ];
+        $today    = $now->format('Y-m-d');
         $tomorrow = $now->modify('+1 day')->format('Y-m-d');
 
+        // Runde 3 (#5): Zielmenge = Einsaetze von HEUTE und MORGEN; pro VA entscheidet
+        // der Modus (Vortag -> morgen, Einsatztag -> heute), Zeiten kommen aus dem
+        // VA-Override oder dem Team-Default. Planner bleibt unveraendert.
         $assignments = RecDispoAssignment::query()
-            ->whereDate('datum', $tomorrow)
+            ->where(fn ($q) => $q->whereDate('datum', $today)->orWhereDate('datum', $tomorrow))
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNotNull('reminder_sent_at')
             ->whereNull('confirmed_at')
@@ -113,7 +119,12 @@ class DispoEscalateCommand extends Command
             ->whereNull('missing_since')
             ->whereNotNull('rec_employee_id')
             ->with('event')
-            ->get();
+            ->get()
+            ->filter(function (RecDispoAssignment $a) use ($defaults, $today) {
+                $cfg = self::configFor($a, $defaults);
+                return DispoEscalationConfig::appliesOn($cfg['day'], $a->datum->format('Y-m-d'), $today);
+            })
+            ->values();
 
         $counts = [1 => 0, 2 => 0, 3 => 0];
 
@@ -121,6 +132,7 @@ class DispoEscalateCommand extends Command
         $removedByEvent = [];
 
         foreach ($assignments as $a) {
+            $times = self::configFor($a, $defaults)['times'];
             $stage = $planner->dueStage($this->state($a), $now, $times);
             if ($stage === null) {
                 continue;
@@ -305,6 +317,16 @@ class DispoEscalateCommand extends Command
         ];
     }
 
+    /** @param array{1:string,2:string,3:string} $defaults */
+    private static function configFor(RecDispoAssignment $a, array $defaults): array
+    {
+        $e = $a->event;
+
+        return DispoEscalationConfig::effective(
+            $e?->escalation_day, $e?->escalation_time_1, $e?->escalation_time_2, $e?->escalation_time_3, $defaults
+        );
+    }
+
     private static function toImmutable(mixed $value): ?\DateTimeImmutable
     {
         if ($value === null) {
@@ -322,7 +344,7 @@ class DispoEscalateCommand extends Command
     /**
      * Schichtzeit-Label des EINEN Einsatztags dieser Zeile (anders als bei der
      * Erstbestaetigung ist die Eskalation immer schon auf einen Tag gefiltert,
-     * datum = morgen). "16:00 bis 22:00", nur-von -> "16:00", keine von-Zeit
+     * datum = morgen (Vortag) bzw. heute (Einsatztag)). "16:00 bis 22:00", nur-von -> "16:00", keine von-Zeit
      * -> Fallback "siehe Infoseite" (Meta akzeptiert keine leeren Parameter).
      */
     private function shiftLabel(?string $von, ?string $bis): string

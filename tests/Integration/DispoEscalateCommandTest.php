@@ -166,6 +166,91 @@ class DispoEscalateCommandTest extends TestCase
         }
     }
 
+    /** Gemeinsame Basis-Einbuchung: Auftrag, angeschrieben 20.08. 10:00, gematcht. */
+    private function baseRow(int $eventId, string $dsRef, string $datum): array
+    {
+        return [
+            'rec_dispo_event_id' => $eventId, 'ds_ref' => $dsRef,
+            'pnr_raw' => 'RG' . self::$employeeId, 'rec_employee_id' => self::$employeeId,
+            'datum' => $datum, 'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
+            'reminder_sent_at' => '2026-08-20 10:00:00',
+        ];
+    }
+
+    public function test_einsatztag_override_escalates_today_with_event_times(): void
+    {
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-ESC-SAMEDAY', 'name' => 'Fruehschicht', 'filial_nr' => self::FILIAL_NR,
+            'escalation_day' => 'einsatztag', 'escalation_time_1' => '07:00', 'escalation_time_2' => '08:00', 'escalation_time_3' => '09:00',
+        ]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-SAMEDAY', '2026-08-25'));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 07:05:00'));
+
+        $this->assertSame(1, $report['population']);
+        $this->assertSame(1, $report['stage1'], 'Stufe 1 laut VA-Zeit 07:00 am Einsatztag.');
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-SAMEDAY')->value('escalation_1_at'));
+    }
+
+    public function test_einsatztag_event_for_tomorrow_is_not_touched_today(): void
+    {
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-ESC-SAMEDAY-TMR', 'name' => 'Morgen', 'filial_nr' => self::FILIAL_NR,
+            'escalation_day' => 'einsatztag', 'escalation_time_1' => '07:00', 'escalation_time_2' => '08:00', 'escalation_time_3' => '09:00',
+        ]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-SAMEDAY-TMR', '2026-08-26'));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 14:01:00'));
+
+        $this->assertSame(0, $report['population']);
+        $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-SAMEDAY-TMR')->value('escalation_1_at'));
+    }
+
+    public function test_vortag_event_for_today_is_not_touched(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-VORTAG-TODAY', 'name' => 'Heute', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-VORTAG-TODAY', '2026-08-25'));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 14:01:00'));
+
+        $this->assertSame(0, $report['population']);
+    }
+
+    public function test_event_time_override_wins_over_settings_in_vortag_mode(): void
+    {
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-ESC-TIMES', 'name' => 'Spaet', 'filial_nr' => self::FILIAL_NR,
+            'escalation_time_1' => '18:00', 'escalation_time_2' => '19:00', 'escalation_time_3' => '20:00',
+        ]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-TIMES', '2026-08-26'));
+
+        $early = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 14:30:00'));
+        $this->assertSame(1, $early['population']);
+        $this->assertSame(0, $early['stage1'], 'Settings sagen 14:00, VA sagt 18:00 -> noch nichts.');
+
+        $late = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 18:05:00'));
+        $this->assertSame(1, $late['stage1']);
+    }
+
+    public function test_mixed_modes_in_one_run(): void
+    {
+        $vortag = RecDispoEvent::create(['einsatz_ref' => 'RG-MIX-V', 'name' => 'V', 'filial_nr' => self::FILIAL_NR]);
+        $same = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-MIX-S', 'name' => 'S', 'filial_nr' => self::FILIAL_NR,
+            'escalation_day' => 'einsatztag', 'escalation_time_1' => '13:00', 'escalation_time_2' => '13:30', 'escalation_time_3' => '13:45',
+        ]);
+        RecDispoAssignment::create($this->baseRow($vortag->id, 'DS-MIX-V', '2026-08-26'));
+        RecDispoAssignment::create($this->baseRow($same->id, 'DS-MIX-S', '2026-08-25'));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 14:01:00'));
+
+        $this->assertSame(2, $report['population']);
+        $this->assertSame(1, $report['stage1'], 'Vortag-VA: Stufe 1 (14:00).');
+        $this->assertSame(1, $report['stage3'], 'Einsatztag-VA: 13:45 ueberschritten -> Stufe 3.');
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-MIX-S')->value('deletion_marked_at'));
+        $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-MIX-V')->value('deletion_marked_at'));
+    }
+
     public function test_stage1_fires_once_and_is_idempotent_on_second_run(): void
     {
         $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-S1', 'name' => 'Test-VA', 'filial_nr' => self::FILIAL_NR]);
@@ -479,6 +564,7 @@ class DispoEscalateCommandTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000001_create_rec_dispo_filiale_settings_table.php'],
             [$own, 'database/migrations/2026_08_24_000002_add_escalation_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php'],
+            [$own, 'database/migrations/2026_08_27_000002_add_escalation_override_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
