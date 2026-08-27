@@ -56,8 +56,8 @@
 .rg-crew .evhead h3{font-size:22px; margin-top:7px; letter-spacing:.01em}
 .rg-crew .evhead .when{font-size:13.5px; opacity:.82; margin-top:4px; font-variant-numeric:tabular-nums}
 .rg-crew .beacon{margin-top:13px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2); border-radius:var(--r); padding:11px 13px; display:flex; align-items:center; gap:12px}
-.rg-crew .beacon .big{font-family:var(--display); font-size:26px; line-height:1; color:var(--brand-light); font-variant-numeric:tabular-nums; flex:none}
-.rg-crew .beacon .lbl{font-size:12.5px; opacity:.95; line-height:1.35}
+.rg-crew .beacon .lbl{font-size:13.5px; opacity:.95; line-height:1.4}
+.rg-crew .beacon .lbl b{display:block; font-family:var(--display); font-weight:400; font-size:18px; letter-spacing:.01em; color:var(--brand-light); margin-bottom:4px}
 .rg-crew .beacon .lbl .sub{opacity:.72}
 
 .rg-crew .evbody{padding:4px 0 0}
@@ -180,9 +180,6 @@
                 $last = $days[$dayCount - 1] ?? null;
                 $isConfirmed = !empty($group['all_confirmed']);
 
-                // Beacon-Zeit: bevorzugt Ankunft, sonst Schichtbeginn
-                $beaconBig = $first['arrival'] ?? ($first['von'] ?? null);
-
                 // "When"-Zeile
                 if ($dayCount <= 1) {
                     $whenLine = $first ? $labelDate($first['datum']) . ' · 1 Tag' : '';
@@ -193,27 +190,31 @@
                 $hasPanel = !empty($group['adresse']) || !empty($group['zusatz_ort']) || !empty($group['kleidung']);
                 $singleNote = ($dayCount <= 1 && $first) ? ($first['individual_note'] ?? null) : null;
 
-                // Beacon-Label VORBERECHNEN in reinem PHP. WICHTIG: diese Blade-Version
-                // kompiliert an ein Wortzeichen geklebte Direktiven NICHT (da@if / da@else /
-                // Uhr@endif → \B@ matcht nicht), was die if/else-Struktur zerschiesst. Deshalb
-                // hier kein Inline-@if im Markup — vgl. Blade-Pitfall-Memo.
-                $firstArr = $first['arrival'] ?? null;
+                // Beacon-Label VORBERECHNEN in reinem PHP (Pitfall: an Wortzeichen
+                // geklebte Blade-Direktiven kompilieren nicht -> if/else zerschossen).
+                // Kunden-Feedback 2: KEINE errechnete Ankunftszeit mehr — nur
+                // Schichtzeit + Vorlauf-Satz (Wording identisch zum WhatsApp-Template).
                 $firstVon = $first['von'] ?? null;
                 $firstBis = $first['bis'] ?? null;
-                $schichtStr = $firstVon ? ('Schicht ' . $firstVon . ($firstBis ? '–' . $firstBis : '') . ' Uhr') : '';
+                $vorlauf = (int) ($group['vorlauf_minuten'] ?? 0);
+                $schichtStr = '';
+                if ($firstVon) {
+                    $schichtStr = $firstBis ? ('Schicht ' . $firstVon . '–' . $firstBis . ' Uhr') : ('Schicht ab ' . $firstVon . ' Uhr');
+                }
+                $vorlaufSatz = $vorlauf > 0 ? ('Bitte sei ' . $vorlauf . ' Minuten vor Dienstbeginn vor Ort!') : '';
                 $beaconLbl = '';
                 if ($first) {
+                    $head = $dayCount > 1
+                        ? ('Erster Tag · ' . e($labelDate($first['datum'])) . ($schichtStr !== '' ? ' · ' . e($schichtStr) : ''))
+                        : e($schichtStr);
+                    if ($head !== '') {
+                        $beaconLbl .= '<b>' . $head . '</b>';
+                    }
+                    if ($vorlaufSatz !== '') {
+                        $beaconLbl .= ($beaconLbl !== '' ? '<br>' : '') . e($vorlaufSatz);
+                    }
                     if ($dayCount > 1) {
-                        $beaconLbl = '<b>Erster Tag · ' . e($labelDate($first['datum'])) . '</b> — sei um ' . e((string) $beaconBig) . ' Uhr da';
-                        if ($firstVon) {
-                            $beaconLbl .= ' (Schicht ' . e($firstVon) . ($firstBis ? '–' . e($firstBis) : '') . ')';
-                        }
                         $beaconLbl .= '<br><span class="sub">Die weiteren Tage haben eigene Zeiten — siehe unten.</span>';
-                    } else {
-                        $beaconLbl = $firstArr ? ('Bitte sei um <b>' . e($firstArr) . ' Uhr</b> da') : 'Schichtbeginn';
-                        if ($schichtStr !== '') {
-                            $beaconLbl .= '<br>' . e($schichtStr);
-                        }
                     }
                 }
             @endphp
@@ -235,9 +236,8 @@
                         @endif
                     </div>
 
-                    @if ($beaconBig)
+                    @if ($beaconLbl !== '')
                         <div class="beacon">
-                            <div class="big">{{ $beaconBig }}</div>
                             <div class="lbl">{!! $beaconLbl !!}</div>
                         </div>
                     @endif
@@ -255,7 +255,6 @@
                                 <div>
                                     <div class="l1">
                                         @if ($day['taetigkeit']){{ $day['taetigkeit'] }}@else Einsatz @endif
-                                        @if ($day['arrival']) · da sein {{ $day['arrival'] }}@endif
                                     </div>
                                     @if ($day['von'])
                                         <div class="l2">Schicht {{ $day['von'] }}@if ($day['bis'])–{{ $day['bis'] }}@endif Uhr</div>

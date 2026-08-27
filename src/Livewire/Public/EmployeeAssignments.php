@@ -93,6 +93,7 @@ class EmployeeAssignments extends Component
                 'zusatz_ort'   => $event->ort,
                 'kleidung'     => $event->dresscode,
                 'contact_line' => $event->ansprechpartner,
+                'vorlauf_minuten' => (int) ($event->vorlauf_minuten ?? 0),
                 'all_confirmed' => true,
                 'days'         => [],
             ];

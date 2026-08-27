@@ -175,7 +175,7 @@
                                    class="w-28 rounded-lg border border-gray-300 px-3 py-2 text-base focus:border-blue-500 focus:ring-blue-500">
                             <span class="text-sm text-gray-600">Minuten vor Dienstbeginn</span>
                         </div>
-                        <span class="mt-1 block text-xs text-gray-500">Steht in der WhatsApp („Check in X min vor Dienstbeginn") und bestimmt die „Bitte sei um … Uhr da"-Zeit auf der Einsatz-Seite.</span>
+                        <span class="mt-1 block text-xs text-gray-500">Steht in der WhatsApp und auf der Einsatz-Seite als „Bitte sei X Minuten vor Dienstbeginn vor Ort!".</span>
                     </label>
                     @error('vorlaufMinuten') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
