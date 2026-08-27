@@ -10,6 +10,7 @@ use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
+use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
 
 /**
  * Disposition → Veranstaltung → Detail: VA-Kopf + Einbuchungen mit
@@ -28,6 +29,10 @@ class Show extends Component
     public string $sendDay = '';
     /** @var array{sent:int, failed:list<array{employee_id:int, error:string}>}|null */
     public ?array $sendResult = null;
+    /** Auswahl bei mehreren Teamleitungen (employee_id als String — Livewire-Typed-Property-Falle). */
+    public string $leadChoice = '';
+    /** true, wenn das Ansprechpartner-Feld beim Oeffnen automatisch aus der Teamleitung befuellt wurde. */
+    public bool $leadAutoFilled = false;
 
     /** Individueller Hinweis pro Mitarbeiter, keyed by rec_employee_id → Text. */
     public array $notes = [];
@@ -149,6 +154,45 @@ class Show extends Component
             ->all();
     }
 
+    /**
+     * Teamleitungen dieser VA (Kunden-Feedback 2): Kandidaten fuer die automatische
+     * Ansprechpartner-Vorbelegung. Respektiert die Tages-Auswahl des Sende-Modals.
+     *
+     * @return list<array{employee_id:int, name:string, phone:?string, label:string}>
+     */
+    #[Computed]
+    public function teamLeads(): array
+    {
+        $rows = $this->event->assignments->map(fn ($a) => [
+            'employee_id' => $a->rec_employee_id,
+            'taetigkeit'  => $a->taetigkeit,
+            'datum'       => $a->datum->format('Y-m-d'),
+        ])->all();
+        $ids = array_values(array_unique(array_filter(array_column($rows, 'employee_id'))));
+        $contacts = $ids === [] ? [] : app(DispoEmployeeGateway::class)->contacts($ids);
+
+        return (new DispoTeamLeadResolver())->resolve(
+            $rows,
+            $contacts,
+            (array) config('recruiting.zas.dispo_lead_taetigkeiten', ['Teamleitung']),
+            $this->sendDay
+        );
+    }
+
+    /** Uebernimmt eine Teamleitung (Button/Select) ins Ansprechpartner-Feld. */
+    public function applyLead(?int $employeeId = null): void
+    {
+        $employeeId ??= ($this->leadChoice !== '' ? (int) $this->leadChoice : null);
+        foreach ($this->teamLeads as $lead) {
+            if ($employeeId !== null && $lead['employee_id'] === $employeeId) {
+                $this->ansprechpartner = $lead['label'];
+                $this->leadChoice = (string) $employeeId;
+                $this->leadAutoFilled = false;
+                return;
+            }
+        }
+    }
+
     #[Computed]
     public function sendPreview(): array
     {
@@ -205,6 +249,18 @@ class Show extends Component
         $this->includeReminders = false;
         $this->sendDay = '';
         $this->sendResult = null;
+
+        // Teamleitung als Ansprechpartner vorbelegen — NUR wenn das Feld leer ist
+        // (gespeicherte manuelle Eingabe wird nie ueberschrieben).
+        $this->leadChoice = '';
+        $this->leadAutoFilled = false;
+        $leads = $this->teamLeads;
+        if ($this->ansprechpartner === '' && $leads !== []) {
+            $this->leadChoice = (string) $leads[0]['employee_id'];
+            $this->ansprechpartner = $leads[0]['label'];
+            $this->leadAutoFilled = true;
+        }
+
         $this->showSendModal = true;
     }
 

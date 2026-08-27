@@ -154,4 +154,10 @@ class DispoTestVaCommandTest extends TestCase
 
         $this->assertSame(['events' => 0, 'assignments' => 0], $removed);
     }
+
+    public function test_taetigkeit_parameter_is_written(): void
+    {
+        $this->command()->createTestVa(42, 'RG42', 1, 'TEST-VA', 'Teamleitung');
+        $this->assertSame('Teamleitung', RecDispoAssignment::first()->taetigkeit);
+    }
 }

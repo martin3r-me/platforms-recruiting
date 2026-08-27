@@ -132,6 +132,12 @@ return [
         // Team, dem von ZAS importierte Mitarbeiter zugeordnet werden (Pflicht fuer Import).
         'inbound_team_id'        => env('RECRUITING_ZAS_INBOUND_TEAM_ID'),
 
+        // Taetigkeitsbezeichnungen ({Dispo}-Feld 'taetigkeit'), die einen Mitarbeiter
+        // als Ansprechpartner vor Ort qualifizieren (exakter Vergleich, Gross/Klein
+        // egal). Erweiterbar ohne Code, z. B. 'Borussia Teamleiter'. Kunden-Regel:
+        // "Wer Ansprechpartner sein soll, wird in ZAS als Teamleitung disponiert."
+        'dispo_lead_taetigkeiten' => ['Teamleitung'],
+
         // Maximale Datenzeilen pro Inbound-Lieferung. Die Verarbeitung laeuft
         // synchron im Request (gemessen: ~2-3 Sekunden pro 100 Zeilen), eine zu
         // grosse Lieferung liefe in den nginx/PHP-Timeout. Absprache mit ZAS

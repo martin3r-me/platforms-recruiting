@@ -33,7 +33,8 @@ class DispoTestVaCommand extends Command
         {--phone= : Optional die Handynummer des MA fuer den Test setzen (dein Handy). Leer = vorhandene Nummer aus dem MA-Datensatz}
         {--days=1 : Anzahl Einsatztage (1 = Eintages-VA, >1 = Mehrtages mit Tagesliste)}
         {--ref=TEST-VA : einsatz_ref der Test-VA (wiederverwendbar / mit --remove loeschbar)}
-        {--remove : Test-VA + zugehoerige Buchungen wieder loeschen und beenden}';
+        {--remove : Test-VA + zugehoerige Buchungen wieder loeschen und beenden}
+        {--lead : Buchung(en) mit der Taetigkeit Teamleitung anlegen (Ansprechpartner-Vorbelegung testen)}';
 
     protected $description = 'Legt eine Test-Veranstaltung an und bucht einen MA hinein (Bestaetigungs-Flow end-to-end pruefen)';
 
@@ -86,11 +87,13 @@ class DispoTestVaCommand extends Command
         }
 
         $days = max(1, (int) $this->option('days'));
+        $leadTaetigkeit = (string) (((array) config('recruiting.zas.dispo_lead_taetigkeiten', ['Teamleitung']))[0] ?? 'Teamleitung');
         $result = $this->createTestVa(
             (int) $employee->id,
             (string) ($employee->personnel_number ?: 'TEST'),
             $days,
-            $ref
+            $ref,
+            $this->option('lead') ? $leadTaetigkeit : 'Service'
         );
 
         $link = rtrim((string) config('app.url'), '/') . '/recruiting/einsaetze/' . $employee->portal_token;
@@ -122,7 +125,7 @@ class DispoTestVaCommand extends Command
      *
      * @return array{event_id: int, assignment_ids: list<int>, days: int}
      */
-    public function createTestVa(int $employeeId, string $personnelNumber, int $days, string $ref): array
+    public function createTestVa(int $employeeId, string $personnelNumber, int $days, string $ref, string $taetigkeit = 'Service'): array
     {
         $days = max(1, $days);
         $start = now()->addDay()->startOfDay();
@@ -167,7 +170,7 @@ class DispoTestVaCommand extends Command
                 'von'                => $slot['von'],
                 'bis'                => $slot['bis'],
                 'status_id'          => RecDispoAssignment::STATUS_AUFTRAG,
-                'taetigkeit'         => 'Service',
+                'taetigkeit'         => $taetigkeit,
                 'individual_note'    => $i === 0 ? 'Bitte am ersten Tag 15 Min frueher da sein — kurze Einweisung am Stand.' : null,
             ]);
             $assignmentIds[] = (int) $assignment->id;
