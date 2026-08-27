@@ -24,6 +24,7 @@ class RecDispoEvent extends Model
         'vorlauf_minuten',
         'ansprechpartner',
         'alarm_message_id',
+        'escalation_day', 'escalation_time_1', 'escalation_time_2', 'escalation_time_3',
         'source_meta',
     ];
 
