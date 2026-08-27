@@ -46,6 +46,11 @@ Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\Employee
 Route::get('/einsaetze/{token}', \Platform\Recruiting\Livewire\Public\EmployeeAssignments::class)
     ->name('recruiting.public.employee-assignments');
 
+// Anhang-Download von der Einsatz-Seite (token-only wie die Seite selbst).
+Route::get('/einsaetze/{token}/anhang/{uuid}', \Platform\Recruiting\Http\Controllers\DispoAttachmentController::class)
+    ->name('recruiting.public.employee-assignments.attachment')
+    ->where('uuid', '[0-9a-fA-F-]{36}');
+
 // Design-Vorschau des Mitarbeiterportals — statische HTML-Datei hinter einem
 // Zahlencode. Nur zum Zeigen, enthaelt ausschliesslich Beispieldaten.
 Route::match(['GET', 'POST'], '/entwurf/portal', \Platform\Recruiting\Http\Controllers\PortalMockupController::class)

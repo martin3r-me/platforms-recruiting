@@ -6,6 +6,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
 
@@ -81,6 +82,12 @@ class EmployeeAssignments extends Component
             ->orderBy('datum')->orderBy('von')
             ->get();
 
+        $attachments = RecDispoAttachment::query()
+            ->where('rec_employee_id', $this->employeeId)
+            ->whereIn('rec_dispo_event_id', $assignments->pluck('rec_dispo_event_id')->unique()->all())
+            ->get()
+            ->keyBy('rec_dispo_event_id');
+
         $groups = [];
         foreach ($assignments as $assignment) {
             $event = $assignment->event;
@@ -94,6 +101,10 @@ class EmployeeAssignments extends Component
                 'kleidung'     => $event->dresscode,
                 'contact_line' => $event->ansprechpartner,
                 'vorlauf_minuten' => (int) ($event->vorlauf_minuten ?? 0),
+                'attachment'   => isset($attachments[$event->id]) ? [
+                    'name' => (string) $attachments[$event->id]->original_filename,
+                    'url'  => route('recruiting.public.employee-assignments.attachment', ['token' => $this->token, 'uuid' => $attachments[$event->id]->uuid]),
+                ] : null,
                 'all_confirmed' => true,
                 'days'         => [],
             ];

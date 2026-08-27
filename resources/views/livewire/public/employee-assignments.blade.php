@@ -72,6 +72,9 @@
 .rg-crew .panel{background:var(--surface-2); border-radius:var(--r); padding:11px 13px}
 .rg-crew .panel .h{font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3)}
 .rg-crew .panel .b{font-size:13.5px; margin-top:4px; line-height:1.45; white-space:pre-line}
+.rg-crew .panel.attach{display:block; text-decoration:none; color:inherit; border:1px solid var(--line)}
+.rg-crew .panel.attach .b{color:var(--brand-mid); font-weight:600}
+.rg-crew .panel.attach:hover{border-color:var(--brand)}
 
 .rg-crew .hint{margin:10px 16px 0; background:var(--warn-bg); border-radius:var(--r); padding:11px 13px}
 .rg-crew .hint .h{font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--warn)}
@@ -281,6 +284,15 @@
                             @if ($group['kleidung'])
                                 <div class="panel"><div class="h">Kleidung / Infos</div><div class="b">{{ $group['kleidung'] }}</div></div>
                             @endif
+                        </div>
+                    @endif
+
+                    @if (!empty($group['attachment']))
+                        <div class="panels" style="padding-top:{{ $hasPanel ? '0' : '14px' }}">
+                            <a class="panel attach" href="{{ $group['attachment']['url'] }}" target="_blank" rel="noopener">
+                                <div class="h">Anhang für dich</div>
+                                <div class="b">📎 {{ $group['attachment']['name'] }}</div>
+                            </a>
                         </div>
                     @endif
 

@@ -58,9 +58,14 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * seine Aufgabe: eine neue Route, die allein mit einem Token erreichbar ist,
      * soll nicht nebenbei mitlaufen. Eingetragen heisst hier "gesehen und
      * gewollt", nicht "weggeklickt".
+     *
+     * 'employee-assignments.attachment': Anhang-Download von der Einsatz-Seite
+     * (Runde 3, Task 7), ebenfalls token-only, Ownership + Portalsperre in
+     * DispoAttachmentAccess. Gleiches Muster wie oben.
      */
     private const SPAETER = [
         'recruiting.public.employee-assignments',
+        'recruiting.public.employee-assignments.attachment',
         'recruiting.public.portal-mockup',
     ];
 
