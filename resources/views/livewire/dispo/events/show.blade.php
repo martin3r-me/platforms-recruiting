@@ -47,6 +47,29 @@
                 <div class="mt-1 whitespace-pre-line text-sm">{{ $event->dresscode }}</div>
             </div>
         @endif
+        @php
+            $esc = $this->escalationEffective;
+            $escEnabled = $this->dispoSettings['escalation_enabled'];
+            $escDayLabel = $esc['day'] === 'einsatztag' ? 'am Einsatztag' : 'am Vortag';
+            $escTimesLabel = $esc['times'][1] . ' / ' . $esc['times'][2] . ' / ' . $esc['times'][3];
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+            <div class="flex items-center justify-between">
+                <div class="text-sm font-medium text-gray-500">Eskalation</div>
+                <button type="button" wire:click="openEscalationModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+            </div>
+            <div class="mt-1 text-sm">
+                {{ $escDayLabel }} · {{ $escTimesLabel }}
+                @if ($esc['overridden'])
+                    <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">angepasst</span>
+                @else
+                    <span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">Standard</span>
+                @endif
+            </div>
+            @if (!$escEnabled)
+                <div class="mt-1 text-xs text-gray-500">Eskalation global deaktiviert (Disposition → Einstellungen).</div>
+            @endif
+        </div>
     </div>
 
     <div class="rounded-lg border border-gray-200 bg-white">
@@ -228,6 +251,18 @@
                         @endif
                     </label>
 
+                    @php
+                        $escDefaults = $this->dispoSettings['escalation_defaults'];
+                        $escSummary = ($escDay === 'einsatztag' ? 'Einsatztag' : 'Vortag') . ' · '
+                            . ($escTime1 !== '' ? ($escTime1 . ' / ' . $escTime2 . ' / ' . $escTime3) : ('Standard ' . $escDefaults[1] . ' / ' . $escDefaults[2] . ' / ' . $escDefaults[3]));
+                    @endphp
+                    <details class="rounded border border-gray-200 p-3" @if ($errors->has('escTime1')) open @endif>
+                        <summary class="cursor-pointer text-sm font-medium text-gray-700">Eskalation: {{ $escSummary }} <span class="text-xs font-normal text-blue-600">anpassen</span></summary>
+                        <div class="mt-3">
+                            @include('recruiting::livewire.dispo.events._escalation-fields', ['defaults' => $escDefaults])
+                        </div>
+                    </details>
+
                     <label class="flex items-center gap-2 text-sm text-gray-600">
                         <input type="checkbox" wire:model.live="includeReminders" class="rounded border-gray-300">
                         Erinnerung an bereits Angeschriebene ohne Antwort erneut senden
@@ -300,6 +335,20 @@
                 <div class="flex justify-end gap-3">
                     <button wire:click="closeAttachmentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveAttachment" wire:loading.attr="disabled" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showEscalationModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="$set('showEscalationModal', false)">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Eskalation für diese Veranstaltung</h2>
+                <p class="text-sm text-gray-500">Gilt für alle Einsatztage dieser Veranstaltung. Rausnahme erfolgt nur, wenn die Bestätigungsanfrage vor Stufe 2 rausging — am Einsatztag also früh senden.</p>
+                @include('recruiting::livewire.dispo.events._escalation-fields', ['defaults' => $this->dispoSettings['escalation_defaults']])
+                <div class="flex justify-end gap-3">
+                    <button wire:click="$set('showEscalationModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                    <button wire:click="saveEscalation" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
                 </div>
             </div>
         </div>

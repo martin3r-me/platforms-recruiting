@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
+use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
 
@@ -54,6 +55,13 @@ class Show extends Component
     public string $attachmentEmployeeName = '';
     /** @var \Livewire\Features\SupportFileUploads\TemporaryUploadedFile|null */
     public $attachmentUpload = null;
+
+    // Eskalation pro VA (Runde 3, #5) — Strings (Livewire-Typed-Property-Falle).
+    public string $escDay = DispoEscalationConfig::DAY_VORTAG;
+    public string $escTime1 = '';
+    public string $escTime2 = '';
+    public string $escTime3 = '';
+    public bool $showEscalationModal = false;
 
     public function mount(int $eventId): void
     {
@@ -178,6 +186,91 @@ class Show extends Component
         $this->attachmentUpload = null;
     }
 
+    /** Effektive Eskalation dieser VA (Override oder Default) fuer die Kachel. */
+    #[Computed]
+    public function escalationEffective(): array
+    {
+        $e = $this->event;
+
+        return DispoEscalationConfig::effective(
+            $e->escalation_day, $e->escalation_time_1, $e->escalation_time_2, $e->escalation_time_3,
+            $this->dispoSettings['escalation_defaults']
+        );
+    }
+
+    /** Formular aus der VA vorbelegen (leere Zeiten = Standard). */
+    private function loadEscalationForm(): void
+    {
+        $e = $this->event;
+        $this->escDay   = $e->escalation_day === DispoEscalationConfig::DAY_EINSATZTAG ? DispoEscalationConfig::DAY_EINSATZTAG : DispoEscalationConfig::DAY_VORTAG;
+        $this->escTime1 = (string) ($e->escalation_time_1 ?? '');
+        $this->escTime2 = (string) ($e->escalation_time_2 ?? '');
+        $this->escTime3 = (string) ($e->escalation_time_3 ?? '');
+    }
+
+    /** Fruehester Schichtbeginn der betroffenen (kommenden) Tage — fuer die Einsatztag-Pruefung. */
+    private function earliestVon(): ?string
+    {
+        $today = now()->toDateString();
+        $von = $this->event->assignments
+            ->filter(fn ($a) => $a->datum->format('Y-m-d') >= $today)
+            ->filter(fn ($a) => $this->sendDay === '' || $a->datum->format('Y-m-d') === $this->sendDay)
+            ->pluck('von')
+            ->filter(fn ($v) => DispoEscalationConfig::isTime($v))
+            ->min();
+
+        return $von !== null ? (string) $von : null;
+    }
+
+    /**
+     * Validiert und speichert Modus/Zeiten an der VA. Fehler landen unter 'escTime1'.
+     * @return bool true = gespeichert
+     */
+    private function persistEscalation(): bool
+    {
+        $errors = DispoEscalationConfig::validate(
+            $this->escDay, $this->escTime1, $this->escTime2, $this->escTime3,
+            $this->earliestVon(), $this->dispoSettings['escalation_defaults']
+        );
+        if ($errors !== []) {
+            $this->addError('escTime1', $errors[0]);
+            return false;
+        }
+
+        $hasTimes = $this->escTime1 !== '';
+        RecDispoEvent::query()->whereKey($this->eventId)->update([
+            'escalation_day'    => $this->escDay === DispoEscalationConfig::DAY_EINSATZTAG ? DispoEscalationConfig::DAY_EINSATZTAG : null,
+            'escalation_time_1' => $hasTimes ? $this->escTime1 : null,
+            'escalation_time_2' => $hasTimes ? $this->escTime2 : null,
+            'escalation_time_3' => $hasTimes ? $this->escTime3 : null,
+        ]);
+        unset($this->event, $this->escalationEffective);
+
+        return true;
+    }
+
+    public function openEscalationModal(): void
+    {
+        $this->loadEscalationForm();
+        $this->resetErrorBag('escTime1');
+        $this->showEscalationModal = true;
+    }
+
+    public function saveEscalation(): void
+    {
+        if ($this->persistEscalation()) {
+            $this->showEscalationModal = false;
+        }
+    }
+
+    /** Zurueck auf Team-Standard (Vortag, Default-Zeiten). */
+    public function resetEscalation(): void
+    {
+        $this->escDay = DispoEscalationConfig::DAY_VORTAG;
+        $this->escTime1 = $this->escTime2 = $this->escTime3 = '';
+        $this->resetErrorBag('escTime1');
+    }
+
     #[Computed]
     public function event(): RecDispoEvent
     {
@@ -199,7 +292,13 @@ class Show extends Component
         $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
 
         return [
-            'template_id' => $settings->getSetting('dispo_confirmation_template_id') ? (int) $settings->getSetting('dispo_confirmation_template_id') : null,
+            'template_id'        => $settings->getSetting('dispo_confirmation_template_id') ? (int) $settings->getSetting('dispo_confirmation_template_id') : null,
+            'escalation_enabled' => (bool) $settings->getSetting('dispo_escalation_enabled'),
+            'escalation_defaults' => [
+                1 => (string) ($settings->getSetting('dispo_escalation_time_1') ?: '14:00'),
+                2 => (string) ($settings->getSetting('dispo_escalation_time_2') ?: '15:00'),
+                3 => (string) ($settings->getSetting('dispo_escalation_time_3') ?: '16:00'),
+            ],
         ];
     }
 
@@ -318,6 +417,8 @@ class Show extends Component
         $this->includeReminders = false;
         $this->sendDay = '';
         $this->sendResult = null;
+        $this->loadEscalationForm();
+        $this->resetErrorBag('escTime1');
 
         // Teamleitung als Ansprechpartner vorbelegen — NUR wenn das Feld leer ist
         // (gespeicherte manuelle Eingabe wird nie ueberschrieben).
@@ -339,6 +440,10 @@ class Show extends Component
             'vorlaufMinuten'  => 'required|integer|min:0|max:480',
             'ansprechpartner' => 'nullable|string|max:255',
         ], [], ['vorlaufMinuten' => 'Vorlaufzeit']);
+
+        if (!$this->persistEscalation()) {
+            return;
+        }
 
         $templateId = $this->dispoSettings['template_id'];
         if ($templateId === null) {
