@@ -13,7 +13,8 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
 
 /**
- * recruiting:dispo-reset (sauberer Start): leert NUR die zwei Dispo-Tabellen.
+ * recruiting:dispo-reset (sauberer Start): leert NUR die drei Dispo-Tabellen
+ * (Events, Assignments, Attachments).
  * Guard-Vertrag: ohne --force wird NICHTS geloescht, nur gezaehlt.
  * Echte Modelle auf SQLite via Capsule (kein Testbench) — Muster wie
  * DispoIndividualNoteTest.
@@ -46,6 +47,7 @@ class DispoResetCommandTest extends TestCase
         foreach ([
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
+            'database/migrations/2026_08_27_000001_create_rec_dispo_attachments_table.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {
@@ -62,6 +64,7 @@ class DispoResetCommandTest extends TestCase
 
     protected function setUp(): void
     {
+        Capsule::table('rec_dispo_attachments')->delete();
         Capsule::table('rec_dispo_assignments')->delete();
         Capsule::table('rec_dispo_events')->delete();
     }
@@ -90,7 +93,7 @@ class DispoResetCommandTest extends TestCase
 
         $result = $this->probe()->probeReset(false);
 
-        $this->assertSame(['events' => 2, 'assignments' => 3, 'deleted' => false], $result);
+        $this->assertSame(['events' => 2, 'assignments' => 3, 'attachments' => 0, 'deleted' => false], $result);
         $this->assertSame(2, RecDispoEvent::count());
         $this->assertSame(3, RecDispoAssignment::count());
     }
@@ -101,7 +104,7 @@ class DispoResetCommandTest extends TestCase
 
         $result = $this->probe()->probeReset(true);
 
-        $this->assertSame(['events' => 2, 'assignments' => 3, 'deleted' => true], $result);
+        $this->assertSame(['events' => 2, 'assignments' => 3, 'attachments' => 0, 'deleted' => true], $result);
         $this->assertSame(0, RecDispoEvent::count());
         $this->assertSame(0, RecDispoAssignment::count());
     }
@@ -120,7 +123,7 @@ class DispoResetCommandTest extends TestCase
 
 final class DispoResetCommandProbe extends DispoResetCommand
 {
-    /** @return array{events: int, assignments: int, deleted: bool} */
+    /** @return array{events: int, assignments: int, attachments: int, deleted: bool} */
     public function probeReset(bool $force): array
     {
         return $this->reset($force);

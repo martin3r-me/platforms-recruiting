@@ -4,17 +4,21 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecDispoEvent;
+use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
 
 /**
  * Sauberer Start fuer die Dispo: leert NUR rec_dispo_assignments +
- * rec_dispo_events. Bewusst NICHT angefasst: rec_zas_dispo_inbound_files
- * (Rohdaten-Historie), rec_dispo_filiale_settings, rec_employees, Settings.
+ * rec_dispo_events + rec_dispo_attachments. Bewusst NICHT angefasst:
+ * rec_zas_dispo_inbound_files (Rohdaten-Historie), rec_dispo_filiale_settings,
+ * rec_employees, Settings.
  *
  * Guard: ohne --force wird NICHTS geloescht, nur die aktuellen Zaehler
- * angezeigt. Reihenfolge beim Loeschen: Einbuchungen zuerst, dann Events
- * (Assignments haengen per FK+cascadeOnDelete an Events, aber wir wollen
- * exakte Vorher/Nachher-Zaehler statt Cascade-Nebenwirkung).
+ * angezeigt. Reihenfolge beim Loeschen: Anhaenge zuerst (Dateien + Zeilen),
+ * dann Einbuchungen, dann Events (Assignments haengen per FK+cascadeOnDelete
+ * an Events, aber wir wollen exakte Vorher/Nachher-Zaehler statt
+ * Cascade-Nebenwirkung).
  *
  * @see self::reset() Reine Logik ohne $this->option()/$this->info() Co.,
  *      per Probe-Muster (siehe DispoEscalateCommand) ohne Artisan-
@@ -28,42 +32,51 @@ class DispoResetCommand extends Command
     public function handle(): int
     {
         $force = (bool) $this->option('force');
-        $result = $this->reset($force);
+        $result = $this->reset($force, $force ? DispoAttachmentStore::default() : null);
 
         if (!$result['deleted']) {
             $this->info(sprintf(
-                'Wuerde %d Veranstaltungen + %d Einbuchungen loeschen; mit --force ausfuehren.',
+                'Wuerde %d Veranstaltungen + %d Einbuchungen + %d Anhaenge loeschen; mit --force ausfuehren.',
                 $result['events'],
-                $result['assignments']
+                $result['assignments'],
+                $result['attachments']
             ));
 
             return self::SUCCESS;
         }
 
         $this->info(sprintf(
-            'Geloescht: %d Veranstaltungen, %d Einbuchungen.',
+            'Geloescht: %d Veranstaltungen, %d Einbuchungen, %d Anhaenge.',
             $result['events'],
-            $result['assignments']
+            $result['assignments'],
+            $result['attachments']
         ));
 
         return self::SUCCESS;
     }
 
     /**
-     * @return array{events: int, assignments: int, deleted: bool}
+     * @return array{events: int, assignments: int, attachments: int, deleted: bool}
      */
-    protected function reset(bool $force): array
+    protected function reset(bool $force, ?DispoAttachmentStore $attachments = null): array
     {
         $eventCount = RecDispoEvent::count();
         $assignmentCount = RecDispoAssignment::count();
+        $attachmentCount = RecDispoAttachment::count();
 
         if (!$force) {
-            return ['events' => $eventCount, 'assignments' => $assignmentCount, 'deleted' => false];
+            return ['events' => $eventCount, 'assignments' => $assignmentCount, 'attachments' => $attachmentCount, 'deleted' => false];
         }
 
+        // Anhaenge zuerst (Dateien + Zeilen), dann Einbuchungen, dann Events.
+        if ($attachments !== null) {
+            $attachments->removeAll();
+        } else {
+            RecDispoAttachment::query()->delete(); // ohne Store (Tests): nur Zeilen
+        }
         RecDispoAssignment::query()->delete();
         RecDispoEvent::query()->delete();
 
-        return ['events' => $eventCount, 'assignments' => $assignmentCount, 'deleted' => true];
+        return ['events' => $eventCount, 'assignments' => $assignmentCount, 'attachments' => $attachmentCount, 'deleted' => true];
     }
 }
