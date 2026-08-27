@@ -82,8 +82,19 @@ class ZasInboundEmployeeImporter
                 }
 
                 // Matching-Kaskade
-                $existing = $this->findExisting($mapped['uuid'], $mapped['personnel_number'], $teamId, $prefix);
+                $match    = $this->findExisting($mapped['uuid'], $mapped['personnel_number'], $teamId, $prefix);
+                $existing = $match['employee'];
                 if ($existing !== null) {
+                    // Der einzige Weg, der im Kollisionsfall den falschen
+                    // Menschen greifen koennte — deshalb sichtbar machen,
+                    // statt ihn als unauffaelliges "exists" durchlaufen zu
+                    // lassen. Sollte selten sein und mit der Zeit verschwinden.
+                    if ($match['via'] === 'shortened') {
+                        $warnings[] = "Zeile " . ($index + 1) . "{$pnLabel}: ueber die Kurzform der"
+                            . " Personalnummer erkannt (Bestand: {$existing->personnel_number})"
+                            . " — bitte pruefen, ob es dieselbe Person ist";
+                    }
+
                     $changes = $this->statusSyncChanges($existing, $mapped['hr']);
                     $pnrFill = $this->personnelNumberFill($existing, $mapped['personnel_number']);
                     // Firma ebenfalls nur nachtragen, nie ueberschreiben.
@@ -92,7 +103,12 @@ class ZasInboundEmployeeImporter
                         : null;
 
                     if ($changes === [] && $pnrFill === null && $companyFill === null) {
-                        $skipped[] = ['personnel_number' => $mapped['personnel_number'], 'employee_id' => $existing->id, 'reason' => 'exists'];
+                        $skipped[] = [
+                            'personnel_number' => $mapped['personnel_number'],
+                            'employee_id'      => $existing->id,
+                            'reason'           => 'exists',
+                            'matched_via'      => $match['via'],
+                        ];
                         continue;
                     }
 
@@ -110,6 +126,7 @@ class ZasInboundEmployeeImporter
                             'employee_id'      => $existing->id,
                             'personnel_number' => $mapped['personnel_number'],
                             'changed'          => $changedFields,
+                            'matched_via'      => $match['via'],
                         ];
                         continue;
                     }
@@ -118,6 +135,7 @@ class ZasInboundEmployeeImporter
                         'employee_id'      => $existing->id,
                         'personnel_number' => $mapped['personnel_number'],
                         'changed'          => $changedFields,
+                        'matched_via'      => $match['via'],
                     ];
                     continue;
                 }
@@ -309,53 +327,59 @@ class ZasInboundEmployeeImporter
     /**
      * Matching-Kaskade UUID → Personalnummer.
      *
-     * Bei der Nummer werden ZWEI Formen gesucht: die normalisierte (praefixte)
-     * und die blanke. Grund ist das Uebergangsfenster — solange die Migration
-     * noch nicht gelaufen ist, steht im Bestand die blanke Nummer, waehrend der
-     * Import bereits praefixt. Ohne die zweite Form entstuende genau dann eine
-     * Dublette, und zwar in den Minuten zwischen zwei Deploys.
+     * Bei der Nummer werden DREI Formen gesucht, weil ZAS im Laufe der Zeit
+     * unterschiedlich geliefert hat: die gelieferte selbst, die gekuerzte
+     * (Altlast oberhalb einer Milliarde) und die ohne eigenen Praefix (von Hand
+     * eingetragene Nummern). Ein FREMDER Praefix wird nie abgestreift:
+     * `MA353` darf niemals den blanken 353 eines RG-Mitarbeiters finden.
      *
-     * Ein FREMDER Praefix wird nicht abgestreift: `MA353` darf niemals den
-     * blanken 353 eines RG-Mitarbeiters finden.
+     * Zurueck kommt auch, AUF WELCHEM WEG erkannt wurde. Das steht dann im
+     * Bericht: ein Treffer ueber die Kurzform ist der einzige, der im
+     * Kollisionsfall den falschen Menschen greifen koennte — dann fehlte eine
+     * Person, ohne dass ein blosses "skipped: exists" es verraten haette.
+     *
+     * @return array{employee: ?RecEmployee, via: ?string} via: uuid|exact|shortened|bare
      */
-    protected function findExisting(?string $uuid, ?string $personnelNumber, $teamId, string $ownPrefix = ''): ?RecEmployee
+    protected function findExisting(?string $uuid, ?string $personnelNumber, $teamId, string $ownPrefix = ''): array
     {
         if ($uuid) {
             $byUuid = RecEmployee::where('uuid', $uuid)->first();
             if ($byUuid) {
-                return $byUuid;
+                return ['employee' => $byUuid, 'via' => 'uuid'];
             }
         }
 
         if (!$personnelNumber) {
-            return null;
+            return ['employee' => null, 'via' => null];
         }
 
-        $candidates = [$personnelNumber];
+        $candidates = ['exact' => $personnelNumber];
 
-        // ZAS liefert seit 08/2026 ungekuerzt, frueher gekuerzt — dieselbe
-        // Person kann bei uns also in der kurzen Form liegen, waehrend die
-        // Lieferung die lange bringt. Ohne diesen Kandidaten waere das eine
-        // Dublette, und zwar fuer jeden, zu dem ZAS unsere UUID nicht hat.
-        // Der Praefix bleibt dabei erhalten, MA1000017944 findet also niemals
-        // einen RG17944.
         $shortened = ZasPersonnelNumber::shortenedForm($personnelNumber);
         if ($shortened !== null) {
-            $candidates[] = $shortened;
+            $candidates['shortened'] = $shortened;
         }
 
         if ($ownPrefix !== '' && str_starts_with($personnelNumber, $ownPrefix)) {
             $bare = substr($personnelNumber, strlen($ownPrefix));
             if ($bare !== '') {
-                $candidates[] = $bare;
+                $candidates['bare'] = $bare;
             }
         }
 
-        return RecEmployee::whereIn('personnel_number', $candidates)
+        $employee = RecEmployee::whereIn('personnel_number', array_values($candidates))
             ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
-            // Liegen beide Formen vor, gewinnt die exakte.
+            // Liegen mehrere Formen vor, gewinnt die exakte.
             ->orderByRaw('personnel_number = ? DESC', [$personnelNumber])
             ->first();
+
+        if ($employee === null) {
+            return ['employee' => null, 'via' => null];
+        }
+
+        $via = array_search((string) $employee->personnel_number, $candidates, true);
+
+        return ['employee' => $employee, 'via' => $via === false ? 'exact' : $via];
     }
 
     protected function createEmployee(array $mapped, int $teamId, int $inboundId): RecEmployee

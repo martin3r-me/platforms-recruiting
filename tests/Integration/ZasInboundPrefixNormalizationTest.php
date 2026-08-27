@@ -292,6 +292,48 @@ class ZasInboundPrefixNormalizationTest extends TestCase
         $this->assertSame(2, Capsule::table('rec_employees')->count());
     }
 
+    public function test_bericht_nennt_den_weg_des_treffers(): void
+    {
+        // Der Bericht sagt bisher nur "kennen wir schon", nicht WORAN erkannt.
+        // Inzwischen gibt es drei Wege, und einer davon (die Kurzform) koennte
+        // im Kollisionsfall den falschen Menschen greifen — dann fehlte eine
+        // Person, ohne dass es irgendwo auffaellt.
+        // Firma mitgeben, sonst wird sie nachgetragen und die Zeile ist
+        // "updated" statt "skipped".
+        $this->existing('RG353', ['company' => 'RG']);
+
+        $report = $this->importer()->import([$this->row('RG353')], (object) ['id' => 1], false);
+
+        $this->assertSame('exact', $report['skipped'][0]['matched_via']);
+    }
+
+    public function test_treffer_ueber_die_uuid_wird_als_solcher_gemeldet(): void
+    {
+        $this->existing('', ['uuid' => 'bekannte-uuid']);
+
+        $report = $this->importer()->import(
+            [$this->row('RG353', ['UUID' => 'bekannte-uuid'])],
+            (object) ['id' => 1],
+            false
+        );
+
+        $this->assertSame('uuid', $report['updated'][0]['matched_via']);
+    }
+
+    public function test_treffer_ueber_die_kurzform_wird_gemeldet_und_gewarnt(): void
+    {
+        // Der riskante Weg: erkannt erst nach Abzug der Milliarde. Selten, und
+        // deshalb im Bericht als Warnung — sonst laeuft ein Kollisionsfall als
+        // unauffaelliges "skipped: exists" durch.
+        $this->existing('RG17944');
+
+        $report = $this->importer()->import([$this->row('RG1000017944')], (object) ['id' => 1], false);
+
+        $treffer = $report['skipped'][0] ?? $report['updated'][0];
+        $this->assertSame('shortened', $treffer['matched_via']);
+        $this->assertStringContainsString('Kurzform', implode(' | ', $report['warnings']));
+    }
+
     public function test_nachtrag_schreibt_die_praefixte_form(): void
     {
         // Bestands-MA ohne Nummer, Treffer ueber UUID: nachgetragen wird die
