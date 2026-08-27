@@ -12,6 +12,7 @@ use Platform\Crm\Models\CrmContactStatus;
 use Platform\Crm\Models\CrmEmailType;
 use Platform\Crm\Models\CrmPhoneType;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Support\PersonNameMatch;
 
 /**
  * Findet (oder erstellt) den CRM-Kontakt zu einem RecEmployee und verlinkt
@@ -56,7 +57,7 @@ class ZasEmployeeContactLinker
                 ->limit(2)
                 ->get();
             if ($matches->count() === 1) {
-                return $this->linkDecision($matches->first(), 'email');
+                return $this->linkDecision($employee, $matches->first(), 'email');
             }
             if ($matches->count() > 1) {
                 return ['action' => 'skip', 'reason' => "mehrdeutig: E-Mail '{$email}' matcht mehrere Kontakte — bitte manuell zuordnen"];
@@ -76,7 +77,7 @@ class ZasEmployeeContactLinker
                 ->limit(2)
                 ->get();
             if ($matches->count() === 1) {
-                return $this->linkDecision($matches->first(), 'phone');
+                return $this->linkDecision($employee, $matches->first(), 'phone');
             }
             if ($matches->count() > 1) {
                 return ['action' => 'skip', 'reason' => 'mehrdeutig: Telefon matcht mehrere Kontakte — bitte manuell zuordnen'];
@@ -161,14 +162,41 @@ class ZasEmployeeContactLinker
         });
     }
 
-    /** Einheitliches link-Decision-Shape. */
-    protected function linkDecision(CrmContact $contact, string $matchedBy): array
+    /**
+     * Einheitliches link-Decision-Shape — mit Namens-Plausibilitaet als
+     * letzter Huerde vor der Verknuepfung.
+     *
+     * Ein exakter E-Mail- oder Telefon-Treffer beweist nur, dass der KONTAKT
+     * diese Adresse traegt, nicht dass er DIESEM Menschen gehoert. Im Dry-Run
+     * vom 2026-08-27 waren drei Treffer technisch einwandfrei (Adresse
+     * primaer + aktiv) und trotzdem der falsche Mensch, weil der MA-Stammsatz
+     * aus ZAS eine fremde Adresse trug (Kollege, Vermittler-Sammelpostfach).
+     * Ein falscher Link ist hier teuer: an dem Kontakt haengt die
+     * WhatsApp-Portal-Einladung samt Login-Hinweisen.
+     *
+     * Bei Zweifel wird uebersprungen, nicht geraten und auch nicht neu
+     * angelegt — ein CREATE wuerde die fremde Adresse in einen neuen Kontakt
+     * schreiben. Beide Namen stehen im Grund, damit der Fall im
+     * Command-Output ohne Rueckfrage entscheidbar ist.
+     */
+    protected function linkDecision(RecEmployee $employee, CrmContact $contact, string $matchedBy): array
     {
+        $contactName  = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
+        $employeeName = trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? ''));
+
+        if (!PersonNameMatch::plausible((string) $employee->first_name, (string) $employee->last_name, $contactName)) {
+            return [
+                'action' => 'skip',
+                'reason' => "Name passt nicht: MA \"{$employeeName}\" vs. Kontakt #{$contact->id} \"{$contactName}\""
+                    . " (Treffer ueber {$matchedBy}) — Adresse/Nummer gehoert moeglicherweise einem anderen Menschen",
+            ];
+        }
+
         return [
             'action'       => 'link',
             'contact_id'   => $contact->id,
             'matched_by'   => $matchedBy,
-            'contact_name' => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
+            'contact_name' => $contactName,
         ];
     }
 
