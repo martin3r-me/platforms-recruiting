@@ -100,6 +100,9 @@ Route::get('/dispo-events', \Platform\Recruiting\Livewire\Dispo\Events\Index::cl
 Route::get('/dispo-events/{eventId}', \Platform\Recruiting\Livewire\Dispo\Events\Show::class)
     ->name('recruiting.dispo.events.show')
     ->whereNumber('eventId');
+Route::get('/dispo-attachments/{uuid}', \Platform\Recruiting\Http\Controllers\DispoAttachmentHrController::class)
+    ->name('recruiting.dispo.attachments.download')
+    ->where('uuid', '[0-9a-fA-F-]{36}');
 Route::get('/dispo-settings', \Platform\Recruiting\Livewire\Dispo\Settings::class)
     ->name('recruiting.dispo.settings');
 Route::get('/dispo-kommunikation', \Platform\Recruiting\Livewire\Dispo\Conversations\Index::class)

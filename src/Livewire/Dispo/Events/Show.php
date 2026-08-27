@@ -4,9 +4,12 @@ namespace Platform\Recruiting\Livewire\Dispo\Events;
 
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecDispoEvent;
+use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
@@ -19,6 +22,8 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
  */
 class Show extends Component
 {
+    use WithFileUploads;
+
     public int $eventId;
 
     public bool $showSendModal = false;
@@ -42,6 +47,13 @@ class Show extends Component
     public ?int $noteEmployeeId = null;
     public string $noteEmployeeName = '';
     public string $noteDraft = '';
+
+    // Anhang-Modal (Runde 3, #8): eine Datei pro MA fuer diese VA.
+    public bool $showAttachmentModal = false;
+    public ?int $attachmentEmployeeId = null;
+    public string $attachmentEmployeeName = '';
+    /** @var \Livewire\Features\SupportFileUploads\TemporaryUploadedFile|null */
+    public $attachmentUpload = null;
 
     public function mount(int $eventId): void
     {
@@ -110,12 +122,69 @@ class Show extends Component
         $this->noteDraft = '';
     }
 
+    /** @return array<int, RecDispoAttachment> keyed by rec_employee_id */
+    #[Computed]
+    public function attachmentsByEmployee(): array
+    {
+        return $this->event->attachments->keyBy('rec_employee_id')->all();
+    }
+
+    public function openAttachment(int $employeeId): void
+    {
+        $this->attachmentEmployeeId = $employeeId;
+        $employee = $this->event->assignments->firstWhere('rec_employee_id', $employeeId)?->employee;
+        $this->attachmentEmployeeName = $employee ? trim($employee->first_name . ' ' . $employee->last_name) : '';
+        $this->attachmentUpload = null;
+        $this->resetErrorBag('attachmentUpload');
+        $this->showAttachmentModal = true;
+    }
+
+    public function saveAttachment(): void
+    {
+        if ($this->attachmentEmployeeId === null) {
+            return;
+        }
+        $this->validate(
+            ['attachmentUpload' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240'],
+            [],
+            ['attachmentUpload' => 'Datei']
+        );
+
+        DispoAttachmentStore::default()->putUpload(
+            $this->eventId,
+            $this->attachmentEmployeeId,
+            $this->attachmentUpload,
+            auth()->id()
+        );
+
+        $this->closeAttachmentModal();
+        unset($this->event, $this->attachmentsByEmployee);
+    }
+
+    public function removeAttachment(int $employeeId): void
+    {
+        $attachment = $this->attachmentsByEmployee[$employeeId] ?? null;
+        if ($attachment !== null) {
+            DispoAttachmentStore::default()->remove($attachment);
+        }
+        unset($this->event, $this->attachmentsByEmployee);
+    }
+
+    public function closeAttachmentModal(): void
+    {
+        $this->showAttachmentModal = false;
+        $this->attachmentEmployeeId = null;
+        $this->attachmentEmployeeName = '';
+        $this->attachmentUpload = null;
+    }
+
     #[Computed]
     public function event(): RecDispoEvent
     {
         return RecDispoEvent::query()
             ->with([
                 'alarmMessage',
+                'attachments',
                 'assignments' => fn ($q) => $q->with(['employee', 'reminderMessage', 'escalation1Message', 'escalation2Message'])->orderBy('datum')->orderBy('von'),
             ])
             ->findOrFail($this->eventId);

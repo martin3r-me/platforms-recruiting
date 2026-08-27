@@ -71,6 +71,7 @@
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
                     <th class="px-4 py-2 font-medium">Hinweis</th>
+                    <th class="px-4 py-2 font-medium">Anhang</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -138,9 +139,24 @@
                                 </button>
                             @endif
                         </td>
+                        <td class="px-4 py-2">
+                            @if ($assignment->rec_employee_id)
+                                @php $att = $this->attachmentsByEmployee[$assignment->rec_employee_id] ?? null; @endphp
+                                @if ($att)
+                                    <div class="flex items-center gap-2 text-xs">
+                                        <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $att->uuid]) }}" target="_blank" rel="noopener"
+                                           class="max-w-[12rem] truncate text-blue-600 hover:underline" title="{{ $att->original_filename }}">📎 {{ $att->original_filename }}</a>
+                                        <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-gray-400 hover:text-blue-600" title="Ersetzen">✎</button>
+                                        <button type="button" wire:click="removeAttachment({{ $assignment->rec_employee_id }})" wire:confirm="Anhang entfernen?" class="text-gray-400 hover:text-red-600" title="Entfernen">✕</button>
+                                    </div>
+                                @else
+                                    <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-xs text-gray-400 hover:text-blue-600">+ Anhang</button>
+                                @endif
+                            @endif
+                        </td>
                     </tr>
                 @empty
-                    <tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
+                    <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -266,6 +282,24 @@
                 <div class="flex justify-end gap-3">
                     <button wire:click="closeNoteModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveNoteFromModal" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showAttachmentModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="closeAttachmentModal">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Anhang für {{ $attachmentEmployeeName !== '' ? $attachmentEmployeeName : 'diesen Mitarbeiter' }}</h2>
+                <p class="text-sm text-gray-500">Eine Datei (PDF, JPG oder PNG, max. 10 MB). Der Mitarbeiter öffnet sie über seine Einsatz-Seite — für alle Tage dieser Veranstaltung. Erneutes Hochladen ersetzt die bisherige Datei.</p>
+
+                <input type="file" wire:model="attachmentUpload" accept=".pdf,.jpg,.jpeg,.png" class="block w-full text-sm">
+                <div wire:loading wire:target="attachmentUpload" class="text-xs text-gray-500">Wird hochgeladen …</div>
+                @error('attachmentUpload') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+
+                <div class="flex justify-end gap-3">
+                    <button wire:click="closeAttachmentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                    <button wire:click="saveAttachment" wire:loading.attr="disabled" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
                 </div>
             </div>
         </div>
