@@ -59,6 +59,12 @@ class RecDispoEvent extends Model
         return $this->hasMany(RecDispoAssignment::class, 'rec_dispo_event_id');
     }
 
+    /** Anhaenge pro Mitarbeiter (Runde 3, #8). */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(RecDispoAttachment::class, 'rec_dispo_event_id');
+    }
+
     /** Versendete Alarm-Nachricht (16-Uhr-Alarm ans Diensthandy) — fuer die Zustell-Status-Anzeige. */
     public function alarmMessage(): BelongsTo
     {
