@@ -208,13 +208,17 @@ class Show extends Component
         $this->escTime3 = (string) ($e->escalation_time_3 ?? '');
     }
 
-    /** Fruehester Schichtbeginn der betroffenen (kommenden) Tage — fuer die Einsatztag-Pruefung. */
+    /**
+     * Fruehester Schichtbeginn ALLER kommenden Tage — fuer die Einsatztag-Pruefung.
+     * Bewusst unabhaengig von $sendDay: der Override gilt fuer jeden Einsatztag
+     * der VA, also muss die Schichtpruefung das auch (sonst validiert der
+     * Anpassen-Dialog gegen einen veralteten Einzeltag aus dem Sende-Modal).
+     */
     private function earliestVon(): ?string
     {
         $today = now()->toDateString();
         $von = $this->event->assignments
             ->filter(fn ($a) => $a->datum->format('Y-m-d') >= $today)
-            ->filter(fn ($a) => $this->sendDay === '' || $a->datum->format('Y-m-d') === $this->sendDay)
             ->pluck('von')
             ->filter(fn ($v) => DispoEscalationConfig::isTime($v))
             ->min();
