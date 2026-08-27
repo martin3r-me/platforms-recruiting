@@ -35,6 +35,7 @@
                     <th class="px-4 py-2 font-medium">Veranstaltung</th>
                     <th class="px-4 py-2 font-medium">Filiale</th>
                     <th class="px-4 py-2 font-medium">Kunde</th>
+                    <th class="px-4 py-2 font-medium">Adresse</th>
                     <th class="px-4 py-2 font-medium">Disposition</th>
                     <th class="px-4 py-2 font-medium text-center">Kleidung</th>
                     <th class="px-4 py-2"></th>
@@ -60,6 +61,13 @@
                         </td>
                         <td class="px-4 py-2">{{ $event->filiale_label ?? '—' }}</td>
                         <td class="px-4 py-2">{{ $event->einsatzfirma ?? '—' }}</td>
+                        <td class="px-4 py-2 max-w-[16rem]">
+                            @if ($event->venue_text)
+                                <span class="block truncate" title="{{ $event->venue_text }}">{{ \Illuminate\Support\Str::limit(str_replace(["\r", "\n"], ' ', $event->venue_text), 40) }}</span>
+                            @else
+                                <span class="text-gray-400">—</span>
+                            @endif
+                        </td>
                         <td class="px-4 py-2 whitespace-nowrap">
                             {{ $event->assignments_count }} gesamt · {{ $event->confirmed_count }} bestätigt
                             @if ($open > 0)
@@ -79,7 +87,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+                        <td colspan="8" class="px-4 py-8 text-center text-gray-500">
                             Noch keine Veranstaltungen verarbeitet. Sie entstehen automatisch aus den ZAS-Lieferungen.
                         </td>
                     </tr>

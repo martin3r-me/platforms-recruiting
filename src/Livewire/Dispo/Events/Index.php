@@ -22,6 +22,21 @@ class Index extends Component
     public string $filialeFilter = '';
 
     /**
+     * Standard-Ansicht = naechster Tag (Kunden-Feedback 2): beim ersten Oeffnen
+     * ohne gesetzten Filter wird von=bis=morgen vorbelegt. Mit dem
+     * Ueberlappungs-Filter erscheinen damit alle VAs, die morgen stattfinden
+     * (inkl. laufender Mehrtages-VAs). Filter leeren -> wieder alles Kommende.
+     */
+    public function mount(): void
+    {
+        if ($this->dateFrom === '' && $this->dateTo === '') {
+            $tomorrow = now()->addDay()->toDateString();
+            $this->dateFrom = $tomorrow;
+            $this->dateTo = $tomorrow;
+        }
+    }
+
+    /**
      * Filter-Optionen: nur tatsaechlich vorkommende Filialnummern, beschriftet
      * ueber die zentrale Map (Fallback: Roh-Text bzw. die Nummer selbst).
      *
