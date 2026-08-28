@@ -29,17 +29,12 @@ final class RearmAutoPilotTest extends TestCase
         parent::setUp();
         Carbon::setTestNow('2026-08-28 12:00:00');
 
-        if (!class_exists('Str')) {
+        if (!class_exists('Str', false)) {
             class_alias(\Illuminate\Support\Str::class, 'Str');
         }
 
         $container = Container::getInstance();
         Container::setInstance($container);
-        $container->instance('log', new class {
-            public function __call($m, $a) {}
-        });
-        \Illuminate\Support\Facades\Facade::setFacadeApplication($container);
-        \Illuminate\Support\Facades\Facade::clearResolvedInstances();
 
         $this->capsule = new Capsule($container);
         $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
@@ -91,8 +86,6 @@ final class RearmAutoPilotTest extends TestCase
     {
         Carbon::setTestNow();
         Model::clearBootedModels();
-        \Illuminate\Support\Facades\Facade::clearResolvedInstances();
-        \Illuminate\Support\Facades\Facade::setFacadeApplication(null);
         parent::tearDown();
     }
 
