@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\Dispo\Conversations;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
@@ -31,6 +32,8 @@ class Index extends Component
     public string $replyText = '';
     public string $filter = 'alle'; // alle | ungelesen
     public string $tabFilial = ''; // '' = Alle, 'sonstige' = unzugeordnet, sonst filial_nr als String
+    /** Suche in Name/Nummer der Thread-Liste (nur Anzeige-Filter, aendert die Kanal-Regel nicht). */
+    public string $search = '';
     public ?string $sendError = null;
 
     /** @var array<int, int|null>|null In-Request-Cache: comms_channel_id -> filial_nr (oder null-Eintrag existiert nicht, nur vorhandene Zuordnungen). */
@@ -152,21 +155,215 @@ class Index extends Component
             ->all();
 
         $map = $this->channelFilialeMap();
+        $search = mb_strtolower(trim($this->search));
 
         return $rows->map(function ($t) use ($names, $map) {
             $employeeId = $this->matcher->match($t->remote_phone_number);
             $filialNr = $map[(int) $t->comms_channel_id] ?? null;
+            $name = $employeeId !== null ? ($names[$employeeId] ?? null) : null;
+            $label = $name ?? (string) $t->remote_phone_number;
+            $lastAt = $t->last_inbound_at ?? $t->last_outbound_at;
+            $window = $this->windowInfo($t->last_inbound_at);
 
             return [
                 'id'          => (int) $t->id,
-                'label'       => ($employeeId !== null ? ($names[$employeeId] ?? null) : null) ?? (string) $t->remote_phone_number,
+                'label'       => $label,
+                'phone'       => (string) $t->remote_phone_number,
+                'initials'    => self::initials($name),
                 'employee_id' => $employeeId,
-                'preview'     => (string) ($t->last_message_preview ?? ''),
+                'preview'     => $this->humanPreview((string) ($t->last_message_preview ?? '')),
+                'preview_is_template' => str_starts_with((string) ($t->last_message_preview ?? ''), 'Template:'),
                 'is_unread'   => (bool) $t->is_unread,
-                'last_at'     => optional($t->last_inbound_at ?? $t->last_outbound_at)->format('d.m.Y H:i'),
+                'last_at'     => optional($lastAt)->format('d.m.Y H:i'),
+                'last_short'  => self::shortTime($lastAt),
                 'filiale'     => $filialNr !== null ? (Filialen::code($filialNr) ?? ('#' . $filialNr)) : 'Sonstige',
+                'filial_nr'   => $filialNr,
+                'window'      => $window, // state: open | closed | none, left: "22 h" | "45 min" | null
             ];
-        })->all();
+        })->filter(function (array $row) use ($search) {
+            if ($search === '') {
+                return true;
+            }
+            $digits = preg_replace('/\D+/', '', $search) ?? '';
+            return str_contains(mb_strtolower($row['label']), $search)
+                || ($digits !== '' && str_contains(preg_replace('/\D+/', '', $row['phone']) ?? '', $digits));
+        })->values()->all();
+    }
+
+    /**
+     * Lesbare Labels der Dispo-Vorlagen: zuerst die in den Einstellungen gewaehlten
+     * Templates (Name -> Rolle), sonst Heuristik ueber den Template-Namen. Nur Anzeige.
+     *
+     * @return array<string, string> template_name => Label
+     */
+    #[Computed]
+    public function templateLabels(): array
+    {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return [];
+        }
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: (auth()->user()?->currentTeam?->id ?? 0));
+        if ($teamId === 0) {
+            return [];
+        }
+        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
+        $roles = [
+            'dispo_confirmation_template_id'  => 'Bestätigungsanfrage',
+            'dispo_escalation_template_1_id'  => 'Erinnerung',
+            'dispo_escalation_template_2_id'  => 'Letzte Erinnerung',
+            'dispo_alarm_template_id'         => 'Dispo-Alarm',
+        ];
+        $byId = [];
+        foreach ($roles as $key => $label) {
+            $id = (int) ($settings->getSetting($key) ?: 0);
+            if ($id > 0) {
+                $byId[$id] = $label;
+            }
+        }
+        if ($byId === []) {
+            return [];
+        }
+
+        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->whereIn('id', array_keys($byId))
+            ->get(['id', 'name'])
+            ->mapWithKeys(fn ($t) => [(string) $t->name => $byId[(int) $t->id]])
+            ->all();
+    }
+
+    /** Label fuer einen Template-Namen (Einstellungen zuerst, dann Namens-Heuristik, sonst der Name). */
+    public function templateLabel(string $name): string
+    {
+        $labels = $this->templateLabels;
+        if (isset($labels[$name])) {
+            return $labels[$name];
+        }
+        $n = mb_strtolower($name);
+        if (str_contains($n, 'reminder2') || str_contains($n, 'final')) {
+            return 'Letzte Erinnerung';
+        }
+        if (str_contains($n, 'reminder') || str_contains($n, 'erinner')) {
+            return 'Erinnerung';
+        }
+        if (str_contains($n, 'alarm')) {
+            return 'Dispo-Alarm';
+        }
+        if (str_contains($n, 'bestaetig') || str_contains($n, 'confirm')) {
+            return 'Bestätigungsanfrage';
+        }
+
+        return $name;
+    }
+
+    /** "Template: xyz" in der Vorschau -> "Bestätigungsanfrage gesendet". */
+    private function humanPreview(string $preview): string
+    {
+        if (preg_match('/^Template:\s*(\S+)/u', $preview, $m) === 1) {
+            return $this->templateLabel($m[1]) . ' gesendet';
+        }
+
+        return $preview;
+    }
+
+    /**
+     * Antwortfenster-Status fuer die Anzeige. state: open (mit Restzeit) | closed | none
+     * (der MA hat noch nie geschrieben — es gibt kein Fenster, nur Vorlagen).
+     *
+     * @return array{state: string, left: ?string}
+     */
+    private function windowInfo(?\DateTimeInterface $lastInboundAt): array
+    {
+        if ($lastInboundAt === null) {
+            return ['state' => 'none', 'left' => null];
+        }
+        $now = now();
+        if (!DispoTimeCalculator::isReplyWindowOpen($lastInboundAt, $now)) {
+            return ['state' => 'closed', 'left' => null];
+        }
+        $deadline = \Illuminate\Support\Carbon::instance($lastInboundAt)->addHours(24);
+        $mins = max(0, (int) $now->diffInMinutes($deadline, false));
+
+        return ['state' => 'open', 'left' => $mins >= 60 ? intdiv($mins, 60) . ' h' : $mins . ' min'];
+    }
+
+    private static function initials(?string $name): string
+    {
+        if ($name === null || trim($name) === '') {
+            return '?';
+        }
+        $parts = preg_split('/\s+/u', trim($name)) ?: [];
+        $first = mb_substr($parts[0] ?? '', 0, 1);
+        $last = count($parts) > 1 ? mb_substr($parts[count($parts) - 1], 0, 1) : '';
+
+        return mb_strtoupper($first . $last);
+    }
+
+    /** "14:19" heute, "Gestern", sonst "Di" (innerhalb 7 Tage) bzw. "26.08." */
+    private static function shortTime(?\DateTimeInterface $at): string
+    {
+        if ($at === null) {
+            return '';
+        }
+        $c = \Illuminate\Support\Carbon::instance($at);
+        if ($c->isToday()) {
+            return $c->format('H:i');
+        }
+        if ($c->isYesterday()) {
+            return 'Gestern';
+        }
+        if ($c->greaterThan(now()->subDays(6))) {
+            return ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][$c->dayOfWeek];
+        }
+
+        return $c->format('d.m.');
+    }
+
+    /** Kopfdaten des gewaehlten Threads (Name, Nummer, Filiale, Fenster). */
+    #[Computed]
+    public function selectedInfo(): ?array
+    {
+        $thread = $this->selected;
+        if ($thread === null) {
+            return null;
+        }
+        $employeeId = $this->matcher->match($thread->remote_phone_number);
+        $name = $employeeId !== null ? (app(DispoEmployeeGateway::class)->contacts([$employeeId])[$employeeId]['name'] ?? null) : null;
+        $filialNr = $this->channelFilialeMap()[(int) $thread->comms_channel_id] ?? null;
+
+        return [
+            'label'    => $name ?? (string) $thread->remote_phone_number,
+            'phone'    => (string) $thread->remote_phone_number,
+            'initials' => self::initials($name),
+            'matched'  => $employeeId !== null,
+            'filiale'  => $filialNr !== null ? (Filialen::code($filialNr) ?? ('#' . $filialNr)) : 'Sonstige',
+            'filial_nr' => $filialNr,
+            'window'   => $this->windowInfo($thread->last_inbound_at),
+            'is_unread' => (bool) $thread->is_unread,
+        ];
+    }
+
+    /** "Heute", "Gestern", sonst "Mittwoch, 27. August". */
+    private static function dayLabel(\Illuminate\Support\Carbon $c): string
+    {
+        if ($c->isToday()) {
+            return 'Heute';
+        }
+        if ($c->isYesterday()) {
+            return 'Gestern';
+        }
+        $wd = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][$c->dayOfWeek];
+        $mo = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][(int) $c->format('n')];
+
+        return $wd . ', ' . $c->format('j') . '. ' . $mo;
+    }
+
+    /** Mobil: zurueck zur Liste. */
+    public function back(): void
+    {
+        $this->selectedThreadId = null;
+        $this->replyText = '';
+        $this->sendError = null;
+        unset($this->selected, $this->messages, $this->employeePanel, $this->selectedInfo);
     }
 
     #[Computed]
@@ -195,12 +392,22 @@ class Index extends Component
         return $thread->messages()
             ->orderBy('created_at')
             ->get()
-            ->map(fn ($m) => [
-                'direction' => (string) $m->direction,
-                'body'      => (string) ($m->body ?? ($m->template_name ? 'Template: ' . $m->template_name : '')),
-                'status'    => $m->status,
-                'at'        => optional($m->sent_at ?? $m->created_at)->format('d.m.Y H:i'),
-            ])->all();
+            ->map(function ($m) {
+                $at = $m->sent_at ?? $m->created_at;
+                $isTemplate = ($m->body === null || $m->body === '') && !empty($m->template_name);
+
+                return [
+                    'direction'      => (string) $m->direction,
+                    'kind'           => $isTemplate ? 'template' : 'text',
+                    'body'           => (string) ($m->body ?? ''),
+                    'template_label' => $isTemplate ? $this->templateLabel((string) $m->template_name) : null,
+                    'status'         => $m->status,
+                    'at'             => optional($at)->format('d.m.Y H:i'),
+                    'time'           => optional($at)->format('H:i'),
+                    'day'            => optional($at)->format('Y-m-d'),
+                    'day_label'      => $at ? self::dayLabel(\Illuminate\Support\Carbon::instance($at)) : '',
+                ];
+            })->all();
     }
 
     /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA */
@@ -238,7 +445,7 @@ class Index extends Component
         $this->replyText = '';
         $this->sendError = null;
         $this->selected?->markAsRead();
-        unset($this->threads, $this->selected, $this->messages, $this->employeePanel, $this->filialeTabs);
+        unset($this->threads, $this->selected, $this->messages, $this->employeePanel, $this->filialeTabs, $this->selectedInfo);
         $this->dispatch('sidebar-refresh');
     }
 
