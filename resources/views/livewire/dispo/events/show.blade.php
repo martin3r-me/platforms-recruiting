@@ -67,7 +67,11 @@
         @php
             $esc = $this->escalationEffective;
             $escEnabled = $this->dispoSettings['escalation_enabled'];
-            $escDayLabel = $esc['day'] === 'einsatztag' ? 'am Einsatztag' : 'am Vortag';
+            $escDayLabel = match ($esc['day']) {
+                'einsatztag' => 'am Einsatztag',
+                'datum'      => 'am ' . \Carbon\Carbon::parse($esc['date'])->format('d.m.Y'),
+                default      => 'am Vortag',
+            };
             $escTimesLabel = $esc['times'][1] . ' / ' . $esc['times'][2] . ' / ' . $esc['times'][3];
         @endphp
         <div class="rounded-lg border border-gray-200 bg-white p-4">
@@ -242,7 +246,12 @@
 
                     @php
                         $escDefaults = $this->dispoSettings['escalation_defaults'];
-                        $escSummary = ($escDay === 'einsatztag' ? 'Einsatztag' : 'Vortag') . ' · '
+                        $escDayPart = match ($escDay) {
+                            'einsatztag' => 'Einsatztag',
+                            'datum'      => ($escDate !== '' ? 'am ' . \Carbon\Carbon::parse($escDate)->format('d.m.') : 'Datum'),
+                            default      => 'Vortag',
+                        };
+                        $escSummary = $escDayPart . ' · '
                             . ($escTime1 !== '' ? ($escTime1 . ' / ' . $escTime2 . ' / ' . $escTime3) : ('Standard ' . $escDefaults[1] . ' / ' . $escDefaults[2] . ' / ' . $escDefaults[3]));
                     @endphp
                     <details class="rounded border border-gray-200 p-3" @if ($errors->has('escTime1')) open @endif>

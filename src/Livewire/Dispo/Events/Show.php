@@ -67,6 +67,8 @@ class Show extends Component
     public string $escTime1 = '';
     public string $escTime2 = '';
     public string $escTime3 = '';
+    /** Eskalationsdatum (Modus datum), Y-m-d oder '' — String-Prop (Livewire-Typed-Property-Falle). */
+    public string $escDate = '';
     public bool $showEscalationModal = false;
 
     public function mount(int $eventId): void
@@ -200,7 +202,8 @@ class Show extends Component
 
         return DispoEscalationConfig::effective(
             $e->escalation_day, $e->escalation_time_1, $e->escalation_time_2, $e->escalation_time_3,
-            $this->dispoSettings['escalation_defaults']
+            $this->dispoSettings['escalation_defaults'],
+            $e->escalation_date?->format('Y-m-d')
         );
     }
 
@@ -208,10 +211,12 @@ class Show extends Component
     private function loadEscalationForm(): void
     {
         $e = $this->event;
-        $this->escDay   = $e->escalation_day === DispoEscalationConfig::DAY_EINSATZTAG ? DispoEscalationConfig::DAY_EINSATZTAG : DispoEscalationConfig::DAY_VORTAG;
+        $this->escDay   = in_array($e->escalation_day, [DispoEscalationConfig::DAY_EINSATZTAG, DispoEscalationConfig::DAY_DATUM], true)
+            ? (string) $e->escalation_day : DispoEscalationConfig::DAY_VORTAG;
         $this->escTime1 = (string) ($e->escalation_time_1 ?? '');
         $this->escTime2 = (string) ($e->escalation_time_2 ?? '');
         $this->escTime3 = (string) ($e->escalation_time_3 ?? '');
+        $this->escDate  = $e->escalation_date?->format('Y-m-d') ?? '';
     }
 
     /**
@@ -240,7 +245,8 @@ class Show extends Component
     {
         $errors = DispoEscalationConfig::validate(
             $this->escDay, $this->escTime1, $this->escTime2, $this->escTime3,
-            $this->earliestVon(), $this->dispoSettings['escalation_defaults']
+            $this->earliestVon(), $this->dispoSettings['escalation_defaults'],
+            $this->escDate, now()->toDateString(), $this->eventDays[0] ?? null
         );
         if ($errors !== []) {
             $this->addError('escTime1', $errors[0]);
@@ -248,11 +254,13 @@ class Show extends Component
         }
 
         $hasTimes = $this->escTime1 !== '';
+        $dayStored = in_array($this->escDay, [DispoEscalationConfig::DAY_EINSATZTAG, DispoEscalationConfig::DAY_DATUM], true) ? $this->escDay : null;
         RecDispoEvent::query()->whereKey($this->eventId)->update([
-            'escalation_day'    => $this->escDay === DispoEscalationConfig::DAY_EINSATZTAG ? DispoEscalationConfig::DAY_EINSATZTAG : null,
+            'escalation_day'    => $dayStored,
             'escalation_time_1' => $hasTimes ? $this->escTime1 : null,
             'escalation_time_2' => $hasTimes ? $this->escTime2 : null,
             'escalation_time_3' => $hasTimes ? $this->escTime3 : null,
+            'escalation_date'   => $dayStored === DispoEscalationConfig::DAY_DATUM ? $this->escDate : null,
         ]);
         unset($this->event, $this->escalationEffective);
 
@@ -278,6 +286,7 @@ class Show extends Component
     {
         $this->escDay = DispoEscalationConfig::DAY_VORTAG;
         $this->escTime1 = $this->escTime2 = $this->escTime3 = '';
+        $this->escDate = '';
         $this->resetErrorBag('escTime1');
     }
 

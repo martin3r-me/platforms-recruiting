@@ -115,8 +115,18 @@ class DispoEscalateCommand extends Command
         // Runde 3 (#5): Zielmenge = Einsaetze von HEUTE und MORGEN; pro VA entscheidet
         // der Modus (Vortag -> morgen, Einsatztag -> heute), Zeiten kommen aus dem
         // VA-Override oder dem Team-Default. Planner bleibt unveraendert.
+        // Runde 4 (#4): Modus "datum" erweitert die Zielmenge um ALLE kommenden
+        // Einsatztage der VA, wenn heute das gewaehlte Eskalationsdatum ist (auch
+        // Einsaetze, die noch mehrere Tage in der Zukunft liegen).
         $assignments = RecDispoAssignment::query()
-            ->where(fn ($q) => $q->whereDate('datum', $today)->orWhereDate('datum', $tomorrow))
+            ->where(function ($q) use ($today, $tomorrow) {
+                $q->whereDate('datum', $today)
+                  ->orWhereDate('datum', $tomorrow)
+                  ->orWhere(fn ($q2) => $q2->whereDate('datum', '>=', $today)
+                      ->whereHas('event', fn ($e) => $e
+                          ->where('escalation_day', DispoEscalationConfig::DAY_DATUM)
+                          ->whereDate('escalation_date', $today)));
+            })
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNotNull('reminder_sent_at')
             ->whereNull('confirmed_at')
@@ -130,7 +140,7 @@ class DispoEscalateCommand extends Command
             ->get()
             ->filter(function (RecDispoAssignment $a) use ($defaults, $today) {
                 $cfg = self::configFor($a, $defaults);
-                return DispoEscalationConfig::appliesOn($cfg['day'], $a->datum->format('Y-m-d'), $today);
+                return DispoEscalationConfig::appliesOn($cfg['day'], $a->datum->format('Y-m-d'), $today, $cfg['date']);
             })
             ->values();
 
@@ -382,7 +392,8 @@ class DispoEscalateCommand extends Command
         $e = $a->event;
 
         return DispoEscalationConfig::effective(
-            $e?->escalation_day, $e?->escalation_time_1, $e?->escalation_time_2, $e?->escalation_time_3, $defaults
+            $e?->escalation_day, $e?->escalation_time_1, $e?->escalation_time_2, $e?->escalation_time_3, $defaults,
+            $e?->escalation_date?->format('Y-m-d')
         );
     }
 

@@ -267,6 +267,38 @@ class DispoEscalateCommandTest extends TestCase
         $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-VORTAG-TODAY')->value('deletion_marked_at'));
     }
 
+    /**
+     * Runde 4 (#4): Modus "datum" — heute ist das gewaehlte Eskalationsdatum,
+     * der Einsatz liegt noch mehrere Tage in der Zukunft. Trotzdem eskaliert
+     * er JETZT, weil das Datum ueber alle kommenden Einsatztage der VA gilt.
+     */
+    public function test_datum_mode_escalates_all_upcoming_days_on_the_chosen_date(): void
+    {
+        $today = new \DateTimeImmutable('2026-08-29 14:05:00');
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-DATUM', 'name' => 'Datum-Modus', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoEvent::whereKey($event->id)->update(['escalation_day' => 'datum', 'escalation_date' => '2026-08-29']);
+        $a = RecDispoAssignment::create($this->baseRow($event->id, 'DS-DATUM', '2026-09-02'));
+
+        $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $today, false);
+
+        $this->assertNotNull(RecDispoAssignment::find($a->id)->escalation_1_at, 'Stufe 1 feuert heute, obwohl der Einsatz erst in 4 Tagen ist');
+        $this->assertSame(1, $this->stub->calls);
+    }
+
+    /** Modus "datum": an jedem ANDEREN Tag als dem gewaehlten Eskalationsdatum bleibt die VA stumm. */
+    public function test_datum_mode_is_silent_on_other_days(): void
+    {
+        $today = new \DateTimeImmutable('2026-08-29 14:05:00');
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-DATUM-OFF', 'name' => 'Datum-Modus', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoEvent::whereKey($event->id)->update(['escalation_day' => 'datum', 'escalation_date' => '2026-08-30']);
+        $a = RecDispoAssignment::create($this->baseRow($event->id, 'DS-DATUM-OFF', '2026-09-02'));
+
+        $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $today, false);
+
+        $this->assertNull(RecDispoAssignment::find($a->id)->escalation_1_at);
+        $this->assertSame(0, $this->stub->calls);
+    }
+
     public function test_event_time_override_wins_over_settings_in_vortag_mode(): void
     {
         $event = RecDispoEvent::create([
@@ -687,6 +719,7 @@ class DispoEscalateCommandTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000002_add_escalation_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_27_000002_add_escalation_override_to_rec_dispo_events.php'],
+            [$own, 'database/migrations/2026_08_28_000001_add_escalation_date_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
