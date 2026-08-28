@@ -160,4 +160,33 @@ final class CampaignSegmentTest extends TestCase
 
         $this->assertSame([1, 2], CampaignSegment::selectedIds($selection, $drillIds, $selectable));
     }
+
+    /** @return array<string, array{0: array<int, array{template:string}>, 1: list<int>, 2: array{A:int,B:int,total:int}}> */
+    public static function zaehlungsFaelle(): array
+    {
+        $rows = [
+            1 => ['template' => 'A'],
+            2 => ['template' => 'B'],
+            3 => ['template' => 'A'],
+            4 => ['template' => 'B'],
+        ];
+
+        return [
+            'gemischt A/B' => [$rows, [1, 2, 3, 4], ['A' => 2, 'B' => 2, 'total' => 4]],
+            'nur A' => [$rows, [1, 3], ['A' => 2, 'B' => 0, 'total' => 2]],
+            'IDs nicht in rows werden ignoriert' => [$rows, [1, 999, 2], ['A' => 1, 'B' => 1, 'total' => 2]],
+            'leere Auswahl' => [$rows, [], ['A' => 0, 'B' => 0, 'total' => 0]],
+        ];
+    }
+
+    /**
+     * @param array<int, array{template:string}> $rows
+     * @param list<int> $selectedIds
+     * @param array{A:int,B:int,total:int} $expected
+     */
+    #[DataProvider('zaehlungsFaelle')]
+    public function testZaehlungNachTemplate(array $rows, array $selectedIds, array $expected): void
+    {
+        $this->assertSame($expected, CampaignSegment::countsByTemplate($rows, $selectedIds));
+    }
 }

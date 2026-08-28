@@ -269,6 +269,16 @@ class Index extends Component
      */
     #[Locked]
     public string $drillScopeType = '';
+    /**
+     * Scope-NAME des Drill-Tokens (z. B. 'type_all'), NICHT der Zeilen-Typ.
+     * campaignEnabled() verlangt beide zusammen: der einzige Token in der View,
+     * der type => 'ohne_schulung' setzt, ist die Kachel index.blade.php:215 mit
+     * scope 'type_all'. Ohne diese zweite Sperre oeffnet ein gecraftetes Token
+     * wie {"scope":"all","type":"ohne_schulung"} die Kampagne ueber die GANZE
+     * Kohorte statt nur ueber "Ohne Termin".
+     */
+    #[Locked]
+    public string $drillScopeName = '';
     /** @var array<int,bool> applicant_id => angehakt */
     public array $campaignSelection = [];
     public ?int $campaignTemplateA = null;
@@ -286,6 +296,7 @@ class Index extends Component
         $this->drillLabel = '';
         $this->showDrill = false;
         $this->drillScopeType = '';
+        $this->drillScopeName = '';
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -1629,6 +1640,7 @@ class Index extends Component
         $this->drillIds = $vm->resolveIdsFromClient($rows, $spec, $column);
 
         $this->drillScopeType = (string) ($spec['type'] ?? '');
+        $this->drillScopeName = (string) ($spec['scope'] ?? '');
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -1668,7 +1680,9 @@ class Index extends Component
 
     public function campaignEnabled(): bool
     {
-        return $this->drillScopeType === 'ohne_schulung' && $this->drillIds !== [];
+        return $this->drillScopeName === 'type_all'
+            && $this->drillScopeType === 'ohne_schulung'
+            && $this->drillIds !== [];
     }
 
     /**
@@ -1731,36 +1745,53 @@ class Index extends Component
         return CampaignSegment::selectedIds($this->campaignSelection, $this->drillIds, $selectable);
     }
 
-    /** Anzahl der gewaehlten Personen pro Template — fuer die Button-Sperre und den Zaehler. */
+    /**
+     * Anzahl der gewaehlten Personen pro Template — fuer die Button-Sperre und
+     * den Zaehler. Die reine Zaehlung (kein Container, keine Property) sitzt
+     * in CampaignSegment::countsByTemplate — dort auch getestet.
+     */
     public function campaignCounts(): array
     {
-        $rows = $this->campaignRows;
-        $a = 0; $b = 0;
-        foreach ($this->campaignSelectedIds() as $id) {
-            if (($rows[$id]['template'] ?? '') === CampaignSegment::TEMPLATE_FORM) { $a++; } else { $b++; }
+        return CampaignSegment::countsByTemplate($this->campaignRows, $this->campaignSelectedIds());
+    }
+
+    /**
+     * Reine Guard-Kette fuer den Start-Button, pro Zeile eine Ablehnung, in
+     * genau dieser Reihenfolge geprueft. Container-frei (kein $this), damit
+     * die volle Kette ohne Component/DB testbar ist (Muster CampaignSegment).
+     *
+     * @param array{A:int,B:int,total:int} $counts
+     */
+    public static function campaignStartError(bool $enabled, bool $alreadyStarted, array $counts, ?int $templateA, ?int $templateB): ?string
+    {
+        if (!$enabled) {
+            return 'Kampagne nicht verfügbar.';
+        }
+        if ($alreadyStarted) {
+            return 'Kampagne läuft bereits.';
+        }
+        if (($counts['total'] ?? 0) === 0) {
+            return 'Niemand ausgewählt.';
+        }
+        if (($counts['A'] ?? 0) > 0 && !$templateA) {
+            return "Für {$counts['A']} Personen fehlt Template A (Bewerbung vervollständigen).";
+        }
+        if (($counts['B'] ?? 0) > 0 && !$templateB) {
+            return "Für {$counts['B']} Personen fehlt Template B (Terminauswahl).";
         }
 
-        return ['A' => $a, 'B' => $b, 'total' => $a + $b];
+        return null;
     }
 
     public function startCampaign(): void
     {
         $this->campaignError = '';
-        if (!$this->campaignEnabled() || $this->campaignUuid !== null) {
-            return;
-        }
         $ids = $this->campaignSelectedIds();
         $counts = $this->campaignCounts();
-        if ($ids === []) {
-            $this->campaignError = 'Niemand ausgewählt.';
-            return;
-        }
-        if ($counts['A'] > 0 && !$this->campaignTemplateA) {
-            $this->campaignError = "Für {$counts['A']} Personen fehlt Template A (Bewerbung vervollständigen).";
-            return;
-        }
-        if ($counts['B'] > 0 && !$this->campaignTemplateB) {
-            $this->campaignError = "Für {$counts['B']} Personen fehlt Template B (Terminauswahl).";
+
+        $error = self::campaignStartError($this->campaignEnabled(), $this->campaignUuid !== null, $counts, $this->campaignTemplateA, $this->campaignTemplateB);
+        if ($error !== null) {
+            $this->campaignError = $error;
             return;
         }
 

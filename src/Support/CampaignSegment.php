@@ -159,6 +159,34 @@ final class CampaignSegment
         return array_values(array_unique($out));
     }
 
+    /**
+     * A/B-Aufteilung der gewaehlten IDs nach Template — fuer die Button-Sperre
+     * und den Zaehler im Statistik-Modal. IDs, die in $rows nicht vorkommen
+     * (z. B. inzwischen aus der Kohorte gefallen), werden ignoriert — dieselbe
+     * fail-closed-Regel wie selectedIds().
+     *
+     * @param array<int, array{template:string}> $rows applicant_id => Zeile (mind. 'template')
+     * @param list<int> $selectedIds
+     * @return array{A:int, B:int, total:int}
+     */
+    public static function countsByTemplate(array $rows, array $selectedIds): array
+    {
+        $a = 0;
+        $b = 0;
+        foreach ($selectedIds as $id) {
+            if (!array_key_exists($id, $rows)) {
+                continue;
+            }
+            if (($rows[$id]['template'] ?? '') === self::TEMPLATE_FORM) {
+                $a++;
+            } else {
+                $b++;
+            }
+        }
+
+        return ['A' => $a, 'B' => $b, 'total' => $a + $b];
+    }
+
     /** @param list<array{cancelled_by:?string, cancelled_at:?string}> $stornos */
     private static function juengsterStorno(array $stornos): ?array
     {

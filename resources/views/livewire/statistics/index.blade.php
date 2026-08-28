@@ -793,7 +793,7 @@
                         @endphp
                         <li class="py-2 flex items-center gap-3 {{ $row['selectable'] ? '' : 'opacity-60' }}">
                             <input type="checkbox" class="h-4 w-4 rounded border-[var(--ui-border)]"
-                                   wire:model="campaignSelection.{{ $id }}" @disabled($rowDisabled) />
+                                   wire:model.live="campaignSelection.{{ $id }}" @disabled($rowDisabled) />
                             <div class="flex-1 min-w-0">
                                 <a href="{{ route('recruiting.applicants.show', $id) }}" class="text-[color:var(--ui-primary)] hover:underline text-sm">{{ $row['name'] }}</a>
                                 <span class="ml-2 text-xs text-[color:var(--ui-muted)]">{{ $row['phase'] }} · {{ $row['template'] }}</span>
