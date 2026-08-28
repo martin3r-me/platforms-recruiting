@@ -129,11 +129,20 @@ class DispoThreadDirectoryTest extends TestCase
         $channel = $this->channel();
         $threadId = $this->thread($channel, '+49 999 000000', 900, false, '2026-08-27 10:00:00');
 
-        $result = $this->directory()->threadsFor([$channel], [$ma]);
-
         $canon = min($rg, $ma);
-        $this->assertArrayHasKey($canon, $result);
-        $this->assertSame($threadId, $result[$canon]['thread_id']);
+
+        $byMa = $this->directory()->threadsFor([$channel], [$ma]);
+        $this->assertArrayHasKey($canon, $byMa);
+        $this->assertSame($threadId, $byMa[$canon]['thread_id']);
+
+        // Regression: Anfrage nach der KANONISCHEN id selbst (statt nach dem
+        // anderen Gruppenmitglied) muss denselben Treffer liefern — vorher
+        // wurde nur die ANGEFRAGTE id kanonisiert, das jeweils ANDERE
+        // Gruppenmitglied fiel auf seine rohe id zurueck und der Kontakt-
+        // Treffer landete dadurch unter der falschen (nicht angefragten) id.
+        $byRg = $this->directory()->threadsFor([$channel], [$rg]);
+        $this->assertArrayHasKey($canon, $byRg);
+        $this->assertSame($threadId, $byRg[$canon]['thread_id']);
     }
 
     public function test_phone_matched_thread_is_found_without_contact(): void
@@ -145,6 +154,48 @@ class DispoThreadDirectoryTest extends TestCase
         $result = $this->directory()->threadsFor([$channel], [$ma]);
 
         $this->assertSame($threadId, $result[$ma]['thread_id']);
+    }
+
+    public function test_phone_matched_thread_is_found_for_group_member_not_requested(): void
+    {
+        // rg hat KEIN Telefon, nur ma hat das Telefon, das den Thread traegt.
+        // Beide sind ueber denselben Kontakt verlinkt (Gruppe). Angefragt
+        // wird rg (die kanonische id) — der Treffer haengt also am ANDEREN,
+        // NICHT angefragten Gruppenmitglied.
+        $rg = $this->employee('RG-PH1'); $ma = $this->employee('MA-PH1', '0172 5551111');
+        $this->link($rg, 930); $this->link($ma, 930);
+
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 172 5551111', null, false, '2026-08-27 10:00:00');
+
+        $canon = min($rg, $ma);
+        $result = $this->directory()->threadsFor([$channel], [$rg]);
+
+        $this->assertArrayHasKey($canon, $result);
+        $this->assertSame($threadId, $result[$canon]['thread_id']);
+    }
+
+    public function test_shared_phone_across_group_members_is_not_ambiguous(): void
+    {
+        // rg und ma teilen sich dieselbe Nummer (eine Person, zwei
+        // Datensaetze) — das ist KEINE Mehrdeutigkeit im Sinne des
+        // DispoPhoneMatcher. Angefragt wird die kanonische id (rg); vorher
+        // fiel das NICHT angefragte Mitglied (ma) auf seine rohe id zurueck,
+        // wodurch dieselbe Nummer unter ZWEI verschiedenen "kanonischen" ids
+        // auftauchte -> der Matcher hielt das faelschlich fuer mehrdeutig
+        // und lieferte gar nichts mehr.
+        $rg = $this->employee('RG-PH2', '0172 5552222');
+        $ma = $this->employee('MA-PH2', '0172 5552222');
+        $this->link($rg, 940); $this->link($ma, 940);
+
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 172 5552222', null, false, '2026-08-27 10:00:00');
+
+        $canon = min($rg, $ma);
+        $result = $this->directory()->threadsFor([$channel], [$rg]);
+
+        $this->assertArrayHasKey($canon, $result);
+        $this->assertSame($threadId, $result[$canon]['thread_id']);
     }
 
     public function test_newest_thread_wins_and_contact_beats_phone(): void
@@ -173,11 +224,18 @@ class DispoThreadDirectoryTest extends TestCase
 
     public function test_unread_by_event_counts_persons_not_records(): void
     {
-        $rg = $this->employee('RG4', '0172 5550001'); $ma = $this->employee('MA4', '0172 5550002');
+        // NUR der kanonische Datensatz (rg) ist gebucht; der Thread haengt
+        // per TELEFON am ANDEREN Gruppenmitglied (ma) — beide sind ueber
+        // denselben Kontakt verlinkt, aber nur ma traegt ein Telefon.
+        // Regression: die alte Kanonisierung kannte nur die ANGEFRAGTE id
+        // (hier: rg, aus der Buchung) und liess mas Telefon-Treffer auf
+        // dessen roher id haengen -> das Ereignis fiel komplett aus dem
+        // Ergebnis, statt korrekt als EINE ungelesene Person zu zaehlen.
+        $rg = $this->employee('RG4'); $ma = $this->employee('MA4', '0172 5550002');
         $this->link($rg, 920); $this->link($ma, 920);
 
         $channel = $this->channel();
-        $this->thread($channel, '+49 999 222000', 920, true, '2026-08-28 09:00:00');
+        $this->thread($channel, '+49 172 5550002', null, true, '2026-08-28 09:00:00');
 
         $event = RecDispoEvent::create(['einsatz_ref' => 'E-UNREAD-1']);
         $today = now()->toDateString();
@@ -186,14 +244,10 @@ class DispoThreadDirectoryTest extends TestCase
             'ds_ref' => 'DS-UNREAD-1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG4',
             'rec_employee_id' => $rg, 'datum' => $today, 'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
         ]);
-        RecDispoAssignment::create([
-            'ds_ref' => 'DS-UNREAD-2', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'MA4',
-            'rec_employee_id' => $ma, 'datum' => $today, 'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
-        ]);
 
         $result = $this->directory()->unreadByEvent([$channel], [$event->id], $today);
 
-        $this->assertSame([$event->id => 1], $result, 'RG- und MA-Einbuchung derselben Person zaehlen als EINE Person.');
+        $this->assertSame([$event->id => 1], $result, 'Telefon-Treffer am NICHT gebuchten Gruppenmitglied zaehlt fuer die gebuchte kanonische Person.');
     }
 
     public function test_messages_can_be_filtered_by_since(): void

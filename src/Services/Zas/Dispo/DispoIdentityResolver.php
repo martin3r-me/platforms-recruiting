@@ -148,6 +148,11 @@ class DispoIdentityResolver
      * Umkehrung von employeeIdsByContact(): CRM-Kontakt-IDs je Mitarbeiter-ID
      * (nur Links des Anker-Teams). Fail-closed ohne inbound_team_id -> [].
      *
+     * Anders als employeeIdsByContact() filtert dies NICHT auf is_active: der
+     * Aufrufer uebergibt bereits eine feststehende Mitarbeiterliste (z. B.
+     * eine ganze Identitaetsgruppe aus groupsFor()) und will fuer GENAU DIESE
+     * ids die verlinkten Kontakte sehen, unabhaengig vom Aktiv-Status.
+     *
      * @param list<int> $employeeIds
      * @return array<int, list<int>> employee_id => contact_ids
      */

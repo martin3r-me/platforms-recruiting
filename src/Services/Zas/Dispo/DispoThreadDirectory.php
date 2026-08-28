@@ -13,9 +13,19 @@ use Platform\Recruiting\Models\RecDispoAssignment;
  * Komponente loest weiterhin vorwaerts (Thread -> Person) auf; geteilt sind
  * Fenster-Status, Vorlagen-Labels, Nachrichten-Mapping und Antwort-Versand.
  * CRM wird hier NICHT direkt gelesen — nur ueber DispoIdentityResolver.
+ *
+ * Volumen-Annahme: die Thread-Query filtert auf eine (Kontakt-ID- oder
+ * Telefon-Ziffernfolge-)Obermenge moeglicher Treffer statt auf ALLE Threads
+ * des Kanal-Sets — bei wenigen hundert offenen Threads je Dispo-WABA-Account
+ * (heutige Groessenordnung) ist das unauffaellig; bei absehbar mehr Threads
+ * waere ein Index auf remote_phone_number (Ziffern-Ausdruck) der naechste
+ * Schritt.
  */
 class DispoThreadDirectory
 {
+    /** @var list<string>|null Cache: CrmContact::class + Morph-Alias (Model-Boot nur einmal). */
+    private static ?array $crmTypes = null;
+
     public function __construct(
         private DispoIdentityResolver $identity,
         private DispoEmployeeGateway $gateway,
@@ -28,14 +38,43 @@ class DispoThreadDirectory
      */
     public function threadsFor(array $channelIds, array $employeeIds): array
     {
+        return $this->resolveThreads($channelIds, $employeeIds)['threads'];
+    }
+
+    /**
+     * Gemeinsamer Kern von threadsFor() und unreadByEvent() (letzteres braucht
+     * zusaetzlich die kanonische Zuordnung selbst) — vermeidet eine doppelte
+     * Identitaets-Aufloesung fuer dieselben ids.
+     *
+     * @param list<int> $channelIds
+     * @param list<int> $employeeIds
+     * @return array{threads: array<int, array{thread_id:int, is_unread:bool, last_inbound_at:?string, last_at:?string}>, canon: array<int,int>}
+     */
+    private function resolveThreads(array $channelIds, array $employeeIds): array
+    {
         $employeeIds = array_values(array_unique(array_map('intval', $employeeIds)));
         if ($channelIds === [] || $employeeIds === []) {
-            return [];
+            return ['threads' => [], 'canon' => []];
         }
 
+        // groupsFor() liefert nur fuer die ANGEFRAGTEN ids einen Schluessel,
+        // aber jeder Wert ist die VOLLSTAENDIGE Gruppe — kanonisieren muss
+        // deshalb ueber alle Gruppen-MITGLIEDER laufen, nicht nur ueber die
+        // angefragten ids. Sonst bleiben Mitglieder, die nicht selbst
+        // angefragt wurden (z. B. der RG-Datensatz bei einer Anfrage nach der
+        // MA-id), unkanonisiert -> Treffer landen unter der falschen id oder
+        // zwei Datensaetze derselben Person erscheinen als zwei verschiedene
+        // "kanonische" ids (Telefon-Matcher haelt das faelschlich fuer
+        // Mehrdeutigkeit und liefert dann gar nichts mehr).
         $groups = $this->identity->groupsFor($employeeIds);
-        $canon  = DispoIdentityGroups::canonicalMap($groups);
-        $allIds = array_values(array_unique(array_merge(...array_values($groups))));
+        $canon = [];
+        foreach ($groups as $group) {
+            $c = DispoIdentityGroups::canonical($group);
+            foreach ($group as $m) {
+                $canon[(int) $m] = $c;
+            }
+        }
+        $allIds = $groups === [] ? [] : array_values(array_unique(array_merge(...array_values($groups))));
 
         // (1) Kontakt-Links: contact_id -> kanonische id
         $canonByContact = [];
@@ -52,12 +91,45 @@ class DispoThreadDirectory
                 $byCanonical[$canon[(int) $eid] ?? (int) $eid][] = $phone;
             }
         }
+
+        if ($canonByContact === [] && $byCanonical === []) {
+            // Weder Kontakt-Link noch Telefon fuer irgendein Gruppenmitglied
+            // -> es kann keinen Treffer geben, keine Query noetig.
+            return ['threads' => [], 'canon' => $canon];
+        }
+
         $matcher = new DispoPhoneMatcher($byCanonical);
         $wanted  = array_fill_keys(array_map(fn ($id) => $canon[$id] ?? $id, $employeeIds), true);
 
-        $crmTypes = [\Platform\Crm\Models\CrmContact::class, (new \Platform\Crm\Models\CrmContact())->getMorphClass()];
+        // Ziffern-Suffixe (letzte 9 Ziffern je normalisierter Nummer) grenzen
+        // die Query auf eine OBERMENGE moeglicher Telefon-Treffer ein — die
+        // exakte Entscheidung (inkl. Mehrdeutigkeit) faellt weiterhin unten
+        // im DispoPhoneMatcher. Mirror von ZasEmployeeContactLinker::phoneCandidates().
+        $phoneSuffixes = [];
+        foreach ($byCanonical as $phones) {
+            foreach ($phones as $phone) {
+                $normalized = DispoPhoneMatcher::normalize($phone);
+                if ($normalized !== null) {
+                    $phoneSuffixes[substr($normalized, -9)] = true;
+                }
+            }
+        }
+        $phoneSuffixes = array_keys($phoneSuffixes);
+
+        $crmTypes = self::crmTypes();
         $rows = CommsWhatsAppThread::query()
             ->whereIn('comms_channel_id', $channelIds)
+            ->where(function ($q) use ($canonByContact, $phoneSuffixes) {
+                if ($canonByContact !== []) {
+                    $q->orWhereIn('contact_id', array_keys($canonByContact));
+                }
+                foreach ($phoneSuffixes as $suffix) {
+                    $q->orWhereRaw(
+                        "REPLACE(REPLACE(REPLACE(remote_phone_number, ' ', ''), '-', ''), '+', '') LIKE ?",
+                        ['%' . $suffix]
+                    );
+                }
+            })
             ->orderByDesc('updated_at')
             ->get(['id', 'remote_phone_number', 'contact_id', 'contact_type', 'is_unread', 'last_inbound_at', 'last_outbound_at', 'updated_at']);
 
@@ -88,7 +160,7 @@ class DispoThreadDirectory
             $viaContact[$cid] = $byContact;
         }
 
-        return $result;
+        return ['threads' => $result, 'canon' => $canon];
     }
 
     /**
@@ -115,8 +187,7 @@ class DispoThreadDirectory
             return [];
         }
         $ids = $rows->pluck('rec_employee_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
-        $threads = $this->threadsFor($channelIds, $ids);
-        $canon = DispoIdentityGroups::canonicalMap($this->identity->groupsFor($ids));
+        ['threads' => $threads, 'canon' => $canon] = $this->resolveThreads($channelIds, $ids);
 
         $out = [];
         foreach ($rows->groupBy('rec_dispo_event_id') as $eventId => $eventRows) {
@@ -137,7 +208,10 @@ class DispoThreadDirectory
 
     /**
      * Nachrichten eines Threads fuer die Anzeige (Mapping aus der Kommunikation
-     * hierher gezogen). $since filtert auf Nachrichten ab diesem Zeitpunkt.
+     * hierher gezogen). $since filtert auf created_at (Insert-Zeitpunkt); die
+     * Anzeige-Zeit je Nachricht ('at'/'time'/'day'/'day_label') nutzt dagegen
+     * sent_at, wenn vorhanden, sonst created_at — beide Zeitpunkte koennen
+     * bei verzoegertem Versand auseinanderfallen.
      *
      * @return list<array<string, mixed>>
      */
@@ -179,5 +253,11 @@ class DispoThreadDirectory
         $mo = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][(int) $c->format('n')];
 
         return $wd . ', ' . $c->format('j') . '. ' . $mo;
+    }
+
+    /** @return list<string> */
+    private static function crmTypes(): array
+    {
+        return self::$crmTypes ??= [\Platform\Crm\Models\CrmContact::class, (new \Platform\Crm\Models\CrmContact())->getMorphClass()];
     }
 }
