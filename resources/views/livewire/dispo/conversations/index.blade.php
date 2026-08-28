@@ -94,10 +94,21 @@
                                     @endif
                                     <span class="truncate">{{ $thread['preview'] }}</span>
                                 </span>
+                                @if (count($thread['pnrs']) > 1)
+                                    <span class="mt-0.5 flex flex-wrap items-center gap-1">
+                                        @foreach ($thread['pnrs'] as $pnr)
+                                            <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ $pnr }}</span>
+                                        @endforeach
+                                    </span>
+                                @endif
                                 <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
                                     <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $wc['class'] }}"><span class="h-1.5 w-1.5 rounded-full {{ $wc['dot'] }}"></span>{{ $wc['text'] }}</span>
                                     @if ($thread['employee_id'] === null)
-                                        <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700">kein MA</span>
+                                        @if ($thread['shared_count'] > 1)
+                                            <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">Nummer von {{ $thread['shared_count'] }} MA genutzt</span>
+                                        @else
+                                            <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700">kein MA</span>
+                                        @endif
                                     @endif
                                 </span>
                             </span>
@@ -158,6 +169,11 @@
                             <div class="flex items-center gap-2 text-[15px] font-semibold">
                                 <span class="truncate">{{ $info['label'] }}</span>
                                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-gray-500">{{ $info['filiale'] }}</span>
+                                @if (count($info['pnrs']) > 1)
+                                    @foreach ($info['pnrs'] as $pnr)
+                                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ $pnr }}</span>
+                                    @endforeach
+                                @endif
                                 @if (!$info['matched'])
                                     <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700">kein MA zugeordnet</span>
                                 @endif

@@ -38,4 +38,18 @@ class DispoPhoneMatcherTest extends TestCase
         $matcher = new DispoPhoneMatcher([7 => null, 8 => '', 9 => '0176 12345678']);
         $this->assertSame(9, $matcher->match('+49 176 12345678'));
     }
+
+    public function test_multiple_phones_per_id_and_same_id_twice_is_not_ambiguous(): void
+    {
+        $m = new DispoPhoneMatcher([10 => ['+49 172 1', '0172 1'], 12 => '+49 160 9']);
+        $this->assertSame(10, $m->match('+491721'));
+        $this->assertSame(10, $m->match('01721'));
+        $this->assertSame(12, $m->match('+49 160 9'));
+    }
+
+    public function test_two_different_ids_same_phone_remain_ambiguous(): void
+    {
+        $m = new DispoPhoneMatcher([10 => '+49 172 1', 11 => '+49 172 1']);
+        $this->assertNull($m->match('+49 172 1'));
+    }
 }

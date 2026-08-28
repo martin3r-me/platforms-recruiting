@@ -101,6 +101,22 @@ class DispoIdentityResolverTest extends TestCase
         $this->assertSame([$maInactive], $r->groupFor($maInactive), 'Inaktiver angefragter MA -> nur er selbst.');
     }
 
+    public function test_employee_ids_by_contact_returns_sorted_active_team_ids(): void
+    {
+        $rg = $this->employee('RG4'); $ma = $this->employee('MA4');
+        $inactive = $this->employee('MA44', false);
+        $otherTeam = $this->employee('MA444', true, 999);
+        $this->link($rg, 902); $this->link($ma, 902); $this->link($inactive, 902); $this->link($otherTeam, 902);
+        $solo = $this->employee('RG5');
+        $this->link($solo, 903);
+
+        $result = (new DispoIdentityResolver())->employeeIdsByContact([902, 903, 999999]);
+
+        $this->assertSame([$rg, $ma], $result[902]);
+        $this->assertSame([$solo], $result[903]);
+        $this->assertArrayNotHasKey(999999, $result);
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);

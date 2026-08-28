@@ -10,6 +10,8 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoPhoneMatcher;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
 use Platform\Recruiting\Support\Filialen;
@@ -22,9 +24,13 @@ use Platform\Recruiting\Support\Filialen;
  * comms_channel_id IN <Set aller Dispo-Kanaele> — nie auf Kontext/Zuordnung.
  * Kanaele ohne Filial-Zuordnung landen im Tab "Sonstige", nie unsichtbar.
  * Zuordnung zur Filiale nur zur ANZEIGE via rec_dispo_filiale_settings;
- * Zuordnung zum MA nur zur ANZEIGE via Telefonnummer (DispoPhoneMatcher,
- * Ambiguitaet -> keine Zuordnung). Antworten gehen ueber den Kanal DES
- * jeweiligen Threads, nicht mehr ueber einen einzelnen Default-Kanal.
+ * Zuordnung zum MA nur zur ANZEIGE — zuerst ueber den am Thread verlinkten
+ * CRM-Kontakt (resolveEmployee, sicher), sonst ueber die Telefonnummer
+ * (DispoPhoneMatcher, Ambiguitaet -> keine Zuordnung). Mehrere Mitarbeiter-
+ * Datensaetze derselben Person (Dispo-Identitaet, siehe DispoIdentityResolver)
+ * werden auf die kanonische id zusammengefasst — EINE Person, EIN Thread-Eintrag.
+ * Antworten gehen ueber den Kanal DES jeweiligen Threads, nicht mehr ueber
+ * einen einzelnen Default-Kanal.
  */
 class Index extends Component
 {
@@ -39,6 +45,15 @@ class Index extends Component
     /** @var array<int, int|null>|null In-Request-Cache: comms_channel_id -> filial_nr (oder null-Eintrag existiert nicht, nur vorhandene Zuordnungen). */
     private ?array $channelFilialeMapCache = null;
 
+    /** @var array<int, string>|null In-Request-Cache: employee_id -> Roh-Telefonnummer (aktive MA). */
+    private ?array $phoneDirectoryCache = null;
+
+    /** @return array<int, string> employee_id -> Roh-Telefonnummer */
+    private function phoneDirectory(): array
+    {
+        return $this->phoneDirectoryCache ??= app(DispoEmployeeGateway::class)->phoneDirectory();
+    }
+
     /** @return list<int> IDs aller Kanaele des Dispo-WABA-Accounts (Lueckenlosigkeit). */
     #[Computed]
     public function channelIds(): array
@@ -46,10 +61,130 @@ class Index extends Component
         return DispoChannelResolver::dispoChannelIds();
     }
 
+    /**
+     * Dispo-Identitaet (Spec 2026-08-28): mehrere Mitarbeiter-Datensaetze
+     * desselben CRM-Kontakts sind EINE Person. Einmal pro Request — matcher(),
+     * resolveEmployee() und die PNr-Chips nutzen dieselbe Zuordnung.
+     *
+     * @return array{groups: array<int,list<int>>, canon: array<int,int>}
+     */
+    #[Computed]
+    public function identity(): array
+    {
+        $groups = app(DispoIdentityResolver::class)->groupsFor(array_keys($this->phoneDirectory()));
+
+        return ['groups' => $groups, 'canon' => DispoIdentityGroups::canonicalMap($groups)];
+    }
+
     #[Computed]
     public function matcher(): DispoPhoneMatcher
     {
-        return new DispoPhoneMatcher(app(DispoEmployeeGateway::class)->phoneDirectory());
+        $directory = $this->phoneDirectory(); // id => phone
+        $canon = $this->identity['canon'];
+
+        // Datensaetze derselben Person -> eine kanonische id mit allen ihren Nummern.
+        $byCanonical = [];
+        foreach ($directory as $id => $phone) {
+            $byCanonical[$canon[(int) $id] ?? (int) $id][] = $phone;
+        }
+
+        return new DispoPhoneMatcher($byCanonical);
+    }
+
+    /**
+     * Kontakt-Zuordnung fuer die aktuell im Kanal-Set liegenden Threads:
+     * contact_id (des verlinkten CRM-Kontakts) -> kanonische Mitarbeiter-id.
+     * Nur Threads mit contact_type = CrmContact zaehlen (Entkopplungs-Regel).
+     * Kontakt -> erste aktive id -> kanonisch (mehrere aktive Treffer je
+     * Kontakt sind heute nicht vorgesehen, die Gruppe fasst sie ohnehin zusammen).
+     *
+     * @return array<int, int> contact_id -> kanonische employee_id
+     */
+    #[Computed]
+    public function employeeByContact(): array
+    {
+        $channelIds = $this->channelIds;
+        if ($channelIds === []) {
+            return [];
+        }
+
+        $crmTypes = [\Platform\Crm\Models\CrmContact::class, (new \Platform\Crm\Models\CrmContact())->getMorphClass()];
+
+        $contactIds = CommsWhatsAppThread::query()
+            ->whereIn('comms_channel_id', $channelIds)
+            ->whereNotNull('contact_id')
+            ->whereIn('contact_type', $crmTypes)
+            ->distinct()
+            ->pluck('contact_id')
+            ->map(fn ($v) => (int) $v)
+            ->all();
+
+        if ($contactIds === []) {
+            return [];
+        }
+
+        $byContact = app(DispoIdentityResolver::class)->employeeIdsByContact($contactIds);
+        $canon = $this->identity['canon'];
+
+        $map = [];
+        foreach ($byContact as $contactId => $ids) {
+            if ($ids === []) {
+                continue;
+            }
+            $firstActive = $ids[0];
+            $map[(int) $contactId] = $canon[$firstActive] ?? $firstActive;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Normalisierte Nummern, die (nach Kanonisierung) zu >=2 verschiedenen
+     * Personen gehoeren — echte Mehrdeutigkeit (mehrere Datensaetze derselben
+     * Person auf derselben Nummer sind KEINE). Blade zeigt statt "kein MA"
+     * "Nummer von N MA genutzt".
+     *
+     * @return array<string, int> normalisierte Nummer -> Anzahl verschiedener Personen
+     */
+    #[Computed]
+    public function sharedPhones(): array
+    {
+        $canon = $this->identity['canon'];
+
+        $idsByPhone = [];
+        foreach ($this->phoneDirectory() as $id => $phone) {
+            $normalized = DispoPhoneMatcher::normalize($phone);
+            if ($normalized === null) {
+                continue;
+            }
+            $canonId = $canon[(int) $id] ?? (int) $id;
+            $idsByPhone[$normalized][$canonId] = true;
+        }
+
+        $shared = [];
+        foreach ($idsByPhone as $phone => $ids) {
+            if (count($ids) >= 2) {
+                $shared[$phone] = count($ids);
+            }
+        }
+
+        return $shared;
+    }
+
+    /**
+     * MA-Zuordnung eines Threads: zuerst der verlinkte CRM-Kontakt (sicher,
+     * kein Raten), sonst Fallback auf das Telefon-Matching. Beide Wege liefern
+     * bereits die kanonische id der Dispo-Identitaetsgruppe.
+     */
+    private function resolveEmployee(CommsWhatsAppThread $t): ?int
+    {
+        $byContact = $this->employeeByContact; // contact_id => kanonische id
+        $crmTypes = [\Platform\Crm\Models\CrmContact::class, (new \Platform\Crm\Models\CrmContact())->getMorphClass()];
+        if ($t->contact_id && in_array((string) $t->contact_type, $crmTypes, true) && isset($byContact[(int) $t->contact_id])) {
+            return $byContact[(int) $t->contact_id];
+        }
+
+        return $this->matcher->match($t->remote_phone_number);
     }
 
     /**
@@ -144,26 +279,47 @@ class Index extends Component
         $rows = $query->limit(200)->get();
 
         $matchedIds = $rows
-            ->map(fn ($t) => $this->matcher->match($t->remote_phone_number))
+            ->map(fn ($t) => $this->resolveEmployee($t))
             ->filter()
             ->unique()
             ->values()
             ->all();
 
-        $names = $matchedIds === [] ? [] : collect(app(DispoEmployeeGateway::class)->contacts($matchedIds))
-            ->map(fn ($c) => $c['name'])
-            ->all();
+        $groups = $this->identity['groups'];
+
+        // Alle Datensaetze der betroffenen Gruppen fuer Namen + PNr-Chips in EINER Abfrage.
+        $groupIds = [];
+        foreach ($matchedIds as $id) {
+            foreach ($groups[$id] ?? [$id] as $gid) {
+                $groupIds[$gid] = true;
+            }
+        }
+        $groupContacts = $groupIds === [] ? [] : app(DispoEmployeeGateway::class)->contacts(array_keys($groupIds));
+
+        $names = [];
+        $pnrsByEmployee = [];
+        foreach ($matchedIds as $id) {
+            $names[$id] = $groupContacts[$id]['name'] ?? null;
+            $pnrsByEmployee[$id] = collect($groups[$id] ?? [$id])
+                ->map(fn ($gid) => $groupContacts[$gid]['personnel_number'] ?? '')
+                ->filter(fn ($pnr) => $pnr !== '')
+                ->values()
+                ->all();
+        }
 
         $map = $this->channelFilialeMap();
+        $sharedPhones = $this->sharedPhones;
         $search = mb_strtolower(trim($this->search));
 
-        return $rows->map(function ($t) use ($names, $map) {
-            $employeeId = $this->matcher->match($t->remote_phone_number);
+        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones) {
+            $employeeId = $this->resolveEmployee($t);
             $filialNr = $map[(int) $t->comms_channel_id] ?? null;
             $name = $employeeId !== null ? ($names[$employeeId] ?? null) : null;
             $label = $name ?? (string) $t->remote_phone_number;
             $lastAt = $t->last_inbound_at ?? $t->last_outbound_at;
             $window = $this->windowInfo($t->last_inbound_at);
+            $normalizedPhone = DispoPhoneMatcher::normalize($t->remote_phone_number);
+            $sharedCount = $normalizedPhone !== null ? ($sharedPhones[$normalizedPhone] ?? 0) : 0;
 
             return [
                 'id'          => (int) $t->id,
@@ -171,6 +327,8 @@ class Index extends Component
                 'phone'       => (string) $t->remote_phone_number,
                 'initials'    => self::initials($name),
                 'employee_id' => $employeeId,
+                'pnrs'        => $employeeId !== null ? ($pnrsByEmployee[$employeeId] ?? []) : [],
+                'shared_count' => $sharedCount, // >=2: Nummer wird von mehreren Personen genutzt (echte Mehrdeutigkeit)
                 'preview'     => $this->humanPreview((string) ($t->last_message_preview ?? '')),
                 'preview_is_template' => str_starts_with((string) ($t->last_message_preview ?? ''), 'Template:'),
                 'is_unread'   => (bool) $t->is_unread,
@@ -318,7 +476,7 @@ class Index extends Component
         return $c->format('d.m.');
     }
 
-    /** Kopfdaten des gewaehlten Threads (Name, Nummer, Filiale, Fenster). */
+    /** Kopfdaten des gewaehlten Threads (Name, Nummer, Filiale, Fenster, PNr der Gruppe). */
     #[Computed]
     public function selectedInfo(): ?array
     {
@@ -326,8 +484,15 @@ class Index extends Component
         if ($thread === null) {
             return null;
         }
-        $employeeId = $this->matcher->match($thread->remote_phone_number);
-        $name = $employeeId !== null ? (app(DispoEmployeeGateway::class)->contacts([$employeeId])[$employeeId]['name'] ?? null) : null;
+        $employeeId = $this->resolveEmployee($thread);
+        $groupIds = $employeeId !== null ? ($this->identity['groups'][$employeeId] ?? [$employeeId]) : [];
+        $groupContacts = $groupIds === [] ? [] : app(DispoEmployeeGateway::class)->contacts($groupIds);
+        $name = $employeeId !== null ? ($groupContacts[$employeeId]['name'] ?? null) : null;
+        $pnrs = collect($groupIds)
+            ->map(fn ($gid) => $groupContacts[$gid]['personnel_number'] ?? '')
+            ->filter(fn ($pnr) => $pnr !== '')
+            ->values()
+            ->all();
         $filialNr = $this->channelFilialeMap()[(int) $thread->comms_channel_id] ?? null;
 
         return [
@@ -335,6 +500,7 @@ class Index extends Component
             'phone'    => (string) $thread->remote_phone_number,
             'initials' => self::initials($name),
             'matched'  => $employeeId !== null,
+            'pnrs'     => $pnrs,
             'filiale'  => $filialNr !== null ? (Filialen::code($filialNr) ?? ('#' . $filialNr)) : 'Sonstige',
             'filial_nr' => $filialNr,
             'window'   => $this->windowInfo($thread->last_inbound_at),
@@ -410,19 +576,20 @@ class Index extends Component
             })->all();
     }
 
-    /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA */
+    /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA (ALLER Datensaetze der Gruppe) */
     #[Computed]
     public function employeePanel(): array
     {
         $thread = $this->selected;
-        $employeeId = $thread ? $this->matcher->match($thread->remote_phone_number) : null;
+        $employeeId = $thread ? $this->resolveEmployee($thread) : null;
         if ($employeeId === null) {
             return [];
         }
+        $groupIds = $this->identity['groups'][$employeeId] ?? [$employeeId];
 
         return RecDispoAssignment::query()
             ->with('event')
-            ->where('rec_employee_id', $employeeId)
+            ->whereIn('rec_employee_id', $groupIds)
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereDate('datum', '>=', now()->toDateString())
             ->whereNull('missing_since')

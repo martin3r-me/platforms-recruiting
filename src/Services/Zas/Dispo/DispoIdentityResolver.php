@@ -69,4 +69,58 @@ class DispoIdentityResolver
     {
         return $this->groupsFor([$employeeId])[$employeeId] ?? [$employeeId];
     }
+
+    /**
+     * Fuer die Kommunikation: der an einen WhatsApp-Thread verknuepfte
+     * CRM-Kontakt zeigt direkt auf die Person (kein Telefon-Raten noetig).
+     * Gleiche Team-/Aktiv-Regeln wie groupsFor.
+     *
+     * @param list<int> $contactIds
+     * @return array<int, list<int>> contact_id => sortierte aktive MA-ids (nur Kontakte mit Treffern)
+     */
+    public function employeeIdsByContact(array $contactIds): array
+    {
+        $contactIds = array_values(array_unique(array_map('intval', $contactIds)));
+        if ($contactIds === []) {
+            return [];
+        }
+
+        $morph = (new RecEmployee())->getMorphClass();
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: 0);
+
+        $links = CrmContactLink::query()
+            ->where('linkable_type', $morph)
+            ->whereIn('contact_id', $contactIds)
+            ->get(['contact_id', 'linkable_id']);
+
+        if ($links->isEmpty()) {
+            return [];
+        }
+
+        $candidateIds = $links->pluck('linkable_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
+
+        $activeIds = RecEmployee::query()
+            ->whereIn('id', $candidateIds)
+            ->where('is_active', true)
+            ->when($teamId > 0, fn ($q) => $q->where('team_id', $teamId))
+            ->pluck('id')->map(fn ($v) => (int) $v)->all();
+        $activeSet = array_flip($activeIds);
+
+        $out = [];
+        foreach ($links as $link) {
+            $employeeId = (int) $link->linkable_id;
+            if (!isset($activeSet[$employeeId])) {
+                continue;
+            }
+            $out[(int) $link->contact_id][] = $employeeId;
+        }
+
+        foreach ($out as &$ids) {
+            $ids = array_values(array_unique($ids));
+            sort($ids);
+        }
+        unset($ids);
+
+        return $out;
+    }
 }
