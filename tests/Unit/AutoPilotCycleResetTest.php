@@ -27,8 +27,15 @@ final class AutoPilotCycleResetTest extends TestCase
         $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
         $capsule->setAsGlobal();
         $capsule->bootEloquent();
-        Model::clearBootedModels();
     }
+
+    protected function tearDown(): void
+    {
+        Model::unsetConnectionResolver();
+        Model::clearBootedModels();
+        parent::tearDown();
+    }
+
     public function testResetLoeschtAuchDenStatus(): void
     {
         $a = new RecApplicant();
