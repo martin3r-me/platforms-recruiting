@@ -558,6 +558,47 @@ class RecApplicant extends Model implements InheritsExtraFields
         return true;
     }
 
+    /**
+     * Selbstbedienungs-Reaktion (Buchung ueber die oeffentliche Terminseite):
+     * gilt wie eine WhatsApp-Antwort. Der Auto-Pilot-Zyklus beginnt neu und der
+     * Phasen-Abschluss wird SOFORT geprueft — nicht erst im Cron, der
+     * review_needed-Bewerber gar nicht anfasst.
+     *
+     * Warum das der richtige Moment ist (Kampagne „Neue Termine“, 28.08.):
+     * beim Kampagnen-Versand wird bewusst NICHT re-armt, damit Leute, die die
+     * Nachricht nur lesen, keine Erinnerungskette bekommen. Ohne diesen Hook
+     * bliebe aber ein Bucher aus P2 auf review_needed liegen: kein Aufstieg
+     * nach P3, kein Onboarding-Erstkontakt — und ReleaseStaleSeats gaebe seinen
+     * frisch gebuchten Platz als Standby wieder frei.
+     *
+     * false = nichts angefasst: Direkteinstellung (auto_pilot aus, HR schaltet
+     * manuell) oder Auto-Pilot bereits abgeschlossen (ein Neustart wuerde bei
+     * Legacy-Stellen den Buchungslink-Versand am Phasenende erneut ausloesen).
+     */
+    public function registerSelfServiceReaction(string $reason): bool
+    {
+        if (!$this->auto_pilot || $this->auto_pilot_completed_at !== null) {
+            return false;
+        }
+
+        $this->resetAutoPilotCycle();
+        $this->save();
+
+        try {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'autopilot_reacted',
+                'summary' => 'Reaktion des Bewerbers (' . $reason . ') — Auto-Pilot-Zyklus neu gestartet.',
+            ]);
+        } catch (\Throwable) {
+            // Log darf die Reaktion nicht blockieren.
+        }
+
+        $this->checkAutoPilotCompletion();
+
+        return true;
+    }
+
     public function checkAutoPilotCompletion(): void
     {
         // Direkteinstellung & Co.: Bewerber mit AutoPilot=OFF durchlaufen den

@@ -19,7 +19,7 @@ use Platform\Recruiting\Services\Campaign\NewDatesCampaignRecipients;
 use Platform\Recruiting\Services\Campaign\NewDatesCampaignSender;
 
 /**
- * Der Job orchestriert: Re-Check → Template nach Segment → Senden → Re-Arm →
+ * Der Job orchestriert: Re-Check → Template nach Segment → Senden →
  * Ort-Warteliste schliessen → Fortschritt. Sender und Loader sind Attrappen
  * (ihre Tests stehen daneben); hier zaehlt die Reihenfolge und dass ein
  * Fehlschlag den Zustand der Person NICHT anfasst.
@@ -135,9 +135,13 @@ final class SendNewDatesCampaignJobTest extends TestCase
         $this->assertSame(2, $r['progress']['sent']);
         $this->assertTrue($r['progress']['done']);
 
+        // Nachtrag 28.08.: KEIN Re-Arm beim Versand. Wer die Nachricht nur
+        // liest, bekommt keine zwei Erinnerungen hinterher; der Auto-Pilot geht
+        // erst bei einer Reaktion (Buchung/Formular) wieder an —
+        // RecApplicant::registerSelfServiceReaction(), SelfServiceReactionTest.
         $a1 = RecApplicant::find(1);
-        $this->assertSame($this->waitingId, (int) $a1->auto_pilot_state_id, 'Re-Arm nach Erfolg');
-        $this->assertSame(0, (int) $a1->auto_pilot_reminder_count);
+        $this->assertSame($this->reviewId, (int) $a1->auto_pilot_state_id, 'Status bleibt review_needed — kein Re-Arm beim Versand');
+        $this->assertSame(2, (int) $a1->auto_pilot_reminder_count, 'Zaehler unangetastet');
 
         $this->assertNotNull(RecInterviewWaitlist::where('rec_applicant_id', 2)->whereNull('rec_interview_id')->value('cancelled_at'), 'Ort-Eintrag geschlossen');
         $this->assertNull(RecInterviewWaitlist::where('rec_applicant_id', 2)->where('rec_interview_id', 86)->value('cancelled_at'), 'Termin-Abo nicht angefasst');

@@ -44,7 +44,7 @@ Onboarding-Daten an, `confirm_booking_on_completion` hebt die Buchung auf `regis
 - Vorab-Fix: Status-Reset beim Auto-Advance (eigener Commit, vor der Kampagne).
 - Statistik-Modal „Ohne Termin“: Auswahl (Checkboxen), Segment-Badges, Kampagnen-Button, Fortschritt/Ergebnis.
 - Automatische Template-Wahl nach Phasenposition (Template A = Formular, Template B = Terminauswahl).
-- Versand als Queue-Job, pro Person: senden → loggen → Auto-Pilot re-armen → Ort-Wartelisten-Eintrag schließen.
+- Versand als Queue-Job, pro Person: senden → loggen → Ort-Wartelisten-Eintrag schließen. **Kein Re-Arm beim Versand** (Nachtrag 28.08., §4); der Auto-Pilot geht bei der Reaktion wieder an.
 - Zwei Settings-Keys für die Default-Templates (Team-Ebene), pro Kampagne im Modal überschreibbar.
 - Tests (Unit pur + Integration mit Capsule) gemäß Projekt-Konvention.
 
@@ -64,7 +64,7 @@ Onboarding-Daten an, `confirm_booking_on_completion` hebt die Buchung auf `regis
 | Draußen mit Badge, nicht wählbar | kein Telefon |
 | Draußen mit Badge, abgehakt | HR-Schreibtisch (`is_on_hr_desk`) · in den letzten 14 Tagen bereits Kampagne · P4 |
 | 16 Wartelisten-Leute | anschreiben (B) **und** Ort-Eintrag schließen |
-| Re-Arm | Status → `waiting_for_applicant`, Zähler 0, `last_reminder_at = jetzt` (Kampagne = Erstkontakt des neuen Zyklus → danach 2 normale Erinnerungen, dann wieder Ruhe) |
+| Re-Arm | **Nachtrag 28.08. (Kunde):** KEIN Re-Arm beim Versand — wer die Nachricht nur liest, bekommt keine weiteren Erinnerungen. Re-Arm erst bei **Reaktion**: Selbstbuchung ruft `RecApplicant::registerSelfServiceReaction()` (Zyklus-Reset + sofortiger Phasen-Check), Formular-Save läuft über `checkAutoPilotCompletion()` + Status-Reset beim Aufstieg. `rearmAutoPilot()` bleibt als Methode ohne Aufrufer. |
 | Status-Reset generell | nur im Auto-Advance-Zweig (Bewerber hat gehandelt), **nicht** beim manuellen HR-Advance |
 | Steuerung | vollautomatisch nach Phasenposition, HR drückt einen Button |
 
@@ -141,12 +141,13 @@ Test: Unit pur, Tabellen-Test über alle Zeilen oben inkl. Legacy-Stelle ohne Bu
      Body-Variablen bleibt möglich.
   4. **Log** `RecAutoPilotLog` Typ `campaign_sent` (≤ 30 Zeichen, Spalte `varchar(30)`), `details`:
      `{campaign: uuid, template: name, segment: 'A'|'B', phase_id, sent_by: userId}`.
-  5. **Re-Arm** `RecApplicant::rearmAutoPilot(string $reason)`: `auto_pilot_state_id = waiting_for_applicant`,
-     `auto_pilot_reminder_count = 0`, `auto_pilot_last_reminder_at = now()`, Log `autopilot_rearmed`.
+  5. ~~Re-Arm~~ **entfällt (Nachtrag 28.08.)** — kein Re-Arm beim Versand. Stattdessen Reaktions-Hook: `Public/InterviewBooking::book()`
+     ruft nach erfolgreicher Buchung `RecApplicant::registerSelfServiceReaction('Terminbuchung')` (Zyklus-Reset, Status null,
+     Log `autopilot_reacted`, dann `checkAutoPilotCompletion()`); nicht für Direkteinstellung oder abgeschlossenen Auto-Pilot.
      Nur wenn `auto_pilot = true`; Direkteinstellungen bleiben unberührt.
   6. **Warteliste**: offene Ort-Einträge des Bewerbers `cancelled_at = now()`, Log `waitlist_replaced`
      („durch Kampagne abgelöst“). Termin-Abos (`rec_interview_id` gesetzt) werden **nicht** angefasst.
-- Fehler beim Senden → `failed`, Log Typ `error` mit Meta-Fehlertext; **kein** Re-Arm, **kein** Wartelisten-Schließen
+- Fehler beim Senden → `failed`, Log Typ `error` mit Meta-Fehlertext; **kein** Wartelisten-Schließen
   (die Person wurde nicht erreicht, ihr Zustand bleibt wie er war).
 - Buchhaltungsfehler nach erfolgreichem Versand (Log/Thread) dürfen den Versand nicht als Fehler melden — Muster aus
   `sendBookingLinkWhatsApp()` (Kommentar „Ab hier ist die WhatsApp RAUS“).
@@ -190,7 +191,8 @@ Unit (pur, `tests/Unit`):
 Integration (Capsule + SQLite, `tests/Integration`):
 - Status-Reset beim Auto-Advance (5.1) + Gegenprobe HR-Advance.
 - `rearmAutoPilot()` setzt State/Zähler/Timer; `auto_pilot=false` bleibt unberührt.
-- Job: WhatsApp-Service-Attrappe (Erfolg / Exception) → Log, Re-Arm, Wartelisten-Schließung nur bei Erfolg;
+- Job: WhatsApp-Service-Attrappe (Erfolg / Exception) → Log, Wartelisten-Schließung nur bei Erfolg, Status bleibt review_needed;
+- `SelfServiceReactionTest`: Buchung setzt Zyklus zurück und ruft den Phasen-Check; Direkteinstellung/abgeschlossen unberührt;
   Termin-Abo bleibt offen; Fortschritts-Cache korrekt; Re-Check überspringt frisch Gebuchte.
 - Statistik-Komponente: Kampagnen-Bereich nur bei `ohne_schulung`-Scope; Auswahl außerhalb `drillIds` wird verworfen.
 - Blade: `tools/blade-check.php` auf `index.blade.php` (kein `php -l`).

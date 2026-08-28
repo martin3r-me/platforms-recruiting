@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Core\Models\CorePublicFormLink;
@@ -353,6 +354,22 @@ class InterviewBooking extends Component
         RecInterviewWaitlist::where('rec_applicant_id', $this->applicantId)
             ->open()
             ->update(['fulfilled_at' => now()]);
+
+        // Eine Selbstbuchung ist eine Reaktion — wie eine WhatsApp-Antwort. Der
+        // Auto-Pilot-Zyklus beginnt neu und der Phasen-Abschluss wird sofort
+        // geprueft. Wichtig fuer Bewerber auf review_needed (z. B. nach der
+        // Kampagne „Neue Termine“, die bewusst nicht re-armt): der Cron fasst
+        // sie nicht an, ohne diesen Hook blieben sie mit gebuchtem Platz in P2
+        // liegen und ReleaseStaleSeats gaebe den Platz als Standby frei.
+        // Fehler hier duerfen die Buchung nicht kippen — sie IST schon gespeichert.
+        try {
+            $applicant->refresh()->registerSelfServiceReaction('Terminbuchung');
+        } catch (\Throwable $e) {
+            Log::warning('[InterviewBooking] Reaktions-Hook nach Buchung fehlgeschlagen (Buchung steht): ' . $e->getMessage(), [
+                'applicant_id' => $this->applicantId,
+                'interview_id' => $interview->id,
+            ]);
+        }
 
         unset($this->existingBooking, $this->visibleInterviews, $this->waitlistEntry, $this->interviewWaitlistEntries);
         $this->refreshTerminWording($interview);

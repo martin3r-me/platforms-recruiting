@@ -21,9 +21,13 @@ use Platform\Recruiting\Support\CampaignSegment;
  *     geaendert haben: inzwischen gebucht, Telefon weg, Team-fremd)
  *  2. Template nach Segment (A = Formular, B = Terminauswahl)
  *  3. Senden
- *  4. Re-Arm des Auto-Piloten — NUR bei Erfolg
- *  5. Offene Ort-Wartelisten-Eintraege schliessen — NUR bei Erfolg
- *  6. Fortschritt im Cache
+ *  4. Offene Ort-Wartelisten-Eintraege schliessen — NUR bei Erfolg
+ *  5. Fortschritt im Cache
+ *
+ * KEIN Re-Arm des Auto-Piloten beim Versand (Kundenentscheid 28.08.): die
+ * Kampagne ist eine einzelne Nachricht, keine neue Erinnerungskette. Wer
+ * reagiert (bucht, Formular ausfuellt), setzt den Auto-Pilot selbst wieder in
+ * Gang — RecApplicant::registerSelfServiceReaction() bzw. der Formular-Save.
  *
  * Ein Fehlschlag laesst den Zustand der Person unangetastet: sie wurde nicht
  * erreicht, also bleibt sie, wie sie war. Fortschritt liegt unter cacheKey()
@@ -136,7 +140,13 @@ class SendNewDatesCampaign implements ShouldQueue
                 continue;
             }
 
-            $applicant->rearmAutoPilot('Kampagne „Neue Termine“');
+            // Bewusst KEIN Re-Arm des Auto-Piloten (Kundenentscheid 28.08.):
+            // wer die Nachricht nur liest, soll nicht zwei Erinnerungen
+            // hinterher bekommen. Der Auto-Pilot geht erst bei einer Reaktion
+            // wieder an — Buchung (RecApplicant::registerSelfServiceReaction,
+            // aufgerufen von Public/InterviewBooking) oder Formular-Save
+            // (Core ruft checkAutoPilotCompletion, der Aufstieg setzt den
+            // Status zurueck).
             $this->closeOrtWaitlist($applicant);
 
             $progress['sent']++;
