@@ -234,20 +234,18 @@
                         </div>
                         @if ($window['state'] === 'open')
                             {{-- Textfeld waechst mit dem Inhalt (bis ~8 Zeilen, dann intern scrollen);
-                                 Enter sendet, Shift+Enter macht eine neue Zeile (wie WhatsApp). --}}
+                                 Enter macht eine neue Zeile, gesendet wird nur ueber den Knopf. --}}
                             <div class="flex items-end gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 pl-3 focus-within:border-blue-400"
                                  x-data="{ fit(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; } }">
                                 <textarea wire:model="replyText" rows="1" placeholder="Antwort schreiben …"
                                           x-init="fit($el)"
                                           x-on:input="fit($el)"
                                           x-on:reply-sent.window="$nextTick(() => fit($el))"
-                                          x-on:keydown.enter.prevent="if (!$event.shiftKey) { $wire.sendReply() } else { $el.setRangeText('\n', $el.selectionStart, $el.selectionEnd, 'end'); $el.dispatchEvent(new Event('input', { bubbles: true })) }"
                                           class="max-h-[200px] min-h-[36px] w-full resize-none overflow-y-auto border-0 bg-transparent p-1.5 text-sm leading-snug text-gray-900 placeholder:text-gray-400 focus:ring-0"></textarea>
                                 <button type="button" wire:click="sendReply" wire:loading.attr="disabled" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" aria-label="Senden">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12 20 4l-4 16-4-7z"/></svg>
                                 </button>
                             </div>
-                            <div class="mt-1 px-1 text-[11px] text-gray-400">Enter sendet · Shift + Enter für eine neue Zeile</div>
                         @else
                             <div class="rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
                                 @if ($window['state'] === 'closed')
