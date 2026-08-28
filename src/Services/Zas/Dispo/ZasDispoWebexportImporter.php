@@ -124,11 +124,6 @@ class ZasDispoWebexportImporter
             }
 
             DB::transaction(function () use ($plan, $matcher, &$summary) {
-                // Runde 4 (#2): bestaetigte Einbuchungen, deren Zeiten sich aendern, werden
-                // zurueckgesetzt und markiert — der naechste Versand nimmt sie wieder mit.
-                $reconfirm = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
-                $summary['reconfirm_marked'] = $reconfirm['count'];
-
                 $eventIds = [];
                 foreach ($plan['events'] as $ref => $attrs) {
                     $isPlaceholder = $attrs['is_placeholder'] ?? false;
@@ -149,6 +144,11 @@ class ZasDispoWebexportImporter
 
                     $eventIds[$ref] = $event->id;
                 }
+
+                // Runde 4 (#2): bestaetigte Einbuchungen, deren Zeiten sich aendern, werden
+                // zurueckgesetzt und markiert — der naechste Versand nimmt sie wieder mit.
+                $reconfirm = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
+                $summary['reconfirm_marked'] = $reconfirm['count'];
 
                 foreach ($plan['assignments'] as $dsRef => $attrs) {
                     $einsatzRef = $attrs['einsatz_ref'];
