@@ -19,6 +19,7 @@ use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecAutoPilotState;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Support\AutoPilotSilentLog;
 use Platform\Recruiting\Support\SeatStandbyPolicy;
 use Platform\Recruiting\Support\DuplicateApplicantGuard;
 use Platform\Recruiting\Jobs\NotifyWaitlistForInterview;
@@ -741,6 +742,16 @@ class ProcessAutoPilotApplicants extends Command
 
     private function logAutoPilot(RecApplicant $applicant, string $type, string $summary, ?array $details = null): void
     {
+        // `silent` faellt bei JEDEM Lauf (everyMinute) fuer jeden stillen
+        // Bewerber an — ohne Dedupe ~1.400 identische Zeilen pro Bewerber und
+        // Tag (Ticket 2026-08-28-autopilot-silent-log-flood). Einmal beim
+        // Eintritt in den Zustand reicht; AutoPilotSilentLog prueft den
+        // juengsten Eintrag des Bewerbers.
+        if ($type === 'silent') {
+            AutoPilotSilentLog::record((int) $applicant->id, $summary);
+            return;
+        }
+
         try {
             RecAutoPilotLog::create([
                 'rec_applicant_id' => $applicant->id,
