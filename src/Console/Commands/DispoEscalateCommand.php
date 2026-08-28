@@ -187,15 +187,24 @@ class DispoEscalateCommand extends Command
                 continue;
             }
 
+            $bodyParams = [
+                ['type' => 'text', 'text' => ($contact['first_name'] !== '' ? $contact['first_name'] : $contact['name'])],
+                ['type' => 'text', 'text' => (string) ($a->event->name ?? $a->event->einsatz_ref)],
+                ['type' => 'text', 'text' => $a->datum->format('d.m.Y')],
+                ['type' => 'text', 'text' => $this->shiftLabel($a->von, $a->bis)],
+            ];
+            // Runde 3: Stufe-3-Uhrzeit ist pro VA variabel -> der finale Reminder darf sie
+            // als {{5}} tragen. Meta prueft die Parameterzahl exakt, deshalb NUR mitschicken,
+            // wenn der Template-Body den Platzhalter enthaelt (altes 4er-Template laeuft weiter,
+            // Template-Wechsel braucht keinen synchronen Deploy).
+            if ($stage === 2 && self::templateUsesPlaceholder($template, '{{5}}')) {
+                $bodyParams[] = ['type' => 'text', 'text' => $times[3]];
+            }
+
             $components = [
                 [
-                    'type' => 'body',
-                    'parameters' => [
-                        ['type' => 'text', 'text' => ($contact['first_name'] !== '' ? $contact['first_name'] : $contact['name'])],
-                        ['type' => 'text', 'text' => (string) ($a->event->name ?? $a->event->einsatz_ref)],
-                        ['type' => 'text', 'text' => $a->datum->format('d.m.Y')],
-                        ['type' => 'text', 'text' => $this->shiftLabel($a->von, $a->bis)],
-                    ],
+                    'type'       => 'body',
+                    'parameters' => $bodyParams,
                 ],
                 [
                     'type'       => 'button',
@@ -347,6 +356,19 @@ class DispoEscalateCommand extends Command
      * datum = morgen (Vortag) bzw. heute (Einsatztag)). "16:00 bis 22:00", nur-von -> "16:00", keine von-Zeit
      * -> Fallback "siehe Infoseite" (Meta akzeptiert keine leeren Parameter).
      */
+    /** Enthaelt der BODY des Meta-Templates den Platzhalter (z. B. "{{5}}")? */
+    private static function templateUsesPlaceholder(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate $template, string $placeholder): bool
+    {
+        foreach ((array) ($template->components ?? []) as $component) {
+            if (strtoupper((string) ($component['type'] ?? '')) === 'BODY'
+                && str_contains((string) ($component['text'] ?? ''), $placeholder)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function shiftLabel(?string $von, ?string $bis): string
     {
         if ($von === null || $von === '') {

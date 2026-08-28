@@ -286,6 +286,50 @@ class DispoEscalateCommandTest extends TestCase
         $this->assertSame($firstMessageId, $row->escalation_1_message_id);
     }
 
+    /**
+     * Runde-3-Nachzug: Stufe 2 darf die Rausnahme-Uhrzeit als {{5}} tragen — aber NUR,
+     * wenn der Template-Body den Platzhalter enthaelt (Meta prueft die Parameterzahl
+     * exakt; altes 4er-Template muss weiter funktionieren).
+     */
+    public function test_stage2_sends_four_parameters_when_template_has_no_deadline_placeholder(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-S2-OLD', 'name' => 'Alt', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-S2-OLD', '2026-08-26'));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 15:01:00'));
+
+        $this->assertSame(1, $report['stage2']);
+        $params = $this->stub->log[0]['components'][0]['parameters'];
+        $this->assertCount(4, $params, 'Template ohne {{5}} -> genau vier Body-Parameter.');
+    }
+
+    public function test_stage2_passes_event_deadline_as_fifth_parameter_when_template_uses_it(): void
+    {
+        $accountId = IntegrationsWhatsAppTemplate::find(self::$template2Id)->whatsapp_account_id;
+        $finalV2 = IntegrationsWhatsAppTemplate::create([
+            'external_id' => 'ext-esc-2-v2', 'name' => 'dispo_final_v2', 'language' => 'de', 'status' => 'APPROVED',
+            'components' => [['type' => 'BODY', 'text' => 'Final {{1}} bis {{5}} Uhr']], 'whatsapp_account_id' => $accountId, 'user_id' => 1,
+        ]);
+        $settings = RecApplicantSettings::where('team_id', self::TEAM)->first();
+        $settings->settings = array_merge(self::baselineSettings(), ['dispo_escalation_template_2_id' => $finalV2->id]);
+        $settings->save();
+
+        // VA-Override: Stufe 3 um 20:00 -> genau diese Uhrzeit muss als {{5}} rausgehen (nicht der Team-Default 16:00).
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-ESC-S2-V2', 'name' => 'Neu', 'filial_nr' => self::FILIAL_NR,
+            'escalation_time_1' => '18:00', 'escalation_time_2' => '19:00', 'escalation_time_3' => '20:00',
+        ]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-S2-V2', '2026-08-26'));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 19:05:00'));
+
+        $this->assertSame(1, $report['stage2']);
+        $this->assertSame('dispo_final_v2', $this->stub->log[0]['templateName']);
+        $params = $this->stub->log[0]['components'][0]['parameters'];
+        $this->assertCount(5, $params, 'Template mit {{5}} -> fuenf Body-Parameter.');
+        $this->assertSame('20:00', $params[4]['text'], '{{5}} = effektive Stufe-3-Uhrzeit der VA.');
+    }
+
     public function test_stage3_marks_deletion_locks_portal_and_sends_alarm(): void
     {
         $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-S3', 'name' => 'Test-VA-Alarm', 'filial_nr' => self::FILIAL_NR]);
