@@ -46,6 +46,50 @@ class ApplicantEmployeeFieldMapping
         'recruited_by_personnel_number' => 'geworben_von',
     ];
 
+    /**
+     * Spaltenbreiten der rec_employees-Textspalten (Stand der Migrationen).
+     * resolve() kappt jeden Wert darauf, statt ihn 1:1 durchzureichen.
+     *
+     * Warum: ein einziger zu langer Wert liess bisher den kompletten INSERT
+     * mit SQLSTATE[22001] sterben — und mit ihm die Mitarbeiter-Anlage, an
+     * der im Versand-Pfad die Portal-WhatsApp haengt. Der Bewerber bekam
+     * dann gar keine Nachricht, obwohl die Vertraege als "versendet"
+     * markiert waren (Bewerber #2381, 25.08.2026). Ein gekappter Wert ist
+     * verkraftbar, ein verlorener Mitarbeiter nicht.
+     *
+     * Gleiche Schutzlogik wie ZasInboundRowMapper::MAX_LENGTHS auf dem
+     * Inbound-Pfad — der hatte sie von Anfang an, der Create-Flow nicht.
+     * Nur skalare Textspalten: birth_date/DATE_MAP sind DATE, ARRAY_MAP
+     * ist JSON, FILE_MAP ist int.
+     */
+    public const MAX_LENGTHS = [
+        'first_name'                    => 120,
+        'last_name'                     => 120,
+        'birth_name'                    => 120,
+        'birth_place'                   => 120,
+        'birth_country'                 => 64,
+        'identity_card_number'          => 64,
+        'email'                         => 255,
+        'street'                        => 255,
+        'house_number'                  => 16,
+        'zip'                           => 16,
+        'city'                          => 120,
+        'country_code'                  => 64,
+        'phone'                         => 64,
+        'employment_type'               => 64,
+        'umfang_der_tatigkeit'          => 64,
+        'iban'                          => 64,
+        'bic'                           => 32,
+        'bank_institute'                => 120,
+        'steuer_id'                     => 32,
+        'sozialversicherungsnummer'     => 32,
+        'gender'                        => 32,
+        'marital_status'                => 32,
+        'health_insurance'              => 64,
+        'drivers_license_class'         => 32,
+        'recruited_by_personnel_number' => 64,
+    ];
+
     /** city hat eine Fallback-Kette ueber zwei historische Feldnamen. */
     public const CITY_SOURCES = ['stadt', 'ort'];
 
@@ -160,7 +204,29 @@ class ApplicantEmployeeFieldMapping
             }
         }
 
-        return $out;
+        return self::clampToColumnWidths($out);
+    }
+
+    /**
+     * Kappt alle Textspalten auf ihre Spaltenbreite (siehe MAX_LENGTHS).
+     * mb_substr, nicht substr: ein mitten im Byte-Paar gekappter Umlaut
+     * waere kein gueltiges UTF-8 und wuerde von MySQL erst recht abgelehnt.
+     *
+     * @param array<string, mixed> $columns
+     * @return array<string, mixed>
+     */
+    private static function clampToColumnWidths(array $columns): array
+    {
+        foreach (self::MAX_LENGTHS as $column => $maxLength) {
+            if (!isset($columns[$column]) || !is_string($columns[$column])) {
+                continue;
+            }
+            if (mb_strlen($columns[$column]) > $maxLength) {
+                $columns[$column] = mb_substr($columns[$column], 0, $maxLength);
+            }
+        }
+
+        return $columns;
     }
 
     /**

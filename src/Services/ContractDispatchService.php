@@ -25,6 +25,32 @@ use Platform\Recruiting\Models\RecEmployee;
  */
 class ContractDispatchService
 {
+    /**
+     * Grund fuer eine ausgebliebene Portal-WA, wenn die Mitarbeiter-Anlage
+     * nicht durchlief (F1-Edge). Frueher blieb message hier null — und der
+     * Bulk zaehlte deshalb keinen Fehler.
+     */
+    public const NO_EMPLOYEE_MESSAGE = 'Kein Mitarbeiter-Datensatz vorhanden — Portal-WA nicht gesendet (Grund im RecAutoPilotLog, Typ employee_create_failed).';
+
+    /**
+     * "Vertraege sind raus, die Portal-WA aber nicht" — der Zustand, in dem
+     * der Bewerber trotz Versand keine Nachricht bekommen hat.
+     *
+     * Eine Quelle fuer beide Aufrufer: der Bulk las das Ergebnis frueher
+     * ueber message !== null und uebersah damit genau den Fall ohne
+     * Fehlertext (fehlender Mitarbeiter) — gruener Flash, stummer Bewerber.
+     *
+     * status=error und status=skipped_already_sent sind NICHT gemeint; die
+     * haben bei beiden Aufrufern eigene Zweige.
+     *
+     * @param array{status: string, portal_sent: bool, message: ?string} $result
+     */
+    public static function isPortalFailure(array $result): bool
+    {
+        return ($result['status'] ?? null) === 'sent'
+            && !($result['portal_sent'] ?? false);
+    }
+
     public function sendForApplicant(
         RecApplicant $applicant,
         ?int $userId,
@@ -63,11 +89,10 @@ class ContractDispatchService
         // nur noch ein Guertel fuer einen etwaigen kuenftigen throw; die
         // eigentliche Erfolgs-/Fehler-Auswertung MUSS ueber den Rueckgabewert
         // laufen, sonst waere portal_sent auch bei fehlgeschlagenem WA-Versand
-        // true. Das weicht bewusst vom historischen Bulk ab, der einen
-        // fehlgeschlagenen Portal-WA-Versand faelschlich als "sent" zaehlte
-        // (Bug wird hier bewusst NICHT uebernommen) — die WA-Menge selbst
-        // bleibt unveraendert (weiterhin genau ein Versandversuch), nur der
-        // Bulk-Zaehler portalsSent wird dadurch als Nebeneffekt korrekt.
+        // true. Der historische Bulk zaehlte einen solchen Versand faelschlich
+        // als Erfolg; seit 08/2026 lesen beide Aufrufer das Ergebnis ueber
+        // isPortalFailure() und damit gleich — die WA-Menge selbst bleibt
+        // unveraendert (weiterhin genau ein Versandversuch).
         $portalSent = false;
         $portalError = null;
         try {
@@ -78,6 +103,12 @@ class ContractDispatchService
                 if (!$portalSent) {
                     $portalError = $portalResult['message'] ?? 'Portal-WA fehlgeschlagen (Details im RecAutoPilotLog).';
                 }
+            } else {
+                // Kein Mitarbeiter = kein Empfaenger fuer die Portal-WA, also
+                // hat der Bewerber gar keine Nachricht bekommen. Das MUSS
+                // einen Grund tragen, sonst liest es sich fuer den Aufrufer
+                // wie "nichts zu melden".
+                $portalError = self::NO_EMPLOYEE_MESSAGE;
             }
         } catch (\Throwable $e) {
             $portalError = $e->getMessage();

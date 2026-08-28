@@ -673,9 +673,15 @@ class Index extends Component
                 $contractsSent++;
                 if ($result['portal_sent']) {
                     $portalsSent++;
-                } elseif ($result['message'] !== null) {
+                } elseif (ContractDispatchService::isPortalFailure($result)) {
                     // Portal-Fehler NACH erfolgreichem Vertragsversand —
-                    // alte Bulk-Semantik: contractsSent zählt, errors auch.
+                    // contractsSent zählt, errors auch. Die Auswertung liegt
+                    // im Service, damit sie hier nicht wieder von der des
+                    // HR-Schreibtischs abweicht: bis 08/2026 stand hier
+                    // `message !== null`, was den Fall "kein Mitarbeiter-
+                    // Datensatz" (message war null) als Erfolg durchgehen
+                    // liess — grüner Flash, während der Bewerber gar keine
+                    // Nachricht bekam.
                     $errors++;
                 }
             } elseif ($result['status'] === 'error') {

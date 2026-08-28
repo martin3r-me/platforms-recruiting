@@ -513,14 +513,16 @@ class Index extends Component
                 return; // Fall bleibt offen — kein halber Zustand.
             }
 
-            if ($result['status'] === 'sent' && !$result['portal_sent']) {
+            if (ContractDispatchService::isPortalFailure($result)) {
                 // Vertragsversand ok, Portal-Benachrichtigung fehlgeschlagen ODER
-                // kein RecEmployee gefunden (message === null, F1-Edge) — Fall
-                // trotzdem schliessen, aber Flash ehrlich halten statt vollen
-                // Erfolg zu behaupten.
-                $portalWarning = $result['message'] !== null
-                    ? 'Verträge versendet, Portal-WA fehlgeschlagen: ' . $result['message'] . ' — Fall geschlossen; Portal-Link ggf. manuell senden.'
-                    : 'Verträge versendet, Portal-WA nicht möglich (kein Mitarbeiter-Datensatz) — Fall geschlossen; Portal-Link ggf. manuell senden.';
+                // kein RecEmployee gefunden (F1-Edge) — Fall trotzdem schliessen,
+                // aber Flash ehrlich halten statt vollen Erfolg zu behaupten.
+                // Der Grund kommt seit 08/2026 in beiden Faellen vom Service
+                // (NO_EMPLOYEE_MESSAGE), es gibt hier also keinen textlosen
+                // Zweig mehr.
+                $portalWarning = 'Verträge versendet, Portal-WA fehlgeschlagen: '
+                    . ($result['message'] ?? 'Grund unbekannt.')
+                    . ' — Fall geschlossen; Portal-Link ggf. manuell senden.';
             }
         }
         // state === 'already_sent' ODER erfolgreicher Versand: Fall schließen.

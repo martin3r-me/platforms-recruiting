@@ -186,4 +186,58 @@ class ApplicantEmployeeFieldMappingTest extends TestCase
             $this->assertArrayHasKey($column, $resolved, "$column fehlt im Gesamt-Mapping");
         }
     }
+
+    public function test_overlong_text_values_are_clamped_to_the_column_length(): void
+    {
+        // Realfall Bewerber #2381: das Enrichment schrieb einen Kommentar statt
+        // eines Werts in `geworben_von`. 91 Zeichen gegen varchar(64) → der
+        // INSERT starb mit SQLSTATE[22001] und riss die komplette MA-Anlage
+        // mit (und damit still den Portal-Versand an den Bewerber).
+        $kommentar = '(Eingabe im Formular: 01774493549 – vermutlich keine Personalnummer, sondern Telefonnummer)';
+        $this->assertGreaterThan(64, mb_strlen($kommentar));
+
+        $resolved = ApplicantEmployeeFieldMapping::resolve(['geworben_von' => $kommentar]);
+
+        $this->assertSame(64, mb_strlen($resolved['recruited_by_personnel_number']));
+        $this->assertSame(mb_substr($kommentar, 0, 64), $resolved['recruited_by_personnel_number']);
+    }
+
+    public function test_clamping_is_multibyte_safe(): void
+    {
+        // mb_substr statt substr: sonst wird ein Umlaut mitten im Byte-Paar
+        // gekappt und MySQL lehnt den kaputten UTF-8-String erst recht ab.
+        $strasse = str_repeat('ä', 300);
+
+        $resolved = ApplicantEmployeeFieldMapping::resolve(['strasse' => $strasse]);
+
+        $this->assertSame(255, mb_strlen($resolved['street']));
+        $this->assertTrue(mb_check_encoding($resolved['street'], 'UTF-8'));
+    }
+
+    public function test_values_within_the_limit_are_untouched(): void
+    {
+        $resolved = ApplicantEmployeeFieldMapping::resolve([
+            'geworben_von' => '01774493549',
+            'vorname'      => 'Muhammad',
+        ]);
+
+        $this->assertSame('01774493549', $resolved['recruited_by_personnel_number']);
+        $this->assertSame('Muhammad', $resolved['first_name']);
+    }
+
+    public function test_every_scalar_string_column_has_a_length_limit(): void
+    {
+        // Drift-Schutz: eine neue Text-Spalte ohne Eintrag in MAX_LENGTHS
+        // waere wieder ein ungeschuetzter Weg in denselben 22001-Absturz.
+        // birth_date ist die einzige TEXT_MAP-Spalte ohne Laengenbegrenzung
+        // (DATE-Spalte, wird von normalizeDateValue geformt).
+        $columns = array_diff(array_keys(ApplicantEmployeeFieldMapping::TEXT_MAP), ['birth_date']);
+        foreach (array_merge($columns, ['city', 'phone']) as $column) {
+            $this->assertArrayHasKey(
+                $column,
+                ApplicantEmployeeFieldMapping::MAX_LENGTHS,
+                "$column hat keine Laengenbegrenzung"
+            );
+        }
+    }
 }
