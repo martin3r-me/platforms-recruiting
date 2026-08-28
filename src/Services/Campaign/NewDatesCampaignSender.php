@@ -8,6 +8,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Services\Comms\HoldingTemplateComponents;
 use Platform\Recruiting\Services\Comms\HoldingTemplateSender;
+use Platform\Recruiting\Support\WhatsAppTemplateBodyVariables;
 use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
 
 /**
@@ -35,6 +36,7 @@ class NewDatesCampaignSender
     public const STATUS_NO_PHONE = 'no_phone';
     public const STATUS_NOT_CONFIGURED = 'not_configured';
     public const STATUS_TEMPLATE_WITHOUT_URL_BUTTON = 'template_without_url_button';
+    public const STATUS_TEMPLATE_WITH_FOREIGN_VARS = 'template_with_foreign_vars';
     public const STATUS_FAILED = 'failed';
 
     public const URL_BUTTON_INDEX = 0;
@@ -75,6 +77,23 @@ class NewDatesCampaignSender
             return [
                 'status' => self::STATUS_TEMPLATE_WITHOUT_URL_BUTTON,
                 'error' => 'Template „' . $template->name . '“ hat keinen dynamischen URL-Button an Position 0 — ohne ihn kein Link.',
+            ];
+        }
+
+        // Fremd-Variablen-Guard (Final-Review): jede Body-Variable ausser dem
+        // Vornamen wuerde HoldingTemplateComponents::build() mit dem
+        // MUSTER-Text aus dem Meta-Beispiel fuellen (`:45` in
+        // WhatsAppTemplateBodyVariables) — erfolgreich, ohne Fehler, ohne
+        // Logzeile. '1' ist der Fallback-Variablenname mancher Meta-Editoren
+        // fuer denselben Vornamen-Slot.
+        $foreignVars = array_values(array_filter(
+            WhatsAppTemplateBodyVariables::names($components),
+            fn (string $name): bool => !in_array(strtolower($name), ['name', 'vorname', '1'], true),
+        ));
+        if ($foreignVars !== []) {
+            return [
+                'status' => self::STATUS_TEMPLATE_WITH_FOREIGN_VARS,
+                'error' => 'Template „' . $template->name . '“ hat Body-Variablen außer dem Vornamen (' . implode(', ', $foreignVars) . ') — die würden mit Meta-Beispieltext gefüllt.',
             ];
         }
 

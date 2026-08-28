@@ -221,7 +221,7 @@ final class NewDatesCampaignSenderTest extends TestCase
         $this->assertSame('Kein aktiver WhatsApp-Kanal für den Account.', $r['error']);
     }
 
-    public function testMetaFehlerIstFailedOhneLog(): void
+    public function testMetaFehlerIstFailedMitErrorLogOhneCampaignLog(): void
     {
         $a = $this->applicant();
         $this->meta->throw = true;
@@ -231,5 +231,28 @@ final class NewDatesCampaignSenderTest extends TestCase
         $this->assertStringContainsString('Meta 131026', (string) $r['error']);
         $this->assertSame(0, RecAutoPilotLog::where('type', 'campaign_sent')->count());
         $this->assertSame(1, RecAutoPilotLog::where('type', 'error')->count(), 'Fehler wird als error-Log festgehalten.');
+    }
+
+    /**
+     * Final-Review: eine Body-Variable ausser dem Vornamen wuerde
+     * HoldingTemplateComponents::build() mit dem Meta-Beispieltext fuellen —
+     * erfolgreich, ohne Fehler, ohne Logzeile. Der Guard muss das VOR dem
+     * Versand abfangen: kein Meta-Call, kein Log (weder campaign_sent noch
+     * error).
+     */
+    public function testFremdeBodyVariableWirdVerweigertOhneVersandOhneLog(): void
+    {
+        $a = $this->applicant();
+        $sender = $this->sender(['components' => [
+            ['type' => 'BODY', 'text' => 'Hallo {{name}}, Termin {{termin}}'],
+            self::BUTTON_B,
+        ]]);
+
+        $r = $sender->send($a, 77, 'B', 'u', null);
+
+        $this->assertSame(NewDatesCampaignSender::STATUS_TEMPLATE_WITH_FOREIGN_VARS, $r['status']);
+        $this->assertStringContainsString('termin', (string) $r['error']);
+        $this->assertCount(0, $this->meta->calls);
+        $this->assertSame(0, RecAutoPilotLog::count());
     }
 }

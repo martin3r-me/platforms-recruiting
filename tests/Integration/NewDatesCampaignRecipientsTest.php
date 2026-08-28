@@ -56,6 +56,7 @@ final class NewDatesCampaignRecipientsTest extends TestCase
         $s->create('rec_applicants', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->string('public_token')->nullable();
             $t->integer('team_id'); $t->boolean('is_active')->default(true); $t->boolean('auto_pilot')->default(true);
+            $t->boolean('is_parked')->default(false); $t->timestamp('rejected_at')->nullable();
             $t->boolean('is_on_hr_desk')->default(false); $t->integer('rec_phase_id')->nullable();
             $t->integer('rec_position_id')->nullable(); $t->date('applied_at')->nullable();
             $t->integer('auto_pilot_state_id')->nullable(); $t->integer('auto_pilot_reminder_count')->default(0);
@@ -206,6 +207,29 @@ final class NewDatesCampaignRecipientsTest extends TestCase
 
         $this->assertFalse($rows[7]['selectable']);
         $this->assertContains('hat inzwischen gebucht', $rows[7]['badges']);
+    }
+
+    /**
+     * Final-Review: Re-Check des Loader-Standes muss inaktive, geparkte und
+     * abgesagte Bewerbungen ausschliessen — auch wenn sie noch im Kohorten-
+     * Snapshot des Modals standen. HR-Desk (is_on_hr_desk) bleibt bewusst
+     * NICHT ausgeschlossen (siehe Klassenkommentar): scopeActive() darf hier
+     * deshalb nicht verwendet werden.
+     */
+    public function testInaktiveGeparkteUndAbgesagteFallenRaus(): void
+    {
+        $this->applicant(1, 41);                          // aktiv, bleibt
+        $this->applicant(2, 41);                          // wird geparkt
+        $this->applicant(3, 41);                          // wird abgesagt
+        $this->applicant(4, 41);                          // wird inaktiv
+
+        Capsule::table('rec_applicants')->where('id', 2)->update(['is_parked' => true]);
+        Capsule::table('rec_applicants')->where('id', 3)->update(['rejected_at' => '2026-08-20 10:00:00']);
+        Capsule::table('rec_applicants')->where('id', 4)->update(['is_active' => false]);
+
+        $rows = (new NewDatesCampaignRecipients())->load(3, [1, 2, 3, 4], new \DateTimeImmutable('2026-08-28 12:00:00'));
+
+        $this->assertSame([1], array_keys($rows), 'Geparkte, abgesagte und inaktive Bewerbungen fallen aus dem Re-Check.');
     }
 
     public function testLeereEingabeLeeresErgebnis(): void

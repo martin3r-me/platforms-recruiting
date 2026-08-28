@@ -295,6 +295,14 @@ class Index extends Component
     public array $campaignSelection = [];
     public ?int $campaignTemplateA = null;
     public ?int $campaignTemplateB = null;
+    /**
+     * Kampagnen-Token (Final-Review): kein Pfad bindet diese Property vom
+     * Client — sie wird ausschliesslich in startCampaign() gesetzt und in
+     * resetDrill()/dem Poll-Guard gelesen. Locked wie $drillIds, damit ein
+     * gecrafteter Snapshot kein fremdes/ausgedachtes Kampagnen-Token
+     * unterschieben kann.
+     */
+    #[Locked]
     public ?string $campaignUuid = null;
     public string $campaignError = '';
 

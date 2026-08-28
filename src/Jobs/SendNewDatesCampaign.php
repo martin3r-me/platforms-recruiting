@@ -63,6 +63,38 @@ class SendNewDatesCampaign implements ShouldQueue
         return ['total' => $total, 'sent' => 0, 'failed' => 0, 'skipped' => 0, 'done' => false, 'errors' => []];
     }
 
+    /**
+     * Wird nach dem letzten (hier: einzigen, $tries = 1) fehlgeschlagenen
+     * Versuch aufgerufen — z. B. bei Timeout oder einer nicht abgefangenen
+     * Exception in handle(). Ohne diesen Handler bliebe der Fortschritt im
+     * Cache bei `done: false` stehen und das Statistik-Modal poll(t) endlos
+     * weiter, ohne dass die Person je erfaehrt, dass der Job abgebrochen ist.
+     *
+     * Guard in try/catch: ein Cache-Ausfall darf hier selbst keine Exception
+     * werfen (failed() liegt im Fehlerbehandlungspfad der Queue).
+     */
+    public function failed(?\Throwable $e): void
+    {
+        try {
+            $this->markFailed(app(Cache::class), 'Job abgebrochen: ' . ($e?->getMessage() ?? 'unbekannt'));
+        } catch (\Throwable) {
+            // Cache-Ausfall darf failed() nicht seinerseits zum Werfen bringen.
+        }
+    }
+
+    /**
+     * Extrahiert fuer den Test: direkt mit einer injizierten Cache-Attrappe
+     * aufrufbar, ohne den Container/Queue-Failure-Pfad nachzubauen.
+     */
+    public function markFailed(Cache $cache, string $message): void
+    {
+        $key = self::cacheKey($this->campaignUuid);
+        $progress = $cache->get($key) ?? self::initialProgress(count($this->applicantIds));
+        $progress['done'] = true;
+        $this->keepError($progress, $message);
+        $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
+    }
+
     public function handle(Cache $cache, NewDatesCampaignRecipients $recipients, NewDatesCampaignSender $sender): void
     {
         $key = self::cacheKey($this->campaignUuid);

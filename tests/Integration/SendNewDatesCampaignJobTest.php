@@ -188,4 +188,39 @@ final class SendNewDatesCampaignJobTest extends TestCase
         $this->assertTrue($p['done']);
         $this->assertSame(1, $p['skipped'], 'ID ohne Zeile (Team-fremd/geloescht) zaehlt als uebersprungen.');
     }
+
+    /**
+     * Final-Review: failed() (bzw. die dahinterliegende markFailed()) muss den
+     * Fortschritt auf done=true setzen und die Abbruch-Ursache als Fehlerzeile
+     * anhaengen — sonst poll(t) das Statistik-Modal endlos weiter, wenn der
+     * Job z. B. an einem Timeout stirbt statt handle() sauber zu durchlaufen.
+     */
+    public function testMarkFailedSetztDoneUndHaengtFehlerAn(): void
+    {
+        $job = new SendNewDatesCampaign('uuid-z', 3, 42, [1, 2], 10, 20);
+        $this->cache->put(SendNewDatesCampaign::cacheKey('uuid-z'), SendNewDatesCampaign::initialProgress(2), 86400);
+
+        $job->markFailed($this->cache, 'Job abgebrochen: Timeout');
+
+        $p = $this->cache->get(SendNewDatesCampaign::cacheKey('uuid-z'));
+        $this->assertTrue($p['done']);
+        $this->assertSame(['Job abgebrochen: Timeout'], $p['errors']);
+    }
+
+    /**
+     * Ohne vorhandenen Cache-Eintrag (Job starb, bevor handle() je einen
+     * Fortschritt geschrieben hat) baut markFailed() den Fortschritt frisch
+     * auf initialProgress() auf statt zu werfen.
+     */
+    public function testMarkFailedOhneVorherigenCacheEintrag(): void
+    {
+        $job = new SendNewDatesCampaign('uuid-zz', 3, null, [1], 10, 20);
+
+        $job->markFailed($this->cache, 'Job abgebrochen: unbekannt');
+
+        $p = $this->cache->get(SendNewDatesCampaign::cacheKey('uuid-zz'));
+        $this->assertTrue($p['done']);
+        $this->assertSame(1, $p['total']);
+        $this->assertSame(['Job abgebrochen: unbekannt'], $p['errors']);
+    }
 }

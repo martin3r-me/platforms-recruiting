@@ -851,6 +851,7 @@
                     @else
                         <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
                             <x-ui-input-select
+                                :value="$this->campaignTemplateA"
                                 name="campaignTemplateA"
                                 label="Template A — Bewerbung vervollständigen"
                                 :options="$campaignTemplates"
@@ -858,9 +859,11 @@
                                 optionLabel="label"
                                 :nullable="true"
                                 nullLabel="– Template wählen –"
-                                wire:model="campaignTemplateA"
+                                displayMode="dropdown"
+                                wire:model.live="campaignTemplateA"
                             />
                             <x-ui-input-select
+                                :value="$this->campaignTemplateB"
                                 name="campaignTemplateB"
                                 label="Template B — Terminauswahl"
                                 :options="$campaignTemplates"
@@ -868,7 +871,8 @@
                                 optionLabel="label"
                                 :nullable="true"
                                 nullLabel="– Template wählen –"
-                                wire:model="campaignTemplateB"
+                                displayMode="dropdown"
+                                wire:model.live="campaignTemplateB"
                             />
                         </div>
                         @if ($this->campaignError !== '')

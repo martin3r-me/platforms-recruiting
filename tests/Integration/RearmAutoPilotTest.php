@@ -85,6 +85,7 @@ final class RearmAutoPilotTest extends TestCase
     protected function tearDown(): void
     {
         Carbon::setTestNow();
+        Model::unsetConnectionResolver();
         Model::clearBootedModels();
         parent::tearDown();
     }

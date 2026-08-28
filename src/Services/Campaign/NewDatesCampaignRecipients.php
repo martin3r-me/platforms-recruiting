@@ -22,7 +22,11 @@ use Platform\Recruiting\Support\CampaignSegment;
  */
 class NewDatesCampaignRecipients
 {
-    public const LOG_TYPE_CAMPAIGN = 'campaign_sent';
+    // Eine Quelle der Wahrheit (Final-Review): NewDatesCampaignSender::LOG_TYPE
+    // ist derselbe String ('campaign_sent'), dieser Loader referenziert ihn
+    // statt eine zweite woertliche Kopie zu pflegen, die auseinanderlaufen
+    // koennte.
+    public const LOG_TYPE_CAMPAIGN = NewDatesCampaignSender::LOG_TYPE;
 
     /**
      * @param list<int> $applicantIds
@@ -37,6 +41,14 @@ class NewDatesCampaignRecipients
 
         $applicants = RecApplicant::forTeam($teamId)
             ->whereIn('id', $ids)
+            // Re-Check des Loader-Standes (Final-Review): NICHT scopeActive()
+            // verwenden — der schliesst is_on_hr_desk aus, und die Kampagne muss
+            // HR-Desk-Zeilen weiter zeigen (sie sind ein eigenes Badge, kein
+            // Ausschlussgrund). Inaktive, geparkte oder abgesagte Bewerbungen
+            // sind dagegen kein Kampagnenziel mehr.
+            ->where('is_active', true)
+            ->where('is_parked', false)
+            ->whereNull('rejected_at')
             ->with([
                 'phase',
                 'position.phases',
