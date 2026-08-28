@@ -125,6 +125,9 @@
     @php
         $linkReport = $this->contactLinkReport;
         $linkSkips = collect($linkReport['rows'])->where('state', 'skip')->count();
+        // Der Zähler zählt nur die (ggf. gekappten) angezeigten Zeilen — bei Kappung
+        // koennen weitere Skips ausserhalb der Anzeige liegen, daher "mindestens".
+        $linkSkipsLabel = $linkReport['total'] > count($linkReport['rows']) ? ('mindestens ' . $linkSkips) : (string) $linkSkips;
     @endphp
     <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
         <div class="flex items-center justify-between">
@@ -133,7 +136,7 @@
         </div>
         <p class="text-sm text-gray-600">
             Mitarbeiter ohne verknüpften CRM-Kontakt erscheinen in der Kommunikation nur mit Telefonnummer und werden bei zwei Personalnummern nicht als eine Person erkannt.
-            <strong>{{ $linkSkips }}</strong> Fall/Fälle brauchen eine manuelle Zuordnung in der MA-Akte.
+            <strong>{{ $linkSkipsLabel }}</strong> Fall/Fälle brauchen eine manuelle Zuordnung in der MA-Akte.
         </p>
         @if ($linkReport['rows'] === [])
             <div class="rounded bg-green-50 p-3 text-sm text-green-800">Alle aktiven Mitarbeiter haben einen CRM-Kontakt.</div>

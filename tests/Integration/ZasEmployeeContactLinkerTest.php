@@ -44,6 +44,16 @@ class ZasEmployeeContactLinkerTest extends TestCase
             'recruiting' => ['zas' => ['inbound_team_id' => self::TEAM]],
         ]));
 
+        // Log-Attrappe (kein echtes Laravel-Bootstrap in diesem Test): ZasContactLinkReport
+        // ruft bei einer fehlgeschlagenen decide() Log::error() — ohne Bindung sonst
+        // ReflectionException "Class log does not exist" (siehe Facade-Cache-Pitfall).
+        $container->instance('log', new class {
+            public function __call(string $name, array $args): void
+            {
+            }
+        });
+        Facade::clearResolvedInstance('log');
+
         self::runMigrations();
     }
 
@@ -209,6 +219,34 @@ class ZasEmployeeContactLinkerTest extends TestCase
         $this->assertSame('skip', $byPnr['RG11']['state']);
         $this->assertStringStartsWith('Name passt nicht:', $byPnr['RG11']['reason']);
         $this->assertArrayNotHasKey('RG12', $byPnr->all());
+    }
+
+    public function test_report_isolates_a_throwing_decision_and_still_lists_the_others(): void
+    {
+        $this->contact('Anna', 'Link', 'anna@example.de');
+        $this->employee('Anna', 'Link', 'anna@example.de', null, 'RG20');
+        $this->employee('Bert', 'Boom', null, null, 'RG21');
+
+        // Stub: decide() wirft fuer genau einen MA — simuliert einen defekten
+        // Fremd-Datensatz (Review-Fix Runde 4, #0: Isolation je MA).
+        $linker = new class extends ZasEmployeeContactLinker {
+            public function decide(RecEmployee $employee): array
+            {
+                if ($employee->personnel_number === 'RG21') {
+                    throw new \RuntimeException('kaputt');
+                }
+
+                return parent::decide($employee);
+            }
+        };
+
+        $report = (new ZasContactLinkReport($linker))->openCases(self::TEAM);
+
+        $this->assertSame(2, $report['total']);
+        $byPnr = collect($report['rows'])->keyBy('personnel_number');
+        $this->assertSame('pending', $byPnr['RG20']['state']);
+        $this->assertSame('skip', $byPnr['RG21']['state']);
+        $this->assertStringContainsString('Prüfung fehlgeschlagen: kaputt', $byPnr['RG21']['reason']);
     }
 
     // ---- Schema ---------------------------------------------------------
