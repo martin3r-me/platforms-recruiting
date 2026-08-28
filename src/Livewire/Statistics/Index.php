@@ -2,20 +2,26 @@
 
 namespace Platform\Recruiting\Livewire\Statistics;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
+use Platform\Recruiting\Jobs\SendNewDatesCampaign;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPhaseTransition;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
+use Platform\Recruiting\Services\Campaign\NewDatesCampaignRecipients;
 use Platform\Recruiting\Services\Statistics\CohortAssigner;
 use Platform\Recruiting\Services\Statistics\CohortViewModel;
 use Platform\Recruiting\Services\Statistics\TargetLight;
+use Platform\Recruiting\Support\CampaignSegment;
 
 /**
  * Statistik-Seite (Spec §3/§4): duenne Livewire-Schale um den CohortAssigner.
@@ -253,6 +259,24 @@ class Index extends Component
     public bool $showDrill = false;
 
     /**
+     * Kampagne „Neue Termine“ (Spec §5.3). Der Scope-Typ kommt aus dem Drill-
+     * Token und ist locked wie $drillIds: nur die Kachel/Zeilen „Ohne Termin“
+     * (ohne_schulung) schalten den Kampagnen-Bereich frei.
+     *
+     * $campaignSelection ist NICHT locked (der Client hakt an/ab), wird aber
+     * serverseitig gegen Kohorte UND Waehlbarkeit geschnitten
+     * (CampaignSegment::selectedIds) — nur IDs aus dem Modal werden je versendet.
+     */
+    #[Locked]
+    public string $drillScopeType = '';
+    /** @var array<int,bool> applicant_id => angehakt */
+    public array $campaignSelection = [];
+    public ?int $campaignTemplateA = null;
+    public ?int $campaignTemplateB = null;
+    public ?string $campaignUuid = null;
+    public string $campaignError = '';
+
+    /**
      * Ein Filterwechsel invalidiert die Drill-Auswahl — sonst zeigt das Modal
      * Personen, die in der neuen Menge gar nicht mehr vorkommen.
      */
@@ -261,6 +285,10 @@ class Index extends Component
         $this->drillIds = [];
         $this->drillLabel = '';
         $this->showDrill = false;
+        $this->drillScopeType = '';
+        $this->campaignSelection = [];
+        $this->campaignUuid = null;
+        $this->campaignError = '';
     }
 
     /**
@@ -1600,6 +1628,20 @@ class Index extends Component
 
         $this->drillIds = $vm->resolveIdsFromClient($rows, $spec, $column);
 
+        $this->drillScopeType = (string) ($spec['type'] ?? '');
+        $this->campaignSelection = [];
+        $this->campaignUuid = null;
+        $this->campaignError = '';
+        if ($this->campaignEnabled()) {
+            // Vorauswahl aus der Segmentregel; Template-Defaults aus den Settings.
+            foreach ($this->campaignRows as $id => $row) {
+                $this->campaignSelection[$id] = $row['checked'];
+            }
+            $settings = RecApplicantSettings::getOrCreateForTeam($this->teamId());
+            $this->campaignTemplateA = $this->campaignTemplateA ?: (int) ($settings->getSetting('campaign_form_wa_template_id') ?? 0) ?: null;
+            $this->campaignTemplateB = $this->campaignTemplateB ?: (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0) ?: null;
+        }
+
         $prefix = (string) ($spec['prefix'] ?? '');
         $this->drillLabel = $columnLabel === '' ? $prefix : trim($prefix . ' — ' . $columnLabel);
         $this->showDrill = true;
@@ -1622,6 +1664,117 @@ class Index extends Component
             ->with('crmContactLinks.contact')
             ->orderBy('id')
             ->get();
+    }
+
+    public function campaignEnabled(): bool
+    {
+        return $this->drillScopeType === 'ohne_schulung' && $this->drillIds !== [];
+    }
+
+    /**
+     * Zeilen der Kampagne — Loader buendelt die Queries (Query-Budget §2).
+     * Schluessel applicant_id, Reihenfolge wie $drillIds.
+     *
+     * @return array<int, array{applicant_id:int, name:string, applied_at:?string, phase:string, template:string, selectable:bool, checked:bool, badges:list<string>}>
+     */
+    #[Computed]
+    public function campaignRows(): array
+    {
+        if (!$this->campaignEnabled()) {
+            return [];
+        }
+
+        return app(NewDatesCampaignRecipients::class)->load($this->teamId(), $this->drillIds, new \DateTimeImmutable());
+    }
+
+    /** @return list<array{id:int,label:string}> approved Templates des Teams (Muster ApplicantSettingsModal) */
+    #[Computed]
+    public function campaignTemplates(): array
+    {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return [];
+        }
+        $accountId = RecApplicantSettings::getOrCreateForTeam($this->teamId())->getSetting('auto_pilot_wa_account_id');
+
+        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->where('status', 'APPROVED')
+            ->when($accountId, fn ($q) => $q->where('whatsapp_account_id', (int) $accountId))
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($t) => ['id' => (int) $t->id, 'label' => "{$t->name} ({$t->language})"])
+            ->values()
+            ->all();
+    }
+
+    #[Computed]
+    public function campaignProgress(): ?array
+    {
+        if ($this->campaignUuid === null) {
+            return null;
+        }
+
+        return Cache::get(SendNewDatesCampaign::cacheKey($this->campaignUuid));
+    }
+
+    public function campaignSelectAll(bool $on): void
+    {
+        foreach ($this->campaignRows as $id => $row) {
+            $this->campaignSelection[$id] = $on && $row['selectable'];
+        }
+    }
+
+    /** @return list<int> */
+    public function campaignSelectedIds(): array
+    {
+        $selectable = array_keys(array_filter($this->campaignRows, fn ($r) => $r['selectable']));
+
+        return CampaignSegment::selectedIds($this->campaignSelection, $this->drillIds, $selectable);
+    }
+
+    /** Anzahl der gewaehlten Personen pro Template — fuer die Button-Sperre und den Zaehler. */
+    public function campaignCounts(): array
+    {
+        $rows = $this->campaignRows;
+        $a = 0; $b = 0;
+        foreach ($this->campaignSelectedIds() as $id) {
+            if (($rows[$id]['template'] ?? '') === CampaignSegment::TEMPLATE_FORM) { $a++; } else { $b++; }
+        }
+
+        return ['A' => $a, 'B' => $b, 'total' => $a + $b];
+    }
+
+    public function startCampaign(): void
+    {
+        $this->campaignError = '';
+        if (!$this->campaignEnabled() || $this->campaignUuid !== null) {
+            return;
+        }
+        $ids = $this->campaignSelectedIds();
+        $counts = $this->campaignCounts();
+        if ($ids === []) {
+            $this->campaignError = 'Niemand ausgewählt.';
+            return;
+        }
+        if ($counts['A'] > 0 && !$this->campaignTemplateA) {
+            $this->campaignError = "Für {$counts['A']} Personen fehlt Template A (Bewerbung vervollständigen).";
+            return;
+        }
+        if ($counts['B'] > 0 && !$this->campaignTemplateB) {
+            $this->campaignError = "Für {$counts['B']} Personen fehlt Template B (Terminauswahl).";
+            return;
+        }
+
+        $uuid = (string) Str::uuid();
+        Cache::put(SendNewDatesCampaign::cacheKey($uuid), SendNewDatesCampaign::initialProgress(count($ids)), SendNewDatesCampaign::CACHE_TTL_SECONDS);
+        SendNewDatesCampaign::dispatch(
+            $uuid,
+            $this->teamId(),
+            auth()->id(),
+            $ids,
+            $counts['A'] > 0 ? (int) $this->campaignTemplateA : null,
+            $counts['B'] > 0 ? (int) $this->campaignTemplateB : null,
+        );
+        $this->campaignUuid = $uuid;
     }
 
     /**

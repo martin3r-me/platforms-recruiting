@@ -759,13 +759,53 @@
     {{-- wire:model bindet eine echte bool-Property (NICHT drillLabel): das
          Modal setzt den Wert beim Schliessen auf false, was einer als string
          typisierten Property einen TypeError bescheren wuerde. --}}
-    <x-ui-modal wire:model="showDrill" size="lg" hideFooter>
+    @php
+        $campaignEnabled = $this->campaignEnabled();
+        $campaignRows = $campaignEnabled ? $this->campaignRows : [];
+        $campaignProgress = $campaignEnabled ? $this->campaignProgress : null;
+        $campaignCounts = $campaignEnabled ? $this->campaignCounts() : ['A' => 0, 'B' => 0, 'total' => 0];
+        $campaignTemplates = $campaignEnabled ? $this->campaignTemplates : [];
+        $campaignRunning = $campaignProgress !== null && !($campaignProgress['done'] ?? false);
+        $pollAttr = $campaignRunning ? 'wire:poll.3s' : '';
+    @endphp
+    <x-ui-modal wire:model="showDrill" size="lg" :hideFooter="!$campaignEnabled">
         <x-slot name="header">
             {{ $this->drillLabel !== '' ? $this->drillLabel : 'Personen' }} ({{ count($this->drillIds) }})
         </x-slot>
 
         @if (count($this->drillIds) === 0)
             <div class="py-6 text-center text-sm text-[color:var(--ui-muted)]">Keine Personen in dieser Auswahl.</div>
+        @elseif ($campaignEnabled)
+            {{-- Kampagne „Neue Termine“: Auswahl + Badges. Polling nur, solange ein Versand laeuft. --}}
+            <div {!! $pollAttr !!}>
+                <div class="mb-2 flex items-center justify-between text-xs text-[color:var(--ui-muted)]">
+                    <span>{{ $campaignCounts['total'] }} von {{ count($campaignRows) }} gewählt — {{ $campaignCounts['A'] }}× Template A (Bewerbung vervollständigen), {{ $campaignCounts['B'] }}× Template B (Terminauswahl)</span>
+                    <span class="flex gap-2">
+                        <button type="button" class="underline" wire:click="campaignSelectAll(true)">alle</button>
+                        <button type="button" class="underline" wire:click="campaignSelectAll(false)">keine</button>
+                    </span>
+                </div>
+                <ul class="divide-y divide-[var(--ui-border)]/60">
+                    @foreach ($campaignRows as $id => $row)
+                        @php
+                            $rowDate = $row['applied_at'] ? \Illuminate\Support\Carbon::parse($row['applied_at'])->format('d.m.Y') : 'ohne Datum';
+                            $rowDisabled = !$row['selectable'] || $campaignRunning;
+                        @endphp
+                        <li class="py-2 flex items-center gap-3 {{ $row['selectable'] ? '' : 'opacity-60' }}">
+                            <input type="checkbox" class="h-4 w-4 rounded border-[var(--ui-border)]"
+                                   wire:model="campaignSelection.{{ $id }}" @disabled($rowDisabled) />
+                            <div class="flex-1 min-w-0">
+                                <a href="{{ route('recruiting.applicants.show', $id) }}" class="text-[color:var(--ui-primary)] hover:underline text-sm">{{ $row['name'] }}</a>
+                                <span class="ml-2 text-xs text-[color:var(--ui-muted)]">{{ $row['phase'] }} · {{ $row['template'] }}</span>
+                                @foreach ($row['badges'] as $badge)
+                                    <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]">{{ $badge }}</span>
+                                @endforeach
+                            </div>
+                            <span class="text-xs text-[color:var(--ui-muted)] whitespace-nowrap tabular-nums">{{ $rowDate }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
         @else
             @php $drillApplicants = $this->drillApplicants; @endphp
             @if ($drillApplicants->count() !== count($this->drillIds))
@@ -790,6 +830,58 @@
                     </li>
                 @endforeach
             </ul>
+        @endif
+
+        @if ($campaignEnabled)
+            <x-slot name="footer">
+                <div class="w-full space-y-2">
+                    @if ($campaignProgress !== null)
+                        <div class="text-sm">
+                            <strong>{{ $campaignProgress['sent'] }}</strong> / {{ $campaignProgress['total'] }} gesendet
+                            · {{ $campaignProgress['failed'] }} Fehler · {{ $campaignProgress['skipped'] }} übersprungen
+                            {!! ($campaignProgress['done'] ?? false) ? ' · <span class="text-green-700">abgeschlossen</span>' : ' · läuft …' !!}
+                        </div>
+                        @if (!empty($campaignProgress['errors']))
+                            <ul class="text-xs text-red-700 list-disc pl-4">
+                                @foreach ($campaignProgress['errors'] as $line)
+                                    <li>{{ $line }}</li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    @else
+                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            <x-ui-input-select
+                                name="campaignTemplateA"
+                                label="Template A — Bewerbung vervollständigen"
+                                :options="$campaignTemplates"
+                                optionValue="id"
+                                optionLabel="label"
+                                :nullable="true"
+                                nullLabel="– Template wählen –"
+                                wire:model="campaignTemplateA"
+                            />
+                            <x-ui-input-select
+                                name="campaignTemplateB"
+                                label="Template B — Terminauswahl"
+                                :options="$campaignTemplates"
+                                optionValue="id"
+                                optionLabel="label"
+                                :nullable="true"
+                                nullLabel="– Template wählen –"
+                                wire:model="campaignTemplateB"
+                            />
+                        </div>
+                        @if ($this->campaignError !== '')
+                            <div class="text-xs text-red-700">{{ $this->campaignError }}</div>
+                        @endif
+                        <div class="flex justify-end">
+                            <x-ui-button variant="primary" wire:click="startCampaign" wire:loading.attr="disabled" wire:target="startCampaign" :disabled="$campaignCounts['total'] === 0">
+                                Kampagne an {{ $campaignCounts['total'] }} Personen senden
+                            </x-ui-button>
+                        </div>
+                    @endif
+                </div>
+            </x-slot>
         @endif
     </x-ui-modal>
 </div>
