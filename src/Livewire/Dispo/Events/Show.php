@@ -13,6 +13,8 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
@@ -444,6 +446,13 @@ class Show extends Component
             'datum'              => $a->datum->format('Y-m-d'),
         ])->all();
 
+        // Dispo-Identitaet: Datensaetze derselben Person (gleicher CRM-Kontakt) auf die
+        // kanonische id umschreiben -> Dedup im Planner ist damit "pro Person".
+        $ids = array_values(array_unique(array_filter(array_column($assignments, 'employee_id'))));
+        $groups = app(DispoIdentityResolver::class)->groupsFor($ids);
+        $canon = DispoIdentityGroups::canonicalMap($groups);
+        $assignments = DispoIdentityGroups::canonicalize($assignments, $canon);
+
         // Tages-Auswahl (Mehrtages-VA): VOR der Vergangenheits-Filterung
         // anwenden, damit "past"-Zaehlung nur den gewaehlten Tag betrifft.
         if ($this->sendDay !== '') {
@@ -466,8 +475,22 @@ class Show extends Component
             $upcoming[] = $assignment;
         }
 
-        $employeeIds = array_values(array_unique(array_filter(array_column($upcoming, 'employee_id'))));
+        // Telefon fuer die kanonische id: alle Gruppen-Mitglieder abfragen, damit die
+        // Nummer eines anderen Datensatzes derselben Person einspringt, falls der
+        // kanonische Datensatz keine hat.
+        $employeeIds = $groups === [] ? [] : array_values(array_unique(array_merge(...array_values($groups))));
         $phones = app(DispoEmployeeGateway::class)->phones($employeeIds);
+        foreach ($groups as $id => $group) {
+            $c = $canon[$id];
+            if (empty($phones[$c])) {
+                foreach ($group as $m) {
+                    if (!empty($phones[$m])) {
+                        $phones[$c] = $phones[$m];
+                        break;
+                    }
+                }
+            }
+        }
 
         $result = (new DispoRecipientPlanner())
             ->plan($upcoming, $phones, $this->includeReminders);

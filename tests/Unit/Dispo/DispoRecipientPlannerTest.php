@@ -107,4 +107,17 @@ class DispoRecipientPlannerTest extends TestCase
         $this->assertFalse($result['recipients'][0]['is_reminder']);
         $this->assertSame(1, $result['skipped']['already_sent']);
     }
+
+    public function test_canonicalized_rows_of_one_person_become_one_recipient(): void
+    {
+        $rows = [
+            ['id' => 1, 'employee_id' => 10, 'status_id' => 1, 'confirmed_at' => null, 'reminder_sent_at' => null, 'missing_since' => null, 'deletion_marked_at' => null, 'datum' => '2026-09-01'],
+            ['id' => 2, 'employee_id' => 11, 'status_id' => 1, 'confirmed_at' => null, 'reminder_sent_at' => null, 'missing_since' => null, 'deletion_marked_at' => null, 'datum' => '2026-09-02'],
+        ];
+        $rows = \Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups::canonicalize($rows, [10 => 10, 11 => 10]);
+        $result = (new DispoRecipientPlanner())->plan($rows, [10 => '+49 172 1'], false);
+        $this->assertCount(1, $result['recipients']);
+        $this->assertSame([1, 2], $result['recipients'][0]['assignment_ids']);
+        $this->assertSame('2026-09-01', $result['recipients'][0]['first_datum']);
+    }
 }
