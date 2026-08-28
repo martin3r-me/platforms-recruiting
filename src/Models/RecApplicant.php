@@ -490,6 +490,33 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $query->whereNotNull('import_source');
     }
 
+    /**
+     * Neuer Auto-Pilot-Zyklus nach einem Auto-Advance (Bewerber hat die Phase
+     * selbst abgeschlossen). Setzt Zaehler, Timer, Fortschritt UND den Status
+     * zurueck.
+     *
+     * Der Status ist der entscheidende Teil: `review_needed` (Erinnerungen
+     * ausgeschoepft) ueberlebte den Aufstieg bisher, und die Auto-Pilot-Query
+     * schliesst diesen Status aus (ProcessAutoPilotApplicants::633). Wer spaet
+     * reagierte und aufstieg, bekam den Erstkontakt der neuen Phase nie —
+     * dasselbe Loch, das returnToBookingPhase() fuer seinen Pfad schon stopft.
+     * null statt waiting_for_applicant: der naechste Lauf setzt waiting beim
+     * Erstkontakt selbst (ProcessAutoPilotApplicants::217), wie beim
+     * Inbound-Reset (HandleWhatsAppInboundForRecruiting::189).
+     *
+     * Speichert NICHT — der Aufrufer setzt rec_phase_id und speichert.
+     * Nicht fuer advanceToNextPhase() (HR-manuell): dort soll ein bewusst
+     * weitergeschobener, abgeschriebener Bewerber keinen Versand ausloesen.
+     */
+    public function resetAutoPilotCycle(): void
+    {
+        $this->auto_pilot_completed_at = null;
+        $this->auto_pilot_reminder_count = 0;
+        $this->auto_pilot_last_reminder_at = null;
+        $this->progress = 0;
+        $this->auto_pilot_state_id = null;
+    }
+
     public function checkAutoPilotCompletion(): void
     {
         // Direkteinstellung & Co.: Bewerber mit AutoPilot=OFF durchlaufen den
@@ -549,10 +576,7 @@ class RecApplicant extends Model implements InheritsExtraFields
         // Phase has a successor → advance to next phase
         if ($nextPhase && $phase?->auto_advance) {
             $this->rec_phase_id = $nextPhase->id;
-            $this->auto_pilot_completed_at = null;
-            $this->auto_pilot_reminder_count = 0;
-            $this->auto_pilot_last_reminder_at = null;
-            $this->progress = 0;
+            $this->resetAutoPilotCycle();
             $this->clearExtraFieldDefinitionsCache();
             PhaseTransitionTrigger::set($this->id, PhaseTransitionTrigger::AUTO_ADVANCE);
             try {
