@@ -14,6 +14,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
+use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
 
 /**
@@ -38,7 +39,10 @@ class Show extends Component
     /** Auswahl bei mehreren Teamleitungen (employee_id als String — Livewire-Typed-Property-Falle). */
     public string $leadChoice = '';
     /** true, wenn das Ansprechpartner-Feld beim Oeffnen automatisch aus der Teamleitung befuellt wurde. */
-    public bool $leadAutoFilled = false;
+    /** Herkunft des aktuellen Feldwerts: 'auto' (Teamleitung = Standard), 'manual' oder '' (nichts). */
+    public string $contactSource = '';
+    /** Anpassen-Dialog fuer den Ansprechpartner (ohne Senden). */
+    public bool $showContactModal = false;
 
     /** Individueller Hinweis pro Mitarbeiter, keyed by rec_employee_id → Text. */
     public array $notes = [];
@@ -359,10 +363,71 @@ class Show extends Component
             if ($employeeId !== null && $lead['employee_id'] === $employeeId) {
                 $this->ansprechpartner = $lead['label'];
                 $this->leadChoice = (string) $employeeId;
-                $this->leadAutoFilled = false;
+                $this->refreshContactSource();
                 return;
             }
         }
+    }
+
+    /** Effektiver Ansprechpartner der VA (Standard = Teamleitung, manuell ueberschreibbar) — fuer die Kachel. */
+    #[Computed]
+    public function contactEffective(): array
+    {
+        return DispoContactResolver::effective($this->event->ansprechpartner, $this->teamLeads);
+    }
+
+    /** Feld aus der VA vorbelegen: manuelle Ueberschreibung oder Standard-Teamleitung. */
+    private function loadContactForm(): void
+    {
+        $leads = $this->teamLeads;
+        $eff = DispoContactResolver::effective($this->event->ansprechpartner, $leads);
+        $this->ansprechpartner = (string) ($eff['label'] ?? '');
+        $this->contactSource = (string) ($eff['source'] ?? '');
+        $this->leadChoice = $leads !== [] ? (string) $leads[0]['employee_id'] : '';
+    }
+
+    /** Herkunft nach jeder Eingabe neu bestimmen (Hinweistext im Formular). */
+    private function refreshContactSource(): void
+    {
+        $eff = DispoContactResolver::effective($this->ansprechpartner, $this->teamLeads);
+        $this->contactSource = (string) ($eff['source'] ?? '');
+    }
+
+    public function updatedAnsprechpartner(): void
+    {
+        $this->refreshContactSource();
+    }
+
+    /** "Standard verwenden": zurueck auf die Teamleitung (leert die manuelle Ueberschreibung beim Speichern). */
+    public function useLeadDefault(): void
+    {
+        $leads = $this->teamLeads;
+        $this->ansprechpartner = $leads !== [] ? $leads[0]['label'] : '';
+        $this->leadChoice = $leads !== [] ? (string) $leads[0]['employee_id'] : '';
+        $this->refreshContactSource();
+    }
+
+    /** Speichert NUR manuelle Ueberschreibungen; Standard/leer -> null (Vertrag DispoContactResolver). */
+    private function persistContact(): void
+    {
+        RecDispoEvent::query()->whereKey($this->eventId)->update([
+            'ansprechpartner' => DispoContactResolver::toStore($this->ansprechpartner, $this->teamLeads),
+        ]);
+        unset($this->event, $this->contactEffective);
+    }
+
+    public function openContactModal(): void
+    {
+        $this->loadContactForm();
+        $this->resetErrorBag('ansprechpartner');
+        $this->showContactModal = true;
+    }
+
+    public function saveContact(): void
+    {
+        $this->validate(['ansprechpartner' => 'nullable|string|max:255']);
+        $this->persistContact();
+        $this->showContactModal = false;
     }
 
     #[Computed]
@@ -417,23 +482,14 @@ class Show extends Component
     public function openSendModal(): void
     {
         $this->vorlaufMinuten = (string) ($this->event->vorlauf_minuten ?? '');
-        $this->ansprechpartner = (string) ($this->event->ansprechpartner ?? '');
         $this->includeReminders = false;
         $this->sendDay = '';
         $this->sendResult = null;
         $this->loadEscalationForm();
         $this->resetErrorBag('escTime1');
 
-        // Teamleitung als Ansprechpartner vorbelegen — NUR wenn das Feld leer ist
-        // (gespeicherte manuelle Eingabe wird nie ueberschrieben).
-        $this->leadChoice = '';
-        $this->leadAutoFilled = false;
-        $leads = $this->teamLeads;
-        if ($this->ansprechpartner === '' && $leads !== []) {
-            $this->leadChoice = (string) $leads[0]['employee_id'];
-            $this->ansprechpartner = $leads[0]['label'];
-            $this->leadAutoFilled = true;
-        }
+        // Ansprechpartner: Teamleitung ist Standard, gespeicherte manuelle Eingabe gewinnt.
+        $this->loadContactForm();
 
         $this->showSendModal = true;
     }
@@ -458,7 +514,8 @@ class Show extends Component
         $event = RecDispoEvent::findOrFail($this->eventId);
         $event->update([
             'vorlauf_minuten' => (int) $this->vorlaufMinuten,
-            'ansprechpartner' => trim($this->ansprechpartner) !== '' ? trim($this->ansprechpartner) : null,
+            // Nur manuelle Ueberschreibung speichern; Standard-Teamleitung -> null (zieht live mit).
+            'ansprechpartner' => DispoContactResolver::toStore($this->ansprechpartner, $this->teamLeads),
         ]);
 
         $preview = $this->sendPreview;

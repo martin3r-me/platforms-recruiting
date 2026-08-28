@@ -48,6 +48,23 @@
             </div>
         @endif
         @php
+            $contactEff = $this->contactEffective;
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+            <div class="flex items-center justify-between">
+                <div class="text-sm font-medium text-gray-500">Ansprechpartner vor Ort</div>
+                <button type="button" wire:click="openContactModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+            </div>
+            <div class="mt-1 text-sm">
+                {{ $contactEff['label'] ?? '—' }}
+                @if ($contactEff['source'] === 'auto')
+                    <span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">Teamleitung (Standard)</span>
+                @elseif ($contactEff['source'] === 'manual')
+                    <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">manuell</span>
+                @endif
+            </div>
+        </div>
+        @php
             $esc = $this->escalationEffective;
             $escEnabled = $this->dispoSettings['escalation_enabled'];
             $escDayLabel = $esc['day'] === 'einsatztag' ? 'am Einsatztag' : 'am Vortag';
@@ -220,35 +237,7 @@
 
                     <label class="block text-sm">
                         <span class="mb-1 block font-medium text-gray-700">Ansprechpartner vor Ort <span class="text-gray-400">(optional)</span></span>
-                        <input type="text" wire:model="ansprechpartner" placeholder="z. B. Sheran (0170 1234567)"
-                               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
-                        <span class="mt-1 block text-xs text-gray-500">Erscheint auf der Einsatz-Seite als „Dein Ansprechpartner ist …".</span>
-                        @php $leads = $this->teamLeads; @endphp
-                        @if ($leads === [])
-                            <span class="mt-1 block text-xs text-gray-500">Keine Teamleitung disponiert — bitte manuell eintragen.</span>
-                        @elseif (count($leads) === 1)
-                            @if ($leadAutoFilled)
-                                <span class="mt-1 block text-xs text-green-700">Automatisch aus Teamleitung übernommen — änderbar.</span>
-                            @else
-                                <span class="mt-1 block text-xs text-gray-600">
-                                    Teamleitung disponiert: {{ $leads[0]['label'] }}
-                                    <button type="button" wire:click="applyLead({{ $leads[0]['employee_id'] }})" class="ml-1 text-blue-600 hover:underline">übernehmen</button>
-                                </span>
-                            @endif
-                            @if ($leads[0]['phone'] === null)
-                                <span class="mt-1 block text-xs text-amber-700">Teamleitung ohne Handynummer im Datensatz.</span>
-                            @endif
-                        @else
-                            <div class="mt-1 flex items-center gap-2 text-xs text-gray-600">
-                                <span>Teamleitung:</span>
-                                <select wire:model="leadChoice" class="rounded border border-gray-300 px-2 py-1 text-xs">
-                                    @foreach ($leads as $lead)
-                                        <option value="{{ $lead['employee_id'] }}">{{ $lead['label'] }}</option>
-                                    @endforeach
-                                </select>
-                                <button type="button" wire:click="applyLead" class="text-blue-600 hover:underline">übernehmen</button>
-                            </div>
-                        @endif
+                        @include('recruiting::livewire.dispo.events._contact-field', ['leads' => $this->teamLeads])
                     </label>
 
                     @php
@@ -335,6 +324,22 @@
                 <div class="flex justify-end gap-3">
                     <button wire:click="closeAttachmentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveAttachment" wire:loading.attr="disabled" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showContactModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="$set('showContactModal', false)">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Ansprechpartner vor Ort</h2>
+                <p class="text-sm text-gray-500">Gilt für alle Einsatztage dieser Veranstaltung und erscheint sofort auf der Einsatz-Seite — kein Neu-Senden nötig.</p>
+                <label class="block text-sm">
+                    @include('recruiting::livewire.dispo.events._contact-field', ['leads' => $this->teamLeads])
+                </label>
+                <div class="flex justify-end gap-3">
+                    <button wire:click="$set('showContactModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                    <button wire:click="saveContact" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
                 </div>
             </div>
         </div>

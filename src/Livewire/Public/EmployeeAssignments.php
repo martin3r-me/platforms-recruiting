@@ -8,6 +8,9 @@ use Livewire\Component;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
+use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
+use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
 
 /**
@@ -88,6 +91,8 @@ class EmployeeAssignments extends Component
             ->get()
             ->keyBy('rec_dispo_event_id');
 
+        $leadsByEvent = $this->teamLeadsByEvent($assignments->pluck('rec_dispo_event_id')->unique()->values()->all());
+
         $groups = [];
         foreach ($assignments as $assignment) {
             $event = $assignment->event;
@@ -99,7 +104,8 @@ class EmployeeAssignments extends Component
                 'adresse'      => $event->venue_text,
                 'zusatz_ort'   => $event->ort,
                 'kleidung'     => $event->dresscode,
-                'contact_line' => $event->ansprechpartner,
+                // Standard = disponierte Teamleitung (live), manuelle Eingabe gewinnt.
+                'contact_line' => DispoContactResolver::effective($event->ansprechpartner, $leadsByEvent[$event->id] ?? [])['label'],
                 'vorlauf_minuten' => (int) ($event->vorlauf_minuten ?? 0),
                 'attachment'   => isset($attachments[$event->id]) ? [
                     'name' => (string) $attachments[$event->id]->original_filename,
@@ -125,6 +131,55 @@ class EmployeeAssignments extends Component
         }
 
         return array_values($groups);
+    }
+
+    /**
+     * Teamleitungen je VA (Standard-Ansprechpartner), ueber alle aktiven Auftrags-
+     * Einbuchungen der VA — nicht nur die des eingeloggten MA. Der MA selbst wird
+     * ausgelassen ("Dein Ansprechpartner ist <du selbst>" waere Unsinn). Zwei Queries
+     * fuer alle VAs zusammen, kein N+1.
+     *
+     * @param list<int> $eventIds
+     * @return array<int, list<array{employee_id:int, name:string, phone:?string, label:string}>>
+     */
+    private function teamLeadsByEvent(array $eventIds): array
+    {
+        if ($eventIds === []) {
+            return [];
+        }
+
+        $rows = RecDispoAssignment::query()
+            ->whereIn('rec_dispo_event_id', $eventIds)
+            ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
+            ->whereNull('missing_since')
+            ->whereNull('deletion_marked_at')
+            ->whereNotNull('rec_employee_id')
+            ->where('rec_employee_id', '!=', $this->employeeId)
+            ->orderBy('datum')->orderBy('von')
+            ->get(['rec_dispo_event_id', 'rec_employee_id', 'taetigkeit', 'datum']);
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $contacts = app(DispoEmployeeGateway::class)->contacts($rows->pluck('rec_employee_id')->unique()->map(fn ($id) => (int) $id)->values()->all());
+        $wanted = (array) config('recruiting.zas.dispo_lead_taetigkeiten', ['Teamleitung']);
+        $resolver = new DispoTeamLeadResolver();
+
+        $byEvent = [];
+        foreach ($rows->groupBy('rec_dispo_event_id') as $eventId => $eventRows) {
+            $byEvent[(int) $eventId] = $resolver->resolve(
+                $eventRows->map(fn ($a) => [
+                    'employee_id' => $a->rec_employee_id,
+                    'taetigkeit'  => $a->taetigkeit,
+                    'datum'       => $a->datum->format('Y-m-d'),
+                ])->all(),
+                $contacts,
+                $wanted
+            );
+        }
+
+        return $byEvent;
     }
 
     /**
