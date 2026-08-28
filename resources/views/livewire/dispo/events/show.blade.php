@@ -1,5 +1,4 @@
-<div class="p-6 space-y-6"
-     @if ($chatEmployeeId !== null) wire:poll.visible.20s @endif>
+<div class="p-6 space-y-6">
     @php
         $event = $this->event;
         $statusLabels = [0 => 'Angebot', 1 => 'Auftrag', 2 => 'Beendet', 3 => 'Storno'];
@@ -408,7 +407,7 @@
     @php $chat = $chatEmployeeId !== null ? $this->chat : null; @endphp
     @if ($chatEmployeeId !== null)
         <div class="fixed inset-0 z-40 bg-black/30 lg:hidden" wire:click="closeChat"></div>
-        <aside class="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-gray-50 shadow-xl lg:w-[28rem]" wire:key="chat-{{ $chatEmployeeId }}">
+        <aside class="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-gray-50 shadow-xl lg:w-[28rem]" wire:key="chat-{{ $chatEmployeeId }}" wire:poll.visible.20s>
             @if ($chat === null)
                 <div class="p-4 text-sm text-gray-500">Kein Thread gefunden. <button type="button" wire:click="closeChat" class="text-blue-600 underline">Schließen</button></div>
             @else

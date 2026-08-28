@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Dispo\Events;
 
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Recruiting\Models\RecApplicantSettings;
@@ -77,7 +78,11 @@ class Show extends Component
     public bool $showEscalationModal = false;
 
     // Runde 4 (#1): Chat-Panel auf VA-Ebene. chatEmployeeId = kanonische MA-id der Person.
+    // Beide nur ueber openChat()/closeChat()/setChatFilter() serverseitig gesetzt -> gesperrt
+    // gegen direkte Frontend-Schreibzugriffe (wire:model/$wire.set).
+    #[Locked]
     public ?int $chatEmployeeId = null;
+    #[Locked]
     public string $chatFilter = 'seit_versand'; // 'seit_versand' | 'alle'
     public string $chatReply = '';
     public ?string $chatError = null;
@@ -452,14 +457,25 @@ class Show extends Component
         $this->showContactModal = false;
     }
 
-    /** @return array{groups: array<int,list<int>>, canon: array<int,int>} Identitaet der disponierten MA dieser VA */
+    /**
+     * @return array{groups: array<int,list<int>>, canon: array<int,int>, byCanon: array<int,list<int>>}
+     *         Identitaet der disponierten MA dieser VA. groupsFor() schluesselt NUR ueber die
+     *         angefragten (Einbuchungs-)ids — byCanon schluesselt zusaetzlich ueber die kanonische
+     *         id selbst, damit z. B. das Chat-Panel (chatEmployeeId = kanonische id) die Gruppe
+     *         auch dann findet, wenn die Person nur unter einem HOEHEREN Datensatz disponiert ist.
+     */
     #[Computed]
     public function identity(): array
     {
         $ids = $this->event->assignments->pluck('rec_employee_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
         $groups = app(DispoIdentityResolver::class)->groupsFor($ids);
 
-        return ['groups' => $groups, 'canon' => DispoIdentityGroups::canonicalMap($groups)];
+        $byCanon = [];
+        foreach ($groups as $group) {
+            $byCanon[DispoIdentityGroups::canonical($group)] = $group;
+        }
+
+        return ['groups' => $groups, 'canon' => DispoIdentityGroups::canonicalMap($groups), 'byCanon' => $byCanon];
     }
 
     /** @return list<int> */
@@ -527,11 +543,35 @@ class Show extends Component
         if ($thread === null || $this->chatEmployeeId === null) {
             return null;
         }
-        $groupIds = $this->identity['groups'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
+
+        // Re-Mark: waehrend das Panel offen ist, kann per wire:poll eine neue
+        // eingehende Nachricht eintreffen (Thread wird dabei is_unread=true) —
+        // bei jedem Render sofort wieder als gelesen markieren.
+        if ($thread->is_unread) {
+            $thread->markAsRead();
+            $this->dispatch('sidebar-refresh');
+        }
+
+        // byCanon statt groups: $this->chatEmployeeId ist die KANONISCHE id, groupsFor()
+        // schluesselt aber ueber die angefragten Einbuchungs-ids — bei Disposition nur
+        // unter dem hoeheren Doppel-MA-Datensatz waere groups[$chatEmployeeId] leer.
+        $groupIds = $this->identity['byCanon'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
         $contacts = app(DispoEmployeeGateway::class)->contacts($groupIds);
         $name = $contacts[$this->chatEmployeeId]['name'] ?? (string) $thread->remote_phone_number;
         $pnrs = collect($groupIds)->map(fn ($id) => $contacts[$id]['personnel_number'] ?? '')->filter()->values()->all();
+
+        // Portal-Token der kanonischen id, sonst (wie beim Telefon in sendPreview())
+        // das erste nicht-leere Token eines anderen Gruppen-Mitglieds.
         $token = (string) ($contacts[$this->chatEmployeeId]['portal_token'] ?? '');
+        if ($token === '') {
+            foreach ($groupIds as $memberId) {
+                $candidate = (string) ($contacts[$memberId]['portal_token'] ?? '');
+                if ($candidate !== '') {
+                    $token = $candidate;
+                    break;
+                }
+            }
+        }
 
         $own = $this->event->assignments->filter(fn ($a) => in_array((int) $a->rec_employee_id, $groupIds, true));
         $since = null;
