@@ -517,6 +517,47 @@ class RecApplicant extends Model implements InheritsExtraFields
         $this->auto_pilot_state_id = null;
     }
 
+    /**
+     * Auto-Pilot nach einem manuellen Anstoss (Kampagne „Neue Termine“) wieder
+     * scharf schalten: der Anstoss zaehlt als Erstkontakt des neuen Zyklus.
+     *
+     *  - Status waiting_for_applicant (die Query nimmt ihn wieder auf)
+     *  - Zaehler 0 → volle Anzahl Erinnerungen steht noch aus
+     *  - last_reminder_at = jetzt → der naechste Lauf geht in den
+     *    Erinnerungs-Zweig, die erste Erinnerung kommt fruehestens nach dem
+     *    Intervall. Ohne diesen Timer wuerde der naechste Lauf sofort den
+     *    Erstkontakt der Phase schicken — direkt hinter der Kampagne.
+     *
+     * false = Direkteinstellung (auto_pilot aus): nichts angefasst, kein Log.
+     */
+    public function rearmAutoPilot(string $reason): bool
+    {
+        if (!$this->auto_pilot) {
+            return false;
+        }
+
+        $waitingId = RecAutoPilotState::where('code', 'waiting_for_applicant')
+            ->whereNull('team_id')
+            ->value('id');
+
+        $this->auto_pilot_state_id = $waitingId;
+        $this->auto_pilot_reminder_count = 0;
+        $this->auto_pilot_last_reminder_at = now();
+        $this->save();
+
+        try {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'autopilot_rearmed',
+                'summary' => 'Auto-Pilot wieder scharf: ' . $reason . '.',
+            ]);
+        } catch (\Throwable) {
+            // Log darf den Re-Arm nicht rueckgaengig machen.
+        }
+
+        return true;
+    }
+
     public function checkAutoPilotCompletion(): void
     {
         // Direkteinstellung & Co.: Bewerber mit AutoPilot=OFF durchlaufen den
