@@ -186,11 +186,18 @@ class Show extends Component
             return;
         }
 
-        $employee->portal_locked_at = null;
-        $employee->portal_locked_reason = null;
-        $employee->save();
+        // Eskalation sperrt alle Datensaetze derselben Person (siehe Task 4/5) -
+        // die Entsperrung muss dieselbe Gruppe wieder freigeben, sonst bleibt
+        // die verknuepfte Personalnummer stumm gesperrt liegen.
+        $ids = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);
+        RecEmployee::query()->whereIn('id', $ids)->update([
+            'portal_locked_at' => null,
+            'portal_locked_reason' => null,
+        ]);
 
-        $this->flash = 'Portalzugang entsperrt.';
+        $this->flash = count($ids) > 1
+            ? 'Portalzugang entsperrt — auch fuer die verknuepften Personalnummern derselben Person (' . (count($ids) - 1) . ').'
+            : 'Portalzugang entsperrt.';
         $this->flashError = null;
         unset($this->employee);
     }
