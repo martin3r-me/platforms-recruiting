@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Services\Zas;
 
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use libphonenumber\NumberParseException;
 use libphonenumber\PhoneNumberFormat;
@@ -23,12 +24,17 @@ use Platform\Recruiting\Support\PersonNameMatch;
  *
  * Match-Kaskade (non-destruktiv, Basis: IncomingApplicationService-Konvention,
  * verschaerft um Eindeutigkeits-Guards):
- *   1. E-Mail via LOWER() (CRM speichert gemischte Schreibweise) — nur bei
- *      GENAU EINEM Treffer linken, sonst skip "mehrdeutig"
+ *   1. E-Mail via LOWER() (CRM speichert gemischte Schreibweise) — bei GENAU
+ *      EINEM Treffer linken; bei mehreren Treffern (Runde 4, #0): einengen
+ *      statt abbrechen — Schnitt E-Mail ∩ Telefon, dann Kontakt mit bereits
+ *      verlinktem aktiven Namensvetter; erst wenn das nicht auf genau einen
+ *      Kontakt fuehrt: skip "mehrdeutig"
  *   2. Telefon per Ziffern-Suffix auf international/raw_input — Needle wird
  *      vorher per libphonenumber normalisiert (E164), weil der naive
  *      Ziffern-Vergleich an fuehrender 0 vs. Laendercode scheitert
- *      ("0151..." matcht nie "+49151..."). Ebenfalls nur bei genau 1 Treffer.
+ *      ("0151..." matcht nie "+49151..."). Bei GENAU EINEM Treffer linken;
+ *      bei mehreren Treffern (Runde 4, #0): dieselbe Namensvetter-Einengung
+ *      wie bei E-Mail, sonst skip "mehrdeutig"
  *   3. kein Treffer -> neuen Kontakt anlegen (Name, Geburtsdatum,
  *      E-Mail + Telefon als primaere Eintraege)
  *
@@ -45,43 +51,36 @@ class ZasEmployeeContactLinker
             return ['action' => 'skip', 'reason' => 'hat bereits CRM-Kontakt-Link'];
         }
 
-        $email = mb_strtolower(trim((string) $employee->email));
-        $phone = trim((string) $employee->phone);
+        $email  = mb_strtolower(trim((string) $employee->email));
+        $phone  = trim((string) $employee->phone);
+        $needle = $this->normalizedPhoneDigits($phone);
 
-        if ($email !== '') {
-            // LOWER() statt Kollations-Vertrauen: CRM speichert gemischte
-            // Schreibweise (kein Lowercase-Mutator am Model).
-            $matches = CrmContact::where('team_id', $employee->team_id)
-                ->where('is_active', true)
-                ->whereHas('emailAddresses', fn ($q) => $q->whereRaw('LOWER(email_address) = ?', [$email]))
-                ->limit(2)
-                ->get();
-            if ($matches->count() === 1) {
-                return $this->linkDecision($employee, $matches->first(), 'email');
+        $byEmail = $email !== '' ? $this->emailCandidates($employee, $email) : collect();
+        $byPhone = $needle !== null ? $this->phoneCandidates($employee, $needle) : collect();
+
+        if ($byEmail->count() === 1) {
+            return $this->linkDecision($employee, $byEmail->first(), 'email');
+        }
+        if ($byEmail->count() > 1) {
+            // Runde 4 (#0): einengen statt abbrechen — Schnitt mit Telefon, dann Namensvetter.
+            $narrowed = $this->narrow($employee, $byEmail, $byPhone);
+            if ($narrowed !== null) {
+                return $this->linkDecision($employee, $narrowed['contact'], 'email+' . $narrowed['by']);
             }
-            if ($matches->count() > 1) {
-                return ['action' => 'skip', 'reason' => "mehrdeutig: E-Mail '{$email}' matcht mehrere Kontakte — bitte manuell zuordnen"];
-            }
+
+            return ['action' => 'skip', 'reason' => "mehrdeutig: E-Mail '{$email}' matcht {$byEmail->count()} Kontakte, Telefon/Namensvetter engen nicht ein — bitte manuell zuordnen"];
         }
 
-        // Suffix-Match nur mit normalisierter Nummer (E164-Ziffern).
-        // Unparsebar/ungueltig -> kein Match-Versuch (kein Raten mit Muell).
-        $needle = $this->normalizedPhoneDigits($phone);
-        if ($needle !== null) {
-            $matches = CrmContact::where('team_id', $employee->team_id)
-                ->where('is_active', true)
-                ->whereHas('phoneNumbers', function ($q) use ($needle) {
-                    $q->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $needle])
-                      ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $needle]);
-                })
-                ->limit(2)
-                ->get();
-            if ($matches->count() === 1) {
-                return $this->linkDecision($employee, $matches->first(), 'phone');
+        if ($byPhone->count() === 1) {
+            return $this->linkDecision($employee, $byPhone->first(), 'phone');
+        }
+        if ($byPhone->count() > 1) {
+            $narrowed = $this->narrow($employee, $byPhone, collect());
+            if ($narrowed !== null) {
+                return $this->linkDecision($employee, $narrowed['contact'], 'phone+' . $narrowed['by']);
             }
-            if ($matches->count() > 1) {
-                return ['action' => 'skip', 'reason' => 'mehrdeutig: Telefon matcht mehrere Kontakte — bitte manuell zuordnen'];
-            }
+
+            return ['action' => 'skip', 'reason' => "mehrdeutig: Telefon matcht {$byPhone->count()} Kontakte — bitte manuell zuordnen"];
         }
 
         if (trim((string) $employee->first_name) === '' && trim((string) $employee->last_name) === '') {
@@ -93,6 +92,86 @@ class ZasEmployeeContactLinker
             'email'  => $email !== '' ? $email : null,
             'phone'  => $phone !== '' ? $phone : null,
         ];
+    }
+
+    /** Aktive Kontakte des Teams mit exakt dieser E-Mail (LOWER — CRM speichert gemischt). */
+    protected function emailCandidates(RecEmployee $employee, string $email): Collection
+    {
+        return CrmContact::where('team_id', $employee->team_id)
+            ->where('is_active', true)
+            ->whereHas('emailAddresses', fn ($q) => $q->whereRaw('LOWER(email_address) = ?', [$email]))
+            ->limit(10)
+            ->get();
+    }
+
+    /** Aktive Kontakte des Teams, deren Nummer (international/raw_input) auf die E164-Ziffern endet. */
+    protected function phoneCandidates(RecEmployee $employee, string $needle): Collection
+    {
+        return CrmContact::where('team_id', $employee->team_id)
+            ->where('is_active', true)
+            ->whereHas('phoneNumbers', function ($q) use ($needle) {
+                $q->whereRaw("REPLACE(REPLACE(REPLACE(international, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $needle])
+                  ->orWhereRaw("REPLACE(REPLACE(raw_input, ' ', ''), '-', '') LIKE ?", ['%' . $needle]);
+            })
+            ->limit(10)
+            ->get();
+    }
+
+    /**
+     * Engt mehrdeutige Kandidaten ein (Runde 4, #0):
+     *   1. Schnittmenge mit $other (E-Mail ∩ Telefon) — genau EIN Ueberlebender -> Treffer ('phone').
+     *      Mehrere Ueberlebende -> mit der engeren Menge weiter.
+     *   2. Kandidat, der bereits an einem AKTIVEN Mitarbeiter gleichen Namens im selben
+     *      Team haengt (Doppel-MA RG/MA derselben Person) -> Treffer ('namesake').
+     * Sonst null -> Aufrufer skippt "mehrdeutig". Nie raten.
+     *
+     * @return ?array{contact: CrmContact, by: string}
+     */
+    protected function narrow(RecEmployee $employee, Collection $candidates, Collection $other): ?array
+    {
+        if ($other->isNotEmpty()) {
+            $otherIds = $other->pluck('id')->map(fn ($v) => (int) $v)->all();
+            $both = $candidates->filter(fn ($c) => in_array((int) $c->id, $otherIds, true))->values();
+            if ($both->count() === 1) {
+                return ['contact' => $both->first(), 'by' => 'phone'];
+            }
+            if ($both->count() > 1) {
+                $candidates = $both;
+            }
+        }
+
+        $namesakes = $candidates->filter(fn ($c) => $this->hasLinkedNamesake($employee, $c))->values();
+        if ($namesakes->count() === 1) {
+            return ['contact' => $namesakes->first(), 'by' => 'namesake'];
+        }
+
+        return null;
+    }
+
+    /** Haengt an $contact bereits ein anderer aktiver MA desselben Teams mit plausibel gleichem Namen? */
+    protected function hasLinkedNamesake(RecEmployee $employee, CrmContact $contact): bool
+    {
+        $linkedIds = CrmContactLink::query()
+            ->where('contact_id', $contact->id)
+            ->where('linkable_type', $employee->getMorphClass())
+            ->pluck('linkable_id')
+            ->map(fn ($v) => (int) $v)
+            ->all();
+        if ($linkedIds === []) {
+            return false;
+        }
+
+        return RecEmployee::query()
+            ->whereIn('id', $linkedIds)
+            ->where('team_id', $employee->team_id)
+            ->where('is_active', true)
+            ->where('id', '!=', $employee->id)
+            ->get(['first_name', 'last_name'])
+            ->contains(fn ($e) => PersonNameMatch::plausible(
+                (string) $employee->first_name,
+                (string) $employee->last_name,
+                trim(($e->first_name ?? '') . ' ' . ($e->last_name ?? ''))
+            ));
     }
 
     /**
