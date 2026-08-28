@@ -177,6 +177,11 @@
                                 @if (!$info['matched'])
                                     <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700">kein MA zugeordnet</span>
                                 @endif
+                                @if ($info['portal_url'])
+                                    <a href="{{ $info['portal_url'] }}" target="_blank" rel="noopener"
+                                       title="Persönlicher Link des Mitarbeiters — nicht weitergeben."
+                                       class="rounded bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:bg-blue-100">Was der MA sieht ↗</a>
+                                @endif
                             </div>
                             <div class="truncate text-xs text-gray-500 tabular-nums">{{ $info['phone'] }}</div>
                         </div>
@@ -191,7 +196,7 @@
                             <span class="shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Einsätze</span>
                             @foreach ($panel as $row)
                                 @php $sm = $statusMeta[$row['status']] ?? $statusMeta['offen']; @endphp
-                                <span class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700">
+                                <a href="{{ $row['url'] }}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700 hover:border-blue-300">
                                     <span class="h-2 w-2 rounded-full {{ $sm[1] }}"></span>
                                     <span class="font-semibold tabular-nums">{{ $row['datum'] }}</span>
                                     @if ($row['zeit'])
@@ -199,7 +204,7 @@
                                     @endif
                                     <span class="max-w-[14rem] truncate">{{ $row['event'] }}</span>
                                     <span class="font-semibold {{ $sm[2] }}">{{ $sm[0] }}</span>
-                                </span>
+                                </a>
                             @endforeach
                         </div>
                     @endif
@@ -216,11 +221,14 @@
                             @endif
                             @if ($message['kind'] === 'template')
                                 <div class="grid max-w-[85%] grid-cols-[30px_1fr] items-center gap-x-2.5 gap-y-0.5 self-end rounded-xl border border-gray-200 bg-white px-3 py-2 lg:max-w-[68%]">
-                                    <span class="row-span-2 grid h-[30px] w-[30px] place-items-center rounded-lg bg-blue-50 text-blue-700">
+                                    <span class="self-start grid h-[30px] w-[30px] place-items-center rounded-lg bg-blue-50 text-blue-700">
                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H7l-3 3z"/><path d="M8 9h8M8 12h5"/></svg>
                                     </span>
                                     <span class="text-[13px] font-semibold text-gray-800">{{ $message['template_label'] }} gesendet</span>
                                     <span class="text-[11px] text-gray-400 tabular-nums">{{ $message['time'] }}@if ($message['status']) · {{ $message['status'] }}@endif</span>
+                                    @if ($info['portal_url'])
+                                        <a href="{{ $info['portal_url'] }}" target="_blank" rel="noopener" class="col-start-2 text-[11px] font-semibold text-blue-700 hover:underline" title="Persönlicher Link des Mitarbeiters — nicht weitergeben.">Einsatz-Seite öffnen ↗</a>
+                                    @endif
                                 </div>
                             @else
                                 <div class="flex max-w-[85%] flex-col gap-0.5 lg:max-w-[68%] {{ $message['direction'] === 'outbound' ? 'self-end items-end' : 'self-start' }}">

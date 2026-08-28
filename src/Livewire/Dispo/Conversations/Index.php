@@ -493,6 +493,7 @@ class Index extends Component
             ->filter(fn ($pnr) => $pnr !== '')
             ->values()
             ->all();
+        $token = $employeeId !== null ? (string) ($groupContacts[$employeeId]['portal_token'] ?? '') : '';
         $filialNr = $this->channelFilialeMap()[(int) $thread->comms_channel_id] ?? null;
 
         return [
@@ -501,6 +502,9 @@ class Index extends Component
             'initials' => self::initials($name),
             'matched'  => $employeeId !== null,
             'pnrs'     => $pnrs,
+            // Runde 4 (#3): genau die Ansicht, die der MA sieht (kanonischer Datensatz; die
+            // Seite zeigt ohnehin alle Datensaetze der Person).
+            'portal_url' => $token !== '' ? route('recruiting.public.employee-assignments', ['token' => $token]) : null,
             'filiale'  => $filialNr !== null ? (Filialen::code($filialNr) ?? ('#' . $filialNr)) : 'Sonstige',
             'filial_nr' => $filialNr,
             'window'   => $this->windowInfo($thread->last_inbound_at),
@@ -603,6 +607,7 @@ class Index extends Component
                 'status'  => $a->deletion_marked_at ? 'geloescht_gemeldet'
                     : ($a->confirmed_at ? 'bestaetigt'
                     : ($a->reminder_sent_at ? 'angeschrieben' : 'offen')),
+                'url'     => route('recruiting.dispo.events.show', ['eventId' => (int) $a->rec_dispo_event_id]),
             ])->all();
     }
 
