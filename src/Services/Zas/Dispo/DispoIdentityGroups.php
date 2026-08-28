@@ -33,6 +33,10 @@ final class DispoIdentityGroups
             }
         }
 
+        // Full-Rewrite statt Union-Find (jede Gruppe wird komplett neu geschrieben) —
+        // O(Kontakte x Gruppengroesse), fuer MA-Zahlen im Dispo-Kontext voellig
+        // ausreichend; reihenfolgeunabhaengig, weil jeder Merge den AKTUELLEN
+        // Gruppenstand aller Mitglieder vereinigt.
         foreach ($membersByContact as $members) {
             $members = array_values(array_unique($members));
             if (count($members) < 2) {

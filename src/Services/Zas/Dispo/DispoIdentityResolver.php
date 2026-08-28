@@ -12,6 +12,9 @@ use Platform\Recruiting\Models\RecEmployee;
  *
  * EINZIGE Tuer vom Dispo-Code zu crm_contact_links — nur lesend. Ohne Link,
  * inaktiv oder fremdes Team -> Gruppe = [id] (heutiges Verhalten).
+ *
+ * Ohne Team-Anker (inbound_team_id) wird NICHT gruppiert (fail-closed) — der
+ * Resolver speist eine oeffentliche Token-Seite.
  */
 class DispoIdentityResolver
 {
@@ -29,14 +32,25 @@ class DispoIdentityResolver
         $morph = (new RecEmployee())->getMorphClass();
         $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: 0);
 
+        if ($teamId <= 0) {
+            // Fail-closed: ohne Team-Anker keine Gruppierung.
+            $out = [];
+            foreach ($employeeIds as $id) {
+                $out[$id] = [$id];
+            }
+
+            return $out;
+        }
+
         $contactIds = CrmContactLink::query()
             ->where('linkable_type', $morph)
+            ->where('team_id', $teamId)
             ->whereIn('linkable_id', $employeeIds)
             ->pluck('contact_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
 
         $links = $contactIds === []
             ? collect()
-            : CrmContactLink::query()->where('linkable_type', $morph)->whereIn('contact_id', $contactIds)->get(['contact_id', 'linkable_id']);
+            : CrmContactLink::query()->where('linkable_type', $morph)->where('team_id', $teamId)->whereIn('contact_id', $contactIds)->get(['contact_id', 'linkable_id']);
 
         $candidateIds = array_values(array_unique(array_merge(
             $employeeIds,
@@ -88,8 +102,14 @@ class DispoIdentityResolver
         $morph = (new RecEmployee())->getMorphClass();
         $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: 0);
 
+        if ($teamId <= 0) {
+            // Fail-closed: ohne Team-Anker keine Kontakt-Aufloesung.
+            return [];
+        }
+
         $links = CrmContactLink::query()
             ->where('linkable_type', $morph)
+            ->where('team_id', $teamId)
             ->whereIn('contact_id', $contactIds)
             ->get(['contact_id', 'linkable_id']);
 

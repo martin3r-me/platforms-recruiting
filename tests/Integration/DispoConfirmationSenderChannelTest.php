@@ -36,6 +36,7 @@ class DispoConfirmationSenderChannelTest extends TestCase
     private const FILIALE_CHANNEL_NUMMER = '+49 160 5550002';
 
     private static int $employeeId = 0;
+    private static int $employeeIdOhneTelefon = 0;
     private static int $templateId = 0;
     private static int $defaultChannelId = 0;
     private static int $filialeChannelId = 0;
@@ -156,6 +157,42 @@ class DispoConfirmationSenderChannelTest extends TestCase
         $this->assertSame(self::$defaultChannelId, $usedChannel->id, 'Ohne Filial-Zuordnung muss der Default-Kanal des Templates verwendet werden (unveraendertes Verhalten).');
     }
 
+    public function test_confirmation_send_uses_recipient_phone_fallback_when_canonical_record_has_none(): void
+    {
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-CONF-FALLBACK', 'name' => 'Test-VA-Fallback', 'filial_nr' => self::FILIAL_NR,
+            'vorlauf_minuten' => 30,
+        ]);
+
+        RecDispoAssignment::create([
+            'ds_ref' => 'DS-CONF-FALLBACK', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeIdOhneTelefon,
+            'rec_employee_id' => self::$employeeIdOhneTelefon, 'datum' => '2026-08-26', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
+        ]);
+
+        $sender = new DispoConfirmationSender(new DispoEmployeeGateway());
+        $geschwisterTelefon = '+49 151 12345678';
+        $recipients = [[
+            'employee_id'     => self::$employeeIdOhneTelefon,
+            // Dispo-Identitaet: sendPreview() kann die Nummer vom Geschwister-Datensatz
+            // holen, wenn der kanonische Datensatz keine hat.
+            'phone'           => $geschwisterTelefon,
+            'assignment_ids'  => [RecDispoAssignment::where('ds_ref', 'DS-CONF-FALLBACK')->value('id')],
+            'first_datum'     => '2026-08-26',
+            'is_reminder'     => false,
+        ]];
+
+        $result = $sender->send($event, $recipients, self::$templateId);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame(1, $result['sent']);
+        $this->assertSame([], $result['failed']);
+        $this->assertSame($geschwisterTelefon, $this->stub->log[array_key_last($this->stub->log)]['to']);
+
+        $assignment = RecDispoAssignment::where('ds_ref', 'DS-CONF-FALLBACK')->first();
+        $this->assertNotNull($assignment->reminder_sent_at);
+    }
+
     private static function seedFixtures(): void
     {
         self::$defaultChannelId = (int) Capsule::table('comms_channels')->insertGetId([
@@ -201,6 +238,14 @@ class DispoConfirmationSenderChannelTest extends TestCase
             'team_id' => self::TEAM, 'first_name' => 'Petra', 'last_name' => 'Muster',
             'phone' => '+49 151 88888888', 'portal_token' => 'tok-dispo-confirm', 'is_active' => true,
         ])->id;
+
+        // Zweiter Datensatz ohne Telefon fuer den Fallback-Test (F1): der kanonische
+        // Datensatz hat keine Nummer, sendPreview() liefert sie ueber den Geschwister-
+        // Datensatz im $recipient-Array.
+        self::$employeeIdOhneTelefon = (int) RecEmployee::create([
+            'team_id' => self::TEAM, 'first_name' => 'Karl', 'last_name' => 'Ohne-Telefon',
+            'phone' => null, 'portal_token' => 'tok-dispo-confirm-ohne-telefon', 'is_active' => true,
+        ])->id;
     }
 
     private static function runMigrations(): void
@@ -211,6 +256,7 @@ class DispoConfirmationSenderChannelTest extends TestCase
 
         $files = [
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            // personnel_number/company: contacts() selektiert die Spalten — fehlen sie im Schema, liefert SQLite den Spaltennamen als String-Literal statt eines Fehlers (kein Test-Fail, falsche Daten).
             [$own, 'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],

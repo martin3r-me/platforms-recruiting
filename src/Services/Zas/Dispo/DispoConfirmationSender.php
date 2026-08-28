@@ -66,7 +66,10 @@ class DispoConfirmationSender
 
         foreach ($recipients as $recipient) {
             $contact = $contacts[$recipient['employee_id']] ?? null;
-            if ($contact === null || $contact['phone'] === null) {
+            // Dispo-Identitaet: Nummer kann vom Geschwister-Datensatz stammen (sendPreview-Fallback),
+            // deshalb recipient['phone'] vor contacts()-Nummer beruecksichtigen.
+            $phone = $contact['phone'] ?? ($recipient['phone'] ?? null);
+            if ($contact === null || $phone === null) {
                 $failed[] = ['employee_id' => $recipient['employee_id'], 'error' => 'Kontaktdaten nicht mehr verfuegbar'];
                 continue;
             }
@@ -93,7 +96,7 @@ class DispoConfirmationSender
 
                 $message = $service->sendTemplate(
                     channel:      $channel,
-                    to:           $contact['phone'],
+                    to:           $phone,
                     templateName: $template->name,
                     components:   $components,
                     languageCode: $template->language ?? 'de',

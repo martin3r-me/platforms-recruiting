@@ -124,6 +124,9 @@ class DispoEscalateCommand extends Command
             ->whereNull('missing_since')
             ->whereNotNull('rec_employee_id')
             ->with('event')
+            // Reihenfolge = frueheste Schicht zuerst: der Dedup pro Person/VA schickt
+            // den Reminder mit den Zeiten der ERSTEN Zeile.
+            ->orderBy('datum')->orderBy('von')
             ->get()
             ->filter(function (RecDispoAssignment $a) use ($defaults, $today) {
                 $cfg = self::configFor($a, $defaults);
@@ -190,6 +193,11 @@ class DispoEscalateCommand extends Command
             // Dispo-Identitaet: fuer diese Person/VA/Stufe in diesem Lauf bereits
             // verschickt (zweiter Datensatz derselben Person) -> nur stempeln,
             // NICHT nochmal senden.
+            //
+            // $sentInRun wird erst NACH erfolgreichem Send gesetzt: wirft der erste
+            // Send einer Person (Netzwerk), versucht der Geschwister-Datensatz seinen
+            // eigenen Send — lieber im seltenen Fehlerfall doppelt erinnern als still
+            // verpassen (Exception-Pfad stempelt bewusst nicht).
             $personKey = ($canon[(int) $a->rec_employee_id] ?? (int) $a->rec_employee_id) . '|' . $a->rec_dispo_event_id . '|' . $stage;
             if (array_key_exists($personKey, $sentInRun)) {
                 if ($stage === 1) {

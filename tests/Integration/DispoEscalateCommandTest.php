@@ -579,6 +579,30 @@ class DispoEscalateCommandTest extends TestCase
         $this->assertNull($row->escalation_1_at);
     }
 
+    /**
+     * F3 (Final-Review): der Dedup pro Person/VA sendet den EINEN Reminder mit
+     * den Zeiten der chronologisch ERSTEN Zeile — die Zielmengen-Query muss
+     * dafuer nach datum/von sortiert sein, unabhaengig von der Insert-Reihenfolge.
+     */
+    public function test_target_query_is_ordered_so_dedup_uses_earliest_shift(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-ORDER', 'name' => 'Doppelschicht', 'filial_nr' => self::FILIAL_NR]);
+        // Absichtlich in umgekehrter chronologischer Reihenfolge angelegt: die
+        // spaete Schicht zuerst, die fruehe Schicht danach.
+        RecDispoAssignment::create(array_merge($this->baseRow($event->id, 'DS-LATE', '2026-08-26'), ['von' => '18:00', 'bis' => '22:00']));
+        RecDispoAssignment::create(array_merge($this->baseRow($event->id, 'DS-EARLY', '2026-08-26'), ['von' => '10:00', 'bis' => '12:00']));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 14:01:00'));
+
+        $this->assertSame(2, $report['stage1'], 'Beide Zeilen sind faellig.');
+        $this->assertSame(1, $this->stub->calls, 'Genau EIN Reminder pro Person/VA.');
+        $params = $this->stub->log[0]['components'][0]['parameters'];
+        $this->assertSame('10:00 bis 12:00', $params[3]['text'], 'Der Reminder traegt die Zeiten der chronologisch ERSTEN Schicht.');
+
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-LATE')->value('escalation_1_at'));
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-EARLY')->value('escalation_1_at'));
+    }
+
     /** @return array<string,mixed> */
     private static function baselineSettings(): array
     {
@@ -648,6 +672,7 @@ class DispoEscalateCommandTest extends TestCase
 
         $files = [
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            // personnel_number/company: contacts() selektiert die Spalten — fehlen sie im Schema, liefert SQLite den Spaltennamen als String-Literal statt eines Fehlers (kein Test-Fail, falsche Daten).
             [$own, 'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],

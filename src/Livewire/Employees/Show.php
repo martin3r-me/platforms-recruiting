@@ -186,7 +186,7 @@ class Show extends Component
             return;
         }
 
-        // Eskalation sperrt alle Datensaetze derselben Person (siehe Task 4/5) -
+        // Eskalation sperrt alle Datensaetze derselben Person (siehe DispoEscalateCommand Stufe 3 / DispoEmployeeGateway::lockPortal) -
         // die Entsperrung muss dieselbe Gruppe wieder freigeben, sonst bleibt
         // die verknuepfte Personalnummer stumm gesperrt liegen.
         $ids = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupFor((int) $employee->id);

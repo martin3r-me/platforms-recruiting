@@ -117,6 +117,28 @@ class DispoIdentityResolverTest extends TestCase
         $this->assertArrayNotHasKey(999999, $result);
     }
 
+    public function test_without_team_anchor_resolver_fails_closed(): void
+    {
+        $rg = $this->employee('RG9'); $ma = $this->employee('MA9');
+        $this->link($rg, 900); $this->link($ma, 900);
+
+        $container = Container::getInstance();
+        $original = $container->make('config');
+        // F2: kein Team-Anker (inbound_team_id) -> Resolver MUSS fail-closed sein
+        // (keine Gruppierung), nicht "kein Team-Filter".
+        $container->instance('config', new ConfigRepository([
+            'recruiting' => ['zas' => ['inbound_team_id' => null]],
+        ]));
+
+        try {
+            $r = new DispoIdentityResolver();
+            $this->assertSame([$rg], $r->groupFor($rg));
+            $this->assertSame([], $r->employeeIdsByContact([900]));
+        } finally {
+            $container->instance('config', $original);
+        }
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);
