@@ -122,6 +122,29 @@ final class HoldingTemplateSender
     }
 
     /**
+     * Wie resolveTarget(), aber das Template kommt per ID statt per Settings-Key
+     * — fuer Wege, auf denen HR das Template im Dialog waehlt (Kampagne „Neue
+     * Termine“). Account/Kanal werden identisch aufgeloest.
+     *
+     * @return array{error: ?string, template: ?IntegrationsWhatsAppTemplate, channel: ?CommsChannel}
+     */
+    public function resolveTemplate(int $teamId, int $templateId): array
+    {
+        $fail = fn (string $msg) => ['error' => $msg, 'template' => null, 'channel' => null];
+
+        if (!class_exists(IntegrationsWhatsAppTemplate::class)) {
+            return $fail('WhatsApp-Integration nicht verfügbar.');
+        }
+
+        $template = $templateId > 0 ? IntegrationsWhatsAppTemplate::find($templateId) : null;
+        if (!$template || $template->status !== 'APPROVED') {
+            return $fail('Template nicht gefunden oder bei Meta nicht genehmigt.');
+        }
+
+        return $this->resolveChannelFor(RecApplicantSettings::getOrCreateForTeam($teamId), $template);
+    }
+
+    /**
      * @return array{error: ?string, template: ?IntegrationsWhatsAppTemplate, channel: ?CommsChannel}
      */
     private function resolveConfig(int $teamId, string $settingsKey = 'comms_holding_template_id'): array
@@ -142,6 +165,19 @@ final class HoldingTemplateSender
         if (!$template || $template->status !== 'APPROVED') {
             return $fail('Template nicht gefunden oder bei Meta nicht genehmigt.');
         }
+
+        return $this->resolveChannelFor($settings, $template);
+    }
+
+    /**
+     * Account → Kanal zu einem bereits aufgeloesten Template. Gemeinsamer Teil
+     * von resolveConfig() (Settings-Key) und resolveTemplate() (ID).
+     *
+     * @return array{error: ?string, template: ?IntegrationsWhatsAppTemplate, channel: ?CommsChannel}
+     */
+    private function resolveChannelFor(RecApplicantSettings $settings, IntegrationsWhatsAppTemplate $template): array
+    {
+        $fail = fn (string $msg) => ['error' => $msg, 'template' => null, 'channel' => null];
 
         $accountId = $settings->getSetting('auto_pilot_wa_account_id') ?: $template->whatsapp_account_id;
         if (!$accountId || !class_exists(IntegrationsWhatsAppAccount::class)) {

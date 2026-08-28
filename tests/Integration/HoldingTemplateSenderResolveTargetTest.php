@@ -153,6 +153,35 @@ class HoldingTemplateSenderResolveTargetTest extends TestCase
         );
     }
 
+    public function testResolveTemplateLiefertKanalZurTemplateId(): void
+    {
+        $target = $this->sender()->resolveTemplate(self::TEAM, self::$templateId);
+
+        $this->assertNull($target['error']);
+        $this->assertInstanceOf(IntegrationsWhatsAppTemplate::class, $target['template']);
+        $this->assertSame(self::$templateId, (int) $target['template']->id);
+        $this->assertInstanceOf(CommsChannel::class, $target['channel']);
+        $this->assertSame(self::ACCOUNT_NUMMER, $target['channel']->sender_identifier);
+    }
+
+    public function testResolveTemplateUnbekannteIdMeldetFehler(): void
+    {
+        $target = $this->sender()->resolveTemplate(self::TEAM, 999999);
+
+        $this->assertSame('Template nicht gefunden oder bei Meta nicht genehmigt.', $target['error']);
+        $this->assertNull($target['template']);
+        $this->assertNull($target['channel']);
+    }
+
+    public function testResolveTemplateOhneKanalMeldetFehler(): void
+    {
+        Capsule::table('comms_channels')->update(['is_active' => false]);
+
+        $target = $this->sender()->resolveTemplate(self::TEAM, self::$templateId);
+
+        $this->assertSame('Kein aktiver WhatsApp-Kanal für den Account.', $target['error']);
+    }
+
     /**
      * Schema aus den ECHTEN Migrationen (Modulmuster). comms_channels traegt
      * Fremdschluessel auf `teams` und `comms_provider_connections`; die Tabellen
