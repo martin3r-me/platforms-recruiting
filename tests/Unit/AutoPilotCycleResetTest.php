@@ -3,6 +3,8 @@
 
 namespace Platform\Recruiting\Tests\Unit;
 
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Database\Eloquent\Model;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecApplicant;
 
@@ -12,10 +14,21 @@ use Platform\Recruiting\Models\RecApplicant;
  * Query (ProcessAutoPilotApplicants::633) hat den Bewerber in der neuen Phase
  * nie wieder gesehen — der Erstkontakt der Folgephase kam nie.
  *
- * Reiner Modell-Test ohne DB: die Methode setzt nur Attribute.
+ * Modell-Test mit minimalem Capsule-Connection-Resolver fuer die Datums-Casts:
+ * die Methode setzt nur Attribute (Serialisierung/Deserialisierung der Datums-
+ * felder braucht aber einen Connection-Kontext). Keine Tabellen, kein Schema.
  */
 final class AutoPilotCycleResetTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $capsule = new Capsule();
+        $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $capsule->setAsGlobal();
+        $capsule->bootEloquent();
+        Model::clearBootedModels();
+    }
     public function testResetLoeschtAuchDenStatus(): void
     {
         $a = new RecApplicant();
