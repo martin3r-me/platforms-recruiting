@@ -60,6 +60,10 @@ class ZasEmployeeContactLinkerTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Container::getInstance()->forgetInstance('config');
+        // Log-Attrappe wieder aus dem GETEILTEN Container nehmen — sonst bekommt jede
+        // spaetere Testklasse des Prozesses still einen No-op-Logger statt der lauten
+        // ReflectionException (Muster TrainingCertificateWhatsAppDeliveryTest).
+        Container::getInstance()->forgetInstance('log');
         Facade::clearResolvedInstances();
     }
 
