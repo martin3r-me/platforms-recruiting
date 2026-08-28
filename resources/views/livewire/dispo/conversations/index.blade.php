@@ -24,7 +24,9 @@
         };
     };
 @endphp
-<div class="flex h-[calc(100vh-4rem)] flex-col lg:h-[calc(100vh-3rem)]">
+{{-- wire:poll: alle 20 s leise nachladen (nur bei sichtbarem Tab) — neue Nachrichten erscheinen ohne
+     Reload; getippter Text bleibt erhalten (Livewire schickt den Feldwert mit). --}}
+<div class="flex h-[calc(100vh-4rem)] flex-col lg:h-[calc(100vh-3rem)]" wire:poll.visible.20s>
 
     {{-- Kopf: Titel + Filial-Tabs + Alle/Ungelesen (auf dem Handy ausgeblendet, sobald ein Thread offen ist) --}}
     <div class="{{ $hasSelection ? 'hidden lg:block' : '' }} border-b border-gray-200 bg-white px-4 py-3 lg:px-6">
@@ -186,8 +188,11 @@
                         </div>
                     @endif
 
-                    {{-- Verlauf --}}
-                    <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-4 lg:px-5">
+                    {{-- Verlauf: wire:key aus Thread+Anzahl -> bei neuer Nachricht wird der Container neu
+                         aufgebaut und x-init scrollt ans Ende (auch nach wire:poll). --}}
+                    <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-4 lg:px-5"
+                         wire:key="msgs-{{ $selectedThreadId }}-{{ count($messages) }}"
+                         x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
                         @forelse ($messages as $message)
                             @if ($message['day'] !== $lastDay)
                                 @php $lastDay = $message['day']; @endphp
@@ -228,13 +233,21 @@
                             <button type="button" wire:click="toggleUnread({{ $selectedThreadId }})" class="ml-auto text-xs text-gray-400 hover:text-gray-600 sm:hidden">als {{ $info['is_unread'] ? 'gelesen' : 'ungelesen' }} markieren</button>
                         </div>
                         @if ($window['state'] === 'open')
-                            <div class="flex items-end gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 pl-3 focus-within:border-blue-400">
+                            {{-- Textfeld waechst mit dem Inhalt (bis ~8 Zeilen, dann intern scrollen);
+                                 Enter sendet, Shift+Enter macht eine neue Zeile (wie WhatsApp). --}}
+                            <div class="flex items-end gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 pl-3 focus-within:border-blue-400"
+                                 x-data="{ fit(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; } }">
                                 <textarea wire:model="replyText" rows="1" placeholder="Antwort schreiben …"
-                                          class="max-h-40 min-h-[36px] w-full resize-y border-0 bg-transparent p-1.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-0"></textarea>
+                                          x-init="fit($el)"
+                                          x-on:input="fit($el)"
+                                          x-on:reply-sent.window="$nextTick(() => fit($el))"
+                                          x-on:keydown.enter.prevent="if (!$event.shiftKey) { $wire.sendReply() } else { $el.setRangeText('\n', $el.selectionStart, $el.selectionEnd, 'end'); $el.dispatchEvent(new Event('input', { bubbles: true })) }"
+                                          class="max-h-[200px] min-h-[36px] w-full resize-none overflow-y-auto border-0 bg-transparent p-1.5 text-sm leading-snug text-gray-900 placeholder:text-gray-400 focus:ring-0"></textarea>
                                 <button type="button" wire:click="sendReply" wire:loading.attr="disabled" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" aria-label="Senden">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12 20 4l-4 16-4-7z"/></svg>
                                 </button>
                             </div>
+                            <div class="mt-1 px-1 text-[11px] text-gray-400">Enter sendet · Shift + Enter für eine neue Zeile</div>
                         @else
                             <div class="rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
                                 @if ($window['state'] === 'closed')

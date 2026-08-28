@@ -509,7 +509,8 @@ class Index extends Component
             }
 
             $this->replyText = '';
-            unset($this->threads, $this->messages, $this->selected, $this->filialeTabs);
+            unset($this->threads, $this->messages, $this->selected, $this->filialeTabs, $this->selectedInfo);
+            $this->dispatch('reply-sent'); // Browser-Event: Textfeld-Hoehe zuruecksetzen
         } catch (\Throwable $e) {
             $this->sendError = 'Senden fehlgeschlagen: ' . $e->getMessage();
         }
