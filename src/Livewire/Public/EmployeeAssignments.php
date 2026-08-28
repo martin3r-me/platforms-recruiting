@@ -10,6 +10,7 @@ use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
 
@@ -27,6 +28,15 @@ class EmployeeAssignments extends Component
     public string $token = '';
     #[Locked]
     public ?int $employeeId = null;
+    /**
+     * Dispo-Identitaets-Gruppe (Spec 2026-08-28): alle aktiven Mitarbeiter-
+     * Datensaetze derselben Person im selben Team, inkl. $employeeId selbst.
+     * #[Locked] + ausschliesslich serverseitig in mount() gesetzt.
+     *
+     * @var list<int>
+     */
+    #[Locked]
+    public array $employeeIds = [];
     #[Locked]
     public string $firstName = '';
     #[Locked]
@@ -54,10 +64,12 @@ class EmployeeAssignments extends Component
             return;
         }
 
-        $this->employeeId = (int) $employee->id;
-        $this->firstName  = (string) $employee->first_name;
+        $this->employeeId  = (int) $employee->id;
+        $this->employeeIds = app(DispoIdentityResolver::class)->groupFor((int) $employee->id);
+        $this->firstName   = (string) $employee->first_name;
 
-        if ($employee->portal_locked_at !== null) {
+        // Gesperrt, wenn irgendein Datensatz der Gruppe gesperrt ist.
+        if (RecEmployee::query()->whereIn('id', $this->employeeIds)->whereNotNull('portal_locked_at')->exists()) {
             $this->portalLocked = true;
         }
     }
@@ -77,7 +89,7 @@ class EmployeeAssignments extends Component
 
         $assignments = RecDispoAssignment::query()
             ->with('event')
-            ->where('rec_employee_id', $this->employeeId)
+            ->whereIn('rec_employee_id', $this->employeeIds)
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNull('missing_since')
             ->whereNull('deletion_marked_at')
@@ -86,7 +98,7 @@ class EmployeeAssignments extends Component
             ->get();
 
         $attachments = RecDispoAttachment::query()
-            ->where('rec_employee_id', $this->employeeId)
+            ->whereIn('rec_employee_id', $this->employeeIds)
             ->whereIn('rec_dispo_event_id', $assignments->pluck('rec_dispo_event_id')->unique()->all())
             ->get()
             ->keyBy('rec_dispo_event_id');
@@ -154,7 +166,7 @@ class EmployeeAssignments extends Component
             ->whereNull('missing_since')
             ->whereNull('deletion_marked_at')
             ->whereNotNull('rec_employee_id')
-            ->where('rec_employee_id', '!=', $this->employeeId)
+            ->whereNotIn('rec_employee_id', $this->employeeIds)
             ->orderBy('datum')->orderBy('von')
             ->get(['rec_dispo_event_id', 'rec_employee_id', 'taetigkeit', 'datum']);
 
@@ -198,7 +210,7 @@ class EmployeeAssignments extends Component
 
         $assignments = RecDispoAssignment::query()
             ->with('event')
-            ->where('rec_employee_id', $this->employeeId)
+            ->whereIn('rec_employee_id', $this->employeeIds)
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereDate('datum', '<', now()->toDateString())
             ->orderByDesc('datum')->orderByDesc('von')
@@ -234,14 +246,15 @@ class EmployeeAssignments extends Component
         // Frisch pruefen — die Sperre kann nach mount() gesetzt worden sein
         // (Eskalations-Cron laeuft unabhaengig vom Request); ohne diesen
         // Re-Check koennte ein bereits offener Tab die Sperre umgehen.
-        if (RecEmployee::query()->whereKey($this->employeeId)->whereNotNull('portal_locked_at')->exists()) {
+        // Gesperrt, wenn irgendein Datensatz der Gruppe gesperrt ist.
+        if (RecEmployee::query()->whereIn('id', $this->employeeIds)->whereNotNull('portal_locked_at')->exists()) {
             $this->portalLocked = true;
             return;
         }
 
         RecDispoAssignment::query()
             ->where('rec_dispo_event_id', $eventId)
-            ->where('rec_employee_id', $this->employeeId)
+            ->whereIn('rec_employee_id', $this->employeeIds)
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNull('missing_since')
             ->whereNull('deletion_marked_at')
