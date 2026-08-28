@@ -117,6 +117,35 @@ class DispoIdentityResolverTest extends TestCase
         $this->assertArrayNotHasKey(999999, $result);
     }
 
+    public function test_contact_ids_by_employee_mirrors_links_and_is_team_scoped(): void
+    {
+        $ma = $this->employee('RG6');
+        $this->link($ma, 904); // Anker-Team
+        Capsule::table('crm_contact_links')->insert([
+            'uuid' => 'lnk-' . $ma . '-999999', 'contact_id' => 999999, 'team_id' => 999,
+            'created_by_user_id' => 1, 'linkable_id' => $ma,
+            'linkable_type' => (new RecEmployee())->getMorphClass(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]); // fremdes Team -> darf nicht mitkommen
+
+        $result = (new DispoIdentityResolver())->contactIdsByEmployee([$ma]);
+
+        $this->assertSame([904], $result[$ma]);
+
+        // Ohne Team-Anker (inbound_team_id) fail-closed -> [].
+        $container = Container::getInstance();
+        $original = $container->make('config');
+        $container->instance('config', new ConfigRepository([
+            'recruiting' => ['zas' => ['inbound_team_id' => null]],
+        ]));
+
+        try {
+            $this->assertSame([], (new DispoIdentityResolver())->contactIdsByEmployee([$ma]));
+        } finally {
+            $container->instance('config', $original);
+        }
+    }
+
     public function test_without_team_anchor_resolver_fails_closed(): void
     {
         $rg = $this->employee('RG9'); $ma = $this->employee('MA9');

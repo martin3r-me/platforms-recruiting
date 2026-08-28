@@ -5,7 +5,6 @@ namespace Platform\Recruiting\Livewire\Dispo\Conversations;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
-use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
@@ -13,7 +12,10 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoPhoneMatcher;
-use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
+use Platform\Recruiting\Services\Zas\Dispo\DispoReplySender;
+use Platform\Recruiting\Services\Zas\Dispo\DispoReplyWindow;
+use Platform\Recruiting\Services\Zas\Dispo\DispoTemplateLabels;
+use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
 use Platform\Recruiting\Support\Filialen;
 
 /**
@@ -357,70 +359,21 @@ class Index extends Component
     #[Computed]
     public function templateLabels(): array
     {
-        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
-            return [];
-        }
         $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: (auth()->user()?->currentTeam?->id ?? 0));
-        if ($teamId === 0) {
-            return [];
-        }
-        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
-        $roles = [
-            'dispo_confirmation_template_id'  => 'Bestätigungsanfrage',
-            'dispo_escalation_template_1_id'  => 'Erinnerung',
-            'dispo_escalation_template_2_id'  => 'Letzte Erinnerung',
-            'dispo_alarm_template_id'         => 'Dispo-Alarm',
-        ];
-        $byId = [];
-        foreach ($roles as $key => $label) {
-            $id = (int) ($settings->getSetting($key) ?: 0);
-            if ($id > 0) {
-                $byId[$id] = $label;
-            }
-        }
-        if ($byId === []) {
-            return [];
-        }
 
-        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
-            ->whereIn('id', array_keys($byId))
-            ->get(['id', 'name'])
-            ->mapWithKeys(fn ($t) => [(string) $t->name => $byId[(int) $t->id]])
-            ->all();
+        return DispoTemplateLabels::forTeam($teamId);
     }
 
     /** Label fuer einen Template-Namen (Einstellungen zuerst, dann Namens-Heuristik, sonst der Name). */
     public function templateLabel(string $name): string
     {
-        $labels = $this->templateLabels;
-        if (isset($labels[$name])) {
-            return $labels[$name];
-        }
-        $n = mb_strtolower($name);
-        if (str_contains($n, 'reminder2') || str_contains($n, 'final')) {
-            return 'Letzte Erinnerung';
-        }
-        if (str_contains($n, 'reminder') || str_contains($n, 'erinner')) {
-            return 'Erinnerung';
-        }
-        if (str_contains($n, 'alarm')) {
-            return 'Dispo-Alarm';
-        }
-        if (str_contains($n, 'bestaetig') || str_contains($n, 'confirm')) {
-            return 'Bestätigungsanfrage';
-        }
-
-        return $name;
+        return DispoTemplateLabels::label($name, $this->templateLabels);
     }
 
     /** "Template: xyz" in der Vorschau -> "Bestätigungsanfrage gesendet". */
     private function humanPreview(string $preview): string
     {
-        if (preg_match('/^Template:\s*(\S+)/u', $preview, $m) === 1) {
-            return $this->templateLabel($m[1]) . ' gesendet';
-        }
-
-        return $preview;
+        return DispoTemplateLabels::humanPreview($preview, $this->templateLabels);
     }
 
     /**
@@ -431,17 +384,7 @@ class Index extends Component
      */
     private function windowInfo(?\DateTimeInterface $lastInboundAt): array
     {
-        if ($lastInboundAt === null) {
-            return ['state' => 'none', 'left' => null];
-        }
-        $now = now();
-        if (!DispoTimeCalculator::isReplyWindowOpen($lastInboundAt, $now)) {
-            return ['state' => 'closed', 'left' => null];
-        }
-        $deadline = \Illuminate\Support\Carbon::instance($lastInboundAt)->addHours(24);
-        $mins = max(0, (int) $now->diffInMinutes($deadline, false));
-
-        return ['state' => 'open', 'left' => $mins >= 60 ? intdiv($mins, 60) . ' h' : $mins . ' min'];
+        return DispoReplyWindow::info($lastInboundAt, now());
     }
 
     private static function initials(?string $name): string
@@ -512,21 +455,6 @@ class Index extends Component
         ];
     }
 
-    /** "Heute", "Gestern", sonst "Mittwoch, 27. August". */
-    private static function dayLabel(\Illuminate\Support\Carbon $c): string
-    {
-        if ($c->isToday()) {
-            return 'Heute';
-        }
-        if ($c->isYesterday()) {
-            return 'Gestern';
-        }
-        $wd = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'][$c->dayOfWeek];
-        $mo = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][(int) $c->format('n')];
-
-        return $wd . ', ' . $c->format('j') . '. ' . $mo;
-    }
-
     /** Mobil: zurueck zur Liste. */
     public function back(): void
     {
@@ -559,25 +487,7 @@ class Index extends Component
             return [];
         }
 
-        return $thread->messages()
-            ->orderBy('created_at')
-            ->get()
-            ->map(function ($m) {
-                $at = $m->sent_at ?? $m->created_at;
-                $isTemplate = ($m->body === null || $m->body === '') && !empty($m->template_name);
-
-                return [
-                    'direction'      => (string) $m->direction,
-                    'kind'           => $isTemplate ? 'template' : 'text',
-                    'body'           => (string) ($m->body ?? ''),
-                    'template_label' => $isTemplate ? $this->templateLabel((string) $m->template_name) : null,
-                    'status'         => $m->status,
-                    'at'             => optional($at)->format('d.m.Y H:i'),
-                    'time'           => optional($at)->format('H:i'),
-                    'day'            => optional($at)->format('Y-m-d'),
-                    'day_label'      => $at ? self::dayLabel(\Illuminate\Support\Carbon::instance($at)) : '',
-                ];
-            })->all();
+        return app(DispoThreadDirectory::class)->messages($thread, $this->templateLabels);
     }
 
     /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA (ALLER Datensaetze der Gruppe) */
@@ -641,11 +551,6 @@ class Index extends Component
     public function sendReply(): void
     {
         $this->sendError = null;
-        $text = trim($this->replyText);
-        if ($text === '') {
-            $this->sendError = 'Bitte eine Nachricht eingeben.';
-            return;
-        }
 
         $thread = $this->selected;
         if ($thread === null) {
@@ -653,39 +558,15 @@ class Index extends Component
             return;
         }
 
-        // Antwort geht ueber den Kanal DES Threads (die Filial-Nummer, auf der er liegt) —
-        // nicht mehr ueber einen einzelnen Default-Kanal.
-        $channel = \Platform\Crm\Models\CommsChannel::find($thread->comms_channel_id);
-        if ($channel === null) {
-            $this->sendError = 'Kanal des Threads nicht gefunden.';
-            return;
+        $r = app(DispoReplySender::class)->send($thread, $this->replyText, auth()->user());
+        if (!$r['ok']) {
+            $this->sendError = $r['error'];
+            return; // replyText NICHT leeren
         }
 
-        if (!DispoTimeCalculator::isReplyWindowOpen($thread->last_inbound_at, now())) {
-            $this->sendError = '24h-Fenster abgelaufen — Erinnerungen laufen ueber die VA-Seite.';
-            return;
-        }
-
-        try {
-            $message = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendText(
-                channel: $channel,
-                to:      (string) $thread->remote_phone_number,
-                message: $text,
-                sender:  auth()->user(),
-            );
-
-            if (($message->status ?? null) === 'failed') {
-                $this->sendError = 'Meta hat den Versand abgelehnt: '
-                    . (string) ($message->meta_payload['error']['message'] ?? 'unbekannter Grund');
-                return; // replyText NICHT leeren
-            }
-
-            $this->replyText = '';
-            unset($this->threads, $this->messages, $this->selected, $this->filialeTabs, $this->selectedInfo);
-            $this->dispatch('reply-sent'); // Browser-Event: Textfeld-Hoehe zuruecksetzen
-        } catch (\Throwable $e) {
-            $this->sendError = 'Senden fehlgeschlagen: ' . $e->getMessage();
-        }
+        $this->replyText = '';
+        unset($this->threads, $this->messages, $this->selected, $this->filialeTabs, $this->selectedInfo);
+        $this->dispatch('reply-sent'); // Browser-Event: Textfeld-Hoehe zuruecksetzen
     }
 
     /**

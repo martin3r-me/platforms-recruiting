@@ -37,6 +37,11 @@ class DuplicateMatchQueryTest extends TestCase
         // public_token) — das echte Schema verlangt sie als NOT NULL.
         $capsule->setEventDispatcher(new \Illuminate\Events\Dispatcher($container));
         $capsule->setAsGlobal();
+        // Eloquents statischer $booted-Cache ist prozessweit: eine andere
+        // Testklasse, die CrmContact vor uns (ohne oder mit anderem
+        // Dispatcher) instanziiert hat, wuerde sonst unseren Dispatcher nie
+        // sehen — die creating-Hooks blieben stumm aus (siehe phpunit.xml).
+        Model::clearBootedModels();
         $capsule->bootEloquent();
         Model::unguard();
 

@@ -143,4 +143,50 @@ class DispoIdentityResolver
 
         return $out;
     }
+
+    /**
+     * Umkehrung von employeeIdsByContact(): CRM-Kontakt-IDs je Mitarbeiter-ID
+     * (nur Links des Anker-Teams). Fail-closed ohne inbound_team_id -> [].
+     *
+     * @param list<int> $employeeIds
+     * @return array<int, list<int>> employee_id => contact_ids
+     */
+    public function contactIdsByEmployee(array $employeeIds): array
+    {
+        $employeeIds = array_values(array_unique(array_map('intval', $employeeIds)));
+        if ($employeeIds === []) {
+            return [];
+        }
+
+        $morph = (new RecEmployee())->getMorphClass();
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: 0);
+
+        if ($teamId <= 0) {
+            // Fail-closed: ohne Team-Anker keine Kontakt-Aufloesung.
+            return [];
+        }
+
+        $links = CrmContactLink::query()
+            ->where('linkable_type', $morph)
+            ->where('team_id', $teamId)
+            ->whereIn('linkable_id', $employeeIds)
+            ->get(['contact_id', 'linkable_id']);
+
+        if ($links->isEmpty()) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($links as $link) {
+            $out[(int) $link->linkable_id][] = (int) $link->contact_id;
+        }
+
+        foreach ($out as &$ids) {
+            $ids = array_values(array_unique($ids));
+            sort($ids);
+        }
+        unset($ids);
+
+        return $out;
+    }
 }
