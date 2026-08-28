@@ -51,6 +51,7 @@ class DispoTestVaCommandTest extends TestCase
             'database/migrations/2026_08_21_000001_add_filial_nr_to_rec_dispo_events.php',
             'database/migrations/2026_08_24_000002_add_escalation_fields_to_rec_dispo_assignments.php',
             'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php',
+            'database/migrations/2026_08_28_000002_add_reconfirm_fields_to_rec_dispo_assignments.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {
@@ -159,5 +160,36 @@ class DispoTestVaCommandTest extends TestCase
     {
         $this->command()->createTestVa(42, 'RG42', 1, 'TEST-VA', 'Teamleitung');
         $this->assertSame('Teamleitung', RecDispoAssignment::first()->taetigkeit);
+    }
+
+    /**
+     * Rebestaetigungs-Test (Runde 4, #2): eine bereits bestaetigte Test-Buchung
+     * bekommt beim naechsten Lauf mit --von eine geaenderte Zeit -> derselbe
+     * Weg wie der echte Import (DispoReconfirmMarker) setzt confirmed_at zurueck
+     * und markiert reconfirm_required_at. Upsert statt delete+create: die
+     * Bestaetigung des ersten Laufs muss ueberhaupt erst stehen bleiben koennen.
+     */
+    public function test_rerun_with_von_override_resets_confirmation_and_marks_reconfirm(): void
+    {
+        $this->command()->createTestVa(42, 'RG42', 1, 'TEST-VA');
+
+        $assignment = RecDispoAssignment::first();
+        $assignment->update([
+            'confirmed_at'    => now(),
+            'confirmed_datum' => $assignment->datum,
+            'confirmed_von'   => $assignment->von,
+            'confirmed_bis'   => $assignment->bis,
+        ]);
+
+        $result = $this->command()->createTestVa(42, 'RG42', 1, 'TEST-VA', 'Service', '16:30');
+
+        $this->assertSame(1, RecDispoAssignment::count());
+        $this->assertSame(1, $result['reconfirm_marked']);
+
+        $fresh = RecDispoAssignment::first();
+        $this->assertSame('16:30', $fresh->von);
+        $this->assertNull($fresh->confirmed_at);
+        $this->assertNotNull($fresh->reconfirm_required_at);
+        $this->assertSame($assignment->id, $fresh->id);
     }
 }

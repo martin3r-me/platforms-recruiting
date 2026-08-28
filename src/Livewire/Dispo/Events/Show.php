@@ -590,6 +590,7 @@ class Show extends Component
             'missing_since'      => $a->missing_since?->toDateTimeString(),
             'deletion_marked_at' => $a->deletion_marked_at?->toDateTimeString(),
             'datum'              => $a->datum->format('Y-m-d'),
+            'reconfirm_required_at' => $a->reconfirm_required_at?->toDateTimeString(),
         ])->all();
 
         // Dispo-Identitaet: Datensaetze derselben Person (gleicher CRM-Kontakt) auf die
@@ -639,6 +640,12 @@ class Show extends Component
 
         $result = (new DispoRecipientPlanner())
             ->plan($upcoming, $phones, $this->includeReminders);
+
+        // Runde 4 (#2): wie viele der Empfaenger-Einbuchungen sind Rebestaetigungen (Zeit geaendert)?
+        // array_merge([], ...) statt array_merge(..., []): "Cannot use positional
+        // argument after argument unpacking" bei leerem Spread (PHP 8.1+).
+        $recipientIds = array_merge([], ...array_map(fn ($r) => $r['assignment_ids'], $result['recipients']));
+        $result['reconfirm'] = count(array_filter($upcoming, fn ($a) => in_array((int) $a['id'], $recipientIds, true) && !empty($a['reconfirm_required_at'])));
 
         if ($pastCount > 0) {
             $result['skipped']['past'] = $pastCount;

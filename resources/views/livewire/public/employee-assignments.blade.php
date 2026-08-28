@@ -90,6 +90,9 @@
 .rg-crew .chip{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:999px; white-space:nowrap; flex:none}
 .rg-crew .evhead .chip{background:rgba(255,255,255,.16); color:#fff}
 .rg-crew .evhead .chip.ok{background:rgba(220,243,228,.22); color:#dcfce7}
+.rg-crew .chip.warn{background:#fff7ed; color:#c2410c; border-color:#fdba74}
+.rg-crew .notice{margin-top:10px; border-radius:12px; background:#fff7ed; border:1px solid #fed7aa; color:#7c2d12; padding:10px 12px; font-size:14px}
+.rg-crew .l2.warn{color:#c2410c}
 
 .rg-crew .empty{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); padding:26px 18px; text-align:center; color:var(--ink-2); font-size:14px}
 
@@ -182,6 +185,8 @@
                 $first = $days[0] ?? null;
                 $last = $days[$dayCount - 1] ?? null;
                 $isConfirmed = !empty($group['all_confirmed']);
+                $hasReconfirm = !empty($group['has_reconfirm']);
+                $prevLbl = ($dayCount <= 1 && $first) ? ($first['previous_label'] ?? null) : null;
 
                 // "When"-Zeile
                 if ($dayCount <= 1) {
@@ -234,6 +239,8 @@
                         </div>
                         @if ($isConfirmed)
                             <span class="chip ok">✓ Bestätigt</span>
+                        @elseif ($hasReconfirm)
+                            <span class="chip warn">⟳ Erneut bestätigen</span>
                         @else
                             <span class="chip">Offen</span>
                         @endif
@@ -244,6 +251,16 @@
                             <div class="lbl">{!! $beaconLbl !!}</div>
                         </div>
                     @endif
+
+                    @if ($hasReconfirm)
+                        <div class="notice">
+                            <b>Neue Zeiten!</b>
+                            @if ($prevLbl)
+                                Vorher: {{ $prevLbl }}.
+                            @endif
+                            Bitte bestätige den Einsatz erneut.
+                        </div>
+                    @endif
                 </header>
 
                 <div class="evbody">
@@ -252,6 +269,9 @@
                             @php
                                 $dd = mb_substr($day['datum'], 0, 2);
                                 $mm = $monthAbbr[mb_substr($day['datum'], 3, 2)] ?? '';
+                                // Vorberechnet in reinem PHP (Pitfall: an Wortzeichen geklebte
+                                // Blade-Direktiven kompilieren nicht).
+                                $dayPrev = $day['reconfirm'] ? ('⟳ geändert' . ($day['previous_label'] ? ' — vorher ' . $day['previous_label'] : '')) : '';
                             @endphp
                             <div class="day">
                                 <div class="datebox"><div class="d">{{ $dd }}</div><div class="m">{{ $mm }}</div></div>
@@ -261,6 +281,9 @@
                                     </div>
                                     @if ($day['von'])
                                         <div class="l2">Schicht {{ $day['von'] }}@if ($day['bis'])–{{ $day['bis'] }}@endif Uhr</div>
+                                    @endif
+                                    @if ($dayPrev !== '')
+                                        <div class="l2 warn">{{ $dayPrev }}</div>
                                     @endif
                                 </div>
                             </div>

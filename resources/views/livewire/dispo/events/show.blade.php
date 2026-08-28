@@ -182,8 +182,18 @@
                                 @elseif (in_array($msgStatus, ['delivered', 'read'], true))
                                     <span class="ml-1 rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">{{ $msgStatus === 'read' ? 'gelesen' : 'zugestellt' }}</span>
                                 @endif
+                            @elseif ($assignment->reconfirm_required_at)
+                                {{-- Chip kommt aus dem eigenstaendigen Block unten — hier bewusst nichts,
+                                     damit "—" nicht zusammen mit "⟳ Zeit geändert" erscheint. --}}
                             @else
                                 <span class="text-xs text-gray-400">—</span>
+                            @endif
+                            @if ($assignment->reconfirm_required_at && !$assignment->confirmed_at)
+                                @php
+                                    $prev = $assignment->reconfirm_previous ?? [];
+                                    $prevTitle = 'Zeit geändert am ' . $assignment->reconfirm_required_at->format('d.m.Y H:i') . (!empty($prev['datum']) ? ' — vorher ' . \Illuminate\Support\Carbon::parse($prev['datum'])->format('d.m.Y') . ' ' . ($prev['von'] ?? '') . (!empty($prev['bis']) ? '–' . $prev['bis'] : '') : '');
+                                @endphp
+                                <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700" title="{{ $prevTitle }}">⟳ Zeit geändert</span>
                             @endif
                             @if ($escalation1Status === 'failed')
                                 <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">14-Uhr nicht zugestellt</span>
@@ -292,6 +302,9 @@
 
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         <div>Sendet an <strong>{{ count($preview['recipients']) }}</strong> Mitarbeiter.</div>
+                        @if (($preview['reconfirm'] ?? 0) > 0)
+                            <div class="text-amber-700">{{ $preview['reconfirm'] }} × Zeit geändert — erneute Bestätigung (gleiches Template)</div>
+                        @endif
                         @php
                             $labels = ['past' => 'in der Vergangenheit', 'not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet'];
                         @endphp

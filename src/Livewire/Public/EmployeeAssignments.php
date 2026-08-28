@@ -124,6 +124,7 @@ class EmployeeAssignments extends Component
                     'url'  => route('recruiting.public.employee-assignments.attachment', ['token' => $this->token, 'uuid' => $attachments[$event->id]->uuid]),
                 ] : null,
                 'all_confirmed' => true,
+                'has_reconfirm' => false,
                 'days'         => [],
             ];
 
@@ -136,9 +137,14 @@ class EmployeeAssignments extends Component
                 'arrival'         => $arrival,
                 'confirmed'       => $assignment->confirmed_at !== null,
                 'individual_note' => $assignment->individual_note,
+                'reconfirm'       => $assignment->reconfirm_required_at !== null,
+                'previous_label'  => self::previousLabel($assignment->reconfirm_previous),
             ];
             if ($assignment->confirmed_at === null) {
                 $groups[$key]['all_confirmed'] = false;
+            }
+            if ($assignment->reconfirm_required_at !== null) {
+                $groups[$key]['has_reconfirm'] = true;
             }
         }
 
@@ -192,6 +198,19 @@ class EmployeeAssignments extends Component
         }
 
         return $byEvent;
+    }
+
+    /** "Sa 29.08. 10:00–18:00" aus reconfirm_previous, sonst null. */
+    private static function previousLabel(?array $prev): ?string
+    {
+        if (empty($prev['datum'])) {
+            return null;
+        }
+        $c = \Illuminate\Support\Carbon::parse($prev['datum']);
+        $wd = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][$c->dayOfWeek];
+        $time = !empty($prev['von']) ? (' ' . $prev['von'] . (!empty($prev['bis']) ? '–' . $prev['bis'] : '')) : '';
+
+        return $wd . ' ' . $c->format('d.m.') . $time;
     }
 
     /**
@@ -260,7 +279,16 @@ class EmployeeAssignments extends Component
             ->whereNull('deletion_marked_at')
             ->whereNull('confirmed_at')
             ->whereDate('datum', '>=', now()->toDateString())
-            ->update(['confirmed_at' => now()]);
+            ->update([
+                'confirmed_at'          => now(),
+                // Runde 4 (#2): Zeiten zum Bestaetigungszeitpunkt merken — Vergleichsbasis
+                // fuer spaetere Lieferungen. Marker der Rebestaetigung loeschen.
+                'confirmed_datum'       => \Illuminate\Support\Facades\DB::raw('datum'),
+                'confirmed_von'         => \Illuminate\Support\Facades\DB::raw('von'),
+                'confirmed_bis'         => \Illuminate\Support\Facades\DB::raw('bis'),
+                'reconfirm_required_at' => null,
+                'reconfirm_previous'    => null,
+            ]);
 
         unset($this->eventGroups);
     }

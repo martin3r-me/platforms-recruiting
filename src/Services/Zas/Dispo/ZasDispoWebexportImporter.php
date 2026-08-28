@@ -24,6 +24,7 @@ class ZasDispoWebexportImporter
         private ZasDispoBlockSplitter $splitter,
         private ZasDispoImportPlanner $planner,
         private DispoEmployeeDirectory $directory,
+        private DispoReconfirmMarker $reconfirmMarker,
     ) {}
 
     /** @return array<string, mixed> Summary */
@@ -35,6 +36,7 @@ class ZasDispoWebexportImporter
             'assignments_created' => 0, 'assignments_updated' => 0,
             'matched' => 0, 'unmatched' => 0, 'ambiguous' => 0,
             'missing_marked' => 0, 'rematched_open' => 0,
+            'reconfirm_marked' => 0,
             'skipped' => [], 'errors' => [],
             'unmatched_pnrs' => [], 'ambiguous_pnrs' => [],
         ];
@@ -100,6 +102,7 @@ class ZasDispoWebexportImporter
                     self::tallyMatch($summary, $m, $attrs['pnr_raw']);
                 }
                 $summary['missing_marked'] = count($plan['missing_ds_refs']);
+                $summary['reconfirm_marked'] = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString())['count'];
 
                 // Rematch-Parity: dieselbe Nachzuegler-Zaehlung wie im Live-Lauf,
                 // aber rein lesend und ohne die in dieser Lieferung bereits
@@ -121,6 +124,11 @@ class ZasDispoWebexportImporter
             }
 
             DB::transaction(function () use ($plan, $matcher, &$summary) {
+                // Runde 4 (#2): bestaetigte Einbuchungen, deren Zeiten sich aendern, werden
+                // zurueckgesetzt und markiert — der naechste Versand nimmt sie wieder mit.
+                $reconfirm = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
+                $summary['reconfirm_marked'] = $reconfirm['count'];
+
                 $eventIds = [];
                 foreach ($plan['events'] as $ref => $attrs) {
                     $isPlaceholder = $attrs['is_placeholder'] ?? false;
@@ -161,12 +169,12 @@ class ZasDispoWebexportImporter
 
                     RecDispoAssignment::updateOrCreate(
                         ['ds_ref' => $dsRef],
-                        $attrs + [
+                        array_merge($attrs, [
                             'rec_dispo_event_id' => $eventIds[$einsatzRef],
                             'rec_employee_id'    => $m['employee_id'],
                             'last_seen_at'       => now(),
                             'missing_since'      => null,
-                        ]
+                        ], $reconfirm['overrides'][$dsRef] ?? [])
                     )->wasRecentlyCreated ? $summary['assignments_created']++ : $summary['assignments_updated']++;
                 }
 
@@ -193,6 +201,10 @@ class ZasDispoWebexportImporter
                     });
             });
 
+            if ($summary['reconfirm_marked'] > 0) {
+                Log::info('ZAS dispo import: Rebestaetigung markiert', ['file_id' => $file->id, 'count' => $summary['reconfirm_marked']]);
+            }
+
             // Die Daten sind an dieser Stelle bereits committet (Transaktion
             // ist durch). Scheitert nur noch dieses Update, bleibt processed_at
             // null -> naechster recruiting:dispo-reprocess-Lauf holt es idempotent
@@ -216,7 +228,7 @@ class ZasDispoWebexportImporter
                 // Die Zaehler oben liefen bereits mit, aber ein Fehler in der
                 // DB::transaction() rollt alle Writes zurueck — die In-Memory-
                 // Zaehler wuerden sonst erfolgreiche Schreibvorgaenge vorspiegeln.
-                foreach (['events_created', 'events_updated', 'assignments_created', 'assignments_updated', 'missing_marked', 'rematched_open'] as $k) {
+                foreach (['events_created', 'events_updated', 'assignments_created', 'assignments_updated', 'missing_marked', 'rematched_open', 'reconfirm_marked'] as $k) {
                     $summary[$k] = 0;
                 }
                 $summary['rolled_back'] = true;
@@ -267,5 +279,21 @@ class ZasDispoWebexportImporter
         if (count($list) < 50 && !in_array($pnr, $list, true)) {
             $list[] = $pnr;
         }
+    }
+
+    /**
+     * Zeiten je ds_ref aus dem Plan (nur Zeilen mit parsebarem Datum) — Eingabe
+     * fuer den Rebestaetigungs-Marker.
+     * @return array<string, array{datum:?string, von:?string, bis:?string}>
+     */
+    private static function incomingTimes(array $planAssignments): array
+    {
+        $out = [];
+        foreach ($planAssignments as $dsRef => $attrs) {
+            if ($attrs['datum'] !== null) {
+                $out[(string) $dsRef] = ['datum' => (string) $attrs['datum'], 'von' => $attrs['von'] ?? null, 'bis' => $attrs['bis'] ?? null];
+            }
+        }
+        return $out;
     }
 }

@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\Dispo\DispoReconfirmMarker;
 
 /**
  * Bucht einen (Test-)Mitarbeiter in eine frisch angelegte Test-Veranstaltung,
@@ -34,7 +35,8 @@ class DispoTestVaCommand extends Command
         {--days=1 : Anzahl Einsatztage (1 = Eintages-VA, >1 = Mehrtages mit Tagesliste)}
         {--ref=TEST-VA : einsatz_ref der Test-VA (wiederverwendbar / mit --remove loeschbar)}
         {--remove : Test-VA + zugehoerige Buchungen wieder loeschen und beenden}
-        {--lead : Buchung(en) mit der Taetigkeit Teamleitung anlegen (Ansprechpartner-Vorbelegung testen)}';
+        {--lead : Buchung(en) mit der Taetigkeit Teamleitung anlegen (Ansprechpartner-Vorbelegung testen)}
+        {--von= : Schichtbeginn HH:MM fuer Tag 1 (Zeit aendern -> Rebestaetigung testen)}';
 
     protected $description = 'Legt eine Test-Veranstaltung an und bucht einen MA hinein (Bestaetigungs-Flow end-to-end pruefen)';
 
@@ -88,12 +90,14 @@ class DispoTestVaCommand extends Command
 
         $days = max(1, (int) $this->option('days'));
         $leadTaetigkeit = (string) (((array) config('recruiting.zas.dispo_lead_taetigkeiten', ['Teamleitung']))[0] ?? 'Teamleitung');
+        $vonOverride = trim((string) $this->option('von')) ?: null;
         $result = $this->createTestVa(
             (int) $employee->id,
             (string) ($employee->personnel_number ?: 'TEST'),
             $days,
             $ref,
-            $this->option('lead') ? $leadTaetigkeit : 'Service'
+            $this->option('lead') ? $leadTaetigkeit : 'Service',
+            $vonOverride
         );
 
         $link = rtrim((string) config('app.url'), '/') . '/recruiting/einsaetze/' . $employee->portal_token;
@@ -107,6 +111,9 @@ class DispoTestVaCommand extends Command
             ['Einsatztage', (string) $result['days']],
             ['Portal-Link', $link],
         ]);
+        if ($result['reconfirm_marked'] > 0) {
+            $this->info('Rebestätigung markiert: ' . $result['reconfirm_marked']);
+        }
         $this->newLine();
         $this->line('<comment>Naechste Schritte:</comment>');
         $this->line('  1. Disposition → Einstellungen: Bestaetigungs-Template gewaehlt? (sonst inert)');
@@ -119,13 +126,15 @@ class DispoTestVaCommand extends Command
 
     /**
      * Legt die Test-VA (updateOrCreate auf einsatz_ref) an und bucht den MA mit
-     * $days aufeinanderfolgenden Auftrags-Einbuchungen ab morgen. Idempotent:
-     * bestehende Buchungen DIESES MA in DIESER VA werden vorher entfernt, damit
-     * ein erneuter Lauf nicht dupliziert. Reine Logik — nur Dispo-Tabellen.
+     * $days aufeinanderfolgenden Auftrags-Einbuchungen ab morgen. Upsert auf
+     * ds_ref — Bestaetigungen bleiben erhalten; `--von` aendert Tag 1 (fuer den
+     * Rebestaetigungs-Test: gleicher Weg wie der echte Import ueber den Marker).
+     * Ueberzaehlige Test-Buchungen dieses MA in dieser VA (kleineres --days im
+     * Folgelauf) werden entfernt. Reine Logik — nur Dispo-Tabellen.
      *
-     * @return array{event_id: int, assignment_ids: list<int>, days: int}
+     * @return array{event_id: int, assignment_ids: list<int>, days: int, reconfirm_marked: int}
      */
-    public function createTestVa(int $employeeId, string $personnelNumber, int $days, string $ref, string $taetigkeit = 'Service'): array
+    public function createTestVa(int $employeeId, string $personnelNumber, int $days, string $ref, string $taetigkeit = 'Service', ?string $vonOverride = null): array
     {
         $days = max(1, $days);
         $start = now()->addDay()->startOfDay();
@@ -144,12 +153,6 @@ class DispoTestVaCommand extends Command
             ]
         );
 
-        // Idempotenz: alte Test-Buchungen dieses MA in dieser VA weg.
-        RecDispoAssignment::query()
-            ->where('rec_dispo_event_id', $event->id)
-            ->where('rec_employee_id', $employeeId)
-            ->delete();
-
         // Schichtzeiten pro Tag (fuer Mehrtages verschiedene Zeiten, damit die
         // Tagesliste sichtbar unterschiedliche Zeiten zeigt).
         $schedule = [
@@ -158,11 +161,18 @@ class DispoTestVaCommand extends Command
             ['von' => '10:00', 'bis' => '17:00'],
         ];
 
-        $assignmentIds = [];
+        $marker = app(DispoReconfirmMarker::class);
+        $today = now()->toDateString();
+
+        $incoming = [];
+        $attrsByRef = [];
         for ($i = 0; $i < $days; $i++) {
             $slot = $schedule[$i] ?? ['von' => '10:00', 'bis' => '18:00'];
-            $assignment = RecDispoAssignment::create([
-                'ds_ref'             => $ref . '-' . $employeeId . '-' . $i,
+            if ($i === 0 && $vonOverride !== null) {
+                $slot['von'] = $vonOverride;
+            }
+            $dsRef = $ref . '-' . $employeeId . '-' . $i;
+            $attrsByRef[$dsRef] = [
                 'rec_dispo_event_id' => $event->id,
                 'pnr_raw'            => $personnelNumber,
                 'rec_employee_id'    => $employeeId,
@@ -172,11 +182,29 @@ class DispoTestVaCommand extends Command
                 'status_id'          => RecDispoAssignment::STATUS_AUFTRAG,
                 'taetigkeit'         => $taetigkeit,
                 'individual_note'    => $i === 0 ? 'Bitte am ersten Tag 15 Min frueher da sein — kurze Einweisung am Stand.' : null,
-            ]);
-            $assignmentIds[] = (int) $assignment->id;
+                'last_seen_at'       => now(),
+                'missing_since'      => null,
+            ];
+            $incoming[$dsRef] = ['datum' => $attrsByRef[$dsRef]['datum'], 'von' => $slot['von'], 'bis' => $slot['bis']];
         }
 
-        return ['event_id' => (int) $event->id, 'assignment_ids' => $assignmentIds, 'days' => $days];
+        // Gleicher Weg wie der echte Import: Zeitaenderung an bestaetigter Einbuchung -> Marker.
+        $reconfirm = $marker->plan($incoming, $today);
+
+        $assignmentIds = [];
+        foreach ($attrsByRef as $dsRef => $attrs) {
+            $a = RecDispoAssignment::updateOrCreate(['ds_ref' => $dsRef], array_merge($attrs, $reconfirm['overrides'][$dsRef] ?? []));
+            $assignmentIds[] = (int) $a->id;
+        }
+
+        // Idempotenz bei kleinerem --days: ueberzaehlige Test-Buchungen dieses MA in dieser VA weg.
+        RecDispoAssignment::query()
+            ->where('rec_dispo_event_id', $event->id)
+            ->where('rec_employee_id', $employeeId)
+            ->whereNotIn('ds_ref', array_keys($attrsByRef))
+            ->delete();
+
+        return ['event_id' => (int) $event->id, 'assignment_ids' => $assignmentIds, 'days' => $days, 'reconfirm_marked' => $reconfirm['count']];
     }
 
     /**
