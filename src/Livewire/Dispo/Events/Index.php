@@ -113,7 +113,14 @@ class Index extends Component
 
         $events = $query->orderByRaw('starts_on IS NULL, starts_on ASC')->get();
 
-        return view('recruiting::livewire.dispo.events.index', ['events' => $events])
+        // Runde 4 (#1): ungelesene Threads je VA (Personen, nicht Datensaetze) — wenige Queries fuer alle VAs.
+        $unreadByEvent = app(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::class)->unreadByEvent(
+            \Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver::dispoChannelIds(),
+            $events->pluck('id')->map(fn ($v) => (int) $v)->all(),
+            now()->toDateString()
+        );
+
+        return view('recruiting::livewire.dispo.events.index', ['events' => $events, 'unreadByEvent' => $unreadByEvent])
             ->layout('platform::layouts.app');
     }
 }

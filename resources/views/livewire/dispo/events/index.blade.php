@@ -58,6 +58,9 @@
                             @if ($event->has_failed_send || $event->alarm_failed)
                                 <span class="ml-1 text-red-600" title="Mindestens eine Zustellung fehlgeschlagen">⚠</span>
                             @endif
+                            @if (($unreadByEvent[$event->id] ?? 0) > 0)
+                                <a href="{{ route('recruiting.dispo.events.show', ['eventId' => $event->id]) }}" class="ml-1 inline-flex items-center gap-1 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white" title="Ungelesene Nachrichten von disponierten Mitarbeitern">💬 {{ $unreadByEvent[$event->id] }}</a>
+                            @endif
                         </td>
                         <td class="px-4 py-2">{{ $event->filiale_label ?? '—' }}</td>
                         <td class="px-4 py-2">{{ $event->einsatzfirma ?? '—' }}</td>

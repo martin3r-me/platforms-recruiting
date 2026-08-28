@@ -1,4 +1,5 @@
-<div class="p-6 space-y-6">
+<div class="p-6 space-y-6"
+     @if ($chatEmployeeId !== null) wire:poll.visible.20s @endif>
     @php
         $event = $this->event;
         $statusLabels = [0 => 'Angebot', 1 => 'Auftrag', 2 => 'Beendet', 3 => 'Storno'];
@@ -112,6 +113,7 @@
                     <th class="px-4 py-2 font-medium">Zeit</th>
                     <th class="px-4 py-2 font-medium">Tätigkeit</th>
                     <th class="px-4 py-2 font-medium">Mitarbeiter</th>
+                    <th class="px-4 py-2 font-medium text-center" title="Kommunikation">💬</th>
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
                     <th class="px-4 py-2 font-medium">Hinweis</th>
@@ -119,6 +121,10 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
+                @php
+                    $threads = $this->threadsByEmployee;
+                    $canonMap = $this->identity['canon'];
+                @endphp
                 @forelse ($event->assignments as $assignment)
                     <tr class="{{ $assignment->missing_since ? 'opacity-50' : '' }}">
                         <td class="px-4 py-2 whitespace-nowrap">{{ $assignment->datum->format('d.m.Y') }}</td>
@@ -131,6 +137,24 @@
                                 </a>
                             @else
                                 <span class="rounded bg-orange-50 px-1.5 py-0.5 text-xs text-orange-600">PNr unbekannt: {{ $assignment->pnr_raw }}</span>
+                            @endif
+                        </td>
+                        <td class="px-4 py-2 text-center">
+                            @php
+                                $cid = $assignment->rec_employee_id ? ($canonMap[(int) $assignment->rec_employee_id] ?? (int) $assignment->rec_employee_id) : null;
+                                $thr = $cid !== null ? ($threads[$cid] ?? null) : null;
+                            @endphp
+                            @if ($thr)
+                                <button type="button" wire:click="openChat({{ $cid }})"
+                                        class="relative inline-flex h-7 w-7 items-center justify-center rounded-full {{ $thr['is_unread'] ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200' }}"
+                                        title="{{ $thr['is_unread'] ? 'Neue Nachricht' : 'Nachrichten ansehen' }}">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H7l-3 3z"/></svg>
+                                    @if ($thr['is_unread'])
+                                        <span class="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"></span>
+                                    @endif
+                                </button>
+                            @else
+                                <span class="text-gray-300">—</span>
                             @endif
                         </td>
                         <td class="px-4 py-2">
@@ -200,7 +224,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
+                    <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -366,5 +390,64 @@
                 </div>
             </div>
         </div>
+    @endif
+
+    @php $chat = $chatEmployeeId !== null ? $this->chat : null; @endphp
+    @if ($chatEmployeeId !== null)
+        <div class="fixed inset-0 z-40 bg-black/30 lg:hidden" wire:click="closeChat"></div>
+        <aside class="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-gray-50 shadow-xl lg:w-[28rem]" wire:key="chat-{{ $chatEmployeeId }}">
+            @if ($chat === null)
+                <div class="p-4 text-sm text-gray-500">Kein Thread gefunden. <button type="button" wire:click="closeChat" class="text-blue-600 underline">Schließen</button></div>
+            @else
+                @php
+                    $w = $chat['window'];
+                    $wcClass = $w['state'] === 'open' ? 'bg-green-50 text-green-700' : ($w['state'] === 'closed' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500');
+                    $wcText = $w['state'] === 'open' ? ('offen · ' . $w['left']) : ($w['state'] === 'closed' ? 'Fenster abgelaufen' : 'noch keine Antwort');
+                @endphp
+                <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
+                            <span class="truncate">{{ $chat['name'] }}</span>
+                            @foreach ($chat['pnrs'] as $pnr)
+                                <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ $pnr }}</span>
+                            @endforeach
+                            <span class="rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $wcClass }}">{{ $wcText }}</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-xs text-gray-500 tabular-nums">
+                            {{ $chat['phone'] }}
+                            @if ($chat['portal_url'])
+                                <a href="{{ $chat['portal_url'] }}" target="_blank" rel="noopener" class="font-semibold text-blue-700 hover:underline" title="Persönlicher Link des Mitarbeiters — nicht weitergeben.">Was der MA sieht ↗</a>
+                            @endif
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeChat" class="grid h-9 w-9 place-items-center rounded-lg bg-gray-100 text-gray-600" aria-label="Schließen">✕</button>
+                </div>
+                <div class="flex items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 text-xs">
+                    <button type="button" wire:click="setChatFilter('seit_versand')" class="rounded px-2 py-1 {{ $chatFilter === 'seit_versand' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600' }}">seit Versand</button>
+                    <button type="button" wire:click="setChatFilter('alle')" class="rounded px-2 py-1 {{ $chatFilter === 'alle' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600' }}">alle</button>
+                    @if ($chat['since'])
+                        <span class="text-gray-400">ab {{ $chat['since'] }}</span>
+                    @endif
+                </div>
+                <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-4"
+                     wire:key="chatmsgs-{{ $chatEmployeeId }}-{{ count($chat['messages']) }}-{{ $chatFilter }}"
+                     x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
+                    @include('recruiting::livewire.dispo._messages', ['messages' => $chat['messages'], 'portalUrl' => $chat['portal_url']])
+                </div>
+                <div class="border-t border-gray-200 bg-white p-3">
+                    @if ($w['state'] === 'open')
+                        <form wire:submit="sendChatReply" class="flex items-end gap-2">
+                            <textarea wire:model="chatReply" rows="2" placeholder="Antwort schreiben …" class="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm"></textarea>
+                            <button type="submit" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">Senden</button>
+                        </form>
+                    @else
+                        <div class="text-xs text-gray-500">Freitext ist nur bis 24 h nach der letzten Nachricht des Mitarbeiters möglich. Erinnerungen laufen als Vorlage über „Bestätigungen senden".</div>
+                    @endif
+                    @if ($chatError)
+                        <div class="mt-2 text-sm text-red-600">{{ $chatError }}</div>
+                    @endif
+                </div>
+            @endif
+        </aside>
     @endif
 </div>

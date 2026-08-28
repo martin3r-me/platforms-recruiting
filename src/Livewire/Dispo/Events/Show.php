@@ -18,6 +18,11 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
+use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
+use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
+use Platform\Recruiting\Services\Zas\Dispo\DispoReplyWindow;
+use Platform\Recruiting\Services\Zas\Dispo\DispoTemplateLabels;
+use Platform\Recruiting\Services\Zas\Dispo\DispoReplySender;
 
 /**
  * Disposition → Veranstaltung → Detail: VA-Kopf + Einbuchungen mit
@@ -70,6 +75,12 @@ class Show extends Component
     /** Eskalationsdatum (Modus datum), Y-m-d oder '' — String-Prop (Livewire-Typed-Property-Falle). */
     public string $escDate = '';
     public bool $showEscalationModal = false;
+
+    // Runde 4 (#1): Chat-Panel auf VA-Ebene. chatEmployeeId = kanonische MA-id der Person.
+    public ?int $chatEmployeeId = null;
+    public string $chatFilter = 'seit_versand'; // 'seit_versand' | 'alle'
+    public string $chatReply = '';
+    public ?string $chatError = null;
 
     public function mount(int $eventId): void
     {
@@ -441,6 +452,132 @@ class Show extends Component
         $this->showContactModal = false;
     }
 
+    /** @return array{groups: array<int,list<int>>, canon: array<int,int>} Identitaet der disponierten MA dieser VA */
+    #[Computed]
+    public function identity(): array
+    {
+        $ids = $this->event->assignments->pluck('rec_employee_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
+        $groups = app(DispoIdentityResolver::class)->groupsFor($ids);
+
+        return ['groups' => $groups, 'canon' => DispoIdentityGroups::canonicalMap($groups)];
+    }
+
+    /** @return list<int> */
+    #[Computed]
+    public function channelIds(): array
+    {
+        return DispoChannelResolver::dispoChannelIds();
+    }
+
+    /** kanonische id => Thread-Info (siehe DispoThreadDirectory::threadsFor) */
+    #[Computed]
+    public function threadsByEmployee(): array
+    {
+        $ids = array_keys($this->identity['groups']);
+
+        return $ids === [] ? [] : app(DispoThreadDirectory::class)->threadsFor($this->channelIds, $ids);
+    }
+
+    public function openChat(int $employeeId): void
+    {
+        $canon = $this->identity['canon'][$employeeId] ?? $employeeId;
+        $this->chatEmployeeId = $canon;
+        $this->chatReply = '';
+        $this->chatError = null;
+        $this->chatThread?->markAsRead();
+        unset($this->threadsByEmployee, $this->chatThread, $this->chat);
+        $this->dispatch('sidebar-refresh');
+    }
+
+    public function closeChat(): void
+    {
+        $this->chatEmployeeId = null;
+        $this->chatReply = '';
+        $this->chatError = null;
+        unset($this->chatThread, $this->chat);
+    }
+
+    #[Computed]
+    public function chatThread(): ?\Platform\Crm\Models\CommsWhatsAppThread
+    {
+        if ($this->chatEmployeeId === null) {
+            return null;
+        }
+        $info = $this->threadsByEmployee[$this->chatEmployeeId] ?? null;
+        if ($info === null || $this->channelIds === []) {
+            return null;
+        }
+
+        // Sicherheit: nur Threads AUS DEM DISPO-KANAL-SET laden.
+        return \Platform\Crm\Models\CommsWhatsAppThread::query()
+            ->whereKey($info['thread_id'])
+            ->whereIn('comms_channel_id', $this->channelIds)
+            ->first();
+    }
+
+    /**
+     * Kopf + Nachrichten fuer das Panel. Filter 'seit_versand' = ab dem ersten
+     * Bestaetigungs-Versand dieser Person fuer DIESE VA (sonst ab Anlage der
+     * Einbuchung); 'alle' = kompletter Verlauf.
+     */
+    #[Computed]
+    public function chat(): ?array
+    {
+        $thread = $this->chatThread;
+        if ($thread === null || $this->chatEmployeeId === null) {
+            return null;
+        }
+        $groupIds = $this->identity['groups'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
+        $contacts = app(DispoEmployeeGateway::class)->contacts($groupIds);
+        $name = $contacts[$this->chatEmployeeId]['name'] ?? (string) $thread->remote_phone_number;
+        $pnrs = collect($groupIds)->map(fn ($id) => $contacts[$id]['personnel_number'] ?? '')->filter()->values()->all();
+        $token = (string) ($contacts[$this->chatEmployeeId]['portal_token'] ?? '');
+
+        $own = $this->event->assignments->filter(fn ($a) => in_array((int) $a->rec_employee_id, $groupIds, true));
+        $since = null;
+        if ($this->chatFilter === 'seit_versand') {
+            $sent = $own->pluck('reminder_sent_at')->filter()->min();
+            $since = $sent ?? $own->pluck('created_at')->filter()->min();
+        }
+
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
+        $labels = DispoTemplateLabels::forTeam($teamId);
+
+        return [
+            'name'       => $name,
+            'phone'      => (string) $thread->remote_phone_number,
+            'pnrs'       => $pnrs,
+            'portal_url' => $token !== '' ? route('recruiting.public.employee-assignments', ['token' => $token]) : null,
+            'window'     => DispoReplyWindow::info($thread->last_inbound_at, now()),
+            'since'      => $since ? \Illuminate\Support\Carbon::instance($since)->format('d.m.Y H:i') : null,
+            'messages'   => app(DispoThreadDirectory::class)->messages($thread, $labels, $since),
+        ];
+    }
+
+    public function setChatFilter(string $filter): void
+    {
+        $this->chatFilter = $filter === 'alle' ? 'alle' : 'seit_versand';
+        unset($this->chat);
+    }
+
+    public function sendChatReply(): void
+    {
+        $thread = $this->chatThread;
+        if ($thread === null) {
+            $this->chatError = 'Kein Thread verfügbar.';
+            return;
+        }
+        $r = app(DispoReplySender::class)->send($thread, $this->chatReply, auth()->user());
+        if (!$r['ok']) {
+            $this->chatError = $r['error'];
+            return; // Text NICHT leeren
+        }
+        $this->chatReply = '';
+        $this->chatError = null;
+        unset($this->threadsByEmployee, $this->chatThread, $this->chat);
+        $this->dispatch('reply-sent');
+    }
+
     #[Computed]
     public function sendPreview(): array
     {
@@ -457,9 +594,8 @@ class Show extends Component
 
         // Dispo-Identitaet: Datensaetze derselben Person (gleicher CRM-Kontakt) auf die
         // kanonische id umschreiben -> Dedup im Planner ist damit "pro Person".
-        $ids = array_values(array_unique(array_filter(array_column($assignments, 'employee_id'))));
-        $groups = app(DispoIdentityResolver::class)->groupsFor($ids);
-        $canon = DispoIdentityGroups::canonicalMap($groups);
+        $groups = $this->identity['groups'];
+        $canon = $this->identity['canon'];
         $assignments = DispoIdentityGroups::canonicalize($assignments, $canon);
 
         // Tages-Auswahl (Mehrtages-VA): VOR der Vergangenheits-Filterung
