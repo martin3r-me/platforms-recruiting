@@ -1,6 +1,6 @@
 # Kampagne „Neue Termine“ aus der Statistik — Design
 
-Stand: 28.08.2026 · Status: Entwurf zur Freigabe · Modul: platforms-recruiting
+Stand: 28.08.2026 · Status: umgesetzt auf feat/neue-termine-kampagne (Plan: docs/superpowers/plans/2026-08-28-neue-termine-kampagne.md) · Modul: platforms-recruiting
 
 ## 1. Ziel
 
