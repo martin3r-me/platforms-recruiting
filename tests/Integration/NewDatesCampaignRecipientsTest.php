@@ -212,4 +212,23 @@ final class NewDatesCampaignRecipientsTest extends TestCase
     {
         $this->assertSame([], (new NewDatesCampaignRecipients())->load(3, [], new \DateTimeImmutable('2026-08-28')));
     }
+
+    /**
+     * Kein crm_contact_links-Datensatz (Altbestand/Import-Luecke) — der Name
+     * faellt auf "Bewerber #<id>" zurueck statt auf einen Nullpointer, und
+     * ohne Kontakt gibt es auch kein Telefon.
+     */
+    public function testNameFallbackOhneKontakt(): void
+    {
+        Capsule::table('rec_applicants')->insert([
+            'id' => 8, 'team_id' => 3, 'rec_phase_id' => 41, 'rec_position_id' => 11,
+            'applied_at' => '2026-07-15', 'is_on_hr_desk' => false,
+        ]);
+
+        $rows = (new NewDatesCampaignRecipients())->load(3, [8], new \DateTimeImmutable('2026-08-28 12:00:00'));
+
+        $this->assertSame('Bewerber #8', $rows[8]['name']);
+        $this->assertFalse($rows[8]['selectable']);
+        $this->assertContains('kein Telefon', $rows[8]['badges']);
+    }
 }

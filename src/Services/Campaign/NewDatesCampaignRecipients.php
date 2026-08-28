@@ -106,12 +106,27 @@ class NewDatesCampaignRecipients
 
             $rows[$id] = [
                 'applicant_id' => (int) $a->id,
-                'name' => (string) ($a->crmContactLinks->first()?->contact?->full_name ?: ('Bewerber #' . $a->id)),
+                'name' => $this->displayName($a),
                 'applied_at' => $a->applied_at?->format('Y-m-d'),
                 'phase' => (string) ($a->phase?->name ?? 'ohne Phase'),
             ] + $segment;
         }
 
         return $rows;
+    }
+
+    /**
+     * Name aus Vor-/Nachname statt ueber den full_name-Accessor: der
+     * Accessor laedt academicTitle/salutation (BelongsTo) nach — ohne diese
+     * im Eager-Load waere das ein N+1 pro Zeile, und die beiden Relationen
+     * extra nachzuladen lohnt sich fuer eine reine Anzeigezeile nicht
+     * (Query-Budget der Statistik-Seite).
+     */
+    private function displayName(RecApplicant $a): string
+    {
+        $contact = $a->crmContactLinks->first()?->contact;
+        $name = trim(((string) $contact?->first_name) . ' ' . ((string) $contact?->last_name));
+
+        return $name !== '' ? $name : ('Bewerber #' . $a->id);
     }
 }
