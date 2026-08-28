@@ -12,7 +12,7 @@ use Platform\Recruiting\Models\RecEmployee;
  */
 class DispoEmployeeGateway
 {
-    /** @return array<int, array{name: string, first_name: string, phone: ?string, portal_token: string}> */
+    /** @return array<int, array{name: string, first_name: string, phone: ?string, portal_token: string, personnel_number: string, company: string}> */
     public function contacts(array $employeeIds): array
     {
         if ($employeeIds === []) {
@@ -21,12 +21,14 @@ class DispoEmployeeGateway
 
         return RecEmployee::query()
             ->whereIn('id', $employeeIds)
-            ->get(['id', 'first_name', 'last_name', 'phone', 'portal_token'])
+            ->get(['id', 'first_name', 'last_name', 'phone', 'portal_token', 'personnel_number', 'company'])
             ->mapWithKeys(fn ($e) => [(int) $e->id => [
-                'name'         => trim($e->first_name . ' ' . $e->last_name),
-                'first_name'   => trim((string) $e->first_name),
-                'phone'        => ($e->phone !== null && trim($e->phone) !== '') ? trim($e->phone) : null,
-                'portal_token' => (string) $e->portal_token,
+                'name'              => trim($e->first_name . ' ' . $e->last_name),
+                'first_name'        => trim((string) $e->first_name),
+                'phone'             => ($e->phone !== null && trim($e->phone) !== '') ? trim($e->phone) : null,
+                'portal_token'      => (string) $e->portal_token,
+                'personnel_number'  => (string) ($e->personnel_number ?? ''),
+                'company'           => (string) ($e->company ?? ''),
             ]])
             ->all();
     }
@@ -40,18 +42,24 @@ class DispoEmployeeGateway
     /**
      * Sperrt das MA-Portal (Eskalations-Stufe 3: 16-Uhr-Rausnahme). Idempotent —
      * ein bereits gesperrter MA wird NICHT ueberschrieben (Grund/Zeitpunkt der
-     * ERSTEN Sperre bleiben erhalten). Kein Employee zu der ID -> no-op.
+     * ERSTEN Sperre bleiben erhalten). Kein Employee zu einer ID -> no-op fuer
+     * diese ID. Nimmt eine einzelne id ODER mehrere (Dispo-Identitaetsgruppe,
+     * damit z. B. RG- und MA-Datensatz derselben Person gemeinsam gesperrt werden).
+     *
+     * @param int|list<int> $employeeIds
      */
-    public function lockPortal(int $employeeId, string $reason): void
+    public function lockPortal(int|array $employeeIds, string $reason): void
     {
-        $employee = RecEmployee::find($employeeId);
-        if ($employee === null || $employee->portal_locked_at !== null) {
-            return;
-        }
+        foreach ((array) $employeeIds as $employeeId) {
+            $employee = RecEmployee::find($employeeId);
+            if ($employee === null || $employee->portal_locked_at !== null) {
+                continue;
+            }
 
-        $employee->portal_locked_at = now();
-        $employee->portal_locked_reason = $reason;
-        $employee->save();
+            $employee->portal_locked_at = now();
+            $employee->portal_locked_reason = $reason;
+            $employee->save();
+        }
     }
 
     /** @return array<int, ?string> employee_id => Roh-Telefonnummer (nur aktive MA mit Nummer) */
