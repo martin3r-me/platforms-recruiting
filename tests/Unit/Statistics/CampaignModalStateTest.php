@@ -11,14 +11,17 @@ use Platform\Recruiting\Livewire\Statistics\Index;
  * anderen Drill-Downs (gebucht, unterschrieben, Termin-Teilnehmer) zeigen ihn
  * nicht. Geprueft ohne Container (new Index(), Muster FremdeFilialeReasonTextTest).
  *
- * campaignEnabled() verlangt seit dem Fix-Review ZWEI Locked-Properties, nicht
- * eine: $drillScopeName MUSS 'type_all' sein UND $drillScopeType MUSS
- * 'ohne_schulung' sein. Grund: das Drill-Token ist unsigniertes Base64-JSON
- * ohne Signatur — ein manipuliertes Token wie {"scope":"all","type":
- * "ohne_schulung"} oder {"scope":"all","set":"closed","type":"ohne_schulung"}
- * darf die Kampagne NICHT ueber die ganze Kohorte oder die aussortierte Menge
- * oeffnen. Der einzige Token in der View, der type => 'ohne_schulung' setzt,
- * ist die Kachel index.blade.php:215 mit scope 'type_all' — genau diese
+ * campaignEnabled() verlangt seit dem Fix-Review DREI Locked-Properties, nicht
+ * eine: $drillScopeName MUSS 'type_all' sein, $drillScopeType MUSS
+ * 'ohne_schulung' sein, UND $drillHasSet MUSS false sein. Grund: das
+ * Drill-Token ist unsigniertes Base64-JSON ohne Signatur — ein manipuliertes
+ * Token wie {"scope":"all","type":"ohne_schulung"} darf die Kampagne NICHT
+ * ueber die ganze Kohorte oeffnen, und ein Token wie
+ * {"scope":"type_all","type":"ohne_schulung","set":"unknown_origin"} darf sie
+ * NICHT ueber eine der drei beiseite gelegten Mengen oeffnen (drill() loest
+ * $rows unabhaengig von 'scope' ueber ein vorhandenes 'set' auf). Der einzige
+ * Token in der View, der type => 'ohne_schulung' setzt, ist die Kachel
+ * index.blade.php:215 mit scope 'type_all' und OHNE 'set' — genau diese
  * Kombination ist also die einzige, die durchgelassen werden darf.
  */
 final class CampaignModalStateTest extends TestCase
@@ -30,6 +33,7 @@ final class CampaignModalStateTest extends TestCase
 
         $c->drillScopeName = 'type_all';
         $c->drillScopeType = 'ohne_schulung';
+        $c->drillHasSet = false;
         $this->assertTrue($c->campaignEnabled());
 
         $c->drillScopeType = 'schulung';
@@ -65,9 +69,30 @@ final class CampaignModalStateTest extends TestCase
         $c = new Index();
         $this->assertSame('', $c->drillScopeType);
         $this->assertSame('', $c->drillScopeName);
+        $this->assertFalse($c->drillHasSet);
         $this->assertSame([], $c->campaignSelection);
         $this->assertNull($c->campaignUuid);
         $this->assertSame('', $c->campaignError);
+    }
+
+    /**
+     * Residualbefund aus dem zweiten Re-Review: drill() loest $rows anhand von
+     * match ($spec['set'] ?? null) auf — UNABHAENGIG von 'scope'. Ein Token wie
+     * {"scope":"type_all","type":"ohne_schulung","set":"unknown_origin"}
+     * besteht scope/type-Pruefung, zeigt IDs aber gegen eine der drei
+     * beiseite gelegten Mengen (closed/unreachable/unknown_origin) — eine
+     * Population, die die Kachel "Ohne Termin" nie zeigt. drillHasSet faengt
+     * genau das ab.
+     */
+    public function testKampagneNichtMitSetImToken(): void
+    {
+        $c = new Index();
+        $c->drillIds = [1];
+        $c->drillScopeName = 'type_all';
+        $c->drillScopeType = 'ohne_schulung';
+        $c->drillHasSet = true;
+
+        $this->assertFalse($c->campaignEnabled(), 'Ein set-Schluessel im Token darf die Kampagne NICHT freischalten.');
     }
 
     /** @return array<string, array{0:bool,1:bool,2:array{A:int,B:int,total:int},3:?int,4:?int,5:?string}> */

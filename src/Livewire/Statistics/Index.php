@@ -271,14 +271,26 @@ class Index extends Component
     public string $drillScopeType = '';
     /**
      * Scope-NAME des Drill-Tokens (z. B. 'type_all'), NICHT der Zeilen-Typ.
-     * campaignEnabled() verlangt beide zusammen: der einzige Token in der View,
-     * der type => 'ohne_schulung' setzt, ist die Kachel index.blade.php:215 mit
-     * scope 'type_all'. Ohne diese zweite Sperre oeffnet ein gecraftetes Token
-     * wie {"scope":"all","type":"ohne_schulung"} die Kampagne ueber die GANZE
+     * campaignEnabled() verlangt alle drei Locked-Felder zusammen (siehe dort):
+     * der einzige Token in der View, der type => 'ohne_schulung' setzt, ist die
+     * Kachel index.blade.php:215 mit scope 'type_all' und OHNE 'set'-Schluessel.
+     * Ohne diese Sperre oeffnet ein gecraftetes Token wie
+     * {"scope":"all","type":"ohne_schulung"} die Kampagne ueber die GANZE
      * Kohorte statt nur ueber "Ohne Termin".
      */
     #[Locked]
     public string $drillScopeName = '';
+    /**
+     * Ob das Token einen 'set'-Schluessel trug (closed/unreachable/
+     * unknown_origin). drill() loest $rows unabhaengig von 'scope' allein
+     * anhand von 'set' auf (match ($spec['set'] ?? null) ...) — ein Token wie
+     * {"scope":"type_all","type":"ohne_schulung","set":"unknown_origin"}
+     * besteht die Scope/Type-Pruefung, zeigt IDs aber gegen eine DISJUNKTE
+     * Population (die drei "beiseite gelegten" Bloecke), die die Kachel "Ohne
+     * Termin" nie zeigt. Der legitime Kachel-Token traegt kein 'set'.
+     */
+    #[Locked]
+    public bool $drillHasSet = false;
     /** @var array<int,bool> applicant_id => angehakt */
     public array $campaignSelection = [];
     public ?int $campaignTemplateA = null;
@@ -297,6 +309,7 @@ class Index extends Component
         $this->showDrill = false;
         $this->drillScopeType = '';
         $this->drillScopeName = '';
+        $this->drillHasSet = false;
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -1641,6 +1654,7 @@ class Index extends Component
 
         $this->drillScopeType = (string) ($spec['type'] ?? '');
         $this->drillScopeName = (string) ($spec['scope'] ?? '');
+        $this->drillHasSet = array_key_exists('set', $spec);
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -1678,9 +1692,20 @@ class Index extends Component
             ->get();
     }
 
+    /**
+     * Drei Locked-Felder muessen zusammenpassen, keins allein reicht:
+     *  - drillScopeName === 'type_all' UND drillScopeType === 'ohne_schulung':
+     *    der einzige Token in der View mit dieser Kombination ist die Kachel
+     *    "Ohne Termin" (index.blade.php:215).
+     *  - !drillHasSet: ein 'set'-Schluessel im Token (closed/unreachable/
+     *    unknown_origin) redirigiert die ID-Aufloesung in drill() auf eine
+     *    der drei beiseite gelegten Mengen — disjunkt von dem, was die Kachel
+     *    zeigt — unabhaengig davon, was 'scope'/'type' im selben Token sagen.
+     */
     public function campaignEnabled(): bool
     {
-        return $this->drillScopeName === 'type_all'
+        return !$this->drillHasSet
+            && $this->drillScopeName === 'type_all'
             && $this->drillScopeType === 'ohne_schulung'
             && $this->drillIds !== [];
     }
