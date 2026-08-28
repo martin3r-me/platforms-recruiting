@@ -127,16 +127,27 @@
         $linkSkips = collect($linkReport['rows'])->where('state', 'skip')->count();
         // Der Zähler zählt nur die (ggf. gekappten) angezeigten Zeilen — bei Kappung
         // koennen weitere Skips ausserhalb der Anzeige liegen, daher "mindestens".
-        $linkSkipsLabel = $linkReport['total'] > count($linkReport['rows']) ? ('mindestens ' . $linkSkips) : (string) $linkSkips;
+        $linkSkipsCapped = $linkReport['total'] > count($linkReport['rows']);
+        $linkSkipsLabel = $linkSkipsCapped ? ('mindestens ' . $linkSkips) : (string) $linkSkips;
+        // Bei "mindestens n" ist die Zahl eine Untergrenze, also immer Plural —
+        // ausser sie steht fuer sich und ist genau 1.
+        $linkSkipsSentence = (!$linkSkipsCapped && $linkSkips === 1)
+            ? ($linkSkipsLabel . ' Fall braucht')
+            : ($linkSkipsLabel . ' Fälle brauchen');
     @endphp
     <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
         <div class="flex items-center justify-between">
             <h2 class="text-base font-semibold">CRM-Zuordnung offen ({{ $linkReport['total'] }})</h2>
             <span class="text-xs text-gray-500">Der Abgleich läuft stündlich automatisch.</span>
         </div>
+        <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" wire:model="contactBackfillEnabled" class="rounded border-gray-300">
+            <span class="text-gray-700">Automatischer CRM-Abgleich (stündlich) — legt fehlende Kontakte automatisch an</span>
+        </label>
+        <p class="text-xs text-gray-400 -mt-2">Wird mit dem Speichern-Button oben übernommen. Ausgeschaltet läuft der stündliche Lauf als No-op; ein Aufruf von Hand bleibt möglich.</p>
         <p class="text-sm text-gray-600">
             Mitarbeiter ohne verknüpften CRM-Kontakt erscheinen in der Kommunikation nur mit Telefonnummer und werden bei zwei Personalnummern nicht als eine Person erkannt.
-            <strong>{{ $linkSkipsLabel }}</strong> Fall/Fälle brauchen eine manuelle Zuordnung in der MA-Akte.
+            <strong>{{ $linkSkipsSentence }}</strong> eine manuelle Zuordnung in der MA-Akte.
         </p>
         @if ($linkReport['rows'] === [])
             <div class="rounded bg-green-50 p-3 text-sm text-green-800">Alle aktiven Mitarbeiter haben einen CRM-Kontakt.</div>

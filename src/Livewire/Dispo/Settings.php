@@ -32,6 +32,10 @@ class Settings extends Component
     public string $escalationTemplate2Id = '';
     public string $alarmTemplateId = '';
 
+    // Kill-Switch fuer den stuendlichen CRM-Abgleich (Runde 4 Final-Review).
+    // Fehlende Einstellung = AN, deshalb Default '1'.
+    public string $contactBackfillEnabled = '1';
+
     // Pro-Filiale-Konfiguration — Arrays von Strings, Key = Filialnummer.
     /** @var array<int, string> */
     public array $filialeChannelId = [];
@@ -53,6 +57,9 @@ class Settings extends Component
         $this->escalationTemplate1Id = (string) ($settings->getSetting('dispo_escalation_template_1_id') ?? '');
         $this->escalationTemplate2Id = (string) ($settings->getSetting('dispo_escalation_template_2_id') ?? '');
         $this->alarmTemplateId       = (string) ($settings->getSetting('dispo_alarm_template_id') ?? '');
+
+        // Nur ein ausdrueckliches false schaltet ab — fehlender/null-Wert = AN.
+        $this->contactBackfillEnabled = $settings->getSetting('dispo_contact_backfill_enabled') === false ? '' : '1';
 
         foreach (Filialen::options() as $nr => $code) {
             $row = $this->filialeSettings->get($nr);
@@ -145,6 +152,7 @@ class Settings extends Component
         $settings->setSetting('dispo_escalation_template_1_id', $this->toNullableId($this->escalationTemplate1Id));
         $settings->setSetting('dispo_escalation_template_2_id', $this->toNullableId($this->escalationTemplate2Id));
         $settings->setSetting('dispo_alarm_template_id', $this->toNullableId($this->alarmTemplateId));
+        $settings->setSetting('dispo_contact_backfill_enabled', $this->contactBackfillEnabled !== '');
 
         $settings->save();
 

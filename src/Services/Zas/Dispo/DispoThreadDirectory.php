@@ -26,6 +26,9 @@ class DispoThreadDirectory
     /** @var list<string>|null Cache: CrmContact::class + Morph-Alias (Model-Boot nur einmal). */
     private static ?array $crmTypes = null;
 
+    /** Cache je Instanz: Matcher ueber das VOLLE aktive Telefonverzeichnis. */
+    private ?DispoPhoneMatcher $fullMatcher = null;
+
     public function __construct(
         private DispoIdentityResolver $identity,
         private DispoEmployeeGateway $gateway,
@@ -57,23 +60,8 @@ class DispoThreadDirectory
             return ['threads' => [], 'canon' => []];
         }
 
-        // groupsFor() liefert nur fuer die ANGEFRAGTEN ids einen Schluessel,
-        // aber jeder Wert ist die VOLLSTAENDIGE Gruppe — kanonisieren muss
-        // deshalb ueber alle Gruppen-MITGLIEDER laufen, nicht nur ueber die
-        // angefragten ids. Sonst bleiben Mitglieder, die nicht selbst
-        // angefragt wurden (z. B. der RG-Datensatz bei einer Anfrage nach der
-        // MA-id), unkanonisiert -> Treffer landen unter der falschen id oder
-        // zwei Datensaetze derselben Person erscheinen als zwei verschiedene
-        // "kanonische" ids (Telefon-Matcher haelt das faelschlich fuer
-        // Mehrdeutigkeit und liefert dann gar nichts mehr).
         $groups = $this->identity->groupsFor($employeeIds);
-        $canon = [];
-        foreach ($groups as $group) {
-            $c = DispoIdentityGroups::canonical($group);
-            foreach ($group as $m) {
-                $canon[(int) $m] = $c;
-            }
-        }
+        $canon = self::canonByMember($groups);
         $allIds = $groups === [] ? [] : array_values(array_unique(array_merge(...array_values($groups))));
 
         // (1) Kontakt-Links: contact_id -> kanonische id
@@ -98,7 +86,10 @@ class DispoThreadDirectory
             return ['threads' => [], 'canon' => $canon];
         }
 
-        $matcher = new DispoPhoneMatcher($byCanonical);
+        // Der Matcher entscheidet gegen das VOLLE aktive Telefonverzeichnis
+        // (siehe fullMatcher()); ohne Telefon in der Gruppe kann es ohnehin
+        // keinen Telefon-Treffer geben, dann sparen wir uns das Verzeichnis.
+        $matcher = $byCanonical === [] ? null : $this->fullMatcher();
         $wanted  = array_fill_keys(array_map(fn ($id) => $canon[$id] ?? $id, $employeeIds), true);
 
         // Ziffern-Suffixe (letzte 9 Ziffern je normalisierter Nummer) grenzen
@@ -142,7 +133,10 @@ class DispoThreadDirectory
                 $cid = $canonByContact[(int) $t->contact_id];
                 $byContact = true;
             } else {
-                $cid = $matcher->match((string) $t->remote_phone_number);
+                // Telefon-Treffer werden unten gegen $wanted geprueft — der
+                // Matcher kennt ALLE aktiven MA, liefert also fuer eine
+                // geteilte Nummer null (mehrdeutig) statt eines Fremden.
+                $cid = $matcher?->match((string) $t->remote_phone_number);
             }
             if ($cid === null || !isset($wanted[$cid])) {
                 continue;
@@ -253,6 +247,61 @@ class DispoThreadDirectory
         $mo = ['', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'][(int) $c->format('n')];
 
         return $wd . ', ' . $c->format('j') . '. ' . $mo;
+    }
+
+    /**
+     * Kanonische id JE GRUPPEN-MITGLIED. groupsFor() liefert nur fuer die
+     * ANGEFRAGTEN ids einen Schluessel, aber jeder Wert ist die VOLLSTAENDIGE
+     * Gruppe — kanonisieren muss deshalb ueber alle Gruppen-MITGLIEDER laufen,
+     * nicht nur ueber die Schluessel. Sonst bleiben Mitglieder, die nicht
+     * selbst angefragt wurden (z. B. der RG-Datensatz bei einer Anfrage nach
+     * der MA-id), unkanonisiert -> Treffer landen unter der falschen id oder
+     * zwei Datensaetze derselben Person erscheinen als zwei verschiedene
+     * "kanonische" ids (Telefon-Matcher haelt das faelschlich fuer
+     * Mehrdeutigkeit und liefert dann gar nichts mehr).
+     *
+     * @param array<int, list<int>> $groups
+     * @return array<int,int> mitglied_id => kanonische id
+     */
+    private static function canonByMember(array $groups): array
+    {
+        $canon = [];
+        foreach ($groups as $group) {
+            $c = DispoIdentityGroups::canonical($group);
+            foreach ($group as $m) {
+                $canon[(int) $m] = $c;
+            }
+        }
+
+        return $canon;
+    }
+
+    /**
+     * Telefon-Matcher ueber das VOLLE aktive Telefonverzeichnis — NICHT nur
+     * ueber die angefragten MA. Sonst sieht eine Nummer, die sich ein
+     * angefragter MA mit einem NICHT angefragten teilt, eindeutig aus und der
+     * Thread eines Fremden wird ihm zugeschrieben; erst gegen das volle
+     * Verzeichnis meldet der Matcher korrekt "mehrdeutig" (null). Aufbau
+     * identisch zu Livewire/Dispo/Conversations/Index::matcher(): kanonisiert
+     * ueber alle Gruppen-MITGLIEDER, damit zwei Datensaetze derselben Person
+     * KEINE Mehrdeutigkeit ausloesen. Ein Treffer wird danach nur akzeptiert,
+     * wenn seine kanonische id angefragt war ($wanted).
+     */
+    private function fullMatcher(): DispoPhoneMatcher
+    {
+        if ($this->fullMatcher !== null) {
+            return $this->fullMatcher;
+        }
+
+        $directory = $this->gateway->phoneDirectory(); // id => phone (aktiv, Team-Anker)
+        $canon = self::canonByMember($this->identity->groupsFor(array_keys($directory)));
+
+        $byCanonical = [];
+        foreach ($directory as $id => $phone) {
+            $byCanonical[$canon[(int) $id] ?? (int) $id][] = $phone;
+        }
+
+        return $this->fullMatcher = new DispoPhoneMatcher($byCanonical);
     }
 
     /** @return list<string> */

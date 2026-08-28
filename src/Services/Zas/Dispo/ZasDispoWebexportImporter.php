@@ -87,6 +87,13 @@ class ZasDispoWebexportImporter
             );
 
             if ($dryRun) {
+                // Der Marker plant fuer ALLE ds_refs der Lieferung; gezaehlt wird
+                // aber nur, was im Live-Lauf auch geschrieben wuerde — also nur
+                // Zeilen, die dieselben Skip-Pruefungen (Datum parsebar,
+                // Einsatz-ID aufloesbar) bestehen. Sonst meldet die Vorschau mehr
+                // Rebestaetigungen als der Lauf tatsaechlich ausloest.
+                $reconfirmPlan = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
+
                 foreach ($plan['assignments'] as $dsRef => $attrs) {
                     if ($attrs['datum'] === null) {
                         $summary['errors'][] = "Assignment {$dsRef}: Datum unparsebar, uebersprungen";
@@ -98,11 +105,14 @@ class ZasDispoWebexportImporter
                         continue;
                     }
 
+                    if (isset($reconfirmPlan['overrides'][$dsRef])) {
+                        $summary['reconfirm_marked']++;
+                    }
+
                     $m = $matcher->match($attrs['pnr_raw']);
                     self::tallyMatch($summary, $m, $attrs['pnr_raw']);
                 }
                 $summary['missing_marked'] = count($plan['missing_ds_refs']);
-                $summary['reconfirm_marked'] = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString())['count'];
 
                 // Rematch-Parity: dieselbe Nachzuegler-Zaehlung wie im Live-Lauf,
                 // aber rein lesend und ohne die in dieser Lieferung bereits
@@ -147,8 +157,10 @@ class ZasDispoWebexportImporter
 
                 // Runde 4 (#2): bestaetigte Einbuchungen, deren Zeiten sich aendern, werden
                 // zurueckgesetzt und markiert — der naechste Versand nimmt sie wieder mit.
+                // Gezaehlt wird beim tatsaechlichen Anwenden (unten), nicht der
+                // geplante Umfang: Zeilen, die an Datum/Einsatz-ID scheitern,
+                // werden nie geschrieben und sind damit auch nicht markiert.
                 $reconfirm = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
-                $summary['reconfirm_marked'] = $reconfirm['count'];
 
                 foreach ($plan['assignments'] as $dsRef => $attrs) {
                     $einsatzRef = $attrs['einsatz_ref'];
@@ -167,6 +179,11 @@ class ZasDispoWebexportImporter
                     $m = $matcher->match($attrs['pnr_raw']);
                     self::tallyMatch($summary, $m, $attrs['pnr_raw']);
 
+                    $override = $reconfirm['overrides'][$dsRef] ?? [];
+                    if ($override !== []) {
+                        $summary['reconfirm_marked']++;
+                    }
+
                     RecDispoAssignment::updateOrCreate(
                         ['ds_ref' => $dsRef],
                         array_merge($attrs, [
@@ -174,7 +191,7 @@ class ZasDispoWebexportImporter
                             'rec_employee_id'    => $m['employee_id'],
                             'last_seen_at'       => now(),
                             'missing_since'      => null,
-                        ], $reconfirm['overrides'][$dsRef] ?? [])
+                        ], $override)
                     )->wasRecentlyCreated ? $summary['assignments_created']++ : $summary['assignments_updated']++;
                 }
 

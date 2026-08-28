@@ -90,7 +90,7 @@
 .rg-crew .chip{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:999px; white-space:nowrap; flex:none}
 .rg-crew .evhead .chip{background:rgba(255,255,255,.16); color:#fff}
 .rg-crew .evhead .chip.ok{background:rgba(220,243,228,.22); color:#dcfce7}
-.rg-crew .chip.warn{background:#fff7ed; color:#c2410c; border-color:#fdba74}
+.rg-crew .chip.warn{background:#fff7ed; color:#c2410c}
 .rg-crew .notice{margin-top:10px; border-radius:12px; background:#fff7ed; border:1px solid #fed7aa; color:#7c2d12; padding:10px 12px; font-size:14px}
 .rg-crew .l2.warn{color:#c2410c}
 

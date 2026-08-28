@@ -234,7 +234,10 @@ class RecruitingServiceProvider extends ServiceProvider
         // erscheinen als zwei Personen). Idempotent (nur MA ohne Link). Legt fuer
         // MA ohne passenden Kontakt einen neuen Kontakt an. Ausgabe in eigene
         // Log-Datei, Fehler zusaetzlich ueber Log::error im Command.
-        Schedule::command('recruiting:zas-crm-contact-backfill')
+        // --scheduled: Team-Anker aus recruiting.zas.inbound_team_id (ohne Anker
+        // fail-closed = No-op statt Lauf ueber alle Mandanten) und Kill-Switch
+        // dispo_contact_backfill_enabled (Disposition -> Einstellungen).
+        Schedule::command('recruiting:zas-crm-contact-backfill --scheduled')
             ->hourly()
             ->withoutOverlapping(30)
             ->runInBackground()

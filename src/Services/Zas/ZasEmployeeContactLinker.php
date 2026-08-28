@@ -56,11 +56,15 @@ class ZasEmployeeContactLinker
         $needle = $this->normalizedPhoneDigits($phone);
 
         $byEmail = $email !== '' ? $this->emailCandidates($employee, $email) : collect();
-        $byPhone = $needle !== null ? $this->phoneCandidates($employee, $needle) : collect();
 
         if ($byEmail->count() === 1) {
+            // Eindeutige E-Mail entscheidet allein — die Telefon-Query (LIKE ueber
+            // crm_phone_numbers) wird dann gar nicht erst gestellt.
             return $this->linkDecision($employee, $byEmail->first(), 'email');
         }
+
+        $byPhone = $needle !== null ? $this->phoneCandidates($employee, $needle) : collect();
+
         if ($byEmail->count() > 1) {
             // Runde 4 (#0): einengen statt abbrechen — Schnitt mit Telefon, dann Namensvetter.
             $narrowed = $this->narrow($employee, $byEmail, $byPhone);

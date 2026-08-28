@@ -85,6 +85,9 @@ class Show extends Component
     #[Locked]
     public string $chatFilter = 'seit_versand'; // 'seit_versand' | 'alle'
     public string $chatReply = '';
+    // Nur serverseitig gesetzt (Sende-Ergebnis) — gesperrt, damit das Frontend
+    // keine fremde Fehlermeldung in die Karte schreiben kann.
+    #[Locked]
     public ?string $chatError = null;
 
     public function mount(int $eventId): void
@@ -259,10 +262,15 @@ class Show extends Component
      */
     private function persistEscalation(): bool
     {
+        // "Nicht in der Vergangenheit" darf nur ein NEU gewaehltes Datum treffen:
+        // ein bereits gespeichertes (inzwischen vergangenes) Datum wuerde sonst
+        // jede unbeteiligte Aenderung an derselben Maske blockieren.
+        $stored = $this->event->escalation_date?->format('Y-m-d');
+        $dateChanged = $this->escDate !== ($stored ?? '');
         $errors = DispoEscalationConfig::validate(
             $this->escDay, $this->escTime1, $this->escTime2, $this->escTime3,
             $this->earliestVon(), $this->dispoSettings['escalation_defaults'],
-            $this->escDate, now()->toDateString(), $this->eventDays[0] ?? null
+            $this->escDate, $dateChanged ? now()->toDateString() : null, $this->eventDays[0] ?? null
         );
         if ($errors !== []) {
             $this->addError('escTime1', $errors[0]);

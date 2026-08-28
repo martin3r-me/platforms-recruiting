@@ -91,6 +91,15 @@ class DispoTestVaCommand extends Command
         $days = max(1, (int) $this->option('days'));
         $leadTaetigkeit = (string) (((array) config('recruiting.zas.dispo_lead_taetigkeiten', ['Teamleitung']))[0] ?? 'Teamleitung');
         $vonOverride = trim((string) $this->option('von')) ?: null;
+        // Der Wert landet ungeprueft in rec_dispo_assignments.von (String-Spalte) —
+        // ein Tippfehler wie "8:00" oder "0800" wuerde still eine kaputte Schichtzeit
+        // erzeugen und die Rebestaetigungs-Pruefung verfaelschen.
+        if ($vonOverride !== null && !preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $vonOverride)) {
+            $this->error('--von bitte als HH:MM');
+
+            return self::FAILURE;
+        }
+
         $result = $this->createTestVa(
             (int) $employee->id,
             (string) ($employee->personnel_number ?: 'TEST'),
@@ -119,6 +128,7 @@ class DispoTestVaCommand extends Command
         $this->line('  1. Disposition → Einstellungen: Bestaetigungs-Template gewaehlt? (sonst inert)');
         $this->line('  2. Disposition → Veranstaltungen → "' . $ref . '" → Senden (Vorlaufzeit eintragen, Empfaenger pruefen).');
         $this->line('  3. WhatsApp auf dem Handy → Link → Seite → Bestaetigen.');
+        $this->line('  Fuer einen frischen Durchlauf vorher --remove --ref=' . $ref . ' ausfuehren (Rerun behaelt Bestaetigung/Versand-Stempel).');
         $this->line('  Aufraeumen: recruiting:dispo-test-va --remove --ref=' . $ref);
 
         return self::SUCCESS;

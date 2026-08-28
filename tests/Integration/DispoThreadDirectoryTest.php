@@ -198,6 +198,35 @@ class DispoThreadDirectoryTest extends TestCase
         $this->assertSame($threadId, $result[$canon]['thread_id']);
     }
 
+    public function test_phone_shared_with_an_employee_outside_the_request_is_ambiguous(): void
+    {
+        // a ist im VA disponiert, b NICHT — beide sind aber aktive MA des
+        // Teams und teilen sich (Tippfehler / Familien-Nummer) dieselbe
+        // Nummer, ohne EINE Person zu sein (kein gemeinsamer Kontakt).
+        // Regression: der Matcher wurde nur aus den ANGEFRAGTEN MA gebaut,
+        // die Nummer sah dadurch eindeutig aus und der fremde Thread wurde a
+        // zugeschrieben. Gegen das VOLLE Telefonverzeichnis ist sie
+        // mehrdeutig -> kein Telefon-Treffer.
+        $a = $this->employee('MA-AMB-A', '0172 5559999');
+        $b = $this->employee('MA-AMB-B', '0172 5559999');
+        $this->link($a, 950); // eigener Kontakt, b bleibt unverlinkt
+
+        $channel = $this->channel();
+        $this->thread($channel, '+49 172 5559999', null, false, '2026-08-28 10:00:00');
+
+        $result = $this->directory()->threadsFor([$channel], [$a]);
+
+        $this->assertArrayNotHasKey($a, $result, 'Geteilte Nummer mit einem NICHT angefragten MA darf keinen Treffer liefern.');
+        $this->assertArrayNotHasKey($b, $result);
+
+        // Der sichere Weg (Kontakt-Link) traegt weiterhin: derselbe MA, ein
+        // Thread mit contact_id -> wird gefunden.
+        $contactThread = $this->thread($channel, '+49 999 222000', 950, false, '2026-08-28 11:00:00');
+
+        $withContact = $this->directory()->threadsFor([$channel], [$a]);
+        $this->assertSame($contactThread, $withContact[$a]['thread_id'] ?? null, 'Kontakt-verlinkter Thread bleibt trotz mehrdeutiger Nummer auffindbar.');
+    }
+
     public function test_newest_thread_wins_and_contact_beats_phone(): void
     {
         $ma = $this->employee('MA3', '0172 4444444');
