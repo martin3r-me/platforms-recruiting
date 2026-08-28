@@ -24,7 +24,7 @@ class RecDispoEvent extends Model
         'vorlauf_minuten',
         'ansprechpartner',
         'alarm_message_id',
-        'escalation_day', 'escalation_time_1', 'escalation_time_2', 'escalation_time_3',
+        'escalation_day', 'escalation_time_1', 'escalation_time_2', 'escalation_time_3', 'escalation_date',
         'source_meta',
     ];
 
@@ -35,6 +35,7 @@ class RecDispoEvent extends Model
         'vorlauf_minuten' => 'integer',
         'alarm_message_id' => 'integer',
         'source_meta' => 'array',
+        'escalation_date' => 'date:Y-m-d',
     ];
 
     /**

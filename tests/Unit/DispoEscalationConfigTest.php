@@ -12,7 +12,7 @@ class DispoEscalationConfigTest extends TestCase
     public function test_null_everything_is_default_vortag(): void
     {
         $cfg = C::effective(null, null, null, null, $this->defaults);
-        $this->assertSame(['day' => 'vortag', 'times' => $this->defaults, 'overridden' => false], $cfg);
+        $this->assertSame(['day' => 'vortag', 'times' => $this->defaults, 'date' => null, 'overridden' => false], $cfg);
     }
 
     public function test_full_time_override_wins(): void
@@ -78,5 +78,41 @@ class DispoEscalationConfigTest extends TestCase
     {
         $this->assertNotEmpty(C::validate('vortag', '9:00', '10:00', '11:00', null, $this->defaults));
         $this->assertNotEmpty(C::validate('sonstwas', '', '', '', null, $this->defaults));
+    }
+
+    public function test_datum_mode_carries_date_and_counts_as_override(): void
+    {
+        $cfg = C::effective('datum', null, null, null, $this->defaults, '2026-08-29');
+        $this->assertSame('datum', $cfg['day']);
+        $this->assertSame('2026-08-29', $cfg['date']);
+        $this->assertTrue($cfg['overridden']);
+    }
+
+    public function test_datum_mode_without_valid_date_falls_back_to_vortag(): void
+    {
+        $this->assertSame('vortag', C::effective('datum', null, null, null, $this->defaults, null)['day']);
+        $this->assertSame('vortag', C::effective('datum', null, null, null, $this->defaults, '29.08.2026')['day']);
+        $this->assertNull(C::effective('einsatztag', null, null, null, $this->defaults, '2026-08-29')['date'], 'date nur im datum-Modus');
+    }
+
+    public function test_applies_on_datum_mode_for_all_upcoming_days_of_the_event(): void
+    {
+        $this->assertTrue(C::appliesOn('datum', '2026-09-02', '2026-08-29', '2026-08-29'), 'Einsatz in 4 Tagen, heute = Eskalationsdatum');
+        $this->assertTrue(C::appliesOn('datum', '2026-08-29', '2026-08-29', '2026-08-29'), 'Einsatz am Eskalationsdatum selbst');
+        $this->assertFalse(C::appliesOn('datum', '2026-09-02', '2026-08-30', '2026-08-29'), 'anderer Lauftag');
+        $this->assertFalse(C::appliesOn('datum', '2026-08-28', '2026-08-29', '2026-08-29'), 'vergangener Einsatztag');
+        $this->assertFalse(C::appliesOn('datum', '2026-09-02', '2026-08-29', null), 'ohne Datum nie');
+    }
+
+    public function test_validate_datum_mode(): void
+    {
+        $d = $this->defaults;
+        $this->assertSame([], C::validate('datum', '', '', '', '10:00', $d, '2026-08-29', '2026-08-28', '2026-09-02'));
+        $this->assertNotEmpty(C::validate('datum', '', '', '', '10:00', $d, '', '2026-08-28', '2026-09-02'), 'Datum fehlt');
+        $this->assertNotEmpty(C::validate('datum', '', '', '', '10:00', $d, '2026-08-27', '2026-08-28', '2026-09-02'), 'Vergangenheit');
+        $this->assertNotEmpty(C::validate('datum', '', '', '', '10:00', $d, '2026-09-03', '2026-08-28', '2026-09-02'), 'nach erstem Einsatztag');
+        // Datum = erster Einsatztag -> Einsatztag-Regel (Stufe 3 vor fruehestem von)
+        $this->assertNotEmpty(C::validate('datum', '', '', '', '10:00', $d, '2026-09-02', '2026-08-28', '2026-09-02'), '16:00 ist nicht vor 10:00');
+        $this->assertSame([], C::validate('datum', '07:00', '08:00', '09:00', '10:00', $d, '2026-09-02', '2026-08-28', '2026-09-02'));
     }
 }
