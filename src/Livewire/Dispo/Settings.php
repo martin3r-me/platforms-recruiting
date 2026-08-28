@@ -6,6 +6,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
+use Platform\Recruiting\Services\Zas\ZasContactLinkReport;
 use Platform\Recruiting\Support\Filialen;
 
 /**
@@ -104,6 +105,17 @@ class Settings extends Component
             ->get(['id', 'name'])
             ->map(fn ($c) => ['id' => (int) $c->id, 'name' => (string) $c->name])
             ->all();
+    }
+
+    /**
+     * Offene CRM-Zuordnungen (Runde 4, #0). Dokumentierte Ausnahme der Dispo-
+     * Leitplanke (Recruiting-Service statt Gateway): der Report gehoert zum
+     * Linker/Backfill in Services/Zas und zieht beim Staffing-Auszug NICHT mit.
+     */
+    #[Computed]
+    public function contactLinkReport(): array
+    {
+        return app(ZasContactLinkReport::class)->openCases($this->teamId());
     }
 
     public function save(): void

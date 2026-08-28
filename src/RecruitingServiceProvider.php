@@ -228,6 +228,17 @@ class RecruitingServiceProvider extends ServiceProvider
             ->everyFiveMinutes()
             ->withoutOverlapping(5)
             ->runInBackground();
+
+        // CRM-Kontakt-Backfill (Runde 4, #0): MA aus dem ZAS-Import haben keinen
+        // CRM-Link; ohne Link greift die Dispo-Identitaet nicht (Doppel-MA RG/MA
+        // erscheinen als zwei Personen). Idempotent (nur MA ohne Link). Legt fuer
+        // MA ohne passenden Kontakt einen neuen Kontakt an. Ausgabe in eigene
+        // Log-Datei, Fehler zusaetzlich ueber Log::error im Command.
+        Schedule::command('recruiting:zas-crm-contact-backfill')
+            ->hourly()
+            ->withoutOverlapping(30)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/zas-contact-backfill.log'));
     }
 
     protected function registerLivewireComponents(): void

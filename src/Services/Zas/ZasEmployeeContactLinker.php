@@ -75,6 +75,8 @@ class ZasEmployeeContactLinker
             return $this->linkDecision($employee, $byPhone->first(), 'phone');
         }
         if ($byPhone->count() > 1) {
+            // Dieser Zweig wird nur erreicht, wenn $byEmail leer war (sonst waeren wir
+            // oben bereits zurueckgekehrt) — es gibt also nichts zum Schneiden.
             $narrowed = $this->narrow($employee, $byPhone, collect());
             if ($narrowed !== null) {
                 return $this->linkDecision($employee, $narrowed['contact'], 'phone+' . $narrowed['by']);

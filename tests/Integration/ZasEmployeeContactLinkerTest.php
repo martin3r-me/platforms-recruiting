@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CrmContact;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\ZasContactLinkReport;
 use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
 
 /**
@@ -143,6 +144,21 @@ class ZasEmployeeContactLinkerTest extends TestCase
         $this->assertSame('email+namesake', $d['matched_by']);
     }
 
+    public function test_ambiguous_phone_without_email_is_narrowed_by_linked_namesake(): void
+    {
+        $rg = $this->employee('Markus', 'Ammerer', null, '0172 1111111', 'RG1187');
+        $right = $this->contact('Markus', 'Ammerer', null, '+491721111111');
+        $this->contact('Markus', 'Ammerer', null, '+491721111111'); // gleiche Daten, nirgends verlinkt
+        $this->link($rg->id, $right);
+
+        $ma = $this->employee('Markus', 'Ammerer', null, '0172 1111111', 'MA1000009898');
+        $d = (new ZasEmployeeContactLinker())->decide($ma);
+
+        $this->assertSame('link', $d['action']);
+        $this->assertSame($right, $d['contact_id']);
+        $this->assertSame('phone+namesake', $d['matched_by']);
+    }
+
     public function test_both_ambiguous_without_namesake_still_skips(): void
     {
         $this->contact('Markus', 'Ammerer', 'm@example.de', '+491721111111');
@@ -170,6 +186,29 @@ class ZasEmployeeContactLinkerTest extends TestCase
 
         $this->assertSame('create', $d['action']);
         $this->assertSame('neu@example.de', $d['email']);
+    }
+
+    public function test_report_lists_open_cases_with_state_and_reason(): void
+    {
+        // pending (link): eindeutige E-Mail
+        $this->contact('Anna', 'Link', 'anna@example.de');
+        $this->employee('Anna', 'Link', 'anna@example.de', null, 'RG10');
+        // skip: Name passt nicht
+        $this->contact('Petra', 'Sammelpostfach', 'shared@example.de');
+        $this->employee('Bert', 'Skip', 'shared@example.de', null, 'RG11');
+        // bereits verlinkt -> taucht NICHT auf
+        $done = $this->employee('Carl', 'Done', null, null, 'RG12');
+        $this->link($done->id, $this->contact('Carl', 'Done'));
+
+        $report = (new ZasContactLinkReport(new ZasEmployeeContactLinker()))->openCases(self::TEAM);
+
+        $this->assertSame(2, $report['total']);
+        $byPnr = collect($report['rows'])->keyBy('personnel_number');
+        $this->assertSame('pending', $byPnr['RG10']['state']);
+        $this->assertStringContainsString('verknüpft', $byPnr['RG10']['reason']);
+        $this->assertSame('skip', $byPnr['RG11']['state']);
+        $this->assertStringStartsWith('Name passt nicht:', $byPnr['RG11']['reason']);
+        $this->assertArrayNotHasKey('RG12', $byPnr->all());
     }
 
     // ---- Schema ---------------------------------------------------------

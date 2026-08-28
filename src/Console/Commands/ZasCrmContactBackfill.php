@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
 
@@ -23,8 +24,9 @@ use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
  *   php artisan recruiting:zas-crm-contact-backfill --dry-run
  *   php artisan recruiting:zas-crm-contact-backfill --limit=100
  *   php artisan recruiting:zas-crm-contact-backfill --imported-only
- *
- * Siehe docs/meingedeck/zas-mitarbeiter-import.md
+ *   Laeuft stuendlich im Scheduler (RecruitingServiceProvider), Ausgabe in
+ *   storage/logs/zas-contact-backfill.log. Skips sind sichtbar unter
+ *   Disposition -> Einstellungen -> CRM-Zuordnung offen.
  */
 class ZasCrmContactBackfill extends Command
 {
@@ -83,7 +85,16 @@ class ZasCrmContactBackfill extends Command
             } catch (\Throwable $e) {
                 $counts['failed']++;
                 $this->error("FEHLER #{$employee->id} {$name} — {$e->getMessage()}");
+                // Runde 4 (#0): der Befehl laeuft stuendlich im Scheduler — Konsolen-Ausgabe
+                // verpufft dort. Fehler zusaetzlich ins Log, damit sie nicht untergehen.
+                Log::error('zas_contact_backfill_failed', [
+                    'employee_id' => $employee->id, 'name' => $name, 'dry_run' => $dryRun, 'error' => $e->getMessage(),
+                ]);
             }
+        }
+
+        if ($counts['failed'] > 0 && !$dryRun) {
+            Log::warning('zas_contact_backfill_summary', $counts + ['total' => $employees->count()]);
         }
 
         $this->newLine();

@@ -121,4 +121,53 @@
             </table>
         </div>
     </div>
+
+    @php
+        $linkReport = $this->contactLinkReport;
+        $linkSkips = collect($linkReport['rows'])->where('state', 'skip')->count();
+    @endphp
+    <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+        <div class="flex items-center justify-between">
+            <h2 class="text-base font-semibold">CRM-Zuordnung offen ({{ $linkReport['total'] }})</h2>
+            <span class="text-xs text-gray-500">Der Abgleich läuft stündlich automatisch.</span>
+        </div>
+        <p class="text-sm text-gray-600">
+            Mitarbeiter ohne verknüpften CRM-Kontakt erscheinen in der Kommunikation nur mit Telefonnummer und werden bei zwei Personalnummern nicht als eine Person erkannt.
+            <strong>{{ $linkSkips }}</strong> Fall/Fälle brauchen eine manuelle Zuordnung in der MA-Akte.
+        </p>
+        @if ($linkReport['rows'] === [])
+            <div class="rounded bg-green-50 p-3 text-sm text-green-800">Alle aktiven Mitarbeiter haben einen CRM-Kontakt.</div>
+        @else
+            <table class="w-full text-sm">
+                <thead class="text-left text-gray-500">
+                    <tr>
+                        <th class="px-2 py-1 font-medium">Mitarbeiter</th>
+                        <th class="px-2 py-1 font-medium">PNr</th>
+                        <th class="px-2 py-1 font-medium">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    @foreach ($linkReport['rows'] as $row)
+                        <tr>
+                            <td class="px-2 py-1.5">
+                                <a href="{{ route('recruiting.employees.show', $row['employee_id']) }}" class="text-blue-600 hover:underline">{{ $row['name'] !== '' ? $row['name'] : ('#' . $row['employee_id']) }}</a>
+                            </td>
+                            <td class="px-2 py-1.5 tabular-nums text-gray-600">{{ $row['personnel_number'] !== '' ? $row['personnel_number'] : '—' }}</td>
+                            <td class="px-2 py-1.5">
+                                @if ($row['state'] === 'skip')
+                                    <span class="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">manuell zuordnen</span>
+                                @else
+                                    <span class="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700">automatisch</span>
+                                @endif
+                                <span class="ml-1 text-xs text-gray-500">{{ $row['reason'] }}</span>
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+            @if ($linkReport['total'] > count($linkReport['rows']))
+                <div class="text-xs text-gray-500">Zeigt die ersten {{ count($linkReport['rows']) }} von {{ $linkReport['total'] }}.</div>
+            @endif
+        @endif
+    </div>
 </div>
