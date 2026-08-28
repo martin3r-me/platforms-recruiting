@@ -89,6 +89,8 @@ class DispoEscalateCommandTest extends TestCase
     {
         Capsule::table('rec_dispo_assignments')->delete();
         Capsule::table('rec_dispo_events')->delete();
+        Capsule::table('crm_contact_links')->delete();
+        RecEmployee::where('id', '!=', self::$employeeId)->delete();
         Capsule::table('rec_employees')->where('id', self::$employeeId)->update([
             'portal_locked_at' => null, 'portal_locked_reason' => null,
         ]);
@@ -175,6 +177,53 @@ class DispoEscalateCommandTest extends TestCase
             'datum' => $datum, 'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
             'reminder_sent_at' => '2026-08-20 10:00:00',
         ];
+    }
+
+    /** Zweiter Datensatz derselben Person (MA-Praefix), per crm_contact_links mit self::$employeeId verknuepft. */
+    private function twinEmployee(): int
+    {
+        $twin = (int) RecEmployee::create([
+            'team_id' => self::TEAM, 'first_name' => 'Erika', 'last_name' => 'Muster', 'personnel_number' => 'MA777',
+            'phone' => '+49 151 12345678', 'portal_token' => 'tok-twin', 'is_active' => true,
+        ])->id;
+        foreach ([self::$employeeId, $twin] as $eid) {
+            Capsule::table('crm_contact_links')->insert([
+                'uuid' => 'lnk-' . $eid, 'contact_id' => 4242, 'team_id' => self::TEAM, 'created_by_user_id' => 1,
+                'linkable_id' => $eid, 'linkable_type' => (new RecEmployee())->getMorphClass(),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        return $twin;
+    }
+
+    public function test_stage1_sends_once_per_person_but_stamps_both_records(): void
+    {
+        $twin = $this->twinEmployee();
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-TWIN', 'name' => 'Twin', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-TWIN-RG', '2026-08-26'));
+        RecDispoAssignment::create(array_merge($this->baseRow($event->id, 'DS-TWIN-MA', '2026-08-26'), ['rec_employee_id' => $twin, 'pnr_raw' => 'MA777']));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 14:01:00'));
+
+        $this->assertSame(2, $report['stage1'], 'Beide Einbuchungen sind faellig …');
+        $this->assertSame(1, $this->stub->calls, '… aber die Person bekommt genau EINE WhatsApp.');
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-TWIN-RG')->value('escalation_1_at'));
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-TWIN-MA')->value('escalation_1_at'));
+    }
+
+    public function test_stage3_locks_whole_person_and_alarm_counts_persons(): void
+    {
+        $twin = $this->twinEmployee();
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-TWIN3', 'name' => 'Twin3', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create($this->baseRow($event->id, 'DS-TWIN3-RG', '2026-08-26'));
+        RecDispoAssignment::create(array_merge($this->baseRow($event->id, 'DS-TWIN3-MA', '2026-08-26'), ['rec_employee_id' => $twin, 'pnr_raw' => 'MA777']));
+
+        $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 16:01:00'));
+
+        $this->assertNotNull(RecEmployee::find(self::$employeeId)->portal_locked_at);
+        $this->assertNotNull(RecEmployee::find($twin)->portal_locked_at, 'Sperre gilt fuer die Person, also beide Datensaetze.');
+        $alarm = collect($this->stub->log)->firstWhere('to', self::DUTY_PHONE);
+        $this->assertSame('1', $alarm['components'][0]['parameters'][1]['text'], 'Alarm zaehlt Personen, nicht Einbuchungen.');
     }
 
     public function test_einsatztag_override_escalates_today_with_event_times(): void
@@ -616,6 +665,7 @@ class DispoEscalateCommandTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
+            [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
             [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
         ];

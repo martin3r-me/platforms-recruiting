@@ -11,6 +11,8 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationPlanner;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 
 /**
  * Eskalations-Engine (Spec §3): laeuft alle 5 Minuten, verankert am
@@ -39,6 +41,9 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationPlanner;
  * geworfene Exception bei Stufe 1/2 stempelt NICHT (transienter Fehler heilt
  * sich im 14-16-Uhr-Fenster selbst); ein Meta-`failed`-Status (kein Wurf) wird
  * weiterhin gestempelt (definitive Ablehnung, Retry bringt nichts).
+ *
+ * Seit Dispo-Identitaet: Reminder pro Person/VA, Sperre fuer alle Datensaetze,
+ * Alarm zaehlt Personen.
  *
  * @see self::escalate() Reine Engine-Logik ohne $this->option()/$this->warn(),
  *      per Probe-Muster (siehe ReconcileApplicantPositionsGateTest) ohne
@@ -126,6 +131,20 @@ class DispoEscalateCommand extends Command
             })
             ->values();
 
+        // Dispo-Identitaet: Gruppen/kanonische id EINMAL je Lauf ueber die
+        // (bereits gefilterte) Zielmenge bestimmen — mehrere MA-Datensaetze
+        // derselben Person (gemeinsamer CRM-Kontakt) teilen sich Reminder und
+        // Sperre, siehe DispoIdentityResolver/DispoIdentityGroups.
+        $groups = app(DispoIdentityResolver::class)->groupsFor(
+            $assignments->pluck('rec_employee_id')->unique()->map(fn ($v) => (int) $v)->all()
+        );
+        $canon = DispoIdentityGroups::canonicalMap($groups);
+
+        // Dedup je Lauf: "{kanonischeId}|{eventId}|{stage}" -> Message-Id (oder
+        // null) des ZUERST versendeten Reminders dieser Person/VA/Stufe. Der
+        // zweite Datensatz derselben Person wird nur noch gestempelt.
+        $sentInRun = [];
+
         $counts = [1 => 0, 2 => 0, 3 => 0];
 
         /** @var array<int, list<RecDispoAssignment>> $removedByEvent */
@@ -155,7 +174,7 @@ class DispoEscalateCommand extends Command
                 if ($deletionSaved) {
                     try {
                         $gateway->lockPortal(
-                            (int) $a->rec_employee_id,
+                            $groups[(int) $a->rec_employee_id] ?? [(int) $a->rec_employee_id],
                             sprintf('Dispo: Einsatz %s am %s nicht bestaetigt', $a->event->einsatz_ref, $a->datum->format('d.m.Y'))
                         );
                     } catch (\Throwable $e) {
@@ -165,6 +184,22 @@ class DispoEscalateCommand extends Command
                     }
                     $removedByEvent[$a->rec_dispo_event_id][] = $a;
                 }
+                continue;
+            }
+
+            // Dispo-Identitaet: fuer diese Person/VA/Stufe in diesem Lauf bereits
+            // verschickt (zweiter Datensatz derselben Person) -> nur stempeln,
+            // NICHT nochmal senden.
+            $personKey = ($canon[(int) $a->rec_employee_id] ?? (int) $a->rec_employee_id) . '|' . $a->rec_dispo_event_id . '|' . $stage;
+            if (array_key_exists($personKey, $sentInRun)) {
+                if ($stage === 1) {
+                    $a->escalation_1_at = now();
+                    $a->escalation_1_message_id = $sentInRun[$personKey];
+                } else {
+                    $a->escalation_2_at = now();
+                    $a->escalation_2_message_id = $sentInRun[$personKey];
+                }
+                $a->save();
                 continue;
             }
 
@@ -239,6 +274,7 @@ class DispoEscalateCommand extends Command
                 $a->escalation_2_message_id = $message->id ?? null;
             }
             $a->save();
+            $sentInRun[$personKey] = $message->id ?? null;
 
             if (($message->status ?? null) === 'failed') {
                 $emit('warn', "Reminder Stufe {$stage} nicht zugestellt (MA {$a->rec_employee_id}, Einbuchung #{$a->id})");
@@ -246,7 +282,7 @@ class DispoEscalateCommand extends Command
         }
 
         if (!$dryRun) {
-            $this->sendAlarms($removedByEvent, $settings, $resolver, $teamId, $emit);
+            $this->sendAlarms($removedByEvent, $canon, $settings, $resolver, $teamId, $emit);
         }
 
         return [
@@ -258,8 +294,11 @@ class DispoEscalateCommand extends Command
         ];
     }
 
-    /** @param array<int, list<RecDispoAssignment>> $removedByEvent */
-    private function sendAlarms(array $removedByEvent, RecApplicantSettings $settings, DispoChannelResolver $resolver, int $teamId, callable $emit): void
+    /**
+     * @param array<int, list<RecDispoAssignment>> $removedByEvent
+     * @param array<int,int> $canon employee_id => kanonische id (Dispo-Identitaet)
+     */
+    private function sendAlarms(array $removedByEvent, array $canon, RecApplicantSettings $settings, DispoChannelResolver $resolver, int $teamId, callable $emit): void
     {
         $alarmTemplateId = $settings->getSetting('dispo_alarm_template_id');
 
@@ -285,7 +324,10 @@ class DispoEscalateCommand extends Command
                     'type' => 'body',
                     'parameters' => [
                         ['type' => 'text', 'text' => (string) ($event->name ?? $event->einsatz_ref)],
-                        ['type' => 'text', 'text' => (string) count($rows)],
+                        ['type' => 'text', 'text' => (string) count(array_unique(array_map(
+                            fn (RecDispoAssignment $r) => $canon[(int) $r->rec_employee_id] ?? (int) $r->rec_employee_id,
+                            $rows
+                        )))],
                     ],
                 ],
             ];
