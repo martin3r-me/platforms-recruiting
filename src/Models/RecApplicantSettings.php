@@ -45,6 +45,14 @@ class RecApplicantSettings extends Model
         // {{name}}/{{termin}}-Variablen; ohne Wert greift der Fallback
         // aufs generische interview_waitlist_wa_template_id.
         'interview_waitlist_termin_wa_template_id' => null,
+        // Kampagne „Neue Termine" (Statistik → Ohne Termin). Zwei Templates,
+        // weil die Zielgruppe in zwei Lagen sitzt: vor dem Buchungsschritt
+        // (Formular-Link) und ab dem Buchungsschritt (Terminauswahl-Link).
+        // Beide brauchen einen dynamischen URL-Button an Position 0; der
+        // Personen-Token wird vom Sender eingesetzt. Ohne Wert kann HR im
+        // Modal ein beliebiges approved Template waehlen.
+        'campaign_form_wa_template_id' => null,
+        'campaign_booking_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
         'contract_wa_template_id' => null,
         'contract_wa_account_id' => null,

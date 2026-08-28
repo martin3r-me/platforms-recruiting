@@ -538,6 +538,38 @@
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Wird an Termin-Abonnenten gesendet, sobald in ihrem konkreten Termin ein Platz frei wird. Unterstützt die Variablen name und termin ("Samstag, 25. Juli 2026 um 15:00 Uhr"). Ohne Auswahl greift das generische Warteliste-Template.</p>
                     @endif
 
+                    {{-- Kampagne „Neue Termine" — Template A: Bewerbung vervollständigen (Formular-Link) --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['campaign_form_wa_template_id'] ?? null"
+                            name="settings.campaign_form_wa_template_id"
+                            label="WhatsApp Template — Neue Termine, Bewerbung vervollständigen (Kampagne A)"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model.live="settings.campaign_form_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Geht aus der Statistik („Ohne Termin") an Bewerber, deren Bewerbung noch unvollständig ist. URL-Button muss auf <code>/form/@verbatim{{1}}@endverbatim</code> zeigen.</p>
+                    @endif
+
+                    {{-- Kampagne „Neue Termine" — Template B: Terminauswahl (Buchungs-Link) --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['campaign_booking_wa_template_id'] ?? null"
+                            name="settings.campaign_booking_wa_template_id"
+                            label="WhatsApp Template — Neue Termine, Terminauswahl (Kampagne B)"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model.live="settings.campaign_booking_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Geht aus der Statistik („Ohne Termin") an Bewerber, die nur noch einen Termin brauchen. URL-Button muss auf <code>/recruiting/interviews/@verbatim{{1}}@endverbatim</code> zeigen.</p>
+                    @endif
+
                     {{-- Contract Portal Template --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select
