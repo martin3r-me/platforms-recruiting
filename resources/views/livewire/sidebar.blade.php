@@ -57,6 +57,10 @@
                 </span>
             @endif
         </x-ui-sidebar-item>
+        <x-ui-sidebar-item :href="route('recruiting.statistics.index')">
+            @svg('heroicon-o-chart-bar', 'w-4 h-4 text-[var(--ui-secondary)]')
+            <span class="ml-2 text-sm">Statistik</span>
+        </x-ui-sidebar-item>
         @if(($this->stats['direct_hire_positions'] ?? 0) > 0)
             <x-ui-sidebar-item :href="route('recruiting.direct-hire.index')">
                 @svg('heroicon-o-bolt', 'w-4 h-4 text-[var(--ui-secondary)]')
