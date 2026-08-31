@@ -89,6 +89,13 @@ class UpdateInterviewBookingTool implements ToolContract, ToolMetadataContract
                     } catch (\Throwable) {}
                 }
 
+                // Storno-Metadaten spiegeln den Statuswechsel (eine Regel mit
+                // dem UI-Pfad, siehe BookingCancellationMeta) — vorher behielt
+                // eine per MCP reaktivierte Buchung ihr cancelled_at.
+                foreach (\Platform\Recruiting\Support\BookingCancellationMeta::updatesFor($booking->status, $arguments['status'], (string) now()) as $field => $value) {
+                    $booking->{$field} = $value;
+                }
+
                 $booking->status = $arguments['status'];
             }
 

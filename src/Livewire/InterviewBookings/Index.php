@@ -361,19 +361,12 @@ class Index extends Component
 
         $booking = RecInterviewBooking::findOrFail($bookingId);
 
-        // Storno-Metadaten setzen wenn HR manuell auf cancelled umstellt
-        // (cancelled_by='hr' damit der HR-Schreibtisch zwischen
-        // "Bewerber hat selbst abgesagt" und "HR hat abgesagt" unterscheiden
-        // kann). Wenn der Status von cancelled WEG geht, Storno-Metadaten
-        // wieder zuruecksetzen damit alte Storno-Info nicht haengen bleibt.
-        $updates = ['status' => $status];
-        if ($status === 'cancelled' && $booking->status !== 'cancelled') {
-            $updates['cancelled_by'] = 'hr';
-            $updates['cancelled_at'] = now();
-        } elseif ($status !== 'cancelled' && $booking->status === 'cancelled') {
-            $updates['cancelled_by'] = null;
-            $updates['cancelled_at'] = null;
-        }
+        // Storno-Metadaten (cancelled_by='hr', damit der HR-Schreibtisch
+        // zwischen "Bewerber hat selbst abgesagt" und "HR hat abgesagt"
+        // unterscheiden kann): EINE Regel mit dem MCP-Tool, siehe
+        // BookingCancellationMeta — die Zweige standen hier und dort wortgleich.
+        $updates = ['status' => $status]
+            + \Platform\Recruiting\Support\BookingCancellationMeta::updatesFor($booking->status, $status, (string) now());
 
         // Standby-Buchung wird manuell hochgestuft = bewusste HR-Uebersteuerung
         // (kein Kapazitaetsblock, aber nachvollziehbar im AutoPilot-Log).
