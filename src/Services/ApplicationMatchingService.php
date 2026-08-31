@@ -63,6 +63,19 @@ class ApplicationMatchingService
                 return new MatchResult($posting, MatchResult::VIA_EXTERNAL_REF);
             }
             if ($posting) {
+                // Der Code benennt die Stelle eindeutig, auch wenn seine
+                // Ausschreibung zu ist. Also über die Stelle auffangen statt in
+                // die Inbox zu schieben — sonst landen Bewerber einer noch
+                // laufenden Anzeige auf der Sammel-Ausschreibung "Sonstiges".
+                if ($fallback = $this->fallbackPostingForPosition($posting, (int) $channel->team_id)) {
+                    return new MatchResult(
+                        $fallback,
+                        MatchResult::VIA_POSITION_FALLBACK,
+                        reason: 'Referenz-Code zeigt auf geschlossene Ausschreibung "' . $posting->title
+                            . '" — aufgefangen über die Stelle',
+                    );
+                }
+
                 return new MatchResult(
                     $posting,
                     MatchResult::VIA_SUGGESTION,
@@ -103,6 +116,33 @@ class ApplicationMatchingService
             MatchResult::VIA_SUGGESTION,
             reason: 'Portal-Referenz zeigt auf geschlossene Ausschreibung "' . $posting->title . '"',
         );
+    }
+
+    /**
+     * AUFFANGTOPF EINER STELLE: die älteste offene Ausschreibung dahinter.
+     *
+     * Warum die älteste und nicht ein eigenes Flag: auf allen vier
+     * "allgemein"-Stellen ist das genau die jeweilige "Initiativ via
+     * Webseite"-Ausschreibung (38-41) — sie wurden vor den Kampagnen-Anzeigen
+     * angelegt. Kein neues Feld, keine Namenskonvention, die still bricht,
+     * wenn jemand eine Anzeige umbenennt.
+     *
+     * Liefert null, wenn die Stelle KEINE offene Ausschreibung mehr hat (Stand
+     * heute: "Düsseldorf - Messe"). Dann bleibt es beim Inbox-Vorschlag — ein
+     * Auto-Assign auf eine fremde Stelle wäre geraten.
+     */
+    private function fallbackPostingForPosition(RecPosting $closed, int $teamId): ?RecPosting
+    {
+        if (!$closed->rec_position_id) {
+            return null;
+        }
+
+        return RecPosting::query()
+            ->forTeam($teamId)
+            ->where('rec_position_id', $closed->rec_position_id)
+            ->open()
+            ->orderBy('id')
+            ->first();
     }
 
     /**

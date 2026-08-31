@@ -11,6 +11,12 @@ class MatchResult
     public const VIA_LLM = 'llm';
     public const VIA_CHANNEL_DEFAULT = 'channel_default';
     public const VIA_MANUAL = 'manual';
+    /**
+     * Referenz zeigte auf eine geschlossene Ausschreibung, aufgefangen über die
+     * STELLE dahinter. Eigener Wert, damit in der Statistik unterscheidbar
+     * bleibt, wer sich echt auf die auffangende Anzeige beworben hat.
+     */
+    public const VIA_POSITION_FALLBACK = 'position_fallback';
     /** Kein Auto-Assign, nur Vorschlag für die Inbox (z. B. Referenz auf geschlossene Ausschreibung). */
     public const VIA_SUGGESTION = 'suggestion';
 
