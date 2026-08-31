@@ -27,7 +27,7 @@ use Platform\Recruiting\Support\SeatStandbyPolicy;
  *     uneindeutig_ids: list<int>,  // Fall 2 der Zuordnungsregel (Spec §4): kein
  *                                  // Pivot passte zur Phase-Position, Fallback griff
  *     columns: array{kontaktiert:list<int>, gebucht:list<int>,
- *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>,
+ *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>, aussortiert:list<int>,
  *                    vertrag_verschickt:list<int>, unterschrieben:list<int>,
  *                    phase_reached:array<int,list<int>>},
  *                    // phase_reached[$order] = Bewerbungen, die die Phase mit dieser
@@ -128,7 +128,7 @@ final class CohortAssigner
                     'max_applied_at' => null,
                     'columns' => [
                         'kontaktiert' => [], 'gebucht' => [],
-                        'teilgenommen' => [], 'standby' => [], 'no_show' => [],
+                        'teilgenommen' => [], 'standby' => [], 'no_show' => [], 'aussortiert' => [],
                         'vertrag_verschickt' => [], 'unterschrieben' => [],
                         'phase_reached' => [],
                     ],
@@ -165,7 +165,7 @@ final class CohortAssigner
             //  - kontaktiert, vertrag_verschickt, unterschrieben (und tth_days)
             //    fuellen JEDEN Zeilentyp, auch geparkt/abgesagt/dublette/import/
             //    unrouted/ohne_datum/unbekannter_status;
-            //  - gebucht/teilgenommen/no_show/standby nur auf
+            //  - gebucht/teilgenommen/no_show/aussortiert/standby nur auf
             //    Schulungszeilen (sie haengen an der gewonnenen Buchung);
             //  - offen_ids ist wie phase_reached auf RUNNING_TYPES begrenzt
             //    (Nachlauf unter der Schleife).
@@ -197,6 +197,7 @@ final class CohortAssigner
                 // (booking_confirmed_by_reply), nicht den Status.
                 if ($rank >= 3) { $row['columns']['teilgenommen'][] = $a['id']; }
                 if ($booking['status'] === 'no_show') { $row['columns']['no_show'][] = $a['id']; }
+                if ($booking['status'] === 'rejected_on_site') { $row['columns']['aussortiert'][] = $a['id']; }
                 // Review-Fix 2: keine zweite Wahrheit fuer Standby — die Policy
                 // (SeatStandbyPolicy::statusLabel) ist die einzige Quelle (Spec §4).
                 if (SeatStandbyPolicy::statusLabel($booking['status'], $booking['seat_released']) !== null) {
@@ -226,6 +227,9 @@ final class CohortAssigner
                     $row['ids'],
                     $row['columns']['unterschrieben'],
                     $row['columns']['no_show'],
+                    // Vor Ort aussortiert ist derselbe Endzustand wie no_show:
+                    // es gibt nichts mehr, das an dieser Person offen waere.
+                    $row['columns']['aussortiert'],
                 ))
                 : [];
         }

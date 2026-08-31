@@ -73,6 +73,25 @@
                     title="{{ $mode === 'nachbereitung' ? 'Schulungsnachbereitung' : 'Buchungen' }}"
                     subtitle="{{ $mode === 'nachbereitung' ? 'Anwesenheit markieren, Vertragsvorlage wählen, Verträge versenden.' : 'Gebuchte Kandidaten für diesen Termin' }}"
                 >
+                    @php
+                        // Nachpflege-Hinweis: Termin vorbei, aber Buchungen ohne
+                        // Endzustand (teilgenommen / nicht erschienen / aussortiert /
+                        // storniert). Anlass: drei solcher Buchungen fand der Kunde
+                        // Tage spaeter beim Nachrechnen der Statistik (31.08.2026).
+                        $terminVorbei = ($this->interview->ends_at ?? $this->interview->starts_at)?->isPast() ?? false;
+                        $nachzupflegen = $terminVorbei
+                            ? $this->bookings->filter(fn ($b) => \Platform\Recruiting\Support\BookingAftercare::needsResolution($b->status))
+                            : collect();
+                    @endphp
+                    @if($nachzupflegen->isNotEmpty())
+                        <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            <span class="font-semibold">{{ $nachzupflegen->count() }}
+                            {{ $nachzupflegen->count() === 1 ? 'Buchung hat' : 'Buchungen haben' }} noch keinen Endstatus</span>
+                            — der Termin ist vorbei, bitte auf Teilgenommen, Nicht erschienen, Vor Ort aussortiert oder Abgesagt stellen,
+                            sonst fehlen die Personen in der Statistik:
+                            {{ $nachzupflegen->map(fn ($b) => $b->candidate_name ?: ('Buchung #' . $b->id))->join(', ') }}
+                        </div>
+                    @endif
                     <div class="flex gap-2 mb-4">
                         @if($mode === 'overview')
                             <x-ui-input-select
@@ -87,6 +106,7 @@
                                     ['value' => 'cancelled', 'label' => 'Abgesagt'],
                                     ['value' => 'rebooked', 'label' => 'Umgebucht'],
                                     ['value' => 'no_show', 'label' => 'Nicht erschienen'],
+                                    ['value' => 'rejected_on_site', 'label' => 'Vor Ort aussortiert'],
                                 ]"
                                 optionValue="value"
                                 optionLabel="label"
@@ -185,6 +205,7 @@
                                                     <option value="attended" @selected($booking->status === 'attended')>Teilgenommen</option>
                                                     <option value="cancelled" @selected($booking->status === 'cancelled')>Abgesagt</option>
                                                     <option value="no_show" @selected($booking->status === 'no_show')>Nicht erschienen</option>
+                                                    <option value="rejected_on_site" @selected($booking->status === 'rejected_on_site')>Vor Ort aussortiert</option>
                                                 </select>
                                                 @if($booking->is_rebooked)
                                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200" title="Bewerber hat danach eine andere Schulung gebucht">
@@ -299,6 +320,7 @@
                                                 <option value="confirmed" @selected($booking->status === 'confirmed')>Bestätigt</option>
                                                 <option value="attended" @selected($booking->status === 'attended')>Teilgenommen</option>
                                                 <option value="no_show" @selected($booking->status === 'no_show')>Nicht erschienen</option>
+                                                <option value="rejected_on_site" @selected($booking->status === 'rejected_on_site')>Vor Ort aussortiert</option>
                                             </select>
                                         </td>
                                         <td class="px-4 py-3">

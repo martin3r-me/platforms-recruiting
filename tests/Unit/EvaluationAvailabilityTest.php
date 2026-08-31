@@ -30,8 +30,13 @@ class EvaluationAvailabilityTest extends TestCase
     {
         // Schuetzt gegen stille Erweiterung der Statusliste ohne Entscheidung,
         // wie der neue Status zur Bewertung steht.
+        //
+        // rejected_on_site (31.08.2026): schaltet die Bewertung NICHT frei —
+        // wer vor Ort aussortiert wurde, hat die Schulung nicht durchlaufen,
+        // es gibt nichts zu bewerten und es entsteht kein Mitarbeiter.
+        // isOpen() bleibt exklusiv 'attended' (Zusicherung oben).
         $this->assertSame(
-            ['booked', 'registered', 'confirmed', 'attended', 'cancelled', 'no_show'],
+            ['booked', 'registered', 'confirmed', 'attended', 'cancelled', 'no_show', 'rejected_on_site'],
             BookingStatusGroups::KNOWN,
         );
     }

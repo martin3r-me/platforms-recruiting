@@ -14,7 +14,7 @@ class BookingStatusGroupsTest extends TestCase
 
     public function test_bekannte_aktive_status_sind_kohorten_zugeordnet(): void
     {
-        foreach (['booked', 'registered', 'confirmed', 'attended', 'no_show'] as $s) {
+        foreach (['booked', 'registered', 'confirmed', 'attended', 'no_show', 'rejected_on_site'] as $s) {
             $this->assertTrue(BookingStatusGroups::isCohortAssigned($s), $s);
         }
     }
@@ -33,6 +33,10 @@ class BookingStatusGroupsTest extends TestCase
         $this->assertSame(1, BookingStatusGroups::rank('registered'));
         $this->assertSame(2, BookingStatusGroups::rank('confirmed'));
         $this->assertSame(2, BookingStatusGroups::rank('no_show'), 'Abzweig, keine Stufe 3');
+        // „Vor Ort aussortiert" (Kunden-Befund DUS 25.08.2026): war da, hat aber
+        // nicht bestanden — mechanisch der Zwilling von no_show (platzbelegend,
+        // Endzustand, kein Teilgenommen), nur ehrlich benannt.
+        $this->assertSame(2, BookingStatusGroups::rank('rejected_on_site'), 'Abzweig wie no_show');
         $this->assertSame(3, BookingStatusGroups::rank('attended'));
         $this->assertNull(BookingStatusGroups::rank('cancelled'));
         $this->assertNull(BookingStatusGroups::rank('weird_value'));

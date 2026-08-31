@@ -11,6 +11,14 @@
     $takenCount = $interview->bookings->filter->takes_seat->count();
     $standbyCount = $interview->bookings->filter->is_standby->count();
 
+    // Nachpflege: vergangener Termin mit Buchungen ohne Endzustand (siehe
+    // BookingAftercare). Dieselbe "vorbei"-Regel wie die Gruppierung der
+    // Uebersicht (Ende zaehlt, nicht Start).
+    $vorbei = ($interview->ends_at ?? $interview->starts_at)->lt(now());
+    $nachzupflegen = $vorbei
+        ? $interview->bookings->filter(fn ($b) => \Platform\Recruiting\Support\BookingAftercare::needsResolution($b->status))->count()
+        : 0;
+
     // Bezeichnung fuer die Loesch-Rueckfrage: Titel, sonst die Terminart, sonst
     // ein neutraler Platzhalter — ein Termin ohne Titel ist erlaubt, und
     // „Termin ‚' wirklich loeschen?" waere die Rueckfrage, die nichts sagt.
@@ -48,6 +56,14 @@
         @endif
         @if($standbyCount > 0)
             <span class="text-amber-600">(+{{ $standbyCount }} Standby)</span>
+        @endif
+        @if($nachzupflegen > 0)
+            <div>
+                <x-ui-badge variant="warning" size="xs"
+                    title="Termin ist vorbei, aber {{ $nachzupflegen }} {{ $nachzupflegen === 1 ? 'Buchung hat' : 'Buchungen haben' }} noch keinen Endstatus (Teilgenommen / Nicht erschienen / Vor Ort aussortiert / Abgesagt)">
+                    {{ $nachzupflegen }} nachpflegen
+                </x-ui-badge>
+            </div>
         @endif
     </td>
     <td class="px-4 py-3">

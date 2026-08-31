@@ -11,10 +11,15 @@ namespace Platform\Recruiting\Support;
  */
 final class BookingStatusGroups
 {
-    public const KNOWN = ['booked', 'registered', 'confirmed', 'attended', 'cancelled', 'no_show'];
+    public const KNOWN = ['booked', 'registered', 'confirmed', 'attended', 'cancelled', 'no_show', 'rejected_on_site'];
 
-    /** Rang-Modell (Spec §4): kumulativ, no_show = Rang 2 (Abzweig, keine Stufe 3) */
-    private const RANK = ['booked' => 1, 'registered' => 1, 'confirmed' => 2, 'no_show' => 2, 'attended' => 3];
+    /**
+     * Rang-Modell (Spec §4): kumulativ, no_show = Rang 2 (Abzweig, keine Stufe 3).
+     * rejected_on_site („Vor Ort aussortiert", 31.08.2026) ist mechanisch der
+     * Zwilling von no_show: erschienen zaehlt als gebucht, aber es gibt keine
+     * Stufe 3 — der eigene Abzweig haelt ihn aus der No-Show-Quote heraus.
+     */
+    private const RANK = ['booked' => 1, 'registered' => 1, 'confirmed' => 2, 'no_show' => 2, 'rejected_on_site' => 2, 'attended' => 3];
 
     public static function isKnown(?string $status): bool
     {

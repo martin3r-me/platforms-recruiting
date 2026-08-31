@@ -133,6 +133,7 @@ class RecInterviewBooking extends Model
             'attended'   => 'Teilgenommen',
             'cancelled'  => 'Abgesagt',
             'no_show'    => 'Nicht erschienen',
+            'rejected_on_site' => 'Vor Ort aussortiert',
             default      => (string) $this->status,
         };
     }

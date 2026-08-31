@@ -181,6 +181,30 @@ class CohortAssignerTest extends TestCase
         $this->assertSame([12], $row['tth_days'], 'tth haengt an der Zeile (P5)');
     }
 
+    public function test_vor_ort_aussortiert_ist_eigener_abzweig_und_nicht_offen(): void
+    {
+        // Der Alsayes-Fall (DUS 25.08.2026): erschienen, vor Ort aussortiert.
+        // Vorher blieb nur Storno (verschwindet aus der Termin-Zeile) oder
+        // no_show (falsche Aussage). Jetzt: zaehlt in Gebucht, hat einen eigenen
+        // Abzweig, steht NICHT in Teilgenommen/no_show — und der Prozess ist zu
+        // Ende, also zaehlt er auch nicht als "offen".
+        $result = (new CohortAssigner())->assign(
+            [$this->applicant(1), $this->applicant(2)],
+            [
+                1 => [$this->booking(11, ['status' => 'rejected_on_site'])],
+                2 => [$this->booking(12, ['status' => 'attended'])],
+            ],
+            [], null, null
+        );
+        $row = array_values(array_filter($result['rows'], fn ($r) => $r['type'] === 'schulung'))[0];
+
+        $this->assertSame([1, 2], $row['columns']['gebucht'], 'Rang >= 1 wie no_show');
+        $this->assertSame([1], $row['columns']['aussortiert'], 'eigener Abzweig');
+        $this->assertSame([2], $row['columns']['teilgenommen'], 'aussortiert ist KEIN teilgenommen');
+        $this->assertSame([], $row['columns']['no_show'], 'und KEIN no_show');
+        $this->assertSame([2], $row['offen_ids'], 'aussortiert ist zu Ende — nur der Teilnehmer ohne Unterschrift ist offen');
+    }
+
     public function test_gruppe_uneindeutig_wenn_kein_pivot_zur_phase_position_passt(): void
     {
         // Review-Fix 1: Fall 2 der Zuordnungsregel (keine Pivot-Zeile passt zur
