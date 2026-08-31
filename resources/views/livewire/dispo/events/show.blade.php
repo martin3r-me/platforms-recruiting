@@ -1,4 +1,4 @@
-<div class="p-6 space-y-6">
+<div class="p-4 lg:p-6 space-y-6">
     @php
         $event = $this->event;
         $statusLabels = [0 => 'Angebot', 1 => 'Auftrag', 2 => 'Beendet', 3 => 'Storno'];
@@ -10,7 +10,7 @@
         ];
     @endphp
 
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
             <h1 class="text-xl font-semibold">
                 {{ $event->name ?? $event->einsatz_ref }}
@@ -105,6 +105,74 @@
                 Bestätigungen senden
             </button>
         </div>
+        {{-- Mobil: Crew-Liste statt 9-Spalten-Tabelle — Name, Zeit, Chips, grosser Chat-Knopf.
+             Desktop (lg:) rendert unveraendert die Tabelle darunter. --}}
+        <div class="divide-y divide-gray-100 lg:hidden">
+            @php
+                $threadsM = $this->threadsByEmployee;
+                $canonMapM = $this->identity['canon'];
+            @endphp
+            @forelse ($event->assignments as $assignment)
+                @php
+                    $cidM = $assignment->rec_employee_id ? ($canonMapM[(int) $assignment->rec_employee_id] ?? (int) $assignment->rec_employee_id) : null;
+                    $thrM = $cidM !== null ? ($threadsM[$cidM] ?? null) : null;
+                    $attM = $assignment->rec_employee_id ? ($this->attachmentsByEmployee[$assignment->rec_employee_id] ?? null) : null;
+                    $noteM = $assignment->rec_employee_id ? trim($notes[$assignment->rec_employee_id] ?? '') : '';
+                    $zeitM = $assignment->datum->format('d.m.Y');
+                    if ($assignment->von) {
+                        $zeitM .= ' · ' . $assignment->von . ($assignment->bis ? '–' . $assignment->bis : '');
+                    }
+                    if ($assignment->taetigkeit) {
+                        $zeitM .= ' · ' . $assignment->taetigkeit;
+                    }
+                @endphp
+                <div class="flex items-start gap-3 px-4 py-3 {{ $assignment->missing_since ? 'opacity-50' : '' }}">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-sm font-semibold text-gray-900">
+                            @if ($assignment->employee)
+                                {{ $assignment->employee->first_name }} {{ $assignment->employee->last_name }}
+                            @else
+                                <span class="rounded bg-orange-50 px-1.5 py-0.5 text-xs font-normal text-orange-600">PNr unbekannt: {{ $assignment->pnr_raw }}</span>
+                            @endif
+                        </div>
+                        <div class="mt-0.5 text-xs text-gray-500 tabular-nums">{{ $zeitM }}</div>
+                        <div class="mt-1.5 flex flex-wrap items-center gap-1">
+                            <span class="rounded px-1.5 py-0.5 text-xs {{ $statusClasses[$assignment->status_id] ?? 'bg-gray-100 text-gray-700' }}">
+                                {{ $statusLabels[$assignment->status_id] ?? $assignment->status_id }}
+                            </span>
+                            @if ($assignment->missing_since)
+                                <span class="rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-600">verschwunden</span>
+                            @endif
+                            @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment])
+                        </div>
+                        @if ($noteM !== '' || $attM)
+                            <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                                @if ($noteM !== '')
+                                    <button type="button" wire:click="openNote({{ $assignment->rec_employee_id }})" class="max-w-full truncate text-left">✎ {{ $noteM }}</button>
+                                @endif
+                                @if ($attM)
+                                    <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $attM->uuid]) }}" target="_blank" rel="noopener" class="max-w-full truncate text-blue-600">📎 {{ $attM->original_filename }}</a>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                    @if ($thrM)
+                        <button type="button" wire:click="openChat({{ $cidM }})"
+                                class="relative mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full {{ $thrM['is_unread'] ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500' }}"
+                                title="{{ $thrM['is_unread'] ? 'Neue Nachricht' : 'Nachrichten ansehen' }}">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H7l-3 3z"/></svg>
+                            @if ($thrM['is_unread'])
+                                <span class="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-red-500 ring-2 ring-white"></span>
+                            @endif
+                        </button>
+                    @endif
+                </div>
+            @empty
+                <div class="px-4 py-8 text-center text-sm text-gray-500">Keine Einbuchungen.</div>
+            @endforelse
+        </div>
+
+        <div class="hidden lg:block">
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
                 <tr>
@@ -165,41 +233,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-2">
-                            @php
-                                $msgStatus = $assignment->reminderMessage?->status;
-                                $escalation1Status = $assignment->escalation1Message?->status;
-                                $escalation2Status = $assignment->escalation2Message?->status;
-                            @endphp
-                            @if ($assignment->deletion_marked_at)
-                                <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">zur Löschung gemeldet</span>
-                            @elseif ($assignment->confirmed_at)
-                                <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800" title="{{ $assignment->confirmed_at->format('d.m.Y H:i') }}">✓ bestätigt</span>
-                            @elseif ($assignment->reminder_sent_at)
-                                <span class="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700" title="Gesendet {{ $assignment->reminder_sent_at->format('d.m.Y H:i') }}">angeschrieben</span>
-                                @if ($msgStatus === 'failed')
-                                    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">nicht zugestellt</span>
-                                @elseif (in_array($msgStatus, ['delivered', 'read'], true))
-                                    <span class="ml-1 rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700">{{ $msgStatus === 'read' ? 'gelesen' : 'zugestellt' }}</span>
-                                @endif
-                            @elseif ($assignment->reconfirm_required_at)
-                                {{-- Chip kommt aus dem eigenstaendigen Block unten — hier bewusst nichts,
-                                     damit "—" nicht zusammen mit "⟳ Zeit geändert" erscheint. --}}
-                            @else
-                                <span class="text-xs text-gray-400">—</span>
-                            @endif
-                            @if ($assignment->reconfirm_required_at && !$assignment->confirmed_at)
-                                @php
-                                    $prev = $assignment->reconfirm_previous ?? [];
-                                    $prevTitle = 'Zeit geändert am ' . $assignment->reconfirm_required_at->format('d.m.Y H:i') . (!empty($prev['datum']) ? ' — vorher ' . \Illuminate\Support\Carbon::parse($prev['datum'])->format('d.m.Y') . ' ' . ($prev['von'] ?? '') . (!empty($prev['bis']) ? '–' . $prev['bis'] : '') : '');
-                                @endphp
-                                <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700" title="{{ $prevTitle }}">⟳ Zeit geändert</span>
-                            @endif
-                            @if ($escalation1Status === 'failed')
-                                <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">14-Uhr nicht zugestellt</span>
-                            @endif
-                            @if ($escalation2Status === 'failed')
-                                <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">15-Uhr nicht zugestellt</span>
-                            @endif
+                            @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment])
                         </td>
                         <td class="px-4 py-2">
                             @if ($assignment->rec_employee_id)
@@ -237,10 +271,11 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 
     @if ($showSendModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="$set('showSendModal', false)">
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showSendModal', false)">
             <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
                 <h2 class="text-lg font-semibold">Bestätigungen senden</h2>
 
@@ -340,7 +375,7 @@
     @endif
 
     @if ($showNoteModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="closeNoteModal">
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeNoteModal">
             <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
                 <h2 class="text-lg font-semibold">Hinweis für {{ $noteEmployeeName !== '' ? $noteEmployeeName : 'diesen Mitarbeiter' }}</h2>
                 <p class="text-sm text-gray-500">Erscheint auf der Einsatz-Seite dieses Mitarbeiters unter „Hinweis für dich" — für alle Tage dieser Veranstaltung.</p>
@@ -357,7 +392,7 @@
     @endif
 
     @if ($showAttachmentModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="closeAttachmentModal">
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeAttachmentModal">
             <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
                 <h2 class="text-lg font-semibold">Anhang für {{ $attachmentEmployeeName !== '' ? $attachmentEmployeeName : 'diesen Mitarbeiter' }}</h2>
                 <p class="text-sm text-gray-500">Eine Datei (PDF, JPG oder PNG, max. 10 MB). Der Mitarbeiter öffnet sie über seine Einsatz-Seite — für alle Tage dieser Veranstaltung. Erneutes Hochladen ersetzt die bisherige Datei.</p>
@@ -375,7 +410,7 @@
     @endif
 
     @if ($showContactModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="$set('showContactModal', false)">
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showContactModal', false)">
             <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
                 <h2 class="text-lg font-semibold">Ansprechpartner vor Ort</h2>
                 <p class="text-sm text-gray-500">Gilt für alle Einsatztage dieser Veranstaltung und erscheint sofort auf der Einsatz-Seite — kein Neu-Senden nötig.</p>
@@ -391,7 +426,7 @@
     @endif
 
     @if ($showEscalationModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" wire:click.self="$set('showEscalationModal', false)">
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showEscalationModal', false)">
             <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
                 <h2 class="text-lg font-semibold">Eskalation für diese Veranstaltung</h2>
                 <p class="text-sm text-gray-500">Gilt für alle Einsatztage dieser Veranstaltung. Rausnahme erfolgt nur, wenn die Bestätigungsanfrage vor Stufe 2 rausging — am Einsatztag also früh senden.</p>
