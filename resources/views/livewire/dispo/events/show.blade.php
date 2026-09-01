@@ -351,9 +351,12 @@
 
                     <div class="flex justify-end gap-3">
                         <button wire:click="$set('showSendModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
-                        <button wire:click="sendConfirmations" @if (count($preview['recipients']) === 0) disabled @endif
-                                class="rounded px-4 py-2 text-sm font-medium {{ count($preview['recipients']) > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed' }}">
-                            Jetzt senden
+                        <button wire:click="sendConfirmations"
+                                wire:loading.attr="disabled" wire:target="sendConfirmations"
+                                @if (count($preview['recipients']) === 0) disabled @endif
+                                class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ count($preview['recipients']) > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed' }}">
+                            <span wire:loading.remove wire:target="sendConfirmations">Jetzt senden</span>
+                            <span wire:loading wire:target="sendConfirmations">Wird gesendet …</span>
                         </button>
                     </div>
                 @else

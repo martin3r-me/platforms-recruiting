@@ -719,6 +719,33 @@ class Show extends Component
 
     public function sendConfirmations(): void
     {
+        // Doppelklick-Riegel (Kunde 01.09.): ein Versand je VA zur Zeit. Der zweite
+        // Klick landet hier, waehrend der erste noch in der Meta-Schleife steckt —
+        // ohne Lock wuerde er dieselben Empfaenger erneut planen (die
+        // reminder_sent_at-Stempel sind dann noch nicht gesetzt).
+        try {
+            $lock = \Illuminate\Support\Facades\Cache::lock('dispo-send-' . $this->eventId, 180);
+            if (!$lock->get()) {
+                $this->addError('vorlaufMinuten', 'Versand läuft bereits — bitte einen Moment warten.');
+                return;
+            }
+        } catch (\Throwable $e) {
+            // Cache-Store ohne Lock-Faehigkeit: Versand nicht blockieren — der
+            // Button-Riegel (wire:loading) bleibt als erste Verteidigung.
+            \Illuminate\Support\Facades\Log::warning('dispo_send_lock_unavailable', ['error' => $e->getMessage()]);
+            $this->doSendConfirmations();
+            return;
+        }
+
+        try {
+            $this->doSendConfirmations();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function doSendConfirmations(): void
+    {
         $this->validate([
             'vorlaufMinuten'  => 'required|integer|min:0|max:480',
             'ansprechpartner' => 'nullable|string|max:255',
