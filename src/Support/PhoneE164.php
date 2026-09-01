@@ -34,17 +34,57 @@ final class PhoneE164
             return null;
         }
 
-        $util = PhoneNumberUtil::getInstance();
-        try {
-            $parsed = $util->parse($clean, $region);
-            if (!$util->isValidNumber($parsed)) {
-                return null;
+        // Zwei Nummern in einem Feld ("+49...+49...", Prod-Befund Azrar 01.09.):
+        // die erste gueltige gewinnt.
+        $secondPlus = strpos($clean, '+', 1);
+        if ($secondPlus !== false) {
+            $first = self::normalize(substr($clean, 0, $secondPlus), $region);
+            if ($first !== null) {
+                return $first;
             }
-        } catch (NumberParseException) {
-            return null;
         }
 
-        return $util->format($parsed, PhoneNumberFormat::E164);
+        $util = PhoneNumberUtil::getInstance();
+        $std = null;
+        try {
+            $parsed = $util->parse($clean, $region);
+            if ($util->isValidNumber($parsed)) {
+                $std = $parsed;
+            }
+        } catch (NumberParseException) {
+            // faellt auf die Reparaturen unten durch
+        }
+
+        // Direkter Treffer, solange es KEIN deutsches Festnetz ist. Festnetz kann
+        // auch ein fehlinterpretiertes Mobil-Praefix sein ("491783756394" liest
+        // sich als 0491/Leer) — dann unten die Mobil-Lesart versuchen.
+        if ($std !== null && $util->getNumberType($std) !== PhoneNumberType::FIXED_LINE) {
+            return $util->format($std, PhoneNumberFormat::E164);
+        }
+
+        // Reparatur (Prod-Befund 01.09.): '49...' ohne '+' bzw. '+4949...' doppelt —
+        // gilt nur, wenn die Alternativ-Lesart eine GUELTIGE deutsche MOBILnummer ist.
+        $digits = preg_replace('/\D+/', '', $clean) ?? '';
+        $candidates = [];
+        if (str_starts_with($digits, '4949')) {
+            $candidates[] = '+' . substr($digits, 2); // doppeltes 49 -> eines weg
+        }
+        if (str_starts_with($digits, '491')) {
+            $candidates[] = '+' . $digits;            // fehlendes '+' vor 49
+        }
+        foreach ($candidates as $candidate) {
+            try {
+                $mobile = $util->parse($candidate, null);
+                if ($util->isValidNumber($mobile) && $util->getNumberType($mobile) === PhoneNumberType::MOBILE) {
+                    return $util->format($mobile, PhoneNumberFormat::E164);
+                }
+            } catch (NumberParseException) {
+                continue;
+            }
+        }
+
+        // Echtes Festnetz (z. B. 02161...) bleibt gueltig — der Aufrufer listet es.
+        return $std !== null ? $util->format($std, PhoneNumberFormat::E164) : null;
     }
 
     /**

@@ -49,6 +49,24 @@ class PhoneE164Test extends TestCase
         $this->assertNull(PhoneE164::normalize(null));
     }
 
+    public function test_missing_or_doubled_49_prefix_is_repaired_to_the_valid_mobile(): void
+    {
+        // Prod-Befund 01.09.: "49..." ohne '+' liest sich sonst als Festnetz 0491/Leer.
+        $this->assertSame('+491783756394', PhoneE164::normalize('491783756394'));
+        $this->assertSame('+491637983400', PhoneE164::normalize('491637983400'));
+        $this->assertSame('+491788457275', PhoneE164::normalize('+49491788457275'), 'doppeltes 49 nach dem +');
+    }
+
+    public function test_two_numbers_in_one_field_take_the_first_valid(): void
+    {
+        $this->assertSame('+4917673678214', PhoneE164::normalize('+49 176 73678214+4915735597660'));
+    }
+
+    public function test_real_landline_with_leading_zero_is_not_reinterpreted(): void
+    {
+        $this->assertSame('+492161823900', PhoneE164::normalize('02161823900'));
+    }
+
     public function test_fixed_line_is_detected_for_the_customer_rest_list(): void
     {
         $e164 = PhoneE164::normalize('02161823900');
