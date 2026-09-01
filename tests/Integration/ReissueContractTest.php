@@ -292,6 +292,149 @@ class ReissueContractTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // reissueOpen() — derselbe Handgriff VOR der Unterschrift
+    // -----------------------------------------------------------------
+
+    /**
+     * FALL 10 — der Regelfall aus der Praxis: der Vertrag ist raus, noch
+     * nicht unterschrieben, und der Lohn soll hoeher sein. Der Nachfolger
+     * traegt den neuen Betrag, der Vorgaenger ist storniert.
+     *
+     * Warum storniert und nicht ueberschrieben: der Signaturlink zeigt auf
+     * das eingefrorene personalized_content. Wer den Text unter einem
+     * lebenden Link austauscht, laesst den Bewerber etwas anderes
+     * unterschreiben als das, was er geoeffnet hat. ContractSigning laesst
+     * nur status="sent" durch — die Stornierung macht den alten Link tot.
+     */
+    public function test_offener_vertrag_wird_durch_neuen_mit_neuem_zuschlag_ersetzt(): void
+    {
+        [$applicant, $template, $open] = $this->openAvFixture(0.60);
+
+        $result = (new ReissueContractService())->reissueOpen($open, 1.60);
+        $new = $result['contract'];
+
+        $this->assertStringContainsString('Zuschlag: 1,60', $new->personalized_content);
+        $this->assertStringNotContainsString('0,60', $new->personalized_content);
+        $this->assertSame('sent', $new->status);
+        $this->assertNotNull($new->sent_at);
+        $this->assertNull($new->signed_at);
+        $this->assertSame($template->id, $new->rec_contract_template_id);
+        $this->assertSame(1.60, (float) $applicant->fresh()->zuschlag);
+
+        $reloaded = RecContract::find($open->id);
+        $this->assertSame('cancelled', $reloaded->status,
+            'Der alte Vertrag muss storniert sein — sonst bleibt sein Signaturlink offen.');
+        $this->assertSame($new->id, $reloaded->superseded_by_contract_id);
+        $this->assertStringContainsString('0,60 → 1,60', (string) $reloaded->notes);
+        $this->assertStringContainsString('vor Unterschrift', (string) $reloaded->notes);
+    }
+
+    /**
+     * FALL 11 — kein Wort ans Lohnbuero.
+     *
+     * Der stornierte Vertrag ist nie wirksam geworden; abgerechnet wurde
+     * nach ihm nie. Eine Meldung "0,60 → 1,60" wuerde dort eine Aenderung
+     * behaupten, die es nicht gab — deshalb kennt dieser Weg auch keinen
+     * Grund zum Auswaehlen.
+     */
+    public function test_offener_vertrag_meldet_nie_dem_lohnbuero(): void
+    {
+        [$applicant, , $open] = $this->openAvFixture(0.60);
+        $employeeId = $this->makeEmployee($applicant);
+
+        $result = (new ReissueContractService())->reissueOpen($open, 1.60);
+
+        $this->assertFalse($result['payroll_reported']);
+        $row = DB::table('rec_employees')->where('id', $employeeId)->first();
+        $this->assertNull($row->payroll_data_changed_at);
+        $this->assertNull($row->payroll_data_changed_fields);
+    }
+
+    /** FALL 12 — auch hier haengt sich kein zweiter IFSG an. */
+    public function test_offener_vertrag_haengt_nichts_zusaetzliches_an(): void
+    {
+        [$applicant, , $open] = $this->openAvFixture(0.60);
+        $this->makeContract($applicant, $this->makeTemplate('IFSG', '<p>Belehrung</p>', []), [
+            'status'  => 'sent',
+            'sent_at' => now()->subDay(),
+        ]);
+
+        (new ReissueContractService())->reissueOpen($open, 1.60);
+
+        $this->assertSame(3, RecContract::where('rec_applicant_id', $applicant->id)->count(),
+            'Alter AV (storniert) + offener IFSG + neuer AV — kein zweiter IFSG.');
+    }
+
+    /**
+     * FALL 13 — der Vertragsbeginn des Vorgaengers wandert mit.
+     *
+     * Er haengt an contract.extra_field.vertragsbeginn, nicht am Bewerber:
+     * ohne Uebernahme rendert der Nachfolger ein leeres Datum, und HR
+     * merkt es erst am fertigen Dokument.
+     */
+    public function test_offener_vertrag_uebernimmt_den_vertragsbeginn(): void
+    {
+        $this->ensureVertragsbeginnDefinition();
+        [, , $open] = $this->openAvFixture(0.60);
+        $open->setExtraField('vertragsbeginn', '2026-10-01');
+
+        $new = (new ReissueContractService())->reissueOpen($open, 1.60)['contract'];
+
+        $this->assertSame('2026-10-01', $new->getExtraField('vertragsbeginn'));
+    }
+
+    /** FALL 14 — ein ausdruecklich mitgegebener Beginn schlaegt den alten. */
+    public function test_offener_vertrag_nimmt_den_uebergebenen_vertragsbeginn(): void
+    {
+        $this->ensureVertragsbeginnDefinition();
+        [, , $open] = $this->openAvFixture(0.60);
+        $open->setExtraField('vertragsbeginn', '2026-10-01');
+
+        $new = (new ReissueContractService())->reissueOpen($open, 1.60, '2026-11-15')['contract'];
+
+        $this->assertSame('2026-11-15', $new->getExtraField('vertragsbeginn'));
+    }
+
+    /**
+     * FALL 15 — ein unterschriebener Vertrag darf hier NIE durch.
+     *
+     * Dieser Weg storniert den Vorgaenger. Auf einen Beleg angewendet
+     * hiesse das: eine geleistete Unterschrift wird entwertet. Dafuer gibt
+     * es reissue(), das den Vorgaenger unangetastet laesst.
+     */
+    public function test_unterschriebener_vertrag_wird_von_reissue_open_abgelehnt(): void
+    {
+        [, , $signed] = $this->signedAvFixture(0.60);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/bereits unterschrieben/');
+        (new ReissueContractService())->reissueOpen($signed, 1.60);
+    }
+
+    /** FALL 16 — ein stornierter Vertrag ist nichts, was man ersetzt. */
+    public function test_stornierter_vertrag_wird_von_reissue_open_abgelehnt(): void
+    {
+        [, , $open] = $this->openAvFixture(0.60);
+        $open->update(['status' => 'cancelled']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/storniert/');
+        (new ReissueContractService())->reissueOpen($open, 1.60);
+    }
+
+    /** FALL 17 — die Vorlagen-Pruefung gilt vor der Unterschrift genauso. */
+    public function test_offene_variante_mit_festem_betrag_wird_abgelehnt(): void
+    {
+        $applicant = $this->makeApplicant(0.60);
+        $variant = $this->makeTemplate('AV-060', '<p>Zuschlag: 0,60 €</p>', ['heute' => 'meta.datum_heute']);
+        $open = $this->makeContract($applicant, $variant, ['status' => 'sent', 'sent_at' => now()]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/loest \{\{zuschlag\}\} nicht/');
+        (new ReissueContractService())->reissueOpen($open, 1.60);
+    }
+
+    // -----------------------------------------------------------------
     // Fixtures — legen pro Test neue Zeilen an, loeschen nichts (HasExtraFields
     // cacht Definitionen statisch unter "Klasse:id"; wiederverwendete IDs nach
     // einem delete() liessen einen Test den Definitionssatz eines anderen sehen).
@@ -312,6 +455,44 @@ class ReissueContractTest extends TestCase
         ]);
 
         return [$applicant, $template, $contract];
+    }
+
+    /** @return array{0: RecApplicant, 1: RecContractTemplate, 2: RecContract} */
+    private function openAvFixture(float $zuschlag): array
+    {
+        $applicant = $this->makeApplicant($zuschlag);
+        $template = $this->avDefaultTemplate();
+        $contract = $this->makeContract($applicant, $template, [
+            'status'               => 'sent',
+            'sent_at'              => now()->subDays(3),
+            'personalized_content' => $template->personalizeContent($applicant),
+        ]);
+
+        return [$applicant, $template, $contract];
+    }
+
+    /**
+     * Die Definition, die SeedRecContractExtraFields live anlegt. Ohne sie
+     * ist setExtraField() ein stiller No-Op — ein Test ohne diese Zeile
+     * pruefte nur, dass nichts passiert.
+     */
+    private function ensureVertragsbeginnDefinition(): void
+    {
+        if (CoreExtraFieldDefinition::where('team_id', self::TEAM)
+            ->where('context_type', RecContract::class)
+            ->where('name', 'vertragsbeginn')->exists()) {
+            return;
+        }
+
+        CoreExtraFieldDefinition::create([
+            'team_id'      => self::TEAM,
+            'context_type' => RecContract::class,
+            'context_id'   => null,
+            'name'         => 'vertragsbeginn',
+            'label'        => 'Vertragsbeginn',
+            'type'         => 'date',
+            'order'        => 10,
+        ]);
     }
 
     private function avDefaultTemplate(): RecContractTemplate

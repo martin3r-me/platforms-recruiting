@@ -42,6 +42,10 @@ class Show extends Component
     public ?string $reissueBeginn = '';
     public string $reissueReason = ReissueContractService::REASON_CORRECTION;
     public ?string $reissueNote = '';
+    // Steuert nur die Anzeige (Text + Grund-Auswahl). Welcher Weg wirklich
+    // laeuft, entscheidet reissueContract() am Vertrag selbst — sonst koennte
+    // ein manipuliertes Property den falschen Zweig waehlen.
+    public bool $reissueOpenMode = false;
 
     // File-Upload-Properties (separat, eine pro File-Field)
     public $uploadIdentityFront = null;
@@ -159,12 +163,16 @@ class Show extends Component
         return $emp->applicant->contracts
             ->filter(fn ($c) => !in_array($c->status, ['completed', 'cancelled'], true))
             ->map(function ($c) {
+                $code = $c->contractTemplate?->code;
                 return [
                     'id'           => $c->id,
                     'display_name' => $c->contractTemplate?->name ?? 'Vertrag',
-                    'code'         => $c->contractTemplate?->code,
+                    'code'         => $code,
                     'status'       => $c->status,
                     'sent_at'      => $c->sent_at,
+                    // Nur Arbeitsvertraege tragen einen Zuschlag; ein offener
+                    // IFSG hat nichts zu ersetzen.
+                    'can_reissue'  => $code !== null && (str_starts_with($code, 'AV-') || $code === 'AV'),
                     'sign_url'     => $c->publicFormLink
                         ? route('recruiting.public.contract-signing', ['token' => $c->publicFormLink->token])
                         : null,
@@ -217,6 +225,7 @@ class Show extends Component
         $beginn = $contract->getExtraField('vertragsbeginn');
 
         $this->reissueContractId = $contractId;
+        $this->reissueOpenMode = !$this->isSigned($contract);
         $this->reissueZuschlag = $zuschlag !== null ? number_format((float) $zuschlag, 2, ',', '.') : '';
         $this->reissueBeginn = is_string($beginn) ? $beginn : '';
         $this->reissueNote = '';
@@ -234,6 +243,7 @@ class Show extends Component
         $this->reissueModalShow = false;
         $this->reissueContractId = null;
         $this->reissueNote = '';
+        $this->reissueOpenMode = false;
     }
 
     private function beginnIsFuture(?string $beginn): bool
@@ -249,9 +259,12 @@ class Show extends Component
     }
 
     /**
-     * Ersetzt den unterschriebenen Arbeitsvertrag durch einen neuen mit
-     * korrigiertem Zuschlag. Die Arbeit macht ReissueContractService — hier
-     * steht nur Eingabepruefung und Rueckmeldung.
+     * Ersetzt einen Arbeitsvertrag durch einen neuen mit korrigiertem
+     * Zuschlag. Zwei Wege, ein Dialog: ein unterschriebener Vertrag bleibt
+     * als Beleg stehen (reissue), ein noch offener wird storniert und sein
+     * Signaturlink damit entwertet (reissueOpen). Die Arbeit macht
+     * ReissueContractService — hier steht nur Eingabepruefung und
+     * Rueckmeldung.
      */
     public function reissueContract(): void
     {
@@ -274,15 +287,19 @@ class Show extends Component
         }
         $zuschlag = round((float) str_replace(',', '.', $raw), 2);
 
+        $beginn = (string) $this->reissueBeginn !== '' ? (string) $this->reissueBeginn : null;
+        $note = (string) $this->reissueNote !== '' ? trim((string) $this->reissueNote) : null;
+
         try {
-            $result = app(ReissueContractService::class)->reissue(
-                $contract,
-                $zuschlag,
-                $this->reissueReason,
-                (string) $this->reissueBeginn !== '' ? (string) $this->reissueBeginn : null,
-                (string) $this->reissueNote !== '' ? trim((string) $this->reissueNote) : null,
-                auth()->id(),
-            );
+            // Der Vertrag entscheidet, welcher Weg laeuft — nicht das
+            // Property aus dem Browser.
+            $result = $this->isSigned($contract)
+                ? app(ReissueContractService::class)->reissue(
+                    $contract, $zuschlag, $this->reissueReason, $beginn, $note, auth()->id(),
+                )
+                : app(ReissueContractService::class)->reissueOpen(
+                    $contract, $zuschlag, $beginn, $note, auth()->id(),
+                );
         } catch (\Throwable $e) {
             $this->flashError = 'Neu ausstellen fehlgeschlagen: ' . $e->getMessage();
             return;
@@ -295,12 +312,21 @@ class Show extends Component
 
         $this->reissueModalShow = false;
         $this->reissueContractId = null;
+        $this->reissueOpenMode = false;
         unset($this->employee, $this->signedContracts, $this->openContracts);
 
         $this->flash = 'Neuer Vertrag #' . $new->id . ' ausgestellt. Signaturlink steht unten unter "Offene Vertraege".'
+            . ($this->isSigned($contract)
+                ? ''
+                : ' Der alte Vertrag ist storniert — sein Signaturlink funktioniert nicht mehr.')
             . ($result['payroll_reported']
                 ? ' Die Zuschlagsaenderung steht in den Lohnaenderungen.'
                 : '');
+    }
+
+    private function isSigned(RecContract $contract): bool
+    {
+        return $contract->status === 'completed' && $contract->signed_at !== null;
     }
 
     #[Computed]

@@ -355,23 +355,34 @@
                                         {{ $oc['sent_at'] ? 'versendet am ' . \Carbon\Carbon::parse($oc['sent_at'])->format('d.m.Y') : 'noch nicht versendet' }}
                                     </span>
                                 </div>
-                                @if($oc['sign_url'])
-                                    <div x-data="{ copied: false }" class="flex items-center gap-2">
-                                        <input type="text" readonly value="{{ $oc['sign_url'] }}"
-                                               class="w-64 text-xs px-2 py-1 border border-[var(--ui-border)] rounded bg-white" />
-                                        <button type="button"
-                                                @click="navigator.clipboard.writeText('{{ $oc['sign_url'] }}'); copied = true; setTimeout(() => copied = false, 2000)"
-                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-800 bg-blue-50 text-xs font-medium rounded-md hover:bg-blue-100 transition-colors">
-                                            <span x-show="!copied">Link kopieren</span>
-                                            <span x-show="copied" x-cloak>Kopiert</span>
+                                <div class="flex items-center gap-2">
+                                    @if($oc['can_reissue'])
+                                        <button type="button" wire:click="openReissueModal({{ $oc['id'] }})"
+                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)] transition-colors">
+                                            @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5')
+                                            Neu ausstellen
                                         </button>
-                                    </div>
-                                @endif
+                                    @endif
+                                    @if($oc['sign_url'])
+                                        <div x-data="{ copied: false }" class="flex items-center gap-2">
+                                            <input type="text" readonly value="{{ $oc['sign_url'] }}"
+                                                   class="w-64 text-xs px-2 py-1 border border-[var(--ui-border)] rounded bg-white" />
+                                            <button type="button"
+                                                    @click="navigator.clipboard.writeText('{{ $oc['sign_url'] }}'); copied = true; setTimeout(() => copied = false, 2000)"
+                                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-800 bg-blue-50 text-xs font-medium rounded-md hover:bg-blue-100 transition-colors">
+                                                <span x-show="!copied">Link kopieren</span>
+                                                <span x-show="copied" x-cloak>Kopiert</span>
+                                            </button>
+                                        </div>
+                                    @endif
+                                </div>
                             </div>
                         @endforeach
                     </div>
                     <p class="text-xs text-[var(--ui-muted)] mt-2">
                         Der Mitarbeiter kann auch ueber das Portal unterschreiben — der Link hier ist fuer den Einzelversand.
+                        Soll sich vor der Unterschrift noch der Zuschlag aendern: "Neu ausstellen" storniert den Vertrag
+                        und stellt ihn mit dem neuen Betrag neu aus.
                     </p>
                 </div>
             @endif
@@ -380,11 +391,20 @@
             <x-ui-modal size="sm" model="reissueModalShow">
                 <x-slot name="header">Vertrag neu ausstellen</x-slot>
                 <div class="p-4 space-y-4">
-                    <p class="text-xs text-[var(--ui-muted)]">
-                        Der unterschriebene Vertrag bleibt als Beleg erhalten und wird als ersetzt markiert.
-                        Der neue Vertrag entsteht aus derselben Vorlage mit dem neuen Zuschlag — ohne
-                        Infektionsschutz-Erklaerung, die ist ja schon unterschrieben.
-                    </p>
+                    @if($reissueOpenMode)
+                        <p class="text-xs text-[var(--ui-muted)]">
+                            Der noch nicht unterschriebene Vertrag wird storniert — sein Signaturlink funktioniert
+                            danach nicht mehr. Der neue Vertrag entsteht aus derselben Vorlage mit dem neuen
+                            Zuschlag; den neuen Link findest du danach hier unter "Offene Vertraege".
+                            Kein Eintrag in den Lohnaenderungen: nach dem stornierten Vertrag wurde nie abgerechnet.
+                        </p>
+                    @else
+                        <p class="text-xs text-[var(--ui-muted)]">
+                            Der unterschriebene Vertrag bleibt als Beleg erhalten und wird als ersetzt markiert.
+                            Der neue Vertrag entsteht aus derselben Vorlage mit dem neuen Zuschlag — ohne
+                            Infektionsschutz-Erklaerung, die ist ja schon unterschrieben.
+                        </p>
+                    @endif
 
                     <div>
                         <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Neuer Zuschlag (€/Std)</label>
@@ -399,6 +419,7 @@
                         <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Beginn des ersetzten Vertrags uebernehmen.</p>
                     </div>
 
+                    @if(!$reissueOpenMode)
                     <div>
                         <span class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Grund</span>
                         <label class="flex items-start gap-2 p-2 border border-[var(--ui-border)] rounded-md cursor-pointer">
@@ -420,6 +441,7 @@
                             </span>
                         </label>
                     </div>
+                    @endif
 
                     <div>
                         <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Notiz (optional)</label>

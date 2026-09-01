@@ -21,6 +21,7 @@ use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Models\CrmContactStatus;
 use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
+use Platform\Recruiting\Services\ReissueContractService;
 use Platform\Recruiting\Services\SyncApplicantExtraFieldsToCrm;
 
 class Show extends Component
@@ -72,6 +73,17 @@ class Show extends Component
     public bool $duplicateContractModalShow = false;
     public ?int $duplicateContractExistingId = null;
     public ?int $duplicateContractPendingTemplateId = null;
+
+    // Zuschlag am offenen Vertrag aendern (siehe reissueOpenContract()).
+    // Nullable, nicht `string`: ein geleertes type=date-Input schickt null,
+    // und Livewire wuerde das in eine getypte string-Property schreiben —
+    // TypeError beim Hydrieren, mitten im Dialog.
+    public bool $reissueModalShow = false;
+    public ?int $reissueContractId = null;
+    public ?string $reissueZuschlag = '';
+    public ?string $reissueBeginn = '';
+    public ?string $reissueNote = '';
+    public ?string $reissueError = null;
 
     public function mount(RecApplicant $applicant)
     {
@@ -949,6 +961,90 @@ class Show extends Component
         }
 
         return true;
+    }
+
+    /**
+     * Dialog "Neu ausstellen" fuer einen noch nicht unterschriebenen
+     * Arbeitsvertrag. Ohne diesen Weg gibt es nach dem Versand keine Stelle
+     * mehr, an der sich der Zuschlag aendern laesst: applicant.zuschlag ist
+     * nur bis zum Versand eingebbar (HR-Schreibtisch, Nachbereitung), und der
+     * "Felder"-Dialog zeigt nur die contract.extra_field.*-Werte.
+     */
+    public function openReissueModal(int $contractId): void
+    {
+        $contract = RecContract::where('id', $contractId)
+            ->where('rec_applicant_id', $this->applicant->id)
+            ->firstOrFail();
+
+        $beginn = $contract->getExtraField('vertragsbeginn');
+        $zuschlag = $this->applicant->zuschlag;
+
+        $this->reissueContractId = $contractId;
+        $this->reissueZuschlag = $zuschlag !== null ? number_format((float) $zuschlag, 2, ',', '.') : '';
+        $this->reissueBeginn = is_string($beginn) ? $beginn : '';
+        $this->reissueNote = '';
+        $this->reissueError = null;
+        $this->reissueModalShow = true;
+    }
+
+    public function closeReissueModal(): void
+    {
+        $this->reissueModalShow = false;
+        $this->reissueContractId = null;
+        $this->reissueNote = '';
+        $this->reissueError = null;
+    }
+
+    /**
+     * Storniert den offenen Vertrag und stellt ihn mit neuem Zuschlag neu
+     * aus. Die Arbeit macht ReissueContractService::reissueOpen() — hier
+     * steht nur Eingabepruefung und Rueckmeldung.
+     */
+    public function reissueOpenContract(): void
+    {
+        $this->reissueError = null;
+
+        $contract = RecContract::where('id', $this->reissueContractId)
+            ->where('rec_applicant_id', $this->applicant->id)
+            ->first();
+        if (!$contract) {
+            $this->reissueError = 'Vertrag nicht gefunden.';
+            return;
+        }
+
+        $raw = trim((string) $this->reissueZuschlag);
+        // Gleiche Validierung wie Nachbereitung/HR-Schreibtisch (setDeskZuschlag).
+        if (!preg_match('/^\d{1,3}([.,]\d{1,2})?$/', $raw)) {
+            $this->reissueError = 'Zuschlag muss eine Zahl sein (z.B. 1,60).';
+            return;
+        }
+
+        try {
+            $result = app(ReissueContractService::class)->reissueOpen(
+                $contract,
+                round((float) str_replace(',', '.', $raw), 2),
+                (string) $this->reissueBeginn !== '' ? (string) $this->reissueBeginn : null,
+                (string) $this->reissueNote !== '' ? trim((string) $this->reissueNote) : null,
+                auth()->id(),
+            );
+        } catch (\Throwable $e) {
+            $this->reissueError = 'Neu ausstellen fehlgeschlagen: ' . $e->getMessage();
+            return;
+        }
+
+        $new = $result['contract'];
+        // Signaturlink sofort erzeugen und anzeigen — der alte ist mit der
+        // Stornierung tot, HR braucht den neuen in derselben Bewegung.
+        $this->contractLinkUrl = route('recruiting.public.contract-signing', [
+            'token' => $new->getOrCreatePublicFormLink()->token,
+        ]);
+
+        $this->closeReissueModal();
+        $this->applicant->refresh();
+        $this->applicant->load('contracts.contractTemplate');
+        session()->flash('message',
+            'Vertrag #' . $contract->id . ' storniert, Vertrag #' . $new->id . ' mit neuem Zuschlag ausgestellt. '
+            . 'Der neue Signaturlink steht unten — der alte funktioniert nicht mehr.');
     }
 
     public function generateContractLink(int $contractId): void

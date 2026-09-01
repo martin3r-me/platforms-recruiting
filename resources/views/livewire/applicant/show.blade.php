@@ -383,10 +383,25 @@
                                         {{ $contract->completed_at?->format('d.m.Y H:i') ?? '—' }}
                                     </td>
                                     <td class="px-4 py-3">
+                                        @php
+                                            // Zuschlag aendern geht nur am offenen Arbeitsvertrag. Ein
+                                            // unterschriebener laeuft ueber "Neu ausstellen" in der MA-Akte
+                                            // (dort bleibt der Beleg erhalten), ein IFSG traegt keinen Zuschlag.
+                                            $contractCode = (string) ($contract->contractTemplate?->code ?? '');
+                                            $isArbeitsvertrag = str_starts_with($contractCode, 'AV-') || $contractCode === 'AV';
+                                            $canReissueOpen = $isArbeitsvertrag
+                                                && in_array($contract->status, ['pending', 'sent', 'in_progress'], true)
+                                                && $contract->signed_at === null;
+                                        @endphp
                                         <div class="flex items-center gap-2">
                                             <x-ui-button size="xs" variant="secondary-outline" wire:click="openContractFields({{ $contract->id }})">
                                                 @svg('heroicon-o-adjustments-horizontal', 'w-3.5 h-3.5') Felder
                                             </x-ui-button>
+                                            @if($canReissueOpen)
+                                                <x-ui-button size="xs" variant="secondary-outline" wire:click="openReissueModal({{ $contract->id }})">
+                                                    @svg('heroicon-o-arrow-path', 'w-3.5 h-3.5') Neu ausstellen
+                                                </x-ui-button>
+                                            @endif
                                             @if($contract->status === 'completed')
                                                 <a href="{{ route('recruiting.public.contract-pdf', ['token' => $this->applicantPublicToken, 'contractId' => $contract->id]) }}"
                                                    target="_blank"
@@ -522,6 +537,54 @@
         </x-ui-modal>
 
         {{-- Contract Fields Modal --}}
+        {{-- Offenen Vertrag mit neuem Zuschlag neu ausstellen --}}
+        <x-ui-modal size="sm" model="reissueModalShow">
+            <x-slot name="header">Vertrag neu ausstellen</x-slot>
+            <div class="p-4 space-y-4">
+                <p class="text-xs text-[var(--ui-muted)]">
+                    Der noch nicht unterschriebene Vertrag wird storniert — sein Signaturlink funktioniert
+                    danach nicht mehr. Der neue Vertrag entsteht aus derselben Vorlage mit dem neuen Zuschlag;
+                    den neuen Link zeigt die Seite direkt darunter an. Es haengt sich nichts zusaetzlich an
+                    (kein zweiter Infektionsschutz), und es entsteht kein Eintrag in den Lohnaenderungen.
+                </p>
+
+                @if($reissueError)
+                    <div class="p-2 text-xs rounded-md bg-red-50 border border-red-200 text-red-800">
+                        {{ $reissueError }}
+                    </div>
+                @endif
+
+                <div>
+                    <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Neuer Zuschlag (€/Std)</label>
+                    <input type="text" wire:model="reissueZuschlag" placeholder="1,60"
+                           class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Vertragsbeginn</label>
+                    <input type="date" wire:model="reissueBeginn"
+                           class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                    <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Beginn des stornierten Vertrags uebernehmen.</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Notiz (optional)</label>
+                    <textarea wire:model="reissueNote" rows="2"
+                              class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm"
+                              placeholder="z.B. Lohn vor Unterschrift angehoben"></textarea>
+                </div>
+            </div>
+            <x-slot name="footer">
+                <div class="flex items-center justify-end gap-2">
+                    <x-ui-button variant="secondary" wire:click="closeReissueModal">Abbrechen</x-ui-button>
+                    <x-ui-button variant="primary" wire:click="reissueOpenContract"
+                                 wire:loading.attr="disabled" wire:target="reissueOpenContract">
+                        Stornieren und neu ausstellen
+                    </x-ui-button>
+                </div>
+            </x-slot>
+        </x-ui-modal>
+
         <x-ui-modal size="lg" model="contractFieldsModalShow">
             <x-slot name="header">Vertragsfelder bearbeiten</x-slot>
             <div class="p-4 space-y-4">
