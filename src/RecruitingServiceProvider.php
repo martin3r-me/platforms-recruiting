@@ -51,6 +51,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DeleteEmployee::class,
                 \Platform\Recruiting\Console\Commands\ZasReExportByBookingDate::class,
                 \Platform\Recruiting\Console\Commands\ZasCrmContactBackfill::class,
+                \Platform\Recruiting\Console\Commands\NormalizeEmployeePhonesCommand::class,
                 \Platform\Recruiting\Console\Commands\SyncEmployeeContactList::class,
                 \Platform\Recruiting\Console\Commands\FlynkReconcile::class,
                 \Platform\Recruiting\Console\Commands\BackfillEmployeeFieldsFromApplicant::class,

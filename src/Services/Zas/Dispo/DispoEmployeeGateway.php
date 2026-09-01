@@ -25,7 +25,12 @@ class DispoEmployeeGateway
             ->mapWithKeys(fn ($e) => [(int) $e->id => [
                 'name'              => trim($e->first_name . ' ' . $e->last_name),
                 'first_name'        => trim((string) $e->first_name),
-                'phone'             => ($e->phone !== null && trim($e->phone) !== '') ? trim($e->phone) : null,
+                // Sendewege bekommen IMMER E.164 (Befund 01.09.: nationale ZAS-Formate
+                // -> Meta 131026); unparsebare Rohnummer geht unveraendert raus und
+                // faellt als failed auf (nicht schlechter als vorher).
+                'phone'             => ($e->phone !== null && trim($e->phone) !== '')
+                    ? (\Platform\Recruiting\Support\PhoneE164::normalize($e->phone) ?? trim($e->phone))
+                    : null,
                 'portal_token'      => (string) $e->portal_token,
                 'personnel_number'  => (string) ($e->personnel_number ?? ''),
                 'company'           => (string) ($e->company ?? ''),

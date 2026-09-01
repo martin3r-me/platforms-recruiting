@@ -353,7 +353,9 @@ class DispoEscalateCommand extends Command
             try {
                 $message = app(\Platform\Crm\Services\Comms\WhatsAppMetaService::class)->sendTemplate(
                     channel:      $channel,
-                    to:           $fs->duty_phone,
+                    // Diensthandy ebenfalls E.164 (der 015...-ohne-+49-Fall hat den
+                    // Alarm schon einmal gekillt, Memory dispo_alarm_duty_phone).
+                    to:           \Platform\Recruiting\Support\PhoneE164::normalize($fs->duty_phone) ?? $fs->duty_phone,
                     templateName: $template->name,
                     components:   $components,
                     languageCode: $template->language ?? 'de',
