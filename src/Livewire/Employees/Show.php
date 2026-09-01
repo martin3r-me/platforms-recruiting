@@ -59,6 +59,7 @@ class Show extends Component
     public $uploadFiktionFront = null;
     public $uploadFiktionBack = null;
     public $uploadErstbescheinigung = null;
+    public $uploadFirstAiderCertificate = null;
 
     private const FILE_UPLOAD_MAP = [
         'identity_card_front_file_id'   => 'uploadIdentityFront',
@@ -76,6 +77,7 @@ class Show extends Component
         'fiktionsbescheinigung_front_file_id' => 'uploadFiktionFront',
         'fiktionsbescheinigung_back_file_id'  => 'uploadFiktionBack',
         'erstbescheinigung_file_id'           => 'uploadErstbescheinigung',
+        'first_aider_certificate_file_id'     => 'uploadFirstAiderCertificate',
     ];
 
     public function mount(int $employee): void
@@ -428,10 +430,18 @@ class Show extends Component
                 'company'          => ['type' => 'inline_select', 'label' => 'Firma', 'options' => ['RG', 'MA']],
                 'cost_center'      => ['type' => 'text', 'label' => 'Kostenstelle (Vorrang vor Stelle)'],
             ],
-            'Arbeitsschutz (HR-only)' => [
+            // Seit 2026-09-01 pflegt der MA diese drei Felder selbst im Portal
+            // (RecEmployee::editableFieldGroups), deshalb ohne "(HR-only)" —
+            // die gelbe Markierung im Blade haengt an genau diesem Substring
+            // und wuerde hier das Falsche behaupten.
+            'Arbeitsschutz' => [
                 'is_first_aider'          => ['type' => 'bool', 'label' => 'Ersthelfer'],
                 'first_aider_valid_until' => ['type' => 'date', 'label' => 'Ersthelfer-Schein gueltig bis'],
-                'is_safety_officer'       => ['type' => 'bool', 'label' => 'Sicherheitsbeauftragter'],
+                'first_aider_certificate_file_id' => ['type' => 'file', 'label' => 'Ersthelfer-Schein (Datei)'],
+            ],
+            // Sicherheitsbeauftragter benennt HR, nicht der MA — bleibt gelb.
+            'Arbeitsschutz (HR-only)' => [
+                'is_safety_officer' => ['type' => 'bool', 'label' => 'Sicherheitsbeauftragter'],
             ],
         ];
     }
@@ -657,6 +667,7 @@ class Show extends Component
     public function updatedUploadFiktionFront(): void { $this->handleFileUpload('fiktionsbescheinigung_front_file_id', 'uploadFiktionFront'); }
     public function updatedUploadFiktionBack(): void { $this->handleFileUpload('fiktionsbescheinigung_back_file_id', 'uploadFiktionBack'); }
     public function updatedUploadErstbescheinigung(): void { $this->handleFileUpload('erstbescheinigung_file_id', 'uploadErstbescheinigung'); }
+    public function updatedUploadFirstAiderCertificate(): void { $this->handleFileUpload('first_aider_certificate_file_id', 'uploadFirstAiderCertificate'); }
 
     private function handleFileUpload(string $employeeField, string $propertyName): void
     {

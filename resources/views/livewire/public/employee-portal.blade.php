@@ -191,6 +191,13 @@
                 </div>
             @endif
 
+            @if($editError)
+                <div class="mb-3 p-3 bg-red-50 border border-red-300 rounded text-xs text-red-800 flex items-start gap-2">
+                    @svg('heroicon-o-exclamation-triangle', 'w-4 h-4 flex-shrink-0 mt-0.5')
+                    <span>{{ $editError }}</span>
+                </div>
+            @endif
+
             @if($editFlash)
                 <div class="mb-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800 flex items-center gap-2">
                     @svg('heroicon-o-check-circle', 'w-4 h-4')
@@ -232,12 +239,24 @@
                         'immatrikulation_file_id'       => 'uploadImmatrikulation',
                         'schulbescheinigung_file_id'    => 'uploadSchulbescheinigung',
                         'erstbescheinigung_file_id'     => 'uploadErstbescheinigung',
+                        'first_aider_certificate_file_id' => 'uploadFirstAiderCertificate',
                     ];
                 @endphp
 
                 @foreach($this->editableGroups as $section => $entries)
+                    @php
+                        $sectionHint = null;
+                        if ($section === 'Arbeitsschutz') {
+                            $sectionHint = $duzen
+                                ? 'Bist du Ersthelfer? Wenn ja, trag bitte das Gültigkeitsdatum ein und lade deinen Ersthelfer-Schein hoch — ohne beides können wir nicht speichern. Wenn nein, wähl einfach „Nein".'
+                                : 'Sind Sie Ersthelfer? Wenn ja, tragen Sie bitte das Gültigkeitsdatum ein und laden Sie Ihren Ersthelfer-Schein hoch — ohne beides können wir nicht speichern. Wenn nein, wählen Sie einfach „Nein".';
+                        }
+                    @endphp
                     <div class="mb-5">
                         <h3 class="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)] mb-2">{{ $section }}</h3>
+                        @if($sectionHint)
+                            <p class="text-xs text-[var(--ui-muted)] mb-2">{{ $sectionHint }}</p>
+                        @endif
                         <div class="bg-white border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)]">
                             @foreach($entries as $entry)
                                 @php

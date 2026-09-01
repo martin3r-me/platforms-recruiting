@@ -11,6 +11,7 @@ use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\TrainingCertificatePortalRows;
 use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
 
@@ -68,6 +69,9 @@ class EmployeePortal extends Component
     /** Flash-Message nach saveAll oder File-Upload */
     public ?string $editFlash = null;
 
+    /** Blockierende Fehlermeldung (rot) — z.B. unvollstaendige Ersthelfer-Angabe */
+    public ?string $editError = null;
+
     /**
      * File-Upload-Properties — pro File-Field eine eigene Property weil
      * Livewire WithFileUploads keine assoc-Arrays sauber handhabt.
@@ -80,6 +84,7 @@ class EmployeePortal extends Component
     public $uploadImmatrikulation = null;
     public $uploadSchulbescheinigung = null;
     public $uploadErstbescheinigung = null;
+    public $uploadFirstAiderCertificate = null;
 
     /** Map File-Field-Key → property-Name fuer dynamische Zugriffe */
     private const FILE_FIELDS = [
@@ -90,6 +95,7 @@ class EmployeePortal extends Component
         'immatrikulation_file_id'       => 'uploadImmatrikulation',
         'schulbescheinigung_file_id'    => 'uploadSchulbescheinigung',
         'erstbescheinigung_file_id'     => 'uploadErstbescheinigung',
+        'first_aider_certificate_file_id' => 'uploadFirstAiderCertificate',
     ];
 
     private const MAX_ATTEMPTS = 5;
@@ -240,6 +246,29 @@ class EmployeePortal extends Component
             return;
         }
 
+        // Ersthelfer-Pflicht (Kundenwunsch 2026-09-01): wer "Ja" angibt, muss
+        // Bis-Datum UND hochgeladenen Schein liefern. Endzustands-Pruefung wie
+        // in der HR-Akte — blockt auch Saves, die nur andere Felder aendern,
+        // damit ein unvollstaendiger Zustand nicht stehenbleibt. Anders als
+        // HR (Employees/Show) MIT Dokumentpflicht: der MA hat den Schein, HR
+        // nicht — dort wuerde die Datei-Pflicht die Akte blockieren.
+        //
+        // Die File-Id kommt vom Datensatz, nicht aus $fieldValues: Dateien
+        // laufen ueber die Upload-Properties und werden unten uebersprungen.
+        $guardError = FirstAiderDateGuard::error(
+            $this->fieldValues['is_first_aider'] ?? null,
+            $this->fieldValues['first_aider_valid_until'] ?? null,
+            $employee->first_aider_certificate_file_id,
+            true,
+        );
+        if ($guardError !== null) {
+            // Early-Return OHNE loadFieldValues(): die Eingaben bleiben stehen.
+            $this->editError = $guardError;
+            $this->editFlash = null;
+            return;
+        }
+        $this->editError = null;
+
         $allowed = $employee->editableFieldsFlat();
         $updates = [];
         foreach ($this->fieldValues as $field => $value) {
@@ -248,6 +277,14 @@ class EmployeePortal extends Component
             }
             $meta = $allowed[$field];
             $type = $meta['type'] ?? 'text';
+            if ($type === 'file') {
+                // Dateien werden ausschliesslich ueber handleFileUpload()
+                // gesetzt. Ein aus dem Formular mitgeschickter File-Wert wird
+                // ignoriert — sonst koennte ein manipulierter POST fremde
+                // File-Ids setzen oder einen gerade geprueften Nachweis im
+                // selben Request wieder leeren.
+                continue;
+            }
             $value = is_string($value) ? trim($value) : $value;
 
             if ($type === 'bool') {
@@ -314,6 +351,11 @@ class EmployeePortal extends Component
     public function updatedUploadErstbescheinigung(): void
     {
         $this->handleFileUpload('erstbescheinigung_file_id', 'uploadErstbescheinigung');
+    }
+
+    public function updatedUploadFirstAiderCertificate(): void
+    {
+        $this->handleFileUpload('first_aider_certificate_file_id', 'uploadFirstAiderCertificate');
     }
 
     /**
@@ -394,7 +436,11 @@ class EmployeePortal extends Component
                 $value = $employee->getAttribute($key);
                 $type = $meta['type'] ?? 'text';
                 $display = $this->formatDisplayValue($value, $type, $meta);
-                $isMissing = ($value === null || $value === '' || $value === []);
+                // Bedingte Pflicht: ein Feld, dessen required_if-Bedingung
+                // nicht greift (z.B. Ersthelfer-Datum bei "Nein"), wird nicht
+                // als fehlend markiert.
+                $isMissing = $employee->fieldIsRelevant($meta)
+                    && ($value === null || $value === '' || $value === []);
                 $entries[] = [
                     'key'        => $key,
                     'label'      => $meta['label'] ?? $key,

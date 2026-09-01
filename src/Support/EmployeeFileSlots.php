@@ -31,6 +31,7 @@ class EmployeeFileSlots
         'fiktionsbescheinigung_front_file_id',
         'fiktionsbescheinigung_back_file_id',
         'erstbescheinigung_file_id',
+        'first_aider_certificate_file_id',
     ];
 
     public static function isAllowed(string $slot): bool

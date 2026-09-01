@@ -29,6 +29,7 @@ class EmployeeFileSlotsTest extends TestCase
             'fiktionsbescheinigung_front_file_id',
             'fiktionsbescheinigung_back_file_id',
             'erstbescheinigung_file_id',
+            'first_aider_certificate_file_id',
         ], EmployeeFileSlots::COLUMNS);
     }
 
@@ -52,5 +53,29 @@ class EmployeeFileSlotsTest extends TestCase
         foreach (EmployeeFileSlots::COLUMNS as $column) {
             $this->assertStringEndsWith('_file_id', $column);
         }
+    }
+
+    /**
+     * Zweiter Drift-Schutz: jede Spalte, in die eine Maske hochladen kann,
+     * muss auch anzeigbar sein. Ohne diesen Test blieb das Loch offen — der
+     * Docblock von EmployeeFileSlots verspricht die Synchronitaet mit
+     * FILE_UPLOAD_MAP seit jeher, geprueft wurde sie nie.
+     */
+    public function test_every_uploadable_column_is_an_allowed_slot(): void
+    {
+        $uploadColumns = array_merge(
+            array_keys($this->privateConst(\Platform\Recruiting\Livewire\Employees\Show::class, 'FILE_UPLOAD_MAP')),
+            array_keys($this->privateConst(\Platform\Recruiting\Livewire\Public\EmployeePortal::class, 'FILE_FIELDS')),
+        );
+
+        $this->assertNotEmpty($uploadColumns);
+        foreach (array_unique($uploadColumns) as $column) {
+            $this->assertContains($column, EmployeeFileSlots::COLUMNS, "$column fehlt in EmployeeFileSlots");
+        }
+    }
+
+    private function privateConst(string $class, string $name): array
+    {
+        return (new \ReflectionClass($class))->getConstant($name);
     }
 }

@@ -95,6 +95,7 @@ class RecEmployee extends Model
         // Arbeitsschutz
         'is_first_aider',
         'first_aider_valid_until',
+        'first_aider_certificate_file_id',
         'is_safety_officer',
 
         'is_eu_citizen',
@@ -354,6 +355,23 @@ class RecEmployee extends Model
                 'infection_protection_first_issued_at' => ['type' => 'date', 'label' => 'Erstbescheinigung am'],
                 'erstbescheinigung_file_id'            => ['type' => 'file', 'label' => 'Erstbescheinigung (Datei)'],
             ],
+            'Arbeitsschutz' => [
+                'is_first_aider' => ['type' => 'bool', 'label' => 'Ersthelfer (gueltiger Erste-Hilfe-Schein)'],
+                // required_if: erst Pflicht, wenn oben "Ja" steht. Bei "Nein"
+                // oder unbeantwortet werden die beiden nicht als fehlend
+                // gemeldet — sonst haette jeder Nicht-Ersthelfer dauerhaft
+                // zwei rote Felder im Portal ("bei nein passiert nichts").
+                'first_aider_valid_until' => [
+                    'type'        => 'date',
+                    'label'       => 'Ersthelfer-Schein gueltig bis',
+                    'required_if' => ['is_first_aider' => true],
+                ],
+                'first_aider_certificate_file_id' => [
+                    'type'        => 'file',
+                    'label'       => 'Ersthelfer-Schein (Datei)',
+                    'required_if' => ['is_first_aider' => true],
+                ],
+            ],
             'Arbeitskleidung' => [
                 'shirt_size' => ['type' => 'inline_select', 'label' => 'Hemd / Bluse', 'options' => ['S','M','L','XL']],
                 'pants_size' => ['type' => 'text', 'label' => 'Hosengroesse (Zahl)'],
@@ -411,12 +429,34 @@ class RecEmployee extends Model
     {
         $missing = [];
         foreach ($this->editableFieldsFlat() as $field => $meta) {
+            if (!$this->fieldIsRelevant($meta)) {
+                continue;
+            }
             $value = $this->getAttribute($field);
             if ($value === null || $value === '' || $value === []) {
                 $missing[$field] = $meta['label'];
             }
         }
         return $missing;
+    }
+
+    /**
+     * Bedingte Pflicht: ein Feld mit 'required_if' => [feld => wert] zaehlt
+     * nur dann als ausfuellpflichtig, wenn alle genannten Bedingungen am
+     * Datensatz erfuellt sind. Felder ohne 'required_if' sind immer relevant.
+     *
+     * Strikter Vergleich, bewusst: is_first_aider ist als boolean gecastet
+     * und dreiwertig (true/false/null). Ein lockerer Vergleich wuerde
+     * "unbeantwortet" (null) mit "Nein" (false) verwechseln.
+     */
+    public function fieldIsRelevant(array $meta): bool
+    {
+        foreach (($meta['required_if'] ?? []) as $otherField => $expected) {
+            if ($this->getAttribute($otherField) !== $expected) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
