@@ -595,8 +595,72 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
 
         $this->checkAutoPilotCompletion();
+        $this->confirmBookingsIfOnboardingDone();
 
         return true;
+    }
+
+    /**
+     * Frische Buchung sofort bestaetigen, wenn die Bestaetigungs-Phase
+     * (completion_config.confirm_booking_on_completion) bereits ABGESCHLOSSEN
+     * ist — also die aktuelle Phase dahinter liegt.
+     *
+     * Warum: der reguläre Weg booked→registered ist der Phasen-Abschluss-Hook
+     * (triggerPhaseCompletionHooks). Wer das Onboarding laengst hinter sich hat
+     * (z. B. P4-Bewerber, deren alter Termin storniert war — Kampagne „Neue
+     * Termine“ 30.08., Fall #2636), bucht NEU, aber der Hook feuert fuer ihn
+     * nie wieder: die Buchung bliebe dauerhaft auf 'booked' und faellt aus
+     * jeder registered-basierten Auswertung. Gleiche Semantik wie der Hook,
+     * nur fuer den Fall „Voraussetzungen waren schon vor der Buchung erfuellt“.
+     *
+     * Per Model-Save statt Bulk-Update — Observer (Warteliste/Re-Arm) sehen
+     * das Upgrade, wie beim Hook.
+     */
+    private function confirmBookingsIfOnboardingDone(): void
+    {
+        try {
+            $position = $this->primaryPosition();
+            if (!$position) {
+                return;
+            }
+
+            $confirmPhase = $position->phases
+                ->first(fn ($p) => (bool) $p->is_active
+                    && ((($p->completion_config ?? [])['confirm_booking_on_completion'] ?? false) === true));
+            if (!$confirmPhase) {
+                return;
+            }
+
+            // Frisch lesen: checkAutoPilotCompletion() kann die Phase gerade
+            // geaendert haben, die geladene Relation waere dann veraltet.
+            $currentOrder = RecPhase::query()->whereKey($this->rec_phase_id)->value('order');
+            if ($currentOrder === null || (int) $currentOrder <= (int) $confirmPhase->order) {
+                return; // Bestaetigungs-Phase noch nicht abgeschlossen — Hook uebernimmt.
+            }
+
+            foreach ($this->interviewBookings()->where('status', 'booked')->get() as $booking) {
+                $booking->status = 'registered';
+                $booking->save();
+
+                try {
+                    RecAutoPilotLog::create([
+                        'rec_applicant_id' => $this->id,
+                        'type' => 'booking_confirmed',
+                        'summary' => "Buchung #{$booking->id} direkt registriert — Onboarding war bereits vor der Buchung abgeschlossen.",
+                        'details' => ['booking_id' => $booking->id, 'interview_id' => $booking->rec_interview_id],
+                    ]);
+                } catch (\Throwable) {}
+            }
+        } catch (\Throwable $e) {
+            // Bestaetigung ist Zugabe — sie darf die Buchungs-Reaktion nie
+            // kippen. Auch der Log-Versuch selbst nicht (Facade kann in
+            // Test-/CLI-Kontexten ohne Root sein).
+            try {
+                Log::warning('[RecApplicant] confirmBookingsIfOnboardingDone fehlgeschlagen: ' . $e->getMessage(), [
+                    'applicant_id' => $this->id,
+                ]);
+            } catch (\Throwable) {}
+        }
     }
 
     public function checkAutoPilotCompletion(): void

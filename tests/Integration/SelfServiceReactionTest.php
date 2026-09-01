@@ -53,8 +53,33 @@ final class SelfServiceReactionTest extends TestCase
             $t->timestamp('auto_pilot_completed_at')->nullable();
             $t->integer('progress')->default(0);
             $t->integer('rec_phase_id')->nullable();
+            $t->integer('rec_position_id')->nullable();
             $t->timestamps();
         });
+        $s->create('rec_positions', function ($t) {
+            $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id');
+            $t->string('title'); $t->boolean('is_active')->default(true); $t->timestamps();
+        });
+        $s->create('rec_phases', function ($t) {
+            $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id'); $t->integer('rec_position_id');
+            $t->string('name'); $t->integer('order'); $t->boolean('is_active')->default(true);
+            $t->boolean('auto_advance')->default(true); $t->string('completion_type')->default('fields');
+            $t->text('completion_config')->nullable(); $t->text('auto_pilot_settings')->nullable(); $t->timestamps();
+        });
+        $s->create('rec_interview_bookings', function ($t) {
+            $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('rec_applicant_id'); $t->integer('rec_interview_id');
+            $t->integer('team_id')->nullable(); $t->string('status')->default('booked'); $t->boolean('is_active')->default(true);
+            $t->timestamp('booked_at')->nullable(); $t->timestamp('seat_released_at')->nullable();
+            $t->string('cancelled_by')->nullable(); $t->timestamp('cancelled_at')->nullable();
+            $t->boolean('is_standby')->default(false);
+            $t->integer('created_by_user_id')->nullable(); $t->timestamp('deleted_at')->nullable(); $t->timestamps();
+        });
+        $this->capsule->getConnection()->table('rec_positions')->insert(['id' => 11, 'team_id' => 3, 'title' => 'MGL allgemein']);
+        $this->capsule->getConnection()->table('rec_phases')->insert([
+            ['id' => 41, 'team_id' => 3, 'rec_position_id' => 11, 'name' => 'Schulung buchen', 'order' => 2, 'completion_type' => 'booking', 'completion_config' => null],
+            ['id' => 42, 'team_id' => 3, 'rec_position_id' => 11, 'name' => 'Onboarding', 'order' => 3, 'completion_type' => 'fields', 'completion_config' => '{"confirm_booking_on_completion":true}'],
+            ['id' => 43, 'team_id' => 3, 'rec_position_id' => 11, 'name' => 'Vertraege', 'order' => 4, 'completion_type' => 'contract_sent', 'completion_config' => null],
+        ]);
         $s->create('rec_auto_pilot_logs', function ($t) {
             $t->increments('id');
             $t->integer('rec_applicant_id');
@@ -137,5 +162,39 @@ final class SelfServiceReactionTest extends TestCase
         $fresh = RecApplicant::find($a->id);
         $this->assertNotNull($fresh->auto_pilot_completed_at, 'completed bleibt completed — sonst feuerte der Legacy-Buchungslink erneut.');
         $this->assertSame(0, $a->completionChecks);
+    }
+
+    /**
+     * Fall Kampagne 30.08. (Chantalle #2636 u.a.): Wer die Bestaetigungs-Phase
+     * (confirm_booking_on_completion) bereits HINTER sich hat, dessen frische
+     * Buchung darf nicht auf 'booked' haengen bleiben — der Phasen-Abschluss-
+     * Hook ist fuer diese Person laengst gefeuert und kommt nie wieder. Die
+     * Reaktion hebt sie sofort auf 'registered', gleiche Semantik wie der Hook.
+     */
+    public function testBuchungWirdBestaetigtWennOnboardingSchonFertig(): void
+    {
+        $a = $this->applicant(['rec_position_id' => 11, 'rec_phase_id' => 43]);
+        $booking = \Platform\Recruiting\Models\RecInterviewBooking::forceCreate([
+            'rec_applicant_id' => $a->id, 'rec_interview_id' => 86, 'team_id' => 3, 'status' => 'booked',
+        ]);
+
+        $this->assertTrue($a->registerSelfServiceReaction('Terminbuchung'));
+
+        $this->assertSame('registered', \Platform\Recruiting\Models\RecInterviewBooking::find($booking->id)->status);
+        $this->assertSame(1, RecAutoPilotLog::where('rec_applicant_id', $a->id)->where('type', 'booking_confirmed')->count());
+    }
+
+    /** Onboarding noch offen (aktuelle Phase == Bestaetigungs-Phase): der Hook uebernimmt spaeter — hier bleibt 'booked'. */
+    public function testBuchungBleibtGebuchtWennOnboardingNochOffen(): void
+    {
+        $a = $this->applicant(['rec_position_id' => 11, 'rec_phase_id' => 42]);
+        $booking = \Platform\Recruiting\Models\RecInterviewBooking::forceCreate([
+            'rec_applicant_id' => $a->id, 'rec_interview_id' => 86, 'team_id' => 3, 'status' => 'booked',
+        ]);
+
+        $this->assertTrue($a->registerSelfServiceReaction('Terminbuchung'));
+
+        $this->assertSame('booked', \Platform\Recruiting\Models\RecInterviewBooking::find($booking->id)->status);
+        $this->assertSame(0, RecAutoPilotLog::where('type', 'booking_confirmed')->count());
     }
 }
