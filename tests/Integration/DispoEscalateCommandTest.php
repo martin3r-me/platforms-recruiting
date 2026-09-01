@@ -45,6 +45,8 @@ class DispoEscalateCommandTest extends TestCase
     private const FILIAL_NR = 40;
     private const ACCOUNT_NUMMER = '+49 160 5551234';
     private const DUTY_PHONE = '+49 170 5559876';
+    /** Gespeichert wird das Rohformat (Zeile oben) — RAUS geht seit 01.09. immer E.164 (PhoneE164 im Alarm-Versand). */
+    private const DUTY_PHONE_E164 = '+491705559876';
 
     private static int $employeeId = 0;
     private static int $template1Id = 0;
@@ -222,7 +224,7 @@ class DispoEscalateCommandTest extends TestCase
 
         $this->assertNotNull(RecEmployee::find(self::$employeeId)->portal_locked_at);
         $this->assertNotNull(RecEmployee::find($twin)->portal_locked_at, 'Sperre gilt fuer die Person, also beide Datensaetze.');
-        $alarm = collect($this->stub->log)->firstWhere('to', self::DUTY_PHONE);
+        $alarm = collect($this->stub->log)->firstWhere('to', self::DUTY_PHONE_E164);
         $this->assertSame('1', $alarm['components'][0]['parameters'][1]['text'], 'Alarm zaehlt Personen, nicht Einbuchungen.');
     }
 
@@ -439,7 +441,7 @@ class DispoEscalateCommandTest extends TestCase
         $event->refresh();
         $this->assertNotNull($event->alarm_message_id);
         $this->assertSame(1, $this->stub->calls, 'Genau ein Alarm-Sende-Versuch (aggregiert pro VA).');
-        $this->assertSame(self::DUTY_PHONE, $this->stub->log[0]['to']);
+        $this->assertSame(self::DUTY_PHONE_E164, $this->stub->log[0]['to'], 'Diensthandy-Alarm geht normalisiert raus.');
     }
 
     public function test_disabled_is_noop(): void
@@ -525,7 +527,7 @@ class DispoEscalateCommandTest extends TestCase
             'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => '2026-08-20 10:00:00',
         ]);
 
-        $this->stub->failFor[] = self::DUTY_PHONE;
+        $this->stub->failFor[] = self::DUTY_PHONE_E164;
 
         $planner = new DispoEscalationPlanner();
         $resolver = new DispoChannelResolver();
@@ -564,8 +566,9 @@ class DispoEscalateCommandTest extends TestCase
         RecDispoAssignment::create(array_merge($base, ['ds_ref' => 'DS-EXC-BAD', 'pnr_raw' => 'RG' . self::$employeeId, 'rec_employee_id' => self::$employeeId]));
         RecDispoAssignment::create(array_merge($base, ['ds_ref' => 'DS-EXC-OK', 'pnr_raw' => 'RG' . $second->id, 'rec_employee_id' => $second->id]));
 
-        $badPhone = RecEmployee::find(self::$employeeId)->phone;
-        $this->stub->throwFor[] = $badPhone;
+        // Der Stub sieht die Nummer so, wie sie RAUSGEHT — seit 01.09. E.164.
+        $badPhoneRaw = RecEmployee::find(self::$employeeId)->phone;
+        $this->stub->throwFor[] = \Platform\Recruiting\Support\PhoneE164::normalize($badPhoneRaw) ?? $badPhoneRaw;
 
         $report = $this->probe()->probeEscalate(
             new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(),
