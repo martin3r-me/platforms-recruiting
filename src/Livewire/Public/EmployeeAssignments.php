@@ -21,6 +21,10 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
  * unerratbarer UUIDv7-Token, Link kommt privat per WhatsApp, Seite zeigt
  * nur Einsatz-Infos und kennt nur die positive Aktion Bestaetigen.
  * Nirgends im MA-Portal verlinkt. Token am URL-Ende (Meta-URL-Button).
+ *
+ * Sichtbarkeits-Regel (Kunde 01.09.): angezeigt und bestaetigbar ist NUR, was
+ * angeschrieben wurde (reminder_sent_at) oder schon bestaetigt ist — nie der
+ * komplette Dispo-Bestand der Person.
  */
 class EmployeeAssignments extends Component
 {
@@ -94,6 +98,11 @@ class EmployeeAssignments extends Component
             ->whereNull('missing_since')
             ->whereNull('deletion_marked_at')
             ->whereDate('datum', '>=', now()->toDateString())
+            
+            // Kunde 01.09.: Der MA sieht NUR angeschriebene (oder bereits bestaetigte)
+            // Einsaetze — exakt das, was RG versendet hat, nicht den ganzen Dispo-Bestand.
+            // Nicht versendete Einbuchungen bleiben unsichtbar, bis HR den Versand ausloest.
+            ->where(fn ($q) => $q->whereNotNull('reminder_sent_at')->orWhereNotNull('confirmed_at'))
             ->orderBy('datum')->orderBy('von')
             ->get();
 
@@ -232,6 +241,10 @@ class EmployeeAssignments extends Component
             ->whereIn('rec_employee_id', $this->employeeIds)
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereDate('datum', '<', now()->toDateString())
+            // Kunde 01.09.: Der MA sieht NUR angeschriebene (oder bereits bestaetigte)
+            // Einsaetze — exakt das, was RG versendet hat, nicht den ganzen Dispo-Bestand.
+            // Nicht versendete Einbuchungen bleiben unsichtbar, bis HR den Versand ausloest.
+            ->where(fn ($q) => $q->whereNotNull('reminder_sent_at')->orWhereNotNull('confirmed_at'))
             ->orderByDesc('datum')->orderByDesc('von')
             ->limit(30)
             ->get();
@@ -279,6 +292,8 @@ class EmployeeAssignments extends Component
             ->whereNull('deletion_marked_at')
             ->whereNull('confirmed_at')
             ->whereDate('datum', '>=', now()->toDateString())
+            // Nur Angeschriebenes ist bestaetigbar (Kunde 01.09., Spiegel zu eventGroups).
+            ->whereNotNull('reminder_sent_at')
             ->update([
                 'confirmed_at'          => now(),
                 // Runde 4 (#2): Zeiten zum Bestaetigungszeitpunkt merken — Vergleichsbasis
