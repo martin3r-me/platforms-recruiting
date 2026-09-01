@@ -374,7 +374,7 @@ class ReissueContractTest extends TestCase
      */
     public function test_offener_vertrag_uebernimmt_den_vertragsbeginn(): void
     {
-        $this->ensureVertragsbeginnDefinition();
+        $this->ensureContractDateDefinitions();
         [, , $open] = $this->openAvFixture(0.60);
         $open->setExtraField('vertragsbeginn', '2026-10-01');
 
@@ -386,7 +386,7 @@ class ReissueContractTest extends TestCase
     /** FALL 14 — ein ausdruecklich mitgegebener Beginn schlaegt den alten. */
     public function test_offener_vertrag_nimmt_den_uebergebenen_vertragsbeginn(): void
     {
-        $this->ensureVertragsbeginnDefinition();
+        $this->ensureContractDateDefinitions();
         [, , $open] = $this->openAvFixture(0.60);
         $open->setExtraField('vertragsbeginn', '2026-10-01');
 
@@ -435,6 +435,75 @@ class ReissueContractTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // Vertragsende — der Wert des Vorgaengers ist die Vorgabe
+    // -----------------------------------------------------------------
+
+    /**
+     * FALL 18 — ein von Hand gesetztes Ende ueberlebt das Neu-Ausstellen.
+     *
+     * resolveContractDates() rechnet aus dem Beginn ein Ende (+1 Jahr,
+     * Monatsanfang, −1 Tag), sobald keins mitkommt. Wurde am Vorgaenger eine
+     * abweichende Befristung eingetragen — Saisonende, 70-Tage-Vertrag —,
+     * ersetzte diese Automatik sie stillschweigend: der Nachfolger lief
+     * ploetzlich laenger als vereinbart, sichtbar nur im fertigen Dokument.
+     */
+    public function test_offener_vertrag_uebernimmt_ein_abweichendes_vertragsende(): void
+    {
+        $this->ensureContractDateDefinitions();
+        [, , $open] = $this->openAvFixture(0.60);
+        $open->setExtraField('vertragsbeginn', '2026-09-01');
+        $open->setExtraField('vertragsende', '2026-12-31');
+
+        $new = (new ReissueContractService())->reissueOpen($open, 1.60)['contract'];
+
+        $this->assertSame('2026-12-31', $new->getExtraField('vertragsende'),
+            'Die Befristung des Vorgaengers darf nicht von der Automatik ueberschrieben werden.');
+    }
+
+    /** FALL 19 — ein ausdruecklich mitgegebenes Ende schlaegt das alte. */
+    public function test_offener_vertrag_nimmt_das_uebergebene_vertragsende(): void
+    {
+        $this->ensureContractDateDefinitions();
+        [, , $open] = $this->openAvFixture(0.60);
+        $open->setExtraField('vertragsbeginn', '2026-09-01');
+        $open->setExtraField('vertragsende', '2026-12-31');
+
+        $new = (new ReissueContractService())->reissueOpen($open, 1.60, null, '2027-03-31')['contract'];
+
+        $this->assertSame('2027-03-31', $new->getExtraField('vertragsende'));
+    }
+
+    /**
+     * FALL 20 — ohne Ende am Vorgaenger bleibt es bei der Automatik.
+     * Der Regelfall darf sich durch die Uebernahme nicht aendern.
+     */
+    public function test_ohne_vertragsende_rechnet_die_automatik_weiter(): void
+    {
+        $this->ensureContractDateDefinitions();
+        [, , $open] = $this->openAvFixture(0.60);
+        $open->setExtraField('vertragsbeginn', '2026-09-01');
+
+        $new = (new ReissueContractService())->reissueOpen($open, 1.60)['contract'];
+
+        $this->assertSame('2027-08-31', $new->getExtraField('vertragsende'));
+    }
+
+    /** FALL 21 — derselbe Schutz gilt am unterschriebenen Vertrag. */
+    public function test_unterschriebener_vertrag_uebernimmt_ein_abweichendes_vertragsende(): void
+    {
+        $this->ensureContractDateDefinitions();
+        [, , $old] = $this->signedAvFixture(0.60);
+        $old->setExtraField('vertragsbeginn', '2026-09-01');
+        $old->setExtraField('vertragsende', '2026-12-31');
+
+        $new = (new ReissueContractService())->reissue(
+            $old, 1.60, ReissueContractService::REASON_CORRECTION
+        )['contract'];
+
+        $this->assertSame('2026-12-31', $new->getExtraField('vertragsende'));
+    }
+
+    // -----------------------------------------------------------------
     // Fixtures — legen pro Test neue Zeilen an, loeschen nichts (HasExtraFields
     // cacht Definitionen statisch unter "Klasse:id"; wiederverwendete IDs nach
     // einem delete() liessen einen Test den Definitionssatz eines anderen sehen).
@@ -472,27 +541,29 @@ class ReissueContractTest extends TestCase
     }
 
     /**
-     * Die Definition, die SeedRecContractExtraFields live anlegt. Ohne sie
+     * Die Definitionen, die SeedRecContractExtraFields live anlegt. Ohne sie
      * ist setExtraField() ein stiller No-Op — ein Test ohne diese Zeile
      * pruefte nur, dass nichts passiert.
      */
-    private function ensureVertragsbeginnDefinition(): void
+    private function ensureContractDateDefinitions(): void
     {
-        if (CoreExtraFieldDefinition::where('team_id', self::TEAM)
-            ->where('context_type', RecContract::class)
-            ->where('name', 'vertragsbeginn')->exists()) {
-            return;
-        }
+        foreach ([['vertragsbeginn', 'Vertragsbeginn', 10], ['vertragsende', 'Vertragsende', 20]] as [$name, $label, $order]) {
+            if (CoreExtraFieldDefinition::where('team_id', self::TEAM)
+                ->where('context_type', RecContract::class)
+                ->where('name', $name)->exists()) {
+                continue;
+            }
 
-        CoreExtraFieldDefinition::create([
-            'team_id'      => self::TEAM,
-            'context_type' => RecContract::class,
-            'context_id'   => null,
-            'name'         => 'vertragsbeginn',
-            'label'        => 'Vertragsbeginn',
-            'type'         => 'date',
-            'order'        => 10,
-        ]);
+            CoreExtraFieldDefinition::create([
+                'team_id'      => self::TEAM,
+                'context_type' => RecContract::class,
+                'context_id'   => null,
+                'name'         => $name,
+                'label'        => $label,
+                'type'         => 'date',
+                'order'        => $order,
+            ]);
+        }
     }
 
     private function avDefaultTemplate(): RecContractTemplate

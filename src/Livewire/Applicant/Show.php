@@ -82,6 +82,7 @@ class Show extends Component
     public ?int $reissueContractId = null;
     public ?string $reissueZuschlag = '';
     public ?string $reissueBeginn = '';
+    public ?string $reissueEnde = '';
     public ?string $reissueNote = '';
     public ?string $reissueError = null;
 
@@ -977,11 +978,13 @@ class Show extends Component
             ->firstOrFail();
 
         $beginn = $contract->getExtraField('vertragsbeginn');
+        $ende = $contract->getExtraField('vertragsende');
         $zuschlag = $this->applicant->zuschlag;
 
         $this->reissueContractId = $contractId;
         $this->reissueZuschlag = $zuschlag !== null ? number_format((float) $zuschlag, 2, ',', '.') : '';
         $this->reissueBeginn = is_string($beginn) ? $beginn : '';
+        $this->reissueEnde = is_string($ende) ? $ende : '';
         $this->reissueNote = '';
         $this->reissueError = null;
         $this->reissueModalShow = true;
@@ -1024,6 +1027,7 @@ class Show extends Component
                 $contract,
                 round((float) str_replace(',', '.', $raw), 2),
                 (string) $this->reissueBeginn !== '' ? (string) $this->reissueBeginn : null,
+                (string) $this->reissueEnde !== '' ? (string) $this->reissueEnde : null,
                 (string) $this->reissueNote !== '' ? trim((string) $this->reissueNote) : null,
                 auth()->id(),
             );

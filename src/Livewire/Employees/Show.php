@@ -40,6 +40,7 @@ class Show extends Component
     // schreiben wollen — TypeError beim Hydrieren, mitten im Dialog.
     public ?string $reissueZuschlag = '';
     public ?string $reissueBeginn = '';
+    public ?string $reissueEnde = '';
     public string $reissueReason = ReissueContractService::REASON_CORRECTION;
     public ?string $reissueNote = '';
     // Steuert nur die Anzeige (Text + Grund-Auswahl). Welcher Weg wirklich
@@ -223,11 +224,13 @@ class Show extends Component
 
         $zuschlag = $emp->applicant->zuschlag;
         $beginn = $contract->getExtraField('vertragsbeginn');
+        $ende = $contract->getExtraField('vertragsende');
 
         $this->reissueContractId = $contractId;
         $this->reissueOpenMode = !$this->isSigned($contract);
         $this->reissueZuschlag = $zuschlag !== null ? number_format((float) $zuschlag, 2, ',', '.') : '';
         $this->reissueBeginn = is_string($beginn) ? $beginn : '';
+        $this->reissueEnde = is_string($ende) ? $ende : '';
         $this->reissueNote = '';
         // Vorbelegung nach Wirksamkeit: liegt der Vertragsbeginn in der
         // Zukunft, hat der alte Vertrag nie gewirkt — dann ist es eine
@@ -288,6 +291,7 @@ class Show extends Component
         $zuschlag = round((float) str_replace(',', '.', $raw), 2);
 
         $beginn = (string) $this->reissueBeginn !== '' ? (string) $this->reissueBeginn : null;
+        $ende = (string) $this->reissueEnde !== '' ? (string) $this->reissueEnde : null;
         $note = (string) $this->reissueNote !== '' ? trim((string) $this->reissueNote) : null;
 
         try {
@@ -295,10 +299,10 @@ class Show extends Component
             // Property aus dem Browser.
             $result = $this->isSigned($contract)
                 ? app(ReissueContractService::class)->reissue(
-                    $contract, $zuschlag, $this->reissueReason, $beginn, $note, auth()->id(),
+                    $contract, $zuschlag, $this->reissueReason, $beginn, $ende, $note, auth()->id(),
                 )
                 : app(ReissueContractService::class)->reissueOpen(
-                    $contract, $zuschlag, $beginn, $note, auth()->id(),
+                    $contract, $zuschlag, $beginn, $ende, $note, auth()->id(),
                 );
         } catch (\Throwable $e) {
             $this->flashError = 'Neu ausstellen fehlgeschlagen: ' . $e->getMessage();

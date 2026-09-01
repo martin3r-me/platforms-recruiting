@@ -419,6 +419,16 @@
                         <p class="text-xs text-[var(--ui-muted)] mt-1">Leer = Beginn des ersetzten Vertrags uebernehmen.</p>
                     </div>
 
+                    <div>
+                        <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Vertragsende</label>
+                        <input type="date" wire:model="reissueEnde"
+                               class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
+                        <p class="text-xs text-[var(--ui-muted)] mt-1">
+                            Leer = aus dem Beginn berechnen (+1 Jahr, Monatsende). Eine abweichende Befristung
+                            bitte stehen lassen, sonst laeuft der neue Vertrag laenger als vereinbart.
+                        </p>
+                    </div>
+
                     @if(!$reissueOpenMode)
                     <div>
                         <span class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Grund</span>

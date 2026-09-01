@@ -50,6 +50,8 @@ class ReissueContractService
      * @param  float  $newZuschlag  Neuer Zuschlag in Euro pro Stunde.
      * @param  string  $reason  self::REASON_CORRECTION | self::REASON_RAISE
      * @param  ?string  $vertragsbeginn  Y-m-d; leer = Wert des alten Vertrags uebernehmen.
+     * @param  ?string  $vertragsende  Y-m-d; leer = Wert des alten Vertrags uebernehmen,
+     *                                 und erst wenn der auch fehlt, aus dem Beginn rechnen.
      * @param  ?string  $hrNote  Freitext von HR, wandert in die Notiz beider Vertraege.
      *
      * @return array{contract: RecContract, payroll_reported: bool}
@@ -61,6 +63,7 @@ class ReissueContractService
         float $newZuschlag,
         string $reason,
         ?string $vertragsbeginn = null,
+        ?string $vertragsende = null,
         ?string $hrNote = null,
         ?int $userId = null,
     ): array {
@@ -86,13 +89,7 @@ class ReissueContractService
         $applicant = $this->resolveApplicant($old);
 
         $oldZuschlag = $applicant->zuschlag !== null ? (float) $applicant->zuschlag : null;
-        $beginn = $vertragsbeginn !== null && $vertragsbeginn !== ''
-            ? $vertragsbeginn
-            : $old->getExtraField('vertragsbeginn');
-        $dates = RecContract::resolveContractDates(
-            is_string($beginn) ? $beginn : null,
-            null,
-        );
+        $dates = $this->resolveDates($old, $vertragsbeginn, $vertragsende);
 
         return DB::transaction(function () use (
             $old, $applicant, $template, $newZuschlag, $oldZuschlag, $reason, $dates, $hrNote,
@@ -148,6 +145,8 @@ class ReissueContractService
      * @param  RecContract  $open  Der offene Vertrag (pending|sent|in_progress).
      * @param  float  $newZuschlag  Neuer Zuschlag in Euro pro Stunde.
      * @param  ?string  $vertragsbeginn  Y-m-d; leer = Wert des alten Vertrags uebernehmen.
+     * @param  ?string  $vertragsende  Y-m-d; leer = Wert des alten Vertrags uebernehmen,
+     *                                 und erst wenn der auch fehlt, aus dem Beginn rechnen.
      * @param  ?string  $hrNote  Freitext von HR, wandert in die Notiz beider Vertraege.
      *
      * @return array{contract: RecContract, payroll_reported: bool}
@@ -158,6 +157,7 @@ class ReissueContractService
         RecContract $open,
         float $newZuschlag,
         ?string $vertragsbeginn = null,
+        ?string $vertragsende = null,
         ?string $hrNote = null,
         ?int $userId = null,
     ): array {
@@ -183,13 +183,7 @@ class ReissueContractService
         $applicant = $this->resolveApplicant($open);
 
         $oldZuschlag = $applicant->zuschlag !== null ? (float) $applicant->zuschlag : null;
-        $beginn = $vertragsbeginn !== null && $vertragsbeginn !== ''
-            ? $vertragsbeginn
-            : $open->getExtraField('vertragsbeginn');
-        $dates = RecContract::resolveContractDates(
-            is_string($beginn) ? $beginn : null,
-            null,
-        );
+        $dates = $this->resolveDates($open, $vertragsbeginn, $vertragsende);
 
         return DB::transaction(function () use (
             $open, $applicant, $template, $newZuschlag, $oldZuschlag, $dates, $hrNote,
@@ -290,6 +284,34 @@ class ReissueContractService
         }
 
         return $new;
+    }
+
+    /**
+     * Laufzeit des Nachfolgers: was HR im Dialog eintraegt, sonst der Wert
+     * des Vorgaengers, sonst die Automatik aus resolveContractDates().
+     *
+     * WARUM DAS ENDE MITWANDERN MUSS: ohne Ende rechnet
+     * resolveContractDates() eins aus dem Beginn (+1 Jahr, Monatsanfang,
+     * −1 Tag). Stand am Vorgaenger eine abweichende Befristung — Saisonende,
+     * kurzfristige Beschaeftigung —, ersetzte diese Automatik sie
+     * stillschweigend, und der Nachfolger lief laenger als vereinbart.
+     * Sichtbar war das nur im fertigen Dokument.
+     *
+     * @return array{vertragsbeginn: ?string, vertragsende: ?string}
+     */
+    private function resolveDates(RecContract $old, ?string $vertragsbeginn, ?string $vertragsende): array
+    {
+        $beginn = $vertragsbeginn !== null && $vertragsbeginn !== ''
+            ? $vertragsbeginn
+            : $old->getExtraField('vertragsbeginn');
+        $ende = $vertragsende !== null && $vertragsende !== ''
+            ? $vertragsende
+            : $old->getExtraField('vertragsende');
+
+        return RecContract::resolveContractDates(
+            is_string($beginn) ? $beginn : null,
+            is_string($ende) ? $ende : null,
+        );
     }
 
     /**
