@@ -45,12 +45,7 @@ class RecEmployeeExportObserver
         'religion', 'number_of_children',
 
         // Kontakt
-        // phone PAUSIERT (02.09.2026): der Bestands-Fix normalize-employee-phones
-        // hat ueber diesen Trigger ~500 ZAS-Bestands-MA in den Update-Export
-        // gespuelt — der liefert volle Zeilen und haette ZAS-gepflegte Akten
-        // ueberschrieben. Wieder aufnehmen, sobald der Export nur geaenderte
-        // Felder liefert (Diff-Export). Test: ZasExportPhoneTriggerPausedTest.
-        'email',
+        'email', 'phone',
 
         // Adresse
         'street', 'house_number', 'zip', 'city', 'country_code',
