@@ -477,17 +477,7 @@
                                     @endforeach
                                 </div>
                             @endif
-                            <div class="mt-2 flex items-center gap-2 leading-none" title="Bewertung (Termin): Schnitt aus Erscheinungsbild, Fachkompetenz, Auffassungsgabe, Auftreten, Teamintegration">
-                                @if ($crew['stars'] !== null)
-                                    @php $avgLbl = $crew['stars_avg'] !== null ? number_format($crew['stars_avg'], 1, ',', '') : null; @endphp
-                                    <span class="text-2xl tracking-wide"><span class="text-amber-400">{{ str_repeat('★', $crew['stars']) }}</span><span class="text-gray-300">{{ str_repeat('★', 5 - $crew['stars']) }}</span></span>
-                                    @if ($avgLbl !== null)
-                                        <span class="text-sm font-semibold tabular-nums text-gray-500">{{ $avgLbl }}</span>
-                                    @endif
-                                @else
-                                    <span class="text-sm text-gray-400">noch keine Bewertung</span>
-                                @endif
-                            </div>
+
                         </div>
                         <button type="button" wire:click="closeCrew" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-600" aria-label="Schließen">✕</button>
                     </div>
@@ -497,7 +487,23 @@
                         <span class="ml-1.5 text-sm text-gray-600">bestätigte {{ $crew['confirmed_past'] === 1 ? 'Einsatz' : 'Einsätze' }} bisher</span>
                     </div>
 
-                    <div class="mt-3">
+                    <div class="mt-4">
+                        <div class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Bewertung</div>
+                        @if ($crew['ratings'] !== [])
+                            <div class="mt-1.5 space-y-1.5">
+                                @foreach ($crew['ratings'] as $ratingLabel => $ratingValue)
+                                    <div class="flex items-center justify-between gap-3">
+                                        <span class="text-sm text-gray-700">{{ $ratingLabel }}</span>
+                                        <span class="shrink-0 text-base leading-none tracking-wide"><span class="text-amber-400">{{ str_repeat('★', $ratingValue) }}</span><span class="text-gray-300">{{ str_repeat('★', 5 - $ratingValue) }}</span></span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="mt-1 text-sm text-gray-400">noch keine Bewertung</div>
+                        @endif
+                    </div>
+
+                    <div class="mt-4">
                         <div class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Qualifikationen</div>
                         @if ($crew['qualifications'] !== [])
                             <div class="mt-1.5 flex flex-wrap gap-1.5">

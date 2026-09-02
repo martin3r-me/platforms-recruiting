@@ -650,8 +650,7 @@ class Show extends Component
 
         // Kanonischer Datensatz zuerst; Luecken (Selfie/Sterne/Qualis) fuellt die Gruppe.
         $primary = $cards[$this->crewEmployeeId] ?? reset($cards);
-        $stars = $primary['stars'];
-        $starsAvg = $primary['stars_avg'];
+        $ratings = $primary['ratings'];
         $selfie = $primary['selfie_url'];
         $selfieFull = $primary['selfie_full_url'];
         $quals = $primary['qualifications'];
@@ -660,9 +659,8 @@ class Show extends Component
             if ($card['personnel_number'] !== '') {
                 $pnrs[] = $card['personnel_number'];
             }
-            if ($stars === null) {
-                $stars = $card['stars'];
-                $starsAvg = $card['stars_avg'];
+            if ($ratings === []) {
+                $ratings = $card['ratings'];
             }
             if ($selfie === null) {
                 $selfie = $card['selfie_url'];
@@ -683,8 +681,7 @@ class Show extends Component
         return [
             'name'           => $primary['name'],
             'pnrs'           => array_values(array_unique($pnrs)),
-            'stars'          => $stars,
-            'stars_avg'      => $starsAvg,
+            'ratings'        => $ratings,
             'selfie_url'     => $selfie,
             'selfie_full_url' => $selfieFull,
             'qualifications' => array_values(array_unique($quals)),

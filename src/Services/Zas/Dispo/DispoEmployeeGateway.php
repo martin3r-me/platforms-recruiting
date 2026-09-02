@@ -47,12 +47,12 @@ class DispoEmployeeGateway
     /**
      * Personal-Kaertchen fuer das Crew-Modal der VA-Seite (Kunde 02.09.):
      * abgespeckte Sicht statt Link in die volle MA-Akte. Liefert je id Name,
-     * PNr, Sterne (star_rating, sonst gerundeter Schnitt der Einzel-Ratings),
+     * PNr, die fuenf Termin-Bewertungen EINZELN (Fallback: star_rating-Zeile),
      * Qualifikations-LABELS (Lookup 'qualifikation') und die Selfie-URL
      * (Thumbnail-Variante bevorzugt, Muster InterviewBookings::selfies()).
      *
      * @param list<int> $employeeIds
-     * @return array<int, array{name:string, personnel_number:string, stars:?int, stars_avg:?float, qualifications:list<string>, selfie_url:?string, selfie_full_url:?string}>
+     * @return array<int, array{name:string, personnel_number:string, ratings:array<string,int>, qualifications:list<string>, selfie_url:?string, selfie_full_url:?string}>
      */
     public function profileCards(array $employeeIds): array
     {
@@ -82,24 +82,26 @@ class DispoEmployeeGateway
         foreach ($employees as $e) {
             $hr = $e->hrData;
 
-            // Sterne = TERMIN-Bewertung (Kunde 02.09.): Schnitt der fuenf Kriterien
-            // (Erscheinungsbild, Fachkompetenz, Auffassungsgabe, Auftreten,
-            // Teamintegration); nur Altbestand ohne Termin-Bewertung faellt auf
-            // star_rating zurueck.
-            $avg = null;
+            // TERMIN-Bewertung (Kunde 02.09.): die fuenf Kriterien EINZELN —
+            // kein Gesamtschnitt. Altbestand ohne Termin-Bewertung zeigt
+            // ersatzweise star_rating als eigene Zeile.
+            $ratings = [];
             if ($hr !== null) {
-                $ratings = array_filter([
-                    $hr->rating_erscheinungsbild, $hr->rating_fachkompetenz, $hr->rating_auffassungsgabe,
-                    $hr->rating_auftreten, $hr->rating_teamintegration,
-                ], fn ($v) => $v !== null);
-                if ($ratings !== []) {
-                    $avg = round(array_sum($ratings) / count($ratings), 1);
+                foreach ([
+                    'Erscheinungsbild & Hygiene'        => $hr->rating_erscheinungsbild,
+                    'Fachliche Grundkompetenz'          => $hr->rating_fachkompetenz,
+                    'Auffassungsgabe & Lernbereitschaft' => $hr->rating_auffassungsgabe,
+                    'Auftreten & Kommunikation'         => $hr->rating_auftreten,
+                    'Teamintegration & Verhalten'       => $hr->rating_teamintegration,
+                ] as $label => $value) {
+                    if ($value !== null && (int) $value >= 1 && (int) $value <= 5) {
+                        $ratings[$label] = (int) $value;
+                    }
+                }
+                if ($ratings === [] && $hr->star_rating !== null && (int) $hr->star_rating >= 1 && (int) $hr->star_rating <= 5) {
+                    $ratings['Sternebewertung (Altbestand)'] = (int) $hr->star_rating;
                 }
             }
-            if ($avg === null && $hr?->star_rating !== null) {
-                $avg = (float) $hr->star_rating;
-            }
-            $stars = $avg !== null ? (int) round($avg) : null;
 
             $quals = $hr?->qualifications;
             if (is_string($quals)) {
@@ -122,8 +124,7 @@ class DispoEmployeeGateway
             $cards[(int) $e->id] = [
                 'name'             => trim($e->first_name . ' ' . $e->last_name),
                 'personnel_number' => (string) ($e->personnel_number ?? ''),
-                'stars'            => ($stars !== null && $stars >= 1 && $stars <= 5) ? $stars : null,
-                'stars_avg'        => ($stars !== null && $stars >= 1 && $stars <= 5) ? $avg : null,
+                'ratings'          => $ratings,
                 'qualifications'   => $qualLabels,
                 'selfie_url'       => $selfieUrl,
                 'selfie_full_url'  => $selfieFullUrl,
