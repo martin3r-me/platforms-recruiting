@@ -22,8 +22,16 @@ class DispoChatTemplateSender
     /** @return list<array{key:string, label:string, template:string}> */
     public static function options(): array
     {
+        try {
+            $raw = (array) config('recruiting.zas.dispo_chat_templates', []);
+        } catch (\Throwable) {
+            // Pure Unit-Kontexte (DispoTemplateLabelsTest) haben keinen Container —
+            // dann gibt es schlicht keine Chat-Vorlagen.
+            return [];
+        }
+
         return array_values(array_filter(
-            (array) config('recruiting.zas.dispo_chat_templates', []),
+            $raw,
             fn ($o) => isset($o['key'], $o['label'], $o['template'])
         ));
     }
