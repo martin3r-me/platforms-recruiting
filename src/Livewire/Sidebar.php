@@ -18,7 +18,7 @@ class Sidebar extends Component
     #[\Livewire\Attributes\Computed]
     public function eventOnly(): bool
     {
-        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::eventOnly(auth()->user());
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::currentUserEventOnly();
     }
 
     public function recentApplicants()

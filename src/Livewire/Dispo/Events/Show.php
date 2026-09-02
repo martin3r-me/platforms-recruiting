@@ -95,7 +95,7 @@ class Show extends Component
     #[Computed]
     public function eventOnly(): bool
     {
-        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::eventOnly(auth()->user());
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::currentUserEventOnly();
     }
 
     /**
@@ -104,7 +104,7 @@ class Show extends Component
      */
     private function blockedForEventOnly(): bool
     {
-        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::eventOnly(auth()->user());
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::currentUserEventOnly();
     }
 
     public function mount(int $eventId): void

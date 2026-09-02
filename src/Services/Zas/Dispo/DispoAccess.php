@@ -25,6 +25,19 @@ final class DispoAccess
     /** @var array{0: list<string>}|null Request-Memo (Middleware + Sidebar + Komponenten fragen mehrfach) */
     private static ?array $memo = null;
 
+    /**
+     * Bequemer Einstieg fuer Komponenten: aktueller Nutzer. Ohne gebootetes
+     * Auth-System (Capsule-Tests) -> false, gleiche Opt-in-Fehlerrichtung.
+     */
+    public static function currentUserEventOnly(): bool
+    {
+        try {
+            return self::eventOnly(auth()->user());
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     public static function eventOnly(mixed $user): bool
     {
         $email = mb_strtolower(trim((string) ($user?->email ?? '')));
