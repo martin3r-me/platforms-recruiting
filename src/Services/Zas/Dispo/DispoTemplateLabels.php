@@ -53,6 +53,12 @@ final class DispoTemplateLabels
         if (isset($labels[$templateName])) {
             return $labels[$templateName];
         }
+        // Feste Chat-Vorlagen (config, Kunde 01.09.) — unabhaengig von den Settings-Rollen.
+        foreach (DispoChatTemplateSender::options() as $option) {
+            if ($option['template'] === $templateName) {
+                return $option['label'];
+            }
+        }
         $n = mb_strtolower($templateName);
         if (str_contains($n, 'reminder2') || str_contains($n, 'final')) {
             return 'Letzte Erinnerung';

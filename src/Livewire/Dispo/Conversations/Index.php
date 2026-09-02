@@ -8,6 +8,7 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
+use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
@@ -546,6 +547,53 @@ class Index extends Component
         }
         unset($this->threads, $this->filialeTabs);
         $this->dispatch('sidebar-refresh');
+    }
+
+    /** Die drei festen Chat-Vorlagen (config) — fuer die Buttons unter dem geschlossenen Fenster. */
+    #[Computed]
+    public function chatTemplates(): array
+    {
+        return DispoChatTemplateSender::options();
+    }
+
+    /**
+     * Vorlage aus dem Chat senden (Kunde 01.09.): oeffnet das Gespraech, wenn
+     * kein 24h-Fenster offen ist. Nur bei zugeordnetem MA — {{name}} braucht
+     * den Vornamen. $key wird im Sender gegen die Config-Liste geprueft.
+     */
+    public function sendChatTemplate(string $key): void
+    {
+        $this->sendError = null;
+        $thread = $this->selected;
+        if ($thread === null) {
+            $this->sendError = 'Kein Thread verfuegbar.';
+            return;
+        }
+        $employeeId = $this->resolveEmployee($thread);
+        if ($employeeId === null) {
+            $this->sendError = 'Kein Mitarbeiter zugeordnet — Vorlagen brauchen den Vornamen.';
+            return;
+        }
+
+        $r = app(DispoChatTemplateSender::class)->send($thread, $key, $this->firstNameOf($employeeId), auth()->user());
+        if (!$r['ok']) {
+            $this->sendError = $r['error'];
+            return;
+        }
+        unset($this->threads, $this->messages, $this->selected, $this->filialeTabs, $this->selectedInfo);
+    }
+
+    /** Vorname der Person: erster nicht-leerer Vorname der Identitaetsgruppe. */
+    private function firstNameOf(int $employeeId): string
+    {
+        $groupIds = $this->identity['groups'][$employeeId] ?? [$employeeId];
+        foreach (app(DispoEmployeeGateway::class)->contacts($groupIds) as $contact) {
+            if (trim($contact['first_name']) !== '') {
+                return trim($contact['first_name']);
+            }
+        }
+
+        return '';
     }
 
     public function sendReply(): void

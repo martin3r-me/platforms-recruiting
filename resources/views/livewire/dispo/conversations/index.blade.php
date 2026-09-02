@@ -246,11 +246,25 @@
                                 </button>
                             </div>
                         @else
+                            {{-- Kein Fenster offen: die drei festen Chat-Vorlagen (Kunde 01.09.) — ein Klick, Nachricht raus. --}}
+                            @if ($info['matched'])
+                                <div class="mb-2 flex flex-wrap gap-2">
+                                    @foreach ($this->chatTemplates as $tpl)
+                                        <button type="button" wire:click="sendChatTemplate('{{ $tpl['key'] }}')"
+                                                wire:loading.attr="disabled" wire:target="sendChatTemplate"
+                                                class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[13px] font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                            {{ $tpl['label'] }}
+                                        </button>
+                                    @endforeach
+                                </div>
+                            @endif
                             <div class="rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
-                                @if ($window['state'] === 'closed')
-                                    Freitext ist nur bis 24 h nach der letzten Nachricht des Mitarbeiters möglich. Erinnerungen laufen als Vorlage über die <a href="{{ route('recruiting.dispo.events.index') }}" class="font-semibold underline">Veranstaltung</a>.
+                                @if (!$info['matched'])
+                                    Kein Mitarbeiter zugeordnet — Vorlagen brauchen den Vornamen. Freitext geht erst, wenn der Mitarbeiter schreibt.
+                                @elseif ($window['state'] === 'closed')
+                                    Freitext ist nur bis 24 h nach der letzten Nachricht des Mitarbeiters möglich — schick eine Vorlage, sobald er antwortet ist das Fenster wieder offen.
                                 @else
-                                    Sobald der Mitarbeiter antwortet, kannst du hier 24 h lang frei schreiben. Bis dahin laufen Nachrichten als Vorlage über die <a href="{{ route('recruiting.dispo.events.index') }}" class="font-semibold underline">Veranstaltung</a>.
+                                    Schick eine Vorlage, um das Gespräch zu starten — sobald der Mitarbeiter antwortet, kannst du hier 24 h lang frei schreiben.
                                 @endif
                             </div>
                         @endif

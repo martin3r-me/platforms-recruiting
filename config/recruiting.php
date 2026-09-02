@@ -138,6 +138,15 @@ return [
         // "Wer Ansprechpartner sein soll, wird in ZAS als Teamleitung disponiert."
         'dispo_lead_taetigkeiten' => ['Teamleitung'],
 
+        // Chat-Vorlagen der Dispo (Kunde 01.09., Meta-genehmigt 02.09.): AUSSCHLIESSLICH
+        // diese drei sind aus der Kommunikation/dem VA-Chat versendbar. label = was der
+        // Enduser sieht; template = Meta-Name; Variable {{name}} = Vorname des MA.
+        'dispo_chat_templates' => [
+            ['key' => 'init', 'label' => 'Gespräch starten',  'template' => 't_init'],
+            ['key' => 'wann', 'label' => 'Wann bist du da?',  'template' => 't_wo_bist'],
+            ['key' => 'wo',   'label' => 'Wo bist du?',       'template' => 'wo_bist_du'],
+        ],
+
         // Maximale Datenzeilen pro Inbound-Lieferung. Die Verarbeitung laeuft
         // synchron im Request (gemessen: ~2-3 Sekunden pro 100 Zeilen), eine zu
         // grosse Lieferung liefe in den nginx/PHP-Timeout. Absprache mit ZAS

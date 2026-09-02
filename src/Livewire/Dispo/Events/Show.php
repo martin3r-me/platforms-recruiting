@@ -11,6 +11,7 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
+use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
@@ -606,6 +607,40 @@ class Show extends Component
     {
         $this->chatFilter = $filter === 'alle' ? 'alle' : 'seit_versand';
         unset($this->chat);
+    }
+
+    /** Die drei festen Chat-Vorlagen (config) — Buttons im Panel, wenn kein Fenster offen ist. */
+    #[Computed]
+    public function chatTemplates(): array
+    {
+        return DispoChatTemplateSender::options();
+    }
+
+    /** Vorlage aus dem VA-Chat senden (Kunde 01.09.) — gleiche Regel wie in der Kommunikation. */
+    public function sendChatTemplate(string $key): void
+    {
+        $thread = $this->chatThread;
+        if ($thread === null || $this->chatEmployeeId === null) {
+            $this->chatError = 'Kein Thread verfuegbar.';
+            return;
+        }
+
+        $groupIds = $this->identity['byCanon'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
+        $firstName = '';
+        foreach (app(DispoEmployeeGateway::class)->contacts($groupIds) as $contact) {
+            if (trim($contact['first_name']) !== '') {
+                $firstName = trim($contact['first_name']);
+                break;
+            }
+        }
+
+        $r = app(DispoChatTemplateSender::class)->send($thread, $key, $firstName, auth()->user());
+        if (!$r['ok']) {
+            $this->chatError = $r['error'];
+            return;
+        }
+        $this->chatError = null;
+        unset($this->threadsByEmployee, $this->chatThread, $this->chat);
     }
 
     public function sendChatReply(): void

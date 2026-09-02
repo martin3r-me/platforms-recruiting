@@ -491,7 +491,17 @@
                             <button type="submit" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">Senden</button>
                         </form>
                     @else
-                        <div class="text-xs text-gray-500">Freitext ist nur bis 24 h nach der letzten Nachricht des Mitarbeiters möglich. Erinnerungen laufen als Vorlage über „Bestätigungen senden".</div>
+                        {{-- Kein Fenster offen: die drei festen Chat-Vorlagen (Kunde 01.09.). --}}
+                        <div class="mb-2 flex flex-wrap gap-2">
+                            @foreach ($this->chatTemplates as $tpl)
+                                <button type="button" wire:click="sendChatTemplate('{{ $tpl['key'] }}')"
+                                        wire:loading.attr="disabled" wire:target="sendChatTemplate"
+                                        class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[13px] font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                    {{ $tpl['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                        <div class="text-xs text-gray-500">Freitext geht erst, wenn der Mitarbeiter antwortet — die Vorlage öffnet das Gespräch.</div>
                     @endif
                     @if ($chatError)
                         <div class="mt-2 text-sm text-red-600">{{ $chatError }}</div>
