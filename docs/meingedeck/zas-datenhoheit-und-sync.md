@@ -158,9 +158,17 @@ Praktische Folgen:
 **Massen-Änderungen über Eloquent lösen Massen-Marker aus.** Jeder Bestands-Fix, der
 `$employee->save()` benutzt und ein beobachtetes Feld anfasst, markiert alle betroffenen
 Mitarbeiter für den Export. So ist der Vorfall vom 02.09. entstanden
-(`recruiting:normalize-employee-phones`). Wer so einen Command schreibt, sollte entweder
-observer-frei schreiben (Muster: `ZasInboundEmployeeImporter::syncMatchedFields()` merkt
-sich den Marker und stellt ihn wieder her) oder die Folgen bewusst einplanen.
+(`recruiting:normalize-employee-phones`, inzwischen behoben).
+
+> **Regel für neue Bestands-Commands:** Wer viele Mitarbeiter auf einmal anfasst, schreibt
+> **observer-frei** — direktes `DB::table()->update()` statt `save()`. Das gilt besonders für
+> reine Format- oder Normalisierungskorrekturen: dieselbe Nummer in anderer Schreibweise ist
+> keine fachliche Änderung, über die ZAS zu informieren wäre. Nebeneffekt und ebenfalls
+> erwünscht: `updated_at` bleibt stehen und damit die einzige Spur, an der sich später
+> ablesen lässt, wer sich wirklich geändert hat.
+> Muster: `NormalizeEmployeePhonesCommand` (direktes Update) bzw.
+> `ZasInboundEmployeeImporter::syncMatchedFields()` (Marker merken und wiederherstellen,
+> wenn Eloquent gebraucht wird). Vorher prüfen, ob am Feld noch andere Observer hängen.
 
 **Inaktive Mitarbeiter behalten ihren Marker für immer.** `is_active` ist selbst ein
 Auslöser — das Deaktivieren setzt den Marker, und dieselbe Deaktivierung schließt den
@@ -257,5 +265,9 @@ Aufgeräumt wurde so: die Datei wurde verworfen, und die **echten** Änderungen 
 letzten Import (35 Stück, ausschließlich HCM) wurden gezielt neu markiert — ermittelt über
 `updated_at`, die Lohnfeld-Historie `payroll_data_changed_fields`, `context_files` und
 `rec_contracts`. Die Marker des Telefon-Laufs waren durch den Abruf bereits verbraucht.
+
+Behoben: der Command schreibt seit `56a5108` observer-frei und ist damit beliebig oft
+gefahrlos wiederholbar. Der `phone`-Trigger selbst bleibt bewusst bestehen — eine echte neue
+Nummer soll ZAS weiterhin erreichen, Dispo und WhatsApp hängen daran.
 
 Lehre: siehe Abschnitt 6, erster Punkt.
