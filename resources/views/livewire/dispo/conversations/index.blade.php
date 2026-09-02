@@ -232,6 +232,18 @@
                             <button type="button" wire:click="toggleUnread({{ $selectedThreadId }})" class="ml-auto text-xs text-gray-400 hover:text-gray-600 sm:hidden">als {{ $info['is_unread'] ? 'gelesen' : 'ungelesen' }} markieren</button>
                         </div>
                         @if ($window['state'] === 'open')
+                            {{-- Vorlagen auch bei offenem Fenster (Kunde 02.09.) — z. B. fuer die Standardfragen. --}}
+                            @if ($info['matched'])
+                                <div class="mb-2 flex flex-wrap gap-2">
+                                    @foreach ($this->chatTemplates as $tpl)
+                                        <button type="button" wire:click="sendChatTemplate('{{ $tpl['key'] }}')"
+                                                wire:loading.attr="disabled" wire:target="sendChatTemplate"
+                                                class="rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+                                            {{ $tpl['label'] }}
+                                        </button>
+                                    @endforeach
+                                </div>
+                            @endif
                             {{-- Textfeld waechst mit dem Inhalt (bis ~8 Zeilen, dann intern scrollen);
                                  Enter macht eine neue Zeile, gesendet wird nur ueber den Knopf. --}}
                             <div class="flex items-end gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 pl-3 focus-within:border-blue-400"

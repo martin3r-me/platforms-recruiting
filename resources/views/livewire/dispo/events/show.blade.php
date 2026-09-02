@@ -486,6 +486,16 @@
                 </div>
                 <div class="border-t border-gray-200 bg-white p-3">
                     @if ($w['state'] === 'open')
+                        {{-- Vorlagen auch bei offenem Fenster (Kunde 02.09.). --}}
+                        <div class="mb-2 flex flex-wrap gap-2">
+                            @foreach ($this->chatTemplates as $tpl)
+                                <button type="button" wire:click="sendChatTemplate('{{ $tpl['key'] }}')"
+                                        wire:loading.attr="disabled" wire:target="sendChatTemplate"
+                                        class="rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+                                    {{ $tpl['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
                         <form wire:submit="sendChatReply" class="flex items-end gap-2">
                             <textarea wire:model="chatReply" rows="2" placeholder="Antwort schreiben …" class="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm"></textarea>
                             <button type="submit" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">Senden</button>
