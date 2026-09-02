@@ -91,6 +91,22 @@ class Show extends Component
     #[Locked]
     public ?string $chatError = null;
 
+    /** Stufe "Nur Veranstaltungen": VA-Seite lesend + Chat — alle Mutationen gesperrt. */
+    #[Computed]
+    public function eventOnly(): bool
+    {
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::eventOnly(auth()->user());
+    }
+
+    /**
+     * Server-Riegel fuer mutierende Actions: Blade versteckt die Knoepfe nur —
+     * Livewire-Actions blieben sonst per $wire aufrufbar (Muster #[Locked]).
+     */
+    private function blockedForEventOnly(): bool
+    {
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::eventOnly(auth()->user());
+    }
+
     public function mount(int $eventId): void
     {
         $this->eventId = $eventId;
@@ -115,6 +131,9 @@ class Show extends Component
     /** Schreibt den Hinweis auf ALLE Einbuchungen dieses MA fuer diese VA. */
     public function saveNote(int $employeeId): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $value = trim((string) ($this->notes[$employeeId] ?? ''));
         $this->notes[$employeeId] = $value;
 
@@ -129,6 +148,9 @@ class Show extends Component
     /** Oeffnet das Hinweis-Modal fuer einen (gematchten) Mitarbeiter. */
     public function openNote(int $employeeId): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $this->noteEmployeeId = $employeeId;
         $this->noteDraft = (string) ($this->notes[$employeeId] ?? '');
 
@@ -141,6 +163,9 @@ class Show extends Component
     /** Uebernimmt den Modal-Entwurf und speichert ihn (nur bei gesetzter MA). */
     public function saveNoteFromModal(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         if ($this->noteEmployeeId === null) {
             return;
         }
@@ -167,6 +192,9 @@ class Show extends Component
 
     public function openAttachment(int $employeeId): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $this->attachmentEmployeeId = $employeeId;
         $employee = $this->event->assignments->firstWhere('rec_employee_id', $employeeId)?->employee;
         $this->attachmentEmployeeName = $employee ? trim($employee->first_name . ' ' . $employee->last_name) : '';
@@ -177,6 +205,9 @@ class Show extends Component
 
     public function saveAttachment(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         if ($this->attachmentEmployeeId === null) {
             return;
         }
@@ -199,6 +230,9 @@ class Show extends Component
 
     public function removeAttachment(int $employeeId): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $attachment = $this->attachmentsByEmployee[$employeeId] ?? null;
         if ($attachment !== null) {
             DispoAttachmentStore::default()->remove($attachment);
@@ -294,6 +328,9 @@ class Show extends Component
 
     public function openEscalationModal(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $this->loadEscalationForm();
         $this->resetErrorBag('escTime1');
         $this->showEscalationModal = true;
@@ -301,6 +338,9 @@ class Show extends Component
 
     public function saveEscalation(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         if ($this->persistEscalation()) {
             $this->showEscalationModal = false;
         }
@@ -394,6 +434,9 @@ class Show extends Component
     /** Uebernimmt eine Teamleitung (Button/Select) ins Ansprechpartner-Feld. */
     public function applyLead(?int $employeeId = null): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $employeeId ??= ($this->leadChoice !== '' ? (int) $this->leadChoice : null);
         foreach ($this->teamLeads as $lead) {
             if ($employeeId !== null && $lead['employee_id'] === $employeeId) {
@@ -437,6 +480,9 @@ class Show extends Component
     /** "Standard verwenden": zurueck auf die Teamleitung (leert die manuelle Ueberschreibung beim Speichern). */
     public function useLeadDefault(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $leads = $this->teamLeads;
         $this->ansprechpartner = $leads !== [] ? $leads[0]['label'] : '';
         $this->leadChoice = $leads !== [] ? (string) $leads[0]['employee_id'] : '';
@@ -454,6 +500,9 @@ class Show extends Component
 
     public function openContactModal(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $this->loadContactForm();
         $this->resetErrorBag('ansprechpartner');
         $this->showContactModal = true;
@@ -461,6 +510,9 @@ class Show extends Component
 
     public function saveContact(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $this->validate(['ansprechpartner' => 'nullable|string|max:255']);
         $this->persistContact();
         $this->showContactModal = false;
@@ -819,6 +871,9 @@ class Show extends Component
 
     public function openSendModal(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         $this->vorlaufMinuten = (string) ($this->event->vorlauf_minuten ?? '');
         $this->includeReminders = false;
         $this->sendDay = '';
@@ -834,6 +889,9 @@ class Show extends Component
 
     public function sendConfirmations(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
         // Doppelklick-Riegel (Kunde 01.09.): ein Versand je VA zur Zeit. Der zweite
         // Klick landet hier, waehrend der erste noch in der Meta-Schleife steckt —
         // ohne Lock wuerde er dieselben Empfaenger erneut planen (die

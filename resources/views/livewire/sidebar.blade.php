@@ -4,6 +4,16 @@
         Recruiting
     </div>
 
+    {{-- Stufe "Nur Veranstaltungen" (Gate Stufe 1): Teamleiter-Konten sehen nur diesen einen Eintrag. --}}
+    @if ($this->eventOnly)
+        <x-ui-sidebar-list label="Disposition">
+            <x-ui-sidebar-item :href="route('recruiting.dispo.events.index')">
+                @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
+                <span class="ml-2 text-sm">Veranstaltungen</span>
+            </x-ui-sidebar-item>
+        </x-ui-sidebar-list>
+    @else
+
     {{-- Abschnitt: Dashboard --}}
     <x-ui-sidebar-list label="Übersicht">
         <x-ui-sidebar-item :href="route('recruiting.dashboard')">
@@ -233,4 +243,5 @@
             </div>
         </div>
     </div>
+    @endif
 </div>

@@ -94,6 +94,10 @@ class RecruitingServiceProvider extends ServiceProvider
         // Schedule FIRST — before any DB calls that could fail
         $this->registerSchedule();
 
+        // Zugriffsstufe "Nur Veranstaltungen" (Gate Stufe 1): haengt in der
+        // web-Gruppe, ist fuer alle Nicht-Recruiting-Requests ein No-op.
+        $this->app['router']->pushMiddlewareToGroup('web', \Platform\Recruiting\Http\Middleware\DispoEventOnlyGate::class);
+
         Relation::morphMap([
             'rec_applicant' => \Platform\Recruiting\Models\RecApplicant::class,
             'rec_position' => \Platform\Recruiting\Models\RecPosition::class,

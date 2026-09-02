@@ -1,6 +1,7 @@
 <div class="p-4 lg:p-6 space-y-6">
     @php
         $event = $this->event;
+        $eventOnly = $this->eventOnly;
         $statusLabels = [0 => 'Angebot', 1 => 'Auftrag', 2 => 'Beendet', 3 => 'Storno'];
         $statusClasses = [
             0 => 'bg-gray-100 text-gray-700',
@@ -53,7 +54,9 @@
         <div class="rounded-lg border border-gray-200 bg-white p-4">
             <div class="flex items-center justify-between">
                 <div class="text-sm font-medium text-gray-500">Ansprechpartner vor Ort</div>
-                <button type="button" wire:click="openContactModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+                @if (!$eventOnly)
+                    <button type="button" wire:click="openContactModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+                @endif
             </div>
             <div class="mt-1 text-sm">
                 {{ $contactEff['label'] ?? '—' }}
@@ -77,7 +80,9 @@
         <div class="rounded-lg border border-gray-200 bg-white p-4">
             <div class="flex items-center justify-between">
                 <div class="text-sm font-medium text-gray-500">Eskalation</div>
-                <button type="button" wire:click="openEscalationModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+                @if (!$eventOnly)
+                    <button type="button" wire:click="openEscalationModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+                @endif
             </div>
             <div class="mt-1 text-sm">
                 {{ $escDayLabel }} · {{ $escTimesLabel }}
@@ -99,11 +104,13 @@
             @php
                 $templateConfigured = $this->dispoSettings['template_id'] !== null;
             @endphp
+@if (!$eventOnly)
             <button wire:click="openSendModal"
                     @if (!$templateConfigured) disabled title="Kein Bestätigungs-Template konfiguriert (Disposition → Einstellungen)" @endif
                     class="rounded px-3 py-1.5 text-sm font-medium {{ $templateConfigured ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed' }}">
                 Bestätigungen senden
             </button>
+            @endif
         </div>
         {{-- Mobil: Crew-Liste statt 9-Spalten-Tabelle — Name, Zeit, Chips, grosser Chat-Knopf.
              Desktop (lg:) rendert unveraendert die Tabelle darunter. --}}
@@ -150,7 +157,11 @@
                         @if ($noteM !== '' || $attM)
                             <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
                                 @if ($noteM !== '')
-                                    <button type="button" wire:click="openNote({{ $assignment->rec_employee_id }})" class="max-w-full truncate text-left">✎ {{ $noteM }}</button>
+                                    @if ($eventOnly)
+                                        <span class="max-w-full truncate">✎ {{ $noteM }}</span>
+                                    @else
+                                        <button type="button" wire:click="openNote({{ $assignment->rec_employee_id }})" class="max-w-full truncate text-left">✎ {{ $noteM }}</button>
+                                    @endif
                                 @endif
                                 @if ($attM)
                                     <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $attM->uuid]) }}" target="_blank" rel="noopener" class="max-w-full truncate text-blue-600">📎 {{ $attM->original_filename }}</a>
@@ -241,6 +252,11 @@
                         <td class="px-4 py-2">
                             @if ($assignment->rec_employee_id)
                                 @php $note = trim($notes[$assignment->rec_employee_id] ?? ''); @endphp
+                                @if ($eventOnly)
+                                    @if ($note !== '')
+                                        <span class="block max-w-[14rem] truncate text-xs text-gray-700" title="{{ $note }}">{{ $note }}</span>
+                                    @endif
+                                @else
                                 <button type="button" wire:click="openNote({{ $assignment->rec_employee_id }})"
                                         class="group flex max-w-[14rem] items-center gap-1 text-left text-xs {{ $note !== '' ? 'text-gray-700' : 'text-gray-400' }} hover:text-blue-600"
                                         title="{{ $note !== '' ? $note : 'Hinweis hinzufügen' }}">
@@ -251,6 +267,7 @@
                                         <span>✎ Hinweis hinzufügen</span>
                                     @endif
                                 </button>
+                                @endif
                             @endif
                         </td>
                         <td class="px-4 py-2">
@@ -260,11 +277,15 @@
                                     <div class="flex items-center gap-2 text-xs">
                                         <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $att->uuid]) }}" target="_blank" rel="noopener"
                                            class="max-w-[12rem] truncate text-blue-600 hover:underline" title="{{ $att->original_filename }}">📎 {{ $att->original_filename }}</a>
-                                        <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-gray-400 hover:text-blue-600" title="Ersetzen">✎</button>
-                                        <button type="button" wire:click="removeAttachment({{ $assignment->rec_employee_id }})" wire:confirm="Anhang entfernen?" class="text-gray-400 hover:text-red-600" title="Entfernen">✕</button>
+                                        @if (!$eventOnly)
+                                            <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-gray-400 hover:text-blue-600" title="Ersetzen">✎</button>
+                                            <button type="button" wire:click="removeAttachment({{ $assignment->rec_employee_id }})" wire:confirm="Anhang entfernen?" class="text-gray-400 hover:text-red-600" title="Entfernen">✕</button>
+                                        @endif
                                     </div>
                                 @else
-                                    <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-xs text-gray-400 hover:text-blue-600">+ Anhang</button>
+                                    @if (!$eventOnly)
+                                        <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-xs text-gray-400 hover:text-blue-600">+ Anhang</button>
+                                    @endif
                                 @endif
                             @endif
                         </td>
@@ -553,7 +574,7 @@
                         </div>
                         <div class="flex items-center gap-2 text-xs text-gray-500 tabular-nums">
                             {{ $chat['phone'] }}
-                            @if ($chat['portal_url'])
+                            @if ($chat['portal_url'] && !$eventOnly)
                                 <a href="{{ $chat['portal_url'] }}" target="_blank" rel="noopener" class="font-semibold text-blue-700 hover:underline" title="Persönlicher Link des Mitarbeiters — nicht weitergeben.">Was der MA sieht ↗</a>
                             @endif
                         </div>
@@ -570,7 +591,7 @@
                 <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-4"
                      wire:key="chatmsgs-{{ $chatEmployeeId }}-{{ count($chat['messages']) }}-{{ $chatFilter }}"
                      x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
-                    @include('recruiting::livewire.dispo._messages', ['messages' => $chat['messages'], 'portalUrl' => $chat['portal_url']])
+                    @include('recruiting::livewire.dispo._messages', ['messages' => $chat['messages'], 'portalUrl' => $eventOnly ? null : $chat['portal_url']])
                 </div>
                 <div class="border-t border-gray-200 bg-white p-3">
                     @if ($w['state'] === 'open')

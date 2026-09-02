@@ -122,6 +122,20 @@
         </div>
     </div>
 
+    <div class="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+        <h2 class="text-base font-semibold">Zugriff „Nur Veranstaltungen"</h2>
+        <p class="text-sm text-gray-600">
+            Konten auf dieser Liste (z. B. Teamleiter wie <span class="font-mono text-xs">event@rheingedeck.de</span>) sehen im Recruiting ausschließlich
+            Disposition → Veranstaltungen: VA-Liste und VA-Seite lesend, Chat mit Antworten und Vorlagen. Kein Dashboard, keine Bewerber, keine Mitarbeiter-Akten, keine Einstellungen.
+        </p>
+        <label class="block text-sm">
+            <span class="mb-1 block font-medium text-gray-700">E-Mail-Adressen (eine pro Zeile)</span>
+            <textarea wire:model="eventOnlyEmails" rows="3" placeholder="event@rheingedeck.de"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+        </label>
+        <p class="text-xs text-gray-500">Wird mit dem Speichern-Button oben übernommen. Gilt ab dem nächsten Seitenaufruf des Kontos.</p>
+    </div>
+
     @php
         $linkReport = $this->contactLinkReport;
         $linkSkips = collect($linkReport['rows'])->where('state', 'skip')->count();

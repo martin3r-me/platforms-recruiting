@@ -14,6 +14,13 @@ use Platform\Recruiting\Models\RecPosting;
 class Sidebar extends Component
 {
     #[Computed]
+    /** Stufe "Nur Veranstaltungen": Sidebar zeigt dann ausschliesslich den Veranstaltungs-Eintrag. */
+    #[\Livewire\Attributes\Computed]
+    public function eventOnly(): bool
+    {
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::eventOnly(auth()->user());
+    }
+
     public function recentApplicants()
     {
         $teamId = auth()->user()->currentTeam->id;

@@ -36,6 +36,9 @@ class Settings extends Component
     // Fehlende Einstellung = AN, deshalb Default '1'.
     public string $contactBackfillEnabled = '1';
 
+    /** Stufe "Nur Veranstaltungen" (Gate Stufe 1): eine E-Mail pro Zeile (Textarea, String-Prop). */
+    public string $eventOnlyEmails = '';
+
     // Pro-Filiale-Konfiguration — Arrays von Strings, Key = Filialnummer.
     /** @var array<int, string> */
     public array $filialeChannelId = [];
@@ -49,6 +52,7 @@ class Settings extends Component
         // dieselben Werte lesen; Fallback currentTeam wenn unkonfiguriert.
         $settings = RecApplicantSettings::getOrCreateForTeam($this->teamId());
         $this->templateId    = (string) ($settings->getSetting('dispo_confirmation_template_id') ?? '');
+        $this->eventOnlyEmails = implode("\n", (array) ($settings->getSetting('dispo_event_only_emails') ?? []));
 
         $this->escalationEnabled     = $settings->getSetting('dispo_escalation_enabled') ? '1' : '';
         $this->escalationTime1       = (string) ($settings->getSetting('dispo_escalation_time_1') ?: '14:00');
@@ -144,6 +148,15 @@ class Settings extends Component
         // Konvertiere templateId-String zu Int oder null
         $templateId = ($this->templateId !== '' && ctype_digit($this->templateId)) ? (int) $this->templateId : null;
         $settings->setSetting('dispo_confirmation_template_id', $templateId);
+
+        // "Nur Veranstaltungen"-Zugaenge: eine E-Mail pro Zeile, kleingeschrieben, dedupliziert.
+        $emails = array_values(array_unique(array_filter(array_map(
+            fn ($line) => mb_strtolower(trim($line)),
+            preg_split('/\r?\n/', $this->eventOnlyEmails) ?: []
+        ))));
+        $settings->setSetting('dispo_event_only_emails', $emails);
+        $this->eventOnlyEmails = implode("\n", $emails);
+        \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::flush();
 
         $settings->setSetting('dispo_escalation_enabled', $this->escalationEnabled !== '');
         $settings->setSetting('dispo_escalation_time_1', $this->escalationTime1);
