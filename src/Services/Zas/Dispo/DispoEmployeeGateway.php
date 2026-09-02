@@ -45,6 +45,80 @@ class DispoEmployeeGateway
     }
 
     /**
+     * Personal-Kaertchen fuer das Crew-Modal der VA-Seite (Kunde 02.09.):
+     * abgespeckte Sicht statt Link in die volle MA-Akte. Liefert je id Name,
+     * PNr, Sterne (star_rating, sonst gerundeter Schnitt der Einzel-Ratings),
+     * Qualifikations-LABELS (Lookup 'qualifikation') und die Selfie-URL
+     * (Thumbnail-Variante bevorzugt, Muster InterviewBookings::selfies()).
+     *
+     * @param list<int> $employeeIds
+     * @return array<int, array{name:string, personnel_number:string, stars:?int, qualifications:list<string>, selfie_url:?string}>
+     */
+    public function profileCards(array $employeeIds): array
+    {
+        if ($employeeIds === []) {
+            return [];
+        }
+
+        $employees = RecEmployee::query()->with('hrData')->whereIn('id', $employeeIds)->get();
+
+        // Lookup-Map einmal laden (value => label).
+        $lookupId = \Illuminate\Support\Facades\DB::table('core_lookups')->where('name', 'qualifikation')->value('id');
+        $lookupMap = $lookupId
+            ? \Illuminate\Support\Facades\DB::table('core_lookup_values')->where('lookup_id', $lookupId)->pluck('label', 'value')->all()
+            : [];
+
+        // Selfies: ContextFiles + Thumbnail-Variante in zwei Queries fuer alle ids.
+        $fileIds = $employees->pluck('selfie_file_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
+        $files = $fileIds === [] ? collect() : \Platform\Core\Models\ContextFile::whereIn('id', $fileIds)->get()->keyBy('id');
+        $variants = $fileIds === [] ? collect() : \Platform\Core\Models\ContextFileVariant::whereIn('context_file_id', $fileIds)
+            ->where('variant_type', 'like', 'thumbnail_%')
+            ->orderBy('id')
+            ->get()
+            ->groupBy('context_file_id')
+            ->map(fn ($group) => $group->firstWhere('variant_type', 'thumbnail_4_3') ?? $group->first());
+
+        $cards = [];
+        foreach ($employees as $e) {
+            $hr = $e->hrData;
+
+            $stars = $hr?->star_rating !== null ? (int) $hr->star_rating : null;
+            if ($stars === null && $hr !== null) {
+                $ratings = array_filter([
+                    $hr->rating_erscheinungsbild, $hr->rating_fachkompetenz, $hr->rating_auffassungsgabe,
+                    $hr->rating_auftreten, $hr->rating_teamintegration,
+                ], fn ($v) => $v !== null);
+                $stars = $ratings === [] ? null : (int) round(array_sum($ratings) / count($ratings));
+            }
+
+            $quals = $hr?->qualifications;
+            if (is_string($quals)) {
+                $decoded = json_decode($quals, true);
+                $quals = is_array($decoded) ? $decoded : [];
+            }
+            $qualLabels = array_values(array_map(fn ($v) => (string) ($lookupMap[$v] ?? $v), is_array($quals) ? $quals : []));
+
+            $selfieUrl = null;
+            if ($e->selfie_file_id) {
+                $file = $files->get((int) $e->selfie_file_id);
+                if ($file && $file->isImage()) {
+                    $selfieUrl = $variants->get((int) $e->selfie_file_id)?->url ?? $file->url;
+                }
+            }
+
+            $cards[(int) $e->id] = [
+                'name'             => trim($e->first_name . ' ' . $e->last_name),
+                'personnel_number' => (string) ($e->personnel_number ?? ''),
+                'stars'            => ($stars !== null && $stars >= 1 && $stars <= 5) ? $stars : null,
+                'qualifications'   => $qualLabels,
+                'selfie_url'       => $selfieUrl,
+            ];
+        }
+
+        return $cards;
+    }
+
+    /**
      * Sperrt das MA-Portal (Eskalations-Stufe 3: 16-Uhr-Rausnahme). Idempotent —
      * ein bereits gesperrter MA wird NICHT ueberschrieben (Grund/Zeitpunkt der
      * ERSTEN Sperre bleiben erhalten). Kein Employee zu einer ID -> no-op fuer

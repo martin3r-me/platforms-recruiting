@@ -130,7 +130,9 @@
                     <div class="min-w-0 flex-1">
                         <div class="text-sm font-semibold text-gray-900">
                             @if ($assignment->employee)
-                                {{ $assignment->employee->first_name }} {{ $assignment->employee->last_name }}
+                                <button type="button" wire:click="openCrew({{ $assignment->rec_employee_id }})" class="text-left">
+                                    {{ $assignment->employee->first_name }} {{ $assignment->employee->last_name }}
+                                </button>
                             @else
                                 <span class="rounded bg-orange-50 px-1.5 py-0.5 text-xs font-normal text-orange-600">PNr unbekannt: {{ $assignment->pnr_raw }}</span>
                             @endif
@@ -199,9 +201,10 @@
                         <td class="px-4 py-2">{{ $assignment->taetigkeit ?? '—' }}</td>
                         <td class="px-4 py-2">
                             @if ($assignment->employee)
-                                <a href="{{ route('recruiting.employees.show', $assignment->employee->id) }}" class="text-blue-600 hover:underline">
+                                {{-- Kunde 02.09.: kein Link in die volle MA-Akte — abgespecktes Kaertchen als Modal. --}}
+                                <button type="button" wire:click="openCrew({{ $assignment->rec_employee_id }})" class="text-left text-blue-600 hover:underline">
                                     {{ $assignment->employee->first_name }} {{ $assignment->employee->last_name }}
-                                </a>
+                                </button>
                             @else
                                 <span class="rounded bg-orange-50 px-1.5 py-0.5 text-xs text-orange-600">PNr unbekannt: {{ $assignment->pnr_raw }}</span>
                             @endif
@@ -438,6 +441,66 @@
                     <button wire:click="$set('showEscalationModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveEscalation" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
                 </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Crew-Modal (Kunde 02.09.): abgespecktes Personal-Kaertchen — Selfie, Sterne,
+         bestaetigte Einsaetze, Qualifikationen. Mobil als Bottom-Sheet. --}}
+    @if ($crewEmployeeId !== null)
+        @php $crew = $this->crewCard; @endphp
+        <div class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" wire:click.self="closeCrew">
+            <div class="w-full rounded-t-2xl bg-white p-5 sm:max-w-sm sm:rounded-2xl" wire:key="crew-{{ $crewEmployeeId }}">
+                @if ($crew === null)
+                    <div class="text-sm text-gray-500">Keine Daten gefunden.</div>
+                @else
+                    <div class="flex items-start gap-4">
+                        @if ($crew['selfie_url'])
+                            <img src="{{ $crew['selfie_url'] }}" alt="Foto von {{ $crew['name'] }}"
+                                 class="h-20 w-20 shrink-0 rounded-full border border-gray-200 object-cover">
+                        @else
+                            <div class="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-gray-100 text-2xl font-bold text-gray-400">
+                                {{ mb_strtoupper(mb_substr($crew['name'], 0, 1)) }}
+                            </div>
+                        @endif
+                        <div class="min-w-0 flex-1">
+                            <div class="text-lg font-semibold leading-tight text-gray-900">{{ $crew['name'] }}</div>
+                            @if ($crew['pnrs'] !== [])
+                                <div class="mt-1 flex flex-wrap gap-1">
+                                    @foreach ($crew['pnrs'] as $pnr)
+                                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ $pnr }}</span>
+                                    @endforeach
+                                </div>
+                            @endif
+                            <div class="mt-1.5 text-lg leading-none tracking-wide" title="Bewertung">
+                                @if ($crew['stars'] !== null)
+                                    <span class="text-amber-400">{{ str_repeat('★', $crew['stars']) }}</span><span class="text-gray-300">{{ str_repeat('★', 5 - $crew['stars']) }}</span>
+                                @else
+                                    <span class="text-sm text-gray-400">noch keine Bewertung</span>
+                                @endif
+                            </div>
+                        </div>
+                        <button type="button" wire:click="closeCrew" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-600" aria-label="Schließen">✕</button>
+                    </div>
+
+                    <div class="mt-4 rounded-xl bg-gray-50 px-4 py-3">
+                        <span class="text-2xl font-bold tabular-nums text-gray-900">{{ $crew['confirmed_past'] }}</span>
+                        <span class="ml-1 text-sm text-gray-600">bestätigte {{ $crew['confirmed_past'] === 1 ? 'Einsatz' : 'Einsätze' }} bisher</span>
+                    </div>
+
+                    <div class="mt-3">
+                        <div class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Qualifikationen</div>
+                        @if ($crew['qualifications'] !== [])
+                            <div class="mt-1.5 flex flex-wrap gap-1.5">
+                                @foreach ($crew['qualifications'] as $qual)
+                                    <span class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700">{{ $qual }}</span>
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="mt-1 text-sm text-gray-400">keine hinterlegt</div>
+                        @endif
+                    </div>
+                @endif
             </div>
         </div>
     @endif

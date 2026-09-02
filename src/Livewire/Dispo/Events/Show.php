@@ -609,6 +609,79 @@ class Show extends Component
         unset($this->chat);
     }
 
+    /** Crew-Modal (Kunde 02.09.): abgespecktes Personal-Kaertchen statt Link in die MA-Akte. */
+    #[Locked]
+    public ?int $crewEmployeeId = null;
+
+    public function openCrew(int $employeeId): void
+    {
+        // Nur MA, die in DIESER VA disponiert sind — canon ist nach den
+        // Assignment-ids dieser VA gekeyt, ein fremdes id-Argument faellt durch.
+        $canon = $this->identity['canon'][$employeeId] ?? null;
+        if ($canon === null) {
+            return;
+        }
+        $this->crewEmployeeId = $canon;
+        unset($this->crewCard);
+    }
+
+    public function closeCrew(): void
+    {
+        $this->crewEmployeeId = null;
+        unset($this->crewCard);
+    }
+
+    /**
+     * Kaertchen-Daten der Person: Selfie, Sterne, Qualifikationen (aus dem
+     * Gateway) + Anzahl bestaetigter Einsaetze bisher (vergangene Auftrags-
+     * Einsatztage mit Bestaetigung, ueber ALLE Datensaetze der Gruppe).
+     */
+    #[Computed]
+    public function crewCard(): ?array
+    {
+        if ($this->crewEmployeeId === null) {
+            return null;
+        }
+        $groupIds = $this->identity['byCanon'][$this->crewEmployeeId] ?? [$this->crewEmployeeId];
+        $cards = app(DispoEmployeeGateway::class)->profileCards($groupIds);
+        if ($cards === []) {
+            return null;
+        }
+
+        // Kanonischer Datensatz zuerst; Luecken (Selfie/Sterne/Qualis) fuellt die Gruppe.
+        $primary = $cards[$this->crewEmployeeId] ?? reset($cards);
+        $stars = $primary['stars'];
+        $selfie = $primary['selfie_url'];
+        $quals = $primary['qualifications'];
+        $pnrs = [];
+        foreach ($cards as $card) {
+            if ($card['personnel_number'] !== '') {
+                $pnrs[] = $card['personnel_number'];
+            }
+            $stars ??= $card['stars'];
+            $selfie ??= $card['selfie_url'];
+            if ($quals === []) {
+                $quals = $card['qualifications'];
+            }
+        }
+
+        $confirmedPast = RecDispoAssignment::query()
+            ->whereIn('rec_employee_id', $groupIds)
+            ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
+            ->whereNotNull('confirmed_at')
+            ->whereDate('datum', '<', now()->toDateString())
+            ->count();
+
+        return [
+            'name'           => $primary['name'],
+            'pnrs'           => array_values(array_unique($pnrs)),
+            'stars'          => $stars,
+            'selfie_url'     => $selfie,
+            'qualifications' => array_values(array_unique($quals)),
+            'confirmed_past' => $confirmedPast,
+        ];
+    }
+
     /** Die drei festen Chat-Vorlagen (config) — Buttons im Panel, wenn kein Fenster offen ist. */
     #[Computed]
     public function chatTemplates(): array
