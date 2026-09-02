@@ -26,10 +26,23 @@ class DispoEventOnlyGate
         'recruiting.dispo.attachments.download',
     ];
 
+    /**
+     * Core-Landeseiten: fuer "Nur Veranstaltungen"-Konten direkt zu den
+     * Veranstaltungen umleiten (Kunde 03.09.: nach dem SSO-Login nicht erst
+     * durchs Dashboard klicken). Bewusst NUR diese Namen — alles andere im
+     * Core (Logout, Profil, Team-Wechsel) bleibt unangetastet.
+     */
+    private const CORE_LANDING = [
+        'platform.dashboard',
+    ];
+
     public function handle(Request $request, Closure $next)
     {
         $name = (string) ($request->route()?->getName() ?? '');
-        if (!str_starts_with($name, 'recruiting.') || in_array($name, self::ALLOWED, true)) {
+
+        $isRecruiting = str_starts_with($name, 'recruiting.') && !in_array($name, self::ALLOWED, true);
+        $isLanding    = in_array($name, self::CORE_LANDING, true);
+        if (!$isRecruiting && !$isLanding) {
             return $next($request);
         }
         if (!DispoAccess::eventOnly($request->user())) {
