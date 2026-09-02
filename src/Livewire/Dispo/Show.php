@@ -6,7 +6,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Illuminate\Support\Facades\Storage;
 use Platform\Recruiting\Models\RecZasDispoInboundFile;
-use Platform\Recruiting\Services\Zas\DispoColumnProfiler;
+use Platform\Recruiting\Services\Zas\ZasColumnProfiler;
 use Platform\Recruiting\Services\Zas\DispoInboundInspector;
 use Platform\Recruiting\Support\CsvEncodingNormalizer;
 
@@ -109,7 +109,7 @@ class Show extends Component
                 'columns'   => $columns,
                 'row_count' => $csv['row_count'],
                 'rows'      => array_slice($csv['rows'], 0, self::ROW_CAP),
-                'profile'   => (new DispoColumnProfiler())->profile($columns, $csv['rows']),
+                'profile'   => (new ZasColumnProfiler())->profile($columns, $csv['rows']),
             ];
         }
 

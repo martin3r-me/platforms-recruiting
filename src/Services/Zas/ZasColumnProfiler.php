@@ -3,11 +3,15 @@
 namespace Platform\Recruiting\Services\Zas;
 
 /**
- * Spaltenuebersicht fuer die Dispo-Sichtung: Fuellgrad + Beispielwerte je
- * Spalte, gerechnet ueber die GANZE Datei (die Detailtabelle capt bei 200
- * Zeilen, die Uebersicht bewusst nicht — sie ist das Analyse-Werkzeug).
+ * Spaltenuebersicht einer ZAS-Lieferung: Fuellgrad + Beispielwerte je Spalte,
+ * gerechnet ueber die GANZE Datei (die Detailtabelle der Dispo-Sichtung capt
+ * bei 200 Zeilen, die Uebersicht bewusst nicht — sie ist das Analyse-Werkzeug).
+ *
+ * Dient beiden Eingangsrichtungen: der Dispo-Sichtung im Backend und dem
+ * Spalten-Bericht der Mitarbeiter-Lieferungen (ZasInboundColumnReport). Hiess
+ * bis 2026-09-02 DispoColumnProfiler; die Logik war nie dispo-spezifisch.
  */
-class DispoColumnProfiler
+class ZasColumnProfiler
 {
     /**
      * @param list<string> $columns

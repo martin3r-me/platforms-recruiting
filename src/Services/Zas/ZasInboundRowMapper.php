@@ -102,6 +102,37 @@ class ZasInboundRowMapper
         'BefristetBis'       => 'contract_end_date',
     ];
 
+    /**
+     * ZAS-Spalten, die map() von Hand liest — Default, Sonderregel oder
+     * Schluessel, jedenfalls nicht ueber eine der Tabellen oben.
+     */
+    private const HANDLED_SEPARATELY = ['Land', 'Status', 'StatusMASeit', 'Anstellungsart', 'UUID', 'ZasPersonalNr'];
+
+    /**
+     * Alle ZAS-Spalten, aus denen map() ueberhaupt etwas uebernimmt.
+     *
+     * Zweck: der Spalten-Bericht (recruiting:zas-inbound-columns) soll die
+     * Spalte "gelesen?" belegen statt sie zu pflegen — eine zweite,
+     * handgefuehrte Liste wuerde beim naechsten neuen Feld auseinanderlaufen
+     * und eine gelesene Spalte als Luecke ausweisen.
+     *
+     * @return list<string>
+     */
+    public static function knownColumns(): array
+    {
+        $columns = array_merge(
+            array_keys(self::DIRECT),
+            array_keys(self::DATES),
+            array_keys(self::INTS),
+            array_keys(self::BOOLS),
+            array_keys(self::LOOKUPS),
+            array_keys(self::HR_DATES),
+            self::HANDLED_SEPARATELY,
+        );
+
+        return array_values(array_unique($columns));
+    }
+
     public function __construct(private ZasLookupReverseResolver $lookups) {}
 
     public function map(array $row): array

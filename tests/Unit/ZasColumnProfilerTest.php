@@ -3,15 +3,15 @@
 namespace Platform\Recruiting\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use Platform\Recruiting\Services\Zas\DispoColumnProfiler;
+use Platform\Recruiting\Services\Zas\ZasColumnProfiler;
 
-class DispoColumnProfilerTest extends TestCase
+class ZasColumnProfilerTest extends TestCase
 {
-    private DispoColumnProfiler $profiler;
+    private ZasColumnProfiler $profiler;
 
     protected function setUp(): void
     {
-        $this->profiler = new DispoColumnProfiler();
+        $this->profiler = new ZasColumnProfiler();
     }
 
     public function test_counts_filled_and_ratio(): void
