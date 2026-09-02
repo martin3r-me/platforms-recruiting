@@ -449,22 +449,27 @@
          bestaetigte Einsaetze, Qualifikationen. Mobil als Bottom-Sheet. --}}
     @if ($crewEmployeeId !== null)
         @php $crew = $this->crewCard; @endphp
-        <div class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" wire:click.self="closeCrew">
-            <div class="w-full rounded-t-2xl bg-white p-5 sm:max-w-sm sm:rounded-2xl" wire:key="crew-{{ $crewEmployeeId }}">
+        <div class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" wire:click.self="closeCrew"
+             x-data="{ zoom: false }">
+            <div class="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-6 sm:max-w-lg sm:rounded-2xl sm:p-7" wire:key="crew-{{ $crewEmployeeId }}">
                 @if ($crew === null)
                     <div class="text-sm text-gray-500">Keine Daten gefunden.</div>
                 @else
-                    <div class="flex items-start gap-4">
+                    <div class="flex items-start gap-4 sm:gap-5">
                         @if ($crew['selfie_url'])
-                            <img src="{{ $crew['selfie_url'] }}" alt="Foto von {{ $crew['name'] }}"
-                                 class="h-20 w-20 shrink-0 rounded-full border border-gray-200 object-cover">
+                            {{-- Tipp aufs Foto vergroessert (Teamleiter muss das Gesicht zuordnen koennen). --}}
+                            <button type="button" x-on:click="zoom = true" class="group relative shrink-0" title="Foto vergrößern">
+                                <img src="{{ $crew['selfie_url'] }}" alt="Foto von {{ $crew['name'] }}"
+                                     class="h-28 w-28 rounded-2xl border border-gray-200 object-cover sm:h-32 sm:w-32">
+                                <span class="absolute bottom-1 right-1 grid h-6 w-6 place-items-center rounded-full bg-black/50 text-xs text-white">⤢</span>
+                            </button>
                         @else
-                            <div class="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-gray-100 text-2xl font-bold text-gray-400">
+                            <div class="grid h-28 w-28 shrink-0 place-items-center rounded-2xl bg-gray-100 text-3xl font-bold text-gray-400 sm:h-32 sm:w-32">
                                 {{ mb_strtoupper(mb_substr($crew['name'], 0, 1)) }}
                             </div>
                         @endif
                         <div class="min-w-0 flex-1">
-                            <div class="text-lg font-semibold leading-tight text-gray-900">{{ $crew['name'] }}</div>
+                            <div class="text-xl font-semibold leading-tight text-gray-900">{{ $crew['name'] }}</div>
                             @if ($crew['pnrs'] !== [])
                                 <div class="mt-1 flex flex-wrap gap-1">
                                     @foreach ($crew['pnrs'] as $pnr)
@@ -472,9 +477,13 @@
                                     @endforeach
                                 </div>
                             @endif
-                            <div class="mt-1.5 text-lg leading-none tracking-wide" title="Bewertung">
+                            <div class="mt-2 flex items-center gap-2 leading-none" title="Bewertung (Termin): Schnitt aus Erscheinungsbild, Fachkompetenz, Auffassungsgabe, Auftreten, Teamintegration">
                                 @if ($crew['stars'] !== null)
-                                    <span class="text-amber-400">{{ str_repeat('★', $crew['stars']) }}</span><span class="text-gray-300">{{ str_repeat('★', 5 - $crew['stars']) }}</span>
+                                    @php $avgLbl = $crew['stars_avg'] !== null ? number_format($crew['stars_avg'], 1, ',', '') : null; @endphp
+                                    <span class="text-2xl tracking-wide"><span class="text-amber-400">{{ str_repeat('★', $crew['stars']) }}</span><span class="text-gray-300">{{ str_repeat('★', 5 - $crew['stars']) }}</span></span>
+                                    @if ($avgLbl !== null)
+                                        <span class="text-sm font-semibold tabular-nums text-gray-500">{{ $avgLbl }}</span>
+                                    @endif
                                 @else
                                     <span class="text-sm text-gray-400">noch keine Bewertung</span>
                                 @endif
@@ -483,9 +492,9 @@
                         <button type="button" wire:click="closeCrew" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-600" aria-label="Schließen">✕</button>
                     </div>
 
-                    <div class="mt-4 rounded-xl bg-gray-50 px-4 py-3">
-                        <span class="text-2xl font-bold tabular-nums text-gray-900">{{ $crew['confirmed_past'] }}</span>
-                        <span class="ml-1 text-sm text-gray-600">bestätigte {{ $crew['confirmed_past'] === 1 ? 'Einsatz' : 'Einsätze' }} bisher</span>
+                    <div class="mt-5 rounded-xl bg-gray-50 px-4 py-3.5">
+                        <span class="text-3xl font-bold tabular-nums text-gray-900">{{ $crew['confirmed_past'] }}</span>
+                        <span class="ml-1.5 text-sm text-gray-600">bestätigte {{ $crew['confirmed_past'] === 1 ? 'Einsatz' : 'Einsätze' }} bisher</span>
                     </div>
 
                     <div class="mt-3">
@@ -493,7 +502,7 @@
                         @if ($crew['qualifications'] !== [])
                             <div class="mt-1.5 flex flex-wrap gap-1.5">
                                 @foreach ($crew['qualifications'] as $qual)
-                                    <span class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-700">{{ $qual }}</span>
+                                    <span class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
                                 @endforeach
                             </div>
                         @else
@@ -502,6 +511,16 @@
                     </div>
                 @endif
             </div>
+
+            {{-- Vollbild-Zoom des Selfies (Alpine, kein Server-Roundtrip). --}}
+            @if ($crew !== null && $crew['selfie_full_url'])
+                <div x-cloak x-show="zoom" x-on:click="zoom = false"
+                     class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+                    <img src="{{ $crew['selfie_full_url'] }}" alt="Foto von {{ $crew['name'] }}"
+                         class="max-h-[90vh] max-w-full rounded-xl object-contain">
+                    <button type="button" x-on:click.stop="zoom = false" class="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/20 text-xl text-white" aria-label="Schließen">✕</button>
+                </div>
+            @endif
         </div>
     @endif
 

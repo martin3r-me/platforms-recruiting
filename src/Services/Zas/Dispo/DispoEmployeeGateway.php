@@ -52,7 +52,7 @@ class DispoEmployeeGateway
      * (Thumbnail-Variante bevorzugt, Muster InterviewBookings::selfies()).
      *
      * @param list<int> $employeeIds
-     * @return array<int, array{name:string, personnel_number:string, stars:?int, qualifications:list<string>, selfie_url:?string}>
+     * @return array<int, array{name:string, personnel_number:string, stars:?int, stars_avg:?float, qualifications:list<string>, selfie_url:?string, selfie_full_url:?string}>
      */
     public function profileCards(array $employeeIds): array
     {
@@ -82,14 +82,24 @@ class DispoEmployeeGateway
         foreach ($employees as $e) {
             $hr = $e->hrData;
 
-            $stars = $hr?->star_rating !== null ? (int) $hr->star_rating : null;
-            if ($stars === null && $hr !== null) {
+            // Sterne = TERMIN-Bewertung (Kunde 02.09.): Schnitt der fuenf Kriterien
+            // (Erscheinungsbild, Fachkompetenz, Auffassungsgabe, Auftreten,
+            // Teamintegration); nur Altbestand ohne Termin-Bewertung faellt auf
+            // star_rating zurueck.
+            $avg = null;
+            if ($hr !== null) {
                 $ratings = array_filter([
                     $hr->rating_erscheinungsbild, $hr->rating_fachkompetenz, $hr->rating_auffassungsgabe,
                     $hr->rating_auftreten, $hr->rating_teamintegration,
                 ], fn ($v) => $v !== null);
-                $stars = $ratings === [] ? null : (int) round(array_sum($ratings) / count($ratings));
+                if ($ratings !== []) {
+                    $avg = round(array_sum($ratings) / count($ratings), 1);
+                }
             }
+            if ($avg === null && $hr?->star_rating !== null) {
+                $avg = (float) $hr->star_rating;
+            }
+            $stars = $avg !== null ? (int) round($avg) : null;
 
             $quals = $hr?->qualifications;
             if (is_string($quals)) {
@@ -99,10 +109,13 @@ class DispoEmployeeGateway
             $qualLabels = array_values(array_map(fn ($v) => (string) ($lookupMap[$v] ?? $v), is_array($quals) ? $quals : []));
 
             $selfieUrl = null;
+            $selfieFullUrl = null;
             if ($e->selfie_file_id) {
                 $file = $files->get((int) $e->selfie_file_id);
                 if ($file && $file->isImage()) {
                     $selfieUrl = $variants->get((int) $e->selfie_file_id)?->url ?? $file->url;
+                    // Original fuers Vergroessern (Teamleiter muss das Gesicht zuordnen koennen).
+                    $selfieFullUrl = $file->url;
                 }
             }
 
@@ -110,8 +123,10 @@ class DispoEmployeeGateway
                 'name'             => trim($e->first_name . ' ' . $e->last_name),
                 'personnel_number' => (string) ($e->personnel_number ?? ''),
                 'stars'            => ($stars !== null && $stars >= 1 && $stars <= 5) ? $stars : null,
+                'stars_avg'        => ($stars !== null && $stars >= 1 && $stars <= 5) ? $avg : null,
                 'qualifications'   => $qualLabels,
                 'selfie_url'       => $selfieUrl,
+                'selfie_full_url'  => $selfieFullUrl,
             ];
         }
 
