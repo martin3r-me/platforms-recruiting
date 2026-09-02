@@ -107,6 +107,73 @@ class NormalizeEmployeePhonesTest extends TestCase
         $this->assertSame(0, $again['fixed'], 'Zweiter Lauf findet nichts mehr (idempotent).');
     }
 
+    /**
+     * Der Kern des Vorfalls vom 02.09.2026: der Lauf schrieb per Eloquent, der
+     * RecEmployeeExportObserver setzte daraufhin zas_changed_at, und ~500
+     * ZAS-Bestandsmitarbeiter landeten im Update-Export — der volle Zeilen
+     * liefert und in ZAS gepflegte Akten ueberschrieben haette.
+     *
+     * Geprueft wird die Ursache, nicht das Symptom: der Lauf darf gar kein
+     * updated-Event ausloesen. Damit ist es egal, welche Observer heute oder
+     * spaeter daran haengen. Eigener Dispatcher nur fuer die Dauer des Tests,
+     * danach der originale zurueck — die Model-Events sind prozessweit statisch.
+     */
+    public function test_run_fires_no_eloquent_events_so_no_observer_can_mark_for_zas(): void
+    {
+        $this->employee('RG1', '017624533557');
+
+        $original = RecEmployee::getEventDispatcher();
+        $spy      = new Dispatcher(Container::getInstance());
+        $fired    = [];
+        foreach (['updated', 'saved', 'updating', 'saving'] as $event) {
+            $spy->listen("eloquent.{$event}: " . RecEmployee::class, function () use (&$fired, $event) {
+                $fired[] = $event;
+            });
+        }
+        RecEmployee::setEventDispatcher($spy);
+
+        try {
+            (new NormalizeEmployeePhonesCommand())->normalize(false, null, fn ($t, $x) => null);
+        } finally {
+            RecEmployee::setEventDispatcher($original);
+        }
+
+        $this->assertSame('+4917624533557', RecEmployee::where('personnel_number', 'RG1')->value('phone'), 'Korrektur muss trotzdem ankommen.');
+        $this->assertSame([], $fired, 'Der Lauf darf keine Model-Events ausloesen (sonst markiert der Export-Observer).');
+    }
+
+    /**
+     * Wirkung statt Mechanik: der Marker bleibt, wie er war — und updated_at
+     * ebenfalls. Letzteres ist kein Zufall: der Lauf vom 01.09. hat mit
+     * updated_at die einzige Spur ueberschrieben, an der sich nachtraeglich
+     * ablesen liess, wer sich WIRKLICH geaendert hatte. Eine Formatkorrektur
+     * ist keine fachliche Aenderung und darf diese Spur nicht verbrauchen.
+     */
+    public function test_run_touches_neither_the_zas_marker_nor_updated_at(): void
+    {
+        $mitMarker = $this->employee('RG1', '017624533557');
+        $ohne      = $this->employee('RG2', '017611111111');
+
+        Capsule::table('rec_employees')->where('id', $mitMarker->id)
+            ->update(['zas_changed_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 09:00:00']);
+        Capsule::table('rec_employees')->where('id', $ohne->id)
+            ->update(['zas_changed_at' => null, 'updated_at' => '2026-08-01 09:00:00']);
+
+        (new NormalizeEmployeePhonesCommand())->normalize(false, null, fn ($t, $x) => null);
+
+        $a = Capsule::table('rec_employees')->where('id', $mitMarker->id)->first();
+        $b = Capsule::table('rec_employees')->where('id', $ohne->id)->first();
+
+        $this->assertSame('+4917624533557', $a->phone);
+        $this->assertSame('+4917611111111', $b->phone);
+        // Bestehender Marker bleibt unveraendert stehen (nicht neu gestempelt),
+        // ein fehlender wird nicht gesetzt.
+        $this->assertStringStartsWith('2026-08-01 10:00:00', (string) $a->zas_changed_at);
+        $this->assertNull($b->zas_changed_at, 'Ohne Marker heisst: geht NICHT in den ZAS-Update-Export.');
+        $this->assertStringStartsWith('2026-08-01 09:00:00', (string) $a->updated_at, 'updated_at ist die Aenderungs-Spur — nicht verbrauchen.');
+        $this->assertStringStartsWith('2026-08-01 09:00:00', (string) $b->updated_at);
+    }
+
     public function test_team_filter_limits_the_run(): void
     {
         $this->employee('RG1', '017624533557');
@@ -136,6 +203,7 @@ class NormalizeEmployeePhonesTest extends TestCase
 
         $files = [
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            [$own, 'database/migrations/2026_05_21_000005_add_zas_export_markers_to_rec_employees.php'],
             [$own, 'database/migrations/2026_05_22_000001_add_personnel_number_to_rec_employees.php'],
             [$own, 'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php'],
         ];

@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\PhoneE164;
@@ -17,6 +18,10 @@ use Platform\Recruiting\Support\PhoneE164;
  *
  * Unparsebare Nummern und Festnetz werden NICHT angefasst, sondern gelistet —
  * das ist die Datenpflege-Liste fuer den Kunden (Nummer besorgen/korrigieren).
+ *
+ * Schreibt OBSERVER-FREI (direktes DB-Update, Begruendung an der Schreibstelle):
+ * die Korrektur loest weder den ZAS-Update-Marker aus noch verbraucht sie
+ * updated_at. Der Lauf ist damit beliebig oft gefahrlos wiederholbar.
  *
  * Aufruf:
  *   php artisan recruiting:normalize-employee-phones --dry-run
@@ -97,8 +102,28 @@ class NormalizeEmployeePhonesCommand extends Command
                     $counts['fixed']++;
                     $emit('line', ($dryRun ? 'WUERDE ' : '') . "FIX  {$pnr}  {$name}  '{$raw}' -> {$e164}");
                     if (!$dryRun) {
-                        $e->phone = $e164;
-                        $e->save();
+                        // Direkter DB-Schreibvorgang, KEIN Eloquent-save() — zwei
+                        // Gruende, beide aus dem Vorfall vom 02.09.2026:
+                        //
+                        // 1. `phone` loest im RecEmployeeExportObserver den
+                        //    ZAS-Update-Marker aus. Ein Bestands-Lauf hat so ~500
+                        //    ZAS-Bestandsmitarbeiter in den Update-Export gespuelt;
+                        //    der liefert VOLLE Zeilen und haette in ZAS gepflegte
+                        //    Akten ueberschrieben. Eine Formatkorrektur ist keine
+                        //    fachliche Aenderung, ueber die ZAS zu informieren waere
+                        //    — dieselbe Nummer, andere Schreibweise.
+                        // 2. `updated_at` bleibt damit ebenfalls stehen. Das ist die
+                        //    einzige Spur, an der sich hinterher ablesen laesst, wer
+                        //    sich WIRKLICH geaendert hat; der Lauf vom 01.09. hat sie
+                        //    bei 500 Leuten ueberschrieben und die Aufarbeitung
+                        //    dadurch erheblich erschwert.
+                        //
+                        // Geprueft: am `phone` haengt kein weiterer Observer
+                        // (RecEmployeeContactListObserver reagiert nur auf
+                        // is_active/employment_ended_at) — es geht also kein
+                        // Nebeneffekt verloren. Nachvollziehbar bleibt der Lauf
+                        // ueber die Zeilen-Ausgabe oben und die Log-Bilanz unten.
+                        DB::table('rec_employees')->where('id', $e->id)->update(['phone' => $e164]);
                     }
                 }
             });
