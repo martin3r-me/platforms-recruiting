@@ -79,25 +79,35 @@
                 default      => 'am Vortag',
             };
             $escTimesLabel = $esc['times'][1] . ' / ' . $esc['times'][2] . ' / ' . $esc['times'][3];
+            // Dispo-Zahlen (Kunde 03.09.): gleiche Zaehlweise wie die Listen-Uebersicht —
+            // verschwundene und zur Loeschung gemeldete zaehlen nicht.
+            $dispoRows = $event->assignments->filter(fn ($a) => $a->missing_since === null && $a->deletion_marked_at === null);
+            $dispoTotal = $dispoRows->count();
+            $dispoConfirmed = $dispoRows->whereNotNull('confirmed_at')->count();
+            $dispoSent = $dispoRows->whereNull('confirmed_at')->whereNotNull('reminder_sent_at')->count();
+            $dispoOpen = $dispoTotal - $dispoConfirmed;
+            $dispoFailed = $dispoRows->filter(fn ($a) => $a->reminderMessage?->status === 'failed'
+                || $a->escalation1Message?->status === 'failed' || $a->escalation2Message?->status === 'failed')
+                ->pluck('rec_employee_id')->filter()->unique()->count();
         @endphp
         <div class="rounded-lg border border-gray-200 bg-white p-4">
-            <div class="flex items-center justify-between">
-                <div class="text-sm font-medium text-gray-500">Eskalation</div>
-                @if (!$eventOnly)
-                    <button type="button" wire:click="openEscalationModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
-                @endif
-            </div>
+            <div class="text-sm font-medium text-gray-500">Disposition</div>
             <div class="mt-1 text-sm">
-                {{ $escDayLabel }} · {{ $escTimesLabel }}
-                @if ($esc['overridden'])
-                    <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">angepasst</span>
+                <span class="font-semibold tabular-nums">{{ $dispoTotal }}</span> gesamt
+                · <span class="font-semibold tabular-nums text-green-700">{{ $dispoConfirmed }}</span> bestätigt
+                · <span class="tabular-nums">{{ $dispoSent }}</span> angeschrieben
+                @if ($dispoOpen > 0)
+                    <span class="ml-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs font-semibold text-orange-600">{{ $dispoOpen }} offen</span>
                 @else
-                    <span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">Standard</span>
+                    <span class="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">alle bestätigt</span>
                 @endif
             </div>
-            @if (!$escEnabled)
-                <div class="mt-1 text-xs text-gray-500">Eskalation global deaktiviert (Disposition → Einstellungen).</div>
+            @if ($dispoFailed > 0)
+                <div class="mt-1 text-xs font-semibold text-red-600">⚠ {{ $dispoFailed }} × nicht zugestellt — Nummern prüfen</div>
             @endif
+            <div class="mt-1.5 text-xs text-gray-400">
+                Eskalation: {{ $escDayLabel }} · {{ $escTimesLabel }}{{ $esc['overridden'] ? ' · angepasst' : '' }}{{ $escEnabled ? '' : ' · deaktiviert' }} — einstellbar unter „Bestätigungen senden"
+            </div>
         </div>
     </div>
 
@@ -370,8 +380,14 @@
                     @endphp
                     <details class="rounded border border-gray-200 p-3" @if ($errors->has('escTime1')) open @endif>
                         <summary class="cursor-pointer text-sm font-medium text-gray-700">Eskalation: {{ $escSummary }} <span class="text-xs font-normal text-blue-600">anpassen</span></summary>
-                        <div class="mt-3">
+                        <div class="mt-3 space-y-2">
                             @include('recruiting::livewire.dispo.events._escalation-fields', ['defaults' => $escDefaults])
+                            <div class="flex items-center justify-end gap-2">
+                                @if ($escSaved)
+                                    <span class="text-xs text-green-600">✓ Eskalation gespeichert</span>
+                                @endif
+                                <button type="button" wire:click="saveEscalation" class="rounded border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">Nur Eskalation speichern</button>
+                            </div>
                         </div>
                     </details>
 
@@ -485,20 +501,6 @@
                 <div class="flex justify-end gap-3">
                     <button wire:click="$set('showContactModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveContact" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
-                </div>
-            </div>
-        </div>
-    @endif
-
-    @if ($showEscalationModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showEscalationModal', false)">
-            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Eskalation für diese Veranstaltung</h2>
-                <p class="text-sm text-gray-500">Gilt für alle Einsatztage dieser Veranstaltung. Rausnahme erfolgt nur, wenn die Bestätigungsanfrage vor Stufe 2 rausging — am Einsatztag also früh senden.</p>
-                @include('recruiting::livewire.dispo.events._escalation-fields', ['defaults' => $this->dispoSettings['escalation_defaults']])
-                <div class="flex justify-end gap-3">
-                    <button wire:click="$set('showEscalationModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
-                    <button wire:click="saveEscalation" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
                 </div>
             </div>
         </div>

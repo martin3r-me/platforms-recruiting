@@ -77,7 +77,6 @@ class Show extends Component
     public string $escTime3 = '';
     /** Eskalationsdatum (Modus datum), Y-m-d oder '' — String-Prop (Livewire-Typed-Property-Falle). */
     public string $escDate = '';
-    public bool $showEscalationModal = false;
 
     // Runde 4 (#1): Chat-Panel auf VA-Ebene. chatEmployeeId = kanonische MA-id der Person.
     // Beide nur ueber openChat()/closeChat()/setChatFilter() serverseitig gesetzt -> gesperrt
@@ -338,24 +337,18 @@ class Show extends Component
         return true;
     }
 
-    public function openEscalationModal(): void
-    {
-        if ($this->blockedForEventOnly()) {
-            return;
-        }
-        $this->loadEscalationForm();
-        $this->resetErrorBag('escTime1');
-        $this->showEscalationModal = true;
-    }
+    /**
+     * "Nur Eskalation speichern" im Sende-Modal (Kunde 03.09.): Nachjustieren
+     * ohne Neuversand — die frueher eigene Kachel/das eigene Modal sind weg.
+     */
+    public bool $escSaved = false;
 
     public function saveEscalation(): void
     {
         if ($this->blockedForEventOnly()) {
             return;
         }
-        if ($this->persistEscalation()) {
-            $this->showEscalationModal = false;
-        }
+        $this->escSaved = $this->persistEscalation();
     }
 
     /** Zurueck auf Team-Standard (Vortag, Default-Zeiten). */
@@ -1218,6 +1211,7 @@ class Show extends Component
         $this->sendResult = null;
         $this->loadEscalationForm();
         $this->resetErrorBag('escTime1');
+        $this->escSaved = false;
 
         // Ansprechpartner: Teamleitung ist Standard, gespeicherte manuelle Eingabe gewinnt.
         $this->loadContactForm();
