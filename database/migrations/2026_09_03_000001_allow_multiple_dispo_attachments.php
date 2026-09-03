@@ -11,17 +11,24 @@ return new class extends Migration
     // im Store entfaellt (hochladen = hinzufuegen, loeschen = gezielt je Datei).
     public function up(): void
     {
+        // Reihenfolge ist auf MySQL zwingend: der FK auf rec_dispo_event_id nutzt
+        // den Unique-Index als Stuetz-Index (Fehler 1553 beim Drop ohne Ersatz).
+        // Also ERST den neuen Index anlegen, DANN den Unique entfernen.
+        Schema::table('rec_dispo_attachments', function (Blueprint $table) {
+            $table->index(['rec_dispo_event_id', 'rec_employee_id']);
+        });
         Schema::table('rec_dispo_attachments', function (Blueprint $table) {
             $table->dropUnique(['rec_dispo_event_id', 'rec_employee_id']);
-            $table->index(['rec_dispo_event_id', 'rec_employee_id']);
         });
     }
 
     public function down(): void
     {
         Schema::table('rec_dispo_attachments', function (Blueprint $table) {
-            $table->dropIndex(['rec_dispo_event_id', 'rec_employee_id']);
             $table->unique(['rec_dispo_event_id', 'rec_employee_id']);
+        });
+        Schema::table('rec_dispo_attachments', function (Blueprint $table) {
+            $table->dropIndex(['rec_dispo_event_id', 'rec_employee_id']);
         });
     }
 };
