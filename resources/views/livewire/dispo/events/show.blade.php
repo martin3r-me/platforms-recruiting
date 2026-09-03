@@ -279,21 +279,36 @@
                         </td>
                         <td class="px-4 py-2">
                             @if ($assignment->rec_employee_id)
-                                @php $attList = $this->attachmentsByEmployee[$assignment->rec_employee_id] ?? []; @endphp
-                                <div class="space-y-0.5">
-                                    @foreach ($attList as $att)
-                                        <div class="flex items-center gap-2 text-xs">
-                                            <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $att->uuid]) }}" target="_blank" rel="noopener"
-                                               class="max-w-[12rem] truncate text-blue-600 hover:underline" title="{{ $att->original_filename }}">📎 {{ $att->original_filename }}</a>
-                                            @if (!$eventOnly)
-                                                <button type="button" wire:click="removeAttachment({{ $att->id }})" wire:confirm="Anhang „{{ $att->original_filename }}" entfernen?" class="text-gray-400 hover:text-red-600" title="Entfernen">✕</button>
-                                            @endif
+                                @php
+                                    $attList = $this->attachmentsByEmployee[$assignment->rec_employee_id] ?? [];
+                                    $attCount = count($attList);
+                                @endphp
+                                {{-- Kompakt (Kunde 03.09.): ein Eintrag pro Zelle, Verwaltung im Modal —
+                                     sonst waechst die Tabelle bei mehreren Dokumenten je MA in die Hoehe. --}}
+                                @if ($eventOnly)
+                                    @if ($attCount === 1)
+                                        <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $attList[0]->uuid]) }}" target="_blank" rel="noopener"
+                                           class="max-w-[12rem] truncate text-xs text-blue-600 hover:underline" title="{{ $attList[0]->original_filename }}">📎 {{ $attList[0]->original_filename }}</a>
+                                    @elseif ($attCount > 1)
+                                        <div class="space-y-0.5">
+                                            @foreach ($attList as $att)
+                                                <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $att->uuid]) }}" target="_blank" rel="noopener"
+                                                   class="block max-w-[12rem] truncate text-xs text-blue-600 hover:underline" title="{{ $att->original_filename }}">📎 {{ $att->original_filename }}</a>
+                                            @endforeach
                                         </div>
-                                    @endforeach
-                                    @if (!$eventOnly)
-                                        <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-xs text-gray-400 hover:text-blue-600">+ Anhang</button>
                                     @endif
-                                </div>
+                                @else
+                                    <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})"
+                                            class="text-xs {{ $attCount > 0 ? 'font-medium text-blue-600 hover:underline' : 'text-gray-400 hover:text-blue-600' }}">
+                                        @if ($attCount === 0)
+                                            + Anhang
+                                        @elseif ($attCount === 1)
+                                            📎 1 Datei
+                                        @else
+                                            📎 {{ $attCount }} Dateien
+                                        @endif
+                                    </button>
+                                @endif
                             @endif
                         </td>
                     </tr>
@@ -428,16 +443,32 @@
     @if ($showAttachmentModal)
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeAttachmentModal">
             <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Anhang für {{ $attachmentEmployeeName !== '' ? $attachmentEmployeeName : 'diesen Mitarbeiter' }}</h2>
-                <p class="text-sm text-gray-500">Eine Datei (PDF, JPG oder PNG, max. 10 MB). Der Mitarbeiter öffnet sie über seine Einsatz-Seite — für alle Tage dieser Veranstaltung. Erneutes Hochladen ersetzt die bisherige Datei.</p>
+                <h2 class="text-lg font-semibold">Anhänge für {{ $attachmentEmployeeName !== '' ? $attachmentEmployeeName : 'diesen Mitarbeiter' }}</h2>
+                <p class="text-sm text-gray-500">PDF, JPG oder PNG, max. 10 MB — der Mitarbeiter öffnet sie über seine Einsatz-Seite, für alle Tage dieser Veranstaltung. Hochladen fügt hinzu; gelöscht wird gezielt je Datei.</p>
 
-                <input type="file" wire:model="attachmentUpload" accept=".pdf,.jpg,.jpeg,.png" class="block w-full text-sm">
+                @php $modalAtts = $attachmentEmployeeId !== null ? ($this->attachmentsByEmployee[$attachmentEmployeeId] ?? []) : []; @endphp
+                @if ($modalAtts !== [])
+                    <div class="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                        @foreach ($modalAtts as $att)
+                            <div class="flex items-center gap-2 px-3 py-2 text-sm">
+                                <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $att->uuid]) }}" target="_blank" rel="noopener"
+                                   class="min-w-0 flex-1 truncate text-blue-600 hover:underline" title="{{ $att->original_filename }}">📎 {{ $att->original_filename }}</a>
+                                <span class="shrink-0 text-xs text-gray-400">{{ $att->created_at?->format('d.m. H:i') }}</span>
+                                <button type="button" wire:click="removeAttachment({{ $att->id }})" wire:confirm="Anhang „{{ $att->original_filename }}" entfernen?"
+                                        class="shrink-0 text-gray-400 hover:text-red-600" title="Entfernen">✕</button>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+
+                <input type="file" wire:model="attachmentUpload" accept=".pdf,.jpg,.jpeg,.png"
+                       class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
                 <div wire:loading wire:target="attachmentUpload" class="text-xs text-gray-500">Wird hochgeladen …</div>
                 @error('attachmentUpload') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
                 <div class="flex justify-end gap-3">
                     <button wire:click="closeAttachmentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
-                    <button wire:click="saveAttachment" wire:loading.attr="disabled" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                    <button wire:click="saveAttachment" wire:loading.attr="disabled" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">Hinzufügen</button>
                 </div>
             </div>
         </div>

@@ -233,7 +233,9 @@ class Show extends Component
             auth()->id()
         );
 
-        $this->closeAttachmentModal();
+        // Modal bleibt offen (Kunde 03.09.: Liste im Modal, mehrere Dateien nacheinander).
+        $this->attachmentUpload = null;
+        $this->resetErrorBag('attachmentUpload');
         unset($this->event, $this->attachmentsByEmployee);
     }
 
