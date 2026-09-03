@@ -31,6 +31,7 @@ class Settings extends Component
     public string $escalationTemplate1Id = '';
     public string $escalationTemplate2Id = '';
     public string $alarmTemplateId = '';
+    public string $infoTemplateId = '';
 
     // Kill-Switch fuer den stuendlichen CRM-Abgleich (Runde 4 Final-Review).
     // Fehlende Einstellung = AN, deshalb Default '1'.
@@ -61,6 +62,7 @@ class Settings extends Component
         $this->escalationTemplate1Id = (string) ($settings->getSetting('dispo_escalation_template_1_id') ?? '');
         $this->escalationTemplate2Id = (string) ($settings->getSetting('dispo_escalation_template_2_id') ?? '');
         $this->alarmTemplateId       = (string) ($settings->getSetting('dispo_alarm_template_id') ?? '');
+        $this->infoTemplateId        = (string) ($settings->getSetting('dispo_info_template_id') ?? '');
 
         // Nur ein ausdrueckliches false schaltet ab — fehlender/null-Wert = AN.
         $this->contactBackfillEnabled = $settings->getSetting('dispo_contact_backfill_enabled') === false ? '' : '1';
@@ -139,6 +141,7 @@ class Settings extends Component
             'escalationTemplate1Id' => 'nullable|string|max:20',
             'escalationTemplate2Id' => 'nullable|string|max:20',
             'alarmTemplateId'       => 'nullable|string|max:20',
+            'infoTemplateId'        => 'nullable|string|max:20',
         ]);
 
         // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
@@ -165,6 +168,7 @@ class Settings extends Component
         $settings->setSetting('dispo_escalation_template_1_id', $this->toNullableId($this->escalationTemplate1Id));
         $settings->setSetting('dispo_escalation_template_2_id', $this->toNullableId($this->escalationTemplate2Id));
         $settings->setSetting('dispo_alarm_template_id', $this->toNullableId($this->alarmTemplateId));
+        $settings->setSetting('dispo_info_template_id', $this->toNullableId($this->infoTemplateId));
         $settings->setSetting('dispo_contact_backfill_enabled', $this->contactBackfillEnabled !== '');
 
         $settings->save();

@@ -51,6 +51,7 @@ class DispoIndividualNoteTest extends TestCase
             'database/migrations/2026_08_19_000001_add_ansprechpartner_to_rec_dispo_events.php',
             'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php',
             'database/migrations/2026_08_20_000002_add_individual_note_to_rec_dispo_assignments.php',
+            'database/migrations/2026_09_03_000002_add_note_timestamp_to_rec_dispo_assignments.php',
             'database/migrations/2026_08_21_000001_add_filial_nr_to_rec_dispo_events.php',
         ] as $relative) {
             $path = $own . '/' . $relative;

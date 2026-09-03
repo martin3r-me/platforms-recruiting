@@ -16,6 +16,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
+use Platform\Recruiting\Services\Zas\Dispo\DispoInfoSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
@@ -140,7 +141,11 @@ class Show extends Component
         RecDispoAssignment::query()
             ->where('rec_dispo_event_id', $this->eventId)
             ->where('rec_employee_id', $employeeId)
-            ->update(['individual_note' => $value !== '' ? $value : null]);
+            ->update([
+                'individual_note'            => $value !== '' ? $value : null,
+                // Crew-Info (03.09.): Zeitstempel fuer die NEU-Hervorhebung der Einsatz-Seite.
+                'individual_note_updated_at' => $value !== '' ? now() : null,
+            ]);
 
         unset($this->event); // Computed-Cache invalidieren
     }
@@ -183,11 +188,15 @@ class Show extends Component
         $this->noteDraft = '';
     }
 
-    /** @return array<int, RecDispoAttachment> keyed by rec_employee_id */
+    /** @return array<int, list<RecDispoAttachment>> je rec_employee_id (seit Crew-Info mehrere Dateien). */
     #[Computed]
     public function attachmentsByEmployee(): array
     {
-        return $this->event->attachments->keyBy('rec_employee_id')->all();
+        return $this->event->attachments
+            ->sortBy('id')
+            ->groupBy('rec_employee_id')
+            ->map(fn ($group) => $group->values()->all())
+            ->all();
     }
 
     public function openAttachment(int $employeeId): void
@@ -228,12 +237,13 @@ class Show extends Component
         unset($this->event, $this->attachmentsByEmployee);
     }
 
-    public function removeAttachment(int $employeeId): void
+    public function removeAttachment(int $attachmentId): void
     {
         if ($this->blockedForEventOnly()) {
             return;
         }
-        $attachment = $this->attachmentsByEmployee[$employeeId] ?? null;
+        // Scope-Check: nur Anhaenge DIESER VA (id kommt vom Client).
+        $attachment = $this->event->attachments->firstWhere('id', $attachmentId);
         if ($attachment !== null) {
             DispoAttachmentStore::default()->remove($attachment);
         }
@@ -659,6 +669,258 @@ class Show extends Component
     {
         $this->chatFilter = $filter === 'alle' ? 'alle' : 'seit_versand';
         unset($this->chat);
+    }
+
+    // ------------------------------------------------------------------
+    // "Info an Crew" (Kunde 03.09.): Anhang/Hinweis gefiltert nach
+    // Qualifikation an viele MA auf einmal + Info-WhatsApp mit Link.
+    // ------------------------------------------------------------------
+    public bool $showInfoModal = false;
+    /** Qualifikations-Wert (Lookup-value) oder '' = alle. String-Prop (wire:model). */
+    public string $infoQualification = '';
+    public string $infoNote = '';
+    public $infoUpload = null;
+    /** @var ?array{sent:int, failed:list<array{employee_id:int, error:string}>, attached:int, noted:int, no_phone:int} */
+    public ?array $infoResult = null;
+
+    public function openInfoModal(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->infoQualification = '';
+        $this->infoNote = '';
+        $this->infoUpload = null;
+        $this->infoResult = null;
+        $this->resetErrorBag('infoNote');
+        $this->showInfoModal = true;
+    }
+
+    /** In der VA vertretene Qualifikationen (value => label) fuer den Filter. */
+    #[Computed]
+    public function infoQualOptions(): array
+    {
+        $ids = array_keys($this->identity['groups']);
+        $all = [];
+        foreach ($this->identity['groups'] as $group) {
+            foreach ($group as $gid) {
+                $all[] = (int) $gid;
+            }
+        }
+        $data = app(DispoEmployeeGateway::class)->qualifications(array_values(array_unique($all)));
+
+        $present = [];
+        foreach ($data['byEmployee'] as $values) {
+            foreach ($values as $value) {
+                $present[$value] = $data['labels'][$value] ?? $value;
+            }
+        }
+        ksort($present);
+
+        return $present;
+    }
+
+    /**
+     * Zielpersonen der Crew-Info: kommende Auftrags-Einsaetze (nicht missing/
+     * geloescht, MA gematcht), Person-dedupliziert; Qualifikations-Filter
+     * matcht, wenn IRGENDEIN Datensatz der Person den Wert traegt.
+     *
+     * @return array{persons: list<array{canonical:int, booked:int, name:string, phone:?string, portal_token:string, first_name:string, assignment_ids:list<int>, has_note:bool}>, no_phone:int}
+     */
+    #[Computed]
+    public function infoPreview(): array
+    {
+        $today = now()->toDateString();
+        $rows = $this->event->assignments->filter(fn ($a) => $a->status_id === RecDispoAssignment::STATUS_AUFTRAG
+            && $a->missing_since === null && $a->deletion_marked_at === null
+            && $a->rec_employee_id !== null && $a->datum->format('Y-m-d') >= $today);
+
+        $canon = $this->identity['canon'];
+        $byCanon = [];
+        foreach ($rows as $a) {
+            $c = $canon[(int) $a->rec_employee_id] ?? (int) $a->rec_employee_id;
+            $byCanon[$c]['booked'] = $byCanon[$c]['booked'] ?? (int) $a->rec_employee_id;
+            $byCanon[$c]['assignment_ids'][] = (int) $a->id;
+            $byCanon[$c]['has_note'] = ($byCanon[$c]['has_note'] ?? false) || trim((string) $a->individual_note) !== '';
+        }
+        if ($byCanon === []) {
+            return ['persons' => [], 'no_phone' => 0];
+        }
+
+        $groups = $this->identity['byCanon'];
+        $allIds = [];
+        foreach (array_keys($byCanon) as $c) {
+            foreach ($groups[$c] ?? [$c] as $gid) {
+                $allIds[] = (int) $gid;
+            }
+        }
+        $allIds = array_values(array_unique($allIds));
+        $contacts = app(DispoEmployeeGateway::class)->contacts($allIds);
+        $quals = app(DispoEmployeeGateway::class)->qualifications($allIds)['byEmployee'];
+
+        $persons = [];
+        $noPhone = 0;
+        foreach ($byCanon as $c => $data) {
+            $group = $groups[$c] ?? [$c];
+
+            if ($this->infoQualification !== '') {
+                $hit = false;
+                foreach ($group as $gid) {
+                    if (in_array($this->infoQualification, $quals[$gid] ?? [], true)) {
+                        $hit = true;
+                        break;
+                    }
+                }
+                if (!$hit) {
+                    continue;
+                }
+            }
+
+            $phone = null;
+            $token = '';
+            $firstName = '';
+            $name = '';
+            foreach (array_merge([$c], $group) as $gid) {
+                $contact = $contacts[$gid] ?? null;
+                if ($contact === null) {
+                    continue;
+                }
+                $name = $name !== '' ? $name : $contact['name'];
+                $firstName = $firstName !== '' ? $firstName : $contact['first_name'];
+                $phone ??= $contact['phone'];
+                $token = $token !== '' ? $token : $contact['portal_token'];
+            }
+            if ($phone === null) {
+                $noPhone++;
+            }
+
+            $persons[] = [
+                'canonical'      => (int) $c,
+                'booked'         => (int) $data['booked'],
+                'name'           => $name,
+                'phone'          => $phone,
+                'portal_token'   => $token,
+                'first_name'     => $firstName,
+                'assignment_ids' => $data['assignment_ids'],
+                'has_note'       => (bool) $data['has_note'],
+            ];
+        }
+
+        return ['persons' => $persons, 'no_phone' => $noPhone];
+    }
+
+    /** Anhang speichern + Hinweis setzen + Info-WhatsApp an die gefilterte Auswahl. */
+    public function sendCrewInfo(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+
+        $note = trim($this->infoNote);
+        if ($this->infoUpload === null && $note === '') {
+            $this->addError('infoNote', 'Bitte mindestens eine Datei anhängen oder einen Hinweis eingeben.');
+            return;
+        }
+        if ($this->infoUpload !== null) {
+            $this->validate(
+                ['infoUpload' => 'file|max:10240|mimes:' . implode(',', DispoAttachmentStore::ALLOWED_EXTENSIONS)],
+                [], ['infoUpload' => 'Datei']
+            );
+        }
+        $templateId = (int) (RecApplicantSettings::getOrCreateForTeam($this->settingsTeamId())->getSetting('dispo_info_template_id') ?: 0);
+        if ($templateId === 0) {
+            $this->addError('infoNote', 'Kein Info-Template konfiguriert (Disposition → Einstellungen).');
+            return;
+        }
+
+        // Doppelklick-Riegel wie beim Bestaetigungs-Versand.
+        try {
+            $lock = \Illuminate\Support\Facades\Cache::lock('dispo-info-' . $this->eventId, 180);
+            if (!$lock->get()) {
+                $this->addError('infoNote', 'Versand läuft bereits — bitte einen Moment warten.');
+                return;
+            }
+        } catch (\Throwable) {
+            $lock = null;
+        }
+
+        try {
+            $preview = $this->infoPreview;
+            $persons = $preview['persons'];
+            if ($persons === []) {
+                $this->addError('infoNote', 'Die Auswahl trifft keine Mitarbeiter.');
+                return;
+            }
+
+            $attached = 0;
+            $noted = 0;
+            $now = now();
+
+            // 1) Anhang: identische Datei je Person (am gebuchten Datensatz — die
+            //    Einsatz-Seite liest ueber die ganze Identitaetsgruppe).
+            if ($this->infoUpload !== null) {
+                $contents = (string) file_get_contents($this->infoUpload->getRealPath());
+                $store = DispoAttachmentStore::default();
+                foreach ($persons as $person) {
+                    $store->putContents(
+                        $this->eventId,
+                        $person['booked'],
+                        $contents,
+                        $this->infoUpload->getClientOriginalName(),
+                        $this->infoUpload->getClientMimeType(),
+                        auth()->id()
+                    );
+                    $attached++;
+                }
+            }
+
+            // 2) Hinweis: identischer Text auf allen KOMMENDEN Einbuchungen der
+            //    Getroffenen (ersetzt Bestehendes — Vorschau warnt vorher).
+            if ($note !== '') {
+                $ids = array_merge(...array_map(fn ($p) => $p['assignment_ids'], $persons));
+                $noted = RecDispoAssignment::query()->whereIn('id', $ids)->update([
+                    'individual_note'            => $note,
+                    'individual_note_updated_at' => $now,
+                ]);
+            }
+
+            // 3) Info-WhatsApp an alle mit Nummer.
+            $recipients = [];
+            foreach ($persons as $person) {
+                if ($person['phone'] === null || $person['portal_token'] === '') {
+                    continue;
+                }
+                $recipients[] = [
+                    'employee_id'  => $person['canonical'],
+                    'phone'        => $person['phone'],
+                    'first_name'   => $person['first_name'],
+                    'portal_token' => $person['portal_token'],
+                ];
+            }
+            $result = app(DispoInfoSender::class)->send(RecDispoEvent::findOrFail($this->eventId), $recipients, $templateId);
+            if (!$result['ok']) {
+                $this->addError('infoNote', (string) $result['message']);
+                return;
+            }
+
+            $this->infoResult = [
+                'sent'     => $result['sent'],
+                'failed'   => $result['failed'],
+                'attached' => $attached,
+                'noted'    => (int) $noted,
+                'no_phone' => $preview['no_phone'],
+            ];
+            $this->infoUpload = null;
+            unset($this->event, $this->attachmentsByEmployee, $this->infoPreview);
+        } finally {
+            $lock?->release();
+        }
+    }
+
+    /** Anker-Team der dispo_*-Settings (gleiche Regel wie dispoSettings()). */
+    private function settingsTeamId(): int
+    {
+        return (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
     }
 
     /** Crew-Modal (Kunde 02.09.): abgespecktes Personal-Kaertchen statt Link in die MA-Akte. */

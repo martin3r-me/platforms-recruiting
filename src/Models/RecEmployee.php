@@ -128,6 +128,7 @@ class RecEmployee extends Model
         // Portal-Sperre
         'portal_locked_at',
         'portal_locked_reason',
+        'portal_last_seen_at',
 
         'created_by_user_id',
     ];
@@ -164,6 +165,7 @@ class RecEmployee extends Model
         'payroll_data_changed_fields'           => 'array',
         // Portal-Sperre
         'portal_locked_at'                      => 'datetime',
+        'portal_last_seen_at' => 'datetime',
     ];
 
     protected static function booted(): void

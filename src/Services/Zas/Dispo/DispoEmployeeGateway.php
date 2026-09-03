@@ -45,6 +45,38 @@ class DispoEmployeeGateway
     }
 
     /**
+     * Qualifikations-Werte je MA + Label-Map (Lookup 'qualifikation') — fuer den
+     * Crew-Info-Filter der VA-Seite (Kunde 03.09.). Werte sind die stabilen
+     * Lookup-values; Anzeige uebersetzt via labels.
+     *
+     * @param list<int> $employeeIds
+     * @return array{byEmployee: array<int, list<string>>, labels: array<string, string>}
+     */
+    public function qualifications(array $employeeIds): array
+    {
+        if ($employeeIds === []) {
+            return ['byEmployee' => [], 'labels' => []];
+        }
+
+        $lookupId = \Illuminate\Support\Facades\DB::table('core_lookups')->where('name', 'qualifikation')->value('id');
+        $labels = $lookupId
+            ? \Illuminate\Support\Facades\DB::table('core_lookup_values')->where('lookup_id', $lookupId)->pluck('label', 'value')->map(fn ($v) => (string) $v)->all()
+            : [];
+
+        $byEmployee = [];
+        foreach (RecEmployee::query()->with('hrData')->whereIn('id', $employeeIds)->get() as $e) {
+            $quals = $e->hrData?->qualifications;
+            if (is_string($quals)) {
+                $decoded = json_decode($quals, true);
+                $quals = is_array($decoded) ? $decoded : [];
+            }
+            $byEmployee[(int) $e->id] = array_values(array_map('strval', is_array($quals) ? $quals : []));
+        }
+
+        return ['byEmployee' => $byEmployee, 'labels' => $labels];
+    }
+
+    /**
      * Personal-Kaertchen fuer das Crew-Modal der VA-Seite (Kunde 02.09.):
      * abgespeckte Sicht statt Link in die volle MA-Akte. Liefert je id Name,
      * PNr, die fuenf Termin-Bewertungen EINZELN (Fallback: star_rating-Zeile),

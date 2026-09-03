@@ -56,6 +56,10 @@ class EmployeeAssignments extends Component
     #[Locked]
     public bool $portalLocked = false;
 
+    /** Vorheriger Besuch der Seite (Y-m-d H:i:s) — Basis der NEU-Badges; null = erster Besuch. */
+    #[Locked]
+    public ?string $lastSeenBefore = null;
+
     public bool $showPast = false;
 
     public function mount(string $token): void
@@ -76,6 +80,14 @@ class EmployeeAssignments extends Component
         if (RecEmployee::query()->whereIn('id', $this->employeeIds)->whereNotNull('portal_locked_at')->exists()) {
             $this->portalLocked = true;
         }
+
+        // Crew-Info (03.09.): NEU-Hervorhebung = neuer als der VORHERIGE Besuch.
+        // Erst lesen, dann stempeln — Direkt-Update (kein Eloquent), damit weder
+        // updated_at noch der ZAS-Export-Marker angefasst werden.
+        $this->lastSeenBefore = RecEmployee::query()->whereIn('id', $this->employeeIds)->max('portal_last_seen_at');
+        \Illuminate\Support\Facades\DB::table('rec_employees')
+            ->whereIn('id', $this->employeeIds)
+            ->update(['portal_last_seen_at' => now()]);
     }
 
     /**
@@ -109,8 +121,9 @@ class EmployeeAssignments extends Component
         $attachments = RecDispoAttachment::query()
             ->whereIn('rec_employee_id', $this->employeeIds)
             ->whereIn('rec_dispo_event_id', $assignments->pluck('rec_dispo_event_id')->unique()->all())
+            ->orderBy('id')
             ->get()
-            ->keyBy('rec_dispo_event_id');
+            ->groupBy('rec_dispo_event_id');
 
         $leadsByEvent = $this->teamLeadsByEvent($assignments->pluck('rec_dispo_event_id')->unique()->values()->all());
 
@@ -128,10 +141,11 @@ class EmployeeAssignments extends Component
                 // Standard = disponierte Teamleitung (live), manuelle Eingabe gewinnt.
                 'contact_line' => DispoContactResolver::effective($event->ansprechpartner, $leadsByEvent[$event->id] ?? [])['label'],
                 'vorlauf_minuten' => (int) ($event->vorlauf_minuten ?? 0),
-                'attachment'   => isset($attachments[$event->id]) ? [
-                    'name' => (string) $attachments[$event->id]->original_filename,
-                    'url'  => route('recruiting.public.employee-assignments.attachment', ['token' => $this->token, 'uuid' => $attachments[$event->id]->uuid]),
-                ] : null,
+                'attachments'  => ($attachments[$event->id] ?? collect())->map(fn ($att) => [
+                    'name'   => (string) $att->original_filename,
+                    'url'    => route('recruiting.public.employee-assignments.attachment', ['token' => $this->token, 'uuid' => $att->uuid]),
+                    'is_new' => $this->isNewSince($att->created_at),
+                ])->values()->all(),
                 'all_confirmed' => true,
                 'has_reconfirm' => false,
                 'days'         => [],
@@ -146,6 +160,7 @@ class EmployeeAssignments extends Component
                 'arrival'         => $arrival,
                 'confirmed'       => $assignment->confirmed_at !== null,
                 'individual_note' => $assignment->individual_note,
+                'note_new'        => trim((string) $assignment->individual_note) !== '' && $this->isNewSince($assignment->individual_note_updated_at),
                 'reconfirm'       => $assignment->reconfirm_required_at !== null,
                 'previous_label'  => self::previousLabel($assignment->reconfirm_previous),
             ];
@@ -207,6 +222,20 @@ class EmployeeAssignments extends Component
         }
 
         return $byEvent;
+    }
+
+    /**
+     * Neuer als der vorherige Besuch? Erster Besuch (lastSeenBefore null) oder
+     * fehlender Zeitstempel -> false: die Bestaetigungs-WhatsApp fuehrt beim
+     * Erstbesuch ohnehin hierher, ein "NEU" an allem waere nur Rauschen.
+     */
+    private function isNewSince(mixed $timestamp): bool
+    {
+        if ($this->lastSeenBefore === null || $timestamp === null) {
+            return false;
+        }
+
+        return \Illuminate\Support\Carbon::parse($timestamp)->greaterThan(\Illuminate\Support\Carbon::parse($this->lastSeenBefore));
     }
 
     /** "Sa 29.08. 10:00–18:00" aus reconfirm_previous, sonst null. */

@@ -105,6 +105,10 @@
                 $templateConfigured = $this->dispoSettings['template_id'] !== null;
             @endphp
 @if (!$eventOnly)
+            <button wire:click="openInfoModal"
+                    class="rounded bg-white px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50">
+                Info an Crew
+            </button>
             <button wire:click="openSendModal"
                     @if (!$templateConfigured) disabled title="Kein Bestätigungs-Template konfiguriert (Disposition → Einstellungen)" @endif
                     class="rounded px-3 py-1.5 text-sm font-medium {{ $templateConfigured ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed' }}">
@@ -123,7 +127,7 @@
                 @php
                     $cidM = $assignment->rec_employee_id ? ($canonMapM[(int) $assignment->rec_employee_id] ?? (int) $assignment->rec_employee_id) : null;
                     $thrM = $cidM !== null ? ($threadsM[$cidM] ?? null) : null;
-                    $attM = $assignment->rec_employee_id ? ($this->attachmentsByEmployee[$assignment->rec_employee_id] ?? null) : null;
+                    $attListM = $assignment->rec_employee_id ? ($this->attachmentsByEmployee[$assignment->rec_employee_id] ?? []) : [];
                     $noteM = $assignment->rec_employee_id ? trim($notes[$assignment->rec_employee_id] ?? '') : '';
                     $zeitM = $assignment->datum->format('d.m.Y');
                     if ($assignment->von) {
@@ -154,7 +158,7 @@
                             @endif
                             @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment])
                         </div>
-                        @if ($noteM !== '' || $attM)
+                        @if ($noteM !== '' || $attListM !== [])
                             <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
                                 @if ($noteM !== '')
                                     @if ($eventOnly)
@@ -163,9 +167,9 @@
                                         <button type="button" wire:click="openNote({{ $assignment->rec_employee_id }})" class="max-w-full truncate text-left">✎ {{ $noteM }}</button>
                                     @endif
                                 @endif
-                                @if ($attM)
+                                @foreach ($attListM as $attM)
                                     <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $attM->uuid]) }}" target="_blank" rel="noopener" class="max-w-full truncate text-blue-600">📎 {{ $attM->original_filename }}</a>
-                                @endif
+                                @endforeach
                             </div>
                         @endif
                     </div>
@@ -272,21 +276,21 @@
                         </td>
                         <td class="px-4 py-2">
                             @if ($assignment->rec_employee_id)
-                                @php $att = $this->attachmentsByEmployee[$assignment->rec_employee_id] ?? null; @endphp
-                                @if ($att)
-                                    <div class="flex items-center gap-2 text-xs">
-                                        <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $att->uuid]) }}" target="_blank" rel="noopener"
-                                           class="max-w-[12rem] truncate text-blue-600 hover:underline" title="{{ $att->original_filename }}">📎 {{ $att->original_filename }}</a>
-                                        @if (!$eventOnly)
-                                            <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-gray-400 hover:text-blue-600" title="Ersetzen">✎</button>
-                                            <button type="button" wire:click="removeAttachment({{ $assignment->rec_employee_id }})" wire:confirm="Anhang entfernen?" class="text-gray-400 hover:text-red-600" title="Entfernen">✕</button>
-                                        @endif
-                                    </div>
-                                @else
+                                @php $attList = $this->attachmentsByEmployee[$assignment->rec_employee_id] ?? []; @endphp
+                                <div class="space-y-0.5">
+                                    @foreach ($attList as $att)
+                                        <div class="flex items-center gap-2 text-xs">
+                                            <a href="{{ route('recruiting.dispo.attachments.download', ['uuid' => $att->uuid]) }}" target="_blank" rel="noopener"
+                                               class="max-w-[12rem] truncate text-blue-600 hover:underline" title="{{ $att->original_filename }}">📎 {{ $att->original_filename }}</a>
+                                            @if (!$eventOnly)
+                                                <button type="button" wire:click="removeAttachment({{ $att->id }})" wire:confirm="Anhang „{{ $att->original_filename }}" entfernen?" class="text-gray-400 hover:text-red-600" title="Entfernen">✕</button>
+                                            @endif
+                                        </div>
+                                    @endforeach
                                     @if (!$eventOnly)
                                         <button type="button" wire:click="openAttachment({{ $assignment->rec_employee_id }})" class="text-xs text-gray-400 hover:text-blue-600">+ Anhang</button>
                                     @endif
-                                @endif
+                                </div>
                             @endif
                         </td>
                     </tr>
@@ -462,6 +466,93 @@
                     <button wire:click="$set('showEscalationModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveEscalation" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
                 </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- "Info an Crew" (Kunde 03.09.): Anhang/Hinweis gefiltert nach Qualifikation
+         an viele MA auf einmal + Info-WhatsApp mit Link auf die Einsatz-Seite. --}}
+    @if ($showInfoModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showInfoModal', false)">
+            <div class="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Info an Crew</h2>
+
+                @if ($infoResult === null)
+                    @php
+                        $infoPrev = $this->infoPreview;
+                        $withNote = collect($infoPrev['persons'])->where('has_note', true)->count();
+                    @endphp
+
+                    <label class="block text-sm">
+                        <span class="mb-1 block font-medium text-gray-700">Wer?</span>
+                        <select wire:model.live="infoQualification" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
+                            <option value="">Alle disponierten Mitarbeiter</option>
+                            @foreach ($this->infoQualOptions as $qualValue => $qualLabel)
+                                <option value="{{ $qualValue }}">Qualifikation: {{ $qualLabel }}</option>
+                            @endforeach
+                        </select>
+                        <span class="mt-1 block text-xs text-gray-500">Nur kommende Einsatztage; mehrere Personalnummern derselben Person zählen einmal.</span>
+                    </label>
+
+                    <label class="block text-sm">
+                        <span class="mb-1 block font-medium text-gray-700">Datei anhängen <span class="text-gray-400">(optional, für alle identisch)</span></span>
+                        <input type="file" wire:model="infoUpload" accept=".pdf,.jpg,.jpeg,.png" class="w-full text-sm">
+                        <span class="mt-1 block text-xs text-gray-500">PDF/JPG/PNG, max. 10 MB — z. B. Einteilung, Briefing, Plan, Zugangscode. Wird zusätzlich zu bestehenden Anhängen abgelegt.</span>
+                        <div wire:loading wire:target="infoUpload" class="mt-1 text-xs text-blue-600">Wird hochgeladen …</div>
+                    </label>
+
+                    <label class="block text-sm">
+                        <span class="mb-1 block font-medium text-gray-700">Hinweis <span class="text-gray-400">(optional, für alle identisch)</span></span>
+                        <textarea wire:model="infoNote" rows="3" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500" placeholder="z. B. Treffpunkt geändert: Eingang Nord, Tor 3"></textarea>
+                        @if ($withNote > 0)
+                            <span class="mt-1 block text-xs text-amber-700">Achtung: {{ $withNote }} der getroffenen Personen haben bereits einen Hinweis — er wird ersetzt.</span>
+                        @endif
+                    </label>
+                    @error('infoNote') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                    @error('infoUpload') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+
+                    <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
+                        <div>Trifft <strong>{{ count($infoPrev['persons']) }}</strong> Mitarbeiter — jede/r bekommt die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
+                        @if ($infoPrev['no_phone'] > 0)
+                            <div class="text-gray-500">{{ $infoPrev['no_phone'] }} × ohne Handynummer (bekommen Anhang/Hinweis, aber keine WhatsApp)</div>
+                        @endif
+                    </div>
+
+                    <div class="flex justify-end gap-3">
+                        <button wire:click="$set('showInfoModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                        <button wire:click="sendCrewInfo"
+                                wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUpload"
+                                @if (count($infoPrev['persons']) === 0) disabled @endif
+                                class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ count($infoPrev['persons']) > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
+                            <span wire:loading.remove wire:target="sendCrewInfo">Info senden</span>
+                            <span wire:loading wire:target="sendCrewInfo">Wird gesendet …</span>
+                        </button>
+                    </div>
+                @else
+                    <div class="rounded bg-green-50 p-3 text-sm text-green-800">
+                        {{ $infoResult['sent'] }} WhatsApp(s) gesendet
+                        @if ($infoResult['attached'] > 0)
+                            · {{ $infoResult['attached'] }} × Datei angehängt
+                        @endif
+                        @if ($infoResult['noted'] > 0)
+                            · {{ $infoResult['noted'] }} Einbuchung(en) mit neuem Hinweis
+                        @endif
+                    </div>
+                    @if ($infoResult['no_phone'] > 0)
+                        <div class="rounded bg-amber-50 p-3 text-sm text-amber-800">{{ $infoResult['no_phone'] }} Person(en) ohne Handynummer — Infos liegen auf der Einsatz-Seite, aber keine WhatsApp.</div>
+                    @endif
+                    @if ($infoResult['failed'] !== [])
+                        <div class="rounded bg-red-50 p-3 text-sm text-red-800">
+                            <div class="font-medium">{{ count($infoResult['failed']) }} nicht zugestellt:</div>
+                            @foreach ($infoResult['failed'] as $failure)
+                                <div>MA #{{ $failure['employee_id'] }}: {{ $failure['error'] }}</div>
+                            @endforeach
+                        </div>
+                    @endif
+                    <div class="flex justify-end">
+                        <button wire:click="$set('showInfoModal', false)" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
+                    </div>
+                @endif
             </div>
         </div>
     @endif

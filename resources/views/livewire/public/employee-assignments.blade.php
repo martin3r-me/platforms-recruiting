@@ -74,6 +74,8 @@
 .rg-crew .panel .b{font-size:13.5px; margin-top:4px; line-height:1.45; white-space:pre-line}
 .rg-crew .panel.attach{display:block; text-decoration:none; color:inherit; border:1px solid var(--line)}
 .rg-crew .panel.attach .b{color:var(--brand-mid); font-weight:600}
+.rg-crew .isnew{border:1.5px solid var(--brand-mid); box-shadow:0 0 0 3px rgba(0,90,120,.08)}
+.rg-crew .newtag{display:inline-block; margin-left:6px; padding:1px 7px; border-radius:999px; background:var(--brand-mid); color:#fff; font-size:10px; font-weight:800; letter-spacing:.08em; vertical-align:2px}
 .rg-crew .panel.attach:hover{border-color:var(--brand)}
 
 .rg-crew .hint{margin:10px 16px 0; background:var(--warn-bg); border-radius:var(--r); padding:11px 13px}
@@ -197,6 +199,7 @@
 
                 $hasPanel = !empty($group['adresse']) || !empty($group['zusatz_ort']) || !empty($group['kleidung']);
                 $singleNote = ($dayCount <= 1 && $first) ? ($first['individual_note'] ?? null) : null;
+                $singleNoteNew = ($dayCount <= 1 && $first) ? !empty($first['note_new']) : false;
 
                 // Beacon-Label VORBERECHNEN in reinem PHP (Pitfall: an Wortzeichen
                 // geklebte Blade-Direktiven kompilieren nicht -> if/else zerschossen).
@@ -288,8 +291,14 @@
                                 </div>
                             </div>
                             @if ($day['individual_note'])
-                                <div class="hint">
-                                    <div class="h">Hinweis · {{ $labelDate($day['datum']) }}</div>
+                                @php $noteNewTag = !empty($day['note_new']); @endphp
+                                <div class="hint {{ $noteNewTag ? 'isnew' : '' }}">
+                                    <div class="h">
+                                        Hinweis · {{ $labelDate($day['datum']) }}
+                                        @if ($noteNewTag)
+                                            <span class="newtag">NEU</span>
+                                        @endif
+                                    </div>
                                     <div class="b">{{ $day['individual_note'] }}</div>
                                 </div>
                             @endif
@@ -310,18 +319,30 @@
                         </div>
                     @endif
 
-                    @if (!empty($group['attachment']))
+                    @if (!empty($group['attachments']))
                         <div class="panels" style="padding-top:{{ $hasPanel ? '0' : '14px' }}">
-                            <a class="panel attach" href="{{ $group['attachment']['url'] }}" target="_blank" rel="noopener">
-                                <div class="h">Anhang für dich</div>
-                                <div class="b">📎 {{ $group['attachment']['name'] }}</div>
-                            </a>
+                            @foreach ($group['attachments'] as $att)
+                                <a class="panel attach {{ $att['is_new'] ? 'isnew' : '' }}" href="{{ $att['url'] }}" target="_blank" rel="noopener">
+                                    <div class="h">
+                                        {{ count($group['attachments']) > 1 ? 'Dokument für dich' : 'Anhang für dich' }}
+                                        @if ($att['is_new'])
+                                            <span class="newtag">NEU</span>
+                                        @endif
+                                    </div>
+                                    <div class="b">📎 {{ $att['name'] }}</div>
+                                </a>
+                            @endforeach
                         </div>
                     @endif
 
                     @if ($singleNote)
-                        <div class="hint">
-                            <div class="h">Hinweis für dich</div>
+                        <div class="hint {{ $singleNoteNew ? 'isnew' : '' }}">
+                            <div class="h">
+                                Hinweis für dich
+                                @if ($singleNoteNew)
+                                    <span class="newtag">NEU</span>
+                                @endif
+                            </div>
                             <div class="b">{{ $singleNote }}</div>
                         </div>
                     @endif

@@ -47,6 +47,7 @@ class DispoAttachmentStoreTest extends TestCase
             'database/migrations/2026_08_24_000002_add_escalation_fields_to_rec_dispo_assignments.php',
             'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php',
             'database/migrations/2026_08_27_000001_create_rec_dispo_attachments_table.php',
+            'database/migrations/2026_09_03_000001_allow_multiple_dispo_attachments.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {
@@ -94,18 +95,18 @@ class DispoAttachmentStoreTest extends TestCase
         $this->assertNotEmpty($a->uuid);
     }
 
-    public function test_put_again_replaces_row_and_deletes_old_file(): void
+    public function test_put_again_adds_a_second_file_instead_of_replacing(): void
     {
+        // Crew-Info (03.09.): mehrere Dokumente je MA+VA (Einteilung + Briefing + Code).
         $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ATT-2', 'name' => 'VA']);
         $old = $this->store()->putContents($event->id, 42, 'ONE', 'a.pdf', 'application/pdf');
 
         $new = $this->store()->putContents($event->id, 42, 'TWO', 'b.png', 'image/png');
 
-        $this->assertSame(1, RecDispoAttachment::count());
+        $this->assertSame(2, RecDispoAttachment::count());
         $this->assertNotSame($old->stored_path, $new->stored_path);
-        $this->assertFalse($this->files->exists($old->stored_path));
+        $this->assertTrue($this->files->exists($old->stored_path), 'Erste Datei bleibt bestehen.');
         $this->assertTrue($this->files->exists($new->stored_path));
-        $this->assertSame('b.png', RecDispoAttachment::first()->original_filename);
     }
 
     public function test_second_employee_same_event_keeps_both(): void

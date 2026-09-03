@@ -68,6 +68,17 @@
                 </select>
                 <span class="mt-1 block text-xs text-gray-400">Stufe 3 markiert die Einbuchung als storniert und sperrt das Portal — das Alarm-Template ist die Info dazu (Kanal wie Stufe 1/2).</span>
             </label>
+
+            <label class="block text-sm">
+                <span class="mb-1 block text-gray-600">Info-Template „Neue Infos zum Einsatz" (WhatsApp, freigegeben)</span>
+                <select wire:model="infoTemplateId" class="w-full rounded-lg border border-gray-300 px-3 py-2">
+                    <option value="">— kein Template gewählt —</option>
+                    @foreach ($this->templates as $template)
+                        <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
+                    @endforeach
+                </select>
+                <span class="mt-1 block text-xs text-gray-400">Für „Info an Crew" auf der VA-Seite: kündigt neue Anhänge/Hinweise an, Button führt auf die Einsatz-Seite.</span>
+            </label>
         </div>
 
         <div class="flex items-center gap-3">

@@ -8,9 +8,9 @@ use Platform\Recruiting\Models\RecDispoAttachment;
 use Symfony\Component\Uid\UuidV7;
 
 /**
- * Datei-Lifecycle der Anhaenge (Runde 3, #8): genau eine Datei pro MA und VA,
- * erneutes Hochladen ersetzt (alte Datei wird geloescht, aber erst NACHDEM
- * die Zeile gespeichert ist — verwaiste Datei < verwaiste Zeile). Filesystem
+ * Datei-Lifecycle der Anhaenge: seit Crew-Info (03.09.) MEHRERE Dateien pro
+ * MA und VA (Einteilung, Briefing, Zugangscode, ...) — Hochladen fuegt hinzu,
+ * geloescht wird gezielt je Datei (Zeile zuerst, Datei danach). Filesystem
  * wird injiziert, damit Integration-Tests ohne Laravel-Container laufen
  * (Flysystem-Local auf Temp-Verzeichnis); Produktion nutzt ::default().
  */
@@ -41,36 +41,15 @@ class DispoAttachmentStore
         );
     }
 
-    /** Legt an oder ersetzt (Unique event+employee). */
+    /** Legt IMMER neu an (seit Crew-Info 03.09. sind mehrere Dateien je MA+VA erlaubt). */
     public function putContents(int $eventId, int $employeeId, string $contents, string $originalFilename, ?string $mime, ?int $userId = null): RecDispoAttachment
     {
-        $existing = RecDispoAttachment::query()
-            ->where('rec_dispo_event_id', $eventId)
-            ->where('rec_employee_id', $employeeId)
-            ->first();
-
         $uuid = (string) UuidV7::generate();
         $ext = strtolower((string) pathinfo($originalFilename, PATHINFO_EXTENSION));
         $ext = preg_match('/^[a-z0-9]{1,8}$/', $ext) ? $ext : 'bin';
         $path = "zas-dispo-attachments/{$eventId}/{$uuid}.{$ext}";
 
         $this->files->put($path, $contents);
-
-        if ($existing !== null) {
-            $oldPath = $existing->stored_path;
-            $existing->fill([
-                'uuid'               => $uuid,
-                'disk'               => $this->diskName,
-                'stored_path'        => $path,
-                'original_filename'  => mb_substr($originalFilename, 0, 255),
-                'mime_type'          => $mime,
-                'size_bytes'         => strlen($contents),
-                'uploaded_by_user_id' => $userId,
-            ])->save();
-            $this->deleteFile($oldPath);
-
-            return $existing->refresh();
-        }
 
         return RecDispoAttachment::create([
             'uuid'                => $uuid,

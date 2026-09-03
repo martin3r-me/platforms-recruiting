@@ -172,6 +172,9 @@ class DispoPortalConfirmTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000002_add_escalation_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_27_000001_create_rec_dispo_attachments_table.php'],
             [$own, 'database/migrations/2026_08_28_000002_add_reconfirm_fields_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_09_03_000002_add_note_timestamp_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_09_03_000003_add_portal_last_seen_at_to_rec_employees.php'],
+            [$own, 'database/migrations/2026_09_03_000001_allow_multiple_dispo_attachments.php'],
         ];
 
         foreach ($files as [$root, $relative]) {
