@@ -676,8 +676,10 @@ class Show extends Component
     // Qualifikation an viele MA auf einmal + Info-WhatsApp mit Link.
     // ------------------------------------------------------------------
     public bool $showInfoModal = false;
-    /** Qualifikations-Wert (Lookup-value) oder '' = alle. String-Prop (wire:model). */
-    public string $infoQualification = '';
+    /** Filter: '' = alle, 't:<Taetigkeit>' (aus den Einbuchungen) oder 'q:<Lookup-value>' (Qualifikation). */
+    public string $infoFilter = '';
+    /** Abgewaehlte Personen (kanonische ids) — Checkboxen in der Vorschau. @var list<int> */
+    public array $infoExcluded = [];
     public string $infoNote = '';
     public $infoUpload = null;
     /** @var ?array{sent:int, failed:list<array{employee_id:int, error:string}>, attached:int, noted:int, no_phone:int} */
@@ -688,12 +690,47 @@ class Show extends Component
         if ($this->blockedForEventOnly()) {
             return;
         }
-        $this->infoQualification = '';
+        $this->infoFilter = '';
+        $this->infoExcluded = [];
         $this->infoNote = '';
         $this->infoUpload = null;
         $this->infoResult = null;
         $this->resetErrorBag('infoNote');
         $this->showInfoModal = true;
+    }
+
+    /** Filterwechsel verwirft die Einzel-Abwahl — sie bezog sich auf die alte Menge. */
+    public function updatedInfoFilter(): void
+    {
+        $this->infoExcluded = [];
+        unset($this->infoPreview);
+    }
+
+    /** Einzelne Person der Vorschau an-/abwaehlen (Checkbox). */
+    public function toggleInfoPerson(int $canonical): void
+    {
+        if (in_array($canonical, $this->infoExcluded, true)) {
+            $this->infoExcluded = array_values(array_diff($this->infoExcluded, [$canonical]));
+        } else {
+            $this->infoExcluded[] = $canonical;
+        }
+        unset($this->infoPreview);
+    }
+
+    /** In der VA vorkommende Taetigkeiten (aus den kommenden Einbuchungen) fuer den Filter. */
+    #[Computed]
+    public function infoTaetigkeitOptions(): array
+    {
+        $today = now()->toDateString();
+
+        return $this->event->assignments
+            ->filter(fn ($a) => $a->datum->format('Y-m-d') >= $today && trim((string) $a->taetigkeit) !== '')
+            ->pluck('taetigkeit')
+            ->map(fn ($t) => trim((string) $t))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
     }
 
     /** In der VA vertretene Qualifikationen (value => label) fuer den Filter. */
@@ -742,6 +779,7 @@ class Show extends Component
             $byCanon[$c]['booked'] = $byCanon[$c]['booked'] ?? (int) $a->rec_employee_id;
             $byCanon[$c]['assignment_ids'][] = (int) $a->id;
             $byCanon[$c]['has_note'] = ($byCanon[$c]['has_note'] ?? false) || trim((string) $a->individual_note) !== '';
+            $byCanon[$c]['taetigkeiten'][trim((string) $a->taetigkeit)] = true;
         }
         if ($byCanon === []) {
             return ['persons' => [], 'no_phone' => 0];
@@ -763,10 +801,16 @@ class Show extends Component
         foreach ($byCanon as $c => $data) {
             $group = $groups[$c] ?? [$c];
 
-            if ($this->infoQualification !== '') {
+            if (str_starts_with($this->infoFilter, 't:')) {
+                // Taetigkeit aus den Einbuchungen DIESER VA (immer gefuellt, ZAS liefert sie mit).
+                if (!isset($data['taetigkeiten'][substr($this->infoFilter, 2)])) {
+                    continue;
+                }
+            } elseif (str_starts_with($this->infoFilter, 'q:')) {
+                $wanted = substr($this->infoFilter, 2);
                 $hit = false;
                 foreach ($group as $gid) {
-                    if (in_array($this->infoQualification, $quals[$gid] ?? [], true)) {
+                    if (in_array($wanted, $quals[$gid] ?? [], true)) {
                         $hit = true;
                         break;
                     }
@@ -803,6 +847,7 @@ class Show extends Component
                 'first_name'     => $firstName,
                 'assignment_ids' => $data['assignment_ids'],
                 'has_note'       => (bool) $data['has_note'],
+                'selected'       => !in_array((int) $c, $this->infoExcluded, true),
             ];
         }
 
@@ -846,7 +891,7 @@ class Show extends Component
 
         try {
             $preview = $this->infoPreview;
-            $persons = $preview['persons'];
+            $persons = array_values(array_filter($preview['persons'], fn ($p) => $p['selected']));
             if ($persons === []) {
                 $this->addError('infoNote', 'Die Auswahl trifft keine Mitarbeiter.');
                 return;
@@ -908,7 +953,7 @@ class Show extends Component
                 'failed'   => $result['failed'],
                 'attached' => $attached,
                 'noted'    => (int) $noted,
-                'no_phone' => $preview['no_phone'],
+                'no_phone' => count(array_filter($persons, fn ($p) => $p['phone'] === null)),
             ];
             $this->infoUpload = null;
             unset($this->event, $this->attachmentsByEmployee, $this->infoPreview);

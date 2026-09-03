@@ -480,19 +480,48 @@
                 @if ($infoResult === null)
                     @php
                         $infoPrev = $this->infoPreview;
-                        $withNote = collect($infoPrev['persons'])->where('has_note', true)->count();
+                        $withNote = collect($infoPrev['persons'])->where('selected', true)->where('has_note', true)->count();
                     @endphp
 
                     <label class="block text-sm">
                         <span class="mb-1 block font-medium text-gray-700">Wer?</span>
-                        <select wire:model.live="infoQualification" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
+                        <select wire:model.live="infoFilter" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
                             <option value="">Alle disponierten Mitarbeiter</option>
-                            @foreach ($this->infoQualOptions as $qualValue => $qualLabel)
-                                <option value="{{ $qualValue }}">Qualifikation: {{ $qualLabel }}</option>
-                            @endforeach
+                            @if ($this->infoTaetigkeitOptions !== [])
+                                <optgroup label="Tätigkeit (aus dieser VA)">
+                                    @foreach ($this->infoTaetigkeitOptions as $taetigkeit)
+                                        <option value="t:{{ $taetigkeit }}">{{ $taetigkeit }}</option>
+                                    @endforeach
+                                </optgroup>
+                            @endif
+                            @if ($this->infoQualOptions !== [])
+                                <optgroup label="Qualifikation (aus der MA-Akte)">
+                                    @foreach ($this->infoQualOptions as $qualValue => $qualLabel)
+                                        <option value="q:{{ $qualValue }}">{{ $qualLabel }}</option>
+                                    @endforeach
+                                </optgroup>
+                            @endif
                         </select>
-                        <span class="mt-1 block text-xs text-gray-500">Nur kommende Einsatztage; mehrere Personalnummern derselben Person zählen einmal.</span>
+                        <span class="mt-1 block text-xs text-gray-500">Nur kommende Einsatztage; mehrere Personalnummern derselben Person zählen einmal. Einzelne unten abwählbar.</span>
                     </label>
+
+                    @if ($infoPrev['persons'] !== [])
+                        <div class="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">
+                            @foreach ($infoPrev['persons'] as $person)
+                                <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-gray-50 {{ $person['selected'] ? '' : 'opacity-50' }}">
+                                    <input type="checkbox" wire:click="toggleInfoPerson({{ $person['canonical'] }})"
+                                           @if ($person['selected']) checked @endif class="rounded border-gray-300">
+                                    <span class="truncate">{{ $person['name'] }}</span>
+                                    @if ($person['phone'] === null)
+                                        <span class="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] text-amber-700">kein Telefon</span>
+                                    @endif
+                                    @if ($person['has_note'])
+                                        <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] text-gray-500" title="Hat bereits einen Hinweis — wird ersetzt">✎ Hinweis vorhanden</span>
+                                    @endif
+                                </label>
+                            @endforeach
+                        </div>
+                    @endif
 
                     <label class="block text-sm">
                         <span class="mb-1 block font-medium text-gray-700">Datei anhängen <span class="text-gray-400">(optional, für alle identisch)</span></span>
@@ -511,10 +540,14 @@
                     @error('infoNote') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
                     @error('infoUpload') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
+                    @php
+                        $infoSelected = collect($infoPrev['persons'])->where('selected', true);
+                        $infoSelNoPhone = $infoSelected->whereNull('phone')->count();
+                    @endphp
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
-                        <div>Trifft <strong>{{ count($infoPrev['persons']) }}</strong> Mitarbeiter — jede/r bekommt die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
-                        @if ($infoPrev['no_phone'] > 0)
-                            <div class="text-gray-500">{{ $infoPrev['no_phone'] }} × ohne Handynummer (bekommen Anhang/Hinweis, aber keine WhatsApp)</div>
+                        <div>Geht an <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern — jede/r bekommt die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
+                        @if ($infoSelNoPhone > 0)
+                            <div class="text-gray-500">{{ $infoSelNoPhone }} × ohne Handynummer (bekommen Anhang/Hinweis, aber keine WhatsApp)</div>
                         @endif
                     </div>
 
@@ -522,8 +555,8 @@
                         <button wire:click="$set('showInfoModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                         <button wire:click="sendCrewInfo"
                                 wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUpload"
-                                @if (count($infoPrev['persons']) === 0) disabled @endif
-                                class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ count($infoPrev['persons']) > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
+                                @if ($infoSelected->count() === 0) disabled @endif
+                                class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
                             <span wire:loading.remove wire:target="sendCrewInfo">Info senden</span>
                             <span wire:loading wire:target="sendCrewInfo">Wird gesendet …</span>
                         </button>
