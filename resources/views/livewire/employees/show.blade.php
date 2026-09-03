@@ -15,6 +15,8 @@
             ['label' => 'Mitarbeiter', 'href' => route('recruiting.employees.index')],
             ['label' => $name],
         ]">
+            {{-- Sprung-Suche: anderen MA finden, ohne eine Ebene zurueck --}}
+            <livewire:recruiting.employees.search-jump :current-id="$employee?->id" />
         </x-ui-page-actionbar>
     </x-slot>
 
