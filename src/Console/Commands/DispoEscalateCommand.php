@@ -104,6 +104,11 @@ class DispoEscalateCommand extends Command
             return ['skipped' => true, 'population' => 0, 'stage1' => 0, 'stage2' => 0, 'stage3' => 0];
         }
 
+        // Schonfrist vor Stufe 3 (Stunden). Unkonfiguriert = 6; ein explizit
+        // gespeichertes 0 schaltet sie aus.
+        $graceRaw = $settings->getSetting('dispo_escalation_grace_hours');
+        $graceHours = ($graceRaw === null || $graceRaw === '') ? 6 : max(0, (int) $graceRaw);
+
         $defaults = [
             1 => (string) ($settings->getSetting('dispo_escalation_time_1') ?: '14:00'),
             2 => (string) ($settings->getSetting('dispo_escalation_time_2') ?: '15:00'),
@@ -165,7 +170,7 @@ class DispoEscalateCommand extends Command
 
         foreach ($assignments as $a) {
             $times = self::configFor($a, $defaults)['times'];
-            $stage = $planner->dueStage($this->state($a), $now, $times);
+            $stage = $planner->dueStage($this->state($a), $now, $times, $graceHours);
             if ($stage === null) {
                 continue;
             }

@@ -51,6 +51,29 @@ class DispoEscalationPlannerTest extends TestCase
         // Verpasstes Fenster: um 16:01 unbestaetigt, keine Vorstempel -> sofort Stufe 3
         $this->assertSame(3, $this->p->dueStage($this->state(), $this->at('16:01'), $this->times));
     }
+    public function test_grace_defers_stage3_until_the_person_had_time_to_react(): void {
+        // Neuversand 12:00 (Nummern-Nachzug), Schonfrist 6h: um 16:01 noch keine
+        // Rausnahme - erst ab 18:00 (12:00 + 6h) feuert Stufe 3.
+        $late = $this->state(['reminder_sent_at' => $this->at('12:00'),
+            'escalation_1_at' => $this->at('14:00'), 'escalation_2_at' => $this->at('15:00')]);
+        $this->assertNull($this->p->dueStage($late, $this->at('16:01'), $this->times, 6));
+        $this->assertSame(3, $this->p->dueStage($late, $this->at('18:01'), $this->times, 6));
+    }
+    public function test_grace_changes_nothing_for_sends_days_before(): void {
+        $this->assertSame(3, $this->p->dueStage(
+            $this->state(['reminder_sent_at' => new \DateTimeImmutable('2026-08-30 10:00')]),
+            $this->at('16:01'), $this->times, 6
+        ));
+    }
+    public function test_grace_zero_keeps_old_behaviour(): void {
+        $late = $this->state(['reminder_sent_at' => $this->at('12:00')]);
+        $this->assertSame(3, $this->p->dueStage($late, $this->at('16:01'), $this->times, 0));
+    }
+    public function test_grace_does_not_touch_stage1_and_2(): void {
+        // Erinnerungen sollen Nachzuegler gerade ERREICHEN - nur die Rausnahme wartet.
+        $late = $this->state(['reminder_sent_at' => $this->at('12:00')]);
+        $this->assertSame(1, $this->p->dueStage($late, $this->at('14:01'), $this->times, 6));
+    }
     public function test_stage1_does_not_fire_after_stage2_already_stamped(): void {
         // Scheduler-Ausfall 14–15h: Stufe 2 lief um 15:01, danach darf Stufe 1 nicht nachrutschen
         $this->assertNull($this->p->dueStage(

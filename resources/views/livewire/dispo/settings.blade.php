@@ -39,6 +39,12 @@
             </div>
 
             <label class="block text-sm">
+                <span class="mb-1 block text-gray-600">Schonfrist vor Stufe 3 (Stunden)</span>
+                <input type="number" min="0" max="24" wire:model="escalationGraceHours" class="w-32 rounded-lg border border-gray-300 px-3 py-2">
+                <span class="mt-1 block text-xs text-gray-400">Rausnahme + Portalsperre erst, wenn die letzte Ansprache mindestens so lange her ist — schützt z. B. nach Nummernkorrektur + Neuversand am Eskalationstag. 0 = aus.</span>
+            </label>
+
+            <label class="block text-sm">
                 <span class="mb-1 block text-gray-600">Eskalations-Template Stufe 1 (WhatsApp, freigegeben)</span>
                 <select wire:model="escalationTemplate1Id" class="w-full rounded-lg border border-gray-300 px-3 py-2">
                     <option value="">— kein Template gewählt —</option>
