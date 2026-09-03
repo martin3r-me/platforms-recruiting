@@ -44,8 +44,11 @@ class RecEmployeeExportObserver
         'identity_card_number', 'identity_card_valid_until',
         'religion', 'number_of_children',
 
-        // Kontakt
-        'email', 'phone',
+        // Kontakt. 'phone' fehlt hier BEWUSST (03.09.): Telefonnummern pflegen
+        // wir lokal nach (WhatsApp-Versand), fuehrend ist ZAS — ein Rueck-Export
+        // wuerde per PNr-Match dortige Akten ueberschreiben (Vorfall Katona
+        // RG999999) und bei Nummern-Korrekturen Massen-Updates ausloesen.
+        'email',
 
         // Adresse
         'street', 'house_number', 'zip', 'city', 'country_code',
