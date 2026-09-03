@@ -516,7 +516,7 @@
                                         <span class="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] text-amber-700">kein Telefon</span>
                                     @endif
                                     @if ($person['has_note'])
-                                        <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] text-gray-500" title="Hat bereits einen Hinweis — wird ersetzt">✎ Hinweis vorhanden</span>
+                                        <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] text-gray-500" title="Hat bereits einen Hinweis — neuer Text wird ergänzt">✎ Hinweis vorhanden</span>
                                     @endif
                                 </label>
                             @endforeach
@@ -525,7 +525,8 @@
 
                     <label class="block text-sm">
                         <span class="mb-1 block font-medium text-gray-700">Datei anhängen <span class="text-gray-400">(optional, für alle identisch)</span></span>
-                        <input type="file" wire:model="infoUpload" accept=".pdf,.jpg,.jpeg,.png" class="w-full text-sm">
+                        <input type="file" wire:model="infoUpload" accept=".pdf,.jpg,.jpeg,.png"
+                               class="w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
                         <span class="mt-1 block text-xs text-gray-500">PDF/JPG/PNG, max. 10 MB — z. B. Einteilung, Briefing, Plan, Zugangscode. Wird zusätzlich zu bestehenden Anhängen abgelegt.</span>
                         <div wire:loading wire:target="infoUpload" class="mt-1 text-xs text-blue-600">Wird hochgeladen …</div>
                     </label>
@@ -534,7 +535,7 @@
                         <span class="mb-1 block font-medium text-gray-700">Hinweis <span class="text-gray-400">(optional, für alle identisch)</span></span>
                         <textarea wire:model="infoNote" rows="3" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500" placeholder="z. B. Treffpunkt geändert: Eingang Nord, Tor 3"></textarea>
                         @if ($withNote > 0)
-                            <span class="mt-1 block text-xs text-amber-700">Achtung: {{ $withNote }} der getroffenen Personen haben bereits einen Hinweis — er wird ersetzt.</span>
+                            <span class="mt-1 block text-xs text-gray-500">{{ $withNote }} der ausgewählten Personen {{ $withNote === 1 ? 'hat' : 'haben' }} bereits einen Hinweis — der neue Text wird darunter ergänzt.</span>
                         @endif
                     </label>
                     @error('infoNote') <p class="text-sm text-red-600">{{ $message }}</p> @enderror

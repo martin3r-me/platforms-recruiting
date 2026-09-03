@@ -920,13 +920,23 @@ class Show extends Component
             }
 
             // 2) Hinweis: identischer Text auf allen KOMMENDEN Einbuchungen der
-            //    Getroffenen (ersetzt Bestehendes — Vorschau warnt vorher).
+            //    Getroffenen — ERGAENZT einen bestehenden Hinweis als neue Zeile
+            //    (User 03.09.: ein Bulk-Treffpunkt darf das individuelle
+            //    "15 Min frueher" nicht wegwerfen). Doppeltes Anfuegen desselben
+            //    Textes wird uebersprungen (Doppelklick/zweiter Lauf).
             if ($note !== '') {
                 $ids = array_merge(...array_map(fn ($p) => $p['assignment_ids'], $persons));
-                $noted = RecDispoAssignment::query()->whereIn('id', $ids)->update([
-                    'individual_note'            => $note,
-                    'individual_note_updated_at' => $now,
-                ]);
+                foreach (RecDispoAssignment::query()->whereIn('id', $ids)->get(['id', 'individual_note']) as $assignment) {
+                    $existing = trim((string) $assignment->individual_note);
+                    if ($existing === $note || str_contains($existing, $note)) {
+                        continue;
+                    }
+                    RecDispoAssignment::query()->whereKey($assignment->id)->update([
+                        'individual_note'            => $existing !== '' ? $existing . "\n" . $note : $note,
+                        'individual_note_updated_at' => $now,
+                    ]);
+                    $noted++;
+                }
             }
 
             // 3) Info-WhatsApp an alle mit Nummer.
