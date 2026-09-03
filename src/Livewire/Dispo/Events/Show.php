@@ -42,6 +42,12 @@ class Show extends Component
     public string $vorlaufMinuten = '';
     public string $ansprechpartner = '';
     public bool $includeReminders = false;
+
+    /**
+     * Kunde 03.09. (Nummern-Nachzug): NUR Empfaenger mit Zustellfehler erneut
+     * anschreiben — die uebrigen Angeschriebenen ohne Antwort bleiben aussen vor.
+     */
+    public bool $onlyFailed = false;
     /** Auswahl bei Mehrtages-VA: leer = alle Tage, sonst Y-m-d. */
     public string $sendDay = '';
     /** @var array{sent:int, failed:list<array{employee_id:int, error:string}>}|null */
@@ -619,6 +625,19 @@ class Show extends Component
         unset($this->chatThread, $this->chat);
     }
 
+    /**
+     * Kunde 03.09.: Chat als ungelesen zuruecklegen. Schliesst das Panel mit —
+     * solange es offen ist, wuerde chat() den Thread beim naechsten Render
+     * sofort wieder als gelesen markieren.
+     */
+    public function markChatUnread(): void
+    {
+        $this->chatThread?->markAsUnread();
+        $this->closeChat();
+        unset($this->threadsByEmployee);
+        $this->dispatch('sidebar-refresh');
+    }
+
     #[Computed]
     public function chatThread(): ?\Platform\Crm\Models\CommsWhatsAppThread
     {
@@ -1177,6 +1196,10 @@ class Show extends Component
             'deletion_marked_at' => $a->deletion_marked_at?->toDateTimeString(),
             'datum'              => $a->datum->format('Y-m-d'),
             'reconfirm_required_at' => $a->reconfirm_required_at?->toDateTimeString(),
+            // Gleiches Praedikat wie Dispo-Karte/Tabellen-Filter: irgendeine Stufe failed.
+            'failed'             => $a->reminderMessage?->status === 'failed'
+                || $a->escalation1Message?->status === 'failed'
+                || $a->escalation2Message?->status === 'failed',
         ])->all();
 
         // Dispo-Identitaet: Datensaetze derselben Person (gleicher CRM-Kontakt) auf die
@@ -1224,8 +1247,20 @@ class Show extends Component
             }
         }
 
+        // Nur-Zustellfehler-Modus: Zielmenge VOR dem Planner eingrenzen; die
+        // Aussortierten werden gezaehlt (nichts wird still uebersprungen). Die
+        // Betroffenen sind bereits gestempelt, intern also immer Reminder-Modus.
+        $notFailed = 0;
+        if ($this->onlyFailed) {
+            $notFailed = count(array_filter($upcoming, fn ($a) => empty($a['failed'])));
+            $upcoming = array_values(array_filter($upcoming, fn ($a) => !empty($a['failed'])));
+        }
+
         $result = (new DispoRecipientPlanner())
-            ->plan($upcoming, $phones, $this->includeReminders);
+            ->plan($upcoming, $phones, $this->onlyFailed ? true : $this->includeReminders);
+        if ($notFailed > 0) {
+            $result['skipped']['not_failed'] = $notFailed;
+        }
 
         // Runde 4 (#2): wie viele der Empfaenger-Einbuchungen sind Rebestaetigungen (Zeit geaendert)?
         // array_merge([], ...) statt array_merge(..., []): "Cannot use positional
@@ -1247,6 +1282,7 @@ class Show extends Component
         }
         $this->vorlaufMinuten = (string) ($this->event->vorlauf_minuten ?? '');
         $this->includeReminders = false;
+        $this->onlyFailed = false;
         $this->sendDay = '';
         $this->sendResult = null;
         $this->loadEscalationForm();

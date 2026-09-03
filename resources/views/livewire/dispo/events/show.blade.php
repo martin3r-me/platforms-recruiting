@@ -405,6 +405,10 @@
                         <input type="checkbox" wire:model.live="includeReminders" class="rounded border-gray-300">
                         Erinnerung an bereits Angeschriebene ohne Antwort erneut senden
                     </label>
+                    <label class="flex items-center gap-2 text-sm text-gray-600">
+                        <input type="checkbox" wire:model.live="onlyFailed" class="rounded border-gray-300">
+                        Nur nicht zugestellte erneut anschreiben <span class="text-xs text-gray-400">(z. B. nach Nummernkorrektur — übrige Unbeantwortete bleiben außen vor)</span>
+                    </label>
 
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         <div>Sendet an <strong>{{ count($preview['recipients']) }}</strong> Mitarbeiter.</div>
@@ -412,7 +416,7 @@
                             <div class="text-amber-700">{{ $preview['reconfirm'] }} × Zeit geändert — erneute Bestätigung (gleiches Template)</div>
                         @endif
                         @php
-                            $labels = ['past' => 'in der Vergangenheit', 'not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet'];
+                            $labels = ['past' => 'in der Vergangenheit', 'not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet', 'not_failed' => 'ohne Zustellfehler (Nur-Zustellfehler-Modus)'];
                         @endphp
                         @foreach ($labels as $key => $label)
                             @if (($preview['skipped'][$key] ?? 0) > 0)
@@ -772,6 +776,7 @@
                     @if ($chat['since'])
                         <span class="text-gray-400">ab {{ $chat['since'] }}</span>
                     @endif
+                    <button type="button" wire:click="markChatUnread" class="ml-auto rounded px-2 py-1 text-blue-700 hover:bg-blue-50" title="Chat schließen und wieder blau markieren — z. B. um später zu antworten">als ungelesen schließen</button>
                 </div>
                 <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-4"
                      wire:key="chatmsgs-{{ $chatEmployeeId }}-{{ count($chat['messages']) }}-{{ $chatFilter }}"
