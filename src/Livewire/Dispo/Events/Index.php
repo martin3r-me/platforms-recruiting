@@ -13,12 +13,18 @@ use Platform\Recruiting\Support\Filialen;
  */
 class Index extends Component
 {
+    // Kunde 03.09.: Filter leben in der URL — Browser-Zurueck aus einer VA
+    // stellt die gefilterte Liste wieder her (vorher: Reset bei jedem Zurueck).
+    #[\Livewire\Attributes\Url]
     public bool $showPast = false;
 
+    #[\Livewire\Attributes\Url]
     public string $dateFrom = '';
 
+    #[\Livewire\Attributes\Url]
     public string $dateTo = '';
 
+    #[\Livewire\Attributes\Url]
     public string $filialeFilter = '';
 
     /**
@@ -70,9 +76,13 @@ class Index extends Component
     {
         $query = RecDispoEvent::query()
             ->withCount([
-                'assignments',
-                'assignments as matched_count' => fn ($q) => $q->whereNotNull('rec_employee_id'),
-                'assignments as confirmed_count' => fn ($q) => $q->whereNotNull('confirmed_at'),
+                // Kunde 03.09.: verschwundene (aus dem ZAS-Bestand gefallene) und zur
+                // Loeschung gemeldete Einbuchungen zaehlen nicht mehr mit — sonst
+                // wirkt eine VA ewig "offen", obwohl niemand mehr zu bestaetigen ist.
+                // Die Tabelle der VA-Seite zeigt beide weiterhin (mit Badge).
+                'assignments' => fn ($q) => $q->whereNull('missing_since')->whereNull('deletion_marked_at'),
+                'assignments as matched_count' => fn ($q) => $q->whereNull('missing_since')->whereNull('deletion_marked_at')->whereNotNull('rec_employee_id'),
+                'assignments as confirmed_count' => fn ($q) => $q->whereNull('missing_since')->whereNull('deletion_marked_at')->whereNotNull('confirmed_at'),
             ])
             // Roll-up-Warnicon: irgendein Stufen- oder Alarm-Versand dieser VA fehlgeschlagen.
             // Als korrelierte EXISTS-Subqueries statt Eager-Load je Nachricht — kein N+1.

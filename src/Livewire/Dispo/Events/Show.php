@@ -681,6 +681,8 @@ class Show extends Component
     /** Abgewaehlte Personen (kanonische ids) — Checkboxen in der Vorschau. @var list<int> */
     public array $infoExcluded = [];
     public string $infoNote = '';
+    /** truthy = Info-WhatsApp mitschicken (Standard); leer/false = nur zuweisen ohne Versand (Kunde 03.09.: Erstbefuellung vor dem Bestaetigungs-Versand). Untypisiert — die Checkbox liefert bool (Muster escalationEnabled). */
+    public $infoSendWhatsApp = true;
     public $infoUpload = null;
     /** @var ?array{sent:int, failed:list<array{employee_id:int, error:string}>, attached:int, noted:int, no_phone:int} */
     public ?array $infoResult = null;
@@ -693,6 +695,7 @@ class Show extends Component
         $this->infoFilter = '';
         $this->infoExcluded = [];
         $this->infoNote = '';
+        $this->infoSendWhatsApp = true;
         $this->infoUpload = null;
         $this->infoResult = null;
         $this->resetErrorBag('infoNote');
@@ -872,9 +875,10 @@ class Show extends Component
                 [], ['infoUpload' => 'Datei']
             );
         }
+        $sendWhatsApp = (bool) $this->infoSendWhatsApp;
         $templateId = (int) (RecApplicantSettings::getOrCreateForTeam($this->settingsTeamId())->getSetting('dispo_info_template_id') ?: 0);
-        if ($templateId === 0) {
-            $this->addError('infoNote', 'Kein Info-Template konfiguriert (Disposition → Einstellungen).');
+        if ($sendWhatsApp && $templateId === 0) {
+            $this->addError('infoNote', 'Kein Info-Template konfiguriert (Disposition → Einstellungen) — oder „WhatsApp senden" abwählen.');
             return;
         }
 
@@ -939,7 +943,22 @@ class Show extends Component
                 }
             }
 
-            // 3) Info-WhatsApp an alle mit Nummer.
+            // 3) Info-WhatsApp an alle mit Nummer — nur wenn der Schalter an ist
+            //    (aus = reine Zuweisung, z. B. Erstbefuellung vor dem Bestaetigungs-
+            //    Versand: die Infos haengen dann schon dran, wenn der Link rausgeht).
+            if (!$sendWhatsApp) {
+                $this->infoResult = [
+                    'sent'     => 0,
+                    'failed'   => [],
+                    'attached' => $attached,
+                    'noted'    => (int) $noted,
+                    'no_phone' => 0,
+                ];
+                $this->infoUpload = null;
+                unset($this->event, $this->attachmentsByEmployee, $this->infoPreview);
+                return;
+            }
+
             $recipients = [];
             foreach ($persons as $person) {
                 if ($person['phone'] === null || $person['portal_token'] === '') {

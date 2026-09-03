@@ -26,7 +26,10 @@
                 @if ($event->einsatzfirma) · {{ $event->einsatzfirma }}@endif
             </p>
         </div>
-        <a href="{{ route('recruiting.dispo.events.index') }}" class="text-sm text-blue-600 hover:underline">← Zurück zur Liste</a>
+        {{-- Zurueck ueber die Browser-History, damit die Filter der Liste erhalten bleiben (Kunde 03.09.); ohne History faellt der Link auf die Route zurueck. --}}
+        <a href="{{ route('recruiting.dispo.events.index') }}"
+           onclick="if (window.history.length > 1 && document.referrer.indexOf(window.location.host) !== -1) { window.history.back(); return false; }"
+           class="text-sm text-blue-600 hover:underline">← Zurück zur Liste</a>
     </div>
 
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -541,14 +544,24 @@
                     @error('infoNote') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
                     @error('infoUpload') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
+                    <label class="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" wire:model.live="infoSendWhatsApp" class="rounded border-gray-300">
+                        WhatsApp „Neue Infos" mitschicken
+                    </label>
+
                     @php
                         $infoSelected = collect($infoPrev['persons'])->where('selected', true);
                         $infoSelNoPhone = $infoSelected->whereNull('phone')->count();
+                        $infoWaOn = (bool) $infoSendWhatsApp;
                     @endphp
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
-                        <div>Geht an <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern — jede/r bekommt die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
-                        @if ($infoSelNoPhone > 0)
-                            <div class="text-gray-500">{{ $infoSelNoPhone }} × ohne Handynummer (bekommen Anhang/Hinweis, aber keine WhatsApp)</div>
+                        @if ($infoWaOn)
+                            <div>Geht an <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern — jede/r bekommt die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
+                            @if ($infoSelNoPhone > 0)
+                                <div class="text-gray-500">{{ $infoSelNoPhone }} × ohne Handynummer (bekommen Anhang/Hinweis, aber keine WhatsApp)</div>
+                            @endif
+                        @else
+                            <div>Wird <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern zugewiesen — <span class="font-medium">ohne WhatsApp</span>. Die Infos stehen auf der Einsatz-Seite, sobald der Link rausgeht (z. B. mit der Bestätigung).</div>
                         @endif
                     </div>
 
@@ -558,13 +571,17 @@
                                 wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUpload"
                                 @if ($infoSelected->count() === 0) disabled @endif
                                 class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
-                            <span wire:loading.remove wire:target="sendCrewInfo">Info senden</span>
-                            <span wire:loading wire:target="sendCrewInfo">Wird gesendet …</span>
+                            <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : 'Zuweisen' }}</span>
+                            <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : 'Wird zugewiesen …' }}</span>
                         </button>
                     </div>
                 @else
                     <div class="rounded bg-green-50 p-3 text-sm text-green-800">
-                        {{ $infoResult['sent'] }} WhatsApp(s) gesendet
+                        @if ($infoResult['sent'] > 0)
+                            {{ $infoResult['sent'] }} WhatsApp(s) gesendet
+                        @else
+                            Zugewiesen (ohne WhatsApp)
+                        @endif
                         @if ($infoResult['attached'] > 0)
                             · {{ $infoResult['attached'] }} × Datei angehängt
                         @endif
