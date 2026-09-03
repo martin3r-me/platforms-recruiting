@@ -203,6 +203,16 @@
         </div>
 
         <div class="hidden lg:block">
+        {{-- Zeilenfilter (Kunde 03.09.): nur Desktop — mobil bewusst ungefiltert. --}}
+        <div class="flex items-center gap-1.5 border-b border-gray-100 px-4 py-2.5">
+            @php $rfCounts = $this->rowFilterCounts; @endphp
+            @foreach (['' => 'Alle', 'confirmed' => '✓ Bestätigt', 'read' => 'Gelesen', 'failed' => '⚠ Nicht zugestellt'] as $rfKey => $rfLabel)
+                <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
+                        class="rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
+                    {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
+                </button>
+            @endforeach
+        </div>
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
                 <tr>
@@ -222,7 +232,7 @@
                     $threads = $this->threadsByEmployee;
                     $canonMap = $this->identity['canon'];
                 @endphp
-                @forelse ($event->assignments as $assignment)
+                @forelse ($this->filteredAssignments as $assignment)
                     <tr class="{{ $assignment->missing_since ? 'opacity-50' : '' }}">
                         <td class="px-4 py-2 whitespace-nowrap">{{ $assignment->datum->format('d.m.Y') }}</td>
                         <td class="px-4 py-2 whitespace-nowrap">{{ $assignment->von ?? '—' }}@if ($assignment->bis)–{{ $assignment->bis }}@endif</td>
@@ -323,7 +333,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Keine Einbuchungen.</td></tr>
+                    <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diesen Filter.' }}</td></tr>
                 @endforelse
             </tbody>
         </table>

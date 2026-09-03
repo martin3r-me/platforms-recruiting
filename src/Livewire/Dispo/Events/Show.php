@@ -372,6 +372,46 @@ class Show extends Component
             ->findOrFail($this->eventId);
     }
 
+    /**
+     * Zeilenfilter der Desktop-Tabelle (Kunde 03.09.): '' (alle) | 'confirmed' |
+     * 'read' | 'failed'. Reine Ansicht — die mobile Kartenliste bleibt bewusst
+     * ungefiltert (Kunde: nur Desktop).
+     */
+    public string $rowFilter = '';
+
+    /** @return \Illuminate\Support\Collection<int, RecDispoAssignment> */
+    #[Computed]
+    public function filteredAssignments()
+    {
+        return $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $this->rowFilter))->values();
+    }
+
+    /** @return array{'':int, confirmed:int, read:int, failed:int} */
+    #[Computed]
+    public function rowFilterCounts(): array
+    {
+        $counts = [];
+        foreach (['', 'confirmed', 'read', 'failed'] as $key) {
+            $counts[$key] = $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $key))->count();
+        }
+
+        return $counts;
+    }
+
+    private function rowMatchesFilter(RecDispoAssignment $a, string $filter): bool
+    {
+        return match ($filter) {
+            'confirmed' => $a->confirmed_at !== null,
+            // "gelesen" = Chip-Logik der Tabelle: angeschrieben, Nachricht gelesen, noch nicht bestaetigt.
+            'read'      => $a->confirmed_at === null && $a->reminder_sent_at !== null && $a->reminderMessage?->status === 'read',
+            // Gleiches Praedikat wie die rote Zeile der Dispo-Karte: irgendeine Stufe failed.
+            'failed'    => $a->reminderMessage?->status === 'failed'
+                || $a->escalation1Message?->status === 'failed'
+                || $a->escalation2Message?->status === 'failed',
+            default     => true,
+        };
+    }
+
     #[Computed]
     public function dispoSettings(): array
     {
