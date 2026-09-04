@@ -21,6 +21,7 @@ class RecruitingServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \Platform\Recruiting\Console\Commands\ProcessAutoPilotApplicants::class,
+                \Platform\Recruiting\Console\Commands\SyncContactPhonesCommand::class,
                 \Platform\Recruiting\Console\Commands\DispatchAutoPilotApplicants::class,
                 \Platform\Recruiting\Console\Commands\EnrichInboxApplicants::class,
                 \Platform\Recruiting\Console\Commands\DispatchEnrichInboxApplicants::class,
@@ -191,6 +192,7 @@ class RecruitingServiceProvider extends ServiceProvider
         // MA-Kontaktbuch: haelt die sync-verwaltete CRM-Kontaktliste bei
         // Einzel-Aenderungen (is_active/employment_ended_at) aktuell.
         \Platform\Recruiting\Models\RecEmployee::observe(\Platform\Recruiting\Observers\RecEmployeeContactListObserver::class);
+        \Platform\Recruiting\Models\RecEmployee::observe(\Platform\Recruiting\Observers\RecEmployeePhoneSyncObserver::class);
     }
 
     protected function registerSchedule(): void
