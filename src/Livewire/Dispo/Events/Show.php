@@ -476,11 +476,19 @@ class Show extends Component
 
     private function rowMatchesFilter(RecDispoAssignment $a, string $filter): bool
     {
+        if ($filter === '') {
+            return true; // "Alle" zeigt wirklich alles — auch Verschwundene/zur Loeschung Gemeldete.
+        }
+
+        // Alle Status-Filter zaehlen nur Zeilen, die noch im Rennen sind (Kunde 04.09.):
+        // Verschwundene und zur Loeschung Gemeldete haben eigene Zustaende und sind
+        // unter "Alle" weiterhin sichtbar.
+        if ($a->missing_since !== null || $a->deletion_marked_at !== null) {
+            return false;
+        }
+
         return match ($filter) {
-            // "Offen" = wartet noch auf Bestaetigung UND ist noch im Rennen —
-            // Verschwundene/zur Loeschung Gemeldete haben eigene Zustaende (Kunde 04.09.).
-            'open'      => $a->confirmed_at === null && $a->declined_at === null
-                && $a->missing_since === null && $a->deletion_marked_at === null,
+            'open'      => $a->confirmed_at === null && $a->declined_at === null,
             'declined'  => $a->declined_at !== null,
             'confirmed' => $a->confirmed_at !== null,
             // "gelesen" = Chip-Logik der Tabelle: angeschrieben, Nachricht gelesen, noch nicht bestaetigt.
