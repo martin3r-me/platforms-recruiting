@@ -532,6 +532,18 @@ class Index extends Component
         $this->dispatch('sidebar-refresh');
     }
 
+    /**
+     * Chat als ungelesen zuruecklegen (Kunde 04.09., wie im VA-Chat): schliesst
+     * das Fenster mit — sonst wirkt der Thread trotz blauer Markierung erledigt.
+     */
+    public function markUnreadAndClose(): void
+    {
+        $this->selected?->markAsUnread();
+        $this->back();
+        unset($this->threads, $this->filialeTabs);
+        $this->dispatch('sidebar-refresh');
+    }
+
     public function toggleUnread(int $threadId): void
     {
         if ($this->channelIds === []) {

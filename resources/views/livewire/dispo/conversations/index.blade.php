@@ -184,9 +184,15 @@
                             </div>
                             <div class="truncate text-xs text-gray-500 tabular-nums">{{ $info['phone'] }}</div>
                         </div>
-                        <button type="button" wire:click="toggleUnread({{ $selectedThreadId }})" class="hidden shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 sm:inline-flex">
-                            als {{ $info['is_unread'] ? 'gelesen' : 'ungelesen' }} markieren
-                        </button>
+                        @if ($info['is_unread'])
+                            <button type="button" wire:click="toggleUnread({{ $selectedThreadId }})" class="hidden shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 sm:inline-flex">
+                                als gelesen markieren
+                            </button>
+                        @else
+                            <button type="button" wire:click="markUnreadAndClose" title="Chat schließen und wieder blau markieren — z. B. um später zu antworten" class="hidden shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 sm:inline-flex">
+                                als ungelesen schließen
+                            </button>
+                        @endif
                     </div>
 
                     {{-- Einsätze des MA --}}
