@@ -115,6 +115,28 @@ class DispoPortalConfirmTest extends TestCase
     }
 
 
+    public function test_declined_assignments_are_hidden_and_not_confirmable(): void
+    {
+        // Absage-Flow (Kunde 04.09.): die Dispo hat abgemeldet — der MA sieht den
+        // Einsatz nicht mehr und kann ihn auch aus einem alten Tab nicht bestaetigen.
+        $employee = $this->employee('tok-declined-1');
+        $event = RecDispoEvent::create(['einsatz_ref' => 'E-DECL-1']);
+        $assignment = RecDispoAssignment::create([
+            'ds_ref' => 'DS-DECL-1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'MA-tok-declined-1',
+            'rec_employee_id' => $employee->id, 'datum' => now()->addDay()->toDateString(),
+            'von' => '08:00', 'bis' => '16:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'reminder_sent_at' => now()->subHour(),
+            'declined_at' => now(), 'declined_reason' => 'krank',
+        ]);
+
+        $component = $this->component('tok-declined-1');
+        $this->assertSame([], $component->eventGroups(), 'Abgemeldeter Einsatz ist unsichtbar.');
+
+        $component->confirm((int) $event->id);
+        $row = Capsule::table('rec_dispo_assignments')->where('id', $assignment->id)->first();
+        $this->assertNull($row->confirmed_at, 'Abgemeldetes ist nicht bestaetigbar (auch nicht aus altem Tab).');
+    }
+
     public function test_confirm_ignores_assignments_that_were_never_sent(): void
     {
         $employee = $this->employee('tok-confirm-3');
@@ -175,6 +197,7 @@ class DispoPortalConfirmTest extends TestCase
             [$own, 'database/migrations/2026_09_03_000002_add_note_timestamp_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_09_03_000003_add_portal_last_seen_at_to_rec_employees.php'],
             [$own, 'database/migrations/2026_09_03_000001_allow_multiple_dispo_attachments.php'],
+            [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

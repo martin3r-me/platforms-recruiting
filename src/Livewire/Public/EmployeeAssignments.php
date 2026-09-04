@@ -109,6 +109,9 @@ class EmployeeAssignments extends Component
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNull('missing_since')
             ->whereNull('deletion_marked_at')
+            // Absage (Kunde 04.09.): abgemeldete Einsaetze verschwinden von der
+            // Einsatz-Seite — gleiche Behandlung wie die Stufe-3-Rausnahme.
+            ->whereNull('declined_at')
             ->whereDate('datum', '>=', now()->toDateString())
             
             // Kunde 01.09.: Der MA sieht NUR angeschriebene (oder bereits bestaetigte)
@@ -319,6 +322,9 @@ class EmployeeAssignments extends Component
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNull('missing_since')
             ->whereNull('deletion_marked_at')
+            // Absage-Riegel (Kunde 04.09.): auch ein noch offener alter Tab
+            // kann einen abgemeldeten Einsatz nicht mehr bestaetigen.
+            ->whereNull('declined_at')
             ->whereNull('confirmed_at')
             ->whereDate('datum', '>=', now()->toDateString())
             // Nur Angeschriebenes ist bestaetigbar (Kunde 01.09., Spiegel zu eventGroups).
