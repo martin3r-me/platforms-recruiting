@@ -48,6 +48,17 @@ class Show extends Component
      * anschreiben — die uebrigen Angeschriebenen ohne Antwort bleiben aussen vor.
      */
     public bool $onlyFailed = false;
+
+    /**
+     * Eskalation pro Sendung (Kunde 04.09., Nachzuegler): 'va' = Empfaenger folgen
+     * dem VA-Plan; 'own' = eigener Plan (Datum + drei Uhrzeiten), der beim Versand
+     * an die Empfaenger-Zeilen gestempelt wird. Der Lauf nimmt Zeilen-Plan vor VA-Plan.
+     */
+    public string $escPlanMode = 'va';
+    public string $escPlanDate = '';
+    public string $escPlanT1 = '';
+    public string $escPlanT2 = '';
+    public string $escPlanT3 = '';
     /** Auswahl bei Mehrtages-VA: leer = alle Tage, sonst Y-m-d. */
     public string $sendDay = '';
     /** @var array{sent:int, failed:list<array{employee_id:int, error:string}>}|null */
@@ -1378,6 +1389,15 @@ class Show extends Component
         $this->includeReminders = false;
         $this->onlyFailed = false;
         $this->sendDay = '';
+        // Nachzuegler-Vorbelegung: ist der VA-Plan ein Datum, das heute oder frueher
+        // liegt, wuerden neue Empfaenger nie mehr automatisch eskalieren -> eigener
+        // Plan ab morgen mit den VA-Uhrzeiten vorschlagen. Sonst gilt der VA-Plan.
+        $eff = $this->escalationEffective;
+        $this->escPlanMode = ($eff['day'] === DispoEscalationConfig::DAY_DATUM && (string) ($eff['date'] ?? '') <= now()->toDateString()) ? 'own' : 'va';
+        $this->escPlanDate = now()->addDay()->toDateString();
+        $this->escPlanT1 = $eff['times'][1];
+        $this->escPlanT2 = $eff['times'][2];
+        $this->escPlanT3 = $eff['times'][3];
         $this->sendResult = null;
         $this->loadEscalationForm();
         $this->resetErrorBag('escTime1');
@@ -1443,9 +1463,36 @@ class Show extends Component
             'ansprechpartner' => DispoContactResolver::toStore($this->ansprechpartner, $this->teamLeads),
         ]);
 
+        // Eskalation pro Sendung: eigenen Plan validieren und als konkrete
+        // Zeitpunkte mitgeben — der Sender stempelt sie den Empfaengern.
+        $escDue = null;
+        if ($this->escPlanMode === 'own') {
+            $today = now()->toDateString();
+            if ($this->escPlanT1 === '' || $this->escPlanT2 === '' || $this->escPlanT3 === '') {
+                $this->addError('escPlanDate', 'Bitte alle drei Uhrzeiten setzen.');
+                return;
+            }
+            // Kein firstDatum-/Schichtbeginn-Zwang wie beim VA-Plan: der Sendungs-Plan
+            // zielt oft auf spaetere Einsatztage einer laufenden VA. Fairness-Guard und
+            // Schonfrist schuetzen zur Laufzeit weiterhin pro Person.
+            $errors = DispoEscalationConfig::validate(
+                DispoEscalationConfig::DAY_DATUM, $this->escPlanT1, $this->escPlanT2, $this->escPlanT3,
+                null, $this->dispoSettings['escalation_defaults'], $this->escPlanDate, $today, null
+            );
+            if ($errors !== []) {
+                $this->addError('escPlanDate', $errors[0]);
+                return;
+            }
+            $escDue = [
+                1 => \Illuminate\Support\Carbon::parse($this->escPlanDate . ' ' . $this->escPlanT1),
+                2 => \Illuminate\Support\Carbon::parse($this->escPlanDate . ' ' . $this->escPlanT2),
+                3 => \Illuminate\Support\Carbon::parse($this->escPlanDate . ' ' . $this->escPlanT3),
+            ];
+        }
+
         $preview = $this->sendPreview;
         $result = app(DispoConfirmationSender::class)
-            ->send($event, $preview['recipients'], $templateId);
+            ->send($event, $preview['recipients'], $templateId, $escDue);
 
         if (!$result['ok']) {
             $this->addError('vorlaufMinuten', (string) $result['message']);

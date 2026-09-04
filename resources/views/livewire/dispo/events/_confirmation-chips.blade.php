@@ -11,7 +11,7 @@
 @elseif ($assignment->confirmed_at)
     <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800" title="{{ $assignment->confirmed_at->format('d.m.Y H:i') }}">✓ bestätigt</span>
 @elseif ($assignment->reminder_sent_at)
-    <span class="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700" title="Gesendet {{ $assignment->reminder_sent_at->format('d.m.Y H:i') }}">angeschrieben</span>
+    <span class="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700" title="Gesendet {{ $assignment->reminder_sent_at->format('d.m.Y H:i') }}{{ $assignment->escalation_due_1_at ? ' — eigener Eskalationsplan: ' . $assignment->escalation_due_1_at->format('d.m.Y') . ' · ' . $assignment->escalation_due_1_at->format('H:i') . ' / ' . $assignment->escalation_due_2_at?->format('H:i') . ' / ' . $assignment->escalation_due_3_at?->format('H:i') : '' }}">angeschrieben</span>
     @if ($msgStatus === 'failed')
         <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">nicht zugestellt</span>
     @elseif (in_array($msgStatus, ['delivered', 'read'], true))

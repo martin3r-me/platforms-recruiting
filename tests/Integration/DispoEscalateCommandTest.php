@@ -336,6 +336,30 @@ class DispoEscalateCommandTest extends TestCase
         $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-MIX-V')->value('deletion_marked_at'));
     }
 
+    public function test_row_plan_escalates_independent_of_event_mode_and_only_from_its_day(): void
+    {
+        // Eskalation pro Sendung: VA im Standard-Vortag-Modus, Einsatz erst in vier
+        // Tagen — die Tages-Zielmenge wuerde die Zeile heute NIE anfassen. Der eigene
+        // Sendungs-Plan (heute 07/08/09) muss sie trotzdem eskalieren.
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-ROWPLAN', 'name' => 'Rowplan-VA', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create(array_merge(
+            $this->baseRow($event->id, 'DS-ROWPLAN-1', '2026-08-29'),
+            ['escalation_due_1_at' => '2026-08-25 07:00:00', 'escalation_due_2_at' => '2026-08-25 08:00:00', 'escalation_due_3_at' => '2026-08-25 09:00:00']
+        ));
+        // Kontrolle: gleicher Fall, Plan erst morgen -> heute unangetastet.
+        RecDispoAssignment::create(array_merge(
+            $this->baseRow($event->id, 'DS-ROWPLAN-2', '2026-08-29'),
+            ['escalation_due_1_at' => '2026-08-26 07:00:00', 'escalation_due_2_at' => '2026-08-26 08:00:00', 'escalation_due_3_at' => '2026-08-26 09:00:00']
+        ));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 09:30:00'));
+
+        $this->assertSame(1, $report['population'], 'Nur die Zeile mit heutigem Plan-Tag ist in der Zielmenge.');
+        $this->assertSame(1, $report['stage3'], 'Plan 07/08/09 ist um 09:30 durch -> Rausnahme (Ansprache lag Tage zurueck).');
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-ROWPLAN-1')->value('deletion_marked_at'));
+        $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-ROWPLAN-2')->value('deletion_marked_at'));
+    }
+
     public function test_stage1_fires_once_and_is_idempotent_on_second_run(): void
     {
         $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-S1', 'name' => 'Test-VA', 'filial_nr' => self::FILIAL_NR]);
@@ -724,6 +748,7 @@ class DispoEscalateCommandTest extends TestCase
             [$own, 'database/migrations/2026_08_27_000002_add_escalation_override_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_28_000001_add_escalation_date_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_09_04_000002_add_escalation_plan_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],

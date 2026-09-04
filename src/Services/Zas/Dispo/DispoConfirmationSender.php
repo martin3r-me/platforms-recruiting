@@ -33,7 +33,8 @@ class DispoConfirmationSender
      * @param list<array{employee_id:int, phone:string, assignment_ids:list<int>, first_datum:string, is_reminder:bool}> $recipients
      * @return array{ok: bool, message: ?string, sent: int, failed: list<array{employee_id:int, error:string}>}
      */
-    public function send(RecDispoEvent $event, array $recipients, int $templateId): array
+    /** @param array{1:\DateTimeInterface,2:\DateTimeInterface,3:\DateTimeInterface}|null $escalationDue Eskalation pro Sendung: wird den Empfaengern mitgestempelt. */
+    public function send(RecDispoEvent $event, array $recipients, int $templateId, ?array $escalationDue = null): array
     {
         if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)
             || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
@@ -110,12 +111,18 @@ class DispoConfirmationSender
                     continue;
                 }
 
+                $stamp = [
+                    'reminder_sent_at'    => now(),
+                    'reminder_message_id' => $message->id ?? null,
+                ];
+                if ($escalationDue !== null) {
+                    $stamp['escalation_due_1_at'] = $escalationDue[1];
+                    $stamp['escalation_due_2_at'] = $escalationDue[2];
+                    $stamp['escalation_due_3_at'] = $escalationDue[3];
+                }
                 RecDispoAssignment::query()
                     ->whereIn('id', $recipient['assignment_ids'])
-                    ->update([
-                        'reminder_sent_at'    => now(),
-                        'reminder_message_id' => $message->id ?? null,
-                    ]);
+                    ->update($stamp);
                 $sent++;
             } catch (\Throwable $e) {
                 Log::warning('Dispo-Bestaetigung: Versand fehlgeschlagen', [

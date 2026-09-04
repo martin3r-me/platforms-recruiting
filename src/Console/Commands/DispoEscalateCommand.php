@@ -130,7 +130,12 @@ class DispoEscalateCommand extends Command
                   ->orWhere(fn ($q2) => $q2->whereDate('datum', '>=', $today)
                       ->whereHas('event', fn ($e) => $e
                           ->where('escalation_day', DispoEscalationConfig::DAY_DATUM)
-                          ->whereDate('escalation_date', $today)));
+                          ->whereDate('escalation_date', $today)))
+                  // Eskalation pro Sendung (Kunde 04.09.): Zeilen mit eigenem Plan,
+                  // dessen Stufe-1-Tag erreicht ist — unabhaengig vom VA-Modus.
+                  ->orWhere(fn ($q3) => $q3->whereDate('datum', '>=', $today)
+                      ->whereNotNull('escalation_due_1_at')
+                      ->whereDate('escalation_due_1_at', '<=', $today));
             })
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNotNull('reminder_sent_at')
@@ -145,6 +150,11 @@ class DispoEscalateCommand extends Command
             ->orderBy('datum')->orderBy('von')
             ->get()
             ->filter(function (RecDispoAssignment $a) use ($defaults, $today) {
+                // Eigener Sendungs-Plan schlaegt den VA-Modus: die Zeile ist dran,
+                // sobald ihr Stufe-1-Tag erreicht ist (die Uhrzeit prueft der Planner).
+                if ($a->escalation_due_1_at !== null) {
+                    return $a->escalation_due_1_at->format('Y-m-d') <= $today;
+                }
                 $cfg = self::configFor($a, $defaults);
                 return DispoEscalationConfig::appliesOn($cfg['day'], $a->datum->format('Y-m-d'), $today, $cfg['date']);
             })
@@ -170,8 +180,24 @@ class DispoEscalateCommand extends Command
         $removedByEvent = [];
 
         foreach ($assignments as $a) {
-            $times = self::configFor($a, $defaults)['times'];
-            $stage = $planner->dueStage($this->state($a), $now, $times, $graceHours);
+            // Zeilen-Plan (Eskalation pro Sendung) vor VA-Plan; $times bleibt fuer
+            // die {{5}}-Frist in Stufe 2 in beiden Faellen gefuellt.
+            if ($a->escalation_due_1_at !== null && $a->escalation_due_2_at !== null && $a->escalation_due_3_at !== null) {
+                // Wanduhr-Semantik wie bei den HH:MM-Stufen: die gespeicherten
+                // Plan-Zeiten sind lokale Uhrzeiten (so wie eingegeben) — in der
+                // Zeitzone von $now interpretieren, NICHT als UTC-Instant (der
+                // Carbon-Cast wuerde sonst je nach App-Timezone verschieben).
+                $due = [
+                    1 => new \DateTimeImmutable($a->escalation_due_1_at->format('Y-m-d H:i:s'), $now->getTimezone()),
+                    2 => new \DateTimeImmutable($a->escalation_due_2_at->format('Y-m-d H:i:s'), $now->getTimezone()),
+                    3 => new \DateTimeImmutable($a->escalation_due_3_at->format('Y-m-d H:i:s'), $now->getTimezone()),
+                ];
+                $times = [1 => $due[1]->format('H:i'), 2 => $due[2]->format('H:i'), 3 => $due[3]->format('H:i')];
+                $stage = $planner->dueStageAt($this->state($a), $now, $due, $graceHours);
+            } else {
+                $times = self::configFor($a, $defaults)['times'];
+                $stage = $planner->dueStage($this->state($a), $now, $times, $graceHours);
+            }
             if ($stage === null) {
                 continue;
             }

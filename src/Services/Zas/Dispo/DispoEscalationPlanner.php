@@ -21,6 +21,20 @@ class DispoEscalationPlanner
      */
     public function dueStage(array $state, \DateTimeImmutable $now, array $times, int $graceHours = 0): ?int
     {
+        $t = fn (string $hhmm): \DateTimeImmutable => $now->modify($hhmm); // gleicher Tag wie $now
+
+        return $this->dueStageAt($state, $now, [1 => $t($times[1]), 2 => $t($times[2]), 3 => $t($times[3])], $graceHours);
+    }
+
+    /**
+     * Wie dueStage(), aber mit ABSOLUTEN Zeitpunkten je Stufe — der Kern fuer
+     * "Eskalation pro Sendung" (Kunde 04.09.): Nachzuegler tragen ihren Plan
+     * als konkrete Zeitpunkte an der Einbuchung, unabhaengig vom Lauf-Tag.
+     *
+     * @param array{1:\DateTimeImmutable,2:\DateTimeImmutable,3:\DateTimeImmutable} $due
+     */
+    public function dueStageAt(array $state, \DateTimeImmutable $now, array $due, int $graceHours = 0): ?int
+    {
         // Absage (Kunde 04.09.) beendet die Eskalation genauso wie eine Bestaetigung.
         if ($state['confirmed_at'] !== null || $state['deletion_marked_at'] !== null
             || ($state['declined_at'] ?? null) !== null) {
@@ -31,17 +45,15 @@ class DispoEscalationPlanner
             return null; // nie angeschrieben -> nichts zu eskalieren
         }
 
-        $t = fn (string $hhmm): \DateTimeImmutable => $now->modify($hhmm); // gleicher Tag wie $now
-
         // Stufe 3 (Rausnahme) hat Vorrang, wenn ihre Zeit erreicht ist —
         // und die Schonfrist seit der letzten Ansprache abgelaufen ist.
-        if ($now >= $t($times[3]) && $sent <= $t($times[2]) && $sent->modify('+' . $graceHours . ' hours') <= $now) {
+        if ($now >= $due[3] && $sent <= $due[2] && $sent->modify('+' . $graceHours . ' hours') <= $now) {
             return 3;
         }
-        if ($now >= $t($times[2]) && $state['escalation_2_at'] === null && $sent <= $t($times[2])) {
+        if ($now >= $due[2] && $state['escalation_2_at'] === null && $sent <= $due[2]) {
             return 2;
         }
-        if ($now >= $t($times[1]) && $state['escalation_1_at'] === null && $state['escalation_2_at'] === null && $sent <= $t($times[1])) {
+        if ($now >= $due[1] && $state['escalation_1_at'] === null && $state['escalation_2_at'] === null && $sent <= $due[1]) {
             return 1;
         }
         return null;

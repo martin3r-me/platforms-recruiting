@@ -110,7 +110,8 @@
                 <div class="mt-1 text-xs font-semibold text-red-600">⚠ {{ $dispoFailed }} × nicht zugestellt — Nummern prüfen</div>
             @endif
             <div class="mt-1.5 text-xs text-gray-400">
-                Eskalation: {{ $escDayLabel }} · {{ $escTimesLabel }}{{ $esc['overridden'] ? ' · angepasst' : '' }}{{ $escEnabled ? '' : ' · deaktiviert' }} — einstellbar unter „Bestätigungen senden"
+                @php $dispoOwnPlan = $dispoRows->whereNotNull('escalation_due_1_at')->whereNull('confirmed_at')->whereNull('declined_at')->count(); @endphp
+                Eskalation: {{ $escDayLabel }} · {{ $escTimesLabel }}{{ $esc['overridden'] ? ' · angepasst' : '' }}{{ $escEnabled ? '' : ' · deaktiviert' }}{{ $dispoOwnPlan > 0 ? ' · ' . $dispoOwnPlan . ' Empfänger mit eigenem Sendungs-Plan' : '' }} — einstellbar unter „Bestätigungen senden"
             </div>
         </div>
     </div>
@@ -424,6 +425,42 @@
                         <input type="checkbox" wire:model.live="onlyFailed" class="rounded border-gray-300">
                         Nur nicht zugestellte erneut anschreiben <span class="text-xs text-gray-400">(z. B. nach Nummernkorrektur — übrige Unbeantwortete bleiben außen vor)</span>
                     </label>
+
+                    {{-- Eskalation pro Sendung (Kunde 04.09.): Nachzuegler bekommen ihren
+                         eigenen Plan mitgestempelt — alle anderen behalten den VA-Plan. --}}
+                    <div class="rounded-lg border border-gray-200 p-3 text-sm space-y-2">
+                        @php
+                            $espEff = $this->escalationEffective;
+                            $espLabel = match ($espEff['day']) {
+                                'einsatztag' => 'am Einsatztag',
+                                'datum'      => 'am ' . \Carbon\Carbon::parse($espEff['date'])->format('d.m.Y'),
+                                default      => 'am Vortag',
+                            };
+                            $espOver = $espEff['day'] === 'datum' && (string) ($espEff['date'] ?? '') <= now()->toDateString();
+                        @endphp
+                        <div class="font-medium text-gray-700">Eskalation dieser Sendung</div>
+                        <label class="flex items-center gap-2 text-gray-600">
+                            <input type="radio" wire:model.live="escPlanMode" value="va" class="border-gray-300">
+                            wie VA-Plan <span class="text-xs text-gray-400">({{ $espLabel }} · {{ $espEff['times'][1] }} / {{ $espEff['times'][2] }} / {{ $espEff['times'][3] }})</span>
+                        </label>
+                        @if ($espOver && $escPlanMode === 'va')
+                            <div class="text-xs text-amber-600">Achtung: Der VA-Eskalationstag ist heute oder vorbei — Empfänger dieser Sendung würden nicht mehr automatisch eskaliert.</div>
+                        @endif
+                        <label class="flex items-center gap-2 text-gray-600">
+                            <input type="radio" wire:model.live="escPlanMode" value="own" class="border-gray-300">
+                            eigener Plan für diese Empfänger
+                        </label>
+                        @if ($escPlanMode === 'own')
+                            <div class="flex flex-wrap items-center gap-2 pl-6">
+                                <input type="date" wire:model="escPlanDate" class="rounded border border-gray-300 px-2 py-1 text-sm">
+                                <input type="time" wire:model="escPlanT1" class="rounded border border-gray-300 px-2 py-1 text-sm" title="Stufe 1 (Erinnerung)">
+                                <input type="time" wire:model="escPlanT2" class="rounded border border-gray-300 px-2 py-1 text-sm" title="Stufe 2 (letzte Frist)">
+                                <input type="time" wire:model="escPlanT3" class="rounded border border-gray-300 px-2 py-1 text-sm" title="Stufe 3 (Rausnahme)">
+                            </div>
+                            <p class="pl-6 text-xs text-gray-400">Stufe 1 (Erinnerung) / Stufe 2 (letzte Frist) / Stufe 3 (Rausnahme + Portalsperre). Gilt nur für die Empfänger dieser Sendung.</p>
+                            @error('escPlanDate')<div class="pl-6 text-xs text-red-600">{{ $message }}</div>@enderror
+                        @endif
+                    </div>
 
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         <div>Sendet an <strong>{{ count($preview['recipients']) }}</strong> Mitarbeiter.</div>
