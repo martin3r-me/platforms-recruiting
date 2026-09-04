@@ -14,7 +14,7 @@
 @elseif ($assignment->declined_at)
     <span class="rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700" title="Erfasst {{ $assignment->declined_at->format('d.m.Y H:i') }}{{ trim((string) $assignment->declined_note) !== '' ? ' — ' . $assignment->declined_note : '' }}">✕ {{ $assignment->declined_reason === 'krank' ? 'krank gemeldet' : 'abgesagt' }}</span>
 @elseif ($assignment->confirmed_at)
-    <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800" title="{{ $assignment->confirmed_at->format('d.m.Y H:i') }}">✓ bestätigt</span>
+    <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800" title="{{ $assignment->confirmed_at->format('d.m.Y H:i') }}{{ $assignment->manually_confirmed_by_user_id ? ' — manuell durch die Dispo bestätigt' : '' }}">✓ bestätigt{{ $assignment->manually_confirmed_by_user_id ? ' (manuell)' : '' }}</span>
 @elseif ($assignment->reminder_sent_at)
     @if ($assignment->wasSentToOutdatedPhone())
         <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-800" title="Angeschrieben am {{ $assignment->reminder_sent_at->format('d.m.Y H:i') }} an {{ $assignment->reminder_sent_to }} — die aktuelle Nummer der Akte weicht ab. Bitte neu senden (Haken „Nur nicht zugestellte“).">an alte Nummer angeschrieben</span>

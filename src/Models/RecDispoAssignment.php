@@ -40,6 +40,7 @@ class RecDispoAssignment extends Model
         'declined_hr_done_by_user_id', 'zas_removed_at', 'zas_removed_by_user_id',
         'escalation_due_1_at', 'escalation_due_2_at', 'escalation_due_3_at',
         'reminder_sent_to',
+        'manually_confirmed_by_user_id',
         'deletion_confirmed_at',
         'escalation_1_at',
         'escalation_2_at',

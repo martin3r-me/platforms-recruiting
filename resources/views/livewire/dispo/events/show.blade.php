@@ -283,6 +283,12 @@
                         </td>
                         <td class="px-4 py-2">
                             @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment])
+                            @if (!$eventOnly && $assignment->rec_employee_id && !$assignment->confirmed_at && !$assignment->declined_at && !$assignment->missing_since)
+                                <button type="button" wire:click="manualConfirm({{ $assignment->rec_employee_id }})"
+                                        wire:confirm="Manuell bestätigen? Gilt für alle kommenden Tage dieser Veranstaltung, holt ggf. zur Löschung Gemeldete zurück und entsperrt das MA-Portal."
+                                        class="ml-1 rounded border border-green-200 px-1.5 py-0.5 text-xs text-green-700 opacity-60 hover:bg-green-50 hover:opacity-100"
+                                        title="Manuell bestätigen (z. B. telefonische Zusage) — stoppt die Eskalation">✓ manuell</button>
+                            @endif
                         </td>
                         <td class="px-4 py-2">
                             @if ($assignment->rec_employee_id)

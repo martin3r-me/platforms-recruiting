@@ -175,6 +175,28 @@ class DispoEmployeeGateway
      *
      * @param int|list<int> $employeeIds
      */
+    /**
+     * Hebt Dispo-Sperren auf — GRUPPENWEIT aufrufen (alle Datensaetze der
+     * Person, Woettki-Lehre 04.09.). Fremde Sperren (Grund nicht 'Dispo…')
+     * bleiben bewusst stehen.
+     */
+    public function unlockPortal(int|array $employeeIds): void
+    {
+        foreach ((array) $employeeIds as $employeeId) {
+            $employee = RecEmployee::find($employeeId);
+            if ($employee === null || $employee->portal_locked_at === null) {
+                continue;
+            }
+            if (!str_starts_with((string) $employee->portal_locked_reason, 'Dispo')) {
+                continue;
+            }
+
+            $employee->portal_locked_at = null;
+            $employee->portal_locked_reason = null;
+            $employee->save();
+        }
+    }
+
     public function lockPortal(int|array $employeeIds, string $reason): void
     {
         foreach ((array) $employeeIds as $employeeId) {

@@ -14,6 +14,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
+use Platform\Recruiting\Services\Zas\Dispo\DispoManualConfirm;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
 use Platform\Recruiting\Services\Zas\Dispo\DispoInfoSender;
@@ -777,6 +778,25 @@ class Show extends Component
         }
 
         $this->showDeclineModal = false;
+        unset($this->event, $this->sendPreview);
+    }
+
+    /**
+     * Manuell bestaetigen (Kunde 04.09., Esra-Fall): telefonische Zusage o. ae. —
+     * bestaetigt alle kommenden Tage der Person in dieser VA, holt zur Loeschung
+     * Gemeldete zurueck und entsperrt das Portal gruppenweit. Eskalation stoppt
+     * von selbst (bestaetigt beendet sie).
+     */
+    public function manualConfirm(int $employeeId): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $canon = $this->identity['canon'][$employeeId] ?? $employeeId;
+        $groupIds = $this->identity['byCanon'][$canon] ?? [$employeeId];
+
+        app(DispoManualConfirm::class)->confirm($this->eventId, $groupIds, auth()->id());
+
         unset($this->event, $this->sendPreview);
     }
 
