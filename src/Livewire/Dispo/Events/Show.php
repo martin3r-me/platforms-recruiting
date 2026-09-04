@@ -408,11 +408,58 @@ class Show extends Component
      */
     public string $rowFilter = '';
 
+    /** Spalten-Sortierung wie Excel (Kunde 04.09.): '' = Lieferreihenfolge (Datum/Zeit). */
+    public string $rowSort = '';
+    public string $rowSortDir = 'asc';
+
+    /** Namens-/PNr-Suche ueber der Tabelle (Kunde 04.09.). */
+    public string $rowSearch = '';
+
+    public function sortRows(string $column): void
+    {
+        if (!in_array($column, ['datum', 'zeit', 'taetigkeit', 'mitarbeiter'], true)) {
+            return;
+        }
+        if ($this->rowSort === $column) {
+            // Dritter Klick hebt die Sortierung wieder auf (zurueck zur Lieferreihenfolge).
+            if ($this->rowSortDir === 'asc') {
+                $this->rowSortDir = 'desc';
+            } else {
+                $this->rowSort = '';
+                $this->rowSortDir = 'asc';
+            }
+            return;
+        }
+        $this->rowSort = $column;
+        $this->rowSortDir = 'asc';
+    }
+
     /** @return \Illuminate\Support\Collection<int, RecDispoAssignment> */
     #[Computed]
     public function filteredAssignments()
     {
-        return $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $this->rowFilter))->values();
+        $rows = $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $this->rowFilter));
+
+        $q = mb_strtolower(trim($this->rowSearch));
+        if ($q !== '') {
+            $rows = $rows->filter(function ($a) use ($q) {
+                $name = mb_strtolower(trim(($a->employee->first_name ?? '') . ' ' . ($a->employee->last_name ?? '')));
+                return str_contains($name, $q)
+                    || str_contains(mb_strtolower((string) $a->pnr_raw), $q)
+                    || str_contains(mb_strtolower((string) ($a->employee->personnel_number ?? '')), $q);
+            });
+        }
+
+        $dir = $this->rowSortDir === 'desc' ? 'desc' : 'asc';
+        $rows = match ($this->rowSort) {
+            'datum'       => $rows->sortBy([['datum', $dir], ['von', $dir]]),
+            'zeit'        => $rows->sortBy([[fn ($a) => (string) $a->von, $dir], ['datum', 'asc']]),
+            'taetigkeit'  => $rows->sortBy([[fn ($a) => mb_strtolower(trim((string) $a->taetigkeit)), $dir], ['datum', 'asc']]),
+            'mitarbeiter' => $rows->sortBy([[fn ($a) => mb_strtolower(trim(($a->employee->last_name ?? 'zzz') . ' ' . ($a->employee->first_name ?? ''))), $dir]]),
+            default       => $rows,
+        };
+
+        return $rows->values();
     }
 
     /** @return array{'':int, open:int, confirmed:int, declined:int, read:int, failed:int} */

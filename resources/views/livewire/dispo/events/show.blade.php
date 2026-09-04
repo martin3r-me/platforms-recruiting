@@ -216,14 +216,17 @@
                     {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
                 </button>
             @endforeach
+            <input type="search" wire:model.live.debounce.300ms="rowSearch" placeholder="Mitarbeiter suchen (Name/PNr) …"
+                   class="ml-auto w-64 rounded-full border border-gray-200 px-3 py-1 text-xs focus:border-blue-500 focus:ring-blue-500">
         </div>
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
+                @php $rowSortArrow = fn ($c) => $rowSort === $c ? ($rowSortDir === 'desc' ? ' ▼' : ' ▲') : ''; @endphp
                 <tr>
-                    <th class="px-4 py-2 font-medium">Datum</th>
-                    <th class="px-4 py-2 font-medium">Zeit</th>
-                    <th class="px-4 py-2 font-medium">Tätigkeit</th>
-                    <th class="px-4 py-2 font-medium">Mitarbeiter</th>
+                    <th class="px-4 py-2 font-medium"><button type="button" wire:click="sortRows('datum')" class="hover:text-gray-800" title="Sortieren">Datum{{ $rowSortArrow('datum') }}</button></th>
+                    <th class="px-4 py-2 font-medium"><button type="button" wire:click="sortRows('zeit')" class="hover:text-gray-800" title="Sortieren">Zeit{{ $rowSortArrow('zeit') }}</button></th>
+                    <th class="px-4 py-2 font-medium"><button type="button" wire:click="sortRows('taetigkeit')" class="hover:text-gray-800" title="Sortieren">Tätigkeit{{ $rowSortArrow('taetigkeit') }}</button></th>
+                    <th class="px-4 py-2 font-medium"><button type="button" wire:click="sortRows('mitarbeiter')" class="hover:text-gray-800" title="Sortieren">Mitarbeiter{{ $rowSortArrow('mitarbeiter') }}</button></th>
                     <th class="px-4 py-2 font-medium text-center" title="Kommunikation">💬</th>
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
@@ -348,7 +351,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diesen Filter.' }}</td></tr>
+                    <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' && trim($rowSearch) === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diese Auswahl.' }}</td></tr>
                 @endforelse
             </tbody>
         </table>
