@@ -47,6 +47,29 @@ class RecDispoAssignment extends Model
         'source_meta',
     ];
 
+    /**
+     * Aktiver Zustellfehler (Kunde 04.09.): ein failed zaehlt nur, solange es
+     * keine NEUERE Ansprache gibt. Nach Nummernkorrektur + Neuversand ist die
+     * Zeile damit sofort sauber (Chips, Filter, Karten-Zeile, Nur-Zustellfehler-
+     * Versand) — scheitert der Neuversand erneut, greift der frische failed.
+     */
+    public function hasActiveDeliveryFailure(): bool
+    {
+        // Haengt immer an der LETZTEN Bestaetigungs-Nachricht (wird beim
+        // Neuversand umgestempelt) — nie veraltet.
+        if ($this->reminderMessage?->status === 'failed') {
+            return true;
+        }
+        foreach ([[$this->escalation1Message, $this->escalation_1_at], [$this->escalation2Message, $this->escalation_2_at]] as [$msg, $at]) {
+            if ($msg?->status === 'failed'
+                && ($this->reminder_sent_at === null || $at === null || $at >= $this->reminder_sent_at)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     protected $casts = [
         'datum'         => 'date:Y-m-d',
         'status_id'     => 'integer',

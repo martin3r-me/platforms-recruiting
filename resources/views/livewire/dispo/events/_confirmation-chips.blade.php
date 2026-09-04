@@ -3,6 +3,11 @@
     $msgStatus = $assignment->reminderMessage?->status;
     $escalation1Status = $assignment->escalation1Message?->status;
     $escalation2Status = $assignment->escalation2Message?->status;
+    // Stufen-Fehler nur zeigen, solange keine NEUERE Ansprache existiert —
+    // nach Nummernkorrektur + Neuversand ist die Zeile sofort sauber.
+    $lastSend = $assignment->reminder_sent_at;
+    $esc1FailedActive = $escalation1Status === 'failed' && ($lastSend === null || $assignment->escalation_1_at === null || $assignment->escalation_1_at >= $lastSend);
+    $esc2FailedActive = $escalation2Status === 'failed' && ($lastSend === null || $assignment->escalation_2_at === null || $assignment->escalation_2_at >= $lastSend);
 @endphp
 @if ($assignment->deletion_marked_at)
     <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">zur Löschung gemeldet</span>
@@ -30,9 +35,9 @@
     @endphp
     <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700" title="{{ $prevTitle }}">⟳ Zeit geändert</span>
 @endif
-@if ($escalation1Status === 'failed')
+@if ($esc1FailedActive)
     <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">Erinnerung{{ $assignment->escalation_1_at ? ' ' . $assignment->escalation_1_at->format('H:i') : '' }} nicht zugestellt</span>
 @endif
-@if ($escalation2Status === 'failed')
+@if ($esc2FailedActive)
     <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">Letzte Erinnerung{{ $assignment->escalation_2_at ? ' ' . $assignment->escalation_2_at->format('H:i') : '' }} nicht zugestellt</span>
 @endif

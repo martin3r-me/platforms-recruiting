@@ -435,10 +435,8 @@ class Show extends Component
             'confirmed' => $a->confirmed_at !== null,
             // "gelesen" = Chip-Logik der Tabelle: angeschrieben, Nachricht gelesen, noch nicht bestaetigt.
             'read'      => $a->confirmed_at === null && $a->declined_at === null && $a->reminder_sent_at !== null && $a->reminderMessage?->status === 'read',
-            // Gleiches Praedikat wie die rote Zeile der Dispo-Karte: irgendeine Stufe failed.
-            'failed'    => $a->reminderMessage?->status === 'failed'
-                || $a->escalation1Message?->status === 'failed'
-                || $a->escalation2Message?->status === 'failed',
+            // Gleiches Praedikat wie die rote Zeile der Dispo-Karte — nur AKTIVE Fehler.
+            'failed'    => $a->hasActiveDeliveryFailure(),
             default     => true,
         };
     }
@@ -1302,10 +1300,8 @@ class Show extends Component
             'deletion_marked_at' => $a->deletion_marked_at?->toDateTimeString(),
             'datum'              => $a->datum->format('Y-m-d'),
             'reconfirm_required_at' => $a->reconfirm_required_at?->toDateTimeString(),
-            // Gleiches Praedikat wie Dispo-Karte/Tabellen-Filter: irgendeine Stufe failed.
-            'failed'             => $a->reminderMessage?->status === 'failed'
-                || $a->escalation1Message?->status === 'failed'
-                || $a->escalation2Message?->status === 'failed',
+            // Gleiches Praedikat wie Dispo-Karte/Tabellen-Filter: nur AKTIVE Zustellfehler.
+            'failed'             => $a->hasActiveDeliveryFailure(),
         ])->all();
 
         // Dispo-Identitaet: Datensaetze derselben Person (gleicher CRM-Kontakt) auf die

@@ -87,8 +87,7 @@
             $dispoDeclined = $dispoRows->whereNotNull('declined_at')->count();
             $dispoSent = $dispoRows->whereNull('confirmed_at')->whereNull('declined_at')->whereNotNull('reminder_sent_at')->count();
             $dispoOpen = max(0, $dispoTotal - $dispoConfirmed - $dispoDeclined);
-            $dispoFailed = $dispoRows->filter(fn ($a) => $a->reminderMessage?->status === 'failed'
-                || $a->escalation1Message?->status === 'failed' || $a->escalation2Message?->status === 'failed')
+            $dispoFailed = $dispoRows->filter(fn ($a) => $a->hasActiveDeliveryFailure())
                 ->pluck('rec_employee_id')->filter()->unique()->count();
         @endphp
         <div class="rounded-lg border border-gray-200 bg-white p-4">
