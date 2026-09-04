@@ -174,7 +174,7 @@ class DispoEscalateCommand extends Command
         // zweite Datensatz derselben Person wird nur noch gestempelt.
         $sentInRun = [];
 
-        $counts = [1 => 0, 2 => 0, 3 => 0];
+        $counts = [1 => 0, 2 => 0, 3 => 0, 'stage3_spared' => 0];
 
         /** @var array<int, list<RecDispoAssignment>> $removedByEvent */
         $removedByEvent = [];
@@ -201,6 +201,16 @@ class DispoEscalateCommand extends Command
             if ($stage === null) {
                 continue;
             }
+            // Kunde 04.09. (Lehre aus RG19734): wen NIE eine Nachricht erreicht
+            // hat (aktiver Zustellfehler), den nimmt Stufe 3 nicht raus — er
+            // gehoert in den Nummern-Nachzug (Filter "Nicht zugestellt") und
+            // bleibt offen. Rausnahme nur fuer Erreichte, die schweigen.
+            if ($stage === 3 && $a->hasActiveDeliveryFailure()) {
+                $counts['stage3_spared']++;
+                $emit('warn', "Stufe 3 verschont Einbuchung #{$a->id} ({$a->pnr_raw}): nie zugestellt - Nummer reparieren + neu senden");
+                continue;
+            }
+
             $counts[$stage]++;
             if ($dryRun) {
                 continue;
@@ -341,6 +351,7 @@ class DispoEscalateCommand extends Command
             'stage1'     => $counts[1],
             'stage2'     => $counts[2],
             'stage3'     => $counts[3],
+            'stage3_spared' => $counts['stage3_spared'],
         ];
     }
 

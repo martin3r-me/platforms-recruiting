@@ -336,6 +336,43 @@ class DispoEscalateCommandTest extends TestCase
         $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-MIX-V')->value('deletion_marked_at'));
     }
 
+    public function test_stage3_spares_recipients_whose_messages_never_arrived(): void
+    {
+        // Kunde 04.09. (RG19734): kaputte Nummer -> alle Nachrichten failed. Die
+        // Person hatte nie eine Chance und darf nicht rausgenommen werden — sie
+        // bleibt offen fuer den Nummern-Nachzug. Der Stumme (zugestellt, keine
+        // Reaktion) wird weiterhin regulaer entfernt.
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-SPARE', 'name' => 'Spare-VA', 'filial_nr' => self::FILIAL_NR]);
+
+        $threadId = (int) Capsule::table('comms_whatsapp_threads')->insertGetId([
+            'team_id' => self::TEAM, 'token' => 'tok-spare', 'comms_channel_id' => 1,
+            'remote_phone_number' => '+491700000001', 'is_unread' => false,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $failedId = (int) Capsule::table('comms_whatsapp_messages')->insertGetId([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound', 'status' => 'failed',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $deliveredId = (int) Capsule::table('comms_whatsapp_messages')->insertGetId([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound', 'status' => 'delivered',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        RecDispoAssignment::create(array_merge($this->baseRow($event->id, 'DS-SPARE-FAIL', '2026-08-26'),
+            ['reminder_message_id' => $failedId]));
+        $silent = RecDispoAssignment::create(array_merge($this->baseRow($event->id, 'DS-SPARE-SILENT', '2026-08-26'),
+            ['reminder_message_id' => $deliveredId]));
+        // Zweiter MA-Datensatz fuer den Stummen, damit beide Zeilen eigene Personen sind.
+        $silent->update(['rec_employee_id' => $this->twinEmployee()]);
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 16:01:00'));
+
+        $this->assertSame(1, $report['stage3'], 'Der Erreichte ohne Reaktion wird entfernt.');
+        $this->assertSame(1, $report['stage3_spared'], 'Der nie Erreichte wird verschont.');
+        $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-SPARE-FAIL')->value('deletion_marked_at'));
+        $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-SPARE-SILENT')->value('deletion_marked_at'));
+    }
+
     public function test_row_plan_escalates_independent_of_event_mode_and_only_from_its_day(): void
     {
         // Eskalation pro Sendung: VA im Standard-Vortag-Modus, Einsatz erst in vier
@@ -752,6 +789,8 @@ class DispoEscalateCommandTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
+            [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],
+            [$crm, 'database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php'],
             [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
             [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
