@@ -319,10 +319,21 @@ class Show extends Component
         // jede unbeteiligte Aenderung an derselben Maske blockieren.
         $stored = $this->event->escalation_date?->format('Y-m-d');
         $dateChanged = $this->escDate !== ($stored ?? '');
+        $today = now()->toDateString();
+        // Die Schichtbeginn-Regel schuetzt das Vorausplanen (Eskalation am
+        // Einsatztag muss vor Schichtbeginn durch sein). Laeuft der gewaehlte
+        // Eskalationstag aber BEREITS (Datum == heute), ist der fruehste
+        // Schichtbeginn zwangslaeufig Vergangenheit — die Regel wuerde dann
+        // jedes Nachsteuern UND (weil der Versand mitspeichert) sogar den
+        // Versand selbst blockieren (Befund 04.09., Nummern-Nachzug).
+        // Bereits gefeuerte Stufen wiederholen sich ohnehin nicht (Stempel).
+        $vonForCheck = ($this->escDay === DispoEscalationConfig::DAY_DATUM && $this->escDate === $today)
+            ? null
+            : $this->earliestVon();
         $errors = DispoEscalationConfig::validate(
             $this->escDay, $this->escTime1, $this->escTime2, $this->escTime3,
-            $this->earliestVon(), $this->dispoSettings['escalation_defaults'],
-            $this->escDate, $dateChanged ? now()->toDateString() : null, $this->eventDays[0] ?? null
+            $vonForCheck, $this->dispoSettings['escalation_defaults'],
+            $this->escDate, $dateChanged ? $today : null, $this->eventDays[0] ?? null
         );
         if ($errors !== []) {
             $this->addError('escTime1', $errors[0]);
