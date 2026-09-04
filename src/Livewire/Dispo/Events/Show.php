@@ -1389,11 +1389,12 @@ class Show extends Component
         $this->includeReminders = false;
         $this->onlyFailed = false;
         $this->sendDay = '';
-        // Nachzuegler-Vorbelegung: ist der VA-Plan ein Datum, das heute oder frueher
-        // liegt, wuerden neue Empfaenger nie mehr automatisch eskalieren -> eigener
-        // Plan ab morgen mit den VA-Uhrzeiten vorschlagen. Sonst gilt der VA-Plan.
+        // Nachzuegler-Vorbelegung: ist der VA-Plan ein Datum in der VERGANGENHEIT,
+        // wuerden neue Empfaenger nie mehr automatisch eskalieren -> eigener Plan ab
+        // morgen mit den VA-Uhrzeiten vorschlagen. Bei Datum == heute laeuft der Tag
+        // noch -> Standard bleibt der VA-Plan (bewusst, laufender Betrieb unberuehrt).
         $eff = $this->escalationEffective;
-        $this->escPlanMode = ($eff['day'] === DispoEscalationConfig::DAY_DATUM && (string) ($eff['date'] ?? '') <= now()->toDateString()) ? 'own' : 'va';
+        $this->escPlanMode = ($eff['day'] === DispoEscalationConfig::DAY_DATUM && (string) ($eff['date'] ?? '') < now()->toDateString()) ? 'own' : 'va';
         $this->escPlanDate = now()->addDay()->toDateString();
         $this->escPlanT1 = $eff['times'][1];
         $this->escPlanT2 = $eff['times'][2];

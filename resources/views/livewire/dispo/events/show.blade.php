@@ -444,7 +444,7 @@
                             wie VA-Plan <span class="text-xs text-gray-400">({{ $espLabel }} · {{ $espEff['times'][1] }} / {{ $espEff['times'][2] }} / {{ $espEff['times'][3] }})</span>
                         </label>
                         @if ($espOver && $escPlanMode === 'va')
-                            <div class="text-xs text-amber-600">Achtung: Der VA-Eskalationstag ist heute oder vorbei — Empfänger dieser Sendung würden nicht mehr automatisch eskaliert.</div>
+                            <div class="text-xs text-amber-600">Achtung: Der VA-Eskalationstag ist {{ (string) ($espEff['date'] ?? '') < now()->toDateString() ? 'vorbei — Empfänger dieser Sendung würden nicht mehr automatisch eskaliert' : 'heute — nur noch Stufen nach dem Versandzeitpunkt greifen für diese Empfänger' }}.</div>
                         @endif
                         <label class="flex items-center gap-2 text-gray-600">
                             <input type="radio" wire:model.live="escPlanMode" value="own" class="border-gray-300">
