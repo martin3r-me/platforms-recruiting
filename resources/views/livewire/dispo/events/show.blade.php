@@ -106,7 +106,7 @@
                 @endif
             </div>
             @if ($dispoFailed > 0)
-                <div class="mt-1 text-xs font-semibold text-red-600">⚠ {{ $dispoFailed }} × nicht zugestellt — Nummern prüfen</div>
+                <div class="mt-1 text-xs font-semibold text-red-600">⚠ {{ $dispoFailed }} × Zustellproblem — Nummern prüfen / neu senden</div>
             @endif
             <div class="mt-1.5 text-xs text-gray-400">
                 @php $dispoOwnPlan = $dispoRows->whereNotNull('escalation_due_1_at')->whereNull('confirmed_at')->whereNull('declined_at')->count(); @endphp
@@ -210,7 +210,7 @@
         {{-- Zeilenfilter (Kunde 03.09.): nur Desktop — mobil bewusst ungefiltert. --}}
         <div class="flex items-center gap-1.5 border-b border-gray-100 px-4 py-2.5">
             @php $rfCounts = $this->rowFilterCounts; @endphp
-            @foreach (['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Nicht zugestellt'] as $rfKey => $rfLabel)
+            @foreach (['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Zustellprobleme'] as $rfKey => $rfLabel)
                 <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
                         class="rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
                     {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>

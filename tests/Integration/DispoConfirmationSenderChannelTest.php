@@ -269,6 +269,7 @@ class DispoConfirmationSenderChannelTest extends TestCase
             [$own, 'database/migrations/2026_08_21_000001_add_filial_nr_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_24_000001_create_rec_dispo_filiale_settings_table.php'],
             [$own, 'database/migrations/2026_08_24_000002_add_escalation_fields_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_09_04_000003_add_reminder_sent_to_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],

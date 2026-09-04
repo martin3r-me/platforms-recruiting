@@ -373,6 +373,21 @@ class DispoEscalateCommandTest extends TestCase
         $this->assertNotNull(RecDispoAssignment::where('ds_ref', 'DS-SPARE-SILENT')->value('deletion_marked_at'));
     }
 
+    public function test_stage3_spares_recipients_whose_number_changed_after_send(): void
+    {
+        // Angeschrieben-an-Protokoll: Nummer wurde nach dem Versand korrigiert —
+        // die Ansprache ging an die alte. Wie ein Zustellfehler behandeln: keine
+        // Rausnahme, Zeile bleibt offen fuer den Neuversand.
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-ESC-OLDNUM', 'name' => 'Oldnum-VA', 'filial_nr' => self::FILIAL_NR]);
+        RecDispoAssignment::create(array_merge($this->baseRow($event->id, 'DS-OLDNUM', '2026-08-26'),
+            ['reminder_sent_to' => '+49151999000111']));
+
+        $report = $this->probe()->probeEscalate(new DispoEscalationPlanner(), new DispoChannelResolver(), new DispoEmployeeGateway(), $this->at('2026-08-25 16:01:00'));
+
+        $this->assertSame(1, $report['stage3_spared'], 'Nummern-Wechsel nach Versand -> verschont.');
+        $this->assertNull(RecDispoAssignment::where('ds_ref', 'DS-OLDNUM')->value('deletion_marked_at'));
+    }
+
     public function test_row_plan_escalates_independent_of_event_mode_and_only_from_its_day(): void
     {
         // Eskalation pro Sendung: VA im Standard-Vortag-Modus, Einsatz erst in vier
@@ -786,6 +801,7 @@ class DispoEscalateCommandTest extends TestCase
             [$own, 'database/migrations/2026_08_28_000001_add_escalation_date_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_09_04_000002_add_escalation_plan_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_09_04_000003_add_reminder_sent_to_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],

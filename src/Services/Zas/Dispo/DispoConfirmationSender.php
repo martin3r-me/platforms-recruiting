@@ -67,9 +67,9 @@ class DispoConfirmationSender
 
         foreach ($recipients as $recipient) {
             $contact = $contacts[$recipient['employee_id']] ?? null;
-            // Dispo-Identitaet: Nummer kann vom Geschwister-Datensatz stammen (sendPreview-Fallback),
-            // deshalb recipient['phone'] vor contacts()-Nummer beruecksichtigen.
-            $phone = $contact['phone'] ?? ($recipient['phone'] ?? null);
+            // Die in der Vorschau bestimmte Nummer gewinnt (eingebuchter Datensatz
+            // zuerst, Gruppen-Fallback) — contacts() nur als letzte Reserve.
+            $phone = $recipient['phone'] ?? ($contact['phone'] ?? null);
             if ($contact === null || $phone === null) {
                 $failed[] = ['employee_id' => $recipient['employee_id'], 'error' => 'Kontaktdaten nicht mehr verfuegbar'];
                 continue;
@@ -114,6 +114,10 @@ class DispoConfirmationSender
                 $stamp = [
                     'reminder_sent_at'    => now(),
                     'reminder_message_id' => $message->id ?? null,
+                    // Angeschrieben-an-Protokoll (Vorfall RG19734): spaetere
+                    // Nummernkorrektur macht die Zeile automatisch wieder zum
+                    // Zustellproblem (wasSentToOutdatedPhone).
+                    'reminder_sent_to'    => $phone,
                 ];
                 if ($escalationDue !== null) {
                     $stamp['escalation_due_1_at'] = $escalationDue[1];

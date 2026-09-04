@@ -39,6 +39,7 @@ class RecDispoAssignment extends Model
         'declined_portal_locked', 'declined_hr_at', 'declined_hr_done_at',
         'declined_hr_done_by_user_id', 'zas_removed_at', 'zas_removed_by_user_id',
         'escalation_due_1_at', 'escalation_due_2_at', 'escalation_due_3_at',
+        'reminder_sent_to',
         'deletion_confirmed_at',
         'escalation_1_at',
         'escalation_2_at',
@@ -58,6 +59,12 @@ class RecDispoAssignment extends Model
         // Haengt immer an der LETZTEN Bestaetigungs-Nachricht (wird beim
         // Neuversand umgestempelt) — nie veraltet.
         if ($this->reminderMessage?->status === 'failed') {
+            return true;
+        }
+        // Vorfall RG19734 (04.09.): Nummer wurde NACH der Ansprache korrigiert —
+        // die Nachricht ging an die alte. Zaehlt wie ein Zustellfehler, damit
+        // die Person neu angeschrieben wird statt still durchzurutschen.
+        if ($this->wasSentToOutdatedPhone()) {
             return true;
         }
         foreach ([[$this->escalation1Message, $this->escalation_1_at], [$this->escalation2Message, $this->escalation_2_at]] as [$msg, $at]) {
@@ -119,6 +126,32 @@ class RecDispoAssignment extends Model
     }
 
     /** Versendete Bestaetigungs-Nachricht — fuer die Zustell-Status-Anzeige. */
+    /**
+     * Ging die letzte Bestaetigung an eine Nummer, die inzwischen nicht mehr
+     * der Akten-Nummer entspricht? Vergleich ueber die letzten 9 Ziffern
+     * (formatunabhaengig, Muster DispoPhoneMatcher). Ohne Protokoll-Stempel
+     * (Altbestand) oder ohne aktuelle Nummer: false — kein Fehlalarm.
+     */
+    public function wasSentToOutdatedPhone(): bool
+    {
+        if ($this->reminder_sent_to === null || $this->reminder_sent_at === null) {
+            return false;
+        }
+        $current = trim((string) ($this->employee->phone ?? ''));
+        if ($current === '') {
+            return false;
+        }
+
+        return self::phoneSuffix($current) !== self::phoneSuffix((string) $this->reminder_sent_to);
+    }
+
+    private static function phoneSuffix(string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+
+        return substr($digits, -9);
+    }
+
     public function reminderMessage(): BelongsTo
     {
         return $this->belongsTo(\Platform\Crm\Models\CommsWhatsAppMessage::class, 'reminder_message_id');

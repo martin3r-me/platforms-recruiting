@@ -1042,7 +1042,8 @@ class Show extends Component
             $token = '';
             $firstName = '';
             $name = '';
-            foreach (array_merge([$c], $group) as $gid) {
+            // Eingebuchter Datensatz zuerst (Vorfall RG19734) — dann kanonisch, dann Gruppe.
+            foreach (array_unique(array_merge([$data['booked'], $c], $group)) as $gid) {
                 $contact = $contacts[$gid] ?? null;
                 if ($contact === null) {
                     continue;
@@ -1390,19 +1391,26 @@ class Show extends Component
             $upcoming[] = $assignment;
         }
 
-        // Telefon fuer die kanonische id: alle Gruppen-Mitglieder abfragen, damit die
-        // Nummer eines anderen Datensatzes derselben Person einspringt, falls der
-        // kanonische Datensatz keine hat.
+        // Telefon fuer die kanonische id — Rangfolge (Vorfall RG19734, 04.09.):
+        // 1. Nummer des EINGEBUCHTEN Datensatzes (den pflegt ZAS/HR aktuell),
+        // 2. Nummer des kanonischen Datensatzes, 3. irgendein Gruppen-Mitglied.
+        // Vorher gewann der aelteste (kanonische) Datensatz — bei Personen mit
+        // mehreren Akten (z. B. zwei Gesellschaften) ggf. ein veralteter Stand.
+        $bookedByCanon = [];
+        foreach ($upcoming as $u) {
+            if (!empty($u['employee_id'])) {
+                $bookedByCanon[(int) $u['employee_id']][] = (int) $u['employee_id'];
+            }
+        }
         $employeeIds = $groups === [] ? [] : array_values(array_unique(array_merge(...array_values($groups))));
         $phones = app(DispoEmployeeGateway::class)->phones($employeeIds);
         foreach ($groups as $id => $group) {
             $c = $canon[$id];
-            if (empty($phones[$c])) {
-                foreach ($group as $m) {
-                    if (!empty($phones[$m])) {
-                        $phones[$c] = $phones[$m];
-                        break;
-                    }
+            $candidates = array_merge($bookedByCanon[$c] ?? [], [$c], $group);
+            foreach ($candidates as $m) {
+                if (!empty($phones[$m])) {
+                    $phones[$c] = $phones[$m];
+                    break;
                 }
             }
         }
