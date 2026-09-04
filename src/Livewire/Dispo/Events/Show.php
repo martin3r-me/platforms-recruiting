@@ -451,12 +451,15 @@ class Show extends Component
             });
         }
 
-        $dir = $this->rowSortDir === 'desc' ? 'desc' : 'asc';
+        // Einzel-Callback-Form: die Mehrspalten-Form von sortBy() ignoriert
+        // Closures in dieser Laravel-Version stillschweigend (Befund 04.09. —
+        // nur die Datum-Spalte sortierte). Sekundaerkriterium steckt im Key.
+        $desc = $this->rowSortDir === 'desc';
         $rows = match ($this->rowSort) {
-            'datum'       => $rows->sortBy([['datum', $dir], ['von', $dir]]),
-            'zeit'        => $rows->sortBy([[fn ($a) => (string) $a->von, $dir], ['datum', 'asc']]),
-            'taetigkeit'  => $rows->sortBy([[fn ($a) => mb_strtolower(trim((string) $a->taetigkeit)), $dir], ['datum', 'asc']]),
-            'mitarbeiter' => $rows->sortBy([[fn ($a) => mb_strtolower(trim(($a->employee->last_name ?? 'zzz') . ' ' . ($a->employee->first_name ?? ''))), $dir]]),
+            'datum'       => $rows->sortBy(fn ($a) => $a->datum->format('Y-m-d') . '|' . $a->von, SORT_REGULAR, $desc),
+            'zeit'        => $rows->sortBy(fn ($a) => (string) $a->von . '|' . $a->datum->format('Y-m-d'), SORT_REGULAR, $desc),
+            'taetigkeit'  => $rows->sortBy(fn ($a) => mb_strtolower(trim((string) $a->taetigkeit)) . '|' . $a->datum->format('Y-m-d') . $a->von, SORT_REGULAR, $desc),
+            'mitarbeiter' => $rows->sortBy(fn ($a) => mb_strtolower(trim(($a->employee->last_name ?? 'zzz') . ' ' . ($a->employee->first_name ?? ''))), SORT_REGULAR, $desc),
             default       => $rows,
         };
 
