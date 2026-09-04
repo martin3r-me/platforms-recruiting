@@ -477,7 +477,10 @@ class Show extends Component
     private function rowMatchesFilter(RecDispoAssignment $a, string $filter): bool
     {
         return match ($filter) {
-            'open'      => $a->confirmed_at === null && $a->declined_at === null,
+            // "Offen" = wartet noch auf Bestaetigung UND ist noch im Rennen —
+            // Verschwundene/zur Loeschung Gemeldete haben eigene Zustaende (Kunde 04.09.).
+            'open'      => $a->confirmed_at === null && $a->declined_at === null
+                && $a->missing_since === null && $a->deletion_marked_at === null,
             'declined'  => $a->declined_at !== null,
             'confirmed' => $a->confirmed_at !== null,
             // "gelesen" = Chip-Logik der Tabelle: angeschrieben, Nachricht gelesen, noch nicht bestaetigt.
