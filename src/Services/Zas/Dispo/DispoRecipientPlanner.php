@@ -24,6 +24,7 @@ class DispoRecipientPlanner
         $skipped = [
             'wrong_status' => 0, 'missing' => 0, 'deletion_marked' => 0,
             'not_matched' => 0, 'no_phone' => 0, 'confirmed' => 0, 'already_sent' => 0,
+            'declined' => 0,
         ];
 
         $byEmployee = [];
@@ -47,6 +48,10 @@ class DispoRecipientPlanner
             $employeeId = (int) $a['employee_id'];
             if (!isset($phones[$employeeId]) || $phones[$employeeId] === null || $phones[$employeeId] === '') {
                 $skipped['no_phone']++;
+                continue;
+            }
+            if (!empty($a['declined_at'])) {
+                $skipped['declined']++;
                 continue;
             }
             if (!empty($a['confirmed_at'])) {

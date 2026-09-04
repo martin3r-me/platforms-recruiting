@@ -21,6 +21,7 @@ class DispoRecipientPlannerTest extends TestCase
             'id' => 1, 'employee_id' => 7, 'status_id' => 1,
             'confirmed_at' => null, 'reminder_sent_at' => null,
             'missing_since' => null, 'deletion_marked_at' => null,
+            'declined_at' => null,
             'datum' => '2026-08-20',
         ];
     }
@@ -119,5 +120,17 @@ class DispoRecipientPlannerTest extends TestCase
         $this->assertCount(1, $result['recipients']);
         $this->assertSame([1, 2], $result['recipients'][0]['assignment_ids']);
         $this->assertSame('2026-09-01', $result['recipients'][0]['first_datum']);
+    }
+
+    public function test_declined_rows_are_skipped_and_counted(): void
+    {
+        $r = $this->planner->plan([
+            $this->row(['id' => 1, 'declined_at' => '2026-09-04 10:00:00']),
+            $this->row(['id' => 2, 'employee_id' => 8]),
+        ], [7 => '+491700000001', 8 => '+491700000002'], false);
+
+        $this->assertSame(1, $r['skipped']['declined'], 'Abgesagte nie anschreiben.');
+        $this->assertCount(1, $r['recipients']);
+        $this->assertSame(8, $r['recipients'][0]['employee_id']);
     }
 }

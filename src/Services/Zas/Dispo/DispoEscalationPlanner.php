@@ -21,7 +21,9 @@ class DispoEscalationPlanner
      */
     public function dueStage(array $state, \DateTimeImmutable $now, array $times, int $graceHours = 0): ?int
     {
-        if ($state['confirmed_at'] !== null || $state['deletion_marked_at'] !== null) {
+        // Absage (Kunde 04.09.) beendet die Eskalation genauso wie eine Bestaetigung.
+        if ($state['confirmed_at'] !== null || $state['deletion_marked_at'] !== null
+            || ($state['declined_at'] ?? null) !== null) {
             return null;
         }
         $sent = $state['reminder_sent_at'];

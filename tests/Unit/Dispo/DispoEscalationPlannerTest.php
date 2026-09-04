@@ -15,6 +15,7 @@ class DispoEscalationPlannerTest extends TestCase
         return array_merge([
             'reminder_sent_at' => $this->at('08:00'), 'confirmed_at' => null,
             'escalation_1_at' => null, 'escalation_2_at' => null, 'deletion_marked_at' => null,
+            'declined_at' => null,
         ], $o);
     }
 
@@ -29,6 +30,10 @@ class DispoEscalationPlannerTest extends TestCase
     }
     public function test_stage3_removal_after_time3(): void {
         $this->assertSame(3, $this->p->dueStage($this->state(['escalation_1_at' => $this->at('14:00'), 'escalation_2_at' => $this->at('15:00')]), $this->at('16:01'), $this->times));
+    }
+    public function test_declined_exits_like_confirmed(): void {
+        // Absage (Kunde 04.09.): keine Stufe mehr, auch keine Rausnahme.
+        $this->assertNull($this->p->dueStage($this->state(['declined_at' => $this->at('14:30')]), $this->at('16:01'), $this->times));
     }
     public function test_confirmed_exits(): void {
         $this->assertNull($this->p->dueStage($this->state(['confirmed_at' => $this->at('14:30')]), $this->at('16:01'), $this->times));

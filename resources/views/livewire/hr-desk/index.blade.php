@@ -12,6 +12,10 @@
     </x-slot>
 
     <x-ui-page-container width="full">
+        {{-- Dispo-Absagen (Kunde 04.09.): eigener Abschnitt, getrennt von den
+             Bewerber-Cases — Dispo-MA sind meist keine Bewerber. --}}
+        <livewire:recruiting.dispo.hr-declines />
+
         @if(session()->has('message'))
             <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
                 {{ session('message') }}

@@ -6,6 +6,8 @@
 @endphp
 @if ($assignment->deletion_marked_at)
     <span class="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">zur Löschung gemeldet</span>
+@elseif ($assignment->declined_at)
+    <span class="rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700" title="Erfasst {{ $assignment->declined_at->format('d.m.Y H:i') }}{{ trim((string) $assignment->declined_note) !== '' ? ' — ' . $assignment->declined_note : '' }}">✕ {{ $assignment->declined_reason === 'krank' ? 'krank gemeldet' : 'abgesagt' }}</span>
 @elseif ($assignment->confirmed_at)
     <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800" title="{{ $assignment->confirmed_at->format('d.m.Y H:i') }}">✓ bestätigt</span>
 @elseif ($assignment->reminder_sent_at)

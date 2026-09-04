@@ -135,6 +135,7 @@ class DispoEscalateCommand extends Command
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNotNull('reminder_sent_at')
             ->whereNull('confirmed_at')
+            ->whereNull('declined_at')
             ->whereNull('deletion_marked_at')
             ->whereNull('missing_since')
             ->whereNotNull('rec_employee_id')
@@ -389,6 +390,7 @@ class DispoEscalateCommand extends Command
             'confirmed_at'       => self::toImmutable($a->confirmed_at),
             'escalation_1_at'    => self::toImmutable($a->escalation_1_at),
             'escalation_2_at'    => self::toImmutable($a->escalation_2_at),
+            'declined_at'        => self::toImmutable($a->declined_at),
             'deletion_marked_at' => self::toImmutable($a->deletion_marked_at),
         ];
     }

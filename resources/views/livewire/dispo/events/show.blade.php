@@ -84,8 +84,9 @@
             $dispoRows = $event->assignments->filter(fn ($a) => $a->missing_since === null && $a->deletion_marked_at === null);
             $dispoTotal = $dispoRows->count();
             $dispoConfirmed = $dispoRows->whereNotNull('confirmed_at')->count();
-            $dispoSent = $dispoRows->whereNull('confirmed_at')->whereNotNull('reminder_sent_at')->count();
-            $dispoOpen = $dispoTotal - $dispoConfirmed;
+            $dispoDeclined = $dispoRows->whereNotNull('declined_at')->count();
+            $dispoSent = $dispoRows->whereNull('confirmed_at')->whereNull('declined_at')->whereNotNull('reminder_sent_at')->count();
+            $dispoOpen = max(0, $dispoTotal - $dispoConfirmed - $dispoDeclined);
             $dispoFailed = $dispoRows->filter(fn ($a) => $a->reminderMessage?->status === 'failed'
                 || $a->escalation1Message?->status === 'failed' || $a->escalation2Message?->status === 'failed')
                 ->pluck('rec_employee_id')->filter()->unique()->count();
@@ -96,6 +97,9 @@
                 <span class="font-semibold tabular-nums">{{ $dispoTotal }}</span> gesamt
                 · <span class="font-semibold tabular-nums text-green-700">{{ $dispoConfirmed }}</span> bestätigt
                 · <span class="tabular-nums">{{ $dispoSent }}</span> angeschrieben
+                @if ($dispoDeclined > 0)
+                    · <span class="font-semibold tabular-nums text-red-600">{{ $dispoDeclined }}</span> abgesagt
+                @endif
                 @if ($dispoOpen > 0)
                     <span class="ml-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs font-semibold text-orange-600">{{ $dispoOpen }} offen</span>
                 @else
@@ -206,7 +210,7 @@
         {{-- Zeilenfilter (Kunde 03.09.): nur Desktop — mobil bewusst ungefiltert. --}}
         <div class="flex items-center gap-1.5 border-b border-gray-100 px-4 py-2.5">
             @php $rfCounts = $this->rowFilterCounts; @endphp
-            @foreach (['' => 'Alle', 'confirmed' => '✓ Bestätigt', 'read' => 'Gelesen', 'failed' => '⚠ Nicht zugestellt'] as $rfKey => $rfLabel)
+            @foreach (['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Nicht zugestellt'] as $rfKey => $rfLabel)
                 <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
                         class="rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
                     {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
@@ -225,6 +229,7 @@
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
                     <th class="px-4 py-2 font-medium">Hinweis</th>
                     <th class="px-4 py-2 font-medium">Anhang</th>
+                    <th class="px-4 py-2 font-medium text-center" title="In ZAS rausgenommen (nur Dokumentation — wir schreiben nie nach ZAS)">ZAS raus</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -331,9 +336,19 @@
                                 @endif
                             @endif
                         </td>
+                        <td class="px-4 py-2 text-center">
+                            @if ($eventOnly)
+                                @if ($assignment->zas_removed_at)<span class="text-green-600" title="{{ $assignment->zas_removed_at->format('d.m.Y H:i') }}">✓</span>@endif
+                            @else
+                                <input type="checkbox" {{ $assignment->zas_removed_at ? 'checked' : '' }}
+                                       wire:click="toggleZasRemoved({{ $assignment->id }})"
+                                       class="rounded border-gray-300 text-blue-600"
+                                       title="{{ $assignment->zas_removed_at ? 'Rausgenommen am ' . $assignment->zas_removed_at->format('d.m.Y H:i') : 'Als in ZAS rausgenommen markieren' }}">
+                            @endif
+                        </td>
                     </tr>
                 @empty
-                    <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diesen Filter.' }}</td></tr>
+                    <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diesen Filter.' }}</td></tr>
                 @endforelse
             </tbody>
         </table>
@@ -416,7 +431,7 @@
                             <div class="text-amber-700">{{ $preview['reconfirm'] }} × Zeit geändert — erneute Bestätigung (gleiches Template)</div>
                         @endif
                         @php
-                            $labels = ['past' => 'in der Vergangenheit', 'not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet', 'not_failed' => 'ohne Zustellfehler (Nur-Zustellfehler-Modus)'];
+                            $labels = ['past' => 'in der Vergangenheit', 'not_matched' => 'ohne MA-Zuordnung', 'no_phone' => 'ohne Handynummer', 'confirmed' => 'bereits bestätigt', 'declined' => 'abgesagt', 'already_sent' => 'bereits angeschrieben', 'wrong_status' => 'nicht im Status Auftrag', 'missing' => 'aus ZAS verschwunden', 'deletion_marked' => 'zur Löschung gemeldet', 'not_failed' => 'ohne Zustellfehler (Nur-Zustellfehler-Modus)'];
                         @endphp
                         @foreach ($labels as $key => $label)
                             @if (($preview['skipped'][$key] ?? 0) > 0)
@@ -449,6 +464,40 @@
                         <button wire:click="$set('showSendModal', false)" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
                     </div>
                 @endif
+            </div>
+        </div>
+    @endif
+
+    @if ($showDeclineModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showDeclineModal', false)">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Absage erfassen</h2>
+                <p class="text-sm text-gray-500">Gilt für alle kommenden Einsatztage dieser Veranstaltung. Stoppt Eskalation und weitere Erinnerungen für diese Person sofort.</p>
+
+                <div class="flex items-center gap-4 text-sm">
+                    <label class="flex items-center gap-2"><input type="radio" wire:model="declineReason" value="abgesagt" class="border-gray-300"> abgesagt</label>
+                    <label class="flex items-center gap-2"><input type="radio" wire:model="declineReason" value="krank" class="border-gray-300"> krank gemeldet</label>
+                </div>
+
+                <textarea wire:model="declineNote" rows="3" placeholder="Kommentar (z. B. für HR: krank bis Freitag, AU angekündigt)"
+                          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+
+                <label class="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="checkbox" wire:model="declineLock" class="rounded border-gray-300">
+                    MA-Portal sperren
+                </label>
+                <label class="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="checkbox" wire:model="declineHr" class="rounded border-gray-300">
+                    An HR-Schreibtisch übergeben (zur Bearbeitung durch HR)
+                </label>
+
+                @error('declineReason')<div class="text-sm text-red-600">{{ $message }}</div>@enderror
+                @error('declineNote')<div class="text-sm text-red-600">{{ $message }}</div>@enderror
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" wire:click="$set('showDeclineModal', false)" class="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                    <button type="button" wire:click="saveDecline" wire:loading.attr="disabled" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">Absage speichern</button>
+                </div>
             </div>
         </div>
     @endif
@@ -776,7 +825,12 @@
                     @if ($chat['since'])
                         <span class="text-gray-400">ab {{ $chat['since'] }}</span>
                     @endif
-                    <button type="button" wire:click="markChatUnread" class="ml-auto rounded px-2 py-1 text-blue-700 hover:bg-blue-50" title="Chat schließen und wieder blau markieren — z. B. um später zu antworten">als ungelesen schließen</button>
+                    <span class="ml-auto flex items-center gap-1">
+                        @if (!$eventOnly)
+                            <button type="button" wire:click="openDeclineModal" class="rounded px-2 py-1 text-red-600 hover:bg-red-50" title="MA sagt ab / meldet sich krank — stoppt Eskalation und weitere Erinnerungen für diese VA">Absage erfassen</button>
+                        @endif
+                        <button type="button" wire:click="markChatUnread" class="rounded px-2 py-1 text-blue-700 hover:bg-blue-50" title="Chat schließen und wieder blau markieren — z. B. um später zu antworten">als ungelesen schließen</button>
+                    </span>
                 </div>
                 <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-4"
                      wire:key="chatmsgs-{{ $chatEmployeeId }}-{{ count($chat['messages']) }}-{{ $chatFilter }}"

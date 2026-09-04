@@ -723,6 +723,7 @@ class DispoEscalateCommandTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_27_000002_add_escalation_override_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_28_000001_add_escalation_date_to_rec_dispo_events.php'],
+            [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],

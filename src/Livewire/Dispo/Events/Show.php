@@ -403,12 +403,12 @@ class Show extends Component
         return $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $this->rowFilter))->values();
     }
 
-    /** @return array{'':int, confirmed:int, read:int, failed:int} */
+    /** @return array{'':int, open:int, confirmed:int, declined:int, read:int, failed:int} */
     #[Computed]
     public function rowFilterCounts(): array
     {
         $counts = [];
-        foreach (['', 'confirmed', 'read', 'failed'] as $key) {
+        foreach (['', 'open', 'confirmed', 'declined', 'read', 'failed'] as $key) {
             $counts[$key] = $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $key))->count();
         }
 
@@ -418,9 +418,11 @@ class Show extends Component
     private function rowMatchesFilter(RecDispoAssignment $a, string $filter): bool
     {
         return match ($filter) {
+            'open'      => $a->confirmed_at === null && $a->declined_at === null,
+            'declined'  => $a->declined_at !== null,
             'confirmed' => $a->confirmed_at !== null,
             // "gelesen" = Chip-Logik der Tabelle: angeschrieben, Nachricht gelesen, noch nicht bestaetigt.
-            'read'      => $a->confirmed_at === null && $a->reminder_sent_at !== null && $a->reminderMessage?->status === 'read',
+            'read'      => $a->confirmed_at === null && $a->declined_at === null && $a->reminder_sent_at !== null && $a->reminderMessage?->status === 'read',
             // Gleiches Praedikat wie die rote Zeile der Dispo-Karte: irgendeine Stufe failed.
             'failed'    => $a->reminderMessage?->status === 'failed'
                 || $a->escalation1Message?->status === 'failed'
@@ -647,6 +649,86 @@ class Show extends Component
         $this->closeChat();
         unset($this->threadsByEmployee);
         $this->dispatch('sidebar-refresh');
+    }
+
+    // ---- Absage erfassen (Kunde 04.09.): stoppt Eskalation + weitere Sendungen,
+    // optional Portalsperre und Uebergabe an den HR-Desk (Clara). Wirkt auf alle
+    // kommenden Einbuchungen der Person (Identitaetsgruppe) in DIESER VA.
+    public bool $showDeclineModal = false;
+    public string $declineReason = 'abgesagt';
+    public string $declineNote = '';
+    public $declineLock = false;
+    public $declineHr = false;
+
+    public function openDeclineModal(): void
+    {
+        if ($this->blockedForEventOnly() || $this->chatEmployeeId === null) {
+            return;
+        }
+        $this->declineReason = 'abgesagt';
+        $this->declineNote = '';
+        $this->declineLock = false;
+        $this->declineHr = false;
+        $this->showDeclineModal = true;
+    }
+
+    public function saveDecline(): void
+    {
+        if ($this->blockedForEventOnly() || $this->chatEmployeeId === null) {
+            return;
+        }
+        $this->validate([
+            'declineReason' => 'required|in:krank,abgesagt',
+            'declineNote'   => 'nullable|string|max:1000',
+        ], [], ['declineNote' => 'Kommentar']);
+
+        $groupIds = $this->identity['byCanon'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
+        $lock = (bool) $this->declineLock;
+        $hr = (bool) $this->declineHr;
+
+        $updated = RecDispoAssignment::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->whereIn('rec_employee_id', $groupIds)
+            ->whereDate('datum', '>=', now()->toDateString())
+            ->whereNull('declined_at')
+            ->update([
+                'declined_at'            => now(),
+                'declined_reason'        => $this->declineReason,
+                'declined_note'          => trim($this->declineNote) !== '' ? trim($this->declineNote) : null,
+                'declined_by_user_id'    => auth()->id(),
+                'declined_portal_locked' => $lock,
+                'declined_hr_at'         => $hr ? now() : null,
+            ]);
+
+        if ($updated === 0) {
+            $this->addError('declineReason', 'Keine kommende Einbuchung gefunden (bereits abgesagt?).');
+            return;
+        }
+        if ($lock) {
+            app(DispoEmployeeGateway::class)->lockPortal($groupIds, 'Dispo-Absage (' . $this->declineReason . ')');
+        }
+
+        $this->showDeclineModal = false;
+        unset($this->event, $this->sendPreview);
+    }
+
+    /** Doku-Haken (Kunde 04.09.): 'in ZAS rausgenommen' — reines Abhaken, kein ZAS-Schreibzugriff. */
+    public function toggleZasRemoved(int $assignmentId): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $a = RecDispoAssignment::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->whereKey($assignmentId)
+            ->first();
+        if ($a === null) {
+            return;
+        }
+        $a->zas_removed_at = $a->zas_removed_at === null ? now() : null;
+        $a->zas_removed_by_user_id = $a->zas_removed_at !== null ? auth()->id() : null;
+        $a->save();
+        unset($this->event);
     }
 
     #[Computed]
@@ -1202,6 +1284,7 @@ class Show extends Component
             'employee_id'        => $a->rec_employee_id,
             'status_id'          => $a->status_id,
             'confirmed_at'       => $a->confirmed_at?->toDateTimeString(),
+            'declined_at'        => $a->declined_at?->toDateTimeString(),
             'reminder_sent_at'   => $a->reminder_sent_at?->toDateTimeString(),
             'missing_since'      => $a->missing_since?->toDateTimeString(),
             'deletion_marked_at' => $a->deletion_marked_at?->toDateTimeString(),
