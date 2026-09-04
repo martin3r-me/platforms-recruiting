@@ -31,8 +31,8 @@
     <span class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700" title="{{ $prevTitle }}">⟳ Zeit geändert</span>
 @endif
 @if ($escalation1Status === 'failed')
-    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">14-Uhr nicht zugestellt</span>
+    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">Erinnerung{{ $assignment->escalation_1_at ? ' ' . $assignment->escalation_1_at->format('H:i') : '' }} nicht zugestellt</span>
 @endif
 @if ($escalation2Status === 'failed')
-    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">15-Uhr nicht zugestellt</span>
+    <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">Letzte Erinnerung{{ $assignment->escalation_2_at ? ' ' . $assignment->escalation_2_at->format('H:i') : '' }} nicht zugestellt</span>
 @endif
