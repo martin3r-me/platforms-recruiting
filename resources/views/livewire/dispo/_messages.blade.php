@@ -23,7 +23,27 @@
         </div>
     @else
         <div class="flex max-w-[85%] flex-col gap-0.5 lg:max-w-[68%] {{ $message['direction'] === 'outbound' ? 'self-end items-end' : 'self-start' }}">
-            <div class="whitespace-pre-line rounded-2xl px-3 py-2 text-sm leading-relaxed {{ $message['direction'] === 'outbound' ? 'rounded-br-md bg-blue-600 text-white' : 'rounded-bl-md bg-white text-gray-900 shadow-sm' }}">{{ $message['body'] }}</div>
+            <div class="whitespace-pre-line rounded-2xl px-3 py-2 text-sm leading-relaxed {{ $message['direction'] === 'outbound' ? 'rounded-br-md bg-blue-600 text-white' : 'rounded-bl-md bg-white text-gray-900 shadow-sm' }}">
+                @if (!empty($message['media_type']))
+                    @forelse ($message['attachments'] as $att)
+                        @php $attUrl = $att['url'] ?? null; $attThumb = $att['thumbnail'] ?? $attUrl; $attTitle = $att['title'] ?? 'Datei'; @endphp
+                        @if (in_array($message['media_type'], ['image', 'sticker'], true) && $attUrl)
+                            <a href="{{ $attUrl }}" target="_blank" rel="noopener" class="block py-0.5"><img src="{{ $attThumb }}" alt="{{ $attTitle }}" class="max-h-48 max-w-full rounded-xl object-cover" loading="lazy"></a>
+                        @elseif ($message['media_type'] === 'video' && $attUrl)
+                            <video controls preload="metadata" class="max-h-48 max-w-full rounded-xl py-0.5"><source src="{{ $attUrl }}"></video>
+                        @elseif (in_array($message['media_type'], ['voice', 'audio'], true) && $attUrl)
+                            <audio controls preload="metadata" class="h-8 w-full min-w-[160px] py-0.5"><source src="{{ $attUrl }}"></audio>
+                        @elseif ($attUrl)
+                            <a href="{{ $attUrl }}" target="_blank" rel="noopener" class="flex items-center gap-1.5 py-0.5 text-[13px] font-medium underline">📄 {{ $attTitle }}</a>
+                        @else
+                            <span class="flex items-center gap-1.5 py-0.5 text-[13px] opacity-70">📎 {{ ucfirst($message['media_type']) }} (nicht abrufbar)</span>
+                        @endif
+                    @empty
+                        <span class="flex items-center gap-1.5 py-0.5 text-[13px] opacity-70">📎 {{ ucfirst($message['media_type']) }} (nicht abrufbar)</span>
+                    @endforelse
+                @endif
+                {{ $message['body'] }}
+            </div>
             <div class="px-1 text-[11px] text-gray-400 tabular-nums">{{ $message['time'] }}@if ($message['direction'] === 'outbound' && $message['status']) · {{ $message['status'] }}@endif</div>
         </div>
     @endif

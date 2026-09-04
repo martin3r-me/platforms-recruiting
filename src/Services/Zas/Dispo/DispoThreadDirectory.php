@@ -220,9 +220,16 @@ class DispoThreadDirectory
             $at = $m->sent_at ?? $m->created_at;
             $isTemplate = ($m->body === null || $m->body === '') && !empty($m->template_name);
 
+            // Medien (Kunde 04.09.): Bilder/Dokumente/Sprachnachrichten des MA
+            // wurden bisher als leere Blase gerendert — Typ + Anhaenge (URL/
+            // Thumbnail/Titel via ContextFileReferences) jetzt durchreichen.
+            $hasMedia = method_exists($m, 'hasMedia') && $m->hasMedia();
+
             return [
                 'direction'      => (string) $m->direction,
                 'kind'           => $isTemplate ? 'template' : 'text',
+                'media_type'     => $hasMedia ? (string) $m->media_display_type : null,
+                'attachments'    => $hasMedia ? (array) ($m->attachments ?? []) : [],
                 'body'           => (string) ($m->body ?? ''),
                 'template_label' => $isTemplate ? DispoTemplateLabels::label((string) $m->template_name, $labels) : null,
                 'status'         => $m->status,
