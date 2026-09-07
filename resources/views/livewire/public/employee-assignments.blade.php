@@ -215,9 +215,13 @@
                 $vorlaufSatz = $vorlauf > 0 ? ('Bitte sei ' . $vorlauf . ' Minuten vor Dienstbeginn vor Ort!') : '';
                 $beaconLbl = '';
                 if ($first) {
+                    // Taetigkeit gehoert in den Kasten (Kunde 07.09.): bei Eintages-
+                    // Einsaetzen gibt es keine Tages-Zeilen, die sie sonst zeigen.
+                    $firstTaetigkeit = trim((string) ($first['taetigkeit'] ?? ''));
+                    $singleHead = ($firstTaetigkeit !== '' ? $firstTaetigkeit . ' · ' : '') . $schichtStr;
                     $head = $dayCount > 1
                         ? ('Erster Tag · ' . e($labelDate($first['datum'])) . ($schichtStr !== '' ? ' · ' . e($schichtStr) : ''))
-                        : e($schichtStr);
+                        : e($singleHead);
                     if ($head !== '') {
                         $beaconLbl .= '<b>' . $head . '</b>';
                     }
