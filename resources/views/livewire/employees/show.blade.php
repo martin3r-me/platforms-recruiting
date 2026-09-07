@@ -26,6 +26,14 @@
                 Mitarbeiter nicht gefunden.
             </div>
         @else
+            @if (!$this->crmLinkMissing && $this->linkedContacts !== [])
+                <div class="mb-3 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-500">
+                    CRM-Kontakt:
+                    @foreach ($this->linkedContacts as $lc)
+                        <a href="{{ route('crm.contacts.show', ['contact' => $lc['id']]) }}" target="_blank" rel="noopener" class="font-semibold text-blue-700 hover:underline">{{ $lc['name'] }} <span class="font-normal text-gray-400">#{{ $lc['id'] }}</span></a>@if (!$loop->last) · @endif
+                    @endforeach
+                </div>
+            @endif
             @if ($this->crmLinkMissing)
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                     <div><b>CRM-Zuordnung offen</b> — ohne verknüpften Kontakt erscheint dieser Mitarbeiter in der Kommunikation nur mit Telefonnummer und wird bei zwei Personalnummern nicht als eine Person erkannt.</div>

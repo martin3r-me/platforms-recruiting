@@ -97,6 +97,21 @@ class Show extends Component
         return $this->employee !== null && !$this->employee->crmContactLinks()->exists();
     }
 
+    /** @return list<array{id:int, name:string}> verknuepfte CRM-Kontakte (Anzeige in der Akte) */
+    #[Computed]
+    public function linkedContacts(): array
+    {
+        if ($this->employee === null) {
+            return [];
+        }
+
+        return $this->employee->crmContactLinks()->with('contact')->get()
+            ->map(fn ($l) => [
+                'id'   => (int) $l->contact_id,
+                'name' => trim((string) ($l->contact->first_name ?? '') . ' ' . (string) ($l->contact->last_name ?? '')) ?: ('Kontakt #' . $l->contact_id),
+            ])->values()->all();
+    }
+
     #[Computed]
     public function contactCandidates(): array
     {

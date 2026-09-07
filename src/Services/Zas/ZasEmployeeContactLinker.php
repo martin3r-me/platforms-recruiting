@@ -133,12 +133,13 @@ class ZasEmployeeContactLinker
             'links'   => (int) CrmContactLink::query()->where('contact_id', $c->id)->count(),
             'created' => $c->created_at?->format('d.m.Y'),
         ])
-        // Chat-Historie zuerst, dann der aelteste (kleinste id).
-        ->sortBy(fn (array $r) => sprintf('%05d-%010d', 99999 - $r['threads'], $r['id']))
+        // Chat-Historie zuerst, dann bestehende Verknuepfungen (buendelt die
+        // Identitaet an einem Kontakt), dann der aelteste (kleinste id).
+        ->sortBy(fn (array $r) => sprintf('%05d-%05d-%010d', 99999 - $r['threads'], 99999 - $r['links'], $r['id']))
         ->values();
 
         return $rows->map(fn (array $r, int $i) => $r + [
-            'recommended' => $i === 0 && ($r['threads'] > 0 || $rows->count() === 1),
+            'recommended' => $i === 0 && ($r['threads'] > 0 || $r['links'] > 0 || $rows->count() === 1),
         ])->all();
     }
 
