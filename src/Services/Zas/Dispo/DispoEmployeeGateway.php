@@ -13,6 +13,35 @@ use Platform\Recruiting\Models\RecEmployee;
 class DispoEmployeeGateway
 {
     /** @return array<int, array{name: string, first_name: string, phone: ?string, portal_token: string, personnel_number: string, company: string}> */
+    /**
+     * MA-Ids zu einem Suchbegriff (Vor-/Nachname oder Personalnummer) —
+     * Grundlage der Kommunikations-Suche (Befund 07.09., Oliver Gruenewald:
+     * die Liste laedt nur die 200 neuesten Threads, die Suche muss deshalb
+     * VOR dem Limit in der Datenbank ansetzen).
+     *
+     * @return list<int>
+     */
+    public function searchIds(string $term): array
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return [];
+        }
+        $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()?->currentTeam?->id);
+
+        return RecEmployee::query()
+            ->when($teamId > 0, fn ($q) => $q->where('team_id', $teamId))
+            ->where('is_active', true)
+            ->where(fn ($q) => $q
+                ->where('first_name', 'like', '%' . $term . '%')
+                ->orWhere('last_name', 'like', '%' . $term . '%')
+                ->orWhere('personnel_number', 'like', '%' . $term . '%'))
+            ->limit(50)
+            ->pluck('id')
+            ->map(fn ($v) => (int) $v)
+            ->all();
+    }
+
     public function contacts(array $employeeIds): array
     {
         if ($employeeIds === []) {

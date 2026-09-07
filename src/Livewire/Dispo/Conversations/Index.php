@@ -279,6 +279,52 @@ class Index extends Component
             $query->where('is_unread', true);
         }
 
+        // Suche VOR dem Limit in der Datenbank (Befund 07.09., Oliver Gruenewald):
+        // die Liste laedt nur die 200 neuesten Threads — aeltere Gespraeche waren
+        // per Suche unauffindbar. Begriff -> passende MA (Name/PNr) -> deren
+        // Nummern-Suffixe + Kontakt-Verknuepfungen; Ziffern matchen zusaetzlich
+        // direkt auf die Thread-Nummer.
+        $search = mb_strtolower(trim($this->search));
+        if ($search !== '') {
+            $digits = preg_replace('/\D+/', '', $search) ?? '';
+            $matchIds = app(DispoEmployeeGateway::class)->searchIds($this->search);
+            $suffixes = [];
+            $dir = $this->phoneDirectory();
+            foreach ($matchIds as $mid) {
+                $normalized = DispoPhoneMatcher::normalize($dir[$mid] ?? null);
+                if ($normalized !== null) {
+                    $suffixes[substr($normalized, -9)] = true;
+                }
+            }
+            $contactIds = [];
+            foreach (app(DispoIdentityResolver::class)->contactIdsByEmployee($matchIds) as $cids) {
+                foreach ($cids as $cid) {
+                    $contactIds[(int) $cid] = true;
+                }
+            }
+            $contactIds = array_keys($contactIds);
+            $suffixes = array_keys($suffixes);
+
+            $query->where(function ($q) use ($digits, $suffixes, $contactIds) {
+                $hit = false;
+                if ($digits !== '') {
+                    $q->orWhereRaw("REPLACE(REPLACE(REPLACE(remote_phone_number, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $digits . '%']);
+                    $hit = true;
+                }
+                if ($contactIds !== []) {
+                    $q->orWhereIn('contact_id', $contactIds);
+                    $hit = true;
+                }
+                foreach ($suffixes as $suffix) {
+                    $q->orWhereRaw("REPLACE(REPLACE(REPLACE(remote_phone_number, ' ', ''), '-', ''), '+', '') LIKE ?", ['%' . $suffix]);
+                    $hit = true;
+                }
+                if (!$hit) {
+                    $q->whereRaw('1 = 0'); // Begriff ohne jeden Treffer -> leere Liste statt aller
+                }
+            });
+        }
+
         $rows = $query->limit(200)->get();
 
         $matchedIds = $rows
@@ -312,8 +358,6 @@ class Index extends Component
 
         $map = $this->channelFilialeMap();
         $sharedPhones = $this->sharedPhones;
-        $search = mb_strtolower(trim($this->search));
-
         $phoneDir = $this->phoneDirectory();
         return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir) {
             $employeeId = $this->resolveEmployee($t);
@@ -351,13 +395,6 @@ class Index extends Component
                 'filial_nr'   => $filialNr,
                 'window'      => $window, // state: open | closed | none, left: "22 h" | "45 min" | null
             ];
-        })->filter(function (array $row) use ($search) {
-            if ($search === '') {
-                return true;
-            }
-            $digits = preg_replace('/\D+/', '', $search) ?? '';
-            return str_contains(mb_strtolower($row['label']), $search)
-                || ($digits !== '' && str_contains(preg_replace('/\D+/', '', $row['phone']) ?? '', $digits));
         })->values()->all();
     }
 
