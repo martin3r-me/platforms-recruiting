@@ -166,21 +166,25 @@ class StatisticsTablesRenderTest extends TestCase
 
         $counts = $this->columnCounts($html);
 
-        // Die Phasen-Spalten sind wirklich dabei: Trichter = 4 feste Stufen + 3
-        // Phasen der Filiale Essen. Ohne diese Zusicherung koennte die
-        // Spalten-Invariante auch mit NULL Phasen-Spalten „stimmen".
-        $this->assertSame(7, $counts['groups_by_label']['Trichter'], 'vier Stufen + drei Phasen');
-        $this->assertSame(3, $counts['groups_by_label']['Abzweige'], 'Standby + Nicht erschienen + Vor Ort aussortiert');
-        $this->assertSame(16 + 3, $counts['group_sum'], 'Gruppenköpfe der Ausschreibungs-Tabelle');
+        // Claras Liste (07.09.): Trichter = 3 feste Stufen (Bewerbungen, Gebucht,
+        // Teilgenommen) + Phasen nach Plan — die erste Phase faellt weg
+        // (kumulativ ≈ Bewerbungen), die Buchungs-Phase steht VOR Gebucht.
+        // „Kontaktiert" und „Keine Reaktion" sind aus Tabelle 1 raus, die
+        // Abzweige stecken hinter dem Details-Schalter (Default: zu).
+        $this->assertSame(5, $counts['groups_by_label']['Trichter'], 'drei Stufen + zwei Phasen (erste weg)');
+        $this->assertArrayNotHasKey('Abzweige', $counts['groups_by_label'], 'Details-Schalter default zu');
+        $this->assertSame(1 + 5 + 2 + 2 + 3 + 1, $counts['group_sum'], 'Gruppenköpfe der Ausschreibungs-Tabelle');
 
-        // „Bestätigt" ist raus (Kunden-Entscheidung 27.08.2026): die Spalte zaehlte
-        // confirmed/attended/no_show — also auch Nicht-Erschienene ohne jede
-        // Reaktion — und wurde als „hat den Reminder bestaetigt" gelesen.
+        $this->assertStringNotContainsString('Kontaktiert', $html, 'zeigte den Kontaktweg, nicht den Kontakt — raus (Clara)');
         $this->assertStringNotContainsString('Bestätigt', $html, 'Tabelle 1 bleibt schlank — Bestätigt gibt es nur je Termin');
         $this->assertStringContainsString('Teilgenommen', $html, 'Gegenprobe: die Nachbarspalte steht');
-        $this->assertStringContainsString('Vor Ort aussortiert', $html);
-        $this->assertStringContainsString('Keine Reaktion', $html, 'Umbenennung auch in Tabelle 1');
+        // Kein NotContains auf „Vor Ort aussortiert": der Details-Schalter und
+        // der „Noch offen"-Tooltip NENNEN die eingeklappten Spalten — als
+        // Spalten fehlen sie, das sichert die Abzweige-Gruppenpruefung oben.
+        $this->assertStringNotContainsString('Keine Reaktion', $html, 'steht nur noch bei den Schulungsterminen');
         $this->assertStringNotContainsString('Standby', $html);
+        $this->assertStringContainsString('Vollständig registriert', $html, 'Vertragsversand-Phase, umbenannt (Punkt 4)');
+        $this->assertStringContainsString('Bewerbungen zum Ziel', $html, 'hiess Pipeline');
 
         $this->assertRowsMatchGroups($counts, 'Ausschreibungs-Tabelle');
 
@@ -262,18 +266,20 @@ class StatisticsTablesRenderTest extends TestCase
 
         $counts = $this->columnCounts($html);
 
-        $this->assertSame(7, $counts['groups_by_label']['Trichter'], 'vier Stufen + drei Phasen');
-        $this->assertSame(2, $counts['groups_by_label']['Abzweige'], 'Nicht erschienen + Vor Ort aussortiert');
+        $this->assertSame(5, $counts['groups_by_label']['Trichter'], 'drei Stufen + zwei Phasen (erste weg, Claras Liste)');
+        $this->assertArrayNotHasKey('Abzweige', $counts['groups_by_label'], 'Details-Schalter default zu');
         // Gruppe „Reaktion" (07.09.2026): „Bestätigt" haengt am confirmed_at-Stempel
         // (nicht mehr am Status-Rang wie die entfernte Spalte) und steht neben
         // „Keine Reaktion" (frueher „Standby") — beides Reaktions-Aussagen, keine
         // Trichter-Stufen (Teilgenommen ist KEINE Teilmenge von Bestaetigt).
         $this->assertSame(1, $counts['groups_by_label']['Belegung'], 'nur noch Belegt');
         $this->assertSame(2, $counts['groups_by_label']['Reaktion'], 'Bestätigt + Keine Reaktion');
-        $this->assertSame(16 + 3, $counts['group_sum'], 'Gruppenköpfe der Termin-Tabelle');
+        $this->assertSame(3 + 1 + 2 + 5 + 2 + 2, $counts['group_sum'], 'Gruppenköpfe der Termin-Tabelle');
         $this->assertStringContainsString('Bestätigt', $html);
         $this->assertStringContainsString('Keine Reaktion', $html);
         $this->assertStringNotContainsString('Standby', $html, 'ein Wort fuer eine Sache');
+        $this->assertStringNotContainsString('Kontaktiert', $html);
+        $this->assertStringContainsString('Vollständig registriert', $html);
 
         $this->assertRowsMatchGroups($counts, 'Termin-Tabelle');
 
@@ -286,6 +292,21 @@ class StatisticsTablesRenderTest extends TestCase
         $this->assertStringContainsString('Herkunft:', $html, 'die Unterzeilen sind gerendert');
         $this->assertStringContainsString('/&nbsp;∞', $html, 'Termin ohne Platzbegrenzung');
         $this->assertCount(1, $counts['foot']);
+    }
+
+    public function test_details_schalter_holt_abzweige_und_marker_zurueck(): void
+    {
+        // Gegenprobe zum Default „zu": mit Details erscheinen die Abzweig-Spalten
+        // in BEIDEN Tabellen wieder als eigene Gruppe, und die Spaltenzahl-
+        // Invariante haelt auch in diesem Zustand (Zeilen wachsen mit den Koepfen).
+        foreach (['postings-table' => 'Ausschreibungs-Tabelle', 'interviews-table' => 'Termin-Tabelle'] as $partial => $name) {
+            $html = $this->render($partial, 'Essen', null, null, details: true);
+            $counts = $this->columnCounts($html);
+
+            $this->assertSame(2, $counts['groups_by_label']['Abzweige'] ?? null,
+                $name . ': Nicht erschienen + Vor Ort aussortiert');
+            $this->assertRowsMatchGroups($counts, $name . ' (Details an)');
+        }
     }
 
     public function test_fussnote_der_termin_tabelle_steht_auch_bei_leerer_tabelle(): void
@@ -324,11 +345,13 @@ class StatisticsTablesRenderTest extends TestCase
         ?string $ort = null,
         ?string $interviewFrom = null,
         ?string $interviewTo = null,
+        bool $details = false,
     ): string {
         $component = new StatisticsRenderProbe();
         $component->ortFilter = $ort;
         $component->interviewFrom = $interviewFrom;
         $component->interviewTo = $interviewTo;
+        $component->showDetails = $details;
 
         $viewsRoot = dirname(__DIR__, 2) . '/resources/views';
         $source = (string) file_get_contents($viewsRoot . '/livewire/statistics/' . $partial . '.blade.php');
@@ -511,19 +534,19 @@ class StatisticsTablesRenderTest extends TestCase
         // DREI aktive Phasen in Essen -> drei Phasen-Spalten im Trichter
         Capsule::table('rec_phases')->insert([
             ['id' => 71, 'uuid' => 'rph-71', 'team_id' => self::TEAM, 'rec_position_id' => 51,
-             'name' => 'Eingang', 'order' => 1, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+             'name' => 'Eingang', 'order' => 1, 'completion_type' => 'fields', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
             // APOSTROPH im Phasennamen, und zwar mit Absicht: der Name wandert in
             // den wire:click-Ausdruck der Spalte (Drill-down) und in mehrere
             // title-Attribute. Unescaped zerlegte er den JS-Ausdruck — der
             // Drill-Button dieser Spalte waere in ALLEN Zeilen tot. Phasennamen sind
             // freier Nutzertext, das ist also kein konstruierter Fall.
             ['id' => 72, 'uuid' => 'rph-72', 'team_id' => self::TEAM, 'rec_position_id' => 51,
-             'name' => "Telefonat 'kurz'", 'order' => 2, 'is_active' => 1,
+             'name' => "Telefonat 'kurz'", 'order' => 2, 'completion_type' => 'booking', 'is_active' => 1,
              'created_at' => $now, 'updated_at' => $now],
             ['id' => 73, 'uuid' => 'rph-73', 'team_id' => self::TEAM, 'rec_position_id' => 51,
-             'name' => 'Schulung', 'order' => 3, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+             'name' => 'Schulung', 'order' => 3, 'completion_type' => 'contract_sent', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 74, 'uuid' => 'rph-74', 'team_id' => self::TEAM, 'rec_position_id' => 52,
-             'name' => 'Eingang', 'order' => 1, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+             'name' => 'Eingang', 'order' => 1, 'completion_type' => 'fields', 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_postings')->insert([

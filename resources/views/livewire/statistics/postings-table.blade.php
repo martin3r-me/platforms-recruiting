@@ -46,27 +46,31 @@
     //
     // Bewusst OHNE Fallback: ein „nimm halt alle Phasen“ waere nach Task 10
     // toter Code und wuerde bis dahin Spalten aus fremden Phasensaetzen mischen.
-    $phaseDefs = [];
+    // Phasen-Spalten nach Plan (StatisticsPhaseColumns): erste Phase weg
+    // (kumulativ ≈ „Bewerbungen“), Buchungs-Phase VOR den Trichter, Rest nach
+    // „Teilgenommen“; die Vertragsversand-Phase heisst „Vollständig registriert“.
+    // Der Original-Name bleibt im Tooltip — Kopf und Modal-Titel zeigen das Label.
+    $plan = $this->phaseColumnPlan;
     $phaseIndex = 0;
-    foreach ($this->phaseLabels as $phaseOrder => $phaseName) {
+    $mkPhaseDef = function (int $phaseOrder) use ($plan, $phaseTints, &$phaseIndex) {
         $tint = $phaseTints[min($phaseIndex, count($phaseTints) - 1)];
-        // Der Name wird UNVERAENDERT uebernommen — Kopf, Tooltip und
-        // Modal-Titel muessen zeigen, was HR eingetragen hat. Das Quoting im
-        // wire:click-Ausdruck loest @js in cells.blade.php, nicht eine
-        // Verfremdung der Stammdaten.
-        $phaseName = (string) $phaseName;
-        $phaseDefs[] = [
-            'key' => $this->phaseColumnKey((int) $phaseOrder),
-            'label' => $phaseName,
+        $phaseIndex++;
+        $label = (string) ($plan['labels'][$phaseOrder] ?? ('Phase ' . $phaseOrder));
+
+        return [
+            'key' => $this->phaseColumnKey($phaseOrder),
+            'label' => $label,
             'on' => $tint['on'],
             'total' => $tint['total'],
-            'title' => 'Bewerbungen, die Phase ' . $phaseOrder . ' („' . $phaseName . '“) erreicht haben — '
+            'title' => 'Bewerbungen, die Phase ' . $phaseOrder . ' erreicht haben — '
                 . 'kumulativ: wer weiter ist, zählt hier mit. NETTO, also nur laufende Kohorten: '
                 . 'Geparkte, Abgesagte und ausgeschlossene Buckets tauchen im Phasen-Trichter nicht auf, '
                 . 'sind aber in „Bewerbungen“ enthalten.',
         ];
-        $phaseIndex++;
-    }
+    };
+    $earlyPhaseDefs = array_map($mkPhaseDef, $plan['early']);
+    $latePhaseDefs = array_map($mkPhaseDef, $plan['late']);
+    $phasenAnzahl = count($earlyPhaseDefs) + count($latePhaseDefs);
 
     // Spaltendefinition an EINER Stelle — thead, Datenzeilen und Gesamt-Zeile
     // lesen daraus (Muster und Farbsystem wie in der Kohorten-Tabelle: der
@@ -76,10 +80,10 @@
         [
             ['key' => 'ids', 'label' => 'Bewerbungen', 'gstart' => true,
              'on' => 'bg-sky-50 text-sky-900', 'total' => 'bg-sky-100 text-sky-950',
-             'title' => 'Alle Bewerbungen dieser Ausschreibung — Testbewerber sind immer ausgeschlossen. Bezugsgröße der Pipeline-Ampel.'],
-            ['key' => 'kontaktiert', 'label' => 'Kontaktiert',
-             'on' => 'bg-sky-100 text-sky-900', 'total' => 'bg-sky-200 text-sky-950',
-             'title' => 'Anreicherungs-Proxy (enrichment_status), kein Kontaktnachweis'],
+             'title' => 'Alle Bewerbungen dieser Ausschreibung — Testbewerber sind immer ausgeschlossen. Bezugsgröße der Ampel „Bewerbungen zum Ziel“.'],
+        ],
+        $earlyPhaseDefs,
+        [
             ['key' => 'gebucht', 'label' => 'Gebucht',
              'on' => 'bg-sky-200 text-sky-900', 'total' => 'bg-sky-300 text-sky-950',
              'title' => 'Hat eine kohorten-relevante Buchung auf einem Schulungstermin (Rang ≥ 1). Storno zählt nicht.'],
@@ -87,17 +91,20 @@
              'on' => 'bg-sky-400 text-sky-950', 'total' => 'bg-sky-500 text-sky-950',
              'title' => 'Status attended. „Nicht erschienen“ ist ein Abzweig und zählt hier NICHT mit.'],
         ],
-        $phaseDefs,
-        [
-            ['key' => 'standby', 'label' => 'Keine Reaktion', 'gstart' => true,
-             'on' => 'bg-amber-100 text-amber-900', 'total' => 'bg-amber-200 text-amber-900',
-             'title' => 'Gebucht, aber keine Antwort auf die Erinnerungen — der Platz wurde wieder freigegeben (booked + seat_released_at).'],
-            ['key' => 'no_show', 'label' => 'Nicht erschienen',
+        $latePhaseDefs,
+        // Abzweige nur bei eingeschalteten Details (Claras Liste): „Keine
+        // Reaktion“ steht seit 07.09. nur noch bei den Schulungsterminen,
+        // „Kontaktiert“ ist ersatzlos raus (zeigte den Kontaktweg, nicht den
+        // Kontakt — die Zahl war immer gleich „Bewerbungen“).
+        $this->showDetails ? [
+            ['key' => 'no_show', 'label' => 'Nicht erschienen', 'gstart' => true,
              'on' => 'bg-red-100 text-red-900', 'total' => 'bg-red-200 text-red-900',
              'title' => 'Status no_show — gebucht, aber nicht erschienen. Gilt als abgeschlossen.'],
             ['key' => 'aussortiert', 'label' => 'Vor Ort aussortiert',
              'on' => 'bg-red-200 text-red-950', 'total' => 'bg-red-300 text-red-950',
              'title' => 'Erschienen, aber in der Schulung aussortiert (Status rejected_on_site). Belegt einen Platz, gilt als abgeschlossen — zählt weder als Teilgenommen noch als Nicht erschienen.'],
+        ] : [],
+        [
             ['key' => 'vertrag_verschickt', 'label' => 'Vertrag verschickt', 'gstart' => true,
              'on' => 'bg-emerald-50 text-emerald-900', 'total' => 'bg-emerald-100 text-emerald-900',
              'title' => 'Mindestens ein Vertrag mit sent_at. Stornierte Verträge sind ausgeschlossen.'],
@@ -107,16 +114,16 @@
             ['key' => 'offen_ids', 'label' => 'Noch offen', 'gstart' => true,
              'on' => 'bg-gray-100 text-gray-700', 'total' => 'bg-gray-200 text-gray-800',
              'onlyRunning' => true,
-             'title' => 'Weder unterschrieben noch „nicht erschienen“ (Bewerbungen − Unterschrieben − Nicht erschienen). Nur für laufende Kohorten.'],
+             'title' => 'Weder unterschrieben noch abgeschlossen (Bewerbungen − Unterschrieben − Nicht erschienen − Vor Ort aussortiert). Nur für laufende Kohorten.'],
         ],
     );
 
-    $colGroups = [
+    $colGroups = array_values(array_filter([
         ['label' => '', 'span' => 1, 'title' => ''],
-        ['label' => 'Trichter', 'span' => 4 + count($phaseDefs),
+        ['label' => 'Trichter', 'span' => 3 + $phasenAnzahl,
          'title' => 'Der Weg durch den Prozess — jede Stufe ist eine Teilmenge der vorigen, die Farbe wird dabei dunkler. Die Phasen-Spalten kommen aus dem Phasensatz der gewählten Filiale.'],
-        ['label' => 'Abzweige', 'span' => 3,
-         'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'],
+        $this->showDetails ? ['label' => 'Abzweige', 'span' => 2,
+         'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'] : null,
         ['label' => 'Vertrag', 'span' => 2,
          'title' => 'Das Ziel: Vertrag verschickt und unterschrieben.'],
         ['label' => 'Stand', 'span' => 2,
@@ -125,9 +132,9 @@
          'title' => 'Bedarf der Ausschreibung und die beiden Ampeln dazu. Nichts wird geraten: fehlt Bedarf oder Faktor, ist die Ampel grau.'],
         ['label' => 'Einsatz', 'span' => 1,
          'title' => 'Wann die Eingestellten das erste Mal arbeiten — kommt mit der Dispo.'],
-    ];
+    ]));
 
-    $groups = $this->postingGroups;
+    $groups = $this->postingGroups;    $groups = $this->postingGroups;
     $allToken = $this->drillToken('all', 'Gesamt');
 
     // Gesamt-Zeile: alles vorab, damit die Fusszeile nur noch ausgibt.
@@ -166,10 +173,17 @@
 @endphp
 
 <x-ui-panel title="Ausschreibungen" subtitle="Eine Zeile je Ausschreibung — läuft sie auf Ziel?">
-    <div class="mb-2 text-xs text-[color:var(--ui-muted)]">
-        Momentaufnahme des aktuellen Status, keine Historie
-        <span class="ml-1 cursor-help"
-              title="Die Zahlen zeigen den aktuellen Stand jeder Bewerbung, keine Historie — sie können zwischen zwei Aufrufen auch sinken. Der Phasen-Trichter ist kumulativ und netto (nur laufende Kohorten). Jeder Spaltenkopf trägt seine Definition als Tooltip.">ⓘ</span>
+    <div class="mb-2 flex items-center justify-between gap-3 text-xs text-[color:var(--ui-muted)]">
+        <div>
+            Momentaufnahme des aktuellen Status, keine Historie
+            <span class="ml-1 cursor-help"
+                  title="Die Zahlen zeigen den aktuellen Stand jeder Bewerbung, keine Historie — sie können zwischen zwei Aufrufen auch sinken. Der Phasen-Trichter ist kumulativ und netto (nur laufende Kohorten). Jeder Spaltenkopf trägt seine Definition als Tooltip.">ⓘ</span>
+        </div>
+        <button type="button" wire:click="$toggle('showDetails')"
+                class="rounded border border-[var(--ui-border)]/60 px-2 py-0.5 hover:text-[color:var(--ui-secondary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)]"
+                title="Abzweig-Spalten (Nicht erschienen, Vor Ort aussortiert) und Prüf-Marker (HR-Schreibtisch, Zuordnung unklar) ein- oder ausblenden — gilt für beide Tabellen.">
+            {{ $this->showDetails ? 'Details ausblenden' : 'Details einblenden' }}
+        </button>
     </div>
 
     @if (count($groups) === 0)
@@ -225,7 +239,7 @@
                         </th>
                         <th class="sticky top-7 z-20 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
                             title="{{ $pipelineTitle }}">
-                            Pipeline
+                            Bewerbungen zum Ziel
                             <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                         </th>
                         <th class="sticky top-7 z-20 border-l border-[var(--ui-border)]/60 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
@@ -304,7 +318,9 @@
                                             geschlossen
                                         </span>
                                     @endif
-                                    @include('recruiting::livewire.statistics.markers', ['rows' => $groupRows, 'token' => $rowToken, 'prefix' => $rowPrefix])
+                                    @if ($this->showDetails)
+                                        @include('recruiting::livewire.statistics.markers', ['rows' => $groupRows, 'token' => $rowToken, 'prefix' => $rowPrefix])
+                                    @endif
                                 </div>
                                 @if ($taetigkeiten !== '')
                                     <div class="mt-0.5 max-w-[18rem] truncate text-xs text-[color:var(--ui-muted)]"
@@ -468,7 +484,7 @@
         @endphp
         @if ($totalPipeline['target'] === null || $pipelineAussen > 0)
             <div class="mt-1 text-xs text-[color:var(--ui-muted)]">
-                Pipeline gesamt: {{ $totalPipeline['reason'] }}
+                Bewerbungen zum Ziel gesamt: {{ $totalPipeline['reason'] }}
                 @if ($pipelineAussen > 0)
                     NICHT im Zähler: {{ $pipelineAussen }}
                     {{ $pipelineAussen === 1 ? 'Bewerbung' : 'Bewerbungen' }} an Ausschreibungen ohne

@@ -91,6 +91,14 @@ class Index extends Component
      * Zahlen darunter alle Orte enthalten.
      */
     public ?string $ortFilter = null;
+
+    /**
+     * Claras Liste: Pruef-Marker (HR-Schreibtisch, Zuordnung unklar) und die
+     * Abzweig-Spalten (Nicht erschienen, Vor Ort aussortiert) sind standardmaessig
+     * EINGEKLAPPT — „ergibt sich aus der restlichen Logik, aber nett, das
+     * notfalls auf einen Blick zu haben". Ein Schalter fuer beide Tabellen.
+     */
+    public bool $showDetails = false;
     public ?string $activityFilter = null;
 
     /**
@@ -950,6 +958,35 @@ class Index extends Component
     }
 
     /**
+     * Ordnung und Beschriftung der Phasen-Spalten (Claras Liste): erste Phase
+     * weg, Buchungs-Phase vor den Trichter, Vertragsversand-Phase heisst
+     * „Vollständig registriert". Regel in StatisticsPhaseColumns (pure,
+     * getestet); hier nur die Daten — derselbe Phasensatz wie phaseLabels().
+     *
+     * @return array{early: list<int>, late: list<int>, labels: array<int, string>}
+     */
+    #[Computed]
+    public function phaseColumnPlan(): array
+    {
+        $positionIds = RecPosition::forTeam($this->teamId())
+            ->where('location', $this->ortFilter)
+            ->pluck('id');
+
+        $phases = RecPhase::forTeam($this->teamId())
+            ->whereIn('rec_position_id', $positionIds)
+            ->where('is_active', true)
+            ->orderBy('order')
+            ->get(['order', 'name', 'completion_type'])
+            ->mapWithKeys(fn ($p) => [(int) $p->order => [
+                'name' => (string) $p->name,
+                'completion_type' => $p->completion_type,
+            ]])
+            ->all();
+
+        return \Platform\Recruiting\Support\StatisticsPhaseColumns::plan($phases);
+    }
+
+    /**
      * Spaltenschluessel einer Phasen-Spalte ("phase_reached:3"). Die Spalte
      * `phase_reached` ist verschachtelt und darf NIE flach gelesen werden —
      * count() darauf zaehlt Phasen statt Bewerbungen. Der Schluessel kommt
@@ -1361,6 +1398,9 @@ class Index extends Component
                 'posting_title' => $postingTitle,
                 'has_posting' => $interview->posting !== null,
                 'max' => $interview->max_participants,
+                // Mindestteilnehmer: Claras Rot-Wunsch — unterbelegt ist der
+                // Befund, Ueberbuchung ist „eh nur manuell moeglich".
+                'min' => $interview->min_participants,
                 'seat_taking' => (int) ($interview->seat_taking_count ?? 0),
                 'rows' => $cohort['rows'],
                 'origins' => $cohort['origins'],

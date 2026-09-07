@@ -48,23 +48,28 @@
     // ORDER-QUALIFIZIERT (phaseColumnKey) — die Spalte `phase_reached` ist
     // verschachtelt, und ein flaches count() darauf zaehlt Phasen statt
     // Bewerbungen. CohortViewModel wirft bei flachem Zugriff absichtlich.
-    $phaseDefs = [];
+    // Phasen-Spalten nach Plan (StatisticsPhaseColumns) — dieselbe Ordnung wie
+    // Tabelle 1: erste Phase weg, Buchungs-Phase VOR den Trichter, Rest nach
+    // „Teilgenommen“, Vertragsversand-Phase heisst „Vollständig registriert“.
+    $plan = $this->phaseColumnPlan;
     $phaseIndex = 0;
-    foreach ($this->phaseLabels as $phaseOrder => $phaseName) {
+    $mkPhaseDef = function (int $phaseOrder) use ($plan, $phaseTints, &$phaseIndex) {
         $tint = $phaseTints[min($phaseIndex, count($phaseTints) - 1)];
-        // Name UNVERAENDERT: Kopf, Tooltip und Modal-Titel muessen zeigen, was HR
-        // eingetragen hat. Das Quoting im wire:click loest @js in cells.blade.php.
-        $phaseName = (string) $phaseName;
-        $phaseDefs[] = [
-            'key' => $this->phaseColumnKey((int) $phaseOrder),
-            'label' => $phaseName,
+        $phaseIndex++;
+        $label = (string) ($plan['labels'][$phaseOrder] ?? ('Phase ' . $phaseOrder));
+
+        return [
+            'key' => $this->phaseColumnKey($phaseOrder),
+            'label' => $label,
             'on' => $tint['on'],
             'total' => $tint['total'],
-            'title' => 'Teilnehmer dieses Termins, die Phase ' . $phaseOrder . ' („' . $phaseName . '“) erreicht haben — '
+            'title' => 'Teilnehmer dieses Termins, die Phase ' . $phaseOrder . ' erreicht haben — '
                 . 'kumulativ: wer weiter ist, zählt hier mit. NETTO, also nur laufende Kohorten.',
         ];
-        $phaseIndex++;
-    }
+    };
+    $earlyPhaseDefs = array_map($mkPhaseDef, $plan['early']);
+    $latePhaseDefs = array_map($mkPhaseDef, $plan['late']);
+    $phasenAnzahl = count($earlyPhaseDefs) + count($latePhaseDefs);
 
     // Spaltendefinition an EINER Stelle — thead, Datenzeilen, Herkunfts-Zeilen
     // und Gesamt-Zeile lesen daraus. Farbsystem wie in den anderen Tabellen:
@@ -75,18 +80,14 @@
         [
             // Gruppe „Reaktion“ (07.09.2026, Kundenwunsch): zwei Aussagen darueber,
             // wie die Gebuchten dieses Termins reagiert haben — bewusst KEINE
-            // Trichter-Stufen (Teilgenommen ist keine Teilmenge von Bestaetigt,
-            // die Trichter-Zusicherung „jede Stufe Teilmenge der vorigen“ bliebe
-            // sonst auf der Strecke).
+            // Trichter-Stufen (Teilgenommen ist keine Teilmenge von Bestaetigt).
             //
             //  - „Bestaetigt“ haengt am confirmed_at-STEMPEL der Buchung, nicht am
             //    Status: der wird nach der Schulung mit attended/no_show
             //    ueberschrieben — genau daran ist die alte Rang-2-Spalte
             //    gestorben (zaehlte No-Shows ohne jede Reaktion mit, 25.08.2026).
-            //  - „Keine Reaktion“ hiess bis 07.09.2026 „Standby“: gebucht, aber
-            //    keine Antwort auf die Erinnerungen, Platz wieder freigegeben.
-            //    Ein Wort ueberall (SeatStandbyPolicy::statusLabel ist die Quelle
-            //    des Status-Labels, die Spalten-Keys bleiben 'standby').
+            //  - „Keine Reaktion“ hiess bis 07.09.2026 „Standby“ und steht seit
+            //    Claras Liste NUR noch hier (Tabelle 1 hat die Spalte nicht mehr).
             ['key' => 'bestaetigt', 'label' => 'Bestätigt', 'gstart' => true,
              'on' => 'bg-teal-100 text-teal-900', 'total' => 'bg-teal-200 text-teal-950',
              'title' => 'Hat die Schulung bestätigt (WhatsApp-Antwort oder von HR gesetzt) — bleibt stehen, auch wenn der Status danach auf Teilgenommen/Nicht erschienen wechselt. Keine Trichter-Stufe: Teilnehmer ohne Bestätigung zählen hier nicht, tauchen aber in Teilgenommen auf. Bestätigungen vor dem 07.09.2026 können unvollständig sein (manuell gesetzte wurden damals überschrieben).'],
@@ -96,9 +97,9 @@
             ['key' => 'ids', 'label' => 'Teilnehmer', 'gstart' => true,
              'on' => 'bg-sky-50 text-sky-900', 'total' => 'bg-sky-100 text-sky-950',
              'title' => 'Alle Bewerbungen mit kohorten-relevanter Buchung auf diesem Termin (Präzedenz-Kette Stufe 6), unabhängig vom Filiale-, Tätigkeits- und Status-Filter — die Herkunft steht in den Unterzeilen. Testbewerber sind immer ausgeschlossen. Bezugsgröße der anderen Spalten. NICHT dasselbe wie „Belegt“: das zählt Plätze, nicht Bewerbungen (ein Testbewerber belegt einen Platz und steht hier nicht).'],
-            ['key' => 'kontaktiert', 'label' => 'Kontaktiert',
-             'on' => 'bg-sky-100 text-sky-900', 'total' => 'bg-sky-200 text-sky-950',
-             'title' => 'Anreicherungs-Proxy (enrichment_status), kein Kontaktnachweis'],
+        ],
+        $earlyPhaseDefs,
+        [
             ['key' => 'gebucht', 'label' => 'Gebucht',
              'on' => 'bg-sky-200 text-sky-900', 'total' => 'bg-sky-300 text-sky-950',
              'title' => 'Hat eine kohorten-relevante Buchung auf diesem Termin (Rang ≥ 1). Storno zählt nicht.'],
@@ -106,14 +107,16 @@
              'on' => 'bg-sky-400 text-sky-950', 'total' => 'bg-sky-500 text-sky-950',
              'title' => 'Status attended. „Nicht erschienen“ ist ein Abzweig und zählt hier NICHT mit.'],
         ],
-        $phaseDefs,
-        [
+        $latePhaseDefs,
+        $this->showDetails ? [
             ['key' => 'no_show', 'label' => 'Nicht erschienen', 'gstart' => true,
              'on' => 'bg-red-100 text-red-900', 'total' => 'bg-red-200 text-red-900',
              'title' => 'Status no_show — gebucht, aber nicht erschienen. Gilt als abgeschlossen.'],
             ['key' => 'aussortiert', 'label' => 'Vor Ort aussortiert',
              'on' => 'bg-red-200 text-red-950', 'total' => 'bg-red-300 text-red-950',
              'title' => 'Erschienen, aber in der Schulung aussortiert (Status rejected_on_site). Belegt einen Platz, gilt als abgeschlossen — zählt weder als Teilgenommen noch als Nicht erschienen.'],
+        ] : [],
+        [
             ['key' => 'vertrag_verschickt', 'label' => 'Vertrag verschickt', 'gstart' => true,
              'on' => 'bg-emerald-50 text-emerald-900', 'total' => 'bg-emerald-100 text-emerald-900',
              'title' => 'Mindestens ein Vertrag mit sent_at. Stornierte Verträge sind ausgeschlossen.'],
@@ -127,26 +130,26 @@
         ],
     );
 
-    $colGroups = [
+    $colGroups = array_values(array_filter([
         ['label' => 'Termin', 'span' => 3, 'title' => 'Wann, wo und für welche Ausschreibung.'],
         ['label' => 'Belegung', 'span' => 1,
-         'title' => 'Plätze des Termins: belegt von allen platzbelegenden Buchungen, unabhängig von den Filtern dieser Seite.'],
+         'title' => 'Plätze des Termins: belegt von allen platzbelegenden Buchungen, unabhängig von den Filtern dieser Seite. Rot, wenn die Belegung unter der Mindestteilnehmerzahl des Termins liegt.'],
         // Reaktion: Bestätigt (confirmed_at-Stempel) + Keine Reaktion (Platz
         // freigegeben). Zahlen aus der Kohorte, die Belegung daneben aus der
         // Termin-Query — zwei Quellen, werden nicht verrechnet.
         ['label' => 'Reaktion', 'span' => 2,
          'title' => 'Wie die Gebuchten reagiert haben: bestätigt (bleibt stehen, auch wenn der Status später überschrieben wird) oder gar nicht (Platz wieder freigegeben).'],
-        ['label' => 'Trichter', 'span' => 4 + count($phaseDefs),
+        ['label' => 'Trichter', 'span' => 3 + $phasenAnzahl,
          'title' => 'Der Weg durch den Prozess — jede Stufe ist eine Teilmenge der vorigen, die Farbe wird dabei dunkler. Die Phasen-Spalten kommen aus dem Phasensatz der gewählten Filiale.'],
-        ['label' => 'Abzweige', 'span' => 2,
-         'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'],
+        $this->showDetails ? ['label' => 'Abzweige', 'span' => 2,
+         'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'] : null,
         ['label' => 'Vertrag', 'span' => 2,
          'title' => 'Das Ziel: Vertrag verschickt und unterschrieben.'],
         ['label' => 'Stand', 'span' => 2,
          'title' => 'Was noch offen ist und was daraus geworden ist.'],
-    ];
+    ]));
 
-    $table = $this->interviewTable;
+    $table = $this->interviewTable;    $table = $this->interviewTable;
     $interviewRows = $table['rows'];
     $outside = $table['outside'];
 
@@ -180,10 +183,17 @@
 @endphp
 
 <x-ui-panel title="Schulungstermine" subtitle="Eine Zeile je Termin — Belegung, Trichter und Herkunft der Teilnehmer">
-    <div class="mb-2 text-xs text-[color:var(--ui-muted)]">
-        Momentaufnahme des aktuellen Status, keine Historie
-        <span class="ml-1 cursor-help"
-              title="Die Zahlen zeigen den aktuellen Stand jeder Bewerbung, keine Historie — sie können zwischen zwei Aufrufen auch sinken. Inaktive Termine sind ausgeschlossen (Termine haben kein Test-Kennzeichen; inaktiv ist der einzige Weg, einen Test-Termin aus der Statistik zu nehmen). Jeder Spaltenkopf trägt seine Definition als Tooltip.">ⓘ</span>
+    <div class="mb-2 flex items-center justify-between gap-3 text-xs text-[color:var(--ui-muted)]">
+        <div>
+            Momentaufnahme des aktuellen Status, keine Historie
+            <span class="ml-1 cursor-help"
+                  title="Die Zahlen zeigen den aktuellen Stand jeder Bewerbung, keine Historie — sie können zwischen zwei Aufrufen auch sinken. Inaktive Termine sind ausgeschlossen (Termine haben kein Test-Kennzeichen; inaktiv ist der einzige Weg, einen Test-Termin aus der Statistik zu nehmen). Jeder Spaltenkopf trägt seine Definition als Tooltip.">ⓘ</span>
+        </div>
+        <button type="button" wire:click="$toggle('showDetails')"
+                class="rounded border border-[var(--ui-border)]/60 px-2 py-0.5 hover:text-[color:var(--ui-secondary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)]"
+                title="Abzweig-Spalten (Nicht erschienen, Vor Ort aussortiert) und Prüf-Marker (HR-Schreibtisch, Zuordnung unklar) ein- oder ausblenden — gilt für beide Tabellen.">
+            {{ $this->showDetails ? 'Details ausblenden' : 'Details einblenden' }}
+        </button>
     </div>
 
     @if (count($interviewRows) === 0)
@@ -296,7 +306,9 @@
                                     <span class="rounded-full bg-[var(--ui-muted-5)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--ui-muted)] ring-1 ring-[var(--ui-border)]/60">
                                         {{ $interviewRow['type'] }}
                                     </span>
-                                    @include('recruiting::livewire.statistics.markers', ['rows' => $interviewRow['rows'], 'token' => $rowToken, 'prefix' => $rowPrefix])
+                                    @if ($this->showDetails)
+                                        @include('recruiting::livewire.statistics.markers', ['rows' => $interviewRow['rows'], 'token' => $rowToken, 'prefix' => $rowPrefix])
+                                    @endif
                                 </div>
                             </td>
                             <td class="px-3 py-2 text-xs text-[color:var(--ui-muted)]">
@@ -325,6 +337,7 @@
                             </td>
                             @include('recruiting::livewire.statistics.meter', [
                                 'taken' => $interviewRow['seat_taking'], 'max' => $interviewRow['max'],
+                                'min' => $interviewRow['min'] ?? null,
                                 'borderLeft' => true, 'title' => $belegungTitle,
                             ])
                             @include('recruiting::livewire.statistics.cells', ['rows' => $interviewRow['rows'], 'token' => $rowToken, 'prefix' => $rowPrefix, 'isTotal' => false])
@@ -372,7 +385,9 @@
                                                 </span>
                                             @endif
                                         @endif
-                                        @include('recruiting::livewire.statistics.markers', ['rows' => $origin['rows'], 'token' => $originToken, 'prefix' => $originPrefix])
+                                        @if ($this->showDetails)
+                                            @include('recruiting::livewire.statistics.markers', ['rows' => $origin['rows'], 'token' => $originToken, 'prefix' => $originPrefix])
+                                        @endif
                                     </div>
                                 </td>
                                 @include('recruiting::livewire.statistics.meter', [
