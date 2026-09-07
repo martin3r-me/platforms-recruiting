@@ -45,6 +45,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\FixApplicantPhase::class,
                 \Platform\Recruiting\Console\Commands\ReconcileApplicantPositions::class,
                 \Platform\Recruiting\Console\Commands\DuplicatePosition::class,
+                \Platform\Recruiting\Console\Commands\CopyPhaseFields::class,
                 \Platform\Recruiting\Console\Commands\ImportApplicantsCsv::class,
                 \Platform\Recruiting\Console\Commands\ZasExportBackfill::class,
                 \Platform\Recruiting\Console\Commands\ZasEmployeeExportBackfill::class,

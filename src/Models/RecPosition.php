@@ -70,6 +70,17 @@ class RecPosition extends Model
                     'order' => 1,
                     'is_active' => true,
                     'auto_advance' => true,
+                    // 'manual' statt der Spalten-Vorgabe 'fields': diese Phase
+                    // kommt OHNE Felder auf die Welt, und calculateProgress()
+                    // liefert bei null Pflichtfeldern 100 — mit 'fields' waere
+                    // sie also in der Sekunde abgeschlossen, in der ein Bewerber
+                    // sie betritt. Genau daran ist die Sammel-Stelle "Sonstiges"
+                    // gescheitert: Abschluss-Hooks feuerten (Geburtsdatum-Riegel
+                    // → HR-Schreibtisch), und der Zweig "letzte Phase ⇒
+                    // Terminlink" schickte eine Buchungsaufforderung an jemanden,
+                    // von dem wir keinen einzigen Datenpunkt hatten.
+                    // Wer Felder konfiguriert, stellt danach auf 'fields' um.
+                    'completion_type' => 'manual',
                 ]);
             }
         });
