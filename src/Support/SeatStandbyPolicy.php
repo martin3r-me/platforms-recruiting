@@ -57,7 +57,10 @@ final class SeatStandbyPolicy
 
     public static function statusLabel(?string $status, bool $seatReleased): ?string
     {
-        return ($status === 'booked' && $seatReleased) ? 'Standby' : null;
+        // „Keine Reaktion" statt „Standby" (07.09.2026, Kundenwunsch): das ist,
+        // was der Zustand bedeutet — gebucht, aber keine Antwort auf die
+        // Erinnerungen, Platz wieder freigegeben. Ein Wort, ueberall.
+        return ($status === 'booked' && $seatReleased) ? 'Keine Reaktion' : null;
     }
 
     /**

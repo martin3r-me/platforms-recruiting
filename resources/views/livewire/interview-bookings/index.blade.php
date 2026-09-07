@@ -113,6 +113,15 @@
                             />
                         @endif
                         <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.500ms="search" class="flex-1 max-w-xs" />
+                        {{-- Zaehler zur AKTUELLEN Auswahl (Filter + Suche), damit
+                             niemand Zeilen von Hand zaehlt („wie viele haben
+                             bestaetigt?“ — Kundenwunsch 07.09.2026). Dieselbe
+                             Collection, die die Tabelle rendert — keine zweite
+                             Zaehlung, die abweichen koennte. --}}
+                        <div class="flex items-center text-sm text-[var(--ui-muted)] whitespace-nowrap" wire:key="booking-count">
+                            <span class="font-semibold text-[var(--ui-secondary)] mr-1">{{ $this->bookings->count() }}</span>
+                            {{ $this->bookings->count() === 1 ? 'Buchung' : 'Buchungen' }}
+                        </div>
                     </div>
 
                     @if($this->interview->max_participants)
@@ -124,7 +133,7 @@
                         <div class="mb-4 p-3 rounded-lg {{ $isFull ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200' }}">
                             <span class="text-sm font-medium {{ $isFull ? 'text-red-700' : 'text-blue-700' }}">
                                 {{ $activeCount }} / {{ $this->interview->max_participants }} Plätze belegt
-                                @if($standbyCount > 0) <span class="text-amber-600">(+{{ $standbyCount }} Standby)</span> @endif
+                                @if($standbyCount > 0) <span class="text-amber-600" title="Gebucht, aber keine Antwort auf die Erinnerungen — Platz wieder freigegeben">(+{{ $standbyCount }} Keine Reaktion)</span> @endif
                                 @if($isFull)
                                     — Termin voll
                                 @endif
@@ -350,7 +359,7 @@
                                                 @elseif($isLegalCheckPending)
                                                     <div class="text-[10px] text-red-700 mt-1 leading-snug">Erst auf HR-Schreibtisch prüfen.</div>
                                                 @elseif($booking->status !== 'attended')
-                                                    <div class="text-[10px] text-[var(--ui-muted)] mt-1">Wirksam ab Status „Teilgenommen"</div>
+                                                    <div class="text-[10px] text-[var(--ui-muted)] mt-1">Wirksam ab Status „Teilgenommen“</div>
                                                 @endif
                                             @else
                                                 —
@@ -473,7 +482,7 @@
                         </div>
                         <div>
                             @if($bulkState === 'no_attended')
-                                <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Markiere mind. einen Bewerber als „Teilgenommen"">
+                                <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Markiere mind. einen Bewerber als „Teilgenommen“">
                                     Portallink & Verträge versenden
                                 </button>
                             @elseif($bulkState === 'no_default_template')

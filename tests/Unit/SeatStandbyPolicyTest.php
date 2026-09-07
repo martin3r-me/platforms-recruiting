@@ -54,7 +54,9 @@ final class SeatStandbyPolicyTest extends TestCase
 
     public function test_status_label(): void
     {
-        $this->assertSame('Standby', SeatStandbyPolicy::statusLabel('booked', true));
+        // Umbenannt (07.09.2026, Kundenwunsch): „Standby" las niemand als das,
+        // was es ist — gebucht, aber keine Antwort auf die Erinnerungen.
+        $this->assertSame('Keine Reaktion', SeatStandbyPolicy::statusLabel('booked', true));
         $this->assertNull(SeatStandbyPolicy::statusLabel('booked', false));
         $this->assertNull(SeatStandbyPolicy::statusLabel('registered', true));
     }

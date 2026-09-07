@@ -25,6 +25,7 @@ class CohortAssignerTest extends TestCase
         return $overrides + [
             'booking_id' => $id, 'interview_id' => 10, 'status' => 'booked',
             'seat_released' => false, 'starts_at' => '2026-08-10 09:00:00', 'deleted' => false,
+            'confirmed' => false,
         ];
     }
 
@@ -170,15 +171,38 @@ class CohortAssignerTest extends TestCase
         );
         $row = array_values(array_filter($result['rows'], fn ($r) => $r['type'] === 'schulung'))[0];
         $this->assertSame([1, 2, 3, 4], $row['columns']['gebucht'], 'Rang>=1: alle');
-        // „Bestaetigt" (Rang >= 2) gibt es nicht mehr: der Status wird nach der
-        // Schulung mit attended/no_show ueberschrieben, die Spalte konnte eine
-        // Reminder-Bestaetigung also nie abbilden — 7 Nicht-Erschienene ohne
-        // jede Reaktion zaehlten live als „bestaetigt" (Befund 25.08.2026).
-        $this->assertArrayNotHasKey('bestaetigt', $row['columns']);
+        // „Bestaetigt" haengt seit 07.09.2026 am confirmed_at-Stempel, nicht
+        // mehr am Rang (die Rang-2-Spalte zaehlte No-Shows ohne jede Reaktion
+        // mit, Befund 25.08.2026). Hier hat niemand ein confirmed-Flag — die
+        // Spalte bleibt leer, obwohl 2/3/4 Rang >= 2 erreicht haben.
+        $this->assertSame([], $row['columns']['bestaetigt']);
         $this->assertSame([4], $row['columns']['teilgenommen'], 'Rang>=3 OHNE no_show');
         $this->assertSame([3], $row['columns']['no_show']);
         $this->assertSame([4], $row['columns']['unterschrieben']);
         $this->assertSame([12], $row['tth_days'], 'tth haengt an der Zeile (P5)');
+    }
+
+    public function test_bestaetigt_kommt_vom_stempel_und_ueberlebt_den_status(): void
+    {
+        // Die alte „Bestaetigt"-Spalte hing am Status-RANG und zaehlte deshalb
+        // No-Shows ohne jede Reaktion mit (Befund 25.08.2026, Spalte entfernt).
+        // Die neue haengt am confirmed_at-Stempel der Buchung (Flag 'confirmed'
+        // in der Eingabe): wer je bestaetigt hat, zaehlt — auch wenn der Status
+        // danach auf attended/no_show ueberschrieben wurde. Wer nie reagiert
+        // hat, zaehlt nicht, egal wie weit er kam.
+        $result = (new CohortAssigner())->assign(
+            [$this->applicant(1), $this->applicant(2), $this->applicant(3)],
+            [
+                1 => [$this->booking(11, ['status' => 'attended', 'confirmed' => true])],
+                2 => [$this->booking(12, ['status' => 'no_show', 'confirmed' => true])],
+                3 => [$this->booking(13, ['status' => 'attended', 'confirmed' => false])],
+            ],
+            [], null, null
+        );
+        $row = array_values(array_filter($result['rows'], fn ($r) => $r['type'] === 'schulung'))[0];
+
+        $this->assertSame([1, 2], $row['columns']['bestaetigt'], 'Stempel zaehlt, Status nicht');
+        $this->assertSame([1, 3], $row['columns']['teilgenommen'], 'Gegenprobe: teilgenommen unabhaengig davon');
     }
 
     public function test_vor_ort_aussortiert_ist_eigener_abzweig_und_nicht_offen(): void

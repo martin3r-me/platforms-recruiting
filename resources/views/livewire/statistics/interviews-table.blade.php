@@ -73,21 +73,26 @@
     // vorigen Spaltengruppe.
     $colDefs = array_merge(
         [
-            // Standby steht DIREKT neben der Belegung und in ihrer Spaltengruppe:
-            // es ist eine Eigenschaft der Buchung an diesem Termin („war gebucht,
-            // belegt aber keinen Platz mehr“) und damit die Fussnote zur Belegung,
-            // auch wenn es NICHT in ihren Balken einfliesst. Sieben bis elf Spalten
-            // weiter rechts (je nach Zahl der Phasen-Spalten) las es sich nicht als
-            // das „(+Standby)“ des Mockups.
+            // Gruppe „Reaktion“ (07.09.2026, Kundenwunsch): zwei Aussagen darueber,
+            // wie die Gebuchten dieses Termins reagiert haben — bewusst KEINE
+            // Trichter-Stufen (Teilgenommen ist keine Teilmenge von Bestaetigt,
+            // die Trichter-Zusicherung „jede Stufe Teilmenge der vorigen“ bliebe
+            // sonst auf der Strecke).
             //
-            // Name und Vokabular bleiben unveraendert: die Spalte heisst „Standby“
-            // wie in V1 und Tabelle 1, und die Gruppe „Abzweige“ existiert weiter
-            // (mit „Nicht erschienen“). Verschoben wird die Nachbarschaft, nicht
-            // die Benennung — drei Vokabulare fuer dieselbe Sache waeren teurer
-            // als eine Gruppe mit einer Spalte.
-            ['key' => 'standby', 'label' => 'Standby',
+            //  - „Bestaetigt“ haengt am confirmed_at-STEMPEL der Buchung, nicht am
+            //    Status: der wird nach der Schulung mit attended/no_show
+            //    ueberschrieben — genau daran ist die alte Rang-2-Spalte
+            //    gestorben (zaehlte No-Shows ohne jede Reaktion mit, 25.08.2026).
+            //  - „Keine Reaktion“ hiess bis 07.09.2026 „Standby“: gebucht, aber
+            //    keine Antwort auf die Erinnerungen, Platz wieder freigegeben.
+            //    Ein Wort ueberall (SeatStandbyPolicy::statusLabel ist die Quelle
+            //    des Status-Labels, die Spalten-Keys bleiben 'standby').
+            ['key' => 'bestaetigt', 'label' => 'Bestätigt', 'gstart' => true,
+             'on' => 'bg-teal-100 text-teal-900', 'total' => 'bg-teal-200 text-teal-950',
+             'title' => 'Hat die Schulung bestätigt (WhatsApp-Antwort oder von HR gesetzt) — bleibt stehen, auch wenn der Status danach auf Teilgenommen/Nicht erschienen wechselt. Keine Trichter-Stufe: Teilnehmer ohne Bestätigung zählen hier nicht, tauchen aber in Teilgenommen auf. Bestätigungen vor dem 07.09.2026 können unvollständig sein (manuell gesetzte wurden damals überschrieben).'],
+            ['key' => 'standby', 'label' => 'Keine Reaktion',
              'on' => 'bg-amber-100 text-amber-900', 'total' => 'bg-amber-200 text-amber-900',
-             'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at) — zählt in der Belegung links NICHT mit.'],
+             'title' => 'Gebucht, aber keine Antwort auf die Erinnerungen — der Platz wurde wieder freigegeben (booked + seat_released_at) und zählt in der Belegung links NICHT mit.'],
             ['key' => 'ids', 'label' => 'Teilnehmer', 'gstart' => true,
              'on' => 'bg-sky-50 text-sky-900', 'total' => 'bg-sky-100 text-sky-950',
              'title' => 'Alle Bewerbungen mit kohorten-relevanter Buchung auf diesem Termin (Präzedenz-Kette Stufe 6), unabhängig vom Filiale-, Tätigkeits- und Status-Filter — die Herkunft steht in den Unterzeilen. Testbewerber sind immer ausgeschlossen. Bezugsgröße der anderen Spalten. NICHT dasselbe wie „Belegt“: das zählt Plätze, nicht Bewerbungen (ein Testbewerber belegt einen Platz und steht hier nicht).'],
@@ -118,18 +123,19 @@
             ['key' => 'offen_ids', 'label' => 'Noch offen', 'gstart' => true,
              'on' => 'bg-gray-100 text-gray-700', 'total' => 'bg-gray-200 text-gray-800',
              'onlyRunning' => true,
-             'title' => 'Weder unterschrieben noch „nicht erschienen“ (Teilnehmer − Unterschrieben − Nicht erschienen).'],
+             'title' => 'Weder unterschrieben noch abgeschlossen (Teilnehmer − Unterschrieben − Nicht erschienen − Vor Ort aussortiert).'],
         ],
     );
 
     $colGroups = [
         ['label' => 'Termin', 'span' => 3, 'title' => 'Wann, wo und für welche Ausschreibung.'],
-        // Belegung + Standby: beide beschreiben die Plätze dieses Termins. Die
-        // Zahlen stammen aus zwei Quellen (Belegung aus der Termin-Query, Standby
-        // aus der Kohorte) und werden deshalb nicht verrechnet — sie stehen
-        // nebeneinander, weil man sie zusammen liest.
-        ['label' => 'Belegung', 'span' => 2,
-         'title' => 'Plätze des Termins: belegt von allen platzbelegenden Buchungen (unabhängig von den Filtern dieser Seite), daneben die Standby-Buchungen, die keinen Platz mehr belegen.'],
+        ['label' => 'Belegung', 'span' => 1,
+         'title' => 'Plätze des Termins: belegt von allen platzbelegenden Buchungen, unabhängig von den Filtern dieser Seite.'],
+        // Reaktion: Bestätigt (confirmed_at-Stempel) + Keine Reaktion (Platz
+        // freigegeben). Zahlen aus der Kohorte, die Belegung daneben aus der
+        // Termin-Query — zwei Quellen, werden nicht verrechnet.
+        ['label' => 'Reaktion', 'span' => 2,
+         'title' => 'Wie die Gebuchten reagiert haben: bestätigt (bleibt stehen, auch wenn der Status später überschrieben wird) oder gar nicht (Platz wieder freigegeben).'],
         ['label' => 'Trichter', 'span' => 4 + count($phaseDefs),
          'title' => 'Der Weg durch den Prozess — jede Stufe ist eine Teilmenge der vorigen, die Farbe wird dabei dunkler. Die Phasen-Spalten kommen aus dem Phasensatz der gewählten Filiale.'],
         ['label' => 'Abzweige', 'span' => 2,
@@ -170,7 +176,7 @@
         'interviews' => $visibleInterviewIds,
     ]);
 
-    $belegungTitle = 'Einheit: BUCHUNGEN. Platzbelegende Buchungen des Termins nach zentraler Zählregel (Standby zählt nicht), gegen die Kapazität des Termins. Die Trichter-Spalten daneben zählen Bewerbungen — im Normalfall dieselbe Zahl, Abweichungen haben einen Grund (Testbewerber belegt einen Platz, Buchung mit unbekanntem Status). Die beiden Zahlen sind zwei Einheiten und werden nicht gegeneinander gerechnet.';
+    $belegungTitle = 'Einheit: BUCHUNGEN. Platzbelegende Buchungen des Termins nach zentraler Zählregel („Keine Reaktion“ zählt nicht), gegen die Kapazität des Termins. Die Trichter-Spalten daneben zählen Bewerbungen — im Normalfall dieselbe Zahl, Abweichungen haben einen Grund (Testbewerber belegt einen Platz, Buchung mit unbekanntem Status). Die beiden Zahlen sind zwei Einheiten und werden nicht gegeneinander gerechnet.';
 @endphp
 
 <x-ui-panel title="Schulungstermine" subtitle="Eine Zeile je Termin — Belegung, Trichter und Herkunft der Teilnehmer">

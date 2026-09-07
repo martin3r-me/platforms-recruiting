@@ -14,6 +14,14 @@ class RecInterviewBooking extends Model
 
     protected $table = 'rec_interview_bookings';
 
+    /**
+     * Explizit statt aus der Connection-Grammar geraten: das MySQL-Format ist
+     * ohnehin dieses, aber so laesst sich das Model auch OHNE Datenbank
+     * instanziieren (der confirmed_at-Stempel-Test liest den datetime-Cast,
+     * und getDateFormat() wuerde sonst eine Connection aufloesen).
+     */
+    protected $dateFormat = 'Y-m-d H:i:s';
+
     protected $fillable = [
         'uuid',
         'rec_interview_id',
@@ -27,6 +35,7 @@ class RecInterviewBooking extends Model
         'seat_released_at',
         'cancelled_by',
         'cancelled_at',
+        'confirmed_at',
         'created_by_user_id',
         'owned_by_user_id',
     ];
@@ -36,8 +45,33 @@ class RecInterviewBooking extends Model
         'reminder_sent_at' => 'datetime',
         'seat_released_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'confirmed_at' => 'datetime',
         'is_active' => 'boolean',
     ];
+
+    /**
+     * confirmed_at-Stempel: gesetzt beim Wechsel AUF 'confirmed', danach nie
+     * wieder angefasst — der Status wird nach der Schulung mit attended/no_show
+     * ueberschrieben, und genau an diesem Verlust ist die alte
+     * „Bestaetigt"-Statistikspalte gestorben (Befund 25.08.2026).
+     *
+     * Als MUTATOR statt saving-Hook: greift auch ohne Event-Dispatcher
+     * (Integration-Suite, unsetEventDispatcher) und deckt jeden Schreibweg ab
+     * (Reminder-"Ja", HR-Dropdown, MCP-Tool, Phasen-Hook), ohne dass einer
+     * davon angefasst wird. Query-Builder-Massenupdates umgeht er — die gibt es
+     * fuers Setzen von 'confirmed' nicht (einziger Bulk-Update-Pfad setzt
+     * 'cancelled', Applicant\Show::cancelBookings).
+     */
+    public function setStatusAttribute(?string $value): void
+    {
+        if ($value === 'confirmed'
+            && ($this->attributes['status'] ?? null) !== 'confirmed'
+            && empty($this->attributes['confirmed_at'])) {
+            $this->attributes['confirmed_at'] = \Illuminate\Support\Carbon::now()->format('Y-m-d H:i:s');
+        }
+
+        $this->attributes['status'] = $value;
+    }
 
     protected static function booted(): void
     {

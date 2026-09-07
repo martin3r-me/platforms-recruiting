@@ -21,9 +21,9 @@
 
     // Bezeichnung fuer die Loesch-Rueckfrage: Titel, sonst die Terminart, sonst
     // ein neutraler Platzhalter — ein Termin ohne Titel ist erlaubt, und
-    // „Termin ‚' wirklich loeschen?" waere die Rueckfrage, die nichts sagt.
+    // „Termin ‚' wirklich loeschen?“ waere die Rueckfrage, die nichts sagt.
     $loeschName = $interview->title ?: ($interview->interviewType->name ?? 'ohne Titel');
-    $loeschFrage = 'Termin „' . $loeschName . '" am ' . $interview->starts_at->format('d.m.Y')
+    $loeschFrage = 'Termin „' . $loeschName . '“ am ' . $interview->starts_at->format('d.m.Y')
         . ' wirklich löschen?';
 @endphp
 <tr class="hover:bg-gray-50">
@@ -55,7 +55,7 @@
             <span class="text-[var(--ui-muted)]">/ {{ $interview->max_participants }}</span>
         @endif
         @if($standbyCount > 0)
-            <span class="text-amber-600">(+{{ $standbyCount }} Standby)</span>
+            <span class="text-amber-600" title="Gebucht, aber keine Antwort auf die Erinnerungen — Platz wieder freigegeben">(+{{ $standbyCount }} Keine Reaktion)</span>
         @endif
         @if($nachzupflegen > 0)
             <div>

@@ -509,6 +509,8 @@ class Index extends Component
                 'interview_id' => $b->rec_interview_id,
                 'status' => $b->status,
                 'seat_released' => $b->seat_released_at !== null,
+                // Stempel statt Status: ueberlebt attended/no_show (siehe Model)
+                'confirmed' => $b->confirmed_at !== null,
                 'starts_at' => $b->interview?->starts_at?->toDateTimeString(),
                 // heute identisch mit false (kein withTrashed) — aber
                 // selbstkorrigierend, falls die Relation je geaendert wird

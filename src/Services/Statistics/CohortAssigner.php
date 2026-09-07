@@ -26,7 +26,7 @@ use Platform\Recruiting\Support\SeatStandbyPolicy;
  *     hr_desk_ids: list<int>,
  *     uneindeutig_ids: list<int>,  // Fall 2 der Zuordnungsregel (Spec §4): kein
  *                                  // Pivot passte zur Phase-Position, Fallback griff
- *     columns: array{kontaktiert:list<int>, gebucht:list<int>,
+ *     columns: array{kontaktiert:list<int>, gebucht:list<int>, bestaetigt:list<int>,
  *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>, aussortiert:list<int>,
  *                    vertrag_verschickt:list<int>, unterschrieben:list<int>,
  *                    phase_reached:array<int,list<int>>},
@@ -127,7 +127,7 @@ final class CohortAssigner
                     'ids' => [], 'hr_desk_ids' => [], 'uneindeutig_ids' => [], 'tth_days' => [],
                     'max_applied_at' => null,
                     'columns' => [
-                        'kontaktiert' => [], 'gebucht' => [],
+                        'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [], 'aussortiert' => [],
                         'vertrag_verschickt' => [], 'unterschrieben' => [],
                         'phase_reached' => [],
@@ -189,12 +189,14 @@ final class CohortAssigner
             if ($type === 'schulung' && $booking !== null) {
                 $rank = BookingStatusGroups::rank($booking['status']);
                 if ($rank >= 1) { $row['columns']['gebucht'][] = $a['id']; }
-                // Rang 2 („bestaetigt") hat keine Spalte mehr (27.08.2026): der
-                // Status wird nach der Schulung mit attended/no_show
-                // ueberschrieben, die Zahl las sich als „hat den Reminder
-                // bestaetigt" und enthielt Nicht-Erschienene ohne jede Reaktion.
-                // Wer das wirklich wissen will, braucht das Log
-                // (booking_confirmed_by_reply), nicht den Status.
+                // „Bestaetigt" haengt am confirmed_at-Stempel der Buchung, NICHT
+                // am Status-Rang: die alte Rang-2-Spalte zaehlte No-Shows ohne
+                // jede Reaktion mit und wurde deshalb entfernt (27.08.2026); der
+                // Stempel ueberlebt die Ueberschreibung nach der Schulung.
+                // Bewusst KEINE Trichter-Stufe (teilgenommen ist keine
+                // Teilmenge davon) — die View stellt die Spalte zur Gruppe
+                // „Reaktion" neben „Keine Reaktion".
+                if ($booking['confirmed'] ?? false) { $row['columns']['bestaetigt'][] = $a['id']; }
                 if ($rank >= 3) { $row['columns']['teilgenommen'][] = $a['id']; }
                 if ($booking['status'] === 'no_show') { $row['columns']['no_show'][] = $a['id']; }
                 if ($booking['status'] === 'rejected_on_site') { $row['columns']['aussortiert'][] = $a['id']; }

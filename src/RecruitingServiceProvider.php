@@ -28,6 +28,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\SyncPhases::class,
                 \Platform\Recruiting\Console\Commands\MarkLegacyApplicants::class,
                 \Platform\Recruiting\Console\Commands\SendInterviewReminders::class,
+                \Platform\Recruiting\Console\Commands\BackfillBookingConfirmations::class,
                 \Platform\Recruiting\Console\Commands\ReleaseStaleSeats::class,
                 \Platform\Recruiting\Console\Commands\RelinkOrphanedThreads::class,
                 \Platform\Recruiting\Console\Commands\RelinkWhatsAppThreads::class,

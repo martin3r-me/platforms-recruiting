@@ -89,9 +89,9 @@
         ],
         $phaseDefs,
         [
-            ['key' => 'standby', 'label' => 'Standby', 'gstart' => true,
+            ['key' => 'standby', 'label' => 'Keine Reaktion', 'gstart' => true,
              'on' => 'bg-amber-100 text-amber-900', 'total' => 'bg-amber-200 text-amber-900',
-             'title' => 'Buchung besteht, belegt aber keinen Platz mehr (booked + seat_released_at).'],
+             'title' => 'Gebucht, aber keine Antwort auf die Erinnerungen — der Platz wurde wieder freigegeben (booked + seat_released_at).'],
             ['key' => 'no_show', 'label' => 'Nicht erschienen',
              'on' => 'bg-red-100 text-red-900', 'total' => 'bg-red-200 text-red-900',
              'title' => 'Status no_show — gebucht, aber nicht erschienen. Gilt als abgeschlossen.'],
