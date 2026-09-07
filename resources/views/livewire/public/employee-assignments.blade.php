@@ -225,11 +225,13 @@
                     if ($head !== '') {
                         $beaconLbl .= '<b>' . $head . '</b>';
                     }
+                    // KEIN <br> nach der Kopfzeile: das <b> ist display:block und
+                    // bricht selbst um — br obendrauf ergab eine ganze Leerzeile.
                     if ($vorlaufSatz !== '') {
-                        $beaconLbl .= ($beaconLbl !== '' ? '<br>' : '') . e($vorlaufSatz);
+                        $beaconLbl .= e($vorlaufSatz);
                     }
                     if ($dayCount > 1) {
-                        $beaconLbl .= '<br><span class="sub">Die weiteren Tage haben eigene Zeiten — siehe unten.</span>';
+                        $beaconLbl .= ($vorlaufSatz !== '' ? '<br>' : '') . '<span class="sub">Die weiteren Tage haben eigene Zeiten — siehe unten.</span>';
                     }
                 }
             @endphp
