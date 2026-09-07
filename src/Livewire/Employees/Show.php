@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Services\ReissueContractService;
+use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 
 /**
@@ -84,6 +85,61 @@ class Show extends Component
         'erstbescheinigung_file_id'           => 'uploadErstbescheinigung',
         'first_aider_certificate_file_id'     => 'uploadFirstAiderCertificate',
     ];
+
+    // ---- CRM-Zuordnung (Kunde 07.09.): fehlt der Kontakt-Link, bietet die Akte
+    // den Zuordnen-Dialog an — Kandidaten + Empfehlung liefert der Linker,
+    // geschrieben wird ueber dessen execute() (gleiche Regeln wie der Automat).
+    public bool $showContactAssignModal = false;
+
+    #[Computed]
+    public function crmLinkMissing(): bool
+    {
+        return $this->employee !== null && !$this->employee->crmContactLinks()->exists();
+    }
+
+    #[Computed]
+    public function contactCandidates(): array
+    {
+        if (!$this->showContactAssignModal || $this->employee === null) {
+            return [];
+        }
+
+        return app(ZasEmployeeContactLinker::class)->candidates($this->employee);
+    }
+
+    public function assignContact(int $contactId): void
+    {
+        $emp = $this->employee;
+        if ($emp === null || !$this->crmLinkMissing) {
+            return;
+        }
+        // Riegel: nur Kontakte aus der eigenen Kandidatenliste — kein freies Verknuepfen per id.
+        if (!collect(app(ZasEmployeeContactLinker::class)->candidates($emp))->contains('id', $contactId)) {
+            return;
+        }
+
+        app(ZasEmployeeContactLinker::class)->execute($emp, ['action' => 'link', 'contact_id' => $contactId], auth()->id());
+        $this->showContactAssignModal = false;
+        unset($this->employee, $this->crmLinkMissing, $this->contactCandidates);
+    }
+
+    public function createContactForEmployee(): void
+    {
+        $emp = $this->employee;
+        if ($emp === null || !$this->crmLinkMissing) {
+            return;
+        }
+        $email = mb_strtolower(trim((string) $emp->email));
+        $phone = trim((string) $emp->phone);
+
+        app(ZasEmployeeContactLinker::class)->execute($emp, [
+            'action' => 'create',
+            'email'  => $email !== '' ? $email : null,
+            'phone'  => $phone !== '' ? $phone : null,
+        ], auth()->id());
+        $this->showContactAssignModal = false;
+        unset($this->employee, $this->crmLinkMissing, $this->contactCandidates);
+    }
 
     public function mount(int $employee): void
     {

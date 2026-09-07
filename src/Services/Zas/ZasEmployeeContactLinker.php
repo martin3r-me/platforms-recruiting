@@ -101,6 +101,47 @@ class ZasEmployeeContactLinker
     }
 
     /** Aktive Kontakte des Teams mit exakt dieser E-Mail (LOWER — CRM speichert gemischt). */
+    /**
+     * Kandidaten fuer die MANUELLE Zuordnung (MA-Akte, "CRM-Zuordnung offen",
+     * Kunde 07.09.): alle E-Mail-/Telefon-Treffer mit Kontext — Chats,
+     * Verknuepfungen, Adressdaten. Empfehlung: Kontakt mit Chat-Historie
+     * zuerst (Dubletten-Muster vom 24.04.: der aeltere Kontakt traegt die
+     * Chats, die spaetere Dublette nur einen Link). Nur lesend — geschrieben
+     * wird ausschliesslich ueber execute().
+     *
+     * @return list<array{id:int, name:string, emails:list<string>, phones:list<string>, threads:int, links:int, created:?string, recommended:bool}>
+     */
+    public function candidates(RecEmployee $employee): array
+    {
+        $email  = mb_strtolower(trim((string) $employee->email));
+        $needle = $this->normalizedPhoneDigits(trim((string) $employee->phone));
+
+        $found = collect();
+        if ($email !== '') {
+            $found = $found->merge($this->emailCandidates($employee, $email));
+        }
+        if ($needle !== null) {
+            $found = $found->merge($this->phoneCandidates($employee, $needle));
+        }
+
+        $rows = $found->unique('id')->values()->map(fn (CrmContact $c) => [
+            'id'      => (int) $c->id,
+            'name'    => trim(($c->first_name ?? '') . ' ' . ($c->last_name ?? '')),
+            'emails'  => $c->emailAddresses()->where('is_active', true)->pluck('email_address')->values()->all(),
+            'phones'  => $c->phoneNumbers()->where('is_active', true)->pluck('international')->filter()->values()->all(),
+            'threads' => (int) \Platform\Crm\Models\CommsWhatsAppThread::query()->where('contact_id', $c->id)->count(),
+            'links'   => (int) CrmContactLink::query()->where('contact_id', $c->id)->count(),
+            'created' => $c->created_at?->format('d.m.Y'),
+        ])
+        // Chat-Historie zuerst, dann der aelteste (kleinste id).
+        ->sortBy(fn (array $r) => sprintf('%05d-%010d', 99999 - $r['threads'], $r['id']))
+        ->values();
+
+        return $rows->map(fn (array $r, int $i) => $r + [
+            'recommended' => $i === 0 && ($r['threads'] > 0 || $rows->count() === 1),
+        ])->all();
+    }
+
     protected function emailCandidates(RecEmployee $employee, string $email): Collection
     {
         return CrmContact::where('team_id', $employee->team_id)

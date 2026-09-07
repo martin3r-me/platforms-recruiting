@@ -255,6 +255,27 @@ class ZasEmployeeContactLinkerTest extends TestCase
 
     // ---- Schema ---------------------------------------------------------
 
+    public function test_candidates_lists_all_matches_and_recommends_the_one_with_chats(): void
+    {
+        $employee = $this->employee('Achraf', 'Bousallim', 'achraf.bousallim@gmail.com', null, 'RG-CAND');
+        $mitChat = $this->contact('Achraf', 'Bousallim', 'achraf.bousallim@gmail.com');
+        $dublette = $this->contact('Achraf', 'Bousallim', 'achraf.bousallim@gmail.com');
+        Capsule::table('comms_whatsapp_threads')->insert([
+            'team_id' => self::TEAM, 'token' => 'tok-cand', 'comms_channel_id' => 1,
+            'remote_phone_number' => '+491700000001', 'is_unread' => false,
+            'contact_id' => $mitChat, 'contact_type' => (new CrmContact())->getMorphClass(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $cands = (new ZasEmployeeContactLinker())->candidates($employee);
+
+        $this->assertCount(2, $cands);
+        $this->assertSame($mitChat, $cands[0]['id'], 'Kontakt mit Chat-Historie zuerst.');
+        $this->assertTrue($cands[0]['recommended']);
+        $this->assertFalse($cands[1]['recommended']);
+        $this->assertSame(1, $cands[0]['threads']);
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);
@@ -267,6 +288,7 @@ class ZasEmployeeContactLinkerTest extends TestCase
             [$crm, 'database/migrations/2024_01_01_000015_create_crm_email_addresses_table.php'],
             [$crm, 'database/migrations/2024_01_01_000016_create_crm_contacts_table.php'],
             [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
+            [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

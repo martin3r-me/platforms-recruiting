@@ -26,6 +26,49 @@
                 Mitarbeiter nicht gefunden.
             </div>
         @else
+            @if ($this->crmLinkMissing)
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <div><b>CRM-Zuordnung offen</b> — ohne verknüpften Kontakt erscheint dieser Mitarbeiter in der Kommunikation nur mit Telefonnummer und wird bei zwei Personalnummern nicht als eine Person erkannt.</div>
+                    <button type="button" wire:click="$set('showContactAssignModal', true)" class="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700">Kontakt zuordnen</button>
+                </div>
+            @endif
+
+            @if ($showContactAssignModal)
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showContactAssignModal', false)">
+                    <div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 space-y-4">
+                        <h2 class="text-lg font-semibold">CRM-Kontakt zuordnen</h2>
+                        <p class="text-sm text-gray-500">Kandidaten mit gleicher E-Mail oder Telefonnummer. Empfehlung: der Kontakt mit der Chat-Historie — Dubletten aus früheren Läufen tragen meist nur eine Verknüpfung, aber keine Chats.</p>
+
+                        @forelse ($this->contactCandidates as $cand)
+                            <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border {{ $cand['recommended'] ? 'border-green-300 bg-green-50/40' : 'border-gray-200' }} p-3">
+                                <div class="min-w-0 text-sm">
+                                    <div class="font-semibold text-gray-900">{{ $cand['name'] !== '' ? $cand['name'] : ('Kontakt #' . $cand['id']) }}
+                                        <span class="ml-1 text-xs font-normal text-gray-400">#{{ $cand['id'] }} · angelegt {{ $cand['created'] ?? '—' }}</span>
+                                        @if ($cand['recommended'])
+                                            <span class="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-green-800">Empfehlung</span>
+                                        @endif
+                                    </div>
+                                    <div class="mt-0.5 text-xs text-gray-500">{{ implode(' · ', array_merge($cand['emails'], $cand['phones'])) ?: 'keine Kontaktdaten' }}</div>
+                                    <div class="mt-0.5 text-xs text-gray-500"><b>{{ $cand['threads'] }}</b> Chat(s) · {{ $cand['links'] }} Verknüpfung(en)</div>
+                                </div>
+                                <button type="button" wire:click="assignContact({{ $cand['id'] }})"
+                                        wire:confirm="Diesen Kontakt mit dem Mitarbeiter verknüpfen?"
+                                        class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">verknüpfen</button>
+                            </div>
+                        @empty
+                            <div class="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">Keine Kandidaten gefunden — es gibt keinen Kontakt mit dieser E-Mail oder Nummer. Lege einen neuen an.</div>
+                        @endforelse
+
+                        <div class="flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
+                            <button type="button" wire:click="createContactForEmployee"
+                                    wire:confirm="Neuen Kontakt anlegen? Nur wenn keiner der Kandidaten diese Person ist — sonst entsteht eine weitere Dublette."
+                                    class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">Neuen Kontakt anlegen</button>
+                            <button type="button" wire:click="$set('showContactAssignModal', false)" class="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">Schließen</button>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             {{-- Quick-Info-Bar --}}
             <div class="bg-emerald-50/40 border border-emerald-200 rounded-lg p-3 flex flex-wrap items-center gap-4 text-xs text-[var(--ui-secondary)]">
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
