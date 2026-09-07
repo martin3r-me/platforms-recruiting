@@ -418,6 +418,18 @@
                                             @else
                                                 <span class="text-xs text-[var(--ui-muted)]">—</span>
                                             @endif
+                                            {{-- Schulungsleiter-Markierung (Kundenwunsch 01.09.2026):
+                                                 Gehaltswunsch, Nachfrage & Co. — legt einen HR-Fall mit
+                                                 Notiz an und blockt den Versand, bis HR ihn schliesst.
+                                                 Nicht angeboten, wenn die Person ohnehin schon bei HR
+                                                 liegt oder die Vertraege raus sind. --}}
+                                            @if($applicant && !$hasSent && !$hasOpenNonEuCase)
+                                                <div class="mt-1.5">
+                                                    <x-ui-button variant="secondary-outline" size="xs" wire:click="openClarifyModal({{ $booking->id }})">
+                                                        Klärung an HR
+                                                    </x-ui-button>
+                                                </div>
+                                            @endif
                                         </td>
                                         <td class="px-4 py-3">
                                             @php
@@ -559,6 +571,48 @@
     </x-slot>
 
     {{-- Buchungs-Modal --}}
+    {{-- Klaerung an HR: Pflicht-Notiz, daraus wird der HR-Schreibtisch-Fall --}}
+    <x-ui-modal wire:model="showClarifyModal">
+        <x-slot name="header">Klärung an HR</x-slot>
+        @php
+            $clarifyBooking = $clarifyBookingId ? $this->bookings->firstWhere('id', $clarifyBookingId) : null;
+            $clarifyName = \Platform\Recruiting\Support\ApplicantContactName::display(
+                $this->contactCandidatesFor($clarifyBooking?->applicant),
+            );
+        @endphp
+        <div class="space-y-3">
+            <p class="text-sm text-[var(--ui-secondary)]">
+                {{ $clarifyName ?: 'Diese Person' }} wird auf den HR-Schreibtisch gelegt
+                („Klärung aus der Schulung“). Solange der Fall offen ist, gehen keine Verträge raus.
+            </p>
+            <x-ui-input-textarea name="clarifyNotes" label="Was soll HR klären? *" wire:model="clarifyNotes" rows="3" />
+            @error('clarifyNotes') <div class="text-xs text-red-600">{{ $message }}</div> @enderror
+        </div>
+        <x-slot name="footer">
+            <x-ui-button variant="secondary" wire:click="$set('showClarifyModal', false)">Abbrechen</x-ui-button>
+            <x-ui-button variant="primary" wire:click="submitClarification">An HR übergeben</x-ui-button>
+        </x-slot>
+    </x-ui-modal>
+
+    {{-- Storno-Bremse: nach Terminende nur mit Begruendung (BookingAftercare) --}}
+    <x-ui-modal wire:model="showLateCancelModal">
+        <x-slot name="header">Stornieren nach Terminende</x-slot>
+        <div class="space-y-3">
+            <p class="text-sm text-[var(--ui-secondary)]">
+                Der Termin ist vorbei. War die Person nicht da, ist
+                <strong>„Nicht erschienen“</strong> oder <strong>„Vor Ort aussortiert“</strong> der richtige Status —
+                ein Storno gibt den Platz frei und nimmt sie aus der Statistik des Termins.
+                Stornieren ist hier für Testbuchungen und Fehlbuchungen gedacht.
+            </p>
+            <x-ui-input-textarea name="lateCancelReason" label="Begründung *" wire:model="lateCancelReason" rows="2" />
+            @error('lateCancelReason') <div class="text-xs text-red-600">{{ $message }}</div> @enderror
+        </div>
+        <x-slot name="footer">
+            <x-ui-button variant="secondary" wire:click="$set('showLateCancelModal', false)">Abbrechen</x-ui-button>
+            <x-ui-button variant="danger" wire:click="submitLateCancel">Trotzdem stornieren</x-ui-button>
+        </x-slot>
+    </x-ui-modal>
+
     <x-ui-modal wire:model="showBookModal">
         <x-slot name="header">Kandidat buchen</x-slot>
         <div class="space-y-4">

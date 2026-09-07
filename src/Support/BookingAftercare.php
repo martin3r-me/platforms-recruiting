@@ -28,4 +28,17 @@ final class BookingAftercare
     {
         return !in_array($status, self::FINAL_STATUSES, true);
     }
+
+    /**
+     * Storno-Bremse (01.09.2026): nach Terminende ist „Abgesagt" fast immer
+     * die falsche Pflege fuer „war nicht da" (MGL-Befund: null No-Shows, alles
+     * storniert — die Standorte waren nicht vergleichbar). Vor dem Termin
+     * bleibt Storno der normale Weg (Absage, Umbuchung); danach geht er nur
+     * noch ueber die bewusste Aktion mit Pflicht-Begruendung
+     * (Testbuchung, Fehlbuchung).
+     */
+    public static function allowsPlainCancellation(bool $interviewOver): bool
+    {
+        return !$interviewOver;
+    }
 }

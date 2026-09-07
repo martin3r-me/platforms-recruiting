@@ -38,12 +38,31 @@ class RecHrDeskCase extends Model
     public const REASON_APPLICANT_CANCELLED_TRAINING = 'applicant_cancelled_training';
     public const REASON_MINOR = 'minor';
 
+    // Schulungsleiter markiert eine Buchung „zur Klaerung an HR" (Gehaltswunsch,
+    // Nachfrage, fehlendes Dokument ausserhalb der Non-EU-Pruefung) — angelegt
+    // aus der Anwesenheitspflege (InterviewBookings\Index::submitClarification).
+    public const REASON_TRAINING_CLARIFICATION = 'training_clarification';
+
     /** Map reason-codes auf sprechende deutsche Labels für UI-Anzeige. */
+    /**
+     * Offene Faelle dieser Reasons blockieren den VERTRAGSVERSAND aus der
+     * Nachbereitung (Einzel- und Bulk-Pfad, InterviewBookings\Index): alles
+     * Pflicht-Pruefungen bzw. ausdrueckliche „erst HR"-Markierungen. Die
+     * uebrigen Reasons (Absage, Deutschkenntnisse) blocken dort nicht — bei
+     * ihnen ist der Versand gar nicht das Thema.
+     */
+    public const CONTRACT_BLOCKING_REASONS = [
+        self::REASON_NON_EU_CITIZEN,
+        self::REASON_MINOR,
+        self::REASON_TRAINING_CLARIFICATION,
+    ];
+
     public const REASON_LABELS = [
         self::REASON_NON_EU_CITIZEN => 'Nicht-EU-Bürger',
         self::REASON_NO_GERMAN_KNOWLEDGE => 'Keine grundlegenden Deutschkenntnisse',
         self::REASON_APPLICANT_CANCELLED_TRAINING => 'Schulung vom Bewerber abgesagt',
         self::REASON_MINOR => 'Minderjährig (unter 18)',
+        self::REASON_TRAINING_CLARIFICATION => 'Klärung aus der Schulung',
     ];
 
     public function reasonLabel(): string

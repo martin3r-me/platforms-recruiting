@@ -223,11 +223,15 @@ class Index extends Component
             return [];
         }
 
-        // Offene Non-EU- UND Jugendschutz-Fälle blocken den Vertragsversand
-        // aus der Nachbereitung gleichermaßen — beides sind Pflicht-Prüfungen.
+        // Welche offenen Faelle blocken, sagt EINE Liste am Model
+        // (CONTRACT_BLOCKING_REASONS): Non-EU, Jugendschutz und seit 07.09.2026
+        // die Klaerung aus der Schulung. Der Name dieser Computed ist damit
+        // historisch zu eng — er bleibt, weil Blade und fuenf Cache-Busts an
+        // ihm haengen; der Badge-Text der View sagt neutral „Liegt beim
+        // HR-Schreibtisch".
         return RecHrDeskCase::query()
             ->open()
-            ->whereIn('reason', [RecHrDeskCase::REASON_NON_EU_CITIZEN, RecHrDeskCase::REASON_MINOR])
+            ->whereIn('reason', RecHrDeskCase::CONTRACT_BLOCKING_REASONS)
             ->whereIn('rec_applicant_id', $ids)
             ->pluck('rec_applicant_id')
             ->flip()
@@ -352,6 +356,85 @@ class Index extends Component
         $booking->update(['notes' => $notes ?: null]);
     }
 
+    /** Klaerung an HR: Modal-Zustand (Buchung + Pflicht-Notiz). */
+    public bool $showClarifyModal = false;
+    public ?int $clarifyBookingId = null;
+    public string $clarifyNotes = '';
+
+    /** Storno nach Terminende: Modal-Zustand (Buchung + Pflicht-Begruendung). */
+    public bool $showLateCancelModal = false;
+    public ?int $lateCancelBookingId = null;
+    public string $lateCancelReason = '';
+
+    public function openClarifyModal(int $bookingId): void
+    {
+        $this->clarifyBookingId = $bookingId;
+        $this->clarifyNotes = '';
+        $this->showClarifyModal = true;
+    }
+
+    /**
+     * Schulungsleiter-Markierung (Kundenwunsch 01.09.2026): legt einen
+     * HR-Schreibtisch-Fall „Klaerung aus der Schulung" mit der Notiz an.
+     * Solange er offen ist, blockt er den Vertragsversand fuer diese Person
+     * (CONTRACT_BLOCKING_REASONS) — genau der Zweck der Markierung.
+     */
+    public function submitClarification(): void
+    {
+        $this->validate(
+            ['clarifyNotes' => 'required|string|min:3'],
+            ['clarifyNotes.required' => 'Bitte kurz notieren, was HR klären soll.',
+             'clarifyNotes.min' => 'Bitte kurz notieren, was HR klären soll.'],
+        );
+
+        $booking = RecInterviewBooking::with('applicant')->findOrFail((int) $this->clarifyBookingId);
+        if (!$booking->applicant) {
+            return;
+        }
+
+        // Idempotent: ein zweiter Haken auf dieselbe Person legt keinen
+        // Doppel-Fall an (routeIfNotAlreadyOpen prueft reason + open).
+        app(\Platform\Recruiting\Services\HrDeskRoutingService::class)->routeIfNotAlreadyOpen(
+            $booking->applicant,
+            RecHrDeskCase::REASON_TRAINING_CLARIFICATION,
+            auth()->id(),
+            $this->clarifyNotes,
+        );
+
+        $this->showClarifyModal = false;
+        $this->clarifyBookingId = null;
+        $this->clarifyNotes = '';
+        unset($this->bookings, $this->openNonEuCaseApplicantIds);
+        session()->flash('message', 'Zur Klärung an den HR-Schreibtisch übergeben.');
+    }
+
+    /**
+     * Storno nach Terminende — nur mit Begruendung (BookingAftercare):
+     * updateStatus oeffnet stattdessen dieses Modal. Fuer „war nicht da"
+     * sind „Nicht erschienen"/„Vor Ort aussortiert" die richtigen Status;
+     * dieser Weg ist fuer Testbuchungen und Fehlbuchungen da.
+     */
+    public function submitLateCancel(): void
+    {
+        $this->validate(
+            ['lateCancelReason' => 'required|string|min:3'],
+            ['lateCancelReason.required' => 'Bitte begründen — für Nichterscheinen bitte den passenden Status wählen.',
+             'lateCancelReason.min' => 'Bitte begründen — für Nichterscheinen bitte den passenden Status wählen.'],
+        );
+
+        $booking = RecInterviewBooking::findOrFail((int) $this->lateCancelBookingId);
+        $updates = ['status' => 'cancelled']
+            + \Platform\Recruiting\Support\BookingCancellationMeta::updatesFor($booking->status, 'cancelled', (string) now());
+        $updates['notes'] = trim(($booking->notes ? $booking->notes . "\n" : '')
+            . 'Storniert nach Terminende: ' . $this->lateCancelReason);
+        $booking->update($updates);
+
+        $this->showLateCancelModal = false;
+        $this->lateCancelBookingId = null;
+        $this->lateCancelReason = '';
+        unset($this->bookings, $this->openNonEuCaseApplicantIds);
+    }
+
     public function updateStatus(int $bookingId, string $status): void
     {
         $validStatuses = ['booked', 'registered', 'confirmed', 'attended', 'cancelled', 'no_show', 'rejected_on_site'];
@@ -360,6 +443,19 @@ class Index extends Component
         }
 
         $booking = RecInterviewBooking::findOrFail($bookingId);
+
+        // Storno-Bremse: nach Terminende kein beilaeufiges „Abgesagt" mehr —
+        // stattdessen oeffnet sich das Begruendungs-Modal (siehe
+        // submitLateCancel). Der Wechsel WEG von cancelled bleibt frei.
+        $terminVorbei = ($this->interview->ends_at ?? $this->interview->starts_at)?->isPast() ?? false;
+        if ($status === 'cancelled' && $booking->status !== 'cancelled'
+            && !\Platform\Recruiting\Support\BookingAftercare::allowsPlainCancellation($terminVorbei)) {
+            $this->lateCancelBookingId = $bookingId;
+            $this->lateCancelReason = '';
+            $this->showLateCancelModal = true;
+
+            return;
+        }
 
         // Storno-Metadaten (cancelled_by='hr', damit der HR-Schreibtisch
         // zwischen "Bewerber hat selbst abgesagt" und "HR hat abgesagt"
