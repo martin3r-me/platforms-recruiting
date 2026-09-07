@@ -103,6 +103,9 @@
                                 @endif
                                 <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
                                     <span class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $wc['class'] }}"><span class="h-1.5 w-1.5 rounded-full {{ $wc['dot'] }}"></span>{{ $wc['text'] }}</span>
+                                    @if (!empty($thread['stale']))
+                                        <span class="rounded bg-gray-200 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600">alte Nummer</span>
+                                    @endif
                                     @if ($thread['employee_id'] === null)
                                         @if ($thread['shared_count'] > 1)
                                             <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-700">Nummer von {{ $thread['shared_count'] }} MA genutzt</span>
@@ -176,6 +179,9 @@
                                 @if (!$info['matched'])
                                     <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700">kein MA zugeordnet</span>
                                 @endif
+                                @if (!empty($info['stale_number']))
+                                    <span class="rounded bg-red-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-red-700" title="Die Akte traegt inzwischen eine andere Nummer — Senden ist hier gesperrt.">alte Nummer — Senden gesperrt</span>
+                                @endif
                                 @if ($info['portal_url'])
                                     <a href="{{ $info['portal_url'] }}" target="_blank" rel="noopener"
                                        title="Persönlicher Link des Mitarbeiters — nicht weitergeben."
@@ -237,7 +243,9 @@
                             </span>
                             <button type="button" wire:click="toggleUnread({{ $selectedThreadId }})" class="ml-auto text-xs text-gray-400 hover:text-gray-600 sm:hidden">als {{ $info['is_unread'] ? 'gelesen' : 'ungelesen' }} markieren</button>
                         </div>
-                        @if ($window['state'] === 'open')
+                        @if (!empty($info['stale_number']))
+                            <div class="rounded-xl bg-red-50 px-3 py-2.5 text-[13px] text-red-700">⚠ Dieses Gespräch läuft auf einer alten Nummer — die Akte hat inzwischen eine andere. Nur-Lesen; der aktuelle Chat der Person ist über die Suche bzw. die Veranstaltung erreichbar.</div>
+                        @elseif ($window['state'] === 'open')
                             {{-- Vorlagen auch bei offenem Fenster (Kunde 02.09.) — z. B. fuer die Standardfragen. --}}
                             @if ($info['matched'])
                                 <div class="mb-2 flex flex-wrap gap-2">

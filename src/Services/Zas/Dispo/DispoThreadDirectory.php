@@ -125,7 +125,12 @@ class DispoThreadDirectory
             ->get(['id', 'remote_phone_number', 'contact_id', 'contact_type', 'is_unread', 'last_inbound_at', 'last_outbound_at', 'updated_at']);
 
         $result = [];   // kanonische id => row
-        $viaContact = []; // kanonische id => true, wenn ueber Kontakt gefunden (schlaegt Telefon)
+        // Rangfolge (Vorfall Vesa 04./07.09.): ein Telefon-Treffer bedeutet
+        // "Thread zur AKTUELLEN Akten-Nummer" und schlaegt den Kontakt-Treffer —
+        // der Kontakt haengt sonst am alten Gespraech einer inzwischen
+        // korrigierten Nummer, und Chat-Aktionen senden an die falsche Person.
+        // Innerhalb derselben Stufe gewinnt der neueste Thread (Sortierung).
+        $tier = []; // kanonische id => 2 (Telefon/aktuelle Nummer) | 1 (Kontakt)
         foreach ($rows as $t) {
             $cid = null;
             $byContact = false;
@@ -141,8 +146,9 @@ class DispoThreadDirectory
             if ($cid === null || !isset($wanted[$cid])) {
                 continue;
             }
-            if (isset($result[$cid]) && ($viaContact[$cid] || !$byContact)) {
-                continue; // aelter (Sortierung) oder schwaecher (Telefon nach Kontakt)
+            $newTier = $byContact ? 1 : 2;
+            if (isset($result[$cid]) && $tier[$cid] >= $newTier) {
+                continue; // aelter (Sortierung) oder schwaechere Stufe
             }
             $lastAt = $t->last_inbound_at ?? $t->last_outbound_at;
             $result[$cid] = [
@@ -151,7 +157,7 @@ class DispoThreadDirectory
                 'last_inbound_at' => $t->last_inbound_at?->format('Y-m-d H:i:s'),
                 'last_at'         => $lastAt?->format('Y-m-d H:i:s'),
             ];
-            $viaContact[$cid] = $byContact;
+            $tier[$cid] = $newTier;
         }
 
         return ['threads' => $result, 'canon' => $canon];
@@ -165,6 +171,35 @@ class DispoThreadDirectory
      * @param list<int> $eventIds
      * @return array<int,int> event_id => Anzahl
      */
+    /**
+     * Passt die Thread-Nummer zu einer der (aktuellen) Akten-Nummern?
+     * Vergleich ueber die letzten 9 Ziffern, formatunabhaengig. Grundlage der
+     * "alte Nummer"-Kennzeichnung und der Sende-Sperre in den Chat-Fenstern.
+     *
+     * @param list<?string> $phones
+     */
+    public static function matchesAnyPhone(?string $remote, array $phones): bool
+    {
+        $suffix = self::digitSuffix((string) $remote);
+        if ($suffix === '') {
+            return false;
+        }
+        foreach ($phones as $phone) {
+            if ($phone !== null && $phone !== '' && self::digitSuffix((string) $phone) === $suffix) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function digitSuffix(string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', $value) ?? '';
+
+        return substr($digits, -9);
+    }
+
     public function unreadByEvent(array $channelIds, array $eventIds, string $today): array
     {
         if ($channelIds === [] || $eventIds === []) {

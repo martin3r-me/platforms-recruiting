@@ -892,8 +892,15 @@ class Show extends Component
         $teamId = (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
         $labels = DispoTemplateLabels::forTeam($teamId);
 
+        // "Alte Nummer"-Erkennung (Vorfall Vesa): Thread-Nummer passt zu keiner
+        // aktuellen Akten-Nummer der Gruppe -> Banner + Sende-Sperre im Panel.
+        $groupPhones = array_values(array_filter(array_map(fn ($gid) => $contacts[$gid]['phone'] ?? null, $groupIds)));
+        $staleNumber = $groupPhones !== []
+            && !DispoThreadDirectory::matchesAnyPhone((string) $thread->remote_phone_number, $groupPhones);
+
         return [
             'name'       => $name,
+            'stale_number' => $staleNumber,
             'phone'      => (string) $thread->remote_phone_number,
             'pnrs'       => $pnrs,
             'portal_url' => $token !== '' ? route('recruiting.public.employee-assignments', ['token' => $token]) : null,
@@ -1332,6 +1339,10 @@ class Show extends Component
             return;
         }
 
+        if (!empty($this->chat['stale_number'])) {
+            $this->chatError = 'Dieses Gespräch läuft auf einer Nummer, die nicht mehr in der Akte steht — Senden gesperrt.';
+            return;
+        }
         $groupIds = $this->identity['byCanon'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
         $firstName = '';
         foreach (app(DispoEmployeeGateway::class)->contacts($groupIds) as $contact) {
@@ -1355,6 +1366,10 @@ class Show extends Component
         $thread = $this->chatThread;
         if ($thread === null) {
             $this->chatError = 'Kein Thread verfügbar.';
+            return;
+        }
+        if (!empty($this->chat['stale_number'])) {
+            $this->chatError = 'Dieses Gespräch läuft auf einer Nummer, die nicht mehr in der Akte steht — Senden gesperrt.';
             return;
         }
         $r = app(DispoReplySender::class)->send($thread, $this->chatReply, auth()->user());

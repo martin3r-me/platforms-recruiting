@@ -877,13 +877,18 @@
                         <button type="button" wire:click="markChatUnread" class="rounded px-2 py-1 text-blue-700 hover:bg-blue-50" title="Chat schließen und wieder blau markieren — z. B. um später zu antworten">als ungelesen schließen</button>
                     </span>
                 </div>
+                @if (!empty($chat['stale_number']))
+                    <div class="border-b border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700">⚠ Dieses Gespräch läuft auf einer alten Nummer ({{ $chat['phone'] }}) — die Akte hat inzwischen eine andere. Nur-Lesen; der aktuelle Chat öffnet sich beim nächsten Öffnen der Person.</div>
+                @endif
                 <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-4"
                      wire:key="chatmsgs-{{ $chatEmployeeId }}-{{ count($chat['messages']) }}-{{ $chatFilter }}"
                      x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
                     @include('recruiting::livewire.dispo._messages', ['messages' => $chat['messages'], 'portalUrl' => $eventOnly ? null : $chat['portal_url']])
                 </div>
                 <div class="border-t border-gray-200 bg-white p-3">
-                    @if ($w['state'] === 'open')
+                    @if (!empty($chat['stale_number']))
+                        <div class="rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">Senden gesperrt — alte Nummer. Bitte die Person neu öffnen, um den aktuellen Chat zu nutzen.</div>
+                    @elseif ($w['state'] === 'open')
                         {{-- Vorlagen auch bei offenem Fenster (Kunde 02.09.). --}}
                         <div class="mb-2 flex flex-wrap gap-2">
                             @foreach ($this->chatTemplates as $tpl)

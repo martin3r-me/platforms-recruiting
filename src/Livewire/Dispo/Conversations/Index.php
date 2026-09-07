@@ -314,8 +314,17 @@ class Index extends Component
         $sharedPhones = $this->sharedPhones;
         $search = mb_strtolower(trim($this->search));
 
-        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones) {
+        $phoneDir = $this->phoneDirectory();
+        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir) {
             $employeeId = $this->resolveEmployee($t);
+            // "alte Nummer"-Etikett: Person zugeordnet, aber Thread-Nummer passt
+            // zu keiner aktuellen Akten-Nummer der Gruppe (Vorfall Vesa).
+            $stale = false;
+            if ($employeeId !== null) {
+                $gids = $this->identity['groups'][$employeeId] ?? [$employeeId];
+                $gphones = array_values(array_filter(array_map(fn ($g) => $phoneDir[$g] ?? null, $gids)));
+                $stale = $gphones !== [] && !DispoThreadDirectory::matchesAnyPhone((string) $t->remote_phone_number, $gphones);
+            }
             $filialNr = $map[(int) $t->comms_channel_id] ?? null;
             $name = $employeeId !== null ? ($names[$employeeId] ?? null) : null;
             $label = $name ?? (string) $t->remote_phone_number;
@@ -332,6 +341,7 @@ class Index extends Component
                 'employee_id' => $employeeId,
                 'pnrs'        => $employeeId !== null ? ($pnrsByEmployee[$employeeId] ?? []) : [],
                 'shared_count' => $sharedCount, // >=2: Nummer wird von mehreren Personen genutzt (echte Mehrdeutigkeit)
+                'stale'       => $stale,
                 'preview'     => $this->humanPreview((string) ($t->last_message_preview ?? '')),
                 'preview_is_template' => str_starts_with((string) ($t->last_message_preview ?? ''), 'Template:'),
                 'is_unread'   => (bool) $t->is_unread,
@@ -440,8 +450,14 @@ class Index extends Component
         $token = $employeeId !== null ? (string) ($groupContacts[$employeeId]['portal_token'] ?? '') : '';
         $filialNr = $this->channelFilialeMap()[(int) $thread->comms_channel_id] ?? null;
 
+        // "Alte Nummer": Thread passt zu keiner aktuellen Akten-Nummer der Gruppe.
+        $groupPhones = collect($groupIds)->map(fn ($gid) => $groupContacts[$gid]['phone'] ?? null)->filter()->values()->all();
+        $staleNumber = $employeeId !== null && $groupPhones !== []
+            && !DispoThreadDirectory::matchesAnyPhone((string) $thread->remote_phone_number, $groupPhones);
+
         return [
             'label'    => $name ?? (string) $thread->remote_phone_number,
+            'stale_number' => $staleNumber,
             'phone'    => (string) $thread->remote_phone_number,
             'initials' => self::initials($name),
             'matched'  => $employeeId !== null,
@@ -575,6 +591,10 @@ class Index extends Component
      */
     public function sendChatTemplate(string $key): void
     {
+        if (!empty($this->selectedInfo['stale_number'])) {
+            $this->sendError = 'Dieses Gespräch läuft auf einer Nummer, die nicht mehr in der Akte steht — Senden gesperrt.';
+            return;
+        }
         $this->sendError = null;
         $thread = $this->selected;
         if ($thread === null) {
@@ -610,6 +630,10 @@ class Index extends Component
 
     public function sendReply(): void
     {
+        if (!empty($this->selectedInfo['stale_number'])) {
+            $this->sendError = 'Dieses Gespräch läuft auf einer Nummer, die nicht mehr in der Akte steht — Senden gesperrt.';
+            return;
+        }
         $this->sendError = null;
 
         $thread = $this->selected;

@@ -227,7 +227,7 @@ class DispoThreadDirectoryTest extends TestCase
         $this->assertSame($contactThread, $withContact[$a]['thread_id'] ?? null, 'Kontakt-verlinkter Thread bleibt trotz mehrdeutiger Nummer auffindbar.');
     }
 
-    public function test_newest_thread_wins_and_contact_beats_phone(): void
+    public function test_newest_thread_wins_and_current_number_beats_contact(): void
     {
         $ma = $this->employee('MA3', '0172 4444444');
         $this->link($ma, 910);
@@ -240,15 +240,38 @@ class DispoThreadDirectoryTest extends TestCase
         $newerPhoneThread = $this->thread($channel1, '+49 172 4444444', null, false, '2026-08-27 10:00:00');
         $olderPhoneThread = $this->thread($channel1, '0172 4444444', null, false, '2026-08-25 10:00:00');
 
-        // Kontakt-verlinkter Thread ist AELTER als beide Telefon-Treffer, gewinnt aber.
-        $contactThread = $this->thread($channel2, '+49 999 111000', 910, false, '2026-08-20 10:00:00');
+        // Kontakt-verlinkter Thread auf ANDERER Nummer (der Vesa-Fall: alter
+        // Thread haengt am Kontakt, die Akte traegt inzwischen eine neue Nummer).
+        $contactThread = $this->thread($channel2, '+49 999 111000', 910, false, '2026-08-28 10:00:00');
 
         $phoneOnly = $this->directory()->threadsFor([$channel1], [$ma]);
         $this->assertSame($newerPhoneThread, $phoneOnly[$ma]['thread_id'], 'Unter reinen Telefon-Treffern gewinnt der neuere.');
         $this->assertNotSame($olderPhoneThread, $phoneOnly[$ma]['thread_id']);
 
+        // Vorfall Vesa (04./07.09.): der Telefon-Treffer entspricht der AKTUELLEN
+        // Akten-Nummer und schlaegt den Kontakt-Treffer — selbst wenn der neuer ist.
         $withContact = $this->directory()->threadsFor([$channel1, $channel2], [$ma]);
-        $this->assertSame($contactThread, $withContact[$ma]['thread_id'], 'Kontakt-Treffer schlaegt Telefon-Treffer, auch wenn aelter.');
+        $this->assertSame($newerPhoneThread, $withContact[$ma]['thread_id'], 'Aktuelle Akten-Nummer schlaegt Kontakt-Treffer.');
+    }
+
+    public function test_contact_thread_is_fallback_when_current_number_has_no_thread(): void
+    {
+        $ma = $this->employee('MA4', '0173 5555555');
+        $this->link($ma, 911);
+        $channel = $this->channel();
+
+        // Kein Thread zur aktuellen Nummer — der kontakt-verlinkte alte bleibt die Tuer zur Person.
+        $contactThread = $this->thread($channel, '+49 999 222000', 911, false, '2026-08-20 10:00:00');
+
+        $found = $this->directory()->threadsFor([$channel], [$ma]);
+        $this->assertSame($contactThread, $found[$ma]['thread_id']);
+    }
+
+    public function test_matches_any_phone_compares_digit_suffixes(): void
+    {
+        $this->assertTrue(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::matchesAnyPhone('+491729071626', ['0172 9071626']));
+        $this->assertFalse(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::matchesAnyPhone('+491729806050', ['+491729071626']));
+        $this->assertFalse(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::matchesAnyPhone('+491729806050', []));
     }
 
     public function test_unread_by_event_counts_persons_not_records(): void
