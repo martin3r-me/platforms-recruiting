@@ -176,6 +176,7 @@ Originalname der Datei gespeichert. Pfadanteile werden abgeschnitten (`1187/Self
 | `not_found` | 404 | Personalnummer bei uns unbekannt |
 | `slot_not_allowed` | 422 | Slot ist für den Eingang nicht freigegeben |
 | `empty` / `personnel_number_missing` | 422 | kein Inhalt bzw. keine Nummer |
+| `personnel_number_unprefixed` | 422 | Nummer ohne Firmenpräfix (siehe unten) |
 | `too_large` | 413 | über 10 MB |
 | `not_an_image` | 415 | Inhalt ist kein JPEG/PNG |
 
@@ -186,6 +187,14 @@ Originalname der Datei gespeichert. Pfadanteile werden abgeschnitten (`1187/Self
   Endpunkt mit geteiltem Token. Erweitern ist eine Zeile.
 - **Bilder werden am Inhalt geprüft**, nicht an der Endung: in der Testlieferung vom 03.09.
   stand `PlanHalle18.jpg` im Selfie-Feld, ein Hallenplan. Erlaubt sind JPEG und PNG.
+- **Die Personalnummer MUSS den Firmenpräfix tragen** (`RG353`, `MA353`) — hier wird
+  bewusst nicht normalisiert. Beide von ZAS betreuten Firmen vergeben dieselben
+  Ziffernfolgen (belegt: 276, 322, 325, 353). Der CSV-Import ergänzt eine blanke Nummer auf
+  den eigenen Präfix, das war die Übergangshilfe bis zur Umstellung Ende August; für eine
+  **Datei** ist dieselbe Annahme zu gefährlich: aus `353` würde `RG353`, das Gesicht der
+  MA-Person hinge am gleichnamigen RG-Mitarbeiter, und die Antwort lautete `stored`. Genau
+  diese Verwechslung ist am 26.08.2026 in der Disposition schon einmal passiert. Ein Lauf mit
+  lauter `422` fällt auf — ein Bild am falschen Menschen nicht.
 - **Nie überschreiben.** Was HR oder der Mitarbeiter selbst hochgeladen hat, gewinnt. Zeigt
   die Spalte auf eine Datei, die es nicht mehr gibt, darf sie neu belegt werden (mit
   Log-Eintrag) — sonst könnte dieser Mitarbeiter nie wieder ein Bild bekommen.

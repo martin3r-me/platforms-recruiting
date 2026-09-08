@@ -165,7 +165,7 @@ class ZasEmployeeFileIntakeTest extends TestCase
 
     public function test_stores_the_image_and_fills_the_slot(): void
     {
-        $result = $this->intake()->receive('1187', 'emp-selfie', $this->jpeg(), 'Selfie-IMG_0623.jpeg');
+        $result = $this->intake()->receive('RG1187', 'emp-selfie', $this->jpeg(), 'Selfie-IMG_0623.jpeg');
 
         $this->assertSame('stored', $result['status']);
         $this->assertSame(201, $result['http']);
@@ -178,12 +178,21 @@ class ZasEmployeeFileIntakeTest extends TestCase
         $this->assertSame(4711, (int) $employee->selfie_file_id);
     }
 
-    public function test_a_blank_number_is_normalised_to_our_prefix(): void
+    public function test_a_number_without_company_prefix_is_refused(): void
     {
-        // ZAS liefert Nummern teils blank, teils mit Praefix — beides muss
-        // dieselbe Person treffen (sonst legt ein Lauf Bilder ins Nichts).
-        $this->assertSame('stored', $this->intake()->receive('1187', 'emp-selfie', $this->jpeg(), 'a.jpg')['status']);
-        $this->assertSame(4711, (int) RecEmployee::where('personnel_number', 'RG1187')->firstOrFail()->selfie_file_id);
+        // Beide Firmen vergeben dieselben Ziffernfolgen (belegt: 276, 322,
+        // 325, 353). Wuerden wir `1187` auf den eigenen Praefix ergaenzen —
+        // wie der CSV-Import es als Uebergangshilfe tut —, koennte das Gesicht
+        // der MA-Person am gleichnamigen RG-Mitarbeiter landen, bei Antwort
+        // "stored". Lieber laut scheitern: ein Lauf mit lauter 422 faellt auf,
+        // ein Bild am falschen Menschen nicht.
+        $result = $this->intake()->receive('1187', 'emp-selfie', $this->jpeg(), 'a.jpg');
+
+        $this->assertSame('personnel_number_unprefixed', $result['status']);
+        $this->assertSame(422, $result['http']);
+        $this->assertStringContainsString('RG1187', $result['message'], 'Die Meldung soll sagen, was zu tun ist.');
+        $this->assertSame(0, $this->created);
+        $this->assertNull(RecEmployee::where('personnel_number', 'RG1187')->firstOrFail()->selfie_file_id);
     }
 
     public function test_accepts_the_other_company_as_well(): void

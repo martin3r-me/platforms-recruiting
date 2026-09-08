@@ -68,15 +68,34 @@ class ZasEmployeeFileIntake
             return $this->result('not_an_image', 415, 'Inhalt ist kein akzeptiertes Bild (erlaubt: JPEG, PNG).');
         }
 
-        $prefix     = (string) config('recruiting.zas.company_prefix', '');
-        $teamId     = config('recruiting.zas.inbound_team_id');
-        $normalized = ZasPersonnelNumber::normalize($personnelNumber, $prefix);
+        $prefix = (string) config('recruiting.zas.company_prefix', '');
+        $teamId = config('recruiting.zas.inbound_team_id');
+        $number = trim($personnelNumber);
 
-        if ($normalized === null) {
+        if ($number === '') {
             return $this->result('personnel_number_missing', 422, 'Personalnummer fehlt.');
         }
 
-        $match    = $this->matcher->match(null, $normalized, $teamId, $prefix);
+        // HIER wird bewusst NICHT normalisiert. Beide von ZAS betreuten Firmen
+        // vergeben dieselben Ziffernfolgen (belegt: 276, 322, 325, 353), eine
+        // blanke Nummer benennt also keine Person. Der CSV-Import darf sie auf
+        // den eigenen Praefix ergaenzen — das war die Uebergangshilfe, bis ZAS
+        // Ende August auf die Praefix-Form umgestellt hat. Fuer eine DATEI ist
+        // dieselbe Annahme zu gefaehrlich: aus `353` wuerde `RG353`, und das
+        // Gesicht der MA-Person haengt am gleichnamigen RG-Mitarbeiter, waehrend
+        // die Antwort "stored" lautet. Genau dieser Verwechslungsfall ist am
+        // 2026-08-26 in der Disposition schon einmal aufgetreten.
+        if (!ZasPersonnelNumber::hasPrefix($number)) {
+            return $this->result('personnel_number_unprefixed', 422, sprintf(
+                'Personalnummer "%s" ohne Firmenpraefix — bitte mit Praefix senden (z. B. RG%s oder MA%s).',
+                $number,
+                $number,
+                $number
+            ));
+        }
+
+        $normalized = $number;
+        $match      = $this->matcher->match(null, $normalized, $teamId, $prefix);
         $employee = $match['employee'];
 
         if ($employee === null) {
