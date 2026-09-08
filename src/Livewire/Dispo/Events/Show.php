@@ -420,7 +420,7 @@ class Show extends Component
 
     public function sortRows(string $column): void
     {
-        if (!in_array($column, ['datum', 'zeit', 'taetigkeit', 'mitarbeiter'], true)) {
+        if (!in_array($column, ['datum', 'zeit', 'taetigkeit', 'mitarbeiter', 'chat'], true)) {
             return;
         }
         if ($this->rowSort === $column) {
@@ -462,6 +462,12 @@ class Show extends Component
             'zeit'        => $rows->sortBy(fn ($a) => (string) $a->von . '|' . $a->datum->format('Y-m-d'), SORT_REGULAR, $desc),
             'taetigkeit'  => $rows->sortBy(fn ($a) => mb_strtolower(trim((string) $a->taetigkeit)) . '|' . $a->datum->format('Y-m-d') . $a->von, SORT_REGULAR, $desc),
             'mitarbeiter' => $rows->sortBy(fn ($a) => mb_strtolower(trim(($a->employee->last_name ?? 'zzz') . ' ' . ($a->employee->first_name ?? ''))), SORT_REGULAR, $desc),
+            // Kunde 07.09.: nach ungelesenen Nachrichten sortieren (ungelesen -> mit Chat -> ohne).
+            'chat'        => $rows->sortBy(function ($a) {
+                $cid = $a->rec_employee_id ? ($this->identity['canon'][(int) $a->rec_employee_id] ?? (int) $a->rec_employee_id) : null;
+                $thr = $cid !== null ? ($this->threadsByEmployee[$cid] ?? null) : null;
+                return ($thr === null ? 2 : (!empty($thr['is_unread']) ? 0 : 1)) . '|' . $a->datum->format('Y-m-d') . $a->von;
+            }, SORT_REGULAR, $desc),
             default       => $rows,
         };
 
@@ -803,6 +809,25 @@ class Show extends Component
         app(DispoManualConfirm::class)->confirm($this->eventId, $groupIds, auth()->id());
 
         unset($this->event, $this->sendPreview);
+    }
+
+    /** Verspaetet-Marker (Kunde 07.09.): Check-in-Hilfe — pro Einbuchung an-/abwaehlbar, reine Doku. */
+    public function toggleLate(int $assignmentId): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $a = RecDispoAssignment::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->whereKey($assignmentId)
+            ->first();
+        if ($a === null) {
+            return;
+        }
+        $a->late_marked_at = $a->late_marked_at === null ? now() : null;
+        $a->late_marked_by_user_id = $a->late_marked_at !== null ? auth()->id() : null;
+        $a->save();
+        unset($this->event);
     }
 
     /** Doku-Haken (Kunde 04.09.): 'in ZAS rausgenommen' — reines Abhaken, kein ZAS-Schreibzugriff. */

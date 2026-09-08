@@ -72,6 +72,20 @@ class Index extends Component
         return (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $value);
     }
 
+    /** Gemeinsamer Zaehl-Rahmen: ohne Verschwundene/Geloeschte, bei Datumsfilter nur der Zeitraum. */
+    private function countScope($q)
+    {
+        $q->whereNull('missing_since')->whereNull('deletion_marked_at');
+        if ($this->dateFrom !== '' && $this->isValidDate($this->dateFrom)) {
+            $q->whereDate('datum', '>=', $this->dateFrom);
+        }
+        if ($this->dateTo !== '' && $this->isValidDate($this->dateTo)) {
+            $q->whereDate('datum', '<=', $this->dateTo);
+        }
+
+        return $q;
+    }
+
     public function render()
     {
         $query = RecDispoEvent::query()
@@ -80,9 +94,11 @@ class Index extends Component
                 // Loeschung gemeldete Einbuchungen zaehlen nicht mehr mit — sonst
                 // wirkt eine VA ewig "offen", obwohl niemand mehr zu bestaetigen ist.
                 // Die Tabelle der VA-Seite zeigt beide weiterhin (mit Badge).
-                'assignments' => fn ($q) => $q->whereNull('missing_since')->whereNull('deletion_marked_at'),
-                'assignments as matched_count' => fn ($q) => $q->whereNull('missing_since')->whereNull('deletion_marked_at')->whereNotNull('rec_employee_id'),
-                'assignments as confirmed_count' => fn ($q) => $q->whereNull('missing_since')->whereNull('deletion_marked_at')->whereNotNull('confirmed_at'),
+                // Kunde 07.09.: bei gesetztem Datumsfilter zaehlen NUR die Tage im
+                // Zeitraum — sonst fasst die Zeile einer Mehrtages-VA alles zusammen.
+                'assignments' => fn ($q) => $this->countScope($q),
+                'assignments as matched_count' => fn ($q) => $this->countScope($q)->whereNotNull('rec_employee_id'),
+                'assignments as confirmed_count' => fn ($q) => $this->countScope($q)->whereNotNull('confirmed_at'),
             ])
             // Roll-up-Warnicon: irgendein Stufen- oder Alarm-Versand dieser VA fehlgeschlagen.
             // Als korrelierte EXISTS-Subqueries statt Eager-Load je Nachricht — kein N+1.

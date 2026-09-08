@@ -119,6 +119,12 @@
         <div class="border-b border-gray-100 px-4 py-3 font-medium">
             Einbuchungen ({{ $event->assignments->count() }})
             @php
+                $unreadPersons = collect($this->threadsByEmployee)->filter(fn ($t) => !empty($t['is_unread']))->count();
+            @endphp
+            @if ($unreadPersons > 0)
+                <button type="button" wire:click="sortRows('chat')" class="ml-2 inline-flex items-center gap-1 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white align-middle" title="Nach ungelesenen Nachrichten sortieren">💬 {{ $unreadPersons }} neue {{ $unreadPersons === 1 ? 'Nachricht' : 'Nachrichten' }}</button>
+            @endif
+            @php
                 $templateConfigured = $this->dispoSettings['template_id'] !== null;
             @endphp
 @if (!$eventOnly)
@@ -227,7 +233,7 @@
                     <th class="px-4 py-2 font-medium"><button type="button" wire:click="sortRows('zeit')" class="hover:text-gray-800" title="Sortieren">Zeit{{ $rowSortArrow('zeit') }}</button></th>
                     <th class="px-4 py-2 font-medium"><button type="button" wire:click="sortRows('taetigkeit')" class="hover:text-gray-800" title="Sortieren">Tätigkeit{{ $rowSortArrow('taetigkeit') }}</button></th>
                     <th class="px-4 py-2 font-medium"><button type="button" wire:click="sortRows('mitarbeiter')" class="hover:text-gray-800" title="Sortieren">Mitarbeiter{{ $rowSortArrow('mitarbeiter') }}</button></th>
-                    <th class="px-4 py-2 font-medium text-center" title="Kommunikation">💬</th>
+                    <th class="px-4 py-2 font-medium text-center"><button type="button" wire:click="sortRows('chat')" class="hover:text-gray-800" title="Nach ungelesenen Nachrichten sortieren">💬{{ $rowSortArrow('chat') }}</button></th>
                     <th class="px-4 py-2 font-medium">Status</th>
                     <th class="px-4 py-2 font-medium">Bestätigung</th>
                     <th class="px-4 py-2 font-medium">Hinweis</th>
@@ -241,7 +247,7 @@
                     $canonMap = $this->identity['canon'];
                 @endphp
                 @forelse ($this->filteredAssignments as $assignment)
-                    <tr class="{{ $assignment->missing_since ? 'opacity-50' : '' }}">
+                    <tr class="group {{ $assignment->missing_since ? 'opacity-50' : '' }}">
                         <td class="px-4 py-2 whitespace-nowrap">{{ $assignment->datum->format('d.m.Y') }}</td>
                         <td class="px-4 py-2 whitespace-nowrap">{{ $assignment->von ?? '—' }}@if ($assignment->bis)–{{ $assignment->bis }}@endif</td>
                         <td class="px-4 py-2">{{ $assignment->taetigkeit ?? '—' }}</td>
@@ -279,6 +285,13 @@
                             </span>
                             @if ($assignment->missing_since)
                                 <span class="ml-1 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-600" title="Fehlt seit {{ $assignment->missing_since->format('d.m.Y H:i') }} im ZAS-Vollbestand">verschwunden</span>
+                            @endif
+                            @if ($assignment->late_marked_at)
+                                <button type="button" wire:click="toggleLate({{ $assignment->id }})" @if($eventOnly) disabled @endif
+                                        class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800" title="Verspätet markiert {{ $assignment->late_marked_at->format('d.m. H:i') }} — klicken zum Entfernen">⏱ verspätet</button>
+                            @elseif (!$eventOnly)
+                                <button type="button" wire:click="toggleLate({{ $assignment->id }})"
+                                        class="ml-1 rounded px-1 py-0.5 text-xs text-gray-300 opacity-0 hover:text-amber-600 group-hover:opacity-100" title="Als verspätet markieren (Check-in)">⏱</button>
                             @endif
                         </td>
                         <td class="px-4 py-2">
@@ -881,6 +894,9 @@
                             {{ $chat['phone'] }}
                             @if ($chat['portal_url'] && !$eventOnly)
                                 <a href="{{ $chat['portal_url'] }}" target="_blank" rel="noopener" class="font-semibold text-blue-700 hover:underline" title="Persönlicher Link des Mitarbeiters — nicht weitergeben.">Was der MA sieht ↗</a>
+                            @endif
+                            @if (!$eventOnly && $chatEmployeeId)
+                                <a href="{{ route('recruiting.employees.show', ['employee' => $chatEmployeeId]) }}" class="font-semibold text-blue-700 hover:underline" title="Mitarbeiter-Akte öffnen">MA-Akte ↗</a>
                             @endif
                         </div>
                     </div>
