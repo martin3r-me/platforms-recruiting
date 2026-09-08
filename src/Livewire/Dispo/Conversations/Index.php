@@ -494,6 +494,7 @@ class Index extends Component
 
         return [
             'label'    => $name ?? (string) $thread->remote_phone_number,
+            'employee_id' => $employeeId,
             'stale_number' => $staleNumber,
             'phone'    => (string) $thread->remote_phone_number,
             'initials' => self::initials($name),

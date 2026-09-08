@@ -187,6 +187,10 @@
                                        title="Persönlicher Link des Mitarbeiters — nicht weitergeben."
                                        class="rounded bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:bg-blue-100">Was der MA sieht ↗</a>
                                 @endif
+                                @if (!empty($info['employee_id']))
+                                    <a href="{{ route('recruiting.employees.show', ['employee' => $info['employee_id']]) }}"
+                                       class="rounded bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:bg-blue-100" title="Mitarbeiter-Akte öffnen">MA-Akte ↗</a>
+                                @endif
                             </div>
                             <div class="truncate text-xs text-gray-500 tabular-nums">{{ $info['phone'] }}</div>
                         </div>
