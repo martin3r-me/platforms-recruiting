@@ -57,6 +57,11 @@ Route::middleware([ZasBearerAuth::class])->group(function () {
     // Phase 1: nur annehmen + roh speichern (Sichtung: Disposition → ZAS-Eingang).
     Route::post('/dispo-inbound', ZasDispoInboundController::class)
         ->name('recruiting.zas.dispo-inbound');
+
+    // Rueckkanal: Bestaetigungs-Stand der Disposition (Voll-Snapshot, kein
+    // Marker) — ZAS setzt beim Import die Haken ueber die DS-ID.
+    Route::get('/dispo/confirmations.csv', \Platform\Recruiting\Http\Controllers\ZasDispoConfirmationExportController::class)
+        ->name('recruiting.zas.dispo.confirmations');
 });
 
 // Bewerber-Datei-Stream (Slot-Prefix `upl-*`)
