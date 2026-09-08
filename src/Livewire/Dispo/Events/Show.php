@@ -87,7 +87,8 @@ class Show extends Component
     public ?int $attachmentEmployeeId = null;
     public string $attachmentEmployeeName = '';
     /** @var \Livewire\Features\SupportFileUploads\TemporaryUploadedFile|null */
-    public $attachmentUpload = null;
+    /** @var list<\Livewire\Features\SupportFileUploads\TemporaryUploadedFile> mehrere Dateien je Vorgang (Kunde 07.09.) */
+    public $attachmentUploads = [];
 
     // Eskalation pro VA (Runde 3, #5) — Strings (Livewire-Typed-Property-Falle).
     public string $escDay = DispoEscalationConfig::DAY_VORTAG;
@@ -225,8 +226,8 @@ class Show extends Component
         $this->attachmentEmployeeId = $employeeId;
         $employee = $this->event->assignments->firstWhere('rec_employee_id', $employeeId)?->employee;
         $this->attachmentEmployeeName = $employee ? trim($employee->first_name . ' ' . $employee->last_name) : '';
-        $this->attachmentUpload = null;
-        $this->resetErrorBag('attachmentUpload');
+        $this->attachmentUploads = [];
+        $this->resetErrorBag('attachmentUploads');
         $this->showAttachmentModal = true;
     }
 
@@ -239,21 +240,22 @@ class Show extends Component
             return;
         }
         $this->validate(
-            ['attachmentUpload' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240'],
+            [
+                'attachmentUploads'   => 'required|array|min:1|max:10',
+                'attachmentUploads.*' => 'file|mimes:pdf,jpg,jpeg,png|max:10240',
+            ],
             [],
-            ['attachmentUpload' => 'Datei']
+            ['attachmentUploads' => 'Dateien', 'attachmentUploads.*' => 'Datei']
         );
 
-        DispoAttachmentStore::default()->putUpload(
-            $this->eventId,
-            $this->attachmentEmployeeId,
-            $this->attachmentUpload,
-            auth()->id()
-        );
+        $store = DispoAttachmentStore::default();
+        foreach ($this->attachmentUploads as $file) {
+            $store->putUpload($this->eventId, $this->attachmentEmployeeId, $file, auth()->id());
+        }
 
         // Modal bleibt offen (Kunde 03.09.: Liste im Modal, mehrere Dateien nacheinander).
-        $this->attachmentUpload = null;
-        $this->resetErrorBag('attachmentUpload');
+        $this->attachmentUploads = [];
+        $this->resetErrorBag('attachmentUploads');
         unset($this->event, $this->attachmentsByEmployee);
     }
 
@@ -275,7 +277,7 @@ class Show extends Component
         $this->showAttachmentModal = false;
         $this->attachmentEmployeeId = null;
         $this->attachmentEmployeeName = '';
-        $this->attachmentUpload = null;
+        $this->attachmentUploads = [];
     }
 
     /** Effektive Eskalation dieser VA (Override oder Default) fuer die Kachel. */
@@ -928,7 +930,8 @@ class Show extends Component
     public string $infoNote = '';
     /** truthy = Info-WhatsApp mitschicken (Standard); leer/false = nur zuweisen ohne Versand (Kunde 03.09.: Erstbefuellung vor dem Bestaetigungs-Versand). Untypisiert — die Checkbox liefert bool (Muster escalationEnabled). */
     public $infoSendWhatsApp = true;
-    public $infoUpload = null;
+    /** @var list<\Livewire\Features\SupportFileUploads\TemporaryUploadedFile> mehrere Dateien je Sendung (Kunde 07.09.) */
+    public $infoUploads = [];
     /** @var ?array{sent:int, failed:list<array{employee_id:int, error:string}>, attached:int, noted:int, no_phone:int} */
     public ?array $infoResult = null;
 
@@ -941,7 +944,7 @@ class Show extends Component
         $this->infoExcluded = [];
         $this->infoNote = '';
         $this->infoSendWhatsApp = true;
-        $this->infoUpload = null;
+        $this->infoUploads = [];
         $this->infoResult = null;
         $this->resetErrorBag('infoNote');
         $this->showInfoModal = true;
@@ -1111,14 +1114,17 @@ class Show extends Component
         }
 
         $note = trim($this->infoNote);
-        if ($this->infoUpload === null && $note === '') {
+        if ($this->infoUploads === [] && $note === '') {
             $this->addError('infoNote', 'Bitte mindestens eine Datei anhängen oder einen Hinweis eingeben.');
             return;
         }
-        if ($this->infoUpload !== null) {
+        if ($this->infoUploads !== []) {
             $this->validate(
-                ['infoUpload' => 'file|max:10240|mimes:' . implode(',', DispoAttachmentStore::ALLOWED_EXTENSIONS)],
-                [], ['infoUpload' => 'Datei']
+                [
+                    'infoUploads'   => 'array|max:10',
+                    'infoUploads.*' => 'file|max:10240|mimes:' . implode(',', DispoAttachmentStore::ALLOWED_EXTENSIONS),
+                ],
+                [], ['infoUploads' => 'Dateien', 'infoUploads.*' => 'Datei']
             );
         }
         $sendWhatsApp = (bool) $this->infoSendWhatsApp;
@@ -1153,19 +1159,28 @@ class Show extends Component
 
             // 1) Anhang: identische Datei je Person (am gebuchten Datensatz — die
             //    Einsatz-Seite liest ueber die ganze Identitaetsgruppe).
-            if ($this->infoUpload !== null) {
-                $contents = (string) file_get_contents($this->infoUpload->getRealPath());
+            if ($this->infoUploads !== []) {
+                // Kunde 07.09.: MEHRERE Dateien in EINER Sendung (Funktion, Einteilung,
+                // Tischplan, ...) statt je Datei eine eigene Nachricht. Inhalte einmal
+                // lesen, dann pro Person alle ablegen.
+                $files = array_map(fn ($f) => [
+                    'contents' => (string) file_get_contents($f->getRealPath()),
+                    'name'     => $f->getClientOriginalName(),
+                    'mime'     => $f->getClientMimeType(),
+                ], $this->infoUploads);
                 $store = DispoAttachmentStore::default();
                 foreach ($persons as $person) {
-                    $store->putContents(
-                        $this->eventId,
-                        $person['booked'],
-                        $contents,
-                        $this->infoUpload->getClientOriginalName(),
-                        $this->infoUpload->getClientMimeType(),
-                        auth()->id()
-                    );
-                    $attached++;
+                    foreach ($files as $file) {
+                        $store->putContents(
+                            $this->eventId,
+                            $person['booked'],
+                            $file['contents'],
+                            $file['name'],
+                            $file['mime'],
+                            auth()->id()
+                        );
+                        $attached++;
+                    }
                 }
             }
 
@@ -1200,7 +1215,7 @@ class Show extends Component
                     'noted'    => (int) $noted,
                     'no_phone' => 0,
                 ];
-                $this->infoUpload = null;
+                $this->infoUploads = [];
                 unset($this->event, $this->attachmentsByEmployee, $this->infoPreview);
                 return;
             }
@@ -1230,7 +1245,7 @@ class Show extends Component
                 'noted'    => (int) $noted,
                 'no_phone' => count(array_filter($persons, fn ($p) => $p['phone'] === null)),
             ];
-            $this->infoUpload = null;
+            $this->infoUploads = [];
             unset($this->event, $this->attachmentsByEmployee, $this->infoPreview);
         } finally {
             $lock?->release();

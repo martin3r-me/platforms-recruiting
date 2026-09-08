@@ -585,10 +585,21 @@
                     </div>
                 @endif
 
-                <input type="file" wire:model="attachmentUpload" accept=".pdf,.jpg,.jpeg,.png"
-                       class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
-                <div wire:loading wire:target="attachmentUpload" class="text-xs text-gray-500">Wird hochgeladen …</div>
-                @error('attachmentUpload') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                <div x-data="{ drag: false }"
+                     x-on:dragover.prevent="drag = true" x-on:dragleave.prevent="drag = false"
+                     x-on:drop.prevent="drag = false; $refs.attIn.files = $event.dataTransfer.files; $refs.attIn.dispatchEvent(new Event('change'))"
+                     :class="drag ? 'border-blue-400 bg-blue-50/60' : 'border-gray-300'"
+                     class="rounded-lg border-2 border-dashed p-3">
+                    <input type="file" multiple x-ref="attIn" wire:model="attachmentUploads" accept=".pdf,.jpg,.jpeg,.png"
+                           class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
+                    <div class="mt-1 text-xs text-gray-400">… oder Dateien hierher ziehen — mehrere auf einmal möglich.</div>
+                </div>
+                <div wire:loading wire:target="attachmentUploads" class="text-xs text-gray-500">Wird hochgeladen …</div>
+                @if ($attachmentUploads !== [])
+                    <div class="text-xs text-gray-500">{{ count($attachmentUploads) }} Datei(en) ausgewählt</div>
+                @endif
+                @error('attachmentUploads') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                @error('attachmentUploads.*') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
                 <div class="flex justify-end gap-3">
                     <button wire:click="closeAttachmentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
@@ -669,10 +680,20 @@
 
                     <label class="block text-sm">
                         <span class="mb-1 block font-medium text-gray-700">Datei anhängen <span class="text-gray-400">(optional, für alle identisch)</span></span>
-                        <input type="file" wire:model="infoUpload" accept=".pdf,.jpg,.jpeg,.png"
-                               class="w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
-                        <span class="mt-1 block text-xs text-gray-500">PDF/JPG/PNG, max. 10 MB — z. B. Einteilung, Briefing, Plan, Zugangscode. Wird zusätzlich zu bestehenden Anhängen abgelegt.</span>
-                        <div wire:loading wire:target="infoUpload" class="mt-1 text-xs text-blue-600">Wird hochgeladen …</div>
+                        <div x-data="{ drag: false }"
+                             x-on:dragover.prevent="drag = true" x-on:dragleave.prevent="drag = false"
+                             x-on:drop.prevent="drag = false; $refs.infoIn.files = $event.dataTransfer.files; $refs.infoIn.dispatchEvent(new Event('change'))"
+                             :class="drag ? 'border-blue-400 bg-blue-50/60' : 'border-gray-300'"
+                             class="rounded-lg border-2 border-dashed p-3">
+                            <input type="file" multiple x-ref="infoIn" wire:model="infoUploads" accept=".pdf,.jpg,.jpeg,.png"
+                                   class="w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
+                            <div class="mt-1 text-xs text-gray-400">… oder Dateien hierher ziehen — mehrere auf einmal möglich (Funktion, Einteilung, Tischplan in EINER Nachricht).</div>
+                        </div>
+                        <span class="mt-1 block text-xs text-gray-500">PDF/JPG/PNG, je max. 10 MB. Wird zusätzlich zu bestehenden Anhängen abgelegt.</span>
+                        @if ($infoUploads !== [])
+                            <span class="mt-1 block text-xs text-gray-500">{{ count($infoUploads) }} Datei(en) ausgewählt</span>
+                        @endif
+                        <div wire:loading wire:target="infoUploads" class="mt-1 text-xs text-blue-600">Wird hochgeladen …</div>
                     </label>
 
                     <label class="block text-sm">
@@ -683,7 +704,8 @@
                         @endif
                     </label>
                     @error('infoNote') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
-                    @error('infoUpload') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                    @error('infoUploads') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                    @error('infoUploads.*') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
                     <label class="flex items-center gap-2 text-sm text-gray-700">
                         <input type="checkbox" wire:model.live="infoSendWhatsApp" class="rounded border-gray-300">
@@ -709,7 +731,7 @@
                     <div class="flex justify-end gap-3">
                         <button wire:click="$set('showInfoModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                         <button wire:click="sendCrewInfo"
-                                wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUpload"
+                                wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUploads"
                                 @if ($infoSelected->count() === 0) disabled @endif
                                 class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
                             <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : 'Zuweisen' }}</span>
