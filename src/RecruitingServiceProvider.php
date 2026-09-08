@@ -69,6 +69,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DispoTestVaCommand::class,
                 \Platform\Recruiting\Console\Commands\EnableManualBookingForPhases::class,
                 \Platform\Recruiting\Console\Commands\BackfillApplicantPosition::class,
+                \Platform\Recruiting\Console\Commands\ReportSignedWithoutEmployee::class,
             ]);
         }
 
