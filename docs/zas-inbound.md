@@ -141,3 +141,70 @@ umgestellt wird in ZAS. Filterbar nach Zeitraum in der Mitarbeiter-Liste.
 |------------------------------|---------|----------------------------------------|
 | `RECRUITING_ZAS_TOKEN`       | —       | Bearer-Token (geteilt mit den Exporten)|
 | `RECRUITING_ZAS_INBOUND_DISK`| `local` | Storage-Disk für die Roh-CSVs          |
+
+## Datei-Eingang: `POST /recruiting/zas/employee-files/{personalnummer}/{slot}`
+
+Gegenstück zum Abruf `GET /employee-files/{employeeUuid}/{slot}`. Schlüssel ist hier die
+**Personalnummer**, nicht die UUID — für die Bestands-Mitarbeiter kennt ZAS unsere UUID nicht.
+
+Anlass: rund 1100 Mitarbeiter sind über ZAS in unser System gekommen und haben kein Selfie
+(Stand 04.09.2026: 203 von 1330 Mitarbeitern haben ein Bild, und das sind praktisch genau
+unsere 204 Funnel-Leute). In den Crew-Kärtchen der Disposition fehlt damit bei 85 % der
+Belegschaft das Gesicht. Die CSV liefert seit dem 04.09. den **Dateinamen** in `UplSelfie`
+(99 von 100 Zeilen), aber ein Name ist kein Bild — die Datei kommt über diesen Endpunkt.
+
+```
+POST /recruiting/zas/employee-files/1187/emp-selfie?filename=Selfie-IMG_0623.jpeg
+Authorization: Bearer <RECRUITING_ZAS_TOKEN>      (dasselbe Token wie die CSV-Endpunkte)
+Content-Type: image/jpeg
+
+<Bytes>
+```
+
+Der Inhalt kommt als **Raw-Body** (so wie ZAS auch die CSV schickt) oder als Multipart-Feld
+`file`. `?filename=` ist optional; der Name dient der Wiederholungserkennung und wird als
+Originalname der Datei gespeichert. Pfadanteile werden abgeschnitten (`1187/Selfie-x.jpg`
+→ `Selfie-x.jpg`).
+
+### Antworten
+
+| Status | HTTP | Bedeutung |
+|--------|------|-----------|
+| `stored` | 201 | Datei übernommen, Slot gefüllt |
+| `already_present` | 200 | Dieselbe Datei liegt schon vor — nichts geschrieben |
+| `slot_filled` | 409 | Slot ist mit einer **anderen** Datei belegt; wird nicht überschrieben |
+| `not_found` | 404 | Personalnummer bei uns unbekannt |
+| `slot_not_allowed` | 422 | Slot ist für den Eingang nicht freigegeben |
+| `empty` / `personnel_number_missing` | 422 | kein Inhalt bzw. keine Nummer |
+| `too_large` | 413 | über 10 MB |
+| `not_an_image` | 415 | Inhalt ist kein JPEG/PNG |
+
+### Regeln
+
+- **Freigegeben ist nur `emp-selfie`** (`ZasInboundFileSlots::ALLOWED`). Alles andere wird
+  abgewiesen, obwohl der Ausliefer-Endpunkt 16 Slots kennt — es ist ein schreibender
+  Endpunkt mit geteiltem Token. Erweitern ist eine Zeile.
+- **Bilder werden am Inhalt geprüft**, nicht an der Endung: in der Testlieferung vom 03.09.
+  stand `PlanHalle18.jpg` im Selfie-Feld, ein Hallenplan. Erlaubt sind JPEG und PNG.
+- **Nie überschreiben.** Was HR oder der Mitarbeiter selbst hochgeladen hat, gewinnt. Zeigt
+  die Spalte auf eine Datei, die es nicht mehr gibt, darf sie neu belegt werden (mit
+  Log-Eintrag) — sonst könnte dieser Mitarbeiter nie wieder ein Bild bekommen.
+- **Wiederholbar.** Gleicher Name + gefüllter Slot → `already_present`. ZAS kann die Schleife
+  über den gesamten Bestand beliebig oft laufen lassen; das ist so zugesichert.
+- **Keine Neuanlage.** Eine unbekannte Personalnummer ist ein Fehler, kein Anlass für einen
+  neuen Mitarbeiter.
+- **Beide Firmen erlaubt** (RG und MA). Von den MA-Leuten führen wir längst den vollen
+  Stammdatensatz aus der CSV; das Selfie zu verweigern wäre inkonsequent, und die Dispo
+  braucht das Gesicht. Grenze ist das Team (`inbound_team_id`), nicht die Firma.
+- **Observer-frei geschrieben.** `selfie_file_id` steht in der Watch-Liste des
+  `RecEmployeeExportObservers`. Normal geschrieben würde `zas_changed_at` gesetzt, der
+  Mitarbeiter landete im Update-Export, und wir schickten ZAS eine signierte URL auf das
+  Bild zurück, das ZAS uns gerade gegeben hat (derselbe Mechanismus wie beim
+  Telefon-Vorfall am 02.09.). Ein **bereits gesetzter** Marker bleibt unangetastet.
+
+### Bildvarianten
+
+`ContextFileService::uploadForContext()` wandelt Bilder nach WebP und stellt den
+Varianten-Job in die Queue. Das setzt einen laufenden Queue-Worker voraus — ohne den
+zeigen die Crew-Kärtchen das Original in Vollgröße. Nach einem Massenlauf lohnt der Blick,
+ob die Varianten durchgelaufen sind (`recruiting:backfill-image-variants`).

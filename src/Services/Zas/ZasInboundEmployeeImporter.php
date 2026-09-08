@@ -29,6 +29,10 @@ class ZasInboundEmployeeImporter
     public function __construct(
         private ZasInboundRowMapper $mapper,
         private ZasInboundDuplicateFinder $duplicates,
+        // Default, damit die bestehenden Aufrufstellen (Controller, Command,
+        // Tests) unveraendert bleiben — die Kaskade selbst liegt jetzt im
+        // gemeinsamen Dienst, weil der Datei-Eingang sie ebenfalls braucht.
+        private ZasEmployeeMatcher $matcher = new ZasEmployeeMatcher(),
     ) {}
 
     public function import(array $rows, $inbound, bool $dryRun): array
@@ -325,61 +329,20 @@ class ZasInboundEmployeeImporter
     }
 
     /**
-     * Matching-Kaskade UUID → Personalnummer.
+     * Matching-Kaskade UUID → Personalnummer (drei Formen). Liegt seit
+     * 2026-09-08 im ZasEmployeeMatcher, weil der Datei-Eingang dieselbe
+     * Zuordnung braucht — die Begruendung der Formen steht dort.
      *
-     * Bei der Nummer werden DREI Formen gesucht, weil ZAS im Laufe der Zeit
-     * unterschiedlich geliefert hat: die gelieferte selbst, die gekuerzte
-     * (Altlast oberhalb einer Milliarde) und die ohne eigenen Praefix (von Hand
-     * eingetragene Nummern). Ein FREMDER Praefix wird nie abgestreift:
-     * `MA353` darf niemals den blanken 353 eines RG-Mitarbeiters finden.
-     *
-     * Zurueck kommt auch, AUF WELCHEM WEG erkannt wurde. Das steht dann im
-     * Bericht: ein Treffer ueber die Kurzform ist der einzige, der im
-     * Kollisionsfall den falschen Menschen greifen koennte — dann fehlte eine
-     * Person, ohne dass ein blosses "skipped: exists" es verraten haette.
+     * Der Rueckgabewert traegt weiter, AUF WELCHEM WEG erkannt wurde: ein
+     * Treffer ueber die Kurzform ist der einzige, der im Kollisionsfall den
+     * falschen Menschen greifen koennte, und landet deshalb als Warnung im
+     * Bericht statt als unauffaelliges "skipped: exists".
      *
      * @return array{employee: ?RecEmployee, via: ?string} via: uuid|exact|shortened|bare
      */
     protected function findExisting(?string $uuid, ?string $personnelNumber, $teamId, string $ownPrefix = ''): array
     {
-        if ($uuid) {
-            $byUuid = RecEmployee::where('uuid', $uuid)->first();
-            if ($byUuid) {
-                return ['employee' => $byUuid, 'via' => 'uuid'];
-            }
-        }
-
-        if (!$personnelNumber) {
-            return ['employee' => null, 'via' => null];
-        }
-
-        $candidates = ['exact' => $personnelNumber];
-
-        $shortened = ZasPersonnelNumber::shortenedForm($personnelNumber);
-        if ($shortened !== null) {
-            $candidates['shortened'] = $shortened;
-        }
-
-        if ($ownPrefix !== '' && str_starts_with($personnelNumber, $ownPrefix)) {
-            $bare = substr($personnelNumber, strlen($ownPrefix));
-            if ($bare !== '') {
-                $candidates['bare'] = $bare;
-            }
-        }
-
-        $employee = RecEmployee::whereIn('personnel_number', array_values($candidates))
-            ->when($teamId, fn ($q) => $q->where('team_id', $teamId))
-            // Liegen mehrere Formen vor, gewinnt die exakte.
-            ->orderByRaw('personnel_number = ? DESC', [$personnelNumber])
-            ->first();
-
-        if ($employee === null) {
-            return ['employee' => null, 'via' => null];
-        }
-
-        $via = array_search((string) $employee->personnel_number, $candidates, true);
-
-        return ['employee' => $employee, 'via' => $via === false ? 'exact' : $via];
+        return $this->matcher->match($uuid, $personnelNumber, $teamId, $ownPrefix);
     }
 
     protected function createEmployee(array $mapped, int $teamId, int $inboundId): RecEmployee

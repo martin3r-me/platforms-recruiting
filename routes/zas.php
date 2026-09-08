@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Platform\Recruiting\Http\Controllers\ZasDispoInboundController;
 use Platform\Recruiting\Http\Controllers\ZasEmployeeFileController;
+use Platform\Recruiting\Http\Controllers\ZasEmployeeFileUploadController;
 use Platform\Recruiting\Http\Controllers\ZasEmployeeInitialExportController;
 use Platform\Recruiting\Http\Controllers\ZasEmployeeUpdateExportController;
 use Platform\Recruiting\Http\Controllers\ZasExportController;
@@ -41,6 +42,16 @@ Route::middleware([ZasBearerAuth::class])->group(function () {
     // Phase 1: nur annehmen + roh speichern. ?dry_run=true markiert Tests.
     Route::post('/inbound', ZasInboundController::class)
         ->name('recruiting.zas.inbound');
+
+    // Datei-Eingang: ZAS schickt eine Mitarbeiter-Datei (z. B. das Selfie der
+    // Bestands-MA, fuer die es keine andere Quelle als ZAS gibt). Schluessel
+    // ist die PERSONALNUMMER — unsere UUID kennt ZAS fuer diese Leute nicht.
+    // Gegenstueck zum Abruf weiter unten; nur freigegebene Slots, nie
+    // ueberschreibend (siehe ZasEmployeeFileIntake).
+    Route::post('/employee-files/{personnelNumber}/{slot}', ZasEmployeeFileUploadController::class)
+        ->name('recruiting.zas.employee-files.store')
+        ->where('personnelNumber', '[A-Za-z0-9]{1,64}')
+        ->where('slot', 'emp-[a-z0-9-]+');
 
     // Dispo-Eingang: Veranstaltungen + eingebuchtes Personal aus ZAS.
     // Phase 1: nur annehmen + roh speichern (Sichtung: Disposition → ZAS-Eingang).
