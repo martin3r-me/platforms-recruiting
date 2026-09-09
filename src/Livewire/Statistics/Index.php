@@ -1764,6 +1764,115 @@ class Index extends Component
     /** Einsatz-Detail im Drill-Modal (nur bei den Einsatz-Spalten). */
     public bool $drillShowEinsatz = false;
 
+    /** Schulungs-Detailansicht (Modal je Termin). */
+    public bool $showTerminDetail = false;
+    public ?int $terminDetailId = null;
+
+    public function openTerminDetail(int $interviewId): void
+    {
+        $this->terminDetailId = $interviewId;
+        $this->showTerminDetail = true;
+    }
+
+    /**
+     * Schulungs-Detailansicht je Termin (09.09.2026): die Tabelle traegt nur
+     * noch die Einsatz-QUOTE, die Tiefe liegt hier — Kopf (Termin +
+     * Schulungsleiter), Kennzahlen und die Personenliste mit Einsatzdaten,
+     * „Ohne Einsatz" zuoberst (das ist die Nachverfolgungs-Liste).
+     *
+     * Termin-Zeilen und Einsatz-Karte kommen als Parameter (die View liest die
+     * Computed EINMAL); der Termin selbst wird team-gescopt geladen —
+     * fail-closed: unbekannt/fremd → null, das Modal zeigt einen Hinweis.
+     *
+     * Schulungsleiter per Query-Builder-Join statt ueber die interviewers-
+     * Relation: die zeigt auf das Core-User-Model, gebraucht wird nur der Name
+     * (und die Integration-Suite hat keine Core-Tabellen ausser dieser einen).
+     *
+     * @param  list<array>  $terminRows  cohort()['termin_rows']
+     * @param  array<int, array{count:int, first:?string, grund:?string}>  $info  cohort()['einsatz_info']
+     */
+    public function terminDetailFor(int $interviewId, array $terminRows, array $info): ?array
+    {
+        $interview = RecInterview::forTeam($this->teamId())
+            ->with(['position' => fn ($q) => $q->select('id', 'title', 'location')])
+            ->find($interviewId);
+        if (!$interview) {
+            return null;
+        }
+
+        $leiter = \Illuminate\Support\Facades\DB::table('rec_interview_user')
+            ->join('users', 'users.id', '=', 'rec_interview_user.user_id')
+            ->where('rec_interview_user.rec_interview_id', $interviewId)
+            ->orderBy('users.name')
+            ->pluck('users.name')
+            ->all();
+
+        $vm = $this->viewModel();
+        $rows = $vm->interviewCohorts($terminRows)[$interviewId]['rows'] ?? [];
+
+        $spalten = ['ids', 'teilgenommen', 'im_einsatz', 'ohne_einsatz', 'einsatz_unpruefbar',
+            'bestaetigt', 'vertrag_verschickt', 'unterschrieben', 'no_show', 'aussortiert', 'standby'];
+        $kennzahlen = [];
+        $mitglied = [];
+        foreach ($spalten as $spalte) {
+            $ids = [];
+            foreach ($rows as $row) {
+                $ids = array_merge($ids, $vm->idsOf($row, $spalte));
+            }
+            $kennzahlen[$spalte] = count($ids);
+            $mitglied[$spalte] = array_flip($ids);
+        }
+
+        $applicants = RecApplicant::forTeam($this->teamId())
+            ->whereIn('id', array_keys($mitglied['ids']))
+            ->with(['crmContactLinks.contact', 'employee:id,rec_applicant_id,personnel_number'])
+            ->get()
+            ->keyBy('id');
+
+        $personen = [];
+        foreach (array_keys($mitglied['ids']) as $id) {
+            $applicant = $applicants->get($id);
+            $topf = isset($mitglied['ohne_einsatz'][$id]) ? 'ohne_einsatz'
+                : (isset($mitglied['einsatz_unpruefbar'][$id]) ? 'einsatz_unpruefbar'
+                : (isset($mitglied['im_einsatz'][$id]) ? 'im_einsatz' : null));
+            $status = isset($mitglied['teilgenommen'][$id]) ? 'Teilgenommen'
+                : (isset($mitglied['no_show'][$id]) ? 'Nicht erschienen'
+                : (isset($mitglied['aussortiert'][$id]) ? 'Vor Ort aussortiert'
+                : (isset($mitglied['standby'][$id]) ? 'Keine Reaktion' : 'Gebucht')));
+
+            $personen[] = [
+                'id' => $id,
+                'name' => \Platform\Recruiting\Support\ApplicantContactName::display(
+                    $applicant?->crmContactLinks?->all() ?? [],
+                ) ?: ('Bewerber #' . $id),
+                'applicant' => $applicant,
+                'employee' => $applicant?->employee,
+                'hat_pnr' => trim((string) $applicant?->employee?->personnel_number) !== '',
+                'topf' => $topf,
+                'status' => $status,
+                'bestaetigt' => isset($mitglied['bestaetigt'][$id]),
+                'vertrag' => isset($mitglied['unterschrieben'][$id]) ? 'unterschrieben'
+                    : (isset($mitglied['vertrag_verschickt'][$id]) ? 'verschickt' : null),
+                'einsaetze' => (int) ($info[$id]['count'] ?? 0),
+                'erster_einsatz' => $info[$id]['first'] ?? null,
+                'grund' => $info[$id]['grund'] ?? null,
+            ];
+        }
+
+        // Arbeitsreihenfolge: ohne Einsatz → nicht pruefbar → im Einsatz →
+        // Nicht-Teilgenommene; innerhalb alphabetisch.
+        $rang = ['ohne_einsatz' => 0, 'einsatz_unpruefbar' => 1, 'im_einsatz' => 2];
+        usort($personen, fn ($a, $b) => [($rang[$a['topf']] ?? 3), mb_strtolower($a['name'])]
+            <=> [($rang[$b['topf']] ?? 3), mb_strtolower($b['name'])]);
+
+        return [
+            'interview' => $interview,
+            'leiter' => $leiter,
+            'kennzahlen' => $kennzahlen,
+            'personen' => $personen,
+        ];
+    }
+
     public function drill(string $token, string $column = 'ids', string $columnLabel = ''): void
     {
         $vm = $this->viewModel();

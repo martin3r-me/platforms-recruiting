@@ -123,19 +123,11 @@
             ['key' => 'unterschrieben', 'label' => 'Unterschrieben',
              'on' => 'bg-emerald-200 text-emerald-900', 'total' => 'bg-emerald-300 text-emerald-950',
              'title' => 'Mindestens ein Vertrag mit signed_at — das Ziel des Trichters.'],
-            // SCHULUNG → EINSATZ (Markus, 09.09.2026): drei ehrliche Toepfe je
-            // Teilgenommenem. Zuweisungen matchen nur ueber die ZAS-PersNr des
-            // Mitarbeiters — „Nicht pruefbar“ ist deshalb ein eigener Topf und
-            // zaehlt NICHT still als „ohne Einsatz“.
-            ['key' => 'im_einsatz', 'label' => 'Im Einsatz', 'gstart' => true,
-             'on' => 'bg-indigo-100 text-indigo-900', 'total' => 'bg-indigo-200 text-indigo-950',
-             'title' => 'Teilgenommene mit mindestens einer Dispo-Zuweisung (geplant oder vergangen; Stornos und aus ZAS entfernte zählen nicht). Anzahl und erstes Einsatzdatum stehen im Klick-Dialog.'],
-            ['key' => 'ohne_einsatz', 'label' => 'Ohne Einsatz',
-             'on' => 'bg-orange-100 text-orange-900', 'total' => 'bg-orange-200 text-orange-950',
-             'title' => 'Teilgenommene MIT Mitarbeiter und ZAS-Personalnummer, aber ohne eine einzige Dispo-Zuweisung — die Nachverfolgungs-Liste.'],
-            ['key' => 'einsatz_unpruefbar', 'label' => 'Nicht prüfbar',
-             'on' => 'bg-gray-200 text-gray-700', 'total' => 'bg-gray-300 text-gray-800',
-             'title' => 'Teilgenommene ohne angelegten Mitarbeiter oder ohne ZAS-Personalnummer — der Dispo-Import kann nur über die Personalnummer zuordnen. Das ist eine Stammdaten-Lücke, keine Aussage über Einsätze.'],
+            // Die drei Einsatz-Toepfe stehen NICHT mehr als Spalten hier — die
+            // Tabelle traegt nur die QUOTE (eigene Zelle neben der Belegung),
+            // die Tiefe liegt in der Schulungs-Detailansicht (Klick auf die
+            // Quote bzw. openTerminDetail). Datenseitig existieren die Spalten
+            // im Assigner weiter (Detailansicht, Drilldown der Gesamt-Zeile).
             ['key' => 'offen_ids', 'label' => 'Noch offen', 'gstart' => true,
              'on' => 'bg-gray-100 text-gray-700', 'total' => 'bg-gray-200 text-gray-800',
              'onlyRunning' => true,
@@ -147,6 +139,8 @@
         ['label' => 'Termin', 'span' => 3, 'title' => 'Wann, wo und für welche Ausschreibung.'],
         ['label' => 'Belegung', 'span' => 1,
          'title' => 'Plätze des Termins: belegt von allen platzbelegenden Buchungen, unabhängig von den Filtern dieser Seite. Rot, wenn die Belegung unter der Mindestteilnehmerzahl des Termins liegt.'],
+        ['label' => 'Einsatz', 'span' => 1,
+         'title' => 'Dispo-Abgleich: wie viele der Teilgenommenen haben mindestens einen Einsatz (geplant oder vergangen). Klick öffnet die Schulungs-Detailansicht mit Schulungsleiter, Aufteilung (ohne Einsatz / nicht prüfbar) und der Personenliste. Vertrag ist KEINE Bedingung — gearbeitet wird teils vor der Unterschrift.'],
         // Reaktion: Bestätigt (confirmed_at-Stempel) + Keine Reaktion (Platz
         // freigegeben). Zahlen aus der Kohorte, die Belegung daneben aus der
         // Termin-Query — zwei Quellen, werden nicht verrechnet.
@@ -158,8 +152,6 @@
          'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'] : null,
         ['label' => 'Vertrag', 'span' => 2,
          'title' => 'Das Ziel: Vertrag verschickt und unterschrieben.'],
-        ['label' => 'Einsatz', 'span' => 3,
-         'title' => 'Dispo-Abgleich der Teilgenommenen: im Einsatz, ohne Einsatz oder (mangels Mitarbeiter/ZAS-Personalnummer) nicht prüfbar. Vertrag ist dafür KEINE Bedingung — gearbeitet wird teils vor der Unterschrift.'],
         ['label' => 'Stand', 'span' => 2,
          'title' => 'Was noch offen ist und was daraus geworden ist.'],
     ]));
@@ -250,6 +242,11 @@
                         <th class="sticky top-7 z-20 border-l border-[var(--ui-border)]/60 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
                             title="{{ $belegungTitle }}">
                             Belegt
+                            <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
+                        </th>
+                        <th class="sticky top-7 z-20 border-l border-[var(--ui-border)]/60 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
+                            title="Teilgenommene mit mindestens einer Dispo-Zuweisung / Teilgenommene gesamt. Klick auf die Zahl öffnet die Detailansicht des Termins.">
+                            Im Einsatz
                             <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                         </th>
                         @foreach ($colDefs as $col)
@@ -355,6 +352,10 @@
                                 'min' => $interviewRow['min'] ?? null,
                                 'borderLeft' => true, 'title' => $belegungTitle,
                             ])
+                            @include('recruiting::livewire.statistics.einsatz-quote', [
+                                'rows' => $interviewRow['rows'],
+                                'interviewId' => $interviewId,
+                            ])
                             @include('recruiting::livewire.statistics.cells', ['rows' => $interviewRow['rows'], 'token' => $rowToken, 'prefix' => $rowPrefix, 'isTotal' => false])
                             @include('recruiting::livewire.statistics.conversion', ['rows' => $interviewRow['rows'], 'isTotal' => false])
                         </tr>
@@ -409,6 +410,10 @@
                                     'taken' => null, 'max' => null, 'borderLeft' => true,
                                     'title' => 'Plätze gehören dem Termin, nicht der Ausschreibung — eine Herkunft hat keine eigene Kapazität.',
                                 ])
+                                @include('recruiting::livewire.statistics.einsatz-quote', [
+                                    'rows' => $origin['rows'],
+                                    'interviewId' => null,
+                                ])
                                 @include('recruiting::livewire.statistics.cells', ['rows' => $origin['rows'], 'token' => $originToken, 'prefix' => $originPrefix, 'isTotal' => false])
                                 @include('recruiting::livewire.statistics.conversion', ['rows' => $origin['rows'], 'isTotal' => false])
                             </tr>
@@ -445,6 +450,12 @@
                             'taken' => $belegung['taken'], 'max' => $belegung['max'],
                             'borderLeft' => true, 'pad' => 'px-3 py-3',
                             'title' => 'Σ belegte Plätze / Σ Plätze der Termine dieser Auswahl. ' . $belegung['reason'],
+                        ])
+                        @include('recruiting::livewire.statistics.einsatz-quote', [
+                            'rows' => $allRows,
+                            'interviewId' => null,
+                            'drillToken' => $allToken,
+                            'isTotal' => true,
                         ])
                         @include('recruiting::livewire.statistics.cells', ['rows' => $allRows, 'token' => $allToken, 'prefix' => 'Gesamt (Termine dieser Auswahl)', 'isTotal' => true])
                         @include('recruiting::livewire.statistics.conversion', ['rows' => $allRows, 'isTotal' => true])

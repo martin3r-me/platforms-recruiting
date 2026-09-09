@@ -768,6 +768,92 @@
         $campaignRunning = $campaignProgress !== null && !($campaignProgress['done'] ?? false);
         $pollAttr = $campaignRunning ? 'wire:poll.3s' : '';
     @endphp
+    {{-- SCHULUNGS-DETAILANSICHT (09.09.2026): die Termin-Tabelle traegt nur die
+         Einsatz-Quote, hier liegt die Tiefe — Schulungsleiter, Toepfe und die
+         Personenliste („Ohne Einsatz“ zuoberst: das ist die Arbeitsliste).
+         Daten via terminDetailFor(); die Computed-Karten werden EINMAL gelesen. --}}
+    <x-ui-modal wire:model="showTerminDetail" size="lg">
+        <x-slot name="header">Schulung im Detail</x-slot>
+        @php
+            // $this-> statt extrahierter View-Variablen: die Render-Probe der
+            // Tests bindet nur die Komponente, nicht Livewires Property-Export.
+            $terminDetail = ($this->showTerminDetail && $this->terminDetailId)
+                ? $this->terminDetailFor((int) $this->terminDetailId, $this->cohort['termin_rows'], $this->cohort['einsatz_info'])
+                : null;
+        @endphp
+        @if ($terminDetail === null)
+            <div class="py-6 text-center text-sm text-[color:var(--ui-muted)]">Termin nicht gefunden.</div>
+        @else
+            @php $tk = $terminDetail['kennzahlen']; @endphp
+            <div class="mb-3 space-y-1 text-sm text-[color:var(--ui-secondary)]">
+                <div class="font-semibold">
+                    {{ $terminDetail['interview']->starts_at?->format('d.m.Y H:i') }}
+                    · {{ $terminDetail['interview']->position?->title ?? 'ohne Stelle' }}
+                </div>
+                @if (($terminDetail['interview']->location ?? '') !== '')
+                    <div class="text-xs text-[color:var(--ui-muted)]">{{ $terminDetail['interview']->location }}</div>
+                @endif
+                <div class="text-xs text-[color:var(--ui-muted)]">
+                    Schulungsleiter:
+                    {{ $terminDetail['leiter'] === [] ? 'am Termin nicht gepflegt' : implode(', ', $terminDetail['leiter']) }}
+                </div>
+            </div>
+            <div class="mb-3 flex flex-wrap gap-2 text-xs">
+                <span class="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-900">{{ $tk['teilgenommen'] }} teilgenommen</span>
+                <span class="rounded-full bg-indigo-100 px-2 py-0.5 font-medium text-indigo-900">{{ $tk['im_einsatz'] }} im Einsatz</span>
+                <span class="rounded-full bg-orange-100 px-2 py-0.5 font-medium text-orange-900">{{ $tk['ohne_einsatz'] }} ohne Einsatz</span>
+                <span class="rounded-full bg-gray-200 px-2 py-0.5 font-medium text-gray-700"
+                      title="Ohne Mitarbeiter oder ohne ZAS-Personalnummer ist keine Dispo-Aussage möglich — der Import ordnet nur über die Personalnummer zu.">{{ $tk['einsatz_unpruefbar'] }} nicht prüfbar</span>
+                <span class="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-900">{{ $tk['vertrag_verschickt'] }} Verträge · {{ $tk['unterschrieben'] }} unterschrieben</span>
+            </div>
+            <div class="max-h-[55vh] overflow-auto rounded-lg border border-[var(--ui-border)]/60">
+                <table class="w-full border-collapse text-sm">
+                    <thead>
+                        <tr class="border-b border-[var(--ui-border)]/60 bg-[var(--ui-muted-5)] text-left text-xs uppercase tracking-wide text-[var(--ui-muted)]">
+                            <th class="px-3 py-2">Person</th>
+                            <th class="px-3 py-2">Status</th>
+                            <th class="px-3 py-2 text-center" title="Hat die Schulung bestätigt (WhatsApp oder HR)">Best.</th>
+                            <th class="px-3 py-2">Vertrag</th>
+                            <th class="px-3 py-2">Einsätze</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[var(--ui-border)]/60">
+                        @foreach ($terminDetail['personen'] as $person)
+                            <tr @class(['bg-orange-50/60' => $person['topf'] === 'ohne_einsatz'])>
+                                <td class="px-3 py-2">
+                                    <a href="{{ $person['employee']
+                                            ? route('recruiting.employees.show', $person['employee'])
+                                            : ($person['applicant'] ? route('recruiting.applicants.show', $person['applicant']) : '#') }}"
+                                       class="text-[color:var(--ui-primary)] hover:underline">{{ $person['name'] }}</a>
+                                </td>
+                                <td class="px-3 py-2 text-xs">{{ $person['status'] }}</td>
+                                <td class="px-3 py-2 text-center text-xs">{{ $person['bestaetigt'] ? '✓' : '–' }}</td>
+                                <td class="px-3 py-2 text-xs">
+                                    {{ $person['vertrag'] === 'unterschrieben' ? 'unterschrieben' : ($person['vertrag'] === 'verschickt' ? 'verschickt' : '–') }}
+                                </td>
+                                <td class="px-3 py-2 text-xs whitespace-nowrap tabular-nums">
+                                    @if ($person['topf'] === 'im_einsatz')
+                                        {{ $person['einsaetze'] }} {{ $person['einsaetze'] === 1 ? 'Einsatz' : 'Einsätze' }}
+                                        · erster {{ \Illuminate\Support\Carbon::parse($person['erster_einsatz'])->format('d.m.Y') }}
+                                    @elseif ($person['topf'] === 'ohne_einsatz')
+                                        <span class="font-medium text-orange-700">keine Einsätze</span>
+                                    @elseif ($person['grund'] === 'kein_ma')
+                                        <span class="text-[color:var(--ui-muted)]">kein Mitarbeiter angelegt</span>
+                                    @elseif ($person['grund'] === 'keine_pnr')
+                                        <span class="text-[color:var(--ui-muted)]">keine ZAS-Personalnummer</span>
+                                    @else
+                                        <span class="text-[color:var(--ui-muted)]"
+                                              title="Nicht teilgenommen — der Dispo-Abgleich zählt nur Bestandene.">–</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+    </x-ui-modal>
+
     <x-ui-modal wire:model="showDrill" size="lg" :hideFooter="!$campaignEnabled">
         <x-slot name="header">
             {{ $this->drillLabel !== '' ? $this->drillLabel : 'Personen' }} ({{ count($this->drillIds) }})

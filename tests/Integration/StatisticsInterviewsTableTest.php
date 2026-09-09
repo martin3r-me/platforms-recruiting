@@ -245,6 +245,47 @@ class StatisticsInterviewsTableTest extends TestCase
         $this->assertFalse($juli['has_posting']);
     }
 
+    public function test_schulungs_detailansicht_liefert_kopf_kennzahlen_und_arbeitsliste(): void
+    {
+        // Die Detailansicht je Termin (User-Idee 09.09.2026): die Tabelle bleibt
+        // schlank (eine Quote-Spalte), die Tiefe — Schulungsleiter, Toepfe,
+        // Personenliste mit Einsatzdaten — liegt einen Klick dahinter.
+        $component = $this->component('Essen');
+        $cohort = $component->cohort();
+        $detail = $component->terminDetailFor(self::INTERVIEW_AUGUST, $cohort['termin_rows'], $cohort['einsatz_info']);
+
+        $this->assertSame('Bahnhof Duisburg, Gleis 3', $detail['interview']->location);
+        $this->assertSame(['Ben Trainer', 'Clara Setzkorn'], $detail['leiter'], 'Schulungsleiter, alphabetisch');
+
+        $this->assertSame(4, $detail['kennzahlen']['ids']);
+        $this->assertSame(2, $detail['kennzahlen']['teilgenommen']);
+        $this->assertSame(1, $detail['kennzahlen']['im_einsatz']);
+        $this->assertSame(1, $detail['kennzahlen']['ohne_einsatz']);
+
+        // Arbeitsliste: „Ohne Einsatz" zuerst (das ist die Nachverfolgungs-
+        // Liste), dann nicht pruefbar, dann im Einsatz, dann der Rest.
+        $ids = array_column($detail['personen'], 'id');
+        $this->assertSame(208, $ids[0], 'ohne Einsatz zuoberst');
+        $person208 = $detail['personen'][0];
+        $this->assertSame('ohne_einsatz', $person208['topf']);
+        $this->assertSame('Teilgenommen', $person208['status']);
+        $this->assertSame(0, $person208['einsaetze']);
+        $this->assertTrue($person208['hat_pnr']);
+
+        $person204 = collect($detail['personen'])->firstWhere('id', 204);
+        $this->assertSame('im_einsatz', $person204['topf']);
+        $this->assertSame(2, $person204['einsaetze']);
+        $this->assertSame('2026-09-12', $person204['erster_einsatz']);
+
+        // Nicht-Teilgenommene stehen mit ihrem Status dabei (Vollstaendigkeit),
+        // aber ohne Einsatz-Topf
+        $person201 = collect($detail['personen'])->firstWhere('id', 201);
+        $this->assertNull($person201['topf']);
+
+        // Fremder/unbekannter Termin: fail-closed
+        $this->assertNull($component->terminDetailFor(999999, $cohort['termin_rows'], $cohort['einsatz_info']));
+    }
+
     public function test_schulung_zu_einsatz_drei_ehrliche_toepfe(): void
     {
         // Markus (09.09.2026): „Haben die Bestandenen Einsaetze — und wenn ja,
@@ -716,6 +757,32 @@ class StatisticsInterviewsTableTest extends TestCase
         //  - 208: MA mit PersNr, keine Zuweisung -> „ohne Einsatz"
         //  - 202: MA OHNE PersNr -> „nicht pruefbar" (Import kann nie matchen)
         //  - alle anderen: kein MA -> „nicht pruefbar"
+        // Schulungsleiter: die interviewers-Relation zeigt auf Core-users —
+        // die Tabelle existiert im Recruiting-Migrationssatz nicht, hier
+        // minimal angelegt (die Detailansicht liest nur den Namen, per
+        // Query-Builder-Join statt ueber das Core-Model).
+        Capsule::schema()->create('users', function ($t) {
+            $t->id();
+            $t->string('name');
+        });
+        // CRM-Link-Tabelle nur als leere Huelle: die Detailansicht laedt die
+        // Namens-Relation; ohne CRM-Daten faellt sie auf „Bewerber #id" zurueck
+        // — genau das prueft der Test mit.
+        Capsule::schema()->create('crm_contact_links', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('contact_id')->nullable();
+            $t->unsignedBigInteger('linkable_id');
+            $t->string('linkable_type');
+        });
+        Capsule::table('users')->insert([
+            ['id' => 700, 'name' => 'Clara Setzkorn'],
+            ['id' => 701, 'name' => 'Ben Trainer'],
+        ]);
+        Capsule::table('rec_interview_user')->insert([
+            ['rec_interview_id' => self::INTERVIEW_AUGUST, 'user_id' => 700],
+            ['rec_interview_id' => self::INTERVIEW_AUGUST, 'user_id' => 701],
+        ]);
+
         Capsule::table('rec_employees')->insert([
             ['id' => 501, 'uuid' => 'ivemp-501', 'team_id' => self::TEAM, 'rec_applicant_id' => 204,
              'personnel_number' => 'RG204', 'created_at' => $now, 'updated_at' => $now],

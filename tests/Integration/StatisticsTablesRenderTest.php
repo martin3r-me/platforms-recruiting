@@ -274,8 +274,12 @@ class StatisticsTablesRenderTest extends TestCase
         // Trichter-Stufen (Teilgenommen ist KEINE Teilmenge von Bestaetigt).
         $this->assertSame(1, $counts['groups_by_label']['Belegung'], 'nur noch Belegt');
         $this->assertSame(2, $counts['groups_by_label']['Reaktion'], 'Bestätigt + Keine Reaktion');
-        $this->assertSame(3, $counts['groups_by_label']['Einsatz'], 'Dispo-Abgleich: im Einsatz / ohne / nicht prüfbar');
-        $this->assertSame(3 + 1 + 2 + 5 + 2 + 3 + 2, $counts['group_sum'], 'Gruppenköpfe der Termin-Tabelle');
+        // Einsatz ist EINE Quote-Spalte (Klick → Detailansicht) — die drei
+        // Toepfe stehen nicht mehr als Spalten in der Tabelle (09.09.2026).
+        $this->assertSame(1, $counts['groups_by_label']['Einsatz'], 'nur die Quote, Tiefe per Klick');
+        $this->assertSame(3 + 1 + 1 + 2 + 5 + 2 + 2, $counts['group_sum'], 'Gruppenköpfe der Termin-Tabelle');
+        $this->assertStringContainsString('Im Einsatz', $html);
+        $this->assertStringContainsString('openTerminDetail', $html, 'Quote-Zelle öffnet die Detailansicht');
         $this->assertStringContainsString('Bestätigt', $html);
         $this->assertStringContainsString('Keine Reaktion', $html);
         $this->assertStringNotContainsString('Standby', $html, 'ein Wort fuer eine Sache');
