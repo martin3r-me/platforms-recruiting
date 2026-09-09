@@ -201,11 +201,40 @@ class RecApplicantExportObserver
     /**
      * Setzt export_changed_at auf now() per direktem DB-Update.
      * Vermeidet Model-Events / Rekursion.
+     *
+     * GATE (seit 09.09.2026): markiert wird nur, wen der Endpunkt auch
+     * ausliefern kann — Bewerber mit mindestens einem versendeten Vertrag und
+     * kein Testdatensatz (dieselben Bedingungen wie in
+     * ZasExportController::fetchChangedApplicants).
+     *
+     * Vorher markierte der Observer bedingungslos. Der Endpunkt filterte die
+     * Zeilen dann wieder weg, ihr Marker blieb aber fuer immer stehen: am
+     * 09.09.2026 waren 1935 der 2252 gesetzten Marker per Konstruktion nicht
+     * lieferbar. Das ist ungefaehrlich — ausgeliefert wurde nie etwas
+     * Falsches — macht aber die einzige Kennzahl unlesbar, an der man sieht,
+     * ob der Kanal ueberhaupt noch abgeholt wird. Genau daran ist die Analyse
+     * am 09.09. zuerst gescheitert.
+     *
+     * Es geht dadurch nichts verloren: der Export liefert immer den KOMPLETTEN
+     * Datensatz, keinen Feld-Diff. Aenderungen vor dem Vertragsversand sind
+     * beim Versand automatisch mit drin, und `RecContract::saved` setzt den
+     * Marker in genau diesem Moment.
+     *
+     * Das Gate steckt bewusst in der WHERE-Bedingung desselben UPDATEs statt
+     * in einer vorgeschalteten Pruefung — der Observer laeuft bei jedem
+     * Speichern, ein zweiter Roundtrip pro Aufruf waere spuerbar.
      */
     protected static function markApplicantId(int $applicantId): void
     {
         DB::table('rec_applicants')
             ->where('id', $applicantId)
+            ->where('is_test', false)
+            ->whereExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('rec_contracts')
+                    ->whereColumn('rec_contracts.rec_applicant_id', 'rec_applicants.id')
+                    ->whereNotNull('rec_contracts.sent_at');
+            })
             ->update(['export_changed_at' => now()]);
     }
 }

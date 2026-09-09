@@ -47,6 +47,8 @@ class ReportSignedWithoutEmployee extends Command
         {--template=AV- : Praefix der Vertragsvorlagen-Codes (AV- = Arbeitsvertraege)}
         {--only=offen : offen|alle|kein-ma|unverlinkt|pruefen}
         {--csv= : Ergebnis zusaetzlich als CSV in diese Datei schreiben}
+        {--skip-tests : Testbewerber (rec_applicants.is_test) auslassen}
+        {--link= : Von Hand bestaetigte Paare setzen — bewerber:personalnummer, komma-getrennt (z. B. 612:MA18069,746:RG17786)}
         {--backfill-links : Eindeutige Treffer als rec_applicant_id nachtragen}
         {--dry-run : Mit --backfill-links: nur zeigen, was verknuepft wuerde}';
 
@@ -72,7 +74,11 @@ class ReportSignedWithoutEmployee extends Command
             return self::FAILURE;
         }
 
-        $cohort = $this->loadCohort($teamId, $prefix);
+        if ($this->option('link')) {
+            return $this->linkPairs((string) $this->option('link'), (bool) $this->option('dry-run'));
+        }
+
+        $cohort = $this->loadCohort($teamId, $prefix, (bool) $this->option('skip-tests'));
         if ($cohort === []) {
             $this->warn("Keine Bewerber mit signiertem Vertrag (Vorlagen-Praefix '{$prefix}') gefunden.");
 
@@ -144,7 +150,7 @@ class ReportSignedWithoutEmployee extends Command
      *
      * @return array<int,array{signed_at:string,templates:string}>
      */
-    protected function loadCohort(?int $teamId, string $prefix): array
+    protected function loadCohort(?int $teamId, string $prefix, bool $skipTests = false): array
     {
         $rows = DB::table('rec_contracts as c')
             ->join('rec_contract_templates as t', 't.id', '=', 'c.rec_contract_template_id')
@@ -152,6 +158,12 @@ class ReportSignedWithoutEmployee extends Command
             ->whereNotNull('c.signature_data')
             ->where('t.code', 'like', $prefix . '%')
             ->when($teamId !== null, fn ($q) => $q->where('c.team_id', $teamId))
+            ->when($skipTests, fn ($q) => $q->whereExists(function ($sub) {
+                $sub->select(DB::raw(1))
+                    ->from('rec_applicants')
+                    ->whereColumn('rec_applicants.id', 'c.rec_applicant_id')
+                    ->where('rec_applicants.is_test', false);
+            }))
             ->groupBy('c.rec_applicant_id')
             ->selectRaw('c.rec_applicant_id as applicant_id')
             ->selectRaw('MIN(c.completed_at) as signed_at')
@@ -467,5 +479,105 @@ class ReportSignedWithoutEmployee extends Command
         $number = $employeesById[$employeeId]['personnel_number'] ?? null;
 
         return ($number !== null && $number !== '') ? (string) $number : '#' . $employeeId;
+    }
+
+    /**
+     * Von Hand bestaetigte Paare verknuepfen.
+     *
+     * Die schwachen Paesse (Nachname, Teil-Name, nur Geburtsdatum) duerfen nie
+     * automatisch schreiben — aber sie liefern die Kandidaten, die ein Mensch
+     * dann bestaetigt. Dieser Weg fuehrt genau diese Entscheidung aus, ohne
+     * dass jemand SQL auf der Produktion tippt. Jedes Paar wird trotzdem
+     * geprueft: Bewerber muss existieren, Mitarbeiter muss auffindbar sein,
+     * und ein bereits gesetzter Link auf einen ANDEREN Bewerber wird nicht
+     * ueberschrieben — sonst haengt der Vertrag danach in der falschen Akte.
+     */
+    private function linkPairs(string $raw, bool $dryRun): int
+    {
+        $rows = [];
+        $errors = 0;
+        $written = 0;
+
+        foreach (array_filter(array_map('trim', explode(',', $raw))) as $pair) {
+            if (!preg_match('/^(\d+)\s*:\s*(.+)$/', $pair, $m)) {
+                $this->error("Ungueltiges Paar '{$pair}' — erwartet bewerber:personalnummer.");
+                $errors++;
+                continue;
+            }
+
+            $applicantId = (int) $m[1];
+            $key = trim($m[2]);
+
+            $applicant = DB::table('rec_applicants')->where('id', $applicantId)->first(['id']);
+            if ($applicant === null) {
+                $rows[] = [$applicantId, $key, '—', 'Bewerber existiert nicht'];
+                $errors++;
+                continue;
+            }
+
+            // Mitarbeiter per Personalnummer oder per #id ansprechbar: die
+            // nummernlosen Faelle haben nur eine ID.
+            $query = DB::table('rec_employees');
+            $employees = str_starts_with($key, '#')
+                ? $query->where('id', (int) ltrim($key, '#'))->get(['id', 'personnel_number', 'rec_applicant_id'])
+                : $query->where('personnel_number', $key)->get(['id', 'personnel_number', 'rec_applicant_id']);
+
+            if ($employees->isEmpty()) {
+                $rows[] = [$applicantId, $key, '—', 'Mitarbeiter nicht gefunden'];
+                $errors++;
+                continue;
+            }
+            if ($employees->count() > 1) {
+                $rows[] = [$applicantId, $key, '—', 'mehrdeutig: ' . $employees->pluck('id')->implode(', ')];
+                $errors++;
+                continue;
+            }
+
+            $employee = $employees->first();
+            $current = $employee->rec_applicant_id !== null ? (int) $employee->rec_applicant_id : null;
+
+            if ($current === $applicantId) {
+                $rows[] = [$applicantId, $key, $employee->id, 'schon verknuepft'];
+                continue;
+            }
+            if ($current !== null) {
+                $rows[] = [$applicantId, $key, $employee->id, "haengt an Bewerber #{$current} — nicht ueberschrieben"];
+                $errors++;
+                continue;
+            }
+
+            if ($dryRun) {
+                $rows[] = [$applicantId, $key, $employee->id, 'wuerde verknuepft'];
+                continue;
+            }
+
+            $affected = DB::table('rec_employees')
+                ->where('id', $employee->id)
+                ->whereNull('rec_applicant_id')
+                ->update(['rec_applicant_id' => $applicantId]);
+
+            if ($affected === 1) {
+                $written++;
+                Log::info('[recruiting:report-signed-without-employee] Paar von Hand verknuepft', [
+                    'employee_id' => (int) $employee->id,
+                    'rec_applicant_id' => $applicantId,
+                ]);
+                $rows[] = [$applicantId, $key, $employee->id, 'verknuepft'];
+            } else {
+                $rows[] = [$applicantId, $key, $employee->id, 'zwischenzeitlich gesetzt — uebersprungen'];
+                $errors++;
+            }
+        }
+
+        $this->table(['Bewerber', 'Schluessel', 'MA', 'Ergebnis'], $rows);
+        $this->newLine();
+        $this->info(sprintf(
+            '%s: %d verknuepft, %d beanstandet.',
+            $dryRun ? 'Probelauf' : 'Fertig',
+            $written,
+            $errors
+        ));
+
+        return $errors === 0 ? self::SUCCESS : self::FAILURE;
     }
 }

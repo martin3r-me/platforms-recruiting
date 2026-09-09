@@ -4,10 +4,12 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecZasInboundFile;
 use Platform\Recruiting\Services\Zas\ZasEmployeeFieldResolver;
 use Platform\Recruiting\Services\Zas\ZasInboundColumnReport;
 use Platform\Recruiting\Services\Zas\ZasInboundRowMapper;
+use Platform\Recruiting\Services\Zas\ZasInboundUuidAudit;
 
 /**
  * Zeigt je ZAS-Spalte, wie oft sie in den gespeicherten Lieferungen einen Wert
@@ -35,7 +37,8 @@ class ZasInboundColumns extends Command
                             {fileId? : ID aus rec_zas_inbound_files; ohne Angabe die neueste Echt-Lieferung}
                             {--all : ueber alle Echt-Lieferungen zusammen rechnen}
                             {--only-empty : nur Spalten ohne einen einzigen Wert}
-                            {--samples : Beispielwerte mitzeigen — ACHTUNG, echte Personendaten in der Ausgabe}';
+                            {--samples : Beispielwerte mitzeigen — ACHTUNG, echte Personendaten in der Ausgabe}
+                            {--uuid-audit : Statt Fuellgrad: welche unserer UUIDs hat ZAS je zurueckgespiegelt?}';
 
     protected $description = 'Fuellgrad je Spalte der gespeicherten ZAS-Mitarbeiter-Lieferungen (nur lesend)';
 
@@ -76,6 +79,10 @@ class ZasInboundColumns extends Command
             $this->error('Keine der Rohdateien war lesbar.');
 
             return self::FAILURE;
+        }
+
+        if ($this->option('uuid-audit')) {
+            return $this->uuidAudit($files, $contents);
         }
 
         $samples = (bool) $this->option('samples');
@@ -200,5 +207,106 @@ class ZasInboundColumns extends Command
         }
 
         return $rows;
+    }
+
+    /**
+     * UUID-Audit: welche unserer Datensaetze hat ZAS je zurueckgespiegelt?
+     *
+     * Zwei Richtungen, weil beide Fragen im Alltag vorkommen:
+     *  - vorwaerts: die gesehenen UUIDs, aufgeteilt in Mitarbeiter/Bewerber/
+     *    unbekannt — sagt, ob die Rueckgabe grundsaetzlich funktioniert;
+     *  - rueckwaerts: unsere eigenen Anlagen (rec_zas_inbound_file_id NULL),
+     *    je Datensatz „schon mal zurueckgekommen?" — sagt, ob ein bestimmter
+     *    Mensch in ZAS existiert. Genau das ist bei den Faellen ohne
+     *    Personalnummer die offene Frage.
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, RecZasInboundFile> $files
+     * @param  list<string> $contents
+     */
+    private function uuidAudit($files, array $contents): int
+    {
+        $deliveries = [];
+        foreach (array_values($contents) as $i => $content) {
+            $parsed = app(\Platform\Recruiting\Services\Zas\ZasInboundCsvParser::class)->parse($content);
+            $deliveries[] = ['id' => (int) ($files[$i]->id ?? 0), 'rows' => $parsed['rows']];
+        }
+
+        $collected = ZasInboundUuidAudit::collect($deliveries);
+        $seen = $collected['seen'];
+
+        $uuids = array_keys($seen);
+        $employeeUuids = [];
+        $applicantUuids = [];
+        foreach (array_chunk($uuids, 500) as $chunk) {
+            foreach (RecEmployee::whereIn('uuid', $chunk)->get(['id', 'uuid']) as $e) {
+                $employeeUuids[strtolower((string) $e->uuid)] = (int) $e->id;
+            }
+            foreach (\Platform\Recruiting\Models\RecApplicant::whereIn('uuid', $chunk)->get(['id', 'uuid']) as $a) {
+                $applicantUuids[strtolower((string) $a->uuid)] = (int) $a->id;
+            }
+        }
+
+        $classified = ZasInboundUuidAudit::classify($seen, $employeeUuids, $applicantUuids);
+
+        $this->newLine();
+        $this->info(sprintf('UUID-Audit — %d Lieferung(en), %d Zeilen gelesen.', count($deliveries), $collected['rows']));
+        $this->line(sprintf('  Zeilen mit UUID          %d (%s%%)', $collected['with_uuid'],
+            $collected['rows'] > 0 ? number_format($collected['with_uuid'] / $collected['rows'] * 100, 1) : '0'));
+        $this->line(sprintf('  verschiedene UUIDs       %d', count($seen)));
+        $this->line(sprintf('    davon Mitarbeiter      %d', $classified['employees']));
+        $this->line(sprintf('    davon Bewerber         %d', $classified['applicants']));
+        $this->line(sprintf('    unbekannt              %d', $classified['unknown']));
+        if ($classified['unknown_samples'] !== []) {
+            $this->warn('    Beispiele unbekannt: ' . implode(', ', $classified['unknown_samples']));
+        }
+
+        // Gegenrichtung: unsere eigenen Anlagen.
+        $own = RecEmployee::whereNull('rec_zas_inbound_file_id')
+            ->orderBy('id')
+            ->get(['id', 'uuid', 'first_name', 'last_name', 'personnel_number', 'zas_initial_exported_at']);
+
+        $traced = collect(ZasInboundUuidAudit::trace(
+            $own->map(fn ($e) => ['id' => (int) $e->id, 'uuid' => $e->uuid])->all(),
+            $seen
+        ))->keyBy('id');
+
+        $seenCount = $traced->where('seen', true)->count();
+        $this->newLine();
+        $this->info(sprintf(
+            'Eigene Anlagen: %d — davon %d je zurueckgespiegelt (%s%%).',
+            $own->count(),
+            $seenCount,
+            $own->count() > 0 ? number_format($seenCount / max($own->count(), 1) * 100, 1) : '0'
+        ));
+
+        $offen = $own->filter(fn ($e) => trim((string) $e->personnel_number) === '');
+        if ($offen->isEmpty()) {
+            $this->info('Keine eigene Anlage ohne Personalnummer — nichts offen.');
+
+            return self::SUCCESS;
+        }
+
+        $this->newLine();
+        $this->line('<comment>Eigene Anlagen ohne Personalnummer:</comment>');
+        $this->table(
+            ['MA', 'Name', 'exportiert', 'UUID zurueckgekommen', 'Zeilen', 'letzte Lieferung'],
+            $offen->map(function ($e) use ($traced) {
+                $t = $traced[(int) $e->id] ?? ['seen' => false, 'count' => 0, 'last_file' => null];
+
+                return [
+                    $e->id,
+                    trim(((string) $e->first_name) . ' ' . ((string) $e->last_name)),
+                    $e->zas_initial_exported_at ? $e->zas_initial_exported_at->format('Y-m-d') : 'nie',
+                    $t['seen'] ? 'JA' : 'nein',
+                    $t['count'] ?: '',
+                    $t['last_file'] !== null ? '#' . $t['last_file'] : '',
+                ];
+            })->all()
+        );
+        $this->newLine();
+        $this->line('<comment>UUID zurueckgekommen = JA</comment> → der Datensatz existiert in ZAS, die Personalnummer ist auf dem Rueckweg verloren gegangen.');
+        $this->line('<comment>nein</comment>                      → ZAS hat ihn nie zurueckgeschickt; entweder dort nicht angelegt oder nie ausgeliefert.');
+
+        return self::SUCCESS;
     }
 }
