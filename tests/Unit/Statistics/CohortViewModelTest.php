@@ -49,6 +49,7 @@ final class CohortViewModelTest extends TestCase
                 'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                 'teilgenommen' => [], 'standby' => [], 'no_show' => [], 'aussortiert' => [],
                 'vertrag_verschickt' => [], 'unterschrieben' => [],
+                'im_einsatz' => [], 'ohne_einsatz' => [], 'einsatz_unpruefbar' => [],
             ], $columns),
         ];
     }

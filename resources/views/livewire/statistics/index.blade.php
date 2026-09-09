@@ -825,7 +825,23 @@
                             {{ $applicantName ?: 'Bewerber #' . $applicant->id }}
                         </a>
                         <span class="text-xs text-[color:var(--ui-muted)] whitespace-nowrap tabular-nums">
-                            {{ $applicant->applied_at?->format('d.m.Y') ?? 'ohne Datum' }}
+                            @if ($this->drillShowEinsatz)
+                                @php $einsatz = $this->cohort['einsatz_info'][$applicant->id] ?? null; @endphp
+                                @if ($einsatz === null)
+                                    –
+                                @elseif ($einsatz['grund'] === 'kein_ma')
+                                    kein Mitarbeiter angelegt
+                                @elseif ($einsatz['grund'] === 'keine_pnr')
+                                    keine ZAS-Personalnummer
+                                @elseif ($einsatz['count'] > 0)
+                                    {{ $einsatz['count'] }} {{ $einsatz['count'] === 1 ? 'Einsatz' : 'Einsätze' }} · erster
+                                    {{ \Illuminate\Support\Carbon::parse($einsatz['first'])->format('d.m.Y') }}
+                                @else
+                                    keine Einsätze
+                                @endif
+                            @else
+                                {{ $applicant->applied_at?->format('d.m.Y') ?? 'ohne Datum' }}
+                            @endif
                         </span>
                     </li>
                 @endforeach

@@ -425,6 +425,9 @@ class Index extends Component
                 // kein withTrashed(): der Assigner verwirft deleted ohnehin —
                 // SoftDeleted gar nicht erst laden
                 'interviewBookings' => fn ($q) => $q->with('interview:id,starts_at,location'),
+                // Schulung → Einsatz: die ZAS-PersNr entscheidet, ob der
+                // Dispo-Abgleich ueberhaupt moeglich ist (siehe unten).
+                'employee:id,rec_applicant_id,personnel_number',
                 // P4 verifiziert: rec_contracts.status ist string(30) NOT NULL
                 // default 'pending' (Migration 2026_04_15_100000) → '!=' ist
                 // NULL-safe. Dashboard zaehlt heute ungefiltert (bumpStatRow:421);
@@ -459,6 +462,64 @@ class Index extends Component
             ->unique('id')
             ->mapWithKeys(fn ($p) => [(int) $p->id => $p->rec_position_id])
             ->all();
+
+        // ------------------------------------------------------------------
+        // SCHULUNG → EINSATZ (Markus, 09.09.2026): je Bewerbung eine von drei
+        // ehrlichen Aussagen fuer den Dispo-Abgleich der Termin-Tabelle.
+        // Zuweisungen matchen im Dispo-Import ausschliesslich ueber die
+        // ZAS-Personalnummer des Mitarbeiters — ohne MA oder ohne PersNr ist
+        // die Frage NICHT pruefbar und darf nicht still als „ohne Einsatz"
+        // zaehlen (das waere die naechste Zahl, an der es zwischen Dispo und
+        // HR knirscht).
+        //
+        // Ein Einsatz zaehlt, wenn er kein Storno ist (status_id 3) und nicht
+        // aus dem ZAS entfernt/geloescht wurde. Angebote (status_id 0) zaehlen
+        // MIT: „geplant oder vergangen" war die ausdrueckliche Anforderung.
+        $employeeByApplicant = [];
+        foreach ($applicants as $a) {
+            if ($a->employee) {
+                $employeeByApplicant[$a->id] = $a->employee;
+            }
+        }
+        $pruefbareEmployeeIds = collect($employeeByApplicant)
+            ->filter(fn ($e) => trim((string) $e->personnel_number) !== '')
+            ->map(fn ($e) => (int) $e->id)
+            ->values();
+        $einsatzJeEmployee = $pruefbareEmployeeIds->isEmpty() ? collect() :
+            \Platform\Recruiting\Models\RecDispoAssignment::query()
+                ->whereIn('rec_employee_id', $pruefbareEmployeeIds)
+                ->where('status_id', '!=', 3)
+                ->whereNull('zas_removed_at')
+                ->whereNull('deletion_confirmed_at')
+                ->groupBy('rec_employee_id')
+                ->selectRaw('rec_employee_id, COUNT(*) as anzahl, MIN(datum) as erster')
+                ->get()
+                ->keyBy('rec_employee_id');
+
+        // Karte fuer Zeilen-Flag, Drilldown-Anzeige und die „Erster Einsatz"-
+        // Spalte der Ausschreibungs-Tabelle: applicant_id → count/first/grund.
+        $einsatzInfo = [];
+        $einsatzFlag = function (int $applicantId) use ($employeeByApplicant, $einsatzJeEmployee, &$einsatzInfo): string {
+            $employee = $employeeByApplicant[$applicantId] ?? null;
+            if (!$employee) {
+                $einsatzInfo[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'kein_ma'];
+
+                return 'unverifiable';
+            }
+            if (trim((string) $employee->personnel_number) === '') {
+                $einsatzInfo[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'keine_pnr'];
+
+                return 'unverifiable';
+            }
+            $treffer = $einsatzJeEmployee->get((int) $employee->id);
+            $einsatzInfo[$applicantId] = [
+                'count' => (int) ($treffer->anzahl ?? 0),
+                'first' => $treffer?->erster !== null ? (string) $treffer->erster : null,
+                'grund' => null,
+            ];
+
+            return ($treffer->anzahl ?? 0) > 0 ? 'deployed' : 'none';
+        };
 
         $rows = [];
         $bookings = [];
@@ -506,6 +567,7 @@ class Index extends Component
                     ? null
                     : max((int) $phaseOrder, (int) $loggedOrder),
                 'enrichment_status' => $a->enrichment_status,
+                'einsatz' => $einsatzFlag($a->id),
                 'contract_sent' => $a->contracts->whereNotNull('sent_at')->isNotEmpty(),
                 'contract_signed' => $signed !== null,
                 'applied_to_signed_days' => ($signed && $a->applied_at)
@@ -748,6 +810,10 @@ class Index extends Component
         $result['applicant_position_ids'] = $applicantPositionIds;
         $result['posting_position_ids'] = $postingPositionIds;
 
+        // Dispo-Abgleich (siehe oben): count/first/grund je Bewerbung — fuer den
+        // Drilldown der Einsatz-Spalten und die „Erster Einsatz"-Zelle.
+        $result['einsatz_info'] = $einsatzInfo;
+
         return $result;
     }
 
@@ -984,6 +1050,34 @@ class Index extends Component
             ->all();
 
         return \Platform\Recruiting\Support\StatisticsPhaseColumns::plan($phases);
+    }
+
+    /**
+     * Fruehestes Einsatzdatum einer Zeilenmenge — fuellt die „Erster Einsatz"-
+     * Spalte der Ausschreibungs-Tabelle (Platzhalter seit V2, „kommt mit der
+     * Dispo"). Minimum ueber die Personen mit Einsaetzen; null, wenn niemand
+     * in der Menge einen zaehlbaren Einsatz hat.
+     *
+     * Die Karte kommt als Parameter (cohort()['einsatz_info']), nicht aus der
+     * Computed — die View liest sie EINMAL und reicht sie je Zeile durch,
+     * sonst liefe der Kohorten-Aufbau pro Tabellenzeile erneut.
+     *
+     * @param  list<array>  $rows  Assigner-Zeilen
+     * @param  array<int, array{count:int, first:?string, grund:?string}>  $info
+     */
+    public function ersterEinsatz(array $rows, array $info): ?string
+    {
+        $min = null;
+        foreach ($rows as $row) {
+            foreach ($row['columns']['im_einsatz'] ?? [] as $id) {
+                $first = $info[$id]['first'] ?? null;
+                if ($first !== null && ($min === null || $first < $min)) {
+                    $min = $first;
+                }
+            }
+        }
+
+        return $min;
     }
 
     /**
@@ -1667,6 +1761,9 @@ class Index extends Component
      * Programmierfehler und wirft in CohortViewModel::flatColumn weiter. Was von
      * draussen kommt, ist Eingabe; was drinnen passiert, ist Code.
      */
+    /** Einsatz-Detail im Drill-Modal (nur bei den Einsatz-Spalten). */
+    public bool $drillShowEinsatz = false;
+
     public function drill(string $token, string $column = 'ids', string $columnLabel = ''): void
     {
         $vm = $this->viewModel();
@@ -1701,6 +1798,10 @@ class Index extends Component
         };
 
         $this->drillIds = $vm->resolveIdsFromClient($rows, $spec, $column);
+
+        // Einsatz-Spalten: das Modal zeigt je Person Anzahl + erstes Datum bzw.
+        // den Grund, warum nichts zuzuordnen ist (kein MA / keine ZAS-PersNr).
+        $this->drillShowEinsatz = in_array($column, ['im_einsatz', 'ohne_einsatz', 'einsatz_unpruefbar'], true);
 
         $this->drillScopeType = (string) ($spec['type'] ?? '');
         $this->drillScopeName = (string) ($spec['scope'] ?? '');

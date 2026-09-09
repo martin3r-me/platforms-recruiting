@@ -25,7 +25,7 @@ class CohortAssignerTest extends TestCase
         return $overrides + [
             'booking_id' => $id, 'interview_id' => 10, 'status' => 'booked',
             'seat_released' => false, 'starts_at' => '2026-08-10 09:00:00', 'deleted' => false,
-            'confirmed' => false,
+            'confirmed' => false, 
         ];
     }
 
@@ -180,6 +180,41 @@ class CohortAssignerTest extends TestCase
         $this->assertSame([3], $row['columns']['no_show']);
         $this->assertSame([4], $row['columns']['unterschrieben']);
         $this->assertSame([12], $row['tth_days'], 'tth haengt an der Zeile (P5)');
+    }
+
+    public function test_einsatz_toepfe_nur_fuer_teilgenommene(): void
+    {
+        // Schulung → Einsatz (Markus, 09.09.2026): je TEILGENOMMENEM eine von
+        // drei ehrlichen Aussagen — im Einsatz (>= 1 Dispo-Zuweisung), ohne
+        // Einsatz (MA mit ZAS-Personalnummer, aber keine Zuweisung) oder nicht
+        // pruefbar (kein MA / keine PersNr — der Dispo-Import kann nur ueber
+        // die PersNr matchen). Wer nicht teilgenommen hat, zaehlt in KEINEM
+        // Topf: „bestanden" ist die Bezugsgroesse des Berichts.
+        $result = (new CohortAssigner())->assign(
+            [
+                $this->applicant(1, ['einsatz' => 'deployed']),
+                $this->applicant(2, ['einsatz' => 'none']),
+                $this->applicant(3, ['einsatz' => 'unverifiable']),
+                $this->applicant(4, ['einsatz' => 'deployed']),
+            ],
+            [
+                1 => [$this->booking(11, ['status' => 'attended'])],
+                2 => [$this->booking(12, ['status' => 'attended'])],
+                3 => [$this->booking(13, ['status' => 'attended'])],
+                4 => [$this->booking(14, ['status' => 'no_show'])],
+            ],
+            [], null, null
+        );
+        $row = array_values(array_filter($result['rows'], fn ($r) => $r['type'] === 'schulung'))[0];
+
+        $this->assertSame([1], $row['columns']['im_einsatz']);
+        $this->assertSame([2], $row['columns']['ohne_einsatz']);
+        $this->assertSame([3], $row['columns']['einsatz_unpruefbar']);
+        $this->assertSame(
+            [],
+            array_intersect([4], $row['columns']['im_einsatz']),
+            'No-Show mit Einsaetzen zaehlt nicht — nur Bestandene sind die Bezugsgroesse',
+        );
     }
 
     public function test_bestaetigt_kommt_vom_stempel_und_ueberlebt_den_status(): void

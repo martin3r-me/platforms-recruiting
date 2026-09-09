@@ -134,7 +134,7 @@
          'title' => 'Wann die Eingestellten das erste Mal arbeiten — kommt mit der Dispo.'],
     ]));
 
-    $groups = $this->postingGroups;    $groups = $this->postingGroups;
+    $groups = $this->postingGroups;
     $allToken = $this->drillToken('all', 'Gesamt');
 
     // Gesamt-Zeile: alles vorab, damit die Fusszeile nur noch ausgibt.
@@ -169,7 +169,11 @@
         . 'Zeilen-Prozente und Summen-Prozent können deshalb auseinandergehen; unter jedem Prozentwert '
         . 'steht der Bruch, aus dem er entsteht, und daneben, welche der beiden Rechnungen gilt. '
         . 'Grün ab 90 %, gelb ab 60 %. Grau in den ersten sieben Tagen und ohne gepflegte Werte.';
-    $einsatzTitle = 'kommt mit der Dispo';
+    // Dispo-Abgleich: fruehester Einsatz der Teilnehmer dieser Zeile (Karte
+    // EINMAL gelesen, je Zeile durchgereicht — ersterEinsatz() laeuft sonst
+    // pro Zeile gegen die Kohorte).
+    $einsatzInfo = $this->cohort['einsatz_info'] ?? [];
+    $einsatzTitle = 'Frühestes Einsatzdatum (Dispo-Zuweisung, geplant oder vergangen) unter den Teilgenommenen dieser Ausschreibung. „–“, wenn niemand einen zählbaren Einsatz hat oder mangels ZAS-Personalnummer nichts zuzuordnen ist.';
 @endphp
 
 <x-ui-panel title="Ausschreibungen" subtitle="Eine Zeile je Ausschreibung — läuft sie auf Ziel?">
@@ -375,7 +379,14 @@
                                 @endif
                             </td>
                             <td class="border-l border-[var(--ui-border)]/60 px-3 py-2 text-center whitespace-nowrap">
-                                <span class="cursor-help text-xs text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>
+                                @php $ersterEinsatz = $this->ersterEinsatz($groupRows, $einsatzInfo); @endphp
+                                @if ($ersterEinsatz !== null)
+                                    <span class="text-xs tabular-nums text-[color:var(--ui-secondary)]" title="{{ $einsatzTitle }}">
+                                        {{ \Illuminate\Support\Carbon::parse($ersterEinsatz)->format('d.m.Y') }}
+                                    </span>
+                                @else
+                                    <span class="cursor-help text-xs text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>
+                                @endif
                             </td>
                         </tr>
                     @endforeach
@@ -441,7 +452,14 @@
                             @endif
                         </td>
                         <td class="border-l border-[var(--ui-border)]/60 px-3 py-3 text-center whitespace-nowrap">
-                            <span class="cursor-help text-xs font-normal text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>
+                            @php $ersterEinsatzGesamt = $this->ersterEinsatz($this->cohort['rows'], $einsatzInfo); @endphp
+                            @if ($ersterEinsatzGesamt !== null)
+                                <span class="text-xs font-normal tabular-nums" title="{{ $einsatzTitle }}">
+                                    {{ \Illuminate\Support\Carbon::parse($ersterEinsatzGesamt)->format('d.m.Y') }}
+                                </span>
+                            @else
+                                <span class="cursor-help text-xs font-normal text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>
+                            @endif
                         </td>
                     </tr>
                 </tfoot>

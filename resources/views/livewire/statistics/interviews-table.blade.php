@@ -123,6 +123,19 @@
             ['key' => 'unterschrieben', 'label' => 'Unterschrieben',
              'on' => 'bg-emerald-200 text-emerald-900', 'total' => 'bg-emerald-300 text-emerald-950',
              'title' => 'Mindestens ein Vertrag mit signed_at — das Ziel des Trichters.'],
+            // SCHULUNG → EINSATZ (Markus, 09.09.2026): drei ehrliche Toepfe je
+            // Teilgenommenem. Zuweisungen matchen nur ueber die ZAS-PersNr des
+            // Mitarbeiters — „Nicht pruefbar“ ist deshalb ein eigener Topf und
+            // zaehlt NICHT still als „ohne Einsatz“.
+            ['key' => 'im_einsatz', 'label' => 'Im Einsatz', 'gstart' => true,
+             'on' => 'bg-indigo-100 text-indigo-900', 'total' => 'bg-indigo-200 text-indigo-950',
+             'title' => 'Teilgenommene mit mindestens einer Dispo-Zuweisung (geplant oder vergangen; Stornos und aus ZAS entfernte zählen nicht). Anzahl und erstes Einsatzdatum stehen im Klick-Dialog.'],
+            ['key' => 'ohne_einsatz', 'label' => 'Ohne Einsatz',
+             'on' => 'bg-orange-100 text-orange-900', 'total' => 'bg-orange-200 text-orange-950',
+             'title' => 'Teilgenommene MIT Mitarbeiter und ZAS-Personalnummer, aber ohne eine einzige Dispo-Zuweisung — die Nachverfolgungs-Liste.'],
+            ['key' => 'einsatz_unpruefbar', 'label' => 'Nicht prüfbar',
+             'on' => 'bg-gray-200 text-gray-700', 'total' => 'bg-gray-300 text-gray-800',
+             'title' => 'Teilgenommene ohne angelegten Mitarbeiter oder ohne ZAS-Personalnummer — der Dispo-Import kann nur über die Personalnummer zuordnen. Das ist eine Stammdaten-Lücke, keine Aussage über Einsätze.'],
             ['key' => 'offen_ids', 'label' => 'Noch offen', 'gstart' => true,
              'on' => 'bg-gray-100 text-gray-700', 'total' => 'bg-gray-200 text-gray-800',
              'onlyRunning' => true,
@@ -145,6 +158,8 @@
          'title' => 'Wege aus dem Trichter heraus, die keine Stufe sind.'] : null,
         ['label' => 'Vertrag', 'span' => 2,
          'title' => 'Das Ziel: Vertrag verschickt und unterschrieben.'],
+        ['label' => 'Einsatz', 'span' => 3,
+         'title' => 'Dispo-Abgleich der Teilgenommenen: im Einsatz, ohne Einsatz oder (mangels Mitarbeiter/ZAS-Personalnummer) nicht prüfbar. Vertrag ist dafür KEINE Bedingung — gearbeitet wird teils vor der Unterschrift.'],
         ['label' => 'Stand', 'span' => 2,
          'title' => 'Was noch offen ist und was daraus geworden ist.'],
     ]));

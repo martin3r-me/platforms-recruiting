@@ -245,6 +245,40 @@ class StatisticsInterviewsTableTest extends TestCase
         $this->assertFalse($juli['has_posting']);
     }
 
+    public function test_schulung_zu_einsatz_drei_ehrliche_toepfe(): void
+    {
+        // Markus (09.09.2026): „Haben die Bestandenen Einsaetze — und wenn ja,
+        // wie viele und ab wann?" Drei Toepfe je Termin, nur Teilgenommene:
+        // im Einsatz / ohne Einsatz (pruefbar!) / nicht pruefbar (kein MA oder
+        // keine ZAS-PersNr — darf NICHT still als „ohne Einsatz" zaehlen).
+        $component = $this->component('Essen');
+        $table = $this->tableOf($component);
+
+        $august = $this->rowOf($table, self::INTERVIEW_AUGUST);
+        $vm = new CohortViewModel();
+        $this->assertSame([204], $vm->resolveIds($august['rows'], ['scope' => 'all'], 'im_einsatz'));
+        $this->assertSame([208], $vm->resolveIds($august['rows'], ['scope' => 'all'], 'ohne_einsatz'));
+        $this->assertSame([], $vm->resolveIds($august['rows'], ['scope' => 'all'], 'einsatz_unpruefbar'),
+            'die uebrigen August-Buchungen sind nicht teilgenommen — kein Topf');
+
+        // Juli: 202 hat teilgenommen, sein MA traegt KEINE PersNr → nicht pruefbar
+        $juli = $this->rowOf($table, self::INTERVIEW_JULI);
+        $this->assertSame([202], $vm->resolveIds($juli['rows'], ['scope' => 'all'], 'einsatz_unpruefbar'));
+
+        // Anzahl + erstes Datum fuer den Drilldown; der Storno (status_id 3)
+        // zaehlt nicht und stellt auch nicht das erste Datum
+        $info = $component->cohort()['einsatz_info'];
+        $this->assertSame(['count' => 2, 'first' => '2026-09-12', 'grund' => null], $info[204]);
+        $this->assertSame(['count' => 0, 'first' => null, 'grund' => null], $info[208]);
+        $this->assertSame('keine_pnr', $info[202]['grund']);
+        $this->assertSame('kein_ma', $info[201]['grund']);
+
+        // „Erster Einsatz" je Zeilenmenge (fuellt die Platzhalter-Spalte in
+        // Tabelle 1): fruehestes Datum ueber die Personen mit Einsatz
+        $this->assertSame('2026-09-12', $component->ersterEinsatz($august['rows'], $info));
+        $this->assertNull($component->ersterEinsatz($juli['rows'], $info));
+    }
+
     public function test_termin_zeile_zaehlt_alle_teilnehmer_des_termins_nicht_nur_die_der_filiale(): void
     {
         // Live-Befund (Schulung 25.08.2026): 16 Buchungen auf attended, die Zeile
@@ -673,6 +707,38 @@ class StatisticsInterviewsTableTest extends TestCase
             // Termin-Zeile muss ihn trotzdem zaehlen.
             ['id' => 208, 'uuid' => 'ivapp-208', 'team_id' => self::TEAM, 'applied_at' => '2026-07-27',
              'rec_phase_id' => 2, 'is_test' => 0, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        // Schulung → Einsatz (09.09.2026): Dispo-Zuweisungen matchen nur ueber
+        // die ZAS-Personalnummer des Mitarbeiters. Drei Faelle:
+        //  - 204: MA mit PersNr und zwei echten Einsaetzen (+ ein Storno, der
+        //    NICHT zaehlt und NICHT das erste Datum stellen darf)
+        //  - 208: MA mit PersNr, keine Zuweisung -> „ohne Einsatz"
+        //  - 202: MA OHNE PersNr -> „nicht pruefbar" (Import kann nie matchen)
+        //  - alle anderen: kein MA -> „nicht pruefbar"
+        Capsule::table('rec_employees')->insert([
+            ['id' => 501, 'uuid' => 'ivemp-501', 'team_id' => self::TEAM, 'rec_applicant_id' => 204,
+             'personnel_number' => 'RG204', 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 502, 'uuid' => 'ivemp-502', 'team_id' => self::TEAM, 'rec_applicant_id' => 208,
+             'personnel_number' => 'RG208', 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 503, 'uuid' => 'ivemp-503', 'team_id' => self::TEAM, 'rec_applicant_id' => 202,
+             'personnel_number' => null, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+        Capsule::table('rec_dispo_events')->insert([
+            ['id' => 900, 'uuid' => 'ivdev-900', 'einsatz_ref' => 'RG-EV-900',
+             'created_at' => $now, 'updated_at' => $now],
+        ]);
+        Capsule::table('rec_dispo_assignments')->insert([
+            ['id' => 950, 'uuid' => 'ivdas-950', 'ds_ref' => 'DS-950', 'rec_dispo_event_id' => 900,
+             'pnr_raw' => 'RG204', 'rec_employee_id' => 501, 'datum' => '2026-09-20',
+             'status_id' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 951, 'uuid' => 'ivdas-951', 'ds_ref' => 'DS-951', 'rec_dispo_event_id' => 900,
+             'pnr_raw' => 'RG204', 'rec_employee_id' => 501, 'datum' => '2026-09-12',
+             'status_id' => 0, 'created_at' => $now, 'updated_at' => $now],
+            // Storno: existiert, zaehlt aber nicht — auch nicht fuers erste Datum
+            ['id' => 952, 'uuid' => 'ivdas-952', 'ds_ref' => 'DS-952', 'rec_dispo_event_id' => 900,
+             'pnr_raw' => 'RG204', 'rec_employee_id' => 501, 'datum' => '2026-09-01',
+             'status_id' => 3, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicant_posting')->insert([
