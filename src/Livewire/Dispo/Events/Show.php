@@ -1044,8 +1044,10 @@ class Show extends Component
     public function infoPreview(): array
     {
         $today = now()->toDateString();
+        // Abgesagte/krank Gemeldete bekommen keine nachtraeglichen Infos mehr
+        // (Kunde 09.09.) — gleiche Regel wie Versand und Eskalation.
         $rows = $this->event->assignments->filter(fn ($a) => $a->status_id === RecDispoAssignment::STATUS_AUFTRAG
-            && $a->missing_since === null && $a->deletion_marked_at === null
+            && $a->missing_since === null && $a->deletion_marked_at === null && $a->declined_at === null
             && $a->rec_employee_id !== null && $a->datum->format('Y-m-d') >= $today);
 
         $canon = $this->identity['canon'];
