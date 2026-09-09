@@ -316,7 +316,7 @@ class StatisticsInterviewsTableTest extends TestCase
         // zaehlt nicht und stellt auch nicht das erste Datum
         $info = $component->cohort()['einsatz_info'];
         $this->assertSame(['count' => 3, 'first' => '2026-09-10', 'grund' => null], $info[204],
-            'Einsaetze BEIDER Anstellungen (RG + MA) zaehlen zusammen — der Zwei-Firmen-Fall');
+            'Einsaetze BEIDER Anstellungen zaehlen — die zweite haengt NUR ueber den person_key dran');
         $this->assertSame(['count' => 0, 'first' => null, 'grund' => null], $info[208],
             'prüfbar, obwohl nur der ZWEIT-Datensatz eine Nummer traegt');
         $this->assertSame('keine_pnr', $info[202]['grund']);
@@ -810,16 +810,19 @@ class StatisticsInterviewsTableTest extends TestCase
         //    nummernlos) — trotzdem pruefbar
         //  - 202 bleibt der Fall „MA ohne jede Nummer" → nicht pruefbar
         Capsule::table('rec_employees')->insert([
+            // 204: RG-Datensatz verlinkt; der MA-Datensatz (505) haengt NICHT an
+            // der Bewerbung, traegt aber denselben person_key — der Abgleich
+            // muss ihn ueber den Key finden (Chaieb: MA18232 war unverlinkt).
             ['id' => 501, 'uuid' => 'ivemp-501', 'team_id' => self::TEAM, 'rec_applicant_id' => 204,
-             'personnel_number' => 'RG204', 'created_at' => $now, 'updated_at' => $now],
-            ['id' => 505, 'uuid' => 'ivemp-505', 'team_id' => self::TEAM, 'rec_applicant_id' => 204,
-             'personnel_number' => '18232', 'created_at' => $now, 'updated_at' => $now],
+             'person_key' => 'pk-chaieb', 'personnel_number' => 'RG204', 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 505, 'uuid' => 'ivemp-505', 'team_id' => self::TEAM, 'rec_applicant_id' => null,
+             'person_key' => 'pk-chaieb', 'personnel_number' => '18232', 'created_at' => $now, 'updated_at' => $now],
             ['id' => 502, 'uuid' => 'ivemp-502', 'team_id' => self::TEAM, 'rec_applicant_id' => 208,
-             'personnel_number' => null, 'created_at' => $now, 'updated_at' => $now],
+             'person_key' => null, 'personnel_number' => null, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 504, 'uuid' => 'ivemp-504', 'team_id' => self::TEAM, 'rec_applicant_id' => 208,
-             'personnel_number' => 'RG208', 'created_at' => $now, 'updated_at' => $now],
+             'person_key' => null, 'personnel_number' => 'RG208', 'created_at' => $now, 'updated_at' => $now],
             ['id' => 503, 'uuid' => 'ivemp-503', 'team_id' => self::TEAM, 'rec_applicant_id' => 202,
-             'personnel_number' => null, 'created_at' => $now, 'updated_at' => $now],
+             'person_key' => null, 'personnel_number' => null, 'created_at' => $now, 'updated_at' => $now],
         ]);
         Capsule::table('rec_dispo_events')->insert([
             ['id' => 900, 'uuid' => 'ivdev-900', 'einsatz_ref' => 'RG-EV-900',

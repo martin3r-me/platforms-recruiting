@@ -172,7 +172,26 @@ class ZasInboundEmployeeImporter
                 }
 
                 $employee = $this->createEmployee($mapped, $teamId, $inbound->id);
-                $created[] = ['employee_id' => $employee->id, 'personnel_number' => $employee->personnel_number];
+
+                // Personen-Paarung (Chaieb-Befund): existiert zum frisch
+                // angelegten Datensatz ein doppelt-exakter Geschwister (voller
+                // Name + Geburtsdatum, max. eine Bewerbung in der Gruppe),
+                // stempelt der Linker person_key und vererbt den Bewerber-Link.
+                // Mehrdeutiges stempelt NIE — das zaehlt der Bericht, damit es
+                // im Audit-Kommando auftaucht statt still zu versanden.
+                $paarung = (new \Platform\Recruiting\Services\Zas\PersonPairLinker())->pairIfExact($employee);
+                $created[] = [
+                    'employee_id' => $employee->id,
+                    'personnel_number' => $employee->personnel_number,
+                    'person_pairing' => $paarung['status'],
+                ];
+                if ($paarung['status'] === 'paired') {
+                    Log::info('[zas-inbound] Personen-Paar automatisch gestempelt', [
+                        'employee_id' => (int) $employee->id,
+                        'sibling_ids' => $paarung['sibling_ids'],
+                        'person_key' => $paarung['person_key'],
+                    ]);
+                }
             } catch (\Throwable $e) {
                 $failed[] = $this->failure($row['ZasPersonalNr'] ?? null, $e->getMessage(), $inbound, $dryRun);
             }

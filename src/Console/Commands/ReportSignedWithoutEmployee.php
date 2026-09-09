@@ -575,6 +575,17 @@ class ReportSignedWithoutEmployee extends Command
                     'employee_id' => (int) $employee->id,
                     'rec_applicant_id' => $applicantId,
                 ]);
+                // Haengen jetzt ZWEI Anstellungen an der Bewerbung (RG + MA),
+                // stempelt der gemeinsame person_key sie als eine Person —
+                // der Einsatz-Abgleich der Statistik liest darueber.
+                $anstellungen = DB::table('rec_employees')
+                    ->where('rec_applicant_id', $applicantId)
+                    ->pluck('id')->map(fn ($i) => (int) $i)->all();
+                if (count($anstellungen) > 1) {
+                    \Platform\Recruiting\Services\Zas\PersonPairLinker::stamp($anstellungen, null);
+                    $rows[] = [$applicantId, $key, $employee->id, 'verknuepft + als Person gestempelt (' . count($anstellungen) . ' Anstellungen)'];
+                    continue;
+                }
                 $rows[] = [$applicantId, $key, $employee->id, 'verknuepft'];
             } else {
                 $rows[] = [$applicantId, $key, $employee->id, 'zwischenzeitlich gesetzt — uebersprungen'];

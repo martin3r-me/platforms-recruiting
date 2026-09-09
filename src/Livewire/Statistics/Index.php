@@ -10,6 +10,7 @@ use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Jobs\SendNewDatesCampaign;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecPhase;
@@ -428,7 +429,7 @@ class Index extends Component
                 // Schulung → Einsatz: die ZAS-PersNrn entscheiden, ob der
                 // Dispo-Abgleich moeglich ist — ALLE Anstellungen (RG + MA
                 // sind zwei Datensaetze mit zwei Nummern, siehe unten).
-                'employees:id,rec_applicant_id,personnel_number',
+                'employees:id,rec_applicant_id,personnel_number,person_key',
                 // P4 verifiziert: rec_contracts.status ist string(30) NOT NULL
                 // default 'pending' (Migration 2026_04_15_100000) → '!=' ist
                 // NULL-safe. Dashboard zaehlt heute ungefiltert (bumpStatRow:421);
@@ -486,6 +487,35 @@ class Index extends Component
                 $employeesByApplicant[$a->id][] = $employee;
             }
         }
+
+        // GESCHWISTER ueber den person_key: der zweite Firmen-Datensatz haengt
+        // oft NICHT an der Bewerbung (er kam per ZAS-Lieferung), traegt aber
+        // denselben person_key wie der verlinkte. Ohne diesen Schritt sah der
+        // Abgleich nur die Nummern der verlinkten Anstellungen — genau der
+        // Chaieb-Fall (MA18232 unverlinkt, RG18231 verlinkt).
+        $keyZuApplicants = [];
+        $bekannteEmployeeIds = [];
+        foreach ($employeesByApplicant as $applicantId => $employees) {
+            foreach ($employees as $employee) {
+                $bekannteEmployeeIds[] = (int) $employee->id;
+                if (trim((string) $employee->person_key) !== '') {
+                    $keyZuApplicants[$employee->person_key][] = (int) $applicantId;
+                }
+            }
+        }
+        if ($keyZuApplicants !== []) {
+            $geschwister = RecEmployee::query()
+                ->where('team_id', $teamId)
+                ->whereIn('person_key', array_keys($keyZuApplicants))
+                ->whereNotIn('id', $bekannteEmployeeIds)
+                ->get(['id', 'rec_applicant_id', 'personnel_number', 'person_key']);
+            foreach ($geschwister as $employee) {
+                foreach (array_unique($keyZuApplicants[$employee->person_key] ?? []) as $applicantId) {
+                    $employeesByApplicant[$applicantId][] = $employee;
+                }
+            }
+        }
+
         $pruefbareEmployeeIds = collect($employeesByApplicant)
             ->flatten(1)
             ->filter(fn ($e) => trim((string) $e->personnel_number) !== '')
@@ -1873,12 +1903,13 @@ class Index extends Component
                 // ApplicantContactName, gebaut werden nur die Arrays.
                 'name' => self::detailName($applicant, $id),
                 'applicant' => $applicant,
-                // Link-Ziel bleibt der primaere Datensatz; „hat PNr" fragt
-                // ueber ALLE Anstellungen (Zwei-Firmen-Fall).
+                // Link-Ziel bleibt der primaere Datensatz; „hat PNr" kommt aus
+                // der Einsatz-Karte — die kennt alle Anstellungen INKLUSIVE der
+                // person_key-Geschwister (grund null = pruefbar).
                 'employee' => $applicant?->employees?->first(),
-                'hat_pnr' => (bool) $applicant?->employees?->contains(
-                    fn ($e) => trim((string) $e->personnel_number) !== ''
-                ),
+                // isset statt ??: grund null ist hier der GUTE Fall (pruefbar),
+                // ein ?? wuerde genau ihn verschlucken.
+                'hat_pnr' => isset($info[$id]) && $info[$id]['grund'] === null,
                 'topf' => $topf,
                 'status' => $status,
                 'bestaetigt' => isset($mitglied['bestaetigt'][$id]),
