@@ -31,9 +31,16 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  *     Nummer. Das ist der RG-/MA-Fall — ZAS bedient zwei Firmen, eine Person
  *     kann bei beiden angestellt sein und hat dann zwei Personalnummern.
  *  3. Dispo-Einsaetze auf diese Nummer, aufgeloest oder nicht.
- *  4. Mit --files: kam die Nummer je in einer gespeicherten Lieferung? Wenn ja
- *     und wir haben trotzdem keinen Mitarbeiter, ist die Zeile beim Import
- *     gescheitert — das steht dann in den Notizen der Lieferung.
+ *  4. Mit --files: kam die Nummer je in einer gespeicherten Lieferung — und was
+ *     hat der Import damals daraus gemacht? Der Bericht jedes Imports liegt als
+ *     JSON in rec_zas_inbound_files.notes (created/updated/skipped/failed je
+ *     Zeile, mit Grund), abgewiesene Lieferungen tragen status='rejected'.
+ *     Beides wird ausgelesen: „ABGEWIESEN: <Grund>" ist die Antwort auf die
+ *     Frage, ob ein Mitarbeiter mal mitkam und abgelehnt wurde.
+ *     GRENZE: bei einer strukturell verschobenen Zeile steht die Nummer
+ *     womoeglich nicht in der Spalte ZasPersonalNr — dann findet die Suche sie
+ *     nicht. Solche Zeilen weist der Import als Ganzes ab und nennt sie in den
+ *     Notizen der Lieferung ohne Personalnummer.
  *
  * --unresolved beantwortet die Praeventionsfrage fuer alle offenen Faelle auf
  * einmal: welche Einsatz-Nummern sind unaufgeloest, und ist die Nummer bei uns
@@ -221,6 +228,7 @@ class ZasPnrLookup extends Command
         $forms = array_values(array_unique(array_filter($forms)));
         $files = RecZasInboundFile::query()->orderBy('id')->get();
         $found = [];
+        $rejected = false;
 
         foreach ($files as $file) {
             try {
@@ -234,13 +242,18 @@ class ZasPnrLookup extends Command
                 if ($pn === '' || !in_array($pn, $forms, true)) {
                     continue;
                 }
+                $outcome = self::outcomeFromNotes((string) $file->notes, $forms);
+                if ($outcome !== null && str_starts_with($outcome, 'ABGEWIESEN')) {
+                    $rejected = true;
+                }
                 $found[] = [
                     '#' . $file->id,
                     $file->created_at?->format('Y-m-d H:i') ?? '—',
                     $pn,
                     trim(((string) ($row['Vorname'] ?? '')) . ' ' . ((string) ($row['Name'] ?? ''))),
                     trim((string) ($row['UUID'] ?? '')) !== '' ? 'ja' : 'nein',
-                    (string) ($row['Status'] ?? ''),
+                    (string) ($file->status ?? ''),
+                    $outcome ?? '—',
                 ];
                 break; // eine Zeile je Lieferung genuegt
             }
@@ -254,12 +267,19 @@ class ZasPnrLookup extends Command
         }
 
         $this->line('<comment>  In diesen Lieferungen enthalten:</comment>');
-        $this->table(['Lieferung', 'eingegangen', 'PersNr', 'Name', 'UUID dabei', 'Status'], $found);
+        $this->table(
+            ['Lieferung', 'eingegangen', 'PersNr', 'Name', 'UUID dabei', 'Lieferung-Status', 'Import-Ergebnis'],
+            $found
+        );
 
         if (!$employeeKnown) {
             $this->newLine();
-            $this->error('  Geliefert, aber kein Mitarbeiter bei uns → die Zeile ist beim Import gescheitert.');
-            $this->line('  Naechster Schritt: php artisan recruiting:zas-inbound-reprocess <Lieferung> --dry-run');
+            if ($rejected) {
+                $this->error('  Geliefert und ABGEWIESEN — der Grund steht in der Spalte Import-Ergebnis.');
+            } else {
+                $this->error('  Geliefert, aber kein Mitarbeiter bei uns → die Zeile ist beim Import nicht angekommen.');
+            }
+            $this->line('  Nachlauf moeglich: php artisan recruiting:zas-inbound-reprocess <Lieferung> --dry-run');
         }
     }
 
@@ -331,5 +351,62 @@ class ZasPnrLookup extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Was hat der Import damals mit dieser Nummer gemacht?
+     *
+     * Der Bericht jedes Imports liegt als JSON in
+     * rec_zas_inbound_files.notes — created/updated/skipped/failed, jeweils mit
+     * Personalnummer und bei Fehlern mit Grund. Eine wegen Ueberlaenge komplett
+     * abgewiesene Lieferung tragt stattdessen {"rejected": ...}.
+     *
+     * Pur und statisch, damit die Auswertung ohne Storage und Datenbank
+     * pruefbar ist.
+     *
+     * @param  list<string> $forms Schreibweisen der gesuchten Nummer
+     */
+    public static function outcomeFromNotes(?string $notes, array $forms): ?string
+    {
+        if ($notes === null || trim($notes) === '') {
+            return null;
+        }
+
+        $data = json_decode($notes, true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        if (isset($data['rejected'])) {
+            $reason = is_scalar($data['rejected'])
+                ? (string) $data['rejected']
+                : json_encode($data['rejected'], JSON_UNESCAPED_UNICODE);
+
+            return 'ABGEWIESEN (ganze Lieferung): ' . $reason;
+        }
+
+        $labels = [
+            'failed'  => 'ABGEWIESEN',
+            'created' => 'angelegt',
+            'updated' => 'aktualisiert',
+            'skipped' => 'uebersprungen',
+        ];
+
+        foreach ($labels as $key => $label) {
+            foreach (($data[$key] ?? []) as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $pn = isset($entry['personnel_number']) ? trim((string) $entry['personnel_number']) : '';
+                if ($pn === '' || !in_array($pn, $forms, true)) {
+                    continue;
+                }
+                $reason = isset($entry['reason']) ? (string) $entry['reason'] : null;
+
+                return $label . ($reason !== null && $reason !== '' ? ': ' . $reason : '');
+            }
+        }
+
+        return null;
     }
 }
