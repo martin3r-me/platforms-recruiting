@@ -50,6 +50,7 @@ class ReportSignedWithoutEmployee extends Command
         {--skip-tests : Testbewerber (rec_applicants.is_test) auslassen}
         {--link= : Von Hand bestaetigte Paare setzen — bewerber:personalnummer, komma-getrennt (z. B. 612:MA18069,746:RG17786)}
         {--backfill-links : Eindeutige Treffer als rec_applicant_id nachtragen}
+        {--include-second-records : Auch Zweit-Datensaetze verknuepfen, deren Bewerber schon einen Link hat}
         {--dry-run : Mit --backfill-links: nur zeigen, was verknuepft wuerde}';
 
     protected $description = 'Bewerber mit signiertem Arbeitsvertrag ohne Mitarbeiter-Datensatz (+ Link-Luecken)';
@@ -113,8 +114,19 @@ class ReportSignedWithoutEmployee extends Command
                 $unverifiable++;
             }
 
-            foreach (EmployeeMatchResolver::linkableEmployeeIds($hits, $employeesById) as $employeeId) {
-                $linkable[$employeeId][] = $applicantId;
+            // Bewerber, die schon einen verknuepften Mitarbeiter haben, werden
+            // NICHT automatisch um einen zweiten erweitert. Fachlich waere das
+            // oft richtig (ZAS bedient zwei Firmen, eine Person kann bei beiden
+            // angestellt sein — RG- und MA-Nummer am selben Menschen), aber es
+            // hat eine sichtbare Folge: ZasEmployeeFileController loest die
+            // Vertragsakte ueber rec_applicant_id auf, die Akte des zweiten
+            // Datensatzes zeigt danach den Vertrag der anderen Firma. Diese
+            // Entscheidung gehoert einem Menschen, nicht einem Automatismus —
+            // per --include-second-records oder gezielt per --link.
+            if ($verdict !== EmployeeMatchResolver::VERDICT_LINKED || $this->option('include-second-records')) {
+                foreach (EmployeeMatchResolver::linkableEmployeeIds($hits, $employeesById) as $employeeId) {
+                    $linkable[$employeeId][] = $applicantId;
+                }
             }
 
             $rows[] = [
@@ -464,9 +476,10 @@ class ReportSignedWithoutEmployee extends Command
 
         $this->newLine();
         $this->info(sprintf(
-            '%s: %d verknuepft, %d uebersprungen.',
+            '%s: %d %s, %d uebersprungen.',
             $dryRun ? 'Probelauf' : 'Fertig',
-            $dryRun ? 0 : $written,
+            $dryRun ? count($plan['link']) : $written,
+            $dryRun ? 'wuerden verknuepft' : 'verknuepft',
             $skipped
         ));
 
