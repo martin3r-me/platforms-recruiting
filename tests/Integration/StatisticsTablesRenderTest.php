@@ -173,7 +173,10 @@ class StatisticsTablesRenderTest extends TestCase
         // Abzweige stecken hinter dem Details-Schalter (Default: zu).
         $this->assertSame(5, $counts['groups_by_label']['Trichter'], 'drei Stufen + zwei Phasen (erste weg)');
         $this->assertArrayNotHasKey('Abzweige', $counts['groups_by_label'], 'Details-Schalter default zu');
-        $this->assertSame(1 + 5 + 2 + 2 + 3 + 1, $counts['group_sum'], 'Gruppenköpfe der Ausschreibungs-Tabelle');
+        // „Erster Einsatz" ist wieder raus (10.09.: „unnoetig" — die Einsatz-
+        // Sicht lebt je TERMIN in der Detailansicht, nicht je Ausschreibung).
+        $this->assertSame(1 + 5 + 2 + 2 + 3, $counts['group_sum'], 'Gruppenköpfe der Ausschreibungs-Tabelle');
+        $this->assertStringNotContainsString('Erster Einsatz', $html);
 
         $this->assertStringNotContainsString('Kontaktiert', $html, 'zeigte den Kontaktweg, nicht den Kontakt — raus (Clara)');
         $this->assertStringNotContainsString('Bestätigt', $html, 'Tabelle 1 bleibt schlank — Bestätigt gibt es nur je Termin');

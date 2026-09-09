@@ -320,10 +320,6 @@ class StatisticsInterviewsTableTest extends TestCase
         $this->assertSame('keine_pnr', $info[202]['grund']);
         $this->assertSame('kein_ma', $info[201]['grund']);
 
-        // „Erster Einsatz" je Zeilenmenge (fuellt die Platzhalter-Spalte in
-        // Tabelle 1): fruehestes Datum ueber die Personen mit Einsatz
-        $this->assertSame('2026-09-12', $component->ersterEinsatz($august['rows'], $info));
-        $this->assertNull($component->ersterEinsatz($juli['rows'], $info));
     }
 
     public function test_termin_zeile_zaehlt_alle_teilnehmer_des_termins_nicht_nur_die_der_filiale(): void

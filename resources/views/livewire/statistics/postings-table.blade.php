@@ -130,8 +130,6 @@
          'title' => 'Was noch offen ist und was daraus geworden ist.'],
         ['label' => 'Ziel', 'span' => 3,
          'title' => 'Bedarf der Ausschreibung und die beiden Ampeln dazu. Nichts wird geraten: fehlt Bedarf oder Faktor, ist die Ampel grau.'],
-        ['label' => 'Einsatz', 'span' => 1,
-         'title' => 'Wann die Eingestellten das erste Mal arbeiten — kommt mit der Dispo.'],
     ]));
 
     $groups = $this->postingGroups;
@@ -169,11 +167,6 @@
         . 'Zeilen-Prozente und Summen-Prozent können deshalb auseinandergehen; unter jedem Prozentwert '
         . 'steht der Bruch, aus dem er entsteht, und daneben, welche der beiden Rechnungen gilt. '
         . 'Grün ab 90 %, gelb ab 60 %. Grau in den ersten sieben Tagen und ohne gepflegte Werte.';
-    // Dispo-Abgleich: fruehester Einsatz der Teilnehmer dieser Zeile (Karte
-    // EINMAL gelesen, je Zeile durchgereicht — ersterEinsatz() laeuft sonst
-    // pro Zeile gegen die Kohorte).
-    $einsatzInfo = $this->cohort['einsatz_info'] ?? [];
-    $einsatzTitle = 'Frühestes Einsatzdatum (Dispo-Zuweisung, geplant oder vergangen) unter den Teilgenommenen dieser Ausschreibung. „–“, wenn niemand einen zählbaren Einsatz hat oder mangels ZAS-Personalnummer nichts zuzuordnen ist.';
 @endphp
 
 <x-ui-panel title="Ausschreibungen" subtitle="Eine Zeile je Ausschreibung — läuft sie auf Ziel?">
@@ -244,11 +237,6 @@
                         <th class="sticky top-7 z-20 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
                             title="{{ $pipelineTitle }}">
                             Bewerbungen zum Ziel
-                            <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
-                        </th>
-                        <th class="sticky top-7 z-20 border-l border-[var(--ui-border)]/60 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
-                            title="{{ $einsatzTitle }}">
-                            Erster Einsatz
                             <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                         </th>
                     </tr>
@@ -378,16 +366,6 @@
                                     </div>
                                 @endif
                             </td>
-                            <td class="border-l border-[var(--ui-border)]/60 px-3 py-2 text-center whitespace-nowrap">
-                                @php $ersterEinsatz = $this->ersterEinsatz($groupRows, $einsatzInfo); @endphp
-                                @if ($ersterEinsatz !== null)
-                                    <span class="text-xs tabular-nums text-[color:var(--ui-secondary)]" title="{{ $einsatzTitle }}">
-                                        {{ \Illuminate\Support\Carbon::parse($ersterEinsatz)->format('d.m.Y') }}
-                                    </span>
-                                @else
-                                    <span class="cursor-help text-xs text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>
-                                @endif
-                            </td>
                         </tr>
                     @endforeach
                 </tbody>
@@ -449,16 +427,6 @@
                                 <div class="text-[11px] font-normal tabular-nums text-[color:var(--ui-muted)]">
                                     {{ $totalPipeline['bewerbungen'] }} von {{ $totalPipeline['target'] }}
                                 </div>
-                            @endif
-                        </td>
-                        <td class="border-l border-[var(--ui-border)]/60 px-3 py-3 text-center whitespace-nowrap">
-                            @php $ersterEinsatzGesamt = $this->ersterEinsatz($this->cohort['rows'], $einsatzInfo); @endphp
-                            @if ($ersterEinsatzGesamt !== null)
-                                <span class="text-xs font-normal tabular-nums" title="{{ $einsatzTitle }}">
-                                    {{ \Illuminate\Support\Carbon::parse($ersterEinsatzGesamt)->format('d.m.Y') }}
-                                </span>
-                            @else
-                                <span class="cursor-help text-xs font-normal text-[color:var(--ui-muted)]" title="{{ $einsatzTitle }}">–</span>
                             @endif
                         </td>
                     </tr>

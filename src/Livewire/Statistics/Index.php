@@ -1080,34 +1080,6 @@ class Index extends Component
     }
 
     /**
-     * Fruehestes Einsatzdatum einer Zeilenmenge — fuellt die „Erster Einsatz"-
-     * Spalte der Ausschreibungs-Tabelle (Platzhalter seit V2, „kommt mit der
-     * Dispo"). Minimum ueber die Personen mit Einsaetzen; null, wenn niemand
-     * in der Menge einen zaehlbaren Einsatz hat.
-     *
-     * Die Karte kommt als Parameter (cohort()['einsatz_info']), nicht aus der
-     * Computed — die View liest sie EINMAL und reicht sie je Zeile durch,
-     * sonst liefe der Kohorten-Aufbau pro Tabellenzeile erneut.
-     *
-     * @param  list<array>  $rows  Assigner-Zeilen
-     * @param  array<int, array{count:int, first:?string, grund:?string}>  $info
-     */
-    public function ersterEinsatz(array $rows, array $info): ?string
-    {
-        $min = null;
-        foreach ($rows as $row) {
-            foreach ($row['columns']['im_einsatz'] ?? [] as $id) {
-                $first = $info[$id]['first'] ?? null;
-                if ($first !== null && ($min === null || $first < $min)) {
-                    $min = $first;
-                }
-            }
-        }
-
-        return $min;
-    }
-
-    /**
      * Spaltenschluessel einer Phasen-Spalte ("phase_reached:3"). Die Spalte
      * `phase_reached` ist verschachtelt und darf NIE flach gelesen werden —
      * count() darauf zaehlt Phasen statt Bewerbungen. Der Schluessel kommt
