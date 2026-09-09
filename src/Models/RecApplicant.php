@@ -411,6 +411,20 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $this->hasOne(RecEmployee::class, 'rec_applicant_id');
     }
 
+    /**
+     * ALLE Anstellungen der Person: ZAS bedient zwei Firmen (RG und MA) —
+     * wer bei beiden angestellt ist, hat zwei rec_employees-Datensaetze mit
+     * zwei Personalnummern, beide an dieser Bewerbung (Hand-Verknuepfung via
+     * report-signed-without-employee --link). employee() bleibt der primaere
+     * Datensatz fuer MA-Anlage/Portale; Leser, die ueber die PERSON reden
+     * (Einsatz-Abgleich der Statistik), muessen hier lesen — sonst uebersehen
+     * sie die Einsaetze der zweiten Firma (Chaieb-Befund 10.09.2026).
+     */
+    public function employees()
+    {
+        return $this->hasMany(RecEmployee::class, 'rec_applicant_id');
+    }
+
     public function legalStatus()
     {
         return $this->hasOne(RecApplicantLegalStatus::class, 'rec_applicant_id');

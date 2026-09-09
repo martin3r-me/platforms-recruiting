@@ -280,8 +280,8 @@ class StatisticsInterviewsTableTest extends TestCase
         $person204 = collect($detail['personen'])->firstWhere('id', 204);
         $this->assertSame('Anders, Zoe', $person204['name'], 'Name aus dem echten CRM-Link — der 500er-Pfad vom 09.09.');
         $this->assertSame('im_einsatz', $person204['topf']);
-        $this->assertSame(2, $person204['einsaetze']);
-        $this->assertSame('2026-09-12', $person204['erster_einsatz']);
+        $this->assertSame(3, $person204['einsaetze']);
+        $this->assertSame('2026-09-10', $person204['erster_einsatz']);
 
         // Nicht-Teilgenommene stehen mit ihrem Status dabei (Vollstaendigkeit),
         // aber ohne Einsatz-Topf
@@ -315,8 +315,10 @@ class StatisticsInterviewsTableTest extends TestCase
         // Anzahl + erstes Datum fuer den Drilldown; der Storno (status_id 3)
         // zaehlt nicht und stellt auch nicht das erste Datum
         $info = $component->cohort()['einsatz_info'];
-        $this->assertSame(['count' => 2, 'first' => '2026-09-12', 'grund' => null], $info[204]);
-        $this->assertSame(['count' => 0, 'first' => null, 'grund' => null], $info[208]);
+        $this->assertSame(['count' => 3, 'first' => '2026-09-10', 'grund' => null], $info[204],
+            'Einsaetze BEIDER Anstellungen (RG + MA) zaehlen zusammen — der Zwei-Firmen-Fall');
+        $this->assertSame(['count' => 0, 'first' => null, 'grund' => null], $info[208],
+            'prüfbar, obwohl nur der ZWEIT-Datensatz eine Nummer traegt');
         $this->assertSame('keine_pnr', $info[202]['grund']);
         $this->assertSame('kein_ma', $info[201]['grund']);
 
@@ -799,10 +801,22 @@ class StatisticsInterviewsTableTest extends TestCase
             ['rec_interview_id' => self::INTERVIEW_AUGUST, 'user_id' => 701],
         ]);
 
+        // ZWEI-FIRMEN-FALL (ZAS bedient RG und MA — eine Person kann bei
+        // beiden angestellt sein und hat dann ZWEI Datensaetze mit zwei
+        // Personalnummern; Chaieb-Befund 10.09.2026):
+        //  - 204 hat BEIDE Anstellungen verknuepft — Einsaetze beider Nummern
+        //    zaehlen zusammen
+        //  - 208 traegt die Nummer nur am ZWEIT-Datensatz (der erste ist
+        //    nummernlos) — trotzdem pruefbar
+        //  - 202 bleibt der Fall „MA ohne jede Nummer" → nicht pruefbar
         Capsule::table('rec_employees')->insert([
             ['id' => 501, 'uuid' => 'ivemp-501', 'team_id' => self::TEAM, 'rec_applicant_id' => 204,
              'personnel_number' => 'RG204', 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 505, 'uuid' => 'ivemp-505', 'team_id' => self::TEAM, 'rec_applicant_id' => 204,
+             'personnel_number' => '18232', 'created_at' => $now, 'updated_at' => $now],
             ['id' => 502, 'uuid' => 'ivemp-502', 'team_id' => self::TEAM, 'rec_applicant_id' => 208,
+             'personnel_number' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 504, 'uuid' => 'ivemp-504', 'team_id' => self::TEAM, 'rec_applicant_id' => 208,
              'personnel_number' => 'RG208', 'created_at' => $now, 'updated_at' => $now],
             ['id' => 503, 'uuid' => 'ivemp-503', 'team_id' => self::TEAM, 'rec_applicant_id' => 202,
              'personnel_number' => null, 'created_at' => $now, 'updated_at' => $now],
@@ -822,6 +836,11 @@ class StatisticsInterviewsTableTest extends TestCase
             ['id' => 952, 'uuid' => 'ivdas-952', 'ds_ref' => 'DS-952', 'rec_dispo_event_id' => 900,
              'pnr_raw' => 'RG204', 'rec_employee_id' => 501, 'datum' => '2026-09-01',
              'status_id' => 3, 'created_at' => $now, 'updated_at' => $now],
+            // Einsatz auf der ZWEITEN Anstellung von 204 (andere Firma, andere
+            // Nummer) — zaehlt mit UND stellt das frueheste Datum
+            ['id' => 953, 'uuid' => 'ivdas-953', 'ds_ref' => 'DS-953', 'rec_dispo_event_id' => 900,
+             'pnr_raw' => '18232', 'rec_employee_id' => 505, 'datum' => '2026-09-10',
+             'status_id' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_applicant_posting')->insert([

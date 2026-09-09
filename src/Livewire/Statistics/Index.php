@@ -425,9 +425,10 @@ class Index extends Component
                 // kein withTrashed(): der Assigner verwirft deleted ohnehin —
                 // SoftDeleted gar nicht erst laden
                 'interviewBookings' => fn ($q) => $q->with('interview:id,starts_at,location'),
-                // Schulung → Einsatz: die ZAS-PersNr entscheidet, ob der
-                // Dispo-Abgleich ueberhaupt moeglich ist (siehe unten).
-                'employee:id,rec_applicant_id,personnel_number',
+                // Schulung → Einsatz: die ZAS-PersNrn entscheiden, ob der
+                // Dispo-Abgleich moeglich ist — ALLE Anstellungen (RG + MA
+                // sind zwei Datensaetze mit zwei Nummern, siehe unten).
+                'employees:id,rec_applicant_id,personnel_number',
                 // P4 verifiziert: rec_contracts.status ist string(30) NOT NULL
                 // default 'pending' (Migration 2026_04_15_100000) → '!=' ist
                 // NULL-safe. Dashboard zaehlt heute ungefiltert (bumpStatRow:421);
@@ -475,13 +476,18 @@ class Index extends Component
         // Ein Einsatz zaehlt, wenn er kein Storno ist (status_id 3) und nicht
         // aus dem ZAS entfernt/geloescht wurde. Angebote (status_id 0) zaehlen
         // MIT: „geplant oder vergangen" war die ausdrueckliche Anforderung.
-        $employeeByApplicant = [];
+        // ALLE Anstellungen je Bewerbung: ZAS bedient zwei Firmen (RG/MA),
+        // eine Person kann zwei Datensaetze mit zwei Nummern haben — die
+        // Einsaetze BEIDER zaehlen (Chaieb-Befund 10.09.2026). „Pruefbar"
+        // heisst: mindestens eine Anstellung traegt eine Nummer.
+        $employeesByApplicant = [];
         foreach ($applicants as $a) {
-            if ($a->employee) {
-                $employeeByApplicant[$a->id] = $a->employee;
+            foreach ($a->employees as $employee) {
+                $employeesByApplicant[$a->id][] = $employee;
             }
         }
-        $pruefbareEmployeeIds = collect($employeeByApplicant)
+        $pruefbareEmployeeIds = collect($employeesByApplicant)
+            ->flatten(1)
             ->filter(fn ($e) => trim((string) $e->personnel_number) !== '')
             ->map(fn ($e) => (int) $e->id)
             ->values();
@@ -499,26 +505,37 @@ class Index extends Component
         // Karte fuer Zeilen-Flag, Drilldown-Anzeige und die „Erster Einsatz"-
         // Spalte der Ausschreibungs-Tabelle: applicant_id → count/first/grund.
         $einsatzInfo = [];
-        $einsatzFlag = function (int $applicantId) use ($employeeByApplicant, $einsatzJeEmployee, &$einsatzInfo): string {
-            $employee = $employeeByApplicant[$applicantId] ?? null;
-            if (!$employee) {
+        $einsatzFlag = function (int $applicantId) use ($employeesByApplicant, $einsatzJeEmployee, &$einsatzInfo): string {
+            $employees = $employeesByApplicant[$applicantId] ?? [];
+            if ($employees === []) {
                 $einsatzInfo[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'kein_ma'];
 
                 return 'unverifiable';
             }
-            if (trim((string) $employee->personnel_number) === '') {
+            $mitNummer = array_filter($employees, fn ($e) => trim((string) $e->personnel_number) !== '');
+            if ($mitNummer === []) {
                 $einsatzInfo[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'keine_pnr'];
 
                 return 'unverifiable';
             }
-            $treffer = $einsatzJeEmployee->get((int) $employee->id);
-            $einsatzInfo[$applicantId] = [
-                'count' => (int) ($treffer->anzahl ?? 0),
-                'first' => $treffer?->erster !== null ? (string) $treffer->erster : null,
-                'grund' => null,
-            ];
 
-            return ($treffer->anzahl ?? 0) > 0 ? 'deployed' : 'none';
+            // Summe/Minimum ueber ALLE Anstellungen mit Nummer
+            $count = 0;
+            $first = null;
+            foreach ($mitNummer as $employee) {
+                $treffer = $einsatzJeEmployee->get((int) $employee->id);
+                if ($treffer === null) {
+                    continue;
+                }
+                $count += (int) $treffer->anzahl;
+                $erster = $treffer->erster !== null ? (string) $treffer->erster : null;
+                if ($erster !== null && ($first === null || $erster < $first)) {
+                    $first = $erster;
+                }
+            }
+            $einsatzInfo[$applicantId] = ['count' => $count, 'first' => $first, 'grund' => null];
+
+            return $count > 0 ? 'deployed' : 'none';
         };
 
         $rows = [];
@@ -1833,7 +1850,7 @@ class Index extends Component
 
         $applicants = RecApplicant::forTeam($this->teamId())
             ->whereIn('id', array_keys($mitglied['ids']))
-            ->with(['crmContactLinks.contact', 'employee:id,rec_applicant_id,personnel_number'])
+            ->with(['crmContactLinks.contact', 'employees:id,rec_applicant_id,personnel_number'])
             ->get()
             ->keyBy('id');
 
@@ -1856,8 +1873,12 @@ class Index extends Component
                 // ApplicantContactName, gebaut werden nur die Arrays.
                 'name' => self::detailName($applicant, $id),
                 'applicant' => $applicant,
-                'employee' => $applicant?->employee,
-                'hat_pnr' => trim((string) $applicant?->employee?->personnel_number) !== '',
+                // Link-Ziel bleibt der primaere Datensatz; „hat PNr" fragt
+                // ueber ALLE Anstellungen (Zwei-Firmen-Fall).
+                'employee' => $applicant?->employees?->first(),
+                'hat_pnr' => (bool) $applicant?->employees?->contains(
+                    fn ($e) => trim((string) $e->personnel_number) !== ''
+                ),
                 'topf' => $topf,
                 'status' => $status,
                 'bestaetigt' => isset($mitglied['bestaetigt'][$id]),
