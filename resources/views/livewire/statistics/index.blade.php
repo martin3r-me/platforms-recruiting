@@ -820,7 +820,16 @@
                         $applicantName = $applicant->crmContactLinks->first()?->contact?->full_name;
                     @endphp
                     <li class="py-2 flex items-center justify-between gap-3">
-                        <a href="{{ route('recruiting.applicants.show', $applicant) }}"
+                        @php
+                            // Einsatz-Drill: die Dispo-Frage klaert man in der
+                            // MA-AKTE — der Name fuehrt dorthin, wenn es einen
+                            // Mitarbeiter gibt. Alle anderen Drills bleiben bei
+                            // der Bewerbung (dort gibt es oft keinen MA).
+                            $zielUrl = ($this->drillShowEinsatz && $applicant->employee)
+                                ? route('recruiting.employees.show', $applicant->employee)
+                                : route('recruiting.applicants.show', $applicant);
+                        @endphp
+                        <a href="{{ $zielUrl }}"
                            class="text-[color:var(--ui-primary)] hover:underline text-sm">
                             {{ $applicantName ?: 'Bewerber #' . $applicant->id }}
                         </a>

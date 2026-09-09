@@ -1838,7 +1838,10 @@ class Index extends Component
         // sich beim naechsten Umbau raecht.
         return RecApplicant::forTeam($this->teamId())
             ->whereIn('id', $this->drillIds)
-            ->with('crmContactLinks.contact')
+            // MA fuer den Einsatz-Drill: dort verlinkt der Name auf die
+            // MA-Akte (die Frage „warum nicht disponiert?" beantwortet man
+            // beim Mitarbeiter, nicht in der Bewerbung).
+            ->with(['crmContactLinks.contact', 'employee:id,rec_applicant_id'])
             ->orderBy('id')
             ->get();
     }
