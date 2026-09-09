@@ -1053,6 +1053,33 @@ class Index extends Component
     }
 
     /**
+     * Anzeigename fuer die Detailansicht: Kandidaten-Arrays aus den
+     * CRM-Links (das Format, das ApplicantContactName::display erwartet),
+     * Rueckfall „Bewerber #id" statt „Unbekannt" — die Zeile verlinkt ja
+     * auf einen konkreten Datensatz.
+     */
+    private static function detailName(?RecApplicant $applicant, int $id): string
+    {
+        $candidates = [];
+        foreach ($applicant?->crmContactLinks ?? [] as $link) {
+            if ($link->contact === null) {
+                continue;
+            }
+            $candidates[] = [
+                'contact_id' => $link->contact_id,
+                'first_name' => $link->contact->first_name,
+                'last_name' => $link->contact->last_name,
+                'full_name' => $link->contact->full_name,
+            ];
+        }
+        $name = \Platform\Recruiting\Support\ApplicantContactName::display($candidates);
+
+        return $name === \Platform\Recruiting\Support\ApplicantContactName::UNKNOWN
+            ? ('Bewerber #' . $id)
+            : $name;
+    }
+
+    /**
      * Fruehestes Einsatzdatum einer Zeilenmenge — fuellt die „Erster Einsatz"-
      * Spalte der Ausschreibungs-Tabelle (Platzhalter seit V2, „kommt mit der
      * Dispo"). Minimum ueber die Personen mit Einsaetzen; null, wenn niemand
@@ -1842,9 +1869,11 @@ class Index extends Component
 
             $personen[] = [
                 'id' => $id,
-                'name' => \Platform\Recruiting\Support\ApplicantContactName::display(
-                    $applicant?->crmContactLinks?->all() ?? [],
-                ) ?: ('Bewerber #' . $id),
+                // display() erwartet KANDIDATEN-Arrays, keine Link-Models —
+                // rohe Models fuetterten hier den 500er vom 09.09. Die
+                // deterministische Wahl (kleinste contact_id) bleibt bei
+                // ApplicantContactName, gebaut werden nur die Arrays.
+                'name' => self::detailName($applicant, $id),
                 'applicant' => $applicant,
                 'employee' => $applicant?->employee,
                 'hat_pnr' => trim((string) $applicant?->employee?->personnel_number) !== '',

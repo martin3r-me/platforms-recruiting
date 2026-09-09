@@ -105,6 +105,10 @@ class StatisticsInterviewsTableTest extends TestCase
             }
         });
 
+        // CrmContact zieht beim Hydrieren config() — minimaler leerer
+        // Config-Store reicht (dieselbe Sorte Attrappe wie auth()).
+        $container->instance('config', new \Illuminate\Config\Repository([]));
+
         Carbon::setTestNow(Carbon::parse(self::HEUTE));
 
         self::runRealMigrations();
@@ -267,12 +271,14 @@ class StatisticsInterviewsTableTest extends TestCase
         $ids = array_column($detail['personen'], 'id');
         $this->assertSame(208, $ids[0], 'ohne Einsatz zuoberst');
         $person208 = $detail['personen'][0];
+        $this->assertSame('Bewerber #208', $person208['name'], 'ohne CRM-Kontakt der ehrliche Rueckfall');
         $this->assertSame('ohne_einsatz', $person208['topf']);
         $this->assertSame('Teilgenommen', $person208['status']);
         $this->assertSame(0, $person208['einsaetze']);
         $this->assertTrue($person208['hat_pnr']);
 
         $person204 = collect($detail['personen'])->firstWhere('id', 204);
+        $this->assertSame('Anders, Zoe', $person204['name'], 'Name aus dem echten CRM-Link — der 500er-Pfad vom 09.09.');
         $this->assertSame('im_einsatz', $person204['topf']);
         $this->assertSame(2, $person204['einsaetze']);
         $this->assertSame('2026-09-12', $person204['erster_einsatz']);
@@ -765,15 +771,29 @@ class StatisticsInterviewsTableTest extends TestCase
             $t->id();
             $t->string('name');
         });
-        // CRM-Link-Tabelle nur als leere Huelle: die Detailansicht laedt die
-        // Namens-Relation; ohne CRM-Daten faellt sie auf „Bewerber #id" zurueck
-        // — genau das prueft der Test mit.
+        // CRM-Tabellen minimal: die Detailansicht baut den Namen aus den
+        // ECHTEN Link-Models (der 500er vom 09.09. entstand, weil der Test nur
+        // eine leere Link-Tabelle hatte und display() nie echte Models sah).
+        // 204 bekommt einen Kontakt, alle anderen fallen auf „Bewerber #id"
+        // zurueck — beide Pfade laufen.
         Capsule::schema()->create('crm_contact_links', function ($t) {
             $t->id();
             $t->unsignedBigInteger('contact_id')->nullable();
             $t->unsignedBigInteger('linkable_id');
             $t->string('linkable_type');
         });
+        Capsule::schema()->create('crm_contacts', function ($t) {
+            $t->id();
+            $t->string('first_name')->nullable();
+            $t->string('last_name')->nullable();
+        });
+        Capsule::table('crm_contacts')->insert([
+            ['id' => 800, 'first_name' => 'Zoe', 'last_name' => 'Anders'],
+        ]);
+        Capsule::table('crm_contact_links')->insert([
+            ['contact_id' => 800, 'linkable_id' => 204,
+             'linkable_type' => \Platform\Recruiting\Models\RecApplicant::class],
+        ]);
         Capsule::table('users')->insert([
             ['id' => 700, 'name' => 'Clara Setzkorn'],
             ['id' => 701, 'name' => 'Ben Trainer'],
