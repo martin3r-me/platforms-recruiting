@@ -772,7 +772,7 @@
          Einsatz-Quote, hier liegt die Tiefe — Schulungsleiter, Toepfe und die
          Personenliste („Ohne Einsatz“ zuoberst: das ist die Arbeitsliste).
          Daten via terminDetailFor(); die Computed-Karten werden EINMAL gelesen. --}}
-    <x-ui-modal wire:model="showTerminDetail" size="lg">
+    <x-ui-modal wire:model="showTerminDetail" size="xl">
         <x-slot name="header">Schulung im Detail</x-slot>
         @php
             // $this-> statt extrahierter View-Variablen: die Render-Probe der
@@ -798,12 +798,39 @@
                     {{ $terminDetail['leiter'] === [] ? 'am Termin nicht gepflegt' : implode(', ', $terminDetail['leiter']) }}
                 </div>
             </div>
-            <div class="mb-3 flex flex-wrap gap-2 text-xs">
-                <span class="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-900">{{ $tk['teilgenommen'] }} teilgenommen</span>
-                <span class="rounded-full bg-indigo-100 px-2 py-0.5 font-medium text-indigo-900">{{ $tk['im_einsatz'] }} im Einsatz</span>
-                <span class="rounded-full bg-orange-100 px-2 py-0.5 font-medium text-orange-900">{{ $tk['ohne_einsatz'] }} ohne Einsatz</span>
-                <span class="rounded-full bg-gray-200 px-2 py-0.5 font-medium text-gray-700"
-                      title="Ohne Mitarbeiter oder ohne ZAS-Personalnummer ist keine Dispo-Aussage möglich — der Import ordnet nur über die Personalnummer zu.">{{ $tk['einsatz_unpruefbar'] }} nicht prüfbar</span>
+            @php
+                // Die Chips SIND die Filter der Liste (Kundenwunsch 09.09.):
+                // Default nur Teilgenommene — Nicht-Erschienene & Co. sieht man
+                // erst ueber „“. Unbekannter Filterwert (gecraftetes
+                // $set) faellt auf den Default zurueck.
+                $aktiverFilter = in_array($this->terminDetailFilter, ['teilgenommen', 'im_einsatz', 'ohne_einsatz', 'einsatz_unpruefbar', 'alle'], true)
+                    ? $this->terminDetailFilter : 'teilgenommen';
+                $filterChips = [
+                    ['key' => 'teilgenommen', 'label' => $tk['teilgenommen'] . ' teilgenommen', 'chip' => 'bg-sky-100 text-sky-900',
+                     'title' => 'Alle, die die Schulung bestanden haben — die Bezugsgröße des Dispo-Abgleichs.'],
+                    ['key' => 'im_einsatz', 'label' => $tk['im_einsatz'] . ' im Einsatz', 'chip' => 'bg-indigo-100 text-indigo-900',
+                     'title' => 'Teilgenommene mit mindestens einer Dispo-Zuweisung.'],
+                    ['key' => 'ohne_einsatz', 'label' => $tk['ohne_einsatz'] . ' ohne Einsatz', 'chip' => 'bg-orange-100 text-orange-900',
+                     'title' => 'Mitarbeiter mit ZAS-Personalnummer, aber ohne Zuweisung — die Nachverfolgungs-Liste.'],
+                    ['key' => 'einsatz_unpruefbar', 'label' => $tk['einsatz_unpruefbar'] . ' nicht prüfbar', 'chip' => 'bg-gray-200 text-gray-700',
+                     'title' => 'Ohne Mitarbeiter oder ohne ZAS-Personalnummer ist keine Dispo-Aussage möglich — der Import ordnet nur über die Personalnummer zu.'],
+                    ['key' => 'alle', 'label' => $tk['ids'] . ' alle Buchungen', 'chip' => 'bg-[var(--ui-muted-5)] text-[color:var(--ui-secondary)]',
+                     'title' => 'Inklusive Nicht erschienen, Vor Ort aussortiert und Keine Reaktion.'],
+                ];
+            @endphp
+            <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                @foreach ($filterChips as $chip)
+                    <button type="button" wire:click="$set('terminDetailFilter', @js($chip['key']))"
+                            title="{{ $chip['title'] }}"
+                            @class([
+                                'rounded-full px-2 py-0.5 font-medium transition-all cursor-pointer',
+                                $chip['chip'],
+                                'ring-2 ring-[var(--ui-primary)]' => $aktiverFilter === $chip['key'],
+                                'ring-1 ring-[var(--ui-border)]/60 hover:ring-2 hover:ring-[var(--ui-border)]' => $aktiverFilter !== $chip['key'],
+                            ])>
+                        {{ $chip['label'] }}
+                    </button>
+                @endforeach
                 <span class="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-900">{{ $tk['vertrag_verschickt'] }} Verträge · {{ $tk['unterschrieben'] }} unterschrieben</span>
             </div>
             <div class="max-h-[55vh] overflow-auto rounded-lg border border-[var(--ui-border)]/60">
@@ -818,7 +845,17 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-[var(--ui-border)]/60">
-                        @foreach ($terminDetail['personen'] as $person)
+                        @php
+                            $gefiltertePersonen = array_values(array_filter($terminDetail['personen'], fn ($p) => match ($aktiverFilter) {
+                                'teilgenommen' => $p['status'] === 'Teilgenommen',
+                                'im_einsatz', 'ohne_einsatz', 'einsatz_unpruefbar' => $p['topf'] === $aktiverFilter,
+                                default => true,
+                            }));
+                        @endphp
+                        @if ($gefiltertePersonen === [])
+                            <tr><td colspan="5" class="px-3 py-4 text-center text-xs text-[color:var(--ui-muted)]">Niemand in dieser Auswahl.</td></tr>
+                        @endif
+                        @foreach ($gefiltertePersonen as $person)
                             <tr @class(['bg-orange-50/60' => $person['topf'] === 'ohne_einsatz'])>
                                 <td class="px-3 py-2">
                                     <a href="{{ $person['employee']

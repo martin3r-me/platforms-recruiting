@@ -1795,9 +1795,18 @@ class Index extends Component
     public bool $showTerminDetail = false;
     public ?int $terminDetailId = null;
 
+    /**
+     * Filter der Personenliste im Detail-Modal. Default 'teilgenommen':
+     * Nicht-Erschienene & Co. interessieren dort nicht (Kundenwunsch 09.09.) —
+     * ueber die Chips sind sie per 'alle' erreichbar. Unbekannte Werte aus
+     * einem gecrafteten $set fallen in der View auf den Default zurueck.
+     */
+    public string $terminDetailFilter = 'teilgenommen';
+
     public function openTerminDetail(int $interviewId): void
     {
         $this->terminDetailId = $interviewId;
+        $this->terminDetailFilter = 'teilgenommen';
         $this->showTerminDetail = true;
     }
 
