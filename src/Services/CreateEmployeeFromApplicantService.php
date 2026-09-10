@@ -8,6 +8,7 @@ use Platform\Crm\Models\CrmContactLink;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Support\ZasPersonnelNumber;
 
 /**
  * Legt einen RecEmployee aus einem RecApplicant an. Wird durch den
@@ -73,6 +74,14 @@ class CreateEmployeeFromApplicantService
                 'is_eu_citizen'           => $legalStatus?->is_eu_citizen,
                 'nationalpass_file_id'    => $legalStatus?->nationalpass_file_id,
                 'immatrikulation_file_id' => $legalStatus?->immatrikulation_file_id,
+
+                // Firma (RG/MA). Steht sonst nirgends: der ZAS-Inbound leitet
+                // sie aus dem Praefix der Personalnummer ab, die es bei einer
+                // Neuanlage noch nicht gibt (ZAS vergibt sie erst). Ohne den
+                // Stempel hier bleibt die Spalte leer, und der ZAS-Export
+                // liefert eine leere Spalte `Firma` — ZAS faellt dann bei der
+                // Filiale auf DUS zurueck (Befund 10.09.2026, 23 MGL-MA).
+                'company'            => (string) config('recruiting.zas.company_prefix', ZasPersonnelNumber::DEFAULT_PREFIX),
 
                 // Lifecycle
                 'is_active'          => true,

@@ -59,6 +59,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\SyncEmployeeContactList::class,
                 \Platform\Recruiting\Console\Commands\FlynkReconcile::class,
                 \Platform\Recruiting\Console\Commands\BackfillEmployeeFieldsFromApplicant::class,
+                \Platform\Recruiting\Console\Commands\BackfillEmployeeCompany::class,
                 \Platform\Recruiting\Console\Commands\CleanupInterviewWaitlist::class,
                 \Platform\Recruiting\Console\Commands\MigrateNonEuCases::class,
                 \Platform\Recruiting\Console\Commands\BackfillPhaseTransitions::class,
