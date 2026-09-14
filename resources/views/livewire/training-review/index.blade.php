@@ -27,7 +27,11 @@
                     </div>
                 @endif
 
-                <div class="overflow-x-auto">
+                @php
+                    $anstehende = $this->upcomingInterviews;
+                    $vergangene = $this->pastInterviews;
+                @endphp
+                <div class="overflow-x-auto" x-data="{ showPast: false }">
                     <table class="w-full table-auto border-collapse text-sm">
                         <thead>
                             <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
@@ -39,47 +43,45 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[var(--ui-border)]/60">
-                            @forelse ($this->interviews as $interview)
-                                @php
-                                    $start = $interview->starts_at;
-                                    $istVergangen = $start && $start->isPast();
-                                @endphp
-                                <tr class="hover:bg-gray-50" wire:key="interview-{{ $interview->id }}">
-                                    <td class="px-4 py-3 font-medium text-[var(--ui-secondary)]">
-                                        {{ $interview->interviewType?->name ?? 'Schulung' }}
-                                    </td>
-                                    <td class="px-4 py-3 whitespace-nowrap">
-                                        @if ($start)
-                                            {{ $start->format('d.m.Y') }}
-                                            <span class="text-[var(--ui-muted)]">{{ $start->format('H:i') }}</span>
-                                        @else
-                                            <span class="text-[var(--ui-muted)]">—</span>
-                                        @endif
-                                    </td>
-                                    <td class="px-4 py-3">{{ $interview->location ?? '—' }}</td>
-                                    <td class="px-4 py-3">{{ $interview->teilnehmer_count }}</td>
-                                    <td class="px-4 py-3 text-right">
-                                        @php
-                                            $btnVariant = $istVergangen ? 'primary' : 'secondary-outline';
-                                        @endphp
-                                        <x-ui-button
-                                            :variant="$btnVariant"
-                                            size="xs"
-                                            :href="route('recruiting.training-review.show', $interview->id)"
-                                            wire:navigate
-                                        >
-                                            Öffnen
-                                        </x-ui-button>
-                                    </td>
-                                </tr>
+                            @forelse($anstehende as $interview)
+                                @include('recruiting::livewire.training-review._row', ['interview' => $interview])
                             @empty
                                 <tr>
                                     <td colspan="5" class="px-4 py-8 text-center text-[var(--ui-muted)]">
-                                        <div class="text-sm">Keine Schulungen in diesem Zeitraum</div>
+                                        {{-- Zwei verschiedene Lagen, zwei Saetze: gar keine Schulungen,
+                                             oder nur vergangene (die stehen dann eingeklappt darunter). --}}
+                                        <div class="text-sm">
+                                            {{ $vergangene->isEmpty() ? 'Keine Schulungen in diesem Zeitraum' : 'Keine anstehenden Schulungen' }}
+                                        </div>
                                     </td>
                                 </tr>
                             @endforelse
                         </tbody>
+
+                        @if($vergangene->isNotEmpty())
+                            <tbody class="border-t border-[var(--ui-border)]/60">
+                                <tr>
+                                    <td colspan="5" class="px-4 py-2 bg-[var(--ui-muted-5)]">
+                                        <button type="button" @click="showPast = !showPast"
+                                            class="flex w-full items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)] hover:text-[var(--ui-secondary)]">
+                                            <span class="inline-flex transition-transform" :class="showPast ? 'rotate-90' : ''">
+                                                @svg('heroicon-o-chevron-right', 'w-4 h-4')
+                                            </span>
+                                            <span>Vergangene Schulungen ({{ $vergangene->count() }})</span>
+                                            <span class="ml-auto font-normal normal-case tracking-normal"
+                                                  x-text="showPast ? 'ausblenden' : 'anzeigen'"></span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                            {{-- style statt x-cloak: im Projekt ist keine [x-cloak]-CSS-Regel
+                                 definiert (vgl. interview-schedule/index.blade.php) --}}
+                            <tbody x-show="showPast" style="display: none;" class="divide-y divide-[var(--ui-border)]/60">
+                                @foreach($vergangene as $interview)
+                                    @include('recruiting::livewire.training-review._row', ['interview' => $interview])
+                                @endforeach
+                            </tbody>
+                        @endif
                     </table>
                 </div>
             </x-ui-panel>

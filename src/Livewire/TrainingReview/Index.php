@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\TrainingReview;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecInterview;
+use Platform\Recruiting\Support\InterviewPastness;
 
 /**
  * Schulungsliste der Teamleiter-Ansicht (Kundenwunsch 14.09.2026).
@@ -23,10 +24,13 @@ class Index extends Component
     /** Wie weit zurueck Schulungen sichtbar bleiben. */
     private const WOCHEN_RUECKWIRKEND = 4;
 
+    /** Ergebnis der EINEN Abfrage, pro Request gemerkt — sonst laeuft sie je Gruppe erneut. */
+    private $loadedInterviews = null;
+
     #[Computed]
     public function interviews()
     {
-        return RecInterview::query()
+        return $this->loadedInterviews ??= RecInterview::query()
             ->where('starts_at', '>=', now()->subWeeks(self::WOCHEN_RUECKWIRKEND)->startOfDay())
             ->withCount(['bookings as teilnehmer_count' => function ($q) {
                 $q->whereNotIn('status', ['cancelled']);
@@ -34,6 +38,31 @@ class Index extends Component
             ->with('interviewType')
             ->orderBy('starts_at', 'desc')
             ->get();
+    }
+
+    /**
+     * Anstehende Schulungen — offen. Eine laufende zaehlt dazu, siehe
+     * InterviewPastness.
+     */
+    #[Computed]
+    public function upcomingInterviews()
+    {
+        return $this->interviews->reject(fn ($i) => $this->istVorbei($i))->values();
+    }
+
+    /**
+     * Vergangene Schulungen — eingeklappt, damit die Liste nicht mit
+     * Altbestand zulaeuft. Gleiche Darstellung wie in der Terminuebersicht.
+     */
+    #[Computed]
+    public function pastInterviews()
+    {
+        return $this->interviews->filter(fn ($i) => $this->istVorbei($i))->values();
+    }
+
+    private function istVorbei(RecInterview $interview): bool
+    {
+        return InterviewPastness::isPast($interview->starts_at, $interview->ends_at, now());
     }
 
     public function render()

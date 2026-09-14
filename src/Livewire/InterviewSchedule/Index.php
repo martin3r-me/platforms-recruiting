@@ -142,7 +142,11 @@ class Index extends Component
      */
     private function isPast(RecInterview $interview): bool
     {
-        return ($interview->ends_at ?? $interview->starts_at)->lt(now());
+        return \Platform\Recruiting\Support\InterviewPastness::isPast(
+            $interview->starts_at,
+            $interview->ends_at,
+            now(),
+        );
     }
 
     /** Die eine Abfrage hinter der Uebersicht — Filter, Suche, Eager Loads. */
