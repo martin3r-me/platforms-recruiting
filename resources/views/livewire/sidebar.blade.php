@@ -4,14 +4,25 @@
         Recruiting
     </div>
 
-    {{-- Stufe "Nur Veranstaltungen" (Gate Stufe 1): Teamleiter-Konten sehen nur diesen einen Eintrag. --}}
-    @if ($this->eventOnly)
-        <x-ui-sidebar-list label="Disposition">
-            <x-ui-sidebar-item :href="route('recruiting.dispo.events.index')">
-                @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
-                <span class="ml-2 text-sm">Veranstaltungen</span>
-            </x-ui-sidebar-item>
-        </x-ui-sidebar-list>
+    {{-- Eingeschraenkte Konten (Gate-Stufen): nur die Eintraege ihrer Stufen.
+         Ein Konto darf auf beiden Listen stehen und sieht dann beide. --}}
+    @if ($this->restricted)
+        @if ($this->eventOnly)
+            <x-ui-sidebar-list label="Disposition">
+                <x-ui-sidebar-item :href="route('recruiting.dispo.events.index')">
+                    @svg('heroicon-o-calendar-days', 'w-4 h-4 text-[var(--ui-secondary)]')
+                    <span class="ml-2 text-sm">Veranstaltungen</span>
+                </x-ui-sidebar-item>
+            </x-ui-sidebar-list>
+        @endif
+        @if ($this->trainingLeader)
+            <x-ui-sidebar-list label="Schulungen">
+                <x-ui-sidebar-item :href="route('recruiting.training-review.index')">
+                    @svg('heroicon-o-star', 'w-4 h-4 text-[var(--ui-secondary)]')
+                    <span class="ml-2 text-sm">Bewerten</span>
+                </x-ui-sidebar-item>
+            </x-ui-sidebar-list>
+        @endif
     @else
 
     {{-- Abschnitt: Dashboard --}}

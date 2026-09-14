@@ -104,7 +104,7 @@ class RecruitingServiceProvider extends ServiceProvider
 
         // Zugriffsstufe "Nur Veranstaltungen" (Gate Stufe 1): haengt in der
         // web-Gruppe, ist fuer alle Nicht-Recruiting-Requests ein No-op.
-        $this->app['router']->pushMiddlewareToGroup('web', \Platform\Recruiting\Http\Middleware\DispoEventOnlyGate::class);
+        $this->app['router']->pushMiddlewareToGroup('web', \Platform\Recruiting\Http\Middleware\RecruitingAccessGate::class);
 
         Relation::morphMap([
             'rec_applicant' => \Platform\Recruiting\Models\RecApplicant::class,

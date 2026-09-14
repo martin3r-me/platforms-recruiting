@@ -42,6 +42,8 @@ class Settings extends Component
 
     /** Stufe "Nur Veranstaltungen" (Gate Stufe 1): eine E-Mail pro Zeile (Textarea, String-Prop). */
     public string $eventOnlyEmails = '';
+    /** Stufe "Schulungsbewertung" (14.09.2026) — getrennte Liste, siehe DispoAccess. */
+    public string $trainingLeaderEmails = '';
 
     // Pro-Filiale-Konfiguration — Arrays von Strings, Key = Filialnummer.
     /** @var array<int, string> */
@@ -57,6 +59,7 @@ class Settings extends Component
         $settings = RecApplicantSettings::getOrCreateForTeam($this->teamId());
         $this->templateId    = (string) ($settings->getSetting('dispo_confirmation_template_id') ?? '');
         $this->eventOnlyEmails = implode("\n", (array) ($settings->getSetting('dispo_event_only_emails') ?? []));
+        $this->trainingLeaderEmails = implode("\n", (array) ($settings->getSetting('dispo_training_leader_emails') ?? []));
 
         $this->escalationEnabled     = $settings->getSetting('dispo_escalation_enabled') ? '1' : '';
         $this->escalationTime1       = (string) ($settings->getSetting('dispo_escalation_time_1') ?: '14:00');
@@ -165,6 +168,15 @@ class Settings extends Component
         ))));
         $settings->setSetting('dispo_event_only_emails', $emails);
         $this->eventOnlyEmails = implode("\n", $emails);
+
+        // Stufe "Schulungsbewertung": gleiche Normalisierung, getrennte Liste.
+        $leaders = array_values(array_unique(array_filter(array_map(
+            fn ($line) => mb_strtolower(trim($line)),
+            preg_split('/\r?\n/', $this->trainingLeaderEmails) ?: []
+        ))));
+        $settings->setSetting('dispo_training_leader_emails', $leaders);
+        $this->trainingLeaderEmails = implode("\n", $leaders);
+
         \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::flush();
 
         $settings->setSetting('dispo_escalation_enabled', $this->escalationEnabled !== '');

@@ -74,6 +74,14 @@ class DispoAccessTest extends TestCase
         DispoAccess::flush();
     }
 
+    private function seedTrainingLeaders(array $emails): void
+    {
+        $settings = RecApplicantSettings::getOrCreateForTeam(self::TEAM);
+        $settings->setSetting('dispo_training_leader_emails', $emails);
+        $settings->save();
+        DispoAccess::flush();
+    }
+
     public function test_listed_email_is_restricted_case_insensitively(): void
     {
         $this->seed(['event@rheingedeck.de']);
@@ -116,5 +124,45 @@ class DispoAccessTest extends TestCase
         $this->seed($emails);
 
         $this->assertSame(['event@rheingedeck.de', 'zweiter@rheingedeck.de'], DispoAccess::eventOnlyEmails());
+    }
+
+    public function test_teamleiter_liste_ist_von_der_veranstaltungs_liste_getrennt(): void
+    {
+        // Die Trennung ist der Zweck der zweiten Liste: ein Veranstaltungs-Konto
+        // darf NICHT automatisch Bewerberdaten sehen, nur weil es existiert.
+        $this->seed(['event@rheingedeck.de']);
+        $this->seedTrainingLeaders(['schulung@rheingedeck.de']);
+
+        $this->assertTrue(DispoAccess::trainingLeader($this->user('schulung@rheingedeck.de')));
+        $this->assertFalse(DispoAccess::trainingLeader($this->user('event@rheingedeck.de')));
+        $this->assertFalse(DispoAccess::eventOnly($this->user('schulung@rheingedeck.de')));
+    }
+
+    public function test_ein_konto_darf_auf_beiden_listen_stehen(): void
+    {
+        // Der erwartete Normalfall beim Kunden: dasselbe Sammelkonto sieht
+        // Veranstaltungen UND bewertet seine Schulungen.
+        $this->seed(['event@rheingedeck.de']);
+        $this->seedTrainingLeaders(['event@rheingedeck.de']);
+
+        $this->assertTrue(DispoAccess::eventOnly($this->user('event@rheingedeck.de')));
+        $this->assertTrue(DispoAccess::trainingLeader($this->user('event@rheingedeck.de')));
+    }
+
+    public function test_teamleiter_zuordnung_ist_case_insensitiv_und_opt_in(): void
+    {
+        $this->seedTrainingLeaders(['schulung@rheingedeck.de']);
+
+        $this->assertTrue(DispoAccess::trainingLeader($this->user('Schulung@Rheingedeck.DE')));
+        $this->assertFalse(DispoAccess::trainingLeader($this->user('hr@rheingedeck.de')));
+        $this->assertFalse(DispoAccess::trainingLeader($this->user('')));
+        $this->assertFalse(DispoAccess::trainingLeader(null));
+    }
+
+    public function test_ohne_setting_ist_niemand_teamleiter(): void
+    {
+        // Fehlerrichtung wie bei eventOnly: fehlende Liste heisst "niemand",
+        // nicht "alle".
+        $this->assertFalse(DispoAccess::trainingLeader($this->user('schulung@rheingedeck.de')));
     }
 }

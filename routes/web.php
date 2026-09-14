@@ -78,6 +78,15 @@ Route::get('/conversations', \Platform\Recruiting\Livewire\Conversations\Index::
 Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');
 Route::get('/interview-schedule', InterviewScheduleIndex::class)->name('recruiting.interview-schedule.index');
 Route::get('/interview-bookings/{interview}', InterviewBookingsIndex::class)->name('recruiting.interview-bookings.index');
+// Teamleiter-Bewertungsansicht (14.09.2026): schlanke Nachbereitung fuer
+// Konten der Stufe "Schulungsbewertung". EIGENE Routen — die grosse
+// Buchungsliste darf hier NICHT eingetragen werden, sie traegt Lohnfelder
+// und Vertragsversand (siehe RecruitingRouteGate).
+Route::get('/training-review', \Platform\Recruiting\Livewire\TrainingReview\Index::class)
+    ->name('recruiting.training-review.index');
+Route::get('/training-review/{interview}', \Platform\Recruiting\Livewire\TrainingReview\Show::class)
+    ->name('recruiting.training-review.show');
+
 Route::get('/interview-waitlist', \Platform\Recruiting\Livewire\Waitlist\Index::class)->name('recruiting.interview-waitlist.index');
 
 // Verträge

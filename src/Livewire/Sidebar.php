@@ -20,6 +20,24 @@ class Sidebar extends Component
         return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::currentUserEventOnly();
     }
 
+    /** Stufe "Schulungsbewertung": Teamleiter-Konten sehen den Bewertungs-Eintrag. */
+    #[\Livewire\Attributes\Computed]
+    public function trainingLeader(): bool
+    {
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoAccess::currentUserTrainingLeader();
+    }
+
+    /**
+     * Eingeschraenktes Konto: mindestens eine der beiden Stufen. Dann zeigt
+     * die Sidebar NUR die erlaubten Eintraege — sonst klickt der Nutzer auf
+     * Menuepunkte, die ihn bloss umleiten.
+     */
+    #[\Livewire\Attributes\Computed]
+    public function restricted(): bool
+    {
+        return $this->eventOnly || $this->trainingLeader;
+    }
+
     #[Computed]
     public function recentApplicants()
     {
