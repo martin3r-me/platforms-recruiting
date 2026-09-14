@@ -301,6 +301,23 @@
                                         $lockTitle = $hasOpenNonEuCase
                                             ? 'Liegt beim HR-Schreibtisch'
                                             : ($isLegalCheckPending ? 'Bewerber muss zuerst auf HR-Schreibtisch geprüft werden' : '');
+
+                                        // Lohn-/Laufzeit-Empfehlung an HR (14.09.2026): genau dann, wenn
+                                        // die scharfen Felder wegen eines HR-Falls gesperrt sind. Alles
+                                        // vorberechnet — inline-@if in x-ui-Attributen bricht still.
+                                        $zeigeVorschlag = $applicant && $hasOpenNonEuCase && !$hasSent;
+                                        $vorschlagStatus = $applicant
+                                            ? \Platform\Recruiting\Services\ContractProposalState::state(
+                                                $applicant->vorschlag_at?->getTimestamp(),
+                                                $applicant->vorschlag_taken_at?->getTimestamp(),
+                                                $hasSent,
+                                              )
+                                            : 'none';
+                                        $vorschlagZuschlag = $applicant?->zuschlag_vorschlag !== null
+                                            ? number_format((float) $applicant->zuschlag_vorschlag, 2, ',', '.')
+                                            : '';
+                                        $vorschlagBeginn = $applicant?->vertragsbeginn_vorschlag ?? '';
+                                        $vorschlagEnde = $applicant?->vertragsende_vorschlag ?? '';
                                     @endphp
                                     <tr class="hover:bg-gray-50 {{ $rowDimmed ? 'opacity-60' : '' }} {{ $rowBgClass }}" wire:key="booking-{{ $booking->id }}">
                                         <td class="px-4 py-3">
@@ -342,20 +359,42 @@
                                                 @else
                                                     <div class="text-xs text-red-700">AV-default-Vorlage fehlt oder ist inaktiv.</div>
                                                 @endif
-                                                <div class="mt-1.5">
-                                                    <input
-                                                        type="text"
-                                                        inputmode="decimal"
-                                                        list="zuschlag-suggestions"
-                                                        value="{{ $applicant->zuschlag !== null ? number_format((float) $applicant->zuschlag, 2, ',', '.') : '' }}"
-                                                        @disabled($blockContracts)
-                                                        wire:change="setApplicantZuschlag({{ $booking->id }}, $event.target.value)"
-                                                        placeholder="Zuschlag €/Std (z.B. 0,60)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
-                                                    />
-                                                </div>
+                                                @if($zeigeVorschlag)
+                                                    {{-- Liegt bei HR: der scharfe Wert ist gesperrt, aber der
+                                                         Schulungsleiter gibt seine Empfehlung mit. --}}
+                                                    <div class="mt-1.5">
+                                                        <input
+                                                            type="text"
+                                                            inputmode="decimal"
+                                                            value="{{ $vorschlagZuschlag }}"
+                                                            wire:change="setProposal({{ $booking->id }}, 'zuschlag', $event.target.value)"
+                                                            placeholder="Empfehlung €/Std (z.B. 0,60)"
+                                                            class="text-xs border border-blue-300 bg-blue-50/40 rounded px-2 py-1 min-w-[180px]"
+                                                        />
+                                                    </div>
+                                                @else
+                                                    <div class="mt-1.5">
+                                                        <input
+                                                            type="text"
+                                                            inputmode="decimal"
+                                                            list="zuschlag-suggestions"
+                                                            value="{{ $applicant->zuschlag !== null ? number_format((float) $applicant->zuschlag, 2, ',', '.') : '' }}"
+                                                            @disabled($blockContracts)
+                                                            wire:change="setApplicantZuschlag({{ $booking->id }}, $event.target.value)"
+                                                            placeholder="Zuschlag €/Std (z.B. 0,60)"
+                                                            class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[180px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
+                                                        />
+                                                    </div>
+                                                @endif
                                                 @if($hasOpenNonEuCase)
-                                                    <div class="text-[10px] text-blue-700 mt-1 leading-snug">Versand macht HR vom Schreibtisch.</div>
+                                                    <div class="text-[10px] text-blue-700 mt-1 leading-snug">
+                                                        Empfehlung an HR — Versand und Festsetzung macht HR vom Schreibtisch.
+                                                    </div>
+                                                    @if($vorschlagStatus === 'taken')
+                                                        <div class="text-[10px] text-emerald-700 mt-0.5">Von HR übernommen.</div>
+                                                    @elseif($vorschlagStatus === 'changed')
+                                                        <div class="text-[10px] text-amber-700 mt-0.5">Geändert — HR muss erneut übernehmen.</div>
+                                                    @endif
                                                 @elseif($isLegalCheckPending)
                                                     <div class="text-[10px] text-red-700 mt-1 leading-snug">Erst auf HR-Schreibtisch prüfen.</div>
                                                 @elseif($booking->status !== 'attended')
@@ -371,26 +410,50 @@
                                                     $beginnVal = $contractDates[$applicant->id]['vertragsbeginn'] ?? '';
                                                     $endeVal = $contractDates[$applicant->id]['vertragsende'] ?? '';
                                                 @endphp
-                                                <div class="flex flex-col gap-1.5">
-                                                    <input
-                                                        type="date"
-                                                        value="{{ $beginnVal }}"
-                                                        @disabled($blockContracts)
-                                                        title="{{ $lockTitle }}"
-                                                        wire:change="setContractDate({{ $applicant->id }}, 'vertragsbeginn', $event.target.value)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
-                                                        placeholder="Beginn"
-                                                    />
-                                                    <input
-                                                        type="date"
-                                                        value="{{ $endeVal }}"
-                                                        @disabled($blockContracts)
-                                                        title="{{ $lockTitle }}"
-                                                        wire:change="setContractDate({{ $applicant->id }}, 'vertragsende', $event.target.value)"
-                                                        class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
-                                                        placeholder="Ende"
-                                                    />
-                                                </div>
+                                                @if($zeigeVorschlag)
+                                                    {{-- Befristungswunsch aus dem Gespraech: erfaehrt der
+                                                         Schulungsleiter, nicht HR. Deshalb als Empfehlung mit. --}}
+                                                    <div class="flex flex-col gap-1.5">
+                                                        <input
+                                                            type="date"
+                                                            value="{{ $vorschlagBeginn }}"
+                                                            title="Empfehlung an HR"
+                                                            wire:change="setProposal({{ $booking->id }}, 'vertragsbeginn', $event.target.value)"
+                                                            class="text-xs border border-blue-300 bg-blue-50/40 rounded px-2 py-1 min-w-[140px]"
+                                                        />
+                                                        <input
+                                                            type="date"
+                                                            value="{{ $vorschlagEnde }}"
+                                                            title="Empfehlung an HR"
+                                                            wire:change="setProposal({{ $booking->id }}, 'vertragsende', $event.target.value)"
+                                                            class="text-xs border border-blue-300 bg-blue-50/40 rounded px-2 py-1 min-w-[140px]"
+                                                        />
+                                                    </div>
+                                                    <div class="text-[10px] text-blue-700 mt-1 max-w-[200px] leading-snug">
+                                                        Empfehlung an HR — z.B. wenn jemand nur befristet arbeiten will.
+                                                    </div>
+                                                @else
+                                                    <div class="flex flex-col gap-1.5">
+                                                        <input
+                                                            type="date"
+                                                            value="{{ $beginnVal }}"
+                                                            @disabled($blockContracts)
+                                                            title="{{ $lockTitle }}"
+                                                            wire:change="setContractDate({{ $applicant->id }}, 'vertragsbeginn', $event.target.value)"
+                                                            class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
+                                                            placeholder="Beginn"
+                                                        />
+                                                        <input
+                                                            type="date"
+                                                            value="{{ $endeVal }}"
+                                                            @disabled($blockContracts)
+                                                            title="{{ $lockTitle }}"
+                                                            wire:change="setContractDate({{ $applicant->id }}, 'vertragsende', $event.target.value)"
+                                                            class="text-xs border border-[var(--ui-border)] rounded px-2 py-1 min-w-[140px] {{ $blockContracts ? 'bg-gray-100 cursor-not-allowed' : '' }}"
+                                                            placeholder="Ende"
+                                                        />
+                                                    </div>
+                                                @endif
                                                 @if(!$hasSent && !$isLegalCheckPending)
                                                     <div class="text-[10px] text-[var(--ui-muted)] mt-1 max-w-[200px] leading-snug">
                                                         Ende leer lassen für Auto-Berechnung (+1 Jahr, Anfang Monat, −1 Tag).

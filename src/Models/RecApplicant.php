@@ -60,6 +60,16 @@ class RecApplicant extends Model implements InheritsExtraFields
         'evaluation_note',
         'linen_package_items',
         'qualifications',
+        // Lohn-/Laufzeit-Vorschlag des Schulungsleiters (14.09.2026) — die
+        // Empfehlung an HR, NICHT der vertragswirksame Wert. Bewusst OHNE
+        // date-Cast: die beiden Datumsfelder gehen als 'Y-m-d'-String direkt
+        // in die value-Attribute der Formulare.
+        'zuschlag_vorschlag',
+        'vertragsbeginn_vorschlag',
+        'vertragsende_vorschlag',
+        'vorschlag_at',
+        'vorschlag_by',
+        'vorschlag_taken_at',
     ];
 
     protected $casts = [
@@ -86,6 +96,9 @@ class RecApplicant extends Model implements InheritsExtraFields
         'rating_teamintegration'  => 'integer',
         'linen_package_items'     => 'array',
         'qualifications'          => 'array',
+        'zuschlag_vorschlag'      => 'decimal:2',
+        'vorschlag_at'            => 'datetime',
+        'vorschlag_taken_at'      => 'datetime',
     ];
 
     protected static function booted(): void

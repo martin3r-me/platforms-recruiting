@@ -17,6 +17,7 @@ use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\ContractDispatchService;
+use Platform\Recruiting\Services\ContractProposalService;
 use Platform\Recruiting\Services\SendContractsService;
 use Platform\Recruiting\Support\ManualBookingCandidates;
 use Platform\Core\Models\CoreLookup;
@@ -560,6 +561,70 @@ class Index extends Component
 
         $booking->applicant->zuschlag = $num;
         $booking->applicant->save();
+    }
+
+    /**
+     * Lohn-/Laufzeit-VORSCHLAG des Schulungsleiters (Kundenwunsch 14.09.2026).
+     *
+     * Greift genau dort, wo setApplicantZuschlag und setContractDate gesperrt
+     * sind: Liegt die Person am HR-Schreibtisch, darf der Schulungsleiter den
+     * scharfen Wert nicht mehr anfassen — aber er war gerade mit ihr im
+     * Gespraech und weiss, was sie verdienen soll und ob sie nur befristet
+     * arbeiten will. Er legt eine Empfehlung daneben; HR uebernimmt sie per
+     * Klick oder tippt etwas anderes.
+     *
+     * Ein Vorschlag macht KEINEN Versand moeglich — ContractSendEligibility
+     * zaehlt weiterhin nur den scharfen Zuschlag.
+     *
+     * Die drei Felder kommen einzeln per wire:change herein; propose() will
+     * aber alle drei. Die jeweils anderen werden deshalb aus dem Bestand
+     * uebernommen.
+     */
+    public function setProposal(int $bookingId, string $field, $value): void
+    {
+        if (!in_array($field, ['zuschlag', 'vertragsbeginn', 'vertragsende'], true)) {
+            return;
+        }
+
+        $booking = RecInterviewBooking::with('applicant')->findOrFail($bookingId);
+        $applicant = $booking->applicant;
+        if (!$applicant) {
+            return;
+        }
+
+        // Nur anbieten, wo auch gesperrt ist — sonst gehoert der Wert direkt
+        // ins scharfe Feld und nicht in einen Vorschlag.
+        if (!isset($this->openNonEuCaseApplicantIds[$applicant->id])) {
+            return;
+        }
+
+        $raw = trim((string) $value);
+
+        if ($field === 'zuschlag' && $raw !== '' && !preg_match('/^\d{1,3}([.,]\d{1,2})?$/', $raw)) {
+            session()->flash('error', 'Empfehlung muss eine Zahl sein (z.B. 0,60).');
+            return;
+        }
+
+        $werte = [
+            'zuschlag' => $applicant->zuschlag_vorschlag !== null
+                ? (string) $applicant->zuschlag_vorschlag
+                : null,
+            'vertragsbeginn' => $applicant->vertragsbeginn_vorschlag,
+            'vertragsende'   => $applicant->vertragsende_vorschlag,
+        ];
+        $werte[$field] = $raw;
+
+        ContractProposalService::propose(
+            $applicant,
+            zuschlag: $werte['zuschlag'],
+            vertragsbeginn: $werte['vertragsbeginn'],
+            vertragsende: $werte['vertragsende'],
+            userId: auth()->id(),
+            now: now(),
+        );
+        $applicant->save();
+
+        unset($this->bookings);
     }
 
     /**

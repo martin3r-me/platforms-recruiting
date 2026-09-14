@@ -216,7 +216,7 @@
                                     $isNonEuCase = $case->reason === \Platform\Recruiting\Models\RecHrDeskCase::REASON_NON_EU_CITIZEN;
                                     $hasAttended = $applicant && isset($this->attendedApplicantIds[$applicant->id]);
                                     $showSendSection = $isNonEuCase && $hasAttended && $legalStatus;
-                                    $deskFields = $applicant ? ($deskContractDates[$applicant->id] ?? []) : [];
+                                    $deskFields = $applicant ? $this->deskDatesFor($applicant) : [];
                                     $deskBeginn = $deskFields['vertragsbeginn'] ?? '';
                                     $deskEnde = $deskFields['vertragsende'] ?? '';
                                     // Aus der eager-geladenen Relation statt hasAnyContractSent()
@@ -235,6 +235,67 @@
                                     $sendReady = $sendState === 'ready' || $sendState === 'already_sent';
                                     $shownTpl = $applicant?->contractTemplate ?? $this->defaultContractTemplate;
                                 @endphp
+                                @php
+                                    $vorschlagStatus = $applicant
+                                        ? \Platform\Recruiting\Services\ContractProposalState::state(
+                                            $applicant->vorschlag_at?->getTimestamp(),
+                                            $applicant->vorschlag_taken_at?->getTimestamp(),
+                                            $deskHasSent,
+                                          )
+                                        : 'none';
+                                    $vorschlagLohn = $applicant?->zuschlag_vorschlag !== null
+                                        ? number_format((float) $applicant->zuschlag_vorschlag, 2, ',', '.') . ' €/Std'
+                                        : null;
+                                    $vBeginn = $applicant?->vertragsbeginn_vorschlag;
+                                    $vEnde = $applicant?->vertragsende_vorschlag;
+                                    $vorschlagZeitraum = $vBeginn || $vEnde
+                                        ? trim(
+                                            ($vBeginn ? \Illuminate\Support\Carbon::parse($vBeginn)->format('d.m.Y') : '—')
+                                            . ' – ' .
+                                            ($vEnde ? \Illuminate\Support\Carbon::parse($vEnde)->format('d.m.Y') : 'offen')
+                                          )
+                                        : null;
+                                    $vorschlagWer = $applicant?->vorschlag_by
+                                        ? ($this->proposerNames[$applicant->vorschlag_by] ?? null)
+                                        : null;
+                                    $vorschlagWann = $applicant?->vorschlag_at?->format('d.m.Y');
+                                @endphp
+                                @if($applicant && in_array($vorschlagStatus, ['open', 'changed', 'taken'], true))
+                                    <div class="mt-3 p-3 rounded-md border {{ $vorschlagStatus === 'taken' ? 'border-gray-200 bg-gray-50' : 'border-amber-300 bg-amber-50/70' }}">
+                                        <div class="text-xs font-semibold uppercase tracking-wide mb-1 {{ $vorschlagStatus === 'taken' ? 'text-gray-600' : 'text-amber-900' }}">
+                                            @if($vorschlagStatus === 'changed')
+                                                Empfehlung Schulungsleiter — nach der Übernahme geändert
+                                            @elseif($vorschlagStatus === 'taken')
+                                                Empfehlung Schulungsleiter — übernommen
+                                            @else
+                                                Empfehlung Schulungsleiter
+                                            @endif
+                                        </div>
+                                        <div class="text-xs text-gray-800">
+                                            @if($vorschlagLohn)
+                                                <span class="font-medium">{{ $vorschlagLohn }}</span>
+                                            @else
+                                                <span class="text-gray-500">kein Lohnvorschlag</span>
+                                            @endif
+                                            @if($vorschlagZeitraum)
+                                                <span class="text-gray-500">·</span> {{ $vorschlagZeitraum }}
+                                            @endif
+                                            <span class="text-gray-500">
+                                                ({{ $vorschlagWer ?? 'Schulungsleiter' }}@if($vorschlagWann), {{ $vorschlagWann }}@endif)
+                                            </span>
+                                        </div>
+                                        @if($vorschlagStatus !== 'taken')
+                                            <div class="mt-2 flex items-center gap-2">
+                                                <x-ui-button variant="secondary" size="xs" wire:click="takeProposal({{ $applicant->id }})">
+                                                    Übernehmen
+                                                </x-ui-button>
+                                                <span class="text-[11px] text-gray-600">
+                                                    Setzt Lohn und Laufzeit als Startwert — danach noch änderbar.
+                                                </span>
+                                            </div>
+                                        @endif
+                                    </div>
+                                @endif
                                 @if($showSendSection)
                                     <div class="mt-3 p-3 rounded-md border border-blue-200 bg-blue-50/60">
                                         <div class="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-2">

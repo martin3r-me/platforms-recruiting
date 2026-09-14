@@ -433,6 +433,80 @@ class Index extends Component
     }
 
     /**
+     * Namen der Schulungsleiter, die etwas vorgeschlagen haben (id => Name).
+     *
+     * EIN Query fuer die ganze Liste statt einer Abfrage pro Karte — die
+     * Karten rendern in einer Schleife, ein Lookup im Blade waere ein N+1.
+     */
+    #[Computed]
+    public function proposerNames(): array
+    {
+        $ids = $this->cases
+            ->pluck('applicant.vorschlag_by')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return [];
+        }
+
+        return \Platform\Core\Models\User::whereIn('id', $ids)
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Empfehlung des Schulungsleiters uebernehmen (Kundenwunsch 14.09.2026).
+     *
+     * Der vorgeschlagene Zuschlag wird zum scharfen Wert, die vorgeschlagene
+     * Laufzeit zur Vorbelegung der Formularfelder. HR kann danach alles noch
+     * aendern — die Uebernahme ist ein Startwert, keine Festsetzung.
+     *
+     * Ohne diesen Klick passiert NICHTS: ein Vorschlag allein loest den
+     * Versand-Blocker nicht (ContractSendEligibility zaehlt nur $zuschlag).
+     * Genau das ist die Nachkontrolle, die der Kunde wollte.
+     */
+    public function takeProposal(int $applicantId): void
+    {
+        $applicant = RecApplicant::forTeam((int) Auth::user()->currentTeam->id)->find($applicantId);
+        if (!$applicant || $applicant->vorschlag_at === null) {
+            return;
+        }
+
+        \Platform\Recruiting\Services\ContractProposalService::take($applicant, now());
+        $applicant->save();
+
+        $dates = \Platform\Recruiting\Services\ContractProposalService::proposedDates($applicant);
+        if ($dates !== null) {
+            $this->deskContractDates[$applicant->id] = $dates;
+        }
+
+        unset($this->cases);
+        session()->flash('message', 'Empfehlung übernommen — bitte vor dem Versand prüfen.');
+    }
+
+    /**
+     * Die Laufzeit fuer diesen Bewerber: was HR getippt hat, sonst der
+     * uebernommene Vorschlag. EIN Ort fuer Anzeige und Versand — sonst
+     * zeigt die Karte einen Wert an, den der Versand nicht kennt.
+     */
+    public function deskDatesFor(RecApplicant $applicant): array
+    {
+        $getippt = $this->deskContractDates[$applicant->id] ?? [];
+        if (!empty($getippt['vertragsbeginn']) || !empty($getippt['vertragsende'])) {
+            return $getippt;
+        }
+
+        if ($applicant->vorschlag_taken_at === null) {
+            return $getippt;
+        }
+
+        return \Platform\Recruiting\Services\ContractProposalService::proposedDates($applicant) ?? $getippt;
+    }
+
+    /**
      * Vertragslaufzeit setzen — gleiche Auto-Calc-Vorbelegung wie die
      * Nachbereitung (setContractDate): Beginn gesetzt + Ende leer →
      * Ende via resolveContractDates (+1 Jahr, Anfang Monat, −1 Tag).
@@ -481,7 +555,7 @@ class Index extends Component
         }
 
         // Gemeinsames Prädikat (Task 1) — identisch zum Bulk-Gate.
-        $fields = $this->deskContractDates[$applicant->id] ?? null;
+        $fields = $this->deskDatesFor($applicant) ?: null;
         $state = ContractSendEligibility::state(
             $applicant->hasAnyContractSent(),
             $applicant->isLegalStatusUnchecked(),
