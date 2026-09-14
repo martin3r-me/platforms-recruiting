@@ -30,6 +30,8 @@ class TrainingReviewHasNoDispatchTest extends TestCase
         // Liest nur den Anzeigenamen aus den CRM-Kontaktverknuepfungen —
         // keine Mutation, kein Sprung in die Akte.
         'contactCandidatesFor',
+        // Liest Lookup-Optionen (Waeschepaket, Qualifikationen) fuers Modal.
+        'lookupOptionsFor',
     ];
 
     public function test_die_ansicht_hat_keine_versand_oder_lohnmethode(): void

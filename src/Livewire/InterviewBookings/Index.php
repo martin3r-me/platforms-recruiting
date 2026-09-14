@@ -864,11 +864,6 @@ class Index extends Component
 
 
 
-    public function lookupOptionsFor(string $lookupName): array
-    {
-        $lookup = CoreLookup::where('name', $lookupName)->first();
-        return $lookup ? $lookup->getOptionsArray() : [];
-    }
 
     /**
      * True wenn der Bewerber rechtsstatus-pruefung-pflichtig ist (nicht-EU

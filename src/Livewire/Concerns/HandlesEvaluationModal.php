@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Concerns;
 
 use Livewire\Attributes\Computed;
+use Platform\Core\Models\CoreLookup;
 
 /**
  * Das Bewertungs-Modal der Schulungsnachbereitung — geteilt zwischen der
@@ -206,5 +207,20 @@ trait HandlesEvaluationModal
         }
 
         return $candidates;
+    }
+
+    /**
+     * Optionen einer Core-Lookup-Liste (Waeschepaket, Qualifikationen) fuer
+     * die Mehrfachauswahl im Modal.
+     *
+     * Gehoert in den Trait, WEIL das Modal-Partial sie aufruft: Bleibt sie in
+     * nur einer Komponente, rendert die andere Ansicht die Tabelle einwandfrei
+     * und stirbt erst beim Klick auf "Bewerten" (so geschehen 14.09.2026,
+     * BadMethodCallException in der Teamleiter-Ansicht).
+     */
+    public function lookupOptionsFor(string $lookupName): array
+    {
+        $lookup = CoreLookup::where('name', $lookupName)->first();
+        return $lookup ? $lookup->getOptionsArray() : [];
     }
 }
