@@ -40,6 +40,13 @@ class SharedPartialContractTest extends TestCase
         'training-review/index' => [
             \Platform\Recruiting\Livewire\TrainingReview\Index::class,
         ],
+        // Sammelversand „ohne Einsatz" (14.09.2026): eigenes Partial, weil das
+        // Statistik-Blade schon 1000 Zeilen traegt — und weil der Vertrag
+        // (Auswahl, Fortschritt, Start) damit hier geprueft wird statt beim
+        // Kunden.
+        'statistics/no-assignment-campaign' => [
+            \Platform\Recruiting\Livewire\Statistics\Index::class,
+        ],
     ];
 
     /**

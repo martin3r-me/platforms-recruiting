@@ -570,6 +570,22 @@
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Geht aus der Statistik („Ohne Termin") an Bewerber, die nur noch einen Termin brauchen. URL-Button muss auf <code>/recruiting/interviews/@verbatim{{1}}@endverbatim</code> zeigen.</p>
                     @endif
 
+                    {{-- Sammelversand „ohne Einsatz" — Nachfrage an Schulungsteilnehmer ohne Zuweisung --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['no_assignment_campaign_wa_template_id'] ?? null"
+                            name="settings.no_assignment_campaign_wa_template_id"
+                            label="WhatsApp Template — Nachfrage bei Teilnehmern ohne Einsatz"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model.live="settings.no_assignment_campaign_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Geht aus der Schulungs-Detailansicht („ohne Einsatz") an Teilnehmer, die nach der Schulung nie in einen Einsatz gekommen sind. Darf außer dem Vornamen keine Variable und keinen URL-Button mit Variable enthalten.</p>
+                    @endif
+
                     {{-- Contract Portal Template --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select

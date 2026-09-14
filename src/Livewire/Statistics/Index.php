@@ -9,8 +9,8 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Jobs\SendNewDatesCampaign;
+use Platform\Recruiting\Jobs\SendNoAssignmentCampaign;
 use Platform\Recruiting\Models\RecApplicant;
-use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecPhase;
@@ -19,8 +19,10 @@ use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\Campaign\NewDatesCampaignRecipients;
+use Platform\Recruiting\Services\Campaign\NoAssignmentCampaignRecipients;
 use Platform\Recruiting\Services\Statistics\CohortAssigner;
 use Platform\Recruiting\Services\Statistics\CohortViewModel;
+use Platform\Recruiting\Services\Statistics\EinsatzLookup;
 use Platform\Recruiting\Services\Statistics\TargetLight;
 use Platform\Recruiting\Support\CampaignSegment;
 
@@ -467,106 +469,12 @@ class Index extends Component
 
         // ------------------------------------------------------------------
         // SCHULUNG → EINSATZ (Markus, 09.09.2026): je Bewerbung eine von drei
-        // ehrlichen Aussagen fuer den Dispo-Abgleich der Termin-Tabelle.
-        // Zuweisungen matchen im Dispo-Import ausschliesslich ueber die
-        // ZAS-Personalnummer des Mitarbeiters — ohne MA oder ohne PersNr ist
-        // die Frage NICHT pruefbar und darf nicht still als „ohne Einsatz"
-        // zaehlen (das waere die naechste Zahl, an der es zwischen Dispo und
-        // HR knirscht).
-        //
-        // Ein Einsatz zaehlt, wenn er kein Storno ist (status_id 3) und nicht
-        // aus dem ZAS entfernt/geloescht wurde. Angebote (status_id 0) zaehlen
-        // MIT: „geplant oder vergangen" war die ausdrueckliche Anforderung.
-        // ALLE Anstellungen je Bewerbung: ZAS bedient zwei Firmen (RG/MA),
-        // eine Person kann zwei Datensaetze mit zwei Nummern haben — die
-        // Einsaetze BEIDER zaehlen (Chaieb-Befund 10.09.2026). „Pruefbar"
-        // heisst: mindestens eine Anstellung traegt eine Nummer.
-        $employeesByApplicant = [];
-        foreach ($applicants as $a) {
-            foreach ($a->employees as $employee) {
-                $employeesByApplicant[$a->id][] = $employee;
-            }
-        }
-
-        // GESCHWISTER ueber den person_key: der zweite Firmen-Datensatz haengt
-        // oft NICHT an der Bewerbung (er kam per ZAS-Lieferung), traegt aber
-        // denselben person_key wie der verlinkte. Ohne diesen Schritt sah der
-        // Abgleich nur die Nummern der verlinkten Anstellungen — genau der
-        // Chaieb-Fall (MA18232 unverlinkt, RG18231 verlinkt).
-        $keyZuApplicants = [];
-        $bekannteEmployeeIds = [];
-        foreach ($employeesByApplicant as $applicantId => $employees) {
-            foreach ($employees as $employee) {
-                $bekannteEmployeeIds[] = (int) $employee->id;
-                if (trim((string) $employee->person_key) !== '') {
-                    $keyZuApplicants[$employee->person_key][] = (int) $applicantId;
-                }
-            }
-        }
-        if ($keyZuApplicants !== []) {
-            $geschwister = RecEmployee::query()
-                ->where('team_id', $teamId)
-                ->whereIn('person_key', array_keys($keyZuApplicants))
-                ->whereNotIn('id', $bekannteEmployeeIds)
-                ->get(['id', 'rec_applicant_id', 'personnel_number', 'person_key']);
-            foreach ($geschwister as $employee) {
-                foreach (array_unique($keyZuApplicants[$employee->person_key] ?? []) as $applicantId) {
-                    $employeesByApplicant[$applicantId][] = $employee;
-                }
-            }
-        }
-
-        $pruefbareEmployeeIds = collect($employeesByApplicant)
-            ->flatten(1)
-            ->filter(fn ($e) => trim((string) $e->personnel_number) !== '')
-            ->map(fn ($e) => (int) $e->id)
-            ->values();
-        $einsatzJeEmployee = $pruefbareEmployeeIds->isEmpty() ? collect() :
-            \Platform\Recruiting\Models\RecDispoAssignment::query()
-                ->whereIn('rec_employee_id', $pruefbareEmployeeIds)
-                ->where('status_id', '!=', 3)
-                ->whereNull('zas_removed_at')
-                ->whereNull('deletion_confirmed_at')
-                ->groupBy('rec_employee_id')
-                ->selectRaw('rec_employee_id, COUNT(*) as anzahl, MIN(datum) as erster')
-                ->get()
-                ->keyBy('rec_employee_id');
-
-        // Karte fuer Zeilen-Flag, Drilldown-Anzeige und die „Erster Einsatz"-
-        // Spalte der Ausschreibungs-Tabelle: applicant_id → count/first/grund.
-        $einsatzInfo = [];
-        $einsatzFlag = function (int $applicantId) use ($employeesByApplicant, $einsatzJeEmployee, &$einsatzInfo): string {
-            $employees = $employeesByApplicant[$applicantId] ?? [];
-            if ($employees === []) {
-                $einsatzInfo[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'kein_ma'];
-
-                return 'unverifiable';
-            }
-            $mitNummer = array_filter($employees, fn ($e) => trim((string) $e->personnel_number) !== '');
-            if ($mitNummer === []) {
-                $einsatzInfo[$applicantId] = ['count' => 0, 'first' => null, 'grund' => 'keine_pnr'];
-
-                return 'unverifiable';
-            }
-
-            // Summe/Minimum ueber ALLE Anstellungen mit Nummer
-            $count = 0;
-            $first = null;
-            foreach ($mitNummer as $employee) {
-                $treffer = $einsatzJeEmployee->get((int) $employee->id);
-                if ($treffer === null) {
-                    continue;
-                }
-                $count += (int) $treffer->anzahl;
-                $erster = $treffer->erster !== null ? (string) $treffer->erster : null;
-                if ($erster !== null && ($first === null || $erster < $first)) {
-                    $first = $erster;
-                }
-            }
-            $einsatzInfo[$applicantId] = ['count' => $count, 'first' => $first, 'grund' => null];
-
-            return $count > 0 ? 'deployed' : 'none';
-        };
+        // ehrlichen Aussagen fuer den Dispo-Abgleich der Termin-Tabelle —
+        // Regel, Begruendungen und die beiden Queries stehen in EinsatzLookup.
+        // Dieselbe Einheit prueft im Sammelversand „ohne Einsatz" unmittelbar
+        // vor dem Senden noch einmal nach.
+        $einsatzLookup = EinsatzLookup::for($teamId, $applicants);
+        $einsatzFlag = fn (int $applicantId): string => $einsatzLookup->flag($applicantId);
 
         $rows = [];
         $bookings = [];
@@ -859,7 +767,7 @@ class Index extends Component
 
         // Dispo-Abgleich (siehe oben): count/first/grund je Bewerbung — fuer den
         // Drilldown der Einsatz-Spalten und die „Erster Einsatz"-Zelle.
-        $result['einsatz_info'] = $einsatzInfo;
+        $result['einsatz_info'] = $einsatzLookup->info();
 
         return $result;
     }
@@ -1827,6 +1735,8 @@ class Index extends Component
         $this->terminDetailId = $interviewId;
         $this->terminDetailFilter = 'teilgenommen';
         $this->showTerminDetail = true;
+        $this->noAssignmentUuid = null;
+        $this->primeNoAssignment();
     }
 
     /**
@@ -1933,6 +1843,213 @@ class Index extends Component
             'kennzahlen' => $kennzahlen,
             'personen' => $personen,
         ];
+    }
+
+
+    // ------------------------------------------------------------------
+    // SAMMELVERSAND „OHNE EINSATZ" (Clara, 14.09.2026)
+    //
+    // Die Chip-Liste „ohne Einsatz" IST die Arbeitsliste: teilgenommen,
+    // Mitarbeiter mit ZAS-Personalnummer, aber keine einzige Zuweisung. Genau
+    // diese Menschen bekommen die Nachfrage „moechtest du starten oder nicht?".
+    //
+    // Die Empfaengermenge wird SERVERSEITIG aus derselben Personenliste
+    // gerechnet, die das Modal zeigt (ohneEinsatzIds) — der Client kann den
+    // Kreis nur verkleinern (Haekchen), nie erweitern. Ein zweiter Schnitt
+    // gegen die waehlbaren Zeilen passiert in CampaignSegment::selectedIds,
+    // derselbe Weg wie bei der Kampagne „Neue Termine".
+    /** @var array<int,bool> applicant_id => angehakt */
+    public array $noAssignmentSelection = [];
+    public ?int $noAssignmentTemplate = null;
+    /**
+     * Locked wie $campaignUuid: kein Pfad bindet das Token vom Client, es wird
+     * ausschliesslich in startNoAssignmentCampaign() gesetzt.
+     */
+    #[Locked]
+    public ?string $noAssignmentUuid = null;
+    public string $noAssignmentError = '';
+
+    /**
+     * Eine Berechnung je Request statt einer je Aufrufer: die View braucht die
+     * Detailansicht, der Sammelversand braucht ihre Personenliste, und
+     * terminDetailFor() kostet Queries. Bewusst ein normales Property-Paar
+     * statt #[Computed] — die Render-Proben der Tests binden die Komponente
+     * ohne Livewire-Lebenszyklus.
+     */
+    private ?array $terminDetailCache = null;
+    private bool $terminDetailCached = false;
+
+    /**
+     * Die Kohorte als METHODE lesbar. Als Computed-Property (`$this->cohort`)
+     * haengt sie am Livewire-Lebenszyklus; die Test-Proben dieses Moduls laufen
+     * ohne ihn und rufen `cohort()` direkt auf (Muster probeInterviewTable).
+     * Hier wird bewusst die Property gelesen — sie traegt den Request-Cache,
+     * und cohort() ein zweites Mal zu rechnen waere ein halbes Dutzend Queries.
+     */
+    protected function cohortResult(): array
+    {
+        return $this->cohort;
+    }
+
+    public function terminDetailData(): ?array
+    {
+        if (!$this->terminDetailCached) {
+            $cohort = $this->cohortResult();
+            $this->terminDetailCache = ($this->showTerminDetail && $this->terminDetailId)
+                ? $this->terminDetailFor((int) $this->terminDetailId, $cohort['termin_rows'], $cohort['einsatz_info'])
+                : null;
+            $this->terminDetailCached = true;
+        }
+
+        return $this->terminDetailCache;
+    }
+
+    /**
+     * Empfaenger aus der Personenliste des Modals — rein, damit die Regel ohne
+     * Container pruefbar ist.
+     *
+     * @param  list<array{id:int, topf:?string}>  $personen
+     * @return list<int>
+     */
+    public static function ohneEinsatzIds(array $personen): array
+    {
+        return array_values(array_map(
+            fn (array $p): int => (int) $p['id'],
+            array_filter($personen, fn (array $p): bool => ($p['topf'] ?? null) === 'ohne_einsatz'),
+        ));
+    }
+
+    /** @return list<int> */
+    public function noAssignmentIds(): array
+    {
+        if (!$this->showTerminDetail || $this->terminDetailId === null || $this->terminDetailFilter !== 'ohne_einsatz') {
+            return [];
+        }
+        $detail = $this->terminDetailData();
+
+        return $detail === null ? [] : self::ohneEinsatzIds($detail['personen']);
+    }
+
+    public function noAssignmentEnabled(): bool
+    {
+        return $this->noAssignmentIds() !== [];
+    }
+
+    /**
+     * Zeilen des Sammelversands — Waehlbarkeit und Vorauswahl kommen aus dem
+     * Loader, der dieselbe Frage im Job noch einmal stellt.
+     *
+     * @return array<int, array{applicant_id:int, name:string, selectable:bool, checked:bool, badges:list<string>}>
+     */
+    #[Computed]
+    public function noAssignmentRows(): array
+    {
+        $ids = $this->noAssignmentIds();
+
+        return $ids === [] ? [] : app(NoAssignmentCampaignRecipients::class)->load($this->teamId(), $ids);
+    }
+
+    #[Computed]
+    public function noAssignmentProgress(): ?array
+    {
+        if ($this->noAssignmentUuid === null) {
+            return null;
+        }
+
+        return Cache::get(SendNoAssignmentCampaign::cacheKey($this->noAssignmentUuid));
+    }
+
+    /**
+     * Chip-Wechsel setzt den Versand-Bereich neu auf: die Vorauswahl gehoert zu
+     * DIESER Liste, und eine Auswahl aus einem anderen Topf darf nicht
+     * mitwandern. Das laufende Token bleibt stehen — wer den Chip wechselt,
+     * soll den Fortschritt beim Zurueckwechseln wiederfinden.
+     */
+    public function updatedTerminDetailFilter(): void
+    {
+        $this->primeNoAssignment();
+    }
+
+    private function primeNoAssignment(): void
+    {
+        $this->noAssignmentSelection = [];
+        $this->noAssignmentError = '';
+        if ($this->terminDetailFilter !== 'ohne_einsatz') {
+            return;
+        }
+
+        // Explizite Vorauswahl statt eines Defaults beim Lesen: die Checkbox
+        // haengt per wire:model an diesem Feld, ein fehlender Schluessel waere
+        // ein leeres Kaestchen bei serverseitig gewaehlter Person.
+        foreach ($this->noAssignmentRows as $id => $row) {
+            $this->noAssignmentSelection[$id] = $row['checked'];
+        }
+        $this->noAssignmentTemplate = $this->noAssignmentTemplate
+            ?: (int) (RecApplicantSettings::getOrCreateForTeam($this->teamId())->getSetting('no_assignment_campaign_wa_template_id') ?? 0)
+            ?: null;
+    }
+
+    public function noAssignmentSelectAll(bool $on): void
+    {
+        foreach ($this->noAssignmentRows as $id => $row) {
+            $this->noAssignmentSelection[$id] = $on && $row['selectable'];
+        }
+    }
+
+    /** @return list<int> */
+    public function noAssignmentSelectedIds(): array
+    {
+        $rows = $this->noAssignmentRows;
+        $selectable = array_keys(array_filter($rows, fn ($r) => $r['selectable']));
+
+        return CampaignSegment::selectedIds($this->noAssignmentSelection, $this->noAssignmentIds(), $selectable);
+    }
+
+    /**
+     * Reine Guard-Kette fuer den Start-Button, pro Zeile eine Ablehnung, in
+     * genau dieser Reihenfolge geprueft (Muster campaignStartError).
+     */
+    public static function noAssignmentStartError(bool $enabled, bool $alreadyStarted, int $selectedCount, ?int $templateId): ?string
+    {
+        if (!$enabled) {
+            return 'Sammelversand nicht verfügbar.';
+        }
+        if ($alreadyStarted) {
+            return 'Versand läuft bereits.';
+        }
+        if ($selectedCount === 0) {
+            return 'Niemand ausgewählt.';
+        }
+        if (!$templateId) {
+            return 'Kein Template gewählt.';
+        }
+
+        return null;
+    }
+
+    public function startNoAssignmentCampaign(): void
+    {
+        $this->noAssignmentError = '';
+        $ids = $this->noAssignmentSelectedIds();
+
+        $error = self::noAssignmentStartError($this->noAssignmentEnabled(), $this->noAssignmentUuid !== null, count($ids), $this->noAssignmentTemplate);
+        if ($error !== null) {
+            $this->noAssignmentError = $error;
+
+            return;
+        }
+
+        $uuid = (string) Str::uuid();
+        Cache::put(SendNoAssignmentCampaign::cacheKey($uuid), SendNoAssignmentCampaign::initialProgress(count($ids)), SendNoAssignmentCampaign::CACHE_TTL_SECONDS);
+        SendNoAssignmentCampaign::dispatch(
+            $uuid,
+            $this->teamId(),
+            auth()->id(),
+            (int) $this->terminDetailId,
+            $ids,
+            (int) $this->noAssignmentTemplate,
+        );
+        $this->noAssignmentUuid = $uuid;
     }
 
     public function drill(string $token, string $column = 'ids', string $columnLabel = ''): void

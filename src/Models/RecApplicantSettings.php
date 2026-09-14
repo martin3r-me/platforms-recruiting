@@ -53,6 +53,7 @@ class RecApplicantSettings extends Model
         // Modal ein beliebiges approved Template waehlen.
         'campaign_form_wa_template_id' => null,
         'campaign_booking_wa_template_id' => null,
+        'no_assignment_campaign_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
         'contract_wa_template_id' => null,
         'contract_wa_account_id' => null,

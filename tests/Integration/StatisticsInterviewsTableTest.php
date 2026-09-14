@@ -292,6 +292,34 @@ class StatisticsInterviewsTableTest extends TestCase
         $this->assertNull($component->terminDetailFor(999999, $cohort['termin_rows'], $cohort['einsatz_info']));
     }
 
+    public function test_sammelversand_adressiert_nur_den_topf_ohne_einsatz(): void
+    {
+        // Der Sammelversand „ohne Einsatz" (Clara, 14.09.2026) haengt an
+        // GENAU der Liste, die das Modal unter diesem Chip zeigt — und an
+        // keiner anderen. Beides wird hier gegen echte Daten geprueft: die
+        // Ableitung der Empfaenger und der Chip als Schranke davor.
+        $component = $this->component('Essen');
+        $component->showTerminDetail = true;
+        $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+        $component->terminDetailFilter = 'ohne_einsatz';
+        $this->assertSame([208], $component->noAssignmentIds(), 'nur der pruefbare Teilnehmer ohne Zuweisung');
+        $this->assertTrue($component->noAssignmentEnabled());
+
+        // Jeder andere Chip schaltet den Versand ab — auch „alle Buchungen",
+        // hinter dem Nicht-Erschienene und Abgesagte stehen.
+        foreach (['teilgenommen', 'im_einsatz', 'einsatz_unpruefbar', 'alle'] as $chip) {
+            $component->terminDetailFilter = $chip;
+            $this->assertSame([], $component->noAssignmentIds(), "Chip {$chip} darf keinen Empfaenger liefern");
+            $this->assertFalse($component->noAssignmentEnabled());
+        }
+
+        // Geschlossenes Modal: keine Empfaenger, egal was die Filter sagen.
+        $component->terminDetailFilter = 'ohne_einsatz';
+        $component->showTerminDetail = false;
+        $this->assertSame([], $component->noAssignmentIds());
+    }
+
     public function test_schulung_zu_einsatz_drei_ehrliche_toepfe(): void
     {
         // Markus (09.09.2026): „Haben die Bestandenen Einsaetze — und wenn ja,
@@ -908,6 +936,14 @@ class StatisticsInterviewsTableTest extends TestCase
  */
 final class InterviewTableProbe extends Index
 {
+    /** Ohne Livewire-Lebenszyklus gibt es keine Computed-Property — cohort() als Methode. */
+    protected function cohortResult(): array
+    {
+        return $this->cohortCache ??= $this->cohort();
+    }
+
+    private ?array $cohortCache = null;
+
     /** @return array{rows:list<array>, outside:array{interviews:int, applications:int}} */
     public function probeInterviewTable(): array
     {

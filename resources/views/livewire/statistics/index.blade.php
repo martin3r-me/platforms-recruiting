@@ -777,9 +777,9 @@
         @php
             // $this-> statt extrahierter View-Variablen: die Render-Probe der
             // Tests bindet nur die Komponente, nicht Livewires Property-Export.
-            $terminDetail = ($this->showTerminDetail && $this->terminDetailId)
-                ? $this->terminDetailFor((int) $this->terminDetailId, $this->cohort['termin_rows'], $this->cohort['einsatz_info'])
-                : null;
+            // Eine Berechnung je Request (terminDetailData merkt sie sich) —
+            // der Sammelversand unten liest dieselbe Personenliste.
+            $terminDetail = $this->terminDetailData();
         @endphp
         @if ($terminDetail === null)
             <div class="py-6 text-center text-sm text-[color:var(--ui-muted)]">Termin nicht gefunden.</div>
@@ -833,10 +833,24 @@
                 @endforeach
                 <span class="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-900">{{ $tk['vertrag_verschickt'] }} Verträge · {{ $tk['unterschrieben'] }} unterschrieben</span>
             </div>
+            @php
+                // Sammelversand „ohne Einsatz“ (14.09.2026): Haekchen und Badges
+                // stehen an den Personen, die Steuerung im Partial unter der
+                // Tabelle. Beides nur unter DIESEM Chip — die Liste ist dann
+                // genau die Empfaengerliste.
+                $versandAktiv = $this->noAssignmentEnabled();
+                $versandZeilen = $versandAktiv ? $this->noAssignmentRows : [];
+                $versandFortschritt = $versandAktiv ? $this->noAssignmentProgress : null;
+                $versandLaeuft = $versandFortschritt !== null && !($versandFortschritt['done'] ?? false);
+                $versandSpalten = $versandAktiv ? 6 : 5;
+            @endphp
             <div class="max-h-[55vh] overflow-auto rounded-lg border border-[var(--ui-border)]/60">
                 <table class="w-full border-collapse text-sm">
                     <thead>
                         <tr class="border-b border-[var(--ui-border)]/60 bg-[var(--ui-muted-5)] text-left text-xs uppercase tracking-wide text-[var(--ui-muted)]">
+                            @if ($versandAktiv)
+                                <th class="w-8 px-3 py-2" title="Wer die Nachfrage bekommen soll"><span class="sr-only">Senden</span></th>
+                            @endif
                             <th class="px-3 py-2">Person</th>
                             <th class="px-3 py-2">Status</th>
                             <th class="px-3 py-2 text-center" title="Hat die Schulung bestätigt (WhatsApp oder HR)">Best.</th>
@@ -853,15 +867,28 @@
                             }));
                         @endphp
                         @if ($gefiltertePersonen === [])
-                            <tr><td colspan="5" class="px-3 py-4 text-center text-xs text-[color:var(--ui-muted)]">Niemand in dieser Auswahl.</td></tr>
+                            <tr><td colspan="{{ $versandSpalten }}" class="px-3 py-4 text-center text-xs text-[color:var(--ui-muted)]">Niemand in dieser Auswahl.</td></tr>
                         @endif
                         @foreach ($gefiltertePersonen as $person)
+                            @php $versandZeile = $versandZeilen[$person['id']] ?? null; @endphp
                             <tr @class(['bg-orange-50/60' => $person['topf'] === 'ohne_einsatz'])>
+                                @if ($versandAktiv)
+                                    <td class="px-3 py-2">
+                                        <input type="checkbox" class="h-4 w-4 rounded border-[var(--ui-border)]"
+                                               wire:model.live="noAssignmentSelection.{{ $person['id'] }}"
+                                               @disabled($versandZeile === null || !$versandZeile['selectable'] || $versandLaeuft) />
+                                    </td>
+                                @endif
                                 <td class="px-3 py-2">
                                     <a href="{{ $person['employee']
                                             ? route('recruiting.employees.show', $person['employee'])
                                             : ($person['applicant'] ? route('recruiting.applicants.show', $person['applicant']) : '#') }}"
                                        class="text-[color:var(--ui-primary)] hover:underline">{{ $person['name'] }}</a>
+                                    @if ($versandZeile !== null)
+                                        @foreach ($versandZeile['badges'] as $badge)
+                                            <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]">{{ $badge }}</span>
+                                        @endforeach
+                                    @endif
                                 </td>
                                 <td class="px-3 py-2 text-xs">{{ $person['status'] }}</td>
                                 <td class="px-3 py-2 text-center text-xs">{{ $person['bestaetigt'] ? '✓' : '–' }}</td>
@@ -888,6 +915,9 @@
                     </tbody>
                 </table>
             </div>
+            @if ($versandAktiv)
+                @include('recruiting::livewire.statistics.no-assignment-campaign')
+            @endif
         @endif
     </x-ui-modal>
 

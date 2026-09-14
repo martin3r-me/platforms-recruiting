@@ -21,6 +21,20 @@ final class CampaignSettingsKeysTest extends TestCase
         $this->assertNull(RecApplicantSettings::DEFAULT_SETTINGS['campaign_booking_wa_template_id']);
     }
 
+    /**
+     * Der Sammelversand „ohne Einsatz" (14.09.2026) hat ein drittes Template —
+     * die Nachfrage an Schulungsteilnehmer ohne Zuweisung. Eigener Key, weil er
+     * eine andere Nachricht ist und im Statistik-Modal vorbelegt wird.
+     */
+    public function testSammelversandOhneEinsatzHatEinenEigenenKey(): void
+    {
+        $this->assertArrayHasKey('no_assignment_campaign_wa_template_id', RecApplicantSettings::DEFAULT_SETTINGS);
+        $this->assertNull(RecApplicantSettings::DEFAULT_SETTINGS['no_assignment_campaign_wa_template_id']);
+
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');
+        $this->assertStringContainsString('settings.no_assignment_campaign_wa_template_id', $blade);
+    }
+
     public function testModalBietetBeideSelects(): void
     {
         $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');
