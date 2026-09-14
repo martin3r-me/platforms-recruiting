@@ -19,9 +19,10 @@ use Platform\Recruiting\Services\Statistics\EinsatzLookup;
  *
  * Gebuendelte Queries (eine pro Tabelle), nicht eine pro Zeile: das Modal
  * haengt an der Statistik-Seite, deren Query-Budget Abnahmekriterium ist.
- * Team-fremde, inaktive, geparkte und abgelehnte Bewerbungen tauchen gar nicht
- * erst auf (forTeam ist das aeussere Schloss, wie in
- * Statistics\Index::drillApplicants).
+ * Team-fremde Bewerbungen tauchen gar nicht erst auf (forTeam ist das aeussere
+ * Schloss, wie in Statistics\Index::drillApplicants); jeder ANDERE Grund, warum
+ * jemand nichts bekommt, steht als Badge an der Zeile statt sie verschwinden zu
+ * lassen.
  *
  * Nicht final: der Job haengt sich im Test per anonymer Unterklasse dran.
  */
@@ -40,14 +41,19 @@ class NoAssignmentCampaignRecipients
             return [];
         }
 
+        // KEIN is_active-Filter, und das ist der Kern dieser Zielgruppe: wer es
+        // bis zum Mitarbeiter geschafft hat, ist als BEWERBUNG inaktiv
+        // (CreateEmployeeFromApplicantService:122 — „raus aus dem Dashboard“).
+        // Der Topf „ohne Einsatz“ besteht per Definition aus genau diesen
+        // Menschen, sie tragen ja eine Personalnummer. Der aus der
+        // Bewerber-Kampagne uebernommene Filter loeschte deshalb jede Zeile:
+        // 16 Teilnehmer im Modal, „0 von 0 ausgewaehlt“ (Live-Blick 14.09.).
+        //
+        // Abgesagte und geparkte werden auch nicht mehr weggefiltert, sondern
+        // unten mit Grund gesperrt — eine Zeile, die ohne Erklaerung fehlt,
+        // war schon einmal der teuerste Teil dieses Features.
         $applicants = RecApplicant::forTeam($teamId)
             ->whereIn('id', $ids)
-            // Wie beim Schwester-Loader NICHT scopeActive(): HR-Desk-Zeilen
-            // bleiben ansprechbar (sie sind kein Ausschlussgrund), inaktive,
-            // geparkte und abgesagte Bewerbungen sind kein Ziel mehr.
-            ->where('is_active', true)
-            ->where('is_parked', false)
-            ->whereNull('rejected_at')
             ->with([
                 'crmContactLinks.contact.phoneNumbers',
                 'employees:id,rec_applicant_id,personnel_number,person_key',
@@ -75,6 +81,17 @@ class NoAssignmentCampaignRecipients
 
             $badges = [];
             $selectable = true;
+
+            // HR-Desk-Zeilen bleiben ansprechbar (kein Ausschlussgrund, Muster
+            // NewDatesCampaignRecipients); eine Absage ist einer.
+            if ($a->rejected_at !== null) {
+                $badges[] = 'abgesagt';
+                $selectable = false;
+            }
+            if ((bool) $a->is_parked) {
+                $badges[] = 'geparkt';
+                $selectable = false;
+            }
 
             if ($a->primaryContactPhone() === null) {
                 $badges[] = 'keine Telefonnummer';

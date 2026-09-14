@@ -161,15 +161,51 @@ final class NoAssignmentCampaignRecipientsTest extends TestCase
         $this->assertSame(['angeschrieben 10.09.2026'], $rows[4]['badges']);
     }
 
-    public function testInaktiveAbgelehnteGeparkteUndTeamFremdeTauchenNichtAuf(): void
+    /**
+     * DER FALL, DER DIE ERSTE FASSUNG LEER LIESS (Live-Blick 14.09.2026): wer
+     * es bis zum Mitarbeiter geschafft hat, ist als BEWERBUNG inaktiv —
+     * CreateEmployeeFromApplicantService setzt is_active=false, „raus aus dem
+     * Dashboard“. Der Topf „ohne Einsatz“ besteht per Definition aus genau
+     * diesen Menschen (sie haben eine Personalnummer). Ein aus der
+     * Bewerber-Kampagne uebernommener is_active-Filter loeschte deshalb JEDE
+     * Zeile: 16 Teilnehmer im Modal, „0 von 0 ausgewaehlt“.
+     */
+    public function testZumMitarbeiterGewordeneBewerbungenSindAnschreibbar(): void
     {
-        $this->person(5, 'Inaktiv', 'Weg', ['is_active' => false]);
-        $this->person(6, 'Abgelehnt', 'Weg', ['rejected_at' => '2026-09-01 10:00:00']);
+        $this->person(5, 'Karin', 'Pohl', ['is_active' => false]);
+
+        $rows = $this->load([5]);
+
+        $this->assertArrayHasKey(5, $rows, 'Inaktive Bewerbung ist der Normalfall für Mitarbeiter.');
+        $this->assertTrue($rows[5]['selectable']);
+        $this->assertTrue($rows[5]['checked']);
+        $this->assertSame([], $rows[5]['badges']);
+    }
+
+    /**
+     * Abgesagte und geparkte bleiben SICHTBAR mit Grund, statt stillschweigend
+     * zu verschwinden — eine Zeile, die ohne Erklaerung fehlt, war schon einmal
+     * der teuerste Teil dieses Features.
+     */
+    public function testAbgesagteUndGeparkteStehenMitGrundDaAberGesperrt(): void
+    {
+        $this->person(6, 'Abgesagt', 'Weg', ['rejected_at' => '2026-09-01 10:00:00']);
         $this->person(7, 'Geparkt', 'Weg', ['is_parked' => true]);
+
+        $rows = $this->load([6, 7]);
+
+        $this->assertFalse($rows[6]['selectable']);
+        $this->assertSame(['abgesagt'], $rows[6]['badges']);
+        $this->assertFalse($rows[7]['selectable']);
+        $this->assertSame(['geparkt'], $rows[7]['badges']);
+    }
+
+    public function testTeamFremdeTauchenNichtAuf(): void
+    {
         $this->person(8, 'Fremdes', 'Team', ['team_id' => 4]);
         $this->person(9, 'Bleibt', 'Drin');
 
-        $rows = $this->load([5, 6, 7, 8, 9]);
+        $rows = $this->load([8, 9]);
 
         $this->assertSame([9], array_keys($rows));
     }
