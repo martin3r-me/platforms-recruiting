@@ -15,6 +15,7 @@ use Platform\Recruiting\Models\RecInterviewWaitlist;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Services\HrDeskRoutingService;
 use Platform\Recruiting\Services\WaitlistEnrollmentPlanner;
+use Platform\Recruiting\Support\RebookingCancellationLog;
 use Platform\Recruiting\Support\TerminWort;
 
 class InterviewBooking extends Component
@@ -554,14 +555,46 @@ class InterviewBooking extends Component
         // cancelled_by='applicant' weil Bewerber aktiv umbucht (kein HR-Eingriff).
         // Model-Updates (kein Query-Builder), damit der Waitlist-Observer den
         // frei werdenden Platz mitbekommt.
-        RecInterviewBooking::where('rec_applicant_id', $this->applicantId)
+        // Mit Interview laden: nach dem Stornieren brauchen wir Titel und Termin
+        // noch fuer den Log-Eintrag.
+        $aktiveBuchungen = RecInterviewBooking::with('interview')
+            ->where('rec_applicant_id', $this->applicantId)
             ->whereNotIn('status', ['cancelled'])
-            ->get()
-            ->each->update([
-                'status'        => 'cancelled',
-                'cancelled_by'  => 'applicant',
-                'cancelled_at'  => now(),
-            ]);
+            ->get();
+
+        $aktiveBuchungen->each->update([
+            'status'        => 'cancelled',
+            'cancelled_by'  => 'applicant',
+            'cancelled_at'  => now(),
+        ]);
+
+        // Marker fuer genau diesen Pfad. Ohne ihn sieht ein Abbruch in der
+        // Datenbank exakt aus wie eine bewusste Absage — beide landen auf
+        // cancelled_by='applicant', und nur die bewussten Wege schreiben
+        // zusaetzlich einen HR-Fall. Siehe RebookingCancellationLog.
+        // Kein Eintrag ohne Zustandsaenderung.
+        if ($aktiveBuchungen->isNotEmpty()) {
+            try {
+                $referenz = $aktiveBuchungen
+                    ->map(fn ($b) => $b->interview)
+                    ->filter()
+                    ->sortBy('starts_at')
+                    ->first();
+
+                \Platform\Recruiting\Models\RecAutoPilotLog::create([
+                    'rec_applicant_id' => $this->applicantId,
+                    'type'             => RebookingCancellationLog::TYPE,
+                    'summary'          => RebookingCancellationLog::summary(
+                        $aktiveBuchungen->count(),
+                        $referenz?->title,
+                        $referenz?->starts_at?->format('d.m.Y H:i'),
+                    ),
+                ]);
+            } catch (\Throwable) {
+                // Log-Fehler darf das Stornieren nicht blockieren — gleiche
+                // Entscheidung wie in cancelSchulung().
+            }
+        }
 
         // Force fresh computed values on next access
         unset($this->existingBooking, $this->visibleInterviews);
