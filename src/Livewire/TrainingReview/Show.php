@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Livewire\TrainingReview;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Livewire\Concerns\HandlesEvaluationModal;
+use Platform\Recruiting\Livewire\Concerns\LoadsApplicantSelfies;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
@@ -36,6 +37,7 @@ use Platform\Recruiting\Support\DefaultContractTemplateAssignment;
 class Show extends Component
 {
     use HandlesEvaluationModal;
+    use LoadsApplicantSelfies;
 
     public $interviewId;
 

@@ -169,7 +169,7 @@
                                             @endif
                                         </td>
                                         <td class="px-4 py-3">
-                                            @include('recruiting::livewire.interview-bookings.partials.selfie', ['applicantId' => $booking->applicant?->id])
+                                            @include('recruiting::livewire.partials.selfie', ['applicantId' => $booking->applicant?->id])
                                         </td>
                                         <td class="px-4 py-3">
                                             @php $positions = $booking->applicant?->postings?->map(fn ($p) => $p->position?->title)->filter()->unique(); @endphp
@@ -337,7 +337,7 @@
                                             @endif
                                         </td>
                                         <td class="px-4 py-3">
-                                            @include('recruiting::livewire.interview-bookings.partials.selfie', ['applicantId' => $applicant?->id])
+                                            @include('recruiting::livewire.partials.selfie', ['applicantId' => $applicant?->id])
                                         </td>
                                         <td class="px-4 py-3">
                                             <select wire:change="updateStatus({{ $booking->id }}, $event.target.value)" class="text-xs border border-[var(--ui-border)] rounded px-2 py-1">
