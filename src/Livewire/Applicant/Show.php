@@ -23,6 +23,7 @@ use Platform\Core\Livewire\Concerns\ResolvesAutoPilotChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Services\ReissueContractService;
 use Platform\Recruiting\Services\SyncApplicantExtraFieldsToCrm;
+use Platform\Recruiting\Support\InterviewBookingOrder;
 
 class Show extends Component
 {
@@ -172,6 +173,23 @@ class Show extends Component
     public function publicUrl(): string
     {
         return $this->applicant->getPublicUrl();
+    }
+
+    /**
+     * Schulungen/Termine dieses Bewerbers fuer das Anzeige-Panel — neueste
+     * zuerst. Reines Lesen mit Sprung in die Teilnehmerliste; gebucht und
+     * umgebucht wird weiterhin ausschliesslich dort, damit es keinen zweiten
+     * Bedienweg gibt.
+     *
+     * with('interview') ist Pflicht: ohne Eager-Load feuert die Sortierung pro
+     * Buchung eine eigene Abfrage.
+     */
+    #[Computed]
+    public function interviewBookingsForDisplay()
+    {
+        return InterviewBookingOrder::newestFirst(
+            $this->applicant->interviewBookings()->with('interview')->get()
+        );
     }
 
     #[Computed]

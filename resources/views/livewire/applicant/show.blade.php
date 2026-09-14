@@ -305,6 +305,65 @@
             @endif
         </x-ui-panel>
 
+        {{-- Schulungen & Termine --}}
+        <x-ui-panel title="Schulungen & Termine" subtitle="Termine, zu denen dieser Bewerber gebucht ist oder war">
+            @if($this->interviewBookingsForDisplay->count() > 0)
+                <div class="space-y-4">
+                    @foreach($this->interviewBookingsForDisplay as $booking)
+                        @php
+                            $interview = $booking->interview;
+                            $badgeVariant = match ($booking->status) {
+                                'attended' => 'success',
+                                'confirmed' => 'info',
+                                'no_show' => 'warning',
+                                'rejected_on_site' => 'danger',
+                                'cancelled' => 'muted',
+                                default => 'secondary',
+                            };
+                            $startsAt = $interview?->starts_at;
+                            $terminText = $startsAt ? $startsAt->format('d.m.Y H:i') . ' Uhr' : 'Termin unbekannt';
+                        @endphp
+                        <div class="flex items-center justify-between p-4 bg-[var(--ui-muted-5)] rounded-lg border border-[var(--ui-border)]/40">
+                            <div class="flex items-center gap-4">
+                                <div class="w-10 h-10 bg-emerald-600 text-white rounded-lg flex items-center justify-center">
+                                    @svg('heroicon-o-academic-cap', 'w-5 h-5')
+                                </div>
+                                <div>
+                                    <h4 class="font-medium text-[var(--ui-secondary)]">{{ $interview?->title ?? 'Schulung entfernt' }}</h4>
+                                    <p class="text-sm text-[var(--ui-muted)]">
+                                        {{ $terminText }}
+                                        @if($interview?->location)
+                                            · {{ $interview->location }}
+                                        @endif
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <x-ui-badge variant="{{ $badgeVariant }}" size="sm">{{ $booking->status_label }}</x-ui-badge>
+                                @if($interview)
+                                    <a
+                                        href="{{ route('recruiting.interview-bookings.index', $interview->id) }}"
+                                        wire:navigate
+                                        class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md border border-[var(--ui-border)] text-[var(--ui-secondary)] hover:bg-[var(--ui-muted-10)] transition-colors"
+                                        title="Teilnehmerliste dieser Schulung öffnen"
+                                    >
+                                        @svg('heroicon-o-arrow-top-right-on-square', 'w-3.5 h-3.5')
+                                        Öffnen
+                                    </a>
+                                @endif
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <div class="text-center py-8">
+                    @svg('heroicon-o-academic-cap', 'w-12 h-12 text-[var(--ui-muted)] mx-auto mb-4')
+                    <h4 class="text-lg font-medium text-[var(--ui-secondary)] mb-2">Noch keine Schulung gebucht</h4>
+                    <p class="text-[var(--ui-muted)]">Sobald der Bewerber einen Termin bucht, steht er hier mit Status und Sprung in die Teilnehmerliste.</p>
+                </div>
+            @endif
+        </x-ui-panel>
+
         {{-- Verträge --}}
         <x-ui-panel title="Verträge" subtitle="Zugewiesene Verträge für diesen Bewerber">
             <div class="flex flex-wrap items-center justify-end gap-2 mb-4">
