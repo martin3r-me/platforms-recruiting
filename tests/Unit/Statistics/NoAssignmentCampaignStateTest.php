@@ -39,6 +39,33 @@ final class NoAssignmentCampaignStateTest extends TestCase
         $this->assertSame([], Index::ohneEinsatzIds([]));
     }
 
+    /**
+     * „alle" darf die schon Angeschriebenen NICHT wieder einsammeln. Sonst
+     * haengt genau an diesem einen Klick der Fall, den die Vorauswahl
+     * verhindern soll: HR schickt Montag an 30 Leute, Dienstag stehen 5 neue
+     * im Topf, HR klickt „alle" — und die 30 bekommen dieselbe Nachricht
+     * „wir haben nichts mehr von dir gehoert" ein zweites Mal. Wer sie
+     * bewusst erneut anschreiben will, setzt den Haken von Hand; waehlbar
+     * bleiben sie dafuer.
+     */
+    public function testAlleUeberspringtBereitsAngeschriebeneUndGesperrte(): void
+    {
+        $rows = [
+            1 => ['selectable' => true, 'checked' => true],    // frisch
+            2 => ['selectable' => true, 'checked' => false],   // schon angeschrieben
+            3 => ['selectable' => false, 'checked' => false],  // keine Nummer / im Einsatz
+        ];
+
+        $this->assertSame([1 => true, 2 => false, 3 => false], Index::selectAllState($rows, true));
+    }
+
+    public function testKeineNimmtAlleHaken(): void
+    {
+        $rows = [1 => ['selectable' => true, 'checked' => true], 2 => ['selectable' => true, 'checked' => false]];
+
+        $this->assertSame([1 => false, 2 => false], Index::selectAllState($rows, false));
+    }
+
     /** @return array<string, array{0:bool,1:bool,2:int,3:?int,4:?string}> */
     public static function startErrorFaelle(): array
     {

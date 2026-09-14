@@ -888,6 +888,12 @@
                                         @foreach ($versandZeile['badges'] as $badge)
                                             <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]">{{ $badge }}</span>
                                         @endforeach
+                                    @elseif ($versandAktiv)
+                                        {{-- Der Loader laesst ausgeschiedene, geparkte und abgesagte
+                                             Bewerbungen weg. Ohne diesen Hinweis staende hier ein
+                                             totes Kaestchen ohne Begruendung. --}}
+                                        <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]"
+                                              title="Bewerbung ist nicht mehr aktiv, geparkt oder abgesagt — sie wird nicht angeschrieben.">nicht anschreibbar</span>
                                     @endif
                                 </td>
                                 <td class="px-3 py-2 text-xs">{{ $person['status'] }}</td>

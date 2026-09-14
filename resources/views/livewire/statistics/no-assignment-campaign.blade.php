@@ -16,6 +16,15 @@
     $versandFortschritt = $this->noAssignmentProgress;
     $versandLaeuft = $versandFortschritt !== null && !($versandFortschritt['done'] ?? false);
     $versandPoll = $versandLaeuft ? 'wire:poll.3s' : '';
+    // Wieviele der Gewaehlten haben die Nachfrage schon einmal bekommen? Der
+    // Haken dafuer wird von Hand gesetzt („alle“ ueberspringt sie) — dann soll
+    // aber auch dastehen, was man da gerade tut.
+    $versandWiederholung = 0;
+    foreach ($this->noAssignmentSelectedIds() as $versandId) {
+        if (($versandZeilen[$versandId]['checked'] ?? true) === false) {
+            $versandWiederholung++;
+        }
+    }
 @endphp
 <div class="mt-3 rounded-lg border border-[var(--ui-border)]/60 bg-[var(--ui-muted-5)] p-3" {!! $versandPoll !!}>
     @if ($versandFortschritt !== null)
@@ -31,9 +40,21 @@
                 @endforeach
             </ul>
         @endif
+        @if ($versandFortschritt['done'] ?? false)
+            <div class="mt-2">
+                <button type="button" class="text-xs underline" wire:click="resetNoAssignmentCampaign">
+                    Weitere Personen anschreiben
+                </button>
+            </div>
+        @endif
     @else
         <div class="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[color:var(--ui-muted)]">
-            <span><strong>{{ $versandGewaehlt }}</strong> von {{ count($versandZeilen) }} ausgewählt — sie bekommen die Nachfrage per WhatsApp, eine Nachricht nacheinander.</span>
+            <span>
+                <strong>{{ $versandGewaehlt }}</strong> von {{ count($versandZeilen) }} ausgewählt — sie bekommen die Nachfrage per WhatsApp, eine Nachricht nacheinander.
+                @if ($versandWiederholung > 0)
+                    <span class="font-medium text-amber-700">Davon {{ $versandWiederholung }} schon einmal angeschrieben.</span>
+                @endif
+            </span>
             <span class="flex gap-2">
                 <button type="button" class="underline" wire:click="noAssignmentSelectAll(true)">alle</button>
                 <button type="button" class="underline" wire:click="noAssignmentSelectAll(false)">keine</button>

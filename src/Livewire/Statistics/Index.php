@@ -1989,11 +1989,41 @@ class Index extends Component
             ?: null;
     }
 
+    /**
+     * „alle" nimmt die VORAUSWAHL, nicht die Waehlbarkeit — schon
+     * Angeschriebene bleiben also aussen vor. Sonst haengt an diesem einen
+     * Klick der Fall, den die Vorauswahl gerade verhindern soll: Montag an 30
+     * Leute, Dienstag stehen 5 neue im Topf, „alle" — und die 30 bekommen
+     * dieselbe Nachfrage ein zweites Mal. Wer das bewusst will, setzt den
+     * Haken von Hand; waehlbar bleiben sie dafuer.
+     *
+     * @param  array<int, array{selectable:bool, checked:bool}>  $rows
+     * @return array<int, bool>
+     */
+    public static function selectAllState(array $rows, bool $on): array
+    {
+        $out = [];
+        foreach ($rows as $id => $row) {
+            $out[$id] = $on && $row['checked'];
+        }
+
+        return $out;
+    }
+
     public function noAssignmentSelectAll(bool $on): void
     {
-        foreach ($this->noAssignmentRows as $id => $row) {
-            $this->noAssignmentSelection[$id] = $on && $row['selectable'];
-        }
+        $this->noAssignmentSelection = self::selectAllState($this->noAssignmentRows, $on);
+    }
+
+    /**
+     * Nach einem abgeschlossenen Lauf zurueck zum Formular — ohne das Modal
+     * schliessen zu muessen. primeNoAssignment() liest die Zeilen dabei neu:
+     * die eben Angeschriebenen tragen jetzt ihr Badge und sind abgewaehlt.
+     */
+    public function resetNoAssignmentCampaign(): void
+    {
+        $this->noAssignmentUuid = null;
+        $this->primeNoAssignment();
     }
 
     /** @return list<int> */
