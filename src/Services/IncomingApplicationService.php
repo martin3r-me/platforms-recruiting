@@ -206,6 +206,23 @@ class IncomingApplicationService
     /**
      * Broad fallback: find any non-rejected applicant in the team by contact info,
      * regardless of posting or active-scope (catches parked / hr_desk applicants).
+     *
+     * Bewusst OHNE is_active-Filter — das Flag trägt in diesem System drei
+     * gegensätzliche Bedeutungen und taugt nicht als "existiert nicht":
+     *   - abgelehnt        (RecApplicant::executeMinorRejection, HrDeskRoutingService)
+     *   - fertig eingestellt (CreateEmployeeFromApplicantService — reines
+     *                        Aufräumen des Default-Dashboards)
+     *   - Spam verworfen   (Livewire\Inbox\Index::discardApplicant)
+     * Der Ausschluss abgelehnter Bewerber hängt allein an rejected_at, das beide
+     * Ablehnungspfade zusätzlich stempeln.
+     *
+     * Vorher filterte die Query auf is_active=true. Folge (Fall Jana Derichs,
+     * 11.09.2026): Ein versehentlich deaktivierter Bewerber war unsichtbar, und
+     * die nächste eingehende Nachricht legte eine zweite Akte an — mitsamt
+     * getrennter Historie. Gefundene inaktive Bewerber werden hier NICHT
+     * reaktiviert; der Aufrufer hängt nur seine Notiz an. Enrichment und
+     * AutoPilot bleiben still, weil deren Cronjobs selbst auf is_active filtern
+     * (DispatchEnrichInboxApplicants, ProcessAutoPilotApplicants).
      */
     private function findExistingApplicantByContact(string $senderIdentifier, int $teamId): ?RecApplicant
     {
@@ -214,7 +231,6 @@ class IncomingApplicationService
 
         return RecApplicant::query()
             ->forTeam($teamId)
-            ->where('is_active', true)
             ->whereNull('rejected_at')
             ->where(function ($query) use ($normalizedIdentifier, $phoneDigits) {
                 $query->whereHas('crmContactLinks.contact.emailAddresses', function ($q) use ($normalizedIdentifier) {

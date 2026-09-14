@@ -58,10 +58,16 @@ class UpdateApplicantTool implements ToolContract, ToolMetadataContract
                 // Stamp, Kleinanzeigen-Anfrage-Datum etc.) — was die
                 // KPIs verfälschte. Manuelle HR-Korrekturen passieren
                 // entweder im UI oder über einen dedizierten Admin-Pfad.
-                'is_active' => [
-                    'type' => 'boolean',
-                    'description' => 'Optional: Status.',
-                ],
+                //
+                // is_active wird aus demselben Grund NICHT exponiert (Fall Jana
+                // Derichs, 11.09.2026): Der Enrichment-Lauf füllt das Schema
+                // vollständig aus, auch wo er keine Aussage treffen wollte. Bei
+                // Integer-Feldern fängt "0 = nicht geändert" das ab; bei einem
+                // Boolean ist `false` von einer Absicht nicht zu unterscheiden
+                // und schlug durch. Der Bewerber wurde inaktiv, der Inbound-
+                // Bestandscheck fand ihn 22 Sekunden später nicht mehr und legte
+                // eine zweite Akte an. HR schaltet is_active im UI
+                // (livewire/applicant/show.blade.php).
                 'is_test' => [
                     'type' => 'boolean',
                     'description' => 'Optional: Test-Bewerber-Flag. true = Bewerber wird vom ZAS-Export ausgeschlossen (taucht nicht im CSV auf, wird nicht vom Backfill markiert). Fuer manuell angelegte Test-/Demo-Datensaetze. Default false.',
