@@ -66,22 +66,25 @@ final class NoAssignmentCampaignStateTest extends TestCase
         $this->assertSame([1 => false, 2 => false], Index::selectAllState($rows, false));
     }
 
-    /** @return array<string, array{0:bool,1:bool,2:int,3:?int,4:?string}> */
+    /** @return array<string, array{0:bool,1:bool,2:int,3:?int,4:?string,5:?string}> */
     public static function startErrorFaelle(): array
     {
         return [
-            'nicht verfuegbar (falscher Chip)' => [false, false, 3, 88, 'Sammelversand nicht verfügbar.'],
-            'laeuft bereits' => [true, true, 3, 88, 'Versand läuft bereits.'],
-            'niemand ausgewaehlt' => [true, false, 0, 88, 'Niemand ausgewählt.'],
-            'kein Template' => [true, false, 3, null, 'Kein Template gewählt.'],
-            'Template-ID 0 zaehlt wie keins' => [true, false, 3, 0, 'Kein Template gewählt.'],
-            'Happy Path' => [true, false, 3, 88, null],
+            'nicht verfuegbar (falscher Chip)' => [false, false, 3, 88, null, 'Sammelversand nicht verfügbar.'],
+            'laeuft bereits' => [true, true, 3, 88, null, 'Versand läuft bereits.'],
+            'niemand ausgewaehlt' => [true, false, 0, 88, null, 'Niemand ausgewählt.'],
+            'kein Template' => [true, false, 3, null, null, 'Kein Template gewählt.'],
+            'Template-ID 0 zaehlt wie keins' => [true, false, 3, 0, null, 'Kein Template gewählt.'],
+            // Vorabpruefung: das Template taugt nicht fuer diesen Versandweg.
+            // Sie kommt ZULETZT — erst muss ueberhaupt eins gewaehlt sein.
+            'Template passt nicht' => [true, false, 3, 88, 'Template „x“ hat einen URL-Button mit Variable.', 'Template „x“ hat einen URL-Button mit Variable.'],
+            'Happy Path' => [true, false, 3, 88, null, null],
         ];
     }
 
     #[DataProvider('startErrorFaelle')]
-    public function testStartError(bool $enabled, bool $alreadyStarted, int $selected, ?int $templateId, ?string $expected): void
+    public function testStartError(bool $enabled, bool $alreadyStarted, int $selected, ?int $templateId, ?string $templateError, ?string $expected): void
     {
-        $this->assertSame($expected, Index::noAssignmentStartError($enabled, $alreadyStarted, $selected, $templateId));
+        $this->assertSame($expected, Index::noAssignmentStartError($enabled, $alreadyStarted, $selected, $templateId, $templateError));
     }
 }

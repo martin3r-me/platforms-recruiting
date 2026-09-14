@@ -241,6 +241,48 @@ final class NoAssignmentCampaignSenderTest extends TestCase
         $this->assertSame('Kein aktiver WhatsApp-Kanal für den Account.', $r['error']);
     }
 
+    /**
+     * VORABPRUEFUNG (14.09.2026): die drei Ablehnungsgruende, die am TEMPLATE
+     * haengen und nicht an der Person, sind auch ohne Empfaenger beantwortbar.
+     * Das Modal fragt sie einmal beim Klick — sonst laeuft ein Job los, der
+     * jedem Einzelnen dieselbe Fehlerzeile zurueckgibt.
+     *
+     * Dieselbe Methode benutzt send() selbst; der Waechter im Sendepfad wird
+     * dadurch nicht ersetzt, sondern nur vorgezogen (die Guard-Tests oben
+     * bleiben deshalb bestehen).
+     */
+    public function testCheckTemplateMeldetDieTemplateFehlerOhneZuSenden(): void
+    {
+        $fremdeVariable = $this->sender(['components' => [['type' => 'BODY', 'text' => 'Hallo {{name}}, am {{termin}}.']]])
+            ->checkTemplate(3, 88);
+        $this->assertStringContainsString('termin', (string) $fremdeVariable);
+
+        $dynamischerButton = $this->sender(['components' => [
+            self::BODY_NAME,
+            ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Öffnen', 'url' => 'https://x.de/{{1}}']]],
+        ]])->checkTemplate(3, 88);
+        $this->assertStringContainsString('URL-Button', (string) $dynamischerButton);
+
+        $nichtKonfiguriert = $this->sender(['components' => [self::BODY_NAME]], 'Kein aktiver WhatsApp-Kanal für den Account.')
+            ->checkTemplate(3, 88);
+        $this->assertSame('Kein aktiver WhatsApp-Kanal für den Account.', $nichtKonfiguriert);
+
+        $this->assertCount(0, $this->meta->calls, 'Die Vorabprüfung sendet nichts.');
+        $this->assertSame(0, RecAutoPilotLog::count(), 'Und schreibt nichts ins Log.');
+    }
+
+    public function testCheckTemplateSchweigtBeimPassendenTemplate(): void
+    {
+        $this->assertNull($this->sender(['components' => [self::BODY_NAME]])->checkTemplate(3, 88));
+        $this->assertNull(
+            $this->sender(['components' => [
+                self::BODY_NAME,
+                ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Website', 'url' => 'https://rheingedeck.de']]],
+            ]])->checkTemplate(3, 88),
+            'Ein statischer Button ist kein Grund zur Ablehnung.',
+        );
+    }
+
     public function testMetaFehlerIstFailedMitErrorLogOhneKampagnenLog(): void
     {
         $a = $this->applicant();

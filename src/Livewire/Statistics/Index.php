@@ -20,6 +20,7 @@ use Platform\Recruiting\Models\RecPosting;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\Campaign\NewDatesCampaignRecipients;
 use Platform\Recruiting\Services\Campaign\NoAssignmentCampaignRecipients;
+use Platform\Recruiting\Services\Campaign\NoAssignmentCampaignSender;
 use Platform\Recruiting\Services\Statistics\CohortAssigner;
 use Platform\Recruiting\Services\Statistics\CohortViewModel;
 use Platform\Recruiting\Services\Statistics\EinsatzLookup;
@@ -2039,7 +2040,7 @@ class Index extends Component
      * Reine Guard-Kette fuer den Start-Button, pro Zeile eine Ablehnung, in
      * genau dieser Reihenfolge geprueft (Muster campaignStartError).
      */
-    public static function noAssignmentStartError(bool $enabled, bool $alreadyStarted, int $selectedCount, ?int $templateId): ?string
+    public static function noAssignmentStartError(bool $enabled, bool $alreadyStarted, int $selectedCount, ?int $templateId, ?string $templateError = null): ?string
     {
         if (!$enabled) {
             return 'Sammelversand nicht verfügbar.';
@@ -2053,6 +2054,12 @@ class Index extends Component
         if (!$templateId) {
             return 'Kein Template gewählt.';
         }
+        // Zuletzt, und nur mit gewaehltem Template: taugt es fuer diesen
+        // Versandweg? Ohne diese Frage laeuft ein Job los, der jedem
+        // Einzelnen dieselbe Fehlerzeile zurueckgibt.
+        if ($templateError !== null) {
+            return $templateError;
+        }
 
         return null;
     }
@@ -2062,7 +2069,16 @@ class Index extends Component
         $this->noAssignmentError = '';
         $ids = $this->noAssignmentSelectedIds();
 
-        $error = self::noAssignmentStartError($this->noAssignmentEnabled(), $this->noAssignmentUuid !== null, count($ids), $this->noAssignmentTemplate);
+        // Die Template-Pruefung kostet eine Query — sie laeuft nur, wenn die
+        // Kette sie ueberhaupt erreichen kann (Chip richtig, Template
+        // gewaehlt). Fuer eine Anfrage, die ohnehin abgelehnt wird, soll
+        // niemand etwas nachschlagen.
+        $enabled = $this->noAssignmentEnabled();
+        $templateError = ($enabled && $this->noAssignmentTemplate)
+            ? app(NoAssignmentCampaignSender::class)->checkTemplate($this->teamId(), (int) $this->noAssignmentTemplate)
+            : null;
+
+        $error = self::noAssignmentStartError($enabled, $this->noAssignmentUuid !== null, count($ids), $this->noAssignmentTemplate, $templateError);
         if ($error !== null) {
             $this->noAssignmentError = $error;
 

@@ -50,40 +50,13 @@ class NoAssignmentCampaignSender
             return ['status' => self::STATUS_NO_PHONE, 'error' => 'Keine Telefonnummer am Kontakt.'];
         }
 
-        $target = app(HoldingTemplateSender::class)->resolveTemplate((int) $applicant->team_id, $templateId);
+        $target = $this->resolveAndCheck((int) $applicant->team_id, $templateId);
         if ($target['error'] !== null) {
-            return ['status' => self::STATUS_NOT_CONFIGURED, 'error' => $target['error']];
+            return ['status' => $target['status'], 'error' => $target['error']];
         }
         $template = $target['template'];
-        $components = $template->components ?? [];
 
-        // Fremd-Variablen-Guard (Muster NewDatesCampaignSender): jede
-        // Body-Variable ausser dem Vornamen wuerde
-        // HoldingTemplateComponents::build() mit dem MUSTER-Text aus dem
-        // Meta-Beispiel fuellen — erfolgreich, ohne Fehler, ohne Logzeile. '1'
-        // ist der Fallback-Variablenname mancher Meta-Editoren fuer denselben
-        // Vornamen-Slot.
-        $foreignVars = array_values(array_filter(
-            WhatsAppTemplateBodyVariables::names($components),
-            fn (string $name): bool => !in_array(strtolower($name), ['name', 'vorname', '1'], true),
-        ));
-        if ($foreignVars !== []) {
-            return [
-                'status' => self::STATUS_TEMPLATE_WITH_FOREIGN_VARS,
-                'error' => 'Template „' . $template->name . '“ hat Body-Variablen außer dem Vornamen (' . implode(', ', $foreignVars) . ') — die würden mit Meta-Beispieltext gefüllt.',
-            ];
-        }
-
-        // Statische Buttons sind in Ordnung (sie tragen keinen Parameter), ein
-        // dynamischer nicht: dieser Sendepfad hat keinen Wert dafuer.
-        if (WhatsAppTemplateUrlButtons::dynamicIndexes($components) !== []) {
-            return [
-                'status' => self::STATUS_TEMPLATE_WITH_DYNAMIC_BUTTON,
-                'error' => 'Template „' . $template->name . '“ hat einen URL-Button mit Variable — dieser Versand kennt keinen Link dafür.',
-            ];
-        }
-
-        $sendComponents = HoldingTemplateComponents::build($components, $this->firstName($applicant));
+        $sendComponents = HoldingTemplateComponents::build($template->components ?? [], $this->firstName($applicant));
         if (HoldingTemplateComponents::hasEmptyRequiredParam($sendComponents)) {
             return ['status' => self::STATUS_FAILED, 'error' => 'Leerer Pflicht-Parameter im Body (meist der Vorname).'];
         }
@@ -122,6 +95,66 @@ class NoAssignmentCampaignSender
         ]);
 
         return ['status' => self::STATUS_SENT, 'error' => null];
+    }
+
+    /**
+     * VORABPRUEFUNG fuers Modal: taugt dieses Template ueberhaupt fuer diesen
+     * Versandweg? Die drei Gruende hier haengen am TEMPLATE, nicht an der
+     * Person — sie treffen also entweder alle oder keinen. Ohne diese Frage
+     * beim Klick laeuft ein Job los, der jedem Einzelnen dieselbe Fehlerzeile
+     * zurueckgibt.
+     *
+     * send() stellt sie trotzdem selbst noch einmal: der Waechter im
+     * Sendepfad wird vorgezogen, nicht ersetzt (zwischen Klick und Versand
+     * kann HR das Template wechseln, und ueber MCP/Queue gibt es Wege, die
+     * am Modal vorbeifuehren).
+     *
+     * @return string|null Klartext-Grund oder null, wenn das Template passt
+     */
+    public function checkTemplate(int $teamId, int $templateId): ?string
+    {
+        return $this->resolveAndCheck($teamId, $templateId)['error'];
+    }
+
+    /** @return array{status:?string, error:?string, template:mixed, channel:mixed} */
+    private function resolveAndCheck(int $teamId, int $templateId): array
+    {
+        $target = app(HoldingTemplateSender::class)->resolveTemplate($teamId, $templateId);
+        if ($target['error'] !== null) {
+            return ['status' => self::STATUS_NOT_CONFIGURED, 'error' => $target['error'], 'template' => null, 'channel' => null];
+        }
+        $template = $target['template'];
+        $components = $template->components ?? [];
+
+        // Fremd-Variablen-Guard (Muster NewDatesCampaignSender): jede
+        // Body-Variable ausser dem Vornamen wuerde
+        // HoldingTemplateComponents::build() mit dem MUSTER-Text aus dem
+        // Meta-Beispiel fuellen — erfolgreich, ohne Fehler, ohne Logzeile. '1'
+        // ist der Fallback-Variablenname mancher Meta-Editoren fuer denselben
+        // Vornamen-Slot.
+        $foreignVars = array_values(array_filter(
+            WhatsAppTemplateBodyVariables::names($components),
+            fn (string $name): bool => !in_array(strtolower($name), ['name', 'vorname', '1'], true),
+        ));
+        if ($foreignVars !== []) {
+            return [
+                'status' => self::STATUS_TEMPLATE_WITH_FOREIGN_VARS,
+                'error' => 'Template „' . $template->name . '“ hat Body-Variablen außer dem Vornamen (' . implode(', ', $foreignVars) . ') — die würden mit Meta-Beispieltext gefüllt.',
+                'template' => null, 'channel' => null,
+            ];
+        }
+
+        // Statische Buttons sind in Ordnung (sie tragen keinen Parameter), ein
+        // dynamischer nicht: dieser Sendepfad hat keinen Wert dafuer.
+        if (WhatsAppTemplateUrlButtons::dynamicIndexes($components) !== []) {
+            return [
+                'status' => self::STATUS_TEMPLATE_WITH_DYNAMIC_BUTTON,
+                'error' => 'Template „' . $template->name . '“ hat einen URL-Button mit Variable — dieser Versand kennt keinen Link dafür.',
+                'template' => null, 'channel' => null,
+            ];
+        }
+
+        return ['status' => null, 'error' => null, 'template' => $template, 'channel' => $target['channel']];
     }
 
     private function firstName(RecApplicant $applicant): string
