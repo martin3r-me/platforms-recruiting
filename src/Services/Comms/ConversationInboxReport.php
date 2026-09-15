@@ -34,6 +34,17 @@ final class ConversationInboxReport
     ];
 
     /**
+     * Sortier-Prioritaet eines Levels (kleiner = weiter oben). Oeffentlich,
+     * damit der neue Lesepfad (InboxQuery) exakt dieselbe Reihenfolge nutzt
+     * und die beiden Seiten waehrend der Vorschau nicht unterschiedlich
+     * sortieren.
+     */
+    public static function levelOrder(string $level): int
+    {
+        return self::LEVEL_ORDER[$level] ?? 9;
+    }
+
+    /**
      * @param array<int, array{
      *     thread_id: int|string,
      *     subject_type?: string,
@@ -94,8 +105,8 @@ final class ConversationInboxReport
         }
 
         usort($built, static function (ConversationInboxRow $a, ConversationInboxRow $b): int {
-            $orderA = self::LEVEL_ORDER[$a->escalation->level] ?? 9;
-            $orderB = self::LEVEL_ORDER[$b->escalation->level] ?? 9;
+            $orderA = self::levelOrder($a->escalation->level);
+            $orderB = self::levelOrder($b->escalation->level);
             if ($orderA !== $orderB) {
                 return $orderA <=> $orderB;
             }
