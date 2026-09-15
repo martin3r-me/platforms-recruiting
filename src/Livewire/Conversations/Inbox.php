@@ -103,6 +103,7 @@ class Inbox extends Component
         // Zweiter Klick auf dieselbe Pille loest den Filter wieder.
         $this->level = ($this->level === $level) ? 'all' : $level;
         $this->showHandled = false;
+        $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
 
@@ -110,6 +111,7 @@ class Inbox extends Component
     {
         $this->showHandled = !$this->showHandled;
         $this->level = 'all';
+        $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
 
@@ -121,12 +123,29 @@ class Inbox extends Component
 
     public function updatedSearch(): void
     {
+        $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
 
     public function updatedOwner(): void
     {
+        $this->discardSelectionOnFilterChange();
         $this->resetPage();
+    }
+
+    /**
+     * Fix-Runde 1, Befund 1: sendHoldingToSelected() baut seine Empfaenger
+     * NUR aus dem aktuellen $this->rows. Ohne dieses Abraeumen ueberlebt
+     * $selected einen Filterwechsel unveraendert — "ein paar Chats
+     * markieren, Filter wechseln, Wir melden uns klicken" liesse dann nur
+     * die zufaellige Schnittmenge mit den NEUEN Zeilen durchgehen, im
+     * schlimmsten Fall keine einzige, ohne dass das sichtbar waere.
+     * $selectMode bleibt bewusst an: die Aktionsleiste zeigt "0 markiert"
+     * und macht den Verlust sichtbar, statt ihn kommentarlos zu verstecken.
+     */
+    private function discardSelectionOnFilterChange(): void
+    {
+        $this->selected = [];
     }
 
     private function resetPage(): void
@@ -355,7 +374,15 @@ class Inbox extends Component
         $this->dispatch('sidebar-refresh');
     }
 
-    /** Stempel wieder loeschen — scharf auf team_id, damit keine fremde Zeile trifft. */
+    /**
+     * Stempel wieder loeschen — scharf auf team_id, damit keine fremde Zeile
+     * trifft. Fix-Runde 1, Kleinigkeit: spiegelbildlich zu markHandled()
+     * schliesst auch dieser Weg den gerade offenen Chat, wenn er selbst
+     * betroffen ist — sonst zeigt der Kopf weiter "zurückholen", weil dieser
+     * Knopf am Listenfilter ($showHandled) haengt, nicht am Zustand des
+     * Threads: nach dem Zurueckholen passt der Thread nicht mehr zum
+     * Erledigt-Filter, unter dem "zurückholen" ueberhaupt erst sichtbar war.
+     */
     public function unmarkHandled(int $threadId): void
     {
         \Platform\Recruiting\Models\RecConversationHandled::query()
@@ -363,6 +390,9 @@ class Inbox extends Component
             ->where('comms_whatsapp_thread_id', $threadId)
             ->delete();
 
+        if ($this->selectedThreadId === $threadId) {
+            $this->selectedThreadId = null;
+        }
         $this->forgetSnapshot();
         $this->dispatch('sidebar-refresh');
     }
@@ -383,14 +413,33 @@ class Inbox extends Component
         $this->selected = [];
     }
 
-    /** Sammel-Erledigen: jede ID einzeln ueber markHandled(), also einzeln teamgeprueft. */
+    /**
+     * Sammel-Erledigen. Fix-Runde 1, Befund 2: laeuft NICHT mehr als
+     * Schleife ueber markHandled() (das waeren bei 200 Chats ~600 Queries:
+     * threadForTeam() + zwei fuer updateOrCreate() je ID) — ConversationBulkHandler
+     * prueft die Team-Zugehoerigkeit EINMAL per whereIn und schreibt die
+     * Stempel EINMAL per upsert(). Die Team-Pruefung faellt dabei nicht weg,
+     * sie wandert nur aus der Schleife in den Handler.
+     */
     public function markSelectedHandled(): void
     {
-        foreach ($this->selected as $threadId) {
-            $this->markHandled((int) $threadId);
+        $ids = array_map('intval', $this->selected);
+        if ($ids === []) {
+            $this->selectMode = false;
+            return;
         }
+
+        $handledIds = app(\Platform\Recruiting\Services\Comms\ConversationBulkHandler::class)
+            ->markManyHandled($this->teamId(), $ids, Auth::id() !== null ? (int) Auth::id() : null);
+
+        if ($this->selectedThreadId !== null && in_array($this->selectedThreadId, $handledIds, true)) {
+            $this->selectedThreadId = null;
+        }
+
         $this->selected = [];
         $this->selectMode = false;
+        $this->forgetSnapshot();
+        $this->dispatch('sidebar-refresh');
     }
 
     /**
@@ -398,6 +447,13 @@ class Inbox extends Component
      * kommen NUR aus $this->rows (bereits teamgefiltert durch snapshot()),
      * nie direkt aus $this->selected — so kann eine praeparierte Thread-ID
      * ohne passende Zeile in der eigenen Liste nichts auslösen.
+     *
+     * Fix-Runde 1, Befund 1: die Auswahl wird bei jedem Filterwechsel schon
+     * ueber discardSelectionOnFilterChange() geleert — trotzdem bleibt hier
+     * eine zweite Sperre stehen, falls $recipients aus einem anderen Grund
+     * leerlaeuft (z.B. eine Zeile fiel zwischen Markieren und Klick aus
+     * $this->rows heraus). Ein Versand an null Empfaenger wird NIE als
+     * Erfolg gemeldet.
      */
     public function sendHoldingToSelected(): void
     {
@@ -414,11 +470,27 @@ class Inbox extends Component
             }
         }
 
+        if ($recipients === []) {
+            session()->flash('error', 'Die Auswahl passt zu keiner sichtbaren Zeile mehr — bitte erneut markieren.');
+            $this->selected = [];
+            $this->selectMode = false;
+            return;
+        }
+
         $result = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
             ->sendToMany($this->teamId(), $recipients);
 
         if ($result['error'] !== null) {
             session()->flash('error', $result['error']);
+        } elseif ($result['sent'] === 0) {
+            // sendToMany() liefert bei sent=0 UND error=null zwei Faelle mit
+            // demselben aeusseren Signal (gleiche Falle wie in
+            // sendHoldingTemplate() weiter unten, Fix-Runde 1 zu Task 8):
+            // failed zaehlt echte Fehlschlaege, skipped fehlende Pflichtangaben.
+            // "an 0 Kontakt(e) gesendet" darf hier NIE als Erfolg erscheinen.
+            session()->flash('error', $result['failed'] > 0
+                ? 'Versand fehlgeschlagen.'
+                : 'Versand übersprungen — Nummer oder Pflichtangabe fehlt.');
         } else {
             session()->flash('message', '„Wir melden uns" an ' . $result['sent'] . ' Kontakt(e) gesendet.');
         }
