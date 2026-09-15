@@ -34,7 +34,7 @@
 <div class="flex h-[calc(100vh-4rem)] flex-col lg:h-[calc(100vh-3rem)]" wire:poll.visible.20s>
 
     {{-- Kopf: Titel + Ampel-Pillen --}}
-    <div class="{{ $selectedThreadId !== null ? 'hidden lg:block' : '' }} border-b border-gray-200 bg-white px-4 py-3 lg:px-6">
+    <div class="border-b border-gray-200 bg-white px-4 py-3 lg:px-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
                 <h1 class="text-lg font-semibold tracking-tight">Kommunikation</h1>
@@ -58,7 +58,7 @@
     <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
 
         {{-- ===== Liste ===== --}}
-        <div class="{{ $selectedThreadId !== null ? 'hidden lg:flex' : 'flex' }} min-h-0 flex-col border-r border-gray-200 bg-white">
+        <div class="flex min-h-0 flex-col border-r border-gray-200 bg-white">
             @if ($this->fallback)
                 <div class="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                     Kein WhatsApp-Konto erreichbar — es werden nur zugeordnete Chats angezeigt.
@@ -113,7 +113,7 @@
         </div>
 
         {{-- ===== Chat (kommt in Task 6) ===== --}}
-        <div class="{{ $selectedThreadId !== null ? 'flex' : 'hidden' }} min-h-0 flex-col bg-gray-50 lg:flex">
+        <div class="hidden min-h-0 flex-col bg-gray-50 lg:flex">
             <div class="grid flex-1 place-items-center p-8 text-center text-sm text-gray-500">
                 Chat auswählen, um den Verlauf zu sehen.
             </div>

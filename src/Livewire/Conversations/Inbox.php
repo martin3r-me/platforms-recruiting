@@ -8,7 +8,6 @@ use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Services\Comms\InboxFilter;
 use Platform\Recruiting\Services\Comms\InboxQuery;
-use Platform\Recruiting\Services\Comms\RecruitingChannelResolver;
 
 /**
  * Neue Kommunikation (Vorschau unter /recruiting/conversations-neu).
@@ -117,7 +116,7 @@ class Inbox extends Component
     public function loadMore(): void
     {
         $this->perPage += 50;
-        unset($this->snapshot, $this->rows, $this->total, $this->counts, $this->fallback);
+        $this->forgetSnapshot();
     }
 
     public function updatedSearch(): void
@@ -133,6 +132,18 @@ class Inbox extends Component
     private function resetPage(): void
     {
         $this->perPage = 50;
+        $this->forgetSnapshot();
+    }
+
+    /**
+     * Raeumt nur die aus snapshot() abgeleiteten Computed-Werte ab, ohne
+     * perPage anzufassen. select() nutzt das: ein geoeffneter Chat darf die
+     * per "mehr laden" erweiterte Seite nicht wieder auf 50 zuruecksetzen.
+     * Filter-/Suchwechsel gehen weiterhin ueber resetPage(), das zusaetzlich
+     * perPage zuruecksetzt.
+     */
+    private function forgetSnapshot(): void
+    {
         unset($this->snapshot, $this->rows, $this->total, $this->counts, $this->fallback);
     }
 
@@ -151,7 +162,7 @@ class Inbox extends Component
         $this->replyText = '';
         $this->sendError = null;
         $this->threadForTeam($threadId)?->markAsRead();
-        $this->resetPage();
+        $this->forgetSnapshot();
         $this->dispatch('sidebar-refresh');
     }
 
