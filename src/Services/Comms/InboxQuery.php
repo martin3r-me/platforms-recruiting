@@ -31,9 +31,106 @@ final class InboxQuery
     /** @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int} */
     public function counts(int $teamId, ?int $now = null): array
     {
-        $now ??= time();
-        $rows = $this->scored($teamId, $now);
+        return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now)['counts'];
+    }
 
+    /** @return array{rows: list<InboxRow>, total: int} */
+    public function page(
+        int $teamId,
+        InboxFilter $filter,
+        int $limit,
+        int $offset,
+        ?int $now = null,
+    ): array {
+        $snapshot = $this->snapshot($teamId, $filter, $limit, $offset, $now);
+
+        return ['rows' => $snapshot['rows'], 'total' => $snapshot['total']];
+    }
+
+    /**
+     * Ein Tick der Seite: Zaehler (Pillen) UND die aktuell sichtbare Seite in
+     * EINEM Durchlauf. `scored()` — die teure Kanal-/Eskalations-Aufloesung —
+     * laeuft dabei genau EINMAL; counts() und page() waren bis hierhin zwei
+     * getrennte volle Durchlaeufe pro Render, obwohl jede Seite immer beide
+     * braucht (Pillen + Liste).
+     *
+     * 'counts' bleibt bewusst OHNE Owner-/Suchfilter berechnet — die Pillen
+     * zeigen den vollen Stand, nicht die eigene Filterung. 'rows'/'total'
+     * sind MIT Filter.
+     *
+     * 'fallback' = true, wenn die Grundmenge ueber die engere Altmenge lief
+     * (kein konfigurierter Kanal). Ohne dieses Flag muesste die UI
+     * isConfigured() separat fragen — eine dritte Aufloesung, und eine, die
+     * "nicht konfiguriert" nicht von "Exception beim Aufloesen geschluckt"
+     * unterscheiden kann. Ein transienter DB-Fehler saehe damit aus wie eine
+     * saubere Fehlkonfiguration und wuerde still den Verlustpfad
+     * wiederherstellen, den dieses Feature beseitigt.
+     *
+     * @return array{counts: array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int}, rows: list<InboxRow>, total: int, fallback: bool}
+     */
+    public function snapshot(
+        int $teamId,
+        InboxFilter $filter,
+        int $limit,
+        int $offset,
+        ?int $now = null,
+    ): array {
+        $now ??= time();
+
+        $scored = $this->scored($teamId, $now);
+        $counts = $this->countsFromScored($scored['rows']);
+
+        // Owner und Namenssuche brauchen Bewerber-Daten, die die duenne Stufe
+        // nicht hat — deshalb EINMAL vorab die erlaubten Bewerber-IDs holen
+        // statt pro Zeile zu fragen.
+        $allowed = $this->allowedSubjectIds($teamId, $filter);
+
+        $rows = array_values(array_filter(
+            $scored['rows'],
+            fn (array $row) => $this->matches($row, $filter, $allowed),
+        ));
+
+        usort($rows, static function (array $a, array $b): int {
+            $orderA = ConversationInboxReport::levelOrder($a['escalation']->level);
+            $orderB = ConversationInboxReport::levelOrder($b['escalation']->level);
+            if ($orderA !== $orderB) {
+                return $orderA <=> $orderB;
+            }
+            $expA = $a['escalation']->windowExpiresAt ?? PHP_INT_MAX;
+            $expB = $b['escalation']->windowExpiresAt ?? PHP_INT_MAX;
+            if ($expA !== $expB) {
+                return $expA <=> $expB;
+            }
+
+            // Letzter Tiebreaker: thread_id. Ohne ihn haengt die Reihenfolge
+            // bei Gleichstand (gleiches Level, gleiches windowExpiresAt) an
+            // der zufaelligen DB-Rueckgabereihenfolge — kein ORDER BY in der
+            // SQL, und PHPs Sort-Stabilitaet garantiert nur, dass die
+            // urspruengliche ARRAY-Reihenfolge erhalten bleibt, nicht dass
+            // die DB diese Reihenfolge zwischen zwei Aufrufen wiederholt.
+            // Zwischen zwei "mehr laden"-Klicks koennte so eine Zeile
+            // uebersprungen werden oder doppelt erscheinen — genau der
+            // Verlustpfad, den dieses Feature beseitigen soll.
+            return $a['thread_id'] <=> $b['thread_id'];
+        });
+
+        $total = count($rows);
+        $slice = array_slice($rows, $offset, $limit);
+
+        return [
+            'counts' => $counts,
+            'rows' => $this->hydrate($slice),
+            'total' => $total,
+            'fallback' => $scored['fallback'],
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return array{unread:int, green:int, yellow:int, red:int, missed:int, handled:int, total:int}
+     */
+    private function countsFromScored(array $rows): array
+    {
         $counts = ['unread' => 0, 'green' => 0, 'yellow' => 0, 'red' => 0,
                    'missed' => 0, 'handled' => 0, 'total' => 0];
 
@@ -55,60 +152,23 @@ final class InboxQuery
         return $counts;
     }
 
-    /** @return array{rows: list<InboxRow>, total: int} */
-    public function page(
-        int $teamId,
-        InboxFilter $filter,
-        int $limit,
-        int $offset,
-        ?int $now = null,
-    ): array {
-        $now ??= time();
-
-        // Owner und Namenssuche brauchen Bewerber-Daten, die die duenne Stufe
-        // nicht hat — deshalb EINMAL vorab die erlaubten Bewerber-IDs holen
-        // statt pro Zeile zu fragen.
-        $allowed = $this->allowedSubjectIds($teamId, $filter);
-
-        $rows = array_values(array_filter(
-            $this->scored($teamId, $now),
-            fn (array $row) => $this->matches($row, $filter, $allowed),
-        ));
-
-        usort($rows, static function (array $a, array $b): int {
-            $orderA = ConversationInboxReport::levelOrder($a['escalation']->level);
-            $orderB = ConversationInboxReport::levelOrder($b['escalation']->level);
-            if ($orderA !== $orderB) {
-                return $orderA <=> $orderB;
-            }
-            $expA = $a['escalation']->windowExpiresAt ?? PHP_INT_MAX;
-            $expB = $b['escalation']->windowExpiresAt ?? PHP_INT_MAX;
-
-            return $expA <=> $expB;
-        });
-
-        $total = count($rows);
-        $slice = array_slice($rows, $offset, $limit);
-
-        return ['rows' => $this->hydrate($slice), 'total' => $total];
-    }
-
     /**
      * Duenne Zeilen des Kanal-Sets mit Eskalation und Erledigt-Zustand.
      * Noch OHNE Namen — die kosten Joins und werden erst fuer die sichtbare
      * Seite geholt.
      *
-     * @return list<array<string, mixed>>
+     * @return array{rows: list<array<string, mixed>>, fallback: bool}
      */
     private function scored(int $teamId, int $now): array
     {
         $channelIds = RecruitingChannelResolver::channelIds($teamId);
+        $fallback = $channelIds === [];
 
         $query = CommsWhatsAppThread::query()
             ->where('team_id', $teamId)
             ->whereNotNull('last_inbound_at');
 
-        if ($channelIds !== []) {
+        if (!$fallback) {
             $query->whereIn('comms_channel_id', $channelIds);
         } else {
             // Rueckfall ohne konfiguriertes Konto: die alte, engere Menge.
@@ -162,7 +222,7 @@ final class InboxQuery
             ];
         }
 
-        return $rows;
+        return ['rows' => $rows, 'fallback' => $fallback];
     }
 
     /**
