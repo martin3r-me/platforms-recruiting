@@ -24,11 +24,24 @@ class RecruitingChannelSetTest extends TestCase
 {
     private const TEAM = 702;
 
+    // Fix-Runde 1: eigenes Team + eigene Konto-/Kanal-Konstellation je
+    // Luecke, damit sie nicht mit den Fixtures aus TEAM (702) interferieren
+    // — dort gibt es bereits Kanaele MIT Marker, der Rueckfall koennte dort
+    // nie greifen.
+    private const TEAM_RUECKFALL = 703;
+    private const TEAM_INAKTIVES_KONTO = 704;
+
     private static int $accountId = 0;
     private static int $c1 = 0;
     private static int $c2 = 0;
     private static int $fremd = 0;
     private static int $inaktiv = 0;
+
+    private static int $rueckfallAccountId = 0;
+    private static int $rueckfallChannel = 0;
+
+    private static int $inaktivesKontoAccountId = 0;
+    private static int $inaktivesKontoChannel = 0;
 
     public static function setUpBeforeClass(): void
     {
@@ -48,6 +61,8 @@ class RecruitingChannelSetTest extends TestCase
 
         self::runMigrations();
         self::seedFixtures();
+        self::seedRueckfallFixtures();
+        self::seedInaktivesKontoFixtures();
     }
 
     public static function tearDownAfterClass(): void
@@ -73,6 +88,29 @@ class RecruitingChannelSetTest extends TestCase
         $this->assertSame([], RecruitingChannelResolver::channelIds(999));
         $this->assertFalse(RecruitingChannelResolver::isConfigured(999));
         $this->assertTrue(RecruitingChannelResolver::isConfigured(self::TEAM));
+    }
+
+    /**
+     * Fix-Runde 1 / Befund 1: kein aktiver Kanal traegt den Marker
+     * integrations_whatsapp_account_id im meta-JSON -> Rueckfall auf
+     * sender_identifier == account->phone_number muss greifen.
+     */
+    public function test_rueckfall_greift_wenn_kein_kanal_den_marker_traegt(): void
+    {
+        $ids = RecruitingChannelResolver::channelIds(self::TEAM_RUECKFALL);
+
+        $this->assertSame([self::$rueckfallChannel], $ids);
+        $this->assertTrue(RecruitingChannelResolver::isConfigured(self::TEAM_RUECKFALL));
+    }
+
+    /**
+     * Fix-Runde 1 / Befund 2: Konto ist konfiguriert, aber inaktiv -> das
+     * Set muss leer sein, auch wenn ein aktiver Kanal den Marker traegt.
+     */
+    public function test_inaktives_konto_ergibt_leeres_set(): void
+    {
+        $this->assertSame([], RecruitingChannelResolver::channelIds(self::TEAM_INAKTIVES_KONTO));
+        $this->assertFalse(RecruitingChannelResolver::isConfigured(self::TEAM_INAKTIVES_KONTO));
     }
 
     private static function seedFixtures(): void
@@ -105,6 +143,66 @@ class RecruitingChannelSetTest extends TestCase
             'sender_identifier' => $sender,
             'is_active' => $active,
             'meta' => json_encode(['integrations_whatsapp_account_id' => $accountId]),
+        ]);
+    }
+
+    /**
+     * Fix-Runde 1 / Befund 1: eigene, saubere Fixtures fuer den
+     * Rueckfall-Pfad — ein Konto, dessen einziger Kanal KEINEN Marker im
+     * meta-JSON traegt, dafuer aber sender_identifier == phone_number.
+     */
+    private static function seedRueckfallFixtures(): void
+    {
+        self::$rueckfallAccountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
+            'uuid' => 'acc-recruiting-rueckfall',
+            'phone_number' => '+49 160 5553001',
+            'title' => 'Recruiting-WABA-Rueckfall',
+            'active' => true,
+            'user_id' => 1,
+        ]);
+
+        self::$rueckfallChannel = (int) Capsule::table('comms_channels')->insertGetId([
+            'team_id' => self::TEAM_RUECKFALL,
+            'type' => 'whatsapp',
+            'provider' => 'whatsapp_meta',
+            'sender_identifier' => '+49 160 5553001',
+            'is_active' => true,
+            'meta' => json_encode([]),
+        ]);
+
+        RecApplicantSettings::create([
+            'team_id' => self::TEAM_RUECKFALL,
+            'settings' => ['auto_pilot_wa_account_id' => self::$rueckfallAccountId],
+        ]);
+    }
+
+    /**
+     * Fix-Runde 1 / Befund 2: eigene, saubere Fixtures fuer ein
+     * konfiguriertes, aber inaktives Konto — der Kanal traegt korrekt den
+     * Marker und ist selbst aktiv, das Konto ist es nicht.
+     */
+    private static function seedInaktivesKontoFixtures(): void
+    {
+        self::$inaktivesKontoAccountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
+            'uuid' => 'acc-recruiting-inaktiv',
+            'phone_number' => '+49 160 5554001',
+            'title' => 'Recruiting-WABA-Inaktiv',
+            'active' => false,
+            'user_id' => 1,
+        ]);
+
+        self::$inaktivesKontoChannel = (int) Capsule::table('comms_channels')->insertGetId([
+            'team_id' => self::TEAM_INAKTIVES_KONTO,
+            'type' => 'whatsapp',
+            'provider' => 'whatsapp_meta',
+            'sender_identifier' => '+49 160 5554001',
+            'is_active' => true,
+            'meta' => json_encode(['integrations_whatsapp_account_id' => self::$inaktivesKontoAccountId]),
+        ]);
+
+        RecApplicantSettings::create([
+            'team_id' => self::TEAM_INAKTIVES_KONTO,
+            'settings' => ['auto_pilot_wa_account_id' => self::$inaktivesKontoAccountId],
         ]);
     }
 
