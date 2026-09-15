@@ -30,10 +30,19 @@ class ArchiveOldConversationsCommandTest extends TestCase
 {
     private const TEAM = 850;
     private const FREMDES_TEAM = 851;
+    // Eigenes Team NUR fuer die handle()-Tests unten (Fix-Runde 2): die
+    // uebrigen Fixtures haengen an self::JETZT, einem fixen Datum in der
+    // Vergangenheit, das mit der Zeit selbst "alt" wird (siehe Kommentar an
+    // den Fixtures). handle() misst dagegen immer gegen die echte
+    // Systemzeit. Eigenes Team statt eigener Zeitbasis, damit die
+    // handle()-Tests strukturell NIE Threads aus der JETZT-Gruppe sehen
+    // koennen — unabhaengig davon, wie alt JETZT inzwischen ist.
+    private const TEAM_HANDLE = 852;
     private const JETZT = 1_757_930_000;
 
     private static int $channelId = 0;
     private static int $fremdChannelId = 0;
+    private static int $handleChannelId = 0;
     private static int $threadAlt = 0;
     private static int $threadFrisch = 0;
     private static int $threadAltFremdesTeam = 0;
@@ -166,13 +175,13 @@ class ArchiveOldConversationsCommandTest extends TestCase
         $vorher = RecConversationHandled::count();
 
         [$exitCode, $ausgabe] = $this->runCommand([
-            '--team' => (string) self::TEAM,
+            '--team' => (string) self::TEAM_HANDLE,
             '--older-than' => '30',
             '--dry-run' => true,
         ]);
 
         $this->assertSame(0, $exitCode);
-        $this->assertStringContainsString('Team: ' . self::TEAM . ' (Quelle: --team)', $ausgabe);
+        $this->assertStringContainsString('Team: ' . self::TEAM_HANDLE . ' (Quelle: --team)', $ausgabe);
         $this->assertStringContainsString('Probelauf', $ausgabe);
         $this->assertSame($vorher, RecConversationHandled::count(), 'Der Probelauf darf keine Zeile schreiben.');
         $this->assertNull(
@@ -190,12 +199,12 @@ class ArchiveOldConversationsCommandTest extends TestCase
     public function test_scharfer_lauf_ueber_handle_schreibt_die_menge(): void
     {
         [$exitCode, $ausgabe] = $this->runCommand([
-            '--team' => (string) self::TEAM,
+            '--team' => (string) self::TEAM_HANDLE,
             '--older-than' => '30',
         ]);
 
         $this->assertSame(0, $exitCode);
-        $this->assertStringContainsString('Team: ' . self::TEAM . ' (Quelle: --team)', $ausgabe);
+        $this->assertStringContainsString('Team: ' . self::TEAM_HANDLE . ' (Quelle: --team)', $ausgabe);
         $this->assertStringNotContainsString('Probelauf', $ausgabe);
 
         $row = RecConversationHandled::query()
@@ -271,17 +280,32 @@ class ArchiveOldConversationsCommandTest extends TestCase
             'handled_reason' => RecConversationHandled::REASON_MANUAL,
         ]);
 
-        // Fuer die handle()-Tests (echter Kommandolauf ueber run()): die
-        // uebrigen Fixtures haengen an self::JETZT, einem fixen Zeitpunkt in
-        // der Vergangenheit. handle() ruft planFor() aber OHNE $now-Override
-        // auf, misst also gegen die tatsaechliche Systemzeit. Zwei eigene
-        // Threads relativ zu echt-jetzt, damit die handle()-Tests unabhaengig
-        // vom Testdatum stabil bleiben.
+        // Fuer die handle()-Tests (echter Kommandolauf ueber run()): eigenes
+        // Team (TEAM_HANDLE), eigener Kanal, eigene zwei Threads relativ zu
+        // echt-jetzt (now()->subDays()). handle() ruft planFor() OHNE
+        // $now-Override auf, misst also gegen die tatsaechliche Systemzeit —
+        // gegen die JETZT-Gruppe (self::TEAM) waere das nicht stabil: deren
+        // "frischer" Thread ($threadFrisch, JETZT - 2 Tage) wird mit jedem
+        // Monat, den JETZT laenger zurueckliegt, selbst aelter als 30 Tage
+        // und wuerde beim scharfen Lauf mitgestempelt, ungeprueft und nicht
+        // aufgeraeumt. Das eigene Team schliesst das strukturell aus: die
+        // handle()-Tests koennen JETZT-Threads gar nicht sehen, egal wie alt
+        // JETZT ist.
+        $handleAccountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
+            'uuid' => 'acc-rec-archive-handle', 'phone_number' => '+49 160 5554002',
+            'title' => 'Recruiting Handle', 'active' => true, 'user_id' => 1,
+        ]);
+        self::$handleChannelId = self::createChannel(self::TEAM_HANDLE, '+49 160 5554002', $handleAccountId);
+        RecApplicantSettings::create([
+            'team_id' => self::TEAM_HANDLE,
+            'settings' => ['auto_pilot_wa_account_id' => $handleAccountId],
+        ]);
+
         self::$threadAltEcht = self::createThread(
-            self::TEAM, self::$channelId, '+49 151 80000005', now()->subDays(100)->getTimestamp(),
+            self::TEAM_HANDLE, self::$handleChannelId, '+49 151 80000005', now()->subDays(100)->getTimestamp(),
         );
         self::$threadFrischEcht = self::createThread(
-            self::TEAM, self::$channelId, '+49 151 80000006', now()->subDays(2)->getTimestamp(),
+            self::TEAM_HANDLE, self::$handleChannelId, '+49 151 80000006', now()->subDays(2)->getTimestamp(),
         );
     }
 
