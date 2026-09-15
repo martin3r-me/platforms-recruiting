@@ -34,6 +34,65 @@ final class InboxQuery
         return $this->snapshot($teamId, new InboxFilter(), 0, 0, $now)['counts'];
     }
 
+    /**
+     * Loest EINEN Thread zu seiner InboxRow auf — ohne die volle Grundmenge
+     * (scored() liest sonst ALLE Threads des Kanals) und ohne die
+     * Bewerber-Volltabelle (allowedSubjectIds() laedt sonst jeden Bewerber
+     * samt CRM-Kontakt, nur um einen Owner-/Namensfilter aufzuloesen, den es
+     * hier gar nicht gibt). Fuer den Fall, dass ein bereits offener Chat
+     * durch einen Filterwechsel aus der sichtbaren Seite gefallen ist: die
+     * UI braucht dann nur noch Titel/Ampel/Owner dieser EINEN Zeile, kein
+     * Snapshot des ganzen Kanals — und das bei jedem 20s-Poll erneut, solange
+     * der Chat aus dem Filter draussen bleibt.
+     *
+     * Bewusst OHNE InboxFilter-Parameter: die Zeile wird unabhaengig vom
+     * aktuellen Filterzustand aufgeloest (ein bereits geoeffneter Chat soll
+     * seine Kopfzeile behalten, auch wenn er z.B. gerade nicht "erledigt"
+     * ist, waehrend die Erledigt-Ansicht aktiv ist).
+     *
+     * `siblingCount` bleibt 0 — die Kopfzeile zeigt sie nicht an, und ihre
+     * echte Berechnung braucht wieder einen Scan ueber alle Threads
+     * derselben Nummer (genau die Kosten, die diese Methode vermeiden soll).
+     */
+    public function rowForThread(CommsWhatsAppThread $thread, int $teamId, ?int $now = null): ?InboxRow
+    {
+        if ($thread->last_inbound_at === null) {
+            return null;
+        }
+
+        $now ??= time();
+        $id = (int) $thread->id;
+        $inboundAt = $thread->last_inbound_at->getTimestamp();
+
+        $humanOutbound = $this->humanOutboundTimestamps([$id]);
+        $handledAt = $this->handledTimestamps($teamId, [$id]);
+
+        $settings = RecApplicantSettings::getOrCreateForTeam($teamId);
+        $yellow = (float) $settings->getSetting('comms_window_yellow_hours_left', 12);
+        $red = (float) $settings->getSetting('comms_window_red_hours_left', 3);
+
+        $row = [
+            'thread_id' => $id,
+            'channel_id' => (int) $thread->comms_channel_id,
+            'phone' => $thread->remote_phone_number,
+            'context_model' => (string) ($thread->context_model ?? ''),
+            'context_model_id' => $thread->context_model_id ? (int) $thread->context_model_id : null,
+            'preview' => $thread->last_message_preview,
+            'is_unread' => (bool) $thread->is_unread,
+            'escalation' => ConversationEscalation::compute(
+                $inboundAt,
+                $humanOutbound[$id] ?? null,
+                $now,
+                $yellow,
+                $red,
+            ),
+            'handled' => ConversationHandledState::isHandled($handledAt[$id] ?? null, $inboundAt),
+            'siblings' => 0,
+        ];
+
+        return $this->hydrate([$row])[0] ?? null;
+    }
+
     /** @return array{rows: list<InboxRow>, total: int} */
     public function page(
         int $teamId,

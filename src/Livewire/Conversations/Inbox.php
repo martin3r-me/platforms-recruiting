@@ -142,6 +142,14 @@ class Inbox extends Component
      * Filter-/Suchwechsel gehen weiterhin ueber resetPage(), das zusaetzlich
      * perPage zuruecksetzt.
      */
+    /**
+     * selectedThread() bleibt hier bewusst aussen vor: sie haengt einzig an
+     * $selectedThreadId (kein Ableger von snapshot()) und wird bei jeder
+     * Aenderung von $selectedThreadId (select(), back()) ohnehin ueber den
+     * naechsten Request neu ausgewertet — ein zusaetzliches unset() wuerde
+     * hier nichts abraeumen, was nicht schon durch die geaenderte Property
+     * veraltet waere.
+     */
     private function forgetSnapshot(): void
     {
         unset(
@@ -182,24 +190,20 @@ class Inbox extends Component
         }
 
         // Der Chat kann durch einen Filterwechsel aus der Liste gefallen sein —
-        // dann einzeln nachladen, statt den Verlauf zu schliessen.
+        // dann einzeln nachladen, statt den Verlauf zu schliessen. Bewusst
+        // NICHT ueber page()/snapshot(): das wuerde die volle Grundmenge
+        // (scored(), alle Threads des Kanals) UND die Bewerber-Volltabelle
+        // (allowedSubjectIds(), alle Bewerber samt CRM-Kontakt) neu laden,
+        // nur um eine einzige Zeile ueber einen Telefonnummer-Suchtreffer zu
+        // finden — bei jedem 20s-Poll erneut, solange der Chat aus dem
+        // Filter draussen bleibt. rowForThread() loest genau diese eine
+        // Zeile auf, ohne beides.
         $thread = $this->selectedThread;
         if ($thread === null) {
             return null;
         }
-        $single = app(InboxQuery::class)->page(
-            $this->teamId(),
-            new InboxFilter(handled: $this->showHandled, search: (string) $thread->remote_phone_number),
-            50,
-            0,
-        );
-        foreach ($single['rows'] as $row) {
-            if ($row->threadId === $this->selectedThreadId) {
-                return $row;
-            }
-        }
 
-        return null;
+        return app(InboxQuery::class)->rowForThread($thread, $this->teamId());
     }
 
     #[Computed]
@@ -235,15 +239,27 @@ class Inbox extends Component
             $chips[] = ['label' => 'Phase', 'value' => (string) $applicant->phase->name, 'url' => null];
         }
         if ($applicant->position) {
-            $chips[] = ['label' => 'Stelle', 'value' => (string) $applicant->position->name, 'url' => null];
+            // Spalte heisst 'title', nicht 'name' (src/Models/RecPosition.php,
+            // $fillable) — mit 'name' bliebe der Chip dauerhaft leer, ohne
+            // dass es kracht (Eloquent liefert fuer ein unbekanntes Attribut
+            // still null).
+            $chips[] = ['label' => 'Stelle', 'value' => (string) $applicant->position->title, 'url' => null];
         }
 
+        // Filter (nur kuenftige Termine) UND Sortierung laufen komplett in
+        // der DB: whereHas() auf die Termin-Relation statt alle Buchungen zu
+        // laden und in PHP zu filtern; orderBy() ueber eine korrelierte
+        // Subquery statt einer Collection-Sortierung nach dem Laden. first()
+        // holt genau die eine benoetigte Zeile.
         $booking = $applicant->interviewBookings()
-            ->with('interview')
             ->whereIn('status', ['registered', 'confirmed'])
-            ->get()
-            ->filter(fn ($b) => $b->interview && $b->interview->starts_at >= now())
-            ->sortBy(fn ($b) => $b->interview->starts_at)
+            ->whereHas('interview', fn ($q) => $q->where('starts_at', '>=', now()))
+            ->with('interview')
+            ->orderBy(
+                \Platform\Recruiting\Models\RecInterview::query()
+                    ->select('starts_at')
+                    ->whereColumn('id', 'rec_interview_bookings.rec_interview_id')
+            )
             ->first();
 
         if ($booking) {
@@ -270,6 +286,7 @@ class Inbox extends Component
     public function back(): void
     {
         $this->selectedThreadId = null;
+        $this->forgetSnapshot();
     }
 
     public function render()
