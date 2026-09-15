@@ -1550,8 +1550,13 @@ public bool $showOooPanel = false;
 public array $oooForm = ['from' => '', 'until' => '', 'back_at' => ''];
 ```
 
-und diesen Computed-Eigenschaften: `counts()`, `rows()`, `total()`,
-`teamUsers()`, `channelConfigured()`.
+und diesen Computed-Eigenschaften: `snapshot()`, `counts()`, `rows()`,
+`total()`, `fallback()`, `teamUsers()`.
+
+`snapshot()` ist die einzige Stelle, die `InboxQuery` aufruft; alle anderen
+lesen aus seinem Ergebnis. Aus Task 4 (Fix-Runde) liegt dafuer
+`InboxQuery::snapshot(int $teamId, InboxFilter $filter, int $limit, int $offset, ?int $now = null): array`
+mit den Schluesseln `counts`, `rows`, `total`, `fallback` bereit.
 
 - [ ] **Schritt 1: Route eintragen**
 
@@ -1607,16 +1612,34 @@ class Inbox extends Component
         return (int) Auth::user()->currentTeam->id;
     }
 
+    /**
+     * EIN Aufruf pro Render: Zaehler, Zeilen, Gesamtzahl und das
+     * Rueckfall-Signal fallen gemeinsam aus snapshot(). Getrennte Aufrufe
+     * wuerden die Grundmenge zweimal laden — bei ~1000 Threads und einem
+     * 20-Sekunden-Poll die doppelte Arbeit pro Tick.
+     */
     #[Computed]
-    public function channelConfigured(): bool
+    public function snapshot(): array
     {
-        return RecruitingChannelResolver::isConfigured($this->teamId());
+        return app(InboxQuery::class)->snapshot($this->teamId(), $this->filter(), $this->perPage, 0);
     }
 
     #[Computed]
     public function counts(): array
     {
-        return app(InboxQuery::class)->counts($this->teamId());
+        return $this->snapshot['counts'];
+    }
+
+    /**
+     * true = die Grundmenge lief ueber die engere Altmenge (kein Kanal-Set).
+     * Kommt aus demselben Durchlauf — NICHT ueber einen zweiten Aufruf von
+     * RecruitingChannelResolver::isConfigured(), der die Aufloesung erneut
+     * ausfuehren wuerde.
+     */
+    #[Computed]
+    public function fallback(): bool
+    {
+        return (bool) $this->snapshot['fallback'];
     }
 
     private function filter(): InboxFilter
@@ -1631,21 +1654,15 @@ class Inbox extends Component
     }
 
     #[Computed]
-    public function result(): array
-    {
-        return app(InboxQuery::class)->page($this->teamId(), $this->filter(), $this->perPage, 0);
-    }
-
-    #[Computed]
     public function rows(): array
     {
-        return $this->result['rows'];
+        return $this->snapshot['rows'];
     }
 
     #[Computed]
     public function total(): int
     {
-        return $this->result['total'];
+        return $this->snapshot['total'];
     }
 
     #[Computed]
@@ -1676,7 +1693,7 @@ class Inbox extends Component
     public function loadMore(): void
     {
         $this->perPage += 50;
-        unset($this->result, $this->rows, $this->total);
+        unset($this->snapshot, $this->rows, $this->total, $this->counts, $this->fallback);
     }
 
     public function updatedSearch(): void
@@ -1692,7 +1709,7 @@ class Inbox extends Component
     private function resetPage(): void
     {
         $this->perPage = 50;
-        unset($this->result, $this->rows, $this->total, $this->counts);
+        unset($this->snapshot, $this->rows, $this->total, $this->counts, $this->fallback);
     }
 
     /** Laedt einen Thread NUR im Team-Kontext — nie eine fremde ID. */
@@ -1833,9 +1850,9 @@ Unter der Liste der Nachlade-Knopf:
 Und der Hinweis bei fehlender Konfiguration, direkt ueber der Liste:
 
 ```blade
-@if (!$this->channelConfigured)
+@if ($this->fallback)
     <div class="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        Kein WhatsApp-Konto gewählt — es werden nur zugeordnete Chats angezeigt.
+        Kein WhatsApp-Konto erreichbar — es werden nur zugeordnete Chats angezeigt.
         In Einstellungen → Kommunikation ein Konto wählen.
     </div>
 @endif
