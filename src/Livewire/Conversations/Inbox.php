@@ -195,13 +195,35 @@ class Inbox extends Component
         );
     }
 
-    /** Laedt einen Thread NUR im Team-Kontext — nie eine fremde ID. */
+    /**
+     * Laedt einen Thread NUR im Team-Kontext — nie eine fremde ID.
+     *
+     * Fix (Abschluss-Durchsicht, Befund 5, IMPORTANT): bisher pruefte diese
+     * Methode NUR team_id. Ein praeparierter Aufruf (z.B. markHandled(),
+     * select(), linkToApplicant()) mit der ID eines Dispo-Threads DESSELBEN
+     * Teams rendert damit einen Dispo-Chat im Recruiting-Postfach, samt
+     * Antwortfeld und Erledigt-Knopf. Kein Mandanten-Leck (gleiches Team),
+     * aber fachlich falsch — der Kanal war das ganze Feature ueber die
+     * Grundmenge (siehe RecruitingChannelResolver-Docblock), hier fehlte
+     * genau diese Einschraenkung.
+     *
+     * NUR einschraenken, wenn das Kanal-Set nicht leer ist — sonst wuerde ein
+     * Team OHNE konfiguriertes WABA-Konto (Rueckfall-Modus, siehe snapshot())
+     * gar keinen Thread mehr oeffnen koennen, weil dann jede ID durch ein
+     * leeres whereIn() faellt.
+     */
     protected function threadForTeam(int $threadId): ?CommsWhatsAppThread
     {
-        return CommsWhatsAppThread::query()
+        $query = CommsWhatsAppThread::query()
             ->whereKey($threadId)
-            ->where('team_id', $this->teamId())
-            ->first();
+            ->where('team_id', $this->teamId());
+
+        $channelIds = \Platform\Recruiting\Services\Comms\RecruitingChannelResolver::channelIds($this->teamId());
+        if ($channelIds !== []) {
+            $query->whereIn('comms_channel_id', $channelIds);
+        }
+
+        return $query->first();
     }
 
     #[Computed]
@@ -259,7 +281,7 @@ class Inbox extends Component
         }
 
         $applicant = \Platform\Recruiting\Models\RecApplicant::query()
-            ->with(['phase', 'position'])
+            ->with(['phase', 'position', 'postings.position'])
             ->find($row->subjectId);
         if ($applicant === null) {
             return [];
@@ -269,12 +291,19 @@ class Inbox extends Component
         if ($applicant->phase) {
             $chips[] = ['label' => 'Phase', 'value' => (string) $applicant->phase->name, 'url' => null];
         }
-        if ($applicant->position) {
+
+        // Fix (Abschluss-Durchsicht, Befund 6): applicant->position (rec_position_id)
+        // ist bei Altbestand vor der Einfuehrung dieses Felds leer. Ersatzweise die
+        // erste Stelle aus positions() (ueber die verknuepften Anzeigen/postings),
+        // wie im Entwurf vorgesehen — sonst bleibt der Stellen-Chip bei genau den
+        // Altfaellen leer, die ihn am noetigsten haetten.
+        $position = $applicant->position ?: $applicant->positions()->first();
+        if ($position) {
             // Spalte heisst 'title', nicht 'name' (src/Models/RecPosition.php,
             // $fillable) — mit 'name' bliebe der Chip dauerhaft leer, ohne
             // dass es kracht (Eloquent liefert fuer ein unbekanntes Attribut
             // still null).
-            $chips[] = ['label' => 'Stelle', 'value' => (string) $applicant->position->title, 'url' => null];
+            $chips[] = ['label' => 'Stelle', 'value' => (string) $position->title, 'url' => null];
         }
 
         // Filter (nur kuenftige Termine) UND Sortierung laufen komplett in
@@ -304,12 +333,56 @@ class Inbox extends Component
         return $chips;
     }
 
+    /**
+     * CRITICAL-Fix (Abschluss-Durchsicht, Befund 1): windowOpen() las bisher
+     * $row->escalation->windowOpen. ConversationEscalation ist ein
+     * ESKALATIONS-Modell (isUnanswered/Level), kein Fenster-Modell: sobald
+     * ueberhaupt einmal geantwortet wurde, ist isUnanswered false und
+     * compute() liefert LEVEL_NONE mit windowOpen=false — unabhaengig vom
+     * echten 24h-Service-Window von Meta. Folge: die ERSTE Antwort einer
+     * Konversation liess das Eingabefeld sofort verschwinden und die Seite
+     * behauptete "Fenster zu", obwohl Meta noch bis zu 24h ab dem letzten
+     * EINGANG offen ist — jede Konversation waere eine Ein-Antwort-
+     * Konversation gewesen.
+     *
+     * Fix: das Fenster selbst pruefen, nicht die Eskalation erben —
+     * DispoTimeCalculator::isReplyWindowOpen() (rein datumsbasiert, siehe
+     * deren Docblock) auf last_inbound_at DES THREADS. Die Dispo-Klasse wird
+     * nur AUFGERUFEN, nicht veraendert (Tabu-Liste).
+     */
     #[Computed]
     public function windowOpen(): bool
     {
-        $row = $this->selectedRow;
+        return $this->computeWindowOpen($this->selectedThread);
+    }
 
-        return $row !== null && $row->escalation->windowOpen;
+    /**
+     * Reine Entscheidung, ausgelagert aus windowOpen(): $this->selectedThread
+     * ist eine #[Computed]-Eigenschaft und ihr Zugriff laeuft ueber Livewires
+     * __get()-Hook (SupportComputedProperties), der einen gebooteten
+     * Livewire-Mechanismus braucht — in diesem Modul (Capsule-Tests ohne
+     * vollen App-Boot, siehe phpunit.xml-Kommentar) nicht ohne Weiteres
+     * testbar. Diese Methode nimmt den Thread stattdessen als Parameter
+     * entgegen und ist damit ein normaler Methodenaufruf, kein
+     * Property-Zugriff — direkt mit einem echten CommsWhatsAppThread aus
+     * der Datenbank aufrufbar, ohne Livewire zu booten. Genau in dieser
+     * Luecke blieb der Fehler aus Befund 1 unentdeckt.
+     *
+     * $now optional (Konvention des Moduls, siehe ArchiveOldConversations::
+     * planFor()/ConversationEscalation::compute()): windowOpen() ruft ohne
+     * Override auf (echtes "jetzt"), Tests koennen ein festes Datum
+     * hineingeben, ohne von der echten Systemzeit abzuhaengen.
+     */
+    public function computeWindowOpen(?CommsWhatsAppThread $thread, ?\DateTimeInterface $now = null): bool
+    {
+        if ($thread === null || $thread->last_inbound_at === null) {
+            return false;
+        }
+
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator::isReplyWindowOpen(
+            $thread->last_inbound_at,
+            $now ?? now(),
+        );
     }
 
     /**

@@ -7,6 +7,7 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
 
 /**
@@ -96,6 +97,20 @@ final class ApplicantTemplateSender
         $channel = CommsChannel::find($thread->comms_channel_id);
         if ($channel === null) {
             return ['ok' => false, 'error' => 'Kanal des Chats nicht gefunden.'];
+        }
+
+        // Fix (Abschluss-Durchsicht, Befund 6, letzter Punkt): die Knopfleiste
+        // (Inbox::chatTemplates()) zeigt nur Vorlagen des eigenen WABA-Kontos
+        // an — dieser Sender pruefte das bisher NICHT. Ein direkter Aufruf mit
+        // der ID einer Vorlage eines FREMDEN Kontos (Livewire-Methoden sind
+        // mit beliebigen Parametern aufrufbar, nicht nur mit dem, was gerendert
+        // wurde) haette sonst versucht, sie ueber den falschen Kanal zu senden.
+        // Kein Konto konfiguriert (Rueckfall) -> keine Einschraenkung, analog
+        // zu chatTemplates() und threadForTeam().
+        $accountId = RecApplicantSettings::getOrCreateForTeam((int) $thread->team_id)
+            ->getSetting('auto_pilot_wa_account_id');
+        if ($accountId && (int) $template->whatsapp_account_id !== (int) $accountId) {
+            return ['ok' => false, 'error' => 'Vorlage gehört nicht zum WhatsApp-Konto dieses Teams.'];
         }
 
         $templateComponents = (array) ($template->components ?? []);

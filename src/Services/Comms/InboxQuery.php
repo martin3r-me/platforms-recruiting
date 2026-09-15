@@ -88,6 +88,7 @@ final class InboxQuery
             ),
             'handled' => ConversationHandledState::isHandled($handledAt[$id] ?? null, $inboundAt),
             'siblings' => 0,
+            'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
         ];
 
         return $this->hydrate([$row])[0] ?? null;
@@ -239,6 +240,7 @@ final class InboxQuery
         $threads = $query->get([
             'id', 'comms_channel_id', 'remote_phone_number', 'context_model',
             'context_model_id', 'is_unread', 'last_inbound_at', 'last_message_preview',
+            'last_outbound_at',
         ]);
 
         $threadIds = $threads->map(fn ($t) => (int) $t->id)->all();
@@ -278,6 +280,7 @@ final class InboxQuery
                 ),
                 'handled' => ConversationHandledState::isHandled($handledAt[$id] ?? null, $inboundAt),
                 'siblings' => max(0, count($byDigits[$digits] ?? []) - 1),
+                'last_message_at' => self::lastMessageAt($inboundAt, $thread->last_outbound_at?->getTimestamp()),
             ];
         }
 
@@ -285,8 +288,10 @@ final class InboxQuery
     }
 
     /**
-     * @param ?array{owner: ?list<int>, search: ?list<int>} $allowed
-     *        null = keine Einschraenkung; Listen enthalten Bewerber-IDs.
+     * @param ?array{owner: ?list<int>, searchApplicant: ?list<int>, searchEmployee: ?list<int>} $allowed
+     *        null = keine Einschraenkung. 'owner' und 'searchApplicant' enthalten
+     *        Bewerber-IDs, 'searchEmployee' Mitarbeiter-IDs — zwei getrennte
+     *        ID-Raeume (Befund 2 der Abschluss-Durchsicht).
      */
     private function matches(array $row, InboxFilter $filter, ?array $allowed): bool
     {
@@ -305,8 +310,18 @@ final class InboxQuery
         // Zustaendigkeit haengt am Bewerber. Mitarbeiter-Chats und nicht
         // zugeordnete Chats haben keine — sie fallen bei aktivem Owner-Filter
         // heraus (wie in der alten Seite, wo owner dort null ist).
+        //
+        // Fix (Abschluss-Durchsicht, Befund 2, IMPORTANT): $allowed['owner']
+        // enthaelt Bewerber-IDs, waehrend $row['context_model_id'] JEDER
+        // Kontext-Typ sein kann (Mitarbeiter, blosser CrmContact, Fremd-
+        // Kontext). Beide ID-Raeume sind unabhaengig voneinander vergeben —
+        // bei ~1000 Threads sind Zahlenkollisionen real. Ohne die
+        // isApplicantContext()-Pruefung matchte ein Mitarbeiter-Thread mit
+        // derselben Zahl als context_model_id faelschlich den Owner-Filter
+        // eines Bewerbers.
         if ($allowed !== null && $allowed['owner'] !== null) {
             if ($row['context_model_id'] === null
+                || !$this->isApplicantContext((string) $row['context_model'])
                 || !in_array((int) $row['context_model_id'], $allowed['owner'], true)) {
                 return false;
             }
@@ -315,10 +330,21 @@ final class InboxQuery
         if ($filter->search !== '') {
             $needle = mb_strtolower(trim($filter->search));
             $phoneTrifft = str_contains(mb_strtolower((string) $row['phone']), $needle);
+
+            // Gleiche Trennung wie beim Owner-Filter: eine gefundene
+            // Bewerber-ID darf nur Bewerber-Zeilen treffen, eine gefundene
+            // Mitarbeiter-ID nur Mitarbeiter-Zeilen — sonst matcht wieder
+            // eine zufaellige ID-Kollision zwischen den beiden Raeumen.
             $nameTrifft = $allowed !== null
-                && $allowed['search'] !== null
                 && $row['context_model_id'] !== null
-                && in_array((int) $row['context_model_id'], $allowed['search'], true);
+                && (
+                    ($allowed['searchApplicant'] !== null
+                        && $this->isApplicantContext((string) $row['context_model'])
+                        && in_array((int) $row['context_model_id'], $allowed['searchApplicant'], true))
+                    || ($allowed['searchEmployee'] !== null
+                        && $this->isEmployeeContext((string) $row['context_model'])
+                        && in_array((int) $row['context_model_id'], $allowed['searchEmployee'], true))
+                );
 
             if (!$phoneTrifft && !$nameTrifft) {
                 return false;
@@ -328,11 +354,34 @@ final class InboxQuery
         return true;
     }
 
+    /** @see hydrate() — dieselbe Zwei-Alias-Pruefung (Morph-Map ODER volle Klasse). */
+    private function isApplicantContext(string $contextModel): bool
+    {
+        static $morph;
+        $morph ??= (new RecApplicant)->getMorphClass();
+
+        return in_array($contextModel, [$morph, RecApplicant::class], true);
+    }
+
+    /** @see hydrate() — RecEmployee steht bewusst NICHT in der Morph-Map (siehe dort). */
+    private function isEmployeeContext(string $contextModel): bool
+    {
+        return $contextModel === RecEmployee::class;
+    }
+
     /**
-     * Loest Owner- und Namensfilter EINMAL in Bewerber-IDs auf.
+     * Loest Owner- und Namensfilter EINMAL in IDs auf.
      * Gibt null zurueck, wenn keiner der beiden Filter aktiv ist.
      *
-     * @return ?array{owner: ?list<int>, search: ?list<int>}
+     * Fix (Abschluss-Durchsicht, Befund 3, IMPORTANT): der Suchzweig lud
+     * bisher ALLE Bewerber des Teams samt CRM-Kontakten (get()) und filterte
+     * in PHP — bei jedem Tastendruck UND bei jedem 20-Sekunden-Poll, solange
+     * das Suchfeld gefuellt ist. Die Namenssuche laeuft jetzt ueber whereHas()
+     * mit LIKE in der DB, und Mitarbeiter werden zusaetzlich aufgeloest
+     * (searchEmployee) — vorher war ein Mitarbeiter-Chat per Namenssuche gar
+     * nicht auffindbar, weil nur RecApplicant-Namen aufgeloest wurden.
+     *
+     * @return ?array{owner: ?list<int>, searchApplicant: ?list<int>, searchEmployee: ?list<int>}
      */
     private function allowedSubjectIds(int $teamId, InboxFilter $filter): ?array
     {
@@ -357,25 +406,39 @@ final class InboxQuery
                 ->all();
         }
 
-        $searchIds = null;
+        $searchApplicantIds = null;
+        $searchEmployeeIds = null;
         if ($sucheAktiv) {
-            $needle = mb_strtolower(trim($filter->search));
+            // Bewusst OHNE CONCAT(first_name, ' ', last_name) — anders als im
+            // Suchzweig von Livewire\Applicant\Index: CONCAT ist MySQL-Syntax
+            // und dieses Modul testet den Lesepfad gegen SQLite (Capsule,
+            // kein voller App-Boot). first_name/last_name je einzeln per LIKE
+            // deckt die in diesem Feature verlangte Namenssuche ab, bleibt
+            // aber auf beiden Treibern lauffaehig.
+            $like = '%' . trim($filter->search) . '%';
 
-            $searchIds = RecApplicant::query()
-                ->with(['crmContactLinks.contact'])
+            $searchApplicantIds = RecApplicant::query()
                 ->where('team_id', $teamId)
-                ->get()
-                ->filter(function ($applicant) use ($needle) {
-                    $contact = $applicant->crmContactLinks->first()?->contact;
-
-                    return $contact && str_contains(mb_strtolower((string) $contact->full_name), $needle);
+                ->whereHas('crmContactLinks.contact', function ($q) use ($like) {
+                    $q->where('first_name', 'like', $like)
+                        ->orWhere('last_name', 'like', $like);
                 })
-                ->map(fn ($applicant) => (int) $applicant->id)
-                ->values()
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $searchEmployeeIds = RecEmployee::query()
+                ->where('team_id', $teamId)
+                ->where(function ($q) use ($like) {
+                    $q->where('first_name', 'like', $like)
+                        ->orWhere('last_name', 'like', $like);
+                })
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
                 ->all();
         }
 
-        return ['owner' => $ownerIds, 'search' => $searchIds];
+        return ['owner' => $ownerIds, 'searchApplicant' => $searchApplicantIds, 'searchEmployee' => $searchEmployeeIds];
     }
 
     /**
@@ -456,6 +519,7 @@ final class InboxQuery
                 escalation: $row['escalation'],
                 contextLabel: $contextLabel,
                 siblingCount: (int) $row['siblings'],
+                lastMessageAt: $row['last_message_at'] ?? null,
             );
         }
 
@@ -524,6 +588,19 @@ final class InboxQuery
         $digits = preg_replace('/\D+/', '', $phone) ?? '';
 
         return substr($digits, -10);
+    }
+
+    /**
+     * Zeitstempel der letzten Nachricht (Eingang ODER Ausgang, je spaeter) —
+     * fuer die Uhrzeit-Anzeige rechts in der Listenzeile (Befund 6 der
+     * Abschluss-Durchsicht). Anders als humanOutboundTimestamps() (nur
+     * menschliche Antworten, fuer die Eskalation) zaehlt hier JEDE
+     * Nachricht inkl. Auto-Antwort — die Uhrzeitanzeige urteilt nicht,
+     * wer geantwortet hat, sie zeigt nur, wann zuletzt etwas geschrieben wurde.
+     */
+    private static function lastMessageAt(?int $inboundAt, ?int $outboundAt): int
+    {
+        return max($inboundAt ?? 0, $outboundAt ?? 0);
     }
 
     /**

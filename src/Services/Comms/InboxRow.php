@@ -23,5 +23,7 @@ final class InboxRow
         public readonly ?string $contextLabel = null,
         /** Anzahl weiterer Threads derselben Person (0 = keiner). */
         public readonly int $siblingCount = 0,
+        /** Unix-TS der letzten Nachricht (Eingang oder Ausgang, je spaeter). */
+        public readonly ?int $lastMessageAt = null,
     ) {}
 }

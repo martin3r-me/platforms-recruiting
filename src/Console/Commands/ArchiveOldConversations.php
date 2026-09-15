@@ -60,7 +60,14 @@ class ArchiveOldConversations extends Command
         }
 
         $days = (int) $this->option('older-than');
-        $plan = $this->planFor($teamId, $days);
+
+        try {
+            $plan = $this->planFor($teamId, $days);
+        } catch (\RuntimeException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
 
         $this->info(count($plan) . ' Chats ohne Eingang seit mehr als ' . $days . ' Tagen.');
 
@@ -81,10 +88,31 @@ class ArchiveOldConversations extends Command
      * Probelauf als auch vom scharfen Lauf aufgerufen — genau deshalb koennen
      * beide nie auseinanderlaufen.
      *
+     * Fix (Abschluss-Durchsicht, Befund 4, IMPORTANT): war bisher fail-OPEN —
+     * ein leeres Kanal-Set liess den Kanalfilter komplett entfallen und der
+     * Lauf traf DANN JEDEN Thread des Teams, auch Dispo-Threads. Der Probelauf
+     * zeigte davon nichts (nur eine Zahl), und das Kommando schreibt spaeter
+     * in echte Produktionsdaten. Jetzt fail-CLOSED: ein leeres Kanal-Set
+     * bricht mit einer klaren Fehlermeldung ab, statt die Reichweite
+     * stillschweigend auszuweiten.
+     *
+     * @throws \RuntimeException wenn kein Recruiting-Kanal fuer das Team
+     *         konfiguriert ist (RecruitingChannelResolver liefert []).
      * @return list<int>
      */
     public function planFor(int $teamId, int $days, ?int $now = null): array
     {
+        $channelIds = RecruitingChannelResolver::channelIds($teamId);
+        if ($channelIds === []) {
+            throw new \RuntimeException(
+                'Kein Recruiting-WhatsApp-Kanal fuer Team ' . $teamId . ' konfiguriert '
+                . '(RecruitingChannelResolver::channelIds() liefert ein leeres Set) — Abbruch, '
+                . 'kein Kanalfilter moeglich. Ohne diesen Filter traefe der Lauf JEDEN Thread des '
+                . 'Teams, auch Dispo-Threads. Erst das WABA-Konto in den Kommunikations-'
+                . 'Einstellungen konfigurieren.',
+            );
+        }
+
         // now()->subDays() statt Sekunden-Arithmetik — Konvention des Moduls
         // (siehe RecruitingChannelResolver u.a.). $now bleibt als Override fuer
         // deterministische Tests erhalten, laeuft aber ueber denselben Carbon-Pfad.
@@ -94,12 +122,8 @@ class ArchiveOldConversations extends Command
         $query = CommsWhatsAppThread::query()
             ->where('team_id', $teamId)
             ->whereNotNull('last_inbound_at')
-            ->where('last_inbound_at', '<', $grenze);
-
-        $channelIds = RecruitingChannelResolver::channelIds($teamId);
-        if ($channelIds !== []) {
-            $query->whereIn('comms_channel_id', $channelIds);
-        }
+            ->where('last_inbound_at', '<', $grenze)
+            ->whereIn('comms_channel_id', $channelIds);
 
         $schonGestempelt = RecConversationHandled::query()
             ->where('team_id', $teamId)

@@ -38,11 +38,19 @@ class ArchiveOldConversationsCommandTest extends TestCase
     // handle()-Tests strukturell NIE Threads aus der JETZT-Gruppe sehen
     // koennen — unabhaengig davon, wie alt JETZT inzwischen ist.
     private const TEAM_HANDLE = 852;
+    // Fix (Abschluss-Durchsicht, Befund 4): Team OHNE konfiguriertes WABA-
+    // Konto — RecruitingChannelResolver::channelIds() liefert hierfuer ein
+    // leeres Set (siehe InboxQueryCompletenessTest::TEAM_OHNE_KANAL, gleiches
+    // Muster). Eigenes Team, damit dieser Test die anderen Fixtures nicht
+    // anfasst.
+    private const TEAM_OHNE_KANAL = 853;
     private const JETZT = 1_757_930_000;
 
     private static int $channelId = 0;
     private static int $fremdChannelId = 0;
     private static int $handleChannelId = 0;
+    private static int $ohneKanalChannelId = 0;
+    private static int $threadOhneKanalAlt = 0;
     private static int $threadAlt = 0;
     private static int $threadFrisch = 0;
     private static int $threadAltFremdesTeam = 0;
@@ -224,6 +232,47 @@ class ArchiveOldConversationsCommandTest extends TestCase
             ->delete();
     }
 
+    /**
+     * Fix (Abschluss-Durchsicht, Befund 4, IMPORTANT): war bisher fail-OPEN —
+     * ein leeres Kanal-Set (kein konfiguriertes WABA-Konto) liess den
+     * Kanalfilter komplett entfallen, und planFor() traf DANN JEDEN alten
+     * Thread des Teams, auch Dispo-Threads. Jetzt fail-CLOSED: planFor()
+     * wirft, statt die Reichweite stillschweigend auszuweiten.
+     */
+    public function test_planfor_bricht_bei_leerem_kanal_set_ab_statt_alles_zu_treffen(): void
+    {
+        $command = new ArchiveOldConversations();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/Kein Recruiting-WhatsApp-Kanal/');
+
+        $command->planFor(self::TEAM_OHNE_KANAL, 30, self::JETZT);
+    }
+
+    /**
+     * Gegenstueck ueber den echten Kommando-Weg: handle() muss den Abbruch
+     * als klaren Fehler melden (FAILURE-Exitcode) und darf NICHTS schreiben —
+     * weder im Probelauf noch scharf, weil planFor() schon vor dem Zaehlen
+     * wirft.
+     */
+    public function test_handle_bricht_bei_leerem_kanal_set_ab_und_schreibt_nichts(): void
+    {
+        $vorher = RecConversationHandled::count();
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--team' => (string) self::TEAM_OHNE_KANAL,
+            '--older-than' => '30',
+        ]);
+
+        $this->assertSame(ArchiveOldConversations::FAILURE, $exitCode);
+        $this->assertStringContainsString('Kein Recruiting-WhatsApp-Kanal', $ausgabe);
+        $this->assertSame($vorher, RecConversationHandled::count(), 'Der Abbruch darf keine Zeile schreiben.');
+        $this->assertNull(
+            RecConversationHandled::query()->where('comms_whatsapp_thread_id', self::$threadOhneKanalAlt)->first(),
+            'Ohne Kanalfilter haette der Lauf JEDEN alten Thread des Teams getroffen — genau das soll der Abbruch verhindern.',
+        );
+    }
+
     /** @return array{0: int, 1: string} [exitCode, komplette Konsolenausgabe] */
     private function runCommand(array $options): array
     {
@@ -306,6 +355,18 @@ class ArchiveOldConversationsCommandTest extends TestCase
         );
         self::$threadFrischEcht = self::createThread(
             self::TEAM_HANDLE, self::$handleChannelId, '+49 151 80000006', now()->subDays(2)->getTimestamp(),
+        );
+
+        // Fix (Abschluss-Durchsicht, Befund 4): Team OHNE RecApplicantSettings-
+        // Zeile mit auto_pilot_wa_account_id — RecruitingChannelResolver::
+        // channelIds() liefert dafuer ein leeres Set, GENAU die Konstellation,
+        // die vorher fail-open war. Der Kanal existiert zwar (Kanal-Zeile),
+        // ist aber keinem Konto zugeordnet, das dieses Team in seinen
+        // Einstellungen gewaehlt hat — bewusst KEINE RecApplicantSettings::
+        // create() fuer dieses Team.
+        self::$ohneKanalChannelId = self::createChannel(self::TEAM_OHNE_KANAL, '+49 160 5554099', 999998);
+        self::$threadOhneKanalAlt = self::createThread(
+            self::TEAM_OHNE_KANAL, self::$ohneKanalChannelId, '+49 151 80000099', self::JETZT - 100 * 86_400,
         );
     }
 

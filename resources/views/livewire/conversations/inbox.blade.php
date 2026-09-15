@@ -17,6 +17,27 @@
         'green'  => 'bg-emerald-500',
         'none'   => 'bg-gray-200',
     ];
+    // Fix (Abschluss-Durchsicht, Befund 6): laut Entwurf fehlten in der
+    // Listenzeile das Kuerzel der zustaendigen Person, die Uhrzeit der letzten
+    // Nachricht und ein Initialen-Avatar. $ownerNamesById einmal pro Render
+    // gebaut (nicht pro Zeile aus $this->teamUsers gefiltert) — dieselbe
+    // Ueberlegung wie beim Kopfzeilen-$selOwnerName weiter unten.
+    $ownerNamesById = [];
+    foreach ($this->teamUsers as $u) {
+        $ownerNamesById[$u['id']] = $u['name'];
+    }
+    $initialenVon = function (?string $name): ?string {
+        if (!$name || trim($name) === '') {
+            return null;
+        }
+        $teile = array_values(array_filter(preg_split('/\s+/', trim($name)) ?: []));
+        if ($teile === []) {
+            return null;
+        }
+        $buchstaben = array_map(fn ($teil) => mb_strtoupper(mb_substr($teil, 0, 1)), $teile);
+
+        return implode('', array_slice($buchstaben, 0, 2));
+    };
     $fensterText = function ($escalation) {
         if ($escalation->level === 'missed') {
             $stunden = abs($escalation->hoursLeftInWindow);
@@ -28,7 +49,10 @@
             return '';
         }
         $h = $escalation->hoursLeftInWindow;
-        return $h >= 1 ? 'noch ' . round($h, 1) . ' h' : 'noch ' . max(1, round($h * 60)) . ' min';
+        // Fix (Abschluss-Durchsicht, Befund 6): deutsches Dezimaltrennzeichen —
+        // "noch 2.4 h" war ein Punkt statt Komma, str_replace() nur auf die
+        // Nachkommastelle, damit ganze Stunden ("noch 3 h") unveraendert bleiben.
+        return $h >= 1 ? 'noch ' . str_replace('.', ',', (string) round($h, 1)) . ' h' : 'noch ' . max(1, round($h * 60)) . ' min';
     };
 @endphp
 <div class="flex h-[calc(100vh-4rem)] flex-col lg:h-[calc(100vh-3rem)]" wire:poll.visible.20s>
@@ -172,6 +196,10 @@
                         $istGewaehlt = $selectedThreadId === $row->threadId;
                         $balken = $levelBar[$row->escalation->level] ?? $levelBar['none'];
                         $fenster = $fensterText($row->escalation);
+                        $rowInitialen = $initialenVon($row->title) ?? '?';
+                        $rowOwnerName = $row->ownerUserId !== null ? ($ownerNamesById[$row->ownerUserId] ?? null) : null;
+                        $rowOwnerKuerzel = $initialenVon($rowOwnerName);
+                        $rowZeit = $row->lastMessageAt ? \Carbon\Carbon::createFromTimestamp($row->lastMessageAt)->format('H:i') : null;
                     @endphp
                     <div wire:key="row-{{ $row->threadId }}"
                          class="flex items-stretch border-b border-gray-100 border-l-[3px] {{ $istGewaehlt ? 'border-l-gray-900 bg-gray-50' : 'border-l-transparent' }}">
@@ -188,17 +216,29 @@
                         <button type="button" wire:click="select({{ $row->threadId }})"
                                 class="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left hover:bg-gray-50">
                             <span class="mt-1 inline-block h-8 w-1 shrink-0 rounded {{ $balken }}"></span>
+                            {{-- Initialen-Avatar (Befund 6: fehlte laut Entwurf). --}}
+                            <span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gray-200 text-[11px] font-bold text-gray-600">{{ $rowInitialen }}</span>
                             <span class="min-w-0 flex-1">
-                                <span class="flex items-center gap-1.5 text-sm {{ $row->isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700' }}">
-                                    <span class="truncate">{{ $row->title }}</span>
-                                    @if ($row->isUnread)
-                                        <span class="h-2 w-2 shrink-0 rounded-full bg-orange-500"></span>
+                                <span class="flex items-center justify-between gap-1.5 text-sm {{ $row->isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700' }}">
+                                    <span class="flex min-w-0 items-center gap-1.5">
+                                        <span class="truncate">{{ $row->title }}</span>
+                                        @if ($row->isUnread)
+                                            <span class="h-2 w-2 shrink-0 rounded-full bg-orange-500"></span>
+                                        @endif
+                                    </span>
+                                    {{-- Uhrzeit der letzten Nachricht, rechts (Befund 6: fehlte laut Entwurf). --}}
+                                    @if ($rowZeit !== null)
+                                        <span class="shrink-0 pl-1 text-[10.5px] font-normal text-gray-400">{{ $rowZeit }}</span>
                                     @endif
                                 </span>
                                 <span class="mt-0.5 block truncate text-xs text-gray-500">{{ $row->preview ?: '—' }}</span>
                                 <span class="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] font-semibold">
                                     @if ($fenster !== '')
                                         <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{{ $fenster }}</span>
+                                    @endif
+                                    {{-- Kuerzel der zustaendigen Person (Befund 6: stand bisher nur im Chat-Kopf). --}}
+                                    @if ($rowOwnerKuerzel !== null)
+                                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600" title="{{ $rowOwnerName }}">{{ $rowOwnerKuerzel }}</span>
                                     @endif
                                     @if ($row->subjectType === 'employee')
                                         <span class="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">MA</span>
