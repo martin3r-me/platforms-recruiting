@@ -74,6 +74,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\ReportSignedWithoutEmployee::class,
                 \Platform\Recruiting\Console\Commands\ZasExportMarkerCleanup::class,
                 \Platform\Recruiting\Console\Commands\ZasPnrLookup::class,
+                \Platform\Recruiting\Console\Commands\ArchiveOldConversations::class,
             ]);
         }
 
