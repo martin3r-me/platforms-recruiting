@@ -742,6 +742,27 @@ class Inbox extends Component
      * Die Logik hier zu wiederholen ist exakt die Bugklasse aus Fall 2474.
      * threadForTeam() sorgt dafuer, dass nie eine fremde Thread-ID zugeordnet
      * werden kann.
+     *
+     * Fix-Runde 1, Befund 1 (CRITICAL): $applicantId kommt vom Client —
+     * Livewire-Methoden sind mit beliebigen Parametern aufrufbar, nicht nur
+     * mit dem, was im Panel gerendert wurde. RecApplicant hat keinen
+     * automatischen Team-Scope und addContext() im CRM prueft die ID
+     * ueberhaupt nicht — ohne diese Pruefung liesse sich ein eigener Chat an
+     * einen Bewerber eines FREMDEN Teams haengen. Deshalb wird der Bewerber
+     * hier genauso team-gebunden geladen wie der Thread ueber
+     * threadForTeam(): ueber scopeForTeam().
+     *
+     * Fix-Runde 1, Befund 2+3 (CRITICAL/IMPORTANT): der aktuelle Zustand des
+     * Threads kommt aus derselben Quelle wie die Anzeige (InboxQuery::
+     * rowForThread()) — kein zweites, abweichendes Regelwerk. Ein Thread mit
+     * echtem Fremd-Kontext (contextLabel gesetzt, z.B. hcm_onboarding) oder
+     * einer bereits bestehenden Zuordnung (subjectType != 'unassigned', ob
+     * Bewerber oder Mitarbeiter) wird hier NICHT verknuepft — auch wenn diese
+     * Methode direkt aufgerufen wird, ohne dass der Knopf je sichtbar war.
+     * Ohne diese Sperre wuerde addContext() bei bereits verknuepften Threads
+     * lediglich eine zweite Pivot-Zeile anlegen (die Legacy-Spalten bleiben
+     * wegen "first context wins" unveraendert) — die Oberflaeche meldete
+     * trotzdem Erfolg, obwohl sich sichtbar nichts geaendert hat.
      */
     public function linkToApplicant(int $applicantId): void
     {
@@ -751,10 +772,32 @@ class Inbox extends Component
             return;
         }
 
+        $applicant = \Platform\Recruiting\Models\RecApplicant::query()
+            ->forTeam($this->teamId())
+            ->whereKey($applicantId)
+            ->first();
+        if ($applicant === null) {
+            $this->closeLinkPanel();
+            session()->flash('error', 'Zuordnung nicht möglich — Bewerber wurde nicht gefunden.');
+            return;
+        }
+
+        $row = app(InboxQuery::class)->rowForThread($thread, $this->teamId());
+        if ($row !== null && $row->contextLabel !== null) {
+            $this->closeLinkPanel();
+            session()->flash('error', 'Dieser Chat gehört zu einem anderen Fachprozess und kann hier nicht zugeordnet werden.');
+            return;
+        }
+        if ($row === null || $row->subjectType !== 'unassigned') {
+            $this->closeLinkPanel();
+            session()->flash('error', 'Dieser Chat ist bereits zugeordnet.');
+            return;
+        }
+
         \Platform\Recruiting\Services\Comms\ApplicantThreadLinker::link($thread, $applicantId, 'inbox_manual');
 
         $this->closeLinkPanel();
-        $this->resetPage();
+        $this->forgetSnapshot();
         session()->flash('message', 'Chat dem Bewerber zugeordnet.');
     }
 

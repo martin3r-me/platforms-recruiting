@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
+use Platform\Recruiting\Livewire\Conversations\Inbox;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
@@ -78,7 +79,24 @@ class UnassignedThreadLinkingTest extends TestCase
         Relation::requireMorphMap(self::$previousRequireMorphMap);
 
         Container::getInstance()->forgetInstance('config');
+        Container::getInstance()->forgetInstance('auth');
+        Container::getInstance()->forgetInstance('session');
         Facade::clearResolvedInstances();
+    }
+
+    protected function tearDown(): void
+    {
+        // 'auth'/'session' werden nur von den Fix-Runde-1-Tests gebunden
+        // (Inbox::linkToApplicant() braucht Auth::user()->currentTeam->id und
+        // session()->flash()) — nach jedem Test wieder loesen, damit keine
+        // Bindung in einen anderen Test dieser Klasse durchsickert. Gezielt
+        // ueber clearResolvedInstance() statt clearResolvedInstances(): das
+        // trifft nur 'auth'/'session', nicht den 'config'-Cache, den dieselbe
+        // Klasse fuer die gesamte Laufzeit haelt.
+        Container::getInstance()->forgetInstance('auth');
+        Container::getInstance()->forgetInstance('session');
+        Facade::clearResolvedInstance('auth');
+        Facade::clearResolvedInstance('session');
     }
 
     public function test_thread_am_blossen_crmcontact_wird_bewerber_zugeordnet_und_bleibt_sichtbar(): void
@@ -173,6 +191,219 @@ class UnassignedThreadLinkingTest extends TestCase
         $this->assertSame('applicant', $nachherRow->subjectType);
         $this->assertSame(701, $nachherRow->subjectId);
         $this->assertSame('Amara Diallo', $nachherRow->title);
+    }
+
+    /**
+     * Fix-Runde 1, Befund 1 (CRITICAL): $applicantId kommt in
+     * Inbox::linkToApplicant() vom Client — Livewire-Methoden sind mit
+     * beliebigen Parametern aufrufbar, nicht nur mit dem, was im Panel
+     * gerendert wurde. Ohne Team-Pruefung liesse sich ein Chat des EIGENEN
+     * Teams an einen Bewerber eines FREMDEN Teams haengen (RecApplicant hat
+     * keinen automatischen Team-Scope, addContext() im CRM prueft die ID
+     * ueberhaupt nicht). Dieser Test ruft die echte Livewire-Methode auf —
+     * nicht nur ApplicantThreadLinker direkt — damit die Team-Sperre in
+     * Inbox.php selbst getroffen wird, nicht nur ihre Bausteine.
+     */
+    public function test_bewerber_eines_fremden_teams_wird_nicht_zugeordnet(): void
+    {
+        $eigenesTeam = 706;
+        $fremdesTeam = 707;
+
+        $threadId = $this->seedUnassignedThread($eigenesTeam, '+49 151 70009002', 999002);
+
+        // Bewerber existiert, gehoert aber zu einem ANDEREN Team.
+        Capsule::table('rec_applicants')->insert([
+            'id' => 801, 'uuid' => 'uuid-applicant-801', 'team_id' => $fremdesTeam,
+            'progress' => 0, 'is_active' => true, 'auto_pilot' => false,
+            'owned_by_user_id' => null,
+            'created_at' => date('Y-m-d H:i:s', self::JETZT), 'updated_at' => date('Y-m-d H:i:s', self::JETZT),
+        ]);
+
+        $session = self::bindFakeAuthAndSession($eigenesTeam);
+
+        $inbox = new Inbox();
+        $inbox->linkingThreadId = $threadId;
+        $inbox->linkToApplicant(801);
+
+        $this->assertArrayHasKey(
+            'error',
+            $session->flashed,
+            'Die Zuordnung an einen fremden Bewerber muss als Fehler gemeldet werden, nicht kommentarlos scheitern.',
+        );
+
+        $frisch = CommsWhatsAppThread::query()->whereKey($threadId)->first();
+        $this->assertSame(
+            'Platform\\Crm\\Models\\CrmContact',
+            $frisch->context_model,
+            'Legacy-Spalten duerfen sich nicht aendern — die Zuordnung darf nicht gegriffen haben.',
+        );
+        $this->assertSame(999002, (int) $frisch->context_model_id);
+
+        $this->assertSame(
+            0,
+            Capsule::table('comms_thread_contexts')
+                ->where('thread_id', $threadId)
+                ->where('context_model_id', 801)
+                ->count(),
+            'Es darf auch keine Pivot-Zeile fuer den fremden Bewerber entstanden sein.',
+        );
+    }
+
+    /**
+     * Fix-Runde 1, Befund 2 (CRITICAL): ein Thread mit echtem Fremd-Kontext
+     * (contextLabel gesetzt, z.B. hcm_onboarding) ist bewusst sichtbar, aber
+     * keine herrenlose Bewerbung — er darf nicht versehentlich einem
+     * Bewerber zugeordnet werden. Die Anzeige (Knopf ausgeblendet) reicht
+     * nicht, weil die Methode direkt aufrufbar ist — deshalb hier ein
+     * direkter Aufruf von linkToApplicant() OHNE den Knopf je gesehen zu
+     * haben, mit einem gueltigen Bewerber des EIGENEN Teams.
+     */
+    public function test_thread_mit_fremdkontext_wird_nicht_ueber_diesen_weg_zugeordnet(): void
+    {
+        $team = 708;
+
+        $accountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
+            'uuid' => 'acc-fremdkontext', 'phone_number' => '+49 160 5554003',
+            'title' => 'Recruiting', 'active' => true, 'user_id' => 1,
+        ]);
+        $channelId = (int) Capsule::table('comms_channels')->insertGetId([
+            'team_id' => $team, 'type' => 'whatsapp', 'provider' => 'whatsapp_meta',
+            'sender_identifier' => '+49 160 5554003', 'is_active' => true,
+            'meta' => json_encode(['integrations_whatsapp_account_id' => $accountId]),
+        ]);
+        RecApplicantSettings::create([
+            'team_id' => $team,
+            'settings' => ['auto_pilot_wa_account_id' => $accountId],
+        ]);
+
+        // Gueltiger Bewerber DESSELBEN Teams — die Sperre muss trotzdem
+        // greifen, weil der Thread einem fremden Fachprozess gehoert.
+        Capsule::table('rec_applicants')->insert([
+            'id' => 802, 'uuid' => 'uuid-applicant-802', 'team_id' => $team,
+            'progress' => 0, 'is_active' => true, 'auto_pilot' => false,
+            'owned_by_user_id' => null,
+            'created_at' => date('Y-m-d H:i:s', self::JETZT), 'updated_at' => date('Y-m-d H:i:s', self::JETZT),
+        ]);
+
+        $threadId = (int) CommsWhatsAppThread::create([
+            'team_id' => $team,
+            'comms_channel_id' => $channelId,
+            'token' => bin2hex(random_bytes(8)),
+            'remote_phone_number' => '+49 151 70009003',
+            'context_model' => 'hcm_onboarding',
+            'context_model_id' => 999003,
+            'is_unread' => false,
+            'last_inbound_at' => date('Y-m-d H:i:s', self::JETZT - 100_000),
+            'last_message_preview' => 'Onboarding-Rueckfrage',
+        ])->id;
+
+        // Vorpruefung: die Zeile zeigt genau die Konstellation, die den
+        // Knopf in der Blade ausblendet — subjectType bleibt 'unassigned',
+        // aber contextLabel ist gesetzt.
+        $row = (new InboxQuery())->rowForThread(
+            CommsWhatsAppThread::find($threadId),
+            $team,
+        );
+        $this->assertNotNull($row);
+        $this->assertSame('unassigned', $row->subjectType);
+        $this->assertSame('hcm_onboarding', $row->contextLabel);
+
+        $session = self::bindFakeAuthAndSession($team);
+
+        $inbox = new Inbox();
+        $inbox->linkingThreadId = $threadId;
+        $inbox->linkToApplicant(802);
+
+        $this->assertArrayHasKey(
+            'error',
+            $session->flashed,
+            'Ein Fremdkontext-Thread muss die Zuordnung als Fehler melden, nicht als Erfolg.',
+        );
+
+        $frisch = CommsWhatsAppThread::query()->whereKey($threadId)->first();
+        $this->assertSame('hcm_onboarding', $frisch->context_model);
+        $this->assertSame(999003, (int) $frisch->context_model_id);
+
+        $this->assertSame(
+            0,
+            Capsule::table('comms_thread_contexts')
+                ->where('thread_id', $threadId)
+                ->where('context_model_id', 802)
+                ->count(),
+        );
+    }
+
+    /** Legt einen Kanal + Thread an, der noch am blossen CrmContact haengt (kein Bewerber). */
+    private function seedUnassignedThread(int $teamId, string $phone, int $bareContactId): int
+    {
+        $accountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
+            'uuid' => 'acc-team-' . $teamId, 'phone_number' => $phone,
+            'title' => 'Recruiting', 'active' => true, 'user_id' => 1,
+        ]);
+        $channelId = (int) Capsule::table('comms_channels')->insertGetId([
+            'team_id' => $teamId, 'type' => 'whatsapp', 'provider' => 'whatsapp_meta',
+            'sender_identifier' => $phone, 'is_active' => true,
+            'meta' => json_encode(['integrations_whatsapp_account_id' => $accountId]),
+        ]);
+        RecApplicantSettings::create([
+            'team_id' => $teamId,
+            'settings' => ['auto_pilot_wa_account_id' => $accountId],
+        ]);
+
+        return (int) CommsWhatsAppThread::create([
+            'team_id' => $teamId,
+            'comms_channel_id' => $channelId,
+            'token' => bin2hex(random_bytes(8)),
+            'remote_phone_number' => $phone,
+            'context_model' => 'Platform\\Crm\\Models\\CrmContact',
+            'context_model_id' => $bareContactId,
+            'is_unread' => false,
+            'last_inbound_at' => date('Y-m-d H:i:s', self::JETZT - 100_000),
+            'last_message_preview' => 'Hallo',
+        ])->id;
+    }
+
+    /**
+     * Bindet ein minimales 'auth'- und 'session'-Fake in den Container, damit
+     * Inbox::teamId() (Auth::user()->currentTeam->id) und
+     * session()->flash(...) ohne vollen Laravel-Boot funktionieren — genau
+     * wie in der Produktivklasse, nur ohne echten Guard/Session-Handler.
+     *
+     * @return object{flashed: array<string, string>} Das Session-Fake, zum
+     *         spaeteren Auslesen der geflashten Nachricht.
+     */
+    private static function bindFakeAuthAndSession(int $teamId): object
+    {
+        $user = new class {
+            public int $id = 1;
+            public $currentTeam;
+        };
+        $user->currentTeam = (object) ['id' => $teamId];
+
+        $authStub = new class($user) {
+            public function __construct(private object $user) {}
+            public function user(): object
+            {
+                return $this->user;
+            }
+            public function id(): int
+            {
+                return (int) $this->user->id;
+            }
+        };
+
+        $sessionStub = new class {
+            public array $flashed = [];
+            public function flash(string $key, $value): void
+            {
+                $this->flashed[$key] = $value;
+            }
+        };
+
+        Container::getInstance()->instance('auth', $authStub);
+        Container::getInstance()->instance('session', $sessionStub);
+
+        return $sessionStub;
     }
 
     /** @param list<\Platform\Recruiting\Services\Comms\InboxRow> $rows */

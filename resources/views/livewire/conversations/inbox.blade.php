@@ -218,7 +218,7 @@
                             Erledigt
                         </button>
                     @endif
-                    @if ($this->selectedRow && $this->selectedRow->subjectType === 'unassigned')
+                    @if ($this->selectedRow && $this->selectedRow->subjectType === 'unassigned' && $this->selectedRow->contextLabel === null)
                         <button type="button" wire:click="openLinkPanel({{ $selectedThreadId }})"
                                 class="shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100">
                             Bewerber zuordnen…
