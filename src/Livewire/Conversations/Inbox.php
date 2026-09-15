@@ -435,6 +435,26 @@ class Inbox extends Component
     }
 
     /**
+     * Fix-Runde 3, Befund 3: eigener, ehrlicher Text fuer
+     * markSelectedHandled() — anders als bei sendHoldingToSelected() faellt
+     * eine ID hier nicht raus, weil sie aus der aktuellen ANSICHT gerutscht
+     * ist, sondern weil ConversationBulkHandler sie beim whereIn gegen das
+     * eigene Team NICHT gefunden hat (falsches Team oder gar kein Thread
+     * mehr). "nicht mehr in der aktuellen Ansicht" / "erneut markieren"
+     * waeren hier irrefuehrend — ein erneutes Markieren aendert nichts.
+     */
+    private function nichtGestempeltHinweis(int $anzahl): string
+    {
+        if ($anzahl <= 0) {
+            return '';
+        }
+
+        return $anzahl === 1
+            ? ' 1 markierte ID gehörte nicht zum eigenen Team oder existiert nicht mehr und wurde übersprungen.'
+            : " {$anzahl} markierte IDs gehörten nicht zum eigenen Team oder existieren nicht mehr und wurden übersprungen.";
+    }
+
+    /**
      * Sammel-Erledigen. Fix-Runde 1, Befund 2: laeuft NICHT mehr als
      * Schleife ueber markHandled() (das waeren bei 200 Chats ~600 Queries:
      * threadForTeam() + zwei fuer updateOrCreate() je ID) — ConversationBulkHandler
@@ -446,11 +466,21 @@ class Inbox extends Component
      * sendHoldingToSelected() ("Bitte zuerst Chats markieren."), statt den
      * Auswahlmodus wortlos zu beenden (Asymmetrie aus dem Review). Weicht
      * die Rueckgabe des Handlers (tatsaechlich gestempelte IDs) von der
-     * Markierung ab, wird das ebenfalls gemeldet statt geschluckt.
+     * Markierung ab, wird das ebenfalls gemeldet statt geschluckt — mit
+     * nichtGestempeltHinweis() (Fix-Runde 3), NICHT mit verlorenHinweis():
+     * eine ID faellt hier nicht aus der Ansicht, sondern aus der
+     * Team-Pruefung des Handlers heraus, das ist ein anderer Grund.
+     *
+     * Fix-Runde 3, Befund 1: $ids wird VOR dem Zaehlen und Weiterreichen
+     * dedupliziert — $selected ist eine ungeschuetzte Livewire-Eigenschaft
+     * (von aussen setzbar) und kann dieselbe ID mehrfach enthalten. Ohne
+     * Dedup faellt count($ids) hoeher aus als die Zahl eindeutiger IDs, die
+     * der Handler stempelt — eine falsche "war nicht mehr wirksam"-Meldung
+     * trotz vollem Erfolg waere die Folge.
      */
     public function markSelectedHandled(): void
     {
-        $ids = array_map('intval', $this->selected);
+        $ids = array_values(array_unique(array_map('intval', $this->selected)));
         if ($ids === []) {
             session()->flash('error', 'Bitte zuerst Chats markieren.');
             $this->selectMode = false;
@@ -464,11 +494,11 @@ class Inbox extends Component
             $this->selectedThreadId = null;
         }
 
-        $verloren = count($ids) - count($handledIds);
+        $nichtGestempelt = count($ids) - count($handledIds);
         if ($handledIds === []) {
-            session()->flash('error', 'Keiner der markierten Chats konnte abgehakt werden.' . $this->verlorenHinweis($verloren));
-        } elseif ($verloren > 0) {
-            session()->flash('message', trim(count($handledIds) . ' Chat(s) als erledigt markiert.' . $this->verlorenHinweis($verloren)));
+            session()->flash('error', 'Keiner der markierten Chats konnte abgehakt werden.' . $this->nichtGestempeltHinweis($nichtGestempelt));
+        } elseif ($nichtGestempelt > 0) {
+            session()->flash('message', trim(count($handledIds) . ' Chat(s) als erledigt markiert.' . $this->nichtGestempeltHinweis($nichtGestempelt)));
         }
 
         $this->selected = [];
@@ -495,10 +525,13 @@ class Inbox extends Component
      * ueber verlorenHinweis() an die Erfolgs-/Fehlermeldung angehaengt —
      * vorher deckten die Sperren nur den Fall ab, dass GAR NICHTS mehr
      * uebrig blieb.
+     *
+     * Fix-Runde 3, Befund 1: $ids wird dedupliziert, bevor gezaehlt und
+     * weitergereicht wird — siehe Begruendung an markSelectedHandled().
      */
     public function sendHoldingToSelected(): void
     {
-        $ids = array_map('intval', $this->selected);
+        $ids = array_values(array_unique(array_map('intval', $this->selected)));
         if ($ids === []) {
             session()->flash('error', 'Bitte zuerst Chats markieren.');
             return;
@@ -514,7 +547,12 @@ class Inbox extends Component
         $verloren = count($ids) - count($recipients);
 
         if ($recipients === []) {
-            session()->flash('error', trim('Die Auswahl passt zu keiner sichtbaren Zeile mehr — bitte erneut markieren.' . $this->verlorenHinweis($verloren)));
+            // Fix-Runde 3, Befund 2: KEIN verlorenHinweis() hier anhaengen —
+            // dieser Satz sagt bereits vollstaendig, dass die gesamte
+            // Auswahl weg ist ($verloren === count($ids) in diesem Zweig);
+            // der Hinweis wuerde "bitte erneut markieren" ein zweites Mal
+            // sagen.
+            session()->flash('error', 'Die Auswahl passt zu keiner sichtbaren Zeile mehr — bitte erneut markieren.');
             $this->selected = [];
             $this->selectMode = false;
             return;
