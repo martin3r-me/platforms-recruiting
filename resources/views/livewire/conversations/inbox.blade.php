@@ -182,6 +182,26 @@
                      x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
                     @include('recruiting::livewire.dispo._messages', ['messages' => $this->messages, 'portalUrl' => null])
                 </div>
+
+                {{-- Antwortleiste: Freitext nur solange das 24h-Fenster offen ist. --}}
+                <div class="border-t border-gray-200 bg-white px-3 py-2.5 lg:px-5">
+                    @if ($this->windowOpen)
+                        <div class="flex items-end gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 pl-3 focus-within:border-gray-400"
+                             x-data="{ fit(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; } }">
+                            <textarea wire:model="replyText" rows="1" placeholder="Antwort schreiben …"
+                                      x-init="fit($el)" x-on:input="fit($el)"
+                                      x-on:reply-sent.window="$nextTick(() => fit($el))"
+                                      class="max-h-[200px] min-h-[36px] w-full resize-none overflow-y-auto border-0 bg-transparent p-1.5 text-sm leading-snug text-gray-900 placeholder:text-gray-400 focus:ring-0"></textarea>
+                            <button type="button" wire:click="sendReply" wire:loading.attr="disabled"
+                                    class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50" aria-label="Senden">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12 20 4l-4 16-4-7z"/></svg>
+                            </button>
+                        </div>
+                    @endif
+                    @if ($sendError)
+                        <p class="mt-2 text-sm text-red-600">{{ $sendError }}</p>
+                    @endif
+                </div>
             @endif
         </div>
     </div>

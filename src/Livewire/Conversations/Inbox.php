@@ -273,6 +273,14 @@ class Inbox extends Component
         return $chips;
     }
 
+    #[Computed]
+    public function windowOpen(): bool
+    {
+        $row = $this->selectedRow;
+
+        return $row !== null && $row->escalation->windowOpen;
+    }
+
     public function select(int $threadId): void
     {
         $this->selectedThreadId = $threadId;
@@ -287,6 +295,34 @@ class Inbox extends Component
     {
         $this->selectedThreadId = null;
         $this->forgetSnapshot();
+    }
+
+    public function sendReply(): void
+    {
+        $this->sendError = null;
+
+        $thread = $this->selectedThread;
+        if ($thread === null) {
+            $this->sendError = 'Kein Chat ausgewählt.';
+            return;
+        }
+
+        $result = app(\Platform\Recruiting\Services\Zas\Dispo\DispoReplySender::class)
+            ->send($thread, $this->replyText, Auth::user());
+
+        if (!$result['ok']) {
+            // Der geteilte Sender formuliert den Fenster-Fehler fuer die Dispo
+            // ("... ueber die Veranstaltung"). Hier gilt eine andere Regel,
+            // deshalb wird genau dieser Fall umformuliert.
+            $this->sendError = str_contains((string) $result['error'], '24h-Fenster')
+                ? 'Das 24-Stunden-Fenster ist zu — bitte eine Vorlage senden.'
+                : $result['error'];
+            return; // replyText bleibt stehen
+        }
+
+        $this->replyText = '';
+        $this->forgetSnapshot();
+        $this->dispatch('reply-sent');
     }
 
     public function render()
