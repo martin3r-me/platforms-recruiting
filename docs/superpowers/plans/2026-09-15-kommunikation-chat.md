@@ -860,7 +860,9 @@ class InboxQueryCompletenessTest extends TestCase
         $result = (new InboxQuery())->page(self::TEAM, new InboxFilter(), 2, 0, self::JETZT);
 
         $this->assertCount(2, $result['rows']);
-        $this->assertSame(4, $result['total']);
+        // 3 sichtbare Threads: ohne Kontext, Bewerber, Zwilling.
+        // Fremder Kanal und abgehakter Chat gehoeren nicht dazu.
+        $this->assertSame(3, $result['total']);
     }
 
     /** @return list<int> */
@@ -950,6 +952,8 @@ class InboxQueryCompletenessTest extends TestCase
         $files = [
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$own, 'database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php'],
+            [$own, 'database/migrations/2026_02_09_000005_create_rec_applicants_table.php'],
+            [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],
             [$crm, 'database/migrations/2026_02_12_100002_create_comms_whatsapp_messages_table.php'],
@@ -1369,8 +1373,8 @@ final class InboxQuery
                 $name = $employee ? trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) : null;
                 $firstName = $employee?->first_name;
                 $url = $employee && $employee->rec_applicant_id
-                    ? route('recruiting.applicants.show', ['applicant' => $employee->rec_applicant_id])
-                    : ($employee ? route('recruiting.employees.show', ['employee' => $subjectId]) : null);
+                    ? $this->safeRoute('recruiting.applicants.show', ['applicant' => $employee->rec_applicant_id])
+                    : ($employee ? $this->safeRoute('recruiting.employees.show', ['employee' => $subjectId]) : null);
             } elseif (in_array($row['context_model'], [$applicantMorph, RecApplicant::class], true) && $subjectId !== null) {
                 $type = 'applicant';
                 $applicant = $applicants->get($subjectId);
@@ -1378,7 +1382,7 @@ final class InboxQuery
                 $name = $contact?->full_name;
                 $firstName = $contact?->first_name;
                 $owner = $applicant?->owned_by_user_id;
-                $url = $applicant ? route('recruiting.applicants.show', ['applicant' => $subjectId]) : null;
+                $url = $applicant ? $this->safeRoute('recruiting.applicants.show', ['applicant' => $subjectId]) : null;
             } elseif ($row['context_model'] !== '' && !self::isBareContact($row['context_model'])) {
                 $contextLabel = $row['context_model'];
             }
@@ -1465,6 +1469,23 @@ final class InboxQuery
         $digits = preg_replace('/\D+/', '', $phone) ?? '';
 
         return substr($digits, -10);
+    }
+
+    /**
+     * Link bauen, ohne an einem fehlenden Router zu sterben.
+     *
+     * Der alte ConversationInboxService ruft route() direkt — und ist genau
+     * deshalb ohne einen einzigen Integrationstest geblieben (die Capsule-
+     * Tests dieses Moduls booten kein Laravel und haben keinen Router). Der
+     * Link ist Beiwerk; die Sichtbarkeit einer Zeile darf nicht daran haengen.
+     */
+    private function safeRoute(string $name, array $params): ?string
+    {
+        try {
+            return route($name, $params);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
 ```
