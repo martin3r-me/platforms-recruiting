@@ -283,8 +283,16 @@ class Inbox extends Component
 
     /**
      * Vorlagen fuer die Knopfleiste bei geschlossenem Fenster — NUR ohne
-     * Body-Platzhalter: fuer die anderen fehlen hier die Parameter, und ein
-     * leer gefuellter Parameter ist schlimmer als ein fehlender Knopf.
+     * Platzhalter im Textkoerper: fuer die anderen fehlen hier die Parameter,
+     * und ein leer gefuellter Parameter ist schlimmer als ein fehlender Knopf.
+     *
+     * Fix-Runde 1, Befund 3: Meta erlaubt {{n}} auch in einer HEADER-Komponente
+     * vom Typ TEXT, nicht nur in BODY — eine Vorlage mit Header-Platzhalter
+     * scheitert beim Senden genauso garantiert. Der Body-Check laeuft ueber
+     * WhatsAppTemplateBodyVariables::names() (Schwesterklasse-Konvention,
+     * siehe deren Docblock) statt einer dritten eigenen str_contains-Fassung;
+     * fuer HEADER gibt es im Modul keine solche geteilte Klasse, deshalb
+     * direkt hier geprueft.
      *
      * @return list<array{id: int, label: string}>
      */
@@ -302,12 +310,19 @@ class Inbox extends Component
 
         return $query->orderBy('name')->get()
             ->filter(function ($template) {
-                foreach ((array) ($template->components ?? []) as $component) {
-                    if (($component['type'] ?? '') === 'BODY'
+                $components = (array) ($template->components ?? []);
+
+                if (\Platform\Recruiting\Support\WhatsAppTemplateBodyVariables::names($components) !== []) {
+                    return false;
+                }
+
+                foreach ($components as $component) {
+                    if (($component['type'] ?? '') === 'HEADER'
                         && str_contains((string) ($component['text'] ?? ''), '{{')) {
                         return false;
                     }
                 }
+
                 return true;
             })
             ->map(fn ($template) => ['id' => (int) $template->id, 'label' => (string) $template->name])
@@ -410,7 +425,14 @@ class Inbox extends Component
         }
 
         if ($result['sent'] === 0) {
-            $this->sendError = 'Versand übersprungen — Nummer oder Pflichtangabe fehlt.';
+            // sendToMany() liefert bei sent=0 UND error=null zwei Faelle mit
+            // demselben aeusseren Signal (Fix-Runde 1, Befund 4): failed
+            // zaehlt den echten Fehlschlag beim Versand, skipped den Vorab-
+            // Abbruch (z.B. fehlende Nummer). Nur EIN Empfaenger geht hier
+            // rein, also schliessen sich beide Zaehler gegenseitig aus.
+            $this->sendError = $result['failed'] > 0
+                ? 'Versand fehlgeschlagen.'
+                : 'Versand übersprungen — Nummer oder Pflichtangabe fehlt.';
             return;
         }
 
