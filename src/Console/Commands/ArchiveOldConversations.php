@@ -44,7 +44,15 @@ class ArchiveOldConversations extends Command
 
     public function handle(): int
     {
-        $teamId = (int) ($this->option('team') ?: config('recruiting.zas.inbound_team_id'));
+        $teamOption = $this->option('team');
+        $teamSource = $teamOption ? '--team' : 'Konfiguration (recruiting.zas.inbound_team_id)';
+        $teamId = (int) ($teamOption ?: config('recruiting.zas.inbound_team_id'));
+
+        // Muss VOR jeder Query stehen: wer ohne --team laeuft, faellt auf den
+        // Konfigurations-Rueckfall zurueck — das ist das einzige Mittel, um
+        // vor dem Schreiben zu sehen, welches Team getroffen wird.
+        $this->info("Team: {$teamId} (Quelle: {$teamSource})");
+
         if ($teamId <= 0) {
             $this->error('Kein Team angegeben (--team=).');
 
@@ -77,8 +85,11 @@ class ArchiveOldConversations extends Command
      */
     public function planFor(int $teamId, int $days, ?int $now = null): array
     {
-        $now ??= time();
-        $grenze = date('Y-m-d H:i:s', $now - $days * 86_400);
+        // now()->subDays() statt Sekunden-Arithmetik — Konvention des Moduls
+        // (siehe RecruitingChannelResolver u.a.). $now bleibt als Override fuer
+        // deterministische Tests erhalten, laeuft aber ueber denselben Carbon-Pfad.
+        $reference = $now !== null ? \Illuminate\Support\Carbon::createFromTimestamp($now) : now();
+        $grenze = $reference->copy()->subDays($days);
 
         $query = CommsWhatsAppThread::query()
             ->where('team_id', $teamId)

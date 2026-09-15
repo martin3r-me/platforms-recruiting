@@ -15,6 +15,8 @@ use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Console\Commands\ArchiveOldConversations;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecConversationHandled;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
  * Task 12 — Backfill-Kommando fuer die Altlast (411 dauerhaft "verpasste"
@@ -36,6 +38,8 @@ class ArchiveOldConversationsCommandTest extends TestCase
     private static int $threadFrisch = 0;
     private static int $threadAltFremdesTeam = 0;
     private static int $threadAltBereitsErledigt = 0;
+    private static int $threadAltEcht = 0;
+    private static int $threadFrischEcht = 0;
 
     public static function setUpBeforeClass(): void
     {
@@ -149,6 +153,82 @@ class ArchiveOldConversationsCommandTest extends TestCase
             ->delete();
     }
 
+    /**
+     * Fix-Runde 1 (Review): die --dry-run-Weiche selbst war ungetestet — alle
+     * anderen Tests rufen planFor()/stamp() direkt auf, nie handle(). Hier
+     * laeuft das Kommando ueber den echten Symfony/Laravel-Weg
+     * (Command::run() mit einem echten ArrayInput), damit ein vertauschtes
+     * Flag nachweislich auffliegen wuerde: der Probelauf darf keine neue
+     * Zeile schreiben.
+     */
+    public function test_dry_run_ueber_handle_schreibt_nichts(): void
+    {
+        $vorher = RecConversationHandled::count();
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--team' => (string) self::TEAM,
+            '--older-than' => '30',
+            '--dry-run' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Team: ' . self::TEAM . ' (Quelle: --team)', $ausgabe);
+        $this->assertStringContainsString('Probelauf', $ausgabe);
+        $this->assertSame($vorher, RecConversationHandled::count(), 'Der Probelauf darf keine Zeile schreiben.');
+        $this->assertNull(
+            RecConversationHandled::query()->where('comms_whatsapp_thread_id', self::$threadAltEcht)->first(),
+            'Der Probelauf darf den alten Thread nicht stempeln.',
+        );
+    }
+
+    /**
+     * Gegenstueck zum Test oben: derselbe Weg ueber handle(), aber OHNE
+     * --dry-run. Erst im Zusammenspiel beider Tests ist belegt, dass die
+     * Weiche wirklich umschaltet und nicht zufaellig immer in einem der
+     * beiden Zustaende haengen bleibt.
+     */
+    public function test_scharfer_lauf_ueber_handle_schreibt_die_menge(): void
+    {
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--team' => (string) self::TEAM,
+            '--older-than' => '30',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('Team: ' . self::TEAM . ' (Quelle: --team)', $ausgabe);
+        $this->assertStringNotContainsString('Probelauf', $ausgabe);
+
+        $row = RecConversationHandled::query()
+            ->where('comms_whatsapp_thread_id', self::$threadAltEcht)
+            ->first();
+        $this->assertNotNull($row, 'Der scharfe Lauf muss den alten Thread stempeln.');
+        $this->assertSame('backfill', $row->handled_reason);
+        $this->assertNull($row->handled_by_user_id);
+
+        $this->assertNull(
+            RecConversationHandled::query()->where('comms_whatsapp_thread_id', self::$threadFrischEcht)->first(),
+            'Der frische Thread darf nicht gestempelt werden.',
+        );
+
+        RecConversationHandled::query()
+            ->where('comms_whatsapp_thread_id', self::$threadAltEcht)
+            ->delete();
+    }
+
+    /** @return array{0: int, 1: string} [exitCode, komplette Konsolenausgabe] */
+    private function runCommand(array $options): array
+    {
+        $command = new ArchiveOldConversations();
+        $command->setLaravel(new ArchiveOldConversationsFakeLaravel());
+
+        $input = new ArrayInput($options, $command->getDefinition());
+        $output = new BufferedOutput();
+
+        $exitCode = $command->run($input, $output);
+
+        return [$exitCode, $output->fetch()];
+    }
+
     private static function seedFixtures(): void
     {
         $accountId = (int) Capsule::table('integrations_whatsapp_accounts')->insertGetId([
@@ -190,6 +270,19 @@ class ArchiveOldConversationsCommandTest extends TestCase
             'handled_by_user_id' => 1,
             'handled_reason' => RecConversationHandled::REASON_MANUAL,
         ]);
+
+        // Fuer die handle()-Tests (echter Kommandolauf ueber run()): die
+        // uebrigen Fixtures haengen an self::JETZT, einem fixen Zeitpunkt in
+        // der Vergangenheit. handle() ruft planFor() aber OHNE $now-Override
+        // auf, misst also gegen die tatsaechliche Systemzeit. Zwei eigene
+        // Threads relativ zu echt-jetzt, damit die handle()-Tests unabhaengig
+        // vom Testdatum stabil bleiben.
+        self::$threadAltEcht = self::createThread(
+            self::TEAM, self::$channelId, '+49 151 80000005', now()->subDays(100)->getTimestamp(),
+        );
+        self::$threadFrischEcht = self::createThread(
+            self::TEAM, self::$channelId, '+49 151 80000006', now()->subDays(2)->getTimestamp(),
+        );
     }
 
     private static function createChannel(int $teamId, string $sender, int $accountId): int
@@ -244,5 +337,23 @@ class ArchiveOldConversationsCommandTest extends TestCase
     private static function packageRootOf(string $class): string
     {
         return dirname((new \ReflectionClass($class))->getFileName(), 3);
+    }
+}
+
+/**
+ * Minimaler Ersatz fuer die volle Laravel-Application: Illuminate\Console\
+ * Command::run() braucht $this->laravel->make() (Container, hat die
+ * Basisklasse bereits) und zusaetzlich runningUnitTests() (nur auf
+ * Illuminate\Foundation\Application definiert). Dieses Modul bootet in
+ * Integrationstests bewusst keine volle Application (siehe phpunit.xml-
+ * Kommentar) — dieser duenne Container reicht aus, um das Kommando ueber
+ * den echten Command::run()/execute()-Weg (also inklusive echter
+ * Options-Aufloesung aus einem ArrayInput) laufen zu lassen.
+ */
+final class ArchiveOldConversationsFakeLaravel extends Container
+{
+    public function runningUnitTests(): bool
+    {
+        return true;
     }
 }
