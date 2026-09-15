@@ -281,6 +281,40 @@ class Inbox extends Component
         return $row !== null && $row->escalation->windowOpen;
     }
 
+    /**
+     * Vorlagen fuer die Knopfleiste bei geschlossenem Fenster — NUR ohne
+     * Body-Platzhalter: fuer die anderen fehlen hier die Parameter, und ein
+     * leer gefuellter Parameter ist schlimmer als ein fehlender Knopf.
+     *
+     * @return list<array{id: int, label: string}>
+     */
+    #[Computed]
+    public function chatTemplates(): array
+    {
+        $accountId = \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($this->teamId())
+            ->getSetting('auto_pilot_wa_account_id');
+
+        $query = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->where('status', 'APPROVED');
+        if ($accountId) {
+            $query->where('whatsapp_account_id', (int) $accountId);
+        }
+
+        return $query->orderBy('name')->get()
+            ->filter(function ($template) {
+                foreach ((array) ($template->components ?? []) as $component) {
+                    if (($component['type'] ?? '') === 'BODY'
+                        && str_contains((string) ($component['text'] ?? ''), '{{')) {
+                        return false;
+                    }
+                }
+                return true;
+            })
+            ->map(fn ($template) => ['id' => (int) $template->id, 'label' => (string) $template->name])
+            ->values()
+            ->all();
+    }
+
     public function select(int $threadId): void
     {
         $this->selectedThreadId = $threadId;
@@ -323,6 +357,64 @@ class Inbox extends Component
         $this->replyText = '';
         $this->forgetSnapshot();
         $this->dispatch('reply-sent');
+    }
+
+    /** Vorlagen-Versand bei geschlossenem 24h-Fenster (Knopfleiste in chatTemplates()). */
+    public function sendTemplate(int $templateId): void
+    {
+        $this->sendError = null;
+
+        $thread = $this->selectedThread;
+        $row = $this->selectedRow;
+        if ($thread === null || $row === null) {
+            $this->sendError = 'Kein Chat ausgewählt.';
+            return;
+        }
+
+        $result = app(\Platform\Recruiting\Services\Comms\ApplicantTemplateSender::class)->send(
+            $thread,
+            $templateId,
+            $row->subjectType === 'applicant' ? $row->subjectId : null,
+            Auth::user(),
+        );
+
+        if (!$result['ok']) {
+            $this->sendError = $result['error'];
+            return;
+        }
+
+        // forgetSnapshot() statt resetPage(): eine per "mehr laden" erweiterte
+        // Liste soll nach dem Versand nicht wieder auf 50 einschnappen.
+        $this->forgetSnapshot();
+    }
+
+    /** „Wir melden uns" — laeuft ueber HoldingTemplateSender, der seine Anrede selbst setzt. */
+    public function sendHoldingTemplate(): void
+    {
+        $this->sendError = null;
+
+        $row = $this->selectedRow;
+        if ($row === null) {
+            $this->sendError = 'Kein Chat ausgewählt.';
+            return;
+        }
+
+        $result = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)->sendToMany(
+            $this->teamId(),
+            [['phone' => $row->phone, 'first_name' => $row->firstName]],
+        );
+
+        if ($result['error'] !== null) {
+            $this->sendError = $result['error'];
+            return;
+        }
+
+        if ($result['sent'] === 0) {
+            $this->sendError = 'Versand übersprungen — Nummer oder Pflichtangabe fehlt.';
+            return;
+        }
+
+        $this->forgetSnapshot();
     }
 
     public function render()

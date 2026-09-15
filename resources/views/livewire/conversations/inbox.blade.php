@@ -200,10 +200,30 @@
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12 20 4l-4 16-4-7z"/></svg>
                             </button>
                         </div>
-                    @elseif (trim($replyText) !== '')
-                        <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                            <p class="whitespace-pre-wrap text-sm text-gray-800">{{ $replyText }}</p>
-                            <p class="mt-2 text-xs text-amber-700">Das 24-Stunden-Fenster ist inzwischen zu — der Entwurf bleibt hier stehen. Freitext ist erst wieder möglich, sobald die Person schreibt.</p>
+                    @else
+                        @if (trim($replyText) !== '')
+                            <div class="mb-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                <p class="whitespace-pre-wrap text-sm text-gray-800">{{ $replyText }}</p>
+                                <p class="mt-2 text-xs text-amber-700">Das 24-Stunden-Fenster ist inzwischen zu — der Entwurf bleibt hier stehen. Freitext ist erst wieder möglich, sobald die Person schreibt.</p>
+                            </div>
+                        @endif
+                        {{-- Fenster zu: Meta erlaubt nur Vorlagen. Nur Vorlagen OHNE
+                             Body-Platzhalter (chatTemplates() filtert), plus die
+                             Eingangsbestaetigung ueber HoldingTemplateSender. --}}
+                        <div class="mb-2 flex flex-wrap gap-2">
+                            <button type="button" wire:click="sendHoldingTemplate" wire:loading.attr="disabled" wire:target="sendHoldingTemplate"
+                                    class="rounded-lg border border-gray-900 bg-gray-900 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-gray-800 disabled:opacity-60">
+                                „Wir melden uns"
+                            </button>
+                            @foreach ($this->chatTemplates as $template)
+                                <button type="button" wire:click="sendTemplate({{ $template['id'] }})" wire:loading.attr="disabled" wire:target="sendTemplate({{ $template['id'] }})"
+                                        class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-gray-600 hover:border-gray-400 disabled:opacity-60">
+                                    {{ $template['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                        <div class="rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
+                            Das 24-Stunden-Fenster ist zu — freier Text geht erst wieder, wenn die Person schreibt.
                         </div>
                     @endif
                     @if ($sendError)
