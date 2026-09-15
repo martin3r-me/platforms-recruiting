@@ -117,6 +117,15 @@
                                     @if ($row->subjectType === 'employee')
                                         <span class="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">MA</span>
                                     @endif
+                                    @if ($row->subjectType === 'unassigned')
+                                        <span class="rounded bg-red-50 px-1.5 py-0.5 text-red-700">nicht zugeordnet</span>
+                                    @endif
+                                    @if ($row->contextLabel)
+                                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">{{ $row->contextLabel }}</span>
+                                    @endif
+                                    @if ($row->siblingCount > 0)
+                                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">+{{ $row->siblingCount }} weiterer Chat</span>
+                                    @endif
                                 </span>
                             </span>
                         </button>
@@ -179,7 +188,7 @@
                 @endphp
 
                 {{-- Kopfzeile --}}
-                <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-3 py-2.5 lg:px-5">
+                <div class="relative flex items-center gap-3 border-b border-gray-200 bg-white px-3 py-2.5 lg:px-5">
                     <button type="button" wire:click="back" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-600 lg:hidden" aria-label="Zurück zur Liste">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 5-7 7 7 7"/></svg>
                     </button>
@@ -208,6 +217,27 @@
                                 class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">
                             Erledigt
                         </button>
+                    @endif
+                    @if ($this->selectedRow && $this->selectedRow->subjectType === 'unassigned')
+                        <button type="button" wire:click="openLinkPanel({{ $selectedThreadId }})"
+                                class="shrink-0 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100">
+                            Bewerber zuordnen…
+                        </button>
+                    @endif
+                    @if ($linkingThreadId === $selectedThreadId && $linkingThreadId !== null)
+                        <div class="absolute right-4 top-16 z-10 w-80 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
+                            <input type="search" wire:model.live.debounce.300ms="linkSearch" placeholder="Name oder Bewerber-Nummer"
+                                   class="w-full rounded-lg border-gray-200 text-sm">
+                            <div class="mt-2 max-h-64 overflow-y-auto">
+                                @forelse ($this->linkCandidates as $candidate)
+                                    <button type="button" wire:click="linkToApplicant({{ $candidate['id'] }})"
+                                            class="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-gray-50">{{ $candidate['label'] }}</button>
+                                @empty
+                                    <p class="px-2 py-1.5 text-xs text-gray-400">Mindestens zwei Zeichen eingeben.</p>
+                                @endforelse
+                            </div>
+                            <button type="button" wire:click="closeLinkPanel" class="mt-2 text-xs text-gray-500 hover:underline">schließen</button>
+                        </div>
                     @endif
                 </div>
 

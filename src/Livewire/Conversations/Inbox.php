@@ -29,6 +29,8 @@ class Inbox extends Component
     public ?string $sendError = null;
     public bool $showOooPanel = false;
     public array $oooForm = ['from' => '', 'until' => '', 'back_at' => ''];
+    public ?int $linkingThreadId = null;
+    public string $linkSearch = '';
 
     private function teamId(): int
     {
@@ -688,6 +690,72 @@ class Inbox extends Component
         }
 
         $this->forgetSnapshot();
+    }
+
+    public function openLinkPanel(int $threadId): void
+    {
+        $this->linkingThreadId = $threadId;
+        $this->linkSearch = '';
+    }
+
+    public function closeLinkPanel(): void
+    {
+        $this->linkingThreadId = null;
+        $this->linkSearch = '';
+    }
+
+    /**
+     * Kandidaten fuers Zuordnen-Panel — auf das aktuelle Team eingeschraenkt
+     * ueber team_id, damit hier keine fremde Bewerber-ID auftauchen kann.
+     *
+     * @return list<array{id: int, label: string}>
+     */
+    #[Computed]
+    public function linkCandidates(): array
+    {
+        $needle = trim($this->linkSearch);
+        if (mb_strlen($needle) < 2) {
+            return [];
+        }
+
+        return \Platform\Recruiting\Models\RecApplicant::query()
+            ->with(['crmContactLinks.contact'])
+            ->where('team_id', $this->teamId())
+            ->get()
+            ->map(function ($applicant) {
+                $contact = $applicant->crmContactLinks->first()?->contact;
+
+                return [
+                    'id' => (int) $applicant->id,
+                    'label' => trim(($contact?->full_name ?: 'Bewerber') . ' #' . $applicant->id),
+                ];
+            })
+            ->filter(fn ($row) => str_contains(mb_strtolower($row['label']), mb_strtolower($needle)))
+            ->take(10)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * EIN Mechanismus fuers Verknuepfen — ApplicantThreadLinker befoerdert den
+     * Bewerber auch dann, wenn der Thread noch am blossen CrmContact haengt.
+     * Die Logik hier zu wiederholen ist exakt die Bugklasse aus Fall 2474.
+     * threadForTeam() sorgt dafuer, dass nie eine fremde Thread-ID zugeordnet
+     * werden kann.
+     */
+    public function linkToApplicant(int $applicantId): void
+    {
+        $thread = $this->linkingThreadId ? $this->threadForTeam($this->linkingThreadId) : null;
+        if ($thread === null) {
+            $this->closeLinkPanel();
+            return;
+        }
+
+        \Platform\Recruiting\Services\Comms\ApplicantThreadLinker::link($thread, $applicantId, 'inbox_manual');
+
+        $this->closeLinkPanel();
+        $this->resetPage();
+        session()->flash('message', 'Chat dem Bewerber zugeordnet.');
     }
 
     public function render()
