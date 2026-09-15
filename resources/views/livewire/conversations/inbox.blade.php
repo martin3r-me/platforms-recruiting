@@ -183,7 +183,10 @@
                     @include('recruiting::livewire.dispo._messages', ['messages' => $this->messages, 'portalUrl' => null])
                 </div>
 
-                {{-- Antwortleiste: Freitext nur solange das 24h-Fenster offen ist. --}}
+                {{-- Antwortleiste: Freitext nur solange das 24h-Fenster offen ist. Schliesst
+                     sich das Fenster waehrend jemand tippt, verschwindet der Entwurf beim
+                     naechsten Poll NICHT lautlos: er bleibt lesbar/kopierbar stehen, nur der
+                     Sendeweg ist dann gesperrt (siehe @elseif unten). --}}
                 <div class="border-t border-gray-200 bg-white px-3 py-2.5 lg:px-5">
                     @if ($this->windowOpen)
                         <div class="flex items-end gap-2 rounded-xl border border-gray-200 bg-gray-50 p-2 pl-3 focus-within:border-gray-400"
@@ -192,10 +195,15 @@
                                       x-init="fit($el)" x-on:input="fit($el)"
                                       x-on:reply-sent.window="$nextTick(() => fit($el))"
                                       class="max-h-[200px] min-h-[36px] w-full resize-none overflow-y-auto border-0 bg-transparent p-1.5 text-sm leading-snug text-gray-900 placeholder:text-gray-400 focus:ring-0"></textarea>
-                            <button type="button" wire:click="sendReply" wire:loading.attr="disabled"
+                            <button type="button" wire:click="sendReply" wire:loading.attr="disabled" wire:target="sendReply"
                                     class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50" aria-label="Senden">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12 20 4l-4 16-4-7z"/></svg>
                             </button>
+                        </div>
+                    @elseif (trim($replyText) !== '')
+                        <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                            <p class="whitespace-pre-wrap text-sm text-gray-800">{{ $replyText }}</p>
+                            <p class="mt-2 text-xs text-amber-700">Das 24-Stunden-Fenster ist inzwischen zu — der Entwurf bleibt hier stehen. Freitext ist erst wieder möglich, sobald die Person schreibt.</p>
                         </div>
                     @endif
                     @if ($sendError)
