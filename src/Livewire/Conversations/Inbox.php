@@ -28,6 +28,7 @@ class Inbox extends Component
     public string $replyText = '';
     public ?string $sendError = null;
     public bool $showOooPanel = false;
+    public bool $showOooForm = false;
     public array $oooForm = ['from' => '', 'until' => '', 'back_at' => ''];
     public ?int $linkingThreadId = null;
     public string $linkSearch = '';
@@ -123,16 +124,25 @@ class Inbox extends Component
         $this->forgetSnapshot();
     }
 
-    public function updatedSearch(): void
+    /**
+     * Einziger updated()-Haken der Komponente — deckt sowohl das Ooo-Verhalten
+     * (Bis-Datum -> Wieder-da vorbefuellen) als auch das Filter-Aufraeumen ab,
+     * das vorher in updatedSearch()/updatedOwner() (Task 5) lag. Beides in
+     * separaten Haken UND hier zu haben, wuerde Livewire fuer 'search'/'owner'
+     * zweimal auslösen (den spezifischen updatedX()-Haken UND diesen
+     * generischen) — kein Beinbruch (siehe Docblock von
+     * discardSelectionOnFilterChange()), aber unklar. Deshalb EIN Weg: die
+     * beiden alten Haken entfallen, ihr Verhalten steht jetzt hier.
+     */
+    public function updated($property): void
     {
-        $this->discardSelectionOnFilterChange();
-        $this->resetPage();
-    }
-
-    public function updatedOwner(): void
-    {
-        $this->discardSelectionOnFilterChange();
-        $this->resetPage();
+        if ($property === 'oooForm.until' && $this->oooForm['until'] !== '' && $this->oooForm['back_at'] === '') {
+            $this->oooForm['back_at'] = \Carbon\Carbon::parse($this->oooForm['until'])->addDay()->format('Y-m-d');
+        }
+        if ($property === 'search' || $property === 'owner') {
+            $this->discardSelectionOnFilterChange();
+            $this->resetPage();
+        }
     }
 
     /**
@@ -799,6 +809,102 @@ class Inbox extends Component
         $this->closeLinkPanel();
         $this->forgetSnapshot();
         session()->flash('message', 'Chat dem Bewerber zugeordnet.');
+    }
+
+    private function oooSettings(): \Platform\Recruiting\Models\RecApplicantSettings
+    {
+        return \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($this->teamId());
+    }
+
+    /** Heutiges Datum in der Team-Timezone — einzige "heute"-Quelle der Komponente. */
+    private function teamToday(): string
+    {
+        return \Platform\Recruiting\Services\Comms\TeamClock::today($this->oooSettings()->getSetting('comms_timezone'));
+    }
+
+    /** off | pending | active — alleinige Quelle: OooMode (nie das rohe Flag). */
+    #[Computed]
+    public function oooState(): string
+    {
+        $s = $this->oooSettings();
+
+        return \Platform\Recruiting\Services\Comms\OooMode::state(
+            (bool) $s->getSetting('comms_ooo_enabled', false),
+            $s->getSetting('comms_ooo_from'),
+            $s->getSetting('comms_ooo_back_at'),
+            $this->teamToday(),
+        );
+    }
+
+    /** Anzeige-Daten fuer Banner (d.m.Y) + Template-Konfig-Status. */
+    #[Computed]
+    public function oooView(): array
+    {
+        $s = $this->oooSettings();
+        $fmt = static fn (?string $ymd): ?string => $ymd ? \Carbon\Carbon::parse($ymd)->format('d.m.Y') : null;
+
+        return [
+            'from' => $fmt($s->getSetting('comms_ooo_from')),
+            'back_at' => $fmt($s->getSetting('comms_ooo_back_at')),
+            'template_configured' => app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
+                ->configuredTemplateName($this->teamId(), \Platform\Recruiting\Services\Comms\OooAutoReplyHandler::SETTINGS_KEY) !== null,
+        ];
+    }
+
+    public function openOooForm(): void
+    {
+        if (!$this->oooView['template_configured']) {
+            session()->flash('error', 'Kein Abwesenheits-Template konfiguriert (Einstellungen → Kommunikation).');
+            return;
+        }
+        $this->oooForm = ['from' => $this->teamToday(), 'until' => '', 'back_at' => ''];
+        $this->showOooForm = true;
+    }
+
+    public function activateOoo(): void
+    {
+        if (!$this->oooView['template_configured']) {
+            session()->flash('error', 'Kein Abwesenheits-Template konfiguriert (Einstellungen → Kommunikation).');
+            return;
+        }
+
+        $from = $this->oooForm['from'];
+        $until = $this->oooForm['until'];
+        $backAt = $this->oooForm['back_at'];
+
+        if ($from === '' || $until === '' || $backAt === '') {
+            session()->flash('error', 'Bitte alle drei Daten angeben.');
+            return;
+        }
+        // Y-m-d: String-Vergleich == chronologischer Vergleich
+        if (!($from <= $until && $until < $backAt)) {
+            session()->flash('error', 'Es muss gelten: von ≤ bis < wieder da.');
+            return;
+        }
+        if ($backAt <= $this->teamToday()) {
+            session()->flash('error', 'Das Wieder-da-Datum muss in der Zukunft liegen.');
+            return;
+        }
+
+        $s = $this->oooSettings();
+        $s->setSetting('comms_ooo_from', $from);
+        $s->setSetting('comms_ooo_until', $until);
+        $s->setSetting('comms_ooo_back_at', $backAt);
+        $s->setSetting('comms_ooo_enabled', true);
+        $s->save();
+
+        $this->showOooForm = false;
+        unset($this->oooState, $this->oooView);
+        session()->flash('message', 'Abwesenheitsmodus gespeichert.');
+    }
+
+    public function deactivateOoo(): void
+    {
+        $s = $this->oooSettings();
+        $s->setSetting('comms_ooo_enabled', false);
+        $s->save();
+        unset($this->oooState, $this->oooView);
+        session()->flash('message', 'Abwesenheitsmodus deaktiviert.');
     }
 
     public function render()

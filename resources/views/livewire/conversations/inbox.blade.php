@@ -51,6 +51,80 @@
                         class="rounded-full border px-3 py-1 text-xs font-semibold {{ $showHandled ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500' }}">
                     Erledigt {{ $counts['handled'] }}
                 </button>
+
+                {{-- Abwesenheitsmodus: Zustand IMMER aus OooMode (3 Zustaende), nie aus dem
+                     rohen Flag. Auf der alten Seite ein Vollbreiten-Banner, hier ein Panel
+                     hinter dem Mond-Knopf — gleiche Einstellungen, gleicher Zustand. --}}
+                @php
+                    $oooState = $this->oooState;
+                    $oooView = $this->oooView;
+                    $mondKlasse = match ($oooState) {
+                        'active' => 'border-amber-300 bg-amber-50 text-amber-700',
+                        'pending' => 'border-sky-200 bg-sky-50 text-sky-700',
+                        default => 'border-gray-200 bg-white text-gray-500',
+                    };
+                @endphp
+                <div class="relative">
+                    <button type="button" wire:click="$toggle('showOooPanel')" title="Abwesenheitsmodus"
+                            class="grid h-8 w-8 place-items-center rounded-lg border {{ $mondKlasse }}">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+                    </button>
+                    @if ($showOooPanel)
+                        <div class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-gray-200 bg-white p-3 text-sm shadow-lg">
+                            <div>
+                                @if ($oooState === 'active')
+                                    <span class="font-medium text-amber-900">Abwesenheitsmodus aktiv</span>
+                                    <p class="mt-1 text-amber-800">wieder da am {{ $oooView['back_at'] }}. Eingehende Nachrichten erhalten automatisch die Abwesenheitsnotiz (1×/24h je Konversation).</p>
+                                @elseif ($oooState === 'pending')
+                                    <span class="font-medium text-sky-900">Abwesenheitsmodus geplant</span>
+                                    <p class="mt-1 text-sky-800">ab {{ $oooView['from'] }} (wieder da am {{ $oooView['back_at'] }}).</p>
+                                @else
+                                    <span class="font-medium text-gray-700">HR in Abwesenheit</span>
+                                    <p class="mt-1 text-gray-500">Abwesenheitsnotiz fuer eingehende Nachrichten aktivieren.</p>
+                                @endif
+                            </div>
+
+                            <div class="mt-3">
+                                @if ($oooState === 'off')
+                                    <button type="button" wire:click="openOooForm"
+                                            class="w-full rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                                        Aktivieren…
+                                    </button>
+                                @else
+                                    <button type="button" wire:click="deactivateOoo"
+                                            class="w-full rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">
+                                        Deaktivieren
+                                    </button>
+                                @endif
+                            </div>
+
+                            @if ($showOooForm && $oooState === 'off')
+                                <div class="mt-3 flex flex-col gap-2 border-t border-gray-200 pt-3">
+                                    <label class="text-xs text-gray-600">Abwesend von
+                                        <input type="date" wire:model="oooForm.from"
+                                               class="mt-1 block w-full rounded-md border-gray-300 text-sm">
+                                    </label>
+                                    <label class="text-xs text-gray-600">Bis (letzter Tag)
+                                        <input type="date" wire:model.live="oooForm.until"
+                                               class="mt-1 block w-full rounded-md border-gray-300 text-sm">
+                                    </label>
+                                    <label class="text-xs text-gray-600">Wieder da ab
+                                        <input type="date" wire:model="oooForm.back_at"
+                                               class="mt-1 block w-full rounded-md border-gray-300 text-sm">
+                                    </label>
+                                    <button type="button" wire:click="activateOoo"
+                                            class="rounded-md border border-emerald-200 bg-white px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
+                                        Speichern &amp; aktivieren
+                                    </button>
+                                    <button type="button" wire:click="$set('showOooForm', false)"
+                                            class="text-xs text-gray-500 hover:text-gray-700">
+                                        Abbrechen
+                                    </button>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+                </div>
             </div>
         </div>
     </div>
