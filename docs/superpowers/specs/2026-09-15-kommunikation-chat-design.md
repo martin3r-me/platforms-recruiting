@@ -41,12 +41,39 @@ bleibt er fuer immer unbeantwortet.
 
 Der Ampel fehlt also ein Zustand: *erledigt, hier ist nichts mehr zu tun*.
 
+### Das zweite, schwerere Problem: die Seite zeigt nicht alles
+
+`ConversationInboxService::dedupedThreads()` waehlt Threads ueber den
+**Kontext** aus:
+
+```php
+->whereIn('context_model', [$applicantMorph, $applicantFull, $employeeFull])
+```
+
+Wer keinen Bewerber- oder Mitarbeiter-Kontext traegt, existiert fuer diese
+Seite nicht. Genau das war Fall 2474 (Marie van Ackeren, 10.08.2026): Sie
+schrieb zuerst per WhatsApp, das CRM heftete den Thread an einen `CrmContact`,
+der Bewerber entstand vier Stunden spaeter aus einer Mail — der Chat blieb
+unsichtbar. DB-verifiziert waren **41 Threads** betroffen, davon **22
+komplett verlorene WhatsApp-Bewerbungen**.
+
+Das Intake-Gate ist seit 10.08. gefixt (`ApplicantThreadLinker` als
+Einzelmechanismus). Die **Anzeige** ist es nicht: sie filtert weiter auf den
+Kontext und wuerde jeden zukuenftigen Aussetzer genauso schlucken.
+
+Dazu ein zweiter, leiserer Verlustpfad in derselben Methode: sie reduziert pro
+Person auf den Thread mit dem neuesten Eingang. Existieren zwei Threads
+derselben Person (Nummern-Format-Dubletten splitten Konversationen — belegt am
+Fall #307: Thread 166 nur ausgehend, Thread 215 nur eingehend), ist einer
+davon unsichtbar.
+
 ## Entscheidung
 
 Eine zweite, neue Seite neben der alten, erreichbar unter einer eigenen Route.
-Sie bringt Postfach-Layout (Liste | Verlauf), Antworten direkt im Chat und den
-fehlenden Erledigt-Zustand. Die alte Seite bleibt vollstaendig unangetastet,
-bis die neue gut genug ist.
+Sie bringt vier Dinge: Postfach-Layout (Liste | Verlauf), Antworten direkt im
+Chat, den fehlenden Erledigt-Zustand — und eine **lueckenlose Grundmenge**,
+die nichts mehr wegfiltern kann. Die alte Seite bleibt vollstaendig
+unangetastet, bis die neue gut genug ist.
 
 | | alt | neu |
 |---|---|---|
@@ -165,6 +192,63 @@ Die neue Seite bekommt `Services/Comms/ApplicantTemplateSender`, der den Token
 Der Fix an der Bewerberakte wird danach aus demselben Sender nachgezogen —
 als eigenes Ticket, nicht in diesem Paket.
 
+## Lueckenlosigkeit — nichts darf verschwinden
+
+**Oberste Regel der neuen Seite: was auf der Recruiting-Nummer eingeht, steht
+in der Liste. Ohne Ausnahme.** Lieber eine Zeile zu viel, die jemand abhakt,
+als eine Bewerbung, die niemand je sieht.
+
+### Grundmenge ueber den Kanal statt ueber den Kontext
+
+`Services/Comms/RecruitingChannelResolver` liefert die IDs aller aktiven
+WhatsApp-Kanaele des in den Einstellungen gewaehlten Kontos
+(`auto_pilot_wa_account_id`) — gebaut nach dem Muster von
+`DispoChannelResolver::dispoChannelIds()`, wo derselbe Gedanke im Code schon
+"Lueckenlosigkeit" heisst.
+
+Die Liste zeigt dann **jeden** Thread dieser Kanaele mit mindestens einem
+Eingang. Der Kontext (Bewerber, Mitarbeiter, blosser CRM-Kontakt, gar keiner)
+entscheidet nur noch, *wie reich* eine Zeile ist — nicht mehr, *ob* sie
+existiert.
+
+Ist kein Konto konfiguriert, faellt die Seite auf die bisherige Kontext-Menge
+zurueck und sagt das sichtbar an ("Kein WhatsApp-Konto gewaehlt — es werden
+nur zugeordnete Chats angezeigt"), statt stillschweigend zu filtern.
+
+### Kein Zusammenfassen pro Person
+
+Jeder Thread ist eine Zeile. Gehoeren zwei Threads zur selben Person, stehen
+beide da (die Zeile traegt dann einen Hinweis-Chip). Das heutige
+"neuester Eingang gewinnt" wird nicht uebernommen — es ist ein Verlustpfad,
+kein Aufraeumen.
+
+### Zeilen ohne Zuordnung
+
+Ohne Bewerber-/Mitarbeiter-Kontext gibt es keinen Namen. Solche Zeilen zeigen
+die Telefonnummer als Titel, einen roten Chip **"nicht zugeordnet"** und sind
+ganz normal lesbar und beantwortbar. Dazu eine Aktion **"Bewerber
+zuordnen…"**: Suche, Auswahl, fertig — der Link laeuft ueber
+`ApplicantThreadLinker::link()`, den bestehenden Einzelmechanismus (er
+befoerdert den Bewerber auch dann, wenn der Thread noch am nackten CrmContact
+haengt). Kein zweiter Link-Pfad, keine Wiederholung an der Call-Site.
+
+Fremde Kontexte (etwa `hcm_onboarding`) werden ebenfalls angezeigt, mit Chip.
+Sie laufen auf derselben Nummer, also gehoeren sie in dieselbe Liste; wer sie
+nicht sehen will, hakt sie ab.
+
+### Zaehler
+
+Die Ampel-Zaehler rechnen ueber die **gesamte** Kanal-Menge, nicht nur ueber
+zugeordnete Chats. Eine unbeantwortete Nachricht ist unbeantwortet, egal an
+wem sie haengt. Dadurch werden die Zahlen anfangs groesser als heute — das ist
+kein Fehler, sondern das, was vorher fehlte.
+
+### Absicherung gegen Rueckfall
+
+Ein Test haelt das fest: ein Thread auf dem Recruiting-Kanal **mit
+`CrmContact`-Kontext und ohne Bewerber** muss in der Liste erscheinen. Genau
+dieser Test waere im August rot gewesen.
+
 ## Erledigt-Zustand
 
 ### Tabelle `rec_conversation_handled`
@@ -225,7 +309,8 @@ der alle 20 s nachlaedt, nicht.
 Die neue Seite bekommt deshalb einen eigenen Lesepfad in
 `Services/Comms/InboxQuery`:
 
-1. duenne Thread-Zeilen laden (nur die Spalten, die die Eskalation braucht)
+1. duenne Thread-Zeilen des **Kanal-Sets** laden (nur die Spalten, die die
+   Eskalation braucht) — kein Kontext-Filter, kein Zusammenfassen pro Person
 2. erledigte Threads ausschliessen (ein `whereNotIn` bzw. Left Join auf
    `rec_conversation_handled`)
 3. Eskalation rechnen und sortieren — weiter ueber das unveraenderte
@@ -243,6 +328,14 @@ und faellt beim Umschwenken mit ihr weg.
   Eingang; erledigt, danach neuer Eingang; Eingang exakt auf `handled_at`.
 - **Integration (Capsule + SQLite)**: Migration, Sammel-Erledigen,
   Filterpillen, Ausschluss aus den Zaehlern, Blockweises Nachladen.
+- **Lueckenlosigkeit (Integration, der wichtigste Test des Pakets)**:
+  Thread auf dem Recruiting-Kanal mit `CrmContact`-Kontext und ohne Bewerber
+  erscheint in der Liste; zwei Threads derselben Person erscheinen beide;
+  Thread eines fremden Kanals (Dispo) erscheint **nicht**; ohne konfiguriertes
+  Konto greift der angesagte Fallback.
+- **`ApplicantThreadLinker`**: Zuordnen aus der Liste befoerdert einen Thread,
+  der am nackten CrmContact haengt, wirklich auf den Bewerber (Legacy-Spalten
+  umgeschrieben) — sonst verschwindet er nach dem Zuordnen wieder.
 - **`SharedPartialContractTest`** wird um das jetzt von zwei Komponenten
   genutzte Sprechblasen-Partial erweitert. Der `$this->`-Vertrag prueft sich
   nicht von selbst — sonst bricht es erst beim Klick auf einen Thread.
