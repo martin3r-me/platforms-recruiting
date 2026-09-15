@@ -414,17 +414,45 @@ class Inbox extends Component
     }
 
     /**
+     * Fix-Runde 2, Befund B1 (Teilfall): $rows kann zwischen Markieren und
+     * Klick schrumpfen, auch OHNE dass jemand einen Filter wechselt — ein
+     * Kollege hakt denselben Chat parallel ab, oder eine Eskalationsstufe
+     * kippt mit der Zeit. Weicht die Zahl der tatsaechlich wirksamen IDs von
+     * der Zahl der markierten IDs ab, muss das IMMER in der Rueckmeldung
+     * auftauchen, nicht nur beim Totalausfall. Der Text macht klar: die
+     * uebersprungenen Chats sind nicht verschwunden, nur nicht mehr in der
+     * aktuellen Ansicht wirksam.
+     */
+    private function verlorenHinweis(int $anzahl): string
+    {
+        if ($anzahl <= 0) {
+            return '';
+        }
+
+        return $anzahl === 1
+            ? ' 1 markierter Chat war dabei nicht mehr wirksam (nicht verschwunden, nur nicht mehr in der aktuellen Ansicht) — bitte prüfen und ggf. erneut markieren.'
+            : " {$anzahl} markierte Chats waren dabei nicht mehr wirksam (nicht verschwunden, nur nicht mehr in der aktuellen Ansicht) — bitte prüfen und ggf. erneut markieren.";
+    }
+
+    /**
      * Sammel-Erledigen. Fix-Runde 1, Befund 2: laeuft NICHT mehr als
      * Schleife ueber markHandled() (das waeren bei 200 Chats ~600 Queries:
      * threadForTeam() + zwei fuer updateOrCreate() je ID) — ConversationBulkHandler
      * prueft die Team-Zugehoerigkeit EINMAL per whereIn und schreibt die
      * Stempel EINMAL per upsert(). Die Team-Pruefung faellt dabei nicht weg,
      * sie wandert nur aus der Schleife in den Handler.
+     *
+     * Fix-Runde 2: leere Auswahl meldet sich jetzt genau wie
+     * sendHoldingToSelected() ("Bitte zuerst Chats markieren."), statt den
+     * Auswahlmodus wortlos zu beenden (Asymmetrie aus dem Review). Weicht
+     * die Rueckgabe des Handlers (tatsaechlich gestempelte IDs) von der
+     * Markierung ab, wird das ebenfalls gemeldet statt geschluckt.
      */
     public function markSelectedHandled(): void
     {
         $ids = array_map('intval', $this->selected);
         if ($ids === []) {
+            session()->flash('error', 'Bitte zuerst Chats markieren.');
             $this->selectMode = false;
             return;
         }
@@ -434,6 +462,13 @@ class Inbox extends Component
 
         if ($this->selectedThreadId !== null && in_array($this->selectedThreadId, $handledIds, true)) {
             $this->selectedThreadId = null;
+        }
+
+        $verloren = count($ids) - count($handledIds);
+        if ($handledIds === []) {
+            session()->flash('error', 'Keiner der markierten Chats konnte abgehakt werden.' . $this->verlorenHinweis($verloren));
+        } elseif ($verloren > 0) {
+            session()->flash('message', trim(count($handledIds) . ' Chat(s) als erledigt markiert.' . $this->verlorenHinweis($verloren)));
         }
 
         $this->selected = [];
@@ -454,6 +489,12 @@ class Inbox extends Component
      * leerlaeuft (z.B. eine Zeile fiel zwischen Markieren und Klick aus
      * $this->rows heraus). Ein Versand an null Empfaenger wird NIE als
      * Erfolg gemeldet.
+     *
+     * Fix-Runde 2, Befund B1 (Teilfall): auch wenn NICHT alle, aber nur ein
+     * Teil der markierten IDs aus $rows herausgefallen ist, wird das jetzt
+     * ueber verlorenHinweis() an die Erfolgs-/Fehlermeldung angehaengt —
+     * vorher deckten die Sperren nur den Fall ab, dass GAR NICHTS mehr
+     * uebrig blieb.
      */
     public function sendHoldingToSelected(): void
     {
@@ -470,8 +511,10 @@ class Inbox extends Component
             }
         }
 
+        $verloren = count($ids) - count($recipients);
+
         if ($recipients === []) {
-            session()->flash('error', 'Die Auswahl passt zu keiner sichtbaren Zeile mehr — bitte erneut markieren.');
+            session()->flash('error', trim('Die Auswahl passt zu keiner sichtbaren Zeile mehr — bitte erneut markieren.' . $this->verlorenHinweis($verloren)));
             $this->selected = [];
             $this->selectMode = false;
             return;
@@ -488,11 +531,11 @@ class Inbox extends Component
             // sendHoldingTemplate() weiter unten, Fix-Runde 1 zu Task 8):
             // failed zaehlt echte Fehlschlaege, skipped fehlende Pflichtangaben.
             // "an 0 Kontakt(e) gesendet" darf hier NIE als Erfolg erscheinen.
-            session()->flash('error', $result['failed'] > 0
+            session()->flash('error', ($result['failed'] > 0
                 ? 'Versand fehlgeschlagen.'
-                : 'Versand übersprungen — Nummer oder Pflichtangabe fehlt.');
+                : 'Versand übersprungen — Nummer oder Pflichtangabe fehlt.') . $this->verlorenHinweis($verloren));
         } else {
-            session()->flash('message', '„Wir melden uns" an ' . $result['sent'] . ' Kontakt(e) gesendet.');
+            session()->flash('message', '„Wir melden uns" an ' . $result['sent'] . ' Kontakt(e) gesendet.' . $this->verlorenHinweis($verloren));
         }
 
         $this->selected = [];
