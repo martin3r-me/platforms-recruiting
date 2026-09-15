@@ -142,9 +142,21 @@
 
         {{-- ===== Liste ===== --}}
         <div class="{{ $selectedThreadId !== null ? 'hidden lg:flex' : 'flex' }} min-h-0 flex-col border-r border-gray-200 bg-white">
-            <div class="flex items-center justify-end border-b border-gray-200 px-3 py-1.5">
+            {{-- Suche + Zustaendig-Filter: schmale Zeile, kein eigenes Panel. Beide
+                 Felder gehen ueber updated() (search/owner -> Auswahl leeren +
+                 Seite zuruecksetzen) direkt in InboxFilter/InboxQuery. --}}
+            <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 px-3 py-1.5">
+                <input type="text" wire:model.live.debounce.300ms="search" placeholder="Name oder Nummer"
+                       class="min-w-0 flex-1 rounded-lg border-gray-300 text-xs">
+                <select wire:model.live="owner" class="shrink-0 rounded-lg border-gray-300 text-xs">
+                    <option value="all">Alle</option>
+                    <option value="mine">Mir zugewiesen</option>
+                    @foreach ($this->teamUsers as $u)
+                        <option value="{{ $u['id'] }}">{{ $u['name'] }}</option>
+                    @endforeach
+                </select>
                 <button type="button" wire:click="toggleSelectMode"
-                        class="rounded-lg border px-2.5 py-1 text-xs font-semibold {{ $selectMode ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50' }}">
+                        class="shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold {{ $selectMode ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50' }}">
                     {{ $selectMode ? 'Fertig' : 'Auswählen' }}
                 </button>
             </div>
