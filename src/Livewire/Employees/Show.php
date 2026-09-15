@@ -91,6 +91,23 @@ class Show extends Component
     // geschrieben wird ueber dessen execute() (gleiche Regeln wie der Automat).
     public bool $showContactAssignModal = false;
 
+    /** Dispo-Taetigkeiten (aus ZAS, Kunde 15.09.) — nur Anzeige, gepflegt wird in ZAS. */
+    public bool $showTaetigkeitenModal = false;
+
+    /** @return array{values: list<string>, synced_at: ?string} */
+    #[Computed]
+    public function dispoTaetigkeiten(): array
+    {
+        $hr = $this->employee?->hrData;
+        $values = (array) ($hr?->dispo_taetigkeiten ?? []);
+        sort($values, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return [
+            'values'    => array_values(array_map('strval', $values)),
+            'synced_at' => $hr?->dispo_taetigkeiten_synced_at?->format('d.m.Y H:i'),
+        ];
+    }
+
     #[Computed]
     public function crmLinkMissing(): bool
     {

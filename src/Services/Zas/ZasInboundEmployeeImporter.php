@@ -33,6 +33,9 @@ class ZasInboundEmployeeImporter
         // Tests) unveraendert bleiben — die Kaskade selbst liegt jetzt im
         // gemeinsamen Dienst, weil der Datei-Eingang sie ebenfalls braucht.
         private ZasEmployeeMatcher $matcher = new ZasEmployeeMatcher(),
+        // Dispo-Taetigkeiten aus der Spalte DispoTaetigkeiten (Kunde 15.09.) —
+        // eigener Dienst, weil ZAS hier fuehrend ist und den Stand ersetzt.
+        private ZasDispoTaetigkeitSync $taetigkeiten = new ZasDispoTaetigkeitSync(),
     ) {}
 
     public function import(array $rows, $inbound, bool $dryRun): array
@@ -101,12 +104,18 @@ class ZasInboundEmployeeImporter
 
                     $changes = $this->statusSyncChanges($existing, $mapped['hr']);
                     $pnrFill = $this->personnelNumberFill($existing, $mapped['personnel_number']);
+                    // Dispo-Taetigkeiten: ZAS ist fuehrend, der Stand wird ersetzt —
+                    // unabhaengig von der sonstigen "nie ueberschreiben"-Regel, weil
+                    // das Feld ausschliesslich aus ZAS gepflegt wird.
+                    $taetRaw = array_key_exists('DispoTaetigkeiten', $row) ? (string) $row['DispoTaetigkeiten'] : null;
+                    $taetChanged = $taetRaw !== null
+                        && ZasDispoTaetigkeitSync::parse($taetRaw) !== (array) ($existing->hrData?->dispo_taetigkeiten ?? []);
                     // Firma ebenfalls nur nachtragen, nie ueberschreiben.
                     $companyFill = ($company !== null && trim((string) $existing->company) === '')
                         ? $company
                         : null;
 
-                    if ($changes === [] && $pnrFill === null && $companyFill === null) {
+                    if ($changes === [] && $pnrFill === null && $companyFill === null && !$taetChanged) {
                         $skipped[] = [
                             'personnel_number' => $mapped['personnel_number'],
                             'employee_id'      => $existing->id,
@@ -123,6 +132,9 @@ class ZasInboundEmployeeImporter
                     if ($companyFill !== null) {
                         $changedFields[] = 'company';
                     }
+                    if ($taetChanged) {
+                        $changedFields[] = 'dispo_taetigkeiten';
+                    }
 
                     if ($dryRun) {
                         $updated[] = [
@@ -135,6 +147,9 @@ class ZasInboundEmployeeImporter
                         continue;
                     }
                     $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill);
+                    if ($taetChanged) {
+                        $this->taetigkeiten->sync($existing, $taetRaw);
+                    }
                     $updated[] = [
                         'employee_id'      => $existing->id,
                         'personnel_number' => $mapped['personnel_number'],
@@ -172,6 +187,9 @@ class ZasInboundEmployeeImporter
                 }
 
                 $employee = $this->createEmployee($mapped, $teamId, $inbound->id);
+                if (array_key_exists('DispoTaetigkeiten', $row)) {
+                    $this->taetigkeiten->sync($employee, (string) $row['DispoTaetigkeiten']);
+                }
 
                 // Personen-Paarung (Chaieb-Befund): existiert zum frisch
                 // angelegten Datensatz ein doppelt-exakter Geschwister (voller

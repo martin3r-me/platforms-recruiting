@@ -34,6 +34,49 @@
                     @endforeach
                 </div>
             @endif
+            @php $taet = $this->dispoTaetigkeiten; @endphp
+            @if ($taet['values'] !== [])
+                <div class="mb-3 rounded-lg border border-gray-200 bg-white p-3">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Dispo-Tätigkeiten (aus ZAS)</span>
+                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ count($taet['values']) }}</span>
+                        <button type="button" wire:click="$set('showTaetigkeitenModal', true)" class="text-xs font-semibold text-blue-700 hover:underline">alle anzeigen</button>
+                        @if ($taet['synced_at'])
+                            <span class="text-[11px] text-gray-400">Stand {{ $taet['synced_at'] }}</span>
+                        @endif
+                    </div>
+                    <div class="mt-2 flex flex-wrap gap-1">
+                        @foreach (array_slice($taet['values'], 0, 12) as $t)
+                            <span class="rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-800">{{ $t }}</span>
+                        @endforeach
+                        @if (count($taet['values']) > 12)
+                            <button type="button" wire:click="$set('showTaetigkeitenModal', true)" class="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 hover:bg-gray-200">+{{ count($taet['values']) - 12 }} weitere</button>
+                        @endif
+                    </div>
+                </div>
+            @endif
+
+            @if ($showTaetigkeitenModal)
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showTaetigkeitenModal', false)">
+                    <div class="flex max-h-[80vh] w-full max-w-lg flex-col rounded-lg bg-white">
+                        <div class="border-b border-gray-100 p-5 pb-3">
+                            <h2 class="text-lg font-semibold">Dispo-Tätigkeiten <span class="text-sm font-normal text-gray-400">({{ count($taet['values']) }})</span></h2>
+                            <p class="mt-1 text-sm text-gray-500">Kommt aus ZAS und wird bei jeder Lieferung aktualisiert — hier nicht bearbeitbar.@if ($taet['synced_at']) Stand: {{ $taet['synced_at'] }}.@endif</p>
+                        </div>
+                        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+                            <div class="flex flex-wrap gap-1.5">
+                                @foreach ($taet['values'] as $t)
+                                    <span class="rounded bg-blue-50 px-2 py-1 text-sm text-blue-800">{{ $t }}</span>
+                                @endforeach
+                            </div>
+                        </div>
+                        <div class="flex justify-end border-t border-gray-100 p-4">
+                            <button type="button" wire:click="$set('showTaetigkeitenModal', false)" class="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Schließen</button>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
             @if ($this->crmLinkMissing)
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                     <div><b>CRM-Zuordnung offen</b> — ohne verknüpften Kontakt erscheint dieser Mitarbeiter in der Kommunikation nur mit Telefonnummer und wird bei zwei Personalnummern nicht als eine Person erkannt.</div>
