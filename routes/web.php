@@ -74,6 +74,11 @@ Route::get('/inbox', \Platform\Recruiting\Livewire\Inbox\Index::class)->name('re
 Route::get('/conversations', \Platform\Recruiting\Livewire\Conversations\Index::class)
     ->name('recruiting.conversations.index');
 
+// Vorschau der neuen Kommunikation (Spec 2026-09-15). Laeuft neben der alten
+// Seite; bewusst OHNE Sidebar-Eintrag, Aufruf ueber die URL.
+Route::get('/conversations-neu', \Platform\Recruiting\Livewire\Conversations\Inbox::class)
+    ->name('recruiting.conversations.preview');
+
 // Interview-Termine
 Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');
 Route::get('/interview-schedule', InterviewScheduleIndex::class)->name('recruiting.interview-schedule.index');
