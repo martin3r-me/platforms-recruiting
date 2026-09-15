@@ -55,10 +55,25 @@
         </div>
     </div>
 
+    {{-- Flash: nur sendHoldingToSelected() (Sammelversand) setzt diese Keys —
+         ohne dieses Duo bliebe ein session()->flash('error', …) unsichtbar. --}}
+    @if (session('message'))
+        <div class="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{{ session('message') }}</div>
+    @endif
+    @if (session('error'))
+        <div class="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ session('error') }}</div>
+    @endif
+
     <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
 
         {{-- ===== Liste ===== --}}
         <div class="{{ $selectedThreadId !== null ? 'hidden lg:flex' : 'flex' }} min-h-0 flex-col border-r border-gray-200 bg-white">
+            <div class="flex items-center justify-end border-b border-gray-200 px-3 py-1.5">
+                <button type="button" wire:click="toggleSelectMode"
+                        class="rounded-lg border px-2.5 py-1 text-xs font-semibold {{ $selectMode ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50' }}">
+                    {{ $selectMode ? 'Fertig' : 'Auswählen' }}
+                </button>
+            </div>
             @if ($this->fallback)
                 <div class="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                     Kein WhatsApp-Konto erreichbar — es werden nur zugeordnete Chats angezeigt.
@@ -72,27 +87,40 @@
                         $balken = $levelBar[$row->escalation->level] ?? $levelBar['none'];
                         $fenster = $fensterText($row->escalation);
                     @endphp
-                    <button type="button" wire:click="select({{ $row->threadId }})" wire:key="row-{{ $row->threadId }}"
-                            class="flex w-full items-start gap-3 border-b border-gray-100 border-l-[3px] px-3 py-3 text-left hover:bg-gray-50 {{ $istGewaehlt ? 'border-l-gray-900 bg-gray-50' : 'border-l-transparent' }}">
-                        <span class="mt-1 inline-block h-8 w-1 shrink-0 rounded {{ $balken }}"></span>
-                        <span class="min-w-0 flex-1">
-                            <span class="flex items-center gap-1.5 text-sm {{ $row->isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700' }}">
-                                <span class="truncate">{{ $row->title }}</span>
-                                @if ($row->isUnread)
-                                    <span class="h-2 w-2 shrink-0 rounded-full bg-orange-500"></span>
-                                @endif
+                    <div wire:key="row-{{ $row->threadId }}"
+                         class="flex items-stretch border-b border-gray-100 border-l-[3px] {{ $istGewaehlt ? 'border-l-gray-900 bg-gray-50' : 'border-l-transparent' }}">
+                        @if ($selectMode)
+                            {{-- Eigenes Element NEBEN dem Zeilen-Knopf, nicht darin — sonst
+                                 verschluckt der Knopf (wire:click="select") den Klick auf das
+                                 Kaestchen. --}}
+                            <label class="flex shrink-0 items-center pl-3">
+                                <input type="checkbox" wire:model.live="selected" value="{{ $row->threadId }}"
+                                       wire:key="chk-{{ $row->threadId }}"
+                                       class="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500">
+                            </label>
+                        @endif
+                        <button type="button" wire:click="select({{ $row->threadId }})"
+                                class="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left hover:bg-gray-50">
+                            <span class="mt-1 inline-block h-8 w-1 shrink-0 rounded {{ $balken }}"></span>
+                            <span class="min-w-0 flex-1">
+                                <span class="flex items-center gap-1.5 text-sm {{ $row->isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700' }}">
+                                    <span class="truncate">{{ $row->title }}</span>
+                                    @if ($row->isUnread)
+                                        <span class="h-2 w-2 shrink-0 rounded-full bg-orange-500"></span>
+                                    @endif
+                                </span>
+                                <span class="mt-0.5 block truncate text-xs text-gray-500">{{ $row->preview ?: '—' }}</span>
+                                <span class="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] font-semibold">
+                                    @if ($fenster !== '')
+                                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{{ $fenster }}</span>
+                                    @endif
+                                    @if ($row->subjectType === 'employee')
+                                        <span class="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">MA</span>
+                                    @endif
+                                </span>
                             </span>
-                            <span class="mt-0.5 block truncate text-xs text-gray-500">{{ $row->preview ?: '—' }}</span>
-                            <span class="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10.5px] font-semibold">
-                                @if ($fenster !== '')
-                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">{{ $fenster }}</span>
-                                @endif
-                                @if ($row->subjectType === 'employee')
-                                    <span class="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">MA</span>
-                                @endif
-                            </span>
-                        </span>
-                    </button>
+                        </button>
+                    </div>
                 @empty
                     <div class="p-8 text-center text-sm text-gray-500">
                         @if ($search !== '')
@@ -110,6 +138,15 @@
                     </button>
                 @endif
             </div>
+            @if ($selectMode)
+                <div class="flex flex-wrap items-center gap-2 border-t border-gray-200 bg-white px-3 py-2 text-xs">
+                    <span class="font-semibold text-gray-700">{{ count($selected) }} markiert</span>
+                    <button type="button" wire:click="selectAllVisible" class="text-gray-500 hover:underline">alle sichtbaren</button>
+                    <button type="button" wire:click="clearSelection" class="text-gray-500 hover:underline">Auswahl löschen</button>
+                    <button type="button" wire:click="markSelectedHandled" class="ml-auto rounded-lg border border-gray-200 px-2.5 py-1 font-semibold text-gray-700 hover:bg-gray-50">als erledigt</button>
+                    <button type="button" wire:click="sendHoldingToSelected" class="rounded-lg bg-gray-900 px-2.5 py-1 font-semibold text-white hover:bg-gray-800">„Wir melden uns"</button>
+                </div>
+            @endif
         </div>
 
         {{-- ===== Chat ===== --}}
@@ -161,6 +198,17 @@
                         </div>
                         <div class="truncate text-xs text-gray-500 tabular-nums">{{ $selRow->phone }}</div>
                     </div>
+                    @if ($showHandled)
+                        <button type="button" wire:click="unmarkHandled({{ $selectedThreadId }})"
+                                class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">
+                            zurückholen
+                        </button>
+                    @else
+                        <button type="button" wire:click="markHandled({{ $selectedThreadId }})"
+                                class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">
+                            Erledigt
+                        </button>
+                    @endif
                 </div>
 
                 {{-- Kontextzeile --}}

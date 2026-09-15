@@ -330,6 +330,104 @@ class Inbox extends Component
             ->all();
     }
 
+    /** Einzelnen Chat abhaken. Nur ueber threadForTeam() — nie eine fremde ID. */
+    public function markHandled(int $threadId): void
+    {
+        $thread = $this->threadForTeam($threadId);
+        if ($thread === null) {
+            return;
+        }
+
+        \Platform\Recruiting\Models\RecConversationHandled::updateOrCreate(
+            ['comms_whatsapp_thread_id' => $threadId],
+            [
+                'team_id' => $this->teamId(),
+                'handled_at' => now(),
+                'handled_by_user_id' => (int) Auth::id(),
+                'handled_reason' => \Platform\Recruiting\Models\RecConversationHandled::REASON_MANUAL,
+            ],
+        );
+
+        if ($this->selectedThreadId === $threadId) {
+            $this->selectedThreadId = null;
+        }
+        $this->forgetSnapshot();
+        $this->dispatch('sidebar-refresh');
+    }
+
+    /** Stempel wieder loeschen — scharf auf team_id, damit keine fremde Zeile trifft. */
+    public function unmarkHandled(int $threadId): void
+    {
+        \Platform\Recruiting\Models\RecConversationHandled::query()
+            ->where('team_id', $this->teamId())
+            ->where('comms_whatsapp_thread_id', $threadId)
+            ->delete();
+
+        $this->forgetSnapshot();
+        $this->dispatch('sidebar-refresh');
+    }
+
+    public function toggleSelectMode(): void
+    {
+        $this->selectMode = !$this->selectMode;
+        $this->selected = [];
+    }
+
+    public function selectAllVisible(): void
+    {
+        $this->selected = array_map(fn ($row) => (string) $row->threadId, $this->rows);
+    }
+
+    public function clearSelection(): void
+    {
+        $this->selected = [];
+    }
+
+    /** Sammel-Erledigen: jede ID einzeln ueber markHandled(), also einzeln teamgeprueft. */
+    public function markSelectedHandled(): void
+    {
+        foreach ($this->selected as $threadId) {
+            $this->markHandled((int) $threadId);
+        }
+        $this->selected = [];
+        $this->selectMode = false;
+    }
+
+    /**
+     * Sammelversand "Wir melden uns" an die markierten Chats. Empfaenger
+     * kommen NUR aus $this->rows (bereits teamgefiltert durch snapshot()),
+     * nie direkt aus $this->selected — so kann eine praeparierte Thread-ID
+     * ohne passende Zeile in der eigenen Liste nichts auslösen.
+     */
+    public function sendHoldingToSelected(): void
+    {
+        $ids = array_map('intval', $this->selected);
+        if ($ids === []) {
+            session()->flash('error', 'Bitte zuerst Chats markieren.');
+            return;
+        }
+
+        $recipients = [];
+        foreach ($this->rows as $row) {
+            if (in_array($row->threadId, $ids, true)) {
+                $recipients[] = ['phone' => $row->phone, 'first_name' => $row->firstName];
+            }
+        }
+
+        $result = app(\Platform\Recruiting\Services\Comms\HoldingTemplateSender::class)
+            ->sendToMany($this->teamId(), $recipients);
+
+        if ($result['error'] !== null) {
+            session()->flash('error', $result['error']);
+        } else {
+            session()->flash('message', '„Wir melden uns" an ' . $result['sent'] . ' Kontakt(e) gesendet.');
+        }
+
+        $this->selected = [];
+        $this->selectMode = false;
+        $this->forgetSnapshot();
+    }
+
     public function select(int $threadId): void
     {
         $this->selectedThreadId = $threadId;
