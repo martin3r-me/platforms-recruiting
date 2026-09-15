@@ -412,30 +412,41 @@ final class InboxQuery
             // Bewusst OHNE CONCAT(first_name, ' ', last_name) — anders als im
             // Suchzweig von Livewire\Applicant\Index: CONCAT ist MySQL-Syntax
             // und dieses Modul testet den Lesepfad gegen SQLite (Capsule,
-            // kein voller App-Boot). first_name/last_name je einzeln per LIKE
-            // deckt die in diesem Feature verlangte Namenssuche ab, bleibt
-            // aber auf beiden Treibern lauffaehig.
-            $like = '%' . trim($filter->search) . '%';
+            // kein voller App-Boot). Stattdessen Token-fuer-Token gegen
+            // first_name/last_name, das bleibt auf beiden Treibern lauffaehig.
+            //
+            // Fix (Re-Review nach Abschluss-Durchsicht): die Eingabe wird an
+            // Leerzeichen zerlegt, und JEDES Token muss treffen (first_name
+            // ODER last_name je Token, die Token-Gruppen UND-verknuepft) —
+            // sonst fand "Mara Keller" (der volle Name, die naheliegendste
+            // Suche ueberhaupt) nichts, weil kein einzelnes Feld die
+            // Gesamteingabe enthaelt. "Mara Keller" UND "Keller Mara" treffen
+            // damit denselben Kontakt; eine Einwort-Suche verhaelt sich wie
+            // zuvor (nur eine Token-Gruppe).
+            $tokens = array_values(array_filter(
+                preg_split('/\s+/', trim($filter->search)) ?: [],
+                fn ($token) => $token !== '',
+            ));
 
-            $searchApplicantIds = RecApplicant::query()
-                ->where('team_id', $teamId)
-                ->whereHas('crmContactLinks.contact', function ($q) use ($like) {
+            $applicantQuery = RecApplicant::query()->where('team_id', $teamId);
+            $employeeQuery = RecEmployee::query()->where('team_id', $teamId);
+
+            foreach ($tokens as $token) {
+                $like = '%' . $token . '%';
+
+                $applicantQuery->whereHas('crmContactLinks.contact', function ($q) use ($like) {
                     $q->where('first_name', 'like', $like)
                         ->orWhere('last_name', 'like', $like);
-                })
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
+                });
 
-            $searchEmployeeIds = RecEmployee::query()
-                ->where('team_id', $teamId)
-                ->where(function ($q) use ($like) {
+                $employeeQuery->where(function ($q) use ($like) {
                     $q->where('first_name', 'like', $like)
                         ->orWhere('last_name', 'like', $like);
-                })
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
+                });
+            }
+
+            $searchApplicantIds = $applicantQuery->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $searchEmployeeIds = $employeeQuery->pluck('id')->map(fn ($id) => (int) $id)->all();
         }
 
         return ['owner' => $ownerIds, 'searchApplicant' => $searchApplicantIds, 'searchEmployee' => $searchEmployeeIds];

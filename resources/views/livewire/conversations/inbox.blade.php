@@ -199,7 +199,10 @@
                         $rowInitialen = $initialenVon($row->title) ?? '?';
                         $rowOwnerName = $row->ownerUserId !== null ? ($ownerNamesById[$row->ownerUserId] ?? null) : null;
                         $rowOwnerKuerzel = $initialenVon($rowOwnerName);
-                        $rowZeit = $row->lastMessageAt ? \Carbon\Carbon::createFromTimestamp($row->lastMessageAt)->format('H:i') : null;
+                        // Re-Review-Fix: Zeitzone explizit mitgeben — Carbon 3
+                        // liefert bei createFromTimestamp() sonst immer UTC
+                        // (siehe Inbox::commsTimezone()-Docblock).
+                        $rowZeit = $row->lastMessageAt ? \Carbon\Carbon::createFromTimestamp($row->lastMessageAt, $this->commsTimezone)->format('H:i') : null;
                     @endphp
                     <div wire:key="row-{{ $row->threadId }}"
                          class="flex items-stretch border-b border-gray-100 border-l-[3px] {{ $istGewaehlt ? 'border-l-gray-900 bg-gray-50' : 'border-l-transparent' }}">

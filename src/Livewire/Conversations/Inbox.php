@@ -895,6 +895,25 @@ class Inbox extends Component
         return \Platform\Recruiting\Services\Comms\TeamClock::today($this->oooSettings()->getSetting('comms_timezone'));
     }
 
+    /**
+     * Team-Timezone fuer Uhrzeit-Anzeigen (Re-Review-Fix): Carbon::
+     * createFromTimestamp() liefert in Carbon 3 ohne explizite Zeitzone immer
+     * UTC — anders als frueher (Carbon 2), wo der App-Default griff. Solange
+     * die App auf UTC steht, faellt das nicht auf; bei einer Umstellung auf
+     * Europe/Berlin liefe genau die Uhrzeit-Spalte der Listenzeile zwei
+     * Stunden nach allen anderen Zeitangaben des Moduls hinterher. Gleiche
+     * Quelle wie teamToday()/oooState() (TeamClock::resolveTimezone(), Key
+     * 'comms_timezone'), damit es nur EINE Team-Timezone-Quelle in dieser
+     * Komponente gibt.
+     */
+    #[Computed]
+    public function commsTimezone(): string
+    {
+        return \Platform\Recruiting\Services\Comms\TeamClock::resolveTimezone(
+            $this->oooSettings()->getSetting('comms_timezone'),
+        );
+    }
+
     /** off | pending | active — alleinige Quelle: OooMode (nie das rohe Flag). */
     #[Computed]
     public function oooState(): string

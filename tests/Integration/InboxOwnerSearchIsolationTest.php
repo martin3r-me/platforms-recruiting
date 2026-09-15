@@ -113,6 +113,51 @@ class InboxOwnerSearchIsolationTest extends TestCase
         $this->assertNotContains(self::$threadMitarbeiterKollision, $ids);
     }
 
+    /**
+     * Re-Review-Fix: die Suche nach dem VOLLEN Namen ("Mara Keller" — die
+     * naheliegendste Suche ueberhaupt) fand bei der ersten Fassung des
+     * Fixes nichts mehr, weil first_name/last_name je EINZELN per LIKE
+     * geprueft wurden — kein Feld enthaelt die komplette Eingabe. Fix: die
+     * Eingabe wird an Leerzeichen zerlegt, jedes Token muss treffen (UND-
+     * verknuepft), "Mara Keller" UND "Keller Mara" (umgekehrte Reihenfolge)
+     * treffen damit denselben Kontakt.
+     */
+    public function test_namenssuche_nach_vollem_namen_trifft(): void
+    {
+        $idsVornameZuerst = $this->threadIds(new InboxFilter(search: 'Mara Keller'));
+        $this->assertContains(
+            self::$threadBewerber,
+            $idsVornameZuerst,
+            'Der volle Name (Vorname zuerst) muss den Bewerber-Chat treffen.',
+        );
+
+        $idsNachnameZuerst = $this->threadIds(new InboxFilter(search: 'Keller Mara'));
+        $this->assertContains(
+            self::$threadBewerber,
+            $idsNachnameZuerst,
+            'Die Token-Reihenfolge darf keine Rolle spielen.',
+        );
+
+        // Beide Token muessen treffen — nur der halbe Name eines ANDEREN
+        // Kontakts darf nicht durchrutschen.
+        $idsHalberFremderName = $this->threadIds(new InboxFilter(search: 'Mara Hassan'));
+        $this->assertNotContains(
+            self::$threadBewerber,
+            $idsHalberFremderName,
+            '"Mara Hassan" darf den Bewerber Mara Keller nicht treffen — "Hassan" gehoert zu niemandem mit Vornamen Mara.',
+        );
+        $this->assertNotContains(self::$threadMitarbeiterEigeneId, $idsHalberFremderName);
+    }
+
+    /** Volle-Namen-Suche muss auch fuer Mitarbeiter greifen (Befund 3 + Re-Review-Fix). */
+    public function test_namenssuche_nach_vollem_namen_trifft_auch_mitarbeiter(): void
+    {
+        $ids = $this->threadIds(new InboxFilter(search: 'Tarek Hassan'));
+
+        $this->assertContains(self::$threadMitarbeiterEigeneId, $ids);
+        $this->assertNotContains(self::$threadBewerber, $ids);
+    }
+
     public function test_namenssuche_findet_jetzt_auch_mitarbeiter(): void
     {
         // Befund 3: vorher wurden bei der Namenssuche NUR RecApplicant-Namen
