@@ -33,8 +33,8 @@
 @endphp
 <div class="flex h-[calc(100vh-4rem)] flex-col lg:h-[calc(100vh-3rem)]" wire:poll.visible.20s>
 
-    {{-- Kopf: Titel + Ampel-Pillen --}}
-    <div class="border-b border-gray-200 bg-white px-4 py-3 lg:px-6">
+    {{-- Kopf: Titel + Ampel-Pillen (auf dem Handy ausgeblendet, sobald ein Chat offen ist) --}}
+    <div class="{{ $selectedThreadId !== null ? 'hidden lg:block' : '' }} border-b border-gray-200 bg-white px-4 py-3 lg:px-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
                 <h1 class="text-lg font-semibold tracking-tight">Kommunikation</h1>
@@ -58,7 +58,7 @@
     <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
 
         {{-- ===== Liste ===== --}}
-        <div class="flex min-h-0 flex-col border-r border-gray-200 bg-white">
+        <div class="{{ $selectedThreadId !== null ? 'hidden lg:flex' : 'flex' }} min-h-0 flex-col border-r border-gray-200 bg-white">
             @if ($this->fallback)
                 <div class="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                     Kein WhatsApp-Konto erreichbar — es werden nur zugeordnete Chats angezeigt.
@@ -112,11 +112,77 @@
             </div>
         </div>
 
-        {{-- ===== Chat (kommt in Task 6) ===== --}}
-        <div class="hidden min-h-0 flex-col bg-gray-50 lg:flex">
-            <div class="grid flex-1 place-items-center p-8 text-center text-sm text-gray-500">
-                Chat auswählen, um den Verlauf zu sehen.
-            </div>
+        {{-- ===== Chat ===== --}}
+        <div class="{{ $selectedThreadId !== null ? 'flex' : 'hidden lg:flex' }} min-h-0 flex-col bg-gray-50">
+            @if ($selectedThreadId === null)
+                <div class="grid flex-1 place-items-center p-8 text-center text-sm text-gray-500">
+                    Chat auswählen, um den Verlauf zu sehen.
+                </div>
+            @elseif ($this->selectedRow === null)
+                <div class="grid flex-1 place-items-center p-8 text-center text-sm text-gray-500">
+                    <div>
+                        <button type="button" wire:click="back" class="mb-3 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 lg:hidden">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 5-7 7 7 7"/></svg>
+                            Zurück
+                        </button>
+                        <div>Diese Konversation ist im aktuellen Filter nicht mehr sichtbar.</div>
+                    </div>
+                </div>
+            @else
+                @php
+                    $selRow = $this->selectedRow;
+                    $selFenster = $fensterText($selRow->escalation);
+                    $selOwnerName = null;
+                    foreach ($this->teamUsers as $teamUser) {
+                        if ($teamUser['id'] === $selRow->ownerUserId) {
+                            $selOwnerName = $teamUser['name'];
+                            break;
+                        }
+                    }
+                @endphp
+
+                {{-- Kopfzeile --}}
+                <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-3 py-2.5 lg:px-5">
+                    <button type="button" wire:click="back" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-600 lg:hidden" aria-label="Zurück zur Liste">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 5-7 7 7 7"/></svg>
+                    </button>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
+                            <span class="truncate">{{ $selRow->title }}</span>
+                            @if ($selFenster !== '')
+                                <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600">{{ $selFenster }}</span>
+                            @endif
+                            @if ($selOwnerName !== null)
+                                <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600">{{ $selOwnerName }}</span>
+                            @endif
+                            @if ($selRow->url)
+                                <a href="{{ $selRow->url }}" class="rounded bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:bg-blue-100" title="Akte öffnen">Akte öffnen ↗</a>
+                            @endif
+                        </div>
+                        <div class="truncate text-xs text-gray-500 tabular-nums">{{ $selRow->phone }}</div>
+                    </div>
+                </div>
+
+                {{-- Kontextzeile --}}
+                @if ($this->contextChips !== [])
+                    <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 text-xs lg:px-5">
+                        @foreach ($this->contextChips as $chip)
+                            <span class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+                                <span class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">{{ $chip['label'] }}</span>
+                                <span class="font-semibold text-gray-700">{{ $chip['value'] }}</span>
+                            </span>
+                        @endforeach
+                    </div>
+                @endif
+
+                {{-- Verlauf: wire:key aus Thread+Anzahl -> bei neuer Nachricht wird der Container neu
+                     aufgebaut und x-init scrollt ans Ende. --}}
+                <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-4 lg:px-5"
+                     wire:key="msgs-{{ $selectedThreadId }}-{{ count($this->messages) }}"
+                     x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
+                    @include('recruiting::livewire.dispo._messages', ['messages' => $this->messages, 'portalUrl' => null])
+                </div>
+            @endif
         </div>
     </div>
 </div>

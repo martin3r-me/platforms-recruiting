@@ -144,7 +144,16 @@ class Inbox extends Component
      */
     private function forgetSnapshot(): void
     {
-        unset($this->snapshot, $this->rows, $this->total, $this->counts, $this->fallback);
+        unset(
+            $this->snapshot,
+            $this->rows,
+            $this->total,
+            $this->counts,
+            $this->fallback,
+            $this->selectedRow,
+            $this->messages,
+            $this->contextChips,
+        );
     }
 
     /** Laedt einen Thread NUR im Team-Kontext — nie eine fremde ID. */
@@ -154,6 +163,98 @@ class Inbox extends Component
             ->whereKey($threadId)
             ->where('team_id', $this->teamId())
             ->first();
+    }
+
+    #[Computed]
+    public function selectedThread(): ?CommsWhatsAppThread
+    {
+        return $this->selectedThreadId === null ? null : $this->threadForTeam($this->selectedThreadId);
+    }
+
+    /** Die Listenzeile zum offenen Chat (Titel, Ampel, Owner, Link). */
+    #[Computed]
+    public function selectedRow(): ?\Platform\Recruiting\Services\Comms\InboxRow
+    {
+        foreach ($this->rows as $row) {
+            if ($row->threadId === $this->selectedThreadId) {
+                return $row;
+            }
+        }
+
+        // Der Chat kann durch einen Filterwechsel aus der Liste gefallen sein —
+        // dann einzeln nachladen, statt den Verlauf zu schliessen.
+        $thread = $this->selectedThread;
+        if ($thread === null) {
+            return null;
+        }
+        $single = app(InboxQuery::class)->page(
+            $this->teamId(),
+            new InboxFilter(handled: $this->showHandled, search: (string) $thread->remote_phone_number),
+            50,
+            0,
+        );
+        foreach ($single['rows'] as $row) {
+            if ($row->threadId === $this->selectedThreadId) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    #[Computed]
+    public function messages(): array
+    {
+        $thread = $this->selectedThread;
+        if ($thread === null) {
+            return [];
+        }
+
+        return app(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::class)
+            ->messages($thread, []);
+    }
+
+    /** @return list<array{label: string, value: string, url: ?string}> */
+    #[Computed]
+    public function contextChips(): array
+    {
+        $row = $this->selectedRow;
+        if ($row === null || $row->subjectType !== 'applicant' || $row->subjectId === null) {
+            return [];
+        }
+
+        $applicant = \Platform\Recruiting\Models\RecApplicant::query()
+            ->with(['phase', 'position'])
+            ->find($row->subjectId);
+        if ($applicant === null) {
+            return [];
+        }
+
+        $chips = [];
+        if ($applicant->phase) {
+            $chips[] = ['label' => 'Phase', 'value' => (string) $applicant->phase->name, 'url' => null];
+        }
+        if ($applicant->position) {
+            $chips[] = ['label' => 'Stelle', 'value' => (string) $applicant->position->name, 'url' => null];
+        }
+
+        $booking = $applicant->interviewBookings()
+            ->with('interview')
+            ->whereIn('status', ['registered', 'confirmed'])
+            ->get()
+            ->filter(fn ($b) => $b->interview && $b->interview->starts_at >= now())
+            ->sortBy(fn ($b) => $b->interview->starts_at)
+            ->first();
+
+        if ($booking) {
+            $chips[] = [
+                'label' => 'Termin',
+                'value' => $booking->interview->starts_at->format('d.m.Y H:i'),
+                'url' => null,
+            ];
+        }
+
+        return $chips;
     }
 
     public function select(int $threadId): void
