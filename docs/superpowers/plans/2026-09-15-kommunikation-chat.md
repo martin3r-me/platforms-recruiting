@@ -1980,21 +1980,21 @@ EOF
             $chips[] = ['label' => 'Phase', 'value' => (string) $applicant->phase->name, 'url' => null];
         }
         if ($applicant->position) {
-            $chips[] = ['label' => 'Stelle', 'value' => (string) $applicant->position->name, 'url' => null];
+            $chips[] = ['label' => 'Stelle', 'value' => (string) $applicant->position->title, 'url' => null];
         }
 
         $booking = $applicant->interviewBookings()
             ->with('interview')
             ->whereIn('status', ['registered', 'confirmed'])
             ->get()
-            ->filter(fn ($b) => $b->interview && $b->interview->start_at >= now())
-            ->sortBy(fn ($b) => $b->interview->start_at)
+            ->filter(fn ($b) => $b->interview && $b->interview->starts_at >= now())
+            ->sortBy(fn ($b) => $b->interview->starts_at)
             ->first();
 
         if ($booking) {
             $chips[] = [
                 'label' => 'Termin',
-                'value' => $booking->interview->start_at->format('d.m.Y H:i'),
+                'value' => $booking->interview->starts_at->format('d.m.Y H:i'),
                 'url' => null,
             ];
         }
@@ -2005,7 +2005,7 @@ EOF
 
 Passt eine Spalte nicht (z.B. heisst das Feld am Termin anders), die echten
 Namen mit
-`grep -n "start_at\|public function interview" src/Models/RecInterviewBooking.php`
+`grep -n "starts_at\|public function interview" src/Models/RecInterviewBooking.php`
 pruefen und hier eintragen — **nicht** raten und auch keinen Platzhalter
 stehen lassen.
 
