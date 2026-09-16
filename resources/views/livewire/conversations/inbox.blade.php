@@ -170,20 +170,35 @@
             {{-- Suche + Zustaendig-Filter: schmale Zeile, kein eigenes Panel. Beide
                  Felder gehen ueber updated() (search/owner -> Auswahl leeren +
                  Seite zuruecksetzen) direkt in InboxFilter/InboxQuery. --}}
-            <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 px-3 py-1.5">
-                <input type="text" wire:model.live.debounce.300ms="search" placeholder="Name oder Nummer"
-                       class="min-w-0 flex-1 rounded-lg border-gray-300 text-xs">
-                <select wire:model.live="owner" class="shrink-0 rounded-lg border-gray-300 text-xs">
-                    <option value="all">Alle</option>
-                    <option value="mine">Mir zugewiesen</option>
-                    @foreach ($this->teamUsers as $u)
-                        <option value="{{ $u['id'] }}">{{ $u['name'] }}</option>
-                    @endforeach
-                </select>
-                <button type="button" wire:click="toggleSelectMode"
-                        class="shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold {{ $selectMode ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50' }}">
-                    {{ $selectMode ? 'Fertig' : 'Auswählen' }}
-                </button>
+            <div class="space-y-2 border-b border-gray-200 px-3 py-2">
+                {{-- Suche auf eigener Zeile und voller Breite: gequetscht neben
+                     Auswahlfeld und Knopf brach der Platzhalter nach "Name oder Nu"
+                     ab und niemand erkannte das Feld als Suche. --}}
+                <label class="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-500 focus-within:bg-gray-50 focus-within:ring-1 focus-within:ring-gray-300">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    <input type="search" wire:model.live.debounce.300ms="search"
+                           placeholder="Name oder Nummer suchen"
+                           class="w-full border-0 bg-transparent p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-0">
+                    @if (trim($search) !== '')
+                        <button type="button" wire:click="$set('search', '')" class="shrink-0 text-xs font-semibold text-gray-400 hover:text-gray-700" aria-label="Suche zurücksetzen">✕</button>
+                    @endif
+                </label>
+                <div class="flex items-center gap-2">
+                    <select wire:model.live="owner" class="min-w-0 flex-1 rounded-lg border-gray-300 text-xs">
+                        <option value="all">Zuständig: alle</option>
+                        <option value="mine">Mir zugewiesen</option>
+                        @foreach ($this->teamUsers as $u)
+                            <option value="{{ $u['id'] }}">{{ $u['name'] }}</option>
+                        @endforeach
+                    </select>
+                    <button type="button" wire:click="toggleSelectMode"
+                            class="shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold {{ $selectMode ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50' }}">
+                        {{ $selectMode ? 'Fertig' : 'Auswählen' }}
+                    </button>
+                </div>
+                @if (trim($search) !== '')
+                    <p class="text-[11px] text-gray-400">{{ $this->total }} Treffer für „{{ trim($search) }}"</p>
+                @endif
             </div>
             @if ($this->fallback)
                 <div class="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
