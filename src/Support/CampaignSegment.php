@@ -24,9 +24,9 @@ final class CampaignSegment
 
     /**
      * Wer in diesem Fenster eine Wartelisten-Benachrichtigung („ein Termin ist
-     * frei geworden") bekam, ist default abgehakt — die Kampagne sagt ihm
-     * dasselbe. Kuerzer als RECENT_CAMPAIGN_DAYS, weil ein freier Platz
-     * schnell wieder weg ist: nach drei Tagen darf man nachfassen.
+     * frei geworden") bekam, ist fuer den Sammelversand gesperrt — die
+     * Kampagne sagt ihm dasselbe. Kuerzer als RECENT_CAMPAIGN_DAYS, weil ein
+     * freier Platz schnell wieder weg ist: nach drei Tagen darf man nachfassen.
      */
     public const RECENT_WAITLIST_NOTICE_DAYS = 3;
 
@@ -134,14 +134,20 @@ final class CampaignSegment
                 // Vorfall 15.09.2026: 70 Leute bekamen um 18:59 die
                 // Wartelisten-Nachricht „ein Termin ist frei geworden" und um
                 // 19:08 die Kampagne „Termine stehen zur Auswahl bereit" —
-                // zweimal dieselbe Aufforderung in neun Minuten. Wer gerade
-                // benachrichtigt wurde, ist deshalb nicht vorausgewaehlt; die
-                // Zeile bleibt sichtbar und waehlbar, HR entscheidet bewusst.
-                // Gleiche Mechanik wie last_campaign_at, nur kuerzeres Fenster:
-                // ein freier Platz ist verderbliche Ware.
+                // zweimal dieselbe Aufforderung in neun Minuten.
+                //
+                // Deshalb NICHT WAEHLBAR, nicht bloss abgehakt: `checked`
+                // allein wuerde nichts verhindern, weil campaignSelectAll()
+                // (Statistics/Index:2249), selectedIds() und der Job selbst
+                // gegen `selectable` pruefen — ein Klick auf „alle auswaehlen"
+                // haette sie wieder mitgenommen. Gleiche Mechanik wie
+                // has_active_booking: wer die Information schon hat, braucht
+                // sie nicht zweimal. Einzelansprache aus der Konversation
+                // heraus bleibt jederzeit moeglich.
                 $notified = new \DateTimeImmutable($in['waitlist']['notified_at']);
                 $now = new \DateTimeImmutable($in['now']);
                 if ($notified > $now->modify('-' . self::RECENT_WAITLIST_NOTICE_DAYS . ' days')) {
+                    $selectable = false;
                     $checked = false;
                 }
             }

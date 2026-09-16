@@ -133,14 +133,18 @@ final class CampaignSegmentTest extends TestCase
             ],
             // Vorfall 15.09.2026: wer um 18:59 „ein Termin ist frei geworden"
             // bekam, bekam um 19:08 die Kampagne „Termine stehen zur Auswahl
-            // bereit" — zweimal dieselbe Aufforderung in neun Minuten. Frisch
-            // benachrichtigte Warteliste ist deshalb nicht mehr vorausgewaehlt
-            // (wie bei last_campaign_at); HR kann weiterhin bewusst anhaken.
-            'frisch benachrichtigte Warteliste → abgehakt' => [
+            // bereit" — zweimal dieselbe Aufforderung in neun Minuten, 70 Leute
+            // betroffen. Frisch benachrichtigte Warteliste ist deshalb NICHT
+            // WAEHLBAR, nicht bloss abgehakt: `checked` allein reicht nicht,
+            // weil campaignSelectAll() und selectedIds() gegen `selectable`
+            // pruefen — „alle auswaehlen" haette sie wieder mitgenommen.
+            // Gleiche Mechanik wie has_active_booking: die Person hat die
+            // Information schon. Einzelansprache aus der Konversation bleibt.
+            'frisch benachrichtigte Warteliste → gesperrt' => [
                 ['phase_order' => 2, 'waitlist' => ['enrolled_at' => '2026-08-20 09:00:00', 'notified_at' => '2026-08-28 09:00:00']],
-                ['template' => 'B', 'selectable' => true, 'checked' => false, 'badges' => ['Warteliste seit 20.08.2026, benachrichtigt am 28.08.2026']],
+                ['template' => 'B', 'selectable' => false, 'checked' => false, 'badges' => ['Warteliste seit 20.08.2026, benachrichtigt am 28.08.2026']],
             ],
-            'Benachrichtigung aelter als das Fenster → wieder angehakt' => [
+            'Benachrichtigung aelter als das Fenster → wieder waehlbar' => [
                 ['phase_order' => 2, 'waitlist' => ['enrolled_at' => '2026-08-20 09:00:00', 'notified_at' => '2026-08-24 09:00:00']],
                 ['template' => 'B', 'selectable' => true, 'checked' => true, 'badges' => ['Warteliste seit 20.08.2026, benachrichtigt am 24.08.2026']],
             ],
