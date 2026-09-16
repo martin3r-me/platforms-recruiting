@@ -408,10 +408,21 @@
                 @if ($this->contextChips !== [])
                     <div class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 text-xs lg:px-5">
                         @foreach ($this->contextChips as $chip)
-                            <span class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
-                                <span class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">{{ $chip['label'] }}</span>
-                                <span class="font-semibold text-gray-700">{{ $chip['value'] }}</span>
-                            </span>
+                            @if (!empty($chip['url']))
+                                {{-- Termin-Chip: fuehrt in die Teilnehmerliste der Schulung. --}}
+                                <a href="{{ $chip['url'] }}" wire:navigate
+                                   title="Teilnehmerliste dieses Termins öffnen"
+                                   class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 hover:border-gray-400 hover:bg-white">
+                                    <span class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">{{ $chip['label'] }}</span>
+                                    <span class="font-semibold text-gray-700">{{ $chip['value'] }}</span>
+                                    <span class="text-gray-400">↗</span>
+                                </a>
+                            @else
+                                <span class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+                                    <span class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">{{ $chip['label'] }}</span>
+                                    <span class="font-semibold text-gray-700">{{ $chip['value'] }}</span>
+                                </span>
+                            @endif
                         @endforeach
                     </div>
                 @endif

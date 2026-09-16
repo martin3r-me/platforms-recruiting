@@ -337,7 +337,13 @@ class Inbox extends Component
                 'label' => $terminName !== '' ? $terminName : 'Termin',
                 'value' => $booking->interview->starts_at->format('d.m.Y H:i')
                     . ($booking->status === 'confirmed' ? ' · bestätigt' : ' · gebucht'),
-                'url' => null,
+                // Direkt in die Teilnehmerliste des Termins springen — dieselbe
+                // Stelle, auf die auch die Bewerberakte verlinkt. safeRoute(),
+                // weil die Capsule-Tests keinen Router haben und ein fehlender
+                // Link niemals den ganzen Chat-Kopf kosten darf.
+                'url' => $this->safeRoute('recruiting.interview-bookings.index', [
+                    'interview' => $booking->interview->id,
+                ]),
             ];
         }
 
@@ -675,6 +681,20 @@ class Inbox extends Component
         $this->selected = [];
         $this->selectMode = false;
         $this->forgetSnapshot();
+    }
+
+    /**
+     * Link bauen, ohne an einem fehlenden Router zu sterben — gleiches Muster
+     * wie InboxQuery::safeRoute(). Die Capsule-Tests dieses Moduls booten kein
+     * Laravel; ein Link ist Beiwerk und darf nie den ganzen Chat-Kopf kosten.
+     */
+    private function safeRoute(string $name, array $params): ?string
+    {
+        try {
+            return route($name, $params);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
