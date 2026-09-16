@@ -365,6 +365,11 @@
                         </div>
                         <div class="truncate text-xs text-gray-500 tabular-nums">{{ $selRow->phone }}</div>
                     </div>
+                    <button type="button" wire:click="markUnreadAndClose"
+                            title="Chat schließen und wieder als ungelesen markieren — z. B. um später zu antworten"
+                            class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50">
+                        ungelesen schließen
+                    </button>
                     @if ($showHandled)
                         <button type="button" wire:click="unmarkHandled({{ $selectedThreadId }})"
                                 class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">

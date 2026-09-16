@@ -150,20 +150,21 @@ final class InboxQuery
             fn (array $row) => $this->matches($row, $filter, $allowed),
         ));
 
+        // NEUESTE ZUERST, wie in jedem Messenger (Kundenwunsch 16.09.2026).
+        // Vorher stand die Eskalationsstufe vorn — dadurch klebten Chats, die
+        // seit 175 Tagen verpasst sind, dauerhaft ganz oben, waehrend die
+        // Nachricht von heute Morgen weit unten stand. Die Dringlichkeit geht
+        // dadurch nicht verloren: die Farbkante zeigt sie an jeder Zeile, und
+        // ein Klick auf eine Ampel-Pille filtert die Liste darauf.
         usort($rows, static function (array $a, array $b): int {
-            $orderA = ConversationInboxReport::levelOrder($a['escalation']->level);
-            $orderB = ConversationInboxReport::levelOrder($b['escalation']->level);
-            if ($orderA !== $orderB) {
-                return $orderA <=> $orderB;
-            }
-            $expA = $a['escalation']->windowExpiresAt ?? PHP_INT_MAX;
-            $expB = $b['escalation']->windowExpiresAt ?? PHP_INT_MAX;
-            if ($expA !== $expB) {
-                return $expA <=> $expB;
+            $letzteA = $a['last_message_at'] ?? 0;
+            $letzteB = $b['last_message_at'] ?? 0;
+            if ($letzteA !== $letzteB) {
+                return $letzteB <=> $letzteA;
             }
 
             // Letzter Tiebreaker: thread_id. Ohne ihn haengt die Reihenfolge
-            // bei Gleichstand (gleiches Level, gleiches windowExpiresAt) an
+            // bei Gleichstand (gleiche letzte Nachricht) an
             // der zufaelligen DB-Rueckgabereihenfolge — kein ORDER BY in der
             // SQL, und PHPs Sort-Stabilitaet garantiert nur, dass die
             // urspruengliche ARRAY-Reihenfolge erhalten bleibt, nicht dass

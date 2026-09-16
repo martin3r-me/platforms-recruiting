@@ -247,27 +247,32 @@ class InboxQueryCompletenessTest extends TestCase
         $this->assertSame(42, $row->ownerUserId);
     }
 
-    public function test_gleichstand_wird_stabil_nach_thread_id_sortiert(): void
+    public function test_neueste_zuerst_und_gleichstand_stabil_nach_thread_id(): void
     {
-        // ohneKontext, bewerber, zwilling und nurAutoReply sind alle 'missed'
-        // mit demselben last_inbound_at, also demselben windowExpiresAt —
-        // ein echter Gleichstand. Ohne thread_id als letzten Tiebreaker haengt
-        // die Reihenfolge an der zufaelligen DB-Rueckgabe.
+        // Sortierung ist "neueste Nachricht zuerst" (Kundenwunsch 16.09.2026),
+        // NICHT mehr nach Eskalationsstufe — sonst klebten monatealte verpasste
+        // Chats dauerhaft oben, waehrend die Nachricht von heute unten stand.
+        //
+        // threadBeantwortet traegt einen menschlichen Outbound NACH seinem
+        // Eingang, hat also die juengste Nachricht des Fixture-Satzes und muss
+        // damit ganz oben stehen — obwohl er als einziger NICHT eskaliert ist.
+        // Genau daran wuerde ein Rueckfall auf die alte Reihenfolge auffallen.
+        // Die uebrigen vier teilen sich denselben last_inbound_at (echter
+        // Gleichstand) und ordnen sich darin aufsteigend nach thread_id.
         $full = (new InboxQuery())->page(self::TEAM, new InboxFilter(), 50, 0, self::JETZT);
         $fullIds = array_map(fn (InboxRow $row) => $row->threadId, $full['rows']);
 
         $this->assertSame(
             [
+                self::$threadBeantwortet,
                 self::$threadOhneKontext,
                 self::$threadBewerber,
                 self::$threadZwilling,
                 self::$threadNurAutoReply,
-                self::$threadBeantwortet,
             ],
             $fullIds,
-            'Gleichstand-Threads muessen aufsteigend nach thread_id sortiert sein '
-                . '(missed-Gruppe zuerst, darin nach thread_id; die beantwortete Zeile '
-                . 'liegt als einzige im none-Level dahinter).',
+            'Die juengste Nachricht gehoert nach oben, danach der Gleichstand '
+                . 'aufsteigend nach thread_id.',
         );
 
         // Zwei aufeinanderfolgende Seiten muessen exakt dieselbe Gesamt-
@@ -392,6 +397,13 @@ class InboxQueryCompletenessTest extends TestCase
         ])->id;
         Capsule::table('comms_whatsapp_messages')->where('id', $humanMsgId)->update([
             'created_at' => date('Y-m-d H:i:s', self::JETZT - 99_000),
+        ]);
+        // Der Thread traegt denselben Zeitpunkt auch in seiner eigenen Spalte —
+        // so wie es der CRM-Inbound beim echten Versand tut. Ohne das haette
+        // dieser Thread dieselbe "letzte Nachricht" wie alle anderen, und der
+        // Sortiertest koennte "neueste zuerst" gar nicht nachweisen.
+        Capsule::table('comms_whatsapp_threads')->where('id', self::$threadBeantwortet)->update([
+            'last_outbound_at' => date('Y-m-d H:i:s', self::JETZT - 99_000),
         ]);
 
         // 7) NUR eine Auto-Antwort (OOO/Voice) — zaehlt NICHT als beantwortet.

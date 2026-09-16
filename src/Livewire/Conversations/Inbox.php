@@ -314,7 +314,7 @@ class Inbox extends Component
         $booking = $applicant->interviewBookings()
             ->whereIn('status', ['registered', 'confirmed'])
             ->whereHas('interview', fn ($q) => $q->where('starts_at', '>=', now()))
-            ->with('interview')
+            ->with('interview.interviewType')
             ->orderBy(
                 \Platform\Recruiting\Models\RecInterview::query()
                     ->select('starts_at')
@@ -323,9 +323,20 @@ class Inbox extends Component
             ->first();
 
         if ($booking) {
+            // Nur das Datum zu zeigen half niemandem weiter — HR muss sehen,
+            // ZU WELCHER Schulung bzw. welchem Termin die Person gebucht ist,
+            // sonst muss man doch wieder in die Bewerberakte. Titel bevorzugt
+            // (so nennt die Akte sie auch, siehe applicant/show.blade.php),
+            // ersatzweise die Art des Termins.
+            $terminName = trim((string) ($booking->interview->title ?? ''));
+            if ($terminName === '') {
+                $terminName = trim((string) ($booking->interview->interviewType->name ?? ''));
+            }
+
             $chips[] = [
-                'label' => 'Termin',
-                'value' => $booking->interview->starts_at->format('d.m.Y H:i'),
+                'label' => $terminName !== '' ? $terminName : 'Termin',
+                'value' => $booking->interview->starts_at->format('d.m.Y H:i')
+                    . ($booking->status === 'confirmed' ? ' · bestätigt' : ' · gebucht'),
                 'url' => null,
             ];
         }
@@ -664,6 +675,27 @@ class Inbox extends Component
         $this->selected = [];
         $this->selectMode = false;
         $this->forgetSnapshot();
+    }
+
+    /**
+     * Chat zuruecklegen: schliesst ihn UND markiert ihn wieder als ungelesen.
+     *
+     * Ohne das Schliessen wirkt der Chat trotz blauer Markierung erledigt —
+     * man sieht ihn ja weiter offen vor sich (dieselbe Entscheidung wie im
+     * Dispo-Postfach). Gedacht fuer "jetzt keine Zeit, aber nicht vergessen".
+     */
+    public function markUnreadAndClose(): void
+    {
+        if ($this->selectedThreadId === null) {
+            return;
+        }
+
+        $this->threadForTeam($this->selectedThreadId)?->markAsUnread();
+        $this->selectedThreadId = null;
+        $this->replyText = '';
+        $this->sendError = null;
+        $this->forgetSnapshot();
+        $this->dispatch('sidebar-refresh');
     }
 
     public function select(int $threadId): void
