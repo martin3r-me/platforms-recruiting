@@ -70,14 +70,16 @@ Route::get('/employees/{employee}/files/{slot}', \Platform\Recruiting\Http\Contr
 // Eingangs-Inbox: Bewerbungen ohne erkannte Quelle (is_unrouted = true)
 Route::get('/inbox', \Platform\Recruiting\Livewire\Inbox\Index::class)->name('recruiting.inbox.index');
 
-// Kommunikation: unbeantwortete WhatsApp-Konversationen + 24h-Fenster-Eskalation
-Route::get('/conversations', \Platform\Recruiting\Livewire\Conversations\Index::class)
+// Kommunikation: Postfach mit Chat, Ampel und Erledigt-Zustand.
+// Umgeschwenkt am 16.09.2026 — die alte Tabellen-Ansicht (Conversations\Index)
+// ist damit ersetzt und geloescht; der Routenname bleibt, damit vorhandene
+// Links und der Sidebar-Eintrag weiter zeigen.
+Route::get('/conversations', \Platform\Recruiting\Livewire\Conversations\Inbox::class)
     ->name('recruiting.conversations.index');
 
-// Vorschau der neuen Kommunikation (Spec 2026-09-15). Laeuft neben der alten
-// Seite; bewusst OHNE Sidebar-Eintrag, Aufruf ueber die URL.
-Route::get('/conversations-neu', \Platform\Recruiting\Livewire\Conversations\Inbox::class)
-    ->name('recruiting.conversations.preview');
+// Die Vorschau-Route /conversations-neu entfaellt mit dem Umschwenken.
+// Wer sie noch im Verlauf hat, landet auf der richtigen Seite.
+Route::redirect('/conversations-neu', '/recruiting/conversations');
 
 // Interview-Termine
 Route::get('/interview-types', InterviewTypeIndex::class)->name('recruiting.interview-types.index');

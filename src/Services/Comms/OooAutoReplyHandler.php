@@ -18,7 +18,7 @@ use Platform\Recruiting\Models\RecEmployee;
  * Threads — nie fuer Fremd-Kontexte (Helpdesk, Sales, ...).
  *
  * Der Send wird mit is_auto_reply=true markiert und zaehlt damit NICHT als
- * Antwort im "verpasst"-Zaehler (ConversationInboxService).
+ * Antwort im "verpasst"-Zaehler (InboxQuery).
  */
 final class OooAutoReplyHandler
 {

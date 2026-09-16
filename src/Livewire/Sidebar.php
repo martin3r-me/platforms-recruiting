@@ -61,11 +61,17 @@ class Sidebar extends Component
     {
         $teamId = auth()->user()->currentTeam->id;
 
-        $commsCounts = app(\Platform\Recruiting\Services\Comms\ConversationInboxService::class)->counts($teamId);
+        // Zaehlt ueber denselben Lesepfad wie die Kommunikations-Seite selbst
+        // (Umschwenken 16.09.2026): Grundmenge ueber das WhatsApp-Kanal-Set
+        // statt ueber den Thread-Kontext, und abgehakte Chats zaehlen nicht
+        // mit. Vorher wusste die Sidebar nichts von "erledigt" und zeigte
+        // dauerhaft eine hoehere Zahl als die Seite, auf die sie verlinkt.
+        $commsCounts = app(\Platform\Recruiting\Services\Comms\InboxQuery::class)->counts($teamId);
 
         return [
             'unread_conversations' => $commsCounts['unread'],
-            'escalation_conversations' => $commsCounts['escalation'],
+            // "Eskalation" ist wie bisher rot + verpasst.
+            'escalation_conversations' => $commsCounts['red'] + $commsCounts['missed'],
             'total_positions' => RecPosition::forTeam($teamId)->count(),
             'active_positions' => RecPosition::forTeam($teamId)->active()->count(),
             'total_postings' => RecPosting::forTeam($teamId)->count(),

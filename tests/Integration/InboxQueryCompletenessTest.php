@@ -95,7 +95,7 @@ class InboxQueryCompletenessTest extends TestCase
         // prozessweit auf true, und Model::getMorphClass() wirft dann fuer JEDES
         // Modell ohne Eintrag eine ClassMorphViolationException — auch fuer
         // RecEmployee, das im echten ServiceProvider ABSICHTLICH nicht in der
-        // Map steht (siehe Kommentar in ConversationInboxService). Erhaertet
+        // Map steht (siehe RecruitingServiceProvider). Erhaertet
         // durch einen echten Testlauf: enforceMorphMap() hier liess 19 andere
         // Integrationstests (ZasCrmContactBackfillTest, ZasEmployeeContactLinkerTest)
         // mit genau dieser Exception rot werden. Die einfache morphMap() erreicht

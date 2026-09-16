@@ -344,7 +344,27 @@ und faellt beim Umschwenken mit ihr weg.
   Theo-Wirtz-Fall als Test).
 - Keine zufaellige Testreihenfolge, Dispatcher setzen (Modul-Konvention).
 
-## Umschwenken (spaeter, eigener Auftrag)
+## Umschwenken — ERLEDIGT am 16.09.2026
+
+Der Kunde hat die Vorschau abgenommen ("Clara ist sehr happy"), damit ist die
+neue Seite die Kommunikation. Umgesetzt wie unten beschrieben:
+
+- `/recruiting/conversations` zeigt auf `Conversations\Inbox`; der Routenname
+  bleibt, damit Sidebar-Eintrag und vorhandene Links weiter funktionieren.
+- `/recruiting/conversations-neu` leitet auf die richtige Seite um, statt ins
+  Leere zu laufen.
+- Geloescht: `Conversations\Index`, `conversations/index.blade.php`,
+  `ConversationInboxService`, `ConversationInboxReport`, `ConversationInboxRow`
+  (die letzten beiden waren nach der Sortier-Umstellung ohnehin unbenutzt).
+- Der Sidebar-Zaehler laeuft ueber `InboxQuery::counts()` — also ueber das
+  Kanal-Set und OHNE abgehakte Chats. Vorher zeigte er dauerhaft eine hoehere
+  Zahl als die Seite, auf die er verlinkt.
+
+Nicht gemacht (bewusst): das Umbenennen der geteilten Dispo-Bausteine. Sie
+werden weiterhin nur aufgerufen; ein Umzug waere reine Kosmetik an
+produktivem Code.
+
+## Umschwenken (urspruenglicher Plan)
 
 1. Route `recruiting.conversations.index` auf `Conversations\Inbox` zeigen
    lassen, Vorschau-Route entfernen
