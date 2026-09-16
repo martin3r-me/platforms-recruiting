@@ -90,10 +90,12 @@ class ApplicantTemplateSenderAccountScopeTest extends TestCase
 
         $this->stub = new class {
             public int $calls = 0;
+            public array $letzteComponents = [];
 
             public function sendTemplate($channel, string $to, string $templateName, array $components = [], string $languageCode = 'de', $sender = null): object
             {
                 $this->calls++;
+                $this->letzteComponents = $components;
 
                 return (object) ['id' => 9000 + $this->calls, 'status' => 'sent'];
             }
@@ -133,6 +135,55 @@ class ApplicantTemplateSenderAccountScopeTest extends TestCase
 
         $this->assertTrue($result['ok'], (string) $result['error']);
         $this->assertSame(1, $this->stub->calls);
+    }
+
+    public function test_vorname_wird_in_den_platzhalter_der_vorlage_gesetzt(): void
+    {
+        // Genau der Fall der beiden freigegebenen Chat-Vorlagen (t_com_gen,
+        // t_work_on): Body mit {{name}}. Vorher schickte dieser Sender gar
+        // keine Body-Parameter — Meta haette den Versand abgelehnt.
+        $templateId = $this->templateMitNamen(501);
+        $thread = $this->thread(self::TEAM, self::$channelId);
+
+        $result = (new ApplicantTemplateSender())->send($thread, $templateId, null, null, 'Mara');
+
+        $this->assertTrue($result['ok'], (string) $result['error']);
+        $this->assertSame(1, $this->stub->calls);
+        $this->assertSame(
+            [['type' => 'body', 'parameters' => [['type' => 'text', 'text' => 'Mara', 'parameter_name' => 'name']]]],
+            $this->stub->letzteComponents,
+            'Der Vorname muss als Body-Parameter mitgehen, sonst lehnt Meta ab (131008).',
+        );
+    }
+
+    public function test_ohne_vornamen_wird_nicht_gesendet_sondern_erklaert(): void
+    {
+        // Nicht zugeordnete Chats haben keinen Vornamen. "Hallo ," darf nicht
+        // rausgehen, und ein stiller Fehlschlag bei Meta hilft niemandem.
+        $templateId = $this->templateMitNamen(501);
+        $thread = $this->thread(self::TEAM, self::$channelId);
+
+        $result = (new ApplicantTemplateSender())->send($thread, $templateId, null, null, null);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('keinem Bewerber zugeordnet', (string) $result['error']);
+        $this->assertSame(0, $this->stub->calls, 'Ohne Vornamen darf kein Sendeversuch stattfinden.');
+    }
+
+    private function templateMitNamen(int $whatsappAccountId): int
+    {
+        return (int) Capsule::table('integrations_whatsapp_templates')->insertGetId([
+            'uuid' => 'tpl-' . bin2hex(random_bytes(6)), 'external_id' => 'ext-' . bin2hex(random_bytes(6)),
+            'whatsapp_account_id' => $whatsappAccountId, 'user_id' => 1,
+            'name' => 't_com_gen', 'language' => 'de', 'status' => 'APPROVED',
+            'category' => 'UTILITY',
+            'components' => json_encode([[
+                'type' => 'BODY',
+                'text' => 'Hallo {{name}},\n\ndanke fuer deine Nachricht!',
+                'example' => ['body_text_named_params' => [['param_name' => 'name', 'example' => 'Hans']]],
+            ]]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     private function template(int $whatsappAccountId): int

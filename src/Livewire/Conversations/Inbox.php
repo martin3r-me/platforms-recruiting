@@ -17,6 +17,20 @@ use Platform\Recruiting\Services\Comms\InboxQuery;
  */
 class Inbox extends Component
 {
+    /**
+     * Die Vorlagen, die im Chat angeboten werden — bewusst genau zwei
+     * (Kundenwunsch 16.09.2026). Vorher stand hier jede genehmigte Vorlage
+     * des Kontos ohne Platzhalter, was HR vor eine Wand aus technischen
+     * Namen stellte. Schluessel ist der Meta-Name, Wert die Beschriftung.
+     *
+     * "Wir melden uns" laeuft NICHT hierueber, sondern weiter ueber das in
+     * den Einstellungen hinterlegte Eingangsbestaetigungs-Template
+     * (HoldingTemplateSender) — dort ist t_work_on konfiguriert.
+     */
+    private const CHAT_TEMPLATES = [
+        't_com_gen' => 'Gespräch starten',
+    ];
+
     public string $level = 'all';
     public string $owner = 'all';
     public string $search = '';
@@ -424,31 +438,25 @@ class Inbox extends Component
             ->getSetting('auto_pilot_wa_account_id');
 
         $query = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
-            ->where('status', 'APPROVED');
+            ->where('status', 'APPROVED')
+            ->whereIn('name', array_keys(self::CHAT_TEMPLATES));
         if ($accountId) {
             $query->where('whatsapp_account_id', (int) $accountId);
         }
 
-        return $query->orderBy('name')->get()
-            ->filter(function ($template) {
-                $components = (array) ($template->components ?? []);
+        // Reihenfolge wie in CHAT_TEMPLATES, nicht alphabetisch — der Knopf
+        // zum Gespraechsstart gehoert nach vorn.
+        $gefunden = $query->get()->keyBy('name');
 
-                if (\Platform\Recruiting\Support\WhatsAppTemplateBodyVariables::names($components) !== []) {
-                    return false;
-                }
+        $knoepfe = [];
+        foreach (self::CHAT_TEMPLATES as $name => $label) {
+            $template = $gefunden->get($name);
+            if ($template !== null) {
+                $knoepfe[] = ['id' => (int) $template->id, 'label' => $label];
+            }
+        }
 
-                foreach ($components as $component) {
-                    if (($component['type'] ?? '') === 'HEADER'
-                        && str_contains((string) ($component['text'] ?? ''), '{{')) {
-                        return false;
-                    }
-                }
-
-                return true;
-            })
-            ->map(fn ($template) => ['id' => (int) $template->id, 'label' => (string) $template->name])
-            ->values()
-            ->all();
+        return $knoepfe;
     }
 
     /** Einzelnen Chat abhaken. Nur ueber threadForTeam() — nie eine fremde ID. */
@@ -779,6 +787,10 @@ class Inbox extends Component
             $templateId,
             $row->subjectType === 'applicant' ? $row->subjectId : null,
             Auth::user(),
+            // Beide angebotenen Vorlagen sprechen die Person mit Vornamen an;
+            // ohne ihn lehnt Meta den Versand ab (131008) und "Hallo ," waere
+            // ohnehin peinlich. Der Sender meldet den Fall verstaendlich.
+            $row->firstName,
         );
 
         if (!$result['ok']) {

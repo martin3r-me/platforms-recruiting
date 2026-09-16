@@ -88,6 +88,7 @@ final class ApplicantTemplateSender
         int $templateId,
         ?int $applicantId,
         mixed $sender,
+        ?string $firstName = null,
     ): array {
         $template = IntegrationsWhatsAppTemplate::find($templateId);
         if (!$template || $template->status !== 'APPROVED') {
@@ -129,6 +130,22 @@ final class ApplicantTemplateSender
                 return ['ok' => false, 'error' => $built['error']];
             }
             $components = $built['components'];
+        }
+
+        // Body-Platzhalter fuellen (z.B. {{name}}). Bisher schickte dieser
+        // Sender gar keine Body-Parameter — deshalb blendete die Knopfleiste
+        // Vorlagen mit Platzhaltern komplett aus. Genau die beiden gewuenschten
+        // Vorlagen (t_com_gen, t_work_on) tragen aber ein {{name}}, also baut
+        // der Sender die Parameter jetzt ueber denselben Baustein wie der
+        // Eingangsbestaetigungs-Versand.
+        $bodyComponents = HoldingTemplateComponents::build($templateComponents, (string) $firstName);
+        if ($bodyComponents !== []) {
+            if (HoldingTemplateComponents::hasEmptyRequiredParam($bodyComponents)) {
+                // Meta lehnt leere Pflicht-Parameter ab (131008) — und "Hallo ,"
+                // waere ohnehin peinlich. Lieber sagen, was fehlt.
+                return ['ok' => false, 'error' => 'Diese Vorlage spricht die Person mit Vornamen an — der Chat ist aber keinem Bewerber zugeordnet. Bitte zuerst zuordnen.'];
+            }
+            $components = array_merge($components, $bodyComponents);
         }
 
         try {
