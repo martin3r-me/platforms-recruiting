@@ -6,6 +6,7 @@
     $counts = $this->counts;
     $pills = [
         ['key' => 'unread', 'label' => 'Ungelesen', 'value' => $counts['unread'], 'class' => 'text-orange-600'],
+        ['key' => 'green',  'label' => 'Grün',      'value' => $counts['green'],  'class' => 'text-emerald-600'],
         ['key' => 'yellow', 'label' => 'Gelb',      'value' => $counts['yellow'], 'class' => 'text-amber-600'],
         ['key' => 'red',    'label' => 'Rot',       'value' => $counts['red'],    'class' => 'text-red-600'],
         ['key' => 'missed', 'label' => 'Verpasst',  'value' => $counts['missed'], 'class' => 'text-gray-700'],
@@ -202,7 +203,20 @@
                         // Re-Review-Fix: Zeitzone explizit mitgeben — Carbon 3
                         // liefert bei createFromTimestamp() sonst immer UTC
                         // (siehe Inbox::commsTimezone()-Docblock).
-                        $rowZeit = $row->lastMessageAt ? \Carbon\Carbon::createFromTimestamp($row->lastMessageAt, $this->commsTimezone)->format('H:i') : null;
+                        // Nur die Uhrzeit zu zeigen, war irrefuehrend: an einer
+                        // 175 Tage alten Zeile las sich "16:10" wie heute.
+                        // Heute -> Uhrzeit, gestern -> "Gestern", sonst Datum.
+                        $rowZeit = null;
+                        if ($row->lastMessageAt) {
+                            $rowZeitpunkt = \Carbon\Carbon::createFromTimestamp($row->lastMessageAt, $this->commsTimezone);
+                            if ($rowZeitpunkt->isToday()) {
+                                $rowZeit = $rowZeitpunkt->format('H:i');
+                            } elseif ($rowZeitpunkt->isYesterday()) {
+                                $rowZeit = 'Gestern';
+                            } else {
+                                $rowZeit = $rowZeitpunkt->format('d.m.y');
+                            }
+                        }
                     @endphp
                     <div wire:key="row-{{ $row->threadId }}"
                          class="flex items-stretch border-b border-gray-100 border-l-[3px] {{ $istGewaehlt ? 'border-l-gray-900 bg-gray-50' : 'border-l-transparent' }}">
