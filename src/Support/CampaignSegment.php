@@ -23,6 +23,14 @@ final class CampaignSegment
     public const RECENT_CAMPAIGN_DAYS = 14;
 
     /**
+     * Wer in diesem Fenster eine Wartelisten-Benachrichtigung („ein Termin ist
+     * frei geworden") bekam, ist default abgehakt — die Kampagne sagt ihm
+     * dasselbe. Kuerzer als RECENT_CAMPAIGN_DAYS, weil ein freier Platz
+     * schnell wieder weg ist: nach drei Tagen darf man nachfassen.
+     */
+    public const RECENT_WAITLIST_NOTICE_DAYS = 3;
+
+    /**
      * Ordnungszahl des Buchungsschritts der Stelle.
      *  - erste aktive Phase mit completion_type 'booking' → deren order
      *  - sonst erste aktive Phase mit completion_config.send_booking_notification_on_completion → order + 1
@@ -122,6 +130,20 @@ final class CampaignSegment
             $text = 'Warteliste seit ' . self::datum($in['waitlist']['enrolled_at'] ?? null);
             if (!empty($in['waitlist']['notified_at'])) {
                 $text .= ', benachrichtigt am ' . self::datum($in['waitlist']['notified_at']);
+
+                // Vorfall 15.09.2026: 70 Leute bekamen um 18:59 die
+                // Wartelisten-Nachricht „ein Termin ist frei geworden" und um
+                // 19:08 die Kampagne „Termine stehen zur Auswahl bereit" —
+                // zweimal dieselbe Aufforderung in neun Minuten. Wer gerade
+                // benachrichtigt wurde, ist deshalb nicht vorausgewaehlt; die
+                // Zeile bleibt sichtbar und waehlbar, HR entscheidet bewusst.
+                // Gleiche Mechanik wie last_campaign_at, nur kuerzeres Fenster:
+                // ein freier Platz ist verderbliche Ware.
+                $notified = new \DateTimeImmutable($in['waitlist']['notified_at']);
+                $now = new \DateTimeImmutable($in['now']);
+                if ($notified > $now->modify('-' . self::RECENT_WAITLIST_NOTICE_DAYS . ' days')) {
+                    $checked = false;
+                }
             }
             $badges[] = $text;
         }

@@ -20,6 +20,7 @@ use Platform\Recruiting\Models\RecAutoPilotState;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Support\AutoPilotSilentLog;
+use Platform\Recruiting\Support\MessageCooldown;
 use Platform\Recruiting\Support\SeatStandbyPolicy;
 use Platform\Recruiting\Support\DuplicateApplicantGuard;
 use Platform\Recruiting\Jobs\NotifyWaitlistForInterview;
@@ -184,6 +185,33 @@ class ProcessAutoPilotApplicants extends Command
             $phaseName = $applicant->phase?->name ?? '?';
             $this->logAutoPilot($applicant, 'silent', "Phase \"{$phaseName}\" ist als auto_pilot_disabled markiert — kein Template-Versand.");
             $this->info("  Phase still (auto_pilot_disabled) — kein Versand.");
+            return;
+        }
+
+        // 2b. Ruhefrist: hat ein FREMDER Sender (Kampagne, Warteliste) diese
+        // Person gerade erst angeschrieben, schweigt der Auto-Pilot. Seine
+        // eigene Taktung regelt weiterhin allein das Erinnerungs-Intervall —
+        // welche Log-Typen zaehlen und warum, steht in MessageCooldown.
+        //
+        // Vorfall 15.09.2026: die Kampagne „Neue Termine" schliesst beim
+        // Versand den offenen Ort-Wartelisten-Eintrag und loest damit genau die
+        // Bremse, die zwoelf Zeilen weiter oben steht. Weil sie bewusst kein
+        // Re-Arm macht (Kundenentscheid 28.08.), blieb auto_pilot_last_reminder_at
+        // auf dem alten, laengst faelligen Stand — die Erinnerung „wir warten
+        // noch auf deine Rueckmeldung" ging deshalb 8 bis 30 Sekunden hinter
+        // die Kampagnen-Nachricht raus, auf die sie sich bezog. 174 von 355
+        // Empfaengern des Buchungs-Templates traf es.
+        //
+        // Der Waechter steht bewusst VOR der Kanal-Aufloesung und vor beiden
+        // Sende-Zweigen (Erstkontakt wie Erinnerung): auch ein Erstkontakt
+        // direkt hinter einer Kampagne oder einer Wartelisten-Benachrichtigung
+        // ist eine Nachricht zu viel.
+        $cooldownHours = (int) $this->getEffectiveSetting($teamSettings, $positionSettings, MessageCooldown::SETTING_KEY, 24, $phaseSettings);
+        $lastOutboundAt = MessageCooldown::lastOutboundAt((int) $applicant->id);
+
+        if (MessageCooldown::blocks($lastOutboundAt, $cooldownHours, now()->format('Y-m-d H:i:s'))) {
+            $this->logAutoPilot($applicant, 'silent', "Ruhefrist: fremde Nachricht am {$lastOutboundAt}, {$cooldownHours} h Abstand — kein Versand.");
+            $this->info("  Ruhefrist bis " . Carbon::parse($lastOutboundAt)->addHours($cooldownHours)->format('d.m.Y H:i') . " — kein Versand.");
             return;
         }
 

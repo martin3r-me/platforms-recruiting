@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Platform\Recruiting\Support\MessageCooldown;
 
 class RecApplicantSettings extends Model
 {
@@ -34,6 +35,13 @@ class RecApplicantSettings extends Model
         'auto_pilot_wa_reminder_template_id' => null,
         'auto_pilot_reminder_interval_hours' => 24,
         'auto_pilot_max_reminders' => 3,
+        // Ruhefrist nach einer Nachricht von einem FREMDEN Sender an den
+        // Bewerber (Kampagne, Warteliste). Schuetzt vor dem Muster
+        // vom 15.09.2026: die Kampagne schloss die Ort-Warteliste, damit fiel
+        // die Auto-Pilot-Pause weg, und die faellige Erinnerung ging Sekunden
+        // hinter die Kampagnen-Nachricht raus (174 von 355 Empfaengern).
+        // Details in Support/MessageCooldown. 0 schaltet den Waechter ab.
+        MessageCooldown::SETTING_KEY => 24,
         'auto_start_auto_pilot' => false,
         'send_initial_whatsapp_template' => false,
         'enrichment_wa_template_id' => null,

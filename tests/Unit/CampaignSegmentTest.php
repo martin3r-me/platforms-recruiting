@@ -131,6 +131,19 @@ final class CampaignSegmentTest extends TestCase
                 ['phase_order' => 2, 'waitlist' => ['enrolled_at' => '2026-08-27 09:00:00', 'notified_at' => null]],
                 ['template' => 'B', 'selectable' => true, 'checked' => true, 'badges' => ['Warteliste seit 27.08.2026']],
             ],
+            // Vorfall 15.09.2026: wer um 18:59 „ein Termin ist frei geworden"
+            // bekam, bekam um 19:08 die Kampagne „Termine stehen zur Auswahl
+            // bereit" — zweimal dieselbe Aufforderung in neun Minuten. Frisch
+            // benachrichtigte Warteliste ist deshalb nicht mehr vorausgewaehlt
+            // (wie bei last_campaign_at); HR kann weiterhin bewusst anhaken.
+            'frisch benachrichtigte Warteliste → abgehakt' => [
+                ['phase_order' => 2, 'waitlist' => ['enrolled_at' => '2026-08-20 09:00:00', 'notified_at' => '2026-08-28 09:00:00']],
+                ['template' => 'B', 'selectable' => true, 'checked' => false, 'badges' => ['Warteliste seit 20.08.2026, benachrichtigt am 28.08.2026']],
+            ],
+            'Benachrichtigung aelter als das Fenster → wieder angehakt' => [
+                ['phase_order' => 2, 'waitlist' => ['enrolled_at' => '2026-08-20 09:00:00', 'notified_at' => '2026-08-24 09:00:00']],
+                ['template' => 'B', 'selectable' => true, 'checked' => true, 'badges' => ['Warteliste seit 20.08.2026, benachrichtigt am 24.08.2026']],
+            ],
             'ohne Phase → wie P1' => [
                 ['phase_order' => null],
                 ['template' => 'A', 'selectable' => true, 'checked' => true, 'badges' => ['Bewerbung unvollständig']],
