@@ -25,5 +25,13 @@ final class InboxRow
         public readonly int $siblingCount = 0,
         /** Unix-TS der letzten Nachricht (Eingang oder Ausgang, je spaeter). */
         public readonly ?int $lastMessageAt = null,
+        /** Beschriftung fuer $url — 'Bewerberakte' oder 'MA-Akte'. */
+        public readonly ?string $urlLabel = null,
+        /**
+         * Zweiter Link, wenn eine Person beide Akten hat: beim Mitarbeiter
+         * fuehrt er auf die urspruengliche Bewerbung. Sonst null.
+         */
+        public readonly ?string $secondaryUrl = null,
+        public readonly ?string $secondaryLabel = null,
     ) {}
 }

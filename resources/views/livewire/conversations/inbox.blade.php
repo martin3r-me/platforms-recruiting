@@ -360,7 +360,12 @@
                                 <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600">{{ $selOwnerName }}</span>
                             @endif
                             @if ($selRow->url)
-                                <a href="{{ $selRow->url }}" class="rounded bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:bg-blue-100" title="Akte öffnen">Akte öffnen ↗</a>
+                                {{-- Beschriftung sagt, WOHIN es geht: Mitarbeiter fuehren in
+                                     die MA-Akte, Bewerber in die Bewerberakte. --}}
+                                <a href="{{ $selRow->url }}" class="rounded bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:bg-blue-100" title="{{ $selRow->urlLabel ?? 'Akte' }} öffnen">{{ $selRow->urlLabel ?? 'Akte' }} ↗</a>
+                            @endif
+                            @if ($selRow->secondaryUrl)
+                                <a href="{{ $selRow->secondaryUrl }}" class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 hover:bg-gray-200" title="Ursprüngliche Bewerbung dieser Person öffnen">{{ $selRow->secondaryLabel }} ↗</a>
                             @endif
                         </div>
                         <div class="truncate text-xs text-gray-500 tabular-nums">{{ $selRow->phone }}</div>

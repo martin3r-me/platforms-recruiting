@@ -494,6 +494,9 @@ final class InboxQuery
             $firstName = null;
             $owner = null;
             $url = null;
+            $urlLabel = null;
+            $secondaryUrl = null;
+            $secondaryLabel = null;
             $subjectId = $row['context_model_id'];
             $contextLabel = null;
 
@@ -502,9 +505,21 @@ final class InboxQuery
                 $employee = $employees->get($subjectId);
                 $name = $employee ? trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) : null;
                 $firstName = $employee?->first_name;
-                $url = $employee && $employee->rec_applicant_id
-                    ? $this->safeRoute('recruiting.applicants.show', ['applicant' => $employee->rec_applicant_id])
-                    : ($employee ? $this->safeRoute('recruiting.employees.show', ['employee' => $subjectId]) : null);
+                // Mitarbeiter fuehren in die MITARBEITER-Akte. Der alte Dienst
+                // sprang bei Mitarbeitern mit Bewerbung bewusst auf die
+                // BEWERBER-Seite, weil dort der Chat lebte ("Deep-Link
+                // bevorzugt auf die Bewerber-Detailseite (dort lebt der
+                // Chat)"). Der Chat lebt jetzt hier — damit ist der Grund weg
+                // und der Sprung nur noch verwirrend.
+                $url = $employee ? $this->safeRoute('recruiting.employees.show', ['employee' => $subjectId]) : null;
+                $urlLabel = 'MA-Akte';
+
+                // Wer beides hat, bekommt beides: die urspruengliche Bewerbung
+                // als zweiten Link, statt sie zu verstecken.
+                if ($employee && $employee->rec_applicant_id) {
+                    $secondaryUrl = $this->safeRoute('recruiting.applicants.show', ['applicant' => $employee->rec_applicant_id]);
+                    $secondaryLabel = 'Bewerbung';
+                }
             } elseif (in_array($row['context_model'], [$applicantMorph, RecApplicant::class], true) && $subjectId !== null) {
                 $type = 'applicant';
                 $applicant = $applicants->get($subjectId);
@@ -513,6 +528,7 @@ final class InboxQuery
                 $firstName = $contact?->first_name;
                 $owner = $applicant?->owned_by_user_id;
                 $url = $applicant ? $this->safeRoute('recruiting.applicants.show', ['applicant' => $subjectId]) : null;
+                $urlLabel = 'Bewerberakte';
             } elseif ($row['context_model'] !== '' && !self::isBareContact($row['context_model'])) {
                 $contextLabel = $row['context_model'];
             }
@@ -532,6 +548,9 @@ final class InboxQuery
                 contextLabel: $contextLabel,
                 siblingCount: (int) $row['siblings'],
                 lastMessageAt: $row['last_message_at'] ?? null,
+                urlLabel: $urlLabel,
+                secondaryUrl: $secondaryUrl,
+                secondaryLabel: $secondaryLabel,
             );
         }
 
