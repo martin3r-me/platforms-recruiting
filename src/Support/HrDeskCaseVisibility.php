@@ -27,6 +27,14 @@ use Platform\Recruiting\Models\RecHrDeskCase;
  * Was weiter ausschliesst:
  *  - rejected_at: abgelehnt ist erledigt, da gibt es nichts freizugeben.
  *  - is_unrouted: ohne Stelle ist der Bewerber nicht im Funnel.
+ *  - ein vorhandener RecEmployee: wer eingestellt ist, hat den Funnel
+ *    verlassen und gehoert nicht in die Bewerber-Triage. Der Bewerber-
+ *    Datensatz lebt nach der MA-Anlage weiter (is_active=false nimmt ihn
+ *    nur aus dem Dashboard), also koennen Regeln noch Monate spaeter Faelle
+ *    an ihm eroeffnen — Fall #19 zwei Tage, Fall #34 sechs Wochen nach der
+ *    Einstellung. HrDeskRoutingService verhindert das inzwischen an der
+ *    Quelle; dieser Schnitt faengt die Altfaelle und alles, was kuenftig
+ *    an dem Guard vorbeikommt.
  *  - is_on_hr_desk=false: das Flag IST die Mitgliedschaft am Schreibtisch.
  *    Ein offener Fall ohne Flag ist ein inkonsistenter Zustand — alle
  *    Schliess-Pfade raeumen beides zusammen ab. Einzige bekannte Quelle ist
@@ -46,7 +54,8 @@ final class HrDeskCaseVisibility
         return $query
             ->where('is_on_hr_desk', true)
             ->whereNull('rejected_at')
-            ->where('is_unrouted', false);
+            ->where('is_unrouted', false)
+            ->whereDoesntHave('employee');
     }
 
     /** Offene Faelle eines Teams, neueste zuerst. */

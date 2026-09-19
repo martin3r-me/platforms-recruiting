@@ -62,6 +62,12 @@ final class HrDeskCaseVisibilityTest extends TestCase
             $t->timestamps();
         });
 
+        $schema->create('rec_employees', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_applicant_id')->nullable();
+            $t->timestamps();
+        });
+
         $schema->create('rec_hr_desk_cases', function ($t) {
             $t->increments('id');
             $t->string('uuid', 36)->nullable();
@@ -82,6 +88,7 @@ final class HrDeskCaseVisibilityTest extends TestCase
     protected function tearDown(): void
     {
         $this->capsule->schema()->drop('rec_hr_desk_cases');
+        $this->capsule->schema()->drop('rec_employees');
         $this->capsule->schema()->drop('rec_applicants');
         parent::tearDown();
     }
@@ -143,6 +150,38 @@ final class HrDeskCaseVisibilityTest extends TestCase
         $this->offenerFall(['is_on_hr_desk' => false]);
 
         $this->assertSame([], HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all());
+    }
+
+    /**
+     * Der Schreibtisch ist die Triage-Liste fuer BEWERBER. Wer schon einen
+     * Mitarbeiter-Datensatz hat, ist aus dem Funnel raus — sein Fall gehoert
+     * dort nicht hin, egal welche Flags am alten Bewerber-Datensatz haengen.
+     *
+     * Die beiden Realfaelle (19.09.2026): Fall #19 wurde zwei Tage NACH der
+     * MA-Anlage eroeffnet (der Bewerber fuellte danach noch das Onboarding-
+     * Formular aus, die Nicht-EU-Antwort loeste die Regel aus), Fall #34
+     * sogar sechs Wochen danach. Deshalb ist „bei der MA-Anlage schliessen"
+     * kein Ersatz fuer diesen Schnitt.
+     */
+    public function testBewerberMitMitarbeiterDatensatzErscheintNicht(): void
+    {
+        $fall = $this->offenerFall();
+        $this->capsule->table('rec_employees')->insert([
+            'rec_applicant_id' => $fall->rec_applicant_id,
+        ]);
+
+        $this->assertSame([], HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all());
+    }
+
+    /** Dieselbe Regel muss auch die Zaehler je Grund treffen. */
+    public function testZaehlerUebergehenBewerberMitMitarbeiterDatensatz(): void
+    {
+        $fall = $this->offenerFall();
+        $this->capsule->table('rec_employees')->insert([
+            'rec_applicant_id' => $fall->rec_applicant_id,
+        ]);
+
+        $this->assertSame(0, HrDeskCaseVisibility::applicants(self::TEAM)->count());
     }
 
     public function testGeschlossenerFallErscheintNicht(): void

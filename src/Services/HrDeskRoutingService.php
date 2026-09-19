@@ -184,8 +184,42 @@ class HrDeskRoutingService
         return null;
     }
 
-    public function routeToHrDesk(RecApplicant $applicant, string $reason, ?int $userId = null, ?string $notes = null): RecHrDeskCase
+    /**
+     * Legt den Fall an und setzt den Bewerber auf den Schreibtisch — ausser
+     * er ist laengst Mitarbeiter. Dann passiert nichts ausser einer
+     * Log-Zeile.
+     *
+     * Hintergrund: Der Bewerber-Datensatz lebt nach der MA-Anlage weiter,
+     * `is_active=false` nimmt ihn nur aus dem Dashboard. Phasen-Maschinerie,
+     * oeffentliches Formular und diese Regeln laufen unveraendert weiter und
+     * eroeffnen Faelle an Leuten, die den Funnel vor Monaten verlassen haben
+     * (Fall #19 zwei Tage, Fall #34 sechs Wochen nach der Einstellung). Auf
+     * einer Bewerber-Triage-Liste ist das nur Rauschen — der Schreibtisch hat
+     * keine Handlung fuer einen bestehenden Mitarbeiter.
+     *
+     * Die Log-Zeile bleibt bewusst: Schlaegt die Nicht-EU-Regel an einem
+     * Mitarbeiter an, heisst das, jemand wurde ohne geklaerten Rechtsstatus
+     * eingestellt. Diese Information darf nicht verschwinden, sie gehoert nur
+     * nicht in diese Liste.
+     *
+     * Rueckgabe null = uebergangen. Kein Aufrufer wertet den Rueckgabewert
+     * aus (geprueft 19.09.2026), routeIfNotAlreadyOpen gibt void zurueck.
+     */
+    public function routeToHrDesk(RecApplicant $applicant, string $reason, ?int $userId = null, ?string $notes = null): ?RecHrDeskCase
     {
+        $employeeId = $applicant->employee()->value('id');
+        if ($employeeId !== null) {
+            try {
+                RecAutoPilotLog::create([
+                    'rec_applicant_id' => $applicant->id,
+                    'type'             => 'hr_desk_routing_skipped',
+                    'summary'          => "Nicht auf den HR-Schreibtisch (Grund: {$reason}) — ist bereits Mitarbeiter #{$employeeId}.",
+                ]);
+            } catch (\Throwable) {}
+
+            return null;
+        }
+
         $applicant->update([
             'is_on_hr_desk' => true,
             'auto_pilot' => false,
