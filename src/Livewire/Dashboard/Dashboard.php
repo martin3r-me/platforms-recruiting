@@ -93,7 +93,11 @@ class Dashboard extends Component
         }
 
         if ($this->showHrDesk) {
-            $query->where('is_on_hr_desk', true)->where('is_parked', false);
+            // Geparkte NICHT ausschliessen: wer geparkt UND am Schreibtisch
+            // ist, faellt sonst durch beide Listen — die Parkplatz-Ansicht
+            // unten schliesst ihrerseits alle mit is_on_hr_desk=true aus.
+            // Genau so war Bewerber 1942 am 14.09.2026 nirgends sichtbar.
+            $query->where('is_on_hr_desk', true);
         } else {
             $query->where('is_on_hr_desk', false)->where('is_parked', $this->showParked);
         }

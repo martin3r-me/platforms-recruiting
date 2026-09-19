@@ -20,6 +20,7 @@ use Platform\Recruiting\Services\HrDeskRoutingService;
 use Platform\Recruiting\Services\IssueTrainingCertificateService;
 use Platform\Recruiting\Services\TrainingCertificateWhatsAppDelivery;
 use Platform\Recruiting\Support\CertificateIssuanceEligibility;
+use Platform\Recruiting\Support\HrDeskCaseVisibility;
 
 /**
  * HR-Schreibtisch — fokussierte Bewerber-Case-Liste.
@@ -28,6 +29,13 @@ use Platform\Recruiting\Support\CertificateIssuanceEligibility;
  * RecHrDeskCase. Pro Bewerber-Card sieht HR den Reason, Datum, Bewerber-
  * Details und kann den Case freigeben (= zurück in normalen Flow) oder
  * ablehnen (= rejected_at gesetzt).
+ *
+ * WELCHE Faelle erscheinen, entscheidet HrDeskCaseVisibility — eine
+ * Definition fuer Liste und Zaehler. Sonderzustaende des Bewerbers
+ * (stillgelegt, geparkt) blenden den Fall NICHT aus, sondern stehen als
+ * Badge an der Card: der Schreibtisch ist die einzige Stelle, an der ein
+ * Fall wieder freigegeben werden kann, und darf deshalb keinen
+ * verschlucken (zwei Faelle am 14.09.2026).
  *
  * Bewusst eigene Page statt Reuse vom Dashboard, weil die Aufgaben
  * unterschiedlich sind: Dashboard = Pipeline-/KPI-Sicht für laufende
@@ -59,12 +67,7 @@ class Index extends Component
     public function reasonCounts(): array
     {
         $teamId = (int) Auth::user()->currentTeam->id;
-        $base = RecApplicant::forTeam($teamId)
-            ->routed()
-            ->where('is_active', true)
-            ->where('is_parked', false)
-            ->where('is_on_hr_desk', true)
-            ->whereNull('rejected_at');
+        $base = HrDeskCaseVisibility::applicants($teamId);
 
         $counts = ['all' => (clone $base)->count()];
         foreach (RecHrDeskCase::REASON_LABELS as $reason => $label) {
@@ -80,9 +83,7 @@ class Index extends Component
     {
         $teamId = (int) Auth::user()->currentTeam->id;
 
-        $query = RecHrDeskCase::query()
-            ->forTeam($teamId)
-            ->open()
+        $query = HrDeskCaseVisibility::openCases($teamId)
             ->with([
                 'applicant.crmContactLinks.contact.emailAddresses',
                 'applicant.crmContactLinks.contact.phoneNumbers',
@@ -91,15 +92,7 @@ class Index extends Component
                 'applicant.legalStatus.additionalContractTemplate',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
-            ])
-            ->whereHas('applicant', function ($q) {
-                $q->where('is_active', true)
-                    ->where('is_parked', false)
-                    ->where('is_on_hr_desk', true)
-                    ->whereNull('rejected_at')
-                    ->where('is_unrouted', false);
-            })
-            ->orderBy('opened_at', 'desc');
+            ]);
 
         if ($this->reasonFilter !== 'all') {
             $query->where('reason', $this->reasonFilter);

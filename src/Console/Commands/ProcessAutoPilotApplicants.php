@@ -651,6 +651,12 @@ class ProcessAutoPilotApplicants extends Command
             // bei progress<100 wieder auf true — ohne diesen Filter bekämen
             // geblockte Fälle (z.B. Jugendschutz-Prüfung) weiter Templates.
             ->where('is_on_hr_desk', false)
+            // Geparkt = pausiert, aus demselben Grund: parkApplicant() setzt
+            // nur auto_pilot=false, und derselbe saving-Guard hebt das sofort
+            // wieder auf. Ohne diesen Filter ist „geparkt" reine Anzeige und
+            // die Person laeuft weiter (Fall 1942, 19.09.2026: is_parked=true
+            // UND auto_pilot=true in der Produktionsdatenbank).
+            ->where('is_parked', false)
             ->whereNull('auto_pilot_completed_at')
             ->whereNotNull('owned_by_user_id');
 

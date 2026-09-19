@@ -86,6 +86,13 @@
                         $position = $applicant?->postings->first()?->position;
                         $phase = $applicant?->phase;
                         $openedAtRel = $case->opened_at?->diffForHumans();
+                        // Sonderzustaende, die den Fall frueher aus dieser
+                        // Liste geworfen haben. Sie stehen jetzt als Badge da,
+                        // weil eine Freigabe sie NICHT aufhebt: der Bewerber
+                        // bleibt danach stillgelegt bzw. geparkt.
+                        $zustaende = $applicant
+                            ? \Platform\Recruiting\Support\HrDeskCaseVisibility::stateLabels($applicant)
+                            : [];
                     @endphp
 
                     <div class="border border-[var(--ui-border)]/60 rounded-lg p-5 bg-white hover:bg-[var(--ui-muted-5)]/40 transition-colors">
@@ -114,7 +121,19 @@
                                     ">
                                         {{ $case->reasonLabel() }}
                                     </span>
+                                    @foreach($zustaende as $zustand)
+                                        <span class="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+                                            {{ $zustand }}
+                                        </span>
+                                    @endforeach
                                 </div>
+
+                                @if($zustaende)
+                                    <p class="text-xs text-amber-700 mb-1.5">
+                                        Freigabe allein startet hier nichts: Der Bewerber bleibt
+                                        {{ implode(' und ', $zustaende) }} und wird vom AutoPilot weiter übersprungen.
+                                    </p>
+                                @endif
 
                                 <div class="text-sm text-[var(--ui-muted)] flex flex-wrap items-center gap-x-3 gap-y-1">
                                     @if($phase)
