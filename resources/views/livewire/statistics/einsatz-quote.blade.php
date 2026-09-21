@@ -33,6 +33,11 @@
     if ($offen > 0) {
         $quote = $imEinsatz / $offen;
         $farbe = $quote >= 0.7 ? 'text-emerald-700' : ($quote >= 0.4 ? 'text-amber-700' : 'text-red-700');
+    } elseif ($geklaert > 0) {
+        // Nichts offen, aber geklaert: das Grau bedeutet auf dieser Seite
+        // „noch nichts passiert“ und waere hier eine falsche Aussage — hier
+        // ist jeder Fall beantwortet, nur eben von Hand.
+        $farbe = 'text-teal-700';
     }
 
     $quoteText = $imEinsatz . '&nbsp;/&nbsp;' . $geklaert . '&nbsp;/&nbsp;' . $teilgenommen;

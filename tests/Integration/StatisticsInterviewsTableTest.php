@@ -543,6 +543,113 @@ class StatisticsInterviewsTableTest extends TestCase
         }
     }
 
+    /**
+     * Review-Befund 21.09.2026: ein Haken, der liegen bleibt, weil inzwischen
+     * ein Einsatz kam, darf nicht UNSICHTBAR liegen bleiben. Sonst versteckt er
+     * die Person still wieder, sobald die Zuweisung eines Tages wegfaellt
+     * (ZAS-Re-Import, Storno) — genau das „still verschwinden lassen", gegen
+     * das die ganze Regel gebaut ist.
+     */
+    public function test_liegengebliebener_haken_an_einer_einsatz_zeile_bleibt_sichtbar_und_loesbar(): void
+    {
+        try {
+            // 204 ist im Einsatz (drei Zuweisungen) und traegt trotzdem noch
+            // einen alten, dauerhaften Haken an seiner Buchung 403.
+            Capsule::table('rec_interview_bookings')->where('id', 403)->update([
+                'einsatz_geklaert_at' => '2026-08-01 09:00:00',
+                'einsatz_geklaert_note' => 'Wollte spaeter starten.',
+            ]);
+
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+            $cohort = $component->cohort();
+            $detail = $component->terminDetailFor(self::INTERVIEW_AUGUST, $cohort['termin_rows'], $cohort['einsatz_info']);
+            $person204 = collect($detail['personen'])->firstWhere('id', 204);
+            $this->assertSame('im_einsatz', $person204['topf'], 'der Einsatz gewinnt gegen den Haken');
+            $this->assertSame('Wollte spaeter starten.', $person204['geklaert_note'], 'die Notiz bleibt sichtbar');
+
+            // Neu SETZEN geht hier nicht — die Person steht nicht auf der
+            // Arbeitsliste, der Haken haette nichts zu klaeren.
+            $component->klaerungBookingId = 403;
+            $component->klaerungNote = 'Unsinn';
+            $component->klaerungWiedervorlage = '';
+            $component->saveKlaerung();
+            $this->assertNotSame('', $component->klaerungError);
+            $this->assertSame('Wollte spaeter starten.',
+                Capsule::table('rec_interview_bookings')->where('id', 403)->value('einsatz_geklaert_note'));
+
+            // LOESEN geht sehr wohl — sonst bliebe er fuer immer liegen.
+            $component->removeKlaerung(403);
+            $this->assertNull(Capsule::table('rec_interview_bookings')->where('id', 403)->value('einsatz_geklaert_at'));
+        } finally {
+            Capsule::table('rec_interview_bookings')->where('id', 403)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+        }
+    }
+
+    /**
+     * Review-Befund: die Schreib-Methoden sind gewoehnliche Livewire-Methoden.
+     * Dass die Ansicht den Knopf nur an der Arbeitsliste zeigt, ist keine
+     * Schranke — ein $wire.call auf eine No-Show-Buchung darf nichts stempeln.
+     */
+    public function test_haken_nur_an_der_arbeitsliste_nicht_an_beliebigen_buchungen(): void
+    {
+        try {
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+            // Buchung 401 gehoert zu 201: bestaetigt, nicht teilgenommen, also
+            // in keinem Einsatz-Topf.
+            $component->openKlaerung(401);
+            $this->assertNull($component->klaerungBookingId, 'kein Fenster fuer eine Zeile ohne Topf');
+
+            $component->klaerungBookingId = 401;
+            $component->klaerungNote = 'Unsinn';
+            $component->klaerungWiedervorlage = '';
+            $component->saveKlaerung();
+
+            $this->assertNotSame('', $component->klaerungError);
+            $this->assertNull(Capsule::table('rec_interview_bookings')->where('id', 401)->value('einsatz_geklaert_at'));
+        } finally {
+            Capsule::table('rec_interview_bookings')->where('id', 401)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+        }
+    }
+
+    /**
+     * Review-Befund: ein abgelaufenes Datum darf nicht vorbelegt werden — die
+     * Pruefung wuerde es im selben Atemzug ablehnen, und der Anwender muesste
+     * erst ein Feld leeren, das das Formular selbst gefuellt hat.
+     */
+    public function test_abgelaufene_wiedervorlage_wird_nicht_vorbelegt(): void
+    {
+        try {
+            Capsule::table('rec_interview_bookings')->where('id', 408)->update([
+                'einsatz_geklaert_at' => '2026-08-01 09:00:00',
+                'einsatz_geklaert_note' => 'Wollte Mitte August starten.',
+                'einsatz_wiedervorlage_am' => '2026-08-15',
+            ]);
+
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+            $component->openKlaerung(408);
+
+            $this->assertSame(408, $component->klaerungBookingId);
+            $this->assertSame('Wollte Mitte August starten.', $component->klaerungNote, 'der Grund hilft beim Neusetzen');
+            $this->assertSame('', $component->klaerungWiedervorlage, 'das vergangene Datum nicht');
+        } finally {
+            $this->raeumeKlaerungAb();
+        }
+    }
+
     private function raeumeKlaerungAb(): void
     {
         Capsule::table('rec_interview_bookings')->where('id', 408)->update([

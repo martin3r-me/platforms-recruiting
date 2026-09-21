@@ -1928,6 +1928,19 @@ class Index extends Component
 
     public const KLAERUNG_NOTE_MAX = 500;
 
+    /**
+     * Toepfe, in denen ein Haken ueberhaupt etwas zu klaeren hat. „Nicht
+     * pruefbar" ist ein anderer Arbeitsauftrag (Mitarbeiter anlegen,
+     * Personalnummer nachtragen), und wer teilgenommen hat, aber in keinem
+     * Einsatz-Topf steht (No-Show, aussortiert, noch gebucht), stellt die
+     * Frage gar nicht.
+     *
+     * Die Ansicht zeigt den Knopf ohnehin nur hier — aber die Schreib-Methoden
+     * sind gewoehnliche Livewire-Methoden, und was die Blade nicht rendert,
+     * kann ein $wire.call trotzdem rufen. Die Schranke gehoert deshalb hierher.
+     */
+    private const KLAERBARE_TOEPFE = ['ohne_einsatz', 'geklaert'];
+
     /** @return ?array Person aus der Liste des geoeffneten Modals */
     private function klaerbarePerson(int $bookingId): ?array
     {
@@ -1944,10 +1957,20 @@ class Index extends Component
         return null;
     }
 
+    /** Person, an der ein Haken GESETZT werden darf (Topf-Schranke). */
+    private function abhakbarePerson(int $bookingId): ?array
+    {
+        $person = $this->klaerbarePerson($bookingId);
+
+        return ($person !== null && in_array($person['topf'] ?? null, self::KLAERBARE_TOEPFE, true))
+            ? $person
+            : null;
+    }
+
     public function openKlaerung(int $bookingId): void
     {
         $this->klaerungError = '';
-        $person = $this->klaerbarePerson($bookingId);
+        $person = $this->abhakbarePerson($bookingId);
         if ($person === null) {
             $this->klaerungBookingId = null;
 
@@ -1955,10 +1978,14 @@ class Index extends Component
         }
 
         // Vorbelegt mit dem, was schon dasteht: „bearbeiten" ist derselbe Weg
-        // wie „neu setzen", nur mit gefuelltem Formular.
+        // wie „neu setzen", nur mit gefuelltem Formular. Ein VERGANGENES
+        // Wiedervorlage-Datum kommt aber nicht mit — die Pruefung unten wuerde
+        // es im selben Atemzug ablehnen, und der Anwender muesste erst ein
+        // Feld leeren, das das Formular selbst gefuellt hat.
         $this->klaerungBookingId = $bookingId;
         $this->klaerungNote = (string) ($person['geklaert_note'] ?? '');
-        $this->klaerungWiedervorlage = (string) ($person['geklaert_wiedervorlage'] ?? '');
+        $wiedervorlage = (string) ($person['geklaert_wiedervorlage'] ?? '');
+        $this->klaerungWiedervorlage = $wiedervorlage > now()->toDateString() ? $wiedervorlage : '';
     }
 
     public function closeKlaerung(): void
@@ -1973,8 +2000,8 @@ class Index extends Component
     {
         $this->klaerungError = '';
         $bookingId = $this->klaerungBookingId;
-        if ($bookingId === null || $this->klaerbarePerson($bookingId) === null) {
-            $this->klaerungError = 'Diese Buchung gehört nicht zu dieser Schulung.';
+        if ($bookingId === null || $this->abhakbarePerson($bookingId) === null) {
+            $this->klaerungError = 'Für diese Buchung ist in dieser Schulung nichts zu klären.';
             $this->klaerungBookingId = null;
 
             return;
@@ -2018,6 +2045,12 @@ class Index extends Component
         $this->closeKlaerung();
     }
 
+    /**
+     * Loesen darf man JEDEN Haken der Liste, auch den an einer Zeile, die
+     * inzwischen im Einsatz ist: so einer bleibt sonst unsichtbar liegen und
+     * versteckt die Person still wieder, sobald die Zuweisung eines Tages
+     * wegfaellt (ZAS-Re-Import, Storno). Setzen ist enger als Loesen.
+     */
     public function removeKlaerung(int $bookingId): void
     {
         $this->klaerungError = '';

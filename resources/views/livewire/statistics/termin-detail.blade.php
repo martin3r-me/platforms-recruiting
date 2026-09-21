@@ -162,18 +162,34 @@
                                           title="Nicht teilgenommen — der Dispo-Abgleich zählt nur Bestandene.">–</span>
                                 @endif
                             </td>
-                            {{-- KLAERUNG: abhaken kann nur, wer eine Buchung an
+                            {{-- KLAERUNG. Abhaken kann nur, wer eine Buchung an
                                  DIESEM Termin hat und in der Nachverfolgung steht
-                                 (ohne Einsatz) oder bereits abgehakt ist. „Nicht
+                                 („ohne Einsatz“) oder schon abgehakt ist. „Nicht
                                  prüfbar“ ist ein anderer Arbeitsauftrag (Mitarbeiter
                                  anlegen, Personalnummer nachtragen) und bekommt
-                                 deshalb keinen Haken. --}}
+                                 deshalb keinen Haken.
+
+                                 Ein Haken, der LIEGEN GEBLIEBEN ist, weil inzwischen
+                                 ein Einsatz kam, wird trotzdem gezeigt — unsichtbar
+                                 würde er die Person still wieder verstecken, sobald
+                                 die Zuweisung eines Tages wegfällt. Lösen geht
+                                 deshalb immer, neu setzen nur auf der Arbeitsliste
+                                 (dieselbe Schranke sitzt in der Komponente). --}}
+                            @php
+                                $klaerbar = in_array($person['topf'], ['ohne_einsatz', 'geklaert'], true);
+                                $hatNotiz = ($person['geklaert_note'] ?? null) !== null;
+                            @endphp
                             <td class="px-3 py-2 text-xs">
-                                @if ($person['booking_id'] === null || !in_array($person['topf'], ['ohne_einsatz', 'geklaert'], true))
+                                @if ($person['booking_id'] === null || (!$klaerbar && !$hatNotiz))
                                     <span class="text-[color:var(--ui-muted)]">–</span>
                                 @elseif ($person['geklaert'])
                                     <div class="space-y-0.5">
-                                        <div class="font-medium text-teal-800">✓ geklärt</div>
+                                        @if ($klaerbar)
+                                            <div class="font-medium text-teal-800">✓ geklärt</div>
+                                        @else
+                                            <div class="font-medium text-[color:var(--ui-muted)]"
+                                                 title="Der Haken wirkt nicht mehr — die Person ist im Einsatz. Er bliebe aber liegen und würde wieder greifen, wenn die Zuweisung wegfällt.">✓ geklärt (nicht mehr nötig)</div>
+                                        @endif
                                         <div class="text-[11px] text-[color:var(--ui-secondary)]">{{ $person['geklaert_note'] }}</div>
                                         @if ($person['geklaert_wiedervorlage'] !== null)
                                             <div class="text-[11px] text-[color:var(--ui-muted)]">
@@ -181,17 +197,19 @@
                                             </div>
                                         @endif
                                         <div class="flex gap-2 text-[11px]">
-                                            <button type="button" class="underline"
-                                                    wire:click="openKlaerung({{ $person['booking_id'] }})">bearbeiten</button>
+                                            @if ($klaerbar)
+                                                <button type="button" class="underline"
+                                                        wire:click="openKlaerung({{ $person['booking_id'] }})">bearbeiten</button>
+                                            @endif
                                             <button type="button" class="underline text-orange-700"
                                                     wire:click="removeKlaerung({{ $person['booking_id'] }})">Haken entfernen</button>
                                         </div>
                                     </div>
-                                @else
+                                @elseif ($klaerbar)
                                     <div class="space-y-1">
-                                        @if (($person['geklaert_note'] ?? null) !== null)
+                                        @if ($hatNotiz)
                                             {{-- Abgelaufen: der Fall steht wieder auf der Liste, die
-                                                 alte Begruendung bleibt aber lesbar — sonst raetselt
+                                                 alte Begründung bleibt aber lesbar — sonst rätselt
                                                  man beim Wiedersehen, was damals besprochen war. --}}
                                             <div class="text-[11px] text-[color:var(--ui-muted)]">
                                                 Klärung abgelaufen: {{ $person['geklaert_note'] }}
@@ -201,6 +219,17 @@
                                                 class="rounded-full border border-[var(--ui-border)] px-2 py-0.5 text-[11px] font-medium hover:bg-[var(--ui-muted-5)] cursor-pointer"
                                                 title="Grund festhalten und den Fall von der Arbeitsliste nehmen."
                                                 wire:click="openKlaerung({{ $person['booking_id'] }})">abhaken</button>
+                                    </div>
+                                @else
+                                    {{-- Abgelaufener Haken an einer Zeile, die gar nicht
+                                         mehr auf der Arbeitsliste steht: nur noch lesen und
+                                         wegräumen. --}}
+                                    <div class="space-y-1">
+                                        <div class="text-[11px] text-[color:var(--ui-muted)]">
+                                            Alte Klärung: {{ $person['geklaert_note'] }}
+                                        </div>
+                                        <button type="button" class="underline text-[11px] text-orange-700"
+                                                wire:click="removeKlaerung({{ $person['booking_id'] }})">Haken entfernen</button>
                                     </div>
                                 @endif
                             </td>

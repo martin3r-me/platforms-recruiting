@@ -397,6 +397,14 @@ class StatisticsTablesRenderTest extends TestCase
             $this->assertStringContainsString('0&nbsp;/&nbsp;1&nbsp;/&nbsp;1', $mitHaken,
                 'mit Haken wandert der Teilnehmer in die mittlere Zahl');
             $this->assertStringContainsString('geklärt', $mitHaken, 'der Tooltip benennt die neue Zahl');
+            // Alles geklärt, nichts mehr offen: die Zelle darf NICHT in das
+            // Grau fallen, das „noch nichts passiert" bedeutet (Review-Befund).
+            $this->assertStringContainsString('text-teal-700', $mitHaken);
+            $this->assertStringNotContainsString(
+                'text-xs font-semibold text-[color:var(--ui-muted)] bg-[var(--ui-muted-5)]',
+                $mitHaken,
+                'kein „noch nichts passiert"-Grau, wenn alles geklärt ist',
+            );
 
             // Und die Tabelle bleibt heil: EINE Einsatz-Spalte, Spaltenzahl stimmt.
             $counts = $this->columnCounts($mitHaken);
@@ -487,6 +495,51 @@ class StatisticsTablesRenderTest extends TestCase
                 'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
                 'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
             ]);
+            Capsule::table('rec_employees')->where('id', 9601)->delete();
+        }
+    }
+
+    /**
+     * Review-Befund 21.09.2026: kam inzwischen ein Einsatz, gewinnt der Einsatz —
+     * der alte Haken darf aber nicht unsichtbar liegen bleiben, sonst versteckt
+     * er die Person still wieder, wenn die Zuweisung eines Tages wegfaellt.
+     */
+    public function test_liegengebliebener_haken_ist_auch_im_einsatz_sichtbar(): void
+    {
+        try {
+            Capsule::table('rec_employees')->insert([
+                'id' => 9601, 'uuid' => 'remp-9601', 'team_id' => self::TEAM,
+                'rec_applicant_id' => 601, 'personnel_number' => 'RG9601',
+                'created_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 10:00:00',
+            ]);
+            Capsule::table('rec_dispo_events')->insert([
+                'id' => 9700, 'uuid' => 'rdev-9700', 'einsatz_ref' => 'RG-EV-9700',
+                'created_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 10:00:00',
+            ]);
+            Capsule::table('rec_dispo_assignments')->insert([
+                'id' => 9701, 'uuid' => 'rda-9701', 'ds_ref' => 'DS-9701',
+                'rec_dispo_event_id' => 9700, 'pnr_raw' => 'RG9601', 'rec_employee_id' => 9601,
+                'datum' => '2026-09-05', 'status_id' => 1,
+                'created_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 10:00:00',
+            ]);
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => '2026-08-01 09:00:00',
+                'einsatz_geklaert_note' => 'Wollte spaeter starten.',
+            ]);
+
+            $html = $this->renderTerminDetail('im_einsatz');
+
+            $this->assertStringContainsString('1 im Einsatz', $html);
+            $this->assertStringContainsString('Wollte spaeter starten.', $html, 'der Haken bleibt lesbar');
+            $this->assertStringContainsString('removeKlaerung(801)', $html, 'und laesst sich loesen');
+            $this->assertStringNotContainsString('openKlaerung(801)', $html, 'neu setzen waere hier sinnlos');
+        } finally {
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+            Capsule::table('rec_dispo_assignments')->where('id', 9701)->delete();
+            Capsule::table('rec_dispo_events')->where('id', 9700)->delete();
             Capsule::table('rec_employees')->where('id', 9601)->delete();
         }
     }
