@@ -1883,6 +1883,11 @@ class Index extends Component
                 // Haken wird NICHT versteckt — die Notiz bleibt lesbar, der
                 // Mensch steht nur wieder in der Arbeitsliste.
                 'booking_id' => $buchung !== null ? (int) $buchung->id : null,
+                // Ob ueberhaupt ein Haken sitzt — UNABHAENGIG davon, ob er noch
+                // gilt und ob jemand eine Begruendung dazugeschrieben hat. Die
+                // Ansicht haengte das frueher an der Notiz auf; seit die
+                // optional ist, waere ein Haken ohne Notiz sonst unsichtbar.
+                'hat_klaerung' => $buchung?->einsatz_geklaert_at !== null,
                 'geklaert' => $buchung !== null && EinsatzClarification::isActive(
                     $buchung->einsatz_geklaert_at?->toDateTimeString(),
                     $buchung->einsatz_wiedervorlage_am?->format('Y-m-d'),
@@ -2025,12 +2030,10 @@ class Index extends Component
             return;
         }
 
+        // Die Begruendung ist OPTIONAL (Kundenwunsch 21.09.2026). Leer heisst
+        // wirklich leer — nur Leerzeichen sind keine Notiz und werden nicht als
+        // eine gespeichert.
         $note = trim($this->klaerungNote);
-        if ($note === '') {
-            $this->klaerungError = 'Bitte kurz festhalten, was geklärt ist — die Notiz ist später die einzige Erklärung.';
-
-            return;
-        }
         if (mb_strlen($note) > self::KLAERUNG_NOTE_MAX) {
             $this->klaerungError = 'Die Notiz ist zu lang (höchstens ' . self::KLAERUNG_NOTE_MAX . ' Zeichen).';
 
@@ -2054,7 +2057,7 @@ class Index extends Component
             ->where('id', $bookingId)
             ->update([
                 'einsatz_geklaert_at' => now(),
-                'einsatz_geklaert_note' => $note,
+                'einsatz_geklaert_note' => $note !== '' ? $note : null,
                 'einsatz_wiedervorlage_am' => $wiedervorlage !== '' ? $wiedervorlage : null,
                 'einsatz_geklaert_by' => auth()->id(),
             ]);
@@ -2063,11 +2066,12 @@ class Index extends Component
             (int) $person['id'],
             $bookingId,
             'einsatz_klaerung_gesetzt',
-            'Klärung „ohne Einsatz" gesetzt von ' . $this->handelnderName() . ': „' . $note . '"'
+            'Klärung „ohne Einsatz" gesetzt von ' . $this->handelnderName()
+                . ($note !== '' ? ': „' . $note . '"' : ' — ohne Begründung')
                 . ($wiedervorlage !== ''
                     ? ' — wieder auf der Arbeitsliste ab ' . \Illuminate\Support\Carbon::parse($wiedervorlage)->format('d.m.Y') . '.'
                     : ' — dauerhaft, bis jemand den Haken entfernt.'),
-            ['note' => $note, 'wiedervorlage' => $wiedervorlage !== '' ? $wiedervorlage : null],
+            ['note' => $note !== '' ? $note : null, 'wiedervorlage' => $wiedervorlage !== '' ? $wiedervorlage : null],
         );
 
         $this->forgetTerminDetail();

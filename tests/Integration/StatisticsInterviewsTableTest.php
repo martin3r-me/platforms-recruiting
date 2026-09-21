@@ -433,7 +433,13 @@ class StatisticsInterviewsTableTest extends TestCase
         }
     }
 
-    public function test_haken_ohne_notiz_wird_abgelehnt(): void
+    /**
+     * Die Begruendung ist OPTIONAL (Kundenwunsch 21.09.2026, gegen meinen
+     * urspruenglichen Vorschlag): manchmal will HR nur schnell abhaken. Der
+     * Haken wirkt dann genauso — in der Akte steht danach eben nur, WER
+     * abgehakt hat, nicht warum.
+     */
+    public function test_haken_ohne_notiz_ist_erlaubt(): void
     {
         try {
             $component = $this->component('Essen');
@@ -444,11 +450,57 @@ class StatisticsInterviewsTableTest extends TestCase
             $component->klaerungNote = '   ';
             $component->saveKlaerung();
 
-            $this->assertNotSame('', $component->klaerungError, 'ohne Begruendung kein Haken');
-            $this->assertSame(408, $component->klaerungBookingId, 'das Fenster bleibt offen');
-            $this->assertNull(Capsule::table('rec_interview_bookings')->where('id', 408)->value('einsatz_geklaert_at'));
+            $this->assertSame('', $component->klaerungError);
+            $this->assertNull($component->klaerungBookingId, 'das Fenster ist zu');
+
+            $booking = Capsule::table('rec_interview_bookings')->where('id', 408)->first();
+            $this->assertNotNull($booking->einsatz_geklaert_at, 'der Haken sitzt');
+            $this->assertNull($booking->einsatz_geklaert_note, 'nur Leerzeichen sind keine Notiz');
+
+            // Der Akten-Eintrag sagt ehrlich, dass keine Begruendung da ist —
+            // eine leere Anfuehrungszeichen-Huelse waere schlechter als der Satz.
+            $log = Capsule::table('rec_auto_pilot_logs')
+                ->where('rec_applicant_id', 208)->where('type', 'einsatz_klaerung_gesetzt')->first();
+            $this->assertNotNull($log);
+            $this->assertStringContainsString('ohne Begründung', $log->summary);
         } finally {
             $this->raeumeKlaerungAb();
+        }
+    }
+
+    /**
+     * Ein Haken OHNE Notiz darf genauso wenig unsichtbar liegen bleiben wie
+     * einer mit (Review-Befund vom 21.09.). Die Ansicht haengte den Fall
+     * vorher an der Notiz auf — ohne sie waere er wieder verschwunden.
+     */
+    public function test_haken_ohne_notiz_bleibt_an_einer_einsatz_zeile_sichtbar(): void
+    {
+        try {
+            Capsule::table('rec_interview_bookings')->where('id', 403)->update([
+                'einsatz_geklaert_at' => '2026-08-01 09:00:00',
+                'einsatz_geklaert_note' => null,
+            ]);
+
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+            $cohort = $component->cohort();
+            $detail = $component->terminDetailFor(self::INTERVIEW_AUGUST, $cohort['termin_rows'], $cohort['einsatz_info']);
+            $person204 = collect($detail['personen'])->firstWhere('id', 204);
+
+            $this->assertSame('im_einsatz', $person204['topf']);
+            $this->assertTrue($person204['hat_klaerung'], 'der Haken existiert, auch ohne Begruendung');
+            $this->assertNull($person204['geklaert_note']);
+
+            $component->removeKlaerung(403);
+            $this->assertNull(Capsule::table('rec_interview_bookings')->where('id', 403)->value('einsatz_geklaert_at'));
+        } finally {
+            Capsule::table('rec_interview_bookings')->where('id', 403)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+            Capsule::table('rec_auto_pilot_logs')->where('rec_applicant_id', 204)->delete();
         }
     }
 

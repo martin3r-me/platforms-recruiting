@@ -177,10 +177,14 @@
                                  (dieselbe Schranke sitzt in der Komponente). --}}
                             @php
                                 $klaerbar = in_array($person['topf'], ['ohne_einsatz', 'geklaert'], true);
+                                // Am HAKEN aufgehaengt, nicht an der Notiz: die ist
+                                // optional, und ein Haken ohne Begründung wäre sonst
+                                // unsichtbar (und damit unlösbar).
+                                $hatKlaerung = $person['hat_klaerung'];
                                 $hatNotiz = ($person['geklaert_note'] ?? null) !== null;
                             @endphp
                             <td class="px-3 py-2 text-xs">
-                                @if ($person['booking_id'] === null || (!$klaerbar && !$hatNotiz))
+                                @if ($person['booking_id'] === null || (!$klaerbar && !$hatKlaerung))
                                     <span class="text-[color:var(--ui-muted)]">–</span>
                                 @elseif ($person['geklaert'])
                                     <div class="space-y-0.5">
@@ -190,7 +194,9 @@
                                             <div class="font-medium text-[color:var(--ui-muted)]"
                                                  title="Der Haken wirkt nicht mehr — die Person ist im Einsatz. Er bliebe aber liegen und würde wieder greifen, wenn die Zuweisung wegfällt.">✓ geklärt (nicht mehr nötig)</div>
                                         @endif
-                                        <div class="text-[11px] text-[color:var(--ui-secondary)]">{{ $person['geklaert_note'] }}</div>
+                                        @if ($hatNotiz)
+                                            <div class="text-[11px] text-[color:var(--ui-secondary)]">{{ $person['geklaert_note'] }}</div>
+                                        @endif
                                         @php
                                             $herkunft = trim(implode(' · ', array_filter([
                                                 $person['geklaert_von'],
@@ -216,12 +222,12 @@
                                     </div>
                                 @elseif ($klaerbar)
                                     <div class="space-y-1">
-                                        @if ($hatNotiz)
+                                        @if ($hatKlaerung)
                                             {{-- Abgelaufen: der Fall steht wieder auf der Liste, die
                                                  alte Begründung bleibt aber lesbar — sonst rätselt
                                                  man beim Wiedersehen, was damals besprochen war. --}}
                                             <div class="text-[11px] text-[color:var(--ui-muted)]">
-                                                Klärung abgelaufen: {{ $person['geklaert_note'] }}
+                                                Klärung abgelaufen{{ $hatNotiz ? ': ' . $person['geklaert_note'] : ' (ohne Begründung)' }}
                                             </div>
                                         @endif
                                         <button type="button"
@@ -235,7 +241,7 @@
                                          wegräumen. --}}
                                     <div class="space-y-1">
                                         <div class="text-[11px] text-[color:var(--ui-muted)]">
-                                            Alte Klärung: {{ $person['geklaert_note'] }}
+                                            Alte Klärung{{ $hatNotiz ? ': ' . $person['geklaert_note'] : ' (ohne Begründung)' }}
                                         </div>
                                         <button type="button" class="underline text-[11px] text-orange-700"
                                                 wire:click="removeKlaerung({{ $person['booking_id'] }})">Haken entfernen</button>
@@ -251,7 +257,7 @@
                                 <td colspan="{{ $versandSpalten }}" class="px-3 py-3">
                                     <div class="space-y-2">
                                         <label class="block text-xs font-medium text-[color:var(--ui-secondary)]">
-                                            Was ist geklärt? <span class="text-orange-700">*</span>
+                                            Was ist geklärt? <span class="font-normal text-[color:var(--ui-muted)]">(optional)</span>
                                             <input type="text" maxlength="500" wire:model="klaerungNote"
                                                    placeholder="z. B. fängt erst im Oktober an — mit der Dispo besprochen"
                                                    class="mt-1 w-full rounded border border-[var(--ui-border)] px-2 py-1 text-sm" />
