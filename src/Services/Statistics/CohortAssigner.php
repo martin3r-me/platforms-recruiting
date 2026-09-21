@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Statistics;
 
 use Platform\Recruiting\Support\BookingStatusGroups;
+use Platform\Recruiting\Support\EinsatzClarification;
 use Platform\Recruiting\Support\SeatStandbyPolicy;
 
 /**
@@ -29,7 +30,8 @@ use Platform\Recruiting\Support\SeatStandbyPolicy;
  *     columns: array{kontaktiert:list<int>, gebucht:list<int>, bestaetigt:list<int>,
  *                    teilgenommen:list<int>, standby:list<int>, no_show:list<int>, aussortiert:list<int>,
  *                    vertrag_verschickt:list<int>, unterschrieben:list<int>,
- *                    im_einsatz:list<int>, ohne_einsatz:list<int>, einsatz_unpruefbar:list<int>,
+ *                    im_einsatz:list<int>, geklaert:list<int>, ohne_einsatz:list<int>,
+ *                    einsatz_unpruefbar:list<int>,
  *                    phase_reached:array<int,list<int>>},
  *                    // phase_reached[$order] = Bewerbungen, die die Phase mit dieser
  *                    // order erreicht haben — KUMULATIV und lueckenlos von 1 an, und
@@ -131,7 +133,8 @@ final class CohortAssigner
                         'kontaktiert' => [], 'gebucht' => [], 'bestaetigt' => [],
                         'teilgenommen' => [], 'standby' => [], 'no_show' => [], 'aussortiert' => [],
                         'vertrag_verschickt' => [], 'unterschrieben' => [],
-                        'im_einsatz' => [], 'ohne_einsatz' => [], 'einsatz_unpruefbar' => [],
+                        'im_einsatz' => [], 'geklaert' => [], 'ohne_einsatz' => [],
+                        'einsatz_unpruefbar' => [],
                         'phase_reached' => [],
                     ],
                 ];
@@ -208,12 +211,22 @@ final class CohortAssigner
                     // ZAS-Personalnummer des Mitarbeiters; ohne MA oder ohne
                     // PersNr ist die Frage nicht pruefbar und darf NICHT still
                     // als „ohne Einsatz" zaehlen).
-                    match ($a['einsatz'] ?? null) {
-                        'deployed' => $row['columns']['im_einsatz'][] = $a['id'],
-                        'none' => $row['columns']['ohne_einsatz'][] = $a['id'],
-                        'unverifiable' => $row['columns']['einsatz_unpruefbar'][] = $a['id'],
-                        default => null,
-                    };
+                    //
+                    // Vierter Topf „geklaert" (21.09.2026): der Haken an der
+                    // BUCHUNG nimmt einen Menschen aus der Arbeitsliste, ohne
+                    // ihn zum Einsatz zu machen. Ob der Haken heute noch gilt
+                    // (Wiedervorlage), hat der Aufrufer entschieden — hier
+                    // kommt nur das Flag an, wie bei 'confirmed'. Die
+                    // Zuordnung selbst liegt in EinsatzClarification::topf,
+                    // damit es fuer „Einsatz schlaegt Haken" genau eine
+                    // Quelle gibt.
+                    $topf = EinsatzClarification::topf(
+                        $a['einsatz'] ?? null,
+                        (bool) ($booking['geklaert'] ?? false),
+                    );
+                    if ($topf !== null) {
+                        $row['columns'][$topf][] = $a['id'];
+                    }
                 }
                 if ($booking['status'] === 'no_show') { $row['columns']['no_show'][] = $a['id']; }
                 if ($booking['status'] === 'rejected_on_site') { $row['columns']['aussortiert'][] = $a['id']; }

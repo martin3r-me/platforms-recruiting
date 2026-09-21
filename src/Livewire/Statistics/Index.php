@@ -13,6 +13,7 @@ use Platform\Recruiting\Jobs\SendNoAssignmentCampaign;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecInterview;
+use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPhase;
 use Platform\Recruiting\Models\RecPhaseTransition;
 use Platform\Recruiting\Models\RecPosition;
@@ -26,6 +27,8 @@ use Platform\Recruiting\Services\Statistics\CohortViewModel;
 use Platform\Recruiting\Services\Statistics\EinsatzLookup;
 use Platform\Recruiting\Services\Statistics\TargetLight;
 use Platform\Recruiting\Support\CampaignSegment;
+use Platform\Recruiting\Support\EinsatzClarification;
+use Platform\Recruiting\Support\YmdDate;
 
 /**
  * Statistik-Seite (Spec §3/§4): duenne Livewire-Schale um den CohortAssigner.
@@ -477,6 +480,11 @@ class Index extends Component
         $einsatzLookup = EinsatzLookup::for($teamId, $applicants);
         $einsatzFlag = fn (int $applicantId): string => $einsatzLookup->flag($applicantId);
 
+        // Bezugstag der Klaerungs-Haken (21.09.2026): EINMAL fuer den ganzen
+        // Durchlauf, damit nicht die eine Buchung gegen 23:59:59 und die
+        // naechste gegen den Folgetag geprueft wird.
+        $heuteYmd = now()->toDateString();
+
         $rows = [];
         $bookings = [];
         $pivots = [];
@@ -537,6 +545,15 @@ class Index extends Component
                 'seat_released' => $b->seat_released_at !== null,
                 // Stempel statt Status: ueberlebt attended/no_show (siehe Model)
                 'confirmed' => $b->confirmed_at !== null,
+                // Klaerung (21.09.2026): der Haken nimmt einen Teilnehmer aus
+                // der Arbeitsliste „ohne Einsatz", ohne ihn zum Einsatz zu
+                // machen. Ob er HEUTE noch gilt, entscheidet die Regel — der
+                // Assigner bekommt nur das fertige Flag.
+                'geklaert' => EinsatzClarification::isActive(
+                    $b->einsatz_geklaert_at?->toDateTimeString(),
+                    $b->einsatz_wiedervorlage_am?->format('Y-m-d'),
+                    $heuteYmd,
+                ),
                 'starts_at' => $b->interview?->starts_at?->toDateTimeString(),
                 // heute identisch mit false (kein withTrashed) — aber
                 // selbstkorrigierend, falls die Relation je geaendert wird
@@ -1776,7 +1793,7 @@ class Index extends Component
         $vm = $this->viewModel();
         $rows = $vm->interviewCohorts($terminRows)[$interviewId]['rows'] ?? [];
 
-        $spalten = ['ids', 'teilgenommen', 'im_einsatz', 'ohne_einsatz', 'einsatz_unpruefbar',
+        $spalten = ['ids', 'teilgenommen', 'im_einsatz', 'geklaert', 'ohne_einsatz', 'einsatz_unpruefbar',
             'bestaetigt', 'vertrag_verschickt', 'unterschrieben', 'no_show', 'aussortiert', 'standby'];
         $kennzahlen = [];
         $mitglied = [];
@@ -1795,12 +1812,27 @@ class Index extends Component
             ->get()
             ->keyBy('id');
 
+        // Der Klaerungs-Haken haengt an der BUCHUNG — die Kohorte liefert nur
+        // Bewerbungs-IDs, also wird sie hier einmal nachgeladen (eine Query,
+        // nur fuer das geoeffnete Modal). Ohne die booking_id koennte die
+        // Ansicht den Haken zwar zeigen, aber nicht setzen.
+        $buchungen = RecInterviewBooking::query()
+            ->where('team_id', $this->teamId())
+            ->where('rec_interview_id', $interviewId)
+            ->whereIn('rec_applicant_id', array_keys($mitglied['ids']))
+            ->get(['id', 'rec_applicant_id', 'einsatz_geklaert_at', 'einsatz_geklaert_note',
+                'einsatz_wiedervorlage_am'])
+            ->keyBy('rec_applicant_id');
+        $heuteYmd = now()->toDateString();
+
         $personen = [];
         foreach (array_keys($mitglied['ids']) as $id) {
             $applicant = $applicants->get($id);
             $topf = isset($mitglied['ohne_einsatz'][$id]) ? 'ohne_einsatz'
                 : (isset($mitglied['einsatz_unpruefbar'][$id]) ? 'einsatz_unpruefbar'
-                : (isset($mitglied['im_einsatz'][$id]) ? 'im_einsatz' : null));
+                : (isset($mitglied['geklaert'][$id]) ? 'geklaert'
+                : (isset($mitglied['im_einsatz'][$id]) ? 'im_einsatz' : null)));
+            $buchung = $buchungen->get($id);
             $status = isset($mitglied['teilgenommen'][$id]) ? 'Teilgenommen'
                 : (isset($mitglied['no_show'][$id]) ? 'Nicht erschienen'
                 : (isset($mitglied['aussortiert'][$id]) ? 'Vor Ort aussortiert'
@@ -1829,14 +1861,25 @@ class Index extends Component
                 'einsaetze' => (int) ($info[$id]['count'] ?? 0),
                 'erster_einsatz' => $info[$id]['first'] ?? null,
                 'grund' => $info[$id]['grund'] ?? null,
+                // Klaerung: die Buchung traegt den Haken. Ein abgelaufener
+                // Haken wird NICHT versteckt — die Notiz bleibt lesbar, der
+                // Mensch steht nur wieder in der Arbeitsliste.
+                'booking_id' => $buchung !== null ? (int) $buchung->id : null,
+                'geklaert' => $buchung !== null && EinsatzClarification::isActive(
+                    $buchung->einsatz_geklaert_at?->toDateTimeString(),
+                    $buchung->einsatz_wiedervorlage_am?->format('Y-m-d'),
+                    $heuteYmd,
+                ),
+                'geklaert_note' => $buchung?->einsatz_geklaert_note,
+                'geklaert_wiedervorlage' => $buchung?->einsatz_wiedervorlage_am?->format('Y-m-d'),
             ];
         }
 
         // Arbeitsreihenfolge: ohne Einsatz → nicht pruefbar → im Einsatz →
         // Nicht-Teilgenommene; innerhalb alphabetisch.
-        $rang = ['ohne_einsatz' => 0, 'einsatz_unpruefbar' => 1, 'im_einsatz' => 2];
-        usort($personen, fn ($a, $b) => [($rang[$a['topf']] ?? 3), mb_strtolower($a['name'])]
-            <=> [($rang[$b['topf']] ?? 3), mb_strtolower($b['name'])]);
+        $rang = ['ohne_einsatz' => 0, 'einsatz_unpruefbar' => 1, 'geklaert' => 2, 'im_einsatz' => 3];
+        usort($personen, fn ($a, $b) => [($rang[$a['topf']] ?? 4), mb_strtolower($a['name'])]
+            <=> [($rang[$b['topf']] ?? 4), mb_strtolower($b['name'])]);
 
         return [
             'interview' => $interview,
@@ -1846,6 +1889,162 @@ class Index extends Component
         ];
     }
 
+
+    // ------------------------------------------------------------------
+    // KLAERUNG „OHNE EINSATZ" (Kundenwunsch 21.09.2026)
+    //
+    // Die Arbeitsliste „ohne Einsatz" kennt nur eine Frage: gibt es eine
+    // Dispo-Zuweisung? Warum es keine gibt, weiss nur der Mensch — „faengt
+    // erst naechsten Monat an", „mit der Dispo geklaert, es passte nur noch
+    // kein Termin". Der Haken traegt genau diese Antwort nach: Pflicht-Notiz,
+    // optionale Wiedervorlage, danach steht der Fall wieder auf der Liste.
+    //
+    // Die booking_id kommt aus dem Browser und wird deshalb IMMER gegen die
+    // Personenliste des GEOEFFNETEN Modals aufgeloest (klaerbarePerson) — was
+    // dort nicht steht, existiert fuer diese Aktion nicht. Damit kann eine
+    // gecraftete ID weder eine fremde Schulung noch ein fremdes Team treffen,
+    // ohne dass hier eine zweite Team-Regel gepflegt werden muesste.
+
+    /** Offenes Klaerungs-Fenster (null = zu). */
+    public ?int $klaerungBookingId = null;
+
+    public string $klaerungNote = '';
+
+    /**
+     * Y-m-d als STRING, nicht als Datums-Cast: an ein datetime-Feld gebundene
+     * Eingaben kommen im Modul regelmaessig als Objekt zurueck und brechen
+     * dann still (Notiz in der UI-Referenz). Leer heisst dauerhaft.
+     */
+    public string $klaerungWiedervorlage = '';
+
+    public string $klaerungError = '';
+
+    public const KLAERUNG_NOTE_MAX = 500;
+
+    /** @return ?array Person aus der Liste des geoeffneten Modals */
+    private function klaerbarePerson(int $bookingId): ?array
+    {
+        $detail = $this->terminDetailData();
+        if ($detail === null) {
+            return null;
+        }
+        foreach ($detail['personen'] as $person) {
+            if (($person['booking_id'] ?? null) === $bookingId) {
+                return $person;
+            }
+        }
+
+        return null;
+    }
+
+    public function openKlaerung(int $bookingId): void
+    {
+        $this->klaerungError = '';
+        $person = $this->klaerbarePerson($bookingId);
+        if ($person === null) {
+            $this->klaerungBookingId = null;
+
+            return;
+        }
+
+        // Vorbelegt mit dem, was schon dasteht: „bearbeiten" ist derselbe Weg
+        // wie „neu setzen", nur mit gefuelltem Formular.
+        $this->klaerungBookingId = $bookingId;
+        $this->klaerungNote = (string) ($person['geklaert_note'] ?? '');
+        $this->klaerungWiedervorlage = (string) ($person['geklaert_wiedervorlage'] ?? '');
+    }
+
+    public function closeKlaerung(): void
+    {
+        $this->klaerungBookingId = null;
+        $this->klaerungNote = '';
+        $this->klaerungWiedervorlage = '';
+        $this->klaerungError = '';
+    }
+
+    public function saveKlaerung(): void
+    {
+        $this->klaerungError = '';
+        $bookingId = $this->klaerungBookingId;
+        if ($bookingId === null || $this->klaerbarePerson($bookingId) === null) {
+            $this->klaerungError = 'Diese Buchung gehört nicht zu dieser Schulung.';
+            $this->klaerungBookingId = null;
+
+            return;
+        }
+
+        $note = trim($this->klaerungNote);
+        if ($note === '') {
+            $this->klaerungError = 'Bitte kurz festhalten, was geklärt ist — die Notiz ist später die einzige Erklärung.';
+
+            return;
+        }
+        if (mb_strlen($note) > self::KLAERUNG_NOTE_MAX) {
+            $this->klaerungError = 'Die Notiz ist zu lang (höchstens ' . self::KLAERUNG_NOTE_MAX . ' Zeichen).';
+
+            return;
+        }
+
+        $wiedervorlage = trim($this->klaerungWiedervorlage);
+        if ($wiedervorlage !== '') {
+            // Ein Datum von heute oder frueher waere im selben Atemzug
+            // abgelaufen — der Haken haette dann keine Wirkung, und niemand
+            // saehe warum.
+            if (!YmdDate::isValid($wiedervorlage) || $wiedervorlage <= now()->toDateString()) {
+                $this->klaerungError = 'Das Wiedervorlage-Datum muss in der Zukunft liegen (leer lassen = dauerhaft).';
+
+                return;
+            }
+        }
+
+        RecInterviewBooking::query()
+            ->where('team_id', $this->teamId())
+            ->where('id', $bookingId)
+            ->update([
+                'einsatz_geklaert_at' => now(),
+                'einsatz_geklaert_note' => $note,
+                'einsatz_wiedervorlage_am' => $wiedervorlage !== '' ? $wiedervorlage : null,
+                'einsatz_geklaert_by' => auth()->id(),
+            ]);
+
+        $this->forgetTerminDetail();
+        $this->closeKlaerung();
+    }
+
+    public function removeKlaerung(int $bookingId): void
+    {
+        $this->klaerungError = '';
+        if ($this->klaerbarePerson($bookingId) === null) {
+            return;
+        }
+
+        // Die Notiz gehoert zum Haken und geht mit ihm: eine Begruendung ohne
+        // Haken waere eine Aussage, die niemand mehr verantwortet.
+        RecInterviewBooking::query()
+            ->where('team_id', $this->teamId())
+            ->where('id', $bookingId)
+            ->update([
+                'einsatz_geklaert_at' => null,
+                'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null,
+                'einsatz_geklaert_by' => null,
+            ]);
+
+        $this->forgetTerminDetail();
+        $this->closeKlaerung();
+    }
+
+    /**
+     * Nach jedem Schreiben: Kohorte UND Detail-Cache vergessen. Beide leben
+     * genau einen Request — ohne das zeigt die Liste im selben Atemzug noch
+     * den alten Topf, und der Haken saehe folgenlos aus.
+     */
+    private function forgetTerminDetail(): void
+    {
+        unset($this->cohort);
+        $this->terminDetailCache = null;
+        $this->terminDetailCached = false;
+    }
 
     // ------------------------------------------------------------------
     // SAMMELVERSAND „OHNE EINSATZ" (Clara, 14.09.2026)

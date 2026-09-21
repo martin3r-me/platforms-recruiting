@@ -264,6 +264,24 @@ class StatisticsPageRenderTest extends TestCase
      *
      * @return array{taken:int, max:?int}
      */
+    /** Alle Nenner der Belegungs-Balken als Text ('6', '∞', …). */
+    private function meterNenner(string $html): array
+    {
+        $xpath = new \DOMXPath($this->dom($html));
+        $meters = $xpath->query('descendant-or-self::div[contains(@class, "mx-auto w-20")]');
+
+        $nenner = [];
+        foreach ($meters as $meter) {
+            $zeile = trim((string) preg_replace('/\s+/u', ' ', $meter->textContent));
+            if (preg_match('#^\d+ / (\d+|∞)#u', $zeile, $treffer) === 1) {
+                $nenner[] = $treffer[1];
+            }
+        }
+        $this->assertNotSame([], $nenner, 'kein Belegungs-Balken gerendert');
+
+        return $nenner;
+    }
+
     private function meterZahlen(string $html, int $index): array
     {
         $xpath = new \DOMXPath($this->dom($html));
@@ -396,7 +414,13 @@ class StatisticsPageRenderTest extends TestCase
 
             $this->assertSame(['taken' => 2, 'max' => null], $this->meterZahlen($html, 0), 'die 0 liest wie ∞');
             $this->assertStringContainsString('/&nbsp;∞', $html);
-            $this->assertStringNotContainsString('/&nbsp;0', $html, 'keine Kapazität 0 in der Anzeige');
+            // Gezielt am BELEGUNGS-Balken statt am ganzen Dokument: die
+            // Einsatz-Quote traegt seit der Klaerung (21.09.2026) selbst drei
+            // Zahlen und darf dort legitim eine 0 im Nenner-Text haben
+            // („0 geklärt"). Eine Kapazitaet 0 kann nur hier stehen.
+            foreach ($this->meterNenner($html) as $nenner) {
+                $this->assertNotSame('0', $nenner, 'keine Kapazität 0 in der Anzeige');
+            }
             $this->assertStringNotContainsString('style="width:', $html, 'ohne Nenner kein Balken');
         } finally {
             Capsule::table('rec_interviews')->where('id', 720)->update(['max_participants' => 6]);

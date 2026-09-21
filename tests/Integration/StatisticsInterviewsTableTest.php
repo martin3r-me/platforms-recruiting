@@ -99,10 +99,18 @@ class StatisticsInterviewsTableTest extends TestCase
                 return $this;
             }
 
+            /** Urheber des Klaerungs-Hakens (einsatz_geklaert_by). */
+            public function id(): int
+            {
+                return self::USER;
+            }
+
             public function shouldUse($name)
             {
-                // nicht benutzt: die Komponente ruft nur auth()->user()
+                // nicht benutzt: die Komponente ruft auth()->user() und auth()->id()
             }
+
+            public const USER = 77;
         });
 
         // CrmContact zieht beim Hydrieren config() — minimaler leerer
@@ -318,6 +326,231 @@ class StatisticsInterviewsTableTest extends TestCase
         $component->terminDetailFilter = 'ohne_einsatz';
         $component->showTerminDetail = false;
         $this->assertSame([], $component->noAssignmentIds());
+    }
+
+    /**
+     * Klaerung (Kundenwunsch 21.09.2026): Bewerber 208 hat teilgenommen, traegt
+     * eine ZAS-Personalnummer und hat keine Zuweisung — er steht also in der
+     * Arbeitsliste „ohne Einsatz", obwohl nichts im Argen ist („faengt erst
+     * naechsten Monat an"). Ein Haken an der BUCHUNG nimmt ihn heraus, ein
+     * Wiedervorlage-Datum bringt ihn zurueck.
+     *
+     * Die ganze Kette in einem Test, weil genau sie still brechen kann: Spalte →
+     * Query → Flag am Booking-Array → Assigner-Topf → Modal → Sammelversand.
+     */
+    public function test_geklaerter_fall_verlaesst_die_arbeitsliste_bis_zur_wiedervorlage(): void
+    {
+        $vm = new CohortViewModel();
+
+        try {
+            // (1) Haken ohne Wiedervorlage: dauerhaft geklaert
+            Capsule::table('rec_interview_bookings')->where('id', 408)->update([
+                'einsatz_geklaert_at' => '2026-08-16 09:00:00',
+                'einsatz_geklaert_note' => 'Faengt erst im Oktober an, mit der Dispo geklaert.',
+                'einsatz_wiedervorlage_am' => null,
+                'einsatz_geklaert_by' => 77,
+            ]);
+
+            $component = $this->component('Essen');
+            $august = $this->rowOf($this->tableOf($component), self::INTERVIEW_AUGUST);
+            $this->assertSame([208], $vm->resolveIds($august['rows'], ['scope' => 'all'], 'geklaert'));
+            $this->assertSame([], $vm->resolveIds($august['rows'], ['scope' => 'all'], 'ohne_einsatz'),
+                'der Geklaerte ist aus der Arbeitsliste raus');
+            $this->assertSame([204], $vm->resolveIds($august['rows'], ['scope' => 'all'], 'im_einsatz'),
+                'am Einsatz-Topf aendert der Haken nichts');
+            $this->assertCount(2, $vm->resolveIds($august['rows'], ['scope' => 'all'], 'teilgenommen'),
+                'der Nenner der Quote bleibt unberuehrt');
+
+            // (2) Das Modal zeigt Haken, Notiz und die Buchung, an der er haengt
+            $cohort = $component->cohort();
+            $detail = $component->terminDetailFor(self::INTERVIEW_AUGUST, $cohort['termin_rows'], $cohort['einsatz_info']);
+            $this->assertSame(1, $detail['kennzahlen']['geklaert']);
+            $this->assertSame(0, $detail['kennzahlen']['ohne_einsatz']);
+
+            $person208 = collect($detail['personen'])->firstWhere('id', 208);
+            $this->assertSame('geklaert', $person208['topf']);
+            $this->assertSame(408, $person208['booking_id'], 'ohne Buchung waere der Haken nicht setzbar');
+            $this->assertSame('Faengt erst im Oktober an, mit der Dispo geklaert.', $person208['geklaert_note']);
+            $this->assertNull($person208['geklaert_wiedervorlage'], 'ohne Datum gilt der Haken dauerhaft');
+
+            // (3) Der Sammelversand sieht ihn nicht mehr — sonst haekelt man ab
+            // und die Nachfass-Nachricht geht trotzdem raus.
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+            $component->terminDetailFilter = 'ohne_einsatz';
+            $this->assertSame([], $component->noAssignmentIds());
+            $this->assertFalse($component->noAssignmentEnabled());
+
+            // (4) Wiedervorlage HEUTE: der Fall ist wieder offen
+            Capsule::table('rec_interview_bookings')->where('id', 408)
+                ->update(['einsatz_wiedervorlage_am' => '2026-08-17']);
+            $nachWiedervorlage = $this->component('Essen');
+            $zeile = $this->rowOf($this->tableOf($nachWiedervorlage), self::INTERVIEW_AUGUST);
+            $this->assertSame([208], $vm->resolveIds($zeile['rows'], ['scope' => 'all'], 'ohne_einsatz'),
+                'am Wiedervorlage-Tag steht er wieder auf der Liste');
+            $this->assertSame([], $vm->resolveIds($zeile['rows'], ['scope' => 'all'], 'geklaert'));
+
+            // (5) Wiedervorlage MORGEN: heute noch geklaert
+            Capsule::table('rec_interview_bookings')->where('id', 408)
+                ->update(['einsatz_wiedervorlage_am' => '2026-08-18']);
+            $zeileMorgen = $this->rowOf($this->tableOf($this->component('Essen')), self::INTERVIEW_AUGUST);
+            $this->assertSame([208], $vm->resolveIds($zeileMorgen['rows'], ['scope' => 'all'], 'geklaert'));
+        } finally {
+            // Der Bestand ist klassenweit — was dieser Test setzt, muss er auch
+            // wieder abraeumen, sonst faerbt er die Nachbartests ein.
+            Capsule::table('rec_interview_bookings')->where('id', 408)->update([
+                'einsatz_geklaert_at' => null,
+                'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null,
+                'einsatz_geklaert_by' => null,
+            ]);
+        }
+    }
+
+    /**
+     * Die Schreibseite des Hakens. Sie ist die CLIENT-GRENZE: die booking_id
+     * kommt aus dem Browser, also wird sie gegen die Personenliste des
+     * GEOEFFNETEN Termins aufgeloest — was dort nicht steht, existiert fuer
+     * diese Aktion nicht.
+     */
+    public function test_haken_setzen_speichert_notiz_datum_und_urheber(): void
+    {
+        try {
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+            $component->openKlaerung(408);
+            $component->klaerungNote = 'Faengt erst im Oktober an.';
+            $component->klaerungWiedervorlage = '2026-10-01';
+            $component->saveKlaerung();
+
+            $this->assertSame('', $component->klaerungError);
+            $this->assertNull($component->klaerungBookingId, 'nach dem Speichern ist das Fenster zu');
+
+            $booking = Capsule::table('rec_interview_bookings')->where('id', 408)->first();
+            $this->assertNotNull($booking->einsatz_geklaert_at);
+            $this->assertSame('Faengt erst im Oktober an.', $booking->einsatz_geklaert_note);
+            $this->assertStringStartsWith('2026-10-01', (string) $booking->einsatz_wiedervorlage_am);
+            $this->assertSame(77, (int) $booking->einsatz_geklaert_by);
+        } finally {
+            $this->raeumeKlaerungAb();
+        }
+    }
+
+    public function test_haken_ohne_notiz_wird_abgelehnt(): void
+    {
+        try {
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+            $component->openKlaerung(408);
+            $component->klaerungNote = '   ';
+            $component->saveKlaerung();
+
+            $this->assertNotSame('', $component->klaerungError, 'ohne Begruendung kein Haken');
+            $this->assertSame(408, $component->klaerungBookingId, 'das Fenster bleibt offen');
+            $this->assertNull(Capsule::table('rec_interview_bookings')->where('id', 408)->value('einsatz_geklaert_at'));
+        } finally {
+            $this->raeumeKlaerungAb();
+        }
+    }
+
+    public function test_wiedervorlage_muss_in_der_zukunft_liegen(): void
+    {
+        try {
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+            $component->openKlaerung(408);
+            $component->klaerungNote = 'Kommt spaeter.';
+
+            // HEUTE ist der 17.08.2026 — ein Datum von heute oder frueher waere
+            // im selben Atemzug abgelaufen und der Haken damit sinnlos.
+            foreach (['2026-08-17', '2026-07-01', '2026-02-30', 'bald'] as $unbrauchbar) {
+                $component->klaerungWiedervorlage = $unbrauchbar;
+                $component->saveKlaerung();
+                $this->assertNotSame('', $component->klaerungError, "Datum {$unbrauchbar} darf nicht durchgehen");
+                $this->assertNull(
+                    Capsule::table('rec_interview_bookings')->where('id', 408)->value('einsatz_geklaert_at'),
+                    "Datum {$unbrauchbar} darf nichts schreiben",
+                );
+            }
+        } finally {
+            $this->raeumeKlaerungAb();
+        }
+    }
+
+    public function test_fremde_buchung_kann_nicht_abgehakt_werden(): void
+    {
+        try {
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+            // 404 gehoert zum JULI-Termin, 999 existiert nicht.
+            foreach ([404, 999] as $fremd) {
+                $component->openKlaerung($fremd);
+                $this->assertNull($component->klaerungBookingId, "Buchung {$fremd} gehoert nicht in dieses Modal");
+
+                // Auch der direkte Weg (gecraftetes $set) darf nichts schreiben.
+                $component->klaerungBookingId = $fremd;
+                $component->klaerungNote = 'egal';
+                $component->klaerungWiedervorlage = '';
+                $component->saveKlaerung();
+                $this->assertNotSame('', $component->klaerungError);
+                $component->removeKlaerung($fremd);
+            }
+
+            $this->assertNull(Capsule::table('rec_interview_bookings')->where('id', 404)->value('einsatz_geklaert_at'));
+        } finally {
+            $this->raeumeKlaerungAb();
+            Capsule::table('rec_interview_bookings')->where('id', 404)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+        }
+    }
+
+    public function test_haken_entfernen_raeumt_die_klaerung_ab(): void
+    {
+        try {
+            Capsule::table('rec_interview_bookings')->where('id', 408)->update([
+                'einsatz_geklaert_at' => '2026-08-16 09:00:00',
+                'einsatz_geklaert_note' => 'Faengt spaeter an.',
+                'einsatz_wiedervorlage_am' => '2026-10-01',
+                'einsatz_geklaert_by' => 77,
+            ]);
+
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+            $component->removeKlaerung(408);
+
+            $booking = Capsule::table('rec_interview_bookings')->where('id', 408)->first();
+            $this->assertNull($booking->einsatz_geklaert_at);
+            $this->assertNull($booking->einsatz_geklaert_note, 'die Notiz gehoert zum Haken und geht mit ihm');
+            $this->assertNull($booking->einsatz_wiedervorlage_am);
+            $this->assertNull($booking->einsatz_geklaert_by);
+
+            $cohort = $component->cohort();
+            $detail = $component->terminDetailFor(self::INTERVIEW_AUGUST, $cohort['termin_rows'], $cohort['einsatz_info']);
+            $this->assertSame(1, $detail['kennzahlen']['ohne_einsatz'], 'er steht wieder auf der Arbeitsliste');
+            $this->assertSame(0, $detail['kennzahlen']['geklaert']);
+        } finally {
+            $this->raeumeKlaerungAb();
+        }
+    }
+
+    private function raeumeKlaerungAb(): void
+    {
+        Capsule::table('rec_interview_bookings')->where('id', 408)->update([
+            'einsatz_geklaert_at' => null,
+            'einsatz_geklaert_note' => null,
+            'einsatz_wiedervorlage_am' => null,
+            'einsatz_geklaert_by' => null,
+        ]);
     }
 
     public function test_schulung_zu_einsatz_drei_ehrliche_toepfe(): void

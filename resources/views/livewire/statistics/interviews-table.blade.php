@@ -245,7 +245,7 @@
                             <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                         </th>
                         <th class="sticky top-7 z-20 border-l border-[var(--ui-border)]/60 bg-[var(--ui-surface)] px-3 py-3 text-center align-bottom"
-                            title="Teilgenommene mit mindestens einer Dispo-Zuweisung / Teilgenommene gesamt. Klick auf die Zahl öffnet die Detailansicht des Termins.">
+                            title="Im Einsatz / von Hand geklärt / teilgenommen. Geklärt sind Teilnehmer, bei denen jemand festgehalten hat, warum noch kein Einsatz ansteht („fängt später an“, „mit der Dispo besprochen“). Klick auf die Zahlen öffnet die Detailansicht des Termins.">
                             Im Einsatz
                             <span class="cursor-help text-[color:var(--ui-muted)]">ⓘ</span>
                         </th>

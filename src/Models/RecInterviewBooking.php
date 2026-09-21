@@ -36,6 +36,10 @@ class RecInterviewBooking extends Model
         'cancelled_by',
         'cancelled_at',
         'confirmed_at',
+        'einsatz_geklaert_at',
+        'einsatz_geklaert_note',
+        'einsatz_wiedervorlage_am',
+        'einsatz_geklaert_by',
         'created_by_user_id',
         'owned_by_user_id',
     ];
@@ -46,6 +50,9 @@ class RecInterviewBooking extends Model
         'seat_released_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'confirmed_at' => 'datetime',
+        'einsatz_geklaert_at' => 'datetime',
+        // date, nicht datetime: „wieder anzeigen ab" ist eine Tagesaussage.
+        'einsatz_wiedervorlage_am' => 'date',
         'is_active' => 'boolean',
     ];
 

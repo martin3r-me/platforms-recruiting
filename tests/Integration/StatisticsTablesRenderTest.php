@@ -121,6 +121,25 @@ class StatisticsTablesRenderTest extends TestCase
         Carbon::setTestNow(Carbon::parse(self::HEUTE));
 
         self::runRealMigrations();
+        // Die Schulungs-Detailansicht liest den Schulungsleiter aus den
+        // Core-users (Query-Builder-Join) und den Namen aus den CRM-Links. Im
+        // Recruiting-Migrationssatz gibt es beide Tabellen nicht — hier
+        // minimal angelegt, sonst kann das Modal nicht rendern.
+        Capsule::schema()->create('users', function ($t) {
+            $t->id();
+            $t->string('name');
+        });
+        Capsule::schema()->create('crm_contact_links', function ($t) {
+            $t->id();
+            $t->unsignedBigInteger('contact_id')->nullable();
+            $t->unsignedBigInteger('linkable_id');
+            $t->string('linkable_type');
+        });
+        Capsule::schema()->create('crm_contacts', function ($t) {
+            $t->id();
+            $t->string('first_name')->nullable();
+            $t->string('last_name')->nullable();
+        });
         self::seed();
     }
 
@@ -139,6 +158,10 @@ class StatisticsTablesRenderTest extends TestCase
 
     protected function tearDown(): void
     {
+        foreach (glob($this->cacheDir . '/views/components/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($this->cacheDir . '/views/components');
         foreach (glob($this->cacheDir . '/views/*') ?: [] as $file) {
             @unlink($file);
         }
@@ -342,6 +365,133 @@ class StatisticsTablesRenderTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // Klaerung „ohne Einsatz" (21.09.2026)
+    // -----------------------------------------------------------------
+
+    /**
+     * Die Quote-Zelle zeigt drei Zahlen: im Einsatz / geklärt / teilgenommen.
+     * Ohne diesen Test waere die dritte Zahl genau die Sorte Aenderung, die im
+     * Blade still danebengeht (die Zelle rendert trotzdem etwas).
+     */
+    public function test_quote_zelle_zeigt_die_geklaerten_als_dritte_zahl(): void
+    {
+        try {
+            // 601 hat teilgenommen; mit Mitarbeiter UND Personalnummer, aber
+            // ohne Zuweisung ist er „ohne Einsatz" — die Arbeitsliste.
+            Capsule::table('rec_employees')->insert([
+                'id' => 9601, 'uuid' => 'remp-9601', 'team_id' => self::TEAM,
+                'rec_applicant_id' => 601, 'personnel_number' => 'RG9601',
+                'created_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 10:00:00',
+            ]);
+
+            $ohneHaken = $this->render('interviews-table', 'Essen');
+            $this->assertStringContainsString('0&nbsp;/&nbsp;0&nbsp;/&nbsp;1', $ohneHaken,
+                'ohne Haken: 0 im Einsatz, 0 geklärt, 1 teilgenommen');
+
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => '2026-08-16 09:00:00',
+                'einsatz_geklaert_note' => 'Faengt im Oktober an.',
+            ]);
+
+            $mitHaken = $this->render('interviews-table', 'Essen');
+            $this->assertStringContainsString('0&nbsp;/&nbsp;1&nbsp;/&nbsp;1', $mitHaken,
+                'mit Haken wandert der Teilnehmer in die mittlere Zahl');
+            $this->assertStringContainsString('geklärt', $mitHaken, 'der Tooltip benennt die neue Zahl');
+
+            // Und die Tabelle bleibt heil: EINE Einsatz-Spalte, Spaltenzahl stimmt.
+            $counts = $this->columnCounts($mitHaken);
+            $this->assertSame(1, $counts['groups_by_label']['Einsatz'], 'drei Zahlen, aber weiterhin eine Spalte');
+            $this->assertRowsMatchGroups($counts, 'Termin-Tabelle mit Klärung');
+        } finally {
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+            Capsule::table('rec_employees')->where('id', 9601)->delete();
+        }
+    }
+
+    public function test_detailansicht_bietet_den_haken_an_und_zeigt_die_notiz(): void
+    {
+        try {
+            Capsule::table('rec_employees')->insert([
+                'id' => 9601, 'uuid' => 'remp-9601', 'team_id' => self::TEAM,
+                'rec_applicant_id' => 601, 'personnel_number' => 'RG9601',
+                'created_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 10:00:00',
+            ]);
+
+            // (1) Offener Fall: der Haken wird angeboten, an DIESER Buchung.
+            // Chip „teilgenommen" (der Default) statt „ohne Einsatz": unter
+            // letzterem haengt der Sammelversand mit seinem Template-Select,
+            // und der gehoert nicht in diesen Test.
+            $offen = $this->renderTerminDetail('teilgenommen');
+            $this->assertStringContainsString('openKlaerung(801)', $offen, 'der Haken haengt an der Buchung');
+            $this->assertStringContainsString('0 geklärt', $offen, 'der Chip zaehlt mit');
+
+            // (2) Das Fenster selbst: Pflicht-Notiz und Wiedervorlage.
+            $formular = $this->renderTerminDetail('teilgenommen', klaerungBookingId: 801);
+            $this->assertStringContainsString('klaerungNote', $formular);
+            $this->assertStringContainsString('klaerungWiedervorlage', $formular);
+            $this->assertStringContainsString('saveKlaerung', $formular);
+
+            // (3) Gesetzter Haken: eigener Chip-Filter, Notiz sichtbar, Haken loesbar.
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => '2026-08-16 09:00:00',
+                'einsatz_geklaert_note' => 'Faengt im Oktober an.',
+                'einsatz_wiedervorlage_am' => '2026-10-01',
+            ]);
+
+            $geklaert = $this->renderTerminDetail('geklaert');
+            $this->assertStringContainsString('1 geklärt', $geklaert);
+            $this->assertStringContainsString('Faengt im Oktober an.', $geklaert, 'die Notiz ist die Erklaerung');
+            $this->assertStringContainsString('01.10.2026', $geklaert, 'wieder auf der Liste ab');
+            $this->assertStringContainsString('removeKlaerung(801)', $geklaert, 'der Haken laesst sich loesen');
+        } finally {
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+            Capsule::table('rec_employees')->where('id', 9601)->delete();
+        }
+    }
+
+    /**
+     * Ein ABGELAUFENER Haken verschwindet nicht spurlos: der Fall steht wieder
+     * auf der Arbeitsliste, aber die alte Begründung bleibt lesbar — sonst
+     * fragt man sich beim Wiedersehen, was damals eigentlich besprochen war.
+     */
+    public function test_abgelaufene_klaerung_bleibt_lesbar(): void
+    {
+        try {
+            Capsule::table('rec_employees')->insert([
+                'id' => 9601, 'uuid' => 'remp-9601', 'team_id' => self::TEAM,
+                'rec_applicant_id' => 601, 'personnel_number' => 'RG9601',
+                'created_at' => '2026-08-01 10:00:00', 'updated_at' => '2026-08-01 10:00:00',
+            ]);
+            // HEUTE ist der 17.08.2026 — die Wiedervorlage war vorgestern.
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => '2026-08-01 09:00:00',
+                'einsatz_geklaert_note' => 'Wollte Mitte August starten.',
+                'einsatz_wiedervorlage_am' => '2026-08-15',
+            ]);
+
+            $html = $this->renderTerminDetail('ohne_einsatz');
+
+            $this->assertStringContainsString('1 ohne Einsatz', $html, 'wieder auf der Arbeitsliste');
+            $this->assertStringContainsString('0 geklärt', $html);
+            $this->assertStringContainsString('Wollte Mitte August starten.', $html, 'die alte Begründung bleibt stehen');
+            $this->assertStringContainsString('abgelaufen', $html);
+            $this->assertStringContainsString('openKlaerung(801)', $html, 'und lässt sich neu setzen');
+        } finally {
+            Capsule::table('rec_interview_bookings')->where('id', 801)->update([
+                'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
+                'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
+            ]);
+            Capsule::table('rec_employees')->where('id', 9601)->delete();
+        }
+    }
+
+    // -----------------------------------------------------------------
     // Render-Werkzeug
     // -----------------------------------------------------------------
 
@@ -387,6 +537,94 @@ class StatisticsTablesRenderTest extends TestCase
         $factory = new ViewFactory($resolver, $finder, new Dispatcher(new Container()));
 
         return $factory->make('probe-' . $partial)->render();
+    }
+
+    /**
+     * Die Schulungs-Detailansicht (Modal-Rumpf) mit gesetztem Chip-Filter.
+     *
+     * Eigener Weg statt render(): das Partial traegt keinen Panel-Rahmen, und
+     * die Personenliste verlinkt auf Akten — route() kommt deshalb als
+     * Attrappe dazu (Muster DirectHireGroupingCompletenessTest).
+     */
+    private function renderTerminDetail(string $filter = 'teilgenommen', ?int $klaerungBookingId = null): string
+    {
+        $component = new StatisticsRenderProbe();
+        $component->ortFilter = 'Essen';
+        $component->showTerminDetail = true;
+        $component->terminDetailId = self::INTERVIEW_AUGUST;
+        $component->terminDetailFilter = $filter;
+        $component->klaerungBookingId = $klaerungBookingId;
+
+        $viewsRoot = dirname(__DIR__, 2) . '/resources/views';
+
+        $files = new Filesystem();
+        $compiler = new BladeCompiler($files, $this->cacheDir);
+
+        $resolver = new EngineResolver();
+        $resolver->register('blade', fn () => new BoundCompilerEngine($compiler, $files, $component));
+
+        $finder = new FileViewFinder($files, [$this->cacheDir . '/views', $viewsRoot]);
+        $finder->addNamespace('recruiting', $viewsRoot);
+
+        $factory = new ViewFactory($resolver, $finder, new Dispatcher(new Container()));
+
+        $container = Container::getInstance();
+        $container->instance(\Illuminate\Contracts\View\Factory::class, $factory);
+        $container->instance('view', $factory);
+        $container->instance('url', new class
+        {
+            public function route($name, $parameters = [], $absolute = true): string
+            {
+                return '/' . $name;
+            }
+        });
+        // Der ComponentTagCompiler RAET bei jedem <x-ui-*>-Tag zuerst einen
+        // Klassennamen und fragt dafuer app(Application::class)->getNamespace();
+        // danach greift die Aufloesung auf die Stubs unten.
+        $container->instance(\Illuminate\Contracts\Foundation\Application::class, new class
+        {
+            public function getNamespace(): string
+            {
+                return 'App\\';
+            }
+        });
+        $this->writeUiStubs();
+
+        try {
+            return $factory->make('recruiting::livewire.statistics.termin-detail')->render();
+        } finally {
+            $container->forgetInstance('url');
+            $container->forgetInstance('view');
+            $container->forgetInstance(\Illuminate\Contracts\View\Factory::class);
+            $container->forgetInstance(\Illuminate\Contracts\Foundation\Application::class);
+            // Illuminate\View\Component cacht Factory und aufgeloeste
+            // Komponenten-Views STATISCH, also ueber Testklassen hinweg.
+            \Illuminate\View\Component::flushCache();
+            \Illuminate\View\Component::forgetFactory();
+        }
+    }
+
+    /**
+     * Stubs fuer die UI-Komponenten des Fremdpakets (Muster
+     * StatisticsPageRenderTest): sie reichen ihre String-Attribute durch,
+     * damit auch die Attribute der Komponenten-Tags im geprueften DOM landen.
+     */
+    private function writeUiStubs(): void
+    {
+        @mkdir($this->cacheDir . '/views/components', 0777, true);
+        $bag = '{{ $attributes->filter(fn ($value) => is_string($value) || is_numeric($value)) }}';
+
+        $stubs = [
+            'ui-panel' => '<div data-stub="panel" ' . $bag . '>{{ $slot }}</div>',
+            'ui-button' => '<button type="button" ' . $bag . '>{{ $slot }}</button>',
+            'ui-input-select' => '<select data-stub="select" ' . $bag . '></select>',
+            'ui-input-date' => '<input type="date" data-stub="date" ' . $bag . ' />',
+            'ui-modal' => '<div data-stub="modal" ' . $bag . '>{{ $header ?? \'\' }}{{ $slot }}</div>',
+        ];
+
+        foreach ($stubs as $name => $markup) {
+            file_put_contents($this->cacheDir . '/views/components/' . $name . '.blade.php', $markup);
+        }
     }
 
     /**
@@ -497,6 +735,13 @@ class StatisticsTablesRenderTest extends TestCase
             $core . '/database/migrations/2026_02_07_000001_create_core_extra_field_definitions_table.php',
             $core . '/database/migrations/2026_02_07_000002_create_core_extra_field_values_table.php',
         ];
+
+        // Der Sammelversand unter dem Chip „ohne Einsatz" fuellt sein
+        // Template-Auswahlfeld aus den Integrations-Tabellen — ohne sie kann
+        // die Detailansicht unter diesem Chip nicht rendern.
+        $integrations = self::packageRootOf(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class);
+        $files[] = $integrations . '/database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php';
+        $files[] = $integrations . '/database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php';
 
         $own = glob(dirname(__DIR__, 2) . '/database/migrations/*.php');
         sort($own);

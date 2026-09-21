@@ -217,6 +217,44 @@ class CohortAssignerTest extends TestCase
         );
     }
 
+    public function test_geklaerte_buchung_bildet_den_vierten_topf(): void
+    {
+        // Klaerung (Kundenwunsch 21.09.2026): „ohne Einsatz" ist die
+        // Arbeitsliste — wer dort ohne Grund steht (faengt spaeter an, mit der
+        // Dispo geklaert), wird abgehakt und wandert in einen VIERTEN Topf.
+        // Der Haken haengt an der BUCHUNG, die Aktivitaet (Wiedervorlage
+        // abgelaufen?) entscheidet der Aufrufer — hier kommt sie als Flag an,
+        // genau wie 'confirmed'.
+        $result = (new CohortAssigner())->assign(
+            [
+                $this->applicant(1, ['einsatz' => 'none']),
+                $this->applicant(2, ['einsatz' => 'none']),
+                $this->applicant(3, ['einsatz' => 'deployed']),
+                $this->applicant(4, ['einsatz' => 'unverifiable']),
+            ],
+            [
+                1 => [$this->booking(11, ['status' => 'attended', 'geklaert' => true])],
+                2 => [$this->booking(12, ['status' => 'attended'])],
+                // Ein Einsatz schlaegt den Haken: wer laeuft, braucht keine Klaerung.
+                3 => [$this->booking(13, ['status' => 'attended', 'geklaert' => true])],
+                // „Nicht pruefbar" ist ein anderer Arbeitsauftrag und bleibt es.
+                4 => [$this->booking(14, ['status' => 'attended', 'geklaert' => true])],
+            ],
+            [], null, null
+        );
+        $row = array_values(array_filter($result['rows'], fn ($r) => $r['type'] === 'schulung'))[0];
+
+        $this->assertSame([1], $row['columns']['geklaert']);
+        $this->assertSame([2], $row['columns']['ohne_einsatz'], 'Der Geklaerte ist aus der Arbeitsliste raus');
+        $this->assertSame([3], $row['columns']['im_einsatz']);
+        $this->assertSame([4], $row['columns']['einsatz_unpruefbar']);
+        $this->assertSame(
+            [1, 2, 3, 4],
+            $row['columns']['teilgenommen'],
+            'Der Nenner der Quote bleibt unberuehrt — geklaert ist eine Aufteilung, kein Abzug',
+        );
+    }
+
     public function test_bestaetigt_kommt_vom_stempel_und_ueberlebt_den_status(): void
     {
         // Die alte „Bestaetigt"-Spalte hing am Status-RANG und zaehlte deshalb
