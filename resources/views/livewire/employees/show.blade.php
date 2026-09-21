@@ -582,4 +582,18 @@
             </div>
         @endif
     </x-ui-page-container>
+
+    {{-- Die Vorgeschichte liegt an der BEWERBUNG, HR landet aber hier. Ohne
+         verknuepfte Bewerbung (ZAS-Import) bleibt die Leiste leer und sagt
+         auch, warum. --}}
+    <x-slot name="activity">
+        <x-ui-page-sidebar title="Aktivitäten" width="w-80" :defaultOpen="false" storeKey="activityOpen" side="right">
+            @include('recruiting::livewire.shared.activity-log', [
+                'logs' => $this->autoPilotLogs,
+                'leerText' => $this->employee()?->applicant
+                    ? 'Keine Aktivitäten verfügbar'
+                    : 'Zu diesem Mitarbeiter ist keine Bewerbung verknüpft — es gibt hier keine Vorgeschichte.',
+            ])
+        </x-ui-page-sidebar>
+    </x-slot>
 </x-ui-page>

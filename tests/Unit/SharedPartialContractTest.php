@@ -79,6 +79,23 @@ class SharedPartialContractTest extends TestCase
         return $faelle;
     }
 
+    /**
+     * Die Gegenrichtung: ein Partial OHNE $this->-Aufrufe hat gar keinen
+     * Vertrag, den es brechen koennte — es bekommt alles als Variable gereicht.
+     * Das ist die bessere Bauart, und fuer den Aktivitaeten-Zeitstrahl (geteilt
+     * zwischen Bewerber- und MA-Akte, 21.09.2026) ist sie bewusst gewaehlt.
+     * Der Test haelt sie fest: wer dort ein $this-> einbaut, muss das Partial
+     * oben in NUTZER eintragen und damit beide Wirtskomponenten pruefen.
+     */
+    public function test_vertragsfreie_partials_bleiben_vertragsfrei(): void
+    {
+        foreach (['shared/activity-log'] as $partial) {
+            $this->assertSame([], $this->erwarteteAufrufe($partial),
+                "{$partial} bekommt seine Daten als Variable — ein \$this->-Aufruf waere ein "
+                . 'unsichtbarer Vertrag mit jeder einbindenden Komponente.');
+        }
+    }
+
     /** @return list<string> Namen aus $this->name — Methode wie Computed-Property. */
     private function erwarteteAufrufe(string $partial): array
     {

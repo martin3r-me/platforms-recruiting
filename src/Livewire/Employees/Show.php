@@ -191,6 +191,32 @@ class Show extends Component
     }
 
     /**
+     * AKTIVITAETEN der MA-Akte (21.09.2026). Das Protokoll haengt an der
+     * BEWERBUNG — HR landet aber von ueberall hier, und diese Seite zeigte von
+     * der Vorgeschichte bisher nichts. Aufgefallen an der Klaerungs-Historie:
+     * der Namenslink der Schulungs-Detailansicht fuehrt fuer genau diese
+     * Menschen hierher (sie tragen eine Personalnummer), die Eintraege standen
+     * aber eine Seite weiter.
+     *
+     * Ohne verknuepfte Bewerbung (die aus dem ZAS importierten Mitarbeiter)
+     * bleibt die Liste LEER — es gibt bei uns schlicht keine Vorgeschichte.
+     * Dieselbe Quelle und dieselbe Begrenzung wie in der Bewerberakte.
+     */
+    #[Computed]
+    public function autoPilotLogs()
+    {
+        $applicant = $this->employee()?->applicant;
+        if ($applicant === null) {
+            return collect();
+        }
+
+        return $applicant->autoPilotLogs()
+            ->orderByDesc('created_at')
+            ->limit(20)
+            ->get();
+    }
+
+    /**
      * Signed contracts of the linked applicant (PDF-Download fuer HR im
      * Backend). Identische Logik wie EmployeePortal::contracts() — wir
      * nutzen den Applicant-Token, weil der ContractPdfController via

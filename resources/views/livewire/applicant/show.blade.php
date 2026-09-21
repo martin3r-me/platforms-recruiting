@@ -1092,46 +1092,7 @@
 
     <x-slot name="activity">
         <x-ui-page-sidebar title="Aktivitäten" width="w-80" :defaultOpen="false" storeKey="activityOpen" side="right">
-            <div class="p-6 space-y-3 text-sm">
-                @if($this->autoPilotLogs->isEmpty())
-                    <div class="text-[var(--ui-muted)]">Keine Aktivitäten verfügbar</div>
-                @else
-                    <div class="relative">
-                        <div class="absolute left-3 top-0 bottom-0 w-px bg-[var(--ui-border)]/40"></div>
-                        <div class="space-y-4">
-                            @foreach($this->autoPilotLogs as $log)
-                                @php
-                                    $icon = match($log->type) {
-                                        'run_started' => 'heroicon-o-play',
-                                        'state_changed' => 'heroicon-o-arrow-path',
-                                        'email_sent' => 'heroicon-o-envelope',
-                                        'completed' => 'heroicon-o-check-circle',
-                                        'error' => 'heroicon-o-exclamation-triangle',
-                                        default => 'heroicon-o-document-text',
-                                    };
-                                    $iconColor = match($log->type) {
-                                        'run_started' => 'text-blue-500',
-                                        'state_changed' => 'text-amber-500',
-                                        'email_sent' => 'text-indigo-500',
-                                        'completed' => 'text-green-500',
-                                        'error' => 'text-red-500',
-                                        default => 'text-gray-400',
-                                    };
-                                @endphp
-                                <div class="relative flex gap-3 pl-1">
-                                    <div class="flex-shrink-0 w-5 h-5 rounded-full bg-white flex items-center justify-center z-10">
-                                        @svg($icon, 'w-4 h-4 ' . $iconColor)
-                                    </div>
-                                    <div class="flex-1 min-w-0">
-                                        <p class="text-[var(--ui-secondary)] leading-snug break-words">{{ \Illuminate\Support\Str::limit($log->summary, 120) }}</p>
-                                        <p class="text-xs text-[var(--ui-muted)] mt-0.5">{{ $log->created_at->timezone(auth()->user()->timezone ?? config('app.timezone', 'Europe/Berlin'))->diffForHumans() }}</p>
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                @endif
-            </div>
+            @include('recruiting::livewire.shared.activity-log', ['logs' => $this->autoPilotLogs])
         </x-ui-page-sidebar>
     </x-slot>
 </x-ui-page>
