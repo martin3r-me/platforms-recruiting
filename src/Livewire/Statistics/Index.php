@@ -1816,10 +1816,15 @@ class Index extends Component
         // Bewerbungs-IDs, also wird sie hier einmal nachgeladen (eine Query,
         // nur fuer das geoeffnete Modal). Ohne die booking_id koennte die
         // Ansicht den Haken zwar zeigen, aber nicht setzen.
+        // Sortiert, damit bei mehreren Buchungen derselben Person an demselben
+        // Termin (Storno + Neubuchung) IMMER dieselbe gewinnt: die juengste.
+        // Ohne die Sortierung entschiede die Laune der Datenbank, an welcher
+        // Buchung der Haken haengt.
         $buchungen = RecInterviewBooking::query()
             ->where('team_id', $this->teamId())
             ->where('rec_interview_id', $interviewId)
             ->whereIn('rec_applicant_id', array_keys($mitglied['ids']))
+            ->orderBy('id')
             ->get(['id', 'rec_applicant_id', 'einsatz_geklaert_at', 'einsatz_geklaert_note',
                 'einsatz_wiedervorlage_am'])
             ->keyBy('rec_applicant_id');
@@ -1875,8 +1880,10 @@ class Index extends Component
             ];
         }
 
-        // Arbeitsreihenfolge: ohne Einsatz → nicht pruefbar → im Einsatz →
-        // Nicht-Teilgenommene; innerhalb alphabetisch.
+        // Arbeitsreihenfolge: ohne Einsatz → nicht pruefbar → geklaert → im
+        // Einsatz → Nicht-Teilgenommene; innerhalb alphabetisch. Die beiden
+        // Arbeitslisten stehen oben, die Geklaerten direkt darunter (zum
+        // Nachlesen), die Erledigten unten.
         $rang = ['ohne_einsatz' => 0, 'einsatz_unpruefbar' => 1, 'geklaert' => 2, 'im_einsatz' => 3];
         usort($personen, fn ($a, $b) => [($rang[$a['topf']] ?? 4), mb_strtolower($a['name'])]
             <=> [($rang[$b['topf']] ?? 4), mb_strtolower($b['name'])]);
