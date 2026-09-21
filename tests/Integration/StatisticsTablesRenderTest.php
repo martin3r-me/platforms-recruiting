@@ -449,8 +449,14 @@ class StatisticsTablesRenderTest extends TestCase
                 'einsatz_wiedervorlage_am' => '2026-10-01',
             ]);
 
+            Capsule::table('users')->insert(['id' => 77, 'name' => 'Nina Personal']);
+            Capsule::table('rec_interview_bookings')->where('id', 801)
+                ->update(['einsatz_geklaert_by' => 77]);
+
             $geklaert = $this->renderTerminDetail('geklaert');
             $this->assertStringContainsString('1 geklärt', $geklaert);
+            $this->assertStringContainsString('Nina Personal', $geklaert, 'wer abgehakt hat');
+            $this->assertStringContainsString('16.08.2026', $geklaert, 'und wann');
             $this->assertStringContainsString('Faengt im Oktober an.', $geklaert, 'die Notiz ist die Erklaerung');
             $this->assertStringContainsString('01.10.2026', $geklaert, 'wieder auf der Liste ab');
             $this->assertStringContainsString('removeKlaerung(801)', $geklaert, 'der Haken laesst sich loesen');
@@ -460,6 +466,7 @@ class StatisticsTablesRenderTest extends TestCase
                 'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
             ]);
             Capsule::table('rec_employees')->where('id', 9601)->delete();
+            Capsule::table('users')->where('id', 77)->delete();
         }
     }
 

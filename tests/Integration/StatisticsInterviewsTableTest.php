@@ -398,12 +398,7 @@ class StatisticsInterviewsTableTest extends TestCase
         } finally {
             // Der Bestand ist klassenweit — was dieser Test setzt, muss er auch
             // wieder abraeumen, sonst faerbt er die Nachbartests ein.
-            Capsule::table('rec_interview_bookings')->where('id', 408)->update([
-                'einsatz_geklaert_at' => null,
-                'einsatz_geklaert_note' => null,
-                'einsatz_wiedervorlage_am' => null,
-                'einsatz_geklaert_by' => null,
-            ]);
+            $this->raeumeKlaerungAb();
         }
     }
 
@@ -588,6 +583,7 @@ class StatisticsInterviewsTableTest extends TestCase
                 'einsatz_geklaert_at' => null, 'einsatz_geklaert_note' => null,
                 'einsatz_wiedervorlage_am' => null, 'einsatz_geklaert_by' => null,
             ]);
+            Capsule::table('rec_auto_pilot_logs')->where('rec_applicant_id', 204)->delete();
         }
     }
 
@@ -650,6 +646,57 @@ class StatisticsInterviewsTableTest extends TestCase
         }
     }
 
+    /**
+     * Die Begruendung muss den Haken UEBERLEBEN. Das Feld an der Buchung ist
+     * ein Zustand — es wird beim Bearbeiten ueberschrieben und beim Entfernen
+     * geleert. Die Frage „warum wurde damals nicht nachgefasst?" stellt sich
+     * aber Monate spaeter, an der PERSON. Deshalb zusaetzlich ein Eintrag im
+     * Aktivitaeten-Protokoll der Bewerberakte, den niemand ueberschreiben kann.
+     */
+    public function test_klaerung_landet_als_eintrag_in_der_bewerberakte(): void
+    {
+        try {
+            $component = $this->component('Essen');
+            $component->showTerminDetail = true;
+            $component->terminDetailId = self::INTERVIEW_AUGUST;
+
+            $component->openKlaerung(408);
+            $component->klaerungNote = 'Faengt erst im Oktober an.';
+            $component->klaerungWiedervorlage = '2026-10-01';
+            $component->saveKlaerung();
+
+            $gesetzt = Capsule::table('rec_auto_pilot_logs')
+                ->where('rec_applicant_id', 208)->where('type', 'einsatz_klaerung_gesetzt')->first();
+            $this->assertNotNull($gesetzt, 'ohne Eintrag waere die Begruendung nach dem Entfernen weg');
+            $this->assertStringContainsString('Faengt erst im Oktober an.', $gesetzt->summary);
+            $this->assertStringContainsString('Nina Personal', $gesetzt->summary, 'wer es behauptet hat');
+            $this->assertStringContainsString('01.10.2026', $gesetzt->summary, 'bis wann es gelten sollte');
+            $details = json_decode((string) $gesetzt->details, true);
+            $this->assertSame(408, $details['booking_id']);
+            $this->assertSame(self::INTERVIEW_AUGUST, $details['interview_id']);
+            $this->assertSame(77, $details['user_id']);
+
+            // Das Entfernen ist genauso eine Aussage und bekommt seine Zeile.
+            $component->removeKlaerung(408);
+            $aufgehoben = Capsule::table('rec_auto_pilot_logs')
+                ->where('rec_applicant_id', 208)->where('type', 'einsatz_klaerung_aufgehoben')->first();
+            $this->assertNotNull($aufgehoben);
+            $this->assertStringContainsString('Nina Personal', $aufgehoben->summary);
+
+            // Und der alte Eintrag steht weiterhin da — er ist die Historie.
+            $this->assertSame(2, Capsule::table('rec_auto_pilot_logs')
+                ->where('rec_applicant_id', 208)->whereIn('type', ['einsatz_klaerung_gesetzt', 'einsatz_klaerung_aufgehoben'])->count());
+        } finally {
+            Capsule::table('rec_auto_pilot_logs')->where('rec_applicant_id', 208)->delete();
+            $this->raeumeKlaerungAb();
+        }
+    }
+
+    /**
+     * Buchung 408 UND ihre Akten-Eintraege: seit die Klaerung protokolliert
+     * wird, hinterlaesst jeder Schreibtest Zeilen im Aktivitaeten-Log. Ohne das
+     * Aufraeumen zaehlt der Protokoll-Test die Eintraege seiner Nachbarn mit.
+     */
     private function raeumeKlaerungAb(): void
     {
         Capsule::table('rec_interview_bookings')->where('id', 408)->update([
@@ -658,6 +705,7 @@ class StatisticsInterviewsTableTest extends TestCase
             'einsatz_wiedervorlage_am' => null,
             'einsatz_geklaert_by' => null,
         ]);
+        Capsule::table('rec_auto_pilot_logs')->where('rec_applicant_id', 208)->delete();
     }
 
     public function test_schulung_zu_einsatz_drei_ehrliche_toepfe(): void
@@ -1163,6 +1211,9 @@ class StatisticsInterviewsTableTest extends TestCase
         Capsule::table('users')->insert([
             ['id' => 700, 'name' => 'Clara Setzkorn'],
             ['id' => 701, 'name' => 'Ben Trainer'],
+            // Die handelnde Person der Schreibtests (auth()->id() der Attrappe):
+            // ihr Name steht im Akten-Eintrag der Klaerung.
+            ['id' => 77, 'name' => 'Nina Personal'],
         ]);
         Capsule::table('rec_interview_user')->insert([
             ['rec_interview_id' => self::INTERVIEW_AUGUST, 'user_id' => 700],

@@ -191,6 +191,15 @@
                                                  title="Der Haken wirkt nicht mehr — die Person ist im Einsatz. Er bliebe aber liegen und würde wieder greifen, wenn die Zuweisung wegfällt.">✓ geklärt (nicht mehr nötig)</div>
                                         @endif
                                         <div class="text-[11px] text-[color:var(--ui-secondary)]">{{ $person['geklaert_note'] }}</div>
+                                        @php
+                                            $herkunft = trim(implode(' · ', array_filter([
+                                                $person['geklaert_von'],
+                                                $person['geklaert_am'],
+                                            ])));
+                                        @endphp
+                                        @if ($herkunft !== '')
+                                            <div class="text-[11px] text-[color:var(--ui-muted)]">{{ $herkunft }}</div>
+                                        @endif
                                         @if ($person['geklaert_wiedervorlage'] !== null)
                                             <div class="text-[11px] text-[color:var(--ui-muted)]">
                                                 wieder auf der Liste ab {{ \Illuminate\Support\Carbon::parse($person['geklaert_wiedervorlage'])->format('d.m.Y') }}

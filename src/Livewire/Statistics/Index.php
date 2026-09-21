@@ -12,6 +12,7 @@ use Platform\Recruiting\Jobs\SendNewDatesCampaign;
 use Platform\Recruiting\Jobs\SendNoAssignmentCampaign;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Models\RecPhase;
@@ -1826,9 +1827,21 @@ class Index extends Component
             ->whereIn('rec_applicant_id', array_keys($mitglied['ids']))
             ->orderBy('id')
             ->get(['id', 'rec_applicant_id', 'einsatz_geklaert_at', 'einsatz_geklaert_note',
-                'einsatz_wiedervorlage_am'])
+                'einsatz_wiedervorlage_am', 'einsatz_geklaert_by'])
             ->keyBy('rec_applicant_id');
         $heuteYmd = now()->toDateString();
+
+        // Wer abgehakt hat: EINE Query fuer alle Haken der Liste, und nur wenn
+        // es ueberhaupt einen gibt. Query-Builder auf die Core-users, dieselbe
+        // Begruendung wie beim Schulungsleiter oben.
+        $haknamen = [];
+        $hakerIds = $buchungen->pluck('einsatz_geklaert_by')->filter()->unique()->values()->all();
+        if ($hakerIds !== []) {
+            $haknamen = \Illuminate\Support\Facades\DB::table('users')
+                ->whereIn('id', $hakerIds)
+                ->pluck('name', 'id')
+                ->all();
+        }
 
         $personen = [];
         foreach (array_keys($mitglied['ids']) as $id) {
@@ -1877,6 +1890,10 @@ class Index extends Component
                 ),
                 'geklaert_note' => $buchung?->einsatz_geklaert_note,
                 'geklaert_wiedervorlage' => $buchung?->einsatz_wiedervorlage_am?->format('Y-m-d'),
+                // Wer und wann — sonst steht die Behauptung ohne Absender da.
+                // Unbekannter Nutzer bleibt null: nichts erfinden.
+                'geklaert_von' => $haknamen[$buchung?->einsatz_geklaert_by] ?? null,
+                'geklaert_am' => $buchung?->einsatz_geklaert_at?->format('d.m.Y'),
             ];
         }
 
@@ -2000,7 +2017,8 @@ class Index extends Component
     {
         $this->klaerungError = '';
         $bookingId = $this->klaerungBookingId;
-        if ($bookingId === null || $this->abhakbarePerson($bookingId) === null) {
+        $person = $bookingId === null ? null : $this->abhakbarePerson($bookingId);
+        if ($person === null) {
             $this->klaerungError = 'Für diese Buchung ist in dieser Schulung nichts zu klären.';
             $this->klaerungBookingId = null;
 
@@ -2041,6 +2059,17 @@ class Index extends Component
                 'einsatz_geklaert_by' => auth()->id(),
             ]);
 
+        $this->protokolliereKlaerung(
+            (int) $person['id'],
+            $bookingId,
+            'einsatz_klaerung_gesetzt',
+            'Klärung „ohne Einsatz" gesetzt von ' . $this->handelnderName() . ': „' . $note . '"'
+                . ($wiedervorlage !== ''
+                    ? ' — wieder auf der Arbeitsliste ab ' . \Illuminate\Support\Carbon::parse($wiedervorlage)->format('d.m.Y') . '.'
+                    : ' — dauerhaft, bis jemand den Haken entfernt.'),
+            ['note' => $note, 'wiedervorlage' => $wiedervorlage !== '' ? $wiedervorlage : null],
+        );
+
         $this->forgetTerminDetail();
         $this->closeKlaerung();
     }
@@ -2054,7 +2083,8 @@ class Index extends Component
     public function removeKlaerung(int $bookingId): void
     {
         $this->klaerungError = '';
-        if ($this->klaerbarePerson($bookingId) === null) {
+        $person = $this->klaerbarePerson($bookingId);
+        if ($person === null) {
             return;
         }
 
@@ -2070,8 +2100,68 @@ class Index extends Component
                 'einsatz_geklaert_by' => null,
             ]);
 
+        // Die geloeschte Begruendung wandert in den Eintrag: nach dem Entfernen
+        // ist er die EINZIGE Stelle, an der sie noch steht.
+        $this->protokolliereKlaerung(
+            (int) $person['id'],
+            $bookingId,
+            'einsatz_klaerung_aufgehoben',
+            'Klärung „ohne Einsatz" aufgehoben von ' . $this->handelnderName()
+                . (($person['geklaert_note'] ?? null) !== null ? ' (war: „' . $person['geklaert_note'] . '")' : '')
+                . '.',
+            ['note' => $person['geklaert_note'] ?? null, 'wiedervorlage' => $person['geklaert_wiedervorlage'] ?? null],
+        );
+
         $this->forgetTerminDetail();
         $this->closeKlaerung();
+    }
+
+    /**
+     * Name der handelnden Person fuer den Akten-Eintrag. Per Query-Builder auf
+     * die Core-users statt ueber das User-Model — dieselbe Begruendung wie beim
+     * Schulungsleiter in terminDetailFor(). Unbekannt heisst „HR": lieber ohne
+     * Namen protokollieren als gar nicht.
+     */
+    private function handelnderName(): string
+    {
+        $userId = auth()->id();
+        $name = $userId === null ? null : \Illuminate\Support\Facades\DB::table('users')
+            ->where('id', $userId)
+            ->value('name');
+
+        return trim((string) $name) !== '' ? (string) $name : 'HR';
+    }
+
+    /**
+     * Klaerungen ins Aktivitaeten-Protokoll der BEWERBERAKTE. Das Feld an der
+     * Buchung traegt nur den aktuellen Zustand — es wird beim Bearbeiten
+     * ueberschrieben und beim Entfernen geleert. Die Frage „warum wurde damals
+     * nicht nachgefasst?" stellt sich aber Monate spaeter und an der Person.
+     *
+     * Bewusst NICHT in die Buchungsnotiz: die ist in der Buchungsliste ein
+     * freies Textfeld, das beim Tippen den ganzen Inhalt ersetzt — eine
+     * Historie, die man versehentlich loeschen kann, ist keine.
+     *
+     * Im try/catch wie alle Log-Schreiber des Moduls: ein fehlgeschlagener
+     * Eintrag darf die Entscheidung nicht rueckgaengig machen.
+     *
+     * @param array<string, mixed> $details
+     */
+    private function protokolliereKlaerung(int $applicantId, int $bookingId, string $type, string $summary, array $details): void
+    {
+        try {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $applicantId,
+                'type' => $type,
+                'summary' => $summary,
+                'details' => $details + [
+                    'booking_id' => $bookingId,
+                    'interview_id' => (int) $this->terminDetailId,
+                    'user_id' => auth()->id(),
+                ],
+            ]);
+        } catch (\Throwable) {
+        }
     }
 
     /**
