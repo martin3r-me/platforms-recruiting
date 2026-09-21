@@ -296,6 +296,12 @@
                         </td>
                         <td class="px-4 py-2">
                             @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment])
+                            @if (!$eventOnly && $assignment->declined_at)
+                                <button type="button" wire:click="undoDecline({{ $assignment->id }})"
+                                        wire:confirm="Absage zurücknehmen? Der Tag ist danach wieder offen und läuft normal in Versand und Eskalation."
+                                        class="ml-1 rounded border border-gray-300 px-1.5 py-0.5 text-xs text-gray-600 opacity-60 hover:bg-gray-50 hover:opacity-100"
+                                        title="Absage zurücknehmen — Tag wird wieder offen">↩ zurücknehmen</button>
+                            @endif
                             @if (!$eventOnly && $assignment->rec_employee_id && !$assignment->confirmed_at && !$assignment->declined_at && !$assignment->missing_since)
                                 <button type="button" wire:click="manualConfirm({{ $assignment->rec_employee_id }})"
                                         wire:confirm="Manuell bestätigen? Gilt für alle kommenden Tage dieser Veranstaltung, holt ggf. zur Löschung Gemeldete zurück und entsperrt das MA-Portal."
@@ -530,7 +536,31 @@
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showDeclineModal', false)">
             <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
                 <h2 class="text-lg font-semibold">Absage erfassen</h2>
-                <p class="text-sm text-gray-500">Gilt für alle kommenden Einsatztage dieser Veranstaltung. Stoppt Eskalation und weitere Erinnerungen für diese Person sofort.</p>
+                <p class="text-sm text-gray-500">Stoppt Eskalation und weitere Erinnerungen für die gewählten Tage.</p>
+
+                @php $dayOpts = $this->declineDayOptions; @endphp
+                @if (count($dayOpts) > 1)
+                    <div class="rounded-lg border border-gray-200 p-3">
+                        <div class="mb-1.5 text-sm font-medium text-gray-700">Für welche Tage?</div>
+                        <div class="max-h-44 space-y-1 overflow-y-auto">
+                            @foreach ($dayOpts as $opt)
+                                <label class="flex items-center gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" wire:model="declineDays" value="{{ $opt['id'] }}" class="rounded border-gray-300">
+                                    <span class="tabular-nums">{{ $opt['datum'] }}</span>
+                                    <span class="text-gray-500 tabular-nums">{{ $opt['zeit'] }}</span>
+                                    @if ($opt['taetigkeit'] !== '')
+                                        <span class="text-gray-500">· {{ $opt['taetigkeit'] }}</span>
+                                    @endif
+                                </label>
+                            @endforeach
+                        </div>
+                        <div class="mt-1 text-xs text-gray-400">Alle Tage sind vorausgewählt — abwählen, was bestehen bleiben soll.</div>
+                    </div>
+                @elseif (count($dayOpts) === 1)
+                    <div class="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                        Betrifft: <span class="font-medium tabular-nums">{{ $dayOpts[0]['datum'] }}</span> {{ $dayOpts[0]['zeit'] }}@if ($dayOpts[0]['taetigkeit'] !== '') · {{ $dayOpts[0]['taetigkeit'] }}@endif
+                    </div>
+                @endif
 
                 <div class="flex items-center gap-4 text-sm">
                     <label class="flex items-center gap-2"><input type="radio" wire:model="declineReason" value="abgesagt" class="border-gray-300"> abgesagt</label>

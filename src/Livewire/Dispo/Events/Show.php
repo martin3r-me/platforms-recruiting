@@ -14,6 +14,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoAttachmentStore;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
+use Platform\Recruiting\Services\Zas\Dispo\DispoDecline;
 use Platform\Recruiting\Services\Zas\Dispo\DispoManualConfirm;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
@@ -740,6 +741,47 @@ class Show extends Component
     public $declineLock = false;
     public $declineHr = false;
 
+    /**
+     * Tagesauswahl der Absage (Kunde 18.09.): IDs der Einbuchungen, die abgesagt
+     * werden. Vorher galt eine Absage immer fuer ALLE kommenden Tage — bei
+     * Mehrtages-VAs nahm die Absage des Aufbautags die Person auch fuer die
+     * Veranstaltungstage raus.
+     *
+     * @var list<int>
+     */
+    public array $declineDays = [];
+
+    /**
+     * Kommende, noch nicht abgesagte Einbuchungen der Person in DIESER VA —
+     * die Auswahl im Absage-Fenster.
+     *
+     * @return list<array{id:int, datum:string, zeit:string, taetigkeit:string}>
+     */
+    #[Computed]
+    public function declineDayOptions(): array
+    {
+        if ($this->chatEmployeeId === null) {
+            return [];
+        }
+        $groupIds = $this->identity['byCanon'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
+        $today = now()->toDateString();
+
+        return $this->event->assignments
+            ->filter(fn ($a) => in_array((int) $a->rec_employee_id, $groupIds, true)
+                && $a->declined_at === null
+                && $a->missing_since === null
+                && $a->datum->format('Y-m-d') >= $today)
+            ->sortBy(fn ($a) => $a->datum->format('Y-m-d') . '|' . $a->von)
+            ->map(fn ($a) => [
+                'id'         => (int) $a->id,
+                'datum'      => $a->datum->format('d.m.Y'),
+                'zeit'       => $a->von ? ($a->von . ($a->bis ? '–' . $a->bis : '')) : '—',
+                'taetigkeit' => (string) ($a->taetigkeit ?? ''),
+            ])
+            ->values()
+            ->all();
+    }
+
     public function openDeclineModal(): void
     {
         if ($this->blockedForEventOnly() || $this->chatEmployeeId === null) {
@@ -749,6 +791,9 @@ class Show extends Component
         $this->declineNote = '';
         $this->declineLock = false;
         $this->declineHr = false;
+        unset($this->declineDayOptions);
+        // Standard: alle kommenden Tage — der haeufige Fall bleibt ein Klick.
+        $this->declineDays = array_column($this->declineDayOptions, 'id');
         $this->showDeclineModal = true;
     }
 
@@ -763,33 +808,34 @@ class Show extends Component
         ], [], ['declineNote' => 'Kommentar']);
 
         $groupIds = $this->identity['byCanon'][$this->chatEmployeeId] ?? [$this->chatEmployeeId];
-        $lock = (bool) $this->declineLock;
-        $hr = (bool) $this->declineHr;
 
-        $updated = RecDispoAssignment::query()
-            ->where('rec_dispo_event_id', $this->eventId)
-            ->whereIn('rec_employee_id', $groupIds)
-            ->whereDate('datum', '>=', now()->toDateString())
-            ->whereNull('declined_at')
-            ->update([
-                'declined_at'            => now(),
-                'declined_reason'        => $this->declineReason,
-                'declined_note'          => trim($this->declineNote) !== '' ? trim($this->declineNote) : null,
-                'declined_by_user_id'    => auth()->id(),
-                'declined_portal_locked' => $lock,
-                'declined_hr_at'         => $hr ? now() : null,
-            ]);
+        // Nur Tage aus der angebotenen Auswahl — kein Absagen per untergeschobener id.
+        $allowed = array_column($this->declineDayOptions, 'id');
+        $ids = array_values(array_intersect(array_map('intval', $this->declineDays), $allowed));
+        if ($ids === []) {
+            $this->addError('declineReason', 'Bitte mindestens einen Tag auswählen.');
+            return;
+        }
+
+        $note = trim($this->declineNote);
+        $updated = app(DispoDecline::class)->apply(
+            $this->eventId,
+            $ids,
+            $groupIds,
+            $this->declineReason,
+            $note !== '' ? $note : null,
+            (bool) $this->declineLock,
+            (bool) $this->declineHr,
+            auth()->id(),
+        );
 
         if ($updated === 0) {
             $this->addError('declineReason', 'Keine kommende Einbuchung gefunden (bereits abgesagt?).');
             return;
         }
-        if ($lock) {
-            app(DispoEmployeeGateway::class)->lockPortal($groupIds, 'Dispo-Absage (' . $this->declineReason . ')');
-        }
 
         $this->showDeclineModal = false;
-        unset($this->event, $this->sendPreview);
+        unset($this->event, $this->sendPreview, $this->declineDayOptions);
     }
 
     /**
@@ -809,6 +855,31 @@ class Show extends Component
         app(DispoManualConfirm::class)->confirm($this->eventId, $groupIds, auth()->id());
 
         unset($this->event, $this->sendPreview);
+    }
+
+    /**
+     * Absage zuruecknehmen (Kunde 18.09.): die Zeile ist wieder offen und laeuft
+     * normal in Versand und Eskalation. Versand-Stempel bleiben stehen, damit
+     * sichtbar bleibt, dass die Person schon angeschrieben war.
+     */
+    public function undoDecline(int $assignmentId): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $a = RecDispoAssignment::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->whereKey($assignmentId)
+            ->first();
+        if ($a === null || $a->rec_employee_id === null) {
+            return;
+        }
+        $canon = $this->identity['canon'][(int) $a->rec_employee_id] ?? (int) $a->rec_employee_id;
+        $groupIds = $this->identity['byCanon'][$canon] ?? [(int) $a->rec_employee_id];
+
+        app(DispoDecline::class)->undo($a, $groupIds);
+
+        unset($this->event, $this->sendPreview, $this->declineDayOptions);
     }
 
     /** Verspaetet-Marker (Kunde 07.09.): Check-in-Hilfe — pro Einbuchung an-/abwaehlbar, reine Doku. */
