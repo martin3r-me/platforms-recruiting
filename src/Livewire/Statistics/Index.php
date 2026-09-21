@@ -2146,7 +2146,8 @@ class Index extends Component
     {
         $ids = $this->noAssignmentIds();
 
-        return $ids === [] ? [] : app(NoAssignmentCampaignRecipients::class)->load($this->teamId(), $ids);
+        return $ids === [] ? [] : app(NoAssignmentCampaignRecipients::class)
+            ->load($this->teamId(), $ids, (int) $this->terminDetailId);
     }
 
     #[Computed]

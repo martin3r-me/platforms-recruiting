@@ -91,7 +91,7 @@ class SendNoAssignmentCampaign implements ShouldQueue
         $key = self::cacheKey($this->campaignUuid);
         $progress = $cache->get($key) ?? self::initialProgress(count($this->applicantIds));
 
-        $rows = $recipients->load($this->teamId, $this->applicantIds);
+        $rows = $recipients->load($this->teamId, $this->applicantIds, $this->interviewId);
 
         foreach ($this->applicantIds as $id) {
             $row = $rows[(int) $id] ?? null;

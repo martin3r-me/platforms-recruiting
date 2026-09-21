@@ -75,9 +75,16 @@ final class SendNoAssignmentCampaignJobTest extends TestCase
     private function runJob(array $rows, array $statusById = [], int $templateId = 88): array
     {
         $recipients = new class($rows) extends NoAssignmentCampaignRecipients {
+            public array $interviewIds = [];
+
             public function __construct(private array $rows) {}
-            public function load(int $teamId, array $applicantIds): array
+
+            public function load(int $teamId, array $applicantIds, ?int $interviewId = null): array
             {
+                // Mitgeschrieben, damit der Test sieht, dass der Job die
+                // Schulung durchreicht — daran haengt das zweite Klaerungs-Tor.
+                $this->interviewIds[] = $interviewId;
+
                 return array_intersect_key($this->rows, array_flip($applicantIds));
             }
         };
@@ -96,6 +103,10 @@ final class SendNoAssignmentCampaignJobTest extends TestCase
         $job = new SendNoAssignmentCampaign('uuid-x', 3, 42, 57, array_keys($rows), $templateId);
         $this->cache->put(SendNoAssignmentCampaign::cacheKey('uuid-x'), SendNoAssignmentCampaign::initialProgress(count($rows)), 86400);
         $job->handle($this->cache, $recipients, $sender);
+
+        // Die Schulung des Jobs (57) muss bei der zweiten Empfaenger-Pruefung
+        // ankommen, sonst greift der Klaerungs-Haken dort nicht.
+        $this->assertSame([57], $recipients->interviewIds);
 
         return ['calls' => $sender->calls, 'progress' => $this->cache->get(SendNoAssignmentCampaign::cacheKey('uuid-x'))];
     }

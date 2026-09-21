@@ -66,6 +66,14 @@ final class NoAssignmentCampaignRecipientsTest extends TestCase
             $t->timestamp('zas_removed_at')->nullable(); $t->timestamp('deletion_confirmed_at')->nullable();
             $t->timestamps();
         });
+        $s->create('rec_interview_bookings', function ($t) {
+            $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id')->nullable();
+            $t->integer('rec_interview_id')->nullable(); $t->integer('rec_applicant_id')->nullable();
+            $t->string('status')->nullable();
+            $t->timestamp('einsatz_geklaert_at')->nullable(); $t->string('einsatz_geklaert_note')->nullable();
+            $t->date('einsatz_wiedervorlage_am')->nullable();
+            $t->timestamp('deleted_at')->nullable(); $t->timestamps();
+        });
         $s->create('rec_auto_pilot_logs', function ($t) {
             $t->increments('id'); $t->integer('rec_applicant_id'); $t->string('type', 30);
             $t->text('summary')->nullable(); $t->text('details')->nullable(); $t->timestamp('created_at')->useCurrent();
@@ -106,9 +114,9 @@ final class NoAssignmentCampaignRecipientsTest extends TestCase
         }
     }
 
-    private function load(array $ids): array
+    private function load(array $ids, ?int $interviewId = null): array
     {
-        return (new NoAssignmentCampaignRecipients())->load(3, $ids);
+        return (new NoAssignmentCampaignRecipients())->load(3, $ids, $interviewId);
     }
 
     public function testWaehlbarUndVorausgewaehltMitNamen(): void
@@ -144,6 +152,72 @@ final class NoAssignmentCampaignRecipientsTest extends TestCase
 
         $this->assertFalse($rows[3]['selectable'], 'Wer disponiert ist, darf die Nachfrage nicht bekommen.');
         $this->assertSame(['inzwischen im Einsatz'], $rows[3]['badges']);
+    }
+
+    /**
+     * Das ZWEITE Tor (21.09.2026): zwischen Auswahl und Senden kann jemand den
+     * Klaerungs-Haken setzen. „Wir haben nichts mehr von dir gehoert" an
+     * jemanden, bei dem gerade jemand notiert hat, dass alles besprochen ist,
+     * ist genau die Peinlichkeit, die dieses Tor verhindert.
+     */
+    public function testGeklaerteBekommenDieNachfrageNicht(): void
+    {
+        $this->person(30, 'Lydia', 'Bontioti');
+        Capsule::table('rec_interview_bookings')->insert([
+            'id' => 3001, 'uuid' => 'ivb-3001', 'team_id' => 3, 'rec_interview_id' => 55,
+            'rec_applicant_id' => 30, 'status' => 'attended',
+            'einsatz_geklaert_at' => '2026-09-20 09:00:00',
+            'einsatz_geklaert_note' => 'Faengt im Oktober an.',
+            'einsatz_wiedervorlage_am' => null,
+        ]);
+
+        $rows = $this->load([30], 55);
+
+        $this->assertFalse($rows[30]['selectable'], 'Wer geklaert ist, bekommt keine Nachfrage.');
+        $this->assertFalse($rows[30]['checked']);
+        $this->assertSame(['inzwischen geklärt'], $rows[30]['badges']);
+    }
+
+    /**
+     * Der Haken gilt je Schulung: an einem ANDEREN Termin sagt er nichts ueber
+     * diesen aus — sonst schwiege eine alte Notiz eine neue Nachfrage tot.
+     */
+    public function testKlaerungAnEinemAnderenTerminSperrtNicht(): void
+    {
+        $this->person(31, 'Mert', 'Hasanoglou');
+        Capsule::table('rec_interview_bookings')->insert([
+            'id' => 3101, 'uuid' => 'ivb-3101', 'team_id' => 3, 'rec_interview_id' => 50,
+            'rec_applicant_id' => 31, 'status' => 'attended',
+            'einsatz_geklaert_at' => '2026-09-20 09:00:00',
+            'einsatz_geklaert_note' => 'Alte Klaerung aus der Juni-Schulung.',
+            'einsatz_wiedervorlage_am' => null,
+        ]);
+
+        $rows = $this->load([31], 55);
+
+        $this->assertTrue($rows[31]['selectable']);
+        $this->assertSame([], $rows[31]['badges']);
+    }
+
+    /**
+     * Abgelaufene Klaerung: der Fall ist wieder offen, die Nachfrage also wieder
+     * richtig. Dieselbe Regel wie in der Statistik, dieselbe Einheit.
+     */
+    public function testAbgelaufeneKlaerungSperrtNichtMehr(): void
+    {
+        $this->person(32, 'Giada', 'Festge');
+        Capsule::table('rec_interview_bookings')->insert([
+            'id' => 3201, 'uuid' => 'ivb-3201', 'team_id' => 3, 'rec_interview_id' => 55,
+            'rec_applicant_id' => 32, 'status' => 'attended',
+            'einsatz_geklaert_at' => '2026-08-01 09:00:00',
+            'einsatz_geklaert_note' => 'Wollte im August starten.',
+            'einsatz_wiedervorlage_am' => '2026-09-01',
+        ]);
+
+        $rows = $this->load([32], 55);
+
+        $this->assertTrue($rows[32]['selectable'], 'die Wiedervorlage ist durch');
+        $this->assertSame([], $rows[32]['badges']);
     }
 
     public function testBereitsAngeschriebeneBleibenWaehlbarAberNichtVorausgewaehlt(): void

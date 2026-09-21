@@ -4,7 +4,9 @@ namespace Platform\Recruiting\Services\Campaign;
 
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
+use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\Statistics\EinsatzLookup;
+use Platform\Recruiting\Support\EinsatzClarification;
 
 /**
  * Zeilen des Sammelversands „ohne Einsatz": Anzeige-Daten plus die Antwort auf
@@ -32,9 +34,13 @@ class NoAssignmentCampaignRecipients
 
     /**
      * @param list<int> $applicantIds
+     * @param ?int $interviewId Schulung, aus deren Arbeitsliste die Empfaenger
+     *        stammen — nur dort zaehlt ein Klaerungs-Haken (er haengt an der
+     *        Buchung, und eine alte Klaerung aus einer frueheren Runde sagt
+     *        ueber diese nichts).
      * @return array<int, array{applicant_id:int, name:string, selectable:bool, checked:bool, badges:list<string>}>
      */
-    public function load(int $teamId, array $applicantIds): array
+    public function load(int $teamId, array $applicantIds, ?int $interviewId = null): array
     {
         $ids = array_values(array_unique(array_map('intval', $applicantIds)));
         if ($ids === []) {
@@ -62,6 +68,30 @@ class NoAssignmentCampaignRecipients
             ->keyBy('id');
 
         $einsatz = EinsatzLookup::for($teamId, $applicants);
+
+        // Klaerungs-Haken der Buchungen an DIESER Schulung (21.09.2026). Das
+        // Modal nimmt Geklaerte schon aus der Liste; diese Frage hier ist die
+        // zweite, unmittelbar vor dem Senden — im selben Geist wie die
+        // Einsatz-Pruefung darueber.
+        $geklaert = [];
+        if ($interviewId !== null) {
+            $heuteYmd = now()->toDateString();
+            $buchungen = RecInterviewBooking::query()
+                ->where('team_id', $teamId)
+                ->where('rec_interview_id', $interviewId)
+                ->whereIn('rec_applicant_id', $ids)
+                ->whereNotNull('einsatz_geklaert_at')
+                ->get(['rec_applicant_id', 'einsatz_geklaert_at', 'einsatz_wiedervorlage_am']);
+            foreach ($buchungen as $buchung) {
+                if (EinsatzClarification::isActive(
+                    $buchung->einsatz_geklaert_at?->toDateTimeString(),
+                    $buchung->einsatz_wiedervorlage_am?->format('Y-m-d'),
+                    $heuteYmd,
+                )) {
+                    $geklaert[(int) $buchung->rec_applicant_id] = true;
+                }
+            }
+        }
 
         $letzterVersand = RecAutoPilotLog::query()
             ->whereIn('rec_applicant_id', $ids)
@@ -103,6 +133,14 @@ class NoAssignmentCampaignRecipients
             // gestartet, und die Nachfrage ist genau fuer diese Menschen.
             if ($einsatz->flag($id) === EinsatzLookup::FLAG_DEPLOYED) {
                 $badges[] = 'inzwischen im Einsatz';
+                $selectable = false;
+            }
+
+            // Ein gesetzter Haken IST die Antwort auf die Frage, die diese
+            // Nachricht stellt — sie waere die Peinlichkeit, gegen die das
+            // zweite Tor gebaut ist.
+            if (isset($geklaert[$id])) {
+                $badges[] = 'inzwischen geklärt';
                 $selectable = false;
             }
 
