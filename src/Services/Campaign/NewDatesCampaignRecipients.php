@@ -110,6 +110,13 @@ class NewDatesCampaignRecipients
                 'last_campaign_at' => $lc?->created_at?->format('Y-m-d H:i:s'),
                 'now' => $now->format('Y-m-d H:i:s'),
                 'cancelled_bookings' => $cancelled,
+                // Drei Zustaende, in denen eine Kampagnen-Nachricht nicht passt.
+                // Die Bremse an einer Phase ist eine AutoPilot-Einstellung — der
+                // Sammelversand las sie nie, und genau daran lag es, dass #2906
+                // am 15.09.2026 noch `statistik_p1` bekam.
+                'sammelstelle' => (bool) $a->primaryPosition()?->is_sammelstelle,
+                'stille_phase' => self::phaseIstStill($a->phase),
+                'abgeschlossen_am' => $a->auto_pilot_completed_at?->format('Y-m-d H:i:s'),
                 'waitlist' => $wl === null ? null : [
                     'enrolled_at' => $wl->enrolled_at?->format('Y-m-d H:i:s'),
                     'notified_at' => $wl->notified_at?->format('Y-m-d H:i:s'),
@@ -125,6 +132,23 @@ class NewDatesCampaignRecipients
         }
 
         return $rows;
+    }
+
+    /**
+     * Eine Phase ist still, wenn sie den Auto-Piloten ausdruecklich abschaltet
+     * (`auto_pilot_enabled: false`, die Bremse der Sammel-Stelle) oder nur den
+     * Template-Versand stoppt (`auto_pilot_disabled: true`, z.B. die Phase
+     * „Schulung & Vertraege versenden"). Beides heisst: hier soll von selbst
+     * nichts rausgehen — was fuer einen Sammelversand genauso gilt.
+     */
+    private static function phaseIstStill(?\Platform\Recruiting\Models\RecPhase $phase): bool
+    {
+        if ($phase === null) {
+            return false;
+        }
+
+        return $phase->getAutoPilotSetting('auto_pilot_enabled', true) === false
+            || $phase->getAutoPilotSetting('auto_pilot_disabled', false) === true;
     }
 
     /**

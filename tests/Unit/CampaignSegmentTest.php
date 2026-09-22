@@ -206,4 +206,61 @@ final class CampaignSegmentTest extends TestCase
     {
         $this->assertSame($expected, CampaignSegment::countsByTemplate($rows, $selectedIds));
     }
+
+    /**
+     * Sammelstelle: HART gesperrt, nicht bloss abgehakt.
+     *
+     * `checked` allein reicht nicht — campaignSelectAll(), selectedIds() und der
+     * Job selbst pruefen gegen `selectable` (gleiche Mechanik wie bei der frisch
+     * benachrichtigten Warteliste). Ein Klick auf „alle auswaehlen" haette sie
+     * sonst wieder mitgenommen.
+     *
+     * Warum ueberhaupt: Die Sammel-Stelle ist ein stiller Auffangbehaelter. Wer
+     * dort steht, hat keinen Bearbeitungsschritt, auf den sich eine Kampagnen-
+     * Nachricht beziehen koennte. Live belegt (22.09.2026): #2906 bekam am
+     * 15.09. `statistik_p1`, acht Tage NACH der Bremse an Phase 45 — die bremst
+     * nur den Auto-Piloten, der Sammelversand fragt sie nicht.
+     */
+    public function testSammelstelleIstNichtWaehlbar(): void
+    {
+        $segment = CampaignSegment::classify($this->input(['sammelstelle' => true]));
+
+        $this->assertFalse($segment['selectable'], 'aus der Sammelstelle geht keine Kampagne raus');
+        $this->assertFalse($segment['checked']);
+        $this->assertContains(
+            'Sammelstelle — erst auf eine Stelle umschlüsseln',
+            $segment['badges'],
+            'der Hinweis nennt den Ausweg, nicht nur den Zustand'
+        );
+    }
+
+    /**
+     * Stille Phase: sichtbar und waehlbar, aber nicht vorausgewaehlt.
+     *
+     * Weicher als die Sammelstelle, weil eine Phase aus vielen Gruenden still
+     * sein kann (Vertragsversand, Teamleiter-Einzelfall) — da kann ein Mensch
+     * einen Grund haben, den wir nicht kennen. Er soll ihn nur bewusst fassen.
+     */
+    public function testStillePhaseIstSichtbarAberNichtVorausgewaehlt(): void
+    {
+        $segment = CampaignSegment::classify($this->input(['stille_phase' => true]));
+
+        $this->assertTrue($segment['selectable'], 'sichtbar und waehlbar — nur eben nicht von allein');
+        $this->assertFalse($segment['checked']);
+        $this->assertContains('Phase ohne automatischen Versand', $segment['badges']);
+    }
+
+    /**
+     * Fertiggemeldet: ebenfalls weich. #2906 und #2929 galten seit dem 19.08.
+     * als abgeschlossen und bekamen trotzdem Kampagnen-Post — fuer den
+     * Auto-Piloten sind sie unsichtbar, fuer den Sammelversand waren sie es nie.
+     */
+    public function testFertiggemeldetIstSichtbarAberNichtVorausgewaehlt(): void
+    {
+        $segment = CampaignSegment::classify($this->input(['abgeschlossen_am' => '2026-08-19 12:43:32']));
+
+        $this->assertTrue($segment['selectable']);
+        $this->assertFalse($segment['checked']);
+        $this->assertContains('abgeschlossen am 19.08.2026', $segment['badges']);
+    }
 }

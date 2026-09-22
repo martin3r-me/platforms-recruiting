@@ -65,7 +65,7 @@ final class NewDatesCampaignRecipientsTest extends TestCase
         });
         $s->create('rec_positions', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id'); $t->string('title');
-            $t->boolean('is_active')->default(true); $t->timestamps();
+            $t->boolean('is_active')->default(true); $t->boolean('is_sammelstelle')->default(false); $t->timestamps();
         });
         $s->create('rec_phases', function ($t) {
             $t->increments('id'); $t->string('uuid')->nullable(); $t->integer('team_id'); $t->integer('rec_position_id');
@@ -124,7 +124,14 @@ final class NewDatesCampaignRecipientsTest extends TestCase
             $t->boolean('is_active')->default(true); $t->boolean('is_primary')->default(false); $t->timestamps();
         });
 
-        Capsule::table('rec_positions')->insert(['id' => 11, 'team_id' => 3, 'title' => 'MGL allgemein']);
+        Capsule::table('rec_positions')->insert([
+            ['id' => 11, 'team_id' => 3, 'title' => 'MGL allgemein', 'is_sammelstelle' => false],
+            ['id' => 13, 'team_id' => 3, 'title' => 'Sonstiges', 'is_sammelstelle' => true],
+        ]);
+        Capsule::table('rec_phases')->insert([
+            ['id' => 45, 'team_id' => 3, 'rec_position_id' => 13, 'name' => 'Bewerbung', 'order' => 1,
+             'completion_type' => 'manual', 'auto_pilot_settings' => json_encode(['auto_pilot_enabled' => false])],
+        ]);
         Capsule::table('rec_phases')->insert([
             ['id' => 40, 'team_id' => 3, 'rec_position_id' => 11, 'name' => 'Bewerbung', 'order' => 1, 'completion_type' => 'fields'],
             ['id' => 41, 'team_id' => 3, 'rec_position_id' => 11, 'name' => 'Schulung buchen', 'order' => 2, 'completion_type' => 'booking'],
@@ -140,11 +147,12 @@ final class NewDatesCampaignRecipientsTest extends TestCase
         parent::tearDown();
     }
 
-    private function applicant(int $id, int $phaseId, bool $phone = true, bool $hrDesk = false): void
+    private function applicant(int $id, int $phaseId, bool $phone = true, bool $hrDesk = false, int $positionId = 11, ?string $abgeschlossenAm = null): void
     {
         Capsule::table('rec_applicants')->insert([
-            'id' => $id, 'team_id' => 3, 'rec_phase_id' => $phaseId, 'rec_position_id' => 11,
+            'id' => $id, 'team_id' => 3, 'rec_phase_id' => $phaseId, 'rec_position_id' => $positionId,
             'applied_at' => '2026-07-15', 'is_on_hr_desk' => $hrDesk,
+            'auto_pilot_completed_at' => $abgeschlossenAm,
         ]);
         Capsule::table('crm_contacts')->insert(['id' => 1000 + $id, 'first_name' => 'Test', 'last_name' => 'Nr' . $id]);
         Capsule::table('crm_contact_links')->insert([
@@ -230,6 +238,40 @@ final class NewDatesCampaignRecipientsTest extends TestCase
         $rows = (new NewDatesCampaignRecipients())->load(3, [1, 2, 3, 4], new \DateTimeImmutable('2026-08-28 12:00:00'));
 
         $this->assertSame([1], array_keys($rows), 'Geparkte, abgesagte und inaktive Bewerbungen fallen aus dem Re-Check.');
+    }
+
+    /**
+     * Verdrahtung der drei Sperren aus CampaignSegment (22.09.2026). Die Regel
+     * selbst steht im Unit-Test; hier zaehlt nur, dass die Liste die Eingaben
+     * ueberhaupt liefert — ohne diese Zeilen bliebe die Regel tot.
+     *
+     * Anlass: #2906 bekam am 15.09. `statistik_p1`, acht Tage NACH der Bremse
+     * an Phase 45. Die bremst nur den Auto-Piloten; der Sammelversand kannte
+     * weder die stille Phase noch den Abschluss-Haken.
+     */
+    public function testSammelstelleStillePhaseUndAbschlussErreichenDieListe(): void
+    {
+        $this->applicant(1, 45, positionId: 13);                                  // Sammelstelle, stille Phase
+        $this->applicant(2, 41, abgeschlossenAm: '2026-08-19 12:43:32');          // fertiggemeldet
+        $this->applicant(3, 41);                                                  // Gegenprobe: normal
+
+        $rows = (new NewDatesCampaignRecipients())->load(3, [1, 2, 3], new \DateTimeImmutable('2026-08-28 12:00:00'));
+
+        $this->assertFalse($rows[1]['selectable'], 'aus der Sammelstelle geht keine Kampagne raus');
+        $this->assertContains('Sammelstelle — erst auf eine Stelle umschlüsseln', $rows[1]['badges']);
+        $this->assertContains('Phase ohne automatischen Versand', $rows[1]['badges']);
+
+        $this->assertTrue($rows[2]['selectable'], 'fertiggemeldet ist waehlbar — nur nicht von allein');
+        $this->assertFalse($rows[2]['checked']);
+        $this->assertContains('abgeschlossen am 19.08.2026', $rows[2]['badges']);
+
+        // Gegenprobe: ohne diese Zustaende bleibt alles wie vorher.
+        $this->assertTrue($rows[3]['selectable']);
+        $this->assertTrue($rows[3]['checked']);
+        $this->assertSame([], array_values(array_filter(
+            $rows[3]['badges'],
+            fn ($b) => str_contains($b, 'Sammelstelle') || str_contains($b, 'ohne automatischen Versand') || str_contains($b, 'abgeschlossen am'),
+        )));
     }
 
     public function testLeereEingabeLeeresErgebnis(): void

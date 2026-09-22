@@ -154,6 +154,39 @@ final class CampaignSegment
             $badges[] = $text;
         }
 
+        // Sammelstelle: HART gesperrt. Wer im stillen Auffangbehaelter steht,
+        // hat keinen Bearbeitungsschritt, auf den sich eine Kampagnen-Nachricht
+        // beziehen koennte — der richtige Griff ist umschluesseln, nicht
+        // anschreiben. Nicht bloss `checked = false`: campaignSelectAll(),
+        // selectedIds() und der Job pruefen gegen `selectable`, ein Klick auf
+        // „alle auswaehlen" haette sie sonst wieder mitgenommen.
+        //
+        // Live belegt (22.09.2026): #2906 bekam am 15.09. `statistik_p1` — acht
+        // Tage NACH der Bremse an Phase 45. Die bremst nur den Auto-Piloten,
+        // der Sammelversand fragt sie nicht.
+        if (($in['sammelstelle'] ?? false) === true) {
+            $selectable = false;
+            $checked = false;
+            $badges[] = 'Sammelstelle — erst auf eine Stelle umschlüsseln';
+        }
+
+        // Stille Phase: weicher. Eine Phase kann aus vielen Gruenden still sein
+        // (Vertragsversand, Teamleiter-Einzelfall) — da kann ein Mensch einen
+        // Grund haben, den wir nicht kennen. Er soll ihn nur bewusst fassen.
+        if (($in['stille_phase'] ?? false) === true) {
+            $checked = false;
+            $badges[] = 'Phase ohne automatischen Versand';
+        }
+
+        // Fertiggemeldet: ebenfalls weich. Fuer den Auto-Piloten sind diese
+        // Bewerbungen unsichtbar (er nimmt nur auto_pilot_completed_at IS NULL),
+        // fuer den Sammelversand waren sie es nie — #2906 und #2929 galten seit
+        // dem 19.08. als abgeschlossen und bekamen trotzdem Post.
+        if (!empty($in['abgeschlossen_am'])) {
+            $checked = false;
+            $badges[] = 'abgeschlossen am ' . self::datum($in['abgeschlossen_am']);
+        }
+
         return [
             'template' => $template,
             'selectable' => $selectable,
