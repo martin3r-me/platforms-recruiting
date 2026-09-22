@@ -32,6 +32,7 @@ class ReconcileApplicantPositions extends Command
 {
     protected $signature = 'recruiting:reconcile-applicant-positions
         {--team-id= : Optional auf ein Team beschränken}
+        {--phase-id= : Optional nur Bewerber, die GERADE in dieser Phase stehen (z.B. die Sammel-Phase)}
         {--dry-run : Nur anzeigen was geändert würde, nichts schreiben}
         {--include-inactive : Auch inaktive Bewerber einbeziehen (Default: nur aktive)}
         {--limit=0 : Maximale Anzahl Bewerber pro Run (0 = alle)}';
@@ -44,9 +45,13 @@ class ReconcileApplicantPositions extends Command
         $teamId = $this->option('team-id');
         $limit = max(0, (int) $this->option('limit'));
         $includeInactive = (bool) $this->option('include-inactive');
+        $phaseId = is_numeric($this->option('phase-id')) ? (int) $this->option('phase-id') : null;
 
         if ($dryRun) {
             $this->warn('DRY-RUN — es wird nichts geschrieben.');
+        }
+        if ($phaseId) {
+            $this->warn("Nur Bewerber in Phase {$phaseId}.");
         }
 
         // $emit gibt jede Zeile GENAU an der Stelle im Loop aus, an der sie vorher
@@ -56,7 +61,8 @@ class ReconcileApplicantPositions extends Command
         $report = $this->reconcile($dryRun, $teamId, $limit, $includeInactive,
             function (string $type, string $text): void {
                 $type === 'error' ? $this->error($text) : $this->line($text);
-            });
+            },
+            $phaseId);
 
         if (!empty($report['multiPosting'])) {
             $this->warn('');
@@ -97,7 +103,7 @@ class ReconcileApplicantPositions extends Command
      *     errors:int, festgelegtSkipped:int, multiPosting:list<string>,
      * }
      */
-    protected function reconcile(bool $dryRun, ?string $teamId, int $limit, bool $includeInactive, ?callable $emit = null): array
+    protected function reconcile(bool $dryRun, ?string $teamId, int $limit, bool $includeInactive, ?callable $emit = null, ?int $phaseId = null): array
     {
         $emit ??= function (string $type, string $text): void {};
 
@@ -110,6 +116,13 @@ class ReconcileApplicantPositions extends Command
         }
         if ($teamId) {
             $query->where('team_id', (int) $teamId);
+        }
+        // Auswahl nach der Phase, in der die Bewerbung GERADE steht. Gebaut fuer
+        // den einen Topf, der behandelt werden soll (die Sammel-Phase), statt
+        // ueber --limit blind in die Query-Reihenfolge zu schneiden — die
+        // liefert zuerst den Altbestand, den niemand anfassen will.
+        if ($phaseId) {
+            $query->where('rec_phase_id', $phaseId);
         }
         if ($limit > 0) {
             $query->limit($limit);
