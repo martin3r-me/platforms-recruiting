@@ -1,4 +1,7 @@
-<div class="p-4 lg:p-6 space-y-6">
+{{-- Auto-Aktualisierung (Kunde 22.09.): alle 30 s leise nachladen — neue
+     Bestaetigungen und Nachrichten erscheinen ohne Neuladen. `visible` haelt
+     das Pollen an, sobald der Tab im Hintergrund liegt. --}}
+<div class="p-4 lg:p-6 space-y-6" wire:poll.visible.30s>
     <div class="flex items-center justify-between">
         <h1 class="text-xl font-semibold">Veranstaltungen</h1>
         <label class="flex items-center gap-2 text-sm text-gray-600">

@@ -1,4 +1,11 @@
-<div class="p-4 lg:p-6 space-y-6">
+@php
+    // Auto-Aktualisierung (Kunde 22.09.): alle 30 s nachladen, damit man sieht,
+    // wer geschrieben oder bestaetigt hat. Waehrend ein Fenster offen ist wird
+    // NICHT gepollt — ein Render mitten im Tippen kann den Entwurf kosten.
+    $pollBlocked = $showSendModal || $showInfoModal || $showNoteModal || $showAttachmentModal
+        || $showDeclineModal || $crewEmployeeId !== null;
+@endphp
+<div class="p-4 lg:p-6 space-y-6" @if (!$pollBlocked) wire:poll.visible.30s @endif>
     @php
         $event = $this->event;
         $eventOnly = $this->eventOnly;
@@ -902,7 +909,7 @@
     @php $chat = $chatEmployeeId !== null ? $this->chat : null; @endphp
     @if ($chatEmployeeId !== null)
         <div class="fixed inset-0 z-40 bg-black/30 lg:hidden" wire:click="closeChat"></div>
-        <aside class="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-gray-50 shadow-xl lg:w-[28rem]" wire:key="chat-{{ $chatEmployeeId }}" wire:poll.visible.20s>
+        <aside class="fixed inset-y-0 right-0 z-50 flex w-full flex-col bg-gray-50 shadow-xl lg:w-[28rem]" wire:key="chat-{{ $chatEmployeeId }}">
             @if ($chat === null)
                 <div class="p-4 text-sm text-gray-500">Kein Thread gefunden. <button type="button" wire:click="closeChat" class="text-blue-600 underline">Schließen</button></div>
             @else
