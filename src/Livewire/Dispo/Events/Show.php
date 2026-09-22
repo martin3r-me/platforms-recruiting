@@ -417,12 +417,56 @@ class Show extends Component
      */
     public string $rowFilter = '';
 
+    /**
+     * Tagesfilter der Tabelle (Kunde 22.09.): '' = alle Tage, sonst Y-m-d.
+     * Bei Mehrtages-Veranstaltungen will die Dispo nur die Crew EINES Tages sehen.
+     */
+    public string $rowDay = '';
+
     /** Spalten-Sortierung wie Excel (Kunde 04.09.): '' = Lieferreihenfolge (Datum/Zeit). */
     public string $rowSort = '';
     public string $rowSortDir = 'asc';
 
     /** Namens-/PNr-Suche ueber der Tabelle (Kunde 04.09.). */
     public string $rowSearch = '';
+
+    public function setRowDay(string $day): void
+    {
+        $this->rowDay = in_array($day, array_column($this->dispoDays, 'datum'), true) ? $day : '';
+    }
+
+    /**
+     * Kennzahlen JE EINSATZTAG (Kunde 22.09.) — die Karte zeigte bisher nur die
+     * Summe ueber alle Tage, was bei Mehrtaegern nichts ueber den einzelnen Tag
+     * sagt. Gleiche Zaehlweise wie die Gesamt-Karte: verschwundene und zur
+     * Loeschung gemeldete zaehlen nicht mit.
+     *
+     * @return list<array{datum:string, label:string, total:int, confirmed:int, sent:int, declined:int, open:int}>
+     */
+    #[Computed]
+    public function dispoDays(): array
+    {
+        return $this->event->assignments
+            ->filter(fn ($a) => $a->missing_since === null && $a->deletion_marked_at === null)
+            ->groupBy(fn ($a) => $a->datum->format('Y-m-d'))
+            ->sortKeys()
+            ->map(function ($rows, $datum) {
+                $confirmed = $rows->whereNotNull('confirmed_at')->count();
+                $declined = $rows->whereNotNull('declined_at')->count();
+
+                return [
+                    'datum'     => (string) $datum,
+                    'label'     => \Illuminate\Support\Carbon::parse($datum)->format('d.m.'),
+                    'total'     => $rows->count(),
+                    'confirmed' => $confirmed,
+                    'sent'      => $rows->whereNull('confirmed_at')->whereNull('declined_at')->whereNotNull('reminder_sent_at')->count(),
+                    'declined'  => $declined,
+                    'open'      => max(0, $rows->count() - $confirmed - $declined),
+                ];
+            })
+            ->values()
+            ->all();
+    }
 
     public function sortRows(string $column): void
     {
@@ -448,6 +492,10 @@ class Show extends Component
     public function filteredAssignments()
     {
         $rows = $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $this->rowFilter));
+
+        if ($this->rowDay !== '') {
+            $rows = $rows->filter(fn ($a) => $a->datum->format('Y-m-d') === $this->rowDay);
+        }
 
         $q = mb_strtolower(trim($this->rowSearch));
         if ($q !== '') {
@@ -484,9 +532,15 @@ class Show extends Component
     #[Computed]
     public function rowFilterCounts(): array
     {
+        // Zaehlen im aktuellen Tages-Ausschnitt, sonst passen die Pill-Zahlen
+        // nicht zu dem, was die Tabelle zeigt.
+        $scope = $this->rowDay === ''
+            ? $this->event->assignments
+            : $this->event->assignments->filter(fn ($a) => $a->datum->format('Y-m-d') === $this->rowDay);
+
         $counts = [];
         foreach (['', 'open', 'confirmed', 'declined', 'read', 'failed'] as $key) {
-            $counts[$key] = $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $key))->count();
+            $counts[$key] = $scope->filter(fn ($a) => $this->rowMatchesFilter($a, $key))->count();
         }
 
         return $counts;

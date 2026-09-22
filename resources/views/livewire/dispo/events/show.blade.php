@@ -99,6 +99,34 @@
         @endphp
         <div class="rounded-lg border border-gray-200 bg-white p-4">
             <div class="text-sm font-medium text-gray-500">Disposition</div>
+            @php $dispoDays = $this->dispoDays; @endphp
+            @if (count($dispoDays) > 1)
+                {{-- Kunde 22.09.: bei Mehrtaegern sagt die Summe nichts ueber den
+                     einzelnen Tag. Klick filtert die Tabelle auf diesen Tag. --}}
+                <div class="mt-1 space-y-0.5">
+                    @foreach ($dispoDays as $d)
+                        <button type="button" wire:click="setRowDay('{{ $rowDay === $d['datum'] ? '' : $d['datum'] }}')"
+                                class="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left text-sm hover:bg-gray-50 {{ $rowDay === $d['datum'] ? 'bg-blue-50' : '' }}"
+                                title="{{ $rowDay === $d['datum'] ? 'Tagesfilter aufheben' : 'Nur diesen Tag anzeigen' }}">
+                            <span class="w-12 shrink-0 font-medium tabular-nums text-gray-500">{{ $d['label'] }}</span>
+                            <span class="font-semibold tabular-nums">{{ $d['total'] }}</span> <span class="text-gray-500">gesamt</span>
+                            · <span class="font-semibold tabular-nums text-green-700">{{ $d['confirmed'] }}</span> <span class="text-gray-500">bestätigt</span>
+                            · <span class="tabular-nums">{{ $d['sent'] }}</span> <span class="text-gray-500">angeschrieben</span>
+                            @if ($d['declined'] > 0)
+                                · <span class="font-semibold tabular-nums text-red-600">{{ $d['declined'] }}</span> <span class="text-gray-500">abgesagt</span>
+                            @endif
+                            @if ($d['open'] > 0)
+                                <span class="rounded bg-orange-50 px-1.5 py-0.5 text-xs font-semibold text-orange-600">{{ $d['open'] }} offen</span>
+                            @else
+                                <span class="rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">komplett</span>
+                            @endif
+                        </button>
+                    @endforeach
+                </div>
+                <div class="mt-1 text-xs text-gray-400">
+                    Über alle Tage: {{ $dispoTotal }} gesamt · {{ $dispoConfirmed }} bestätigt · {{ $dispoOpen }} offen
+                </div>
+            @else
             <div class="mt-1 text-sm">
                 <span class="font-semibold tabular-nums">{{ $dispoTotal }}</span> gesamt
                 · <span class="font-semibold tabular-nums text-green-700">{{ $dispoConfirmed }}</span> bestätigt
@@ -112,6 +140,7 @@
                     <span class="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">alle bestätigt</span>
                 @endif
             </div>
+            @endif
             @if ($dispoFailed > 0)
                 <div class="mt-1 text-xs font-semibold text-red-600">⚠ {{ $dispoFailed }} × Zustellproblem — Nummern prüfen / neu senden</div>
             @endif
@@ -223,6 +252,19 @@
         {{-- Zeilenfilter (Kunde 03.09.): nur Desktop — mobil bewusst ungefiltert. --}}
         <div class="flex items-center gap-1.5 border-b border-gray-100 px-4 py-2.5">
             @php $rfCounts = $this->rowFilterCounts; @endphp
+            @php $dayPills = $this->dispoDays; @endphp
+            @if (count($dayPills) > 1)
+                <span class="mr-1 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Tag</span>
+                <button type="button" wire:click="setRowDay('')"
+                        class="rounded-full border px-2.5 py-1 text-xs {{ $rowDay === '' ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">Alle Tage</button>
+                @foreach ($dayPills as $dp)
+                    <button type="button" wire:click="setRowDay('{{ $dp['datum'] }}')"
+                            class="rounded-full border px-2.5 py-1 text-xs {{ $rowDay === $dp['datum'] ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
+                        {{ $dp['label'] }} <span class="tabular-nums opacity-60">{{ $dp['total'] }}</span>
+                    </button>
+                @endforeach
+                <span class="mx-1 h-4 w-px bg-gray-200"></span>
+            @endif
             @foreach (['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Zustellprobleme'] as $rfKey => $rfLabel)
                 <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
                         class="rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
@@ -383,7 +425,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' && trim($rowSearch) === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diese Auswahl.' }}</td></tr>
+                    <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">{{ $rowFilter === '' && trim($rowSearch) === '' && $rowDay === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diese Auswahl.' }}</td></tr>
                 @endforelse
             </tbody>
         </table>
