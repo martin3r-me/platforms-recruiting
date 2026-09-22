@@ -932,6 +932,23 @@
                     </div>
                     <button type="button" wire:click="closeChat" class="grid h-9 w-9 place-items-center rounded-lg bg-gray-100 text-gray-600" aria-label="Schließen">✕</button>
                 </div>
+                @php $otherChats = $this->chatOtherThreads; @endphp
+                @if ($otherChats !== [])
+                    <div class="flex flex-wrap items-center gap-1.5 border-b border-gray-200 bg-gray-50 px-4 py-1.5 text-xs">
+                        <span class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Gespräche</span>
+                        @foreach ($otherChats as $oc)
+                            <button type="button" wire:click="switchChatThread({{ $oc['thread_id'] }})"
+                                    class="rounded-full border px-2 py-0.5 {{ $oc['active'] ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-white' }}"
+                                    title="Gespräch über {{ $oc['label'] }} anzeigen">
+                                {{ $oc['label'] }}
+                                @if ($oc['is_unread'])
+                                    <span class="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-blue-600 align-middle"></span>
+                                @endif
+                            </button>
+                        @endforeach
+                        <span class="text-[11px] text-gray-400">— derselbe Mitarbeiter, andere Filial-Nummer</span>
+                    </div>
+                @endif
                 <div class="flex items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 text-xs">
                     <button type="button" wire:click="setChatFilter('seit_versand')" class="rounded px-2 py-1 {{ $chatFilter === 'seit_versand' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600' }}">seit Versand</button>
                     <button type="button" wire:click="setChatFilter('alle')" class="rounded px-2 py-1 {{ $chatFilter === 'alle' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600' }}">alle</button>

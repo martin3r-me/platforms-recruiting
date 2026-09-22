@@ -23,7 +23,9 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoRecipientPlanner;
 use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
+use Platform\Recruiting\Models\RecDispoFilialeSettings;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
+use Platform\Recruiting\Support\Filialen;
 use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
 use Platform\Recruiting\Services\Zas\Dispo\DispoReplyWindow;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTemplateLabels;
@@ -104,6 +106,9 @@ class Show extends Component
     // gegen direkte Frontend-Schreibzugriffe (wire:model/$wire.set).
     #[Locked]
     public ?int $chatEmployeeId = null;
+
+    /** Manuell gewaehltes Gespraech (Umschalter im Chat-Kopf); null = das zur VA passende. */
+    public ?int $chatThreadId = null;
     #[Locked]
     public string $chatFilter = 'seit_versand'; // 'seit_versand' | 'alle'
     public string $chatReply = '';
@@ -697,26 +702,102 @@ class Show extends Component
     {
         $ids = array_keys($this->identity['groups']);
 
-        return $ids === [] ? [] : app(DispoThreadDirectory::class)->threadsFor($this->channelIds, $ids);
+        // Kanal DIESER Veranstaltung bevorzugen (Befund Tristan 22.09.): wer fuer
+        // mehrere Filialen arbeitet, hat je Kanal ein eigenes Gespraech — im
+        // VA-Chat gehoert das der Filiale, ueber die auch die Bestaetigung ging.
+        return $ids === [] ? [] : app(DispoThreadDirectory::class)
+            ->threadsFor($this->channelIds, $ids, $this->eventChannelId);
+    }
+
+    /** Kanal-Id dieser Veranstaltung (Filiale), oder null wenn keiner aufloesbar ist. */
+    #[Computed]
+    public function eventChannelId(): ?int
+    {
+        $channel = app(DispoChannelResolver::class)->resolveForEvent($this->event);
+
+        return $channel?->id !== null ? (int) $channel->id : null;
+    }
+
+    /**
+     * Weitere Gespraeche der geoeffneten Person (andere Filial-Kanaele) — der
+     * Umschalter im Chat-Kopf, damit eine Antwort auf einem anderen Kanal nicht
+     * unsichtbar bleibt.
+     *
+     * @return list<array{thread_id:int, label:string, is_unread:bool, active:bool}>
+     */
+    #[Computed]
+    public function chatOtherThreads(): array
+    {
+        if ($this->chatEmployeeId === null) {
+            return [];
+        }
+        $all = app(DispoThreadDirectory::class)->allThreadsFor($this->channelIds, array_keys($this->identity['groups']));
+        $rows = $all[$this->chatEmployeeId] ?? [];
+        if (count($rows) < 2) {
+            return [];
+        }
+        $activeId = $this->chatThread?->id;
+        $map = $this->channelFilialeMap();
+
+        return array_values(array_map(fn (array $r) => [
+            'thread_id' => $r['thread_id'],
+            'label'     => isset($map[$r['channel_id']])
+                ? (Filialen::code($map[$r['channel_id']]) ?? ('#' . $map[$r['channel_id']]))
+                : 'Sonstige',
+            'is_unread' => $r['is_unread'],
+            'active'    => $activeId !== null && (int) $activeId === $r['thread_id'],
+        ], $rows));
+    }
+
+    /** Kanal-Id -> Filial-Nr (fuer die Beschriftung des Umschalters). */
+    private function channelFilialeMap(): array
+    {
+        return $this->channelFilialeMapCache ??= RecDispoFilialeSettings::query()
+            ->where('team_id', $this->settingsTeamId())
+            ->whereIn('comms_channel_id', $this->channelIds)
+            ->whereNotNull('comms_channel_id')
+            ->pluck('filial_nr', 'comms_channel_id')
+            ->map(fn ($nr) => (int) $nr)
+            ->all();
+    }
+
+    private ?array $channelFilialeMapCache = null;
+
+    /** Umschalten auf ein anderes Gespraech derselben Person. */
+    public function switchChatThread(int $threadId): void
+    {
+        if ($this->chatEmployeeId === null) {
+            return;
+        }
+        $all = app(DispoThreadDirectory::class)->allThreadsFor($this->channelIds, array_keys($this->identity['groups']));
+        $allowed = array_column($all[$this->chatEmployeeId] ?? [], 'thread_id');
+        if (!in_array($threadId, $allowed, true)) {
+            return;
+        }
+
+        $this->chatThreadId = $threadId;
+        unset($this->chatThread, $this->chat, $this->chatOtherThreads);
     }
 
     public function openChat(int $employeeId): void
     {
         $canon = $this->identity['canon'][$employeeId] ?? $employeeId;
         $this->chatEmployeeId = $canon;
+        $this->chatThreadId = null; // sonst klebt die Auswahl an der naechsten Person
         $this->chatReply = '';
         $this->chatError = null;
+        unset($this->threadsByEmployee, $this->chatThread, $this->chat, $this->chatOtherThreads);
         $this->chatThread?->markAsRead();
-        unset($this->threadsByEmployee, $this->chatThread, $this->chat);
         $this->dispatch('sidebar-refresh');
     }
 
     public function closeChat(): void
     {
         $this->chatEmployeeId = null;
+        $this->chatThreadId = null;
         $this->chatReply = '';
         $this->chatError = null;
-        unset($this->chatThread, $this->chat);
+        unset($this->chatThread, $this->chat, $this->chatOtherThreads);
     }
 
     /**
@@ -927,13 +1008,18 @@ class Show extends Component
             return null;
         }
         $info = $this->threadsByEmployee[$this->chatEmployeeId] ?? null;
-        if ($info === null || $this->channelIds === []) {
+        if ($this->channelIds === []) {
+            return null;
+        }
+        // Manuell gewaehltes Gespraech gewinnt (Umschalter), sonst das beste.
+        $threadId = $this->chatThreadId ?? ($info['thread_id'] ?? null);
+        if ($threadId === null) {
             return null;
         }
 
         // Sicherheit: nur Threads AUS DEM DISPO-KANAL-SET laden.
         return \Platform\Crm\Models\CommsWhatsAppThread::query()
-            ->whereKey($info['thread_id'])
+            ->whereKey($threadId)
             ->whereIn('comms_channel_id', $this->channelIds)
             ->first();
     }

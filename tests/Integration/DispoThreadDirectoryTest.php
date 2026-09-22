@@ -101,6 +101,13 @@ class DispoThreadDirectoryTest extends TestCase
         ])->id;
     }
 
+    /** Setzt den Zeitpunkt der letzten Nachricht (Sortier-Kriterium seit 22.09.). */
+    private function lastMessageAt(int $threadId, string $at): void
+    {
+        Capsule::table('comms_whatsapp_threads')->where('id', $threadId)
+            ->update(['last_inbound_at' => $at, 'last_outbound_at' => $at]);
+    }
+
     private function thread(int $channelId, string $remotePhone, ?int $contactId, bool $isUnread, string $updatedAt): int
     {
         $attrs = [
@@ -324,6 +331,80 @@ class DispoThreadDirectoryTest extends TestCase
 
         $this->assertCount(1, $result);
         $this->assertSame('heute', $result[0]['body']);
+    }
+
+    public function test_event_channel_wins_over_a_newer_conversation_on_another_channel(): void
+    {
+        // Befund Tristan 22.09.: wer fuer mehrere Filialen arbeitet, hat je Kanal
+        // ein eigenes Gespraech — im VA-Chat gehoert das der Filiale dieser VA.
+        $ma = $this->employee('MA-CH', '0178 1888551');
+        $mgl = $this->channel();
+        $dus = $this->channel();
+
+        $mglThread = $this->thread($mgl, '+49 178 1888551', null, false, '2026-09-22 10:00:00');
+        $this->lastMessageAt($mglThread, '2026-09-22 10:00:00');
+        $dusThread = $this->thread($dus, '+49 178 1888551', null, false, '2026-09-22 15:00:00');
+        $this->lastMessageAt($dusThread, '2026-09-22 15:00:00');
+
+        $ohneKanal = $this->directory()->threadsFor([$mgl, $dus], [$ma]);
+        $this->assertSame($dusThread, $ohneKanal[$ma]['thread_id'], 'Ohne Kanal-Vorgabe gewinnt die juengste Nachricht.');
+
+        $mitKanal = $this->directory()->threadsFor([$mgl, $dus], [$ma], $mgl);
+        $this->assertSame($mglThread, $mitKanal[$ma]['thread_id'], 'Mit Kanal der VA gewinnt dessen Gespraech.');
+    }
+
+    public function test_a_dead_conversation_no_longer_wins_just_because_it_has_no_contact_link(): void
+    {
+        // Genau der Fehler vom 22.09.: das kontaktlose CGN-Gespraech (zwei Wochen alt)
+        // schlug die aktuellen Gespraeche, weil "Telefon-Treffer schlaegt Kontakt".
+        $ma = $this->employee('MA-DEAD', '0178 1888551');
+        $this->link($ma, 3915);
+        $cgn = $this->channel();
+        $mgl = $this->channel();
+
+        $altOhneKontakt = $this->thread($cgn, '+49 178 1888551', null, false, '2026-09-08 21:49:00');
+        $this->lastMessageAt($altOhneKontakt, '2026-09-08 21:49:00');
+        $aktuellMitKontakt = $this->thread($mgl, '+49 178 1888551', 3915, false, '2026-09-22 15:03:00');
+        $this->lastMessageAt($aktuellMitKontakt, '2026-09-22 15:03:00');
+
+        $found = $this->directory()->threadsFor([$cgn, $mgl], [$ma]);
+
+        $this->assertSame($aktuellMitKontakt, $found[$ma]['thread_id']);
+    }
+
+    public function test_updated_at_does_not_beat_the_last_real_message(): void
+    {
+        // "als gelesen markieren" setzt updated_at hoch — das darf ein totes
+        // Gespraech nicht zum vermeintlich neuesten machen.
+        $ma = $this->employee('MA-UPD', '0178 1888552');
+        $channel = $this->channel();
+
+        $totMitFrischemUpdatedAt = $this->thread($channel, '+49 178 1888552', null, false, '2026-09-22 15:13:00');
+        $this->lastMessageAt($totMitFrischemUpdatedAt, '2026-09-08 21:49:00');
+        $aktuell = $this->thread($channel, '0178 1888552', null, false, '2026-09-22 09:00:00');
+        $this->lastMessageAt($aktuell, '2026-09-22 15:03:00');
+
+        $found = $this->directory()->threadsFor([$channel], [$ma]);
+
+        $this->assertSame($aktuell, $found[$ma]['thread_id']);
+    }
+
+    public function test_all_threads_for_lists_every_conversation_of_the_person(): void
+    {
+        $ma = $this->employee('MA-ALL', '0178 1888553');
+        $a = $this->channel();
+        $b = $this->channel();
+        $t1 = $this->thread($a, '+49 178 1888553', null, false, '2026-09-22 10:00:00');
+        $this->lastMessageAt($t1, '2026-09-22 10:00:00');
+        $t2 = $this->thread($b, '+49 178 1888553', null, true, '2026-09-22 11:00:00');
+        $this->lastMessageAt($t2, '2026-09-22 11:00:00');
+
+        $all = $this->directory()->allThreadsFor([$a, $b], [$ma]);
+
+        $this->assertCount(2, $all[$ma]);
+        $this->assertSame([$t2, $t1], array_column($all[$ma], 'thread_id'), 'Juengste zuerst.');
+        $this->assertTrue($all[$ma][0]['is_unread']);
+        $this->assertSame($b, $all[$ma][0]['channel_id']);
     }
 
     private static function runMigrations(): void

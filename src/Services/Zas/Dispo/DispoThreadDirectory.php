@@ -39,9 +39,24 @@ class DispoThreadDirectory
      * @param list<int> $employeeIds beliebige Datensaetze (auch nicht-kanonische)
      * @return array<int, array{thread_id:int, is_unread:bool, last_inbound_at:?string, last_at:?string}> kanonische id => neuester Thread
      */
-    public function threadsFor(array $channelIds, array $employeeIds): array
+    public function threadsFor(array $channelIds, array $employeeIds, ?int $preferredChannelId = null): array
     {
-        return $this->resolveThreads($channelIds, $employeeIds)['threads'];
+        return $this->resolveThreads($channelIds, $employeeIds, $preferredChannelId)['threads'];
+    }
+
+    /**
+     * ALLE Gespraeche je Person (nicht nur das beste) — fuer den Umschalter im
+     * VA-Chat: wer fuer mehrere Filialen arbeitet, hat pro Kanal ein eigenes
+     * Gespraech, und eine Antwort kann im Gespraech einer anderen Filiale
+     * liegen (Befund Tristan 22.09.).
+     *
+     * @param list<int> $channelIds
+     * @param list<int> $employeeIds
+     * @return array<int, list<array{thread_id:int, channel_id:int, is_unread:bool, last_at:?string}>>
+     */
+    public function allThreadsFor(array $channelIds, array $employeeIds): array
+    {
+        return $this->resolveThreads($channelIds, $employeeIds)['all'];
     }
 
     /**
@@ -53,11 +68,11 @@ class DispoThreadDirectory
      * @param list<int> $employeeIds
      * @return array{threads: array<int, array{thread_id:int, is_unread:bool, last_inbound_at:?string, last_at:?string}>, canon: array<int,int>}
      */
-    private function resolveThreads(array $channelIds, array $employeeIds): array
+    private function resolveThreads(array $channelIds, array $employeeIds, ?int $preferredChannelId = null): array
     {
         $employeeIds = array_values(array_unique(array_map('intval', $employeeIds)));
         if ($channelIds === [] || $employeeIds === []) {
-            return ['threads' => [], 'canon' => []];
+            return ['threads' => [], 'canon' => [], 'all' => []];
         }
 
         $groups = $this->identity->groupsFor($employeeIds);
@@ -83,7 +98,7 @@ class DispoThreadDirectory
         if ($canonByContact === [] && $byCanonical === []) {
             // Weder Kontakt-Link noch Telefon fuer irgendein Gruppenmitglied
             // -> es kann keinen Treffer geben, keine Query noetig.
-            return ['threads' => [], 'canon' => $canon];
+            return ['threads' => [], 'canon' => $canon, 'all' => []];
         }
 
         // Der Matcher entscheidet gegen das VOLLE aktive Telefonverzeichnis
@@ -121,16 +136,23 @@ class DispoThreadDirectory
                     );
                 }
             })
-            ->orderByDesc('updated_at')
-            ->get(['id', 'remote_phone_number', 'contact_id', 'contact_type', 'is_unread', 'last_inbound_at', 'last_outbound_at', 'updated_at']);
+            // Nach der letzten ECHTEN Nachricht sortieren, nicht nach updated_at:
+            // das Feld wird schon vom "als gelesen markieren" hochgesetzt und machte
+            // ein laengst totes Gespraech zum vermeintlich neuesten (Befund 22.09.).
+            ->orderByRaw('COALESCE(last_inbound_at, last_outbound_at, updated_at) DESC')
+            ->get(['id', 'comms_channel_id', 'remote_phone_number', 'contact_id', 'contact_type', 'is_unread', 'last_inbound_at', 'last_outbound_at', 'updated_at']);
 
-        $result = [];   // kanonische id => row
-        // Rangfolge (Vorfall Vesa 04./07.09.): ein Telefon-Treffer bedeutet
-        // "Thread zur AKTUELLEN Akten-Nummer" und schlaegt den Kontakt-Treffer —
-        // der Kontakt haengt sonst am alten Gespraech einer inzwischen
-        // korrigierten Nummer, und Chat-Aktionen senden an die falsche Person.
-        // Innerhalb derselben Stufe gewinnt der neueste Thread (Sortierung).
-        $tier = []; // kanonische id => 2 (Telefon/aktuelle Nummer) | 1 (Kontakt)
+        $result = [];   // kanonische id => bestes Gespraech
+        $all = [];      // kanonische id => alle Gespraeche (Umschalter)
+        // Rangfolge (Vorfall Vesa 07.09. + Befund Tristan 22.09.):
+        //   3 — Nummer passt zur AKTUELLEN Akten-Nummer UND Kanal der Veranstaltung
+        //   2 — Nummer passt zur aktuellen Akten-Nummer (anderer Kanal)
+        //   1 — Rest (z. B. Kontakt-Treffer auf einer inzwischen korrigierten Nummer)
+        // Die frueher entscheidende Frage "ueber Telefon oder ueber Kontakt gefunden?"
+        // taugt nicht: tragen mehrere Gespraeche dieselbe (richtige) Nummer, gewann
+        // sonst ausgerechnet das ohne Kontakt-Verknuepfung — bei Tristan ein zwei
+        // Wochen totes Gespraech. Innerhalb einer Stufe gewinnt die juengste Nachricht.
+        $tier = [];
         foreach ($rows as $t) {
             $cid = null;
             $byContact = false;
@@ -146,13 +168,28 @@ class DispoThreadDirectory
             if ($cid === null || !isset($wanted[$cid])) {
                 continue;
             }
-            $newTier = $byContact ? 1 : 2;
-            if (isset($result[$cid]) && $tier[$cid] >= $newTier) {
-                continue; // aelter (Sortierung) oder schwaechere Stufe
-            }
             $lastAt = $t->last_inbound_at ?? $t->last_outbound_at;
+            $all[$cid][] = [
+                'thread_id'  => (int) $t->id,
+                'channel_id' => (int) $t->comms_channel_id,
+                'is_unread'  => (bool) $t->is_unread,
+                'last_at'    => $lastAt?->format('Y-m-d H:i:s'),
+            ];
+
+            $phonesOfPerson = $byCanonical[$cid] ?? [];
+            $numberFits = $phonesOfPerson === []
+                || self::matchesAnyPhone((string) $t->remote_phone_number, $phonesOfPerson);
+            $newTier = match (true) {
+                $numberFits && $preferredChannelId !== null && (int) $t->comms_channel_id === $preferredChannelId => 3,
+                $numberFits => 2,
+                default     => 1,
+            };
+            if (isset($result[$cid]) && $tier[$cid] >= $newTier) {
+                continue; // schwaechere Stufe oder (bei gleicher Stufe) aeltere Nachricht
+            }
             $result[$cid] = [
                 'thread_id'       => (int) $t->id,
+                'channel_id'      => (int) $t->comms_channel_id,
                 'is_unread'       => (bool) $t->is_unread,
                 'last_inbound_at' => $t->last_inbound_at?->format('Y-m-d H:i:s'),
                 'last_at'         => $lastAt?->format('Y-m-d H:i:s'),
@@ -160,7 +197,7 @@ class DispoThreadDirectory
             $tier[$cid] = $newTier;
         }
 
-        return ['threads' => $result, 'canon' => $canon];
+        return ['threads' => $result, 'canon' => $canon, 'all' => $all];
     }
 
     /**
