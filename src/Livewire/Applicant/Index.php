@@ -279,12 +279,9 @@ class Index extends Component
         }
 
         if ($this->posting_id) {
-            $applicant->postings()->attach($this->posting_id, [
-                'applied_at' => $this->applied_at,
-            ]);
-            $applicant->stelleAusAnzeigeUebernehmen();
-            // Phase + Verantwortlicher aus der Stelle ableiten (sonst ownerlos).
-            $applicant->reconcilePositionState();
+            $posting = \Platform\Recruiting\Models\RecPosting::findOrFail($this->posting_id);
+            // Eine Tür: Stelle, Phase und Verantwortlicher folgen der Anzeige.
+            $applicant->anzeigeVerknuepfen($posting, ['applied_at' => $this->applied_at]);
         }
 
         $this->resetForm();

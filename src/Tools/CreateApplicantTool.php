@@ -172,10 +172,9 @@ class CreateApplicantTool implements ToolContract, ToolMetadataContract
                     if (!$posting) {
                         throw new \RuntimeException('Posting nicht gefunden (oder kein Zugriff).');
                     }
-                    $applicant->postings()->attach($posting->id, [
+                    $applicant->anzeigeVerknuepfen($posting, [
                         'applied_at' => $arguments['applied_at'] ?? now()->toDateString(),
                     ]);
-                    $applicant->stelleAusAnzeigeUebernehmen();
                 }
 
                 return [$applicant, $contact, $posting];

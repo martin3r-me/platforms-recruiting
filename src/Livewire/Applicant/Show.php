@@ -289,12 +289,9 @@ class Show extends Component
     public function savePostingLink(): void
     {
         $this->validate(['postingLinkForm.posting_id' => 'required|exists:rec_postings,id']);
-        $this->applicant->postings()->attach($this->postingLinkForm['posting_id'], [
-            'applied_at' => now(),
-        ]);
+        $posting = \Platform\Recruiting\Models\RecPosting::findOrFail($this->postingLinkForm['posting_id']);
+        $this->applicant->anzeigeVerknuepfen($posting, ['applied_at' => now()]);
         $this->postingLinkModalShow = false;
-        $this->applicant->load('postings.position');
-        $this->applicant->reconcilePositionState();
         session()->flash('message', 'Ausschreibung verknüpft.');
     }
 

@@ -1222,9 +1222,10 @@ class Dashboard extends Component
     public function assignPosting(int $applicantId, int $postingId): void
     {
         $applicant = RecApplicant::forTeam(auth()->user()->currentTeam->id)->findOrFail($applicantId);
-        $applicant->postings()->syncWithoutDetaching([$postingId => ['applied_at' => now()]]);
-        // Phase + Verantwortlicher an die (neue) primäre Stelle angleichen.
-        $applicant->reconcilePositionState();
+        $posting = RecPosting::forTeam(auth()->user()->currentTeam->id)->findOrFail($postingId);
+        // Eine Tür: hängt an, räumt die Platzhalter-Anzeige der Sammelstelle weg
+        // und gleicht Stelle, Phase und Feldwerte an.
+        $applicant->anzeigeVerknuepfen($posting);
         $this->clearApplicantCaches();
     }
 

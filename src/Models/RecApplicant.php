@@ -2138,6 +2138,60 @@ class RecApplicant extends Model implements InheritsExtraFields
      * Ueberschreibt NICHT: ist die Stelle schon gesetzt, gilt sie. Sonst wuerde ein
      * nachtraeglich verknuepftes Posting eine Festlegung zurueckdrehen.
      */
+    /**
+     * DIE Tuer zum Verknuepfen einer Anzeige.
+     *
+     * Vorher gab es sieben: Dashboard, Bewerberakte, Bewerberliste, drei
+     * MCP-Tools und der Eingang. Vier davon riefen den Abgleich, drei nicht —
+     * und der meistbenutzte (das Stellen-Dropdown im Dashboard) rief ihn zwar,
+     * lief aber ins Leere, weil er die neue Anzeige ANHAENGT statt zu ersetzen:
+     * bei zwei Anzeigen laesst der Abgleich die Phase bewusst in Ruhe, sie
+     * waere ja mehrdeutig. Ergebnis war der Stau vom 22.09.2026 — 48
+     * Bewerbungen mit richtiger Stelle und dem Bearbeitungsschritt der
+     * Sammel-Stelle, im Dashboard nicht zu unterscheiden.
+     *
+     * Zwei Regeln, und der Unterschied zwischen ihnen ist der Kern:
+     *
+     *  - Die Anzeige einer SAMMELSTELLE ist ein Platzhalter, kein
+     *    Bewerbungsweg — niemand hat sich auf sie beworben, sie ist der
+     *    Auffangwert, wenn nichts erkennbar war. Kommt eine echte Anzeige
+     *    dazu, verschwindet sie. Die Herkunft geht dabei nicht verloren: der
+     *    Eintritt in die Sammel-Phase steht dauerhaft in rec_phase_transitions.
+     *
+     *  - Eine ECHTE Anzeige bleibt stehen. Sie sagt, woher die Bewerbung kam,
+     *    und das aendert sich durch eine Korrektur nicht (dieselbe Begruendung
+     *    wie in switchToPosition: eine geloeschte Verknuepfung zaehlt die
+     *    Bewerbung bei einer Anzeige, auf die sich niemand beworben hat).
+     *    Zwei echte Anzeigen heissen darum weiterhin: Phase bleibt, ein Mensch
+     *    entscheidet.
+     */
+    public function anzeigeVerknuepfen(RecPosting $posting, array $pivot = []): void
+    {
+        if (! $this->postings()->where('rec_postings.id', $posting->id)->exists()) {
+            $this->postings()->attach($posting->id, array_merge(
+                ['applied_at' => now()->toDateString()],
+                $pivot,
+            ));
+        }
+
+        $this->load('postings.position');
+
+        if (! $posting->loadMissing('position')->position?->is_sammelstelle) {
+            $platzhalter = $this->postings
+                ->filter(fn ($p) => (bool) ($p->position?->is_sammelstelle))
+                ->pluck('id');
+
+            // Nie die letzte Verknuepfung loeschen: ohne Anzeige faellt die
+            // Bewerbung aus jeder Liste, die ueber die Stelle geht.
+            if ($platzhalter->isNotEmpty() && $this->postings->count() > $platzhalter->count()) {
+                $this->postings()->detach($platzhalter->all());
+                $this->load('postings.position');
+            }
+        }
+
+        $this->reconcilePositionState();
+    }
+
     public function stelleAusAnzeigeUebernehmen(): void
     {
         if ($this->rec_position_id !== null) {

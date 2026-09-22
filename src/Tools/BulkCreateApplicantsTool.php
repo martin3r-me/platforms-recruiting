@@ -193,10 +193,9 @@ class BulkCreateApplicantsTool implements ToolContract, ToolMetadataContract
                             if (!$posting) {
                                 throw new \RuntimeException('Posting nicht gefunden (oder kein Zugriff).');
                             }
-                            $applicant->postings()->attach($posting->id, [
+                            $applicant->anzeigeVerknuepfen($posting, [
                                 'applied_at' => $item['applied_at'] ?? now()->toDateString(),
                             ]);
-                            $applicant->stelleAusAnzeigeUebernehmen();
                         }
 
                         return [

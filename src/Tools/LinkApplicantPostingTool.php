@@ -95,13 +95,12 @@ class LinkApplicantPostingTool implements ToolContract, ToolMetadataContract
                 ]);
             }
 
-            $applicant->postings()->attach($posting->id, [
+            // Eine Tür (RecApplicant::anzeigeVerknuepfen): haengt an, raeumt die
+            // Platzhalter-Anzeige der Sammelstelle weg und gleicht Stelle, Phase,
+            // Feldwerte und Verantwortlichen an.
+            $applicant->anzeigeVerknuepfen($posting, [
                 'applied_at' => $arguments['applied_at'] ?? now()->toDateString(),
             ]);
-
-            // Phase + Verantwortlicher an die (ggf. neue) primäre Stelle angleichen,
-            // damit Posting/Phase/Owner nie auseinanderlaufen (Auto-Pilot-Sichtbarkeit).
-            $applicant->reconcilePositionState();
 
             return ToolResult::success([
                 'applicant_id' => $applicant->id,

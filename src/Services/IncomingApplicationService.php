@@ -165,15 +165,18 @@ class IncomingApplicationService
     public function assignPosting(RecApplicant $applicant, MatchResult $match): void
     {
         DB::transaction(function () use ($applicant, $match) {
-            $applicant->postings()->syncWithoutDetaching([
-                $match->posting->id => [
-                    'applied_at' => now()->toDateString(),
-                    'notes' => 'Zugeordnet via ' . $match->via,
-                    'matched_via' => $match->via,
-                    'match_confidence' => $match->confidence,
-                ],
+            // Eine Tür (RecApplicant::anzeigeVerknuepfen): sie haengt an, raeumt
+            // die Platzhalter-Anzeige der Sammelstelle weg und gleicht Stelle,
+            // Phase und Feldwerte an. Frueher stand hier ein reines Anhaengen
+            // plus `rec_phase_id ?? firstPhase()` — die einmal gesetzte Phase
+            // gewann damit fuer immer, auch wenn die Anzeige spaeter korrigiert
+            // wurde. Genau daran hingen die 48 Bewerbungen vom 22.09.2026.
+            $applicant->anzeigeVerknuepfen($match->posting, [
+                'applied_at' => now()->toDateString(),
+                'notes' => 'Zugeordnet via ' . $match->via,
+                'matched_via' => $match->via,
+                'match_confidence' => $match->confidence,
             ]);
-            $applicant->stelleAusAnzeigeUebernehmen();
 
             // Verantwortlichen per Kaskade setzen, falls noch keiner gesetzt ist.
             // Sonst hängen Auto-Start-Bewerber ownerlos in der AutoPilot-Query fest.
@@ -186,7 +189,6 @@ class IncomingApplicationService
             );
 
             $applicant->forceFill([
-                'rec_phase_id' => $applicant->rec_phase_id ?? $match->posting->position?->firstPhase()?->id,
                 'owned_by_user_id' => $ownerId,
                 'is_unrouted' => false,
                 'suggested_posting_id' => null,
