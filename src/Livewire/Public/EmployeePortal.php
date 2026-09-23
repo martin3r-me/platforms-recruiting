@@ -12,6 +12,7 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
+use Platform\Recruiting\Support\NationalityRequiredGuard;
 use Platform\Recruiting\Support\TrainingCertificatePortalRows;
 use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
 
@@ -263,6 +264,17 @@ class EmployeePortal extends Component
         );
         if ($guardError !== null) {
             // Early-Return OHNE loadFieldValues(): die Eingaben bleiben stehen.
+            $this->editError = $guardError;
+            $this->editFlash = null;
+            return;
+        }
+        // Staatsangehoerigkeit ist Pflicht (23.09.2026): ohne Wert kein Save.
+        // Gleicher Early-Return wie beim Ersthelfer — Eingaben bleiben stehen.
+        // Rueckfall auf den Datensatz, falls das Feld nicht im Formular kam.
+        $guardError = NationalityRequiredGuard::error(
+            $this->fieldValues['nationality'] ?? $employee->nationality,
+        );
+        if ($guardError !== null) {
             $this->editError = $guardError;
             $this->editFlash = null;
             return;
