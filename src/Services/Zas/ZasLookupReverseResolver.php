@@ -42,9 +42,22 @@ class ZasLookupReverseResolver
         ],
         'beschaeftigung_art' => [
             'studentin' => 'student',
-            'student, erwerbstätig' => 'student',
-            'student erwerbst.' => 'student',
             'dualer student' => 'student',
+            // Bis 23.09.2026 zeigten diese beiden auf `student` — der
+            // erwerbstaetige Student kam bei uns also nie als solcher an
+            // (Clara-Liste 28.08.2026: "bitte ... ergaenzen wie in ZAS").
+            // Die Nachweispflicht bleibt dieselbe, siehe
+            // Support/SchoolCertificateFields.
+            'student, erwerbstätig' => 'student_erwerbstaetig',
+            'student erwerbst.' => 'student_erwerbstaetig',
+            // Diese beiden kannte die Uebersetzung ueberhaupt nicht und sie
+            // landeten als Rohtext in der Spalte. Der Label-Match deckt die
+            // ausgeschriebene ZAS-Schreibweise selbst ab; hier stehen nur
+            // die Varianten, die davon abweichen.
+            'zwischen schule / studium' => 'zwischen_schule_studium',
+            'zwischen schule und studium' => 'zwischen_schule_studium',
+            'zwischen schule u. studium' => 'zwischen_schule_studium',
+            'fsj / bfd' => 'fsj', 'freiwilliges soziales jahr' => 'fsj',
             'angestellt' => 'erwerbstaetig',
             'hausfrau' => 'hausmann_frau', 'hausmann' => 'hausmann_frau', 'hausfrau / mann' => 'hausmann_frau',
         ],

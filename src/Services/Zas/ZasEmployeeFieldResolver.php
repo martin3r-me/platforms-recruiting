@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services\Zas;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Support\SchoolCertificateFields;
 
 /**
  * Mappt einen RecEmployee auf das assoziative Array
@@ -255,10 +256,14 @@ class ZasEmployeeFieldResolver
             'Qualifikation'           => $this->multiLookupLabels('qualifikation', $hr?->qualifications),
 
             // Computed-Felder
+            // Die Liste der nachweispflichtigen Status stand hier frueher ein
+            // zweites Mal. Seit 23.09.2026 gibt es dafuer eine Quelle, sonst
+            // haette jeder neue Status (Clara-Liste 28.08.2026) an EINER der
+            // beiden Stellen gefehlt — lautlos, in einem Lohn-Kennzeichen.
             'BeschErforderlich'                 => $this->boolLabel(
                 $employee->immatrikulation_file_id !== null
                 || $employee->schulbescheinigung_file_id !== null
-                || in_array($employee->employment_type, ['schueler', 'student'], true)
+                || SchoolCertificateFields::requiresCertificate($employee->employment_type)
             ),
             'AufenthaltGenehmigungErforderlich' => $this->boolLabel($this->hasAufenthaltOrGenehmigung($employee)),
             'FolgeBescheinigungAm'              => $this->formatDate($this->ifsgSignedAt($employee)),
