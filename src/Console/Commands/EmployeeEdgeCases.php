@@ -128,9 +128,17 @@ final class EmployeeEdgeCases extends Command
                         ->where('crm_contact_links.linkable_type', 'LIKE', '%RecEmployee'))
                     ->whereNotExists(fn ($s) => $s->from('crm_contact_links')
                         ->join('crm_phone_numbers', function ($j) {
+                            // phoneable_type MUSS mit geprueft werden: Nummern haengen
+                            // auch an Firmen. Ohne den Filter zaehlt eine Firmennummer
+                            // mit zufaellig gleicher Kennung als Treffer, und der Fall
+                            // "ohne aktive Nummer" kaeme zu klein heraus. Zwei Formen
+                            // wie in ContactPhoneSync.
                             $j->on('crm_phone_numbers.phoneable_id', '=', 'crm_contact_links.contact_id')
                               ->where('crm_phone_numbers.is_active', true)
-                              ->whereNotNull('crm_phone_numbers.international');
+                              ->whereNotNull('crm_phone_numbers.international')
+                              ->where(fn ($t) => $t
+                                  ->where('crm_phone_numbers.phoneable_type', 'crm_contact')
+                                  ->orWhere('crm_phone_numbers.phoneable_type', 'LIKE', '%CrmContact'));
                         })
                         ->whereColumn('crm_contact_links.linkable_id', 'rec_employees.id')
                         ->where('crm_contact_links.linkable_type', 'LIKE', '%RecEmployee'))],
