@@ -91,6 +91,7 @@ class RecEmployeeExportObserver
         // Gesundheit
         'has_infection_protection_certificate',
         'infection_protection_first_issued_at',
+        'infection_protection_instructed_at', 'infection_protection_valid_until',
 
         // Arbeitsschutz
         'is_first_aider', 'first_aider_valid_until', 'is_safety_officer',

@@ -266,8 +266,10 @@ class ZasEmployeeFieldResolver
                 || SchoolCertificateFields::requiresCertificate($employee->employment_type)
             ),
             'AufenthaltGenehmigungErforderlich' => $this->boolLabel($this->hasAufenthaltOrGenehmigung($employee)),
-            'FolgeBescheinigungAm'              => $this->formatDate($this->ifsgSignedAt($employee)),
-            'InfekGueltigBis'                   => $this->formatDate($this->ifsgValidUntil($employee)),
+            // Gepflegtes Feld zuerst (ZAS-Bestand / HR), sonst wie bisher aus
+            // dem IfSG-Vertrag der Bewerbung (23.09.2026).
+            'FolgeBescheinigungAm'              => $this->formatDate($employee->infection_protection_instructed_at ?? $this->ifsgSignedAt($employee)),
+            'InfekGueltigBis'                   => $this->formatDate($employee->infection_protection_valid_until ?? $this->ifsgValidUntil($employee)),
             'InfekBeschErforderlich'            => 'Ja',
             'InfekBeschVorhanden'               => $this->boolLabel($employee->infection_protection_first_issued_at !== null),
 

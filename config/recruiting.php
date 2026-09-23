@@ -132,6 +132,14 @@ return [
         // Team, dem von ZAS importierte Mitarbeiter zugeordnet werden (Pflicht fuer Import).
         'inbound_team_id'        => env('RECRUITING_ZAS_INBOUND_TEAM_ID'),
 
+        // ZAS-Bestand (aus einer Lieferung entstanden, keine Bewerbung) wird in
+        // ZAS gepflegt: bei true uebernimmt der Inbound jeden gelieferten,
+        // abweichenden Wert (ausser Ausweisnummer, Land, Personalnummer, Firma).
+        // Standardmaessig AN. Die env-Variable ist nur der Notaus (=false), ohne
+        // neues Deploy — und am Golive-Tag des MA-Portals fuer alle: dann pflegen wir.
+        // Pruefen: recruiting:zas-inbound-reprocess <id> --dry-run --overwrite
+        'inbound_overwrite_zas_owned' => (bool) env('RECRUITING_ZAS_INBOUND_OVERWRITE_ZAS_OWNED', true),
+
         // Taetigkeitsbezeichnungen ({Dispo}-Feld 'taetigkeit'), die einen Mitarbeiter
         // als Ansprechpartner vor Ort qualifizieren (exakter Vergleich, Gross/Klein
         // egal). Erweiterbar ohne Code, z. B. 'Borussia Teamleiter'. Kunden-Regel:

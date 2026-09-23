@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services\Zas;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Support\EuMemberStates;
 use Platform\Recruiting\Support\ZasPersonnelNumber;
 
 /**
@@ -20,6 +21,13 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  *  - die Personalnummer, und zwar NUR in ein leeres Feld — sie wird bei ZAS
  *    vergeben und war bei 108 von 112 eigenen MA nie eingetragen, weil das
  *    Abtippen als Handarbeit gedacht war (Befund Massenimport 2026-08-25).
+ *
+ * Ausnahme ZAS-BESTAND (RecEmployee::isZasOwned, Entscheidung 23.09.2026):
+ * der wird in ZAS gepflegt, deshalb uebernimmt der Import dort jeden
+ * gelieferten, abweichenden Wert — ausser den geschuetzten Feldern
+ * (OVERWRITE_PROTECTED). Nichts davon markiert den Mitarbeiter fuer den
+ * Rueck-Export an ZAS (keine Rueckkopplung). Schaltbar ueber recruiting.zas.inbound_overwrite_zas_owned;
+ * beim Portal-Golive fuer alle wird das abgeschaltet, dann liegt die Pflege bei uns.
  *
  * Vor einer Neuanlage laeuft zusaetzlich eine Dublettenpruefung, die nur
  * MELDET (siehe ZasInboundDuplicateFinder) — der Importer fuehrt nie zusammen.
@@ -115,7 +123,14 @@ class ZasInboundEmployeeImporter
                         ? $company
                         : null;
 
-                    if ($changes === [] && $pnrFill === null && $companyFill === null && !$taetChanged) {
+                    // ZAS-Bestand: gelieferte, abweichende Werte uebernehmen.
+                    $overwrite = ['employee' => [], 'hr' => []];
+                    if ((bool) config('recruiting.zas.inbound_overwrite_zas_owned', true) && $existing->isZasOwned()) {
+                        $overwrite = $this->overwriteChanges($existing, $mapped);
+                        $changes   = array_merge($changes, $overwrite['hr']);
+                    }
+
+                    if ($changes === [] && $overwrite['employee'] === [] && $pnrFill === null && $companyFill === null && !$taetChanged) {
                         $skipped[] = [
                             'personnel_number' => $mapped['personnel_number'],
                             'employee_id'      => $existing->id,
@@ -125,7 +140,7 @@ class ZasInboundEmployeeImporter
                         continue;
                     }
 
-                    $changedFields = array_keys($changes);
+                    $changedFields = array_merge(array_keys($changes), array_keys($overwrite['employee']));
                     if ($pnrFill !== null) {
                         $changedFields[] = 'personnel_number';
                     }
@@ -146,7 +161,7 @@ class ZasInboundEmployeeImporter
                         ];
                         continue;
                     }
-                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill);
+                    $this->syncMatchedFields($existing, $changes, $pnrFill, $companyFill, $overwrite['employee']);
                     if ($taetChanged) {
                         $this->taetigkeiten->sync($existing, $taetRaw);
                     }
@@ -342,16 +357,22 @@ class ZasInboundEmployeeImporter
      * @param string|null         $pnrFill     nachzutragende Personalnummer, oder null
      * @param string|null         $companyFill nachzutragende Firma, oder null
      */
-    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null): void
+    protected function syncMatchedFields(RecEmployee $existing, array $changes, ?string $pnrFill, ?string $companyFill = null, array $employeeFields = []): void
     {
-        DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill): void {
+        DB::transaction(function () use ($existing, $changes, $pnrFill, $companyFill, $employeeFields): void {
             $marker = DB::table('rec_employees')->where('id', $existing->id)->value('zas_changed_at');
 
             if ($changes !== []) {
                 $existing->ensureHrData()->fill($changes)->save();
             }
 
-            $employeeUpdate = ['zas_changed_at' => $marker];
+            // Ueberschriebene Stammdaten (ZAS-Bestand) in DERSELBEN direkten
+            // Anweisung wie die Marker-Wiederherstellung — kein Echo nach ZAS,
+            // keine Lohn-Aenderungsverfolgung fuer Werte, die von ZAS kommen.
+            $employeeUpdate = $employeeFields + ['zas_changed_at' => $marker];
+            if ($employeeFields !== []) {
+                $employeeUpdate['updated_at'] = now();
+            }
             if ($pnrFill !== null) {
                 $employeeUpdate['personnel_number'] = $pnrFill;
             }
@@ -363,6 +384,98 @@ class ZasInboundEmployeeImporter
                 ->where('id', $existing->id)
                 ->update($employeeUpdate);
         });
+    }
+
+    /**
+     * Felder, die der Import beim ZAS-Bestand NIE ueberschreibt:
+     *  - phone: wird fuer ALLE Mitarbeiter bei uns gepflegt — Dispo und
+     *    WhatsApp haengen daran (Entscheidung 23.09.2026)
+     *  - identity_card_number: zweiter Login-Faktor im MA-Portal — eine
+     *    Aenderung sperrt den Mitarbeiter aus
+     *  - country_code: der Mapper setzt bei leerem `Land` 'de' (ZAS liefert
+     *    es nie) — ueberschreiben setzte jeden auf Deutschland zurueck
+     *  - personnel_number, company: nur Nachtrag in leere Felder (siehe oben)
+     */
+    protected const OVERWRITE_PROTECTED = ['phone', 'identity_card_number', 'country_code', 'personnel_number', 'company'];
+
+    /** rec_employee_hr_data-Felder, die ZAS beim Bestand ueberschreiben darf. */
+    protected const OVERWRITE_HR_FIELDS = ['contract_sent_date', 'contract_signed_at', 'contract_end_date', 'employment_classification'];
+
+    /**
+     * Ermittelt fuer einen ZAS-Bestandsmitarbeiter, welche gelieferten Werte
+     * von unserem Stand abweichen.
+     *
+     * Regeln:
+     *  - nur was die Zeile LIEFERT — der Mapper laesst leere Zellen weg, eine
+     *    leere Zelle loescht also nie etwas
+     *  - Auswahlwerte ohne Lookup-Treffer (Rohtext) nur in leere Felder
+     *  - Vergleich und Schreibwert laufen durch das Model (Mutatoren, Casts),
+     *    damit z.B. die Leerraum-Bereinigung der Steuer-ID auch hier greift
+     *
+     * @return array{employee: array<string,mixed>, hr: array<string,mixed>}
+     */
+    protected function overwriteChanges(RecEmployee $existing, array $mapped): array
+    {
+        $unmatched = $mapped['unmatched'] ?? [];
+        $incoming  = $mapped['employee'];
+
+        // EU-Status: kommt `Nation` in der Zeile nicht mit, "Nein" gegen die
+        // gespeicherte Staatsangehoerigkeit pruefen.
+        if (!array_key_exists('is_eu_citizen', $incoming)
+            && ($mapped['permit_required'] ?? null) === false
+            && EuMemberStates::contains($incoming['nationality'] ?? $existing->nationality)) {
+            $incoming['is_eu_citizen'] = true;
+        }
+
+        $employee = [];
+        $scratch  = new RecEmployee();
+        foreach ($incoming as $field => $value) {
+            if (in_array($field, self::OVERWRITE_PROTECTED, true)) {
+                continue;
+            }
+            $current = $existing->getAttribute($field);
+            if (in_array($field, $unmatched, true) && self::norm($current) !== null) {
+                continue;
+            }
+            $scratch->setAttribute($field, $value);
+            $stored = $scratch->getAttributes()[$field];
+            $target = self::norm($scratch->getAttribute($field));
+            if (self::norm($current) === $target) {
+                continue;
+            }
+            $employee[$field] = $stored;
+        }
+
+        $hr    = [];
+        $hrRow = $existing->hrData;
+        foreach (self::OVERWRITE_HR_FIELDS as $field) {
+            if (!array_key_exists($field, $mapped['hr'])) {
+                continue;
+            }
+            $current = $hrRow?->getAttribute($field);
+            if (in_array($field, $unmatched, true) && self::norm($current) !== null) {
+                continue;
+            }
+            if (self::norm($current) !== self::norm($mapped['hr'][$field])) {
+                $hr[$field] = $mapped['hr'][$field];
+            }
+        }
+
+        return ['employee' => $employee, 'hr' => $hr];
+    }
+
+    /** Vergleichsform: Datum Y-m-d, bool 1/0, leer = null. */
+    private static function norm(mixed $v): ?string
+    {
+        if ($v instanceof \DateTimeInterface) {
+            return $v->format('Y-m-d');
+        }
+        if (is_bool($v)) {
+            return $v ? '1' : '0';
+        }
+        $s = trim((string) $v);
+
+        return $s === '' ? null : $s;
     }
 
     /**

@@ -548,6 +548,10 @@ class Show extends Component
                 'has_infection_protection_certificate' => ['type' => 'bool', 'label' => 'Infektionsschutzbescheinigung vorhanden?'],
                 'infection_protection_first_issued_at' => ['type' => 'date', 'label' => 'Erstbescheinigung am'],
                 'erstbescheinigung_file_id'            => ['type' => 'file', 'label' => 'Erstbescheinigung (Datei)'],
+                // Nur HR, nicht im Portal. Bei Funnel-MA leer = Export rechnet
+                // weiter aus dem IfSG-Vertrag der Bewerbung.
+                'infection_protection_instructed_at'   => ['type' => 'date', 'label' => 'IfSG-Belehrung am'],
+                'infection_protection_valid_until'     => ['type' => 'date', 'label' => 'IfSG-Belehrung gueltig bis'],
             ],
             'Arbeitskleidung' => [
                 'shirt_size' => ['type' => 'inline_select', 'label' => 'Hemd / Bluse', 'options' => ['S','M','L','XL']],

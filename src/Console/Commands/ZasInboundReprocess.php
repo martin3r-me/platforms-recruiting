@@ -30,13 +30,20 @@ use Platform\Recruiting\Services\Zas\ZasInboundEmployeeImporter;
  *   php artisan recruiting:zas-inbound-reprocess 17 --dry-run
  *   php artisan recruiting:zas-inbound-reprocess 17
  *   php artisan recruiting:zas-inbound-reprocess --chunk=50
+ *   php artisan recruiting:zas-inbound-reprocess 609 --dry-run --overwrite
+ *
+ * --overwrite schaltet das Ueberschreiben beim ZAS-Bestand NUR fuer diesen
+ * Lauf ein (recruiting.zas.inbound_overwrite_zas_owned) — damit laesst sich
+ * vor dem Einschalten per Trockenlauf sehen, welche Felder sich wie oft
+ * aendern wuerden. Die Ausgabe nennt nur Feldnamen und Anzahlen.
  */
 class ZasInboundReprocess extends Command
 {
     protected $signature = 'recruiting:zas-inbound-reprocess
                             {fileId? : ID aus rec_zas_inbound_files; ohne Angabe alle unverarbeiteten}
                             {--dry-run : nur rechnen und berichten, nichts schreiben}
-                            {--chunk=100 : Zeilen pro Portion}';
+                            {--chunk=100 : Zeilen pro Portion}
+                            {--overwrite : ZAS-Bestand ueberschreiben, nur fuer diesen Lauf (mit --dry-run zum Vorab-Pruefen)}';
 
     protected $description = 'Gespeicherte ZAS-Mitarbeiter-Lieferungen (erneut) verarbeiten';
 
@@ -51,6 +58,9 @@ class ZasInboundReprocess extends Command
     {
         $dryRun = (bool) $this->option('dry-run');
         $chunk  = max(1, (int) $this->option('chunk'));
+        if ($this->option('overwrite')) {
+            config(['recruiting.zas.inbound_overwrite_zas_owned' => true]);
+        }
 
         $files = $this->argument('fileId') !== null
             ? RecZasInboundFile::query()->whereKey((int) $this->argument('fileId'))->get()
@@ -92,6 +102,14 @@ class ZasInboundReprocess extends Command
                 $summary['suspected'],
             ));
 
+            if ($summary['field_counts'] !== []) {
+                $this->line('    Geaenderte Felder: ' . implode(', ', array_map(
+                    fn ($field, $n) => "{$field} {$n}",
+                    array_keys($summary['field_counts']),
+                    $summary['field_counts'],
+                )));
+            }
+
             foreach ($summary['failed_details'] as $f) {
                 $this->warn('    FEHLER ' . ($f['personnel_number'] ?? '-') . ': ' . $f['reason']);
             }
@@ -126,6 +144,8 @@ class ZasInboundReprocess extends Command
             'rows' => 0, 'created' => 0, 'updated' => 0, 'pnr_filled' => 0,
             'skipped' => 0, 'failed' => 0, 'warnings' => 0, 'suspected' => 0,
             'failed_details' => [], 'suspected_details' => [],
+            // Feldname → wie viele Mitarbeiter; nur Namen, keine Werte.
+            'field_counts' => [],
         ];
 
         // In Portionen, damit auch eine grosse (z.B. vom Waechter abgewiesene)
@@ -144,6 +164,9 @@ class ZasInboundReprocess extends Command
             foreach ($report['updated'] as $u) {
                 if (in_array('personnel_number', $u['changed'] ?? [], true)) {
                     $summary['pnr_filled']++;
+                }
+                foreach ($u['changed'] ?? [] as $field) {
+                    $summary['field_counts'][$field] = ($summary['field_counts'][$field] ?? 0) + 1;
                 }
             }
 

@@ -87,6 +87,8 @@ class RecEmployee extends Model
         'school_certificate_valid_until',
         'has_infection_protection_certificate',
         'infection_protection_first_issued_at',
+        'infection_protection_instructed_at',
+        'infection_protection_valid_until',
         'erstbescheinigung_file_id',
         'shirt_size',
         'pants_size',
@@ -151,6 +153,8 @@ class RecEmployee extends Model
         'school_certificate_valid_until'        => 'date',
         'has_infection_protection_certificate'  => 'boolean',
         'infection_protection_first_issued_at'  => 'date',
+        'infection_protection_instructed_at'    => 'date',
+        'infection_protection_valid_until'      => 'date',
         'residence_permit_valid_until'          => 'date',
         'work_permit_valid_until'               => 'date',
         // Arbeitsschutz
@@ -202,6 +206,30 @@ class RecEmployee extends Model
     public function zasInboundFile(): BelongsTo
     {
         return $this->belongsTo(RecZasInboundFile::class, 'rec_zas_inbound_file_id');
+    }
+
+    /**
+     * ZAS-Bestand: aus einer ZAS-Lieferung entstanden (rec_zas_inbound_file_id
+     * wird nur bei der Anlage gesetzt) und keine Bewerbung verknuepft. Diese
+     * Mitarbeiter werden in ZAS gepflegt — der Inbound darf ihre Stammdaten
+     * ueberschreiben, die HR-Akte weist darauf hin.
+     *
+     * Mischfaelle (Lieferung + spaeter verknuepfte Bewerbung) zaehlen bewusst
+     * NICHT dazu: sie haben unseren Funnel durchlaufen (Entscheidung 23.09.2026).
+     */
+    public function isZasOwned(): bool
+    {
+        return $this->rec_zas_inbound_file_id !== null && $this->rec_applicant_id === null;
+    }
+
+    /**
+     * ZAS-Bestand UND der Import ueberschreibt gerade tatsaechlich
+     * (recruiting.zas.inbound_overwrite_zas_owned). Steuert den Hinweis in der
+     * HR-Akte — mit Schalter aus waere "wird ueberschrieben" gelogen.
+     */
+    public function isMaintainedInZas(): bool
+    {
+        return $this->isZasOwned() && (bool) config('recruiting.zas.inbound_overwrite_zas_owned', true);
     }
 
     /**

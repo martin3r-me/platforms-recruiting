@@ -26,6 +26,12 @@
                 Mitarbeiter nicht gefunden.
             </div>
         @else
+            @if ($employee->isMaintainedInZas())
+                <div class="mb-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                    <b>Stammdaten werden in ZAS gepflegt.</b> Änderungen hier werden mit der nächsten ZAS-Lieferung überschrieben — bitte direkt in ZAS ändern.
+                    <span class="text-blue-700/80">Ausgenommen: Telefon, Ausweisnummer, Personalnummer, Firma.</span>
+                </div>
+            @endif
             @if (!$this->crmLinkMissing && $this->linkedContacts !== [])
                 <div class="mb-3 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-500">
                     CRM-Kontakt:

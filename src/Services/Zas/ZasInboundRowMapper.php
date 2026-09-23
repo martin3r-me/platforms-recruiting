@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas;
 
 use Carbon\Carbon;
+use Platform\Recruiting\Support\EuMemberStates;
 
 /**
  * Bildet eine ZAS-CSV-Datenzeile (Header→Wert-Map) auf RecEmployee- und
@@ -34,6 +35,10 @@ class ZasInboundRowMapper
         'InfekErstbescheinigung' => 'infection_protection_first_issued_at',
         'Eintritt' => 'employed_since',
         'ErsthelferBis' => 'first_aider_valid_until',
+        // IfSG-Belehrung — bisher nur aus dem Vertrag der Bewerbung abgeleitet,
+        // ZAS liefert sie fuer den Bestand zu 86 % (Lieferung 608, 23.09.2026).
+        'FolgeBescheinigungAm' => 'infection_protection_instructed_at',
+        'InfekGueltigBis' => 'infection_protection_valid_until',
     ];
 
     /** CSV-Spalte → rec_employees-Integer-Spalte */
@@ -45,6 +50,7 @@ class ZasInboundRowMapper
     private const BOOLS = [
         'PKW' => 'has_car', 'EUBuerger' => 'is_eu_citizen',
         'Ersthelfer' => 'is_first_aider', 'Sicherheitsbeauftragter' => 'is_safety_officer',
+        'InfekBeschVorhanden' => 'has_infection_protection_certificate',
     ];
 
     /** CSV-Spalte → [field, lookup, prefix] auf rec_employees */
@@ -110,7 +116,7 @@ class ZasInboundRowMapper
      * ZAS-Spalten, die map() von Hand liest — Default, Sonderregel oder
      * Schluessel, jedenfalls nicht ueber eine der Tabellen oben.
      */
-    private const HANDLED_SEPARATELY = ['Land', 'Status', 'StatusMASeit', 'Anstellungsart', 'UUID', 'ZasPersonalNr'];
+    private const HANDLED_SEPARATELY = ['Land', 'Status', 'StatusMASeit', 'Anstellungsart', 'UUID', 'ZasPersonalNr', 'AufenthaltGenehmigungErforderlich'];
 
     /**
      * Alle ZAS-Spalten, aus denen map() ueberhaupt etwas uebernimmt.
@@ -145,6 +151,10 @@ class ZasInboundRowMapper
         $employee = [];
         $hr = [];
         $warnings = [];
+        // Auswahlfelder, deren Wert keinen Lookup-Treffer hatte und deshalb
+        // ROH gespeichert wuerde. Der Importer schreibt die nur in leere
+        // Felder — sonst ersetzte Freitext ("Syrisch") einen sauberen Code.
+        $unmatched = [];
 
         foreach (self::DIRECT as $col => $field) {
             $v = $get($col);
@@ -205,7 +215,30 @@ class ZasInboundRowMapper
             }
             $employee[$field] = $res['value'];
             if (!$res['matched']) {
+                $unmatched[] = $field;
                 $warnings[] = "{$field}: '{$v}' roh gespeichert (kein Lookup-Treffer)";
+            }
+        }
+
+        // EU-Status ableiten, wenn ZAS `EUBuerger` nicht selbst liefert — was
+        // bis heute bei keinem Mitarbeiter der Fall ist (Lieferung 608,
+        // 23.09.2026). Grundlage ist `AufenthaltGenehmigungErforderlich`, das
+        // zu 100 % kommt. Nur eine Richtung ist sicher:
+        //   Ja   → braucht eine Genehmigung → kein EU-Buerger
+        //   Nein → nur MIT EU-Staatsangehoerigkeit EU-Buerger. Schweiz/EWR
+        //          und unbefristete Titel brauchen auch keine Genehmigung.
+        // Alles andere bleibt leer — lieber unbekannt als falsch.
+        $erforderlich   = mb_strtolower($get('AufenthaltGenehmigungErforderlich'));
+        $permitRequired = match ($erforderlich) {
+            'ja'    => true,
+            'nein'  => false,
+            default => null,
+        };
+        if (!array_key_exists('is_eu_citizen', $employee)) {
+            if ($permitRequired === true) {
+                $employee['is_eu_citizen'] = false;
+            } elseif ($permitRequired === false && EuMemberStates::contains($employee['nationality'] ?? null)) {
+                $employee['is_eu_citizen'] = true;
             }
         }
 
@@ -280,6 +313,7 @@ class ZasInboundRowMapper
             } else {
                 $hr['employment_classification'] = $res['value'];
                 if (!$res['matched']) {
+                    $unmatched[] = 'employment_classification';
                     $warnings[] = "employment_classification: '{$anst}' roh gespeichert (kein Lookup-Treffer)";
                 }
             }
@@ -291,6 +325,11 @@ class ZasInboundRowMapper
             'employee'          => $employee,
             'hr'       => $hr,
             'warnings' => $warnings,
+            'unmatched' => $unmatched,
+            // Fuer den Bestand: kommt `Nation` in der Zeile nicht mit, kann der
+            // Importer "Nein" noch gegen die gespeicherte Staatsangehoerigkeit
+            // pruefen. true/false/null = Ja/Nein/nicht geliefert.
+            'permit_required' => $permitRequired,
         ];
     }
 

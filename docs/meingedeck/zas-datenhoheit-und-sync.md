@@ -71,6 +71,18 @@ Kurzfassung:
 - **Bekannte Personen** (Treffer über UUID oder `ZasPersonalNr`) werden **nicht**
   vollständig aktualisiert. Angefasst wird nur, was ZAS gehört: `export_status`,
   `status_ma_since`, sowie Personalnummer und Firma — und die **nur in leere Felder**
+- **Ausnahme ZAS-Bestand** (seit 23.09.2026, `RecEmployee::isZasOwned()`: Lieferung gesetzt,
+  keine Bewerbung): standardmäßig an (Notaus: `RECRUITING_ZAS_INBOUND_OVERWRITE_ZAS_OWNED=false`)
+  übernimmt der Import
+  **jeden gelieferten, abweichenden Wert**. Nie überschrieben: Telefon (für ALLE bei uns
+  gepflegt — Dispo/WhatsApp), Ausweisnummer (Portal-Login), `Land` (Import-Default `de`),
+  Personalnummer, Firma. Leere Zelle = nicht anfassen. Auswahlwerte ohne Lookup-Treffer nur in
+  leere Felder. **Keine Rückkopplung:** Stammdaten werden observer-frei geschrieben (kein
+  Export-Marker, keine Lohnänderungs-Liste), der HR-Save setzt den Marker auf den alten Wert
+  zurück.
+  Mischfälle (Lieferung + später verknüpfte Bewerbung) sind bewusst ausgenommen.
+  Vorab prüfen: `recruiting:zas-inbound-reprocess <id> --dry-run --overwrite` (nennt je Feld
+  die Anzahl betroffener Mitarbeiter, keine Werte). Die HR-Akte zeigt dann einen Hinweis.
 - Der bisherige `zas_changed_at`-Wert wird nach dem Schreiben wiederhergestellt, damit
   Daten, die *von* ZAS kamen, kein Echo auslösen
 
@@ -145,6 +157,14 @@ Praktische Folgen:
   die Non-EU-Sektion bei `NULL` aus (`RecEmployee::editableFieldGroups()`), ein
   Nicht-EU-Bestandsmitarbeiter kann seine Aufenthaltsdokumente dort also **nicht** hochladen,
   solange HR den Haken nicht setzt. Das HR-Backend zeigt die Felder dagegen an.
+  **Seit 23.09.2026** leitet der Import den Wert ab, solange `EUBuerger` leer kommt:
+  `AufenthaltGenehmigungErforderlich = Ja` → kein EU-Bürger; `Nein` + EU-Staatsangehörigkeit
+  (`Support/EuMemberStates`, ohne EWR/Schweiz) → EU-Bürger; sonst bleibt `NULL`.
+  Beim ZAS-Bestand greift die Ableitung über die Überschreib-Regel (Abschnitt 2.4).
+- **IfSG-Belehrung** (`FolgeBescheinigungAm`/`InfekGueltigBis`) wird seit 23.09.2026 in
+  `infection_protection_instructed_at`/`_valid_until` übernommen (nur HR-Maske, nicht Portal).
+  Der Export nimmt das Feld und rechnet nur bei leerem Feld wie bisher aus dem IfSG-Vertrag
+  der Bewerbung.
 - Die Bewertungsfelder (Qualifikation, Wäschepaket, Sterne) sind bei allen ZAS-Mitarbeitern
   leer und können es strukturell nur sein: der einzige Schreibpfad ist das Bewertungs-Modal
   am Schulungstermin, und das hängt an einer Buchung, die diese Leute nie hatten.
@@ -221,9 +241,10 @@ curl -s -D - -o /dev/null "https://<host>/recruiting/zas/employees/updates.csv?d
 
 **Beim Golive des Mitarbeiter-Portals für alle:** die ZAS-Bestandsmitarbeiter müssen
 **einmalig komplett aus ZAS glattgezogen** werden — ab dann liegt die Pflege bei uns. Die
-Gruppe ist über `rec_zas_inbound_file_id IS NOT NULL` exakt adressierbar. Der heutige
-Inbound-Import kann das **nicht**: er fasst bei Treffern bewusst nur Status, Personalnummer
-und Firma an. Es braucht also einen eigenen, expliziten Voll-Übernahme-Modus.
+Gruppe ist über `rec_zas_inbound_file_id IS NOT NULL` exakt adressierbar. Seit 23.09.2026
+übernimmt der Inbound beim ZAS-Bestand laufend alle gelieferten Werte (Abschnitt 2.4) — der
+Stand ist also zum Golive aktuell. Am Golive-Tag `RECRUITING_ZAS_INBOUND_OVERWRITE_ZAS_OWNED=false`
+setzen (und `config:cache`), sonst überschreibt ZAS die Portal-Eingaben.
 
 **Diff-Export statt voller Zeilen.** Der saubere Weg aus Abschnitt 4: pro Mitarbeiter den
 zuletzt gelieferten Stand als Snapshot speichern, beim Export nur abweichende Spalten
