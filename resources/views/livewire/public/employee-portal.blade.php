@@ -257,6 +257,11 @@
                                 ? 'Bist du Ersthelfer? Wenn ja, trag bitte das Gültigkeitsdatum ein und lade deinen Ersthelfer-Schein hoch — ohne beides können wir nicht speichern. Wenn nein, wähl einfach „Nein".'
                                 : 'Sind Sie Ersthelfer? Wenn ja, tragen Sie bitte das Gültigkeitsdatum ein und laden Sie Ihren Ersthelfer-Schein hoch — ohne beides können wir nicht speichern. Wenn nein, wählen Sie einfach „Nein".';
                         }
+                        if ($section === 'Arbeitgeber') {
+                            $sectionHint = $duzen
+                                ? 'Der Hauptarbeitgeber ist der Job, bei dem du am meisten verdienst — davon hängt deine Steuerklasse ab. Arbeitest du nur bei uns, wähl „Ja" und lass das zweite Feld leer. Hast du noch einen anderen Job, trag ihn bitte ein.'
+                                : 'Der Hauptarbeitgeber ist die Tätigkeit, bei der Sie am meisten verdienen — davon hängt Ihre Steuerklasse ab. Arbeiten Sie nur bei uns, wählen Sie „Ja" und lassen das zweite Feld leer. Haben Sie noch eine andere Tätigkeit, tragen Sie diese bitte ein.';
+                        }
                     @endphp
                     <div class="mb-5">
                         <h3 class="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)] mb-2">{{ $section }}</h3>

@@ -96,6 +96,7 @@ class RecEmployee extends Model
 
         // Arbeitsschutz
         'is_first_aider',
+        'is_main_employer', 'other_employer',
         'first_aider_valid_until',
         'first_aider_certificate_file_id',
         'is_safety_officer',
@@ -154,6 +155,7 @@ class RecEmployee extends Model
         'work_permit_valid_until'               => 'date',
         // Arbeitsschutz
         'is_first_aider'                        => 'boolean',
+        'is_main_employer'                      => 'boolean',
         'first_aider_valid_until'               => 'date',
         'is_safety_officer'                     => 'boolean',
         'number_of_children'                    => 'integer',
@@ -363,6 +365,23 @@ class RecEmployee extends Model
                 'sozialversicherungsnummer'     => ['type' => 'text', 'label' => 'Sozialversicherungsnummer'],
                 'health_insurance'              => ['type' => 'lookup', 'label' => 'Krankenkasse', 'lookup' => 'krankenkasse'],
                 'health_insurance_card_file_id' => ['type' => 'file', 'label' => 'Foto Versichertenkarte'],
+            ],
+            // Haupt-/Nebenarbeitgeber (Clara-Liste 28.08.2026). Steht direkt
+            // hinter Steuer & Versicherung, weil genau dort die Folge sitzt:
+            // wer uns als Nebenarbeitgeber hat, wird nach Steuerklasse VI
+            // abgerechnet.
+            'Arbeitgeber' => [
+                'is_main_employer' => ['type' => 'bool', 'label' => 'Sind wir dein Hauptarbeitgeber?'],
+                // required_if: erst Pflicht, wenn oben "Nein" steht. Dann
+                // muessen wir wissen, wer es stattdessen ist. Bei "Ja" bleibt
+                // das Feld offen — ein Nebenjob neben uns ist erlaubt, aber
+                // keine Pflichtangabe. Unbeantwortet (null) loest nichts aus,
+                // der Vergleich in fieldIsRelevant ist strikt.
+                'other_employer'   => [
+                    'type'        => 'text',
+                    'label'       => 'Dein Hauptarbeitgeber / weiterer Arbeitgeber',
+                    'required_if' => ['is_main_employer' => false],
+                ],
             ],
             'Ausweis' => [
                 'identity_card_valid_until'   => ['type' => 'date', 'label' => 'Ausweis gueltig bis'],

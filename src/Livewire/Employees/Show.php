@@ -584,6 +584,13 @@ class Show extends Component
                 'first_aider_valid_until' => ['type' => 'date', 'label' => 'Ersthelfer-Schein gueltig bis'],
                 'first_aider_certificate_file_id' => ['type' => 'file', 'label' => 'Ersthelfer-Schein (Datei)'],
             ],
+            // Pflegt der MA seit 23.09.2026 selbst im Portal, deshalb ohne
+            // "(HR-only)". HR sieht es mit, weil die Angabe steuerlich zaehlt
+            // (Steuerklasse VI) und bei Rueckfragen greifbar sein muss.
+            'Arbeitgeber' => [
+                'is_main_employer' => ['type' => 'bool', 'label' => 'Wir sind Hauptarbeitgeber'],
+                'other_employer'   => ['type' => 'text', 'label' => 'Hauptarbeitgeber / weiterer Arbeitgeber'],
+            ],
             // Sicherheitsbeauftragter benennt HR, nicht der MA — bleibt gelb.
             'Arbeitsschutz (HR-only)' => [
                 'is_safety_officer' => ['type' => 'bool', 'label' => 'Sicherheitsbeauftragter'],
