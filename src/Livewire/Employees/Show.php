@@ -494,6 +494,7 @@ class Show extends Component
                 'birth_date' => ['type' => 'date', 'label' => 'Geburtsdatum'],
                 'birth_place' => ['type' => 'text', 'label' => 'Geburtsort'],
                 'birth_country' => ['type' => 'lookup', 'label' => 'Geburtsland', 'lookup' => 'geburtsland'],
+                'nationality' => ['type' => 'lookup', 'label' => 'Staatsangehörigkeit', 'lookup' => 'geburtsland'],
                 'gender' => ['type' => 'lookup', 'label' => 'Geschlecht', 'lookup' => 'geschlecht'],
                 'marital_status' => ['type' => 'lookup', 'label' => 'Familienstand', 'lookup' => 'familienstand'],
             ],

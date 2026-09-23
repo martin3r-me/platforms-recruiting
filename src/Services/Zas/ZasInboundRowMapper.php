@@ -54,7 +54,11 @@ class ZasInboundRowMapper
         'Religion'      => ['religion', 'religion', false],
         'Krankenkasse'  => ['health_insurance', 'krankenkasse', false],
         'Ichbin'        => ['employment_type', 'beschaeftigung_art', false],
-        'Nation'        => ['birth_country', 'geburtsland', false],
+        // ZAS fuehrt Geburtsort + Nation, KEIN Geburtsland (Spaltenbericht 579,
+        // 23.09.2026). `Nation` ist die Staatsangehoerigkeit — bis dahin lief sie
+        // faelschlich in birth_country. Lookup bleibt geburtsland (ISO-Codes;
+        // die Adjektiv-Aliase im ReverseResolver greifen weiter).
+        'Nation'        => ['nationality', 'geburtsland', false],
     ];
 
     /**
@@ -87,7 +91,7 @@ class ZasInboundRowMapper
         'health_insurance' => 64,
         // Lookup-Ziele (koennen Rohwerte tragen, wenn kein Treffer)
         'gender' => 32, 'marital_status' => 32, 'religion' => 32,
-        'employment_type' => 64, 'birth_country' => 64,
+        'employment_type' => 64, 'birth_country' => 64, 'nationality' => 64,
         // Sonstiges
         'drivers_license_class' => 32, 'recruited_by_personnel_number' => 64,
         'cost_center' => 32, 'shirt_size' => 8,

@@ -51,7 +51,6 @@ class BackfillEmployeeFieldsFromApplicant extends Command
         'eu_burger',                      // via legalStatus.is_eu_citizen
         'grundlegende_deutschkenntnisse', // Funnel-Gate, keine MA-Spalte
         'nicht_eu_dokumente',             // Steuerfeld fuer Sichtbarkeit
-        'nationalitaet',                  // keine MA-Spalte (nur geburtsland)
     ];
 
     public function handle(CreateEmployeeFromApplicantService $service): int

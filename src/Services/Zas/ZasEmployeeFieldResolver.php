@@ -170,7 +170,10 @@ class ZasEmployeeFieldResolver
             'Geburtsname'         => $employee->birth_name,
             'Geburtsdatum'        => $this->formatDate($employee->birth_date),
             'Geburtsort'          => $employee->birth_place,
-            'Nation'              => $this->lookupLabel('geburtsland', $employee->birth_country),
+            // Staatsangehoerigkeit; Rueckfall Geburtsland fuer Bestand, den der
+            // Nation-Backfill noch nicht umgezogen hat (gleiche Logik wie im
+            // Bewerber-Export: nationalitaet, dann geburtsland).
+            'Nation'              => $this->lookupLabel('geburtsland', $employee->nationality ?: $employee->birth_country),
             'Geschlecht'          => $this->lookupLabel('geschlecht', $employee->gender),
             'Familienstand'       => $this->lookupLabel('familienstand', $employee->marital_status),
             'AusweisNr'           => $employee->identity_card_number,

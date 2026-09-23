@@ -40,7 +40,7 @@ class RecEmployeeExportObserver
 
         // Stammdaten
         'first_name', 'last_name', 'birth_name', 'birth_date', 'birth_place',
-        'birth_country', 'gender', 'marital_status',
+        'birth_country', 'nationality', 'gender', 'marital_status',
         'identity_card_number', 'identity_card_valid_until',
         'religion', 'number_of_children',
 

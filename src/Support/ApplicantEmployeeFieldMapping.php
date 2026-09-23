@@ -26,6 +26,9 @@ class ApplicantEmployeeFieldMapping
         'birth_date'                    => 'geburtsdatum',
         'birth_place'                   => 'geburtsort',
         'birth_country'                 => 'geburtsland',
+        // Formular-Feld `nationalitaet` haengt an demselben Lookup (geburtsland,
+        // ISO-Codes) — reine Kopie, keine Uebersetzung.
+        'nationality'                   => 'nationalitaet',
         'identity_card_number'          => 'ausweisnummer',
         'email'                         => 'email',
         'street'                        => 'strasse',
@@ -68,6 +71,7 @@ class ApplicantEmployeeFieldMapping
         'birth_name'                    => 120,
         'birth_place'                   => 120,
         'birth_country'                 => 64,
+        'nationality'                   => 64,
         'identity_card_number'          => 64,
         'email'                         => 255,
         'street'                        => 255,

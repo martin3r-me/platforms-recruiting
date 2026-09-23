@@ -41,6 +41,7 @@ class RecEmployee extends Model
         'birth_date',
         'birth_place',
         'birth_country',
+        'nationality',
         'identity_card_number',
         'identity_card_valid_until',
         'identity_card_front_file_id',
@@ -318,6 +319,9 @@ class RecEmployee extends Model
                 'city'         => ['type' => 'text', 'label' => 'Ort'],
                 'country_code' => ['type' => 'text', 'label' => 'Land'],
                 'birth_country' => ['type' => 'lookup', 'label' => 'Geburtsland', 'lookup' => 'geburtsland'],
+                // Staatsangehoerigkeit — eigene Spalte seit 23.09.2026; bis dahin ging
+                // das Geburtsland als `Nation` nach ZAS (Clara-Liste, 28.08.).
+                'nationality'   => ['type' => 'lookup', 'label' => 'Staatsangehörigkeit', 'lookup' => 'geburtsland'],
             ],
             'Persoenliches' => [
                 'birth_name'         => ['type' => 'text', 'label' => 'Geburtsname'],
