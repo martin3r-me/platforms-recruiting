@@ -18,6 +18,9 @@ namespace Platform\Recruiting\Support;
  */
 class ApplicantEmployeeFieldMapping
 {
+    /** Spalten, aus denen jeder Leerraum entfernt wird. */
+    private const WHITESPACE_FREE = ['steuer_id', 'sozialversicherungsnummer'];
+
     /** RecEmployee-Spalte => Extra-Field-Name, Wert 1:1 durchgereicht. */
     public const TEXT_MAP = [
         'first_name'                    => 'vorname',
@@ -151,6 +154,12 @@ class ApplicantEmployeeFieldMapping
 
         foreach (self::TEXT_MAP as $column => $field) {
             $value = $extraValues[$field] ?? null;
+            // Steuer-ID und SV-Nummer ohne Leerraum (Clara 28.08.2026) — schon
+            // hier, damit Auswertungen auf dem Mapping nicht die Rohform sehen.
+            // Am Modell greift zusaetzlich ein Mutator fuer alle anderen Wege.
+            if (in_array($column, self::WHITESPACE_FREE, true)) {
+                $value = TaxAndSvNumber::normalize($value);
+            }
             if ($value !== null && $value !== '') {
                 $out[$column] = $value;
             }

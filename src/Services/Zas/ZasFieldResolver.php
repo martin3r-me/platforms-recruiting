@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services\Zas;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Support\TaxAndSvNumber;
 
 /**
  * Mappt einen RecApplicant auf das assoziative Array
@@ -125,9 +126,12 @@ class ZasFieldResolver
             'Geburtsname'        => $this->getStringField($applicant, ['geburtsname']),
             'Geschlecht'         => $this->getLookupField($applicant, ['geschlecht']),
             'Nation'             => $this->getLookupField($applicant, ['nationalitaet', 'geburtsland']),
-            'SVNummer'           => $this->getStringField($applicant, ['sozialversicherungsnummer']),
+            // Leerraum raus (Clara 28.08.2026): mit Leerzeichen kam in Agenda
+            // nicht die vollstaendige Nummer an. Der Bewerber-Export liest die
+            // Formularfelder direkt, also greift der Mutator am MA hier nicht.
+            'SVNummer'           => TaxAndSvNumber::normalize($this->getStringField($applicant, ['sozialversicherungsnummer'])),
             'AusweisNr'          => $this->getStringField($applicant, ['ausweisnummer']),
-            'SteuerID'           => $this->getStringField($applicant, ['steuer_id']),
+            'SteuerID'           => TaxAndSvNumber::normalize($this->getStringField($applicant, ['steuer_id'])),
             'AusweisBis'         => $this->getDateField($applicant, ['ausweis_gultig_bis']),
             'Bank'               => $this->getStringField($applicant, ['geldinstitut']),
             'IBAN'               => $this->getStringField($applicant, ['iban']),

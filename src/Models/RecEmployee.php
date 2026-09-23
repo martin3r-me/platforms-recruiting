@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Platform\Crm\Models\CrmContactLink;
+use Platform\Recruiting\Support\TaxAndSvNumber;
 use Platform\Recruiting\Traits\ResolvesPublicAddressStyle;
 use Symfony\Component\Uid\UuidV7;
 
@@ -303,6 +304,24 @@ class RecEmployee extends Model
      *  - recruited_by_personnel_number (read-only, einmalig in P3 gesetzt)
      *  - personnel_number (Backoffice-/HR-Feld, ZAS-Personalnummer)
      */
+    /**
+     * Steuer-ID und SV-Nummer ohne Leerraum speichern (Clara 28.08.2026):
+     * mit Leerzeichen kam in Agenda nicht die vollstaendige Nummer an.
+     *
+     * Als Mutator und nicht an den Aufrufstellen, weil es vier Schreibwege
+     * gibt — MA-Portal, HR-Akte, Anlage aus der Bewerbung und ZAS-Import.
+     * Alle laufen ueber Eloquent, also greift eine Stelle fuer alle.
+     */
+    public function setSteuerIdAttribute($value): void
+    {
+        $this->attributes['steuer_id'] = TaxAndSvNumber::normalize($value);
+    }
+
+    public function setSozialversicherungsnummerAttribute($value): void
+    {
+        $this->attributes['sozialversicherungsnummer'] = TaxAndSvNumber::normalize($value);
+    }
+
     public function editableFieldGroups(): array
     {
         $isNonEu = ($this->is_eu_citizen === false);
