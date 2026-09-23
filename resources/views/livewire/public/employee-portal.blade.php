@@ -1,4 +1,10 @@
-<div class="min-h-screen bg-[var(--ui-surface)] py-8 px-4">
+{{-- Textfarbe an der Wurzel festnageln: das Guest-Layout aus platforms-core
+     setzt am body eine helle Schrift fuer den Dunkelmodus. Diese Seite ist
+     durchgehend hell (--ui-surface ist ein festes Fast-Weiss ohne dunkle
+     Variante) — ohne diese Klasse erbt jeder Text ohne eigene Farbe im
+     Dunkelmodus Weiss und steht unlesbar auf hellem Grund
+     (Clara/RHEINGEDECK 28.08.2026). --}}
+<div class="min-h-screen bg-[var(--ui-surface)] text-gray-900 py-8 px-4">
     <div class="max-w-2xl mx-auto">
 
         {{-- HEADER --}}

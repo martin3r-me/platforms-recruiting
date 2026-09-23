@@ -1,4 +1,9 @@
-<div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+{{-- Textfarbe an der Wurzel festnageln: das Guest-Layout aus platforms-core
+     setzt am body `text-gray-900 dark:text-white`. Diese Seite ist durchgehend
+     hell (bg-white, bg-gray-50), und der eingebettete Vertragstext bringt keine
+     eigene Farbe mit — ohne diese Klasse erbt er im Dunkelmodus Weiss und steht
+     unlesbar auf weisser Karte (Clara/RHEINGEDECK 28.08.2026). --}}
+<div class="min-h-screen bg-gray-50 text-gray-900 py-8 px-4 sm:px-6 lg:px-8">
     <div class="max-w-3xl mx-auto">
 
         {{-- Ungültiger Token --}}
