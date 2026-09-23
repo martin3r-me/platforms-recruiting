@@ -123,8 +123,6 @@ class ContactPhoneSync
 
     private static function suffix(string $value): string
     {
-        $digits = preg_replace('/\D+/', '', $value) ?? '';
-
-        return substr($digits, -9);
+        return PhoneE164::suffix($value);
     }
 }

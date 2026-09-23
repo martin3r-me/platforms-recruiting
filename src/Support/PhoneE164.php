@@ -109,6 +109,20 @@ final class PhoneE164
      * Isolate, Zero-Width, NBSP) — die Ursache der "sonstig"-Formate aus
      * Copy-Paste — und trimmt.
      */
+    /**
+     * Die letzten neun Ziffern einer Nummer — formatunabhaengiger Vergleich.
+     *
+     * Zwei Schreibweisen derselben Nummer (+49 152 …, 0152 …, 0049152 …)
+     * stimmen darin ueberein, ohne dass man sie normalisieren koennte —
+     * was bei unvollstaendigen Nummern oft scheitert.
+     */
+    public static function suffix(?string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $value) ?? '';
+
+        return strlen($digits) >= 9 ? substr($digits, -9) : '';
+    }
+
     public static function stripInvisible(string $raw): string
     {
         $clean = preg_replace('/[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}\x{00A0}]/u', '', $raw) ?? $raw;
