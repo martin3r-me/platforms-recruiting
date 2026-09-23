@@ -68,6 +68,9 @@ class DispoThreadDirectoryTest extends TestCase
         Capsule::table('rec_dispo_events')->delete();
         Capsule::table('crm_contact_links')->delete();
         Capsule::table('rec_employees')->delete();
+        if (Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
+            Capsule::table('integrations_whatsapp_templates')->delete();
+        }
     }
 
     private function directory(): DispoThreadDirectory
@@ -407,6 +410,63 @@ class DispoThreadDirectoryTest extends TestCase
         $this->assertSame($b, $all[$ma][0]['channel_id']);
     }
 
+    public function test_template_message_shows_the_real_text(): void
+    {
+        // Kunde 23.09.: im Chat stand "Template: t_dispo_bestaetigung" — Markus
+        // konnte nicht sehen, was die Leute gelesen haben.
+        if (!Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
+            $this->markTestSkipped('Integrations-Paket nicht geladen.');
+        }
+        Capsule::table('integrations_whatsapp_templates')->insert([
+            'uuid' => 'tpl-1', 'external_id' => 'ext-1', 'name' => 't_dispo_bestaetigung',
+            'language' => 'de', 'status' => 'APPROVED', 'whatsapp_account_id' => 1, 'user_id' => 1,
+            'components' => json_encode([
+                ['type' => 'BODY', 'text' => 'Hallo {{1}}, am {{2}} bist du bei {{3}} eingeteilt.'],
+                ['type' => 'BUTTONS', 'buttons' => [['type' => 'URL', 'text' => 'Einsatz ansehen']]],
+            ]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 172 8888888', null, false, '2026-09-23 09:00:00');
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound',
+            'body' => 'Template: t_dispo_bestaetigung',   // so legt der Meta-Dienst es ab
+            'message_type' => 'template', 'template_name' => 't_dispo_bestaetigung',
+            'template_params' => [
+                ['type' => 'body', 'parameters' => [
+                    ['type' => 'text', 'text' => 'Tristan'],
+                    ['type' => 'text', 'text' => '24.09.2026'],
+                    ['type' => 'text', 'text' => 'Messe Düsseldorf'],
+                ]],
+            ],
+        ]);
+
+        $result = $this->directory()->messages(CommsWhatsAppThread::find($threadId), []);
+
+        $this->assertCount(1, $result);
+        $this->assertSame('template', $result[0]['kind']);
+        $this->assertSame('Hallo Tristan, am 24.09.2026 bist du bei Messe Düsseldorf eingeteilt.', $result[0]['body']);
+        $this->assertSame(['Einsatz ansehen'], $result[0]['template_buttons']);
+    }
+
+    /** Ohne bekannte Vorlage bleibt die Karte, aber ohne erfundenen Text. */
+    public function test_template_message_without_definition_keeps_the_label(): void
+    {
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 172 8888889', null, false, '2026-09-23 09:00:00');
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound',
+            'body' => 'Template: t_wo_bist', 'message_type' => 'template', 'template_name' => 't_wo_bist',
+        ]);
+
+        $result = $this->directory()->messages(CommsWhatsAppThread::find($threadId), []);
+
+        $this->assertSame('template', $result[0]['kind']);
+        $this->assertSame('', $result[0]['body'], 'Kein technischer Name als vermeintlicher Nachrichtentext.');
+        $this->assertNotSame('', (string) $result[0]['template_label']);
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);
@@ -424,6 +484,13 @@ class DispoThreadDirectoryTest extends TestCase
             [$own, 'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php'],
             [$own, 'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php'],
         ];
+
+        // Vorlagen-Texte (Kunde 23.09.) liegen im Integrations-Paket; fehlt es im
+        // Testlauf, bleibt der Chat beim Vorlagen-Namen — dann entfaellt der Test.
+        if (class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            $integrations = self::packageRootOf(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class);
+            $files[] = [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'];
+        }
 
         foreach ($files as [$root, $relative]) {
             $path = $root . '/' . $relative;

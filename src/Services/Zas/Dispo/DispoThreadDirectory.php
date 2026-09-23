@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo;
 
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Support\WhatsAppTemplateRenderer;
 use Platform\Recruiting\Models\RecDispoAssignment;
 
 /**
@@ -288,9 +289,24 @@ class DispoThreadDirectory
             $q->where('created_at', '>=', $since);
         }
 
-        return $q->get()->map(function ($m) use ($labels) {
+        $rows = $q->get();
+        // Kunde 23.09.: im Chat stand nur der technische Vorlagen-Name. Die
+        // Vorlagen-Texte der vorkommenden Templates einmal je Aufruf laden, um
+        // die Nachricht zu zeigen, die der Mitarbeiter gelesen hat.
+        $definitions = $this->templateDefinitions(
+            $rows->pluck('template_name')->filter()->unique()->values()->all()
+        );
+
+        return $rows->map(function ($m) use ($labels, $definitions) {
             $at = $m->sent_at ?? $m->created_at;
-            $isTemplate = ($m->body === null || $m->body === '') && !empty($m->template_name);
+            // Eine Vorlagen-Nachricht erkennt man am template_name — der Rumpf
+            // ist beim Versand mit "Template: <name>" belegt und damit NICHT leer.
+            $isTemplate = !empty($m->template_name);
+            $definition = $isTemplate ? ($definitions[(string) $m->template_name] ?? null) : null;
+            $rendered = $definition !== null
+                ? WhatsAppTemplateRenderer::render($definition, $m->template_params)
+                : null;
+            $buttons = $definition !== null ? WhatsAppTemplateRenderer::buttonLabels($definition) : [];
 
             // Medien (Kunde 04.09.): Bilder/Dokumente/Sprachnachrichten des MA
             // wurden bisher als leere Blase gerendert — Typ + Anhaenge (URL/
@@ -302,8 +318,9 @@ class DispoThreadDirectory
                 'kind'           => $isTemplate ? 'template' : 'text',
                 'media_type'     => $hasMedia ? (string) $m->media_display_type : null,
                 'attachments'    => $hasMedia ? (array) ($m->attachments ?? []) : [],
-                'body'           => (string) ($m->body ?? ''),
+                'body'           => (string) ($isTemplate ? ($rendered ?? '') : ($m->body ?? '')),
                 'template_label' => $isTemplate ? DispoTemplateLabels::label((string) $m->template_name, $labels) : null,
+                'template_buttons' => $buttons,
                 'status'         => $m->status,
                 'at'             => optional($at)->format('d.m.Y H:i'),
                 'time'           => optional($at)->format('H:i'),
@@ -312,6 +329,51 @@ class DispoThreadDirectory
             ];
         })->all();
     }
+
+    /**
+     * Vorlagen-Definitionen (components) zu den gefragten Namen. Je Name der
+     * zuletzt synchronisierte Datensatz — denselben Namen gibt es pro WABA-
+     * Konto/Sprache mehrfach, der Text ist aber derselbe.
+     *
+     * @param list<string> $names
+     * @return array<string, array> name => components
+     */
+    private function templateDefinitions(array $names): array
+    {
+        $class = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class;
+        if ($names === [] || !class_exists($class)) {
+            return [];
+        }
+        $missing = array_values(array_diff($names, array_keys($this->templateCache)));
+        if ($missing !== []) {
+            $found = $class::query()
+                ->whereIn('name', $missing)
+                ->orderBy('id')
+                ->get(['name', 'components']);
+            foreach ($missing as $name) {
+                $this->templateCache[$name] = null;
+            }
+            foreach ($found as $t) {
+                $components = $t->components;
+                if (!empty($components)) {
+                    $this->templateCache[(string) $t->name] = $components;
+                }
+            }
+        }
+
+        $out = [];
+        foreach ($names as $name) {
+            if ($this->templateCache[$name] !== null) {
+                $out[$name] = $this->templateCache[$name];
+            }
+        }
+
+        return $out;
+    }
+
+    /** @var array<string, array|null> Cache JE INSTANZ (nicht statisch: eine
+     *  geaenderte Vorlage soll nicht bis zum Neustart des Workers alt bleiben). */
+    private array $templateCache = [];
 
     /** "Heute", "Gestern", sonst "Mittwoch, 27. August" (aus der Kommunikation hierher gezogen). */
     public static function dayLabel(\Illuminate\Support\Carbon $c): string

@@ -11,14 +11,28 @@
         <div class="my-1 self-center rounded-full border border-gray-200 bg-white px-3 py-0.5 text-[11px] font-semibold text-gray-400">{{ $message['day_label'] }}</div>
     @endif
     @if ($message['kind'] === 'template')
-        <div class="grid max-w-[85%] grid-cols-[30px_1fr] items-center gap-x-2.5 gap-y-0.5 self-end rounded-xl border border-gray-200 bg-white px-3 py-2 lg:max-w-[68%]">
-            <span class="self-start grid h-[30px] w-[30px] place-items-center rounded-lg bg-blue-50 text-blue-700">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H7l-3 3z"/><path d="M8 9h8M8 12h5"/></svg>
-            </span>
-            <span class="text-[13px] font-semibold text-gray-800">{{ $message['template_label'] }} gesendet</span>
-            <span class="col-start-2 text-[11px] text-gray-400 tabular-nums">{{ $message['time'] }}@if ($message['status']) · {{ $message['status'] }}@endif</span>
+        {{-- Kunde 23.09.: der echte Text der Vorlage, nicht der technische Name
+             ("t_wo_bist"). Der Vorlagen-Name steht als kleine Zeile darunter. --}}
+        @php
+            $tplButtons = $message['template_buttons'] ?? [];
+            $tplBody = trim((string) ($message['body'] ?? ''));
+        @endphp
+        <div class="flex max-w-[85%] flex-col items-end gap-0.5 self-end lg:max-w-[68%]">
+            <div class="rounded-2xl rounded-br-md bg-blue-600 px-3 py-2 text-sm leading-relaxed text-white">
+                @if ($tplBody !== '')
+                    <div class="whitespace-pre-line">{{ $tplBody }}</div>
+                @else
+                    <div class="italic opacity-80">{{ $message['template_label'] }} gesendet (Text der Vorlage nicht abrufbar)</div>
+                @endif
+                @foreach ($tplButtons as $tplButton)
+                    <div class="mt-1.5 border-t border-white/30 pt-1 text-center text-[13px] font-semibold">{{ $tplButton }}</div>
+                @endforeach
+            </div>
+            <div class="px-1 text-[11px] text-gray-400 tabular-nums">
+                Vorlage: {{ $message['template_label'] }} · {{ $message['time'] }}@if ($message['status']) · {{ $message['status'] }}@endif
+            </div>
             @if ($portalUrl)
-                <a href="{{ $portalUrl }}" target="_blank" rel="noopener" class="col-start-2 text-[11px] font-semibold text-blue-700 hover:underline" title="Persönlicher Link des Mitarbeiters — nicht weitergeben.">Einsatz-Seite öffnen ↗</a>
+                <a href="{{ $portalUrl }}" target="_blank" rel="noopener" class="px-1 text-[11px] font-semibold text-blue-700 hover:underline" title="Persönlicher Link des Mitarbeiters — nicht weitergeben.">Einsatz-Seite öffnen ↗</a>
             @endif
         </div>
     @else
