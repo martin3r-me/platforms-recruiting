@@ -147,6 +147,7 @@ final class ProofReminderSender
                     . 'Ungeprüft würde dort still der Vorname oder der Beispielwert der Vorlage stehen.',
             ]);
         }
+
         $sendComponents = HoldingTemplateComponents::build($components, $firstName, $namedValues);
 
         if (HoldingTemplateComponents::hasEmptyRequiredParam($sendComponents)) {

@@ -65,11 +65,11 @@ class PortalShell extends Component
     public $uploadDatei = null;
     /**
      * Zweite, OPTIONALE Datei fuer die vier zweiseitigen Arten (Ausweis,
-     * Aufenthaltstitel, Arbeitsgenehmigung, Fiktionsbescheinigung).
-     * Welche das sind, sagt der Katalog ueber die
-     * Zahl seiner Altspalten — zwei Eintraege heisst Vorder- und Rueckseite.
-     * Ohne dieses Feld gab es fuer die Rueckseite im neuen Portal gar keinen
-     * Weg, und das Doppelschreiben loeschte sie bei jedem Upload (M1).
+     * Aufenthaltstitel, Arbeitsgenehmigung, Fiktionsbescheinigung). Welche das
+     * sind, sagt der Katalog ueber die Zahl seiner Altspalten — zwei
+     * Eintraege heissen Vorder- und Rueckseite. Ohne dieses Feld gab es fuer
+     * die Rueckseite im neuen Portal gar keinen Weg, und das Doppelschreiben
+     * loeschte sie bei jedem Upload (M1).
      */
     public $uploadDateiRueckseite = null;
     public string $uploadFehler = '';
