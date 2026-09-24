@@ -98,4 +98,28 @@ final class ProofReminderPlannerTest extends TestCase
 
         $this->assertSame([2], array_column($plan, 'proof_id'));
     }
+
+    public function test_unlesbares_heute_kracht_statt_still_falsch_zu_rechnen(): void
+    {
+        // Ein unlesbares $heute ist ein Programmierfehler beim Aufrufer.
+        // Das wird nicht toleriert — wir krachen, nicht still gegen Serverzeit.
+        $this->expectException(\InvalidArgumentException::class);
+        ProofReminderPlanner::plan(
+            [$this->nachweis()],
+            'heute',
+            null
+        );
+    }
+
+    public function test_unlesbarer_stichtag_schaltet_nur_die_bremse_ab(): void
+    {
+        // Ein unlesbares $stichtag ist kein Fehler — es heisst nur,
+        // dass die Bremse nicht greift. Der Nachweis kommt in den Plan.
+        $plan = ProofReminderPlanner::plan(
+            [$this->nachweis(['valid_until' => '2026-08-01'])],
+            '2026-09-24',
+            'irgendwann'
+        );
+        $this->assertCount(1, $plan);
+    }
 }

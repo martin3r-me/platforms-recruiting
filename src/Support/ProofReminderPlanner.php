@@ -14,6 +14,17 @@ final class ProofReminderPlanner
      */
     public static function plan(array $nachweise, string $heute, ?string $stichtag): array
     {
+        // $heute ist Aufrufer-Verantwortung — ein unlesbares Datum dort ist ein
+        // Programmierfehler, nicht ein Datenzustand. Wir krachen statt still gegen
+        // die Serverzeit zu rechnen. $bis und $stichtag bleiben tolerant — bei ihnen
+        // ist null ein echter Zustand (fehlende/kaputte Einzeldaten, kein Stichtag).
+        $heute_tag = self::alsTag($heute);
+        if ($heute_tag === null) {
+            throw new \InvalidArgumentException(
+                "ProofReminderPlanner::plan() braucht ein Datum als Y-m-d, bekam '{$heute}'."
+            );
+        }
+
         $faellig = [];
         foreach ($nachweise as $n) {
             $bis = self::alsTag($n['valid_until'] ?? '');
@@ -29,8 +40,8 @@ final class ProofReminderPlanner
                 continue;   // genau eine Erinnerung, danach steht es im Portal
             }
 
-            $sichtag_tag = self::alsTag($stichtag);
-            if ($sichtag_tag !== null && $bis < $sichtag_tag) {
+            $stichtag_tag = self::alsTag($stichtag);
+            if ($stichtag_tag !== null && $bis < $stichtag_tag) {
                 continue;   // Altbestand: sichtbar im Portal, aber ungefragt
             }
 
@@ -42,7 +53,6 @@ final class ProofReminderPlanner
                 continue;
             }
 
-            $heute_tag = self::alsTag($heute);
             $fenster = date('Y-m-d', strtotime($heute_tag . ' +' . $vorlauf . ' days'));
             if ($bis > $fenster) {
                 continue;   // noch zu frueh
