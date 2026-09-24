@@ -37,6 +37,19 @@ final class ProofUploadRulesTest extends TestCase
         $this->assertNotNull(ProofUploadRules::pruefeDatum('ausweis', '2040-01-01', '2026-09-24'));
     }
 
+    public function test_genau_zehn_jahre_ist_noch_erlaubt(): void
+    {
+        // Die Grenze selbst gehoert zum erlaubten Bereich.
+        $this->assertNull(ProofUploadRules::pruefeDatum('ausweis', '2036-09-24', '2026-09-24'));
+    }
+
+    public function test_ein_tag_ueber_zehn_jahren_wird_abgewiesen(): void
+    {
+        // Ein Tag darueber muss kippen — sonst haelt kein Test die Grenze fest
+        // und sie koennte sich unbemerkt verschieben.
+        $this->assertNotNull(ProofUploadRules::pruefeDatum('ausweis', '2036-09-25', '2026-09-24'));
+    }
+
     public function test_art_ohne_ablauf_nimmt_kein_datum(): void
     {
         $this->assertNotNull(ProofUploadRules::pruefeDatum('selfie', '2030-01-01', '2026-09-24'));
