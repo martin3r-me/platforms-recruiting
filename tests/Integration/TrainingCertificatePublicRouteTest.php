@@ -67,6 +67,7 @@ class TrainingCertificatePublicRouteTest extends TestCase
         'recruiting.public.employee-assignments',
         'recruiting.public.employee-assignments.attachment',
         'recruiting.public.portal-mockup',
+        'recruiting.public.portal-shell',
     ];
 
     private ?Container $container = null;

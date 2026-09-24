@@ -66,6 +66,31 @@ Testrunde, offene Entscheidungen.
 
 53 neue Tests. Gesamtlauf: 1.222 Unit + 845 Integration, gruen.
 
+### Fertig — Schritt 2, die Huelle
+
+| Commit | Was |
+|---|---|
+| `5a58185` | `PortalAuth` — Anmeldung als eigene Schicht |
+| `bf2bba1` | `portal_v2_since` + `recruiting:portal-umstellen` |
+| _dieser_ | `PortalShell` — vier Bereiche, eigenes Layout, Route |
+
+Die Optik ist die abgenommene: `resources/mockups/crew-portal.html` liefert die
+CSS **woertlich** (`layouts/portal-styles.blade.php`), das Portal bricht nur aus
+dem gezeichneten Telefonrahmen aus. Bewusst ohne Tailwind und ohne `x-ui-*` —
+das Portal traegt seine Farben selbst, damit weder der Dunkelmodus noch eine
+stille `x-ui`-Eigenheit hineinregiert.
+
+Der **Start-Bereich zeigt echte Daten**: er haengt an `ProofReader::checklist()`.
+Rot heisst abgelaufen oder fehlend, gelb laeuft zu, gruen liegt vor. Der
+Reiter traegt die Zahl der offenen Punkte.
+
+Noch Attrappe: **Einsaetze** (ehrlicher Hinweis statt erfundener Termine).
+Noch ohne Knopf: **Dokumente** listet die Nachweise, hochladen kommt in Schritt 3.
+
+Erreichbar unter `/recruiting/mitarbeiter/{token}/neu` — und nur fuer die, bei
+denen `portal_v2_since` steht. Alle anderen bekommen 404, als gaebe es die
+Seite nicht.
+
 ### Als Naechstes
 
 - **Canvas-Abgleich** — Canvas 67 beschreibt noch den Zuschnitt VOR dem
@@ -73,7 +98,8 @@ Testrunde, offene Entscheidungen.
   Quotenansicht und bekommt die Selbstbedienung.
 - Vier Schritte in die Meilensteine von Canvas 67 (dort steht heute
   „Termine offen — bewusst")
-- Dann Schritt 2, die Huelle
+- Dann Schritt 3: hochladen. Foto aufnehmen, Gueltigkeit dazu, alte Fassung
+  wird abgeloest — und der Fristenlauf, der sich meldet, bevor etwas ablaeuft.
 
 ---
 

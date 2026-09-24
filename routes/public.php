@@ -41,6 +41,12 @@ Route::get('/portal/{token}', \Platform\Recruiting\Livewire\Public\ApplicantPort
 Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\EmployeePortal::class)
     ->name('recruiting.public.employee-portal');
 
+// Mitarbeiter-Portal, neue Fassung (Canvas 67). Laeuft NEBEN dem alten:
+// wer hier hinkommt, entscheidet rec_employees.portal_v2_since — ohne Stempel
+// antwortet die Komponente mit 404. Umstellen mit recruiting:portal-umstellen.
+Route::get('/mitarbeiter/{token}/neu', \Platform\Recruiting\Livewire\Public\PortalShell::class)
+    ->name('recruiting.public.portal-shell');
+
 // Dispo-Einsatz-Seite (token-only, NICHT im MA-Portal verlinkt — Spec 2026-08-14).
 // Token am URL-Ende: Meta-URL-Buttons erlauben die Variable nur als Suffix.
 Route::get('/einsaetze/{token}', \Platform\Recruiting\Livewire\Public\EmployeeAssignments::class)
