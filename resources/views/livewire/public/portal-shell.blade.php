@@ -362,8 +362,19 @@
 
                         <label class="feld">
                             <span class="n">{{ $uploadHatRueckseite ? 'Vorderseite' : 'Foto oder Scan' }}</span>
-                            <input type="file" wire:model="uploadDatei" accept="{{ $uploadAccept }}"
-                                   capture="environment" required>
+                            {{--
+                                Bewusst KEIN capture="environment" hier: das
+                                Attribut zwingt auf dem Handy die Kamera auf
+                                und nimmt die Auswahl "aus der Galerie" oder
+                                "aus den Dateien" weg. Wer den Nachweis schon
+                                fotografiert hat oder ihn als PDF im
+                                Mailanhang bekommen hat, kaeme damit nicht
+                                weiter (Kundenfeedback). Ohne das Attribut
+                                bietet das Handy von sich aus Kamera UND
+                                Galerie UND Dateien an — bitte NICHT wieder
+                                einbauen.
+                            --}}
+                            <input type="file" wire:model="uploadDatei" accept="{{ $uploadAccept }}" required>
                         </label>
 
                         {{--
@@ -377,8 +388,8 @@
                         @if ($uploadHatRueckseite)
                             <label class="feld">
                                 <span class="n">Rückseite (falls vorhanden)</span>
-                                <input type="file" wire:model="uploadDateiRueckseite" accept="{{ $uploadAccept }}"
-                                       capture="environment">
+                                {{-- Kein capture="environment" — siehe Kommentar am Feld oben. --}}
+                                <input type="file" wire:model="uploadDateiRueckseite" accept="{{ $uploadAccept }}">
                             </label>
                         @endif
 
