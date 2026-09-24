@@ -221,9 +221,25 @@ Eskalationssperre wandern unveraendert mit.
   (`payroll_data_changed_at`, Sidebar-Abzeichen, `Employees/PayrollChanges`).
   Kein neuer Arbeitsvorrat noetig — vom Kunden am 22.09. bestaetigt: HR prueft
   ausschliesslich Lohnrelevantes, alles andere laeuft ohne Freigabe durch.
-- **Nachweis-Uploads** gelten sofort als erledigt — ausser Aufenthaltstitel und
-  Arbeitsgenehmigung, an denen die harte Einsatzsperre haengt; dort bestaetigt
-  HR das Datum.
+- **Nachweis-Uploads** gelten sofort als erledigt — bei allen Arten, auch bei
+  Aufenthaltstitel und Arbeitsgenehmigung. **Korrektur 24.09.2026:** der
+  urspruengliche Satz hier ("ausser Aufenthaltstitel und Arbeitsgenehmigung,
+  an denen die harte Einsatzsperre haengt; dort bestaetigt HR das Datum") war
+  falsch. Die harte Einsatzsperre gibt es fuer BEWERBER (`LegalStatusGate`
+  blockiert Vertrag und Erinnerung), nicht fuer Mitarbeiter — die Spalten
+  `residence_permit_valid_until` und `work_permit_valid_until` werden
+  nirgends im Modul fuer eine Sperre gelesen. Ein Upload spiegelt sein Datum
+  sofort in die Akte und den ZAS-Export; eine HR-Bestaetigung danach haette
+  also nichts mehr zu verhindern. HR sieht Aufenthaltstitel und
+  Arbeitsgenehmigung in einer eigenen Liste „zur Kenntnis"
+  (`ProofInbox::wartetAufBestaetigung()`) — ohne Knopf, ohne Handlungsbedarf.
+  Eine Bestaetigung MIT echter Wirkung ist bewusst NICHT gebaut; die Spalten
+  `confirmed_by_user_id`/`confirmed_at` und `ProofTypes::needsHrConfirmation()`
+  bleiben dafuer stehen. Sollte der Kunde das spaeter doch wollen, braucht sie
+  zusaetzlich: das Datum erst BEI der Bestaetigung in die Altspalte/den
+  ZAS-Export spiegeln (statt wie heute sofort beim Upload) — sonst bestaetigt
+  HR etwas, das laengst wirksam ist. Das ist ein eigenes Stueck Arbeit, keine
+  Ein-Zeilen-Aenderung.
 - Eine Liste „neu eingegangen" und eine Liste „offen je Person".
 
 ## 10. Bewusst offen
