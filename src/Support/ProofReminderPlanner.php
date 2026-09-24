@@ -16,10 +16,10 @@ final class ProofReminderPlanner
     {
         $faellig = [];
         foreach ($nachweise as $n) {
-            $bis = trim((string) ($n['valid_until'] ?? ''));
+            $bis = self::alsTag($n['valid_until'] ?? '');
             $code = (string) ($n['proof_type_code'] ?? '');
 
-            if ($bis === '' || !ProofTypes::exists($code) || !ProofTypes::hasExpiry($code)) {
+            if ($bis === null || !ProofTypes::exists($code) || !ProofTypes::hasExpiry($code)) {
                 continue;   // ohne Frist gibt es nichts zu erinnern
             }
             if (($n['superseded_at'] ?? null) !== null) {
@@ -28,19 +28,22 @@ final class ProofReminderPlanner
             if (($n['reminded_at'] ?? null) !== null) {
                 continue;   // genau eine Erinnerung, danach steht es im Portal
             }
-            if ($stichtag !== null && $bis < $stichtag) {
+
+            $sichtag_tag = self::alsTag($stichtag);
+            if ($sichtag_tag !== null && $bis < $sichtag_tag) {
                 continue;   // Altbestand: sichtbar im Portal, aber ungefragt
             }
 
             $vorlauf = ProofTypes::leadDays($code);
             // Heute hat jede ablaufende Art einen Vorlauf. Eine neue Art ohne
-            // wuerde sonst den ganzen taeglichen Lauf mit einer Ausnahme abreissen.
-            // Fehlt der Vorlauf, erinnern wir nicht — das ist sicherer als zu krachen.
+            // wuerde sonst ein falsches Fenster stillschweigend ergeben statt sichtbar
+            // zu krachen. Fehlt der Vorlauf, erinnern wir nicht — das ist sicherer.
             if ($vorlauf === null) {
                 continue;
             }
 
-            $fenster = date('Y-m-d', strtotime($heute . ' +' . $vorlauf . ' days'));
+            $heute_tag = self::alsTag($heute);
+            $fenster = date('Y-m-d', strtotime($heute_tag . ' +' . $vorlauf . ' days'));
             if ($bis > $fenster) {
                 continue;   // noch zu frueh
             }
@@ -58,5 +61,20 @@ final class ProofReminderPlanner
                                    <=> [$b['valid_until'], $b['proof_id']]);
 
         return $faellig;
+    }
+
+    /**
+     * Auf Y-m-d zurechtstutzen. Der Vergleich oben ist ein
+     * Zeichenkettenvergleich — er stimmt nur, solange alle drei Werte
+     * dasselbe Format haben. Ein Eloquent-date-Cast liefert ueber
+     * toArray() aber "2026-10-24T00:00:00.000000Z", und das ist
+     * lexikografisch GROESSER als "2026-10-24". Ohne diese Zeile
+     * verschoebe sich die Erinnerung an der Fenstergrenze um einen Tag.
+     */
+    private static function alsTag(?string $wert): ?string
+    {
+        $roh = trim((string) $wert);
+
+        return preg_match('/^(\d{4}-\d{2}-\d{2})/', $roh, $m) ? $m[1] : null;
     }
 }

@@ -62,4 +62,40 @@ final class ProofReminderPlannerTest extends TestCase
         $plan = ProofReminderPlanner::plan([$this->nachweis(['proof_type_code' => 'selfie', 'valid_until' => null])], '2026-09-24', null);
         $this->assertSame([], $plan);
     }
+
+    public function test_datum_mit_zeitanteil_wird_wie_ein_tag_behandelt(): void
+    {
+        // Eloquent-date-Cast liefert ueber toArray() ein ISO-8601-Format.
+        // Das ist lexikografisch GROESSER als Y-m-d. Ohne Normalisierung
+        // verschoebe sich diese Erinnerung um einen Tag.
+        $plan = ProofReminderPlanner::plan(
+            [$this->nachweis(['valid_until' => '2026-10-24T00:00:00.000000Z'])],
+            '2026-09-24',
+            null
+        );
+        $this->assertCount(1, $plan);
+    }
+
+    public function test_unlesbares_datum_wird_uebersprungen_statt_geraten(): void
+    {
+        // Ein nicht-standardisiertes Datum wird uebersprungen, nicht geraten.
+        $plan = ProofReminderPlanner::plan(
+            [$this->nachweis(['valid_until' => 'demnaechst'])],
+            '2026-09-24',
+            null
+        );
+        $this->assertSame([], $plan);
+    }
+
+    public function test_genau_am_stichtag_wird_noch_erinnert(): void
+    {
+        // Die Stichtagsgrenze ist $bis < $stichtag, nicht <=.
+        // Genau auf dem Stichtag wird erinnert.
+        $plan = ProofReminderPlanner::plan([
+            $this->nachweis(['id' => 1, 'valid_until' => '2026-09-30']),   // einen Tag davor
+            $this->nachweis(['id' => 2, 'valid_until' => '2026-10-01']),   // genau auf dem Stichtag
+        ], '2026-09-24', '2026-10-01');
+
+        $this->assertSame([2], array_column($plan, 'proof_id'));
+    }
 }
