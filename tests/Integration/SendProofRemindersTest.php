@@ -118,6 +118,7 @@ final class SendProofRemindersTest extends TestCase
             $t->string('uuid', 64)->nullable();
             $t->integer('team_id')->nullable();
             $t->integer('rec_applicant_id')->nullable();
+            $t->string('person_key', 64)->nullable();
             $t->string('first_name')->nullable();
             $t->string('last_name')->nullable();
             $t->string('portal_token', 64)->nullable();
@@ -198,6 +199,13 @@ final class SendProofRemindersTest extends TestCase
 
     private function ma(array $attr = []): RecEmployee
     {
+        // person_key steht NICHT in RecEmployee::$fillable — der Marker wird
+        // von der Personen-Paarung gesetzt, nicht per Massenzuweisung. Ueber
+        // create() faellt er still unter den Tisch, deshalb hier getrennt.
+        $personKey = $attr['person_key'] ?? null;
+        $personKeyGesetzt = array_key_exists('person_key', $attr);
+        unset($attr['person_key']);
+
         $ma = RecEmployee::create(array_merge([
             'uuid'            => 'ma-uuid-' . bin2hex(random_bytes(6)),
             'team_id'         => 10,
@@ -207,6 +215,10 @@ final class SendProofRemindersTest extends TestCase
             'portal_v2_since' => '2026-09-20 08:00:00',
             'is_active'       => true,
         ], $attr));
+
+        if ($personKeyGesetzt) {
+            Capsule::table('rec_employees')->where('id', $ma->id)->update(['person_key' => $personKey]);
+        }
 
         // Telefonnummer aus der (in jedem Test bei 1 startenden) rec_employees-id
         // abgeleitet — deterministisch je Test, ohne Kollisionsrisiko durch einen
@@ -850,7 +862,82 @@ final class SendProofRemindersTest extends TestCase
         $this->assertNull($this->remindedAtOf($proofId));
         $this->assertStringContainsString('2', $ausgabe);
     }
-}/**
+
+    // -----------------------------------------------------------------
+    // M5 — "eine WhatsApp je Person" galt nur bei gepaarten Anstellungen
+    // -----------------------------------------------------------------
+
+    public function test_zwei_anstellungen_derselben_person_ergeben_eine_whatsapp(): void
+    {
+        // RG und MA, gepaart ueber person_key. Beide Anstellungen haengen am
+        // selben Menschen — und in der Praxis meist an derselben Nummer,
+        // weil beide denselben CRM-Kontakt haben.
+        $rg = $this->ma(['person_key' => 'p-4711']);
+        $dringend = $this->proof($rg, 'ausweis', now()->addDays(3)->toDateString());
+
+        $maGmbh = $this->ma(['person_key' => 'p-4711']);
+        $spaeter = $this->proof($maGmbh, 'aufenthaltstitel', now()->addDays(20)->toDateString());
+
+        $this->runCommand();
+
+        $this->assertCount(1, $this->meta->calls, 'Eine WhatsApp je PERSON, nicht je Anstellung.');
+        $this->assertSame($this->phoneFor($rg->id), $this->meta->calls[0]['to'], 'Der dringendere Nachweis gewinnt.');
+        $this->assertNotNull($this->remindedAtOf($dringend));
+        $this->assertNull($this->remindedAtOf($spaeter), 'Der zweite Nachweis bleibt fuer den naechsten Lauf offen.');
+    }
+
+    public function test_ohne_personen_marker_zaehlt_die_anstellung(): void
+    {
+        // Rueckfall: solange die Paarung nicht durch ist, gibt es keinen
+        // gemeinsamen Marker — dann ist die Anstellung das Beste, was wir
+        // haben. Zwei verschiedene Menschen duerfen nicht zu einer
+        // Nachricht zusammenfallen, nur weil beide Marker leer sind.
+        $einer = $this->ma(['person_key' => null]);
+        $this->proof($einer, 'ausweis', now()->addDays(3)->toDateString());
+
+        $anderer = $this->ma(['person_key' => null]);
+        $this->proof($anderer, 'ausweis', now()->addDays(4)->toDateString());
+
+        $this->runCommand();
+
+        $this->assertCount(2, $this->meta->calls, 'Zwei Menschen ohne Marker sind zwei Menschen.');
+    }
+
+    public function test_leerer_personen_marker_faellt_ebenfalls_auf_die_anstellung_zurueck(): void
+    {
+        // Leerzeichenkette statt NULL — im Bestand kommt beides vor.
+        $einer = $this->ma(['person_key' => '']);
+        $this->proof($einer, 'ausweis', now()->addDays(3)->toDateString());
+
+        $anderer = $this->ma(['person_key' => '  ']);
+        $this->proof($anderer, 'ausweis', now()->addDays(4)->toDateString());
+
+        $this->runCommand();
+
+        $this->assertCount(2, $this->meta->calls);
+    }
+
+    public function test_limit_zaehlt_personen_nicht_anstellungen(): void
+    {
+        $rg = $this->ma(['person_key' => 'p-1']);
+        $this->proof($rg, 'ausweis', now()->addDays(1)->toDateString());
+        $maGmbh = $this->ma(['person_key' => 'p-1']);
+        $this->proof($maGmbh, 'ausweis', now()->addDays(2)->toDateString());
+
+        $zweiter = $this->ma(['person_key' => 'p-2']);
+        $this->proof($zweiter, 'ausweis', now()->addDays(3)->toDateString());
+
+        $this->runCommand(['--limit' => '2']);
+
+        $this->assertCount(2, $this->meta->calls, 'Zwei Personen, nicht zwei Anstellungen derselben Person.');
+        $this->assertSame(
+            [$this->phoneFor($rg->id), $this->phoneFor($zweiter->id)],
+            array_column($this->meta->calls, 'to'),
+        );
+    }
+}
+
+/**
  * Duck-typed WhatsAppMetaService-Attrappe: zeichnet jeden Aufruf auf, kann
  * werfen oder einen von Meta ABGELEHNTEN Status simulieren (status='failed'
  * bei normaler Rueckkehr — genau das Muster des Bestandsfehlers).
@@ -877,8 +964,8 @@ final class ProofReminderMetaFake
             'thread' => null,
         ];
     }
-}
 
+}
 /**
  * Log-Attrappe (Fixrunde 2, I6/I3/I4) — Container::instance('log') allein
  * reicht bei der Facade nicht, siehe reference_log_facade_test_stub.md; die

@@ -43,6 +43,14 @@ use Platform\Recruiting\Support\ProofTypes;
  * naechsten Lauf erneut (kein Grund, ihn zu ignorieren: er ist ja noch nicht
  * `reminded_at`). --limit zaehlt Personen, nicht Nachweis-Zeilen.
  *
+ * PERSON heisst PERSON, nicht Anstellung (Schlusspruefung M5): entdoppelt
+ * wird ueber `rec_employees.person_key`. Wer bei RHEINGEDECK und MA arbeitet,
+ * hat zwei Anstellungen, meist am selben CRM-Kontakt und damit an derselben
+ * Nummer — vorher bekam er zwei Nachrichten. Ist die Paarung noch nicht durch
+ * und der Marker leer, bleibt die Anstellung der Schluessel: zwei Menschen
+ * ohne Marker duerfen nicht zu einer Nachricht verschmelzen. Im Zweifel also
+ * lieber eine Nachricht zu viel als eine zu wenig.
+ *
  * ALTES PORTAL: IMMER uebersprungen, ohne Ausnahme-Option (Fixrunde 2, Ruling
  * C2 — eine urspruenglich vorgesehene --auch-altes-portal-Flagge wurde
  * ersatzlos entfernt). Wer `portal_v2_since` nicht gesetzt hat, kann im alten
@@ -172,10 +180,14 @@ class SendProofReminders extends Command
         $nachweise = $this->offeneNachweise($teamId);
         $plan = ProofReminderPlanner::plan($nachweise, now()->toDateString(), $stichtag);
 
-        // Je Person nur der dringendste Eintrag dieses Laufs — unique()
+        // Je PERSON nur der dringendste Eintrag dieses Laufs — unique()
         // behaelt bei Collections das ERSTE Vorkommen, und plan() liefert die
-        // Liste bereits nach Dringlichkeit sortiert.
-        $jeEmployee = collect($plan)->unique('rec_employee_id')->values();
+        // Liste bereits nach Dringlichkeit sortiert. Der Schluessel ist der
+        // Personen-Marker, nicht die Anstellung (M5, siehe Klassen-Docblock).
+        $personenSchluessel = $this->personenSchluessel($nachweise);
+        $jeEmployee = collect($plan)
+            ->unique(fn (array $e) => $personenSchluessel[$e['rec_employee_id']] ?? ('ma:' . $e['rec_employee_id']))
+            ->values();
         if ($limit !== null) {
             $jeEmployee = $jeEmployee->take(max(0, $limit));
         }
@@ -325,6 +337,31 @@ class SendProofReminders extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * Unter welchem Schluessel zaehlt „eine Nachricht je Person"?
+     *
+     * Der Personen-Marker, wenn er gesetzt ist — sonst die Anstellung selbst.
+     * Der Rueckfall ist wichtig: `person_key` ist im Bestand noch nicht
+     * ueberall gesetzt (die Paarung laeuft), und ein leerer Marker darf nicht
+     * dazu fuehren, dass alle ungepaarten Menschen als EINE Person gelten und
+     * nur einer von ihnen seine Erinnerung bekommt.
+     *
+     * @param  list<array{rec_employee_id:int, person_key:?string}>  $nachweise
+     * @return array<int, string>
+     */
+    private function personenSchluessel(array $nachweise): array
+    {
+        $schluessel = [];
+
+        foreach ($nachweise as $n) {
+            $id = (int) $n['rec_employee_id'];
+            $marker = trim((string) ($n['person_key'] ?? ''));
+            $schluessel[$id] = $marker !== '' ? 'person:' . $marker : 'ma:' . $id;
+        }
+
+        return $schluessel;
+    }
+
     /** Y-m-d, echtes Kalenderdatum — 2026-13-40 oder 2026-9-24 zaehlen NICHT. */
     private function istGueltigesDatum(string $wert): bool
     {
@@ -337,8 +374,9 @@ class SendProofReminders extends Command
      * aktive Mitarbeiter und — IMMER, ohne Ausnahme (Fixrunde 2, C2) — auf das
      * neue Portal. Reine Lesequery, Query Builder.
      *
-     * @return list<array{id:int, rec_employee_id:int, proof_type_code:string,
-     *                     valid_until:?string, reminded_at:?string, superseded_at:?string}>
+     * @return list<array{id:int, rec_employee_id:int, person_key:?string,
+     *                     proof_type_code:string, valid_until:?string,
+     *                     reminded_at:?string, superseded_at:?string}>
      */
     private function offeneNachweise(?int $teamId): array
     {
@@ -359,10 +397,17 @@ class SendProofReminders extends Command
         }
 
         return $query
-            ->get(['p.id', 'p.rec_employee_id', 'p.proof_type_code', 'p.valid_until', 'p.reminded_at', 'p.superseded_at'])
+            // person_key kommt vom MITARBEITER, nicht vom Nachweis: der
+            // Nachweis traegt nur den Stand vom Zeitpunkt des Uploads, die
+            // Paarung kann sich danach noch ergeben haben (M5).
+            ->get([
+                'p.id', 'p.rec_employee_id', 'p.proof_type_code', 'p.valid_until',
+                'p.reminded_at', 'p.superseded_at', 'e.person_key',
+            ])
             ->map(fn ($row) => [
                 'id'              => (int) $row->id,
                 'rec_employee_id' => (int) $row->rec_employee_id,
+                'person_key'      => $row->person_key,
                 'proof_type_code' => (string) $row->proof_type_code,
                 'valid_until'     => $row->valid_until,
                 'reminded_at'     => $row->reminded_at,
