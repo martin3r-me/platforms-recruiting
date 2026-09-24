@@ -95,9 +95,32 @@ final class PortalShellUploadTest extends TestCase
             $t->timestamp('portal_locked_at')->nullable();
             $t->timestamp('portal_v2_since')->nullable();
             $t->timestamp('zas_changed_at')->nullable();
+            // ALLE Altspalten aus ProofTypes — der Export liest genau diese.
+            // Die Liste steht hier vollstaendig, damit
+            // test_upload_laesst_alle_uebrigen_altspalten_unveraendert
+            // wirklich den ganzen Export abdeckt und nicht nur den Ausweis.
             $t->integer('identity_card_front_file_id')->nullable();
             $t->integer('identity_card_back_file_id')->nullable();
             $t->date('identity_card_valid_until')->nullable();
+            $t->integer('selfie_file_id')->nullable();
+            $t->integer('health_insurance_card_file_id')->nullable();
+            $t->integer('nationalpass_file_id')->nullable();
+            $t->integer('aufenthaltstitel_front_file_id')->nullable();
+            $t->integer('aufenthaltstitel_back_file_id')->nullable();
+            $t->date('residence_permit_valid_until')->nullable();
+            $t->integer('visumsblatt_file_id')->nullable();
+            $t->integer('zusatzblatt_file_id')->nullable();
+            $t->integer('zusatzblatt_back_file_id')->nullable();
+            $t->date('work_permit_valid_until')->nullable();
+            $t->integer('fiktionsbescheinigung_front_file_id')->nullable();
+            $t->integer('fiktionsbescheinigung_back_file_id')->nullable();
+            $t->integer('schulbescheinigung_file_id')->nullable();
+            $t->integer('immatrikulation_file_id')->nullable();
+            $t->date('school_certificate_valid_until')->nullable();
+            $t->integer('erstbescheinigung_file_id')->nullable();
+            $t->date('infection_protection_valid_until')->nullable();
+            $t->integer('first_aider_certificate_file_id')->nullable();
+            $t->date('first_aider_valid_until')->nullable();
             $t->timestamps();
         });
 
@@ -261,6 +284,121 @@ final class PortalShellUploadTest extends TestCase
         $shell->oeffneUpload('ausweis');
         $shell->uploadGueltigBis = '2032-01-31';
         $shell->uploadDatei = UploadedFile::fake()->create(
+            'vertrag.docx', 100, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+        $shell->speichereNachweis();
+
+        $this->assertNotSame('', $shell->uploadFehler);
+        $this->assertSame(0, RecEmployeeProof::count());
+    }
+
+    /**
+     * Spec §12, letzter Pflichttest: „Export liefert nach dem Upload
+     * unveraenderte Werte". Genau dieser Test haette M1 gefangen — die
+     * Spiegelung schrieb die Rueckseiten-Spalte bedingungslos mit dem
+     * (nie gesetzten) file_back_id und loeschte sie damit bei JEDEM Upload.
+     *
+     * Der Test vergleicht die GANZE Zeile vorher/nachher und laesst nur die
+     * beiden Spalten durch, die dieser Upload tatsaechlich meint.
+     */
+    public function test_upload_laesst_alle_uebrigen_altspalten_unveraendert(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+
+        // Ein voll gepflegter Bestands-Mitarbeiter: jede Altspalte belegt.
+        $vorher = [
+            'identity_card_front_file_id'         => 10,
+            'identity_card_back_file_id'          => 11,
+            'identity_card_valid_until'           => '2027-05-05',
+            'selfie_file_id'                      => 12,
+            'health_insurance_card_file_id'       => 13,
+            'nationalpass_file_id'                => 14,
+            'aufenthaltstitel_front_file_id'      => 15,
+            'aufenthaltstitel_back_file_id'       => 16,
+            'residence_permit_valid_until'        => '2027-06-06',
+            'visumsblatt_file_id'                 => 17,
+            'zusatzblatt_file_id'                 => 18,
+            'zusatzblatt_back_file_id'            => 19,
+            'work_permit_valid_until'             => '2027-07-07',
+            'fiktionsbescheinigung_front_file_id' => 20,
+            'fiktionsbescheinigung_back_file_id'  => 21,
+            'schulbescheinigung_file_id'          => 22,
+            'immatrikulation_file_id'             => 23,
+            'school_certificate_valid_until'      => '2027-08-08',
+            'erstbescheinigung_file_id'           => 24,
+            'infection_protection_valid_until'    => '2027-09-09',
+            'first_aider_certificate_file_id'     => 25,
+            'first_aider_valid_until'             => '2027-10-10',
+        ];
+        DB::table('rec_employees')->where('id', $ma->id)->update($vorher);
+        $zeileVorher = (array) DB::table('rec_employees')->find($ma->id);
+
+        $shell = $this->shell($ma);
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->image('vorderseite.jpg');
+        $shell->speichereNachweis();
+
+        $this->assertSame('', $shell->uploadFehler);
+        $zeileNachher = (array) DB::table('rec_employees')->find($ma->id);
+
+        // Genau zwei Spalten duerfen sich bewegt haben — die Vorderseite und
+        // das Ablaufdatum des Ausweises. Alles andere muss der Export
+        // unveraendert wiederfinden.
+        $erwartet = $zeileVorher;
+        $erwartet['identity_card_front_file_id'] = 4242;   // die Attrappen-Id
+        $erwartet['identity_card_valid_until'] = '2032-01-31';
+
+        $this->assertSame($erwartet, $zeileNachher);
+    }
+
+    /**
+     * Die optionale Rueckseite: wird sie mitgeschickt, landet sie in der
+     * Altspalte — dieselbe Strecke, nur mit beiden Dateien.
+     */
+    public function test_mitgeschickte_rueckseite_landet_in_der_altspalte(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+        DB::table('rec_employees')->where('id', $ma->id)->update(['identity_card_back_file_id' => 11]);
+
+        $shell = $this->shell($ma);
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->image('vorne.jpg');
+        $shell->uploadDateiRueckseite = UploadedFile::fake()->image('hinten.jpg');
+        $shell->speichereNachweis();
+
+        $this->assertSame('', $shell->uploadFehler);
+        $nachweis = RecEmployeeProof::where('rec_employee_id', $ma->id)->aktuell()->first();
+        $this->assertSame(4242, (int) $nachweis->file_back_id);
+        $this->assertSame(4242, (int) DB::table('rec_employees')->find($ma->id)->identity_card_back_file_id);
+    }
+
+    /** Die Rueckseite ist optional — ohne sie speichert es wie bisher. */
+    public function test_rueckseite_ist_kein_pflichtfeld(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+
+        $shell = $this->shell($ma);
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->image('vorne.jpg');
+        $shell->speichereNachweis();
+
+        $this->assertSame('', $shell->uploadFehler);
+        $this->assertSame(1, RecEmployeeProof::count());
+    }
+
+    /** Eine unbrauchbare Rueckseite darf nicht stumm verschluckt werden. */
+    public function test_kaputte_rueckseite_meldet_sich_beim_menschen(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+
+        $shell = $this->shell($ma);
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->image('vorne.jpg');
+        $shell->uploadDateiRueckseite = UploadedFile::fake()->create(
             'vertrag.docx', 100, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         );
         $shell->speichereNachweis();

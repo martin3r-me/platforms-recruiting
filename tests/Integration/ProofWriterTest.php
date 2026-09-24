@@ -193,6 +193,45 @@ final class ProofWriterTest extends TestCase
         $this->assertSame(999, (int) DB::table('rec_employees')->find(1)->identity_card_front_file_id);
     }
 
+    /**
+     * M1 (Schlusspruefung): Die Rueckseiten-Spalte wurde BEDINGUNGSLOS mit
+     * $proof->file_back_id geschrieben — und das Portal reicht kein
+     * file_back_id durch. Wer seinen Ausweis erneuerte und die Vorderseite
+     * hochlud, verlor damit stumm die Rueckseite aus ZAS-Export und HR-Akte.
+     *
+     * Ein fehlendes Feld ist keine Aussage ueber die Rueckseite.
+     */
+    public function test_upload_ohne_rueckseite_laesst_die_alte_rueckseite_stehen(): void
+    {
+        $ma = $this->anstellung(1, 'p-1', '+4915112345678');
+        DB::table('rec_employees')->where('id', 1)->update([
+            'identity_card_front_file_id' => 100,
+            'identity_card_back_file_id'  => 200,
+        ]);
+
+        (new ProofWriter())->store($ma, 'ausweis', [
+            'file_id' => 111, 'valid_until' => '2030-01-31',
+        ]);
+
+        $zeile = DB::table('rec_employees')->find(1);
+        $this->assertSame(111, (int) $zeile->identity_card_front_file_id, 'die neue Vorderseite ersetzt die alte');
+        $this->assertSame(200, (int) $zeile->identity_card_back_file_id, 'die Rueckseite bleibt unangetastet');
+    }
+
+    public function test_mitgelieferte_rueckseite_ersetzt_die_alte(): void
+    {
+        $ma = $this->anstellung(1, 'p-1', '+4915112345678');
+        DB::table('rec_employees')->where('id', 1)->update([
+            'identity_card_back_file_id' => 200,
+        ]);
+
+        (new ProofWriter())->store($ma, 'ausweis', [
+            'file_id' => 111, 'file_back_id' => 222, 'valid_until' => '2030-01-31',
+        ]);
+
+        $this->assertSame(222, (int) DB::table('rec_employees')->find(1)->identity_card_back_file_id);
+    }
+
     public function test_weist_unbekannte_art_ab(): void
     {
         $ma = $this->anstellung(1, 'p-1', '+4915112345678');

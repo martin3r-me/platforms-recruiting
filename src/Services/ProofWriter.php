@@ -112,7 +112,15 @@ final class ProofWriter
         }
 
         $update = [$spalten[0] => $proof->file_id];
-        if (isset($spalten[1])) {
+
+        // Die Rueckseite NUR anfassen, wenn wirklich eine mitgekommen ist.
+        // Ein fehlendes Feld ist keine Aussage ueber die Rueckseite: das
+        // Portal-Formular kann sie weglassen (sie ist optional), und wer
+        // seinen Ausweis erneuert und nur die Vorderseite fotografiert,
+        // wuerde sonst die alte Rueckseite aus ZAS-Export und HR-Akte
+        // loeschen — ohne Fehlermeldung, ohne dass es jemand merkt.
+        // Auf null setzen tun wir hier also NIE.
+        if (isset($spalten[1]) && $proof->file_back_id !== null) {
             $update[$spalten[1]] = $proof->file_back_id;
         }
 

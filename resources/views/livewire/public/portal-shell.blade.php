@@ -361,12 +361,28 @@
                         @endif
 
                         <label class="feld">
-                            <span class="n">Foto oder Scan</span>
+                            <span class="n">{{ $uploadHatRueckseite ? 'Vorderseite' : 'Foto oder Scan' }}</span>
                             <input type="file" wire:model="uploadDatei" accept="{{ $uploadAccept }}"
                                    capture="environment" required>
                         </label>
 
-                        <div wire:loading wire:target="uploadDatei" class="upload-status">Wird hochgeladen …</div>
+                        {{--
+                            Zweiseitige Nachweise (Ausweis, Aufenthaltstitel,
+                            Arbeitsgenehmigung, Fiktionsbescheinigung) bekommen
+                            ein zweites, freiwilliges Feld. Bewusst OHNE
+                            required: viele Ausweise haben nur eine bedruckte
+                            Seite, und wer keine Rueckseite schickt, soll die
+                            bereits hinterlegte nicht verlieren.
+                        --}}
+                        @if ($uploadHatRueckseite)
+                            <label class="feld">
+                                <span class="n">Rückseite (falls vorhanden)</span>
+                                <input type="file" wire:model="uploadDateiRueckseite" accept="{{ $uploadAccept }}"
+                                       capture="environment">
+                            </label>
+                        @endif
+
+                        <div wire:loading wire:target="uploadDatei,uploadDateiRueckseite" class="upload-status">Wird hochgeladen …</div>
 
                         @if ($uploadFehler !== '')
                             <div class="alert crit">

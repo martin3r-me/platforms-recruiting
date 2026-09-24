@@ -63,6 +63,15 @@ class PortalShell extends Component
     public ?string $uploadCode = null;
     public string $uploadGueltigBis = '';
     public $uploadDatei = null;
+    /**
+     * Zweite, OPTIONALE Datei fuer die vier zweiseitigen Arten (Ausweis,
+     * Aufenthaltstitel, Arbeitsgenehmigung, Fiktionsbescheinigung).
+     * Welche das sind, sagt der Katalog ueber die
+     * Zahl seiner Altspalten — zwei Eintraege heisst Vorder- und Rueckseite.
+     * Ohne dieses Feld gab es fuer die Rueckseite im neuen Portal gar keinen
+     * Weg, und das Doppelschreiben loeschte sie bei jedem Upload (M1).
+     */
+    public $uploadDateiRueckseite = null;
     public string $uploadFehler = '';
 
     public function mount(string $token, PortalAuth $auth): void
@@ -197,6 +206,7 @@ class PortalShell extends Component
         $this->uploadCode = ProofTypes::exists($code) ? $code : null;
         $this->uploadGueltigBis = '';
         $this->uploadDatei = null;
+        $this->uploadDateiRueckseite = null;
         $this->uploadFehler = '';
     }
 
@@ -206,6 +216,7 @@ class PortalShell extends Component
         $this->uploadCode = null;
         $this->uploadGueltigBis = '';
         $this->uploadDatei = null;
+        $this->uploadDateiRueckseite = null;
         $this->uploadFehler = '';
     }
 
@@ -234,10 +245,15 @@ class PortalShell extends Component
             return;
         }
 
+        $dateiRegel = 'file|mimes:' . implode(',', ProofUploadRules::MIME_TYPES)
+            . '|max:' . ProofUploadRules::MAX_KB;
+
         try {
             $this->validate([
-                'uploadDatei' => 'required|file|mimes:' . implode(',', ProofUploadRules::MIME_TYPES)
-                    . '|max:' . ProofUploadRules::MAX_KB,
+                'uploadDatei' => 'required|' . $dateiRegel,
+                // Die Rueckseite ist freiwillig — aber wenn eine kommt, gelten
+                // dieselben Regeln. „nullable" statt „required".
+                'uploadDateiRueckseite' => 'nullable|' . $dateiRegel,
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             // Livewire legt die Meldung in die Fehler-Ablage, die diese
@@ -254,6 +270,15 @@ class PortalShell extends Component
                 $this->uploadDatei, 'rec_employee', $employee->id,
                 ['team_id' => $employee->team_id, 'user_id' => null],
             );
+
+            // Beide Dateien VOR dem Schreiben hochladen: sonst haette der
+            // Nachweis eine Vorderseite und die Rueckseite fehlte stumm.
+            $ergebnisRueckseite = $this->uploadDateiRueckseite !== null
+                ? app(ContextFileService::class)->uploadForContext(
+                    $this->uploadDateiRueckseite, 'rec_employee', $employee->id,
+                    ['team_id' => $employee->team_id, 'user_id' => null],
+                )
+                : null;
         } catch (\Throwable $e) {
             $this->uploadFehler = 'Das Hochladen hat nicht geklappt. Bitte versuch es noch einmal.';
             report($e);
@@ -262,13 +287,17 @@ class PortalShell extends Component
         }
 
         app(ProofWriter::class)->store($employee, $this->uploadCode, [
-            'file_id'     => (int) $ergebnis['id'],
-            'valid_until' => ProofTypes::hasExpiry($this->uploadCode) ? $this->uploadGueltigBis : null,
+            'file_id'      => (int) $ergebnis['id'],
+            // null heisst hier ausdruecklich „keine Aussage" — ProofWriter
+            // laesst eine vorhandene Rueckseite dann in Ruhe (M1).
+            'file_back_id' => $ergebnisRueckseite !== null ? (int) $ergebnisRueckseite['id'] : null,
+            'valid_until'  => ProofTypes::hasExpiry($this->uploadCode) ? $this->uploadGueltigBis : null,
             'uploaded_via' => 'employee',
         ]);
 
         $this->uploadCode = null;
         $this->uploadDatei = null;
+        $this->uploadDateiRueckseite = null;
         $this->uploadGueltigBis = '';
         $this->uploadFehler = '';
     }
@@ -285,6 +314,10 @@ class PortalShell extends Component
             'anstellungen'    => $employee ? $this->anstellungen($employee) : collect(),
             'uploadLabel'     => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
             'uploadHatAblauf' => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),
+            // Zwei Altspalten = Vorder- und Rueckseite. Der Katalog ist die
+            // einzige Stelle, die das weiss — keine zweite Liste hier.
+            'uploadHatRueckseite' => $this->uploadCode !== null
+                && count(ProofTypes::legacyFileColumns($this->uploadCode)) === 2,
             'uploadAccept'    => '.' . implode(',.', ProofUploadRules::MIME_TYPES),
         ])->layout('recruiting::layouts.portal', [
             'title' => 'Mein Portal · RheinGedeck',
