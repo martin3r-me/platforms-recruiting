@@ -8,7 +8,14 @@
     nie an Wortzeichen geklebt — sonst kompilieren sie still nicht.
 --}}
 <div>
-<div class="screen" x-data="{ tab: 'start' }">
+@php
+    // Die Anmeldeseite hat keine Seitenleiste. Ohne diese Kennzeichnung landet
+    // sie am Rechner in der 240px-Spalte des Zweispalters und wird gequetscht.
+    // Vorberechnet statt @if im Attribut — Hausregel.
+    $schirm = $state === 'verified' ? 'screen' : 'screen anmeldung';
+@endphp
+
+<div class="{{ $schirm }}" x-data="{ tab: 'start' }">
 
     @if ($state !== 'verified')
 

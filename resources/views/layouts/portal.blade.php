@@ -122,6 +122,20 @@
             .portal-body .next { padding: 21px }
             .portal-body .next h3 { font-size: 25px }
 
+            /* Anmeldung: eine schmale Karte in der Mitte, nicht der
+               Zweispalter des angemeldeten Portals. */
+            .portal-body .screen.anmeldung {
+                display: flex;
+                grid-template-columns: none;
+                max-width: 430px;
+                height: auto;
+                margin: 7vh auto;
+            }
+            .portal-body .screen.anmeldung .scroll {
+                padding: 26px 28px 32px;
+                overflow: visible;
+            }
+
             .portal-body .bcols {
                 display: grid;
                 grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
