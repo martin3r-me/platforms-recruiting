@@ -773,8 +773,84 @@ final class SendProofRemindersTest extends TestCase
         $this->assertSame(SendProofReminders::SUCCESS, $exitCode);
         $this->assertNull($this->remindedAtOf($proofId));
     }
-}
-/**
+
+    // -----------------------------------------------------------------
+    // M4 — geratene Platzhalter verbrennen die einzige Erinnerung
+    // -----------------------------------------------------------------
+
+    public function test_unbekannter_platzhalter_im_body_wird_nicht_gesendet(): void
+    {
+        // HoldingTemplateComponents::build() ist geteilt und setzt bei einem
+        // unbekannten Platzhalter still den Vornamen bzw. den Beispielwert
+        // ein. Meta nimmt das an: die Leute laesen "dein Kevin laeuft am
+        // Kevin ab", reminded_at stuende, und eine zweite Erinnerung gaebe
+        // es nie. Also lehnen wir den Versand vorher ab.
+        Container::getInstance()->instance(HoldingTemplateSender::class, $this->holdingStub(null, [
+            'components' => [
+                ['type' => 'BODY', 'text' => 'Hallo {{name}}, dein {{dokument}} läuft am {{ablauf}} ab.'],
+                self::BUTTON,
+            ],
+        ]));
+
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        [$exitCode, $ausgabe] = $this->runCommand();
+
+        $this->assertSame(SendProofReminders::SUCCESS, $exitCode, 'Der Lauf geht weiter, nur diese Person wird uebersprungen.');
+        $this->assertSame([], $this->meta->calls, 'Eine Vorlage mit unbefuellbarem Platzhalter darf nicht rausgehen.');
+        $this->assertNull($this->remindedAtOf($proofId), 'Und sie darf erst recht nicht als erinnert gelten.');
+
+        // Die Meldung muss den Platzhalter NENNEN — sonst sucht der Mensch
+        // ihn in der Meta-Oberflaeche zusammen.
+        $this->assertStringContainsString('dokument', $ausgabe);
+    }
+
+    public function test_unsere_eigenen_platzhalter_werden_befuellt_und_gesendet(): void
+    {
+        Container::getInstance()->instance(HoldingTemplateSender::class, $this->holdingStub(null, [
+            'components' => [
+                ['type' => 'BODY', 'text' => 'Hallo {{name}}, dein {{nachweis}} läuft am {{datum}} ab.'],
+                self::BUTTON,
+            ],
+        ]));
+
+        $ma = $this->ma(['first_name' => 'Kevin']);
+        $faellig = now()->addDays(10);
+        $proofId = $this->proof($ma, 'ausweis', $faellig->toDateString());
+
+        $this->runCommand();
+
+        $this->assertCount(1, $this->meta->calls);
+        $this->assertNotNull($this->remindedAtOf($proofId));
+
+        $body = array_values(array_filter($this->meta->calls[0]['components'], fn ($c) => ($c['type'] ?? null) === 'body'));
+        $texte = array_column($body[0]['parameters'], 'text');
+        $this->assertSame(['Kevin', 'Personalausweis oder Reisepass', $faellig->format('d.m.Y')], $texte);
+    }
+
+    public function test_positionsplatzhalter_jenseits_des_vornamens_werden_abgelehnt(): void
+    {
+        // {{1}} gilt als Vorname (so fuellt es der geteilte Builder), {{2}}
+        // waere geraten — der Builder naehme dafuer den Beispielwert der
+        // Vorlage oder wieder den Vornamen.
+        Container::getInstance()->instance(HoldingTemplateSender::class, $this->holdingStub(null, [
+            'components' => [
+                ['type' => 'BODY', 'text' => 'Hallo {{1}}, dein Nachweis {{2}} läuft ab.'],
+                self::BUTTON,
+            ],
+        ]));
+
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        [, $ausgabe] = $this->runCommand();
+
+        $this->assertSame([], $this->meta->calls);
+        $this->assertNull($this->remindedAtOf($proofId));
+        $this->assertStringContainsString('2', $ausgabe);
+    }
+}/**
  * Duck-typed WhatsAppMetaService-Attrappe: zeichnet jeden Aufruf auf, kann
  * werfen oder einen von Meta ABGELEHNTEN Status simulieren (status='failed'
  * bei normaler Rueckkehr — genau das Muster des Bestandsfehlers).

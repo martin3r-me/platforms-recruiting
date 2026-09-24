@@ -15,7 +15,8 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
 /**
  * Verschickt GENAU EINE Erinnerung per WhatsApp fuer einen faelligen Nachweis.
  *
- * Zwei Fehler aus dem Bestand duerfen sich hier nicht wiederholen:
+ * Drei Fehler duerfen sich hier nicht wiederholen — zwei aus dem Bestand,
+ * einer aus der Schlusspruefung dieses Pakets (M4):
  *
  *  1. `RecEmployee::sendPortalNotification()` liefert `ok: true` direkt nach
  *     `sendTemplate()`, ohne `$message->status` zu pruefen — ein von Meta
@@ -30,6 +31,15 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  *     `ApplicantTemplateSender::buildTokenComponents()`, dieselbe Fix-Klasse,
  *     die den Theo-Wirtz-Fehler bereits einmal behoben hat. Keine eigene
  *     zweite Kopie dieser Logik.
+ *  3. `HoldingTemplateComponents::build()` setzt bei einem UNBEKANNTEN
+ *     Platzhalter still den Vornamen oder den Beispielwert der Vorlage ein.
+ *     Heisst der Platzhalter in der Meta-Vorlage spaeter anders als hier
+ *     gedacht, laesen 540 Menschen „dein Kevin laeuft am Kevin ab", Meta
+ *     naehme es an, `reminded_at` stuende — und eine zweite Erinnerung gibt es
+ *     nie. Die geteilte Klasse bleibt unangetastet (andere Sender haengen
+ *     daran); dieser Sender prueft stattdessen selbst und lehnt den Versand
+ *     mit `STATUS_TEMPLATE_UNKNOWN_PLACEHOLDER` ab, mit Nennung des
+ *     Platzhalters. Siehe `unbefuellbarePlatzhalter()`.
  *
  * Template + Kanal kommen ueber `HoldingTemplateSender::resolveTarget()`
  * (lesend, Settings-Key `SETTINGS_KEY`) — dieselbe Aufloesungskette wie
@@ -61,10 +71,21 @@ final class ProofReminderSender
     /** Passt in rec_auto_pilot_logs.type (string(30)). */
     public const LOG_TYPE = 'proof_reminder_sent';
 
+    /**
+     * Die Platzhalternamen, die HoldingTemplateComponents::build() aus dem
+     * VORNAMEN befuellt (isNameVar). Diese Liste muss mit der dortigen
+     * uebereinstimmen — sie steht hier als Kopie, weil die geteilte Klasse
+     * nicht angefasst werden darf (andere Sender haengen daran).
+     *
+     * @var list<string>
+     */
+    private const NAME_PLATZHALTER = ['name', 'vorname', '1'];
+
     public const STATUS_SENT = 'sent';
     public const STATUS_NO_PHONE = 'no_phone';
     public const STATUS_NOT_CONFIGURED = 'not_configured';
     public const STATUS_TEMPLATE_WITHOUT_URL_BUTTON = 'template_without_url_button';
+    public const STATUS_TEMPLATE_UNKNOWN_PLACEHOLDER = 'template_unknown_placeholder';
     public const STATUS_FAILED = 'failed';
 
     /**
@@ -103,15 +124,29 @@ final class ProofReminderSender
             return $this->finish($ma, $eintrag, ['status' => self::STATUS_TEMPLATE_WITHOUT_URL_BUTTON, 'error' => $built['error']]);
         }
 
-        // Speculative Namen fuer ein Template, das es noch nicht gibt (der Text
-        // liegt bei RHEINGEDECK, siehe Plan „Danach, nicht von mir abhaengig").
-        // Ungenutzte Namen kosten nichts: HoldingTemplateComponents::build()
-        // fuellt nur, was im Template tatsaechlich als {{...}} vorkommt.
+        // Namen fuer ein Template, das es noch nicht gibt (der Text liegt bei
+        // RHEINGEDECK, siehe Plan „Danach, nicht von mir abhaengig"). Heisst
+        // ein Platzhalter dort spaeter anders, faellt das ab hier auf, statt
+        // still den Vornamen einzusetzen.
         $namedValues = [
             'nachweis' => ProofTypes::label($eintrag['code']),
             'datum'    => $this->formatDatum($eintrag['valid_until']),
         ];
         $firstName = trim((string) ($ma->first_name ?? ''));
+
+        // DIESELBE STRENGE WIE BEIM URL-KNOPF: kann die Vorlage einen ihrer
+        // Body-Platzhalter nicht aus unseren eigenen Werten fuellen, geht sie
+        // gar nicht erst raus.
+        $unbefuellbar = $this->unbefuellbarePlatzhalter($components, array_keys($namedValues));
+        if ($unbefuellbar !== []) {
+            return $this->finish($ma, $eintrag, [
+                'status' => self::STATUS_TEMPLATE_UNKNOWN_PLACEHOLDER,
+                'error' => 'Template „' . $template->name . '“ hat den Platzhalter {{'
+                    . implode('}}, {{', $unbefuellbar) . '}}, den wir nicht befüllen können — '
+                    . 'bekannt sind nur {{nachweis}}, {{datum}} und der Vorname ({{name}}, {{vorname}}, {{1}}). '
+                    . 'Ungeprüft würde dort still der Vorname oder der Beispielwert der Vorlage stehen.',
+            ]);
+        }
         $sendComponents = HoldingTemplateComponents::build($components, $firstName, $namedValues);
 
         if (HoldingTemplateComponents::hasEmptyRequiredParam($sendComponents)) {
@@ -155,6 +190,49 @@ final class ProofReminderSender
         );
 
         return $this->finish($ma, $eintrag, ['status' => self::STATUS_SENT, 'error' => null]);
+    }
+
+    /**
+     * Welche Body-Platzhalter der Vorlage koennen wir NICHT aus eigenen Werten
+     * befuellen?
+     *
+     * HoldingTemplateComponents::build() ist geteilt (Holding-Bestaetigung,
+     * OOO-Auto-Reply, Schulungszertifikat) und darf nicht strenger werden.
+     * Sie setzt bei einem unbekannten Platzhalter STILL den Vornamen oder den
+     * Beispielwert der Vorlage ein. Meta nimmt so eine Nachricht an: die Leute
+     * laesen dann „dein Kevin laeuft am Kevin ab", reminded_at wuerde gesetzt
+     * — und weil es genau EINE Erinnerung je Nachweis gibt, bekaeme niemand
+     * je eine zweite. Deshalb prueft dieser Sender selbst, vor dem Versand.
+     *
+     * Muster und Namenserkennung sind absichtlich identisch mit
+     * HoldingTemplateComponents::build() — was dort als Vorname durchgeht,
+     * gilt hier als bekannt, und nichts sonst.
+     *
+     * @param  list<string>  $eigeneNamen  Schluessel aus $namedValues
+     * @return list<string>  die unbekannten Platzhalternamen, in Fundreihenfolge
+     */
+    private function unbefuellbarePlatzhalter(array $templateComponents, array $eigeneNamen): array
+    {
+        $bekannt = array_map(
+            static fn (string $n): string => strtolower($n),
+            array_merge(self::NAME_PLATZHALTER, $eigeneNamen),
+        );
+
+        $unbekannt = [];
+        foreach ($templateComponents as $component) {
+            if (($component['type'] ?? '') !== 'BODY') {
+                continue;
+            }
+
+            preg_match_all('/\{\{(\w+)\}\}/', (string) ($component['text'] ?? ''), $treffer);
+            foreach ($treffer[1] as $name) {
+                if (!in_array(strtolower($name), $bekannt, true) && !in_array($name, $unbekannt, true)) {
+                    $unbekannt[] = $name;
+                }
+            }
+        }
+
+        return $unbekannt;
     }
 
     /**
