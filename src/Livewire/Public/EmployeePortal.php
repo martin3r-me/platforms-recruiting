@@ -115,6 +115,26 @@ class EmployeePortal extends Component
             return;
         }
 
+        // WEICHE ZUM NEUEN PORTAL. Wer umgestellt ist (portal_v2_since),
+        // gehoert nicht mehr hierher: saemtliche bereits verschickten
+        // WhatsApp-Links zeigen auf diese alte Adresse, und weil sich beide
+        // Portale den Sitzungsschluessel teilen (PortalAuth::sessionKey),
+        // waere er hier sogar schon angemeldet. Das alte Portal schreibt
+        // ueber Eloquent (setzt also den ZAS-Export-Marker) und legt KEINE
+        // Nachweis-Zeile an — was er hier eintruege, kaeme im neuen Portal
+        // nie an. Umgeleitet wird mit demselben Token.
+        //
+        // Das ist die einzige Aenderung an dieser Methode. Alles darunter —
+        // die #[Locked]-Eigenschaften, der Versuchszaehler, die
+        // Sperrpruefung aus dem Auth-Fix vom September — bleibt wie es war
+        // und gilt unveraendert fuer alle, die noch nicht umgestellt sind.
+        // Kein navigate: die beiden Portale bringen verschiedene Layouts mit.
+        if ($employee->portal_v2_since !== null) {
+            $this->redirect(route('recruiting.public.portal-shell', ['token' => $token]));
+
+            return;
+        }
+
         $this->employeeId = $employee->id;
         $this->displayName = trim(($employee->first_name ?? '') . ' ' . ($employee->last_name ?? '')) ?: 'Mitarbeiter';
         $this->duzen = $employee->usesInformalAddress();
