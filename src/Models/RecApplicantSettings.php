@@ -93,6 +93,15 @@ class RecApplicantSettings extends Model
         // angelegt wurde (Phase-Config-Flag creates_employee_on_completion).
         'employee_portal_wa_template_id' => null,
         'employee_portal_wa_account_id' => null,
+        // Fristenlauf Nachweise (recruiting:nachweise-erinnern): genehmigtes
+        // Template MUSS einen dynamischen URL-Button haben — der Portal-Link
+        // steckt im Button (Muster training_certificate_wa_template_id), nicht
+        // im Fliesstext. Aufloesung inkl. Kanal ueber
+        // HoldingTemplateSender::resolveTarget() — eigener Account-Schluessel
+        // ist hier bewusst NICHT noetig, das teilt sich den Account mit
+        // auto_pilot_wa_account_id (siehe resolveChannelFor). Schluesselname
+        // steht in Services/ProofReminderSender::SETTINGS_KEY.
+        'proof_reminder_wa_template_id' => null,
         // Kommunikations-Übersicht / Eskalation (WhatsApp 24h-Fenster).
         // Restzeit-Schwellen IM offenen Fenster (NICHT "Stunden seit Eingang"):
         // grün > yellow, gelb <= yellow, rot <= red, verpasst = Fenster zu.
