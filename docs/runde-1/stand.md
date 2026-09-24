@@ -30,13 +30,22 @@ Nachrichten, Dokumente per WhatsApp, manuelle Rueckfragen und Nachbearbeitung.
 
 Schritt 4 ist Markus' Praesentation vom 22.09. Nicht abgelehnt, sondern eingeordnet.
 
+**Zwei Zahlensysteme, nie vermischen.** Die Spalte oben ist *Kundenaufwand* —
+Canvas, Abrechnung, aus der Code-Pruefung belegt. Fuer die Tagesplanung zaehlt
+die *Bauzeit im Projekt*, und die ist gemessen: Die Datenbasis war mit 18–24
+Kundenstunden veranschlagt und entstand in **rund anderthalb Stunden**.
+
+Was der Faktor nicht abdeckt und was den Termin bestimmt: Migration gegen 1.558
+echte Datensaetze, der Blick eines Menschen auf die Oberflaeche, Meta-Vorlauf,
+Testrunde, offene Entscheidungen.
+
 ### Runde 1 in drei Schritten
 
-1. **Datenbasis** — 3–4 Tage · **fertig**
-2. **Huelle** — 4–5 Tage · vier Bereiche, Startbildschirm mit Aufgabenliste,
-   Einsaetze eingehaengt, Anmeldeschicht herausgeloest. Erster Deploy auf demo.
-3. **Selbstbedienung** — 4–5 Tage · Upload mit Gueltigkeit, Fristenlauf,
-   WhatsApp-Umleitung, HR-Sicht
+| | | Kundenaufwand | Bauzeit | danach noetig |
+|---|---|---|---|---|
+| 1 | **Datenbasis** | 18–24 h | **1,5 h — fertig** | Migration gegen echte Daten |
+| 2 | **Huelle** — vier Bereiche, Aufgabenliste, Einsaetze, Anmeldeschicht | 14–22 h | 2–4 h | dein Blick, Deploy auf demo |
+| 3 | **Selbstbedienung** — Upload, Fristenlauf, WhatsApp-Umleitung, HR-Sicht | 20–26 h | 2–3 h | Meta-Vorlage, Fristenlauf gegen echte Daten |
 
 ---
 
@@ -116,6 +125,7 @@ Schritt 4 ist Markus' Praesentation vom 22.09. Nicht abgelehnt, sondern eingeord
 | 24.09. | Zusammengefuehrte Akte nur bei gleichem Marker **und** gleicher Nummer | Der Marker steuert ab jetzt Sichtbarkeit. 332 von 336 Gruppen erfuellen beides; die vier uebrigen sehen nur ihre Anstellung. |
 | 24.09. | Rueckfrage beim ersten Login entfaellt | Waere ein Ablauf fuer vier Faelle. HR-Liste genuegt. |
 | 24.09. | Drei neue Gueltigkeiten (Pass, Visum, Fiktion) gehen **nicht** in den Export | Kein Eingriff am ZAS-Export in Runde 1. Ein Test haelt es fest. |
+| 24.09. | Zwei Zahlensysteme getrennt fuehren | Canvas-Stunden sind fuer Markus und die Rechnung richtig, fuer die Tagesplanung falsch. Gemessener Faktor bei reiner Logik: rund zwoelf. |
 | 24.09. | Kein drittes Canvas | Zwei Kundendokumente synchron zu halten kostet genug. Spec und diese Notiz liegen beim Code. |
 
 ---

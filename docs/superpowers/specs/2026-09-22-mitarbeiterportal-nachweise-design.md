@@ -71,13 +71,19 @@ Gegenrichtung, sie ist in der Spec vom 2026-07-10 entworfen und wird Runde 2.
 
 Zwei neue Tabellen.
 
-### 4.1 `rec_proof_types` — Katalog der Nachweisarten
+### 4.1 `ProofTypes` — Katalog der Nachweisarten
 
-Konfiguration, kein Regelwerk: `code`, `label`, `has_expiry`,
-`reminder_lead_days`, `has_back_side`, `sort_order`, `is_active`.
+**Geaendert am 23.09.:** eine PHP-Klasse, keine Tabelle.
 
-Gesetzt wird der Katalog per Seeder. Vorlaufzeiten nach Kundenvorgabe:
-Aufenthaltstitel und Arbeitsgenehmigung 60 Tage, alles andere 30.
+Die Zuordnung jeder Art auf ihre Altspalten traegt das Doppelschreiben, den
+Umzug und den ZAS-Export. Eine Tabelle koennte davon wegdriften, eine Konstante
+nicht — und ein Test haelt den Katalog gegen `EmployeeFileSlots`. Gleiches
+Muster wie `NonEuDocumentMapping` und `SchoolCertificateFields`.
+
+Je Art: Bezeichnung, Gruppe, Altspalten, hat Ablaufdatum, Altspalte des
+Ablaufdatums, Vorlaufzeit. Vorlaufzeiten nach Kundenvorgabe: Aufenthaltstitel
+und Arbeitsgenehmigung 60 Tage, alles andere 30. Sie koennen spaeter in die
+Team-Einstellungen wandern, falls der Kunde sie ohne Deploy aendern will.
 
 ### 4.2 `rec_employee_proofs` — ein hochgeladener Nachweis
 
@@ -130,13 +136,19 @@ Gelesen wird ueber den `person_key`: Nachweise, Vollstaendigkeit und
 Aufgabenliste gelten je **Person**, nicht je Anstellung. Ein Upload zaehlt fuer
 beide Anstellungen.
 
-**Sichtbarkeitsregel.** Der Marker steuert ab hier, was ein angemeldeter Mensch
-sieht — Ausweis, Bankdaten, Vertraege. Deshalb gilt die zusammengefuehrte
-Ansicht nur bei **harter** Paarung: von HR im Audit bestaetigt, oder zusaetzlich
-gleiche Handynummer. Ein automatisch gestempeltes Paar ohne zweites Merkmal
-bekommt beim ersten Login die Frage „Du bist auch bei MA angestellt — ist das
-dein Datensatz?"; erst nach Bestaetigung wird zusammengefuehrt. Protokolliert,
-von HR trennbar.
+**Sichtbarkeitsregel — geaendert am 24.09.**
+
+Der Marker steuert ab hier, was ein angemeldeter Mensch sieht. Deshalb gilt die
+zusammengefuehrte Akte nur bei **gleichem Marker UND gleicher Handynummer**.
+
+Die urspruenglich geplante Rueckfrage beim ersten Login („Du bist auch bei MA
+angestellt — ist das dein Datensatz?") **entfaellt**. Die Messung am 24.09.
+ergab: von 336 Gruppen erfuellen **332** beide Bedingungen. Fuer vier Faelle
+baut man keinen Ablauf mit Bestaetigung, Protokoll und Trennen-Knopf.
+
+Stattdessen: Wer die Nummernpruefung nicht besteht, sieht **nur die Anstellung,
+ueber die er sich angemeldet hat**, und der Fall landet auf der HR-Liste. Im
+Zweifel zeigen wir weniger.
 
 **Vor dem Start** laeuft `recruiting:person-pair-audit` ueber den Bestand, HR
 arbeitet die Zweifelsfaelle ab. Jeder ungeklaerte Fall bleibt doppelt.
@@ -156,6 +168,19 @@ Ein taeglicher Lauf findet Nachweise, deren `valid_until` innerhalb der
 Vorlaufzeit liegt, und verschickt genau **eine** Erinnerung per WhatsApp. Danach
 steht der Punkt als Aufgabe im Portal, bis er erledigt ist. Dieselbe Mechanik
 traegt die IfSG-Folgebelehrung.
+
+### Stichtag fuer den Altbestand (ergaenzt 23.09.)
+
+Im Bestand sind **rund 540 Nachweise bereits abgelaufen**, davon 342 Schul- und
+Immatrikulationsbescheinigungen, dazu 283, die in 60 Tagen fallen. Ohne Bremse
+gingen am Tag der Freischaltung **ueber 500 WhatsApps** raus — die Kosten waeren
+nebensaechlich, die Rueckfragewelle im Buero nicht.
+
+Deshalb: Der Fristenlauf erinnert nur an Nachweise, deren Frist **nach** der
+Freischaltung faellt. Der Altbestand erscheint als Aufgabe im Portal — sichtbar,
+aber ungefragt — und HR arbeitet ihn in Wellen ab.
+
+Entscheidung dazu liegt bei Markus.
 
 ## 7. ZAS-Export bleibt unveraendert
 
@@ -194,7 +219,8 @@ Eskalationssperre wandern unveraendert mit.
 
 - **Lohnrelevante Aenderungen** laufen ueber den bestehenden Trigger
   (`payroll_data_changed_at`, Sidebar-Abzeichen, `Employees/PayrollChanges`).
-  Kein neuer Arbeitsvorrat noetig.
+  Kein neuer Arbeitsvorrat noetig — vom Kunden am 22.09. bestaetigt: HR prueft
+  ausschliesslich Lohnrelevantes, alles andere laeuft ohne Freigabe durch.
 - **Nachweis-Uploads** gelten sofort als erledigt — ausser Aufenthaltstitel und
   Arbeitsgenehmigung, an denen die harte Einsatzsperre haengt; dort bestaetigt
   HR das Datum.
@@ -205,8 +231,15 @@ Eskalationssperre wandern unveraendert mit.
 - Stammdaten (Adresse, IBAN) bleiben je Anstellung. Optional und empfohlen:
   Spiegelung auf die `person_key`-Geschwister ueber Eloquent, damit der
   Export-Observer beide Anstellungen markiert (6–8 h).
-- **Stichtag-Kollision:** Der spaetere Voll-Import aus ZAS wuerde selbst
-  gepflegte Felder ueberschreiben. Muss vor dem Start entschieden werden.
+- **Stichtag-Kollision — kleiner als zunaechst angenommen (24.09.):** Nachweise
+  landen in einer neuen Tabelle, die der ZAS-Import gar nicht kennt, und
+  Stammdatenpflege im Portal gibt es ohnehin schon heute. Die echte Kollision
+  gehoert zu Canvas 68, wenn die Datenhoheit fuer Stammdaten kippt — nicht zu
+  Runde 1.
+- **`isZasOwned` als Unterscheidung (neu seit `9bb2f33`):** Ein
+  ZAS-Bestandsmitarbeiter wird von aussen gepflegt, ein Funnel-Mitarbeiter von
+  uns. Das Portal sollte das wissen, sonst bittet es jemanden um Bestaetigung
+  von Feldern, die ZAS am naechsten Tag wieder ueberschreibt.
 - Massenversand an viele (Runde 2), Vertragsunterschrift (Formfrage),
   Regelmatrix, Einsatz-Trigger, Zahlungsstatus (eigene Vorhaben).
 
@@ -234,10 +267,20 @@ Eskalationssperre wandern unveraendert mit.
 
 ## 13. Aufwand
 
+**Zwei Zahlen, bewusst getrennt.**
+
+*Kundenaufwand* (Canvas, Abrechnung, aus der Code-Pruefung belegt):
 Spec 4–6 · Portal-Huelle inkl. Guest-Layout 14–22 · Nachweis-Modell, Katalog,
 Migration, Doppelschreiben 14–18 · Upload-Strecke 6–8 · Aufgabenliste 4–6 ·
 Fristenlauf und Erinnerungen 4–5 · WhatsApp-Umleitung 4–6 · Zusammenfuehrung
 und Kennzeichnung 8–12 · HR-Sicht 5–7 · Zustellstatus-Fix 1–2 · Tests und
-Abnahme 6–8.
+Abnahme 6–8. **Summe 70–100 Stunden.**
 
-**Summe 70–100 Stunden.**
+*Bauzeit im Projekt* (gemessen, nicht geschaetzt): Die Datenbasis — Katalog,
+Modell, Migration, Doppelschreiben, Umzug und Leseweg, im Kundenaufwand mit
+18–24 Stunden veranschlagt — entstand am 23./24.09. in **rund anderthalb
+Stunden**, 2.876 Zeilen und 53 Tests.
+
+Was dieser Faktor **nicht** abdeckt und was den Termin bestimmt: die Migration
+gegen 1.558 echte Datensaetze, der Blick eines Menschen auf die Oberflaeche,
+der Meta-Vorlauf, die Testrunde und die offenen Entscheidungen.
