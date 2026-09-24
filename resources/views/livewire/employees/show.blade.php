@@ -445,9 +445,11 @@
                 </div>
             @endif
 
-            {{-- Nachweise (Selbstbedienung Portal + HR-Upload). Reine Anzeige — die
-                 Bestaetigung fuer Aufenthaltstitel/Arbeitsgenehmigung sitzt in der
-                 HR-Inbox (Mitarbeiter → Nachweise), nicht hier. --}}
+            {{-- Nachweise (Selbstbedienung Portal + HR-Upload). Reine Anzeige — ein
+                 Upload gilt sofort als erledigt, es gibt KEINE Bestaetigung mit
+                 Wirkung (mehr), weder hier noch in der HR-Inbox (Korrektur K3,
+                 24.09.2026). confirmed_at/confirmed_by zeigen nur, falls fuer
+                 diesen Nachweis je etwas bestaetigt wurde (Altbestand). --}}
             @php $nachweise = $this->nachweisUebersicht; @endphp
             @if(!empty($nachweise))
                 <div class="mt-6 p-4 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg">
@@ -486,8 +488,12 @@
                                                 bestätigt{{ $n['confirmed_by'] ? ' von ' . $n['confirmed_by'] : '' }} am {{ $n['confirmed_at'] }}
                                             </span>
                                         @else
-                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                                                wartet auf Bestätigung
+                                            {{-- Kein "wartet auf ..." mehr (Korrektur nach K3): es wartet
+                                                 nichts, niemand kann das bestaetigen. Die Art steht schon
+                                                 im Label links daneben — neutrales Abzeichen ohne
+                                                 Zustandsbehauptung. --}}
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                                                zur Kenntnis
                                             </span>
                                         @endif
                                     @endif

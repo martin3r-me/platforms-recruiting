@@ -112,10 +112,14 @@ class Show extends Component
 
     /**
      * Nachweis-Uebersicht dieser Person (ueber ALLE ihre Anstellungen, siehe
-     * ProofReader). Reine Anzeige — die Bestaetigung fuer Aufenthaltstitel
-     * und Arbeitsgenehmigung sitzt bewusst NICHT hier, sondern ausschliesslich
-     * in der HR-Inbox (ProofInbox::bestaetige), damit es genau eine Stelle
-     * gibt, an der ein Mensch das tut.
+     * ProofReader). Reine Anzeige.
+     *
+     * Korrektur K3 (24.09.2026): es gibt KEINE Bestaetigung mit Wirkung mehr,
+     * weder hier noch in der HR-Inbox — ProofInbox::bestaetige() ist entfernt
+     * (kein Konsument von confirmed_at, keine Einsatzsperre fuer Mitarbeiter).
+     * needs_confirmation/confirmed_at/confirmed_by bleiben trotzdem in der
+     * Rueckgabe: die Anzeige "bestaetigt von X am Y" in der Akte zeigt
+     * weiterhin echten Altbestand, falls je etwas bestaetigt wurde.
      *
      * @return list<array{code:string, label:string, status:string, valid_until:?string, offen:bool, needs_confirmation:bool, confirmed_at:?string, confirmed_by:?string}>
      */

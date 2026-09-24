@@ -115,8 +115,17 @@
                                                 Bestätigt{{ $row['confirmed_by'] ? ' von ' . $row['confirmed_by'] : '' }}
                                             </span>
                                         @else
-                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                                                Wartet auf Bestätigung
+                                            {{--
+                                                Kein "Wartet auf ..." mehr (Korrektur nach K3): es
+                                                wartet nichts, niemand kann das bestaetigen. Die Art
+                                                (Aufenthaltstitel/Arbeitsgenehmigung) steht schon in
+                                                der Spalte "Nachweis" daneben — dieses Abzeichen
+                                                markiert nur neutral, dass es zur "zur Kenntnis"-Liste
+                                                gehoert, ohne einen Zustand zu behaupten, den es
+                                                nicht gibt.
+                                            --}}
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600">
+                                                Zur Kenntnis
                                             </span>
                                         @endif
                                     </td>
