@@ -44,7 +44,19 @@ Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\Employee
 // Mitarbeiter-Portal, neue Fassung (Canvas 67). Laeuft NEBEN dem alten:
 // wer hier hinkommt, entscheidet rec_employees.portal_v2_since — ohne Stempel
 // antwortet die Komponente mit 404. Umstellen mit recruiting:portal-umstellen.
-Route::get('/mitarbeiter/{token}/neu', \Platform\Recruiting\Livewire\Public\PortalShell::class)
+//
+// TOKEN AM URL-ENDE, NICHT DAZWISCHEN (Fixrunde 1, Aufgabe 4): Meta-
+// URL-Buttons erlauben die Variable NUR als Suffix — dieselbe Regel wie bei
+// /einsaetze/{token} unten. Die urspruengliche Form /mitarbeiter/{token}/neu
+// war fuer einen WhatsApp-Knopf unbrauchbar, weil "/neu" hinter dem Token
+// stand. KEINE Kollision mit /mitarbeiter/{token} oben: die beiden Routen
+// haben eine unterschiedliche Anzahl an Pfadsegmenten (eins vs. zwei), Laravel
+// matcht {token} nur gegen genau EIN Segment ohne Slash — ein Aufruf mit zwei
+// Segmenten kann die einsegmentige Route also strukturell nie treffen, ganz
+// unabhaengig von der Registrierungsreihenfolge und unabhaengig davon, ob ein
+// echter Token jemals "neu" heissen koennte (Tokens sind UUIDs, koennen es
+// nicht). Festgenagelt in PortalTokenRouteTest.
+Route::get('/mitarbeiter/neu/{token}', \Platform\Recruiting\Livewire\Public\PortalShell::class)
     ->name('recruiting.public.portal-shell');
 
 // Dispo-Einsatz-Seite (token-only, NICHT im MA-Portal verlinkt — Spec 2026-08-14).

@@ -77,7 +77,9 @@ final class SwitchPortalVersion extends Command
         $this->info("{$anzahl} Mitarbeiter auf das " . ($zurueck ? 'ALTE' : 'NEUE') . ' Portal gestellt.');
 
         if (!$zurueck) {
-            $this->line('Sie erreichen es unter /recruiting/mitarbeiter/{token}/neu — alle anderen sehen dort 404.');
+            // Token am Ende (Fixrunde 1, Aufgabe 4) — Meta-URL-Buttons
+            // erlauben die Variable nur als Suffix, siehe routes/public.php.
+            $this->line('Sie erreichen es unter /recruiting/mitarbeiter/neu/{token} — alle anderen sehen dort 404.');
         }
 
         return self::SUCCESS;

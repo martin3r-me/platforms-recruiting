@@ -250,7 +250,12 @@ class SeedDemoEmployees extends Command
             $zeilen[] = [
                 '#' . $employeeId,
                 $fall['vorname'] . ' ' . $fall['nachname'],
-                url('/recruiting/mitarbeiter/' . $fall['token'] . '/neu'),
+                // Ueber route(), nicht von Hand zusammengesetzt — sonst laeuft
+                // diese Ausgabe wieder auseinander, sobald sich die Route
+                // aendert (Fixrunde 1, Aufgabe 4: Token muss am URL-ENDE
+                // stehen, Meta-URL-Buttons erlauben die Variable nur als
+                // Suffix).
+                route('recruiting.public.portal-shell', ['token' => $fall['token']]),
                 $fall['was'],
             ];
         }

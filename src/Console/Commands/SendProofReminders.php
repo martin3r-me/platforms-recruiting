@@ -48,6 +48,14 @@ use Platform\Recruiting\Support\ProofTypes;
  * auch die rund 540 bereits abgelaufenen. Der Stichtag ist eine
  * Kundenentscheidung (Markus, offen) und deshalb ein Kommandozeilen-Parameter,
  * kein Default im Code.
+ *
+ * KEIN ZEITPLAN-EINTRAG (Ruling Fixrunde 1, Aufgabe 4): dieses Kommando wird
+ * bis auf Weiteres VON HAND gefahren, zuerst mit --dry-run. Ein Eintrag in
+ * RecruitingServiceProvider::registerSchedule(), der dauerhaft auf --dry-run
+ * stuende, waere eine Falle — der Naechste, der ihn sieht, haelt das fuer ein
+ * Versehen und entfernt es, und dann gehen ohne Stichtag ueber 500 WhatsApps
+ * auf einen Schlag raus. Erst automatisieren, wenn Markus den Stichtag
+ * entschieden UND die Meta-Vorlage genehmigt ist.
  */
 class SendProofReminders extends Command
 {
@@ -58,7 +66,7 @@ class SendProofReminders extends Command
         {--limit= : Höchstens so viele Personen erinnern (dringendste zuerst)}
         {--auch-altes-portal : Auch Mitarbeiter ohne neues Portal (portal_v2_since) erinnern. Standard: überspringen, sie können die Aufgabe dort nicht erledigen.}';
 
-    protected $description = 'Täglicher Fristenlauf: fällige Nachweise finden und je Person genau eine WhatsApp-Erinnerung senden';
+    protected $description = 'Fristenlauf Nachweise: fällige Nachweise finden und je Person genau eine WhatsApp-Erinnerung senden — läuft ohne Zeitplan, bis auf Weiteres von Hand (Stichtag + Meta-Vorlage noch offen)';
 
     public function handle(): int
     {
@@ -149,6 +157,9 @@ class SendProofReminders extends Command
         $query = DB::table('rec_employee_proofs as p')
             ->join('rec_employees as e', 'e.id', '=', 'p.rec_employee_id')
             ->whereNull('p.superseded_at')
+            // is_active bestaetigt (Aufgabenpruefung, Zweifel 3): wer nicht
+            // mehr aktiv ist, braucht keine Erinnerung an einen ablaufenden
+            // Ausweis — kein Zufall, eigene Ergaenzung ueber den Brief hinaus.
             ->where('e.is_active', true);
 
         if ($teamId !== null) {

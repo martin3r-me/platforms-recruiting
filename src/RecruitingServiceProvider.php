@@ -267,21 +267,15 @@ class RecruitingServiceProvider extends ServiceProvider
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/zas-contact-backfill.log'));
 
-        // Fristenlauf Nachweise: MIT ABSICHT im --dry-run geplant. Zwei
-        // Voraussetzungen sind noch offen (Plan „Danach, nicht von mir
-        // abhaengig"): der Stichtag gegen die rund 540 bereits abgelaufenen
-        // Alt-Nachweise ist eine Kundenentscheidung (Markus), und ohne ihn
-        // wuerden ueber 500 WhatsApps auf einen Schlag rausgehen. Ausserdem
-        // erinnert der Lauf standardmaessig nur Mitarbeiter mit
-        // portal_v2_since (--auch-altes-portal ist hier bewusst NICHT
-        // gesetzt) — auf einer Instanz, auf der noch niemand umgestellt ist,
-        // liefe er ohnehin leer. --dry-run entfernen UND --stichtag=YYYY-MM-DD
-        // ergaenzen, sobald beides geklaert ist.
-        Schedule::command('recruiting:nachweise-erinnern --dry-run')
-            ->dailyAt('08:00')
-            ->withoutOverlapping(30)
-            ->runInBackground()
-            ->appendOutputTo(storage_path('logs/proof-reminders.log'));
+        // recruiting:nachweise-erinnern ABSICHTLICH OHNE Zeitplan-Eintrag
+        // (Fixrunde 1, Aufgabe 4 — Ruling gegen einen fest auf --dry-run
+        // stehenden Eintrag hier): ein Eintrag, der dauerhaft im Trockenlauf
+        // steht, ist eine Falle — der naechste, der ihn sieht, haelt
+        // --dry-run fuer ein Versehen und entfernt es, und dann gehen ohne
+        // Stichtag ueber 500 WhatsApps auf einen Schlag raus (siehe
+        // Beschreibung des Kommandos). Bis Markus den Stichtag entschieden
+        // hat und die Meta-Vorlage genehmigt ist, wird das Kommando von Hand
+        // gefahren.
     }
 
     protected function registerLivewireComponents(): void
