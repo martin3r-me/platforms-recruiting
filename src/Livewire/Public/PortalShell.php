@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecEmployee;
@@ -59,10 +60,8 @@ class PortalShell extends Component
             abort(404);
         }
 
-        $this->employeeId  = $employee->id;
-        $this->displayName = $this->vorname($employee);
-        $this->initialen   = $this->initialen($employee);
-        $this->duzen       = $employee->usesInformalAddress();
+        $this->employeeId = $employee->id;
+        $this->duzen      = $employee->usesInformalAddress();
 
         if ($auth->isLocked($employee)) {
             $this->state = 'gesperrt';
@@ -71,6 +70,7 @@ class PortalShell extends Component
         }
 
         if (session()->has(PortalAuth::sessionKey($employee->id))) {
+            $this->identitaetLaden($employee);
             $this->state = 'verified';
 
             return;
@@ -86,17 +86,50 @@ class PortalShell extends Component
         }
 
         $employee = $auth->employeeForToken($this->token);
-        if (!$employee || $employee->id !== $this->employeeId) {
-            abort(404);
+        if (!$employee || $employee->id !== $this->employeeId || $employee->portal_v2_since === null) {
+            // Auch die Weiche gilt weiter: wird der Pilot waehrend einer
+            // offenen Anmeldeseite zurueckgenommen, endet der Versuch hier.
+            $this->state = 'weg';
+
+            return;
+        }
+
+        // Erneut pruefen — zwischen mount() und verify() koennen Minuten
+        // liegen, und der Eskalations-Cron laeuft unabhaengig vom Request.
+        // Dieser Waechter stand schon im alten Portal; beim Herausloesen der
+        // Anmeldeschicht ist er zunaechst verlorengegangen.
+        if ($auth->isLocked($employee)) {
+            $this->state = 'gesperrt';
+
+            return;
+        }
+
+        // Leere Eingaben kosten keinen Versuch. Ueber die Oberflaeche sind sie
+        // durch `required` kaum zu treffen, ueber $wire.call('verify') aber
+        // trivial — fuenf Leeraufrufe wuerden den Token 15 Minuten sperren.
+        if (trim($this->birthDate) === '' || trim($this->idLast4) === '') {
+            $this->fehler = 'Bitte beide Felder ausfüllen.';
+
+            return;
         }
 
         $ergebnis = $auth->attempt($employee, $this->token, $this->birthDate, $this->idLast4);
 
         if ($ergebnis['status'] === PortalAuth::OK) {
             session()->put(PortalAuth::sessionKey($employee->id), true);
+
+            // Denselben Stempel wie das alte Portal setzen — an ihm haengt die
+            // Frage „wer nutzt das Portal ueberhaupt?", mit der die Groesse
+            // der Umstellung bestimmt wird. Ueber den Query Builder, damit
+            // kein Modell-Ereignis und damit kein Export-Marker entsteht.
+            DB::table('rec_employees')->where('id', $employee->id)
+                ->update(['portal_verified_at' => now()]);
+
+            $this->identitaetLaden($employee);
             $this->state = 'verified';
             $this->fehler = '';
-            $this->reset('birthDate', 'idLast4');
+            $this->birthDate = '';
+            $this->idLast4 = '';
 
             return;
         }
@@ -114,24 +147,84 @@ class PortalShell extends Component
         $this->idLast4 = '';
     }
 
+    /**
+     * Abmelden. Wichtig auf geteilten Geraeten: ohne das bleibt der Naechste,
+     * der den Link oeffnet, angemeldet — und weil beide Portale sich den
+     * Sitzungsschluessel teilen, auch gleich im alten.
+     */
+    public function logout(): void
+    {
+        if ($this->employeeId !== null) {
+            session()->forget(PortalAuth::sessionKey($this->employeeId));
+        }
+
+        $this->state = 'unverified';
+        $this->displayName = '';
+        $this->initialen = '';
+        $this->fehler = '';
+        $this->birthDate = '';
+        $this->idLast4 = '';
+    }
+
     public function render()
     {
-        $employee = $this->state === 'verified' && $this->employeeId !== null
-            ? RecEmployee::find($this->employeeId)
-            : null;
+        $employee = $this->berechtigterMitarbeiter();
 
-        $reader = app(ProofReader::class);
-        $checklist = $employee ? $reader->checklist($employee) : [];
+        $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
 
         return view('recruiting::livewire.public.portal-shell', [
-            'aufgaben'    => self::dekoriert($checklist),
-            'offen'       => count(array_filter($checklist, fn ($z) => $z['offen'])),
-            'nachweise'   => $employee ? $reader->current($employee) : collect(),
+            'aufgaben'     => self::dekoriert($checklist),
+            'offen'        => count(array_filter($checklist, fn ($z) => $z['offen'])),
             'anstellungen' => $employee ? $this->anstellungen($employee) : collect(),
-            'employee'    => $employee,
         ])->layout('recruiting::layouts.portal', [
             'title' => 'Mein Portal · RheinGedeck',
         ]);
+    }
+
+    /**
+     * Wer hier Daten sieht, muss sie bei JEDEM Durchgang noch sehen duerfen.
+     *
+     * mount() laeuft einmal, danach lebt die Seite oft Minuten oder Stunden
+     * weiter. In dieser Zeit kann die Dispo sperren, HR den Mitarbeiter
+     * stilllegen oder der Pilot zurueckgenommen werden. Ohne diese Pruefung
+     * wirkt jede dieser Bremsen erst beim Neuladen.
+     */
+    private function berechtigterMitarbeiter(): ?RecEmployee
+    {
+        if ($this->state !== 'verified' || $this->employeeId === null) {
+            return null;
+        }
+
+        $employee = RecEmployee::find($this->employeeId);
+
+        if (!$employee || !$employee->is_active || $employee->portal_v2_since === null) {
+            $this->state = 'weg';
+
+            return null;
+        }
+
+        if ($employee->portal_locked_at !== null) {
+            $this->state = 'gesperrt';
+
+            return null;
+        }
+
+        return $employee;
+    }
+
+    /**
+     * Name und Initialen kommen erst NACH der Anmeldung in den Zustand.
+     *
+     * #[Locked] schuetzt gegen Schreiben, nicht gegen Mitschicken: alles, was
+     * hier steht, faehrt im wire:snapshot jeder Antwort mit — also auch auf
+     * der Anmeldeseite, die verspricht, dass niemand anders die Daten sieht.
+     * Wer nur den weitergeleiteten Link hat, soll daraus nicht den Vornamen
+     * lesen koennen.
+     */
+    private function identitaetLaden(RecEmployee $employee): void
+    {
+        $this->displayName = $this->vorname($employee);
+        $this->initialen   = $this->initialen($employee);
     }
 
     /**
@@ -170,6 +263,7 @@ class PortalShell extends Component
 
         return RecEmployee::query()
             ->whereIn('id', $ids)
+            ->where('is_active', true)
             ->orderBy('id')
             ->get(['id', 'personnel_number', 'company', 'employment_type']);
     }

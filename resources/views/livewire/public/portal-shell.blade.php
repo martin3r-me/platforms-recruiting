@@ -22,6 +22,11 @@
                     <h2>Dein Zugang ist gesperrt</h2>
                     <p>Bitte melde dich bei deiner Ansprechperson bei RheinGedeck.</p>
                 </div>
+            @elseif ($state === 'weg')
+                <div class="greet">
+                    <h2>Bitte lade die Seite neu</h2>
+                    <p>An deinem Zugang hat sich gerade etwas geändert.</p>
+                </div>
             @elseif ($state === 'rateLimited')
                 <div class="greet">
                     <h2>Zu viele Versuche</h2>
@@ -33,9 +38,12 @@
                         ? 'Damit niemand anders deine Daten sieht, brauchen wir zwei Angaben von dir.'
                         : 'Damit niemand anders Ihre Daten sieht, brauchen wir zwei Angaben von Ihnen.';
                     $labelGeburt  = $duzen ? 'Dein Geburtsdatum' : 'Ihr Geburtsdatum';
+                    // „Stellen", nicht „Ziffern": deutsche Ausweisnummern
+                    // enthalten Buchstaben (L01X00T47 → 0T47). Genau deshalb
+                    // vergleicht verifyPortalAccess mit strcasecmp.
                     $labelAusweis = $duzen
-                        ? 'Die letzten 4 Ziffern deiner Ausweisnummer'
-                        : 'Die letzten 4 Ziffern Ihrer Ausweisnummer';
+                        ? 'Die letzten 4 Stellen deiner Ausweisnummer'
+                        : 'Die letzten 4 Stellen Ihrer Ausweisnummer';
                 @endphp
                 <div class="greet">
                     <h2>Anmelden</h2>
@@ -49,12 +57,19 @@
                     </label>
                     <label class="feld">
                         <span class="n">{{ $labelAusweis }}</span>
-                        <input type="text" wire:model="idLast4" required inputmode="numeric"
-                               maxlength="4" autocomplete="off" placeholder="1234">
+                        {{--
+                            KEIN inputmode="numeric". Das war schon einmal ein
+                            Login-Blocker (behoben am 06.08.2026 in 9baafe9):
+                            auf der iOS-Zahlentastatur liessen sich die
+                            Buchstaben der Ausweisnummer nicht eingeben.
+                        --}}
+                        <input type="text" wire:model="idLast4" required maxlength="4"
+                               autocomplete="off" autocapitalize="characters"
+                               autocorrect="off" spellcheck="false" placeholder="z.B. 0T47">
                     </label>
 
                     @if ($fehler !== '')
-                        <div class="alert">
+                        <div class="alert crit">
                             <span class="dot crit" style="margin-top:6px"></span>
                             <div class="txt">{{ $fehler }}</div>
                         </div>
@@ -68,7 +83,6 @@
     @else
 
         @php
-            $offeneBeschriftung = $offen === 1 ? '1 offene Aufgabe' : $offen . ' offene Aufgaben';
             $untertitel = $offen === 0
                 ? ($duzen ? 'Bei dir ist alles vollständig. Danke!' : 'Bei Ihnen ist alles vollständig. Danke!')
                 : ($duzen ? 'Es fehlt noch etwas von dir.' : 'Es fehlt noch etwas von Ihnen.');
@@ -86,7 +100,7 @@
             {{-- ---------------- START ---------------- --}}
             <div class="pane" :class="tab === 'start' && 'on'">
                 <div class="greet">
-                    <h2>Moin {{ $displayName }} 👋</h2>
+                    <h2>{{ $duzen ? 'Moin' : 'Guten Tag,' }} {{ $displayName }} 👋</h2>
                     <p>{{ $untertitel }}</p>
                 </div>
 
@@ -129,7 +143,7 @@
             {{-- ---------------- EINSAETZE ---------------- --}}
             <div class="pane" :class="tab === 'jobs' && 'on'">
                 <div class="greet">
-                    <h2>Deine Einsätze</h2>
+                    <h2>{{ $duzen ? 'Deine Einsätze' : 'Ihre Einsätze' }}</h2>
                     <p>Alles, was ansteht — und was schon gelaufen ist.</p>
                 </div>
                 <div class="card">
@@ -148,7 +162,7 @@
                 </div>
 
                 <div>
-                    <div class="sec-label">Deine Nachweise <span class="count">{{ count($aufgaben) }}</span></div>
+                    <div class="sec-label">{{ $duzen ? 'Deine Nachweise' : 'Ihre Nachweise' }} <span class="count">{{ count($aufgaben) }}</span></div>
                     <div class="card" style="margin-top:11px">
                         @forelse ($aufgaben as $aufgabe)
                             <div class="task">
@@ -174,8 +188,19 @@
                 </div>
 
                 <div>
+                    @php
+                        // Wie viele UNTERSCHIEDLICHE Gesellschaften es sind —
+                        // zwei Datensaetze derselben Firma sind eine Dublette,
+                        // keine zweite Anstellung.
+                        $gesellschaften = $anstellungen
+                            ->map(fn ($a) => trim((string) ($a->company ?? '')) ?: 'RheinGedeck')
+                            ->unique()->count();
+                        $titel = $anstellungen->count() > 1
+                            ? ($duzen ? 'Deine Anstellungen' : 'Ihre Anstellungen')
+                            : ($duzen ? 'Deine Anstellung' : 'Ihre Anstellung');
+                    @endphp
                     <div class="sec-label">
-                        {{ $anstellungen->count() > 1 ? 'Deine Anstellungen' : 'Deine Anstellung' }}
+                        {{ $titel }}
                         <span class="count">{{ $anstellungen->count() }}</span>
                     </div>
                     <div class="card" style="margin-top:11px">
@@ -192,14 +217,16 @@
                             </div>
                         @endforeach
                     </div>
-                    @if ($anstellungen->count() > 1)
+                    @if ($gesellschaften > 1)
                         <p class="fuss">
-                            {{ $duzen ? 'Du arbeitest' : 'Sie arbeiten' }} für zwei Gesellschaften.
-                            {{ $duzen ? 'Deine' : 'Ihre' }} Nachweise gelten für beide —
+                            {{ $duzen ? 'Du arbeitest' : 'Sie arbeiten' }} für {{ $gesellschaften }} Gesellschaften.
+                            {{ $duzen ? 'Deine' : 'Ihre' }} Nachweise gelten für alle —
                             {{ $duzen ? 'du musst' : 'Sie müssen' }} nichts doppelt hochladen.
                         </p>
                     @endif
                 </div>
+
+                <button type="button" class="btn" wire:click="logout">Abmelden</button>
             </div>
 
         </div>

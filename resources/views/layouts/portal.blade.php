@@ -36,6 +36,15 @@
     @verbatim
     <style>
         html, body { height: 100% }
+
+        /* Native Bedienelemente (Kalender im Datumsfeld) sollen der Seite
+           folgen. Ohne das steht im Dunkelmodus ein dunkler Kalender-Glyph in
+           einem hellen Feld und ist nicht zu sehen — der Fix vom 06.08.2026
+           im alten Portal, hier als Regel statt als erzwungenes Hell. */
+        :root { color-scheme: light }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) { color-scheme: dark }
+        }
         body.portal-body {
             margin: 0;
             background: var(--ground);
@@ -80,6 +89,11 @@
         /* 16px ist Absicht: darunter zoomt iOS beim Antippen ins Feld hinein. */
 
         /* --- Kleinigkeiten, die der Entwurf nicht kannte --- */
+        /* Fehlermeldung der Anmeldung: rot, nicht gelb — .alert bringt von
+           Haus aus den warnenden Ton mit. */
+        .portal-body .alert.crit { background: var(--crit-bg) }
+        .portal-body .alert.crit .txt { color: var(--crit) }
+
         .portal-body .leer { padding: 17px; font-size: 14px; color: var(--ink-3); line-height: 1.5 }
         .portal-body .fuss { margin: 9px 2px 0; font-size: 12.5px; color: var(--ink-3); line-height: 1.5 }
     </style>
