@@ -354,10 +354,31 @@
                         <p class="upload-sub">{{ $uploadEinleitung }}</p>
 
                         @if ($uploadHatAblauf)
-                            <label class="feld">
-                                <span class="n">Gültig bis</span>
-                                <input type="date" wire:model="uploadGueltigBis" required>
-                            </label>
+                            @if ($uploadKannUnbefristet)
+                                @php
+                                    $unbefristetLabel = $duzen
+                                        ? 'Dein ' . $uploadLabel . ' ist unbefristet.'
+                                        : 'Ihr ' . $uploadLabel . ' ist unbefristet.';
+                                @endphp
+                                {{--
+                                    Nur bei Aufenthaltstitel und Arbeitsgenehmigung
+                                    (ProofTypes::kannUnbefristetSein()): eine
+                                    Niederlassungserlaubnis oder manche
+                                    Arbeitserlaubnis laeuft nicht ab. Angehakt
+                                    verschwindet das Datumsfeld darunter.
+                                --}}
+                                <label class="feld feld-check">
+                                    <input type="checkbox" wire:model.live="uploadUnbefristet">
+                                    <span class="n">{{ $unbefristetLabel }}</span>
+                                </label>
+                            @endif
+
+                            @unless ($uploadKannUnbefristet && $uploadUnbefristet)
+                                <label class="feld">
+                                    <span class="n">Gültig bis</span>
+                                    <input type="date" wire:model="uploadGueltigBis" required>
+                                </label>
+                            @endunless
                         @endif
 
                         <label class="feld">

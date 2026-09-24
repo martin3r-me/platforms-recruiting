@@ -126,6 +126,12 @@ final class ProofWriter
 
         $ablaufSpalte = ProofTypes::legacyExpiryColumn($code);
         if ($ablaufSpalte !== null) {
+            // Bei "unbefristet" (nur aufenthaltstitel/arbeitsgenehmigung,
+            // ProofTypes::kannUnbefristetSein()) ist $proof->valid_until
+            // ABSICHTLICH null, und das landet hier ABSICHTLICH auch in der
+            // Altspalte. Anders als bei der fehlenden Rueckseite oben ist null
+            // hier NICHT "keine Aussage" — es ist die Aussage selbst ("laeuft
+            // nicht ab"). NICHT zurueckdrehen zu "null ueberspringen".
             $update[$ablaufSpalte] = $proof->valid_until?->toDateString();
         }
 

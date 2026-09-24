@@ -126,4 +126,19 @@ final class ProofChecklistTest extends TestCase
 
         $this->assertSame(ProofChecklist::LAEUFT_AB, $liste[0]['status'], 'heute noch gueltig, aber dringend');
     }
+
+    /**
+     * Kundenfeedback 24.09.2026: "unbefristet" speichert valid_until = null —
+     * bei einer Art MIT Ablauf (anders als selfie/krankenkasse, die von Haus
+     * aus keinen Ablauf kennen). Das ist hier keine Dauer-Aufgabe, sondern
+     * eine bewusste Aussage ("laeuft nicht ab") und gilt als erledigt.
+     */
+    public function test_unbefristeter_nachweis_gilt_als_ok(): void
+    {
+        $liste = ProofChecklist::build(['aufenthaltstitel'], [$this->nachweis('aufenthaltstitel', null)], self::HEUTE);
+
+        $this->assertSame(ProofChecklist::OK, $liste[0]['status']);
+        $this->assertFalse($liste[0]['offen']);
+        $this->assertNull($liste[0]['valid_until']);
+    }
 }

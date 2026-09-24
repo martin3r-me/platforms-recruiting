@@ -67,4 +67,33 @@ final class ProofUploadRulesTest extends TestCase
         $this->assertNotNull(ProofUploadRules::pruefeDatum('ausweis', '0000-00-00', '2026-09-24'));
         $this->assertNotNull(ProofUploadRules::pruefeDatum('ausweis', 'morgen', '2026-09-24'));
     }
+
+    /**
+     * Kundenfeedback 24.09.2026: eine Niederlassungserlaubnis oder manche
+     * Arbeitserlaubnis laeuft nicht ab. Bei "unbefristet" gehen Aufenthaltstitel
+     * und Arbeitsgenehmigung ohne Datum durch — sonst muesste der Betroffene ein
+     * erfundenes Datum eintragen, das spaeter eine falsche Erinnerung ausloest.
+     */
+    public function test_unbefristet_laesst_leeres_datum_bei_aufenthaltstitel_und_arbeitsgenehmigung_durch(): void
+    {
+        $this->assertNull(ProofUploadRules::pruefeDatum('aufenthaltstitel', null, '2026-09-24', true));
+        $this->assertNull(ProofUploadRules::pruefeDatum('arbeitsgenehmigung', '', '2026-09-24', true));
+    }
+
+    public function test_unbefristet_geht_bei_allen_anderen_arten_nicht(): void
+    {
+        // Ein Pass, ein Visum, eine Fiktionsbescheinigung, eine Schulbescheinigung
+        // und ein Ersthelferschein laufen immer ab — auch wenn ein manipuliertes
+        // $wire.set das Haekchen setzt, darf hier kein leeres Datum durchgehen.
+        $this->assertNotNull(ProofUploadRules::pruefeDatum('ausweis', null, '2026-09-24', true));
+        $this->assertNotNull(ProofUploadRules::pruefeDatum('nationalpass', null, '2026-09-24', true));
+    }
+
+    public function test_ohne_unbefristet_gilt_die_alte_regel_weiter(): void
+    {
+        $this->assertSame(
+            'Bitte trag ein, bis wann der Nachweis gültig ist.',
+            ProofUploadRules::pruefeDatum('aufenthaltstitel', null, '2026-09-24'),
+        );
+    }
 }

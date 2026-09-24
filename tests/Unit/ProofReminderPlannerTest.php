@@ -111,6 +111,22 @@ final class ProofReminderPlannerTest extends TestCase
         );
     }
 
+    /**
+     * Kundenfeedback 24.09.2026: "unbefristet" speichert valid_until = null bei
+     * einer Art, die grundsaetzlich einen Ablauf hat (aufenthaltstitel, anders
+     * als 'selfie' im Test oben, das von Haus aus keinen Ablauf kennt). Ohne
+     * Datum gibt es nichts, wofuer eine Erinnerung faellig werden koennte.
+     */
+    public function test_unbefristeter_nachweis_wird_nie_erinnert(): void
+    {
+        $plan = ProofReminderPlanner::plan(
+            [$this->nachweis(['proof_type_code' => 'aufenthaltstitel', 'valid_until' => null])],
+            '2026-09-24',
+            null
+        );
+        $this->assertSame([], $plan);
+    }
+
     public function test_unlesbarer_stichtag_schaltet_nur_die_bremse_ab(): void
     {
         // Ein unlesbares $stichtag ist kein Fehler — es heisst nur,

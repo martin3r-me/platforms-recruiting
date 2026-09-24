@@ -88,6 +88,15 @@
         }
         /* 16px ist Absicht: darunter zoomt iOS beim Antippen ins Feld hinein. */
 
+        /* Haekchen "unbefristet" (K2, Kundenfeedback 24.09.2026): eine
+           Checkbox darf nicht wie ein Textfeld aussehen. Ohne diese Regel
+           erbt sie appearance:none von .feld input und zeigt eine leere,
+           volle Flaeche ohne erkennbaren Haken. */
+        .portal-body .feld-check { flex-direction: row; align-items: center; gap: 10px }
+        .portal-body .feld-check input[type="checkbox"] {
+            appearance: auto; width: 20px; height: 20px; flex: 0 0 auto; padding: 0;
+        }
+
         /* ---------- Handy: die Seitenleiste des Entwurfs schlaeft ---------- */
         .portal-body .brail { display: none }
 
