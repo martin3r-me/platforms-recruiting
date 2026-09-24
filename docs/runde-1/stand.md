@@ -130,6 +130,46 @@ Testrunde, offene Entscheidungen.
 
 ---
 
+## Umstellung und Kommunikation
+
+Betroffen von der Umstellung sind **nur die Menschen, die das Portal heute
+tatsaechlich nutzen** — also die, die sich schon einmal mit Geburtsdatum und
+Ausweis-Endziffern angemeldet haben. Wie viele das sind, wissen wir noch nicht:
+
+```sql
+SELECT
+  SUM(portal_verified_at IS NOT NULL)                          AS jemals_angemeldet,
+  SUM(portal_last_seen_at >= CURDATE() - INTERVAL 30 DAY)      AS letzte_30_tage,
+  SUM(portal_last_seen_at >= CURDATE() - INTERVAL 90 DAY)      AS letzte_90_tage
+FROM rec_employees WHERE is_active = 1;
+```
+
+### Was sich fuer sie NICHT aendert
+
+- **Dieselbe Adresse.** Bei Gate 6 uebernimmt die Hauptroute; alle Links aus
+  alten WhatsApp-Nachrichten bleiben gueltig. Niemand muss etwas neu verschicken.
+- **Dieselbe Anmeldung.** Geburtsdatum plus Ausweis-Endziffern, unveraendert.
+  Der Wechsel auf das Konto kommt erst mit Canvas 68.
+- **Dieselbe Sperre.** Altes und neues Portal teilen sich die Cache-Schluessel
+  fuer den Versuchszaehler.
+
+### Was sich sehr wohl aendert
+
+Die Optik komplett — und vor allem: **Das Portal sagt ihnen jetzt, was fehlt.**
+Wer bisher nichts gesehen hat, sieht auf einmal eine Aufgabenliste. Bei rund 540
+abgelaufenen Nachweisen im Bestand ist das fuer viele kein leerer Bildschirm.
+
+Die Nachricht an die Mitarbeiter ist deshalb nicht „du musst dich umgewoehnen",
+sondern „dein Portal zeigt dir jetzt, was wir noch von dir brauchen".
+
+### Umstellung in Stufen
+
+`portal_v2_since` am Mitarbeiter: NULL = altes Portal, Datum = neues. Umgestellt
+wird per Kommando, zurueckgenommen mit NULL. Damit ist jede Welle eine
+bewusste Handlung und im Datensatz nachvollziehbar.
+
+---
+
 ## Arbeitsweise
 
 - **Zwei Arbeitsverzeichnisse**: `platforms-recruiting` auf `main` (Kundenarbeit),
