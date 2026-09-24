@@ -101,6 +101,17 @@ final class ProofTypes
         ],
     ];
 
+    /**
+     * Nur diese zwei Arten verlangen eine Bestaetigung durch HR — an ihnen
+     * haengt die harte Einsatzsperre, deshalb schaut dort ein Mensch auf das
+     * Datum. Kundenvorgabe 22.09.2026: HR prueft ausschliesslich
+     * Lohnrelevantes bzw. einsatzsperren-relevantes — alles andere gilt mit
+     * dem Upload sofort als erledigt. KEIN allgemeiner Freigabe-Arbeitsvorrat.
+     *
+     * @var list<string>
+     */
+    private const HR_BESTAETIGUNG_PFLICHT = ['aufenthaltstitel', 'arbeitsgenehmigung'];
+
     /** @return list<string> */
     public static function all(): array
     {
@@ -130,6 +141,16 @@ final class ProofTypes
     public static function leadDays(string $code): ?int
     {
         return self::TYPES[$code]['vorlauf'] ?? null;
+    }
+
+    /**
+     * Braucht diese Art eine Bestaetigung durch HR? Nur Aufenthaltstitel und
+     * Arbeitsgenehmigung — siehe HR_BESTAETIGUNG_PFLICHT. Alles andere gilt
+     * mit dem Upload sofort als erledigt (Kundenvorgabe 22.09.2026).
+     */
+    public static function needsHrConfirmation(string $code): bool
+    {
+        return in_array($code, self::HR_BESTAETIGUNG_PFLICHT, true);
     }
 
     /** @return list<string> Altspalten dieser Art — leer bei neuen Arten ohne Altbestand. */

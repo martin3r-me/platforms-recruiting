@@ -52,6 +52,11 @@ class RecEmployeeProof extends Model
         return $this->belongsTo(RecEmployee::class, 'rec_employee_id');
     }
 
+    public function confirmedByUser(): BelongsTo
+    {
+        return $this->belongsTo(\Platform\Core\Models\User::class, 'confirmed_by_user_id');
+    }
+
     /** Nur die jeweils gueltige Fassung. */
     public function scopeAktuell(Builder $query): Builder
     {
@@ -61,6 +66,18 @@ class RecEmployeeProof extends Model
     public function scopeVonArt(Builder $query, string $code): Builder
     {
         return $query->where('proof_type_code', $code);
+    }
+
+    /**
+     * Nur die zwei Arten, an denen die harte Einsatzsperre haengt, und nur
+     * solange noch niemand bestaetigt hat. Quelle der Arten ist ausschliesslich
+     * ProofTypes::needsHrConfirmation() — keine zweite Liste, die auseinanderlaufen kann.
+     */
+    public function scopeWartetAufBestaetigung(Builder $query): Builder
+    {
+        $arten = array_values(array_filter(ProofTypes::all(), fn (string $c) => ProofTypes::needsHrConfirmation($c)));
+
+        return $query->whereIn('proof_type_code', $arten)->whereNull('confirmed_at');
     }
 
     public function label(): string

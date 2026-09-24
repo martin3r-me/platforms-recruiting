@@ -11,9 +11,11 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ReissueContractService;
 use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
+use Platform\Recruiting\Support\ProofTypes;
 
 /**
  * HR-Backend Detail-Edit-View fuer einen RecEmployee.
@@ -106,6 +108,34 @@ class Show extends Component
             'values'    => array_values(array_map('strval', $values)),
             'synced_at' => $hr?->dispo_taetigkeiten_synced_at?->format('d.m.Y H:i'),
         ];
+    }
+
+    /**
+     * Nachweis-Uebersicht dieser Person (ueber ALLE ihre Anstellungen, siehe
+     * ProofReader). Reine Anzeige — die Bestaetigung fuer Aufenthaltstitel
+     * und Arbeitsgenehmigung sitzt bewusst NICHT hier, sondern ausschliesslich
+     * in der HR-Inbox (ProofInbox::bestaetige), damit es genau eine Stelle
+     * gibt, an der ein Mensch das tut.
+     *
+     * @return list<array{code:string, label:string, status:string, valid_until:?string, offen:bool, needs_confirmation:bool, confirmed_at:?string}>
+     */
+    #[Computed]
+    public function nachweisUebersicht(): array
+    {
+        $emp = $this->employee();
+        if ($emp === null) {
+            return [];
+        }
+
+        $reader = app(ProofReader::class);
+        $vorhanden = $reader->current($emp)->keyBy('proof_type_code');
+
+        return array_map(function (array $zeile) use ($vorhanden) {
+            $proof = $vorhanden->get($zeile['code']);
+            $zeile['needs_confirmation'] = ProofTypes::needsHrConfirmation($zeile['code']);
+            $zeile['confirmed_at'] = $proof?->confirmed_at?->format('d.m.Y H:i');
+            return $zeile;
+        }, $reader->checklist($emp));
     }
 
     #[Computed]

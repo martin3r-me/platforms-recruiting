@@ -62,6 +62,11 @@ Route::get('/employees/payroll-changes.csv', \Platform\Recruiting\Http\Controlle
     ->name('recruiting.employees.payroll-changes.csv');
 Route::get('/employees/contact-book', \Platform\Recruiting\Livewire\Employees\ContactBook::class)
     ->name('recruiting.employees.contact-book');
+// Nachweise-Inbox: was ist eingegangen, was wartet auf Bestaetigung. VOR der
+// {employee}-Wildcard-Route eingetragen, sonst wuerde "proof-inbox" als
+// employee-Parameter verschluckt.
+Route::get('/employees/proof-inbox', \Platform\Recruiting\Livewire\Employees\ProofInbox::class)
+    ->name('recruiting.employees.proof-inbox');
 Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show::class)
     ->name('recruiting.employees.show');
 Route::get('/employees/{employee}/files/{slot}', \Platform\Recruiting\Http\Controllers\EmployeeFileController::class)

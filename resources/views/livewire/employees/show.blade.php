@@ -445,6 +445,62 @@
                 </div>
             @endif
 
+            {{-- Nachweise (Selbstbedienung Portal + HR-Upload). Reine Anzeige — die
+                 Bestaetigung fuer Aufenthaltstitel/Arbeitsgenehmigung sitzt in der
+                 HR-Inbox (Mitarbeiter → Nachweise), nicht hier. --}}
+            @php $nachweise = $this->nachweisUebersicht; @endphp
+            @if(!empty($nachweise))
+                <div class="mt-6 p-4 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-semibold text-[var(--ui-secondary)]">Nachweise</h3>
+                        <a href="{{ route('recruiting.employees.proof-inbox') }}" wire:navigate
+                           class="text-xs text-[var(--ui-secondary)] hover:underline">
+                            Nachweise-Inbox
+                        </a>
+                    </div>
+                    <div class="space-y-1.5">
+                        @foreach($nachweise as $n)
+                            @php
+                                $badgeClass = match($n['status']) {
+                                    'abgelaufen' => 'bg-red-50 text-red-700 border-red-200',
+                                    'fehlt'      => 'bg-red-50 text-red-700 border-red-200',
+                                    'laeuft_ab'  => 'bg-amber-50 text-amber-700 border-amber-200',
+                                    default      => 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                                };
+                                $badgeLabel = match($n['status']) {
+                                    'abgelaufen' => 'Abgelaufen',
+                                    'fehlt'      => 'Fehlt',
+                                    'laeuft_ab'  => 'Läuft bald ab',
+                                    default      => 'OK',
+                                };
+                            @endphp
+                            <div class="flex items-center justify-between gap-3 p-2 bg-white border border-[var(--ui-border)]/60 rounded-md text-sm">
+                                <div class="flex items-center gap-2 flex-wrap min-w-0">
+                                    <span class="font-medium truncate">{{ $n['label'] }}</span>
+                                    @if($n['valid_until'])
+                                        <span class="text-xs text-[var(--ui-muted)]">bis {{ \Carbon\Carbon::parse($n['valid_until'])->format('d.m.Y') }}</span>
+                                    @endif
+                                    @if($n['needs_confirmation'])
+                                        @if($n['confirmed_at'])
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                bestätigt am {{ $n['confirmed_at'] }}
+                                            </span>
+                                        @else
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                                wartet auf Bestätigung
+                                            </span>
+                                        @endif
+                                    @endif
+                                </div>
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border flex-shrink-0 {{ $badgeClass }}">
+                                    {{ $badgeLabel }}
+                                </span>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             {{-- Offene Vertraege (ausgestellt, noch nicht unterschrieben) --}}
             @php $openContracts = $this->openContracts; @endphp
             @if(!empty($openContracts))

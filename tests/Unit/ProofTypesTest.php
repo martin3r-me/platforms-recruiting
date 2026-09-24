@@ -110,4 +110,22 @@ final class ProofTypesTest extends TestCase
         $this->assertNotContains('ersthelfer', $ohne);
         $this->assertContains('ersthelfer', $mit);
     }
+
+    /**
+     * Kundenvorgabe 22.09.2026: HR prueft ausschliesslich Lohnrelevantes.
+     * Nur an Aufenthaltstitel und Arbeitsgenehmigung haengt die harte
+     * Einsatzsperre — alles andere gilt mit dem Upload sofort als erledigt.
+     */
+    public function test_nur_aufenthaltstitel_und_arbeitsgenehmigung_verlangen_bestaetigung(): void
+    {
+        $this->assertTrue(ProofTypes::needsHrConfirmation('aufenthaltstitel'));
+        $this->assertTrue(ProofTypes::needsHrConfirmation('arbeitsgenehmigung'));
+
+        foreach (ProofTypes::all() as $code) {
+            if (in_array($code, ['aufenthaltstitel', 'arbeitsgenehmigung'], true)) {
+                continue;
+            }
+            $this->assertFalse(ProofTypes::needsHrConfirmation($code), "Art {$code} sollte KEINE Bestaetigung verlangen");
+        }
+    }
 }

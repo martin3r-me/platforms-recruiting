@@ -8,6 +8,11 @@
             ['label' => 'Recruiting', 'href' => route('recruiting.dashboard'), 'icon' => 'briefcase'],
             ['label' => 'Mitarbeiter'],
         ]">
+            <a href="{{ route('recruiting.employees.proof-inbox') }}" wire:navigate
+               class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--ui-secondary)] bg-white border border-[var(--ui-border)] hover:bg-[var(--ui-muted-5)] rounded-md transition">
+                @svg('heroicon-o-inbox-stack', 'w-4 h-4')
+                Nachweise
+            </a>
         </x-ui-page-actionbar>
     </x-slot>
 
