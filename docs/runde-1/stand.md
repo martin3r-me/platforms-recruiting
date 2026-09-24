@@ -91,6 +91,34 @@ Erreichbar unter `/recruiting/mitarbeiter/neu/{token}` — und nur fuer die, bei
 denen `portal_v2_since` steht. Alle anderen bekommen 404, als gaebe es die
 Seite nicht.
 
+### Fertig — Schritt 3, Selbstbedienung
+
+Fuenf Aufgaben, subagent-getrieben gebaut (Plan:
+`docs/superpowers/plans/2026-09-24-nachweise-selbstbedienung.md`): Regeln fuers
+Hochladen · Upload-Strecke im Portal · Fristenlauf-Planer mit Stichtag ·
+Versand und Kommando · HR-Sicht. Dazu Schlusspruefung ueber den ganzen Branch,
+eine Fix-Welle und die Korrekturen aus der Kundenrunde.
+
+42 Commits, 2.196 Tests gruen.
+
+**Was die Schlusspruefung gefunden hat und was daraus folgt** — der schwerste
+Fund war ein stiller Datenverlust: Der Spiegel schrieb die Rueckseiten-Spalte
+bedingungslos, das Portal hatte nur ein Dateifeld. Wer seinen Ausweis erneuerte,
+verlor die Rueckseite aus Export und Akte. Behoben, plus das zweite Dateifeld,
+plus der von Spec §12 verlangte Test, der die GANZE Mitarbeiterzeile
+vorher/nachher vergleicht.
+
+**Korrigiert aus der Kundenrunde:** Die Dateiauswahl erzwingt keine Kamera mehr
+(mein Planfehler). Aufenthaltstitel und Arbeitsgenehmigung koennen unbefristet
+sein. Die HR-Bestaetigung ist raus — sie hatte keine Wirkung.
+
+**Wichtige Korrektur an der Spec:** Der Satz „an denen die harte Einsatzsperre
+haengt" war falsch. Die Sperre gibt es fuer BEWERBER (LegalStatusGate), nicht
+fuer Mitarbeiter; die Spalten werden an acht Stellen gelesen, nirgends fuer eine
+Sperre. Eine Bestaetigung MIT Wirkung braeuchte: das Datum erst bei der
+Bestaetigung spiegeln statt sofort beim Upload. Spalten und Katalog-Methode
+bleiben dafuer stehen.
+
 ### Als Naechstes
 
 - **Canvas-Abgleich** — Canvas 67 beschreibt noch den Zuschnitt VOR dem
