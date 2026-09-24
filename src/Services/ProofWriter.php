@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeProof;
-use Platform\Recruiting\Support\PersonProofScope;
 use Platform\Recruiting\Support\ProofTypes;
 
 /**
@@ -89,28 +88,14 @@ final class ProofWriter
     }
 
     /**
-     * Wessen Nachweise gelten als die dieser Person — gleicher Marker UND
-     * gleiche Handynummer (PersonProofScope).
+     * Wessen Nachweise gelten als die dieser Person. Aufloesung liegt in
+     * PersonScopeResolver — dieselbe Stelle, die auch der Leseweg benutzt.
      *
      * @return array{ids: list<int>, abweichend: list<int>}
      */
     public function personScope(RecEmployee $employee): array
     {
-        $self = ['id' => (int) $employee->id, 'person_key' => $employee->person_key, 'phone' => $employee->phone];
-
-        $key = trim((string) $employee->person_key);
-        if ($key === '') {
-            return ['ids' => [(int) $employee->id], 'abweichend' => []];
-        }
-
-        $geschwister = DB::table('rec_employees')
-            ->where('person_key', $key)
-            ->where('id', '!=', $employee->id)
-            ->get(['id', 'person_key', 'phone'])
-            ->map(fn ($r) => ['id' => (int) $r->id, 'person_key' => $r->person_key, 'phone' => $r->phone])
-            ->all();
-
-        return PersonProofScope::resolve($self, $geschwister);
+        return (new PersonScopeResolver())->forEmployee($employee);
     }
 
     /**
