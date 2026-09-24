@@ -88,6 +88,57 @@
         }
         /* 16px ist Absicht: darunter zoomt iOS beim Antippen ins Feld hinein. */
 
+        /* ---------- Handy: die Seitenleiste des Entwurfs schlaeft ---------- */
+        .portal-body .brail { display: none }
+
+        /* Die zwei Listen stehen auf dem Handy untereinander. Der Entwurf
+           setzt .bcols von Haus aus zweispaltig — das gilt erst am Rechner. */
+        .portal-body .bcols { display: flex; flex-direction: column; gap: 17px }
+
+        /* ---------- Rechner: Seitenleiste statt Reiterleiste ----------
+           So sieht es im Entwurf aus (.bbody/.brail/.bmain). Dieselben
+           Bereiche, dasselbe Markup — nur ein anderes Gestell. */
+        @media (min-width: 900px) {
+            .portal-body .screen {
+                display: grid;
+                grid-template-columns: 240px minmax(0, 1fr);
+                max-width: 1120px;
+                height: calc(100dvh - 48px);
+                margin: 24px auto;
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                overflow: hidden;
+            }
+            /* Kopf- und Fussleiste sind die Handy-Fassung. */
+            .portal-body .screen > .appbar,
+            .portal-body .screen > .tabbar { display: none }
+            .portal-body .brail { display: flex }
+
+            /* min-height:0 ist Pflicht: ohne das waechst ein Grid-Kind an
+               seinem Inhalt und scrollt nicht, sondern schiebt. */
+            .portal-body .scroll { padding: 26px 30px 34px; gap: 19px; min-height: 0 }
+            .portal-body .brail { min-height: 0; overflow-y: auto }
+            .portal-body .greet h2 { font-size: 27px }
+            .portal-body .next { padding: 21px }
+            .portal-body .next h3 { font-size: 25px }
+
+            .portal-body .bcols {
+                display: grid;
+                grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+                align-items: start;
+                gap: 19px;
+            }
+        }
+
+        /* Die Navigationspunkte sind bei uns Knoepfe, im Entwurf waren es
+           unbedienbare Divs — die Knopf-Eigenheiten wegraeumen. */
+        .portal-body .rnav {
+            border: none; background: none; width: 100%;
+            font-family: var(--body); text-align: left; cursor: pointer;
+        }
+        .portal-body .rnav:hover { background: var(--surface-3) }
+        .portal-body .rnav.on:hover { background: var(--brand-tint) }
+
         /* --- Kleinigkeiten, die der Entwurf nicht kannte --- */
         /* Fehlermeldung der Anmeldung: rot, nicht gelb — .alert bringt von
            Haus aus den warnenden Ton mit. */

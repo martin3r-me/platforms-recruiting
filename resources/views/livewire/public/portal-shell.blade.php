@@ -95,6 +95,44 @@
             <div class="avatar">{{ $initialen }}</div>
         </div>
 
+
+        {{--
+            Desktop: Seitenleiste statt Reiterleiste. Das ist keine Erfindung —
+            der Entwurf bringt sie mit (.brail/.rnav/.bmain im Stilblock), ich
+            hatte sie zuerst fuer Deko der Praesentationsseite gehalten.
+            Dieselben Bereiche, derselbe Alpine-Zustand, nur anderes Gestell.
+        --}}
+        <aside class="brail">
+            <div class="logo">Rhein<span>Gedeck</span></div>
+            <button type="button" class="rnav" @click="tab = 'start'" :class="tab === 'start' && 'on'">
+                <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg> Start
+                @if ($offen > 0)
+                    <span class="n">{{ $offen }}</span>
+                @endif
+            </button>
+            <button type="button" class="rnav" @click="tab = 'jobs'" :class="tab === 'jobs' && 'on'">
+                <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg> Einsätze
+            </button>
+            <button type="button" class="rnav" @click="tab = 'docs'" :class="tab === 'docs' && 'on'">
+                <svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg> Dokumente
+            </button>
+            <button type="button" class="rnav" @click="tab = 'me'" :class="tab === 'me' && 'on'">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg> Profil
+            </button>
+            <div class="who">
+                <div class="avatar">{{ $initialen }}</div>
+                <div>
+                    <div class="nm">{{ $displayName }}</div>
+                    @php
+                        $ersteNummer = optional($anstellungen->first())->personnel_number;
+                    @endphp
+                    @if ($ersteNummer)
+                        <div class="sb">Personalnr. {{ $ersteNummer }}</div>
+                    @endif
+                </div>
+            </div>
+        </aside>
+
         <div class="scroll">
 
             {{-- ---------------- START ---------------- --}}
@@ -104,6 +142,30 @@
                     <p>{{ $untertitel }}</p>
                 </div>
 
+                {{--
+                    Der dunkle Block ist im Entwurf „Dein naechster Einsatz".
+                    Den gibt es noch nicht (Schritt 4). Statt ihn leer zu lassen
+                    oder einen Termin zu erfinden, steht hier der Stand der
+                    Unterlagen — die Frage, die der Start-Bildschirm heute
+                    beantwortet. Wenn die Einsaetze kommen, nehmen sie diesen
+                    Platz und der Stand rutscht darunter.
+                --}}
+                <div class="next">
+                    <div class="kicker">{{ $duzen ? 'Deine Unterlagen' : 'Ihre Unterlagen' }}</div>
+                    @if ($offen === 0)
+                        <h3>Alles vollständig</h3>
+                        <div class="when">
+                            {{ $duzen
+                                ? 'Wir haben alles, was wir von dir brauchen. Läuft etwas ab, melden wir uns rechtzeitig.'
+                                : 'Wir haben alles, was wir von Ihnen brauchen. Läuft etwas ab, melden wir uns rechtzeitig.' }}
+                        </div>
+                    @else
+                        <h3>{{ $offen === 1 ? 'Ein Punkt offen' : $offen . ' Punkte offen' }}</h3>
+                        <div class="when">{{ $offeneAufgaben[0]['label'] }} — {{ $offeneAufgaben[0]['text'] }}</div>
+                    @endif
+                </div>
+
+                <div class="bcols">
                 @if ($offen > 0)
                     <div>
                         <div class="sec-label">Das fehlt noch <span class="count">{{ $offen }}</span></div>
@@ -138,6 +200,7 @@
                         </div>
                     </div>
                 @endif
+                </div>
             </div>
 
             {{-- ---------------- EINSAETZE ---------------- --}}
