@@ -200,46 +200,6 @@ final class PortalShellUploadTest extends TestCase
         $this->assertSame('2032-01-31', $nachweis->valid_until->toDateString());
     }
 
-    /**
-     * Kundenfeedback 24.09.2026: eine Niederlassungserlaubnis laeuft nicht ab.
-     * Mit dem Haekchen "unbefristet" speichert der Aufenthaltstitel ohne
-     * Ablaufdatum — sonst muesste der Mensch ein erfundenes Datum eintragen,
-     * das spaeter eine falsche Erinnerung und einen falschen ZAS-Ablauf
-     * ausloest.
-     */
-    public function test_unbefristeter_aufenthaltstitel_speichert_ohne_datum(): void
-    {
-        $ma = $this->angemeldeterMitarbeiter();
-        $shell = $this->shell($ma);
-
-        $shell->oeffneUpload('aufenthaltstitel');
-        $shell->uploadUnbefristet = true;
-        $shell->uploadDatei = UploadedFile::fake()->image('titel.jpg');
-        $shell->speichereNachweis();
-
-        $this->assertSame('', $shell->uploadFehler);
-        $nachweis = RecEmployeeProof::where('rec_employee_id', $ma->id)->aktuell()->first();
-        $this->assertSame('aufenthaltstitel', $nachweis->proof_type_code);
-        $this->assertNull($nachweis->valid_until);
-        $this->assertNull(DB::table('rec_employees')->find($ma->id)->residence_permit_valid_until,
-            'unbefristet ist die Aussage — nicht "keine Aussage" wie bei der fehlenden Rueckseite');
-    }
-
-    /** Bei Arten ohne "unbefristet" bleibt es dabei: ohne Datum keine Speicherung. */
-    public function test_unbefristet_geht_bei_ausweis_nicht(): void
-    {
-        $ma = $this->angemeldeterMitarbeiter();
-        $shell = $this->shell($ma);
-
-        $shell->oeffneUpload('ausweis');
-        $shell->uploadUnbefristet = true;   // manipuliert, ausweis kennt das Haekchen gar nicht
-        $shell->uploadDatei = UploadedFile::fake()->image('ausweis.jpg');
-        $shell->speichereNachweis();
-
-        $this->assertNotSame('', $shell->uploadFehler);
-        $this->assertSame(0, RecEmployeeProof::count());
-    }
-
     public function test_falsches_datum_legt_nichts_an(): void
     {
         $ma = $this->angemeldeterMitarbeiter();

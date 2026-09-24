@@ -126,12 +126,14 @@ final class ProofWriter
 
         $ablaufSpalte = ProofTypes::legacyExpiryColumn($code);
         if ($ablaufSpalte !== null) {
-            // Bei "unbefristet" (nur aufenthaltstitel/arbeitsgenehmigung,
-            // ProofTypes::kannUnbefristetSein()) ist $proof->valid_until
-            // ABSICHTLICH null, und das landet hier ABSICHTLICH auch in der
-            // Altspalte. Anders als bei der fehlenden Rueckseite oben ist null
-            // hier NICHT "keine Aussage" — es ist die Aussage selbst ("laeuft
-            // nicht ab"). NICHT zurueckdrehen zu "null ueberspringen".
+            // $proof->valid_until kann hier null sein, obwohl die Art laut
+            // Katalog ein Ablaufdatum hat: die Karte traegt immer ein Datum,
+            // das Portal verlangt es zwingend (ProofUploadRules) — ein
+            // "unbefristet"-Haekchen, das null als eigene Aussage speichert,
+            // gibt es bewusst NICHT (Kundenfeedback 24.09.2026, verworfen).
+            // Null kommt hier ausschliesslich aus dem Umzug der Altdaten, der
+            // eine leere Spalte unveraendert uebernimmt — keine Aussage, nur
+            // eine Luecke, wie bei der fehlenden Rueckseite oben.
             $update[$ablaufSpalte] = $proof->valid_until?->toDateString();
         }
 

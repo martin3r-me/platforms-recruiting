@@ -17,20 +17,8 @@ final class ProofUploadRules
     public const MAX_KB = 12288;   // 12 MB, ein iPhone-Foto liegt bei 3-5
     public const MAX_JAHRE = 10;
 
-    /**
-     * Klartext-Grund, warum das Datum nicht geht — oder null, wenn alles passt.
-     *
-     * $unbefristet: Kundenfeedback 24.09.2026. Nur bei Arten, die laut Katalog
-     * unbefristet sein KOENNEN (ProofTypes::kannUnbefristetSein(), aktuell
-     * Aufenthaltstitel und Arbeitsgenehmigung), laesst ein gesetztes
-     * "unbefristet" ein leeres Datum durch — sonst muesste der Betroffene ein
-     * erfundenes Ablaufdatum eintragen, das spaeter eine falsche Erinnerung
-     * und einen falschen ZAS-Ablauf ausloest. Bei allen anderen Arten wird
-     * ein gesetztes $unbefristet abgewiesen, auch wenn es nur ueber ein
-     * manipuliertes $wire.set gesetzt worden sein kann — Verteidigung, keine
-     * erwartete Oberflaechen-Eingabe.
-     */
-    public static function pruefeDatum(string $code, ?string $datum, string $heute, bool $unbefristet = false): ?string
+    /** Klartext-Grund, warum das Datum nicht geht — oder null, wenn alles passt. */
+    public static function pruefeDatum(string $code, ?string $datum, string $heute): ?string
     {
         if (!ProofTypes::exists($code)) {
             return 'Diese Nachweisart kennen wir nicht.';
@@ -41,12 +29,6 @@ final class ProofUploadRules
 
         if (!$hatAblauf) {
             return $roh === '' ? null : 'Diese Unterlage hat kein Ablaufdatum.';
-        }
-
-        if ($unbefristet) {
-            return ProofTypes::kannUnbefristetSein($code)
-                ? null
-                : 'Diese Nachweisart kann nicht unbefristet sein.';
         }
 
         if ($roh === '') {

@@ -128,12 +128,15 @@ final class ProofChecklistTest extends TestCase
     }
 
     /**
-     * Kundenfeedback 24.09.2026: "unbefristet" speichert valid_until = null —
-     * bei einer Art MIT Ablauf (anders als selfie/krankenkasse, die von Haus
-     * aus keinen Ablauf kennen). Das ist hier keine Dauer-Aufgabe, sondern
-     * eine bewusste Aussage ("laeuft nicht ab") und gilt als erledigt.
+     * Ein Nachweis mit einer Art, die MIT Ablauf gilt (anders als
+     * selfie/krankenkasse, die von Haus aus keinen Ablauf kennen), kann
+     * trotzdem ohne Datum in der Tabelle stehen: Der Umzug der Altdaten
+     * uebernimmt eine leere Spalte unveraendert — es gibt seit dem Revert vom
+     * 24.09.2026 keinen Weg mehr, das ueber das Portal ("unbefristet"-Haekchen,
+     * verworfen) neu zu erzeugen. Dieser Zustand kann also weiterhin
+     * entstehen und muss weiterhin als OK gelten, nicht als offene Aufgabe.
      */
-    public function test_unbefristeter_nachweis_gilt_als_ok(): void
+    public function test_nachweis_ohne_datum_aus_altbestand_gilt_als_ok(): void
     {
         $liste = ProofChecklist::build(['aufenthaltstitel'], [$this->nachweis('aufenthaltstitel', null)], self::HEUTE);
 

@@ -29,93 +29,75 @@ final class ProofTypes
      * ablauf_spalte Altspalte dafuer — null heisst: nur bei uns, nicht in ZAS
      * vorlauf       Tage vor Ablauf, ab denen erinnert wird (Kundenvorgabe 22.09.:
      *               Aufenthaltstitel und Arbeitsgenehmigung 60, alles andere 30)
-     * unbefristet   kann diese Art ganz ohne Ablauf gelten (Niederlassungs-
-     *               erlaubnis, manche Arbeitserlaubnis)? Kundenfeedback
-     *               24.09.2026: NUR aufenthaltstitel und arbeitsgenehmigung —
-     *               ein Pass, ein Visum, eine Fiktionsbescheinigung, eine
-     *               Schulbescheinigung und ein Ersthelferschein laufen immer ab.
      */
     private const TYPES = [
         'ausweis' => [
             'label' => 'Personalausweis oder Reisepass', 'gruppe' => 'immer',
             'dateien' => ['identity_card_front_file_id', 'identity_card_back_file_id'],
             'ablauf' => true, 'ablauf_spalte' => 'identity_card_valid_until', 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
         'selfie' => [
             'label' => 'Foto von dir', 'gruppe' => 'immer',
             'dateien' => ['selfie_file_id'],
             'ablauf' => false, 'ablauf_spalte' => null, 'vorlauf' => null,
-            'unbefristet' => false,
         ],
         'krankenkasse' => [
             'label' => 'Krankenkassenkarte', 'gruppe' => 'immer',
             'dateien' => ['health_insurance_card_file_id'],
             'ablauf' => false, 'ablauf_spalte' => null, 'vorlauf' => null,
-            'unbefristet' => false,
         ],
         'iban_nachweis' => [
             'label' => 'Nachweis deiner Bankverbindung', 'gruppe' => 'immer',
             'dateien' => [],
             'ablauf' => false, 'ablauf_spalte' => null, 'vorlauf' => null,
-            'unbefristet' => false,
         ],
 
         'nationalpass' => [
             'label' => 'Nationalpass', 'gruppe' => 'nicht_eu',
             'dateien' => ['nationalpass_file_id'],
             'ablauf' => true, 'ablauf_spalte' => null, 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
         'aufenthaltstitel' => [
             'label' => 'Aufenthaltstitel', 'gruppe' => 'nicht_eu',
             'dateien' => ['aufenthaltstitel_front_file_id', 'aufenthaltstitel_back_file_id'],
             'ablauf' => true, 'ablauf_spalte' => 'residence_permit_valid_until', 'vorlauf' => 60,
-            'unbefristet' => true,
         ],
         'visum' => [
             'label' => 'Visumsblatt', 'gruppe' => 'nicht_eu',
             'dateien' => ['visumsblatt_file_id'],
             'ablauf' => true, 'ablauf_spalte' => null, 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
         'arbeitsgenehmigung' => [
             'label' => 'Zusatzblatt Arbeitsgenehmigung', 'gruppe' => 'nicht_eu',
             'dateien' => ['zusatzblatt_file_id', 'zusatzblatt_back_file_id'],
             'ablauf' => true, 'ablauf_spalte' => 'work_permit_valid_until', 'vorlauf' => 60,
-            'unbefristet' => true,
         ],
         'fiktionsbescheinigung' => [
             'label' => 'Fiktionsbescheinigung', 'gruppe' => 'nicht_eu',
             'dateien' => ['fiktionsbescheinigung_front_file_id', 'fiktionsbescheinigung_back_file_id'],
             'ablauf' => true, 'ablauf_spalte' => null, 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
 
         'schulbescheinigung' => [
             'label' => 'Schulbescheinigung', 'gruppe' => 'beschaeftigungsart',
             'dateien' => ['schulbescheinigung_file_id'],
             'ablauf' => true, 'ablauf_spalte' => 'school_certificate_valid_until', 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
         'immatrikulation' => [
             'label' => 'Immatrikulationsbescheinigung', 'gruppe' => 'beschaeftigungsart',
             'dateien' => ['immatrikulation_file_id'],
             'ablauf' => true, 'ablauf_spalte' => 'school_certificate_valid_until', 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
 
         'erstbescheinigung' => [
             'label' => 'Erstbescheinigung nach Infektionsschutzgesetz', 'gruppe' => 'taetigkeit',
             'dateien' => ['erstbescheinigung_file_id'],
             'ablauf' => true, 'ablauf_spalte' => 'infection_protection_valid_until', 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
         'ersthelfer' => [
             'label' => 'Ersthelferschein', 'gruppe' => 'taetigkeit',
             'dateien' => ['first_aider_certificate_file_id'],
             'ablauf' => true, 'ablauf_spalte' => 'first_aider_valid_until', 'vorlauf' => 30,
-            'unbefristet' => false,
         ],
     ];
 
@@ -163,19 +145,6 @@ final class ProofTypes
     public static function leadDays(string $code): ?int
     {
         return self::TYPES[$code]['vorlauf'] ?? null;
-    }
-
-    /**
-     * Kann diese Art unbefristet gelten (kein Ablaufdatum, valid_until=null als
-     * Aussage statt Luecke)? Kundenfeedback 24.09.2026: NUR Aufenthaltstitel
-     * und Arbeitsgenehmigung — eine Niederlassungserlaubnis oder manche
-     * Arbeitserlaubnis laeuft nicht ab. Alle anderen Arten mit Ablauf (Pass,
-     * Visum, Fiktionsbescheinigung, Schulbescheinigung, Ersthelferschein)
-     * laufen immer ab.
-     */
-    public static function kannUnbefristetSein(string $code): bool
-    {
-        return (bool) (self::TYPES[$code]['unbefristet'] ?? false);
     }
 
     /**

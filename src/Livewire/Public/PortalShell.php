@@ -62,14 +62,6 @@ class PortalShell extends Component
      */
     public ?string $uploadCode = null;
     public string $uploadGueltigBis = '';
-    /**
-     * "Der Titel ist unbefristet" — nur bei Arten mit
-     * ProofTypes::kannUnbefristetSein() (Aufenthaltstitel, Arbeitsgenehmigung)
-     * ueberhaupt in der Ansicht sichtbar. Angehakt verschwindet das
-     * Datumsfeld und valid_until wird als null gespeichert — die bewusste
-     * Aussage "laeuft nicht ab" (Kundenfeedback 24.09.2026).
-     */
-    public bool $uploadUnbefristet = false;
     public $uploadDatei = null;
     /**
      * Zweite, OPTIONALE Datei fuer die vier zweiseitigen Arten (Ausweis,
@@ -213,7 +205,6 @@ class PortalShell extends Component
     {
         $this->uploadCode = ProofTypes::exists($code) ? $code : null;
         $this->uploadGueltigBis = '';
-        $this->uploadUnbefristet = false;
         $this->uploadDatei = null;
         $this->uploadDateiRueckseite = null;
         $this->uploadFehler = '';
@@ -224,7 +215,6 @@ class PortalShell extends Component
     {
         $this->uploadCode = null;
         $this->uploadGueltigBis = '';
-        $this->uploadUnbefristet = false;
         $this->uploadDatei = null;
         $this->uploadDateiRueckseite = null;
         $this->uploadFehler = '';
@@ -248,7 +238,6 @@ class PortalShell extends Component
             $this->uploadCode,
             $this->uploadGueltigBis,
             now()->toDateString(),
-            $this->uploadUnbefristet,
         );
         if ($fehler !== null) {
             $this->uploadFehler = $fehler;
@@ -302,12 +291,7 @@ class PortalShell extends Component
             // null heisst hier ausdruecklich „keine Aussage" — ProofWriter
             // laesst eine vorhandene Rueckseite dann in Ruhe (M1).
             'file_back_id' => $ergebnisRueckseite !== null ? (int) $ergebnisRueckseite['id'] : null,
-            // "unbefristet" ist der GEGENTEILIGE Fall: null ist hier die
-            // Aussage selbst ("laeuft nicht ab"), nicht "keine Aussage" —
-            // siehe Kommentar in ProofWriter::mirrorToLegacyColumns().
-            'valid_until'  => ProofTypes::hasExpiry($this->uploadCode) && !$this->uploadUnbefristet
-                ? $this->uploadGueltigBis
-                : null,
+            'valid_until'  => ProofTypes::hasExpiry($this->uploadCode) ? $this->uploadGueltigBis : null,
             'uploaded_via' => 'employee',
         ]);
 
@@ -315,7 +299,6 @@ class PortalShell extends Component
         $this->uploadDatei = null;
         $this->uploadDateiRueckseite = null;
         $this->uploadGueltigBis = '';
-        $this->uploadUnbefristet = false;
         $this->uploadFehler = '';
     }
 
@@ -331,9 +314,6 @@ class PortalShell extends Component
             'anstellungen'    => $employee ? $this->anstellungen($employee) : collect(),
             'uploadLabel'     => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
             'uploadHatAblauf' => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),
-            // Nur bei diesen zwei Arten zeigt sich das Haekchen "unbefristet"
-            // ueberhaupt (Kundenfeedback 24.09.2026).
-            'uploadKannUnbefristet' => $this->uploadCode !== null && ProofTypes::kannUnbefristetSein($this->uploadCode),
             // Zwei Altspalten = Vorder- und Rueckseite. Der Katalog ist die
             // einzige Stelle, die das weiss — keine zweite Liste hier.
             'uploadHatRueckseite' => $this->uploadCode !== null

@@ -130,23 +130,4 @@ final class ProofTypesTest extends TestCase
             $this->assertFalse(ProofTypes::needsHrConfirmation($code), "Art {$code} sollte KEINE Bestaetigung verlangen");
         }
     }
-
-    /**
-     * Kundenfeedback 24.09.2026: eine Niederlassungserlaubnis oder manche
-     * Arbeitserlaubnis laeuft nicht ab. Nur diese zwei Arten koennen
-     * unbefristet sein — ein Pass, ein Visum, eine Fiktionsbescheinigung,
-     * eine Schulbescheinigung und ein Ersthelferschein laufen immer ab.
-     */
-    public function test_nur_aufenthaltstitel_und_arbeitsgenehmigung_koennen_unbefristet_sein(): void
-    {
-        $this->assertTrue(ProofTypes::kannUnbefristetSein('aufenthaltstitel'));
-        $this->assertTrue(ProofTypes::kannUnbefristetSein('arbeitsgenehmigung'));
-
-        foreach (ProofTypes::all() as $code) {
-            if (in_array($code, ['aufenthaltstitel', 'arbeitsgenehmigung'], true)) {
-                continue;
-            }
-            $this->assertFalse(ProofTypes::kannUnbefristetSein($code), "Art {$code} sollte NICHT unbefristet sein koennen");
-        }
-    }
 }

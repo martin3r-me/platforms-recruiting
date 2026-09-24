@@ -112,12 +112,15 @@ final class ProofReminderPlannerTest extends TestCase
     }
 
     /**
-     * Kundenfeedback 24.09.2026: "unbefristet" speichert valid_until = null bei
-     * einer Art, die grundsaetzlich einen Ablauf hat (aufenthaltstitel, anders
-     * als 'selfie' im Test oben, das von Haus aus keinen Ablauf kennt). Ohne
-     * Datum gibt es nichts, wofuer eine Erinnerung faellig werden koennte.
+     * Ein Nachweis kann ohne Datum in der Tabelle stehen, obwohl seine Art
+     * grundsaetzlich einen Ablauf hat (aufenthaltstitel, anders als 'selfie'
+     * im Test oben, das von Haus aus keinen Ablauf kennt): Der Umzug der
+     * Altdaten uebernimmt eine leere Spalte unveraendert — ein Weg, das ueber
+     * das Portal zu erzeugen ("unbefristet"-Haekchen), gibt es seit dem
+     * Revert vom 24.09.2026 nicht mehr. Ohne Datum gibt es aber weiterhin
+     * nichts, wofuer eine Erinnerung faellig werden koennte.
      */
-    public function test_unbefristeter_nachweis_wird_nie_erinnert(): void
+    public function test_nachweis_ohne_datum_aus_altbestand_wird_nie_erinnert(): void
     {
         $plan = ProofReminderPlanner::plan(
             [$this->nachweis(['proof_type_code' => 'aufenthaltstitel', 'valid_until' => null])],

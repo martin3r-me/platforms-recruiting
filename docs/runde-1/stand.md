@@ -109,8 +109,21 @@ plus der von Spec §12 verlangte Test, der die GANZE Mitarbeiterzeile
 vorher/nachher vergleicht.
 
 **Korrigiert aus der Kundenrunde:** Die Dateiauswahl erzwingt keine Kamera mehr
-(mein Planfehler). Aufenthaltstitel und Arbeitsgenehmigung koennen unbefristet
-sein. Die HR-Bestaetigung ist raus — sie hatte keine Wirkung.
+(mein Planfehler). Die HR-Bestaetigung ist raus — sie hatte keine Wirkung.
+
+**Verworfen, noch am selben Tag: Haekchen „unbefristet" bei Aufenthaltstitel
+und Arbeitsgenehmigung.** Kurz gebaut (Commit 3f3a746), dann wieder ausgebaut
+(revert-Commit) — unbefristet ist der STATUS, nicht die KARTE. Eine
+Niederlassungserlaubnis laeuft nicht ab, aber der elektronische
+Aufenthaltstitel, den der Mensch in der Hand haelt, traegt trotzdem ein
+„gueltig bis", in der Regel zehn Jahre. Wer das Dokument fotografiert, liest
+also immer ein Datum ab, und die Karte muss vor Ablauf erneuert werden, auch
+wenn der Status bleibt — eine Erinnerung ist dort richtig, nicht falsch. Ein
+Nachweis ohne Datum waere eine Zeile, die nie wieder angefasst wird.
+ProofChecklist und ProofReminderPlanner behandeln einen Nachweis ohne Datum
+trotzdem richtig (OK-Status, keine Erinnerung) — dieser Fall bleibt moeglich,
+er kommt jetzt aber aus dem Umzug der Altdaten (leere Spalte, unveraendert
+uebernommen), nicht mehr aus einem Haekchen im Portal.
 
 **Wichtige Korrektur an der Spec:** Der Satz „an denen die harte Einsatzsperre
 haengt" war falsch. Die Sperre gibt es fuer BEWERBER (LegalStatusGate), nicht
