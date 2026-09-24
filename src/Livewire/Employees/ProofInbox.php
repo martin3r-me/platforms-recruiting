@@ -13,17 +13,28 @@ use Platform\Recruiting\Support\ProofTypes;
  * HR-Sicht auf Nachweise: was ist eingegangen, was ist offen.
  *
  * Kundenvorgabe 22.09.2026: HR prueft AUSSCHLIESSLICH Lohnrelevantes — ein
- * Nachweis-Upload gilt sofort als erledigt. Die einzige Ausnahme sind
- * Aufenthaltstitel und Arbeitsgenehmigung, an denen die harte Einsatzsperre
- * haengt; nur dort schaut ein Mensch auf das Datum und bestaetigt es
- * (ProofTypes::needsHrConfirmation()). Es gibt bewusst KEINEN allgemeinen
- * Freigabe-Arbeitsvorrat fuer alles andere — genau das soll dieses Projekt
+ * Nachweis-Upload gilt sofort als erledigt. Es gibt bewusst KEINEN
+ * allgemeinen Freigabe-Arbeitsvorrat — genau das soll dieses Projekt
  * abschaffen.
  *
- * Zwei Listen, eine Bestaetigungsstelle:
- *  - neuEingegangen()        reine Anzeige, jeder Nachweistyp, neueste zuerst
- *  - wartetAufBestaetigung() nur die zwei Pflicht-Arten ohne confirmed_at —
- *                            hier und NUR hier sitzt der Bestaetigen-Button
+ * Korrektur K3 (24.09.2026): Es gibt HIER KEINE Bestaetigung mit Wirkung
+ * (mehr). Der urspruengliche Plan war, dass HR bei Aufenthaltstitel und
+ * Arbeitsgenehmigung das Datum bestaetigt, weil daran die harte
+ * Einsatzsperre haengt — das war ein Denkfehler: die Sperre gibt es nur fuer
+ * BEWERBER (LegalStatusGate), nicht fuer Mitarbeiter, und
+ * residence_permit_valid_until/work_permit_valid_until werden nirgends im
+ * Modul fuer eine Sperre gelesen. Ein Upload spiegelt sein Datum SOFORT in
+ * die Akte und den ZAS-Export; eine Bestaetigung danach haette also nichts
+ * mehr zu verhindern. Eine Oberflaeche, die eine Kontrolle verspricht, die es
+ * nicht gibt, ist schlechter als keine — deshalb wurde der Bestaetigen-Knopf
+ * samt bestaetige()-Aktion entfernt.
+ *
+ * Zwei Listen, beide reine Anzeige, kein Handlungsbedarf:
+ *  - neuEingegangen()        jeder Nachweistyp, neueste zuerst
+ *  - wartetAufBestaetigung() Aufenthaltstitel und Arbeitsgenehmigung "zur
+ *                            Kenntnis" — HR soll sehen, wenn ein neuer
+ *                            Aufenthaltstitel oder eine Arbeitsgenehmigung
+ *                            eingegangen ist, muss hier aber nichts tun.
  */
 class ProofInbox extends Component
 {
@@ -37,8 +48,6 @@ class ProofInbox extends Component
      * ist jeder ungeprueft laufende Nachweis relevant, egal woher er kommt.
      */
     private const PRO_SEITE = 25;
-
-    public ?string $flash = null;
 
     /**
      * Die zuletzt eingegangenen Nachweise, neueste zuerst — reine Anzeige,
@@ -68,9 +77,10 @@ class ProofInbox extends Component
     }
 
     /**
-     * Die eine Stelle, an der ein Mensch etwas bestaetigen muss: Aufenthaltstitel
-     * und Arbeitsgenehmigung ohne confirmed_at. Dringendste zuerst — dringend
-     * heisst hier: laeuft am schnellsten ab (valid_until aufsteigend, offene
+     * Aufenthaltstitel und Arbeitsgenehmigung "zur Kenntnis" — REINE Anzeige,
+     * kein Handlungsbedarf (Korrektur K3, siehe Klassendoku: es gibt keine
+     * Einsatzsperre, die daran haengt). Dringendste zuerst — dringend heisst
+     * hier: laeuft am schnellsten ab (valid_until aufsteigend, offene
      * Ablaufdaten zuletzt).
      *
      * Blaettert (PRO_SEITE): am Umzugstag kann diese Liste dreistellig
@@ -90,65 +100,6 @@ class ProofInbox extends Component
             ->orderByRaw('valid_until IS NULL, valid_until ASC')
             ->paginate(self::PRO_SEITE)
             ->through(fn (RecEmployeeProof $p) => $this->row($p));
-    }
-
-    /**
-     * Bestaetigt einen Nachweis — setzt confirmed_by_user_id + confirmed_at.
-     *
-     * Schreibt ueber den Query-Builder an Eloquent vorbei (wie ProofWriter):
-     * rec_employee_proofs hat keinen Export-Observer, rec_employees wird hier
-     * gar nicht angefasst — kein zas_changed_at, kein Export-Marker.
-     *
-     * Waechter:
-     *  - Team-Scope serverseitig neu geprueft, nicht nur in der Liste gefiltert
-     *    (ein manipulierter wire:click darf kein fremdes Mandat treffen).
-     *  - Nur die zwei Pflicht-Arten duerfen bestaetigt werden.
-     *  - Atomar statt nur idempotent: die Bedingung confirmed_at IS NULL steht
-     *    IM Update selbst, nicht nur in einer vorherigen Lese-Pruefung — sonst
-     *    kommen zwei gleichzeitige Klicks (zwei HR-Leute auf denselben
-     *    abgelaufenen Aufenthaltstitel) beide an der Pruefung vorbei, und der
-     *    zweite ueberschreibt confirmed_by_user_id/confirmed_at des ersten.
-     *    Muster wie NotifyWaitlistForInterview::notifyEntries() — nur wer die
-     *    Zeile mit dem Update "gewinnt" (1 betroffene Zeile), hat bestaetigt.
-     */
-    public function bestaetige(int $proofId): void
-    {
-        $teamId = auth()->user()->currentTeam->id;
-
-        $proof = RecEmployeeProof::query()
-            ->aktuell()
-            ->where('id', $proofId)
-            ->where('team_id', $teamId)
-            ->first();
-
-        if ($proof === null) {
-            $this->flash = 'Nachweis nicht gefunden.';
-            return;
-        }
-        if (!ProofTypes::needsHrConfirmation($proof->proof_type_code)) {
-            $this->flash = 'Diese Art braucht keine Bestaetigung.';
-            return;
-        }
-
-        $betroffen = RecEmployeeProof::query()
-            ->where('id', $proof->id)
-            ->where('team_id', $teamId)
-            ->whereNull('confirmed_at')
-            ->update([
-                'confirmed_by_user_id' => auth()->id(),
-                'confirmed_at'         => now(),
-            ]);
-
-        if ($betroffen !== 1) {
-            // Jemand war schneller — die erste Bestaetigung bleibt stehen,
-            // das ist die Audit-Spur. Kein zweites Schreiben.
-            $this->flash = 'War schon bestaetigt.';
-            unset($this->wartetAufBestaetigung, $this->neuEingegangen);
-            return;
-        }
-
-        $this->flash = 'Bestaetigt.';
-        unset($this->wartetAufBestaetigung, $this->neuEingegangen);
     }
 
     /** @return array{id:int, employee_id:int, name:string, label:string, valid_until:?string, created_at:string, needs_confirmation:bool, confirmed:bool, confirmed_by:?string, confirmed_at_human:?string} */

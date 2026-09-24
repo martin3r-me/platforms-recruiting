@@ -11,16 +11,21 @@ use Platform\Recruiting\Livewire\Employees\ProofInbox;
 use Platform\Recruiting\Support\ProofTypes;
 
 /**
- * HR-SICHT AUF NACHWEISE (Task 5, 24.09.2026).
+ * HR-SICHT AUF NACHWEISE (Task 5, 24.09.2026; Korrektur K3 24.09.2026).
  *
  * Kundenvorgabe 22.09.2026: HR prueft AUSSCHLIESSLICH Lohnrelevantes — ein
- * Nachweis-Upload gilt sofort als erledigt. Die EINZIGE Ausnahme sind
- * Aufenthaltstitel und Arbeitsgenehmigung, an denen die harte Einsatzsperre
- * haengt; nur dort bestaetigt ein Mensch das Datum. Es gibt bewusst KEINEN
+ * Nachweis-Upload gilt sofort als erledigt. Es gibt bewusst KEINEN
  * allgemeinen Freigabe-Arbeitsvorrat — das waere genau die Arbeit, die dieses
  * Projekt abschaffen soll.
  *
- * Geprueft wird die Datenseite der Komponente (Computed-Methoden + Aktion),
+ * Korrektur K3: die Bestaetigen-Aktion (bestaetige()) ist aus der Komponente
+ * entfernt — sie hatte keine Wirkung (keine Einsatzsperre haengt an
+ * residence_permit_valid_until/work_permit_valid_until, kein Konsument von
+ * confirmed_at im ganzen Modul). wartetAufBestaetigung() bleibt als REINE
+ * Anzeige stehen: HR soll sehen, wenn ein neuer Aufenthaltstitel oder eine
+ * Arbeitsgenehmigung eingegangen ist — ohne Handlungsversprechen.
+ *
+ * Geprueft wird die Datenseite der Komponente (Computed-Methoden),
  * nicht das Markup — wie im Rest der Suite (siehe EmployeeActivityLogTest).
  */
 final class ProofInboxTest extends TestCase
@@ -220,115 +225,6 @@ final class ProofInboxTest extends TestCase
         $this->assertTrue(ProofTypes::needsHrConfirmation('arbeitsgenehmigung'));
         $this->assertFalse(ProofTypes::needsHrConfirmation('ausweis'));
         $this->assertFalse(ProofTypes::needsHrConfirmation('selfie'));
-    }
-
-    public function test_bestaetigen_setzt_keinen_export_marker(): void
-    {
-        $id = $this->proof(['proof_type_code' => 'aufenthaltstitel', 'valid_until' => '2027-01-01']);
-
-        $this->component()->bestaetige($id);
-
-        $proof = Capsule::table('rec_employee_proofs')->find($id);
-        $this->assertNotNull($proof->confirmed_at, 'Bestaetigung wurde gesetzt');
-        $this->assertSame(self::HR_USER_ID, (int) $proof->confirmed_by_user_id);
-
-        $employee = Capsule::table('rec_employees')->find(900);
-        $this->assertNull($employee->zas_changed_at, 'Bestaetigen darf keinen ZAS-Export-Marker setzen');
-    }
-
-    // ---- Ergaenzungen: wer darf bestaetigen, doppelte Bestaetigung, Mandat ----
-
-    public function test_nur_pflicht_arten_koennen_bestaetigt_werden(): void
-    {
-        // ausweis braucht laut Kundenvorgabe KEINE Bestaetigung — ein Aufruf
-        // darauf darf trotzdem nichts kaputt machen, aber auch nichts setzen.
-        $id = $this->proof(['proof_type_code' => 'ausweis']);
-
-        $this->component()->bestaetige($id);
-
-        $proof = Capsule::table('rec_employee_proofs')->find($id);
-        $this->assertNull($proof->confirmed_at, 'ausweis ist nicht bestaetigungspflichtig');
-    }
-
-    /**
-     * Fixrunde 1 (Befund 1, Important), Teil 1: der Schwarzkasten-Fall.
-     * Zwei EIGENE Komponenteninstanzen fuer zwei verschiedene HR-Personen,
-     * ZWEI VOLLSTAENDIGE, NACHEINANDER laufende bestaetige()-Aufrufe. PHPUnit
-     * ist einfaedig — das ist also der sequentielle Doppelklick-Fall, keine
-     * echte Gleichzeitigkeit (dafuer siehe den naechsten Test). Trotzdem ein
-     * sinnvoller Test: er haette schon die ALTE, rein PHP-seitige Pruefung
-     * ("confirmed_at === null? dann schreiben") bestanden — beweist also nur
-     * die Verdrahtung, nicht die Atomaritaet selbst.
-     */
-    public function test_zweiter_vollstaendiger_bestaetigen_aufruf_ueberschreibt_den_ersten_nicht(): void
-    {
-        $id = $this->proof(['proof_type_code' => 'arbeitsgenehmigung', 'valid_until' => '2027-06-01']);
-
-        $ersteKomponente = new ProofInbox();
-        $zweiteKomponente = new ProofInbox();
-
-        $this->setAuth(self::HR_USER_ID);
-        $ersteKomponente->bestaetige($id);
-        $nachErstemKlick = Capsule::table('rec_employee_proofs')->find($id);
-
-        // Zweiter Klick von einer ANDEREN HR-Person — muss ins Leere laufen,
-        // sonst verliert die Akte, wer wirklich zuerst bestaetigt hat.
-        $this->setAuth(self::HR_USER_ID + 1);
-        $zweiteKomponente->bestaetige($id);
-        $nachZweitemKlick = Capsule::table('rec_employee_proofs')->find($id);
-
-        $this->assertSame($nachErstemKlick->confirmed_at, $nachZweitemKlick->confirmed_at);
-        $this->assertSame((int) $nachErstemKlick->confirmed_by_user_id, (int) $nachZweitemKlick->confirmed_by_user_id,
-            'der zweite Klick darf die erste Bestaetigung nicht ueberschreiben, auch nicht durch eine andere Person');
-        $this->assertSame(self::HR_USER_ID, (int) $nachZweitemKlick->confirmed_by_user_id);
-    }
-
-    /**
-     * Fixrunde 1 (Befund 1, Important), Teil 2: der eigentliche Beweis.
-     *
-     * PHPUnit kann zwei echte, gleichzeitige Requests nicht nachstellen
-     * (einfaedig). Was hier zwei Requests simuliert, deren SELECT beide VOR
-     * beiden UPDATEs liefen (die eigentliche Wettlaufsituation — genau DAS
-     * war der Fehler: die Pruefung "confirmed_at === null?" stand in PHP,
-     * NICHT im UPDATE, zwei parallele Leser sahen beide "frei"): zwei
-     * UPDATE-Aufrufe mit exakt demselben Muster wie in bestaetige()
-     * (whereNull('confirmed_at') IM Update), ohne dazwischen neu zu lesen.
-     * Nur der erste darf eine Zeile treffen — das ist die Bedingung, die
-     * Befund 1 gefordert hat, unabhaengig von PHP-seitigen Vor-Pruefungen.
-     */
-    public function test_die_atomare_bedingung_im_update_entscheidet_den_wettlauf(): void
-    {
-        $id = $this->proof(['proof_type_code' => 'aufenthaltstitel', 'valid_until' => '2027-01-01']);
-
-        $ersterAnspruch = \Platform\Recruiting\Models\RecEmployeeProof::query()
-            ->where('id', $id)->where('team_id', self::TEAM)
-            ->whereNull('confirmed_at')
-            ->update(['confirmed_by_user_id' => self::HR_USER_ID, 'confirmed_at' => now()]);
-
-        $zweiterAnspruch = \Platform\Recruiting\Models\RecEmployeeProof::query()
-            ->where('id', $id)->where('team_id', self::TEAM)
-            ->whereNull('confirmed_at')
-            ->update(['confirmed_by_user_id' => self::HR_USER_ID + 1, 'confirmed_at' => now()]);
-
-        $this->assertSame(1, $ersterAnspruch, 'der erste Anspruch gewinnt und trifft genau eine Zeile');
-        $this->assertSame(0, $zweiterAnspruch, 'die Bedingung im UPDATE selbst verhindert den zweiten Treffer');
-
-        $proof = Capsule::table('rec_employee_proofs')->find($id);
-        $this->assertSame(self::HR_USER_ID, (int) $proof->confirmed_by_user_id);
-    }
-
-    public function test_bestaetigen_scheitert_ueber_mandatsgrenze(): void
-    {
-        $fremderProof = $this->proof([
-            'rec_employee_id' => 902, 'team_id' => self::FREMDES_TEAM,
-            'proof_type_code' => 'aufenthaltstitel',
-        ]);
-
-        // auth()->user()->currentTeam ist TEAM (7), der Nachweis gehoert FREMDES_TEAM (9).
-        $this->component()->bestaetige($fremderProof);
-
-        $proof = Capsule::table('rec_employee_proofs')->find($fremderProof);
-        $this->assertNull($proof->confirmed_at, 'ein fremdes Mandat darf HR nicht bestaetigen');
     }
 
     public function test_wartet_auf_bestaetigung_zeigt_nur_offene_pflicht_nachweise_sortiert_nach_ablauf(): void

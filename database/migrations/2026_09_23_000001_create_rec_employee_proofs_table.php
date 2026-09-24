@@ -46,8 +46,10 @@ return new class extends Migration
             // Aufgabe im Portal.
             $table->timestamp('reminded_at')->nullable();
 
-            // Nur fuer Aufenthaltstitel und Arbeitsgenehmigung: an ihnen haengt
-            // die harte Einsatzsperre, deshalb bestaetigt HR das Datum.
+            // Nur fuer Aufenthaltstitel und Arbeitsgenehmigung befuellt. KEINE
+            // Einsatzsperre haengt daran (die gibt es fuer Mitarbeiter nicht,
+            // siehe ProofTypes::needsHrConfirmation()) — Spalten bleiben fuer
+            // eine spaetere Bestaetigung MIT Wirkung, aktuell nur Altbestand.
             $table->unsignedBigInteger('confirmed_by_user_id')->nullable();
             $table->timestamp('confirmed_at')->nullable();
 

@@ -69,9 +69,12 @@ class RecEmployeeProof extends Model
     }
 
     /**
-     * Nur die zwei Arten, an denen die harte Einsatzsperre haengt, und nur
-     * solange noch niemand bestaetigt hat. Quelle der Arten ist ausschliesslich
-     * ProofTypes::needsHrConfirmation() — keine zweite Liste, die auseinanderlaufen kann.
+     * Nur die zwei Arten Aufenthaltstitel/Arbeitsgenehmigung, "zur Kenntnis"
+     * fuer HR (KEINE Einsatzsperre — die gibt es fuer Mitarbeiter nicht,
+     * siehe ProofTypes::needsHrConfirmation()), und nur solange noch niemand
+     * bestaetigt hat (Altbestand vor Korrektur K3). Quelle der Arten ist
+     * ausschliesslich ProofTypes::needsHrConfirmation() — keine zweite Liste,
+     * die auseinanderlaufen kann.
      */
     public function scopeWartetAufBestaetigung(Builder $query): Builder
     {

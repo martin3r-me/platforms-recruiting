@@ -112,9 +112,11 @@ final class ProofTypesTest extends TestCase
     }
 
     /**
-     * Kundenvorgabe 22.09.2026: HR prueft ausschliesslich Lohnrelevantes.
-     * Nur an Aufenthaltstitel und Arbeitsgenehmigung haengt die harte
-     * Einsatzsperre — alles andere gilt mit dem Upload sofort als erledigt.
+     * Kundenvorgabe 22.09.2026: HR prueft ausschliesslich Lohnrelevantes —
+     * alles andere gilt mit dem Upload sofort als erledigt. Nur Aufenthaltstitel
+     * und Arbeitsgenehmigung landen auf der "zur Kenntnis"-Liste (Korrektur
+     * K3, 24.09.2026: KEINE Einsatzsperre haengt daran — die gibt es fuer
+     * Mitarbeiter nicht).
      */
     public function test_nur_aufenthaltstitel_und_arbeitsgenehmigung_verlangen_bestaetigung(): void
     {

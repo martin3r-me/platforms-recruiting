@@ -120,11 +120,15 @@ final class ProofTypes
     ];
 
     /**
-     * Nur diese zwei Arten verlangen eine Bestaetigung durch HR — an ihnen
-     * haengt die harte Einsatzsperre, deshalb schaut dort ein Mensch auf das
-     * Datum. Kundenvorgabe 22.09.2026: HR prueft ausschliesslich
-     * Lohnrelevantes bzw. einsatzsperren-relevantes — alles andere gilt mit
-     * dem Upload sofort als erledigt. KEIN allgemeiner Freigabe-Arbeitsvorrat.
+     * Die zwei Arten, die HR "zur Kenntnis" auf einer eigenen Liste sieht.
+     *
+     * WICHTIG (Korrektur K3, 24.09.2026): das ist KEINE Bestaetigung mit
+     * Wirkung mehr — der urspruengliche Plan (HR bestaetigt das Datum, weil
+     * daran eine harte Einsatzsperre haengt) war ein Denkfehler. Die Sperre
+     * gibt es nur fuer BEWERBER (LegalStatusGate blockiert Vertrag und
+     * Erinnerung), nicht fuer Mitarbeiter; residence_permit_valid_until und
+     * work_permit_valid_until werden nirgends im Modul fuer eine Sperre
+     * gelesen. Der Bestaetigen-Knopf in ProofInbox ist deshalb entfernt.
      *
      * @var list<string>
      */
@@ -175,9 +179,18 @@ final class ProofTypes
     }
 
     /**
-     * Braucht diese Art eine Bestaetigung durch HR? Nur Aufenthaltstitel und
-     * Arbeitsgenehmigung — siehe HR_BESTAETIGUNG_PFLICHT. Alles andere gilt
-     * mit dem Upload sofort als erledigt (Kundenvorgabe 22.09.2026).
+     * Gehoert diese Art auf die "zur Kenntnis"-Liste in ProofInbox? Nur
+     * Aufenthaltstitel und Arbeitsgenehmigung — siehe HR_BESTAETIGUNG_PFLICHT.
+     * Alles andere gilt mit dem Upload sofort als erledigt (Kundenvorgabe
+     * 22.09.2026).
+     *
+     * BEWUSST NICHT AUFRAEUMEN, auch wenn kein Bestaetigen-Knopf mehr daran
+     * haengt (Korrektur K3, 24.09.2026): die Spalten confirmed_by_user_id und
+     * confirmed_at bleiben in rec_employee_proofs, und diese Methode bleibt
+     * die einzige Quelle dafuer, welche Arten in der "zur Kenntnis"-Liste
+     * auftauchen (ProofInbox::wartetAufBestaetigung()) — falls der Kunde eine
+     * Bestaetigung MIT Wirkung doch will, kommen Knopf und Wirkung zusammen
+     * zurueck, nicht diese Methode allein.
      */
     public static function needsHrConfirmation(string $code): bool
     {

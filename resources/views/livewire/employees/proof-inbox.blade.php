@@ -13,41 +13,37 @@
     </x-slot>
 
     <x-ui-page-container width="full">
-        @if($flash)
-            <div class="mb-4 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800 inline-flex items-center gap-2">
-                @svg('heroicon-o-check-circle', 'w-4 h-4')
-                {{ $flash }}
-            </div>
-        @endif
-
-        {{-- Wartet auf Bestaetigung: die EINE Stelle, an der ein Mensch bestaetigt.
-             Nur Aufenthaltstitel und Arbeitsgenehmigung — daran haengt die harte
-             Einsatzsperre. Alles andere lief bereits ohne Freigabe durch. --}}
+        {{--
+            Aufenthalt und Arbeitsgenehmigung — zur Kenntnis. Reine Anzeige,
+            kein Bestaetigen-Knopf: ein Upload spiegelt sein Datum sofort in
+            die Akte und den ZAS-Export, eine Bestaetigung danach haette
+            nichts mehr zu verhindern (es gibt fuer Mitarbeiter keine
+            Einsatzsperre, die an diesem Datum haengt). Diese Liste sagt HR
+            nur, dass etwas Neues eingegangen ist.
+        --}}
         <div class="mb-6">
-            <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-2">Wartet auf Bestätigung</h3>
+            <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-2">Aufenthalt und Arbeitsgenehmigung — zur Kenntnis</h3>
             <p class="text-xs text-[var(--ui-muted)] mb-3">
-                Nur Aufenthaltstitel und Arbeitsgenehmigung — daran hängt die harte Einsatzsperre.
-                Alle anderen Nachweise gelten mit dem Upload sofort als erledigt.
+                Zur Information, wenn ein neuer Aufenthaltstitel oder eine neue Arbeitsgenehmigung eingegangen ist.
+                Hier ist nichts zu tun — der Nachweis gilt mit dem Upload bereits als erledigt.
             </p>
 
             @if($this->wartetAufBestaetigung->isEmpty())
                 <div class="bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg p-6 text-center text-sm text-[var(--ui-muted)]">
-                    Nichts offen.
+                    Nichts Neues.
                 </div>
             @else
                 <div class="mb-2 text-xs text-[var(--ui-muted)]">
                     {{ $this->wartetAufBestaetigung->total() }}
-                    {{ $this->wartetAufBestaetigung->total() === 1 ? 'Nachweis wartet' : 'Nachweise warten' }}
-                    auf Bestätigung.
+                    {{ $this->wartetAufBestaetigung->total() === 1 ? 'Nachweis' : 'Nachweise' }}.
                 </div>
-                <div class="bg-white border border-amber-200 rounded-lg overflow-hidden">
+                <div class="bg-white border border-[var(--ui-border)] rounded-lg overflow-hidden">
                     <table class="w-full text-sm">
                         <thead>
-                            <tr class="bg-amber-50 border-b border-amber-200">
+                            <tr class="bg-[var(--ui-muted-5)] border-b border-[var(--ui-border)]">
                                 <th class="text-left px-4 py-2.5 font-medium text-[var(--ui-muted)]">Mitarbeiter</th>
                                 <th class="text-left px-4 py-2.5 font-medium text-[var(--ui-muted)]">Nachweis</th>
                                 <th class="text-left px-4 py-2.5 font-medium text-[var(--ui-muted)]">Gültig bis</th>
-                                <th class="text-right px-4 py-2.5 font-medium text-[var(--ui-muted)]"></th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[var(--ui-border)]">
@@ -63,14 +59,6 @@
                                     <td class="px-4 py-2.5">{{ $row['label'] }}</td>
                                     <td class="px-4 py-2.5 text-[var(--ui-muted)]">
                                         {{ $row['valid_until'] ? \Carbon\Carbon::parse($row['valid_until'])->format('d.m.Y') : '—' }}
-                                    </td>
-                                    <td class="px-4 py-2.5 text-right">
-                                        <button type="button" wire:click="bestaetige({{ $row['id'] }})"
-                                                wire:confirm="Datum geprüft — bestätigen?"
-                                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition">
-                                            @svg('heroicon-o-check', 'w-3.5 h-3.5')
-                                            Bestätigen
-                                        </button>
                                     </td>
                                 </tr>
                             @endforeach
