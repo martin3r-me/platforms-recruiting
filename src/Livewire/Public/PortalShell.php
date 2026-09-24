@@ -234,10 +234,20 @@ class PortalShell extends Component
             return;
         }
 
-        $this->validate([
-            'uploadDatei' => 'required|file|mimes:' . implode(',', ProofUploadRules::MIME_TYPES)
-                . '|max:' . ProofUploadRules::MAX_KB,
-        ]);
+        try {
+            $this->validate([
+                'uploadDatei' => 'required|file|mimes:' . implode(',', ProofUploadRules::MIME_TYPES)
+                    . '|max:' . ProofUploadRules::MAX_KB,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Livewire legt die Meldung in die Fehler-Ablage, die diese
+            // Ansicht aber nirgends anzeigt (nur $uploadFehler) — ohne den
+            // Fang saehe der Mensch gar nichts, das Fenster bliebe stumm offen.
+            $this->uploadFehler = 'Diese Datei können wir nicht annehmen. Erlaubt sind '
+                . 'Fotos und PDF bis ' . (int) round(ProofUploadRules::MAX_KB / 1024) . ' MB.';
+
+            return;
+        }
 
         try {
             $ergebnis = app(ContextFileService::class)->uploadForContext(

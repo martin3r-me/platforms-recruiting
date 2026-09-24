@@ -18,6 +18,7 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Livewire\Public\PortalShell;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecEmployeeProof;
+use Platform\Recruiting\Support\ProofUploadRules;
 
 /**
  * Die Upload-Strecke: der Mensch tippt eine offene Aufgabe an, fotografiert
@@ -230,6 +231,41 @@ final class PortalShellUploadTest extends TestCase
 
         $shell->speichereNachweis();
 
+        $this->assertSame(0, RecEmployeeProof::count());
+    }
+
+    /**
+     * Fixrunde 1: Ohne den Fang um validate() sah der Mensch nichts — Livewire
+     * legt die Meldung in eine Fehler-Ablage, die diese Ansicht nirgends
+     * anzeigt (nur $uploadFehler). Das Fenster blieb stumm offen.
+     */
+    public function test_zu_grosse_datei_meldet_sich_beim_menschen(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+        $shell = $this->shell($ma);
+
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->create('riesig.jpg', ProofUploadRules::MAX_KB + 1024, 'image/jpeg');
+        $shell->speichereNachweis();
+
+        $this->assertNotSame('', $shell->uploadFehler);
+        $this->assertSame(0, RecEmployeeProof::count());
+    }
+
+    public function test_falscher_dateityp_meldet_sich_beim_menschen(): void
+    {
+        $ma = $this->angemeldeterMitarbeiter();
+        $shell = $this->shell($ma);
+
+        $shell->oeffneUpload('ausweis');
+        $shell->uploadGueltigBis = '2032-01-31';
+        $shell->uploadDatei = UploadedFile::fake()->create(
+            'vertrag.docx', 100, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+        $shell->speichereNachweis();
+
+        $this->assertNotSame('', $shell->uploadFehler);
         $this->assertSame(0, RecEmployeeProof::count());
     }
 }
