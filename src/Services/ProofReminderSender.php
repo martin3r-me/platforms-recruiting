@@ -38,12 +38,20 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  *
  * WELCHES PORTAL DER KNOPF OEFFNET: das entscheidet NICHT diese Klasse. Sie
  * bekommt ausschliesslich Mitarbeiter zum Senden uebergeben, die der Aufrufer
- * bereits gefiltert hat (Standard: nur `portal_v2_since` gesetzt — wer noch
- * auf dem alten Portal ist, kann den Nachweis dort nicht hochladen, eine
- * Erinnerung waere eine Sackgasse). Die Basis-URL des Knopfes steht im bei
- * Meta genehmigten Template; dieser Sender liefert nur den Token
+ * bereits gefiltert hat — NUR `portal_v2_since` gesetzt, OHNE Ausnahme (Fixrunde
+ * 2, Befund C2: eine Ausnahme-Option wurde ersatzlos entfernt, weil sie nur
+ * Schaden anrichten konnte — wer noch auf dem alten Portal ist, kann den
+ * Nachweis dort nicht hochladen, der Knopf fuehrt auf eine 404-Seite, UND der
+ * Mensch gilt danach dauerhaft als erinnert). Die Basis-URL des Knopfes steht
+ * im bei Meta genehmigten Template; dieser Sender liefert nur den Token
  * (Muster: `TrainingCertificateWhatsAppDelivery` — "der Button-Parameter ist
  * die uuid, nicht die URL").
+ *
+ * JEDER VERSUCH LANDET IM LOG (Fixrunde 2, Befund I6): `finish()` schreibt ein
+ * `Log::info` bei JEDEM Ausgang — unabhaengig davon, ob `RecAutoPilotLog`
+ * greift (das braucht `rec_applicant_id`, und genau das fehlt den
+ * ZAS-Bestandsmitarbeitern ohne Bewerbung, also der groessten Gruppe der
+ * ~540 Alt-Nachweise). Ohne dieses Log gaebe es fuer sie keinerlei Spur.
  */
 final class ProofReminderSender
 {
@@ -67,23 +75,23 @@ final class ProofReminderSender
     {
         $phone = $this->resolvePhone($ma);
         if ($phone === null) {
-            return ['status' => self::STATUS_NO_PHONE, 'error' => 'Keine Telefonnummer am CRM-Kontakt.'];
+            return $this->finish($ma, $eintrag, ['status' => self::STATUS_NO_PHONE, 'error' => 'Keine Telefonnummer am CRM-Kontakt.']);
         }
 
         $target = app(HoldingTemplateSender::class)->resolveTarget((int) $ma->team_id, self::SETTINGS_KEY);
         if ($target['error'] !== null) {
-            return ['status' => self::STATUS_NOT_CONFIGURED, 'error' => $target['error']];
+            return $this->finish($ma, $eintrag, ['status' => self::STATUS_NOT_CONFIGURED, 'error' => $target['error']]);
         }
 
         $template = $target['template'];
         $components = $template->components ?? [];
 
         if (WhatsAppTemplateUrlButtons::dynamicIndexes($components) === []) {
-            return [
+            return $this->finish($ma, $eintrag, [
                 'status' => self::STATUS_TEMPLATE_WITHOUT_URL_BUTTON,
                 'error' => 'Template „' . $template->name . '“ hat keinen URL-Button mit Variable — '
                     . 'ohne Link wäre die Erinnerung eine Sackgasse.',
-            ];
+            ]);
         }
 
         // Portal-Token an die tatsaechlich gefundene Button-Position — dieselbe
@@ -92,7 +100,7 @@ final class ProofReminderSender
         // geratenen Index.
         $built = ApplicantTemplateSender::buildTokenComponents($components, (string) $ma->portal_token);
         if (!$built['ok']) {
-            return ['status' => self::STATUS_TEMPLATE_WITHOUT_URL_BUTTON, 'error' => $built['error']];
+            return $this->finish($ma, $eintrag, ['status' => self::STATUS_TEMPLATE_WITHOUT_URL_BUTTON, 'error' => $built['error']]);
         }
 
         // Speculative Namen fuer ein Template, das es noch nicht gibt (der Text
@@ -107,10 +115,10 @@ final class ProofReminderSender
         $sendComponents = HoldingTemplateComponents::build($components, $firstName, $namedValues);
 
         if (HoldingTemplateComponents::hasEmptyRequiredParam($sendComponents)) {
-            return [
+            return $this->finish($ma, $eintrag, [
                 'status' => self::STATUS_FAILED,
                 'error' => 'Leerer Pflicht-Parameter im Body (meist der Vorname) — Meta lehnt solche Sends ab.',
-            ];
+            ]);
         }
 
         $sendComponents = array_merge($sendComponents, $built['components']);
@@ -126,7 +134,7 @@ final class ProofReminderSender
         } catch (\Throwable $e) {
             $this->log($ma, 'error', 'Nachweis-Erinnerung: Versand fehlgeschlagen — ' . $e->getMessage(), $eintrag);
 
-            return ['status' => self::STATUS_FAILED, 'error' => $e->getMessage()];
+            return $this->finish($ma, $eintrag, ['status' => self::STATUS_FAILED, 'error' => $e->getMessage()]);
         }
 
         // DAS IST DIE ZEILE, DIE DEN BEKANNTEN FEHLER VERMEIDET: ein Erfolg
@@ -136,7 +144,7 @@ final class ProofReminderSender
             $fehler = (string) ($message->meta_payload['error']['message'] ?? 'Meta hat den Versand abgelehnt.');
             $this->log($ma, 'error', 'Nachweis-Erinnerung: von Meta abgelehnt — ' . $fehler, $eintrag);
 
-            return ['status' => self::STATUS_FAILED, 'error' => $fehler];
+            return $this->finish($ma, $eintrag, ['status' => self::STATUS_FAILED, 'error' => $fehler]);
         }
 
         $this->log(
@@ -146,7 +154,35 @@ final class ProofReminderSender
             $eintrag
         );
 
-        return ['status' => self::STATUS_SENT, 'error' => null];
+        return $this->finish($ma, $eintrag, ['status' => self::STATUS_SENT, 'error' => null]);
+    }
+
+    /**
+     * Letzte Station JEDES Ausgangs von send() (Fixrunde 2, Befund I6):
+     * schreibt ein Log::info unabhaengig davon, ob RecAutoPilotLog greift
+     * (das braucht rec_applicant_id, ZAS-Bestandsmitarbeiter ohne Bewerbung
+     * haben keine — sonst gaebe es fuer genau die Zielgruppe der ~540
+     * Alt-Nachweise keinerlei Spur). Reicht das Ergebnis unveraendert durch.
+     *
+     * @param  array{proof_id:int, rec_employee_id:int, code:string, valid_until:string}  $eintrag
+     * @param  array{status:string, error:?string}  $result
+     * @return array{status:string, error:?string}
+     */
+    private function finish(RecEmployee $ma, array $eintrag, array $result): array
+    {
+        $context = [
+            'rec_employee_id' => $ma->id,
+            'proof_id'        => $eintrag['proof_id'] ?? null,
+            'proof_type_code' => $eintrag['code'] ?? null,
+            'status'          => $result['status'],
+        ];
+        if ($result['error'] !== null) {
+            $context['error'] = $result['error'];
+        }
+
+        Log::info('[ProofReminderSender] Versand ' . $result['status'], $context);
+
+        return $result;
     }
 
     /**

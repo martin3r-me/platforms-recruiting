@@ -2,6 +2,8 @@
 
 namespace Platform\Recruiting\Tests\Integration;
 
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository as CacheRepository;
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
@@ -31,10 +33,18 @@ use Symfony\Component\Console\Output\BufferedOutput;
  *     dass der Button-Parameter exakt der Portal-Token ist — nichts
  *     concateniert, nichts Fremdes.
  *
+ * Fixrunde 2 ergaenzt: Stichtag-Format wird geprueft (C1), die
+ * --auch-altes-portal-Flagge ist ersatzlos raus (C2), eine Laufsperre
+ * verhindert doppelte Laeufe (I3), ein kaputter Datensatz stoppt nicht die
+ * anderen (I4), --zuruecksetzen macht reminded_at reversibel (I5), und jeder
+ * Versuch landet im Log auch ohne rec_applicant_id (I6).
+ *
  * Template + Kanal sind ueber HoldingTemplateSender gestubbt (die Klasse ist
  * final, echter Meta-Zugang wird hier nicht gebraucht) — Muster
  * NoAssignmentCampaignSenderTest. WhatsAppMetaService ist ebenfalls
- * duck-typed gestubbt und zeichnet jeden Aufruf auf.
+ * duck-typed gestubbt und zeichnet jeden Aufruf auf. Cache und Log sind ab
+ * Fixrunde 2 ebenfalls gestubbt (Cache::lock() bzw. Log::info() laufen jetzt
+ * bei jedem scharfen Lauf).
  */
 final class SendProofRemindersTest extends TestCase
 {
@@ -42,6 +52,7 @@ final class SendProofRemindersTest extends TestCase
     private string $employeeMorph;
     private string $contactMorph;
     private ProofReminderMetaFake $meta;
+    private ProofReminderLogFake $log;
 
     private const BODY = ['type' => 'BODY', 'text' => 'Hallo {{name}}, dein Nachweis laeuft bald ab.'];
     private const BUTTON = [
@@ -65,6 +76,14 @@ final class SendProofRemindersTest extends TestCase
 
         $container->instance('db', $this->capsule->getDatabaseManager());
         $container->instance('db.schema', $this->capsule->getConnection()->getSchemaBuilder());
+
+        // Cache::lock() (I3) und Log::info() (I6) laufen jetzt bei jedem
+        // scharfen Lauf — beide brauchen eine Bindung, sonst wirft die
+        // Fassade eine ReflectionException statt den Test zu pruefen.
+        $container->instance('cache', new CacheRepository(new ArrayStore()));
+        $this->log = new ProofReminderLogFake();
+        $container->instance('log', $this->log);
+
         Facade::setFacadeApplication($container);
         Facade::clearResolvedInstances();
 
@@ -82,6 +101,8 @@ final class SendProofRemindersTest extends TestCase
     {
         Container::getInstance()->forgetInstance(WhatsAppMetaService::class);
         Container::getInstance()->forgetInstance(HoldingTemplateSender::class);
+        Container::getInstance()->forgetInstance('cache');
+        Container::getInstance()->forgetInstance('log');
         Model::unsetConnectionResolver();
         Model::clearBootedModels();
         Facade::clearResolvedInstances();
@@ -235,7 +256,7 @@ final class SendProofRemindersTest extends TestCase
     }
 
     /** @param array<string, mixed> $templateOverrides */
-    private function holdingStub(?string $error = null, array $templateOverrides = []): object
+    private function holdingStub(?string $error = null, array $templateOverrides = [], array $throwOnCallNumbers = []): object
     {
         $tpl = new IntegrationsWhatsAppTemplate(array_merge([
             'name' => 'nachweis_erinnerung', 'language' => 'de', 'status' => 'APPROVED',
@@ -244,15 +265,26 @@ final class SendProofRemindersTest extends TestCase
         $tpl->id = 501;
         $channel = (object) ['id' => 77, 'sender_identifier' => '+49160000'];
 
-        return new class($tpl, $channel, $error) {
+        return new class($tpl, $channel, $error, $throwOnCallNumbers) {
             /** @var list<array{teamId:int, settingsKey:string}> */
             public array $calls = [];
 
-            public function __construct(private $tpl, private $channel, private ?string $err) {}
+            public function __construct(
+                private $tpl,
+                private $channel,
+                private ?string $err,
+                private array $throwOnCallNumbers,
+            ) {}
 
             public function resolveTarget(int $teamId, string $settingsKey): array
             {
                 $this->calls[] = ['teamId' => $teamId, 'settingsKey' => $settingsKey];
+
+                // I4-Testhilfe: simuliert eine krumme CRM-Kette/DB-Zuckung
+                // genau am N-ten Aufruf, ohne die uebrigen Personen zu treffen.
+                if (in_array(count($this->calls), $this->throwOnCallNumbers, true)) {
+                    throw new \RuntimeException('CRM-Kette krumm (Test)');
+                }
 
                 return $this->err !== null
                     ? ['error' => $this->err, 'template' => null, 'channel' => null]
@@ -379,10 +411,11 @@ final class SendProofRemindersTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // Welches Portal der Knopf oeffnet: nur portal_v2_since, per Default
+    // Welches Portal der Knopf oeffnet: nur portal_v2_since, IMMER (C2 — die
+    // --auch-altes-portal-Flagge ist ersatzlos raus, kein Test dafuer mehr)
     // -----------------------------------------------------------------
 
-    public function test_ohne_neues_portal_wird_standardmaessig_uebersprungen(): void
+    public function test_ohne_neues_portal_wird_immer_uebersprungen(): void
     {
         $altesPortal = $this->ma(['portal_v2_since' => null]);
         $this->proof($altesPortal, 'ausweis', now()->addDays(10)->toDateString());
@@ -394,16 +427,6 @@ final class SendProofRemindersTest extends TestCase
 
         $this->assertCount(1, $this->meta->calls, 'Nur der Mitarbeiter mit portal_v2_since bekommt eine Nachricht.');
         $this->assertSame($this->phoneFor($neuesPortal->id), $this->meta->calls[0]['to']);
-    }
-
-    public function test_auch_altes_portal_hebt_das_ueberspringen_auf(): void
-    {
-        $altesPortal = $this->ma(['portal_v2_since' => null]);
-        $this->proof($altesPortal, 'ausweis', now()->addDays(10)->toDateString());
-
-        $this->runCommand(['--auch-altes-portal' => true]);
-
-        $this->assertCount(1, $this->meta->calls);
     }
 
     // -----------------------------------------------------------------
@@ -462,6 +485,182 @@ final class SendProofRemindersTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // C1 — unlesbarer Stichtag bricht ab, statt die Bremse still abzuschalten
+    // -----------------------------------------------------------------
+
+    public function test_deutsches_datumsformat_als_stichtag_bricht_ab_und_sendet_nichts(): void
+    {
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->addDays(500)->toDateString());
+
+        [$exitCode, $ausgabe] = $this->runCommand(['--stichtag' => '24.09.2026']);
+
+        $this->assertSame(SendProofReminders::FAILURE, $exitCode);
+        $this->assertStringContainsString('Unlesbarer --stichtag', $ausgabe);
+        $this->assertSame([], $this->meta->calls, 'Bei ungueltigem Stichtag darf NICHTS gesendet werden.');
+        $this->assertNull($this->remindedAtOf($proofId));
+    }
+
+    public function test_stichtag_ohne_fuehrende_null_bricht_ab_und_sendet_nichts(): void
+    {
+        // 2026-9-24 statt 2026-09-24 — genau das Format, das strtotime() im
+        // Planer noch lesen wuerde, alsTag() aber bewusst nicht.
+        $ma = $this->ma();
+        $this->proof($ma, 'ausweis', now()->addDays(500)->toDateString());
+
+        [$exitCode] = $this->runCommand(['--stichtag' => '2026-9-24']);
+
+        $this->assertSame(SendProofReminders::FAILURE, $exitCode);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    public function test_kalendarisch_unmoeglicher_stichtag_bricht_ab(): void
+    {
+        [$exitCode] = $this->runCommand(['--stichtag' => '2026-13-40']);
+
+        $this->assertSame(SendProofReminders::FAILURE, $exitCode);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    public function test_ausgabe_nennt_stichtag_limit_und_zielgruppe_auch_im_trockenlauf(): void
+    {
+        $ma = $this->ma();
+        $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        [, $ausgabe] = $this->runCommand(['--dry-run' => true, '--stichtag' => now()->toDateString(), '--limit' => '5']);
+
+        $this->assertStringContainsString('Stichtag: ' . now()->toDateString(), $ausgabe);
+        $this->assertStringContainsString('Limit: 5', $ausgabe);
+        $this->assertStringContainsString('neuem Portal', $ausgabe);
+    }
+
+    // -----------------------------------------------------------------
+    // I3 — Laufsperre verhindert doppelte Laeufe
+    // -----------------------------------------------------------------
+
+    public function test_paralleler_lauf_wird_abgelehnt(): void
+    {
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        // Simuliert den ersten, noch laufenden Aufruf: die Sperre haelt
+        // dieselbe Cache-Instanz wie das Kommando (per Container gebunden).
+        $lock = \Illuminate\Support\Facades\Cache::lock('recruiting:nachweise-erinnern:lock', 60);
+        $this->assertTrue($lock->get(), 'Vorbedingung: die Sperre muss zuerst greifbar sein.');
+
+        [$exitCode, $ausgabe] = $this->runCommand();
+
+        $this->assertSame(SendProofReminders::FAILURE, $exitCode);
+        $this->assertStringContainsString('bereits ein Fristenlauf', $ausgabe);
+        $this->assertSame([], $this->meta->calls, 'Der zweite, parallele Lauf darf nichts senden.');
+        $this->assertNull($this->remindedAtOf($proofId));
+
+        $lock->release();
+    }
+
+    public function test_nach_freigabe_der_sperre_laeuft_der_naechste_lauf_normal(): void
+    {
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        $lock = \Illuminate\Support\Facades\Cache::lock('recruiting:nachweise-erinnern:lock', 60);
+        $lock->get();
+        $lock->release();
+
+        [$exitCode] = $this->runCommand();
+
+        $this->assertSame(SendProofReminders::SUCCESS, $exitCode);
+        $this->assertCount(1, $this->meta->calls);
+        $this->assertNotNull($this->remindedAtOf($proofId));
+    }
+
+    // -----------------------------------------------------------------
+    // I4 — ein kaputter Datensatz stoppt nicht die anderen
+    // -----------------------------------------------------------------
+
+    public function test_ein_kaputter_datensatz_stoppt_nicht_die_anderen(): void
+    {
+        // Dringender zuerst (addDays(1) < addDays(2)) — dessen
+        // Template-Aufloesung crasht als ERSTER resolveTarget()-Aufruf.
+        $kaputt = $this->ma();
+        $kaputtProof = $this->proof($kaputt, 'ausweis', now()->addDays(1)->toDateString());
+
+        $heil = $this->ma();
+        $heilProof = $this->proof($heil, 'ausweis', now()->addDays(2)->toDateString());
+
+        Container::getInstance()->instance(
+            HoldingTemplateSender::class,
+            $this->holdingStub(null, [], [1])
+        );
+
+        [$exitCode, $ausgabe] = $this->runCommand();
+
+        $this->assertSame(SendProofReminders::SUCCESS, $exitCode, 'Ein Abbruch bei einer Person darf den Gesamtlauf nicht scheitern lassen.');
+        $this->assertStringContainsString('Abbruch', $ausgabe);
+        $this->assertStringContainsString('1 abgebrochen', $ausgabe);
+        $this->assertCount(1, $this->meta->calls, 'Die zweite, heile Person wird trotzdem bedient.');
+        $this->assertNull($this->remindedAtOf($kaputtProof));
+        $this->assertNotNull($this->remindedAtOf($heilProof));
+    }
+
+    // -----------------------------------------------------------------
+    // I5 — --zuruecksetzen macht reminded_at reversibel
+    // -----------------------------------------------------------------
+
+    public function test_zuruecksetzen_leert_reminded_at_nur_bei_den_angegebenen_ids(): void
+    {
+        $ma = $this->ma();
+        $geleert = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString(), now()->toDateTimeString());
+        $bleibt = $this->proof($ma, 'aufenthaltstitel', now()->addDays(20)->toDateString(), now()->toDateTimeString());
+
+        [$exitCode, $ausgabe] = $this->runCommand(['--zuruecksetzen' => (string) $geleert]);
+
+        $this->assertSame(SendProofReminders::SUCCESS, $exitCode);
+        $this->assertStringContainsString((string) $geleert, $ausgabe);
+        $this->assertNull($this->remindedAtOf($geleert));
+        $this->assertNotNull($this->remindedAtOf($bleibt), 'Nur die angegebene ID wird geleert.');
+        $this->assertSame([], $this->meta->calls, '--zuruecksetzen sendet nichts.');
+    }
+
+    public function test_zuruecksetzen_akzeptiert_mehrere_kommagetrennte_ids(): void
+    {
+        $ma = $this->ma();
+        $eins = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString(), now()->toDateTimeString());
+        $zwei = $this->proof($ma, 'aufenthaltstitel', now()->addDays(20)->toDateString(), now()->toDateTimeString());
+
+        $this->runCommand(['--zuruecksetzen' => "{$eins}, {$zwei}"]);
+
+        $this->assertNull($this->remindedAtOf($eins));
+        $this->assertNull($this->remindedAtOf($zwei));
+    }
+
+    public function test_zuruecksetzen_ohne_ids_meldet_fehler(): void
+    {
+        [$exitCode] = $this->runCommand(['--zuruecksetzen' => '']);
+
+        $this->assertSame(SendProofReminders::FAILURE, $exitCode);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    // -----------------------------------------------------------------
+    // I6 — jeder Versuch landet im Log, auch ohne rec_applicant_id
+    // -----------------------------------------------------------------
+
+    public function test_jeder_versuch_landet_im_log_auch_ohne_bewerbung(): void
+    {
+        // Kein rec_applicant_id -> RecAutoPilotLog greift NICHT.
+        $ma = $this->ma(['rec_applicant_id' => null]);
+        $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        $this->runCommand();
+
+        $infoLines = array_values(array_filter($this->log->lines, fn ($l) => $l['level'] === 'info'));
+        $this->assertNotEmpty($infoLines, 'Log::info muss auch ohne rec_applicant_id geschrieben werden.');
+        $this->assertSame($ma->id, $infoLines[0]['context']['rec_employee_id'] ?? null);
+        $this->assertSame('sent', $infoLines[0]['context']['status'] ?? null);
+    }
+
+    // -----------------------------------------------------------------
     // --limit
     // -----------------------------------------------------------------
 
@@ -507,6 +706,34 @@ final class ProofReminderMetaFake
             'thread' => null,
         ];
     }
+}
+
+/**
+ * Log-Attrappe (Fixrunde 2, I6/I3/I4) — Container::instance('log') allein
+ * reicht bei der Facade nicht, siehe reference_log_facade_test_stub.md; die
+ * Bindung steht deshalb VOR Facade::clearResolvedInstances() in setUp().
+ */
+final class ProofReminderLogFake
+{
+    /** @var list<array{level: string, message: string, context: array}> */
+    public array $lines = [];
+
+    public function info($message, array $context = []): void
+    {
+        $this->lines[] = ['level' => 'info', 'message' => (string) $message, 'context' => $context];
+    }
+
+    public function warning($message, array $context = []): void
+    {
+        $this->lines[] = ['level' => 'warning', 'message' => (string) $message, 'context' => $context];
+    }
+
+    public function error($message, array $context = []): void
+    {
+        $this->lines[] = ['level' => 'error', 'message' => (string) $message, 'context' => $context];
+    }
+
+    public function __call($method, $args) {}
 }
 
 /**

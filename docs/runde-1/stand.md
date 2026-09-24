@@ -87,7 +87,7 @@ Reiter traegt die Zahl der offenen Punkte.
 Noch Attrappe: **Einsaetze** (ehrlicher Hinweis statt erfundener Termine).
 Noch ohne Knopf: **Dokumente** listet die Nachweise, hochladen kommt in Schritt 3.
 
-Erreichbar unter `/recruiting/mitarbeiter/{token}/neu` — und nur fuer die, bei
+Erreichbar unter `/recruiting/mitarbeiter/neu/{token}` — und nur fuer die, bei
 denen `portal_v2_since` steht. Alle anderen bekommen 404, als gaebe es die
 Seite nicht.
 
