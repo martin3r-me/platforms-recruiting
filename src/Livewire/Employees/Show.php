@@ -117,7 +117,7 @@ class Show extends Component
      * in der HR-Inbox (ProofInbox::bestaetige), damit es genau eine Stelle
      * gibt, an der ein Mensch das tut.
      *
-     * @return list<array{code:string, label:string, status:string, valid_until:?string, offen:bool, needs_confirmation:bool, confirmed_at:?string}>
+     * @return list<array{code:string, label:string, status:string, valid_until:?string, offen:bool, needs_confirmation:bool, confirmed_at:?string, confirmed_by:?string}>
      */
     #[Computed]
     public function nachweisUebersicht(): array
@@ -128,12 +128,15 @@ class Show extends Component
         }
 
         $reader = app(ProofReader::class);
-        $vorhanden = $reader->current($emp)->keyBy('proof_type_code');
+        $vorhanden = $reader->current($emp)->load('confirmedByUser')->keyBy('proof_type_code');
 
         return array_map(function (array $zeile) use ($vorhanden) {
             $proof = $vorhanden->get($zeile['code']);
             $zeile['needs_confirmation'] = ProofTypes::needsHrConfirmation($zeile['code']);
             $zeile['confirmed_at'] = $proof?->confirmed_at?->format('d.m.Y H:i');
+            // Wozu wir confirmed_by_user_id speichern: in der Akte nennen,
+            // nicht nur im Feld ablegen und nie wieder anschauen.
+            $zeile['confirmed_by'] = $proof?->confirmedByUser?->name;
             return $zeile;
         }, $reader->checklist($emp));
     }

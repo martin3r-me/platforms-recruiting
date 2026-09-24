@@ -30,11 +30,16 @@
                 Alle anderen Nachweise gelten mit dem Upload sofort als erledigt.
             </p>
 
-            @if(empty($this->wartetAufBestaetigung))
+            @if($this->wartetAufBestaetigung->isEmpty())
                 <div class="bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg p-6 text-center text-sm text-[var(--ui-muted)]">
                     Nichts offen.
                 </div>
             @else
+                <div class="mb-2 text-xs text-[var(--ui-muted)]">
+                    {{ $this->wartetAufBestaetigung->total() }}
+                    {{ $this->wartetAufBestaetigung->total() === 1 ? 'Nachweis wartet' : 'Nachweise warten' }}
+                    auf Bestätigung.
+                </div>
                 <div class="bg-white border border-amber-200 rounded-lg overflow-hidden">
                     <table class="w-full text-sm">
                         <thead>
@@ -71,6 +76,9 @@
                             @endforeach
                         </tbody>
                     </table>
+                </div>
+                <div class="mt-2">
+                    {{ $this->wartetAufBestaetigung->links() }}
                 </div>
             @endif
         </div>
@@ -114,8 +122,9 @@
                                                 Erledigt
                                             </span>
                                         @elseif($row['confirmed'])
-                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                Bestätigt
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                                  title="{{ $row['confirmed_by'] ? 'bestätigt von ' . $row['confirmed_by'] . ' am ' . $row['confirmed_at_human'] : '' }}">
+                                                Bestätigt{{ $row['confirmed_by'] ? ' von ' . $row['confirmed_by'] : '' }}
                                             </span>
                                         @else
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">

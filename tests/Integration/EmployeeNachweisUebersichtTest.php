@@ -104,9 +104,20 @@ final class EmployeeNachweisUebersichtTest extends TestCase
             $t->timestamps();
         });
 
+        // confirmedByUser() wird jetzt angezeigt (Fixrunde 1) — nachweisUebersicht()
+        // laedt die Relation eager, ohne Tabelle wirft das eine SQL-Exception.
+        $this->capsule->schema()->create('users', function ($t) {
+            $t->increments('id');
+            $t->string('name')->nullable();
+        });
+
         Capsule::table('rec_employees')->insert([
             // Nicht-EU, damit Aufenthaltstitel/Arbeitsgenehmigung Pflicht sind.
             ['id' => 900, 'uuid' => 'remp-900', 'team_id' => self::TEAM, 'first_name' => 'Lydia', 'last_name' => 'Bontioti', 'is_eu_citizen' => false],
+        ]);
+
+        Capsule::table('users')->insert([
+            ['id' => 42, 'name' => 'Nina Personal'],
         ]);
     }
 
@@ -153,6 +164,7 @@ final class EmployeeNachweisUebersichtTest extends TestCase
         $zeile = collect($this->component(900)->nachweisUebersicht())->firstWhere('code', 'arbeitsgenehmigung');
 
         $this->assertNotNull($zeile['confirmed_at']);
+        $this->assertSame('Nina Personal', $zeile['confirmed_by'], 'Kleinigkeit aus Fixrunde 1: wer bestaetigt hat, wird angezeigt');
     }
 
     public function test_arten_ohne_bestaetigungspflicht_tragen_kein_bestaetigungsfeld_befuellt(): void

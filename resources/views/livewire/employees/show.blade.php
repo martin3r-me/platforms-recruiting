@@ -483,7 +483,7 @@
                                     @if($n['needs_confirmation'])
                                         @if($n['confirmed_at'])
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                bestätigt am {{ $n['confirmed_at'] }}
+                                                bestätigt{{ $n['confirmed_by'] ? ' von ' . $n['confirmed_by'] : '' }} am {{ $n['confirmed_at'] }}
                                             </span>
                                         @else
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">

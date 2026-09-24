@@ -83,10 +83,23 @@ final class ProofInboxTest extends TestCase
             $t->timestamps();
         });
 
+        // confirmedByUser() wird jetzt in der Anzeige benutzt (Fixrunde 1) —
+        // ohne diese Tabelle wirft das Eager-Loading in neuEingegangen()/
+        // wartetAufBestaetigung()/nachweisUebersicht() eine SQL-Exception.
+        $this->capsule->schema()->create('users', function ($t) {
+            $t->increments('id');
+            $t->string('name')->nullable();
+        });
+
         Capsule::table('rec_employees')->insert([
             ['id' => 900, 'uuid' => 'remp-900', 'team_id' => self::TEAM, 'first_name' => 'Lydia', 'last_name' => 'Bontioti'],
             ['id' => 901, 'uuid' => 'remp-901', 'team_id' => self::TEAM, 'first_name' => 'Lars', 'last_name' => 'Abdull'],
             ['id' => 902, 'uuid' => 'remp-902', 'team_id' => self::FREMDES_TEAM, 'first_name' => 'Fremd', 'last_name' => 'Person'],
+        ]);
+
+        Capsule::table('users')->insert([
+            ['id' => self::HR_USER_ID, 'name' => 'Nina Personal'],
+            ['id' => self::HR_USER_ID + 1, 'name' => 'Kevin HR'],
         ]);
     }
 
@@ -237,24 +250,71 @@ final class ProofInboxTest extends TestCase
         $this->assertNull($proof->confirmed_at, 'ausweis ist nicht bestaetigungspflichtig');
     }
 
-    public function test_doppelte_bestaetigung_aendert_nichts_mehr(): void
+    /**
+     * Fixrunde 1 (Befund 1, Important), Teil 1: der Schwarzkasten-Fall.
+     * Zwei EIGENE Komponenteninstanzen fuer zwei verschiedene HR-Personen,
+     * ZWEI VOLLSTAENDIGE, NACHEINANDER laufende bestaetige()-Aufrufe. PHPUnit
+     * ist einfaedig — das ist also der sequentielle Doppelklick-Fall, keine
+     * echte Gleichzeitigkeit (dafuer siehe den naechsten Test). Trotzdem ein
+     * sinnvoller Test: er haette schon die ALTE, rein PHP-seitige Pruefung
+     * ("confirmed_at === null? dann schreiben") bestanden — beweist also nur
+     * die Verdrahtung, nicht die Atomaritaet selbst.
+     */
+    public function test_zweiter_vollstaendiger_bestaetigen_aufruf_ueberschreibt_den_ersten_nicht(): void
     {
         $id = $this->proof(['proof_type_code' => 'arbeitsgenehmigung', 'valid_until' => '2027-06-01']);
 
+        $ersteKomponente = new ProofInbox();
+        $zweiteKomponente = new ProofInbox();
+
         $this->setAuth(self::HR_USER_ID);
-        $this->component()->bestaetige($id);
+        $ersteKomponente->bestaetige($id);
         $nachErstemKlick = Capsule::table('rec_employee_proofs')->find($id);
 
         // Zweiter Klick von einer ANDEREN HR-Person — muss ins Leere laufen,
         // sonst verliert die Akte, wer wirklich zuerst bestaetigt hat.
         $this->setAuth(self::HR_USER_ID + 1);
-        $this->component()->bestaetige($id);
+        $zweiteKomponente->bestaetige($id);
         $nachZweitemKlick = Capsule::table('rec_employee_proofs')->find($id);
 
         $this->assertSame($nachErstemKlick->confirmed_at, $nachZweitemKlick->confirmed_at);
         $this->assertSame((int) $nachErstemKlick->confirmed_by_user_id, (int) $nachZweitemKlick->confirmed_by_user_id,
             'der zweite Klick darf die erste Bestaetigung nicht ueberschreiben, auch nicht durch eine andere Person');
         $this->assertSame(self::HR_USER_ID, (int) $nachZweitemKlick->confirmed_by_user_id);
+    }
+
+    /**
+     * Fixrunde 1 (Befund 1, Important), Teil 2: der eigentliche Beweis.
+     *
+     * PHPUnit kann zwei echte, gleichzeitige Requests nicht nachstellen
+     * (einfaedig). Was hier zwei Requests simuliert, deren SELECT beide VOR
+     * beiden UPDATEs liefen (die eigentliche Wettlaufsituation — genau DAS
+     * war der Fehler: die Pruefung "confirmed_at === null?" stand in PHP,
+     * NICHT im UPDATE, zwei parallele Leser sahen beide "frei"): zwei
+     * UPDATE-Aufrufe mit exakt demselben Muster wie in bestaetige()
+     * (whereNull('confirmed_at') IM Update), ohne dazwischen neu zu lesen.
+     * Nur der erste darf eine Zeile treffen — das ist die Bedingung, die
+     * Befund 1 gefordert hat, unabhaengig von PHP-seitigen Vor-Pruefungen.
+     */
+    public function test_die_atomare_bedingung_im_update_entscheidet_den_wettlauf(): void
+    {
+        $id = $this->proof(['proof_type_code' => 'aufenthaltstitel', 'valid_until' => '2027-01-01']);
+
+        $ersterAnspruch = \Platform\Recruiting\Models\RecEmployeeProof::query()
+            ->where('id', $id)->where('team_id', self::TEAM)
+            ->whereNull('confirmed_at')
+            ->update(['confirmed_by_user_id' => self::HR_USER_ID, 'confirmed_at' => now()]);
+
+        $zweiterAnspruch = \Platform\Recruiting\Models\RecEmployeeProof::query()
+            ->where('id', $id)->where('team_id', self::TEAM)
+            ->whereNull('confirmed_at')
+            ->update(['confirmed_by_user_id' => self::HR_USER_ID + 1, 'confirmed_at' => now()]);
+
+        $this->assertSame(1, $ersterAnspruch, 'der erste Anspruch gewinnt und trifft genau eine Zeile');
+        $this->assertSame(0, $zweiterAnspruch, 'die Bedingung im UPDATE selbst verhindert den zweiten Treffer');
+
+        $proof = Capsule::table('rec_employee_proofs')->find($id);
+        $this->assertSame(self::HR_USER_ID, (int) $proof->confirmed_by_user_id);
     }
 
     public function test_bestaetigen_scheitert_ueber_mandatsgrenze(): void
@@ -286,5 +346,36 @@ final class ProofInboxTest extends TestCase
         $this->assertCount(2, $liste);
         $this->assertSame($laeuftBaldAb, $liste[0]['id'], 'das fruehere Ablaufdatum ist dringender');
         $this->assertSame($laeuftSpaeterAb, $liste[1]['id']);
+    }
+
+    /**
+     * Fixrunde 1 (Befund 2, Important): am Umzugstag kann diese Liste
+     * dreistellig werden — ohne Blaetterung stuende alles auf einer Seite.
+     * total() muss die ECHTE Gesamtzahl ueber alle Seiten zeigen, nicht nur
+     * die Zahl der Zeilen auf der aktuellen Seite.
+     */
+    public function test_wartet_auf_bestaetigung_blaettert_bei_grosser_anzahl(): void
+    {
+        for ($i = 1; $i <= 30; $i++) {
+            $this->proof(['proof_type_code' => 'aufenthaltstitel', 'valid_until' => sprintf('2027-01-%02d', ($i % 28) + 1)]);
+        }
+
+        $ersteSeite = $this->component()->wartetAufBestaetigung();
+
+        $this->assertSame(30, $ersteSeite->total(), 'Gesamtzahl ueber alle Seiten');
+        $this->assertLessThan($ersteSeite->total(), $ersteSeite->count(), 'erste Seite zeigt nicht alle 30 auf einmal');
+    }
+
+    /**
+     * Kleinigkeit aus Fixrunde 1: confirmedByUser() wird jetzt angezeigt
+     * (Entscheidung siehe Fixbericht) — bestaetigt von <Name>.
+     */
+    public function test_neu_eingegangen_zeigt_wer_bestaetigt_hat(): void
+    {
+        $id = $this->proof(['proof_type_code' => 'aufenthaltstitel', 'confirmed_at' => now(), 'confirmed_by_user_id' => self::HR_USER_ID]);
+
+        $zeile = collect($this->component()->neuEingegangen())->firstWhere('id', $id);
+
+        $this->assertSame('Nina Personal', $zeile['confirmed_by']);
     }
 }

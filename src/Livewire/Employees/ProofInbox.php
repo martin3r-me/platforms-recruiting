@@ -2,8 +2,10 @@
 
 namespace Platform\Recruiting\Livewire\Employees;
 
+use Illuminate\Pagination\LengthAwarePaginator;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Livewire\WithPagination;
 use Platform\Recruiting\Models\RecEmployeeProof;
 use Platform\Recruiting\Support\ProofTypes;
 
@@ -25,6 +27,17 @@ use Platform\Recruiting\Support\ProofTypes;
  */
 class ProofInbox extends Component
 {
+    use WithPagination;
+
+    /**
+     * Am Umzugstag (recruiting:nachweise-umziehen) duerfte die Zahl der
+     * offenen Aufenthaltstitel/Arbeitsgenehmigungen dreistellig sein — ohne
+     * Blaetterung stuende das alles auf einer Seite. Die Grenze auf
+     * uploaded_via wurde bewusst NICHT gezogen (siehe Klassendoku): fachlich
+     * ist jeder ungeprueft laufende Nachweis relevant, egal woher er kommt.
+     */
+    private const PRO_SEITE = 25;
+
     public ?string $flash = null;
 
     /**
@@ -35,7 +48,7 @@ class ProofInbox extends Component
      * die Inbox am Umzugstag mit ~1.500 "neuen" Eintraegen von heute geflutet.
      * Begrenzung auf 50: eine Inbox zeigt das Neueste, kein Archiv.
      *
-     * @return list<array{id:int, employee_id:int, name:string, label:string, valid_until:?string, created_at:string, needs_confirmation:bool, confirmed:bool}>
+     * @return list<array{id:int, employee_id:int, name:string, label:string, valid_until:?string, created_at:string, needs_confirmation:bool, confirmed:bool, confirmed_by:?string, confirmed_at_human:?string}>
      */
     #[Computed]
     public function neuEingegangen(): array
@@ -46,7 +59,7 @@ class ProofInbox extends Component
             ->aktuell()
             ->where('team_id', $teamId)
             ->where('uploaded_via', '!=', 'import')
-            ->with('employee')
+            ->with(['employee', 'confirmedByUser'])
             ->orderByDesc('created_at')
             ->limit(50)
             ->get()
@@ -60,10 +73,12 @@ class ProofInbox extends Component
      * heisst hier: laeuft am schnellsten ab (valid_until aufsteigend, offene
      * Ablaufdaten zuletzt).
      *
-     * @return list<array{id:int, employee_id:int, name:string, label:string, valid_until:?string, created_at:string, needs_confirmation:bool, confirmed:bool}>
+     * Blaettert (PRO_SEITE): am Umzugstag kann diese Liste dreistellig
+     * werden, siehe Klassendoku. through() mappt die Zeilen aufs Anzeige-Array,
+     * ohne die Paginator-Metadaten (total(), links()) zu verlieren.
      */
     #[Computed]
-    public function wartetAufBestaetigung(): array
+    public function wartetAufBestaetigung(): LengthAwarePaginator
     {
         $teamId = auth()->user()->currentTeam->id;
 
@@ -71,11 +86,10 @@ class ProofInbox extends Component
             ->aktuell()
             ->where('team_id', $teamId)
             ->wartetAufBestaetigung()
-            ->with('employee')
+            ->with(['employee', 'confirmedByUser'])
             ->orderByRaw('valid_until IS NULL, valid_until ASC')
-            ->get()
-            ->map(fn (RecEmployeeProof $p) => $this->row($p))
-            ->all();
+            ->paginate(self::PRO_SEITE)
+            ->through(fn (RecEmployeeProof $p) => $this->row($p));
     }
 
     /**
@@ -89,9 +103,13 @@ class ProofInbox extends Component
      *  - Team-Scope serverseitig neu geprueft, nicht nur in der Liste gefiltert
      *    (ein manipulierter wire:click darf kein fremdes Mandat treffen).
      *  - Nur die zwei Pflicht-Arten duerfen bestaetigt werden.
-     *  - Idempotent: ein zweiter Klick (Doppel-Submit, zweite HR-Person) aendert
-     *    an einem schon bestaetigten Nachweis nichts mehr — die erste
-     *    Bestaetigung bleibt die Audit-Spur, sie wird nicht ueberschrieben.
+     *  - Atomar statt nur idempotent: die Bedingung confirmed_at IS NULL steht
+     *    IM Update selbst, nicht nur in einer vorherigen Lese-Pruefung — sonst
+     *    kommen zwei gleichzeitige Klicks (zwei HR-Leute auf denselben
+     *    abgelaufenen Aufenthaltstitel) beide an der Pruefung vorbei, und der
+     *    zweite ueberschreibt confirmed_by_user_id/confirmed_at des ersten.
+     *    Muster wie NotifyWaitlistForInterview::notifyEntries() — nur wer die
+     *    Zeile mit dem Update "gewinnt" (1 betroffene Zeile), hat bestaetigt.
      */
     public function bestaetige(int $proofId): void
     {
@@ -111,24 +129,29 @@ class ProofInbox extends Component
             $this->flash = 'Diese Art braucht keine Bestaetigung.';
             return;
         }
-        if ($proof->confirmed_at !== null) {
-            // Schon bestaetigt — nichts zu tun, kein Fehler.
-            $this->flash = 'War schon bestaetigt.';
-            return;
-        }
 
-        RecEmployeeProof::query()
+        $betroffen = RecEmployeeProof::query()
             ->where('id', $proof->id)
+            ->where('team_id', $teamId)
+            ->whereNull('confirmed_at')
             ->update([
                 'confirmed_by_user_id' => auth()->id(),
                 'confirmed_at'         => now(),
             ]);
 
+        if ($betroffen !== 1) {
+            // Jemand war schneller — die erste Bestaetigung bleibt stehen,
+            // das ist die Audit-Spur. Kein zweites Schreiben.
+            $this->flash = 'War schon bestaetigt.';
+            unset($this->wartetAufBestaetigung, $this->neuEingegangen);
+            return;
+        }
+
         $this->flash = 'Bestaetigt.';
         unset($this->wartetAufBestaetigung, $this->neuEingegangen);
     }
 
-    /** @return array{id:int, employee_id:int, name:string, label:string, valid_until:?string, created_at:string, needs_confirmation:bool, confirmed:bool} */
+    /** @return array{id:int, employee_id:int, name:string, label:string, valid_until:?string, created_at:string, needs_confirmation:bool, confirmed:bool, confirmed_by:?string, confirmed_at_human:?string} */
     private function row(RecEmployeeProof $p): array
     {
         $emp = $p->employee;
@@ -145,6 +168,11 @@ class ProofInbox extends Component
             'created_at'          => $p->created_at?->toIso8601String() ?? '',
             'needs_confirmation'  => ProofTypes::needsHrConfirmation($p->proof_type_code),
             'confirmed'           => $p->confirmed_at !== null,
+            // Wozu wir confirmed_by_user_id ueberhaupt speichern: in der
+            // Anzeige nennen ("bestaetigt von <Name>"), nicht nur im Feld
+            // ablegen und nie wieder anschauen.
+            'confirmed_by'        => $p->confirmedByUser?->name,
+            'confirmed_at_human'  => $p->confirmed_at?->format('d.m.Y H:i'),
         ];
     }
 
