@@ -6,11 +6,16 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
+use Livewire\WithFileUploads;
+use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\ProofReader;
+use Platform\Recruiting\Services\ProofWriter;
 use Platform\Recruiting\Support\ProofChecklist;
+use Platform\Recruiting\Support\ProofTypes;
+use Platform\Recruiting\Support\ProofUploadRules;
 
 /**
  * Das neue Mitarbeiterportal — die Huelle.
@@ -34,6 +39,8 @@ use Platform\Recruiting\Support\ProofChecklist;
  */
 class PortalShell extends Component
 {
+    use WithFileUploads;
+
     #[Locked] public string $token = '';
     #[Locked] public ?int $employeeId = null;
     #[Locked] public string $state = 'unverified';
@@ -45,6 +52,18 @@ class PortalShell extends Component
     public string $birthDate = '';
     public string $idLast4 = '';
     public string $fehler = '';
+
+    /**
+     * Eingaben des Upload-Formulars — ebenfalls NICHT gesperrt, der Mensch
+     * waehlt Nachweisart, Datum und Datei ja selbst. Die Sicherheit steckt
+     * nicht darin, dass diese Felder unveraenderlich waeren, sondern darin,
+     * dass speichereNachweis() bei JEDEM Aufruf erneut ueber
+     * berechtigterMitarbeiter() prueft, ob ueberhaupt geschrieben werden darf.
+     */
+    public ?string $uploadCode = null;
+    public string $uploadGueltigBis = '';
+    public $uploadDatei = null;
+    public string $uploadFehler = '';
 
     public function mount(string $token, PortalAuth $auth): void
     {
@@ -166,6 +185,84 @@ class PortalShell extends Component
         $this->idLast4 = '';
     }
 
+    /**
+     * Eine Aufgabe antippen — oeffnet das Formular fuer genau diese Art.
+     *
+     * Unbekannte Codes (kaputter Link, veraltetes Snapshot) fuehren still ins
+     * Leere statt in einen Fehler: $uploadCode bleibt null, das Formular
+     * zeigt sich nicht.
+     */
+    public function oeffneUpload(string $code): void
+    {
+        $this->uploadCode = ProofTypes::exists($code) ? $code : null;
+        $this->uploadGueltigBis = '';
+        $this->uploadDatei = null;
+        $this->uploadFehler = '';
+    }
+
+    /** Das Formular schliessen, ohne zu speichern — z. B. „Abbrechen". */
+    public function schliesseUpload(): void
+    {
+        $this->uploadCode = null;
+        $this->uploadGueltigBis = '';
+        $this->uploadDatei = null;
+        $this->uploadFehler = '';
+    }
+
+    /**
+     * Den Nachweis speichern.
+     *
+     * berechtigterMitarbeiter() ist hier keine Formalitaet: sie ist der
+     * einzige Grund, warum $wire.call('speichereNachweis') ohne Anmeldung
+     * (state manipuliert, Anmeldung nie erfolgt) ins Leere laeuft.
+     */
+    public function speichereNachweis(): void
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        if ($employee === null || $this->uploadCode === null) {
+            return;
+        }
+
+        $fehler = ProofUploadRules::pruefeDatum(
+            $this->uploadCode,
+            $this->uploadGueltigBis,
+            now()->toDateString(),
+        );
+        if ($fehler !== null) {
+            $this->uploadFehler = $fehler;
+
+            return;
+        }
+
+        $this->validate([
+            'uploadDatei' => 'required|file|mimes:' . implode(',', ProofUploadRules::MIME_TYPES)
+                . '|max:' . ProofUploadRules::MAX_KB,
+        ]);
+
+        try {
+            $ergebnis = app(ContextFileService::class)->uploadForContext(
+                $this->uploadDatei, 'rec_employee', $employee->id,
+                ['team_id' => $employee->team_id, 'user_id' => null],
+            );
+        } catch (\Throwable $e) {
+            $this->uploadFehler = 'Das Hochladen hat nicht geklappt. Bitte versuch es noch einmal.';
+            report($e);
+
+            return;
+        }
+
+        app(ProofWriter::class)->store($employee, $this->uploadCode, [
+            'file_id'     => (int) $ergebnis['id'],
+            'valid_until' => ProofTypes::hasExpiry($this->uploadCode) ? $this->uploadGueltigBis : null,
+            'uploaded_via' => 'employee',
+        ]);
+
+        $this->uploadCode = null;
+        $this->uploadDatei = null;
+        $this->uploadGueltigBis = '';
+        $this->uploadFehler = '';
+    }
+
     public function render()
     {
         $employee = $this->berechtigterMitarbeiter();
@@ -173,9 +270,12 @@ class PortalShell extends Component
         $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
 
         return view('recruiting::livewire.public.portal-shell', [
-            'aufgaben'     => self::dekoriert($checklist),
-            'offen'        => count(array_filter($checklist, fn ($z) => $z['offen'])),
-            'anstellungen' => $employee ? $this->anstellungen($employee) : collect(),
+            'aufgaben'        => self::dekoriert($checklist),
+            'offen'           => count(array_filter($checklist, fn ($z) => $z['offen'])),
+            'anstellungen'    => $employee ? $this->anstellungen($employee) : collect(),
+            'uploadLabel'     => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
+            'uploadHatAblauf' => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),
+            'uploadAccept'    => '.' . implode(',.', ProofUploadRules::MIME_TYPES),
         ])->layout('recruiting::layouts.portal', [
             'title' => 'Mein Portal · RheinGedeck',
         ]);
@@ -233,7 +333,7 @@ class PortalShell extends Component
      * bleibt. Rot heisst: er kann nicht arbeiten. Gelb: es laeuft auf etwas zu.
      *
      * @param  list<array{code:string, label:string, status:string, valid_until:?string, offen:bool}> $zeilen
-     * @return list<array{label:string, punkt:string, text:string, offen:bool}>
+     * @return list<array{code:string, label:string, punkt:string, text:string, offen:bool}>
      */
     public static function dekoriert(array $zeilen): array
     {
@@ -249,7 +349,7 @@ class PortalShell extends Component
                 default                    => ['ok', $datum !== null ? 'Gültig bis ' . $datum : 'Liegt vor'],
             };
 
-            return ['label' => $z['label'], 'punkt' => $punkt, 'text' => $text, 'offen' => $z['offen']];
+            return ['code' => $z['code'], 'label' => $z['label'], 'punkt' => $punkt, 'text' => $text, 'offen' => $z['offen']];
         }, $zeilen);
     }
 

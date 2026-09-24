@@ -64,6 +64,15 @@ class PortalShellDecorationTest extends TestCase
         $this->assertSame('Liegt vor', $out[0]['text']);
     }
 
+    public function test_code_wird_durchgereicht(): void
+    {
+        // Ohne den Code kann die Ansicht wire:click="oeffneUpload($code)"
+        // nicht bauen — die Aufgabe waere anklickbar, aber ohne Ziel.
+        $out = PortalShell::dekoriert([$this->zeile(ProofChecklist::FEHLT)]);
+
+        $this->assertSame('ausweis', $out[0]['code']);
+    }
+
     public function test_leere_liste_bleibt_leer(): void
     {
         $this->assertSame([], PortalShell::dekoriert([]));

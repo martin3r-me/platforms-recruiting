@@ -161,6 +161,49 @@
 
         .portal-body .leer { padding: 17px; font-size: 14px; color: var(--ink-3); line-height: 1.5 }
         .portal-body .fuss { margin: 9px 2px 0; font-size: 12.5px; color: var(--ink-3); line-height: 1.5 }
+
+        /* Aufgabenzeilen sind jetzt Knoepfe (Upload antippen) — der Entwurf
+           kannte sie nur als Deko-Divs. */
+        .portal-body .task.tap { cursor: pointer; background: none; border: none;
+            font-family: var(--body); text-align: left; width: 100%; padding-right: 13px }
+        .portal-body .task.tap:hover { background: var(--surface-2) }
+
+        /* --- Upload-Formular: Ueberlagerung ueber dem ganzen Bildschirm --- */
+        .portal-body .upload-overlay {
+            /* fixed statt absolute: .screen hat keinen positionierten
+               Vorfahren, ein absolute-Overlay wuerde sich am Wurzelelement
+               ausrichten — das gilt zufaellig genauso, ist aber nicht
+               garantiert, sobald sich .screen einmal aendert. */
+            position: fixed; inset: 0; z-index: 20;
+            background: color-mix(in srgb, black 45%, transparent);
+            display: flex; align-items: flex-end; justify-content: center;
+        }
+        @media (min-width: 900px) {
+            .portal-body .upload-overlay { align-items: center }
+        }
+        .portal-body .upload-sheet {
+            width: 100%; max-width: 440px; background: var(--surface);
+            border-radius: 16px 16px 0 0; padding: 20px 19px calc(19px + env(safe-area-inset-bottom));
+            display: flex; flex-direction: column; gap: 13px;
+            box-shadow: var(--shadow);
+        }
+        @media (min-width: 900px) {
+            .portal-body .upload-sheet { border-radius: 14px; padding: 24px }
+        }
+        .portal-body .upload-head { display: flex; align-items: center; justify-content: space-between; gap: 12px }
+        .portal-body .upload-head h3 { margin: 0; font-family: var(--display); font-size: 20px }
+        .portal-body .upload-close {
+            border: none; background: var(--surface-3); color: var(--ink-2);
+            width: 30px; height: 30px; border-radius: 50%; font-size: 18px;
+            line-height: 1; cursor: pointer; flex: none;
+        }
+        .portal-body .upload-sub { margin: -6px 0 0; font-size: 13px; color: var(--ink-2); line-height: 1.5 }
+        .portal-body .upload-status { font-size: 12.5px; color: var(--ink-2) }
+        .portal-body .upload-sheet input[type="file"] {
+            font-family: var(--body); font-size: 13.5px; color: var(--ink);
+            background: var(--surface-2); border: 1px solid var(--line-2);
+            border-radius: var(--r); padding: 11px 12px; width: 100%; box-sizing: border-box;
+        }
     </style>
     @endverbatim
     @livewireStyles

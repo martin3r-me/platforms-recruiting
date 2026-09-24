@@ -178,7 +178,7 @@
                         <div class="sec-label">Das fehlt noch <span class="count">{{ $offen }}</span></div>
                         <div class="card" style="margin-top:11px">
                             @foreach ($offeneAufgaben as $aufgabe)
-                                <div class="task">
+                                <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
                                     <span class="dot {{ $aufgabe['punkt'] }}"></span>
                                     <div>
                                         <div class="t">{{ $aufgabe['label'] }}</div>
@@ -196,12 +196,13 @@
                         <div class="sec-label">Liegt vor <span class="count">{{ count($erledigt) }}</span></div>
                         <div class="card flat" style="margin-top:11px">
                             @foreach ($erledigt as $aufgabe)
-                                <div class="task">
+                                <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
                                     <span class="dot ok"></span>
                                     <div>
                                         <div class="t">{{ $aufgabe['label'] }}</div>
                                         <div class="s">{{ $aufgabe['text'] }}</div>
                                     </div>
+                                    <span class="chev">›</span>
                                 </div>
                             @endforeach
                         </div>
@@ -235,7 +236,7 @@
                     <div class="sec-label">{{ $duzen ? 'Deine Nachweise' : 'Ihre Nachweise' }} <span class="count">{{ count($aufgaben) }}</span></div>
                     <div class="card" style="margin-top:11px">
                         @forelse ($aufgaben as $aufgabe)
-                            <div class="task">
+                            <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
                                 <span class="dot {{ $aufgabe['punkt'] }}"></span>
                                 <div>
                                     <div class="t">{{ $aufgabe['label'] }}</div>
@@ -331,6 +332,56 @@
                     </span>Profil
                 </button>
             </nav>
+
+            {{--
+                Upload-Formular — Ueberlagerung ueber dem ganzen Bildschirm,
+                unabhaengig vom offenen Reiter. $uploadCode ist Server-Zustand
+                (gesetzt von oeffneUpload/speichereNachweis), deshalb bleibt
+                das Zeigen/Verstecken serverseitig statt in Alpine.
+            --}}
+            @if ($uploadCode !== null)
+                @php
+                    $uploadEinleitung = $duzen
+                        ? 'Fotografiere den Nachweis oder wähle eine Datei aus.'
+                        : 'Fotografieren Sie den Nachweis oder wählen Sie eine Datei aus.';
+                @endphp
+                <div class="upload-overlay" wire:click.self="schliesseUpload">
+                    <form class="upload-sheet" wire:submit="speichereNachweis">
+                        <div class="upload-head">
+                            <h3>{{ $uploadLabel }}</h3>
+                            <button type="button" class="upload-close" wire:click="schliesseUpload" aria-label="Schließen">&times;</button>
+                        </div>
+                        <p class="upload-sub">{{ $uploadEinleitung }}</p>
+
+                        @if ($uploadHatAblauf)
+                            <label class="feld">
+                                <span class="n">Gültig bis</span>
+                                <input type="date" wire:model="uploadGueltigBis" required>
+                            </label>
+                        @endif
+
+                        <label class="feld">
+                            <span class="n">Foto oder Scan</span>
+                            <input type="file" wire:model="uploadDatei" accept="{{ $uploadAccept }}"
+                                   capture="environment" required>
+                        </label>
+
+                        <div wire:loading wire:target="uploadDatei" class="upload-status">Wird hochgeladen …</div>
+
+                        @if ($uploadFehler !== '')
+                            <div class="alert crit">
+                                <span class="dot crit" style="margin-top:6px"></span>
+                                <div class="txt">{{ $uploadFehler }}</div>
+                            </div>
+                        @endif
+
+                        <button type="submit" class="btn primary" wire:loading.attr="disabled" wire:target="speichereNachweis">
+                            Speichern
+                        </button>
+                        <button type="button" class="btn" wire:click="schliesseUpload">Abbrechen</button>
+                    </form>
+                </div>
+            @endif
 
     @endif
 </div>
