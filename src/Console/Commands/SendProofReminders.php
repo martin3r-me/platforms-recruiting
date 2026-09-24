@@ -55,11 +55,22 @@ use Platform\Recruiting\Support\ProofTypes;
  * Frage "welches Portal oeffnet der Knopf" — keine Ternary noetig, die
  * zwischen alter und neuer Route unterscheidet.
  *
- * STICHTAG: ohne --stichtag ist die Bremse gegen die Altbestands-Welle AUS —
- * ProofReminderPlanner::plan() erinnert dann an JEDEN faelligen Nachweis,
- * auch die rund 540 bereits abgelaufenen. Der Stichtag ist eine
- * Kundenentscheidung (Markus, offen) und deshalb ein Kommandozeilen-Parameter,
- * kein Default im Code. Ein unlesbarer Wert (Fixrunde 2, Befund C1 — z.B. die
+ * STICHTAG, PFLICHT (Schlusspruefung M3): Ohne --stichtag ist die Bremse gegen
+ * die Altbestands-Welle AUS — ProofReminderPlanner::plan() erinnert dann an
+ * JEDEN faelligen Nachweis, auch die rund 540 bereits abgelaufenen und die 283
+ * bald faelligen. Verschaerfend: der Umzug der Altdaten
+ * (recruiting:nachweise-umziehen) setzt kein reminded_at, die zurueckgehaltenen
+ * Nachweise bleiben also DAUERHAFT scharf; nach einem Lauf ohne Bremse steht
+ * der Stempel und eine zweite Erinnerung gibt es nie. Eine blosse Warnung
+ * reicht dafuer nicht: wer die Flagge einmal vergisst, kann es nicht
+ * zurueckdrehen. Deshalb BRICHT der scharfe Lauf ohne --stichtag AB. Wer
+ * bewusst ohne Bremse fahren will, sagt das ausdruecklich: --ohne-stichtag.
+ * Der Trockenlauf darf ohne beides laufen — er schickt nichts — sagt aber
+ * deutlich, dass die Bremse aus ist.
+ *
+ * Der Stichtag selbst bleibt eine Kundenentscheidung (Markus, offen) und
+ * deshalb ein Kommandozeilen-Parameter, kein Default im Code. Ein unlesbarer
+ * Wert (Fixrunde 2, Befund C1 — z.B. die
  * deutsche Schreibweise 24.09.2026 oder ein fehlendes fuehrendes Null wie
  * 2026-9-24) bricht den Lauf VOR jeder Aktion ab, statt die Bremse still
  * auszuschalten: ProofReminderPlanner::alsTag() liefert fuer sowas null, und
@@ -83,7 +94,8 @@ class SendProofReminders extends Command
 
     protected $signature = 'recruiting:nachweise-erinnern
         {--team= : Nur Mitarbeiter dieses Teams}
-        {--stichtag= : Fristen VOR diesem Datum (Y-m-d) bleiben stumm — Bremse gegen die Altbestands-Welle. Ohne Angabe: keine Bremse. Unlesbarer Wert bricht den Lauf ab.}
+        {--stichtag= : Fristen VOR diesem Datum (Y-m-d) bleiben stumm — Bremse gegen die Altbestands-Welle. PFLICHT beim scharfen Lauf, sonst --ohne-stichtag. Unlesbarer Wert bricht den Lauf ab.}
+        {--ohne-stichtag : Bewusst OHNE Bremse fahren — erinnert auch an den kompletten Altbestand (rund 540 abgelaufene Nachweise auf einen Schlag).}
         {--dry-run : Nichts senden, nichts schreiben — nur anzeigen, was fällig wäre}
         {--limit= : Höchstens so viele Personen erinnern (dringendste zuerst)}
         {--zuruecksetzen= : Statt zu erinnern: reminded_at bei diesen Nachweis-IDs leeren (komma-getrennt) — Reparatur, falls Meta erst per Webhook meldet, dass eine als "sent" geltende Nachricht nie ankam.}';
@@ -99,6 +111,7 @@ class SendProofReminders extends Command
         $teamId = $this->option('team') !== null ? (int) $this->option('team') : null;
         $stichtagRoh = $this->option('stichtag') !== null ? (string) $this->option('stichtag') : null;
         $dryRun = (bool) $this->option('dry-run');
+        $ohneStichtag = (bool) $this->option('ohne-stichtag');
         $limit = $this->option('limit') !== null ? (int) $this->option('limit') : null;
 
         // C1: unlesbarer Stichtag bricht ab, statt die Bremse still
@@ -109,6 +122,42 @@ class SendProofReminders extends Command
             return self::FAILURE;
         }
         $stichtag = $stichtagRoh;
+
+        // M3: Beides zusammen ist ein Widerspruch — wir raten nicht, welche
+        // Haelfte gemeint war. Bei ueber 500 bezahlten WhatsApps ist Nachfragen
+        // billiger als Raten.
+        if ($stichtagRoh !== null && $ohneStichtag) {
+            $this->error('--stichtag und --ohne-stichtag widersprechen sich. Bitte genau eines von beiden angeben. Lauf abgebrochen, es wurde nichts gesendet.');
+
+            return self::FAILURE;
+        }
+
+        // M3: Die Bremse ist zu wichtig, um an einer Flagge zu haengen, die
+        // man vergessen kann. Ohne Entscheidung bricht der scharfe Lauf ab.
+        if ($stichtagRoh === null && !$ohneStichtag) {
+            if (!$dryRun) {
+                $this->error('Kein --stichtag angegeben — Lauf abgebrochen, es wurde nichts gesendet.');
+                $this->line('Ohne Bremse erinnert der Fristenlauf an JEDEN fälligen Nachweis: rund 540 bereits');
+                $this->line('abgelaufene plus 283 bald fällige, auf einen Schlag. Der Umzug der Altdaten setzt');
+                $this->line('kein reminded_at, diese Nachweise sind also dauerhaft scharf — und nach dem Lauf');
+                $this->line('steht der Stempel, eine zweite Erinnerung bekommt niemand.');
+                $this->line('');
+                $this->line('Zwei Wege weiter:');
+                $this->line('  --stichtag=JJJJ-MM-TT   Bremse an: nur Fristen ab diesem Tag werden erinnert.');
+                $this->line('  --ohne-stichtag         Bewusst ohne Bremse, inklusive Altbestand.');
+                $this->line('Zum blossen Nachsehen genügt --dry-run — der läuft auch ohne beides.');
+
+                return self::FAILURE;
+            }
+
+            $this->warn('ACHTUNG: kein --stichtag gesetzt, die Bremse gegen die Altbestands-Welle ist AUS. '
+                . 'Der Trockenlauf zeigt deshalb auch den kompletten Altbestand. Ein scharfer Lauf würde hier abbrechen.');
+        }
+
+        if ($ohneStichtag) {
+            $this->warn('ACHTUNG: --ohne-stichtag — die Bremse gegen die Altbestands-Welle ist AUS. '
+                . 'Erinnert wird an JEDEN fälligen Nachweis, auch an den kompletten Altbestand.');
+        }
 
         // Wirksame Parameter IMMER im Klartext, auch im Trockenlauf — wer das
         // liest, sieht sofort, ob die Bremse greift (C1).

@@ -293,8 +293,30 @@ final class SendProofRemindersTest extends TestCase
         };
     }
 
-    /** @return array{0: int, 1: string} [exitCode, komplette Konsolenausgabe] */
+    /**
+     * Scharfe Laeufe muessen sich seit M3 ausdruecklich zur Bremse aeussern —
+     * ohne --stichtag bricht das Kommando ab. Die Tests, in denen es NICHT um
+     * die Bremse geht, meinen "bewusst ohne" und bekommen die Flagge hier
+     * automatisch. Die Tests der Bremse selbst benutzen runCommandRoh() und
+     * setzen die Optionen wortwoertlich.
+     *
+     * @return array{0: int, 1: string} [exitCode, komplette Konsolenausgabe]
+     */
     private function runCommand(array $options = []): array
+    {
+        $entscheidungNoetig = !array_key_exists('--stichtag', $options)
+            && !array_key_exists('--ohne-stichtag', $options)
+            && !array_key_exists('--zuruecksetzen', $options);
+
+        if ($entscheidungNoetig) {
+            $options['--ohne-stichtag'] = true;
+        }
+
+        return $this->runCommandRoh($options);
+    }
+
+    /** Fuehrt das Kommando mit GENAU diesen Optionen aus, ohne Zutaten. */
+    private function runCommandRoh(array $options = []): array
     {
         $command = new SendProofReminders();
         $command->setLaravel(new ProofReminderFakeLaravel());
@@ -677,8 +699,81 @@ final class SendProofRemindersTest extends TestCase
         $this->assertCount(1, $this->meta->calls);
         $this->assertSame($this->phoneFor($dringend->id), $this->meta->calls[0]['to'], 'Der dringendste Fall gewinnt bei --limit.');
     }
-}
 
+    // -----------------------------------------------------------------
+    // M3 — der Stichtag ist keine Flagge mehr, die man vergessen kann
+    // -----------------------------------------------------------------
+
+    public function test_scharfer_lauf_ohne_stichtag_bricht_ab_und_sendet_nichts(): void
+    {
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        [$exitCode, $ausgabe] = $this->runCommandRoh();
+
+        $this->assertSame(SendProofReminders::FAILURE, $exitCode);
+        $this->assertSame([], $this->meta->calls, 'Ohne Entscheidung ueber die Bremse darf NICHTS rausgehen.');
+        $this->assertNull($this->remindedAtOf($proofId));
+
+        // Die Meldung muss beide Auswege nennen — sonst sucht der Mensch
+        // am Ende doch wieder in der Quelle.
+        $this->assertStringContainsString('--stichtag', $ausgabe);
+        $this->assertStringContainsString('--ohne-stichtag', $ausgabe);
+    }
+
+    public function test_mit_ohne_stichtag_faehrt_es_bewusst_ohne_bremse(): void
+    {
+        $ma = $this->ma();
+        // Laengst abgelaufen — nur ohne Bremse ueberhaupt im Fenster.
+        $proofId = $this->proof($ma, 'ausweis', now()->subDays(200)->toDateString());
+
+        [$exitCode, $ausgabe] = $this->runCommandRoh(['--ohne-stichtag' => true]);
+
+        $this->assertSame(SendProofReminders::SUCCESS, $exitCode);
+        $this->assertCount(1, $this->meta->calls);
+        $this->assertNotNull($this->remindedAtOf($proofId));
+        $this->assertStringContainsString('Bremse', $ausgabe, 'Auch der bewusste Lauf sagt laut, dass die Bremse aus ist.');
+    }
+
+    public function test_trockenlauf_ohne_stichtag_laeuft_sagt_aber_dass_die_bremse_aus_ist(): void
+    {
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->subDays(200)->toDateString());
+
+        [$exitCode, $ausgabe] = $this->runCommandRoh(['--dry-run' => true]);
+
+        $this->assertSame(SendProofReminders::SUCCESS, $exitCode, 'Der Trockenlauf schickt nichts und darf deshalb laufen.');
+        $this->assertSame([], $this->meta->calls);
+        $this->assertNull($this->remindedAtOf($proofId));
+        $this->assertStringContainsString('Bremse', $ausgabe);
+    }
+
+    public function test_stichtag_und_ohne_stichtag_zusammen_brechen_ab(): void
+    {
+        $ma = $this->ma();
+        $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString());
+
+        [$exitCode] = $this->runCommandRoh([
+            '--stichtag' => now()->toDateString(),
+            '--ohne-stichtag' => true,
+        ]);
+
+        $this->assertSame(SendProofReminders::FAILURE, $exitCode);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    public function test_zuruecksetzen_braucht_keine_entscheidung_ueber_die_bremse(): void
+    {
+        // --zuruecksetzen sendet nichts und laeuft vor der Bremsen-Pruefung.
+        $ma = $this->ma();
+        $proofId = $this->proof($ma, 'ausweis', now()->addDays(10)->toDateString(), now()->toDateTimeString());
+
+        [$exitCode] = $this->runCommandRoh(['--zuruecksetzen' => (string) $proofId]);
+
+        $this->assertSame(SendProofReminders::SUCCESS, $exitCode);
+        $this->assertNull($this->remindedAtOf($proofId));
+    }
+}
 /**
  * Duck-typed WhatsAppMetaService-Attrappe: zeichnet jeden Aufruf auf, kann
  * werfen oder einen von Meta ABGELEHNTEN Status simulieren (status='failed'
