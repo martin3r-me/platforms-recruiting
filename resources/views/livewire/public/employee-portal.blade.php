@@ -258,9 +258,15 @@
                                 : 'Sind Sie Ersthelfer? Wenn ja, tragen Sie bitte das Gültigkeitsdatum ein und laden Sie Ihren Ersthelfer-Schein hoch — ohne beides können wir nicht speichern. Wenn nein, wählen Sie einfach „Nein".';
                         }
                         if ($section === 'Arbeitgeber') {
+                            // BEWUSST NICHT "wo du am meisten verdienst": das ist
+                            // eine Faustregel, keine Regel. Man hat genau EIN
+                            // erstes Dienstverhaeltnis, jedes weitere laeuft ueber
+                            // Steuerklasse VI — welches das erste ist, entscheidet
+                            // der Mitarbeiter. Und ein Minijob zaehlt nicht mit,
+                            // was bei Schuelern und Studenten der Normalfall ist.
                             $sectionHint = $duzen
-                                ? 'Dein Hauptarbeitgeber ist der Job, bei dem du am meisten verdienst. Arbeitest du nur bei uns, sind wir das — dann wähl „Ja" und lass das Feld darunter leer. Hast du woanders einen größeren Job, wähl „Nein" und trag ihn ein.'
-                                : 'Ihr Hauptarbeitgeber ist die Tätigkeit, bei der Sie am meisten verdienen. Arbeiten Sie nur bei uns, sind wir das — dann wählen Sie „Ja" und lassen das Feld darunter leer. Haben Sie woanders eine größere Tätigkeit, wählen Sie „Nein" und tragen sie ein.';
+                                ? 'Wenn du nur bei uns arbeitest, sind wir dein Hauptarbeitgeber — dann wähl „Ja" und lass das Feld darunter leer. Arbeitest du noch woanders, kannst du trotzdem nur bei einem Arbeitgeber der Hauptarbeitgeber sein. Ist das ein anderer, wähl „Nein" und trag ihn ein. Ein Minijob zählt dabei nicht mit. Du weißt es nicht sicher? Frag uns kurz — die Angabe wirkt sich auf deine Steuer aus.'
+                                : 'Wenn Sie nur bei uns arbeiten, sind wir Ihr Hauptarbeitgeber — dann wählen Sie „Ja" und lassen das Feld darunter leer. Arbeiten Sie noch woanders, können Sie trotzdem nur bei einem Arbeitgeber den Hauptarbeitgeber haben. Ist das ein anderer, wählen Sie „Nein" und tragen ihn ein. Ein Minijob zählt dabei nicht mit. Sie wissen es nicht sicher? Fragen Sie uns kurz — die Angabe wirkt sich auf Ihre Steuer aus.';
                         }
                     @endphp
                     <div class="mb-5">

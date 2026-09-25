@@ -231,9 +231,12 @@
                          direkt an der Auswahl, damit auch junge Mitarbeiter
                          verstehen was gemeint ist. --}}
                     @php
+                        // Siehe Kommentar im Mitarbeiter-Portal: nicht "wo du am
+                        // meisten verdienst" — das ist eine Faustregel, keine Regel,
+                        // und ein Minijob zaehlt nicht mit.
                         $arbeitgeberFrage = $duzen
-                            ? 'Dein Hauptarbeitgeber ist der Job, bei dem du am meisten verdienst. Arbeitest du nur bei uns, sind wir das.'
-                            : 'Ihr Hauptarbeitgeber ist die Tätigkeit, bei der Sie am meisten verdienen. Arbeiten Sie nur bei uns, sind wir das.';
+                            ? 'Du kannst nur bei einem Arbeitgeber den Hauptarbeitgeber haben. Arbeitest du nur bei uns, sind wir das. Ein Minijob bei jemand anderem zählt nicht mit. Unsicher? Frag uns kurz — die Angabe wirkt sich auf deine Steuer aus.'
+                            : 'Sie können nur bei einem Arbeitgeber den Hauptarbeitgeber haben. Arbeiten Sie nur bei uns, sind wir das. Ein Minijob bei jemand anderem zählt nicht mit. Unsicher? Fragen Sie uns kurz — die Angabe wirkt sich auf Ihre Steuer aus.';
                         $hauptText = $duzen
                             ? 'RheinGedeck ist dein Hauptarbeitgeber — du hast keinen anderen Hauptarbeitgeber.'
                             : 'RheinGedeck ist Ihr Hauptarbeitgeber — Sie haben keinen anderen Hauptarbeitgeber.';
