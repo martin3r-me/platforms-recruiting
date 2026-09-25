@@ -175,6 +175,35 @@
             </button>
             @endif
         </div>
+        {{-- Zeilenfilter (Kunde 03.09., seit 25.09. AUCH MOBIL): Tristan arbeitet
+             am Handy und sah dort jede Zeile — abgesagte und zur Loeschung
+             gemeldete inklusive. Die Pills rollen quer, die Suche steht darunter. --}}
+        <div class="flex flex-col gap-2 border-b border-gray-100 px-4 py-2.5 lg:flex-row lg:items-center lg:gap-1.5">
+            <div class="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 lg:mx-0 lg:overflow-visible lg:px-0">
+            @php $rfCounts = $this->rowFilterCounts; @endphp
+            @php $dayPills = $this->dispoDays; @endphp
+            @if (count($dayPills) > 1)
+                <span class="mr-1 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Tag</span>
+                <button type="button" wire:click="setRowDay('')"
+                        class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowDay === '' ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">Alle Tage</button>
+                @foreach ($dayPills as $dp)
+                    <button type="button" wire:click="setRowDay('{{ $dp['datum'] }}')"
+                            class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowDay === $dp['datum'] ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
+                        {{ $dp['label'] }} <span class="tabular-nums opacity-60">{{ $dp['total'] }}</span>
+                    </button>
+                @endforeach
+                <span class="mx-1 h-4 w-px shrink-0 bg-gray-200"></span>
+            @endif
+            @foreach (['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Zustellprobleme'] as $rfKey => $rfLabel)
+                <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
+                        class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
+                    {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
+                </button>
+            @endforeach
+            </div>
+            <input type="search" wire:model.live.debounce.300ms="rowSearch" placeholder="Mitarbeiter suchen (Name/PNr) …"
+                   class="w-full rounded-full border border-gray-200 px-3 py-1 text-xs focus:border-blue-500 focus:ring-blue-500 lg:ml-auto lg:w-64">
+        </div>
         {{-- Mobil: Crew-Liste statt 9-Spalten-Tabelle — Name, Zeit, Chips, grosser Chat-Knopf.
              Desktop (lg:) rendert unveraendert die Tabelle darunter. --}}
         <div class="divide-y divide-gray-100 lg:hidden">
@@ -182,7 +211,7 @@
                 $threadsM = $this->threadsByEmployee;
                 $canonMapM = $this->identity['canon'];
             @endphp
-            @forelse ($event->assignments as $assignment)
+            @forelse ($this->filteredAssignments as $assignment)
                 @php
                     $cidM = $assignment->rec_employee_id ? ($canonMapM[(int) $assignment->rec_employee_id] ?? (int) $assignment->rec_employee_id) : null;
                     $thrM = $cidM !== null ? ($threadsM[$cidM] ?? null) : null;
@@ -244,36 +273,11 @@
                     @endif
                 </div>
             @empty
-                <div class="px-4 py-8 text-center text-sm text-gray-500">Keine Einbuchungen.</div>
+                <div class="px-4 py-8 text-center text-sm text-gray-500">{{ $rowFilter === '' && trim($rowSearch) === '' && $rowDay === '' ? 'Keine Einbuchungen.' : 'Keine Einbuchungen für diese Auswahl.' }}</div>
             @endforelse
         </div>
 
         <div class="hidden lg:block">
-        {{-- Zeilenfilter (Kunde 03.09.): nur Desktop — mobil bewusst ungefiltert. --}}
-        <div class="flex items-center gap-1.5 border-b border-gray-100 px-4 py-2.5">
-            @php $rfCounts = $this->rowFilterCounts; @endphp
-            @php $dayPills = $this->dispoDays; @endphp
-            @if (count($dayPills) > 1)
-                <span class="mr-1 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Tag</span>
-                <button type="button" wire:click="setRowDay('')"
-                        class="rounded-full border px-2.5 py-1 text-xs {{ $rowDay === '' ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">Alle Tage</button>
-                @foreach ($dayPills as $dp)
-                    <button type="button" wire:click="setRowDay('{{ $dp['datum'] }}')"
-                            class="rounded-full border px-2.5 py-1 text-xs {{ $rowDay === $dp['datum'] ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
-                        {{ $dp['label'] }} <span class="tabular-nums opacity-60">{{ $dp['total'] }}</span>
-                    </button>
-                @endforeach
-                <span class="mx-1 h-4 w-px bg-gray-200"></span>
-            @endif
-            @foreach (['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Zustellprobleme'] as $rfKey => $rfLabel)
-                <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
-                        class="rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
-                    {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
-                </button>
-            @endforeach
-            <input type="search" wire:model.live.debounce.300ms="rowSearch" placeholder="Mitarbeiter suchen (Name/PNr) …"
-                   class="ml-auto w-64 rounded-full border border-gray-200 px-3 py-1 text-xs focus:border-blue-500 focus:ring-blue-500">
-        </div>
         <table class="w-full text-sm">
             <thead class="text-left text-gray-500">
                 @php $rowSortArrow = fn ($c) => $rowSort === $c ? ($rowSortDir === 'desc' ? ' ▼' : ' ▲') : ''; @endphp
