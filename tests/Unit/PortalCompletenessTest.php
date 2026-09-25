@@ -58,6 +58,14 @@ final class PortalCompletenessTest extends TestCase
         $this->assertSame(100, $stand['prozent']);
     }
 
+    public function test_false_ist_kein_leerer_wert(): void
+    {
+        // Ein boolesches Nein ist eine Antwort, keine Luecke.
+        $stand = PortalCompleteness::stand(['is_first_aider' => ['label' => 'Ersthelfer']], ['is_first_aider' => false]);
+
+        $this->assertSame(100, $stand['prozent']);
+    }
+
     public function test_ohne_felder_steht_der_ring_auf_hundert(): void
     {
         $this->assertSame(100, PortalCompleteness::stand([], [])['prozent']);

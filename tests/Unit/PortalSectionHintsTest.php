@@ -64,4 +64,33 @@ final class PortalSectionHintsTest extends TestCase
             PortalSectionHints::fuer('Arbeitgeber', false),
         );
     }
+
+    /**
+     * Abnahmeprotokoll, kein zweiter Wahrheitsort: der Text IST die Vorgabe,
+     * nicht die Ableitung von etwas anderem (anders als die Spaltenliste in
+     * Aufgabe 1). Diese vier Zusicherungen halten die zum Commit-Zeitpunkt
+     * geprueft-wortgleiche Fassung fest — wer sie aendert, aendert diesen
+     * Test bewusst mit. Die Formulierung des Arbeitgeber-Texts wartet laut
+     * Commit 0f9cffa noch auf eine Freigabe durch die Lohnabrechnung; bis
+     * dahin bleibt sie woertlich so, auch hier.
+     */
+    public function test_wortlaut_ist_woertlich_festgenagelt(): void
+    {
+        $this->assertSame(
+            'Bist du Ersthelfer? Wenn ja, trag bitte das Gültigkeitsdatum ein und lade deinen Ersthelfer-Schein hoch — ohne beides können wir nicht speichern. Wenn nein, wähl einfach „Nein".',
+            PortalSectionHints::fuer('Arbeitsschutz', true),
+        );
+        $this->assertSame(
+            'Sind Sie Ersthelfer? Wenn ja, tragen Sie bitte das Gültigkeitsdatum ein und laden Sie Ihren Ersthelfer-Schein hoch — ohne beides können wir nicht speichern. Wenn nein, wählen Sie einfach „Nein".',
+            PortalSectionHints::fuer('Arbeitsschutz', false),
+        );
+        $this->assertSame(
+            'Wenn du nur bei uns arbeitest, sind wir dein Hauptarbeitgeber — dann wähl „Ja" und lass das Feld darunter leer. Arbeitest du noch woanders, kannst du trotzdem nur bei einem Arbeitgeber der Hauptarbeitgeber sein. Ist das ein anderer, wähl „Nein" und trag ihn ein. Ein Minijob zählt dabei nicht mit. Du weißt es nicht sicher? Frag uns kurz — die Angabe wirkt sich auf deine Steuer aus.',
+            PortalSectionHints::fuer('Arbeitgeber', true),
+        );
+        $this->assertSame(
+            'Wenn Sie nur bei uns arbeiten, sind wir Ihr Hauptarbeitgeber — dann wählen Sie „Ja" und lassen das Feld darunter leer. Arbeiten Sie noch woanders, können Sie trotzdem nur bei einem Arbeitgeber den Hauptarbeitgeber haben. Ist das ein anderer, wählen Sie „Nein" und tragen ihn ein. Ein Minijob zählt dabei nicht mit. Sie wissen es nicht sicher? Fragen Sie uns kurz — die Angabe wirkt sich auf Ihre Steuer aus.',
+            PortalSectionHints::fuer('Arbeitgeber', false),
+        );
+    }
 }
