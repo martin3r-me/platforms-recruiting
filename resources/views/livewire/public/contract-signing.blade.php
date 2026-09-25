@@ -225,6 +225,59 @@
                         </div>
                     </div>
 
+                    {{-- Arbeitgeber-Erklaerung (Markus 24.09.2026).
+                         Wird NICHT ins Vertragsdokument gerendert — festgenagelt
+                         in ContractDocumentUntouchedTest. Die Erklaertexte stehen
+                         direkt an der Auswahl, damit auch junge Mitarbeiter
+                         verstehen was gemeint ist. --}}
+                    @php
+                        $arbeitgeberFrage = $duzen
+                            ? 'Wie wirst du bei uns angemeldet?'
+                            : 'Wie werden Sie bei uns angemeldet?';
+                        $hauptText = $duzen
+                            ? 'RheinGedeck ist dein Hauptarbeitgeber — du hast keinen anderen Hauptarbeitgeber.'
+                            : 'RheinGedeck ist Ihr Hauptarbeitgeber — Sie haben keinen anderen Hauptarbeitgeber.';
+                        $nebenText = $duzen
+                            ? 'Du hast bereits einen anderen Hauptarbeitgeber und arbeitest zusätzlich bei RheinGedeck.'
+                            : 'Sie haben bereits einen anderen Hauptarbeitgeber und arbeiten zusätzlich bei RheinGedeck.';
+                        $weitererLabel = $duzen
+                            ? 'Arbeitest du noch woanders? Dann trag hier den Arbeitgeber ein.'
+                            : 'Arbeiten Sie noch woanders? Dann tragen Sie hier den Arbeitgeber ein.';
+                    @endphp
+                    <div class="bg-white rounded-xl border border-gray-200 p-6">
+                        <h2 class="text-xl font-bold text-gray-900 mb-2">Angaben zur Anmeldung</h2>
+                        <p class="text-sm text-gray-600 mb-4">{!! $arbeitgeberFrage !!}</p>
+
+                        <div class="space-y-3">
+                            <label class="flex gap-3 items-start cursor-pointer rounded-lg border border-gray-200 p-3 hover:bg-gray-50">
+                                <input type="radio" wire:model.live="employerRole" value="haupt"
+                                    class="mt-1 text-blue-600 focus:ring-blue-500">
+                                <span>
+                                    <span class="block text-sm font-semibold text-gray-900">Hauptarbeitgeber</span>
+                                    <span class="block text-sm text-gray-600">{!! $hauptText !!}</span>
+                                </span>
+                            </label>
+
+                            <label class="flex gap-3 items-start cursor-pointer rounded-lg border border-gray-200 p-3 hover:bg-gray-50">
+                                <input type="radio" wire:model.live="employerRole" value="neben"
+                                    class="mt-1 text-blue-600 focus:ring-blue-500">
+                                <span>
+                                    <span class="block text-sm font-semibold text-gray-900">Nebenarbeitgeber</span>
+                                    <span class="block text-sm text-gray-600">{!! $nebenText !!}</span>
+                                </span>
+                            </label>
+                        </div>
+                        @error('employerRole') <span class="block mt-2 text-sm text-red-500">{{ $message }}</span> @enderror
+
+                        <div class="mt-4">
+                            <label class="block text-xs font-medium text-gray-600 mb-1">{!! $weitererLabel !!}</label>
+                            <input type="text" wire:model="employerOther" maxlength="128"
+                                placeholder="Firma, Ort"
+                                class="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                            @error('employerOther') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                        </div>
+                    </div>
+
                     <div class="flex justify-end">
                         <button type="button" wire:click="nextStep"
                             class="inline-flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">

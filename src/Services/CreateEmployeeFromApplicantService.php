@@ -87,7 +87,17 @@ class CreateEmployeeFromApplicantService
                 'is_active'          => true,
                 'employed_since'     => now()->toDateString(),
                 'created_by_user_id' => $createdByUserId,
-            ], \Platform\Recruiting\Support\ApplicantEmployeeFieldMapping::resolve($extraValues)));
+            ],
+                \Platform\Recruiting\Support\ApplicantEmployeeFieldMapping::resolve($extraValues),
+
+                // Arbeitgeber-Erklaerung aus dem unterschriebenen
+                // Arbeitsvertrag (Markus 24.09.2026). Steht NICHT in den
+                // Extra-Fields, sondern in rec_contracts.pre_signing_data —
+                // sie faellt bei der Unterschrift an, und zu dem Zeitpunkt
+                // gibt es diesen Mitarbeiter noch nicht. Liefert ein leeres
+                // Array, solange keine unterschriebene Erklaerung vorliegt;
+                // dann bleiben die Spalten leer und das Portal fragt nach.
+                \Platform\Recruiting\Support\SignedEmployerDeclaration::forApplicant($applicant->id)));
 
             // CRM-Link duplizieren: gleicher Contact, neuer linkable_type
             $this->mirrorCrmContactLinks($applicant, $employee, $createdByUserId);

@@ -8,6 +8,7 @@ use Livewire\Component;
 use Platform\Core\Models\CorePublicFormLink;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Support\ContractPreSigningType;
+use Platform\Recruiting\Support\EmployerDeclaration;
 use Platform\Recruiting\Support\ResttagePlaceholder;
 
 class ContractSigning extends Component
@@ -57,6 +58,22 @@ class ContractSigning extends Component
 
     public bool $par16WasJobseeking = false;
     public array $par16Entries = [];
+
+    /**
+     * Arbeitgeber-Erklaerung (Markus 24.09.2026): 'haupt' | 'neben'.
+     *
+     * Bewusst NICHT #[Locked] — der Bewerber waehlt sie ja. mount() belegt
+     * sie bei Schuelern und Studenten vor; wer einen anderen Hauptarbeitgeber
+     * hat (Werkstudent, dualer Student), stellt um.
+     */
+    public ?string $employerRole = null;
+
+    /**
+     * Weiterer Arbeitgeber. Pflicht nur bei 'neben' — wer uns als
+     * Hauptarbeitgeber angibt, darf trotzdem nebenher woanders arbeiten.
+     * Genau dieser Fall geht in Markus' Zwei-Wege-Auswahl sonst verloren.
+     */
+    public ?string $employerOther = null;
 
     public ?string $signatureData = null;
 
@@ -129,7 +146,36 @@ class ContractSigning extends Component
             $this->contentIncomplete = ResttagePlaceholder::hasUnresolvedPlaceholder($this->contractContent);
         }
 
+        // Vorbelegung der Arbeitgeber-Auswahl aus "Ich bin" (Markus
+        // 24.09.2026). Nur Vorbelegung, keine Sperre — siehe
+        // EmployerDeclaration::defaultRoleFor.
+        if ($this->preSigningType === ContractPreSigningType::PAR_15_16) {
+            $this->employerRole = $this->defaultEmployerRole($contract);
+        }
+
         $this->state = 'form';
+    }
+
+    /**
+     * "Ich bin" des Bewerbers, defensiv gelesen: ein Fehler beim Auflesen
+     * der Extra-Felder darf die Unterschriftsseite nicht lahmlegen — dann
+     * gibt es eben keine Vorbelegung.
+     */
+    private function defaultEmployerRole(RecContract $contract): ?string
+    {
+        $applicant = $contract->applicant;
+        if (!$applicant) {
+            return null;
+        }
+
+        try {
+            $values = app(\Platform\Recruiting\Services\CreateEmployeeFromApplicantService::class)
+                ->collectExtraFieldValuesByName($applicant);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return EmployerDeclaration::defaultRoleFor($values['ich_bin'] ?? null);
     }
 
     public function addPar15Entry(): void
@@ -224,6 +270,14 @@ class ContractSigning extends Component
             $messages = array_merge($messages, $this->resttageMessages());
         }
 
+        // Auch hier pruefen, nicht nur in nextStep(): sign() ist direkt
+        // aufrufbar, Schritt 1 also ueberspringbar. Ohne diese Regel liefe
+        // ein Arbeitsvertrag ohne Arbeitgeber-Erklaerung durch.
+        if ($type === ContractPreSigningType::PAR_15_16) {
+            $rules = array_merge($rules, EmployerDeclaration::rules());
+            $messages = array_merge($messages, EmployerDeclaration::messages($this->duzen));
+        }
+
         $this->validate($rules, $messages);
 
         if ($type === ContractPreSigningType::PAR_15_16) {
@@ -232,6 +286,12 @@ class ContractSigning extends Component
                 'par15_entries' => $this->par15HasPrevious ? $this->par15Entries : [],
                 'par16_was_jobseeking' => $this->par16WasJobseeking,
                 'par16_entries' => $this->par16WasJobseeking ? $this->par16Entries : [],
+                // Arbeitgeber-Erklaerung: wird MITGESPEICHERT, aber NICHT ins
+                // Dokument gerendert (Entscheidung 25.09.2026).
+                // embedPreSigningData liest diese Schluessel nicht — festgenagelt
+                // in ContractDocumentUntouchedTest.
+                EmployerDeclaration::KEY_ROLE  => $this->employerRole,
+                EmployerDeclaration::KEY_OTHER => $this->employerOther,
             ];
             $personalizedContent = RecContract::embedPreSigningData(
                 $contract->personalized_content ?? '',
@@ -293,8 +353,45 @@ class ContractSigning extends Component
             'status' => 'completed',
         ]);
 
+        // Erklaerung auf den Mitarbeiter uebernehmen, falls es ihn schon
+        // gibt. Sonst holt CreateEmployeeFromApplicantService sie bei der
+        // Anlage nach (SignedEmployerDeclaration) — je nach Reihenfolge von
+        // Vertragsunterschrift und Phasenabschluss greift mal der eine, mal
+        // der andere Weg.
+        if ($type === ContractPreSigningType::PAR_15_16) {
+            $this->applyEmployerDeclaration($contract, $preSigningData ?? []);
+        }
+
         $this->portalUrl = $this->buildPortalUrl($contract);
         $this->state = 'already_signed';
+    }
+
+    /**
+     * Darf die Unterschrift NIE kippen: der Vertrag ist zu diesem Zeitpunkt
+     * bereits gespeichert. Scheitert die Uebernahme, bleibt die Erklaerung im
+     * Vertrag stehen und das Portal fragt die Angabe ohnehin als Pflichtfeld
+     * ab (MainEmployerRequiredGuard).
+     */
+    private function applyEmployerDeclaration(RecContract $contract, array $preSigningData): void
+    {
+        try {
+            $attributes = EmployerDeclaration::toEmployeeAttributes($preSigningData);
+            if ($attributes === []) {
+                return;
+            }
+
+            $employee = $contract->applicant?->employee;
+            if (!$employee) {
+                return;
+            }
+
+            $employee->update($attributes);
+        } catch (\Throwable $e) {
+            Log::warning('[ContractSigning] Arbeitgeber-Erklaerung nicht uebernommen', [
+                'contract_id' => $contract->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
     }
 
     private function buildPortalUrl(RecContract $contract): ?string
@@ -355,6 +452,12 @@ class ContractSigning extends Component
                 'par16Entries.*.arbeitsagentur.required' => 'Arbeitsagentur ist erforderlich.',
             ]);
         }
+
+        // Arbeitgeber-Erklaerung: immer Pflicht in diesem Schritt. Der
+        // RESTTAGE-Zweig ist oben schon ausgestiegen, hier kann also nur
+        // noch ein Arbeitsvertrag ankommen.
+        $rules    = array_merge($rules, EmployerDeclaration::rules());
+        $messages = array_merge($messages, EmployerDeclaration::messages($this->duzen));
 
         if (! empty($rules)) {
             $this->validate($rules, $messages);

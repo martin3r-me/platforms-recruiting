@@ -114,8 +114,23 @@ class EmployeeCreationCertificateTest extends TestCase
      * Normalfall einschleppt. Aendert sich der Ablauf absichtlich, gehoert die
      * neue Zahl hierher und die Begruendung in den Commit.
      */
-    private const QUERIES_VOR_DEM_HOOK = 22;
-    private const QUERIES_SCHALTER_AUS = 23;
+    /**
+     * 25.09.2026: beide Zahlen um eins erhoeht (22->23, 23->24).
+     *
+     * Dazugekommen ist der Nachschlag der Arbeitgeber-Erklaerung aus dem
+     * unterschriebenen Arbeitsvertrag (SignedEmployerDeclaration). Er ist
+     * nicht vermeidbar: die Erklaerung faellt bei der Vertragsunterschrift an
+     * und steht in rec_contracts.pre_signing_data — nicht in den
+     * Extra-Feldern, aus denen die Anlage sonst schoepft. Ohne diesen Query
+     * kaeme jeder Mitarbeiter ohne die Angabe an, obwohl sie unterschrieben
+     * vorliegt.
+     *
+     * Vertretbar, weil die Anlage je Mitarbeiter genau einmal laeuft. Der
+     * Idempotenz-Pfad (QUERIES_ZWEITER_AUFRUF) ist unberuehrt — dort steigt
+     * createOrUpdate() vor diesem Query aus.
+     */
+    private const QUERIES_VOR_DEM_HOOK = 23;
+    private const QUERIES_SCHALTER_AUS = 24;
 
     /**
      * Der Idempotenz-Pfad: existiert der Mitarbeiter schon, steigt
