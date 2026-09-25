@@ -696,6 +696,11 @@
                                 @else
                                     <span class="font-semibold text-gray-800">{{ $variant['count'] }} Personen</span>
                                 @endif
+                                @if ($variant['inactive'] === $variant['count'])
+                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-500" title="Aus der Disposition genommen (verschwunden oder zur Löschung gemeldet). Der Hinweis käme zurück, sobald ZAS die Zeile wieder liefert.">nicht mehr eingebucht</span>
+                                @elseif ($variant['inactive'] > 0)
+                                    <span class="rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-500" title="Aus der Disposition genommen (verschwunden oder zur Löschung gemeldet).">{{ $variant['inactive'] }} nicht mehr eingebucht</span>
+                                @endif
                                 @if ($variant['days'] !== [])
                                     <span class="tabular-nums">· {{ count($variant['days']) > 4 ? implode(', ', array_slice($variant['days'], 0, 4)) . ' +' . (count($variant['days']) - 4) : implode(', ', $variant['days']) }}</span>
                                 @endif

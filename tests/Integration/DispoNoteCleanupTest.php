@@ -39,6 +39,7 @@ class DispoNoteCleanupTest extends TestCase
         foreach ([
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
+            'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php',
             'database/migrations/2026_08_20_000002_add_individual_note_to_rec_dispo_assignments.php',
             'database/migrations/2026_09_03_000002_add_note_timestamp_to_rec_dispo_assignments.php',
         ] as $relative) {
@@ -218,6 +219,33 @@ class DispoNoteCleanupTest extends TestCase
         $this->assertSame('Tag 1: Aufbau, Werkzeug mitbringen', RecDispoAssignment::where('ds_ref', 'T-1')->value('individual_note'));
         $this->assertSame('Tag 2: schwarzes Hemd', RecDispoAssignment::where('ds_ref', 'T-2')->value('individual_note'));
         $this->assertSame('Tag 2: schwarzes Hemd', RecDispoAssignment::where('ds_ref', 'T-3')->value('individual_note'));
+    }
+
+    /**
+     * Fall VA 1352: ZAS nahm drei Zeilen zwischen den beiden Info-Laeufen raus.
+     * Sie bleiben in der Liste — ihr Hinweis kaeme zurueck, sobald ZAS sie
+     * wieder liefert (der Import raeumt missing_since dann ab) — stehen aber
+     * ganz unten und sind als Altlast markiert.
+     */
+    public function test_nicht_mehr_eingebuchte_werden_markiert_und_nach_unten_sortiert(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-NOTE-4', 'name' => 'Raus-VA']);
+        RecDispoAssignment::create(['ds_ref' => 'R-1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG5', 'rec_employee_id' => 5, 'datum' => '2026-09-28', 'individual_note' => 'Aktueller Sammeltext']);
+        RecDispoAssignment::create(['ds_ref' => 'R-2', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG6', 'rec_employee_id' => 6, 'datum' => '2026-09-28', 'individual_note' => 'Aktueller Sammeltext']);
+        RecDispoAssignment::create(['ds_ref' => 'R-3', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG7', 'rec_employee_id' => 7, 'datum' => '2026-09-28', 'individual_note' => 'Alte Fassung', 'missing_since' => '2026-09-25 14:50:19']);
+        RecDispoAssignment::create(['ds_ref' => 'R-4', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG8', 'rec_employee_id' => 8, 'datum' => '2026-09-29', 'individual_note' => 'Alte Fassung', 'deletion_marked_at' => '2026-09-25 16:00:00']);
+        // Mischfall: eine Person ist an einem Tag noch drin, am anderen raus.
+        RecDispoAssignment::create(['ds_ref' => 'R-5', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG9', 'rec_employee_id' => 9, 'datum' => '2026-09-28', 'individual_note' => 'Aktueller Sammeltext', 'missing_since' => '2026-09-25 14:50:19']);
+
+        $variants = DispoNoteCleanup::variants($this->assignmentsOf($event->id));
+
+        $this->assertSame('Aktueller Sammeltext', $variants[0]['text'], 'Die lebende Fassung steht oben.');
+        $this->assertSame(3, $variants[0]['count']);
+        $this->assertSame(1, $variants[0]['inactive'], 'Eine der drei Personen ist raus.');
+
+        $this->assertSame('Alte Fassung', $variants[1]['text'], 'Altlast ganz unten.');
+        $this->assertSame(2, $variants[1]['count']);
+        $this->assertSame(2, $variants[1]['inactive'], 'Verschwunden UND zur Loeschung gemeldet zaehlen beide.');
     }
 
     /** Der Schluessel haengt am Wortlaut, nicht an der Listenposition. */
