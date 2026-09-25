@@ -259,8 +259,8 @@
                         }
                         if ($section === 'Arbeitgeber') {
                             $sectionHint = $duzen
-                                ? 'Der Hauptarbeitgeber ist der Job, bei dem du am meisten verdienst — davon hängt deine Steuerklasse ab. Arbeitest du nur bei uns, wähl „Ja" und lass das zweite Feld leer. Hast du noch einen anderen Job, trag ihn bitte ein.'
-                                : 'Der Hauptarbeitgeber ist die Tätigkeit, bei der Sie am meisten verdienen — davon hängt Ihre Steuerklasse ab. Arbeiten Sie nur bei uns, wählen Sie „Ja" und lassen das zweite Feld leer. Haben Sie noch eine andere Tätigkeit, tragen Sie diese bitte ein.';
+                                ? 'Dein Hauptarbeitgeber ist der Job, bei dem du am meisten verdienst. Arbeitest du nur bei uns, sind wir das — dann wähl „Ja" und lass das Feld darunter leer. Hast du woanders einen größeren Job, wähl „Nein" und trag ihn ein.'
+                                : 'Ihr Hauptarbeitgeber ist die Tätigkeit, bei der Sie am meisten verdienen. Arbeiten Sie nur bei uns, sind wir das — dann wählen Sie „Ja" und lassen das Feld darunter leer. Haben Sie woanders eine größere Tätigkeit, wählen Sie „Nein" und tragen sie ein.';
                         }
                     @endphp
                     <div class="mb-5">

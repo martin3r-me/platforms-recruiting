@@ -118,10 +118,19 @@ final class EmployerDeclaration
      * Leeres Array, wenn keine Erklaerung enthalten ist: §15/§16-Daten aus
      * der Zeit vor dieser Erweiterung duerfen am Mitarbeiter nichts anfassen.
      *
-     * `other_employer` wird auch dann geliefert, wenn es leer ist — und zwar
-     * als null. Die Erklaerung ist der Stand vom Unterschriftstag und besagt
-     * dann ausdruecklich "kein weiterer Arbeitgeber"; ein alter Wert am
-     * Mitarbeiter muss also weichen, nicht stehenbleiben.
+     * `other_employer` ist AUSSCHLIESSLICH die Antwort auf "wenn nicht wir,
+     * wer dann". Bei ROLE_MAIN wird der Wert deshalb verworfen und die
+     * Spalte geleert — auch wenn im Formular noch etwas stand (Entscheidung
+     * 25.09.2026).
+     *
+     * Das ist der Grund, warum die Spalte eindeutig ist: Sie bedeutet immer
+     * "der andere Hauptarbeitgeber" und ist leer, wenn wir es selbst sind.
+     * Ein Name, der mal Hauptarbeitgeber und mal Nebenjob bedeutet, waere
+     * nicht auswertbar — und beim Umschalten von "ja" auf "nein" stillschweigend
+     * falsch, weil der alte Nebenjob ploetzlich als Hauptarbeitgeber daestuende.
+     *
+     * Auch bei ROLE_SECONDARY wird die Spalte immer geliefert: die Erklaerung
+     * ist der Stand vom Unterschriftstag, ein alter Wert muss also weichen.
      *
      * @return array{is_main_employer?: bool, other_employer?: ?string}
      */
@@ -133,10 +142,14 @@ final class EmployerDeclaration
             return [];
         }
 
+        if ($role === self::ROLE_MAIN) {
+            return ['is_main_employer' => true, 'other_employer' => null];
+        }
+
         $other = trim((string) ($preSigningData[self::KEY_OTHER] ?? ''));
 
         return [
-            'is_main_employer' => $role === self::ROLE_MAIN,
+            'is_main_employer' => false,
             'other_employer'   => $other === '' ? null : $other,
         ];
     }

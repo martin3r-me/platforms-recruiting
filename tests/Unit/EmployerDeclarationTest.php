@@ -60,14 +60,25 @@ final class EmployerDeclarationTest extends TestCase
         );
     }
 
-    public function test_hauptarbeitgeber_mit_nebenjob_behaelt_den_namen(): void
+    /**
+     * ENTSCHEIDUNG 25.09.2026 (User): so einfach halten wie Markus es
+     * beschrieben hat. Der Name ist ausschliesslich die Antwort auf "wenn
+     * nicht wir, wer dann" — bei "Hauptarbeitgeber" gibt es ihn nicht.
+     *
+     * Genau das macht die Spalte eindeutig: sie bedeutet immer "der andere
+     * Hauptarbeitgeber" und ist leer, wenn wir es selbst sind. Ein Name, der
+     * mal Hauptarbeitgeber und mal Nebenjob bedeutet, waere nicht
+     * auswertbar — und beim Umschalten still falsch.
+     */
+    public function test_bei_hauptarbeitgeber_wird_kein_name_uebernommen(): void
     {
         $this->assertSame(
-            ['is_main_employer' => true, 'other_employer' => 'Musterkantine GmbH'],
+            ['is_main_employer' => true, 'other_employer' => null],
             EmployerDeclaration::toEmployeeAttributes([
                 EmployerDeclaration::KEY_ROLE  => EmployerDeclaration::ROLE_MAIN,
                 EmployerDeclaration::KEY_OTHER => 'Musterkantine GmbH',
             ]),
+            'Ein bei "ja" stehengebliebener Name darf nicht mitwandern.',
         );
     }
 

@@ -399,15 +399,18 @@ class RecEmployee extends Model
             // wer uns als Nebenarbeitgeber hat, wird nach Steuerklasse VI
             // abgerechnet.
             'Arbeitgeber' => [
-                'is_main_employer' => ['type' => 'bool', 'label' => 'Sind wir dein Hauptarbeitgeber?'],
-                // required_if: erst Pflicht, wenn oben "Nein" steht. Dann
-                // muessen wir wissen, wer es stattdessen ist. Bei "Ja" bleibt
-                // das Feld offen — ein Nebenjob neben uns ist erlaubt, aber
-                // keine Pflichtangabe. Unbeantwortet (null) loest nichts aus,
-                // der Vergleich in fieldIsRelevant ist strikt.
+                'is_main_employer' => ['type' => 'bool', 'label' => 'Ist Rheingedeck der Hauptarbeitgeber?'],
+                // Die Beschriftung sagt die Bedingung selbst, damit das Feld
+                // unabhaengig vom Kreuz eindeutig ist: es ist AUSSCHLIESSLICH
+                // die Antwort auf "wenn nicht wir, wer dann". Bei "ja" leert
+                // saveAll() die Spalte (Entscheidung 25.09.2026) — sonst truege
+                // sie zwei Bedeutungen und waere nicht auswertbar.
+                //
+                // required_if: Pflicht nur bei "nein". Unbeantwortet (null)
+                // loest nichts aus, der Vergleich in fieldIsRelevant ist strikt.
                 'other_employer'   => [
                     'type'        => 'text',
-                    'label'       => 'Dein Hauptarbeitgeber / weiterer Arbeitgeber',
+                    'label'       => 'Falls nein: welcher Arbeitgeber ist es?',
                     'required_if' => ['is_main_employer' => false],
                     // Spaltenbreite von rec_employees.other_employer. Der harte
                     // Schutz sitzt im MainEmployerRequiredGuard; das Attribut

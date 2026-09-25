@@ -115,7 +115,13 @@ class PortalMainEmployerRequiredTest extends TestCase
         $this->assertSame('Musterkantine GmbH', $employee->fresh()->other_employer);
     }
 
-    public function test_ja_mit_nebenjob_geht_durch(): void
+    /**
+     * ENTSCHEIDUNG 25.09.2026: Der Name ist ausschliesslich die Antwort auf
+     * "wenn nicht wir, wer dann". Sagt jemand "ja", wird ein dort noch
+     * stehender Name verworfen — sonst truege die Spalte zwei Bedeutungen
+     * und waere nicht auswertbar.
+     */
+    public function test_ja_verwirft_einen_eingetragenen_namen(): void
     {
         $employee = $this->makeEmployee();
 
@@ -127,7 +133,27 @@ class PortalMainEmployerRequiredTest extends TestCase
 
         $this->assertNull($portal->editError);
         $this->assertTrue($employee->fresh()->is_main_employer);
-        $this->assertSame('Musterkantine GmbH', $employee->fresh()->other_employer);
+        $this->assertNull($employee->fresh()->other_employer);
+    }
+
+    /**
+     * DER UMSCHALT-FALL (Befund Review 25.09.2026): Wer im Juli "nein,
+     * Mueller GmbH" angegeben hat und im September auf "ja" wechselt, darf
+     * Mueller nicht als Hauptarbeitgeber stehenlassen — wir sind es ja jetzt.
+     */
+    public function test_wechsel_auf_ja_leert_den_alten_namen(): void
+    {
+        $employee = $this->makeEmployee([
+            'is_main_employer' => false,
+            'other_employer'   => 'Mueller GmbH',
+        ]);
+
+        $portal = $this->portalFor($employee, ['is_main_employer' => '1']);
+        $portal->saveAll();
+
+        $this->assertNull($portal->editError);
+        $this->assertTrue($employee->fresh()->is_main_employer);
+        $this->assertNull($employee->fresh()->other_employer, 'Der alte Hauptarbeitgeber muss weichen.');
     }
 
     public function test_vorhandenes_ja_am_datensatz_reicht_ohne_formularschluessel(): void

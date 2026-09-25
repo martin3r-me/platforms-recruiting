@@ -592,8 +592,8 @@ class Show extends Component
             // "(HR-only)". HR sieht es mit, weil die Angabe steuerlich zaehlt
             // (Steuerklasse VI) und bei Rueckfragen greifbar sein muss.
             'Arbeitgeber' => [
-                'is_main_employer' => ['type' => 'bool', 'label' => 'Wir sind Hauptarbeitgeber'],
-                'other_employer'   => ['type' => 'text', 'label' => 'Hauptarbeitgeber / weiterer Arbeitgeber'],
+                'is_main_employer' => ['type' => 'bool', 'label' => 'Rheingedeck ist Hauptarbeitgeber'],
+                'other_employer'   => ['type' => 'text', 'label' => 'Hauptarbeitgeber (falls nicht wir)'],
             ],
             // Sicherheitsbeauftragter benennt HR, nicht der MA — bleibt gelb.
             'Arbeitsschutz (HR-only)' => [

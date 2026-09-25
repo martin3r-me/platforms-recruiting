@@ -332,6 +332,21 @@ class EmployeePortal extends Component
             }
         }
 
+        // Der Name des anderen Arbeitgebers ist AUSSCHLIESSLICH die Antwort
+        // auf "wenn nicht wir, wer dann" (Entscheidung 25.09.2026). Sagt der
+        // Mitarbeiter "ja", wird die Spalte geleert — auch wenn im Formular
+        // noch etwas stand oder ein alter Wert am Datensatz hing.
+        //
+        // Ohne das truege die Spalte zwei Bedeutungen: Wer im Juli "nein,
+        // Mueller GmbH" angab und im September auf "ja" wechselt, haette
+        // Mueller als Hauptarbeitgeber stehen — obwohl wir es jetzt sind.
+        $flagNachher = array_key_exists('is_main_employer', $updates)
+            ? $updates['is_main_employer']
+            : $employee->is_main_employer;
+        if ($flagNachher === true && array_key_exists('other_employer', $allowed)) {
+            $updates['other_employer'] = null;
+        }
+
         if (empty($updates)) {
             $this->editFlash = 'Keine Aenderungen.';
             return;

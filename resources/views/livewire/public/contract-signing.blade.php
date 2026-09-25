@@ -232,29 +232,22 @@
                          verstehen was gemeint ist. --}}
                     @php
                         $arbeitgeberFrage = $duzen
-                            ? 'Wie wirst du bei uns angemeldet?'
-                            : 'Wie werden Sie bei uns angemeldet?';
+                            ? 'Dein Hauptarbeitgeber ist der Job, bei dem du am meisten verdienst. Arbeitest du nur bei uns, sind wir das.'
+                            : 'Ihr Hauptarbeitgeber ist die Tätigkeit, bei der Sie am meisten verdienen. Arbeiten Sie nur bei uns, sind wir das.';
                         $hauptText = $duzen
                             ? 'RheinGedeck ist dein Hauptarbeitgeber — du hast keinen anderen Hauptarbeitgeber.'
                             : 'RheinGedeck ist Ihr Hauptarbeitgeber — Sie haben keinen anderen Hauptarbeitgeber.';
                         $nebenText = $duzen
                             ? 'Du hast bereits einen anderen Hauptarbeitgeber und arbeitest zusätzlich bei RheinGedeck.'
                             : 'Sie haben bereits einen anderen Hauptarbeitgeber und arbeiten zusätzlich bei RheinGedeck.';
-                        // Das Feld bedeutet je nach Auswahl etwas anderes: bei
-                        // "neben" ist es der HAUPTARBEITGEBER (und Pflicht), bei
-                        // "haupt" ein zusaetzlicher Nebenjob (freiwillig). Ein
-                        // festes Label wuerde bei "neben" nach dem Falschen
-                        // fragen — der Bewerber traegt dann seinen Nebenjob ein,
-                        // und HR meldet dem Lohnbuero den falschen Arbeitgeber.
-                        if ($employerRole === 'neben') {
-                            $weitererLabel = $duzen
-                                ? 'Wer ist dein Hauptarbeitgeber?'
-                                : 'Wer ist Ihr Hauptarbeitgeber?';
-                        } else {
-                            $weitererLabel = $duzen
-                                ? 'Arbeitest du noch woanders? Dann trag hier den weiteren Arbeitgeber ein (freiwillig).'
-                                : 'Arbeiten Sie noch woanders? Dann tragen Sie hier den weiteren Arbeitgeber ein (freiwillig).';
-                        }
+                        // Das Namensfeld gibt es NUR bei "Nebenarbeitgeber"
+                        // (Entscheidung 25.09.2026). Damit hat es genau eine
+                        // Bedeutung — der Hauptarbeitgeber — und kann nicht mit
+                        // einem Nebenjob verwechselt werden. Die Radios sind
+                        // wire:model.live, das Feld erscheint also sofort.
+                        $weitererLabel = $duzen
+                            ? 'Wer ist dein Hauptarbeitgeber?'
+                            : 'Wer ist Ihr Hauptarbeitgeber?';
                     @endphp
                     <div class="bg-white rounded-xl border border-gray-200 p-6">
                         <h2 class="text-xl font-bold text-gray-900 mb-2">Angaben zur Anmeldung</h2>
@@ -281,13 +274,15 @@
                         </div>
                         @error('employerRole') <span class="block mt-2 text-sm text-red-500">{{ $message }}</span> @enderror
 
-                        <div class="mt-4">
-                            <label class="block text-xs font-medium text-gray-600 mb-1">{!! $weitererLabel !!}</label>
-                            <input type="text" wire:model="employerOther" maxlength="128"
-                                placeholder="Firma, Ort"
-                                class="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500">
-                            @error('employerOther') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
-                        </div>
+                        @if($employerRole === 'neben')
+                            <div class="mt-4">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">{!! $weitererLabel !!}</label>
+                                <input type="text" wire:model="employerOther" maxlength="128"
+                                    placeholder="Firma, Ort"
+                                    class="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                @error('employerOther') <span class="text-xs text-red-500">{{ $message }}</span> @enderror
+                            </div>
+                        @endif
                     </div>
 
                     <div class="flex justify-end">
