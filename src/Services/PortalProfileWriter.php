@@ -45,10 +45,57 @@ final class PortalProfileWriter
         $gruppen = $employee->editableFieldGroups();
         $erlaubt = $employee->editableFieldsFlat();
 
+        // EINE BEDEUTUNG FUER BEIDE HAELFTEN DIESER METHODE. Ohne diese Zeilen
+        // lesen sie denselben Wert verschieden:
+        //   - die Waechter mit ??  -> ein Schluessel mit Wert null gilt als
+        //     NICHT uebergeben und faellt auf den Datensatz zurueck
+        //     (?? prueft isset(), und isset(null) ist false),
+        //   - die Schreibschleife mit array_key_exists -> derselbe Wert gilt
+        //     als uebergeben und schreibt NULL.
+        // Ein null kam damit an JEDEM Waechter vorbei und leerte die Spalte:
+        // ['nationality' => null] setzte die Staatsangehoerigkeit auf NULL und
+        // dazu den ZAS-Marker (die Spalte steht in RELEVANT_EMPLOYEE_FIELDS) —
+        // die naechste Aktualisierungsdatei haette den in ZAS gepflegten Wert
+        // mit einer leeren Zelle ueberschrieben, waehrend die Oberflaeche
+        // "Gespeichert." meldete. Mit '' war alles richtig, deshalb fiel es
+        // nicht auf.
+        //
+        // Ein uebergebener Schluessel heisst: dieses Feld wurde angefasst. Ein
+        // leerer Wert heisst: es wurde geleert. Das ist dieselbe Aussage, egal
+        // ob sie als null oder als '' ankommt — und eine geleerte
+        // Pflichtangabe gehoert VOR den Waechter, nicht an ihm vorbei.
+        // BITTE NICHT ALS UEBERFLUESSIG ENTFERNEN.
+        foreach ($formwerte as $feld => $wert) {
+            if ($wert === null) {
+                $formwerte[$feld] = '';
+            }
+        }
+
+        // Ein unbekannter Gruppenname ist ein FEHLER, kein Nichts. Sonst bliebe
+        // die Reichweite leer, es wuerde nichts geschrieben, und die Rueckgabe
+        // lautete ok=true, "Keine Aenderungen." — eine unauffaellige Meldung,
+        // waehrend die eingetippte Steuer-ID verschwindet. Ein Tippfehler
+        // reicht: die Gruppe heisst "Steuer & Versicherung", mit einem
+        // kaufmaennischen Und.
+        //
+        // Rueckgabe statt Ausnahme, weil das nicht nur Tippfehler trifft: die
+        // Gruppen haengen am Datensatz ("Aufenthalt (Non-EU)" gibt es nur fuer
+        // Nicht-EU-Buerger, die Bescheinigungs-Gruppe nur fuer Schueler und
+        // Studenten). Aendert HR waehrend einer offenen Seite den Status, ist
+        // eine eben noch gerenderte Gruppe verschwunden — dann gehoert dem
+        // Menschen eine Meldung hingestellt und kein 500er.
+        if ($nurGruppe !== null && !array_key_exists($nurGruppe, $gruppen)) {
+            return [
+                'ok'      => false,
+                'fehler'  => 'Dieser Abschnitt lässt sich gerade nicht speichern — bitte die Seite neu laden. Es wurde nichts gespeichert.',
+                'meldung' => null,
+            ];
+        }
+
         // Die Gruppengrenze zuerst, dann erst die Waechter: sonst koennte ein
         // manipulierter POST der Kaskade Werte aus einem Blatt unterschieben,
         // das gar nicht offen ist.
-        $reichweite = $nurGruppe !== null ? ($gruppen[$nurGruppe] ?? []) : $erlaubt;
+        $reichweite = $nurGruppe !== null ? $gruppen[$nurGruppe] : $erlaubt;
         if ($nurGruppe !== null) {
             $formwerte = array_intersect_key($formwerte, $reichweite);
         }

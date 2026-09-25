@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\PortalShell;
@@ -24,12 +23,15 @@ use Platform\Recruiting\Services\PortalAuth;
  * MainEmployerRequiredGuard) -- keine zweite Regel, siehe
  * MainEmployerRequiredGuardTest fuer die Logik selbst. Hier wird nur die
  * VERDRAHTUNG im neuen Portal geprueft: Waechter vor dem Schreiben, "ja" leert
- * den anderen Arbeitgeber, kein Schreiben ohne Anmeldung, kein ZAS-Export-
- * Marker (is_main_employer/other_employer stehen NICHT in
+ * den anderen Arbeitgeber, kein Schreiben ohne Anmeldung.
+ *
+ * Der ZAS-Export-Marker wird hier NICHT geprueft -- in dieser Klasse laeuft
+ * kein Beobachter, die Zusicherung waere eine Behauptung. Sie steht gemessen
+ * in PortalProfileWriterTest (je verbotener Spalte einzeln) und fuer das alte
+ * Portal in EmployerFieldsNoExportMarkerTest. Die Absicht dahinter:
+ * is_main_employer/other_employer stehen NICHT in
  * RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS -- siehe Kommentar dort
- * und Migration 2026_09_23_000002_add_employer_fields_to_rec_employees sowie
- * EmployerFieldsNoExportMarkerTest, der das fuer das alte Portal bereits
- * absichert).
+ * und Migration 2026_09_23_000002_add_employer_fields_to_rec_employees.
  *
  * Muster wie PortalShellUploadTest: echte Modelle auf SQLite via Capsule,
  * kein Testbench.
@@ -267,18 +269,24 @@ final class PortalShellEmployerTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // Export-Marker: begruendete Entscheidung, per Gegenprobe gemessen
+    // Schreibart: Eloquent, damit die Beobachter ueberhaupt anspringen
+    //
+    // Die ZAS-Marker-Zusicherung steht bewusst NICHT hier. In dieser
+    // Testklasse ist kein RecEmployeeExportObserver registriert -- eine
+    // Zeile "der Marker bleibt leer" koennte also gar nicht rot werden, auch
+    // dann nicht, wenn jemand is_main_employer morgen in
+    // RELEVANT_EMPLOYEE_FIELDS aufnimmt. Sie stuende hier als Behauptung.
+    // Gemessen wird sie in PortalProfileWriterTest, je verbotener Spalte
+    // einzeln und mit registriertem Beobachter.
     // -----------------------------------------------------------------
 
-    public function test_speichern_setzt_keinen_export_marker(): void
+    public function test_speichern_loest_das_eloquent_ereignis_aus(): void
     {
         // GEDREHT am 25.09.2026: vorher stand hier assertFalse($gefeuert) --
         // "der Query Builder darf kein Eloquent-Event ausloesen". Seit die
         // Arbeitgeber-Felder ueber den gemeinsamen Schreibweg laufen, SOLL das
-        // Ereignis feuern (sonst faellt der Lohn-Trigger aus, siehe
-        // PortalShellEmployerWiringTest). Gemessen wird deshalb das Ergebnis:
-        // der Marker bleibt leer, weil beide Spalten nicht in
-        // RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS stehen.
+        // Ereignis feuern: an ihm haengt der Lohn-Trigger, und ohne ihn merkt
+        // den Wechsel erst die Lohnbuchhaltung.
         $ma = $this->mitarbeiter();
         $gefeuert = false;
         RecEmployee::updated(function () use (&$gefeuert) { $gefeuert = true; });
@@ -289,20 +297,29 @@ final class PortalShellEmployerTest extends TestCase
         $shell->speichereArbeitgeber();
 
         $this->assertTrue($gefeuert, 'Ohne Eloquent-Ereignis gaebe es keinen Lohn-Trigger.');
-        $this->assertNull(DB::table('rec_employees')->find($ma->id)->zas_changed_at);
+        // Gegenprobe, dass ueberhaupt geschrieben wurde -- sonst waere die
+        // Zusicherung oben nur deshalb erfuellbar, weil nichts passiert ist.
+        $this->assertFalse(RecEmployee::find($ma->id)->is_main_employer);
     }
 
-    public function test_aenderung_der_angabe_setzt_ebenfalls_keinen_marker(): void
+    public function test_aenderung_der_angabe_wird_wirklich_geschrieben(): void
     {
+        // Vorher pruefte dieser Test nur, dass zas_changed_at leer bleibt --
+        // ohne registrierten Beobachter und ohne positive Gegenprobe war er
+        // gruen, egal was passierte. Jetzt misst er den Wechsel selbst.
         $ma = $this->mitarbeiter(['is_main_employer' => true]);
-        DB::table('rec_employees')->where('id', $ma->id)->update(['zas_changed_at' => null]);
 
         $shell = $this->shell($ma);
         $shell->arbeitgeberIstHaupt = '0';
         $shell->arbeitgeberAnderer = 'Andere GmbH';
         $shell->speichereArbeitgeber();
 
-        $this->assertNull(DB::table('rec_employees')->find($ma->id)->zas_changed_at);
+        $frisch = RecEmployee::find($ma->id);
+        $this->assertFalse($frisch->is_main_employer);
+        $this->assertSame('Andere GmbH', $frisch->other_employer);
+        // ... und das Formular zeigt danach den gespeicherten Stand.
+        $this->assertSame('0', $shell->arbeitgeberIstHaupt);
+        $this->assertSame('Andere GmbH', $shell->arbeitgeberAnderer);
     }
 
     // -----------------------------------------------------------------

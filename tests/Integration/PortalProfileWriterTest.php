@@ -374,6 +374,119 @@ class PortalProfileWriterTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // C1 — ein ausdrueckliches null ist ein geleertes Feld, keine Auslassung
+    // -----------------------------------------------------------------
+    //
+    // Die beiden Haelften des Schreibwegs lasen denselben Wert verschieden:
+    // die Waechter mit ?? (Schluessel mit Wert null gilt als NICHT uebergeben
+    // und faellt auf den Datensatz zurueck), die Schreibschleife mit
+    // array_key_exists (derselbe Wert gilt als uebergeben und schreibt NULL).
+    // Damit kam ein null an jedem Waechter vorbei und leerte die Spalte.
+    // Mit '' war alles richtig -- deshalb war das Loch unsichtbar.
+
+    public function test_ein_ausdrueckliches_null_umgeht_den_nationalitaets_waechter_nicht(): void
+    {
+        // Der teuerste der drei: nationality steht in
+        // RELEVANT_EMPLOYEE_FIELDS. Eine geleerte Nation haette den Marker
+        // gesetzt, und die naechste Aktualisierungsdatei haette den in ZAS
+        // gepflegten Wert mit einer leeren Zelle ueberschrieben.
+        $ma = $this->mitarbeiter(['nationality' => 'deutsch']);
+
+        $ergebnis = (new PortalProfileWriter())->speichere($ma, ['nationality' => null], 'Adresse');
+
+        $this->assertFalse($ergebnis['ok']);
+        $this->assertStringContainsString('Staatsangeh', (string) $ergebnis['fehler']);
+        $this->assertSame('deutsch', $ma->fresh()->nationality);
+        $this->assertNull($this->frisch($ma)->zas_changed_at);
+    }
+
+    public function test_ein_ausdrueckliches_null_erzeugt_keinen_ersthelfer_ohne_datum(): void
+    {
+        // R15 verhindert den Zustand "Ersthelfer=Ja ohne Datum". Ueber ein
+        // null waere er DURCH das Speichern entstanden.
+        $ma = $this->mitarbeiter([
+            'is_first_aider'                  => true,
+            'first_aider_valid_until'         => '2027-01-01',
+            'first_aider_certificate_file_id' => 99,
+        ]);
+
+        $ergebnis = (new PortalProfileWriter())->speichere(
+            $ma,
+            ['first_aider_valid_until' => null],
+            'Arbeitsschutz',
+        );
+
+        $this->assertFalse($ergebnis['ok']);
+        $this->assertStringContainsString('Ersthelfer', (string) $ergebnis['fehler']);
+        $this->assertSame('2027-01-01', $ma->fresh()->first_aider_valid_until?->format('Y-m-d'));
+    }
+
+    public function test_ein_ausdrueckliches_null_setzt_die_pflichtantwort_nicht_zurueck(): void
+    {
+        // Sonst stuende die Arbeitgeber-Frage wieder auf "unbeantwortet",
+        // waehrend die Oberflaeche "Gespeichert." meldet.
+        $ma = $this->mitarbeiter(['is_main_employer' => true]);
+
+        $ergebnis = (new PortalProfileWriter())->speichere($ma, ['is_main_employer' => null], 'Arbeitgeber');
+
+        $this->assertFalse($ergebnis['ok']);
+        $this->assertStringContainsString('Hauptarbeitgeber', (string) $ergebnis['fehler']);
+        $this->assertTrue($ma->fresh()->is_main_employer);
+    }
+
+    public function test_ein_null_in_einem_freien_feld_leert_es_wie_ein_leerstring(): void
+    {
+        // Gegenprobe: die Normalisierung darf nicht das Leeren an sich
+        // verhindern -- nur das Leeren an den Waechtern vorbei.
+        $ma = $this->mitarbeiter(['bank_institute' => 'Sparkasse']);
+
+        $ergebnis = (new PortalProfileWriter())->speichere($ma, ['bank_institute' => null], 'Bankdaten');
+
+        $this->assertTrue($ergebnis['ok']);
+        $this->assertNull($ma->fresh()->bank_institute);
+    }
+
+    // -----------------------------------------------------------------
+    // I3 — ein unbekannter Gruppenname ist ein Fehler, kein Nichts
+    // -----------------------------------------------------------------
+
+    public function test_ein_unbekannter_gruppenname_meldet_einen_fehler(): void
+    {
+        // Ein Tippfehler im Aufruf ("Steuer und Versicherung" statt
+        // "Steuer & Versicherung") haette sonst eine leere Reichweite ergeben:
+        // nichts geschrieben, Rueckgabe ok=true, "Keine Aenderungen." -- der
+        // Mensch sieht eine unauffaellige Meldung, seine Steuer-ID ist weg.
+        $ma = $this->mitarbeiter(['steuer_id' => '12345678901']);
+
+        $ergebnis = (new PortalProfileWriter())->speichere(
+            $ma,
+            ['steuer_id' => '99999999999'],
+            'Steuer und Versicherung',
+        );
+
+        $this->assertFalse($ergebnis['ok']);
+        $this->assertNotNull($ergebnis['fehler']);
+        $this->assertSame('12345678901', $ma->fresh()->steuer_id);
+    }
+
+    public function test_eine_gruppe_die_dieser_mensch_nicht_hat_meldet_ebenfalls(): void
+    {
+        // Nicht nur Tippfehler: die Gruppen sind vom Datensatz abhaengig.
+        // "Aufenthalt (Non-EU)" gibt es fuer einen EU-Buerger nicht -- wird
+        // sie trotzdem gespeichert, ist etwas auseinandergelaufen.
+        $ma = $this->mitarbeiter(['is_eu_citizen' => true]);
+
+        $ergebnis = (new PortalProfileWriter())->speichere(
+            $ma,
+            ['work_permit_valid_until' => '2027-01-01'],
+            'Aufenthalt (Non-EU)',
+        );
+
+        $this->assertFalse($ergebnis['ok']);
+        $this->assertNull($ma->fresh()->work_permit_valid_until);
+    }
+
+    // -----------------------------------------------------------------
     // N7 — Leerraum raus (Clara 28.08.2026)
     // -----------------------------------------------------------------
 
