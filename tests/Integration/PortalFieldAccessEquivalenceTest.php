@@ -30,9 +30,26 @@ use Platform\Recruiting\Support\PortalFieldRelevance;
  * Datensatz, oder ein echt getippter Wert) verhalten sich beide Wege
  * trotzdem GLEICH — das ist hier belegt, ueber mehrere Mitarbeiter-
  * Auspraegungen (EU / Nicht-EU / unbekannt, Schueler, Student, Ersthelfer
- * ja/nein). Der eine bekannte Abweichungsfall (Formular explizit auf ''
- * zurueckgesetzt, Datensatz noch mit altem Wert) ist als eigener Test
- * dokumentiert, nicht Teil der Gleichstandsbehauptung.
+ * ja/nein).
+ *
+ * Fixrunde 1 (Coordinator-Befund, Important): ein einzelner Anekdoten-Test
+ * fuer die eine bekannte Abweichung war keine Aussage — Task 4-7 bauen auf
+ * PortalFieldAccess auf und koennten einen neuen Bedingungstyp einfuehren,
+ * ohne dass ein abweichendes Verhalten auffaellt. Deshalb jetzt eine
+ * Wahrheitstabelle (`test_wahrheitstabelle_visible_if_alt_gegen_neu`): sie
+ * liest ALLE `visible_if`-Bedingungen aus `editableFieldGroups()` dynamisch
+ * aus (nicht abgetippt) und vergleicht alt gegen neu ueber eine Matrix aus
+ * Formularwert-Zustaenden x Datensatzwerten. Nur die eine dokumentierte
+ * Zelle (leerer Formularwert bei widersprechendem Datensatz) wird
+ * ausdruecklich als UNGLEICH behauptet, jede andere Zelle als GLEICH — faellt
+ * die Abweichung weg oder kommt eine neue hinzu, wird der Test rot.
+ *
+ * Ausserdem (Befund 2, Minor): `sichtbareGruppen()`/`sichtbareFelderFlach()`
+ * waren nur an einer synthetischen Zwei-Gruppen-Vorlage geprueft. Die
+ * Reihenfolge-Tests unten vergleichen gegen die ECHTE Struktur aus
+ * `RecEmployee::editableFieldGroups()` (Listenvergleich per assertSame auf
+ * die Schluessel, nicht Mengenvergleich) — dazu der Fall, in dem eine ganze
+ * Gruppe fehlt (Nicht-EU-Gruppe bei einem EU-Buerger).
  */
 final class PortalFieldAccessEquivalenceTest extends TestCase
 {
@@ -206,66 +223,211 @@ final class PortalFieldAccessEquivalenceTest extends TestCase
     }
 
     /**
-     * Gleicher Vergleich wie oben, aber mit einem echt GETIPPTEN Formularwert
-     * (nicht leer), der dem Datensatz widerspricht — der Fall, den E16 loesen
-     * sollte: die Auswahl wirkt sofort, bevor gespeichert wurde.
+     * Formularwert-Zustaende fuer die Wahrheitstabelle unten.
+     *
+     * @return list<array{0: string, 1: bool, 2: mixed}> [Beschriftung, Schluessel im Formular vorhanden, Formularwert]
      */
-    public function test_visible_if_stimmt_ueberein_wenn_formular_dem_datensatz_widerspricht(): void
+    private function formwertZustaende(): array
     {
-        // Datensatz sagt "ja, wir sind Hauptarbeitgeber" (other_employer also
-        // im Datensatz unsichtbar) — das Formular sagt gerade live "nein".
-        $employee = $this->makeEmployee(['is_main_employer' => true]);
-
-        $portal = new EmployeePortal();
-        $this->callPrivate($portal, 'loadFieldValues', [$employee]);
-        $portal->fieldValues['is_main_employer'] = '0';
-
-        $meta = $employee->editableFieldGroups()['Arbeitgeber']['other_employer'];
-        $datensatz = ['is_main_employer' => $employee->getAttribute('is_main_employer')];
-
-        $altesPortal = $this->callPrivate($portal, 'fieldIsVisible', [$employee, $meta]);
-        $neueKlasse = PortalFieldAccess::istSichtbar($meta, $datensatz, $portal->fieldValues);
-
-        $this->assertTrue($altesPortal, 'Altes Portal: Formularwert sticht, Feld muss sichtbar werden');
-        $this->assertSame($altesPortal, $neueKlasse);
+        return [
+            ['fehlt im Formular', false, null],
+            ["Formularwert ''", true, ''],
+            ["Formularwert '1'", true, '1'],
+            ["Formularwert '0'", true, '0'],
+            ["Formularwert 'irgendwas'", true, 'irgendwas'],
+        ];
     }
 
     /**
-     * DOKUMENTIERTE ABWEICHUNG — bewusst KEINE Gleichstandsbehauptung.
+     * WAHRHEITSTABELLE statt Anekdote (Fixrunde 1, Coordinator-Befund 1).
      *
-     * Setzt der User das 'live'-Feld is_main_employer im Formular explizit
-     * auf die leere Option zurueck (moeglich, siehe Blade: eine Option mit
-     * value="" existiert), waehrend der Datensatz noch den alten,
-     * ungespeicherten Wert traegt, unterscheiden sich beide Wege:
-     *  - altes Portal: array_key_exists() OHNE Leer-Pruefung → Formularwert
-     *    '' gilt als "gesetzt", PortalBoolValue::parse('') ist null →
-     *    Bedingung nicht widerlegt → sichtbar.
-     *  - PortalFieldAccess: leerer Formularwert zaehlt als "keine Aussage" →
-     *    faellt auf den (noch alten) Datensatz zurueck → kann verstecken.
+     * Liest ALLE `visible_if`-Bedingungen dynamisch aus
+     * `editableFieldGroups()` (heute genau eine: other_employer/
+     * is_main_employer — morgen koennen es mehr sein, ohne dass dieser Test
+     * angefasst werden muss) und haelt fuer JEDE Bedingung das alte,
+     * unveraenderte `EmployeePortal::fieldIsVisible()` gegen
+     * `PortalFieldAccess::istSichtbar()`, ueber die volle Matrix aus
+     * Formularwert-Zustaenden (fehlt / '' / '1' / '0' / 'irgendwas') mal
+     * Datensatzwerten (null / true / false).
      *
-     * Deshalb bleibt EmployeePortal::fieldIsVisible() unveraendert (siehe
-     * Kommentar dort) statt an PortalFieldAccess zu delegieren. Dieser Test
-     * haelt die Abweichung fest, damit sie nicht versehentlich verschwindet
-     * (waere ein Zeichen, dass doch delegiert wurde) oder sich unbemerkt
-     * vergroessert.
+     * Behauptung: alt und neu liefern IMMER dasselbe — AUSSER in genau der
+     * einen Zelle, in der der Formularwert '' ist UND der Datensatzwert die
+     * Bedingung widerlegt (also von 'erwartet' abweicht und nicht null ist).
+     * Genau dort behauptet der Test ausdruecklich UNGLEICH. Verschwindet die
+     * Abweichung (jemand delegiert doch), wird der Test rot. Kommt ein neuer
+     * Bedingungstyp mit abweichendem Verhalten hinzu, wird er ebenfalls rot.
      */
-    public function test_dokumentierte_abweichung_leerer_formularwert_nach_live_reset(): void
+    public function test_wahrheitstabelle_visible_if_alt_gegen_neu(): void
     {
-        $employee = $this->makeEmployee(['is_main_employer' => true]);
+        $vorlage = $this->makeEmployee();
+        $bedingungen = [];
+        foreach ($vorlage->editableFieldGroups() as $gruppe => $felder) {
+            foreach ($felder as $schluessel => $meta) {
+                foreach (($meta['visible_if'] ?? []) as $andereFeld => $erwartet) {
+                    $bedingungen[] = [$gruppe, $schluessel, $meta, $andereFeld, $erwartet];
+                }
+            }
+        }
+        // Schutz gegen ein still leerlaufendes Discovery: ohne Bedingungen
+        // wuerde die Matrix unten klaglos nichts pruefen.
+        $this->assertNotEmpty($bedingungen, 'Keine visible_if-Bedingung in editableFieldGroups() gefunden');
+
+        $abweichendeZellenGefunden = 0;
+
+        foreach ($bedingungen as [$gruppe, $schluessel, $meta, $andereFeld, $erwartet]) {
+            foreach ([null, true, false] as $datensatzWert) {
+                $employee = $this->makeEmployee([$andereFeld => $datensatzWert]);
+
+                $portal = new EmployeePortal();
+                $this->callPrivate($portal, 'loadFieldValues', [$employee]);
+                $basisFieldValues = $portal->fieldValues;
+
+                foreach ($this->formwertZustaende() as [$zustandLabel, $hatSchluessel, $formwert]) {
+                    $fieldValues = $basisFieldValues;
+                    if ($hatSchluessel) {
+                        $fieldValues[$andereFeld] = $formwert;
+                    } else {
+                        unset($fieldValues[$andereFeld]);
+                    }
+                    $portal->fieldValues = $fieldValues;
+
+                    $altesPortal = $this->callPrivate($portal, 'fieldIsVisible', [$employee, $meta]);
+                    $neueKlasse = PortalFieldAccess::istSichtbar(
+                        $meta,
+                        [$andereFeld => $employee->getAttribute($andereFeld)],
+                        $fieldValues,
+                    );
+
+                    // Die eine dokumentierte Abweichungszelle: Formularwert
+                    // explizit '' UND Datensatz widerlegt die Bedingung
+                    // (weicht von $erwartet ab, ist aber nicht unbeantwortet).
+                    $istDokumentierteAbweichung = $hatSchluessel
+                        && $formwert === ''
+                        && $datensatzWert !== null
+                        && $datensatzWert !== $erwartet;
+
+                    $bezeichner = sprintf(
+                        '%s.%s (visible_if %s=%s), Datensatz=%s, %s',
+                        $gruppe,
+                        $schluessel,
+                        $andereFeld,
+                        var_export($erwartet, true),
+                        var_export($datensatzWert, true),
+                        $zustandLabel,
+                    );
+
+                    if ($istDokumentierteAbweichung) {
+                        $abweichendeZellenGefunden++;
+                        $this->assertTrue($altesPortal, "{$bezeichner}: altes Portal soll sichtbar bleiben (unbeantwortet)");
+                        $this->assertFalse($neueKlasse, "{$bezeichner}: neue Klasse soll auf den Datensatz zurueckfallen und verstecken");
+                        $this->assertNotSame($altesPortal, $neueKlasse, "{$bezeichner}: dokumentierte Abweichungszelle — erwartungsgemaess UNGLEICH");
+                    } else {
+                        $this->assertSame($altesPortal, $neueKlasse, "{$bezeichner}: alt und neu weichen ab, obwohl das nicht die dokumentierte Zelle ist");
+                    }
+                }
+            }
+        }
+
+        // Mindestens eine Abweichungszelle muss aufgetreten sein — sonst
+        // waere die Formel fuer $istDokumentierteAbweichung selbst falsch
+        // (sie wuerde nie greifen) und der Test bewiese nichts ueber die
+        // bekannte Luecke.
+        $this->assertGreaterThan(0, $abweichendeZellenGefunden, 'Die dokumentierte Abweichungszelle ist in der Matrix nicht aufgetaucht');
+    }
+
+    /**
+     * Befund 2 (Fixrunde 1, Minor): Reihenfolge gegen die ECHTE Struktur aus
+     * editableFieldGroups(), nicht gegen eine synthetische Vorlage.
+     * Listenvergleich (assertSame auf array_keys), nicht Mengenvergleich —
+     * Task 6/7 rendern in genau dieser Reihenfolge.
+     *
+     * "Ohne jede Einschraenkung": is_eu_citizen=true (keine Non-EU-Gruppe),
+     * employment_type=null (keine Schul-/Immatrikulationsgruppe),
+     * is_main_employer unbeantwortet (other_employer bleibt sichtbar) — kein
+     * Feld und keine Gruppe wird durch PortalFieldAccess selbst gefiltert,
+     * die Ausgabe muss 1:1 der Modellstruktur entsprechen.
+     */
+    public function test_sichtbare_gruppen_und_flache_liste_folgen_der_reihenfolge_des_modells(): void
+    {
+        $employee = $this->makeEmployee(['is_eu_citizen' => true, 'employment_type' => null]);
+        $groups = $employee->editableFieldGroups();
 
         $portal = new EmployeePortal();
         $this->callPrivate($portal, 'loadFieldValues', [$employee]);
-        // User waehlt im Live-Dropdown die leere Option erneut.
-        $portal->fieldValues['is_main_employer'] = '';
 
-        $meta = $employee->editableFieldGroups()['Arbeitgeber']['other_employer'];
-        $datensatz = ['is_main_employer' => $employee->getAttribute('is_main_employer')];
+        $datensatz = [];
+        foreach ($groups as $felder) {
+            foreach ($felder as $meta) {
+                foreach (array_keys($meta['visible_if'] ?? []) as $feld) {
+                    $datensatz[$feld] = $employee->getAttribute($feld);
+                }
+            }
+        }
 
-        $altesPortal = $this->callPrivate($portal, 'fieldIsVisible', [$employee, $meta]);
-        $neueKlasse = PortalFieldAccess::istSichtbar($meta, $datensatz, $portal->fieldValues);
+        $sichtbar = PortalFieldAccess::sichtbareGruppen($groups, $datensatz, $portal->fieldValues);
 
-        $this->assertTrue($altesPortal, 'Altes, unveraendertes Portal: bleibt sichtbar (unbeantwortet)');
-        $this->assertFalse($neueKlasse, 'Neue Klasse faellt auf den Datensatz zurueck und versteckt das Feld');
-        $this->assertNotSame($altesPortal, $neueKlasse, 'Die Abweichung ist der Punkt dieses Tests');
+        $this->assertSame(array_keys($groups), array_keys($sichtbar), 'Gruppenreihenfolge weicht vom Modell ab');
+        foreach ($groups as $gruppe => $felder) {
+            $this->assertArrayHasKey($gruppe, $sichtbar, "Gruppe {$gruppe} fehlt in sichtbareGruppen()");
+            $this->assertSame(
+                array_keys($felder),
+                array_keys($sichtbar[$gruppe]),
+                "Feldreihenfolge in {$gruppe} weicht vom Modell ab",
+            );
+        }
+
+        $erwarteteFlacheReihenfolge = [];
+        foreach ($groups as $felder) {
+            foreach (array_keys($felder) as $schluessel) {
+                $erwarteteFlacheReihenfolge[] = $schluessel;
+            }
+        }
+        $flach = PortalFieldAccess::sichtbareFelderFlach($groups, $datensatz, $portal->fieldValues);
+        $this->assertSame($erwarteteFlacheReihenfolge, array_keys($flach), 'Reihenfolge der flachen Liste weicht vom Modell ab');
+    }
+
+    /**
+     * Befund 2: eine ganze Gruppe fehlt — die Nicht-EU-Gruppe bei einem
+     * EU-Buerger. Sie fehlt bereits in editableFieldGroups() selbst (die
+     * Gruppe wird dort nur bei is_eu_citizen===false hinzugefuegt); dieser
+     * Test belegt, dass sichtbareGruppen() nichts daran aendert — keine
+     * Gruppe faellt zusaetzlich weg, keine erscheint neu.
+     */
+    public function test_nicht_eu_gruppe_fehlt_bei_eu_buerger_in_modell_und_in_sichtbaren_gruppen(): void
+    {
+        $employee = $this->makeEmployee(['is_eu_citizen' => true]);
+        $groups = $employee->editableFieldGroups();
+        $this->assertArrayNotHasKey(
+            'Aufenthalt (Non-EU)',
+            $groups,
+            'Testvoraussetzung: editableFieldGroups() zeigt die Non-EU-Gruppe nur bei is_eu_citizen=false',
+        );
+
+        $portal = new EmployeePortal();
+        $this->callPrivate($portal, 'loadFieldValues', [$employee]);
+
+        $sichtbar = PortalFieldAccess::sichtbareGruppen($groups, [], $portal->fieldValues);
+
+        $this->assertArrayNotHasKey('Aufenthalt (Non-EU)', $sichtbar);
+        $this->assertSame(array_keys($groups), array_keys($sichtbar), 'Keine Gruppe darf zusaetzlich verschwinden oder neu erscheinen');
+    }
+
+    /**
+     * Gegenprobe zu oben: bei einem Non-EU-Buerger ist die Gruppe da — in
+     * beiden, mit gleicher Reihenfolge.
+     */
+    public function test_nicht_eu_gruppe_bleibt_bei_non_eu_buerger_in_beiden_erhalten(): void
+    {
+        $employee = $this->makeEmployee(['is_eu_citizen' => false]);
+        $groups = $employee->editableFieldGroups();
+        $this->assertArrayHasKey('Aufenthalt (Non-EU)', $groups);
+
+        $portal = new EmployeePortal();
+        $this->callPrivate($portal, 'loadFieldValues', [$employee]);
+
+        $sichtbar = PortalFieldAccess::sichtbareGruppen($groups, [], $portal->fieldValues);
+
+        $this->assertArrayHasKey('Aufenthalt (Non-EU)', $sichtbar);
+        $this->assertSame(array_keys($groups), array_keys($sichtbar));
     }
 }
