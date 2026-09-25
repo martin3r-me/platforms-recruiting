@@ -76,13 +76,13 @@
         .portal-body .card.login { padding: 17px; display: flex; flex-direction: column; gap: 15px }
         .portal-body .feld { display: flex; flex-direction: column; gap: 6px }
         .portal-body .feld .n { font-size: 13px; font-weight: 600; color: var(--ink-2) }
-        .portal-body .feld input {
+        .portal-body .feld input, .portal-body .feld select {
             font-family: var(--body); font-size: 16px; color: var(--ink);
             background: var(--surface-2); border: 1px solid var(--line-2);
             border-radius: var(--r); padding: 11px 12px; width: 100%;
             box-sizing: border-box; appearance: none;
         }
-        .portal-body .feld input:focus {
+        .portal-body .feld input:focus, .portal-body .feld select:focus {
             outline: none; border-color: var(--brand);
             box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 22%, transparent);
         }

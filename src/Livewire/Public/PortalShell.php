@@ -13,6 +13,8 @@ use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ProofWriter;
+use Platform\Recruiting\Support\MainEmployerRequiredGuard;
+use Platform\Recruiting\Support\PortalBoolValue;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\ProofUploadRules;
@@ -73,6 +75,18 @@ class PortalShell extends Component
      */
     public $uploadDateiRueckseite = null;
     public string $uploadFehler = '';
+
+    /**
+     * Formularwerte der Arbeitgeber-Pflichtfrage (Markus 24.09.2026) im
+     * Profil-Bereich. Dieselbe Konvention wie im alten Portal
+     * (PortalBoolValue): Strings aus wire:model, dreiwertig ('', '1', '0').
+     * NICHT gesperrt -- die Sicherheit sitzt in speichereArbeitgeber() ueber
+     * berechtigterMitarbeiter(), nicht in der Unveraenderlichkeit dieser
+     * Eingaben (gleiches Muster wie die Upload-Felder oben).
+     */
+    public string $arbeitgeberIstHaupt = '';
+    public string $arbeitgeberAnderer = '';
+    public string $arbeitgeberFehler = '';
 
     public function mount(string $token, PortalAuth $auth): void
     {
@@ -302,18 +316,101 @@ class PortalShell extends Component
         $this->uploadFehler = '';
     }
 
+    /**
+     * Haupt-/Nebenarbeitgeber speichern (Markus 24.09.2026) -- wiederverwendet
+     * MainEmployerRequiredGuard statt einer zweiten Regel, siehe
+     * MainEmployerRequiredGuardTest und EmployeePortal::saveAll().
+     *
+     * berechtigterMitarbeiter() ist auch hier keine Formalitaet: ohne
+     * gueltige Anmeldung laeuft $wire.call('speichereArbeitgeber') ins Leere,
+     * genau wie bei speichereNachweis().
+     *
+     * GESCHRIEBEN WIRD UEBER DEN QUERY BUILDER, NICHT UEBER ELOQUENT:
+     * is_main_employer/other_employer stehen NICHT in
+     * RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS (siehe Kommentar
+     * dort und Migration 2026_09_23_000002_add_employer_fields_to_rec_employees)
+     * -- ZAS soll diese Angabe (noch) nicht sehen: die Rueckfrage an den
+     * Kunden ist offen, und unsere Aktualisierungsdatei liefert VOLLE ZEILEN.
+     * Ein Marker auf einem Bestandsmitarbeiter wuerde also dessen komplette,
+     * in ZAS gepflegte Akte ueberschreiben (Vorfall 02.09.2026). Das alte
+     * Portal schreibt zwar ueber Eloquent, loest wegen exakt derselben
+     * Feldliste aber ebenfalls keinen Marker aus (EmployerFieldsNoExportMarkerTest)
+     * -- der Query Builder haelt diese Entscheidung explizit fest, statt sich
+     * auf die Feldliste allein zu verlassen: sie bleibt auch dann sicher,
+     * wenn ZAS die Angabe irgendwann doch bekommt und die Liste sich aendert.
+     */
+    public function speichereArbeitgeber(): void
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        if ($employee === null) {
+            return;
+        }
+
+        $fehler = MainEmployerRequiredGuard::error($this->arbeitgeberIstHaupt, $this->arbeitgeberAnderer);
+        if ($fehler !== null) {
+            $this->arbeitgeberFehler = $fehler;
+
+            return;
+        }
+        $this->arbeitgeberFehler = '';
+
+        $istHaupt = PortalBoolValue::parse($this->arbeitgeberIstHaupt);
+
+        // "Ja" leert einen zuvor eingetragenen anderen Arbeitgeber -- dieselbe
+        // Regel wie EmployeePortal::saveAll(): die Spalte ist AUSSCHLIESSLICH
+        // die Antwort auf "wenn nicht wir, wer dann" und darf keine zwei
+        // Bedeutungen tragen.
+        $anderer = $istHaupt === true ? null : trim($this->arbeitgeberAnderer);
+        $anderer = $anderer === '' ? null : $anderer;
+
+        DB::table('rec_employees')->where('id', $employee->id)->update([
+            'is_main_employer' => $istHaupt,
+            'other_employer'   => $anderer,
+        ]);
+
+        $this->arbeitgeberIstHaupt = $istHaupt ? '1' : '0';
+        $this->arbeitgeberAnderer  = (string) ($anderer ?? '');
+    }
+
+    /**
+     * Synthetische oberste Aufgabe im Start-Bereich: die Arbeitgeber-
+     * Pflichtfrage, solange sie unbeantwortet ist. Kein ProofChecklist-
+     * Eintrag -- es ist kein Nachweis, sondern eine Angabe, und ein Klick
+     * fuehrt ins Profil statt ins Upload-Formular. Gleiche Form wie eine
+     * dekorierte Zeile, damit Blade beide gleich rendern kann.
+     */
+    public static function arbeitgeberAufgabe(bool $duzen): array
+    {
+        return [
+            'code'  => 'arbeitgeber_frage',
+            'label' => 'Hauptarbeitgeber',
+            'punkt' => 'crit',
+            'text'  => $duzen
+                ? 'Bitte gib an, ob wir dein Hauptarbeitgeber sind — daran hängt deine Steuerklasse.'
+                : 'Bitte geben Sie an, ob wir Ihr Hauptarbeitgeber sind — daran hängt Ihre Steuerklasse.',
+            'offen' => true,
+        ];
+    }
+
     public function render()
     {
         $employee = $this->berechtigterMitarbeiter();
 
         $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
+        $offenAusNachweisen = count(array_filter($checklist, fn ($z) => $z['offen']));
+
+        // Die Arbeitgeber-Pflichtfrage ist wichtiger als jeder Nachweis --
+        // solange sie fehlt, gehoert sie ganz oben in den Start-Bereich, und
+        // sie zaehlt im Gesamt-"offen" mit (Nav-Punkt, Reiter-Abzeichen).
+        $arbeitgeberOffen = $employee !== null && $employee->is_main_employer === null;
 
         return view('recruiting::livewire.public.portal-shell', [
-            'aufgaben'        => self::dekoriert($checklist),
-            'offen'           => count(array_filter($checklist, fn ($z) => $z['offen'])),
-            'anstellungen'    => $employee ? $this->anstellungen($employee) : collect(),
-            'uploadLabel'     => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
-            'uploadHatAblauf' => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),
+            'aufgaben'          => self::dekoriert($checklist),
+            'offen'             => $offenAusNachweisen + ($arbeitgeberOffen ? 1 : 0),
+            'arbeitgeberAufgabe' => $arbeitgeberOffen ? self::arbeitgeberAufgabe($this->duzen) : null,
+            'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
+            'uploadLabel'       => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
+            'uploadHatAblauf'   => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),
             // Zwei Altspalten = Vorder- und Rueckseite. Der Katalog ist die
             // einzige Stelle, die das weiss — keine zweite Liste hier.
             'uploadHatRueckseite' => $this->uploadCode !== null
@@ -368,6 +465,15 @@ class PortalShell extends Component
     {
         $this->displayName = $this->vorname($employee);
         $this->initialen   = $this->initialen($employee);
+
+        // Formular der Arbeitgeber-Frage vorbelegen -- sonst zeigt die
+        // Auswahl bei jedem Neuladen leer, obwohl schon geantwortet wurde.
+        // Dieselbe dreiwertige Stringform wie ueberall im Portal (siehe
+        // PortalBoolValue): null bleibt '', sonst '1'/'0'.
+        $this->arbeitgeberIstHaupt = $employee->is_main_employer === null
+            ? ''
+            : ($employee->is_main_employer ? '1' : '0');
+        $this->arbeitgeberAnderer = (string) ($employee->other_employer ?? '');
     }
 
     /**

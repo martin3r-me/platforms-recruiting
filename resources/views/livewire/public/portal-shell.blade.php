@@ -95,6 +95,10 @@
                 : ($duzen ? 'Es fehlt noch etwas von dir.' : 'Es fehlt noch etwas von Ihnen.');
             $offeneAufgaben = array_values(array_filter($aufgaben, fn ($a) => $a['offen']));
             $erledigt       = array_values(array_filter($aufgaben, fn ($a) => ! $a['offen']));
+            // Die Arbeitgeber-Frage ist wichtiger als jeder Nachweis -- sie
+            // gewinnt die "ganz oben"-Zeile der Zusammenfassung, solange sie
+            // unbeantwortet ist.
+            $ersteAufgabe   = $arbeitgeberAufgabe ?? ($offeneAufgaben[0] ?? null);
         @endphp
 
         <div class="appbar">
@@ -168,7 +172,7 @@
                         </div>
                     @else
                         <h3>{{ $offen === 1 ? 'Ein Punkt offen' : $offen . ' Punkte offen' }}</h3>
-                        <div class="when">{{ $offeneAufgaben[0]['label'] }} — {{ $offeneAufgaben[0]['text'] }}</div>
+                        <div class="when">{{ $ersteAufgabe['label'] }} — {{ $ersteAufgabe['text'] }}</div>
                     @endif
                 </div>
 
@@ -177,6 +181,22 @@
                     <div>
                         <div class="sec-label">Das fehlt noch <span class="count">{{ $offen }}</span></div>
                         <div class="card" style="margin-top:11px">
+                            @if ($arbeitgeberAufgabe !== null)
+                                {{--
+                                    Ganz oben, noch vor jedem Nachweis: an
+                                    dieser Angabe haengt die Steuerklasse. Ein
+                                    Klick fuehrt ins Profil -- dort steht die
+                                    eigentliche Frage, kein Upload-Formular.
+                                --}}
+                                <div class="task tap" @click="tab = 'me'">
+                                    <span class="dot {{ $arbeitgeberAufgabe['punkt'] }}"></span>
+                                    <div>
+                                        <div class="t">{{ $arbeitgeberAufgabe['label'] }}</div>
+                                        <div class="s">{{ $arbeitgeberAufgabe['text'] }}</div>
+                                    </div>
+                                    <span class="chev">›</span>
+                                </div>
+                            @endif
                             @foreach ($offeneAufgaben as $aufgabe)
                                 <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
                                     <span class="dot {{ $aufgabe['punkt'] }}"></span>
@@ -256,6 +276,48 @@
                 <div class="greet">
                     <h2>Meine Daten</h2>
                     <p>{{ $duzen ? 'Hier siehst du, was über dich hinterlegt ist.' : 'Hier sehen Sie, was über Sie hinterlegt ist.' }}</p>
+                </div>
+
+                {{--
+                    Arbeitgeber-Pflichtfrage (Markus 24.09.2026) -- an ihr
+                    haengt die Steuerklasse. Nutzt MainEmployerRequiredGuard,
+                    dieselbe Regel wie im alten Portal, keine zweite.
+                --}}
+                <div>
+                    <div class="sec-label">{{ $duzen ? 'Dein Arbeitgeber' : 'Ihr Arbeitgeber' }}</div>
+                    <div class="card" style="margin-top:11px; padding:15px; display:flex; flex-direction:column; gap:13px">
+                        <label class="feld">
+                            <span class="n">{{ $duzen ? 'Sind wir dein Hauptarbeitgeber?' : 'Sind wir Ihr Hauptarbeitgeber?' }}</span>
+                            <select wire:model.live="arbeitgeberIstHaupt">
+                                <option value="">— bitte wählen —</option>
+                                <option value="1">Ja</option>
+                                <option value="0">Nein</option>
+                            </select>
+                        </label>
+
+                        @if ($arbeitgeberIstHaupt === '0')
+                            <label class="feld">
+                                <span class="n">Wer ist es dann?</span>
+                                {{-- maxlength = Spaltenbreite von rec_employees.other_employer, der harte
+                                     Schutz sitzt im MainEmployerRequiredGuard. --}}
+                                <input type="text" wire:model="arbeitgeberAnderer"
+                                       maxlength="{{ \Platform\Recruiting\Support\MainEmployerRequiredGuard::MAX_OTHER_EMPLOYER }}"
+                                       autocomplete="off">
+                            </label>
+                        @endif
+
+                        @if ($arbeitgeberFehler !== '')
+                            <div class="alert crit">
+                                <span class="dot crit" style="margin-top:6px"></span>
+                                <div class="txt">{{ $arbeitgeberFehler }}</div>
+                            </div>
+                        @endif
+
+                        <button type="button" class="btn primary" wire:click="speichereArbeitgeber"
+                                wire:loading.attr="disabled" wire:target="speichereArbeitgeber">
+                            Speichern
+                        </button>
+                    </div>
                 </div>
 
                 <div>
