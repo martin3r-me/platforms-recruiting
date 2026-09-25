@@ -179,6 +179,43 @@ final class ProofTypes
     }
 
     /**
+     * Die Rueckrichtung: zu welcher Nachweisart gehoert diese Altspalte?
+     *
+     * Damit kommt ein Datei-Feld aus RecEmployee::editableFieldGroups() ohne
+     * eine zweite Zuordnungsliste zu seinem Upload-Blatt. Genau so eine
+     * zweite Liste (EmployeePortal::FILE_FIELDS neben $fileUploadProps im
+     * Blade) hat am 06.08.2026 zwei Felder ohne Knopf zurueckgelassen.
+     *
+     * Vorder- und Rueckseite liefern dieselbe Art — das Blatt fragt beide ab.
+     */
+    public static function codeForLegacyColumn(string $spalte): ?string
+    {
+        if ($spalte === '') {
+            return null;
+        }
+        foreach (self::TYPES as $code => $art) {
+            if (in_array($spalte, $art['dateien'], true)) {
+                return $code;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return list<string> Alle Altspalten des Katalogs, Reihenfolge wie TYPES. */
+    public static function legacyFileColumnsAll(): array
+    {
+        $alle = [];
+        foreach (self::TYPES as $art) {
+            foreach ($art['dateien'] as $spalte) {
+                $alle[] = $spalte;
+            }
+        }
+
+        return $alle;
+    }
+
+    /**
      * Welche Nachweise braucht dieser Mensch?
      *
      * Die Regeln kommen NICHT neu — sie spiegeln, was NonEuDocumentMapping und

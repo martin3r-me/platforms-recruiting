@@ -130,4 +130,52 @@ final class ProofTypesTest extends TestCase
             $this->assertFalse(ProofTypes::needsHrConfirmation($code), "Art {$code} sollte KEINE Bestaetigung verlangen");
         }
     }
+
+    /**
+     * Die Rueckrichtung: aus der Altspalte die Nachweisart finden. Ohne sie
+     * braeuchte ein Datei-Feld eine zweite Zuordnungsliste zu seinem
+     * Upload-Blatt — genau das hat am 06.08.2026 (E7) zwei Feldern den
+     * Hochladen-Knopf gekostet.
+     */
+    public function test_altspalte_findet_ihre_nachweisart(): void
+    {
+        $this->assertSame('ausweis', ProofTypes::codeForLegacyColumn('identity_card_front_file_id'));
+        // Die Rueckseite gehoert zur selben Art — sonst braeuchte die Kachel
+        // eine zweite Zuordnung, und genau die hat am 06.08. E7 verursacht.
+        $this->assertSame('ausweis', ProofTypes::codeForLegacyColumn('identity_card_back_file_id'));
+        $this->assertSame('selfie', ProofTypes::codeForLegacyColumn('selfie_file_id'));
+        $this->assertSame('krankenkasse', ProofTypes::codeForLegacyColumn('health_insurance_card_file_id'));
+        $this->assertSame('immatrikulation', ProofTypes::codeForLegacyColumn('immatrikulation_file_id'));
+        $this->assertSame('schulbescheinigung', ProofTypes::codeForLegacyColumn('schulbescheinigung_file_id'));
+        $this->assertSame('erstbescheinigung', ProofTypes::codeForLegacyColumn('erstbescheinigung_file_id'));
+        $this->assertSame('ersthelfer', ProofTypes::codeForLegacyColumn('first_aider_certificate_file_id'));
+    }
+
+    public function test_unbekannte_spalte_liefert_nichts(): void
+    {
+        $this->assertNull(ProofTypes::codeForLegacyColumn('iban'));
+        $this->assertNull(ProofTypes::codeForLegacyColumn(''));
+    }
+
+    public function test_alle_acht_datei_felder_des_alten_portals_sind_abgedeckt(): void
+    {
+        // Die acht FILE_FIELDS aus EmployeePortal.php:93-102. Faellt hier eines
+        // heraus, bekaeme es im neuen Portal eine Kachel ohne Ziel — dieselbe
+        // Luecke wie E7, nur andersherum.
+        $acht = [
+            'identity_card_front_file_id', 'identity_card_back_file_id',
+            'selfie_file_id', 'health_insurance_card_file_id',
+            'immatrikulation_file_id', 'schulbescheinigung_file_id',
+            'erstbescheinigung_file_id', 'first_aider_certificate_file_id',
+        ];
+        foreach ($acht as $spalte) {
+            $this->assertNotNull(ProofTypes::codeForLegacyColumn($spalte), "Keine Nachweisart fuer {$spalte}");
+        }
+    }
+
+    public function test_alle_altspalten_sind_eindeutig(): void
+    {
+        $alle = ProofTypes::legacyFileColumnsAll();
+        $this->assertSame(array_values(array_unique($alle)), $alle);
+    }
 }
