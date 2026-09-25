@@ -11,10 +11,9 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
+use Platform\Recruiting\Services\PortalProfileWriter;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ProofWriter;
-use Platform\Recruiting\Support\MainEmployerRequiredGuard;
-use Platform\Recruiting\Support\PortalBoolValue;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\ProofUploadRules;
@@ -317,27 +316,36 @@ class PortalShell extends Component
     }
 
     /**
-     * Haupt-/Nebenarbeitgeber speichern (Markus 24.09.2026) -- wiederverwendet
-     * MainEmployerRequiredGuard statt einer zweiten Regel, siehe
-     * MainEmployerRequiredGuardTest und EmployeePortal::saveAll().
+     * Haupt-/Nebenarbeitgeber speichern.
+     *
+     * GESCHRIEBEN WIRD UEBER DEN GEMEINSAMEN SCHREIBWEG (PortalProfileWriter,
+     * also ueber Eloquent), NICHT MEHR ueber den Query Builder. Die
+     * Entscheidung ist am 25.09.2026 gekippt:
+     *
+     *  - Vorher: der Query Builder hielt ausdruecklich fest, dass ZAS diese
+     *    Angabe (noch) nicht sehen soll -- unsere Aktualisierungsdatei liefert
+     *    VOLLE ZEILEN, ein Marker auf einem Bestandsmitarbeiter wuerde also
+     *    dessen in ZAS gepflegte Akte ueberschreiben (Vorfall 02.09.2026).
+     *  - Jetzt: derselbe Query Builder unterschlaegt den LOHN-TRIGGER.
+     *    is_main_employer steht in RecApplicantSettings::DEFAULT_SETTINGS
+     *    ['employee_payroll_tracked_fields'] -- an der Angabe haengt die
+     *    Steuerklasse. Das alte Portal meldet den Wechsel ans Lohnbuero, das
+     *    neue tat es nicht. Das faellt erst der Lohnbuchhaltung auf.
+     *
+     * Der ZAS-Schutz bleibt unveraendert: is_main_employer und other_employer
+     * fehlen in RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS. Gemessen
+     * wird er jetzt am Ergebnis (PortalProfileWriterTest, je Spalte einzeln)
+     * statt an der Schreibart.
      *
      * berechtigterMitarbeiter() ist auch hier keine Formalitaet: ohne
      * gueltige Anmeldung laeuft $wire.call('speichereArbeitgeber') ins Leere,
      * genau wie bei speichereNachweis().
      *
-     * GESCHRIEBEN WIRD UEBER DEN QUERY BUILDER, NICHT UEBER ELOQUENT:
-     * is_main_employer/other_employer stehen NICHT in
-     * RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS (siehe Kommentar
-     * dort und Migration 2026_09_23_000002_add_employer_fields_to_rec_employees)
-     * -- ZAS soll diese Angabe (noch) nicht sehen: die Rueckfrage an den
-     * Kunden ist offen, und unsere Aktualisierungsdatei liefert VOLLE ZEILEN.
-     * Ein Marker auf einem Bestandsmitarbeiter wuerde also dessen komplette,
-     * in ZAS gepflegte Akte ueberschreiben (Vorfall 02.09.2026). Das alte
-     * Portal schreibt zwar ueber Eloquent, loest wegen exakt derselben
-     * Feldliste aber ebenfalls keinen Marker aus (EmployerFieldsNoExportMarkerTest)
-     * -- der Query Builder haelt diese Entscheidung explizit fest, statt sich
-     * auf die Feldliste allein zu verlassen: sie bleibt auch dann sicher,
-     * wenn ZAS die Angabe irgendwann doch bekommt und die Liste sich aendert.
+     * Die Waechter kommen mit dem Schreibweg (PortalProfileGuards) -- auch
+     * die, die mit dem Arbeitgeber nichts zu tun haben. Das ist dieselbe
+     * Endzustandspruefung wie in EmployeePortal::saveAll(): ein
+     * unvollstaendiger Zustand soll nicht stehenbleiben, nur weil gerade ein
+     * anderes Blatt offen ist.
      */
     public function speichereArbeitgeber(): void
     {
@@ -346,30 +354,26 @@ class PortalShell extends Component
             return;
         }
 
-        $fehler = MainEmployerRequiredGuard::error($this->arbeitgeberIstHaupt, $this->arbeitgeberAnderer);
-        if ($fehler !== null) {
-            $this->arbeitgeberFehler = $fehler;
+        $ergebnis = app(PortalProfileWriter::class)->speichere($employee, [
+            'is_main_employer' => $this->arbeitgeberIstHaupt,
+            'other_employer'   => $this->arbeitgeberAnderer,
+        ], 'Arbeitgeber');
+
+        if (!$ergebnis['ok']) {
+            $this->arbeitgeberFehler = (string) $ergebnis['fehler'];
 
             return;
         }
         $this->arbeitgeberFehler = '';
 
-        $istHaupt = PortalBoolValue::parse($this->arbeitgeberIstHaupt);
-
-        // "Ja" leert einen zuvor eingetragenen anderen Arbeitgeber -- dieselbe
-        // Regel wie EmployeePortal::saveAll(): die Spalte ist AUSSCHLIESSLICH
-        // die Antwort auf "wenn nicht wir, wer dann" und darf keine zwei
-        // Bedeutungen tragen.
-        $anderer = $istHaupt === true ? null : trim($this->arbeitgeberAnderer);
-        $anderer = $anderer === '' ? null : $anderer;
-
-        DB::table('rec_employees')->where('id', $employee->id)->update([
-            'is_main_employer' => $istHaupt,
-            'other_employer'   => $anderer,
-        ]);
-
-        $this->arbeitgeberIstHaupt = $istHaupt ? '1' : '0';
-        $this->arbeitgeberAnderer  = (string) ($anderer ?? '');
+        // Das Formular zeigt danach den GESPEICHERTEN Stand, nicht den
+        // eingetippten: bei "ja" hat der Schreibweg den anderen Arbeitgeber
+        // geleert (R21), und das soll man sehen.
+        $frisch = $employee->fresh();
+        $this->arbeitgeberIstHaupt = $frisch->is_main_employer === null
+            ? ''
+            : ($frisch->is_main_employer ? '1' : '0');
+        $this->arbeitgeberAnderer = (string) ($frisch->other_employer ?? '');
     }
 
     /**

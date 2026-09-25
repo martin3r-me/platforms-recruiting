@@ -13,10 +13,10 @@ use ReflectionClass;
  * 'view'-Binding, siehe TrainingCertificateRenderTest).
  *
  * Vier Entscheidungen werden hier festgenagelt:
- *  1. speichereArbeitgeber() ruft MainEmployerRequiredGuard::error() auf --
- *     keine zweite Regel.
- *  2. Geschrieben wird ueber DB::table(...), NICHT ueber Eloquent-Update --
- *     siehe Begruendung in PortalShellEmployerTest.
+ *  1. speichereArbeitgeber() bringt keine eigene Regel mit -- die Waechter
+ *     kommen mit dem gemeinsamen Schreibweg.
+ *  2. Geschrieben wird ueber PortalProfileWriter (Eloquent), NICHT ueber
+ *     DB::table(...) -- gedreht am 25.09.2026, Begruendung unten.
  *  3. render() liefert eine synthetische Aufgabe, solange die Antwort fehlt,
  *     UND zaehlt sie im 'offen'-Wert mit.
  *  4. Im Start-Bereich steht diese Aufgabe VOR jedem Nachweis aus der
@@ -30,32 +30,59 @@ class PortalShellEmployerWiringTest extends TestCase
         return file_get_contents((new ReflectionClass(PortalShell::class))->getFileName());
     }
 
+    /** Nur der Rumpf von speichereArbeitgeber() -- der Rest der Klasse schreibt weiter ueber den Query Builder (portal_verified_at). */
+    private function rumpfVonSpeichereArbeitgeber(string $src): string
+    {
+        $start = strpos($src, 'function speichereArbeitgeber(');
+        $this->assertNotFalse($start, 'speichereArbeitgeber() fehlt');
+        $ende = strpos($src, "\n    }\n", $start);
+
+        return substr($src, $start, $ende - $start);
+    }
+
     private function blade(): string
     {
         return file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php');
     }
 
-    public function test_speichereArbeitgeber_ruft_den_waechter_auf(): void
+    public function test_arbeitgeber_felder_laufen_ueber_den_gemeinsamen_schreibweg(): void
     {
+        // GEDREHT am 25.09.2026. Vorher verlangte dieser Test DB::table(...)
+        // fuer is_main_employer/other_employer und verbot ausdruecklich
+        // $employee->update(). Grund damals: die Entscheidung "ZAS sieht die
+        // Angabe nicht" nicht nur der Feldliste ueberlassen.
+        //
+        // Grund jetzt: derselbe Query Builder unterschlaegt den LOHN-TRIGGER.
+        // is_main_employer steht in RecApplicantSettings::DEFAULT_SETTINGS
+        // ['employee_payroll_tracked_fields'] -- das alte Portal meldet den
+        // Wechsel ans Lohnbuero, das neue tat es nicht. Ein ausgefallener
+        // Trigger faellt erst der Lohnbuchhaltung auf.
+        //
+        // Der ZAS-Schutz bleibt: beide Spalten fehlen in
+        // RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS. Er wird jetzt
+        // am ERGEBNIS gemessen statt an der Schreibart --
+        // PortalProfileWriterTest prueft jede der fuenf verbotenen Spalten
+        // einzeln, mit registriertem Beobachter.
         $src = $this->quelle();
+        $rumpf = $this->rumpfVonSpeichereArbeitgeber($src);
 
-        $this->assertStringContainsString('MainEmployerRequiredGuard::error(', $src);
+        $this->assertStringContainsString('PortalProfileWriter', $src);
+        $this->assertStringContainsString('speichere(', $rumpf);
+        $this->assertStringNotContainsString("DB::table('rec_employees')", $rumpf);
     }
 
-    public function test_geschrieben_wird_ueber_den_query_builder(): void
+    public function test_die_waechter_kommen_mit_dem_schreibweg(): void
     {
-        $src = $this->quelle();
+        // Vorher rief die Komponente MainEmployerRequiredGuard::error() selbst
+        // auf -- und NUR den. Jetzt haengt die ganze Kaskade
+        // (PortalProfileGuards: Ersthelfer, Staatsangehoerigkeit,
+        // Hauptarbeitgeber) am Schreibweg, wie in EmployeePortal::saveAll().
+        // Eine zweite Regel in der Komponente waere genau das Auseinander-
+        // laufen, das PortalBoolValue schon einmal gekostet hat.
+        $rumpf = $this->rumpfVonSpeichereArbeitgeber($this->quelle());
 
-        $methodStart = strpos($src, 'function speichereArbeitgeber(');
-        $this->assertNotFalse($methodStart, 'speichereArbeitgeber() fehlt');
-        $methodEnd = strpos($src, "\n    }\n", $methodStart);
-        $methodBody = substr($src, $methodStart, $methodEnd - $methodStart);
-
-        $this->assertStringContainsString("DB::table('rec_employees')", $methodBody);
-        // Keine Eloquent-$employee->update([...]) fuer diese beiden Felder --
-        // das waere zwar heute folgenlos (Feldliste), soll aber auch nach
-        // einem spaeteren Umbau der Feldliste sicher bleiben.
-        $this->assertStringNotContainsString('$employee->update(', $methodBody);
+        $this->assertStringNotContainsString('MainEmployerRequiredGuard::error(', $rumpf);
+        $this->assertStringContainsString("'Arbeitgeber'", $rumpf, 'Der Schreibweg muss auf die offene Gruppe begrenzt sein.');
     }
 
     public function test_render_liefert_die_aufgabe_und_zaehlt_sie_im_offen_wert(): void

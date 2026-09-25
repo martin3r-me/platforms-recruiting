@@ -20,9 +20,10 @@ use Platform\Recruiting\Services\PortalAuth;
 /**
  * Die Arbeitgeber-Pflichtfrage (Markus 24.09.2026) im NEUEN Portal.
  *
- * Wiederverwendet MainEmployerRequiredGuard -- keine zweite Regel, siehe
+ * Wiederverwendet die Waechter-Kaskade (PortalProfileGuards, darin
+ * MainEmployerRequiredGuard) -- keine zweite Regel, siehe
  * MainEmployerRequiredGuardTest fuer die Logik selbst. Hier wird nur die
- * VERDRAHTUNG im neuen Portal geprueft: Guard vor dem Schreiben, "ja" leert
+ * VERDRAHTUNG im neuen Portal geprueft: Waechter vor dem Schreiben, "ja" leert
  * den anderen Arbeitgeber, kein Schreiben ohne Anmeldung, kein ZAS-Export-
  * Marker (is_main_employer/other_employer stehen NICHT in
  * RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS -- siehe Kommentar dort
@@ -65,6 +66,10 @@ final class PortalShellEmployerTest extends TestCase
             $t->integer('team_id')->nullable();
             $t->string('person_key', 64)->nullable();
             $t->string('phone')->nullable();
+            // Die Waechter-Kaskade (PortalProfileGuards) prueft den
+            // Endzustand -- ohne Staatsangehoerigkeit blockt JEDES Speichern,
+            // und dieser Test pruefte dann nichts mehr.
+            $t->string('nationality')->nullable();
             $t->string('first_name')->nullable();
             $t->string('last_name')->nullable();
             $t->boolean('is_active')->default(true);
@@ -103,6 +108,7 @@ final class PortalShellEmployerTest extends TestCase
             'first_name'      => 'Kevin',
             'last_name'       => 'Muster',
             'is_active'       => true,
+            'nationality'     => 'deutsch',
             'portal_v2_since' => '2026-09-24 08:00:00',
         ], $attr));
     }
@@ -243,12 +249,36 @@ final class PortalShellEmployerTest extends TestCase
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
 
+    public function test_fehlende_staatsangehoerigkeit_blockt_auch_dieses_formular(): void
+    {
+        // Seit dem gemeinsamen Schreibweg haengt die GANZE Kaskade an diesem
+        // Knopf, nicht mehr nur die Arbeitgeber-Regel -- dieselbe
+        // Endzustandspruefung wie in EmployeePortal::saveAll(). Bis das Profil
+        // die Staatsangehoerigkeit selbst anbietet (Aufgabe 6), ist das der
+        // sichtbarste Unterschied zum bisherigen Verhalten.
+        $ma = $this->mitarbeiter(['nationality' => null]);
+        $shell = $this->shell($ma);
+        $shell->arbeitgeberIstHaupt = '1';
+
+        $shell->speichereArbeitgeber();
+
+        $this->assertStringContainsString('Staatsangeh', $shell->arbeitgeberFehler);
+        $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
+    }
+
     // -----------------------------------------------------------------
     // Export-Marker: begruendete Entscheidung, per Gegenprobe gemessen
     // -----------------------------------------------------------------
 
     public function test_speichern_setzt_keinen_export_marker(): void
     {
+        // GEDREHT am 25.09.2026: vorher stand hier assertFalse($gefeuert) --
+        // "der Query Builder darf kein Eloquent-Event ausloesen". Seit die
+        // Arbeitgeber-Felder ueber den gemeinsamen Schreibweg laufen, SOLL das
+        // Ereignis feuern (sonst faellt der Lohn-Trigger aus, siehe
+        // PortalShellEmployerWiringTest). Gemessen wird deshalb das Ergebnis:
+        // der Marker bleibt leer, weil beide Spalten nicht in
+        // RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS stehen.
         $ma = $this->mitarbeiter();
         $gefeuert = false;
         RecEmployee::updated(function () use (&$gefeuert) { $gefeuert = true; });
@@ -258,7 +288,7 @@ final class PortalShellEmployerTest extends TestCase
         $shell->arbeitgeberAnderer = 'Musterkantine GmbH';
         $shell->speichereArbeitgeber();
 
-        $this->assertFalse($gefeuert, 'Der Query Builder darf kein Eloquent-Event ausloesen.');
+        $this->assertTrue($gefeuert, 'Ohne Eloquent-Ereignis gaebe es keinen Lohn-Trigger.');
         $this->assertNull(DB::table('rec_employees')->find($ma->id)->zas_changed_at);
     }
 
