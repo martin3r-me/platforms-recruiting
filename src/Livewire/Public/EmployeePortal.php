@@ -627,6 +627,18 @@ class EmployeePortal extends Component
      * Dreiwertig gedacht: sichtbar bleibt das Feld, solange die Bedingung
      * nicht ausdruecklich widerlegt ist. Ein unbeantwortetes Ja/Nein
      * versteckt also nichts.
+     *
+     * BEWUSST NICHT an PortalFieldAccess::istSichtbar() delegiert (Task 2,
+     * Portal-Gleichstand): die geteilte Klasse behandelt einen leeren
+     * Formularwert ('') wie "kein Formularwert" und faellt dann auf den
+     * Datensatz zurueck. Hier gilt array_key_exists() OHNE Leer-Pruefung —
+     * fuer is_main_employer (einziges 'live'-Feld mit visible_if darunter)
+     * kann $this->fieldValues[...] explizit '' sein (User waehlt die leere
+     * Option nochmal), waehrend der Datensatz noch den alten, ungespeicherten
+     * Wert traegt. Eine Delegation wuerde das Feld dann verstecken statt es
+     * wieder zu zeigen — eine Verhaltensaenderung im Produktivportal, siehe
+     * Bericht zu Task 2 (.superpowers/sdd/2026-09-25-portal-gleichstand/
+     * task-2-report.md).
      */
     private function fieldIsVisible(RecEmployee $employee, array $meta): bool
     {

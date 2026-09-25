@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Platform\Crm\Models\CrmContactLink;
+use Platform\Recruiting\Support\PortalFieldRelevance;
 use Platform\Recruiting\Support\TaxAndSvNumber;
 use Platform\Recruiting\Traits\ResolvesPublicAddressStyle;
 use Symfony\Component\Uid\UuidV7;
@@ -540,15 +541,19 @@ class RecEmployee extends Model
      * Strikter Vergleich, bewusst: is_first_aider ist als boolean gecastet
      * und dreiwertig (true/false/null). Ein lockerer Vergleich wuerde
      * "unbeantwortet" (null) mit "Nein" (false) verwechseln.
+     *
+     * Delegiert an PortalFieldRelevance (Task 2, R28) — geteilte Regel mit
+     * dem Vollstaendigkeitsring. Der Rumpf holt nur die gecasteten Attribute,
+     * die required_if ueberhaupt nennt; die Auswertung selbst passiert dort.
      */
     public function fieldIsRelevant(array $meta): bool
     {
-        foreach (($meta['required_if'] ?? []) as $otherField => $expected) {
-            if ($this->getAttribute($otherField) !== $expected) {
-                return false;
-            }
+        $werte = [];
+        foreach (array_keys($meta['required_if'] ?? []) as $feld) {
+            $werte[$feld] = $this->getAttribute($feld);
         }
-        return true;
+
+        return PortalFieldRelevance::istRelevant($meta, $werte);
     }
 
     /**
