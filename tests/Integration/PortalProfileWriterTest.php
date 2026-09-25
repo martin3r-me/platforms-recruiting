@@ -309,7 +309,7 @@ class PortalProfileWriterTest extends TestCase
         $ergebnis = (new PortalProfileWriter())->speichere($ma, ['city' => 'Koeln']);
 
         $this->assertTrue($ergebnis['ok']);
-        $this->assertSame('Keine Aenderungen.', $ergebnis['meldung']);
+        $this->assertSame('Keine Änderungen.', $ergebnis['meldung']);
         $this->assertSame('2020-01-01 00:00:00', (string) $this->frisch($ma)->updated_at);
     }
 
@@ -319,7 +319,7 @@ class PortalProfileWriterTest extends TestCase
 
         $ergebnis = (new PortalProfileWriter())->speichere($ma, ['city' => 'Bonn'], 'Arbeitskleidung');
 
-        $this->assertSame('Keine Aenderungen.', $ergebnis['meldung']);
+        $this->assertSame('Keine Änderungen.', $ergebnis['meldung']);
         $this->assertSame('Koeln', $ma->fresh()->city);
     }
 
@@ -454,7 +454,7 @@ class PortalProfileWriterTest extends TestCase
     {
         // Ein Tippfehler im Aufruf ("Steuer und Versicherung" statt
         // "Steuer & Versicherung") haette sonst eine leere Reichweite ergeben:
-        // nichts geschrieben, Rueckgabe ok=true, "Keine Aenderungen." -- der
+        // nichts geschrieben, Rueckgabe ok=true, "Keine Änderungen." -- der
         // Mensch sieht eine unauffaellige Meldung, seine Steuer-ID ist weg.
         $ma = $this->mitarbeiter(['steuer_id' => '12345678901']);
 

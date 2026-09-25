@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\PersonScopeResolver;
@@ -14,6 +15,11 @@ use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\PortalProfileWriter;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ProofWriter;
+use Platform\Recruiting\Support\PortalCompleteness;
+use Platform\Recruiting\Support\PortalFieldAccess;
+use Platform\Recruiting\Support\PortalFieldRelevance;
+use Platform\Recruiting\Support\PortalGroupSummary;
+use Platform\Recruiting\Support\PortalSectionHints;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\ProofUploadRules;
@@ -76,16 +82,29 @@ class PortalShell extends Component
     public string $uploadFehler = '';
 
     /**
-     * Formularwerte der Arbeitgeber-Pflichtfrage (Markus 24.09.2026) im
-     * Profil-Bereich. Dieselbe Konvention wie im alten Portal
-     * (PortalBoolValue): Strings aus wire:model, dreiwertig ('', '1', '0').
-     * NICHT gesperrt -- die Sicherheit sitzt in speichereArbeitgeber() ueber
-     * berechtigterMitarbeiter(), nicht in der Unveraenderlichkeit dieser
-     * Eingaben (gleiches Muster wie die Upload-Felder oben).
+     * Welche Gruppe gerade im Profil-Blatt offen ist.
+     *
+     * #[Locked], weil sie entscheidet, WELCHE Felder geschrieben werden --
+     * dieselbe Lehre wie aus dem Auth-Bypass. Gesetzt wird sie nur von
+     * oeffneGruppe(), und die prueft den Namen gegen die fuer DIESEN Menschen
+     * sichtbaren Gruppen (R27/R29/R30). Die Gruppe "Arbeitgeber" (Markus
+     * 24.09.2026) ist seit dem 25.09.2026 eine Gruppe wie jede andere --
+     * speichereArbeitgeber() und ihre drei Formularfelder sind entfallen.
      */
-    public string $arbeitgeberIstHaupt = '';
-    public string $arbeitgeberAnderer = '';
-    public string $arbeitgeberFehler = '';
+    #[Locked] public ?string $profilGruppe = null;
+
+    /**
+     * Die Eingaben des offenen Profil-Blatts -- NICHT gesperrt, sie kommen
+     * vom Menschen. Die Sicherheit sitzt in speichereGruppe() ueber
+     * berechtigterMitarbeiter() und im Schnitt auf die offene Gruppe
+     * (PortalProfileWriter::speichere()).
+     */
+    public array $profilWerte = [];
+    public string $profilFehler = '';
+    public string $profilMeldung = '';
+
+    /** Request-Cache fuer lookupOptionen() -- ein Lookup wird pro Aufruf hoechstens einmal gelesen. */
+    private array $lookupCache = [];
 
     public function mount(string $token, PortalAuth $auth): void
     {
@@ -316,64 +335,127 @@ class PortalShell extends Component
     }
 
     /**
-     * Haupt-/Nebenarbeitgeber speichern.
+     * Eine Profil-Gruppe antippen -- oeffnet das Blatt fuer genau diese
+     * Gruppe und belegt es mit dem aktuellen Stand vor.
      *
-     * GESCHRIEBEN WIRD UEBER DEN GEMEINSAMEN SCHREIBWEG (PortalProfileWriter,
-     * also ueber Eloquent), NICHT MEHR ueber den Query Builder. Die
-     * Entscheidung ist am 25.09.2026 gekippt:
-     *
-     *  - Vorher: der Query Builder hielt ausdruecklich fest, dass ZAS diese
-     *    Angabe (noch) nicht sehen soll -- unsere Aktualisierungsdatei liefert
-     *    VOLLE ZEILEN, ein Marker auf einem Bestandsmitarbeiter wuerde also
-     *    dessen in ZAS gepflegte Akte ueberschreiben (Vorfall 02.09.2026).
-     *  - Jetzt: derselbe Query Builder unterschlaegt den LOHN-TRIGGER.
-     *    is_main_employer steht in RecApplicantSettings::DEFAULT_SETTINGS
-     *    ['employee_payroll_tracked_fields'] -- an der Angabe haengt die
-     *    Steuerklasse. Das alte Portal meldet den Wechsel ans Lohnbuero, das
-     *    neue tat es nicht. Das faellt erst der Lohnbuchhaltung auf.
-     *
-     * Der ZAS-Schutz bleibt unveraendert: is_main_employer und other_employer
-     * fehlen in RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS. Gemessen
-     * wird er jetzt am Ergebnis (PortalProfileWriterTest, je Spalte einzeln)
-     * statt an der Schreibart.
-     *
-     * berechtigterMitarbeiter() ist auch hier keine Formalitaet: ohne
-     * gueltige Anmeldung laeuft $wire.call('speichereArbeitgeber') ins Leere,
-     * genau wie bei speichereNachweis().
-     *
-     * Die Waechter kommen mit dem Schreibweg (PortalProfileGuards) -- auch
-     * die, die mit dem Arbeitgeber nichts zu tun haben. Das ist dieselbe
-     * Endzustandspruefung wie in EmployeePortal::saveAll(): ein
-     * unvollstaendiger Zustand soll nicht stehenbleiben, nur weil gerade ein
-     * anderes Blatt offen ist.
+     * Unbekannte oder gerade nicht sichtbare Namen (kaputter Link, HR hat
+     * waehrenddessen den Status geaendert, oder die Non-EU-Gruppe ist fuer
+     * DIESEN Menschen gar keine) fuehren still ins Leere -- $profilGruppe
+     * bleibt null, das Blatt zeigt sich nicht (R27/R29/R30).
      */
-    public function speichereArbeitgeber(): void
+    public function oeffneGruppe(string $gruppe): void
     {
+        $this->profilFehler = '';
+        $this->profilMeldung = '';
+        $this->profilGruppe = null;
+        $this->profilWerte = [];
+
         $employee = $this->berechtigterMitarbeiter();
         if ($employee === null) {
             return;
         }
 
-        $ergebnis = app(PortalProfileWriter::class)->speichere($employee, [
-            'is_main_employer' => $this->arbeitgeberIstHaupt,
-            'other_employer'   => $this->arbeitgeberAnderer,
-        ], 'Arbeitgeber');
+        $gruppen = $employee->editableFieldGroups();
+        $sichtbar = PortalFieldAccess::sichtbareGruppen(
+            $gruppen,
+            $this->datensatzWerte($employee, $gruppen),
+            [],   // beim Oeffnen gibt es noch keine Formulareingaben
+        );
+        if (!array_key_exists($gruppe, $sichtbar)) {
+            return;   // kaputter Link, veraltetes Snapshot -- still ins Leere
+        }
+
+        $this->profilGruppe = $gruppe;
+        foreach ($sichtbar[$gruppe] as $schluessel => $meta) {
+            if (($meta['type'] ?? 'text') === 'file') {
+                continue;   // Dateien laufen ueber das Nachweis-Blatt (R20/E8)
+            }
+            $this->profilWerte[$schluessel] = $this->formularwert($employee, $schluessel);
+        }
+    }
+
+    /** Das Profil-Blatt schliessen, ohne zu speichern -- z. B. „Abbrechen". */
+    public function schliesseGruppe(): void
+    {
+        $this->profilGruppe = null;
+        $this->profilWerte = [];
+        $this->profilFehler = '';
+        $this->profilMeldung = '';
+    }
+
+    /**
+     * Die offene Gruppe speichern -- UEBER DEN GEMEINSAMEN SCHREIBWEG
+     * (PortalProfileWriter, also ueber Eloquent), NICHT ueber den Query
+     * Builder. Gilt seit 25.09.2026 fuer JEDE Gruppe, nicht mehr nur fuer den
+     * Arbeitgeber:
+     *
+     *  - der Query Builder unterschlaegt den LOHN-TRIGGER: is_main_employer
+     *    steht in RecApplicantSettings::DEFAULT_SETTINGS
+     *    ['employee_payroll_tracked_fields'] -- an der Angabe haengt die
+     *    Steuerklasse. Das alte Portal meldet den Wechsel ans Lohnbuero, ein
+     *    Query-Builder-Schreibweg wuerde das verschweigen.
+     *  - der ZAS-Schutz bleibt trotzdem: die fuenf Spalten mit Marker-VERBOT
+     *    (is_main_employer, other_employer, phone,
+     *    erstbescheinigung_file_id, first_aider_certificate_file_id) fehlen
+     *    schlicht in RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS.
+     *    Gemessen wird das am Ergebnis (PortalProfileWriterTest), nicht an
+     *    der Schreibart.
+     *
+     * berechtigterMitarbeiter() ist auch hier keine Formalitaet: ohne
+     * gueltige Anmeldung laeuft $wire.call('speichereGruppe') ins Leere,
+     * genau wie bei speichereNachweis().
+     *
+     * Die Waechter kommen mit dem Schreibweg (PortalProfileGuards) -- auch
+     * die, die mit der offenen Gruppe nichts zu tun haben. Das ist dieselbe
+     * Endzustandspruefung wie in EmployeePortal::saveAll(): ein
+     * unvollstaendiger Zustand soll nicht stehenbleiben, nur weil gerade ein
+     * anderes Blatt offen ist. Ein Waechterfehler haelt das Blatt OFFEN, OHNE
+     * die Eingaben neu zu laden -- sie bleiben stehen (EmployeePortal.php:288).
+     */
+    public function speichereGruppe(): void
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        if ($employee === null || $this->profilGruppe === null) {
+            return;
+        }
+
+        $ergebnis = app(PortalProfileWriter::class)
+            ->speichere($employee, $this->profilWerte, $this->profilGruppe);
 
         if (!$ergebnis['ok']) {
-            $this->arbeitgeberFehler = (string) $ergebnis['fehler'];
+            // Blatt bleibt offen, Eingaben bleiben stehen.
+            $this->profilFehler = (string) $ergebnis['fehler'];
+            $this->profilMeldung = '';
 
             return;
         }
-        $this->arbeitgeberFehler = '';
 
-        // Das Formular zeigt danach den GESPEICHERTEN Stand, nicht den
-        // eingetippten: bei "ja" hat der Schreibweg den anderen Arbeitgeber
-        // geleert (R21), und das soll man sehen.
-        $frisch = $employee->fresh();
-        $this->arbeitgeberIstHaupt = $frisch->is_main_employer === null
-            ? ''
-            : ($frisch->is_main_employer ? '1' : '0');
-        $this->arbeitgeberAnderer = (string) ($frisch->other_employer ?? '');
+        $this->profilFehler = '';
+        $this->profilMeldung = (string) $ergebnis['meldung'];
+        $this->profilGruppe = null;
+        $this->profilWerte = [];
+    }
+
+    /**
+     * Lookup-Optionen ['value' => 'label'] fuer einen Lookup-Namen -- das
+     * Blade ruft sie beim Rendern des offenen Blatts. Request-Cache je
+     * Lookup-Name, unbekannter/gescheiterter Lookup gibt ein leeres Array
+     * (wie EmployeePortal::lookupOptionsFor()).
+     *
+     * @return array<string,string>
+     */
+    public function lookupOptionen(string $lookup): array
+    {
+        if (!isset($this->lookupCache[$lookup])) {
+            try {
+                $eintrag = CoreLookup::where('name', $lookup)->first();
+                $this->lookupCache[$lookup] = $eintrag ? $eintrag->getOptionsArray() : [];
+            } catch (\Throwable) {
+                $this->lookupCache[$lookup] = [];
+            }
+        }
+
+        return $this->lookupCache[$lookup];
     }
 
     /**
@@ -408,6 +490,8 @@ class PortalShell extends Component
         // sie zaehlt im Gesamt-"offen" mit (Nav-Punkt, Reiter-Abzeichen).
         $arbeitgeberOffen = $employee !== null && $employee->is_main_employer === null;
 
+        $profil = $this->profilDaten($employee);
+
         return view('recruiting::livewire.public.portal-shell', [
             'aufgaben'          => self::dekoriert($checklist),
             'offen'             => $offenAusNachweisen + ($arbeitgeberOffen ? 1 : 0),
@@ -420,9 +504,210 @@ class PortalShell extends Component
             'uploadHatRueckseite' => $this->uploadCode !== null
                 && count(ProofTypes::legacyFileColumns($this->uploadCode)) === 2,
             'uploadAccept'    => '.' . implode(',.', ProofUploadRules::MIME_TYPES),
+            'profilGruppen'   => $profil['gruppen'],
+            'profilStand'     => $profil['stand'],
+            'profilFelder'    => $profil['felder'],
+            'profilHinweis'   => $profil['hinweis'],
+            'nurLesen'        => $profil['nurLesen'],
+            'kacheln'         => $profil['kacheln'],
         ])->layout('recruiting::layouts.portal', [
             'title' => 'Mein Portal · RheinGedeck',
         ]);
+    }
+
+    /**
+     * Alle Render-Daten des Profil-Bereichs auf einmal -- Gruppenzeilen mit
+     * Zusammenfassung, Vollstaendigkeitsring, die Felder des GERADE offenen
+     * Blatts, der Erklaertext dazu, die Nur-Lese-Felder und die
+     * Nachweis-Kacheln. Ein Durchlauf durch editableFieldGroups(), damit
+     * Task 7 (das Blade) nur noch anzeigt und keine eigene Zuordnung
+     * aufmacht (§1.4 Punkt 2, sonst droht E7 wieder).
+     *
+     * @return array{gruppen:array, stand:array, felder:array, hinweis:?string, nurLesen:array, kacheln:array}
+     */
+    private function profilDaten(?RecEmployee $employee): array
+    {
+        if ($employee === null) {
+            return [
+                'gruppen'  => [],
+                'stand'    => PortalCompleteness::stand([], []),
+                'felder'   => [],
+                'hinweis'  => null,
+                'nurLesen' => [],
+                'kacheln'  => [],
+            ];
+        }
+
+        $gruppen = $employee->editableFieldGroups();
+        $datensatz = $this->datensatzWerte($employee, $gruppen);
+        // Beim Rendern gibt es keinen "aktiven" Formularstand ausserhalb des
+        // offenen Blatts -- Sichtbarkeit von Gruppen/Feldern misst sich also
+        // am Datensatz, nicht an $profilWerte (die gehoeren nur zur offenen
+        // Gruppe und wuerden fuer alle anderen Gruppen gar nicht passen).
+        $sichtbar = PortalFieldAccess::sichtbareGruppen($gruppen, $datensatz, []);
+
+        $profilGruppen = [];
+        foreach ($sichtbar as $name => $felder) {
+            $anzeigewerte = [];
+            $offenInGruppe = 0;
+            foreach ($felder as $schluessel => $meta) {
+                $anzeigewerte[$schluessel] = $this->anzeigewert($employee, $schluessel, $meta);
+                if (PortalFieldRelevance::istRelevant($meta, $datensatz)) {
+                    $wert = $datensatz[$schluessel] ?? null;
+                    if ($wert === null || $wert === '' || $wert === []) {
+                        $offenInGruppe++;
+                    }
+                }
+            }
+            $profilGruppen[$name] = [
+                'felder' => $felder,
+                'zeile'  => PortalGroupSummary::zeile($felder, $anzeigewerte),
+                'offen'  => $offenInGruppe,
+            ];
+        }
+
+        // R28: nur relevante Felder zaehlen -- sonst haengt jeder EU-Buerger
+        // dauerhaft unter 100 %, weil die Non-EU-Gruppe (fuer ihn gar nicht
+        // vorhanden) mitgezaehlt wuerde. sichtbareFelderFlach() liefert die
+        // Non-EU-Gruppe fuer ihn ohnehin gar nicht erst mit.
+        $flach = PortalFieldAccess::sichtbareFelderFlach($gruppen, $datensatz, []);
+        $stand = PortalCompleteness::stand($flach, $datensatz);
+
+        $profilFelder = [];
+        $hinweis = null;
+        if ($this->profilGruppe !== null && array_key_exists($this->profilGruppe, $sichtbar)) {
+            $hinweis = PortalSectionHints::fuer($this->profilGruppe, $this->duzen);
+            foreach ($sichtbar[$this->profilGruppe] as $schluessel => $meta) {
+                if (($meta['type'] ?? 'text') === 'file') {
+                    continue;   // Dateien laufen ueber das Nachweis-Blatt (R20/E8)
+                }
+                $fehlt = PortalFieldRelevance::istRelevant($meta, $datensatz)
+                    && trim((string) ($this->profilWerte[$schluessel] ?? '')) === '';
+                $profilFelder[$schluessel] = [
+                    'type'      => $meta['type'] ?? 'text',
+                    'label'     => $meta['label'] ?? $schluessel,
+                    'lookup'    => $meta['lookup'] ?? null,
+                    'options'   => $meta['options'] ?? null,
+                    'maxlength' => $meta['maxlength'] ?? null,
+                    'live'      => (bool) ($meta['live'] ?? false),
+                    'fehlt'     => $fehlt,
+                ];
+            }
+        }
+
+        // Kacheln: je Datei-Feld der sichtbaren Gruppen eine Nachweis-Kachel.
+        // Doppelte Codes (Vorder-/Rueckseite derselben Art, z. B. Ausweis)
+        // werden zusammengefasst -- "da" ist wahr, sobald mindestens eine der
+        // Altspalten belegt ist. ProofTypes ist die einzige Zuordnungsstelle
+        // (E7-Lehre), keine zweite Liste hier.
+        $kachelnDa = [];
+        $kachelnReihenfolge = [];
+        foreach ($sichtbar as $felder) {
+            foreach ($felder as $schluessel => $meta) {
+                if (($meta['type'] ?? 'text') !== 'file') {
+                    continue;
+                }
+                $code = ProofTypes::codeForLegacyColumn($schluessel);
+                if ($code === null) {
+                    continue;
+                }
+                if (!array_key_exists($code, $kachelnDa)) {
+                    $kachelnReihenfolge[] = $code;
+                    $kachelnDa[$code] = false;
+                }
+                if ($employee->getAttribute($schluessel) !== null) {
+                    $kachelnDa[$code] = true;
+                }
+            }
+        }
+        $kacheln = array_map(
+            static fn (string $code) => ['code' => $code, 'label' => ProofTypes::label($code), 'da' => $kachelnDa[$code]],
+            $kachelnReihenfolge,
+        );
+
+        return [
+            'gruppen'  => $profilGruppen,
+            'stand'    => $stand,
+            'felder'   => $profilFelder,
+            'hinweis'  => $hinweis,
+            'nurLesen' => $employee->readOnlyDisplayFields(),
+            'kacheln'  => $kacheln,
+        ];
+    }
+
+    /**
+     * Die GECASTETEN Attributwerte aller Felder aus $gruppen, gelesen mit
+     * getAttribute() (nicht getAttributes()) -- der Unterschied ist
+     * tragend: visible_if/required_if vergleichen strikt gegen
+     * true/false/null, die Rohwerte aus der Datenbank waeren 1/0/null
+     * (R27, R28).
+     *
+     * @param array<string, array<string, array<string,mixed>>> $gruppen
+     * @return array<string,mixed>
+     */
+    private function datensatzWerte(RecEmployee $employee, array $gruppen): array
+    {
+        $werte = [];
+        foreach ($gruppen as $felder) {
+            foreach (array_keys($felder) as $schluessel) {
+                $werte[$schluessel] = $employee->getAttribute($schluessel);
+            }
+        }
+
+        return $werte;
+    }
+
+    /**
+     * Formularwert fuer ein einzelnes Feld beim Oeffnen eines Blatts --
+     * woertlich wie EmployeePortal::loadFieldValues() (Zeilen 232-249):
+     * Datum wird zu 'Y-m-d', bool zu '1'/'0', null zu ''.
+     */
+    private function formularwert(RecEmployee $employee, string $feld): string
+    {
+        $roh = $employee->getAttribute($feld);
+        if ($roh instanceof \DateTimeInterface) {
+            $roh = $roh->format('Y-m-d');
+        } elseif (is_bool($roh)) {
+            $roh = $roh ? '1' : '0';
+        }
+
+        return $roh === null ? '' : (string) $roh;
+    }
+
+    /**
+     * Anzeigewert fuer ein einzelnes Feld (Gruppenzeile, PortalGroupSummary)
+     * -- woertlich wie EmployeePortal::formatDisplayValue() (Zeilen 547-559)
+     * inklusive des default-Zweigs, in den inline_select faellt (§1.4
+     * Punkt 1: Wert und Beschriftung sind dort derselbe String).
+     */
+    private function anzeigewert(RecEmployee $employee, string $feld, array $meta): string
+    {
+        $wert = $employee->getAttribute($feld);
+        if ($wert === null || $wert === '' || $wert === []) {
+            return '';
+        }
+
+        $typ = $meta['type'] ?? 'text';
+
+        return match ($typ) {
+            'bool'   => $wert ? 'Ja' : 'Nein',
+            'lookup' => $this->lookupOptionen($meta['lookup'] ?? '')[(string) $wert] ?? (string) $wert,
+            'date'   => $this->anzeigedatum($wert),
+            default  => (string) $wert,
+        };
+    }
+
+    private function anzeigedatum($wert): string
+    {
+        try {
+            if (is_object($wert) && method_exists($wert, 'format')) {
+                return $wert->format('d.m.Y');
+            }
+
+            return \Carbon\Carbon::parse((string) $wert)->format('d.m.Y');
+        } catch (\Throwable) {
+            return (string) $wert;
+        }
     }
 
     /**
@@ -469,15 +754,6 @@ class PortalShell extends Component
     {
         $this->displayName = $this->vorname($employee);
         $this->initialen   = $this->initialen($employee);
-
-        // Formular der Arbeitgeber-Frage vorbelegen -- sonst zeigt die
-        // Auswahl bei jedem Neuladen leer, obwohl schon geantwortet wurde.
-        // Dieselbe dreiwertige Stringform wie ueberall im Portal (siehe
-        // PortalBoolValue): null bleibt '', sonst '1'/'0'.
-        $this->arbeitgeberIstHaupt = $employee->is_main_employer === null
-            ? ''
-            : ($employee->is_main_employer ? '1' : '0');
-        $this->arbeitgeberAnderer = (string) ($employee->other_employer ?? '');
     }
 
     /**

@@ -25,6 +25,12 @@ use Platform\Recruiting\Services\PortalAuth;
  * VERDRAHTUNG im neuen Portal geprueft: Waechter vor dem Schreiben, "ja" leert
  * den anderen Arbeitgeber, kein Schreiben ohne Anmeldung.
  *
+ * GEDREHT am 25.09.2026 (Aufgabe 6): "Arbeitgeber" ist seit dem Gruppen-Umbau
+ * eine Gruppe wie jede andere -- speichereArbeitgeber() und die drei
+ * arbeitgeber*-Eigenschaften sind entfallen. Diese Klasse ruft jetzt
+ * oeffneGruppe('Arbeitgeber')/speichereGruppe() statt der alten,
+ * arbeitgeber-eigenen Methode. Die GEPRUEFTE REGEL bleibt dieselbe.
+ *
  * Der ZAS-Export-Marker wird hier NICHT geprueft -- in dieser Klasse laeuft
  * kein Beobachter, die Zusicherung waere eine Behauptung. Sie steht gemessen
  * in PortalProfileWriterTest (je verbotener Spalte einzeln) und fuer das alte
@@ -124,6 +130,21 @@ final class PortalShellEmployerTest extends TestCase
         return $shell;
     }
 
+    /** Oeffnet die Arbeitgeber-Gruppe und traegt die Formularwerte ein -- der Weg, den jeder Test unten braucht. */
+    private function shellMitOffenerArbeitgeberGruppe(RecEmployee $ma, ?string $istHaupt = null, ?string $anderer = null): PortalShell
+    {
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Arbeitgeber');
+        if ($istHaupt !== null) {
+            $shell->profilWerte['is_main_employer'] = $istHaupt;
+        }
+        if ($anderer !== null) {
+            $shell->profilWerte['other_employer'] = $anderer;
+        }
+
+        return $shell;
+    }
+
     // -----------------------------------------------------------------
     // Der Waechter wird wiederverwendet, nicht neu erfunden
     // -----------------------------------------------------------------
@@ -131,36 +152,33 @@ final class PortalShellEmployerTest extends TestCase
     public function test_ohne_antwort_wird_nichts_gespeichert(): void
     {
         $ma = $this->mitarbeiter();
-        $shell = $this->shell($ma);
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma);
 
-        $shell->speichereArbeitgeber();
+        $shell->speichereGruppe();
 
-        $this->assertNotSame('', $shell->arbeitgeberFehler);
+        $this->assertNotSame('', $shell->profilFehler);
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
 
     public function test_nein_ohne_namen_wird_ueber_den_waechter_abgelehnt(): void
     {
         $ma = $this->mitarbeiter();
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '0';
-        $shell->arbeitgeberAnderer = '';
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '0', '');
 
-        $shell->speichereArbeitgeber();
+        $shell->speichereGruppe();
 
-        $this->assertNotSame('', $shell->arbeitgeberFehler);
+        $this->assertNotSame('', $shell->profilFehler);
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
 
     public function test_ja_ohne_namen_wird_gespeichert(): void
     {
         $ma = $this->mitarbeiter();
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '1';
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '1');
 
-        $shell->speichereArbeitgeber();
+        $shell->speichereGruppe();
 
-        $this->assertSame('', $shell->arbeitgeberFehler);
+        $this->assertSame('', $shell->profilFehler);
         $frisch = RecEmployee::find($ma->id);
         $this->assertTrue($frisch->is_main_employer);
         $this->assertNull($frisch->other_employer);
@@ -169,13 +187,11 @@ final class PortalShellEmployerTest extends TestCase
     public function test_nein_mit_namen_wird_gespeichert(): void
     {
         $ma = $this->mitarbeiter();
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '0';
-        $shell->arbeitgeberAnderer = 'Musterkantine GmbH';
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '0', 'Musterkantine GmbH');
 
-        $shell->speichereArbeitgeber();
+        $shell->speichereGruppe();
 
-        $this->assertSame('', $shell->arbeitgeberFehler);
+        $this->assertSame('', $shell->profilFehler);
         $frisch = RecEmployee::find($ma->id);
         $this->assertFalse($frisch->is_main_employer);
         $this->assertSame('Musterkantine GmbH', $frisch->other_employer);
@@ -188,13 +204,11 @@ final class PortalShellEmployerTest extends TestCase
     public function test_ja_leert_einen_zuvor_eingetragenen_anderen_arbeitgeber(): void
     {
         $ma = $this->mitarbeiter(['is_main_employer' => false, 'other_employer' => 'Alte Firma GmbH']);
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '1';
         // Steht noch im Formular (z.B. nicht geleert, bevor umgestellt wurde)
         // -- muss trotzdem verworfen werden.
-        $shell->arbeitgeberAnderer = 'Alte Firma GmbH';
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '1', 'Alte Firma GmbH');
 
-        $shell->speichereArbeitgeber();
+        $shell->speichereGruppe();
 
         $frisch = RecEmployee::find($ma->id);
         $this->assertTrue($frisch->is_main_employer);
@@ -207,23 +221,27 @@ final class PortalShellEmployerTest extends TestCase
 
     public function test_ohne_anmeldung_wird_nichts_gespeichert(): void
     {
+        // Auch das Oeffnen selbst laeuft ohne Anmeldung ins Leere -- die
+        // Gruppe bleibt null, es gibt nichts einzutragen. Der Speicherversuch
+        // dahinter ist damit die Gegenprobe, dass wirklich nichts passiert.
         $ma = $this->mitarbeiter();
         $shell = $this->shell($ma);
         $shell->state = 'unverified';
-        $shell->arbeitgeberIstHaupt = '1';
+        $shell->oeffneGruppe('Arbeitgeber');
+        $this->assertNull($shell->profilGruppe, 'Ohne Anmeldung darf keine Gruppe oeffnen.');
 
-        $shell->speichereArbeitgeber();
+        $shell->speichereGruppe();
 
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
 
     public function test_gesperrter_mitarbeiter_kann_nicht_speichern(): void
     {
-        $ma = $this->mitarbeiter(['portal_locked_at' => now()]);
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '1';
+        $ma = $this->mitarbeiter();
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '1');
 
-        $shell->speichereArbeitgeber();
+        RecEmployee::where('id', $ma->id)->update(['portal_locked_at' => now()]);
+        $shell->speichereGruppe();
 
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
         $this->assertSame('gesperrt', $shell->state);
@@ -231,22 +249,22 @@ final class PortalShellEmployerTest extends TestCase
 
     public function test_zurueckgenommener_pilot_kann_nicht_speichern(): void
     {
-        $ma = $this->mitarbeiter(['portal_v2_since' => null]);
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '1';
+        $ma = $this->mitarbeiter();
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '1');
 
-        $shell->speichereArbeitgeber();
+        RecEmployee::where('id', $ma->id)->update(['portal_v2_since' => null]);
+        $shell->speichereGruppe();
 
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
 
     public function test_deaktivierter_mitarbeiter_kann_nicht_speichern(): void
     {
-        $ma = $this->mitarbeiter(['is_active' => false]);
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '1';
+        $ma = $this->mitarbeiter();
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '1');
 
-        $shell->speichereArbeitgeber();
+        RecEmployee::where('id', $ma->id)->update(['is_active' => false]);
+        $shell->speichereGruppe();
 
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
@@ -255,16 +273,15 @@ final class PortalShellEmployerTest extends TestCase
     {
         // Seit dem gemeinsamen Schreibweg haengt die GANZE Kaskade an diesem
         // Knopf, nicht mehr nur die Arbeitgeber-Regel -- dieselbe
-        // Endzustandspruefung wie in EmployeePortal::saveAll(). Bis das Profil
-        // die Staatsangehoerigkeit selbst anbietet (Aufgabe 6), ist das der
-        // sichtbarste Unterschied zum bisherigen Verhalten.
+        // Endzustandspruefung wie in EmployeePortal::saveAll(). Die
+        // Gegenprobe (Staatsangehoerigkeit selbst nachtragen und danach
+        // speichern koennen) steht in PortalShellProfilTest.
         $ma = $this->mitarbeiter(['nationality' => null]);
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '1';
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '1');
 
-        $shell->speichereArbeitgeber();
+        $shell->speichereGruppe();
 
-        $this->assertStringContainsString('Staatsangeh', $shell->arbeitgeberFehler);
+        $this->assertStringContainsString('Staatsangeh', $shell->profilFehler);
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
 
@@ -282,19 +299,14 @@ final class PortalShellEmployerTest extends TestCase
 
     public function test_speichern_loest_das_eloquent_ereignis_aus(): void
     {
-        // GEDREHT am 25.09.2026: vorher stand hier assertFalse($gefeuert) --
-        // "der Query Builder darf kein Eloquent-Event ausloesen". Seit die
-        // Arbeitgeber-Felder ueber den gemeinsamen Schreibweg laufen, SOLL das
-        // Ereignis feuern: an ihm haengt der Lohn-Trigger, und ohne ihn merkt
-        // den Wechsel erst die Lohnbuchhaltung.
+        // An diesem Ereignis haengt der Lohn-Trigger: an ihm merkt die
+        // Lohnbuchhaltung, dass sich der Hauptarbeitgeber geaendert hat.
         $ma = $this->mitarbeiter();
         $gefeuert = false;
         RecEmployee::updated(function () use (&$gefeuert) { $gefeuert = true; });
 
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '0';
-        $shell->arbeitgeberAnderer = 'Musterkantine GmbH';
-        $shell->speichereArbeitgeber();
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '0', 'Musterkantine GmbH');
+        $shell->speichereGruppe();
 
         $this->assertTrue($gefeuert, 'Ohne Eloquent-Ereignis gaebe es keinen Lohn-Trigger.');
         // Gegenprobe, dass ueberhaupt geschrieben wurde -- sonst waere die
@@ -304,60 +316,48 @@ final class PortalShellEmployerTest extends TestCase
 
     public function test_aenderung_der_angabe_wird_wirklich_geschrieben(): void
     {
-        // Vorher pruefte dieser Test nur, dass zas_changed_at leer bleibt --
-        // ohne registrierten Beobachter und ohne positive Gegenprobe war er
-        // gruen, egal was passierte. Jetzt misst er den Wechsel selbst.
         $ma = $this->mitarbeiter(['is_main_employer' => true]);
 
-        $shell = $this->shell($ma);
-        $shell->arbeitgeberIstHaupt = '0';
-        $shell->arbeitgeberAnderer = 'Andere GmbH';
-        $shell->speichereArbeitgeber();
+        $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '0', 'Andere GmbH');
+        $shell->speichereGruppe();
 
         $frisch = RecEmployee::find($ma->id);
         $this->assertFalse($frisch->is_main_employer);
         $this->assertSame('Andere GmbH', $frisch->other_employer);
-        // ... und das Formular zeigt danach den gespeicherten Stand.
-        $this->assertSame('0', $shell->arbeitgeberIstHaupt);
-        $this->assertSame('Andere GmbH', $shell->arbeitgeberAnderer);
+        // ... und das Blatt ist zu, kein Fehler steht mehr.
+        $this->assertNull($shell->profilGruppe);
+        $this->assertSame('', $shell->profilFehler);
     }
 
     // -----------------------------------------------------------------
-    // identitaetLaden() (mount()/verify()) belegt das Formular mit dem
-    // aktuellen Stand vor -- sonst zeigt die Auswahl leer, obwohl schon
-    // geantwortet wurde.
+    // oeffneGruppe() belegt das Formular mit dem aktuellen Stand vor --
+    // sonst zeigt die Auswahl leer, obwohl schon geantwortet wurde.
     // -----------------------------------------------------------------
 
-    public function test_anmeldung_belegt_das_formular_mit_dem_aktuellen_stand_vor(): void
+    public function test_oeffnen_belegt_das_formular_mit_dem_aktuellen_stand_vor(): void
     {
         $ma = $this->mitarbeiter([
-            'portal_token'     => 'tok-vorbelegt',
             'is_main_employer' => false,
             'other_employer'   => 'Musterkantine GmbH',
         ]);
-        // Die Anmeldung selbst wird nicht ueber verify() getestet (siehe
-        // PortalShellVerifyTest) -- hier nur identitaetLaden() ueber eine
-        // bereits erfolgreiche Session, mount() nimmt den Kurzschluss.
-        session()->put(PortalAuth::sessionKey($ma->id), true);
+        $shell = $this->shell($ma);
 
-        $shell = new PortalShell();
-        $shell->token = 'tok-vorbelegt';
-        $shell->employeeId = $ma->id;
-        $shell->mount('tok-vorbelegt', new PortalAuth(new Repository(new ArrayStore())));
+        $shell->oeffneGruppe('Arbeitgeber');
 
-        $this->assertSame('0', $shell->arbeitgeberIstHaupt);
-        $this->assertSame('Musterkantine GmbH', $shell->arbeitgeberAnderer);
+        $this->assertSame('0', $shell->profilWerte['is_main_employer']);
+        $this->assertSame('Musterkantine GmbH', $shell->profilWerte['other_employer']);
     }
 
     public function test_unbeantwortet_bleibt_das_formular_leer(): void
     {
-        $ma = $this->mitarbeiter(['portal_token' => 'tok-leer']);
-        session()->put(PortalAuth::sessionKey($ma->id), true);
+        $ma = $this->mitarbeiter();
+        $shell = $this->shell($ma);
 
-        $shell = new PortalShell();
-        $shell->mount('tok-leer', new PortalAuth(new Repository(new ArrayStore())));
+        $shell->oeffneGruppe('Arbeitgeber');
 
-        $this->assertSame('', $shell->arbeitgeberIstHaupt);
-        $this->assertSame('', $shell->arbeitgeberAnderer);
+        $this->assertSame('', $shell->profilWerte['is_main_employer']);
+        // other_employer ist nur sichtbar, solange is_main_employer !== true
+        // (visible_if) -- bei "unbeantwortet" bleibt es also im Formular.
+        $this->assertSame('', $shell->profilWerte['other_employer']);
     }
 }

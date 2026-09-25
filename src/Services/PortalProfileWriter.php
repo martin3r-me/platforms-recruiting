@@ -73,7 +73,7 @@ final class PortalProfileWriter
 
         // Ein unbekannter Gruppenname ist ein FEHLER, kein Nichts. Sonst bliebe
         // die Reichweite leer, es wuerde nichts geschrieben, und die Rueckgabe
-        // lautete ok=true, "Keine Aenderungen." — eine unauffaellige Meldung,
+        // lautete ok=true, "Keine Änderungen." — eine unauffaellige Meldung,
         // waehrend die eingetippte Steuer-ID verschwindet. Ein Tippfehler
         // reicht: die Gruppe heisst "Steuer & Versicherung", mit einem
         // kaufmaennischen Und.
@@ -153,7 +153,7 @@ final class PortalProfileWriter
         }
 
         if ($updates === []) {
-            return ['ok' => true, 'fehler' => null, 'meldung' => 'Keine Aenderungen.'];   // R23
+            return ['ok' => true, 'fehler' => null, 'meldung' => 'Keine Änderungen.'];   // R23
         }
 
         $employee->update($updates);
@@ -162,6 +162,6 @@ final class PortalProfileWriter
         // es auch keine Aenderung zu melden (und updated_at bleibt stehen).
         return $employee->wasChanged()
             ? ['ok' => true, 'fehler' => null, 'meldung' => 'Gespeichert.']
-            : ['ok' => true, 'fehler' => null, 'meldung' => 'Keine Aenderungen.'];
+            : ['ok' => true, 'fehler' => null, 'meldung' => 'Keine Änderungen.'];
     }
 }

@@ -12,9 +12,12 @@ use ReflectionClass;
  * die Livewire-Komponente laesst sich in dieser Suite nicht rendern (kein
  * 'view'-Binding, siehe TrainingCertificateRenderTest).
  *
- * Vier Entscheidungen werden hier festgenagelt:
- *  1. speichereArbeitgeber() bringt keine eigene Regel mit -- die Waechter
- *     kommen mit dem gemeinsamen Schreibweg.
+ * GEDREHT am 25.09.2026 (Aufgabe 6, Portal-Gleichstand): "Arbeitgeber" ist
+ * seit dem Gruppen-Umbau eine Gruppe wie jede andere. speichereArbeitgeber()
+ * ist entfallen, der Rumpf-Test unten liest jetzt speichereGruppe() -- die
+ * GEPRUEFTEN Entscheidungen sind dieselben wie vorher:
+ *  1. Die Waechter kommen mit dem gemeinsamen Schreibweg, keine eigene Regel
+ *     in der Komponente.
  *  2. Geschrieben wird ueber PortalProfileWriter (Eloquent), NICHT ueber
  *     DB::table(...) -- gedreht am 25.09.2026, Begruendung unten.
  *  3. render() liefert eine synthetische Aufgabe, solange die Antwort fehlt,
@@ -30,11 +33,11 @@ class PortalShellEmployerWiringTest extends TestCase
         return file_get_contents((new ReflectionClass(PortalShell::class))->getFileName());
     }
 
-    /** Nur der Rumpf von speichereArbeitgeber() -- der Rest der Klasse schreibt weiter ueber den Query Builder (portal_verified_at). */
-    private function rumpfVonSpeichereArbeitgeber(string $src): string
+    /** Nur der Rumpf von speichereGruppe() -- der Rest der Klasse schreibt weiter ueber den Query Builder (portal_verified_at). */
+    private function rumpfVonSpeichereGruppe(string $src): string
     {
-        $start = strpos($src, 'function speichereArbeitgeber(');
-        $this->assertNotFalse($start, 'speichereArbeitgeber() fehlt');
+        $start = strpos($src, 'function speichereGruppe(');
+        $this->assertNotFalse($start, 'speichereGruppe() fehlt');
         $ende = strpos($src, "\n    }\n", $start);
 
         return substr($src, $start, $ende - $start);
@@ -62,9 +65,11 @@ class PortalShellEmployerWiringTest extends TestCase
         // RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS. Er wird jetzt
         // am ERGEBNIS gemessen statt an der Schreibart --
         // PortalProfileWriterTest prueft jede der fuenf verbotenen Spalten
-        // einzeln, mit registriertem Beobachter.
+        // einzeln, mit registriertem Beobachter. Der Schreibweg gilt jetzt
+        // fuer JEDE Gruppe, nicht nur "Arbeitgeber" -- deshalb hier der Rumpf
+        // von speichereGruppe(), nicht mehr von speichereArbeitgeber().
         $src = $this->quelle();
-        $rumpf = $this->rumpfVonSpeichereArbeitgeber($src);
+        $rumpf = $this->rumpfVonSpeichereGruppe($src);
 
         $this->assertStringContainsString('PortalProfileWriter', $src);
         $this->assertStringContainsString('speichere(', $rumpf);
@@ -79,10 +84,14 @@ class PortalShellEmployerWiringTest extends TestCase
         // Hauptarbeitgeber) am Schreibweg, wie in EmployeePortal::saveAll().
         // Eine zweite Regel in der Komponente waere genau das Auseinander-
         // laufen, das PortalBoolValue schon einmal gekostet hat.
-        $rumpf = $this->rumpfVonSpeichereArbeitgeber($this->quelle());
+        $rumpf = $this->rumpfVonSpeichereGruppe($this->quelle());
 
         $this->assertStringNotContainsString('MainEmployerRequiredGuard::error(', $rumpf);
-        $this->assertStringContainsString("'Arbeitgeber'", $rumpf, 'Der Schreibweg muss auf die offene Gruppe begrenzt sein.');
+        // Der Schreibweg begrenzt sich auf die GERADE offene Gruppe --
+        // speichereGruppe() ist generisch (jede Gruppe, nicht nur
+        // "Arbeitgeber"), deshalb steht hier die Variable, kein literaler
+        // Gruppenname mehr.
+        $this->assertStringContainsString('$this->profilGruppe', $rumpf, 'Der Schreibweg muss auf die offene Gruppe begrenzt sein.');
     }
 
     public function test_render_liefert_die_aufgabe_und_zaehlt_sie_im_offen_wert(): void
