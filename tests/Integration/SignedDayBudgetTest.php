@@ -81,6 +81,12 @@ class SignedDayBudgetTest extends TestCase
 
     private const GRENZE = 70;
 
+    /** Fester Bezugspunkt — sonst haengen die Erwartungen am Kalender. */
+    private function heute(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('2026-09-25');
+    }
+
     private function contract(array $overrides = []): int
     {
         return Capsule::table('rec_contracts')->insertGetId(array_merge([
@@ -92,7 +98,7 @@ class SignedDayBudgetTest extends TestCase
             'signed_at'                => '2026-09-25 10:00:00',
             'pre_signing_data'         => json_encode([
                 'par15_has_previous' => true,
-                'par15_entries'      => [['tage' => 20]],
+                'par15_entries'      => [['beginn' => '2026-02-01', 'ende' => '2026-02-25', 'tage' => 20]],
             ]),
         ], $overrides));
     }
@@ -101,7 +107,7 @@ class SignedDayBudgetTest extends TestCase
     {
         $this->contract();
 
-        $this->assertSame(50, SignedDayBudget::forApplicant(100, self::GRENZE));
+        $this->assertSame(50, SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
     }
 
     public function test_ausdrueckliches_nein_ergibt_die_volle_grenze(): void
@@ -111,27 +117,27 @@ class SignedDayBudgetTest extends TestCase
             'par15_entries'      => [],
         ])]);
 
-        $this->assertSame(70, SignedDayBudget::forApplicant(100, self::GRENZE));
+        $this->assertSame(70, SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
     }
 
     public function test_ohne_vertrag_gibt_es_keinen_startwert(): void
     {
-        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE));
-        $this->assertNull(SignedDayBudget::forApplicant(null, self::GRENZE));
+        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
+        $this->assertNull(SignedDayBudget::forApplicant(null, self::GRENZE, $this->heute()));
     }
 
     public function test_nicht_unterschriebener_vertrag_zaehlt_nicht(): void
     {
         $this->contract(['signed_at' => null, 'status' => 'sent']);
 
-        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE));
+        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
     }
 
     public function test_kein_arbeitsvertrag_zaehlt_nicht(): void
     {
         $this->contract(['rec_contract_template_id' => 2]);
 
-        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE));
+        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
     }
 
     public function test_der_juengste_vertrag_gewinnt(): void
@@ -141,11 +147,11 @@ class SignedDayBudgetTest extends TestCase
             'signed_at'        => '2026-09-25 10:00:00',
             'pre_signing_data' => json_encode([
                 'par15_has_previous' => true,
-                'par15_entries'      => [['tage' => 5]],
+                'par15_entries'      => [['beginn' => '2026-05-01', 'ende' => '2026-05-08', 'tage' => 5]],
             ]),
         ]);
 
-        $this->assertSame(65, SignedDayBudget::forApplicant(100, self::GRENZE));
+        $this->assertSame(65, SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
     }
 
     /**
@@ -158,13 +164,13 @@ class SignedDayBudgetTest extends TestCase
         $this->contract(['signed_at' => '2026-03-01 09:00:00']);
         $this->contract(['signed_at' => '2026-09-25 10:00:00', 'pre_signing_data' => null]);
 
-        $this->assertSame(50, SignedDayBudget::forApplicant(100, self::GRENZE));
+        $this->assertSame(50, SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
     }
 
     public function test_altvertrag_ohne_paragraf_15_liefert_nichts(): void
     {
         $this->contract(['pre_signing_data' => json_encode(['par16_was_jobseeking' => false])]);
 
-        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE));
+        $this->assertNull(SignedDayBudget::forApplicant(100, self::GRENZE, $this->heute()));
     }
 }

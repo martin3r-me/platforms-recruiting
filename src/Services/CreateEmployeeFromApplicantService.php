@@ -344,6 +344,14 @@ class CreateEmployeeFromApplicantService
             $limit = (int) \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($applicant->team_id)
                 ->getSetting('short_term_day_limit');
 
+            // Nur wenn leer. Heute ist der Pfad ohnehin nur bei einer
+            // Neuanlage erreichbar, aber das haengt an der Idempotenz zwei
+            // Ebenen weiter oben — fuer eine Groesse, ab der ZAS
+            // herunterzaehlt, ist das zu duenn.
+            if ($hrData->short_term_days_allowed !== null) {
+                return;
+            }
+
             $allowed = \Platform\Recruiting\Support\SignedDayBudget::fromDeclarations($declarations, $limit);
             if ($allowed === null) {
                 return;

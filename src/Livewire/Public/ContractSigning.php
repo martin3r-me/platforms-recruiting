@@ -293,11 +293,18 @@ class ContractSigning extends Component
         }
 
         // Auch hier pruefen, nicht nur in nextStep(): sign() ist direkt
-        // aufrufbar, Schritt 1 also ueberspringbar. Ohne diese Regel liefe
-        // ein Arbeitsvertrag ohne Arbeitgeber-Erklaerung durch.
+        // aufrufbar, Schritt 1 also ueberspringbar.
         if ($type === ContractPreSigningType::PAR_15_16) {
             $rules = array_merge($rules, EmployerDeclaration::rules());
             $messages = array_merge($messages, EmployerDeclaration::messages($this->duzen));
+
+            // Und die §15/§16-Zeilen, nicht nur die Arbeitgeber-Erklaerung.
+            // Ohne sie koennte eine manipulierte Eingabe negative oder
+            // unsinnige Tageszahlen in pre_signing_data legen — und daraus
+            // wird "Tage erlaubt" gerechnet.
+            [$par1516Rules, $par1516Messages] = $this->par1516Rules();
+            $rules = array_merge($rules, $par1516Rules);
+            $messages = array_merge($messages, $par1516Messages);
         }
 
         $this->validate($rules, $messages);
@@ -381,7 +388,12 @@ class ContractSigning extends Component
         // Vertragsunterschrift und Phasenabschluss greift mal der eine, mal
         // der andere Weg.
         if ($type === ContractPreSigningType::PAR_15_16) {
+            // Zwei fachlich unabhaengige Erklaerungen, zwei Aufrufe. Vorher
+            // hing der Startwert hinter den Waechtern der Arbeitgeber-
+            // Erklaerung: fehlte die Rolle, wurde auch das Tagekonto nicht
+            // gesetzt, obwohl die §15-Angaben vorlagen — still, ohne Log.
             $this->applyEmployerDeclaration($contract, $preSigningData ?? []);
+            $this->applyDayBudget($contract, $preSigningData ?? []);
         }
 
         $this->portalUrl = $this->buildPortalUrl($contract);
@@ -408,8 +420,6 @@ class ContractSigning extends Component
             }
 
             $employee->update($attributes);
-
-            $this->applyDayBudget($contract, $employee, $preSigningData);
         } catch (\Throwable $e) {
             Log::warning('[ContractSigning] Arbeitgeber-Erklaerung nicht uebernommen', [
                 'contract_id' => $contract->id,
@@ -431,22 +441,51 @@ class ContractSigning extends Component
      * Existiert der Mitarbeiter hier noch nicht, holt
      * CreateEmployeeFromApplicantService den Wert bei der Anlage nach.
      */
-    private function applyDayBudget(RecContract $contract, $employee, array $preSigningData): void
+    private function applyDayBudget(RecContract $contract, array $preSigningData): void
     {
-        $hrData = $employee->ensureHrData();
-        if ($hrData->short_term_days_allowed !== null) {
-            return;
+        try {
+            $employee = $contract->applicant?->employee;
+            if (!$employee) {
+                // Existiert der Mitarbeiter noch nicht, holt
+                // CreateEmployeeFromApplicantService den Wert bei der Anlage nach.
+                return;
+            }
+
+            // Erst rechnen, dann schreiben: ensureHrData() und
+            // getOrCreateForTeam() sind beide firstOrCreate. Sie vor der
+            // Pruefung aufzurufen hiesse, aus einer oeffentlichen,
+            // unangemeldeten Route Zeilen anzulegen — auch dann, wenn es gar
+            // nichts zu rechnen gibt.
+            if (!array_key_exists('par15_has_previous', $preSigningData)) {
+                return;
+            }
+
+            $limit = (int) \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($employee->team_id)
+                ->getSetting('short_term_day_limit');
+
+            $allowed = \Platform\Recruiting\Support\ShortTermDayBudget::allowedFrom($preSigningData, $limit);
+            if ($allowed === null) {
+                return;
+            }
+
+            $hrData = $employee->ensureHrData();
+
+            // NUR WENN NOCH LEER. Es ist ein Anfangsbestand; ist er einmal
+            // gesetzt und an ZAS uebergeben, zaehlt ZAS davon herunter. Eine
+            // Vertragsneuausstellung darf ihn nicht zuruecksetzen, sonst
+            // faengt das Konto von vorn an, obwohl zwischendurch gearbeitet
+            // wurde.
+            if ($hrData->short_term_days_allowed !== null) {
+                return;
+            }
+
+            $hrData->update(['short_term_days_allowed' => $allowed]);
+        } catch (\Throwable $e) {
+            Log::warning('[ContractSigning] Startwert Tagekonto nicht gesetzt', [
+                'contract_id' => $contract->id,
+                'error'       => $e->getMessage(),
+            ]);
         }
-
-        $limit = (int) \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($employee->team_id)
-            ->getSetting('short_term_day_limit');
-
-        $allowed = \Platform\Recruiting\Support\ShortTermDayBudget::allowedFrom($preSigningData, $limit);
-        if ($allowed === null) {
-            return;
-        }
-
-        $hrData->update(['short_term_days_allowed' => $allowed]);
     }
 
     private function buildPortalUrl(RecContract $contract): ?string
@@ -465,14 +504,45 @@ class ContractSigning extends Component
 
     private function validatePreSigningData(): void
     {
-        $rules = [];
-        $messages = [];
-
         if ($this->preSigningType === ContractPreSigningType::RESTTAGE) {
             $this->validate($this->resttageRules(), $this->resttageMessages());
 
             return;
         }
+
+        [$rules, $messages] = $this->par1516Rules();
+
+        // Arbeitgeber-Erklaerung: Pflicht, aber ausdruecklich nur beim
+        // Arbeitsvertrag. preSigningType kann hier auch null sein (Vertrag
+        // ohne Vorschalt-Schritt, erreichbar ueber previousStep()). Ohne
+        // diese Bedingung liefe ein IFSG-Vertrag in eine Validierung fuer
+        // einen Block, den seine Maske gar nicht rendert.
+        if ($this->preSigningType === ContractPreSigningType::PAR_15_16) {
+            $rules    = array_merge($rules, EmployerDeclaration::rules());
+            $messages = array_merge($messages, EmployerDeclaration::messages($this->duzen));
+        }
+
+        if (! empty($rules)) {
+            $this->validate($rules, $messages);
+        }
+    }
+
+    /**
+     * Regeln fuer §15/§16 — von nextStep() UND von sign() genutzt.
+     *
+     * sign() ist direkt aufrufbar, Schritt 1 also ueberspringbar, und
+     * par15HasPrevious/par15Entries sind nicht #[Locked]. Solange die Zeilen
+     * nur als Text ins Vertrags-PDF wanderten, war das verschmerzbar. Seit
+     * 25.09.2026 wird daraus "Tage erlaubt" gerechnet — eine Zahl, ab der ZAS
+     * herunterzaehlt. Ungeprueft durchgelassene Zeilen waeren damit eine
+     * Geldgroesse aus dem Browser.
+     *
+     * @return array{0: array<string,mixed>, 1: array<string,string>}
+     */
+    private function par1516Rules(): array
+    {
+        $rules = [];
+        $messages = [];
 
         if ($this->par15HasPrevious) {
             $rules = array_merge($rules, [
@@ -508,20 +578,7 @@ class ContractSigning extends Component
             ]);
         }
 
-        // Arbeitgeber-Erklaerung: Pflicht, aber ausdruecklich nur beim
-        // Arbeitsvertrag. Der RESTTAGE-Zweig ist oben schon ausgestiegen —
-        // preSigningType kann hier aber auch null sein (Vertrag ohne
-        // Vorschalt-Schritt, erreichbar ueber previousStep()). Ohne diese
-        // Bedingung liefe ein IFSG-Vertrag in eine Validierung fuer einen
-        // Block, den seine Maske gar nicht rendert: Sackgasse statt Fehler.
-        if ($this->preSigningType === ContractPreSigningType::PAR_15_16) {
-            $rules    = array_merge($rules, EmployerDeclaration::rules());
-            $messages = array_merge($messages, EmployerDeclaration::messages($this->duzen));
-        }
-
-        if (! empty($rules)) {
-            $this->validate($rules, $messages);
-        }
+        return [$rules, $messages];
     }
 
     /**

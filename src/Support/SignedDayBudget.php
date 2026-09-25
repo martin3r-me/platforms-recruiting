@@ -16,9 +16,9 @@ namespace Platform\Recruiting\Support;
  */
 final class SignedDayBudget
 {
-    public static function forApplicant(?int $applicantId, int $limit): ?int
+    public static function forApplicant(?int $applicantId, int $limit, ?\DateTimeInterface $asOf = null): ?int
     {
-        return self::fromDeclarations(SignedContractDeclarations::preSigningDataFor($applicantId), $limit);
+        return self::fromDeclarations(SignedContractDeclarations::preSigningDataFor($applicantId), $limit, $asOf);
     }
 
     /**
@@ -27,10 +27,10 @@ final class SignedDayBudget
      *
      * @param list<array<string,mixed>> $declarations juengste zuerst
      */
-    public static function fromDeclarations(array $declarations, int $limit): ?int
+    public static function fromDeclarations(array $declarations, int $limit, ?\DateTimeInterface $asOf = null): ?int
     {
         foreach ($declarations as $data) {
-            $allowed = ShortTermDayBudget::allowedFrom($data, $limit);
+            $allowed = ShortTermDayBudget::allowedFrom($data, $limit, $asOf);
             if ($allowed !== null) {
                 return $allowed;
             }

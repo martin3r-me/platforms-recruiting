@@ -339,8 +339,14 @@
                                          existiert). Neue readonly-Felder mit mehreren Optionen MUESSEN
                                          'empty' setzen, sonst wird ein Wert angezeigt, den niemand
                                          gesetzt hat. --}}
+                                    {{-- Ausdruecklich auf null/'' pruefen statt ?: — eine echte 0
+                                         ist eine Aussage. "Arbeitstage Rest = 0" heisst "darf keinen
+                                         Tag mehr arbeiten"; als "noch nichts geliefert" gelesen wuerde
+                                         derselbe Mitarbeiter eingeplant. --}}
                                     <div class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white text-[var(--ui-secondary)]">
-                                        {{ $displayValue ?: ($meta['empty'] ?? $meta['options'][0] ?? 'GO') }}
+                                        {{ ($displayValue === null || $displayValue === '' || $displayValue === [])
+                                            ? ($meta['empty'] ?? $meta['options'][0] ?? 'GO')
+                                            : $displayValue }}
                                     </div>
 
                                 @elseif($type === 'lookup')

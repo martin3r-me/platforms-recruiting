@@ -626,8 +626,18 @@ class Show extends Component
             // fuehrt ZAS ("da wird eingebucht") und liefert sie zurueck;
             // readonly wie der MA-Status, ein Editieren hier wuerde beide
             // Seiten auseinanderlaufen lassen.
-            'Kurzfristige Beschaeftigung (HR-only, ZAS-Export)' => [
-                'short_term_days_allowed'   => ['type' => 'text', 'label' => 'Tage erlaubt (Startwert)', 'empty' => 'keine §15-Erklaerung'],
+            // Alle drei schreibgeschuetzt, aus zwei verschiedenen Gruenden:
+            // Die beiden ZAS-Werte gehoeren ZAS. Der Startwert gehoert uns,
+            // wird aber aus einer UNTERSCHRIEBENEN Erklaerung gerechnet — ihn
+            // hier frei editierbar zu machen haette drei Loecher: ein
+            // Textfeld auf einer Zahlenspalte (SQLSTATE-Abbruch bei "ca. 50"),
+            // ein dauerhaft rot markiertes Pflichtfeld bei allen
+            // Bestandsmitarbeitern, und ein vor der Unterschrift geoeffnetes
+            // Formular, das den frisch gerechneten Wert beim Speichern wieder
+            // leert. Wenn HR ihn aendern koennen soll, braucht es ein
+            // Zahlenfeld mit Pruefung — dann bewusst und mit Test.
+            'Kurzfristige Beschaeftigung (HR-only)' => [
+                'short_term_days_allowed'   => ['type' => 'text', 'label' => 'Tage erlaubt (Startwert aus §15)', 'empty' => 'keine §15-Erklaerung', 'readonly' => true],
                 'short_term_days_worked'    => ['type' => 'text', 'label' => 'Tage gearbeitet im Jahr (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
                 'short_term_days_remaining' => ['type' => 'text', 'label' => 'Arbeitstage Rest (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
             ],
