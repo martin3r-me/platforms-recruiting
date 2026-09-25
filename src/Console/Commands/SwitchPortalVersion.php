@@ -14,6 +14,12 @@ use Illuminate\Support\Facades\DB;
  * Geschrieben wird ueber den Query-Builder: Die Umstellung ist keine fachliche
  * Aenderung am Mitarbeiter und darf ihn nicht in den ZAS-Update-Export spuelen.
  * Dasselbe Muster wie beim ProofWriter und in PersonPairLinker::stamp.
+ *
+ * Bremse (Nachtrag 25.09.2026): das neue Portal ist noch kein Ersatz fuer das
+ * alte (siehe PortalShell) -- es pflegt keine Stammdaten und kennt die
+ * Arbeitgeber-Pflichtfrage nicht. Das Umstellen (NICHT --zurueck) verlangt
+ * deshalb --profil-fehlt-mir-egal, sonst bricht der Lauf ab, ohne etwas zu
+ * aendern. --zurueck ist die Notbremse und bleibt immer unbestaetigt moeglich.
  */
 final class SwitchPortalVersion extends Command
 {
@@ -22,16 +28,34 @@ final class SwitchPortalVersion extends Command
         {--alle : Alle aktiven Mitarbeiter}
         {--zurueck : Zurueck auf das alte Portal}
         {--team= : Nur dieses Team (mit --alle)}
+        {--profil-fehlt-mir-egal : Bestaetigt das Umstellen -- das neue Portal kann noch keine Stammdaten pflegen und kennt die Arbeitgeber-Pflichtfrage nicht. --zurueck braucht sie nie.}
         {--dry-run : Nur zeigen, was passieren wuerde}';
 
-    protected $description = 'Mitarbeiter auf das neue Mitarbeiterportal umstellen (Gate 5) oder zurueck';
+    protected $description = 'Mitarbeiter auf das neue Mitarbeiterportal umstellen (Gate 5, Bestaetigung noetig) oder zurueck';
 
     public function handle(): int
     {
         $dryRun  = (bool) $this->option('dry-run');
         $zurueck = (bool) $this->option('zurueck');
         $alle    = (bool) $this->option('alle');
-        $ids     = array_values(array_filter(array_map(
+
+        // Bremse (Canvas 67 Nachtrag 25.09.2026): das neue Portal ist noch
+        // kein Ersatz fuer das alte. --zurueck ist die Notbremse und bleibt
+        // IMMER ohne Bestaetigung moeglich -- sie darf nie klemmen. Der Lauf
+        // wird hier abgebrochen, BEVOR irgendetwas gezaehlt oder geschrieben
+        // wird, auch im Trockenlauf: er ist trotzdem "das Umstellen".
+        if (!$zurueck && !(bool) $this->option('profil-fehlt-mir-egal')) {
+            $this->error('Umstellen auf das neue Portal verlangt eine ausdrueckliche Bestaetigung.');
+            $this->line('Wer umgestellt wird, verliert im neuen Portal (heute noch):');
+            $this->line('  - Stammdaten pflegen (E-Mail, Telefon, Adresse, Geburtsland,');
+            $this->line('    Staatsangehoerigkeit, Geschlecht, Familienstand, "Ich bin", Bankdaten, ...)');
+            $this->line('  - Die Pflichtfrage zum Hauptarbeitgeber, an der die Steuerklasse haengt');
+            $this->line('Stattdessen: denselben Befehl mit --profil-fehlt-mir-egal wiederholen,');
+            $this->line('erst wenn das in Ordnung ist.');
+            return self::FAILURE;
+        }
+
+        $ids = array_values(array_filter(array_map(
             'intval',
             preg_split('/\s*,\s*/', (string) $this->option('ids'), -1, PREG_SPLIT_NO_EMPTY) ?: [],
         )));
