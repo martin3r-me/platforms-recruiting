@@ -41,6 +41,11 @@ class RecEmployeeHrData extends Model
         'rating_auftreten',
         'rating_teamintegration',
         'evaluation_note',
+        // 70-Tage-Kreislauf (Markus 24.09.2026). Nur der erste Wert gehoert
+        // uns; die beiden anderen fuehrt ZAS und liefert sie zurueck.
+        'short_term_days_allowed',
+        'short_term_days_worked',
+        'short_term_days_remaining',
     ];
 
     protected $casts = [
@@ -55,6 +60,9 @@ class RecEmployeeHrData extends Model
         'dispo_taetigkeiten'  => 'array',
         'dispo_taetigkeiten_synced_at' => 'datetime',
         'star_rating'         => 'integer',
+        'short_term_days_allowed'   => 'integer',
+        'short_term_days_worked'    => 'integer',
+        'short_term_days_remaining' => 'integer',
         'rating_erscheinungsbild' => 'integer',
         'rating_fachkompetenz'    => 'integer',
         'rating_auffassungsgabe'  => 'integer',

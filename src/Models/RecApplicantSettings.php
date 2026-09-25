@@ -63,6 +63,10 @@ class RecApplicantSettings extends Model
         'campaign_booking_wa_template_id' => null,
         'no_assignment_campaign_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
+        // Grenze der kurzfristigen Beschaeftigung in Arbeitstagen je
+        // Kalenderjahr (§8 Abs. 1 Nr. 2 SGB IV). Als Einstellung, weil es
+        // eine Rechtsgroesse ist und keine Eigenschaft unseres Codes.
+        'short_term_day_limit' => 70,
         'contract_wa_template_id' => null,
         'contract_wa_account_id' => null,
         'contract_wa_template_variables' => [],

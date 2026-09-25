@@ -49,6 +49,14 @@ class CreateEmployeeFromApplicantService
             $applicant->loadMissing(['legalStatus', 'crmContactLinks.contact']);
 
             $extraValues = $this->collectExtraFieldValuesByName($applicant);
+
+            // Die Vorschalt-Angaben der unterschriebenen Arbeitsvertraege
+            // EINMAL lesen: sie liefern sowohl die Arbeitgeber-Erklaerung
+            // (auf rec_employees) als auch den Startwert des Tagekontos (in
+            // die HR-Daten). Zwei Leser mit derselben Abfrage waeren ein
+            // vermeidbarer zweiter Query in einem Pfad, dessen Query-Zahl
+            // festgenagelt ist (EmployeeCreationCertificateTest).
+            $declarations = \Platform\Recruiting\Support\SignedContractDeclarations::preSigningDataFor($applicant->id);
             $legalStatus = $applicant->legalStatus;
             $primaryContact = $applicant->crmContactLinks->first()?->contact;
 
@@ -97,7 +105,7 @@ class CreateEmployeeFromApplicantService
                 // gibt es diesen Mitarbeiter noch nicht. Liefert ein leeres
                 // Array, solange keine unterschriebene Erklaerung vorliegt;
                 // dann bleiben die Spalten leer und das Portal fragt nach.
-                \Platform\Recruiting\Support\SignedEmployerDeclaration::forApplicant($applicant->id)));
+                \Platform\Recruiting\Support\SignedEmployerDeclaration::fromDeclarations($declarations)));
 
             // CRM-Link duplizieren: gleicher Contact, neuer linkable_type
             $this->mirrorCrmContactLinks($applicant, $employee, $createdByUserId);
@@ -126,6 +134,7 @@ class CreateEmployeeFromApplicantService
             // Anlegen damit ZAS-Export direkt verfuegbar ist ohne JOIN.
             $hrData = $employee->ensureHrData();
             $this->snapshotContractDatesToHrData($applicant, $hrData);
+            $this->snapshotDayBudgetToHrData($applicant, $hrData, $declarations);
             $this->transferEvaluationToHrData($applicant, $hrData);
 
             // Bewerber deaktivieren — raus aus default Dashboard, Statistiken
@@ -310,6 +319,45 @@ class CreateEmployeeFromApplicantService
      * contract_signed_at bleibt initial null — wird gesetzt wenn alle
      * AV-Vertraege signed sind (separate Hook).
      */
+    /**
+     * "Tage erlaubt" aus der unterschriebenen §15-Erklaerung (Markus
+     * 24.09.2026). Startwert des Tagekontos, ab dem ZAS herunterzaehlt.
+     *
+     * Einmalig bei der Anlage — es ist ein Anfangsbestand und darf nicht
+     * mitwandern, wenn sich spaeter etwas am Vertrag aendert.
+     *
+     * Ohne §15-Erklaerung bleibt die Spalte LEER. Eine erfundene volle Grenze
+     * waere schlimmer als nichts: ZAS zaehlt von diesem Wert herunter.
+     *
+     * Darf die Anlage nie kippen — der Mitarbeiter ist wichtiger als der
+     * Startwert, und HR kann ihn in der Akte nachtragen.
+     */
+    private function snapshotDayBudgetToHrData(RecApplicant $applicant, $hrData, array $declarations): void
+    {
+        try {
+            if ($declarations === []) {
+                // Ohne unterschriebenen Arbeitsvertrag gibt es nichts zu
+                // rechnen — und die Team-Einstellungen bleiben ungelesen.
+                return;
+            }
+
+            $limit = (int) \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($applicant->team_id)
+                ->getSetting('short_term_day_limit');
+
+            $allowed = \Platform\Recruiting\Support\SignedDayBudget::fromDeclarations($declarations, $limit);
+            if ($allowed === null) {
+                return;
+            }
+
+            $hrData->update(['short_term_days_allowed' => $allowed]);
+        } catch (\Throwable $e) {
+            Log::warning('[MA-Anlage] Startwert Tagekonto nicht gesetzt', [
+                'applicant_id' => $applicant->id,
+                'error'        => $e->getMessage(),
+            ]);
+        }
+    }
+
     private function snapshotContractDatesToHrData(RecApplicant $applicant, $hrData): void
     {
         try {

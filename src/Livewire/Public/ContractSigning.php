@@ -408,12 +408,45 @@ class ContractSigning extends Component
             }
 
             $employee->update($attributes);
+
+            $this->applyDayBudget($contract, $employee, $preSigningData);
         } catch (\Throwable $e) {
             Log::warning('[ContractSigning] Arbeitgeber-Erklaerung nicht uebernommen', [
                 'contract_id' => $contract->id,
                 'error'       => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * "Tage erlaubt" — Startwert des Tagekontos aus der §15-Erklaerung
+     * (Markus 24.09.2026). Geht in die HR-Daten, nicht auf den Mitarbeiter:
+     * das Portal sieht diese Tabelle nie.
+     *
+     * NUR WENN NOCH LEER. Es ist ein Anfangsbestand; ist er einmal gesetzt
+     * und an ZAS uebergeben, zaehlt ZAS davon herunter. Eine
+     * Vertragsneuausstellung darf ihn nicht zuruecksetzen — sonst faengt das
+     * Konto von vorn an, obwohl zwischendurch gearbeitet wurde.
+     *
+     * Existiert der Mitarbeiter hier noch nicht, holt
+     * CreateEmployeeFromApplicantService den Wert bei der Anlage nach.
+     */
+    private function applyDayBudget(RecContract $contract, $employee, array $preSigningData): void
+    {
+        $hrData = $employee->ensureHrData();
+        if ($hrData->short_term_days_allowed !== null) {
+            return;
+        }
+
+        $limit = (int) \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($employee->team_id)
+            ->getSetting('short_term_day_limit');
+
+        $allowed = \Platform\Recruiting\Support\ShortTermDayBudget::allowedFrom($preSigningData, $limit);
+        if ($allowed === null) {
+            return;
+        }
+
+        $hrData->update(['short_term_days_allowed' => $allowed]);
     }
 
     private function buildPortalUrl(RecContract $contract): ?string

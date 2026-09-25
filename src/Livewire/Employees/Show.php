@@ -620,6 +620,17 @@ class Show extends Component
                 'contract_end_date'    => ['type' => 'date', 'label' => 'Befristet bis'],
                 'employment_classification' => ['type' => 'lookup', 'label' => 'Anstellungsart', 'lookup' => 'anstellungsart'],
             ],
+            // 70-Tage-Kreislauf (Markus 24.09.2026). Nur der erste Wert gehoert
+            // uns — er wird aus der §15-Erklaerung des Arbeitsvertrags
+            // gerechnet und einmal an ZAS uebergeben. Die beiden anderen
+            // fuehrt ZAS ("da wird eingebucht") und liefert sie zurueck;
+            // readonly wie der MA-Status, ein Editieren hier wuerde beide
+            // Seiten auseinanderlaufen lassen.
+            'Kurzfristige Beschaeftigung (HR-only, ZAS-Export)' => [
+                'short_term_days_allowed'   => ['type' => 'text', 'label' => 'Tage erlaubt (Startwert)', 'empty' => 'keine §15-Erklaerung'],
+                'short_term_days_worked'    => ['type' => 'text', 'label' => 'Tage gearbeitet im Jahr (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
+                'short_term_days_remaining' => ['type' => 'text', 'label' => 'Arbeitstage Rest (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
+            ],
             'Ausstattung' => [
                 'linen_package_items' => ['type' => 'multi_lookup', 'label' => 'Waeschepaket erhalten', 'lookup' => 'waeschepaket'],
             ],
