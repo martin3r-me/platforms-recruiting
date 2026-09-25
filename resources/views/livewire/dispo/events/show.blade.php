@@ -2,7 +2,7 @@
     // Auto-Aktualisierung (Kunde 22.09.): alle 30 s nachladen, damit man sieht,
     // wer geschrieben oder bestaetigt hat. Waehrend ein Fenster offen ist wird
     // NICHT gepollt — ein Render mitten im Tippen kann den Entwurf kosten.
-    $pollBlocked = $showSendModal || $showInfoModal || $showNoteModal || $showAttachmentModal
+    $pollBlocked = $showSendModal || $showInfoModal || $showNoteModal || $showNotesModal || $showAttachmentModal
         || $showDeclineModal || $crewEmployeeId !== null;
 @endphp
 <div class="p-4 lg:p-6 space-y-6" @if (!$pollBlocked) wire:poll.visible.30s @endif>
@@ -164,6 +164,14 @@
                 $templateConfigured = $this->dispoSettings['template_id'] !== null;
             @endphp
 @if (!$eventOnly)
+            @php $noteVariantCount = count($this->noteVariants); @endphp
+            @if ($noteVariantCount > 0)
+                <button wire:click="openNotesModal"
+                        class="rounded bg-white px-3 py-1.5 text-sm font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50"
+                        title="Hinweise dieser Veranstaltung ansehen, korrigieren oder entfernen — ohne Versand">
+                    Hinweise aufräumen <span class="tabular-nums opacity-60">{{ $noteVariantCount }}</span>
+                </button>
+            @endif
             <button wire:click="openInfoModal"
                     class="rounded bg-white px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50">
                 Info an Crew
@@ -652,6 +660,85 @@
                 <div class="flex justify-end gap-2">
                     <button type="button" wire:click="$set('showDeclineModal', false)" class="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button type="button" wire:click="saveDecline" wire:loading.attr="disabled" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">Absage speichern</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Hinweise aufraeumen (Kunde 25.09.): gruppiert nach Wortlaut. Einzelfaelle
+         stehen als eigene Zeile mit Namen unten — sie koennen von einer
+         Sammelaktion gar nicht getroffen werden. Hier wird nichts versendet. --}}
+    @if ($showNotesModal)
+        @php
+            $variants = $this->noteVariants;
+            $variantPersons = array_sum(array_column($variants, 'count'));
+        @endphp
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4" wire:click.self="closeNotesModal">
+            <div class="my-8 w-full max-w-3xl space-y-4 rounded-lg bg-white p-6">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-lg font-semibold">Hinweise dieser Veranstaltung</h2>
+                        <p class="text-sm text-gray-500">
+                            {{ count($variants) }} {{ count($variants) === 1 ? 'Fassung' : 'Fassungen' }} · {{ $variantPersons }} {{ $variantPersons === 1 ? 'Person' : 'Personen' }}
+                            — hier wird nichts versendet. Die Crew sieht die Änderung auf ihrer Einsatz-Seite.
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeNotesModal" class="shrink-0 text-gray-400 hover:text-gray-600" title="Schließen">✕</button>
+                </div>
+
+                <div class="divide-y divide-gray-100 rounded-lg border border-gray-200">
+                    @forelse ($variants as $variant)
+                        <div class="space-y-2 p-4">
+                            <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                @if ($variant['count'] === 1)
+                                    <span class="font-semibold text-gray-800">{{ $variant['persons'][0] }}</span>
+                                    <span class="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700">individuell</span>
+                                @else
+                                    <span class="font-semibold text-gray-800">{{ $variant['count'] }} Personen</span>
+                                @endif
+                                @if ($variant['updated_at'])
+                                    <span class="tabular-nums">· {{ $variant['updated_at'] }}</span>
+                                @endif
+                                @if ($variant['count'] > 1)
+                                    <span x-data="{ open: false }" class="ml-auto">
+                                        <button type="button" x-on:click="open = !open" class="text-blue-600 hover:underline">
+                                            <span x-text="open ? '▾ Namen verbergen' : '▸ Namen zeigen'">▸ Namen zeigen</span>
+                                        </button>
+                                        <div x-show="open" x-cloak class="mt-1 max-h-32 overflow-y-auto text-right text-gray-500">
+                                            {{ implode(', ', $variant['persons']) }}
+                                        </div>
+                                    </span>
+                                @endif
+                            </div>
+
+                            @if ($noteVariantKey === $variant['key'])
+                                <textarea wire:model="noteVariantDraft" rows="8"
+                                          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
+                                <label class="flex items-center gap-2 text-xs text-gray-600">
+                                    <input type="checkbox" wire:model="noteVariantSilent" class="rounded border-gray-300">
+                                    still korrigieren (nicht als neuen Hinweis markieren)
+                                </label>
+                                <div class="flex justify-end gap-3">
+                                    <button type="button" wire:click="cancelNoteVariantEdit" class="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                                    <button type="button" wire:click="saveNoteVariant" class="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                                </div>
+                            @else
+                                <div class="max-h-24 overflow-y-auto whitespace-pre-line rounded bg-gray-50 px-3 py-2 text-sm text-gray-700">{{ $variant['text'] }}</div>
+                                <div class="flex justify-end gap-3">
+                                    <button type="button" wire:click="editNoteVariant('{{ $variant['key'] }}')" class="text-sm font-medium text-blue-600 hover:underline">Bearbeiten</button>
+                                    <button type="button" wire:click="removeNoteVariant('{{ $variant['key'] }}')"
+                                            wire:confirm="Hinweis bei {{ $variant['count'] }} {{ $variant['count'] === 1 ? 'Person' : 'Personen' }} entfernen?"
+                                            class="text-sm font-medium text-red-600 hover:underline">Entfernen</button>
+                                </div>
+                            @endif
+                        </div>
+                    @empty
+                        <div class="px-4 py-8 text-center text-sm text-gray-500">Keine Hinweise hinterlegt.</div>
+                    @endforelse
+                </div>
+
+                <div class="flex justify-end">
+                    <button type="button" wire:click="closeNotesModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Fertig</button>
                 </div>
             </div>
         </div>

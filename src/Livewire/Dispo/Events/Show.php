@@ -15,6 +15,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDecline;
+use Platform\Recruiting\Services\Zas\Dispo\DispoNoteCleanup;
 use Platform\Recruiting\Services\Zas\Dispo\DispoManualConfirm;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityGroups;
@@ -84,6 +85,16 @@ class Show extends Component
     public ?int $noteEmployeeId = null;
     public string $noteEmployeeName = '';
     public string $noteDraft = '';
+
+    // Aufraeum-Fenster fuer die Hinweise (Kunde 25.09., Fall VA 1352): gruppiert
+    // nach Wortlaut, damit eine Sammelaktion keinen individuellen Hinweis frisst.
+    // Hier wird NIE etwas versendet.
+    public bool $showNotesModal = false;
+    /** Schluessel der Fassung, die gerade bearbeitet wird (null = nur Uebersicht). */
+    public ?string $noteVariantKey = null;
+    public string $noteVariantDraft = '';
+    /** Stille Korrektur: Zeitstempel NICHT erneuern (kein "neu" auf der Einsatz-Seite). */
+    public bool $noteVariantSilent = false;
 
     // Anhang-Modal (Runde 3, #8): eine Datei pro MA fuer diese VA.
     public bool $showAttachmentModal = false;
@@ -173,6 +184,118 @@ class Show extends Component
             ]);
 
         unset($this->event); // Computed-Cache invalidieren
+    }
+
+    /**
+     * Fassungen der Hinweise dieser Veranstaltung (ALLE Tage, auch vergangene —
+     * sonst bleiben Altlasten unsichtbar stehen).
+     *
+     * @return list<array{key:string, text:string, assignment_ids:list<int>, persons:list<string>, count:int, updated_at:?string}>
+     */
+    #[Computed]
+    public function noteVariants(): array
+    {
+        return DispoNoteCleanup::variants($this->event->assignments, $this->identity['canon']);
+    }
+
+    public function openNotesModal(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->noteVariantKey = null;
+        $this->noteVariantDraft = '';
+        $this->noteVariantSilent = false;
+        $this->showNotesModal = true;
+    }
+
+    public function closeNotesModal(): void
+    {
+        $this->showNotesModal = false;
+        $this->noteVariantKey = null;
+        $this->noteVariantDraft = '';
+    }
+
+    /** Fassung zu einem Schluessel — oder null, wenn sie inzwischen weg ist. */
+    private function noteVariant(string $key): ?array
+    {
+        foreach ($this->noteVariants as $variant) {
+            if ($variant['key'] === $key) {
+                return $variant;
+            }
+        }
+
+        return null;
+    }
+
+    /** Eine Fassung zum Bearbeiten oeffnen. */
+    public function editNoteVariant(string $key): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $variant = $this->noteVariant($key);
+        if ($variant === null) {
+            return;
+        }
+        $this->noteVariantKey = $key;
+        $this->noteVariantDraft = $variant['text'];
+        $this->noteVariantSilent = false;
+    }
+
+    public function cancelNoteVariantEdit(): void
+    {
+        $this->noteVariantKey = null;
+        $this->noteVariantDraft = '';
+    }
+
+    /** Bearbeitete Fassung schreiben — nur auf die Einbuchungen dieser Fassung. */
+    public function saveNoteVariant(): void
+    {
+        if ($this->blockedForEventOnly() || $this->noteVariantKey === null) {
+            return;
+        }
+        $variant = $this->noteVariant($this->noteVariantKey);
+        if ($variant === null) {
+            return;
+        }
+
+        app(DispoNoteCleanup::class)->apply(
+            $this->eventId,
+            $variant['assignment_ids'],
+            $this->noteVariantDraft,
+            !$this->noteVariantSilent,
+        );
+
+        $this->noteVariantKey = null;
+        $this->noteVariantDraft = '';
+        $this->refreshNotesAfterCleanup();
+    }
+
+    /** Fassung entfernen — Hinweis UND Zeitstempel, sonst leuchtet "neu" im Leeren. */
+    public function removeNoteVariant(string $key): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $variant = $this->noteVariant($key);
+        if ($variant === null) {
+            return;
+        }
+
+        app(DispoNoteCleanup::class)->apply($this->eventId, $variant['assignment_ids'], null, true);
+
+        $this->noteVariantKey = null;
+        $this->noteVariantDraft = '';
+        $this->refreshNotesAfterCleanup();
+    }
+
+    /** Computed-Cache UND die Vorbelegung des Einzel-Feldes nachziehen. */
+    private function refreshNotesAfterCleanup(): void
+    {
+        unset($this->event, $this->noteVariants);
+        $this->notes = [];
+        $this->loadNotes();
     }
 
     /** Oeffnet das Hinweis-Modal fuer einen (gematchten) Mitarbeiter. */
