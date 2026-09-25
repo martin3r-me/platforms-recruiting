@@ -671,7 +671,7 @@
     @if ($showNotesModal)
         @php
             $variants = $this->noteVariants;
-            $variantPersons = array_sum(array_column($variants, 'count'));
+            $variantPersons = $this->noteVariantPersonTotal;
         @endphp
         <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4" wire:click.self="closeNotesModal">
             <div class="my-8 w-full max-w-3xl space-y-4 rounded-lg bg-white p-6">
@@ -696,6 +696,9 @@
                                 @else
                                     <span class="font-semibold text-gray-800">{{ $variant['count'] }} Personen</span>
                                 @endif
+                                @if ($variant['days'] !== [])
+                                    <span class="tabular-nums">· {{ count($variant['days']) > 4 ? implode(', ', array_slice($variant['days'], 0, 4)) . ' +' . (count($variant['days']) - 4) : implode(', ', $variant['days']) }}</span>
+                                @endif
                                 @if ($variant['updated_at'])
                                     <span class="tabular-nums">· {{ $variant['updated_at'] }}</span>
                                 @endif
@@ -711,6 +714,11 @@
                                 @endif
                             </div>
 
+                            @if ($variant['shared_persons'] > 0)
+                                <div class="text-xs text-amber-700">
+                                    {{ $variant['shared_persons'] === 1 ? 'Eine dieser Personen hat' : $variant['shared_persons'] . ' dieser Personen haben' }} an anderen Tagen einen anderen Hinweis — hier wird nur dieser Tag geändert.
+                                </div>
+                            @endif
                             @if ($noteVariantKey === $variant['key'])
                                 <textarea wire:model="noteVariantDraft" rows="8"
                                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"></textarea>

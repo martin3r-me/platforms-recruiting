@@ -25,7 +25,7 @@ final class DispoNoteCleanup
      *
      * @param iterable<RecDispoAssignment> $assignments Einbuchungen der VA (ALLE Tage, auch vergangene)
      * @param array<int,int> $canonByEmployee rec_employee_id => kanonische id (Personen-Paarung RG/MA)
-     * @return list<array{key:string, text:string, assignment_ids:list<int>, persons:list<string>, count:int, updated_at:?string}>
+     * @return list<array{key:string, text:string, assignment_ids:list<int>, persons:list<string>, count:int, days:list<string>, shared_persons:int, updated_at:?string}>
      */
     public static function variants(iterable $assignments, array $canonByEmployee = []): array
     {
@@ -43,6 +43,13 @@ final class DispoNoteCleanup
             $key = $employeeId !== null ? ($canonByEmployee[$employeeId] ?? $employeeId) : 'pnr:' . $a->pnr_raw;
             $groups[$text]['persons'][$key] = self::personName($a);
 
+            // Tage der Fassung: wer an einem Tag etwas anderes stehen hat als am
+            // Tag davor, taucht in ZWEI Fassungen auf — dann muss sichtbar sein,
+            // welcher Tag zu welchem Text gehoert.
+            if ($a->datum !== null) {
+                $groups[$text]['days'][$a->datum->format('Y-m-d')] = $a->datum->format('d.m.');
+            }
+
             $at = $a->individual_note_updated_at;
             if ($at !== null) {
                 $current = $groups[$text]['updated_at'] ?? null;
@@ -50,9 +57,21 @@ final class DispoNoteCleanup
             }
         }
 
+        // Personen, die in MEHR ALS EINER Fassung stecken (unterschiedliche
+        // Hinweise an unterschiedlichen Tagen).
+        $seen = [];
+        foreach ($groups as $group) {
+            foreach (array_keys($group['persons']) as $key) {
+                $seen[$key] = ($seen[$key] ?? 0) + 1;
+            }
+        }
+
         $out = [];
         foreach ($groups as $text => $group) {
             $persons = array_values($group['persons']);
+            $shared = count(array_filter(array_keys($group['persons']), fn ($key) => ($seen[$key] ?? 0) > 1));
+            $days = $group['days'] ?? [];
+            ksort($days);
             sort($persons, SORT_NATURAL | SORT_FLAG_CASE);
             $out[] = [
                 // Stabiler Schluessel statt Listenindex: zwischen Anzeigen und
@@ -64,6 +83,8 @@ final class DispoNoteCleanup
                 'assignment_ids' => $group['assignment_ids'],
                 'persons'        => $persons,
                 'count'          => count($persons),
+                'days'           => array_values($days),
+                'shared_persons' => $shared,
                 'updated_at'     => isset($group['updated_at']) ? $group['updated_at']->format('d.m.Y H:i') : null,
             ];
         }
@@ -77,6 +98,27 @@ final class DispoNoteCleanup
             ?: strcmp($a['text'], $b['text']));
 
         return $out;
+    }
+
+    /**
+     * Personen mit Hinweis — ueber alle Fassungen hinweg EINMAL gezaehlt. Die
+     * Summe der Fassungs-Zaehler waere zu hoch, sobald jemand an verschiedenen
+     * Tagen verschiedene Hinweise hat.
+     *
+     * @param list<array{persons:list<string>}> $variants
+     */
+    public static function personTotal(iterable $assignments, array $canonByEmployee = []): int
+    {
+        $keys = [];
+        foreach ($assignments as $a) {
+            if (trim((string) $a->individual_note) === '') {
+                continue;
+            }
+            $employeeId = $a->rec_employee_id !== null ? (int) $a->rec_employee_id : null;
+            $keys[$employeeId !== null ? ($canonByEmployee[$employeeId] ?? $employeeId) : 'pnr:' . $a->pnr_raw] = true;
+        }
+
+        return count($keys);
     }
 
     /**

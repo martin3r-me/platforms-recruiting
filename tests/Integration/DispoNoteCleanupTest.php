@@ -186,6 +186,40 @@ class DispoNoteCleanupTest extends TestCase
         $this->assertSame(['PNr RG7'], collect($variants)->firstWhere('text', 'Eigene Jacken mitnehmen')['persons']);
     }
 
+    /**
+     * Der Fall "an Tag 1 anderer Hinweis als an Tag 2": die Person steht in
+     * BEIDEN Fassungen, jede Fassung nennt ihre Tage, und Aendern trifft nur
+     * die Einbuchung des jeweiligen Tages.
+     */
+    public function test_verschiedene_hinweise_an_verschiedenen_tagen(): void
+    {
+        $event = RecDispoEvent::create(['einsatz_ref' => 'RG-NOTE-3', 'name' => 'Zweitage-VA']);
+        RecDispoAssignment::create(['ds_ref' => 'T-1', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG5', 'rec_employee_id' => 5, 'datum' => '2026-09-26', 'individual_note' => 'Tag 1: Aufbau, Werkzeug mitbringen']);
+        RecDispoAssignment::create(['ds_ref' => 'T-2', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG5', 'rec_employee_id' => 5, 'datum' => '2026-09-27', 'individual_note' => 'Tag 2: weisses Hemd']);
+        RecDispoAssignment::create(['ds_ref' => 'T-3', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG6', 'rec_employee_id' => 6, 'datum' => '2026-09-27', 'individual_note' => 'Tag 2: weisses Hemd']);
+
+        $variants = DispoNoteCleanup::variants($this->assignmentsOf($event->id));
+
+        $tag2 = collect($variants)->firstWhere('text', 'Tag 2: weisses Hemd');
+        $tag1 = collect($variants)->firstWhere('text', 'Tag 1: Aufbau, Werkzeug mitbringen');
+
+        $this->assertSame(['27.09.'], $tag2['days']);
+        $this->assertSame(['26.09.'], $tag1['days']);
+        $this->assertSame(2, $tag2['count']);
+        $this->assertSame(1, $tag1['count']);
+        // Beide Fassungen wissen, dass eine Person auch in der anderen steckt.
+        $this->assertSame(1, $tag1['shared_persons']);
+        $this->assertSame(1, $tag2['shared_persons']);
+        // Insgesamt sind es ZWEI Personen, nicht drei (1 + 2 der Fassungen).
+        $this->assertSame(2, DispoNoteCleanup::personTotal($this->assignmentsOf($event->id)));
+
+        // Tag 2 aendern laesst Tag 1 derselben Person in Ruhe.
+        (new DispoNoteCleanup())->apply($event->id, $tag2['assignment_ids'], 'Tag 2: schwarzes Hemd', true);
+        $this->assertSame('Tag 1: Aufbau, Werkzeug mitbringen', RecDispoAssignment::where('ds_ref', 'T-1')->value('individual_note'));
+        $this->assertSame('Tag 2: schwarzes Hemd', RecDispoAssignment::where('ds_ref', 'T-2')->value('individual_note'));
+        $this->assertSame('Tag 2: schwarzes Hemd', RecDispoAssignment::where('ds_ref', 'T-3')->value('individual_note'));
+    }
+
     /** Der Schluessel haengt am Wortlaut, nicht an der Listenposition. */
     public function test_schluessel_ist_stabil_und_je_fassung_verschieden(): void
     {

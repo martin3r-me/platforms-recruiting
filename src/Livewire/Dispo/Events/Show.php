@@ -190,12 +190,19 @@ class Show extends Component
      * Fassungen der Hinweise dieser Veranstaltung (ALLE Tage, auch vergangene —
      * sonst bleiben Altlasten unsichtbar stehen).
      *
-     * @return list<array{key:string, text:string, assignment_ids:list<int>, persons:list<string>, count:int, updated_at:?string}>
+     * @return list<array{key:string, text:string, assignment_ids:list<int>, persons:list<string>, count:int, days:list<string>, shared_persons:int, updated_at:?string}>
      */
     #[Computed]
     public function noteVariants(): array
     {
         return DispoNoteCleanup::variants($this->event->assignments, $this->identity['canon']);
+    }
+
+    /** Personen mit Hinweis, ueber alle Fassungen hinweg einmal gezaehlt. */
+    #[Computed]
+    public function noteVariantPersonTotal(): int
+    {
+        return DispoNoteCleanup::personTotal($this->event->assignments, $this->identity['canon']);
     }
 
     public function openNotesModal(): void
@@ -293,7 +300,7 @@ class Show extends Component
     /** Computed-Cache UND die Vorbelegung des Einzel-Feldes nachziehen. */
     private function refreshNotesAfterCleanup(): void
     {
-        unset($this->event, $this->noteVariants);
+        unset($this->event, $this->noteVariants, $this->noteVariantPersonTotal);
         $this->notes = [];
         $this->loadNotes();
     }
