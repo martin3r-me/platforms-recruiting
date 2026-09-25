@@ -14,6 +14,7 @@ use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\MainEmployerRequiredGuard;
 use Platform\Recruiting\Support\NationalityRequiredGuard;
+use Platform\Recruiting\Support\PortalBoolValue;
 use Platform\Recruiting\Support\TrainingCertificatePortalRows;
 use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
 
@@ -321,11 +322,8 @@ class EmployeePortal extends Component
             $value = is_string($value) ? trim($value) : $value;
 
             if ($type === 'bool') {
-                $updates[$field] = match ((string) $value) {
-                    '1', 'true', 'ja' => true,
-                    '0', 'false', 'nein' => false,
-                    default => null,
-                };
+                // Gemeinsame Quelle mit den Guards — siehe PortalBoolValue.
+                $updates[$field] = PortalBoolValue::parse($value);
             } else {
                 // text, lookup, date — alle als string-or-null
                 $updates[$field] = ($value === '' || $value === null) ? null : $value;
@@ -481,6 +479,17 @@ class EmployeePortal extends Component
         foreach ($employee->editableFieldGroups() as $section => $fields) {
             $entries = [];
             foreach ($fields as $key => $meta) {
+                // Bedingte Sichtbarkeit: ein Feld mit 'visible_if' erscheint
+                // nur, solange die Bedingung nicht WIDERLEGT ist. Gemessen
+                // gegen den FORMULARWERT, damit die Auswahl sofort wirkt und
+                // nicht erst nach dem Speichern; fehlt er, entscheidet der
+                // Datensatz. Bei "unbeantwortet" bleibt das Feld sichtbar —
+                // sonst saehe niemand, dass nach einem "nein" noch etwas
+                // verlangt wird.
+                if (!$this->fieldIsVisible($employee, $meta)) {
+                    continue;
+                }
+
                 $value = $employee->getAttribute($key);
                 $type = $meta['type'] ?? 'text';
                 $display = $this->formatDisplayValue($value, $type, $meta);
@@ -498,6 +507,8 @@ class EmployeePortal extends Component
                     'value'      => $value,
                     'display'    => $display,
                     'is_missing' => $isMissing,
+                    'maxlength'  => $meta['maxlength'] ?? null,
+                    'live'       => (bool) ($meta['live'] ?? false),
                 ];
             }
             $out[$section] = $entries;
@@ -588,6 +599,30 @@ class EmployeePortal extends Component
     public function readOnlyDisplay(): array
     {
         return $this->employee()?->readOnlyDisplayFields() ?? [];
+    }
+
+    /**
+     * Auswertung von 'visible_if' gegen Formular- und Datensatzstand.
+     *
+     * Dreiwertig gedacht: sichtbar bleibt das Feld, solange die Bedingung
+     * nicht ausdruecklich widerlegt ist. Ein unbeantwortetes Ja/Nein
+     * versteckt also nichts.
+     */
+    private function fieldIsVisible(RecEmployee $employee, array $meta): bool
+    {
+        foreach (($meta['visible_if'] ?? []) as $otherField => $expected) {
+            $raw = array_key_exists($otherField, $this->fieldValues)
+                ? $this->fieldValues[$otherField]
+                : $employee->getAttribute($otherField);
+
+            $actual = is_bool($expected) ? PortalBoolValue::parse($raw) : $raw;
+
+            if ($actual !== null && $actual !== $expected) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     #[Computed]

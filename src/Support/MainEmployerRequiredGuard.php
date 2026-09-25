@@ -31,39 +31,24 @@ final class MainEmployerRequiredGuard
      */
     public const MAX_OTHER_EMPLOYER = 128;
 
-    /**
-     * Schreibweisen, die EmployeePortal::saveAll() in true bzw. false
-     * uebersetzt. MUSS identisch bleiben mit der Bool-Konvertierung dort —
-     * dieselbe Konvention haelt FirstAiderDateGuard fest.
-     *
-     * Der Grund ist kein Schoenheitsfehler: Ein Guard, der nur auf '0'
-     * prueft, liest 'nein' als vermeintliches "ja" und verlangt den Namen
-     * nicht. Gespeichert wird aber false — also genau der Zustand ohne
-     * Hauptarbeitgeber, den die Pflicht verhindern soll. Umgekehrt wuerde
-     * ein Wert wie 'Ja' den Guard passieren und als NULL landen: eine
-     * vorher gueltige Antwort waere still geloescht, mit der Meldung
-     * "Aenderungen gespeichert.".
-     */
-    private const TRUTHY = ['1', 'true', 'ja'];
-    private const FALSY  = ['0', 'false', 'nein'];
-
     /** Fehlertext oder null, wenn die Angaben vollstaendig sind. */
     public static function error(mixed $isMainEmployer, mixed $otherEmployer): ?string
     {
-        $flag  = mb_strtolower(trim((string) ($isMainEmployer ?? '')));
+        // Gemeinsame Quelle mit dem Schreibpfad: was PortalBoolValue nicht
+        // versteht, wuerde als NULL gespeichert — der Guard muss es also als
+        // unbeantwortet abweisen, sonst meldet das Portal "gespeichert",
+        // waehrend eine gueltige Antwort still geloescht wurde.
+        $flag  = PortalBoolValue::parse($isMainEmployer);
         $other = trim((string) ($otherEmployer ?? ''));
 
-        $istJa   = in_array($flag, self::TRUTHY, true);
-        $istNein = in_array($flag, self::FALSY, true);
-
-        if (!$istJa && !$istNein) {
+        if ($flag === null) {
             return 'Angabe zum Hauptarbeitgeber fehlt: bitte im Profil auswaehlen — sie ist Pflicht. Es wurde nichts gespeichert.';
         }
 
         // Nur bei "nein" brauchen wir den Namen: dann laeuft die Anmeldung
         // als Nebenbeschaeftigung, und dafuer muss feststehen, wo der
         // Hauptarbeitgeber sitzt.
-        if ($istNein && $other === '') {
+        if ($flag === false && $other === '') {
             return 'Name des Hauptarbeitgebers fehlt: bitte eintragen, wenn wir nicht der Hauptarbeitgeber sind. Es wurde nichts gespeichert.';
         }
 

@@ -399,7 +399,14 @@ class RecEmployee extends Model
             // wer uns als Nebenarbeitgeber hat, wird nach Steuerklasse VI
             // abgerechnet.
             'Arbeitgeber' => [
-                'is_main_employer' => ['type' => 'bool', 'label' => 'Ist Rheingedeck der Hauptarbeitgeber?'],
+                // 'live': die Auswahl muss sofort wirken, weil das Feld
+                // darunter an ihr haengt. Alle anderen Ja/Nein-Felder bleiben
+                // bei der gesammelten Uebertragung.
+                'is_main_employer' => [
+                    'type'  => 'bool',
+                    'label' => 'Ist Rheingedeck der Hauptarbeitgeber?',
+                    'live'  => true,
+                ],
                 // Die Beschriftung sagt die Bedingung selbst, damit das Feld
                 // unabhaengig vom Kreuz eindeutig ist: es ist AUSSCHLIESSLICH
                 // die Antwort auf "wenn nicht wir, wer dann". Bei "ja" leert
@@ -410,7 +417,12 @@ class RecEmployee extends Model
                 // loest nichts aus, der Vergleich in fieldIsRelevant ist strikt.
                 'other_employer'   => [
                     'type'        => 'text',
-                    'label'       => 'Falls nein: welcher Arbeitgeber ist es?',
+                    'label'       => 'Wer ist es dann?',
+                    // Nur sichtbar, solange wir NICHT der Hauptarbeitgeber
+                    // sind — wie im Unterschriften-Schritt. Bei "unbeantwortet"
+                    // bleibt es sichtbar, sonst saehe man gar nicht, dass nach
+                    // einem "nein" noch etwas verlangt wird.
+                    'visible_if'  => ['is_main_employer' => false],
                     'required_if' => ['is_main_employer' => false],
                     // Spaltenbreite von rec_employees.other_employer. Der harte
                     // Schutz sitzt im MainEmployerRequiredGuard; das Attribut

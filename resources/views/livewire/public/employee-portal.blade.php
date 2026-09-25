@@ -303,8 +303,16 @@
                                         </select>
 
                                     @elseif($type === 'bool')
+                                        {{-- 'live' nur dort, wo ein anderes Feld an der
+                                             Auswahl haengt (Hauptarbeitgeber). Alle anderen
+                                             Ja/Nein-Felder bleiben bei der gesammelten
+                                             Uebertragung — kein zusaetzlicher Serverweg. --}}
                                         <select
-                                            wire:model.defer="fieldValues.{{ $key }}"
+                                            @if(!empty($entry['live']))
+                                                wire:model.live="fieldValues.{{ $key }}"
+                                            @else
+                                                wire:model.defer="fieldValues.{{ $key }}"
+                                            @endif
                                             class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white text-gray-900"
                                         >
                                             <option value="">— bitte wählen —</option>

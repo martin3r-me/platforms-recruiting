@@ -188,6 +188,57 @@ class PortalMainEmployerRequiredTest extends TestCase
         $this->assertFalse($employee->fresh()->is_main_employer);
     }
 
+    /**
+     * Das Namensfeld gibt es nur, wenn wir NICHT der Hauptarbeitgeber sind
+     * (Entscheidung 25.09.2026) — wie im Unterschriften-Schritt. Gemessen
+     * wird gegen den FORMULARWERT, nicht gegen den Datensatz: die Auswahl
+     * soll sofort wirken, nicht erst nach dem Speichern.
+     */
+    public function test_namensfeld_verschwindet_bei_ja(): void
+    {
+        $employee = $this->makeEmployee(['is_main_employer' => null]);
+        $portal   = $this->portalFor($employee, ['is_main_employer' => '1']);
+
+        $this->assertSame(
+            ['is_main_employer'],
+            array_column($portal->editableGroups()['Arbeitgeber'], 'key'),
+        );
+    }
+
+    public function test_namensfeld_erscheint_bei_nein(): void
+    {
+        $employee = $this->makeEmployee(['is_main_employer' => null]);
+        $portal   = $this->portalFor($employee, ['is_main_employer' => '0']);
+
+        $this->assertSame(
+            ['is_main_employer', 'other_employer'],
+            array_column($portal->editableGroups()['Arbeitgeber'], 'key'),
+        );
+    }
+
+    public function test_ohne_formularwert_entscheidet_der_datensatz(): void
+    {
+        $nein = $this->portalFor($this->makeEmployee(['is_main_employer' => false, 'other_employer' => 'M GmbH']), []);
+        $this->assertContains('other_employer', array_column($nein->editableGroups()['Arbeitgeber'], 'key'));
+
+        $ja = $this->portalFor($this->makeEmployee(['is_main_employer' => true]), []);
+        $this->assertNotContains('other_employer', array_column($ja->editableGroups()['Arbeitgeber'], 'key'));
+    }
+
+    /**
+     * Unbeantwortet: das Feld bleibt sichtbar. Sonst muesste man erst "nein"
+     * waehlen, um ueberhaupt zu sehen, dass danach etwas verlangt wird.
+     */
+    public function test_unbeantwortet_zeigt_beide_felder(): void
+    {
+        $portal = $this->portalFor($this->makeEmployee(['is_main_employer' => null]), []);
+
+        $this->assertSame(
+            ['is_main_employer', 'other_employer'],
+            array_column($portal->editableGroups()['Arbeitgeber'], 'key'),
+        );
+    }
+
     private function makeEmployee(array $attributes = []): RecEmployee
     {
         return RecEmployee::create(array_merge([
