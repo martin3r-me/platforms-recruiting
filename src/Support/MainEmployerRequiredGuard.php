@@ -23,20 +23,53 @@ namespace Platform\Recruiting\Support;
  */
 final class MainEmployerRequiredGuard
 {
+    /**
+     * Laenge der Spalte rec_employees.other_employer. Ohne Grenze schlaegt
+     * ein laengerer Wert als SQLSTATE 22001 durch und reisst den ganzen
+     * Speichervorgang mit — derselbe Abbruch, der am 25.08.2026 die
+     * MA-Anlage gekillt hat.
+     */
+    public const MAX_OTHER_EMPLOYER = 128;
+
+    /**
+     * Schreibweisen, die EmployeePortal::saveAll() in true bzw. false
+     * uebersetzt. MUSS identisch bleiben mit der Bool-Konvertierung dort —
+     * dieselbe Konvention haelt FirstAiderDateGuard fest.
+     *
+     * Der Grund ist kein Schoenheitsfehler: Ein Guard, der nur auf '0'
+     * prueft, liest 'nein' als vermeintliches "ja" und verlangt den Namen
+     * nicht. Gespeichert wird aber false — also genau der Zustand ohne
+     * Hauptarbeitgeber, den die Pflicht verhindern soll. Umgekehrt wuerde
+     * ein Wert wie 'Ja' den Guard passieren und als NULL landen: eine
+     * vorher gueltige Antwort waere still geloescht, mit der Meldung
+     * "Aenderungen gespeichert.".
+     */
+    private const TRUTHY = ['1', 'true', 'ja'];
+    private const FALSY  = ['0', 'false', 'nein'];
+
     /** Fehlertext oder null, wenn die Angaben vollstaendig sind. */
     public static function error(mixed $isMainEmployer, mixed $otherEmployer): ?string
     {
-        $flag = trim((string) ($isMainEmployer ?? ''));
+        $flag  = mb_strtolower(trim((string) ($isMainEmployer ?? '')));
+        $other = trim((string) ($otherEmployer ?? ''));
 
-        if ($flag === '') {
+        $istJa   = in_array($flag, self::TRUTHY, true);
+        $istNein = in_array($flag, self::FALSY, true);
+
+        if (!$istJa && !$istNein) {
             return 'Angabe zum Hauptarbeitgeber fehlt: bitte im Profil auswaehlen — sie ist Pflicht. Es wurde nichts gespeichert.';
         }
 
         // Nur bei "nein" brauchen wir den Namen: dann laeuft die Anmeldung
         // als Nebenbeschaeftigung, und dafuer muss feststehen, wo der
         // Hauptarbeitgeber sitzt.
-        if ($flag === '0' && trim((string) ($otherEmployer ?? '')) === '') {
+        if ($istNein && $other === '') {
             return 'Name des Hauptarbeitgebers fehlt: bitte eintragen, wenn wir nicht der Hauptarbeitgeber sind. Es wurde nichts gespeichert.';
+        }
+
+        if (mb_strlen($other) > self::MAX_OTHER_EMPLOYER) {
+            return 'Name des Arbeitgebers ist zu lang: bitte auf ' . self::MAX_OTHER_EMPLOYER
+                . ' Zeichen kuerzen. Es wurde nichts gespeichert.';
         }
 
         return null;

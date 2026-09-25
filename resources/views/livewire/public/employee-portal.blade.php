@@ -356,10 +356,14 @@
                                         </div>
 
                                     @else
+                                        {{-- maxlength aus der Feld-Definition, wo eine steht.
+                                             Haelt Eingaben von der Spaltenbreite fern; der
+                                             harte Schutz sitzt serverseitig im Guard. --}}
                                         <input
                                             type="text"
                                             wire:model.defer="fieldValues.{{ $key }}"
                                             placeholder="{{ $label }}"
+                                            @if(!empty($entry['maxlength'])) maxlength="{{ $entry['maxlength'] }}" @endif
                                             class="w-full border {{ $inputBorder }} rounded-md px-3 py-1.5 text-sm bg-white text-gray-900"
                                         />
                                     @endif

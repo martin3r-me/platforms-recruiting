@@ -240,9 +240,21 @@
                         $nebenText = $duzen
                             ? 'Du hast bereits einen anderen Hauptarbeitgeber und arbeitest zusätzlich bei RheinGedeck.'
                             : 'Sie haben bereits einen anderen Hauptarbeitgeber und arbeiten zusätzlich bei RheinGedeck.';
-                        $weitererLabel = $duzen
-                            ? 'Arbeitest du noch woanders? Dann trag hier den Arbeitgeber ein.'
-                            : 'Arbeiten Sie noch woanders? Dann tragen Sie hier den Arbeitgeber ein.';
+                        // Das Feld bedeutet je nach Auswahl etwas anderes: bei
+                        // "neben" ist es der HAUPTARBEITGEBER (und Pflicht), bei
+                        // "haupt" ein zusaetzlicher Nebenjob (freiwillig). Ein
+                        // festes Label wuerde bei "neben" nach dem Falschen
+                        // fragen — der Bewerber traegt dann seinen Nebenjob ein,
+                        // und HR meldet dem Lohnbuero den falschen Arbeitgeber.
+                        if ($employerRole === 'neben') {
+                            $weitererLabel = $duzen
+                                ? 'Wer ist dein Hauptarbeitgeber?'
+                                : 'Wer ist Ihr Hauptarbeitgeber?';
+                        } else {
+                            $weitererLabel = $duzen
+                                ? 'Arbeitest du noch woanders? Dann trag hier den weiteren Arbeitgeber ein (freiwillig).'
+                                : 'Arbeiten Sie noch woanders? Dann tragen Sie hier den weiteren Arbeitgeber ein (freiwillig).';
+                        }
                     @endphp
                     <div class="bg-white rounded-xl border border-gray-200 p-6">
                         <h2 class="text-xl font-bold text-gray-900 mb-2">Angaben zur Anmeldung</h2>

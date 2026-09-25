@@ -165,6 +165,40 @@ class SignedEmployerDeclarationTest extends TestCase
         );
     }
 
+    /**
+     * Ein juengerer unterschriebener Vertrag OHNE Erklaerung darf eine
+     * vorhandene nicht verdecken (Befund Review 25.09.2026).
+     *
+     * Der Fall ist real: UpdateContractTool kann einen Vertrag als
+     * unterschrieben markieren, ohne pre_signing_data zu setzen. Wuerde
+     * blind der juengste gewaehlt, kaeme der Mitarbeiter ohne Angabe an,
+     * obwohl sie unterschrieben vorliegt.
+     */
+    public function test_juengerer_vertrag_ohne_erklaerung_verdeckt_die_vorhandene_nicht(): void
+    {
+        $this->contract(['signed_at' => '2026-03-01 09:00:00']);
+        $this->contract(['signed_at' => '2026-09-25 10:00:00', 'pre_signing_data' => null]);
+
+        $this->assertSame(
+            ['is_main_employer' => false, 'other_employer' => 'Musterkantine GmbH'],
+            SignedEmployerDeclaration::forApplicant(100),
+        );
+    }
+
+    public function test_juengerer_vertrag_nur_mit_paragraf_daten_verdeckt_ebenfalls_nicht(): void
+    {
+        $this->contract(['signed_at' => '2026-03-01 09:00:00']);
+        $this->contract([
+            'signed_at'        => '2026-09-25 10:00:00',
+            'pre_signing_data' => json_encode(['par15_has_previous' => false]),
+        ]);
+
+        $this->assertSame(
+            ['is_main_employer' => false, 'other_employer' => 'Musterkantine GmbH'],
+            SignedEmployerDeclaration::forApplicant(100),
+        );
+    }
+
     public function test_auch_die_zertifikats_variante_zaehlt(): void
     {
         $this->contract(['rec_contract_template_id' => 3]);

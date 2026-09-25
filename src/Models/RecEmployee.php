@@ -409,6 +409,10 @@ class RecEmployee extends Model
                     'type'        => 'text',
                     'label'       => 'Dein Hauptarbeitgeber / weiterer Arbeitgeber',
                     'required_if' => ['is_main_employer' => false],
+                    // Spaltenbreite von rec_employees.other_employer. Der harte
+                    // Schutz sitzt im MainEmployerRequiredGuard; das Attribut
+                    // hier haelt die Eingabe schon im Browser kurz.
+                    'maxlength'   => \Platform\Recruiting\Support\MainEmployerRequiredGuard::MAX_OTHER_EMPLOYER,
                 ],
             ],
             'Ausweis' => [

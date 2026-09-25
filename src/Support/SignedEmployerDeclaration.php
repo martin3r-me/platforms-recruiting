@@ -32,7 +32,7 @@ final class SignedEmployerDeclaration
             return [];
         }
 
-        $row = DB::table('rec_contracts as c')
+        $rows = DB::table('rec_contracts as c')
             ->join('rec_contract_templates as t', 'c.rec_contract_template_id', '=', 't.id')
             ->where('c.rec_applicant_id', $applicantId)
             ->whereNotNull('c.signed_at')
@@ -47,17 +47,34 @@ final class SignedEmployerDeclaration
             ->orderByDesc('c.signed_at')
             ->orderByDesc('c.id')
             ->select('c.pre_signing_data')
-            ->first();
+            // Nicht nur den juengsten: ein juengerer Vertrag kann
+            // unterschrieben sein, ohne eine Erklaerung zu tragen —
+            // UpdateContractTool setzt signed_at ohne pre_signing_data. Blind
+            // den juengsten zu nehmen wuerde eine vorhandene Erklaerung
+            // verdecken und den Mitarbeiter ohne Angabe anlegen. Gewinner ist
+            // der juengste, der WIRKLICH eine traegt.
+            //
+            // Die Grenze haelt die Abfrage beschraenkt; mehr als eine Handvoll
+            // Arbeitsvertraege hat in der Praxis niemand.
+            ->limit(10)
+            ->get();
 
-        if (!$row || $row->pre_signing_data === null) {
-            return [];
+        foreach ($rows as $row) {
+            if ($row->pre_signing_data === null) {
+                continue;
+            }
+
+            $data = json_decode((string) $row->pre_signing_data, true);
+            if (!is_array($data)) {
+                continue;
+            }
+
+            $attributes = EmployerDeclaration::toEmployeeAttributes($data);
+            if ($attributes !== []) {
+                return $attributes;
+            }
         }
 
-        $data = json_decode((string) $row->pre_signing_data, true);
-        if (!is_array($data)) {
-            return [];
-        }
-
-        return EmployerDeclaration::toEmployeeAttributes($data);
+        return [];
     }
 }

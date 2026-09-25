@@ -61,6 +61,69 @@ final class MainEmployerRequiredGuardTest extends TestCase
         $this->assertNotNull(MainEmployerRequiredGuard::error('0', '   '));
     }
 
+    /**
+     * DER GEFAEHRLICHE FALL (Befund Review 25.09.2026): Guard und
+     * Schreibpfad muessen dieselben Werte als "ja" bzw. "nein" lesen.
+     *
+     * EmployeePortal::saveAll() wandelt '1'|'true'|'ja' in true und
+     * '0'|'false'|'nein' in false. Ein Guard, der nur auf '0' prueft, laesst
+     * 'nein' als vermeintliches "ja" durch — gespeichert wird aber false,
+     * und zwar OHNE den dann verlangten Namen. Genau der Zustand, den die
+     * Pflicht verhindern soll.
+     *
+     * Dieselbe Konvention haelt FirstAiderDateGuard fest.
+     */
+    public function test_alle_nein_schreibweisen_verlangen_den_namen(): void
+    {
+        foreach (['0', 'false', 'nein', 'NEIN', ' Nein '] as $nein) {
+            $this->assertNotNull(
+                MainEmployerRequiredGuard::error($nein, ''),
+                var_export($nein, true) . ' bedeutet nein und verlangt den Namen',
+            );
+            $this->assertNull(
+                MainEmployerRequiredGuard::error($nein, 'Musterkantine GmbH'),
+                var_export($nein, true) . ' mit Namen muss durchgehen',
+            );
+        }
+    }
+
+    public function test_alle_ja_schreibweisen_gehen_ohne_namen_durch(): void
+    {
+        foreach (['1', 'true', 'ja', 'JA', ' Ja '] as $ja) {
+            $this->assertNull(
+                MainEmployerRequiredGuard::error($ja, ''),
+                var_export($ja, true) . ' bedeutet ja',
+            );
+        }
+    }
+
+    /**
+     * Werte, die der Schreibpfad zu NULL macht, muss der Guard als
+     * unbeantwortet abweisen. Sonst meldet das Portal "gespeichert",
+     * waehrend eine vorher gueltige Antwort still geloescht wurde.
+     */
+    public function test_werte_die_der_schreibpfad_verwirft_gelten_als_unbeantwortet(): void
+    {
+        foreach (['x', '2', 'vielleicht', 'yes', 'no'] as $muell) {
+            $this->assertNotNull(
+                MainEmployerRequiredGuard::error($muell, 'Musterkantine GmbH'),
+                var_export($muell, true) . ' wuerde als NULL gespeichert und muss blocken',
+            );
+        }
+    }
+
+    /**
+     * rec_employees.other_employer ist string(128). Ohne Grenze im Portal
+     * schlaegt ein laengerer Wert als SQLSTATE 22001 durch und reisst den
+     * ganzen Speichervorgang mit — im Vertrags-Schritt ist die Grenze
+     * ausdruecklich gesetzt, im Portal fehlte sie (Befund Review 25.09.2026).
+     */
+    public function test_zu_langer_name_wird_abgewiesen(): void
+    {
+        $this->assertNotNull(MainEmployerRequiredGuard::error('0', str_repeat('a', 129)));
+        $this->assertNull(MainEmployerRequiredGuard::error('0', str_repeat('a', 128)));
+    }
+
     public function test_meldungen_sagen_dass_nichts_gespeichert_wurde(): void
     {
         // Gleiche Zusage wie die anderen Portal-Guards: der Mitarbeiter muss
