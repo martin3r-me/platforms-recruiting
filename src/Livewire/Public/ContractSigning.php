@@ -470,16 +470,21 @@ class ContractSigning extends Component
 
             $hrData = $employee->ensureHrData();
 
-            // NUR WENN NOCH LEER. Es ist ein Anfangsbestand; ist er einmal
-            // gesetzt und an ZAS uebergeben, zaehlt ZAS davon herunter. Eine
+            // NUR WENN FUER DIESES JAHR NOCH NICHTS STEHT. Innerhalb eines
+            // Jahres ist der Startwert ein Anfangsbestand — eine
             // Vertragsneuausstellung darf ihn nicht zuruecksetzen, sonst
-            // faengt das Konto von vorn an, obwohl zwischendurch gearbeitet
-            // wurde.
-            if ($hrData->short_term_days_allowed !== null) {
+            // faengt ZAS' Konto von vorn an, obwohl zwischendurch gearbeitet
+            // wurde. Ueber den Jahreswechsel gilt das Gegenteil: das
+            // Kontingent ist neu, und wer im neuen Jahr unterschreibt und
+            // dabei bereits geleistete Tage erklaert, braucht eine neue Zahl.
+            if (\Platform\Recruiting\Support\ShortTermDayBudget::isCurrentYear($hrData->short_term_days_allowed_year)) {
                 return;
             }
 
-            $hrData->update(['short_term_days_allowed' => $allowed]);
+            $hrData->update([
+                'short_term_days_allowed'      => $allowed,
+                'short_term_days_allowed_year' => \Platform\Recruiting\Support\ShortTermDayBudget::yearOf(),
+            ]);
         } catch (\Throwable $e) {
             Log::warning('[ContractSigning] Startwert Tagekonto nicht gesetzt', [
                 'contract_id' => $contract->id,

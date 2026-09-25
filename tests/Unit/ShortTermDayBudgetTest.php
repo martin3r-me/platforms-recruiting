@@ -186,6 +186,33 @@ final class ShortTermDayBudgetTest extends TestCase
         }
     }
 
+    /**
+     * Das Kontingent gilt je Kalenderjahr. Der gespeicherte Startwert ist
+     * deshalb jahresgebunden: Steht im Maerz 2027 eine 50, war das der
+     * Startwert fuer 2026 — eine Zahl, die nicht mehr gilt.
+     *
+     * Unterschreibt jemand im neuen Jahr einen neuen Arbeitsvertrag, muss
+     * neu gerechnet werden. Ein Waechter "nur wenn leer" ist INNERHALB eines
+     * Jahres richtig und ueber den Jahreswechsel falsch.
+     */
+    public function test_gespeichertes_jahr_entscheidet_ueber_neuberechnung(): void
+    {
+        $this->assertTrue(ShortTermDayBudget::isCurrentYear(2026, $this->heute()));
+        $this->assertFalse(ShortTermDayBudget::isCurrentYear(2025, $this->heute()));
+        $this->assertFalse(ShortTermDayBudget::isCurrentYear(2027, $this->heute()));
+    }
+
+    public function test_ohne_gespeichertes_jahr_wird_gerechnet(): void
+    {
+        $this->assertFalse(ShortTermDayBudget::isCurrentYear(null, $this->heute()));
+        $this->assertFalse(ShortTermDayBudget::isCurrentYear(0, $this->heute()));
+    }
+
+    public function test_das_bezugsjahr_ist_abrufbar(): void
+    {
+        $this->assertSame(2026, ShortTermDayBudget::yearOf($this->heute()));
+    }
+
     public function test_die_grenze_ist_einstellbar(): void
     {
         $this->assertSame(30, $this->rechne($this->mitTagen([

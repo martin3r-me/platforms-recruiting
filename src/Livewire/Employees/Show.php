@@ -638,6 +638,11 @@ class Show extends Component
             // Zahlenfeld mit Pruefung — dann bewusst und mit Test.
             'Kurzfristige Beschaeftigung (HR-only)' => [
                 'short_term_days_allowed'   => ['type' => 'text', 'label' => 'Tage erlaubt (Startwert aus §15)', 'empty' => 'keine §15-Erklaerung', 'readonly' => true],
+                // Eigene Zeile statt Zusatz am Wert: das Kontingent gilt je
+                // Kalenderjahr, und ohne das Jahr ist die Zahl daneben in
+                // zwoelf Wochen missverstaendlich — im Maerz 2027 stuende
+                // dort der Startwert fuer 2026.
+                'short_term_days_allowed_year' => ['type' => 'text', 'label' => 'Startwert gilt fuer das Jahr', 'empty' => '—', 'readonly' => true],
                 'short_term_days_worked'    => ['type' => 'text', 'label' => 'Tage gearbeitet im Jahr (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
                 'short_term_days_remaining' => ['type' => 'text', 'label' => 'Arbeitstage Rest (aus ZAS)', 'empty' => 'noch nichts geliefert', 'readonly' => true],
             ],

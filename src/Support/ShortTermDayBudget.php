@@ -72,7 +72,7 @@ final class ShortTermDayBudget
             return null;
         }
 
-        $jahr = (int) ($asOf ?? new \DateTimeImmutable())->format('Y');
+        $jahr = self::yearOf($asOf);
         $sum  = 0;
 
         foreach ($entries as $entry) {
@@ -98,6 +98,28 @@ final class ShortTermDayBudget
         }
 
         return max(0, $limit - $sum);
+    }
+
+    /** Kalenderjahr des Bezugspunkts. */
+    public static function yearOf(?\DateTimeInterface $asOf = null): int
+    {
+        return (int) ($asOf ?? new \DateTimeImmutable())->format('Y');
+    }
+
+    /**
+     * Ist der gespeicherte Startwert noch der des laufenden Jahres?
+     *
+     * Das Kontingent gilt je Kalenderjahr, der Startwert ist deshalb
+     * jahresgebunden. Ein Waechter "nur wenn leer" waere INNERHALB eines
+     * Jahres richtig und ueber den Jahreswechsel falsch: Unterschreibt
+     * jemand im neuen Jahr einen neuen Arbeitsvertrag und erklaert dabei
+     * bereits geleistete Tage, muss neu gerechnet werden.
+     */
+    public static function isCurrentYear(?int $storedYear, ?\DateTimeInterface $asOf = null): bool
+    {
+        return $storedYear !== null
+            && $storedYear > 0
+            && $storedYear === self::yearOf($asOf);
     }
 
     /** true / false / null (= keine eindeutige Antwort). */

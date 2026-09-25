@@ -344,11 +344,12 @@ class CreateEmployeeFromApplicantService
             $limit = (int) \Platform\Recruiting\Models\RecApplicantSettings::getOrCreateForTeam($applicant->team_id)
                 ->getSetting('short_term_day_limit');
 
-            // Nur wenn leer. Heute ist der Pfad ohnehin nur bei einer
-            // Neuanlage erreichbar, aber das haengt an der Idempotenz zwei
-            // Ebenen weiter oben — fuer eine Groesse, ab der ZAS
-            // herunterzaehlt, ist das zu duenn.
-            if ($hrData->short_term_days_allowed !== null) {
+            // Nur wenn fuer dieses Jahr noch nichts steht — gleicher
+            // Waechter wie im Signierweg. Heute ist dieser Pfad ohnehin nur
+            // bei einer Neuanlage erreichbar, aber das haengt an der
+            // Idempotenz zwei Ebenen weiter oben; fuer eine Groesse, ab der
+            // ZAS herunterzaehlt, ist das zu duenn.
+            if (\Platform\Recruiting\Support\ShortTermDayBudget::isCurrentYear($hrData->short_term_days_allowed_year)) {
                 return;
             }
 
@@ -357,7 +358,10 @@ class CreateEmployeeFromApplicantService
                 return;
             }
 
-            $hrData->update(['short_term_days_allowed' => $allowed]);
+            $hrData->update([
+                'short_term_days_allowed'      => $allowed,
+                'short_term_days_allowed_year' => \Platform\Recruiting\Support\ShortTermDayBudget::yearOf(),
+            ]);
         } catch (\Throwable $e) {
             Log::warning('[MA-Anlage] Startwert Tagekonto nicht gesetzt', [
                 'applicant_id' => $applicant->id,
