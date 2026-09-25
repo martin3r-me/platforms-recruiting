@@ -37,7 +37,11 @@ final class SignedEmployerDeclaration
             ->where('c.rec_applicant_id', $applicantId)
             ->whereNotNull('c.signed_at')
             ->where('c.status', '!=', 'cancelled')
-            ->where('t.code', 'like', 'AV%')
+            // Gleiches Praedikat wie ContractPreSigningType::forCode — nur
+            // Vertraege, die den Schritt ueberhaupt bekommen, koennen eine
+            // Erklaerung tragen. 'AV%' waere weiter und wuerde Vorlagen
+            // einsammeln, denen nie eine Erklaerung geschrieben wurde.
+            ->where('t.code', 'like', 'AV-%')
             // signed_at zuerst, id als Stichentscheid: zwei Vertraege am
             // selben Tag sind moeglich (Neuausstellung).
             ->orderByDesc('c.signed_at')

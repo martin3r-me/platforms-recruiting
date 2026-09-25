@@ -51,6 +51,29 @@ final class EmployerDeclaration
     }
 
     /**
+     * Startwert der Auswahl im Unterschriften-Schritt.
+     *
+     * Eine bereits gegebene Antwort gewinnt IMMER vor der Vorbelegung aus
+     * "Ich bin". Ohne diese Regel waere die Neuausstellung eines Vertrags ein
+     * stiller Datenverlust: Ein Schueler, der im Portal "nein, mein
+     * Hauptarbeitgeber ist Mueller GmbH" angegeben hat, bekaeme beim
+     * Unterschreiben des neuen Vertrags wieder "Hauptarbeitgeber"
+     * vorbelegt — und ein Durchklicken kippte die Steuerklasse.
+     * (Befund Review 25.09.2026.)
+     *
+     * @param ?bool   $currentIsMain  Stand am Mitarbeiter, null = unbeantwortet
+     * @param ?string $employmentType Feld "Ich bin" des Bewerbers
+     */
+    public static function initialRole(?bool $currentIsMain, ?string $employmentType): ?string
+    {
+        if ($currentIsMain !== null) {
+            return $currentIsMain ? self::ROLE_MAIN : self::ROLE_SECONDARY;
+        }
+
+        return self::defaultRoleFor($employmentType);
+    }
+
+    /**
      * Validierungsregeln fuer den Unterschriften-Schritt.
      *
      * Stehen hier statt in der Livewire-Komponente, weil sie zur Erklaerung

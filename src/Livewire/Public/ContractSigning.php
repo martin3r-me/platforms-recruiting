@@ -146,28 +146,50 @@ class ContractSigning extends Component
             $this->contentIncomplete = ResttagePlaceholder::hasUnresolvedPlaceholder($this->contractContent);
         }
 
-        // Vorbelegung der Arbeitgeber-Auswahl aus "Ich bin" (Markus
-        // 24.09.2026). Nur Vorbelegung, keine Sperre — siehe
-        // EmployerDeclaration::defaultRoleFor.
+        // Startwerte der Arbeitgeber-Auswahl (Markus 24.09.2026). Eine
+        // bereits gegebene Antwort gewinnt vor der Vorbelegung aus "Ich bin" —
+        // sonst waere die Neuausstellung eines Vertrags ein stiller
+        // Datenverlust (siehe EmployerDeclaration::initialRole).
         if ($this->preSigningType === ContractPreSigningType::PAR_15_16) {
-            $this->employerRole = $this->defaultEmployerRole($contract);
+            $this->prefillEmployerDeclaration($contract);
         }
 
         $this->state = 'form';
     }
 
     /**
-     * "Ich bin" des Bewerbers, defensiv gelesen: ein Fehler beim Auflesen
-     * der Extra-Felder darf die Unterschriftsseite nicht lahmlegen — dann
-     * gibt es eben keine Vorbelegung.
+     * Startwerte fuer Auswahl und Namensfeld.
+     *
+     * Defensiv gelesen: ein Fehler beim Auflesen darf die Unterschriftsseite
+     * nicht lahmlegen — dann gibt es eben keine Vorbelegung und der Bewerber
+     * waehlt selbst.
      */
-    private function defaultEmployerRole(RecContract $contract): ?string
+    private function prefillEmployerDeclaration(RecContract $contract): void
     {
-        $applicant = $contract->applicant;
-        if (!$applicant) {
-            return null;
-        }
+        try {
+            $applicant = $contract->applicant;
+            if (!$applicant) {
+                return;
+            }
 
+            $employee = $applicant->employee;
+
+            $this->employerRole = EmployerDeclaration::initialRole(
+                $employee?->is_main_employer,
+                $this->applicantEmploymentType($applicant),
+            );
+            // Auch den Namen vorbelegen: ohne ihn wuerde ein Durchklicken
+            // einen vorhandenen Eintrag leeren — toEmployeeAttributes liefert
+            // other_employer bewusst auch dann, wenn das Feld leer ist.
+            $this->employerOther = $employee?->other_employer;
+        } catch (\Throwable) {
+            // Keine Vorbelegung, aber die Seite laedt.
+        }
+    }
+
+    /** Feld "Ich bin" des Bewerbers, oder null wenn nicht lesbar. */
+    private function applicantEmploymentType(\Platform\Recruiting\Models\RecApplicant $applicant): ?string
+    {
         try {
             $values = app(\Platform\Recruiting\Services\CreateEmployeeFromApplicantService::class)
                 ->collectExtraFieldValuesByName($applicant);
@@ -175,7 +197,7 @@ class ContractSigning extends Component
             return null;
         }
 
-        return EmployerDeclaration::defaultRoleFor($values['ich_bin'] ?? null);
+        return $values['ich_bin'] ?? null;
     }
 
     public function addPar15Entry(): void
@@ -453,11 +475,16 @@ class ContractSigning extends Component
             ]);
         }
 
-        // Arbeitgeber-Erklaerung: immer Pflicht in diesem Schritt. Der
-        // RESTTAGE-Zweig ist oben schon ausgestiegen, hier kann also nur
-        // noch ein Arbeitsvertrag ankommen.
-        $rules    = array_merge($rules, EmployerDeclaration::rules());
-        $messages = array_merge($messages, EmployerDeclaration::messages($this->duzen));
+        // Arbeitgeber-Erklaerung: Pflicht, aber ausdruecklich nur beim
+        // Arbeitsvertrag. Der RESTTAGE-Zweig ist oben schon ausgestiegen —
+        // preSigningType kann hier aber auch null sein (Vertrag ohne
+        // Vorschalt-Schritt, erreichbar ueber previousStep()). Ohne diese
+        // Bedingung liefe ein IFSG-Vertrag in eine Validierung fuer einen
+        // Block, den seine Maske gar nicht rendert: Sackgasse statt Fehler.
+        if ($this->preSigningType === ContractPreSigningType::PAR_15_16) {
+            $rules    = array_merge($rules, EmployerDeclaration::rules());
+            $messages = array_merge($messages, EmployerDeclaration::messages($this->duzen));
+        }
 
         if (! empty($rules)) {
             $this->validate($rules, $messages);

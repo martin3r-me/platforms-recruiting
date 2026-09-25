@@ -111,6 +111,39 @@ final class EmployerDeclarationTest extends TestCase
         ]));
     }
 
+    /**
+     * NEUAUSSTELLUNG EINES VERTRAGS ist der gefaehrliche Fall (Befund
+     * Review 25.09.2026): Ein Schueler hat im Portal "nein, Hauptarbeitgeber
+     * ist Mueller GmbH" angegeben. HR stellt den Arbeitsvertrag wegen einer
+     * Lohnerhoehung neu aus. Wuerde die Maske stur aus "Ich bin" vorbelegen,
+     * staende der Haken wieder auf "Hauptarbeitgeber" — und ein
+     * Durchklicken kippte die Steuerklasse.
+     *
+     * Eine bereits gegebene Antwort gewinnt deshalb immer vor der
+     * Vorbelegung.
+     */
+    public function test_vorhandene_antwort_gewinnt_vor_der_vorbelegung(): void
+    {
+        $this->assertSame(
+            EmployerDeclaration::ROLE_SECONDARY,
+            EmployerDeclaration::initialRole(false, 'schueler'),
+            'Ein Schueler, der "nein" gesagt hat, darf nicht auf "ja" zurueckfallen.',
+        );
+        $this->assertSame(
+            EmployerDeclaration::ROLE_MAIN,
+            EmployerDeclaration::initialRole(true, 'student_erwerbstaetig'),
+        );
+    }
+
+    public function test_ohne_vorhandene_antwort_greift_die_vorbelegung(): void
+    {
+        $this->assertSame(EmployerDeclaration::ROLE_MAIN, EmployerDeclaration::initialRole(null, 'schueler'));
+        $this->assertSame(EmployerDeclaration::ROLE_MAIN, EmployerDeclaration::initialRole(null, 'student'));
+        $this->assertNull(EmployerDeclaration::initialRole(null, 'erwerbstaetig'));
+        $this->assertNull(EmployerDeclaration::initialRole(null, 'student_erwerbstaetig'));
+        $this->assertNull(EmployerDeclaration::initialRole(null, null));
+    }
+
     public function test_die_auswahl_ist_pflicht_und_auf_zwei_werte_begrenzt(): void
     {
         $rules = EmployerDeclaration::rules();
