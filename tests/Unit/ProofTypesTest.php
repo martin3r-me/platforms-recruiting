@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Support\EmployeeFileSlots;
 use Platform\Recruiting\Support\ProofTypes;
 
 /**
@@ -157,18 +158,37 @@ final class ProofTypesTest extends TestCase
         $this->assertNull(ProofTypes::codeForLegacyColumn(''));
     }
 
-    public function test_alle_acht_datei_felder_des_alten_portals_sind_abgedeckt(): void
+    /**
+     * Kein Abtippen: EmployeeFileSlots ist die Liste, gegen die auch der
+     * Datei-Ausliefer-Endpunkt prueft. Kommt dort eine Spalte dazu, wird
+     * dieser Test rot — und genau das soll er. Eine von Hand abgetippte
+     * Spaltenliste im Test waere selbst eine dritte Zuordnungsliste, die
+     * auseinanderlaufen kann (dasselbe Muster wie E7, nur im Test).
+     */
+    public function test_jede_dokumentspalte_des_hauses_findet_ihre_nachweisart(): void
     {
-        // Die acht FILE_FIELDS aus EmployeePortal.php:93-102. Faellt hier eines
-        // heraus, bekaeme es im neuen Portal eine Kachel ohne Ziel — dieselbe
-        // Luecke wie E7, nur andersherum.
-        $acht = [
-            'identity_card_front_file_id', 'identity_card_back_file_id',
-            'selfie_file_id', 'health_insurance_card_file_id',
-            'immatrikulation_file_id', 'schulbescheinigung_file_id',
-            'erstbescheinigung_file_id', 'first_aider_certificate_file_id',
-        ];
-        foreach ($acht as $spalte) {
+        foreach (EmployeeFileSlots::COLUMNS as $spalte) {
+            $code = ProofTypes::codeForLegacyColumn($spalte);
+            $this->assertNotNull($code, "Keine Nachweisart fuer Spalte {$spalte}");
+            $this->assertTrue(ProofTypes::exists($code), "Unbekannte Art {$code} fuer {$spalte}");
+        }
+    }
+
+    /**
+     * Zweiter Anker, solange das ALTE Portal noch lebt: seine eigene
+     * FILE_FIELDS-Zuordnung (EmployeePortal.php) darf nicht auf eine Spalte
+     * zeigen, die der neue Katalog nicht kennt. Reflection statt Instanz —
+     * bleibt damit ein purer Unit-Test (gleiches Muster wie
+     * EmployeeFileSlotsTest::test_every_uploadable_column_is_an_allowed_slot).
+     * Faellt das alte Portal weg, faellt auch dieser Anker weg.
+     */
+    public function test_jede_datei_spalte_des_alten_portals_findet_ihre_nachweisart(): void
+    {
+        $fileFields = (new \ReflectionClass(\Platform\Recruiting\Livewire\Public\EmployeePortal::class))
+            ->getConstant('FILE_FIELDS');
+
+        $this->assertNotEmpty($fileFields);
+        foreach (array_keys($fileFields) as $spalte) {
             $this->assertNotNull(ProofTypes::codeForLegacyColumn($spalte), "Keine Nachweisart fuer {$spalte}");
         }
     }
@@ -177,5 +197,8 @@ final class ProofTypesTest extends TestCase
     {
         $alle = ProofTypes::legacyFileColumnsAll();
         $this->assertSame(array_values(array_unique($alle)), $alle);
+        // Feste Zahl statt nur Eindeutigkeit: eine Menge, die schrumpft oder
+        // waechst, faellt sonst nicht auf, solange sie eindeutig bleibt.
+        $this->assertCount(16, $alle, 'Katalog kennt nicht mehr 16 Altspalten');
     }
 }
