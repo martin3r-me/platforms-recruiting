@@ -177,29 +177,43 @@
         </div>
         {{-- Zeilenfilter (Kunde 03.09., seit 25.09. AUCH MOBIL): Tristan arbeitet
              am Handy und sah dort jede Zeile — abgesagte und zur Loeschung
-             gemeldete inklusive. Die Pills rollen quer, die Suche steht darunter. --}}
+             gemeldete inklusive. Am Handy als Auswahlmenue, weil sechs Pills
+             quer scrollen und genau die gesuchten rechts aus dem Bild fallen. --}}
+        @php
+            $rfCounts = $this->rowFilterCounts;
+            $dayPills = $this->dispoDays;
+            $rfLabels = ['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Zustellprobleme'];
+        @endphp
         <div class="flex flex-col gap-2 border-b border-gray-100 px-4 py-2.5 lg:flex-row lg:items-center lg:gap-1.5">
-            <div class="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 lg:mx-0 lg:overflow-visible lg:px-0">
-            @php $rfCounts = $this->rowFilterCounts; @endphp
-            @php $dayPills = $this->dispoDays; @endphp
             @if (count($dayPills) > 1)
-                <span class="mr-1 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Tag</span>
-                <button type="button" wire:click="setRowDay('')"
-                        class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowDay === '' ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">Alle Tage</button>
-                @foreach ($dayPills as $dp)
-                    <button type="button" wire:click="setRowDay('{{ $dp['datum'] }}')"
-                            class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowDay === $dp['datum'] ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
-                        {{ $dp['label'] }} <span class="tabular-nums opacity-60">{{ $dp['total'] }}</span>
+                <div class="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 lg:mx-0 lg:overflow-visible lg:px-0">
+                    <span class="mr-1 shrink-0 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Tag</span>
+                    <button type="button" wire:click="setRowDay('')"
+                            class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowDay === '' ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">Alle Tage</button>
+                    @foreach ($dayPills as $dp)
+                        <button type="button" wire:click="setRowDay('{{ $dp['datum'] }}')"
+                                class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowDay === $dp['datum'] ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
+                            {{ $dp['label'] }} <span class="tabular-nums opacity-60">{{ $dp['total'] }}</span>
+                        </button>
+                    @endforeach
+                    <span class="mx-1 hidden h-4 w-px shrink-0 bg-gray-200 lg:block"></span>
+                </div>
+            @endif
+            {{-- Handy: ein Feld mit dem aktiven Filter, Antippen oeffnet die Auswahl. --}}
+            <select wire:model.live="rowFilter"
+                    class="w-full rounded-full border border-gray-200 px-3 py-1.5 text-xs text-gray-700 focus:border-blue-500 focus:ring-blue-500 lg:hidden">
+                @foreach ($rfLabels as $rfKey => $rfLabel)
+                    <option value="{{ $rfKey }}">{{ $rfLabel }} ({{ $rfCounts[$rfKey] }})</option>
+                @endforeach
+            </select>
+            {{-- Desktop: Pills wie gehabt. --}}
+            <div class="hidden items-center gap-1.5 lg:flex">
+                @foreach ($rfLabels as $rfKey => $rfLabel)
+                    <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
+                            class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
+                        {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
                     </button>
                 @endforeach
-                <span class="mx-1 h-4 w-px shrink-0 bg-gray-200"></span>
-            @endif
-            @foreach (['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Zustellprobleme'] as $rfKey => $rfLabel)
-                <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
-                        class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
-                    {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
-                </button>
-            @endforeach
             </div>
             <input type="search" wire:model.live.debounce.300ms="rowSearch" placeholder="Mitarbeiter suchen (Name/PNr) …"
                    class="w-full rounded-full border border-gray-200 px-3 py-1 text-xs focus:border-blue-500 focus:ring-blue-500 lg:ml-auto lg:w-64">
