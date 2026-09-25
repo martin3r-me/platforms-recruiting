@@ -120,7 +120,7 @@ class RecApplicantSettings extends Model
         'employee_payroll_tracked_fields' => [
             'iban', 'bic', 'bank_institute', 'account_holder',
             'tax_class', 'steuer_id', 'sozialversicherungsnummer',
-            'health_insurance',
+            'health_insurance', 'is_main_employer',
             'street', 'house_number', 'zip', 'city',
         ],
     ];
@@ -142,6 +142,12 @@ class RecApplicantSettings extends Model
             'steuer_id'                 => 'Steuer-ID',
             'sozialversicherungsnummer' => 'Sozialversicherungsnummer',
             'health_insurance'          => 'Krankenkasse',
+            // Entscheidet, ob nach Steuerklasse VI abgerechnet wird — steht
+            // deshalb neben der Steuerklasse und nicht bei "Sonstiges".
+            // Der NAME des anderen Arbeitgebers bleibt bewusst draussen: er
+            // aendert an der Abrechnung nichts und wuerde die Liste mit
+            // Umbenennungen fluten.
+            'is_main_employer'          => 'Hauptarbeitgeber',
         ],
         'Adresse' => [
             'street'       => 'Strasse',

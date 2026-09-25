@@ -76,9 +76,10 @@ class PortalFirstAiderFieldsTest extends TestCase
             'phone'        => '+49 151 00000002',
             'portal_token' => 'tok-first-aider-' . uniqid(),
             'is_active'    => true,
-            // Pflichtfeld seit 23.09.2026 — ohne Wert blockt saveAll() vor der
-            // Ersthelfer-Logik; hier geht es um Ersthelfer, also erfuellt.
-            'nationality'  => 'de',
+            // Pflichtfelder seit 23./25.09.2026 — ohne Werte blockt saveAll()
+            // vor der Ersthelfer-Logik; hier geht es um Ersthelfer, also erfuellt.
+            'nationality'      => 'de',
+            'is_main_employer' => true,
         ], $attributes));
     }
 
@@ -276,6 +277,8 @@ class PortalFirstAiderFieldsTest extends TestCase
             'database/migrations/2026_09_01_000001_add_first_aider_certificate_file_id_to_rec_employees.php',
             // Pflichtfeld Staatsangehoerigkeit (23.09.2026) — saveAll() liest es.
             'database/migrations/2026_09_23_000001_add_nationality_to_rec_employees.php',
+            // Pflichtfeld seit 25.09.2026 — der Arbeitgeber-Guard laeuft in saveAll().
+            'database/migrations/2026_09_23_000002_add_employer_fields_to_rec_employees.php',
         ];
 
         foreach ($files as $relative) {

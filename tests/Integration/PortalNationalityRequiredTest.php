@@ -46,6 +46,8 @@ class PortalNationalityRequiredTest extends TestCase
             'database/migrations/2026_07_17_000001_add_arbeitsschutz_fields_to_rec_employees.php',
             'database/migrations/2026_09_01_000001_add_first_aider_certificate_file_id_to_rec_employees.php',
             'database/migrations/2026_09_23_000001_add_nationality_to_rec_employees.php',
+            // Pflichtfeld seit 25.09.2026 — der Arbeitgeber-Guard laeuft in saveAll().
+            'database/migrations/2026_09_23_000002_add_employer_fields_to_rec_employees.php',
         ] as $relative) {
             (require $own . '/' . $relative)->up();
         }
@@ -108,6 +110,9 @@ class PortalNationalityRequiredTest extends TestCase
             'phone'        => '+49 151 00000003',
             'portal_token' => 'tok-nat-' . uniqid(),
             'is_active'    => true,
+            // Pflichtfeld seit 25.09.2026 — hier geht es um die
+            // Staatsangehoerigkeit, also erfuellt.
+            'is_main_employer' => true,
         ], $attributes));
     }
 

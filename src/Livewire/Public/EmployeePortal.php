@@ -12,6 +12,7 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
+use Platform\Recruiting\Support\MainEmployerRequiredGuard;
 use Platform\Recruiting\Support\NationalityRequiredGuard;
 use Platform\Recruiting\Support\TrainingCertificatePortalRows;
 use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
@@ -273,6 +274,26 @@ class EmployeePortal extends Component
         // Rueckfall auf den Datensatz, falls das Feld nicht im Formular kam.
         $guardError = NationalityRequiredGuard::error(
             $this->fieldValues['nationality'] ?? $employee->nationality,
+        );
+        if ($guardError !== null) {
+            $this->editError = $guardError;
+            $this->editFlash = null;
+            return;
+        }
+        // Haupt-/Nebenarbeitgeber ist Pflicht (Markus 24.09.2026) — an der
+        // Angabe haengt die Steuerklasse. Gleicher Early-Return wie oben.
+        //
+        // Der Rueckfall auf den Datensatz geht NICHT ueber (string): das Feld
+        // ist boolean gecastet und dreiwertig, und (string) false ergaebe ''
+        // — also genau die Form, die der Guard als "unbeantwortet" liest. Wer
+        // ordentlich "nein" geantwortet hat, koennte dann nie wieder
+        // speichern. Deshalb hier ausdruecklich auf '1'/'0' abbilden.
+        $recordFlag = $employee->is_main_employer === null
+            ? null
+            : ($employee->is_main_employer ? '1' : '0');
+        $guardError = MainEmployerRequiredGuard::error(
+            $this->fieldValues['is_main_employer'] ?? $recordFlag,
+            $this->fieldValues['other_employer'] ?? $employee->other_employer,
         );
         if ($guardError !== null) {
             $this->editError = $guardError;
