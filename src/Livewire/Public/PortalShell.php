@@ -592,13 +592,18 @@ class PortalShell extends Component
             // "Ausweis" kann alle drei Fotos haben und trotzdem nur das
             // Gueltigkeitsdatum vermissen -- I1 nimmt Datei-Felder bewusst
             // aus der Zeile heraus, wodurch $anzeigewerte dann leer bleibt
-            // und PortalGroupSummary::zeile() "Noch nichts hinterlegt" sagt,
-            // obwohl direkt darueber drei gruene Kacheln stehen. Der
-            // "offen"-Zaehler zaehlt weiterhin exakt (I1), NUR die
-            // Wortwahl der leeren Zeile wird hier korrigiert, wenn
-            // tatsaechlich ein Datei-Wert da ist.
+            // und PortalGroupSummary::zeile() die Leer-Meldung sagt, obwohl
+            // direkt darueber drei gruene Kacheln stehen. Der "offen"-
+            // Zaehler zaehlt weiterhin exakt (I1), NUR die Wortwahl der
+            // leeren Zeile wird hier korrigiert, wenn tatsaechlich ein
+            // Datei-Wert da ist.
+            //
+            // Fixrunde 1 (Befund 2): istLeer() statt eines eigenen
+            // Zeichenketten-Vergleichs gegen den Wortlaut -- sonst waere das
+            // eine geratene Kopplung an PortalGroupSummary::zeile(), die
+            // still auseinanderfaellt, sobald dort jemand den Satz aendert.
             $zeile = PortalGroupSummary::zeile($felder, $anzeigewerte);
-            if ($zeile === 'Noch nichts hinterlegt' && $hatDateiWert) {
+            if (PortalGroupSummary::istLeer($zeile) && $hatDateiWert) {
                 $zeile = 'Nachweise liegen vor';
             }
 

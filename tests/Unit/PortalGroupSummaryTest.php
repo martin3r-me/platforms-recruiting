@@ -33,6 +33,20 @@ final class PortalGroupSummaryTest extends TestCase
         $this->assertSame('Noch nichts hinterlegt', PortalGroupSummary::zeile(['email' => ['label' => 'Email']], []));
     }
 
+    /**
+     * Fixrunde 1 zu Aufgabe 7 (Befund 2): Aufrufer sollen die Leer-Meldung
+     * ueber istLeer() erkennen, nicht per eigenem Zeichenketten-Vergleich
+     * gegen den Wortlaut -- sonst zwei Wahrheiten statt einer.
+     */
+    public function test_ist_leer_erkennt_die_leer_meldung(): void
+    {
+        $leer = PortalGroupSummary::zeile(['email' => ['label' => 'Email']], []);
+        $nichtLeer = PortalGroupSummary::zeile(['email' => ['label' => 'Email']], ['email' => 'kevin.m@web.de']);
+
+        $this->assertTrue(PortalGroupSummary::istLeer($leer));
+        $this->assertFalse(PortalGroupSummary::istLeer($nichtLeer));
+    }
+
     public function test_zeile_wird_gekuerzt(): void
     {
         $felder = [];

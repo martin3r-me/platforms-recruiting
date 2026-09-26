@@ -338,7 +338,7 @@
                      rotem Punkt, solange ein Pflichtfeld DIESER Gruppe noch
                      offen ist (derselbe Druck wie am Ring, nur je Gruppe). --}}
                 <div>
-                    <div class="sec-label">Deine Angaben</div>
+                    <div class="sec-label">{{ $duzen ? 'Deine Angaben' : 'Ihre Angaben' }}</div>
                     <div class="card" style="margin-top:11px">
                         @foreach ($profilGruppen as $name => $gruppe)
                             <button type="button" class="grouprow tap" wire:click="oeffneGruppe('{{ $name }}')">
