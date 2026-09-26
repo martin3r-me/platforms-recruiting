@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Support\TrainingCertificatePortalRows;
 
 /**
- * Was die zwei Portal-Blades aus einer Zertifikat-Zeile machen — GERENDERT,
+ * Was die Portal-Blades aus einer Zertifikat-Zeile machen — GERENDERT,
  * nicht gelesen.
  *
  * Warum so und nicht als Livewire-Test: Livewire-Komponenten sind in diesem
@@ -19,9 +19,17 @@ use Platform\Recruiting\Support\TrainingCertificatePortalRows;
  * BladeCompiler und fuehrt das Ergebnis mit einer Zeile aus. Geprueft wird
  * damit die Ausgabe, nicht der Quelltext.
  *
- * Der Ausschnitt haengt an zwei Markern, die in beiden Dateien genau EINMAL
- * vorkommen; dass sie einmalig sind, prueft dieser Test mit (sonst schnitte er
- * still an der falschen Stelle).
+ * Der Ausschnitt haengt an Markern, die in ihrer Datei genau EINMAL vorkommen;
+ * dass sie einmalig sind, prueft dieser Test mit (sonst schnitte er still an
+ * der falschen Stelle).
+ *
+ * SEIT DEM PORTAL-GLEICHSTAND STEHT HIER AUCH DAS NEUE PORTAL
+ * (`portal-shell.blade.php`). Es lag zuerst nicht in dieser Liste, und damit
+ * galt E17 — die Zertifikat-Zeile darf keine Unterschrift behaupten — genau
+ * fuer die Ansicht nicht, die das alte Portal abloesen soll. Das neue Portal
+ * baut die Zeile anders auf (die Zweige stehen in einem @php-Block, Badge und
+ * Knoepfe liegen in derselben Zeile), deshalb tragen die Blades ihre Marker
+ * jetzt einzeln statt gemeinsam.
  *
  * GRENZE, benannt statt behauptet: der Rest der Seite (Zustands-Zweige,
  * Ueberschriften, Layout) laeuft hier nicht. `@svg(...)` ist im Ausschnitt
@@ -38,17 +46,40 @@ use Platform\Recruiting\Support\TrainingCertificatePortalRows;
  */
 class PortalCertificateBadgeTest extends TestCase
 {
-    /** Die zwei Portal-Blades, relativ zum Modul-Root. */
+    /**
+     * Die Portal-Blades, relativ zum Modul-Root, mit ihren Schnittmarken.
+     *
+     * 'badge'   Ausschnitt, der den Status-Text der Zeile erzeugt.
+     * 'buttons' Ausschnitt, der Unterschreiben- und PDF-Knopf erzeugt.
+     * 'start'   muss in der Datei GENAU EINMAL vorkommen; 'ende' ist die
+     *           erste Fundstelle dahinter und wird mitgeschnitten.
+     *
+     * Beim neuen Portal ist es fuer beides derselbe Ausschnitt: dort stehen
+     * Badge und Knoepfe in einer einzigen Zeilen-Schleife, und die Zweige
+     * werden in einem @php-Block davor vorberechnet (Hausregel: kein @if im
+     * Attribut). Der Ausschnitt ist deshalb die ganze @forelse-Schleife und
+     * laeuft mit einer Liste aus genau einer Zeile.
+     */
     private const BLADES = [
-        'employee-portal'  => 'resources/views/livewire/public/employee-portal.blade.php',
-        'applicant-portal' => 'resources/views/livewire/public/applicant-portal.blade.php',
+        'employee-portal' => [
+            'pfad'    => 'resources/views/livewire/public/employee-portal.blade.php',
+            'badge'   => ['start' => '<div class="mt-2 text-xs">', 'ende' => '</div>'],
+            'buttons' => ['start' => '<div class="flex-shrink-0 flex items-center gap-2">', 'ende' => '</div>'],
+            'schleife' => false,
+        ],
+        'applicant-portal' => [
+            'pfad'    => 'resources/views/livewire/public/applicant-portal.blade.php',
+            'badge'   => ['start' => '<div class="mt-2 text-xs">', 'ende' => '</div>'],
+            'buttons' => ['start' => '<div class="flex-shrink-0 flex items-center gap-2">', 'ende' => '</div>'],
+            'schleife' => false,
+        ],
+        'portal-shell' => [
+            'pfad'    => 'resources/views/livewire/public/portal-shell.blade.php',
+            'badge'   => ['start' => '@forelse ($dokumente as $dok)', 'ende' => '@endforelse'],
+            'buttons' => ['start' => '@forelse ($dokumente as $dok)', 'ende' => '@endforelse'],
+            'schleife' => true,
+        ],
     ];
-
-    /** Oeffnendes Tag des Badge-Blocks (Status-Text der Zeile). */
-    private const MARKER_BADGE = '<div class="mt-2 text-xs">';
-
-    /** Oeffnendes Tag des Button-Blocks (Unterschreiben + PDF). */
-    private const MARKER_BUTTONS = '<div class="flex-shrink-0 flex items-center gap-2">';
 
     private string $tmpDir = '';
 
@@ -92,8 +123,8 @@ class PortalCertificateBadgeTest extends TestCase
      */
     public function testZertifikatZeileSagtAusgestelltUndNichtUnterschrieben(): void
     {
-        foreach (self::BLADES as $name => $blade) {
-            $out = $this->render($blade, self::MARKER_BADGE, $this->certificateRow());
+        foreach (array_keys(self::BLADES) as $name) {
+            $out = $this->render($name, 'badge', $this->certificateRow());
 
             $this->assertStringContainsString('Ausgestellt', $out, "{$name}: Badge sagt nicht „Ausgestellt“");
             $this->assertStringContainsString('am 12.08.2026', $out, "{$name}: Ausstellungsdatum fehlt");
@@ -127,8 +158,8 @@ class PortalCertificateBadgeTest extends TestCase
             'pdf_url'      => 'https://example.test/pdf/12',
         ];
 
-        foreach (self::BLADES as $name => $blade) {
-            $out = $this->render($blade, self::MARKER_BADGE, $vertrag);
+        foreach (array_keys(self::BLADES) as $name) {
+            $out = $this->render($name, 'badge', $vertrag);
 
             $this->assertStringContainsString('Unterschrieben', $out, "{$name}: Bestandszeile verliert „Unterschrieben“");
             $this->assertStringContainsString('am 01.08.2026', $out, "{$name}: Bestandszeile verliert das Datum");
@@ -141,8 +172,8 @@ class PortalCertificateBadgeTest extends TestCase
     {
         $vertrag = $this->contractRow('sent', null);
 
-        foreach (self::BLADES as $name => $blade) {
-            $out = $this->render($blade, self::MARKER_BADGE, $vertrag);
+        foreach (array_keys(self::BLADES) as $name) {
+            $out = $this->render($name, 'badge', $vertrag);
 
             $this->assertStringContainsString('Wartet auf', $out, "{$name}: 'sent'-Zweig nicht mehr erreichbar");
             $this->assertStringNotContainsString('Ausgestellt', $out, "{$name}: 'sent' laeuft in den Zertifikat-Zweig");
@@ -159,8 +190,8 @@ class PortalCertificateBadgeTest extends TestCase
     {
         $row = $this->certificateRow();
 
-        foreach (self::BLADES as $name => $blade) {
-            $out = $this->render($blade, self::MARKER_BUTTONS, $row);
+        foreach (array_keys(self::BLADES) as $name) {
+            $out = $this->render($name, 'buttons', $row);
 
             $this->assertStringNotContainsString(
                 'Jetzt unterschreiben',
@@ -180,8 +211,8 @@ class PortalCertificateBadgeTest extends TestCase
     {
         $vertrag = $this->contractRow('sent', null);
 
-        foreach (self::BLADES as $name => $blade) {
-            $out = $this->render($blade, self::MARKER_BUTTONS, $vertrag);
+        foreach (array_keys(self::BLADES) as $name) {
+            $out = $this->render($name, 'buttons', $vertrag);
 
             $this->assertStringContainsString(
                 'Jetzt unterschreiben',
@@ -220,41 +251,61 @@ class PortalCertificateBadgeTest extends TestCase
     }
 
     /**
-     * Schneidet den Block ab $marker bis zum ersten schliessenden </div>,
-     * kompiliert ihn und fuehrt ihn mit $row als $c aus.
+     * Schneidet den Ausschnitt $welcher ('badge' oder 'buttons') aus der Blade
+     * $name, kompiliert ihn und fuehrt ihn mit $row aus.
+     *
+     * Die beiden Bauarten unterscheiden sich nur darin, wie die Zeile
+     * hereinkommt: die alten Portale rendern einen Block INNERHALB ihrer
+     * Schleife (Variable `$c`), das neue Portal rendert die Schleife selbst
+     * (Variable `$dokumente`). Beide bekommen ausserdem `$duzen`.
      */
-    private function render(string $relativeBlade, string $marker, array $row): string
+    private function render(string $name, string $welcher, array $row): string
     {
-        $path = dirname(__DIR__, 2) . '/' . $relativeBlade;
+        $blade = self::BLADES[$name];
+        $marke = $blade[$welcher];
+
+        $path = dirname(__DIR__, 2) . '/' . $blade['pfad'];
         $this->assertFileExists($path);
 
         $source = file_get_contents($path);
-        $this->assertNotFalse($source, "Blade nicht lesbar: {$relativeBlade}");
+        $this->assertNotFalse($source, "Blade nicht lesbar: {$blade['pfad']}");
 
         $this->assertSame(
             1,
-            substr_count($source, $marker),
-            "Marker kommt in {$relativeBlade} nicht genau einmal vor — der Ausschnitt waere nicht mehr eindeutig: {$marker}"
+            substr_count($source, $marke['start']),
+            "Marker kommt in {$blade['pfad']} nicht genau einmal vor — der Ausschnitt waere nicht mehr eindeutig: {$marke['start']}"
         );
 
-        $start = strpos($source, $marker);
-        $end   = strpos($source, '</div>', $start);
-        $this->assertNotFalse($end, "Kein schliessendes </div> nach dem Marker in {$relativeBlade}");
+        $start = strpos($source, $marke['start']);
+        $end   = strpos($source, $marke['ende'], $start);
+        $this->assertNotFalse(
+            $end,
+            "Kein {$marke['ende']} nach dem Marker in {$blade['pfad']}"
+        );
 
-        $fragment = substr($source, $start, $end - $start + strlen('</div>'));
+        $fragment = substr($source, $start, $end - $start + strlen($marke['ende']));
 
         $compiler = new BladeCompiler(new Filesystem(), $this->tmpDir);
         $compiled = $compiler->compileString($fragment);
 
-        $file = $this->tmpDir . '/' . md5($relativeBlade . $marker) . '.php';
+        $file = $this->tmpDir . '/' . md5($blade['pfad'] . $welcher) . '.php';
         file_put_contents($file, $compiled);
         $this->tmpFiles[] = $file;
 
-        return (static function (string $__file, array $c, bool $duzen): string {
+        // Eine kompilierte @forelse-Schleife ruft $__env fuer die
+        // $loop-Variable. Statt einer handgeschriebenen Attrappe kommt das
+        // ECHTE Laravel-Verhalten zum Einsatz (Concerns\ManagesLoops) — eine
+        // Attrappe wuerde hier sonst mitwandern muessen, sobald Laravel die
+        // Schleifen-Kompilierung aendert.
+        $env = new class {
+            use \Illuminate\View\Concerns\ManagesLoops;
+        };
+
+        return (static function (string $__file, array $c, array $dokumente, bool $duzen, object $__env): string {
             ob_start();
             include $__file;
 
             return (string) ob_get_clean();
-        })($file, $row, false);
+        })($file, $row, $blade['schleife'] ? [$row] : [], false, $env);
     }
 }
