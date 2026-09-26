@@ -31,13 +31,13 @@
                 </div>
             @elseif ($state === 'weg')
                 <div class="greet">
-                    <h2>Bitte lade die Seite neu</h2>
+                    <h2>{{ $duzen ? 'Bitte lade die Seite neu' : 'Bitte laden Sie die Seite neu' }}</h2>
                     <p>{{ $duzen ? 'An deinem Zugang hat sich gerade etwas geändert.' : 'An Ihrem Zugang hat sich gerade etwas geändert.' }}</p>
                 </div>
             @elseif ($state === 'rateLimited')
                 <div class="greet">
                     <h2>Zu viele Versuche</h2>
-                    <p>Bitte versuche es in 15 Minuten noch einmal.</p>
+                    <p>{{ $duzen ? 'Bitte versuche es in 15 Minuten noch einmal.' : 'Bitte versuchen Sie es in 15 Minuten noch einmal.' }}</p>
                 </div>
             @else
                 @php
