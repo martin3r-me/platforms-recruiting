@@ -415,7 +415,7 @@
                     $pflichtFelder = array_column($pflicht, 'feld');
                     $pflichtNamen  = array_column($pflicht, 'label');
                     $restNamen = [];
-                    foreach ($profilStand['fehlendFelder'] as $feldSchluessel => $feldLabel) {
+                    foreach ($profilStand['fehlend'] as $feldSchluessel => $feldLabel) {
                         if (!in_array($feldSchluessel, $pflichtFelder, true)) {
                             $restNamen[] = $feldLabel;
                         }

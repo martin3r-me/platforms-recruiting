@@ -319,6 +319,22 @@ final class SwitchPortalVersionTest extends TestCase
     // --zurueck laeuft immer, ohne Bestaetigung -- die Notbremse darf nie klemmen
     // -----------------------------------------------------------------
 
+    public function test_zurueck_warnt_nicht_wegen_der_nachweise(): void
+    {
+        // Wer zurueckgestellt wird, landet im alten Portal -- das liest die
+        // Altspalten direkt. Eine Umzugs-Warnung an der Notbremse waere
+        // Rauschen.
+        $id = $this->mitarbeiter([
+            'portal_v2_since' => now(),
+            'identity_card_front_file_id' => 5001,
+        ]);
+
+        [$exitCode, $ausgabe] = $this->runCommand(['--ids' => (string) $id, '--zurueck' => true]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertStringNotContainsString('nachweise-umziehen', $ausgabe);
+    }
+
     public function test_zurueck_laeuft_immer_ohne_bestaetigung(): void
     {
         $id = $this->mitarbeiter(['portal_v2_since' => now()]);

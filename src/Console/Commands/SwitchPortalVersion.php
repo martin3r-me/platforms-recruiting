@@ -127,7 +127,10 @@ final class SwitchPortalVersion extends Command
         // geben, eine einzelne Person vorzuziehen, und ein zweiter Riegel vor
         // einem Kommando, das schon einen hat, wird irgendwann pauschal
         // uebergangen.
-        $ohneNachweise = $this->ohneUmgezogeneNachweise(clone $betroffen);
+        // Nur beim UMSTELLEN. Wer zurueckstellt, landet im alten Portal, das
+        // die Altspalten direkt liest -- dort ist nichts umzuziehen, und eine
+        // Warnung waere Rauschen an der Notbremse.
+        $ohneNachweise = $zurueck ? 0 : $this->ohneUmgezogeneNachweise(clone $betroffen);
         if ($ohneNachweise !== null && $ohneNachweise > 0) {
             $this->warn("Achtung: {$ohneNachweise} der Betroffenen haben Nachweise nur in den Altspalten.");
             $this->line('Bitte zuerst `recruiting:nachweise-umziehen` laufen lassen — sonst sagt der');
@@ -168,7 +171,7 @@ final class SwitchPortalVersion extends Command
      * etwa vor der Migration). Eine fehlende Warnung ist unangenehm, ein
      * Abbruch der Notbremse waere schlimmer.
      */
-    private function ohneUmgezogeneNachweise(object $betroffen): ?int
+    private function ohneUmgezogeneNachweise(\Illuminate\Database\Query\Builder $betroffen): ?int
     {
         try {
             $spalten = ['id', 'team_id', 'person_key'];

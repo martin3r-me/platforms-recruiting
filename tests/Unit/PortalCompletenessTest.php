@@ -37,7 +37,7 @@ final class PortalCompletenessTest extends TestCase
         $stand = PortalCompleteness::stand($felder, ['email' => 'a@b.de']);
 
         $this->assertSame(50, $stand['prozent']);
-        $this->assertSame(['Schuhgroesse (Zahl)'], $stand['fehlend']);
+        $this->assertSame(['shoe_size' => 'Schuhgroesse (Zahl)'], $stand['fehlend']);
     }
 
     public function test_leerstring_und_leeres_array_gelten_als_fehlend(): void

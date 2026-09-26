@@ -16,18 +16,18 @@ final class PortalCompleteness
     /**
      * @param array<string,array<string,mixed>> $felder  sichtbare Felder (flach)
      * @param array<string,mixed> $datensatz             gecastete Attributwerte
-     * @return array{prozent:int, gesamt:int, gefuellt:int, fehlend:list<string>, fehlendFelder:array<string,string>}
+     * @return array{prozent:int, gesamt:int, gefuellt:int, fehlend:array<string,string>}
      */
     public static function stand(array $felder, array $datensatz): array
     {
         $gesamt = 0;
         $gefuellt = 0;
+        // Feldschluessel => Beschriftung. Der Schluessel ist seit dem
+        // Schlussfix F1 noetig: der Ring muss die Pflichtangaben vom Rest
+        // trennen koennen, und ein Vergleich ueber die Beschriftung waere
+        // dafuer zu grob -- zwei Felder duerfen dieselbe tragen
+        // ("Gueltig bis" gibt es zweimal).
         $fehlend = [];
-        // Dieselben Luecken, nur mit ihrem SCHLUESSEL davor. Der Ring muss
-        // die Pflichtangaben vom Rest trennen koennen (Schlussfix F1), und
-        // ein Vergleich ueber die Beschriftung waere dafuer zu grob: zwei
-        // Felder duerfen dieselbe tragen ("Gueltig bis").
-        $fehlendFelder = [];
 
         foreach ($felder as $schluessel => $meta) {
             if (!PortalFieldRelevance::istRelevant($meta, $datensatz)) {
@@ -36,8 +36,7 @@ final class PortalCompleteness
             $gesamt++;
             $wert = $datensatz[$schluessel] ?? null;
             if ($wert === null || $wert === '' || $wert === []) {
-                $fehlend[] = (string) ($meta['label'] ?? $schluessel);
-                $fehlendFelder[$schluessel] = (string) ($meta['label'] ?? $schluessel);
+                $fehlend[$schluessel] = (string) ($meta['label'] ?? $schluessel);
                 continue;
             }
             $gefuellt++;
@@ -48,7 +47,6 @@ final class PortalCompleteness
             'gesamt'   => $gesamt,
             'gefuellt' => $gefuellt,
             'fehlend'  => $fehlend,
-            'fehlendFelder' => $fehlendFelder,
         ];
     }
 }

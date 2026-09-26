@@ -516,7 +516,9 @@ class PortalShell extends Component
                 'code'  => 'pflicht:' . $eintrag['feld'],
                 'label' => $eintrag['label'],
                 'punkt' => 'crit',
-                'text'  => 'Pflichtangabe — fehlt noch',
+                // Kein Gedankenstrich: die Zeile zeigt schon "Label — Text",
+                // zwei Striche hintereinander liest niemand.
+                'text'  => 'Pflichtangabe, fehlt noch',
                 'offen' => true,
             ];
         }, $pflicht);
