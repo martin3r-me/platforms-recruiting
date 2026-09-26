@@ -9,9 +9,12 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\View\Compilers\BladeCompiler;
+use Livewire\Attributes\Locked;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\EmployeePortal;
 use Platform\Recruiting\Livewire\Public\PortalShell;
@@ -74,6 +77,9 @@ use Platform\Recruiting\Support\ProofTypes;
  *   N2, §3.3                      test_nebenwirkung_lohn_trigger
  *   N5                            test_nebenwirkung_telefonabgleich
  *   E3                            test_kein_erzwingendes_zahlentastatur_attribut
+ *   E6 (Auth-Bypass)              test_alles_was_ueber_identitaet_entscheidet_ist_gesperrt
+ *   §1.1 gerendert                test_das_offene_gruppen_blatt_rendert_ein_feld_je_eintrag
+ *   §1.1 gerendert, Anzeigewert   test_die_gruppenzeile_rendert_den_gespeicherten_stand
  *   N9, N10                       test_beide_portale_teilen_sitzung_und_sperre
  *   E18/R2                        test_das_alte_portal_leitet_weiter_solange_es_steht
  *
@@ -239,11 +245,32 @@ final class PortalGleichstandTest extends TestCase
         Facade::clearResolvedInstances();
     }
 
+    /** Fuer die kompilierten Blade-Ausschnitte (siehe rendere()). */
+    private string $tmpDir = '';
+
     protected function setUp(): void
     {
         Capsule::table('rec_employees')->delete();
         Capsule::table('rec_applicant_settings')->delete();
         self::$telefonAbgleich->gerufenFuer = [];
+
+        $this->tmpDir = sys_get_temp_dir() . '/recruiting-gleichstand-' . getmypid() . '-' . uniqid();
+        if (!is_dir($this->tmpDir) && !mkdir($this->tmpDir, 0777, true) && !is_dir($this->tmpDir)) {
+            $this->fail('Temp-Verzeichnis nicht anlegbar: ' . $this->tmpDir);
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->tmpDir !== '' && is_dir($this->tmpDir)) {
+            foreach (glob($this->tmpDir . '/*') ?: [] as $rest) {
+                if (is_file($rest)) {
+                    unlink($rest);
+                }
+            }
+            rmdir($this->tmpDir);
+        }
+        $this->tmpDir = '';
     }
 
     // -----------------------------------------------------------------
@@ -957,8 +984,18 @@ final class PortalGleichstandTest extends TestCase
         $ohneMarker = array_values(array_diff($editierbar, RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS));
 
         $this->assertCount(42, $mitMarker, '§3.2 nennt 42 Spalten mit Marker, gerechnet: ' . count($mitMarker));
+        // SORTIERT verglichen: die Reihenfolge kommt aus den Feldgruppen, und
+        // deren Reihenfolge ist Anzeige, nicht Zusage. Ein Umsortieren der
+        // Gruppen ist folgenlos und darf diese Abnahme nicht aus dem falschen
+        // Grund rot machen.
+        sort($ohneMarker);
+        $erwartetOhneMarker = [
+            'phone', 'is_main_employer', 'other_employer',
+            'erstbescheinigung_file_id', 'first_aider_certificate_file_id',
+        ];
+        sort($erwartetOhneMarker);
         $this->assertSame(
-            ['phone', 'is_main_employer', 'other_employer', 'erstbescheinigung_file_id', 'first_aider_certificate_file_id'],
+            $erwartetOhneMarker,
             $ohneMarker,
             '§3.2: die fuenf Spalten mit Marker-VERBOT haben sich geaendert',
         );
@@ -1089,6 +1126,248 @@ final class PortalGleichstandTest extends TestCase
     public function test_kein_erzwingendes_zahlentastatur_attribut(): void
     {
         $this->assertStringNotContainsString('inputmode', $this->blade());
+    }
+
+    /**
+     * Schneidet eine Blade-Schleife samt ihrer PASSENDEN Schliessung aus,
+     * kompiliert sie mit dem echten BladeCompiler und fuehrt sie aus.
+     *
+     * Der Schnitt zaehlt @foreach/@forelse gegen @endforeach/@endforelse, statt
+     * einfach die erste Schliessung zu nehmen: die Feld-Schleife enthaelt
+     * verschachtelte Options-Schleifen, ein naiver Schnitt haette dort mitten
+     * im Block geendet und ein Bruchstueck gerendert, das zufaellig noch
+     * kompiliert.
+     *
+     * Ausgefuehrt wird MIT gebundenem $this auf die echte Komponente — das
+     * Blatt ruft $this->lookupOptionen() fuer Auswahlfelder. Eine Attrappe
+     * waere hier die falsche Antwort: es soll die echte Methode laufen (sie
+     * faengt den fehlenden Lookup-Tisch selbst ab und liefert eine leere
+     * Liste).
+     *
+     * @param array<string,mixed> $variablen Name => Wert fuer den Ausschnitt
+     */
+    private function rendere(PortalShell $shell, string $start, array $variablen): string
+    {
+        $quelle = $this->blade();
+
+        $this->assertSame(
+            1,
+            substr_count($quelle, $start),
+            "Der Anfang des Ausschnitts kommt nicht genau einmal im Blade vor — "
+            . "entweder ist die Schleife weg oder sie heisst anders: {$start}",
+        );
+
+        $von = strpos($quelle, $start);
+        $tiefe = 0;
+        $bis = null;
+        if (preg_match_all('/@(foreach|forelse|endforeach|endforelse)\b/', $quelle, $treffer, PREG_OFFSET_CAPTURE, $von)) {
+            foreach ($treffer[1] as $i => [$wort, $wo]) {
+                $tiefe += str_starts_with($wort, 'end') ? -1 : 1;
+                if ($tiefe === 0) {
+                    $bis = $treffer[0][$i][1] + strlen($treffer[0][$i][0]);
+                    break;
+                }
+            }
+        }
+        $this->assertNotNull($bis, "Keine passende Schliessung zu: {$start}");
+
+        $ausschnitt = substr($quelle, $von, $bis - $von);
+
+        $compiler = new BladeCompiler(new Filesystem(), $this->tmpDir);
+        $datei = $this->tmpDir . '/' . md5($start) . '.php';
+        file_put_contents($datei, $compiler->compileString($ausschnitt));
+
+        // $__env kommt aus dem ECHTEN Laravel-Verhalten (ManagesLoops), damit
+        // hier keine Attrappe mitwandern muss, sobald Laravel die
+        // Schleifen-Kompilierung aendert.
+        $variablen['__env'] = new class {
+            use \Illuminate\View\Concerns\ManagesLoops;
+        };
+        $variablen['__datei'] = $datei;
+
+        $lauf = function (array $__v): string {
+            extract($__v);
+            ob_start();
+            include $__datei;
+
+            return (string) ob_get_clean();
+        };
+
+        return \Closure::bind($lauf, $shell, PortalShell::class)($variablen);
+    }
+
+    /**
+     * E6 — DER AUTH-BYPASS. Der eine Punkt dieser Liste, bei dem ein
+     * Rueckfall kein Aerger ist, sondern ein Datenleck.
+     *
+     * Am 19.08.2026 war das verifiziert ausnutzbar: `$wire.set('state',
+     * 'verified')` umging Geburtsdatum und Ausweisziffern vollstaendig.
+     * `mount()` hat `$employeeId` zu diesem Zeitpunkt laengst aus dem Token
+     * gesetzt — wer nur einen weitergeleiteten Link hat, saehe damit das
+     * volle Profil. Der Schutz ist einzig `#[Locked]`.
+     *
+     * DIESE LISTE WIRD BEWUSST NICHT AUS DER KLASSE ABGELEITET. Eine
+     * abgeleitete Liste wuerde sagen "was gesperrt ist, ist gesperrt" — also
+     * gar nichts. Ausgeschrieben haelt sie die ABSICHT fest: wer eine
+     * Eigenschaft hinzufuegt, die ueber Identitaet oder Zustand entscheidet,
+     * soll sie hier bewusst eintragen. Die Gegenprobe ist, `#[Locked]`
+     * testweise von `state` zu nehmen — dann wird diese Zeile rot, und zwar
+     * als einzige im ganzen Modul.
+     *
+     * Bis zu dieser Fixrunde gab es dafuer NIRGENDS im Modul eine
+     * Zusicherung; "Locked" kam in tests/ nur als Import vor.
+     */
+    public function test_alles_was_ueber_identitaet_entscheidet_ist_gesperrt(): void
+    {
+        $gesperrt = [
+            'state'        => 'der Anmeldezustand selbst — genau der Bypass vom 19.08.2026',
+            'employeeId'   => 'WESSEN Akte gezeigt wird',
+            'token'        => 'der Ausweis der Sitzung',
+            'displayName'  => 'Identitaet, faehrt im Schnappschuss mit',
+            'initialen'    => 'Identitaet, faehrt im Schnappschuss mit',
+            'duzen'        => 'kommt aus den Team-Einstellungen, nicht vom Menschen',
+            'profilGruppe' => 'entscheidet, WELCHE Felder geschrieben werden',
+        ];
+
+        $klasse = new \ReflectionClass(PortalShell::class);
+
+        foreach ($gesperrt as $name => $warum) {
+            $this->assertTrue(
+                $klasse->hasProperty($name),
+                "Die Eigenschaft {$name} gibt es nicht mehr — umbenannt? Dann gehoert der "
+                . "neue Name hier hinein, sonst faellt der Schutz still weg ({$warum})",
+            );
+            $this->assertNotSame(
+                [],
+                $klasse->getProperty($name)->getAttributes(Locked::class),
+                "#[Locked] fehlt an PortalShell::\${$name} — {$warum}. "
+                . 'Ohne das Attribut setzt $wire.set die Eigenschaft direkt (E6).',
+            );
+        }
+
+        // Negativ-Gegenstueck, damit die Zusicherung oben nicht als "alles
+        // sperren" missverstanden wird: die Eingaben des Menschen sind
+        // ABSICHTLICH offen. Ihre Sicherheit sitzt darin, dass jeder
+        // Schreibweg erneut ueber berechtigterMitarbeiter() geht.
+        foreach (['birthDate', 'idLast4', 'profilWerte', 'uploadCode'] as $offen) {
+            $this->assertSame(
+                [],
+                $klasse->getProperty($offen)->getAttributes(Locked::class),
+                "{$offen} ist gesperrt — dann kann der Mensch nichts mehr eintippen",
+            );
+        }
+    }
+
+    /**
+     * §1.1, GERENDERT: das offene Gruppen-Blatt erzeugt wirklich je Feld ein
+     * Eingabefeld.
+     *
+     * Bis zu dieser Fixrunde endete die ganze Abnahme bei `profilDaten()` —
+     * die Blade wurde durchsucht und auf Kompilierbarkeit geprueft, aber nie
+     * ausgefuehrt. Wer die Schleife ueber die Profil-Felder umbenennt oder
+     * entfernt, haette ein leeres Blatt ausgeliefert, in das niemand mehr
+     * etwas eintragen kann, und alles waere gruen geblieben.
+     *
+     * Gemessen wird gegen die ECHTE Ausgabe von `profilDaten()`, nicht gegen
+     * eine gebaute Vorlage: erst `oeffneGruppe()`, dann rendern.
+     *
+     * GRENZE, benannt statt behauptet: die Eingabefelder tragen KEIN
+     * `value`-Attribut. Das ist kein Mangel, sondern die Bauart — Livewire
+     * fuellt `wire:model` auf der Seite. Wo der gespeicherte Stand wirklich
+     * sichtbar wird, misst der naechste Test (die Gruppenzeile).
+     */
+    public function test_das_offene_gruppen_blatt_rendert_ein_feld_je_eintrag(): void
+    {
+        $ma = $this->mitarbeiter([
+            'nationality'      => 'deutsch',
+            'is_main_employer' => true,
+            'street'           => 'Hauptstrasse',
+            'city'             => 'Koeln',
+        ]);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Adresse');
+
+        $felder = $this->profil($shell, $ma)['felder'];
+        $this->assertNotSame([], $felder);
+
+        $aus = $this->rendere(
+            $shell,
+            '@foreach ($profilFelder as $schluessel => $feld)',
+            ['profilFelder' => $felder],
+        );
+
+        foreach ($felder as $schluessel => $feld) {
+            $this->assertStringContainsString(
+                'profilWerte.' . $schluessel,
+                $aus,
+                "Das Blatt rendert kein Eingabefeld fuer {$schluessel} — der Mensch kann es nicht mehr eintragen",
+            );
+            $this->assertStringContainsString(
+                $feld['label'],
+                $aus,
+                "Die Beschriftung von {$schluessel} fehlt im gerenderten Blatt",
+            );
+        }
+
+        // Und die Bauart stimmt: Auswahlfelder werden zu <select>, freie
+        // Felder zu <input type="text">. Beide Typen kommen in dieser Gruppe
+        // vor (5x text, 2x lookup) — deshalb ist sie hier gewaehlt.
+        $this->assertStringContainsString('<select wire:model.defer="profilWerte.nationality"', $aus);
+        $this->assertStringContainsString('<input type="text" wire:model.defer="profilWerte.street"', $aus);
+    }
+
+    /**
+     * §1.1, GERENDERT: die Gruppenzeile zeigt den gespeicherten Stand.
+     *
+     * Das ist die Stelle, an der der Wert wirklich auf dem Schirm steht (im
+     * Blatt haengt er an `wire:model`, siehe oben). Faellt die Zeile weg oder
+     * rendert sie die falsche Quelle, sieht der Mensch seine Angaben nicht
+     * mehr — und der rote Punkt fuer offene Pflichtfelder verschwindet
+     * gleich mit.
+     */
+    public function test_die_gruppenzeile_rendert_den_gespeicherten_stand(): void
+    {
+        $ma = $this->mitarbeiter([
+            'nationality'      => 'deutsch',
+            'is_main_employer' => null,   // offene Pflichtangabe -> roter Punkt
+            'street'           => 'Hauptstrasse',
+            'city'             => 'Duesseldorf',
+        ]);
+        $shell = $this->shell($ma);
+        $gruppen = $this->profil($shell, $ma)['gruppen'];
+
+        $aus = $this->rendere(
+            $shell,
+            '@foreach ($profilGruppen as $name => $gruppe)',
+            ['profilGruppen' => $gruppen],
+        );
+
+        // Der Gruppenname steht MASKIERT im Attribut — "Steuer & Versicherung"
+        // wird zu "Steuer &amp; Versicherung". Das ist richtig so (der Browser
+        // macht es beim Auslesen wieder rueckgaengig), und es ist der Grund,
+        // warum hier gegen die maskierte Form geprueft wird und nicht gegen
+        // den Rohnamen: sonst behauptete der Test, genau diese Gruppe sei
+        // nicht antippbar.
+        foreach (array_keys($gruppen) as $name) {
+            $maskiert = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+            $this->assertStringContainsString(
+                "oeffneGruppe('" . $maskiert . "')",
+                $aus,
+                "Die Gruppe „{$name}“ ist nicht mehr antippbar",
+            );
+        }
+
+        $this->assertStringContainsString('Duesseldorf', $aus, 'Der gespeicherte Ort steht nicht in der Zeile');
+        $this->assertStringContainsString('Hauptstrasse', $aus, 'Die gespeicherte Strasse steht nicht in der Zeile');
+
+        // Der rote Punkt haengt an derselben Quelle wie der Ring: die
+        // Arbeitgeber-Frage ist unbeantwortet, also muss er da sein.
+        $this->assertGreaterThan(0, $gruppen['Arbeitgeber']['offen']);
+        $this->assertStringContainsString(
+            'dot crit',
+            $aus,
+            'Der rote Punkt fuer offene Pflichtfelder wird nicht mehr gerendert',
+        );
     }
 
     /**
@@ -1326,11 +1605,19 @@ final class PortalGleichstandTest extends TestCase
      *     einen Zugewinn. GEMESSEN unten.
      *  4. E1 und E10 (Tailwind-Variable `--ui-primary-dark`, geerbtes
      *     `dark:text-white` aus dem Guest-Layout von platforms-core). NICHT
-     *     ANWENDBAR: das neue Portal bringt sein eigenes Layout mit.
-     *     GEMESSEN unten.
-     *  5. E4, `style="color-scheme: light"` an jedem Datumsfeld — ersetzt
-     *     durch `:root { color-scheme: light }` im Portal-Layout. Gleiche
-     *     Zusage, eine Stelle statt sieben. GEMESSEN unten.
+     *     ANWENDBAR, weil das neue Portal sein eigenes Layout mitbringt und
+     *     kein Tailwind benutzt. Gemessen wird deshalb die VORAUSSETZUNG und
+     *     nicht die Abwesenheit der Variablen — letzteres waere trivial
+     *     gruen. GEMESSEN unten.
+     *  5. E4 ist KEINE "gleiche Zusage an einer Stelle statt an sieben" —
+     *     diese Begruendung war falsch und ist hier richtiggestellt. Das alte
+     *     Portal ERZWINGT Hell (`style="color-scheme: light"` an jedem
+     *     Datumsfeld), weil seine Seite durchgehend hell ist. Das neue Portal
+     *     hat ein echtes Dunkeldesign und sagt etwas ANDERES zu: die nativen
+     *     Bedienelemente folgen der Seite — `:root { color-scheme: light }`
+     *     als Vorgabe UND `:root:not([data-theme="light"]) { color-scheme:
+     *     dark }` unter `prefers-color-scheme: dark`. Beide Haelften werden
+     *     unten festgehalten; nur die erste zu pruefen war wirkungslos.
      *  6. §5 Punkt 3: Datei ansehen, herunterladen, ersetzen-und-loeschen.
      *     Kann das alte nicht, kann das neue nicht. Kein Rueckschritt, aber
      *     auch kein Fortschritt — bleibt offen.
@@ -1394,19 +1681,69 @@ final class PortalGleichstandTest extends TestCase
         );
         $this->assertStringContainsString('report($e)', $shellQuelle, 'Punkt 3: die Ausnahme wird nirgends mehr gemeldet');
 
-        // Punkt 4 — eigenes Layout, keine geerbten Fallen.
+        // Punkt 4 — E1 und E10 sind NICHT ANWENDBAR, und zwar aus einem
+        // Grund, der selber kaputtgehen kann: beide haengen an Tailwind bzw.
+        // am Guest-Layout aus platforms-core, und das neue Portal benutzt
+        // keines von beidem.
+        //
+        // Eine blosse Suche nach '--ui-primary-dark' waere hier Theater: die
+        // Variable kann gar nicht auftauchen, solange kein Tailwind im Spiel
+        // ist. Gemessen wird deshalb die VORAUSSETZUNG — sobald jemand das
+        // neue Portal wieder ins Guest-Layout haengt, sind E1 und E10 sofort
+        // wieder anwendbar, und dann muss das hier rot werden, nicht erst der
+        // Vorfallbericht.
+        $shellQuelle2 = $this->quelle(PortalShell::class);
+        $this->assertStringContainsString(
+            "layout('recruiting::layouts.portal'",
+            $shellQuelle2,
+            'Punkt 4: das neue Portal haengt nicht mehr an seinem eigenen Layout — E1/E10 sind damit wieder anwendbar',
+        );
+        $this->assertStringNotContainsString(
+            'platform::layouts.guest',
+            $shellQuelle2,
+            'Punkt 4: das Guest-Layout ist zurueck — es vererbt dark:text-white an Eingabefelder (E10)',
+        );
+
         $blade = $this->blade();
         $this->assertStringNotContainsString('--ui-primary-dark', $blade, 'E1: die Variable ohne Definition ist zurueck');
         $this->assertStringNotContainsString('dark:text-white', $blade, 'E10: weisse Schrift auf weisser Karte ist zurueck');
 
-        // Punkt 5 — eine Stelle statt sieben.
+        // Punkt 5 — E4 ist NICHT "dieselbe Zusage an einer Stelle statt an
+        // sieben". Das waere falsch abgeschrieben, und es stuende in einem
+        // Jahr als Begruendung in der Akte.
+        //
+        // Das ALTE Portal ERZWINGT Hell: style="color-scheme: light" an jedem
+        // Datumsfeld, weil seine Seite durchgehend hell ist und ein dunkler
+        // nativer Kalender darin unsichtbar waere.
+        // Das NEUE Portal hat ein echtes Dunkeldesign. Seine Zusage ist eine
+        // ANDERE: die nativen Bedienelemente FOLGEN der Seite — hell als
+        // Vorgabe, dunkel, sobald das Geraet dunkel ist.
+        //
+        // Deshalb haelt die Zusicherung BEIDE Haelften fest. Nur die erste zu
+        // pruefen war wirkungslos: wer die Dunkel-Kopplung ganz entfernt,
+        // waere gruen geblieben — und haette damit genau den Zustand
+        // hergestellt, den die Akte faelschlich schon behauptete.
         $layout = (string) file_get_contents(
             dirname(__DIR__, 2) . '/resources/views/layouts/portal.blade.php',
         );
-        $this->assertStringContainsString('color-scheme: light', $layout);
-        // Gegen den GERENDERTEN Teil gemessen, nicht gegen den Quelltext: die
-        // Blade erklaert in einem Kommentar ausdruecklich, warum sie das
-        // Attribut NICHT mehr setzt — ein Treffer dort waere kein Befund.
+        $hell = strpos($layout, ':root { color-scheme: light }');
+        $this->assertNotFalse($hell, 'E4: die helle Vorgabe fehlt — im Hellmodus waere der Kalender-Glyph unsichtbar');
+
+        $dunkel = strpos($layout, 'color-scheme: dark', $hell === false ? 0 : $hell);
+        $this->assertNotFalse(
+            $dunkel,
+            'E4: die Kopplung an den Dunkelmodus ist weg — das neue Portal erzwingt jetzt Hell, obwohl es ein Dunkeldesign hat',
+        );
+        $this->assertStringContainsString(
+            'prefers-color-scheme: dark',
+            $layout,
+            'E4: der dunkle Zweig haengt an keiner Geraetefrage mehr',
+        );
+
+        // Und die Umsetzung sitzt im Layout, nicht wieder an jedem Feld.
+        // Gegen den GERENDERTEN Teil gemessen: die Blade erklaert in einem
+        // Kommentar ausdruecklich, warum sie das Attribut NICHT mehr setzt —
+        // ein Treffer dort waere kein Befund.
         $this->assertStringNotContainsString(
             'style="color-scheme',
             $this->bladeOhneKommentare(),
