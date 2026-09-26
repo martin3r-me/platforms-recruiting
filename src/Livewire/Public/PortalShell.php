@@ -411,10 +411,15 @@ class PortalShell extends Component
      * Vorher blockte eine fehlende Angabe aus einer FREMDEN Gruppe (z. B.
      * Staatsangehoerigkeit) jedes Speichern, auch Bankdaten oder
      * Hemdgroesse -- bei zwei gleichzeitig fehlenden Pflichtangaben ein
-     * echter Ping-Pong-Deadlock (siehe PortalProfileGuards-Docblock). Eine
-     * Vollspeicherung ohne Gruppe (altes Portal, EmployeePortal::saveAll())
-     * bleibt unveraendert bei allen drei Waechtern. Ein Waechterfehler haelt
-     * das Blatt OFFEN, OHNE die Eingaben neu zu laden -- sie bleiben stehen
+     * echter Ping-Pong-Deadlock (siehe PortalProfileGuards-Docblock). Der
+     * gruppenlose Pfad dieses Schreibwegs (Vollspeicherung ohne Gruppe)
+     * bleibt unveraendert bei allen drei Waechtern -- RICHTIGSTELLUNG
+     * (Fixrunde 2, 26.09.2026): das ist NICHT dasselbe wie EmployeePortal::
+     * saveAll(). Das alte Portal ruft PortalProfileWriter/PortalProfileGuards
+     * gar nicht auf, es hat seine eigene, unberuehrte Kaskade; der
+     * gruppenlose Pfad hier hat aktuell keinen Produktionsaufrufer. Ein
+     * Waechterfehler haelt das Blatt OFFEN, OHNE die Eingaben neu zu laden --
+     * sie bleiben stehen
      * (EmployeePortal.php:288).
      */
     public function speichereGruppe(): void
@@ -713,14 +718,20 @@ class PortalShell extends Component
      * Anzeigewert fuer ein einzelnes Feld (Gruppenzeile, PortalGroupSummary)
      * -- woertlich wie EmployeePortal::formatDisplayValue() (Zeilen 547-559)
      * inklusive des default-Zweigs, in den inline_select faellt (§1.4
-     * Punkt 1: Wert und Beschriftung sind dort derselbe String), UND
-     * inklusive des 'file'-Zweigs (I1, Fixrunde 1 zu Aufgabe 6): der fehlte
-     * hier zuerst und liess ein Datei-Feld auf den default-Zweig
-     * durchfallen -- eine rohe Datei-Id statt eines Dateinamens. Der
-     * aktuelle Aufrufer (profilDaten(), Gruppenzeile) ruft diesen Zweig
-     * bewusst nicht mehr auf Datei-Felder auf (siehe Kommentar dort), die
-     * Methode bleibt trotzdem fuer sich vollstaendig und in Deckung mit
-     * EmployeePortal.
+     * Punkt 1: Wert und Beschriftung sind dort derselbe String).
+     *
+     * OHNE 'file'-Zweig, ANDERS als EmployeePortal::formatDisplayValue()
+     * (Entscheidung, Fixrunde 2 zu Aufgabe 6, 26.09.2026): der einzige
+     * Aufrufer (profilDaten(), Gruppenzeile) ruft diese Methode seit I1 gar
+     * nicht mehr fuer Datei-Felder auf -- sie laufen exklusiv ueber die
+     * Kacheln (Vollstaendigkeits-Icons), eine zweite Erscheinung in der Zeile
+     * waere Rauschen (die Kacheln zeigen ohnehin, ob eine Datei da ist) und
+     * ein Dateiname-Lookup pro Render zusaetzliche Abfragen (allein
+     * "Ausweis" drei Datei-Felder). Ein 'file'-Zweig ohne erreichbaren
+     * Aufrufer waere Ballast mit einem Test, der nur sich selbst pinnt --
+     * deshalb hier bewusst NICHT nachgebaut. Faellt ein Datei-Feld doch
+     * durch, landet es im default-Zweig (rohe Id) -- das darf nicht
+     * passieren, siehe der Ausschluss in profilDaten().
      */
     private function anzeigewert(RecEmployee $employee, string $feld, array $meta): string
     {
@@ -735,24 +746,8 @@ class PortalShell extends Component
             'bool'   => $wert ? 'Ja' : 'Nein',
             'lookup' => $this->lookupOptionen($meta['lookup'] ?? '')[(string) $wert] ?? (string) $wert,
             'date'   => $this->anzeigedatum($wert),
-            'file'   => $this->dateiname((int) $wert) ?? "Datei #{$wert}",
             default  => (string) $wert,
         };
-    }
-
-    /** Dateiname zu einer ContextFile-Id -- woertlich wie EmployeePortal::fileNameForId(). */
-    private function dateiname(?int $fileId): ?string
-    {
-        if (!$fileId) {
-            return null;
-        }
-        try {
-            $file = \Platform\Core\Models\ContextFile::find($fileId);
-
-            return $file?->original_name;
-        } catch (\Throwable) {
-            return null;
-        }
     }
 
     private function anzeigedatum($wert): string

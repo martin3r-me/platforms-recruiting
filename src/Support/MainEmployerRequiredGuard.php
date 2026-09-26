@@ -11,6 +11,22 @@ namespace Platform\Recruiting\Support;
  * Bestands-MA soll sie beim naechsten Portalbesuch nachtragen muessen und
  * nicht beliebig lange umgehen koennen.
  *
+ * ZWEI PORTALE, ZWEI REICHWEITEN (Fixrunde 2 zu Aufgabe 6, 26.09.2026): "blockt
+ * auch Saves, die nur andere Felder aendern" gilt VOLLSTAENDIG im ALTEN
+ * Portal (EmployeePortal::saveAll() ruft diesen Waechter direkt auf,
+ * ausserhalb jeder Gruppe, ALLE Felder stehen dort auf EINER Seite) und im
+ * gruppenlosen Pfad von PortalProfileWriter/PortalProfileGuards
+ * (Vollspeicherung ohne Gruppe, aktuell ohne Produktionsaufrufer). Im NEUEN
+ * Portal (PortalShell, gruppenweises Speichern seit C1) blockt sie NICHT
+ * MEHR jeden Save, sondern nur noch das Speichern der Gruppe "Arbeitgeber"
+ * selbst — eine fehlende Angabe hier haelt Bankdaten, Ausweis oder
+ * Arbeitskleidung nicht mehr auf. Grund: die alte Regel funktioniert nur,
+ * solange alle Felder auf einer Seite stehen — bei Gruppen wuerde daraus ein
+ * Deadlock, der das ganze Profil einfriert, sobald zwei cross-cutting
+ * Pflichtangaben gleichzeitig fehlen (siehe PortalProfileGuards-Docblock).
+ * Was den Druck im neuen Portal ersetzt: der Vollstaendigkeitsring und der
+ * Offen-Zaehler im Start-Bereich.
+ *
  * Der Name des anderen Arbeitgebers ist NUR bei "nein" Pflicht. Wer sagt,
  * wir seien der Hauptarbeitgeber, darf trotzdem nebenher woanders arbeiten —
  * erlaubt, aber keine Bringschuld.

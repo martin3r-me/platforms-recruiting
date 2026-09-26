@@ -197,13 +197,12 @@ final class PortalShellProfilDatenTest extends TestCase
 
     // -----------------------------------------------------------------
     // I1: anzeigewert() ohne 'file'-Zweig zeigte rohe Datei-Ids in der
-    // Gruppenzeile. Entscheidung (siehe Bericht): Datei-Felder erscheinen
-    // NICHT in der Zusammenfassung -- sie laufen exklusiv ueber die Kacheln
-    // (Vollstaendigkeits-Icons), eine zweite Erscheinung waere Rauschen und
-    // ist nicht ausfallsicher (Dateiname-Lookup kann scheitern). Der
-    // 'file'-Zweig selbst wird trotzdem woertlich uebernommen, damit
-    // anzeigewert() als Methode fuer sich korrekt ist -- unabhaengig davon,
-    // ob der aktuelle Aufrufer (die Gruppenzeile) sie fuer Dateien nutzt.
+    // Gruppenzeile. Entscheidung (Fixrunde 2, siehe Bericht): Datei-Felder
+    // erscheinen NICHT in der Zusammenfassung -- sie laufen exklusiv ueber
+    // die Kacheln (Vollstaendigkeits-Icons), eine zweite Erscheinung waere
+    // Rauschen und ein Dateiname-Lookup pro Render zusaetzliche Abfragen.
+    // KEIN 'file'-Zweig in anzeigewert() -- ein Zweig ohne erreichbaren
+    // Aufrufer waere Ballast mit einem Test, der nur sich selbst pinnt.
     // -----------------------------------------------------------------
 
     public function test_gruppenzeile_ausweis_enthaelt_keine_rohen_datei_ids(): void
@@ -236,25 +235,6 @@ final class PortalShellProfilDatenTest extends TestCase
         $profil = $this->profilDaten($shell, $ma);
 
         $this->assertGreaterThan(0, $profil['gruppen']['Ausweis']['offen']);
-    }
-
-    public function test_anzeigewert_datei_zweig_liefert_nicht_die_rohe_id(): void
-    {
-        // Direkter Methodentest: selbst wenn irgendein kuenftiger Aufrufer
-        // anzeigewert() mit einem file-Feld aufruft, darf das Ergebnis nicht
-        // die rohe Id sein (der Bug aus dem Bericht). Ohne echte
-        // ContextFile-Tabelle in dieser Suite faellt der Lookup auf den
-        // "Datei #<id>"-Fallback zurueck -- auch das ist kein Rueckfall auf
-        // die nackte Zahl.
-        $ma = $this->mitarbeiter(['selfie_file_id' => 5004]);
-        $shell = $this->shell($ma);
-
-        $methode = new ReflectionMethod($shell, 'anzeigewert');
-        $methode->setAccessible(true);
-        $ergebnis = $methode->invoke($shell, $ma, 'selfie_file_id', ['type' => 'file', 'label' => 'Selfie']);
-
-        $this->assertNotSame('5004', $ergebnis);
-        $this->assertStringContainsString('5004', $ergebnis, 'Fallback ohne Dateiname bleibt nachvollziehbar (Datei #5004), nur nicht die nackte Zahl.');
     }
 
     // -----------------------------------------------------------------

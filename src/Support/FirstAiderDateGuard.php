@@ -13,6 +13,21 @@ namespace Platform\Recruiting\Support;
  * anderes Feld geaendert wurde — so wird ein per lenientem ZAS-Import
  * entstandener "Ja ohne Datum"-MA beim naechsten Edit repariert.
  *
+ * ZWEI PORTALE, ZWEI REICHWEITEN (Fixrunde 2 zu Aufgabe 6, 26.09.2026): diese
+ * Zusicherung gilt VOLLSTAENDIG in BEIDEN direkten Aufrufern unten -- HR
+ * (Employees/Show, ohne Gruppen) UND das ALTE Portal (EmployeePortal::
+ * saveAll(), ruft ebenfalls direkt auf, ausserhalb jeder Gruppe, ALLE Felder
+ * stehen dort auf EINER Seite) -- sowie im gruppenlosen Pfad von
+ * PortalProfileWriter/PortalProfileGuards (Vollspeicherung ohne Gruppe,
+ * aktuell ohne Produktionsaufrufer). Im NEUEN Portal (PortalShell,
+ * gruppenweises Speichern seit C1) blockt sie NICHT MEHR jeden Save,
+ * sondern nur noch das Speichern der Gruppe "Arbeitsschutz" selbst.
+ * Grund: die Regel funktioniert nur, solange alle Felder auf einer Seite
+ * stehen -- bei Gruppen wuerde daraus ein Deadlock, der das ganze Profil
+ * einfriert, sobald zwei cross-cutting Pflichtangaben gleichzeitig fehlen
+ * (siehe PortalProfileGuards-Docblock). Was den Druck im neuen Portal
+ * ersetzt: der Vollstaendigkeitsring und der Offen-Zaehler im Start-Bereich.
+ *
  * Zwei Ausbaustufen, eine Regel:
  *  - HR (Employees/Show) ruft OHNE $requireCertificate auf. Dort ist nur
  *    das Bis-Datum Pflicht — HR soll nicht an einer Datei haengenbleiben,

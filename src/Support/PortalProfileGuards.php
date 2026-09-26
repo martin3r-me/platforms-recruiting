@@ -12,6 +12,13 @@ namespace Platform\Recruiting\Support;
  * eine andere Meldung sehen. Eine parallele Sammelvalidierung wuerde andere
  * Fehlertexte zeigen als heute.
  *
+ * Im neuen Portal steht immer nur EINE Gruppe im Formular. Die Rueckfaelle
+ * auf den Datensatz sind damit der Normalfall — und der Rueckfall beim
+ * dreiwertigen is_main_employer geht ausdruecklich NICHT ueber (string):
+ * (string) false ergibt '', also genau die Form, die der Waechter als
+ * "unbeantwortet" liest. Wer ordentlich "nein" geantwortet hat, koennte
+ * dann nie wieder speichern (E11/R18).
+ *
  * GEDREHT 25.09.2026, Fixrunde 1 zu Aufgabe 6 (Ruling des Koordinators, C1):
  * ein Waechter blockt nur noch, wenn mindestens eines SEINER Felder in der
  * uebergebenen REICHWEITE liegt. Vorher liefen alle drei immer, unabhaengig
@@ -28,8 +35,12 @@ namespace Platform\Recruiting\Support;
  *
  * Bei einer VOLLSPEICHERUNG ohne Gruppe (reichweite = ALLE editierbaren
  * Felder, siehe PortalProfileWriter) sind zwangslaeufig immer alle drei
- * Waechter betroffen — der Gleichstand mit EmployeePortal::saveAll() bleibt
- * fuer diesen Pfad also unangetastet.
+ * Waechter betroffen. RICHTIGSTELLUNG (Fixrunde 2, 26.09.2026): das ist NICHT
+ * "der Gleichstand mit EmployeePortal::saveAll()" — das alte Portal ruft
+ * diese Klasse gar nicht auf, es hat seine eigene, unberuehrte Kaskade (drei
+ * direkte Aufrufe der Waechter in EmployeePortal.php). Der gruppenlose Pfad
+ * ist der Vollspeicherungs-Pfad DIESES Schreibwegs (PortalProfileWriter) —
+ * aktuell ohne Produktionsaufrufer.
  */
 final class PortalProfileGuards
 {
