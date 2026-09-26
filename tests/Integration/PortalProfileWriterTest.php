@@ -342,18 +342,24 @@ class PortalProfileWriterTest extends TestCase
         $this->assertNull($this->frisch($ma)->zas_changed_at, 'Ein geblockter Save darf keinen Marker hinterlassen.');
     }
 
-    public function test_ersthelfer_waechter_blockt_die_arbeitskleidung(): void
+    public function test_ersthelfer_waechter_blockt_die_arbeitskleidung_nicht_mehr(): void
     {
-        // Der Waechter laeuft auch bei einer Gruppe, die mit ihm nichts zu tun
-        // hat — der Rueckfall auf den Datensatz ist im neuen Portal der
-        // Normalfall, weil immer nur EINE Gruppe im Formular steht.
+        // GEDREHT 25.09.2026, Fixrunde 1 zu Aufgabe 6 (Ruling C1): vorher
+        // blockte der Ersthelfer-Waechter JEDE Gruppe, auch eine, die mit ihm
+        // nichts zu tun hat -- das fror bei zwei gleichzeitig fehlenden
+        // Pflichtangaben (z.B. Ersthelfer-Datum UND Staatsangehoerigkeit) das
+        // GANZE Profil ein, weil sich keine der beiden betroffenen Gruppen
+        // mehr einzeln speichern liess (Ping-Pong-Deadlock, siehe
+        // PortalProfileGuards-Docblock). Jetzt blockt ein Waechter nur noch,
+        // wenn eines SEINER Felder in der Reichweite der offenen Gruppe
+        // liegt -- Arbeitskleidung (shirt_size/pants_size/shoe_size) hat
+        // damit nichts zu tun.
         $ma = $this->mitarbeiter(['is_first_aider' => true, 'first_aider_valid_until' => null]);
 
         $ergebnis = (new PortalProfileWriter())->speichere($ma, ['shirt_size' => 'L'], 'Arbeitskleidung');
 
-        $this->assertFalse($ergebnis['ok']);
-        $this->assertStringContainsString('Ersthelfer', $ergebnis['fehler']);
-        $this->assertNull($ma->fresh()->shirt_size);
+        $this->assertTrue($ergebnis['ok']);
+        $this->assertSame('L', $ma->fresh()->shirt_size);
     }
 
     public function test_der_waechter_liest_die_form_vor_dem_datensatz(): void

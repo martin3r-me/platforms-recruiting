@@ -107,6 +107,15 @@ final class PortalProfileWriter
         // is_first_aider und is_main_employer muessen als ?bool ankommen,
         // damit die Kaskade ihre dreiwertige Abbildung anwenden kann; ein
         // (string) false waere '' und damit "unbeantwortet" (E11/R18).
+        //
+        // $reichweite geht MIT (C1, Fixrunde 1 zu Aufgabe 6): ein Waechter
+        // blockt nur noch, wenn eines SEINER Felder zur gerade gespeicherten
+        // Gruppe gehoert -- sonst friert eine fehlende Angabe (z.B.
+        // Staatsangehoerigkeit) das GANZE Profil ein, auch Gruppen, die damit
+        // nichts zu tun haben (Bankdaten, Hemdgroesse). Bei einer
+        // Vollspeicherung ist $reichweite === $erlaubt (alle Felder), also
+        // sind zwangslaeufig immer alle drei betroffen -- siehe
+        // PortalProfileGuards-Docblock.
         $fehler = PortalProfileGuards::fehler($formwerte, [
             'is_first_aider'                  => $employee->is_first_aider,
             'first_aider_valid_until'         => $employee->first_aider_valid_until?->format('Y-m-d'),
@@ -114,7 +123,7 @@ final class PortalProfileWriter
             'nationality'                     => $employee->nationality,
             'is_main_employer'                => $employee->is_main_employer,
             'other_employer'                  => $employee->other_employer,
-        ]);
+        ], $reichweite);
         if ($fehler !== null) {
             return ['ok' => false, 'fehler' => $fehler, 'meldung' => null];
         }

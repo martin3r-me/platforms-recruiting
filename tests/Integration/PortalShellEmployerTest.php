@@ -269,20 +269,25 @@ final class PortalShellEmployerTest extends TestCase
         $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
     }
 
-    public function test_fehlende_staatsangehoerigkeit_blockt_auch_dieses_formular(): void
+    public function test_fehlende_staatsangehoerigkeit_blockt_dieses_formular_nicht_mehr(): void
     {
-        // Seit dem gemeinsamen Schreibweg haengt die GANZE Kaskade an diesem
-        // Knopf, nicht mehr nur die Arbeitgeber-Regel -- dieselbe
-        // Endzustandspruefung wie in EmployeePortal::saveAll(). Die
-        // Gegenprobe (Staatsangehoerigkeit selbst nachtragen und danach
-        // speichern koennen) steht in PortalShellProfilTest.
+        // GEDREHT 25.09.2026, Fixrunde 1 zu Aufgabe 6 (Ruling C1): vorher
+        // haengte die GANZE Kaskade an jedem Speichern, auch an einer Gruppe,
+        // die mit der Staatsangehoerigkeit nichts zu tun hat -- das erzeugte
+        // bei gleichzeitig fehlender Staatsangehoerigkeit UND fehlendem
+        // Hauptarbeitgeber einen Ping-Pong-Deadlock (siehe
+        // PortalProfileGuards-Docblock). Jetzt blockt ein Waechter nur noch
+        // fuer die Reichweite der offenen Gruppe -- die Arbeitgeber-Antwort
+        // geht also durch, auch ohne Staatsangehoerigkeit. Die fehlende
+        // Staatsangehoerigkeit bleibt als eigene offene Aufgabe sichtbar
+        // (Gegenprobe: PortalShellProfilTest, Fenster-Test).
         $ma = $this->mitarbeiter(['nationality' => null]);
         $shell = $this->shellMitOffenerArbeitgeberGruppe($ma, '1');
 
         $shell->speichereGruppe();
 
-        $this->assertStringContainsString('Staatsangeh', $shell->profilFehler);
-        $this->assertNull(RecEmployee::find($ma->id)->is_main_employer);
+        $this->assertSame('', $shell->profilFehler);
+        $this->assertTrue((bool) RecEmployee::find($ma->id)->is_main_employer);
     }
 
     // -----------------------------------------------------------------

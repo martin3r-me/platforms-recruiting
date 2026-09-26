@@ -219,19 +219,27 @@ final class PortalShellProfilTest extends TestCase
 
     public function test_waechter_haelt_das_blatt_offen_und_die_eingaben_stehen(): void
     {
-        // Early-Return OHNE Neuladen — die Eingaben bleiben stehen
-        // (EmployeePortal.php:288).
-        $ma = $this->mitarbeiter(['nationality' => null, 'is_main_employer' => true]);
+        // GEDREHT 25.09.2026, Fixrunde 1 zu Aufgabe 6 (Ruling C1): eine
+        // fremde Verletzung (Staatsangehoerigkeit) blockt eine Gruppe wie
+        // Arbeitskleidung nicht mehr, siehe
+        // PortalShellEmployerTest::test_fehlende_staatsangehoerigkeit_blockt_dieses_formular_nicht_mehr.
+        // Die Absicht des Tests bleibt aber richtig: verletzt die offene
+        // Gruppe IHRE EIGENE Regel, bleibt das Blatt offen und die Eingaben
+        // stehen — Early-Return OHNE Neuladen (EmployeePortal.php:288). Hier
+        // mit einer Verletzung, die zur offenen Gruppe ("Arbeitgeber")
+        // gehoert: "nein" ohne Namen.
+        $ma = $this->mitarbeiter(['nationality' => 'DE', 'is_main_employer' => true]);
         $shell = $this->shell($ma);
 
-        $shell->oeffneGruppe('Arbeitskleidung');
-        $shell->profilWerte['shirt_size'] = 'L';
+        $shell->oeffneGruppe('Arbeitgeber');
+        $shell->profilWerte['is_main_employer'] = '0';
+        $shell->profilWerte['other_employer'] = '';
         $shell->speichereGruppe();
 
-        $this->assertSame('Arbeitskleidung', $shell->profilGruppe);
-        $this->assertSame('L', $shell->profilWerte['shirt_size']);
-        $this->assertStringContainsString('Staatsangeh', $shell->profilFehler);
-        $this->assertNull($ma->fresh()->shirt_size);
+        $this->assertSame('Arbeitgeber', $shell->profilGruppe);
+        $this->assertSame('0', $shell->profilWerte['is_main_employer']);
+        $this->assertStringContainsString('Hauptarbeitgeber', $shell->profilFehler);
+        $this->assertTrue((bool) $ma->fresh()->is_main_employer);
     }
 
     public function test_gesperrter_zugang_speichert_nicht(): void
@@ -292,40 +300,35 @@ final class PortalShellProfilTest extends TestCase
 
     public function test_fenster_geht_zu_staatsangehoerigkeit_nachtragen_oeffnet_die_arbeitgeber_frage(): void
     {
-        // is_main_employer steht HIER schon auf "nein, Musterfirma": nicht
-        // die Angabe selbst ist das Problem in diesem Test, sondern dass sie
-        // sich NICHT AENDERN laesst, solange die Staatsangehoerigkeit fehlt
-        // -- die Waechter-Kaskade prueft den GESAMTEN Endzustand bei jedem
-        // Speichern, nicht nur die offene Gruppe (PortalProfileGuards-
-        // Docblock, R15-R18). Waeren BEIDE Angaben gleichzeitig unbeantwortet
-        // (nationality UND is_main_employer je null), bliebe das Fenster
-        // tatsaechlich zu -- keine der beiden Gruppen liesse sich dann
-        // jemals speichern, weil die je andere Pflichtangabe fehlt. Das ist
-        // eine Grenze der bestehenden, in Aufgabe 4 gebauten Waechter-
-        // Kaskade (PortalProfileWriter/PortalProfileGuards), keine, die
-        // diese Aufgabe (Verdrahtung der Komponente) beheben soll -- siehe
-        // Bericht.
+        // GEDREHT 25.09.2026, Fixrunde 1 zu Aufgabe 6 (Ruling C1): der Weg
+        // (Staatsangehoerigkeit ueber ihre EIGENE Gruppe nachtragen) bleibt
+        // gueltig, nur ohne den Umweg ueber eine vorherige Blockade -- die
+        // Arbeitgeber-Gruppe ist seit C1 nicht mehr blockiert, solange die
+        // Staatsangehoerigkeit fehlt, weil sie ausserhalb ihrer Reichweite
+        // liegt (siehe PortalShellEmployerTest::
+        // test_fehlende_staatsangehoerigkeit_blockt_dieses_formular_nicht_mehr).
+        //
+        // Ergaenzt um den Fall, der VOR C1 unmoeglich war: Doppel-Null
+        // (nationality UND is_main_employer GLEICHZEITIG null) -- vorher ein
+        // echter Ping-Pong-Deadlock, der GAR KEINE der beiden Gruppen mehr
+        // speichern liess, nicht mal eine voellig unbeteiligte wie Bankdaten
+        // (PortalProfileGuards-Docblock). Jetzt: Adresse mit
+        // Staatsangehoerigkeit speichern GEHT, dazwischen geht auch
+        // Bankdaten (unbeteiligte Gruppe, is_main_employer ist zu diesem
+        // Zeitpunkt IMMER NOCH null), und danach laesst sich auch die
+        // Arbeitgeber-Frage beantworten.
         $ma = $this->mitarbeiter([
-            'nationality'       => null,
-            'is_main_employer'  => false,
-            'other_employer'    => 'Musterfirma GmbH',
+            'nationality'      => null,
+            'is_main_employer' => null,
         ]);
         $shell = $this->shell($ma);
 
         $nationalitaetsGruppe = $this->gruppeMitFeld($ma, 'nationality');
         $this->assertNotNull($nationalitaetsGruppe, 'Kein editierbares Feld heisst nationality -- die Quelle hat sich geaendert.');
 
-        // 1. Ohne Staatsangehoerigkeit ist die Arbeitgeber-Frage blockiert --
-        //    dieselbe Kaskade wie in PortalShellEmployerTest -- auch wenn nur
-        //    die BESTEHENDE Antwort erneut bestaetigt/geaendert werden soll.
-        $shell->oeffneGruppe('Arbeitgeber');
-        $shell->profilWerte['is_main_employer'] = '1';
-        $shell->speichereGruppe();
-        $this->assertStringContainsString('Staatsangeh', $shell->profilFehler);
-        $this->assertFalse($ma->fresh()->is_main_employer, 'Es darf nichts geschrieben worden sein.');
-
-        // 2. Staatsangehoerigkeit ueber die Gruppe nachtragen, in der sie
-        //    tatsaechlich steht -- DAS FEHLTE VOR DIESER AUFGABE KOMPLETT.
+        // 1. Staatsangehoerigkeit ueber die Gruppe nachtragen, in der sie
+        //    tatsaechlich steht -- geht trotz Doppel-Null, weil
+        //    is_main_employer ausserhalb der Reichweite dieser Gruppe liegt.
         $shell->oeffneGruppe($nationalitaetsGruppe);
         $this->assertSame($nationalitaetsGruppe, $shell->profilGruppe);
         $this->assertArrayHasKey('nationality', $shell->profilWerte, 'Die Gruppe muss das Feld auch wirklich anbieten.');
@@ -334,8 +337,16 @@ final class PortalShellProfilTest extends TestCase
         $this->assertSame('', $shell->profilFehler);
         $this->assertSame('deutsch', $ma->fresh()->nationality);
 
-        // 3. Jetzt laesst sich die Arbeitgeber-Frage beantworten (hier:
-        //    aendern von "nein, Musterfirma" auf "ja").
+        // 2. Dazwischen: eine voellig unbeteiligte Gruppe (Bankdaten)
+        //    speichert ebenfalls, obwohl is_main_employer noch immer null
+        //    ist -- vor C1 waere auch das blockiert gewesen.
+        $shell->oeffneGruppe('Bankdaten');
+        $shell->profilWerte['iban'] = 'DE89370400440532013000';
+        $shell->speichereGruppe();
+        $this->assertSame('', $shell->profilFehler);
+        $this->assertSame('DE89370400440532013000', $ma->fresh()->iban);
+
+        // 3. Jetzt laesst sich auch die Arbeitgeber-Frage beantworten.
         $shell->oeffneGruppe('Arbeitgeber');
         $shell->profilWerte['is_main_employer'] = '1';
         $shell->speichereGruppe();
