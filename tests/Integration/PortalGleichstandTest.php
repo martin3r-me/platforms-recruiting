@@ -47,6 +47,10 @@ use Platform\Recruiting\Support\ProofTypes;
  *   - die Erreichbarkeit im neuen Portal aus PortalShell::oeffneGruppe() und
  *     PortalShell::profilDaten() — also aus dem, was die Ansicht bekommt,
  *   - die Datei-Zuordnung aus ProofTypes::codeForLegacyColumn(),
+ *   - die NUR-LESEND-Spalten im Blatt (Schlussfix F4) aus
+ *     ProofTypes::legacyExpiryColumnsAll() / ProofTypes::istAblaufSpalte() --
+ *     der Katalog kennt seine eigenen Ablaufspalten, hier steht keine zweite
+ *     Liste mit den fuenf Namen,
  *   - die Nebenwirkungen aus den ECHTEN Beobachtern an einem ECHTEN
  *     Speichervorgang durch PortalShell::speichereGruppe(),
  *   - die Marker-Verbote aus RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS
@@ -62,6 +66,7 @@ use Platform\Recruiting\Support\ProofTypes;
  * ---------------------------------------------------------------------------
  *   §1.1 (47 Felder, 13 Gruppen)  test_die_feldliste_der_bestandsaufnahme_kommt_aus_dem_code
  *   §1.1 + §1.4.2, E7             test_jedes_einzelne_feld_ist_im_neuen_portal_erreichbar
+ *   Schlussfix F4                 test_die_fuenf_nur_lese_ablaufspalten_lassen_sich_nicht_ueberschreiben
  *   §1.1 Gruppen-Mechanismus      test_jede_gruppe_laesst_sich_einzeln_oeffnen
  *   §1.2                          test_die_zwei_nur_lese_felder_werden_gezeigt
  *   §1.3, R19                     test_die_ausgeschlossenen_felder_bleiben_ausgeschlossen
@@ -469,15 +474,36 @@ final class PortalGleichstandTest extends TestCase
      * PortalShell::oeffneGruppe() geoeffnet, und geprueft wird, was
      * PortalShell::profilDaten() der Ansicht uebergibt.
      *
-     * Zwei zulaessige Wege, mehr nicht:
-     *   1. Formularfeld im Gruppen-Blatt ($profilFelder) — fuer alles ausser
-     *      Dateien,
-     *   2. Nachweis-Kachel ($kacheln, aufgeloest ueber
+     * DREI zulaessige Arten von Erreichbarkeit, mehr nicht -- bis
+     * Schlussfix F4 (26.09.2026) waren es zwei; die dritte kam hinzu, als
+     * fuenf Ablaufdaten vom editierbaren Formularfeld auf NUR LESEND
+     * umgestellt wurden:
+     *   1. EDITIERBARES FORMULARFELD im Gruppen-Blatt ($profilFelder,
+     *      'fest' => false) — fuer alles ausser Dateien und den fuenf
+     *      Ablaufspalten unten,
+     *   2. NACHWEIS-KACHEL ($kacheln, aufgeloest ueber
      *      ProofTypes::codeForLegacyColumn) — fuer die acht Datei-Felder.
      *      Dateien stehen bewusst NICHT im Blatt (R20/E8: ein manipulierter
      *      POST duerfte nie eine File-Id setzen) und auch nicht in der
      *      Gruppenzeile (I1: die Ausweis-Zeile lautete sonst
      *      "01.01.2032 · 5002 · 5003 · 5004").
+     *   3. NUR LESEND IM BLATT ($profilFelder, 'fest' => true) — fuer die
+     *      fuenf Felder, die ProofTypes als Ablaufspalte einer Nachweisart
+     *      kennt (identity_card_valid_until, school_certificate_valid_until,
+     *      first_aider_valid_until, residence_permit_valid_until,
+     *      work_permit_valid_until). Sie stehen im Blatt (der Mensch soll
+     *      sein Datum sehen), nehmen aber nichts entgegen: die
+     *      Nachweistabelle behaelt genau EINEN Schreiber. Zwei Schreibwege
+     *      auf dieselbe Spalte mit verschiedener Semantik (Profil mit
+     *      ZAS-Marker, Nachweis ohne) waeren die Sorte Doppelung, die dieser
+     *      Umbau an drei anderen Stellen schon beseitigt hat (Datei-Liste
+     *      E7, BeschErforderlich-Liste im ZAS-Export) — diese hier waere die
+     *      vierte gewesen. Wer eines der fuenf wieder editierbar macht ODER
+     *      ein sechstes still nur lesend werden laesst, macht
+     *      test_die_fuenf_nur_lese_ablaufspalten_lassen_sich_nicht_ueberschreiben
+     *      rot, nicht diesen Test hier — hier wird nur verlangt, dass die
+     *      fuenf ihren dritten Weg auch WIRKLICH haben (die Kennzeichnung
+     *      'fest' steht) und kein editierbares Feld ihn heimlich mitbekommt.
      *
      * Eine Kachel ohne Ziel waere genau der Fehler vom 06.08. (E7): das Feld
      * wird als fehlend gemeldet, aber es gibt keinen Knopf, mit dem man die
@@ -503,7 +529,7 @@ final class PortalGleichstandTest extends TestCase
                     "{$label}: die Gruppe „{$gruppe}“ laesst sich nicht oeffnen",
                 );
 
-                $imBlatt = array_keys($this->profil($shell, $ma)['felder']);
+                $blatt = $this->profil($shell, $ma)['felder'];
 
                 foreach ($felder as $schluessel => $meta) {
                     if (($meta['type'] ?? 'text') === 'file') {
@@ -522,15 +548,38 @@ final class PortalGleichstandTest extends TestCase
                         continue;
                     }
 
-                    $this->assertContains(
+                    $this->assertArrayHasKey(
                         $schluessel,
-                        $imBlatt,
+                        $blatt,
                         "{$label}: Feld {$schluessel} steht nicht im Blatt der Gruppe „{$gruppe}“",
                     );
                     $this->assertNotSame(
                         '',
                         (string) ($meta['label'] ?? ''),
                         "{$label}: Feld {$schluessel} hat keine Beschriftung",
+                    );
+
+                    // DRITTER WEG: Ablaufspalte einer Nachweisart -- steht im
+                    // Blatt, aber 'fest' muss stehen, sonst waere es ein
+                    // editierbares Feld ohne dass jemand es so gemeint hat.
+                    if (ProofTypes::istAblaufSpalte($schluessel)) {
+                        $this->assertTrue(
+                            $blatt[$schluessel]['fest'] ?? false,
+                            "{$label}: {$schluessel} ist eine Ablaufspalte einer Nachweisart ("
+                            . 'ProofTypes::istAblaufSpalte), steht im Blatt aber als editierbares Feld -- '
+                            . 'zwei Schreiber auf dieselbe Spalte (F4)',
+                        );
+                        $erreicht[$schluessel] = true;
+                        continue;
+                    }
+
+                    // ERSTER WEG: echtes Formularfeld -- 'fest' darf nicht
+                    // heimlich stehen, sonst waere ein sechstes Feld still
+                    // nur lesend geworden, ohne dass ProofTypes das weiss.
+                    $this->assertFalse(
+                        $blatt[$schluessel]['fest'] ?? false,
+                        "{$label}: {$schluessel} ist still nur lesend geworden ('fest'), obwohl es fuer "
+                        . 'ProofTypes::istAblaufSpalte keine Ablaufspalte einer Nachweisart ist',
                     );
                     $erreicht[$schluessel] = true;
                 }
@@ -544,6 +593,159 @@ final class PortalGleichstandTest extends TestCase
             'Diese Felder des alten Portals sind im neuen NICHT erreichbar: ' . implode(', ', $fehlend),
         );
         $this->assertCount(47, $erreicht, 'Erreicht: ' . count($erreicht) . ' von 47');
+    }
+
+    /**
+     * SCHLUSSFIX F4, BEIDE RICHTUNGEN: die fuenf Ablaufdaten, die zugleich
+     * Profilfeld UND Ablaufspalte einer Nachweisart sind
+     * (identity_card_valid_until, school_certificate_valid_until,
+     * first_aider_valid_until, residence_permit_valid_until,
+     * work_permit_valid_until), duerfen nur noch auf EINEM Weg beschrieben
+     * werden -- ueber den Nachweis. Vorher gab es zwei Schreiber auf
+     * dieselbe Spalte mit verschiedener Semantik (Profil MIT ZAS-Marker,
+     * Nachweis OHNE): wer das Datum im Profil aenderte, bekam "Gespeichert.",
+     * die Gruppenzeile zeigte den neuen Stand, der Vollstaendigkeits-Ring
+     * stieg -- und der Start-Bildschirm sagte WEITERHIN "Abgelaufen am ...",
+     * dauerhaft, weil die Nachweis-Zeile unberuehrt blieb. Genau die Sorte
+     * Doppelung (zwei Schreibwege, eine Spalte), die dieser Umbau an drei
+     * anderen Stellen schon beseitigt hat (Datei-Liste E7, BeschErforderlich
+     * im ZAS-Export, die Feldliste selbst) -- diese hier waere die vierte
+     * gewesen.
+     *
+     * Die Menge der fuenf kommt NICHT abgetippt, sondern aus dem Katalog:
+     * ProofTypes::legacyExpiryColumnsAll() geschnitten mit den editierbaren
+     * Feldern. Nur das ERGEBNIS dieser Rechnung steht unten als Liste, zur
+     * Lesbarkeit -- verglichen wird gegen das, was der Code liefert.
+     *
+     * ZWEI RICHTUNGEN, beide muessen rot werden koennen:
+     *   1. Eines der fuenf wird wieder editierbar (der Doppelschreiber
+     *      kommt zurueck) -- gemessen als ECHTER Schreibversuch: profilWerte
+     *      wird gesetzt wie bei einem manipulierten POST (oeffneGruppe()
+     *      wuerde das Feld gar nicht erst hineinlegen, siehe dort), dann
+     *      wird gespeichert. Erwartet wird der ALTE Wert, nicht der neu
+     *      versuchte.
+     *   2. Ein sechstes Feld wird still nur lesend, ohne in ProofTypes als
+     *      Ablaufspalte zu stehen -- gemessen als Gegenprobe ueber ALLE
+     *      uebrigen editierbaren, nicht-Datei-Felder: keines von ihnen darf
+     *      'fest' tragen.
+     *
+     * GEGENPROBE GEMACHT UND ZURUECKGENOMMEN (siehe Abschlussbericht dieser
+     * Aenderung): first_aider_valid_until testweise wieder editierbar
+     * geschaltet (der istAblaufSpalte-Ausschluss in PortalShell entfernt) --
+     * dieser Test wurde rot, exakt an der erwarteten Stelle (Schreibversuch
+     * fuer first_aider_valid_until), die Aenderung wurde danach verworfen.
+     */
+    public function test_die_fuenf_nur_lese_ablaufspalten_lassen_sich_nicht_ueberschreiben(): void
+    {
+        $editierbar = array_keys($this->alleFelder());
+        $ablaufSpalten = array_values(array_intersect($editierbar, ProofTypes::legacyExpiryColumnsAll()));
+        sort($ablaufSpalten);
+
+        $this->assertSame(
+            [
+                'first_aider_valid_until',
+                'identity_card_valid_until',
+                'residence_permit_valid_until',
+                'school_certificate_valid_until',
+                'work_permit_valid_until',
+            ],
+            $ablaufSpalten,
+            'Schlussfix F4: die fuenf Nur-Lese-Ablaufspalten haben sich geaendert',
+        );
+
+        // Sonden je Feld: die Gruppe, die Attribute, die sie ueberhaupt
+        // sichtbar und speicherbar machen (kein Waechter blockt), und ein
+        // gueltiger ALTER Wert, den der Schreibversuch NICHT veraendern darf.
+        $sonden = [
+            'identity_card_valid_until' => [
+                'gruppe' => 'Ausweis',
+                'attr'   => [],
+                'alt'    => '2030-01-01',
+            ],
+            'school_certificate_valid_until' => [
+                'gruppe' => 'Schul-/Immatrikulationsbescheinigung',
+                'attr'   => ['employment_type' => 'schueler'],
+                'alt'    => '2030-02-02',
+            ],
+            'first_aider_valid_until' => [
+                'gruppe' => 'Arbeitsschutz',
+                'attr'   => ['is_first_aider' => true, 'first_aider_certificate_file_id' => 42],
+                'alt'    => '2030-03-03',
+            ],
+            'residence_permit_valid_until' => [
+                'gruppe' => 'Aufenthalt (Non-EU)',
+                'attr'   => ['is_eu_citizen' => false],
+                'alt'    => '2030-04-04',
+            ],
+            'work_permit_valid_until' => [
+                'gruppe' => 'Aufenthalt (Non-EU)',
+                'attr'   => ['is_eu_citizen' => false],
+                'alt'    => '2030-05-05',
+            ],
+        ];
+        $sondenSchluessel = array_keys($sonden);
+        sort($sondenSchluessel);
+        $this->assertSame($sondenSchluessel, $ablaufSpalten, 'Die Sonden decken nicht genau die fuenf ab');
+
+        foreach ($sonden as $feld => $sonde) {
+            $ma = $this->mitarbeiter(array_merge($sonde['attr'], [$feld => $sonde['alt']]));
+            $shell = $this->shell($ma);
+            $shell->oeffneGruppe($sonde['gruppe']);
+            $this->assertSame(
+                $sonde['gruppe'],
+                $shell->profilGruppe,
+                "{$feld}: die Gruppe „{$sonde['gruppe']}“ laesst sich mit diesen Angaben nicht oeffnen",
+            );
+
+            $blatt = $this->profil($shell, $ma)['felder'];
+            $this->assertTrue(
+                $blatt[$feld]['fest'] ?? false,
+                "{$feld}: steht nicht (mehr) als 'fest' im Blatt -- wieder editierbar geworden?",
+            );
+
+            // Der Schreibversuch -- absichtlich DIREKT in profilWerte
+            // gesetzt, nicht ueber oeffneGruppe() (das wuerde das Feld erst
+            // gar nicht hineinlegen, F4). Das ist derselbe Weg, den ein
+            // manipulierter POST naehme.
+            $shell->profilWerte[$feld] = '2099-12-31';
+            $shell->speichereGruppe();
+
+            $this->assertSame('', $shell->profilFehler, "{$feld}: das Speichern der Gruppe schlaegt fehl");
+
+            $nachher = $this->frisch($ma);
+            $this->assertStringStartsWith(
+                $sonde['alt'],
+                (string) $nachher->{$feld},
+                "{$feld}: wurde trotz Nur-Lese-Sperre ueberschrieben -- der Doppelschreiber ist zurueck (F4)",
+            );
+        }
+
+        // Die Gegenprobe: JEDES andere editierbare, nicht-Datei-Feld bleibt
+        // 'fest' === false. Ein sechstes, still nur lesend gewordenes Feld
+        // faellt hier auf, ohne dass irgendwer seinen Namen kennen muss --
+        // gemessen gegen ProofTypes::legacyExpiryColumnsAll(), nicht gegen
+        // die Liste oben.
+        foreach ($this->beidePersonen() as $label => $ma) {
+            $shell = $this->shell($ma);
+            foreach ($ma->editableFieldGroups() as $gruppe => $felder) {
+                $shell->oeffneGruppe($gruppe);
+                $blatt = $this->profil($shell, $ma)['felder'];
+
+                foreach ($felder as $schluessel => $meta) {
+                    if (($meta['type'] ?? 'text') === 'file' || !array_key_exists($schluessel, $blatt)) {
+                        continue;
+                    }
+                    if (in_array($schluessel, $ablaufSpalten, true)) {
+                        continue;
+                    }
+                    $this->assertFalse(
+                        $blatt[$schluessel]['fest'] ?? false,
+                        "{$label}: {$schluessel} ist still nur lesend geworden ('fest'), obwohl ProofTypes "
+                        . 'es nicht als Ablaufspalte einer Nachweisart kennt',
+                    );
+                }
+            }
+        }
     }
 
     /**
