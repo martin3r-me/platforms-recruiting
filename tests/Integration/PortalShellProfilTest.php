@@ -252,6 +252,74 @@ final class PortalShellProfilTest extends TestCase
         );
     }
 
+    // -----------------------------------------------------------------
+    // F5 -- die Rueckmeldung kommt an
+    // -----------------------------------------------------------------
+
+    public function test_beide_erfolgsmeldungen_erreichen_den_bildschirm(): void
+    {
+        // PortalProfileWriter unterscheidet drei Ergebnisse. Der Fehlertext
+        // wurde gezeigt, die beiden anderen nie: $profilMeldung kam in keiner
+        // Blade-Datei vor, das Blatt schloss kommentarlos. "Gespeichert." und
+        // "Keine Änderungen." waren damit nicht zu unterscheiden — obwohl
+        // "Keine Änderungen." einen echten Verlust bedeuten kann.
+        $ma = $this->mitarbeiter(['nationality' => 'DE', 'is_main_employer' => true, 'iban' => 'DE02']);
+        $shell = $this->shell($ma);
+
+        $shell->oeffneGruppe('Bankdaten');
+        $shell->profilWerte['iban'] = 'DE89370400440532013000';
+        $shell->speichereGruppe();
+
+        $this->assertSame('Gespeichert.', $shell->profilMeldung);
+        $this->assertStringContainsString('Gespeichert.', $this->rendereMeldung($shell->profilMeldung));
+
+        // Zweiter Durchgang, nichts geaendert.
+        $shell->oeffneGruppe('Bankdaten');
+        $shell->speichereGruppe();
+
+        $this->assertSame('Keine Änderungen.', $shell->profilMeldung);
+        $this->assertStringContainsString('Keine Änderungen.', $this->rendereMeldung($shell->profilMeldung));
+    }
+
+    public function test_ohne_meldung_steht_nichts_auf_der_seite(): void
+    {
+        // Gegenprobe: sonst waere der Test oben auch gruen, wenn der Block
+        // immer erschiene — und der Mensch saehe nach jedem Seitenaufruf
+        // eine Meldung, die zu nichts gehoert.
+        $this->assertSame('', trim($this->rendereMeldung('')));
+    }
+
+    /** Den Meldungs-Block aus dem Blade schneiden, uebersetzen und ausfuehren. */
+    private function rendereMeldung(string $meldung): string
+    {
+        $blade = (string) file_get_contents(
+            dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php',
+        );
+
+        $von = strpos($blade, "@if (\$profilMeldung !== '')");
+        $this->assertNotFalse($von, 'Der Meldungs-Block steht nicht mehr im Blade.');
+        $bis = strpos($blade, '@endif', $von);
+        $this->assertNotFalse($bis);
+        $ausschnitt = substr($blade, $von, $bis + strlen('@endif') - $von);
+
+        $verzeichnis = sys_get_temp_dir() . '/portal-meldung-' . getmypid();
+        if (!is_dir($verzeichnis)) {
+            mkdir($verzeichnis, 0777, true);
+        }
+        $compiler = new \Illuminate\View\Compilers\BladeCompiler(new \Illuminate\Filesystem\Filesystem(), $verzeichnis);
+        $datei = $verzeichnis . '/meldung.php';
+        file_put_contents($datei, $compiler->compileString($ausschnitt));
+
+        $lauf = static function (string $__datei, string $profilMeldung): string {
+            ob_start();
+            include $__datei;
+
+            return (string) ob_get_clean();
+        };
+
+        return $lauf($datei, $meldung);
+    }
+
     public function test_speichern_schreibt_und_schliesst(): void
     {
         $ma = $this->mitarbeiter(['nationality' => 'DE', 'is_main_employer' => true]);

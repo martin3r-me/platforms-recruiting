@@ -371,6 +371,24 @@
                 </div>
 
                 {{--
+                    Rueckmeldung nach dem Speichern (Schlussfix F5). Sie steht
+                    HIER und nicht im Gruppen-Blatt: bei Erfolg schliesst das
+                    Blatt, der Mensch steht wieder auf dieser Seite. Vorher
+                    landete die Meldung in $profilMeldung und kam in keiner
+                    einzigen Blade-Datei vor — das Blatt schloss kommentarlos,
+                    und "Gespeichert." war von "Keine Änderungen." nicht zu
+                    unterscheiden. Genau das darf nicht sein: "Keine
+                    Änderungen." ist keine harmlose Meldung, sie kann einen
+                    echten Verlust bedeuten (Aufgabe 4).
+                --}}
+                @if ($profilMeldung !== '')
+                    <div class="alert ok">
+                        <span class="dot ok" style="margin-top:6px"></span>
+                        <div class="txt">{{ $profilMeldung }}</div>
+                    </div>
+                @endif
+
+                {{--
                     Vollstaendigkeitsring -- seit dem Deadlock-Fix (Aufgabe 6,
                     C1) blockt kein Waechter mehr gruppenuebergreifend. Ring
                     und Offen-Zaehler sind damit der EINZIGE verbliebene Druck
