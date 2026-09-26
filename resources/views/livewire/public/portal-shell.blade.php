@@ -257,6 +257,78 @@
                     <p>Was von {{ $duzen ? 'dir' : 'Ihnen' }} gebraucht wird — und was {{ $duzen ? 'dir' : 'Ihnen' }} gehört.</p>
                 </div>
 
+                {{--
+                    Vertraege und Zertifikate -- der Weg zur Unterschrift. Ohne
+                    dieses Blatt war das alte Portal (EmployeePortal) der
+                    einzige Ort, an dem ein umgestellter Mensch seinen
+                    Arbeitsvertrag ueberhaupt unterschreiben konnte.
+
+                    Markup aus dem Entwurf (crew-portal.html, "pane-docs"):
+                    .doc/.docicon/.title/.sub/.row mit .mini/.mini.primary,
+                    CSS liegt schon in portal-styles.blade.php.
+
+                    Die Statuszweige sind woertlich aus
+                    employee-portal.blade.php:131-162 uebernommen -- der
+                    issued-Zweig steht bewusst VOR der Bedingung
+                    "completed || signed_at": die Zertifikat-Zeile traegt das
+                    Ausstellungsdatum in signed_at und wuerde sonst die
+                    Unterschrieben-Bedingung gewinnen und "Unterschrieben am
+                    ..." ueber ein Dokument behaupten, das niemand
+                    unterschrieben hat (E17, gemessen in
+                    PortalCertificateBadgeTest).
+                --}}
+                <div>
+                    <div class="sec-label">{{ $duzen ? 'Deine Verträge' : 'Ihre Verträge' }} <span class="count">{{ count($dokumente) }}</span></div>
+                    <div class="card" style="margin-top:11px">
+                        @forelse ($dokumente as $dok)
+                            @php
+                                // Vorberechnet statt @if im Attribut -- Hausregel.
+                                if ($dok['status'] === 'issued') {
+                                    $dokChip = 'chip info';
+                                    $dokText = 'Ausgestellt';
+                                    $dokDatum = $dok['signed_at'];
+                                } elseif ($dok['status'] === 'completed' || $dok['signed_at']) {
+                                    $dokChip = 'chip ok';
+                                    $dokText = 'Unterschrieben';
+                                    $dokDatum = $dok['signed_at'];
+                                } elseif ($dok['status'] === 'sent') {
+                                    $dokChip = 'chip crit';
+                                    $dokText = $duzen ? 'Wartet auf deine Unterschrift' : 'Wartet auf Ihre Unterschrift';
+                                    $dokDatum = null;
+                                } elseif ($dok['status'] === 'in_progress') {
+                                    $dokChip = 'chip warn';
+                                    $dokText = 'Begonnen, aber noch nicht abgeschlossen';
+                                    $dokDatum = null;
+                                } else {
+                                    $dokChip = 'chip info';
+                                    $dokText = $dok['status'];
+                                    $dokDatum = null;
+                                }
+                                $dokSub = $dokDatum ? $dokText . ' am ' . \Carbon\Carbon::parse($dokDatum)->format('d.m.Y') : $dokText;
+                                $dokZeigtUnterschreiben = !$dok['signed_at'] && in_array($dok['status'], ['sent', 'in_progress'], true);
+                            @endphp
+                            <div class="doc">
+                                <div class="docicon"><span>PDF</span></div>
+                                <div class="body">
+                                    <div class="title">{{ $dok['display_name'] }}</div>
+                                    <div class="sub">{{ $dokSub }}</div>
+                                    <div class="row">
+                                        <span class="{{ $dokChip }}">{{ $dokText }}</span>
+                                        @if ($dokZeigtUnterschreiben)
+                                            <a href="{{ $dok['sign_url'] }}" class="mini primary">Jetzt unterschreiben</a>
+                                        @endif
+                                        @if (!empty($dok['pdf_url']))
+                                            <a href="{{ $dok['pdf_url'] }}" target="_blank" class="mini">PDF laden</a>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="leer">Hier liegen noch keine Verträge vor.</div>
+                        @endforelse
+                    </div>
+                </div>
+
                 <div>
                     <div class="sec-label">{{ $duzen ? 'Deine Nachweise' : 'Ihre Nachweise' }} <span class="count">{{ count($aufgaben) }}</span></div>
                     <div class="card" style="margin-top:11px">

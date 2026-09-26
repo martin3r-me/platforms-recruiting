@@ -10,6 +10,7 @@ use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\PortalProfileWriter;
@@ -24,6 +25,8 @@ use Platform\Recruiting\Support\PortalSectionHints;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
 use Platform\Recruiting\Support\ProofUploadRules;
+use Platform\Recruiting\Support\TrainingCertificatePortalRows;
+use Platform\Recruiting\Support\TrainingCertificateWaTemplate;
 
 /**
  * Das neue Mitarbeiterportal — die Huelle.
@@ -489,9 +492,102 @@ class PortalShell extends Component
         ];
     }
 
+    /**
+     * Vertraege und Zertifikate des angemeldeten Mitarbeiters, in EINER
+     * Liste — der Weg zur Unterschrift. Ohne diese Methode war das alte
+     * Portal (EmployeePortal) der einzige Ort, an dem ein umgestellter
+     * Mensch seinen Arbeitsvertrag ueberhaupt unterschreiben konnte.
+     *
+     * Rumpf WOERTLICH aus EmployeePortal::contracts() (658–701) samt
+     * certificateRows() (718–730) uebernommen, nicht neu erfunden — dieselbe
+     * Form (list<array{id,display_name,status,signed_at,completed_at,
+     * sign_url,pdf_url}>), damit das Blade seine Statuszweige unveraendert
+     * uebernehmen kann (siehe portal-shell.blade.php, docs-Bereich).
+     *
+     * N8 (Bestandsaufnahme): schon das ANZEIGEN legt CorePublicFormLink-
+     * Zeilen an — eine fuer den Bewerber (getOrCreatePublicFormLink() fuer
+     * den PDF-Token) und eine je NICHT storniertem Vertrag
+     * (getOrCreatePublicFormLink() fuer den Unterschreiben-Link). Das ist
+     * Bestandsverhalten des alten Portals, kein Fehler, und bleibt hier
+     * UNVERAENDERT — wer es aendert, aendert die Pruefung im
+     * ContractPdfController mit, der genau diesen Token erwartet.
+     *
+     * KEINE eigene berechtigterMitarbeiter()-Pruefung hier: der Aufrufer
+     * (render()) uebergibt bereits den durch berechtigterMitarbeiter()
+     * geprueften Mitarbeiter (dasselbe Muster wie profilDaten()). Ein
+     * fremder Vertrag ist darueber hinaus strukturell nicht erreichbar —
+     * die Liste kommt ausschliesslich ueber $employee->applicant->contracts,
+     * nie ueber eine ID aus der Anfrage.
+     *
+     * @return list<array{id:int|string, display_name:string, status:string, signed_at:mixed, completed_at:mixed, sign_url:?string, pdf_url:?string}>
+     */
+    private function dokumente(RecEmployee $employee): array
+    {
+        if (!$employee->applicant) {
+            return [];
+        }
+
+        $applicantToken = $employee->applicant->getOrCreatePublicFormLink()->token;
+
+        $contractRows = $employee->applicant->contracts
+            ->filter(fn ($c) => $c->status !== 'cancelled')
+            ->map(function ($c) use ($applicantToken) {
+                $contractLink = $c->getOrCreatePublicFormLink();
+                $code = $c->contractTemplate?->code;
+                $displayName = match (true) {
+                    $code !== null && str_starts_with($code, 'AV-') => 'Arbeitsvertrag',
+                    $code === 'IFSG'                                => 'Infektionsschutzgesetz',
+                    $code !== null && str_starts_with($code, 'AT-') => 'Zusatzvereinbarung',
+                    default                                         => $c->contractTemplate?->name ?? 'Vertrag',
+                };
+                return [
+                    'id'           => $c->id,
+                    'display_name' => $displayName,
+                    'status'       => $c->status,
+                    'signed_at'    => $c->signed_at,
+                    'completed_at' => $c->completed_at,
+                    'sign_url'     => route('recruiting.public.contract-signing', ['token' => $contractLink->token]),
+                    'pdf_url'      => $c->status === 'completed'
+                        ? route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id])
+                        : null,
+                ];
+            })
+            ->values()
+            ->toArray();
+
+        return TrainingCertificatePortalRows::append(
+            $contractRows,
+            $this->zertifikatZeilen((int) $employee->applicant->id)
+        );
+    }
+
+    /**
+     * Die Zertifikat-Zeilen eines Bewerbers, in der Form der Vertragszeilen —
+     * woertlich wie EmployeePortal::certificateRows() (718–730). KEIN Filter
+     * auf `kind`: ein Bewerber darf Zertifikate mehrerer Schulungsarten
+     * haben, und im Portal sollen alle liegen.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function zertifikatZeilen(int $applicantId): array
+    {
+        return RecTrainingCertificate::query()
+            ->where('rec_applicant_id', $applicantId)
+            ->orderBy('issued_at')
+            ->get()
+            ->map(fn (RecTrainingCertificate $cert) => TrainingCertificatePortalRows::row(
+                $cert->id,
+                $cert->issued_at,
+                route(TrainingCertificateWaTemplate::ROUTE_NAME, ['uuid' => $cert->uuid]),
+            ))
+            ->all();
+    }
+
     public function render()
     {
         $employee = $this->berechtigterMitarbeiter();
+
+        $dokumente = $employee ? $this->dokumente($employee) : [];
 
         $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
         $offenAusNachweisen = count(array_filter($checklist, fn ($z) => $z['offen']));
@@ -505,6 +601,7 @@ class PortalShell extends Component
 
         return view('recruiting::livewire.public.portal-shell', [
             'aufgaben'          => self::dekoriert($checklist),
+            'dokumente'         => $dokumente,
             'offen'             => $offenAusNachweisen + ($arbeitgeberOffen ? 1 : 0),
             'arbeitgeberAufgabe' => $arbeitgeberOffen ? self::arbeitgeberAufgabe($this->duzen) : null,
             'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
