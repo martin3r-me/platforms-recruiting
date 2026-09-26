@@ -15,6 +15,7 @@ use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\PortalProfileWriter;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ProofWriter;
+use Platform\Recruiting\Support\PortalBoolValue;
 use Platform\Recruiting\Support\PortalCompleteness;
 use Platform\Recruiting\Support\PortalFieldAccess;
 use Platform\Recruiting\Support\PortalFieldRelevance;
@@ -560,6 +561,10 @@ class PortalShell extends Component
         foreach ($sichtbar as $name => $felder) {
             $anzeigewerte = [];
             $offenInGruppe = 0;
+            // Auflage 3 (Fixrunde 3, Aufgabe 7, 26.09.2026): ob DIESE Gruppe
+            // mindestens einen belegten Datei-Wert hat -- gebraucht, um die
+            // Zeile geradezuziehen (siehe unten).
+            $hatDateiWert = false;
             foreach ($felder as $schluessel => $meta) {
                 // I1 (Fixrunde 1, Aufgabe 6): Datei-Felder laufen exklusiv
                 // ueber die Kacheln (Vollstaendigkeits-Icons) -- sie stehen
@@ -572,6 +577,8 @@ class PortalShell extends Component
                 // Aufgabe, nur eine, die nicht in der Zeile auftaucht.
                 if (($meta['type'] ?? 'text') !== 'file') {
                     $anzeigewerte[$schluessel] = $this->anzeigewert($employee, $schluessel, $meta);
+                } elseif (($datensatz[$schluessel] ?? null) !== null) {
+                    $hatDateiWert = true;
                 }
                 if (PortalFieldRelevance::istRelevant($meta, $datensatz)) {
                     $wert = $datensatz[$schluessel] ?? null;
@@ -580,9 +587,24 @@ class PortalShell extends Component
                     }
                 }
             }
+
+            // Auflage 3 (Fixrunde 3, Aufgabe 7, 26.09.2026): eine Gruppe wie
+            // "Ausweis" kann alle drei Fotos haben und trotzdem nur das
+            // Gueltigkeitsdatum vermissen -- I1 nimmt Datei-Felder bewusst
+            // aus der Zeile heraus, wodurch $anzeigewerte dann leer bleibt
+            // und PortalGroupSummary::zeile() "Noch nichts hinterlegt" sagt,
+            // obwohl direkt darueber drei gruene Kacheln stehen. Der
+            // "offen"-Zaehler zaehlt weiterhin exakt (I1), NUR die
+            // Wortwahl der leeren Zeile wird hier korrigiert, wenn
+            // tatsaechlich ein Datei-Wert da ist.
+            $zeile = PortalGroupSummary::zeile($felder, $anzeigewerte);
+            if ($zeile === 'Noch nichts hinterlegt' && $hatDateiWert) {
+                $zeile = 'Nachweise liegen vor';
+            }
+
             $profilGruppen[$name] = [
                 'felder' => $felder,
-                'zeile'  => PortalGroupSummary::zeile($felder, $anzeigewerte),
+                'zeile'  => $zeile,
                 'offen'  => $offenInGruppe,
             ];
         }
@@ -617,11 +639,34 @@ class PortalShell extends Component
                 $this->profilWerte,
             )[$this->profilGruppe] ?? [];
 
+            // Auflage 4 (Fixrunde 3, Aufgabe 7, 26.09.2026): dieselbe
+            // Reichweite wie bei C2 oben, nur fuer die PFLICHT statt fuer
+            // die SICHTBARKEIT. Ohne diesen Rueckfall sah other_employer
+            // zwar sichtbar aus (C2), bekam aber nie den roten Rand: sein
+            // required_if wurde noch gegen den ALTEN Datensatz (is_main_
+            // employer=true) geprueft, waehrend der Mensch GERADE per
+            // Live-Auswahl auf "nein" umstellt -- die Pflicht wurde erst
+            // beim geblockten Speichern sichtbar, nie vorher. Datensatz
+            // bleibt fuer alle ANDEREN Gruppen unangetastet (siehe C2).
+            $datensatzOffeneGruppe = $datensatz;
+            foreach ($gruppen[$this->profilGruppe] as $schluessel => $meta) {
+                if (!array_key_exists($schluessel, $this->profilWerte)) {
+                    continue;
+                }
+                $roh = $this->profilWerte[$schluessel];
+                if (trim((string) $roh) === '') {
+                    continue;   // leerer Formularwert ist keine Aussage (E16, wie istSichtbar)
+                }
+                $datensatzOffeneGruppe[$schluessel] = ($meta['type'] ?? 'text') === 'bool'
+                    ? PortalBoolValue::parse($roh)
+                    : $roh;
+            }
+
             foreach ($offeneGruppeSichtbar as $schluessel => $meta) {
                 if (($meta['type'] ?? 'text') === 'file') {
                     continue;   // Dateien laufen ueber das Nachweis-Blatt (R20/E8)
                 }
-                $fehlt = PortalFieldRelevance::istRelevant($meta, $datensatz)
+                $fehlt = PortalFieldRelevance::istRelevant($meta, $datensatzOffeneGruppe)
                     && trim((string) ($this->profilWerte[$schluessel] ?? '')) === '';
                 $profilFelder[$schluessel] = [
                     'type'      => $meta['type'] ?? 'text',

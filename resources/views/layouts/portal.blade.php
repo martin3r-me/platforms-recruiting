@@ -204,6 +204,13 @@
             background: var(--surface-2); border: 1px solid var(--line-2);
             border-radius: var(--r); padding: 11px 12px; width: 100%; box-sizing: border-box;
         }
+
+        /* --- Profil (Task 7): Gruppenzeilen, Kacheln, Pflicht-Rand --- */
+        .portal-body .grouprow.tap { cursor: pointer; background: none; border: none;
+            border-bottom: 1px solid var(--line); width: 100%; text-align: left; font: inherit; color: inherit }
+        .portal-body .grouprow.tap:hover { background: var(--surface-2) }
+        .portal-body .up.tap { cursor: pointer; font: inherit; color: inherit; width: 100% }
+        .portal-body .feld.fehlt input, .portal-body .feld.fehlt select { border-color: var(--crit) }
     </style>
     @endverbatim
     @livewireStyles

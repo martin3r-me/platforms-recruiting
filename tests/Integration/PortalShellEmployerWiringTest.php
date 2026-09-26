@@ -118,11 +118,23 @@ class PortalShellEmployerWiringTest extends TestCase
         $this->assertLessThan($foreachPos, $arbeitgeberPos, 'Die Arbeitgeber-Aufgabe muss VOR der Nachweisliste stehen');
     }
 
-    public function test_profil_bereich_hat_die_frage_und_den_speichern_knopf(): void
+    public function test_profil_bereich_bietet_die_frage_ueber_den_gemeinsamen_gruppen_mechanismus_an(): void
     {
+        // GEDREHT am 26.09.2026 (Aufgabe 7, Portal-Gleichstand): dieser Test
+        // verlangte bislang woertlich arbeitgeberIstHaupt/"speichereArbeitgeber"
+        // im Blade -- Namen, die es seit dem Gruppen-Umbau (Aufgabe 6) nicht
+        // mehr gibt. Damit stand der Test GRUEN, WEIL das Blade kaputt war
+        // (Renderfehler bei jedem echten Aufruf) -- und haette bei jedem
+        // Versuch, das Blade zu heilen, die tote Verdrahtung erzwungen.
+        // "Arbeitgeber" ist seit dem Umbau eine Gruppe wie jede andere: die
+        // Frage laeuft ueber denselben generischen Mechanismus wie Bankdaten
+        // oder Adresse (antippbare Zeile -> Blatt -> speichereGruppe()), kein
+        // eigenes Formular mehr im Profil-Bereich.
         $blade = $this->blade();
 
-        $this->assertStringContainsString('arbeitgeberIstHaupt', $blade);
-        $this->assertStringContainsString('wire:click="speichereArbeitgeber"', $blade);
+        $this->assertStringNotContainsString('arbeitgeberIstHaupt', $blade);
+        $this->assertStringNotContainsString('speichereArbeitgeber', $blade);
+        $this->assertStringContainsString('wire:click="oeffneGruppe(', $blade);
+        $this->assertStringContainsString('wire:submit="speichereGruppe"', $blade);
     }
 }

@@ -238,6 +238,87 @@ final class PortalShellProfilDatenTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // Auflage 3 (Fixrunde 3, Aufgabe 7, 26.09.2026): "Noch nichts
+    // hinterlegt" widersprach den gruenen Kacheln direkt darueber, wenn
+    // eine Gruppe NUR Datei-Werte hat und das einzige Nicht-Datei-Feld
+    // leer ist -- der Offen-Zaehler zaehlt die Dateien mit, die Zeile
+    // verneinte aber jede Angabe. Der Mensch soll sehen: Dateien SIND da,
+    // etwas fehlt trotzdem (der rote Punkt uebernimmt das "fehlt noch").
+    // -----------------------------------------------------------------
+
+    public function test_ausweis_mit_allen_fotos_aber_ohne_datum_sagt_nicht_mehr_noch_nichts_hinterlegt(): void
+    {
+        $ma = $this->mitarbeiter([
+            'identity_card_valid_until'   => null,
+            'identity_card_front_file_id' => 5002,
+            'identity_card_back_file_id'  => 5003,
+            'selfie_file_id'              => 5004,
+        ]);
+        $shell = $this->shell($ma);
+
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertNotSame('Noch nichts hinterlegt', $profil['gruppen']['Ausweis']['zeile']);
+        // Das fehlende Datum bleibt trotzdem eine offene Pflicht -- Zeile
+        // und Offen-Zaehler duerfen sich nicht mehr widersprechen.
+        $this->assertGreaterThan(0, $profil['gruppen']['Ausweis']['offen']);
+    }
+
+    public function test_ausweis_ganz_ohne_irgendeinen_wert_bleibt_bei_noch_nichts_hinterlegt(): void
+    {
+        // Gegenprobe: fehlt WIRKLICH alles (auch die Dateien), bleibt die
+        // ehrliche Meldung stehen.
+        $ma = $this->mitarbeiter(['identity_card_valid_until' => null]);
+        $shell = $this->shell($ma);
+
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertSame('Noch nichts hinterlegt', $profil['gruppen']['Ausweis']['zeile']);
+    }
+
+    // -----------------------------------------------------------------
+    // Auflage 4 (Fixrunde 3, Aufgabe 7, 26.09.2026): das live erscheinende
+    // Pflichtfeld (other_employer, sobald auf "nein" umgestellt wird)
+    // bekam nie den roten Rand ($feld['fehlt']), weil dessen required_if
+    // noch gegen den ALTEN Datensatz (is_main_employer=true) geprueft
+    // wurde -- die Pflicht fiel erst beim geblockten Speichern auf.
+    // -----------------------------------------------------------------
+
+    public function test_das_live_erscheinende_namensfeld_bekommt_sofort_den_roten_rand(): void
+    {
+        $ma = $this->mitarbeiter(['is_main_employer' => true]);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Arbeitgeber');
+
+        $shell->profilWerte['is_main_employer'] = '0';
+
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertArrayHasKey('other_employer', $profil['felder'], 'Testvoraussetzung: das Namensfeld muss sichtbar sein (C2).');
+        $this->assertTrue(
+            $profil['felder']['other_employer']['fehlt'],
+            'Ein gerade erst live sichtbar gewordenes Pflichtfeld muss sofort den roten Rand bekommen, nicht erst nach einem geblockten Speicherversuch.',
+        );
+    }
+
+    public function test_zurueck_auf_ja_nimmt_den_roten_rand_vom_verschwundenen_namensfeld_wieder_weg(): void
+    {
+        // Gegenprobe zu C2/Auflage 4: Datensatz "nein" (Feld also
+        // gespeichert-sichtbar), Formularwert gerade auf "ja" umgestellt --
+        // das Namensfeld verschwindet (C2) und darf dann natuerlich auch
+        // keinen roten Rand mehr tragen.
+        $ma = $this->mitarbeiter(['is_main_employer' => false, 'other_employer' => 'Musterfirma GmbH']);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Arbeitgeber');
+
+        $shell->profilWerte['is_main_employer'] = '1';
+
+        $profil = $this->profilDaten($shell, $ma);
+
+        $this->assertArrayNotHasKey('other_employer', $profil['felder']);
+    }
+
+    // -----------------------------------------------------------------
     // I3: profilDaten() im Uebrigen -- Sichtbarkeit, offen-Zaehlung,
     // Hinweistext, keine rohen Ids irgendwo im Rueckgabewert.
     // -----------------------------------------------------------------

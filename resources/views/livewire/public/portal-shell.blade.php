@@ -65,10 +65,15 @@
                     <label class="feld">
                         <span class="n">{{ $labelAusweis }}</span>
                         {{--
-                            KEIN inputmode="numeric". Das war schon einmal ein
+                            Bewusst KEIN Attribut, das am Handy die reine
+                            Zahlentastatur erzwingt. Das war schon einmal ein
                             Login-Blocker (behoben am 06.08.2026 in 9baafe9):
                             auf der iOS-Zahlentastatur liessen sich die
-                            Buchstaben der Ausweisnummer nicht eingeben.
+                            Buchstaben der Ausweisnummer nicht eingeben. Der
+                            Waechter-Test (E3, PortalShellProfilBladeTest)
+                            haelt dieses Blade komplett frei von jenem
+                            Attributnamen -- deshalb steht er absichtlich
+                            nicht einmal hier in Prosa.
                         --}}
                         <input type="text" wire:model="idLast4" required maxlength="4"
                                autocomplete="off" autocapitalize="characters"
@@ -279,46 +284,95 @@
                 </div>
 
                 {{--
-                    Arbeitgeber-Pflichtfrage (Markus 24.09.2026) -- an ihr
-                    haengt die Steuerklasse. Nutzt MainEmployerRequiredGuard,
-                    dieselbe Regel wie im alten Portal, keine zweite.
+                    Vollstaendigkeitsring -- seit dem Deadlock-Fix (Aufgabe 6,
+                    C1) blockt kein Waechter mehr gruppenuebergreifend. Ring
+                    und Offen-Zaehler sind damit der EINZIGE verbliebene Druck
+                    auf die drei echten Pflichtangaben (Staatsangehoerigkeit,
+                    Ersthelfer-Kopplung, Hauptarbeitgeber) -- der Satz darunter
+                    muss die fehlenden Dinge deshalb wirklich NENNEN, nicht nur
+                    zaehlen.
                 --}}
-                <div>
-                    <div class="sec-label">{{ $duzen ? 'Dein Arbeitgeber' : 'Ihr Arbeitgeber' }}</div>
-                    <div class="card" style="margin-top:11px; padding:15px; display:flex; flex-direction:column; gap:13px">
-                        <label class="feld">
-                            <span class="n">{{ $duzen ? 'Sind wir dein Hauptarbeitgeber?' : 'Sind wir Ihr Hauptarbeitgeber?' }}</span>
-                            <select wire:model.live="arbeitgeberIstHaupt">
-                                <option value="">— bitte wählen —</option>
-                                <option value="1">Ja</option>
-                                <option value="0">Nein</option>
-                            </select>
-                        </label>
-
-                        @if ($arbeitgeberIstHaupt === '0')
-                            <label class="feld">
-                                <span class="n">Wer ist es dann?</span>
-                                {{-- maxlength = Spaltenbreite von rec_employees.other_employer, der harte
-                                     Schutz sitzt im MainEmployerRequiredGuard. --}}
-                                <input type="text" wire:model="arbeitgeberAnderer"
-                                       maxlength="{{ \Platform\Recruiting\Support\MainEmployerRequiredGuard::MAX_OTHER_EMPLOYER }}"
-                                       autocomplete="off">
-                            </label>
-                        @endif
-
-                        @if ($arbeitgeberFehler !== '')
-                            <div class="alert crit">
-                                <span class="dot crit" style="margin-top:6px"></span>
-                                <div class="txt">{{ $arbeitgeberFehler }}</div>
-                            </div>
-                        @endif
-
-                        <button type="button" class="btn primary" wire:click="speichereArbeitgeber"
-                                wire:loading.attr="disabled" wire:target="speichereArbeitgeber">
-                            Speichern
-                        </button>
+                @php
+                    $prozent = $profilStand['prozent'];
+                    $ringStil = 'background: conic-gradient(var(--brand) 0 ' . $prozent
+                        . '%, var(--surface-3) ' . $prozent . '% 100%)';
+                    $ringTitel = $prozent === 100
+                        ? 'Alles vollständig'
+                        : ($prozent >= 80 ? 'Fast vollständig' : 'Da fehlt noch einiges');
+                    $ringText = $profilStand['fehlend'] === []
+                        ? ($duzen ? 'Wir haben alles, was wir von dir brauchen.' : 'Wir haben alles, was wir von Ihnen brauchen.')
+                        : ($duzen ? 'Es fehlen noch: ' : 'Es fehlen noch: ')
+                            . implode(', ', array_slice($profilStand['fehlend'], 0, 3))
+                            . (count($profilStand['fehlend']) > 3 ? ' und weitere' : '') . '.';
+                @endphp
+                <div class="ring-row">
+                    <div class="ring" style="{{ $ringStil }}"><b>{{ $prozent }}%</b></div>
+                    <div class="txt">
+                        <div class="t">{{ $ringTitel }}</div>
+                        <div class="s">{{ $ringText }}</div>
                     </div>
                 </div>
+
+                {{-- Nachweis-Kacheln -- gruen (.filled), sobald mindestens
+                     eine der zugehoerigen Altspalten belegt ist (ProofTypes
+                     ist die einzige Zuordnungsstelle, E7). Antippen oeffnet
+                     dasselbe Nachweis-Blatt wie Start/Dokumente -- kein
+                     zweiter Upload-Weg (R20/E8). --}}
+                <div>
+                    <div class="sec-label">Ausweis &amp; Nachweise</div>
+                    <div class="uploads" style="margin-top:11px">
+                        @foreach ($kacheln as $kachel)
+                            @php
+                                $kachelKlasse = $kachel['da'] ? 'up tap filled' : 'up tap';
+                                $kachelStatus = $kachel['da'] ? '✓ hochgeladen' : '+ Foto aufnehmen';
+                            @endphp
+                            <button type="button" class="{{ $kachelKlasse }}" wire:click="oeffneUpload('{{ $kachel['code'] }}')">
+                                <div class="n">{{ $kachel['label'] }}</div>
+                                <div class="s">{{ $kachelStatus }}</div>
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Gruppenzeilen -- antippbar, mit Zusammenfassung und
+                     rotem Punkt, solange ein Pflichtfeld DIESER Gruppe noch
+                     offen ist (derselbe Druck wie am Ring, nur je Gruppe). --}}
+                <div>
+                    <div class="sec-label">Deine Angaben</div>
+                    <div class="card" style="margin-top:11px">
+                        @foreach ($profilGruppen as $name => $gruppe)
+                            <button type="button" class="grouprow tap" wire:click="oeffneGruppe('{{ $name }}')">
+                                @if ($gruppe['offen'] > 0)
+                                    <span class="dot crit" style="margin-top:0"></span>
+                                @endif
+                                <div>
+                                    <div class="n">{{ $name }}</div>
+                                    <div class="v">{{ $gruppe['zeile'] }}</div>
+                                </div>
+                                <span class="chev">›</span>
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Nur-Lese-Felder aus der Bewerbung -- kein Blatt, keine
+                     Aenderung, nur Anzeige mit Abzeichen. --}}
+                @if ($nurLesen !== [])
+                    <div>
+                        <div class="sec-label">Einträge bei Bewerbung</div>
+                        <div class="card" style="margin-top:11px">
+                            @foreach ($nurLesen as $eintrag)
+                                <div class="grouprow">
+                                    <div>
+                                        <div class="n">{{ $eintrag['label'] }}</div>
+                                        <div class="v">{{ $eintrag['value'] }}</div>
+                                    </div>
+                                    <span class="chip info">nicht änderbar</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
 
                 <div>
                     @php
@@ -468,6 +522,109 @@
                             Speichern
                         </button>
                         <button type="button" class="btn" wire:click="schliesseUpload">Abbrechen</button>
+                    </form>
+                </div>
+            @endif
+
+            {{--
+                Gruppen-Blatt -- dasselbe Gestell wie das Nachweis-Blatt
+                (.upload-overlay/.upload-sheet) direkt darueber, damit es
+                keine zweite Sprache gibt. Steht wie jenes AUSSERHALB der
+                Reiter-Panes (Geschwister von .scroll, nicht Kind von
+                .pane#me): .pane bekommt display:none, sobald ein anderer
+                Alpine-Reiter aktiv ist -- ein Kind waere dann mitversteckt,
+                obwohl $profilGruppe (Livewire, serverseitig) noch offen ist.
+                Livewire zeigt/versteckt dieses Blatt rein serverseitig,
+                unabhaengig vom Alpine-Reiterzustand.
+            --}}
+            @if ($profilGruppe !== null)
+                <div class="upload-overlay" wire:click.self="schliesseGruppe">
+                    <form class="upload-sheet" wire:submit="speichereGruppe">
+                        <div class="upload-head">
+                            <h3>{{ $profilGruppe }}</h3>
+                            <button type="button" class="upload-close" wire:click="schliesseGruppe" aria-label="Schließen">&times;</button>
+                        </div>
+                        @if ($profilHinweis !== null)
+                            <p class="upload-sub">{{ $profilHinweis }}</p>
+                        @endif
+
+                        @foreach ($profilFelder as $schluessel => $feld)
+                            @php
+                                // Vorberechnen statt @if im Attribut — Hausregel.
+                                $randKlasse = $feld['fehlt'] ? 'feld fehlt' : 'feld';
+                                $optionen   = $feld['type'] === 'lookup' ? $this->lookupOptionen($feld['lookup'] ?? '') : [];
+                            @endphp
+                            <label class="{{ $randKlasse }}">
+                                <span class="n">{{ $feld['label'] }}</span>
+
+                                @if ($feld['type'] === 'lookup')
+                                    <select wire:model.defer="profilWerte.{{ $schluessel }}">
+                                        <option value="">— bitte wählen —</option>
+                                        @foreach ($optionen as $wert => $text)
+                                            <option value="{{ $wert }}">{{ $text }}</option>
+                                        @endforeach
+                                    </select>
+
+                                @elseif ($feld['type'] === 'bool')
+                                    {{-- 'live' nur dort, wo ein anderes Feld an der Auswahl
+                                         haengt (Hauptarbeitgeber, E16). Alle anderen
+                                         Ja/Nein-Felder bleiben bei der gesammelten
+                                         Uebertragung — kein zusaetzlicher Serverweg. --}}
+                                    @if (!empty($feld['live']))
+                                        <select wire:model.live="profilWerte.{{ $schluessel }}">
+                                            <option value="">— bitte wählen —</option>
+                                            <option value="1">Ja</option>
+                                            <option value="0">Nein</option>
+                                        </select>
+                                    @else
+                                        <select wire:model.defer="profilWerte.{{ $schluessel }}">
+                                            <option value="">— bitte wählen —</option>
+                                            <option value="1">Ja</option>
+                                            <option value="0">Nein</option>
+                                        </select>
+                                    @endif
+
+                                @elseif ($feld['type'] === 'date')
+                                    {{-- Kein style="color-scheme: light" am Feld: das macht
+                                         die Regel :root { color-scheme: light } im Layout
+                                         fuer die ganze Seite (E4). --}}
+                                    <input type="date" wire:model.defer="profilWerte.{{ $schluessel }}">
+
+                                @elseif ($feld['type'] === 'inline_select')
+                                    {{-- Fuenfter Typ, den der Docblock nicht kennt (§1.4
+                                         Punkt 1): Wert und Beschriftung sind derselbe
+                                         String — tax_class 1..6, shirt_size S..XL. --}}
+                                    <select wire:model.defer="profilWerte.{{ $schluessel }}">
+                                        <option value="">— bitte wählen —</option>
+                                        @foreach (($feld['options'] ?? []) as $option)
+                                            <option value="{{ $option }}">{{ $option }}</option>
+                                        @endforeach
+                                    </select>
+
+                                @else
+                                    {{-- maxlength aus der Feld-Definition, wo eine steht
+                                         (E14). Der harte Schutz sitzt im Waechter. KEIN
+                                         erzwingendes Zahlentastatur-Attribut (E3). --}}
+                                    @if (!empty($feld['maxlength']))
+                                        <input type="text" wire:model.defer="profilWerte.{{ $schluessel }}"
+                                               maxlength="{{ $feld['maxlength'] }}" autocomplete="off">
+                                    @else
+                                        <input type="text" wire:model.defer="profilWerte.{{ $schluessel }}"
+                                               autocomplete="off">
+                                    @endif
+                                @endif
+                            </label>
+                        @endforeach
+
+                        @if ($profilFehler !== '')
+                            <div class="alert crit">
+                                <span class="dot crit" style="margin-top:6px"></span>
+                                <div class="txt">{{ $profilFehler }}</div>
+                            </div>
+                        @endif
+
+                        <button type="submit" class="btn primary" wire:loading.attr="disabled" wire:target="speichereGruppe">Speichern</button>
+                        <button type="button" class="btn" wire:click="schliesseGruppe">Abbrechen</button>
                     </form>
                 </div>
             @endif
