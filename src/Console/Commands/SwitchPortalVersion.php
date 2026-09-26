@@ -15,11 +15,32 @@ use Illuminate\Support\Facades\DB;
  * Aenderung am Mitarbeiter und darf ihn nicht in den ZAS-Update-Export spuelen.
  * Dasselbe Muster wie beim ProofWriter und in PersonPairLinker::stamp.
  *
- * Bremse (Nachtrag 25.09.2026): das neue Portal ist noch kein Ersatz fuer das
- * alte (siehe PortalShell) -- es pflegt keine Stammdaten und kennt die
- * Arbeitgeber-Pflichtfrage nicht. Das Umstellen (NICHT --zurueck) verlangt
- * deshalb --profil-fehlt-mir-egal, sonst bricht der Lauf ab, ohne etwas zu
- * aendern. --zurueck ist die Notbremse und bleibt immer unbestaetigt moeglich.
+ * Bremse (Nachtrag 25.09.2026, RICHTIGGESTELLT 26.09.2026): das Umstellen
+ * (NICHT --zurueck) verlangt eine ausdrueckliche Bestaetigung, sonst bricht
+ * der Lauf ab, ohne etwas zu aendern. --zurueck ist die Notbremse und bleibt
+ * immer unbestaetigt moeglich.
+ *
+ * Der urspruengliche Grund ist ueberholt: die Bremse sagte, wer umgestellt
+ * werde, verliere "Stammdaten pflegen" und "die Pflichtfrage zum
+ * Hauptarbeitgeber". Genau das haben die Aufgaben 4 bis 7 gebaut. Eine
+ * Bremse, die einen falschen Grund nennt, wird beim naechsten Lesen
+ * weggeraeumt ("das koennen wir doch laengst") -- und mit ihr die Auflagen,
+ * die wirklich offen sind. Es sind drei:
+ *
+ *   1. Der Sichttest auf einem echten Geraet ist nicht gelaufen. Besonders
+ *      die Live-Reaktivitaet beim Umstellen der Arbeitgeber-Frage auf "nein"
+ *      ist nur als Datenkette geprueft, nie am Geraet gesehen.
+ *   2. is_main_employer muss bei Bestandsteams im Lohn-Tracking stehen
+ *      (RecApplicantSettings ['employee_payroll_tracked_fields']). Fehlt es
+ *      dort, meldet der Wechsel nichts ans Lohnbuero -- und an der Angabe
+ *      haengt die Steuerklasse.
+ *   3. Der Arbeitgeber-Erklaertext wartet auf Freigabe durch jemanden, der
+ *      die Lohnabrechnung verantwortet.
+ *
+ * Deshalb heisst die Option seit dem 26.09.2026
+ * --ich-habe-den-sichttest-gemacht: sie benennt die Auflage, die der Mensch
+ * am Geraet abhaken muss, statt einen Mangel wegzuwinken, den es nicht mehr
+ * gibt.
  */
 final class SwitchPortalVersion extends Command
 {
@@ -28,7 +49,7 @@ final class SwitchPortalVersion extends Command
         {--alle : Alle aktiven Mitarbeiter}
         {--zurueck : Zurueck auf das alte Portal}
         {--team= : Nur dieses Team (mit --alle)}
-        {--profil-fehlt-mir-egal : Bestaetigt das Umstellen -- das neue Portal kann noch keine Stammdaten pflegen und kennt die Arbeitgeber-Pflichtfrage nicht. --zurueck braucht sie nie.}
+        {--ich-habe-den-sichttest-gemacht : Bestaetigt das Umstellen -- drei Auflagen sind offen, siehe Klassenkommentar. --zurueck braucht die Bestaetigung nie.}
         {--dry-run : Nur zeigen, was passieren wuerde}';
 
     protected $description = 'Mitarbeiter auf das neue Mitarbeiterportal umstellen (Gate 5, Bestaetigung noetig) oder zurueck';
@@ -39,19 +60,22 @@ final class SwitchPortalVersion extends Command
         $zurueck = (bool) $this->option('zurueck');
         $alle    = (bool) $this->option('alle');
 
-        // Bremse (Canvas 67 Nachtrag 25.09.2026): das neue Portal ist noch
-        // kein Ersatz fuer das alte. --zurueck ist die Notbremse und bleibt
-        // IMMER ohne Bestaetigung moeglich -- sie darf nie klemmen. Der Lauf
-        // wird hier abgebrochen, BEVOR irgendetwas gezaehlt oder geschrieben
-        // wird, auch im Trockenlauf: er ist trotzdem "das Umstellen".
-        if (!$zurueck && !(bool) $this->option('profil-fehlt-mir-egal')) {
-            $this->error('Umstellen auf das neue Portal verlangt eine ausdrueckliche Bestaetigung.');
-            $this->line('Wer umgestellt wird, verliert im neuen Portal (heute noch):');
-            $this->line('  - Stammdaten pflegen (E-Mail, Telefon, Adresse, Geburtsland,');
-            $this->line('    Staatsangehoerigkeit, Geschlecht, Familienstand, "Ich bin", Bankdaten, ...)');
-            $this->line('  - Die Pflichtfrage zum Hauptarbeitgeber, an der die Steuerklasse haengt');
-            $this->line('Stattdessen: denselben Befehl mit --profil-fehlt-mir-egal wiederholen,');
-            $this->line('erst wenn das in Ordnung ist.');
+        // Bremse (Canvas 67 Nachtrag 25.09.2026, Text richtiggestellt
+        // 26.09.2026). --zurueck ist die Notbremse und bleibt IMMER ohne
+        // Bestaetigung moeglich -- sie darf nie klemmen. Der Lauf wird hier
+        // abgebrochen, BEVOR irgendetwas gezaehlt oder geschrieben wird, auch
+        // im Trockenlauf: er ist trotzdem "das Umstellen".
+        if (!$zurueck && !(bool) $this->option('ich-habe-den-sichttest-gemacht')) {
+            $this->error('Umstellen auf das neue Portal verlangt eine ausdrückliche Bestätigung.');
+            $this->line('Drei Auflagen sind offen:');
+            $this->line('  1. Der Sichttest auf einem echten Gerät ist nicht gelaufen —');
+            $this->line('     vor allem die Arbeitgeber-Frage, wenn sie live auf "nein" gestellt wird.');
+            $this->line('  2. is_main_employer muss bei Bestandsteams im Lohn-Tracking stehen');
+            $this->line('     (employee_payroll_tracked_fields), sonst meldet der Wechsel nichts');
+            $this->line('     ans Lohnbüro — und daran hängt die Steuerklasse.');
+            $this->line('  3. Der Arbeitgeber-Erklärtext wartet auf Freigabe durch die Lohnabrechnung.');
+            $this->line('Stattdessen: denselben Befehl mit --ich-habe-den-sichttest-gemacht');
+            $this->line('wiederholen, erst wenn diese drei Punkte erledigt sind.');
             return self::FAILURE;
         }
 

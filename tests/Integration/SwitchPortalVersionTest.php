@@ -16,11 +16,20 @@ use Symfony\Component\Console\Output\BufferedOutput;
 /**
  * Die Bremse am Umstell-Kommando (recruiting:portal-umstellen).
  *
- * Das neue Portal ist noch kein Ersatz fuer das alte: es kann keine
- * Stammdaten pflegen und kennt die Arbeitgeber-Pflichtfrage nicht (an der
- * die Steuerklasse haengt). Wer trotzdem umstellt, muss das ausdruecklich
- * bestaetigen — --profil-fehlt-mir-egal. --zurueck (die Notbremse) bleibt
- * IMMER ohne Bestaetigung moeglich.
+ * RICHTIGGESTELLT am 26.09.2026 (Schlussfix F2): die Bremse behauptete, wer
+ * umgestellt werde, verliere "Stammdaten pflegen" und "die Pflichtfrage zum
+ * Hauptarbeitgeber". Genau das haben die Aufgaben 4 bis 7 gebaut — der Text
+ * stimmte nicht mehr, und die Option hiess danach (--profil-fehlt-mir-egal).
+ * Eine Bremse, die einen falschen Grund nennt, wird beim naechsten Lesen
+ * weggeraeumt: "das koennen wir doch laengst".
+ *
+ * Die drei ECHTEN Auflagen stehen jetzt im Text und werden hier gemessen:
+ *   1. Der Sichttest auf einem echten Geraet ist nicht gelaufen.
+ *   2. is_main_employer muss bei Bestandsteams im Lohn-Tracking gesetzt sein.
+ *   3. Der Arbeitgeber-Erklaertext wartet auf Freigabe durch die
+ *      Lohnabrechnung.
+ *
+ * --zurueck (die Notbremse) bleibt IMMER ohne Bestaetigung moeglich.
  */
 final class SwitchPortalVersionTest extends TestCase
 {
@@ -97,11 +106,35 @@ final class SwitchPortalVersionTest extends TestCase
         $this->assertSame(SwitchPortalVersion::FAILURE, $exitCode);
         $this->assertNull(DB::table('rec_employees')->find($id)->portal_v2_since);
 
-        // Die Meldung muss AUFZAEHLEN, was verloren geht.
-        $this->assertStringContainsString('Stammdaten', $ausgabe);
-        $this->assertStringContainsString('Hauptarbeitgeber', $ausgabe);
+        // Die Meldung muss die DREI ECHTEN Auflagen aufzaehlen.
+        $this->assertStringContainsString('Sichttest', $ausgabe);
+        $this->assertStringContainsString('is_main_employer', $ausgabe);
+        $this->assertStringContainsString('Lohnabrechnung', $ausgabe);
         // ... und sagen, was stattdessen zu tun ist.
-        $this->assertStringContainsString('--profil-fehlt-mir-egal', $ausgabe);
+        $this->assertStringContainsString('--ich-habe-den-sichttest-gemacht', $ausgabe);
+    }
+
+    public function test_die_bremse_nennt_die_ueberholten_gruende_nicht_mehr(): void
+    {
+        // Die beiden alten Gruende sind seit den Aufgaben 4 bis 7 falsch:
+        // das neue Portal pflegt Stammdaten und stellt die Arbeitgeber-Frage.
+        // Stuenden sie weiter da, wuerde die Bremse beim naechsten Lesen als
+        // veraltet weggeraeumt — samt der drei Auflagen, die wirklich offen
+        // sind.
+        [, $ausgabe] = $this->runCommand(['--ids' => (string) $this->mitarbeiter()]);
+
+        $this->assertStringNotContainsString('Stammdaten pflegen', $ausgabe);
+        $this->assertStringNotContainsString('profil-fehlt-mir-egal', $ausgabe);
+    }
+
+    public function test_die_alte_option_gibt_es_nicht_mehr(): void
+    {
+        // Wer den alten Namen im Deploy-Skript stehen laesst, soll einen
+        // Fehler sehen und nicht still umstellen.
+        $command = new SwitchPortalVersion();
+
+        $this->assertFalse($command->getDefinition()->hasOption('profil-fehlt-mir-egal'));
+        $this->assertTrue($command->getDefinition()->hasOption('ich-habe-den-sichttest-gemacht'));
     }
 
     public function test_umstellen_mit_alle_ohne_bestaetigung_bricht_ebenfalls_ab(): void
@@ -136,7 +169,7 @@ final class SwitchPortalVersionTest extends TestCase
 
         [$exitCode] = $this->runCommand([
             '--ids' => (string) $id,
-            '--profil-fehlt-mir-egal' => true,
+            '--ich-habe-den-sichttest-gemacht' => true,
         ]);
 
         $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
@@ -148,7 +181,7 @@ final class SwitchPortalVersionTest extends TestCase
         $id1 = $this->mitarbeiter();
         $id2 = $this->mitarbeiter();
 
-        [$exitCode] = $this->runCommand(['--alle' => true, '--profil-fehlt-mir-egal' => true]);
+        [$exitCode] = $this->runCommand(['--alle' => true, '--ich-habe-den-sichttest-gemacht' => true]);
 
         $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
         $this->assertNotNull(DB::table('rec_employees')->find($id1)->portal_v2_since);
