@@ -37,7 +37,12 @@ final class ProofTypes
             'ablauf' => true, 'ablauf_spalte' => 'identity_card_valid_until', 'vorlauf' => 30,
         ],
         'selfie' => [
-            'label' => 'Foto von dir', 'gruppe' => 'immer',
+            // NEUTRAL, kein Du/Sie-Ternary (Schlussfix F6): diese
+            // Bezeichnung steht auch in den HR-Ansichten (ProofInbox,
+            // Mitarbeiterakte), und dort gibt es keine Anrede des
+            // Mitarbeiters. Ein Ternary waere hier falsch, kein
+            // Versehen.
+            'label' => 'Passfoto', 'gruppe' => 'immer',
             'dateien' => ['selfie_file_id'],
             'ablauf' => false, 'ablauf_spalte' => null, 'vorlauf' => null,
         ],
@@ -47,7 +52,8 @@ final class ProofTypes
             'ablauf' => false, 'ablauf_spalte' => null, 'vorlauf' => null,
         ],
         'iban_nachweis' => [
-            'label' => 'Nachweis deiner Bankverbindung', 'gruppe' => 'immer',
+            // Ebenfalls neutral, gleicher Grund wie beim Passfoto.
+            'label' => 'Nachweis der Bankverbindung', 'gruppe' => 'immer',
             'dateien' => [],
             'ablauf' => false, 'ablauf_spalte' => null, 'vorlauf' => null,
         ],

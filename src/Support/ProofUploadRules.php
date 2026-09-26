@@ -17,8 +17,20 @@ final class ProofUploadRules
     public const MAX_KB = 12288;   // 12 MB, ein iPhone-Foto liegt bei 3-5
     public const MAX_JAHRE = 10;
 
-    /** Klartext-Grund, warum das Datum nicht geht — oder null, wenn alles passt. */
-    public static function pruefeDatum(string $code, ?string $datum, string $heute): ?string
+    /**
+     * Klartext-Grund, warum das Datum nicht geht — oder null, wenn alles passt.
+     *
+     * $duzen (Schlussfix F6, 26.09.2026): genau EINE dieser Meldungen spricht
+     * den Menschen an ("Bitte trag ein ..."); sie stand nur in der Du-Form,
+     * obwohl die Anrede im Portal an der Team-Einstellung haengt. Die
+     * uebrigen vier beschreiben das DATUM und nicht den Menschen — sie
+     * brauchen keine Anrede und bekommen auch keine.
+     *
+     * Der Parameter hat bewusst KEINE Vorgabe: der einzige Aufrufer
+     * (PortalShell) kennt die Anrede, und ein neuer Aufrufer soll sich
+     * entscheiden muessen, statt still zu duzen.
+     */
+    public static function pruefeDatum(string $code, ?string $datum, string $heute, bool $duzen): ?string
     {
         if (!ProofTypes::exists($code)) {
             return 'Diese Nachweisart kennen wir nicht.';
@@ -32,7 +44,9 @@ final class ProofUploadRules
         }
 
         if ($roh === '') {
-            return 'Bitte trag ein, bis wann der Nachweis gültig ist.';
+            return $duzen
+                ? 'Bitte trag ein, bis wann der Nachweis gültig ist.'
+                : 'Bitte tragen Sie ein, bis wann der Nachweis gültig ist.';
         }
         if (!self::istEchtesDatum($roh)) {
             return 'Das Datum können wir nicht lesen.';

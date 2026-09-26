@@ -201,4 +201,26 @@ final class ProofTypesTest extends TestCase
         // waechst, faellt sonst nicht auf, solange sie eindeutig bleibt.
         $this->assertCount(16, $alle, 'Katalog kennt nicht mehr 16 Altspalten');
     }
+
+    // -----------------------------------------------------------------
+    // F6 -- die Bezeichnungen stehen auch in den HR-Ansichten
+    // -----------------------------------------------------------------
+
+    public function test_keine_bezeichnung_spricht_den_mitarbeiter_an(): void
+    {
+        // "Foto von dir" und "Nachweis deiner Bankverbindung" duzten den
+        // Leser -- dieselben Bezeichnungen stehen aber in ProofInbox und in
+        // der Mitarbeiterakte, wo HR liest und nicht der Mitarbeiter. Ein
+        // Du/Sie-Ternary waere hier falsch (es gibt keine Anrede), also
+        // muessen sie neutral sein. Geprueft wird der GANZE Katalog, damit
+        // eine neue Art nicht wieder duzt.
+        foreach (ProofTypes::all() as $code) {
+            $label = ProofTypes::label($code);
+            $this->assertSame(
+                0,
+                preg_match('/\b(dir|dein|deine|deiner|deines|du|Ihnen|Ihre|Ihrer)\b/ui', $label),
+                "Die Bezeichnung „{$label}“ ({$code}) spricht den Leser an — sie steht auch in den HR-Ansichten.",
+            );
+        }
+    }
 }

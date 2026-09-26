@@ -275,6 +275,7 @@ class PortalShell extends Component
             $this->uploadCode,
             $this->uploadGueltigBis,
             now()->toDateString(),
+            $this->duzen,
         );
         if ($fehler !== null) {
             $this->uploadFehler = $fehler;
@@ -317,7 +318,9 @@ class PortalShell extends Component
                 )
                 : null;
         } catch (\Throwable $e) {
-            $this->uploadFehler = 'Das Hochladen hat nicht geklappt. Bitte versuch es noch einmal.';
+            $this->uploadFehler = $this->duzen
+                ? 'Das Hochladen hat nicht geklappt. Bitte versuch es noch einmal.'
+                : 'Das Hochladen hat nicht geklappt. Bitte versuchen Sie es noch einmal.';
             report($e);
 
             return;

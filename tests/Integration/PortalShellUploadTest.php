@@ -406,4 +406,49 @@ final class PortalShellUploadTest extends TestCase
         $this->assertNotSame('', $shell->uploadFehler);
         $this->assertSame(0, RecEmployeeProof::count());
     }
+
+    // -----------------------------------------------------------------
+    // F6 -- die Anrede endet nicht an der Blade-Grenze
+    // -----------------------------------------------------------------
+
+    public function test_die_upload_fehlermeldung_folgt_der_anrede(): void
+    {
+        // Der Satz kommt aus der PHP-Klasse, nicht aus dem Blade -- die
+        // Anrede-Kehrwoche aus Aufgabe 7 hatte ihn deshalb uebersehen.
+        $container = Container::getInstance();
+        $container->instance(ContextFileService::class, new class extends ContextFileService {
+            public function __construct() {}
+
+            public function uploadForContext($file, string $contextType, int $contextId, array $options = []): array
+            {
+                throw new \RuntimeException('Speicher voll');
+            }
+        });
+        // report() im Fang-Zweig braucht einen Handler, sonst fliegt die
+        // Ausnahme aus dem catch heraus und der Test misst etwas anderes.
+        $container->instance(\Illuminate\Contracts\Debug\ExceptionHandler::class, new class implements \Illuminate\Contracts\Debug\ExceptionHandler {
+            public function report(\Throwable $e): void {}
+            public function shouldReport(\Throwable $e): bool { return false; }
+            public function render($request, \Throwable $e) { return null; }
+            public function renderForConsole($output, \Throwable $e): void {}
+        });
+
+        $ma = $this->angemeldeterMitarbeiter();
+
+        $duzen = $this->shell($ma);
+        $duzen->duzen = true;
+        $duzen->oeffneUpload('selfie');
+        $duzen->uploadDatei = UploadedFile::fake()->image('selfie.jpg');
+        $duzen->speichereNachweis();
+
+        $siezen = $this->shell($ma);
+        $siezen->duzen = false;
+        $siezen->oeffneUpload('selfie');
+        $siezen->uploadDatei = UploadedFile::fake()->image('selfie.jpg');
+        $siezen->speichereNachweis();
+
+        $this->assertSame('Das Hochladen hat nicht geklappt. Bitte versuch es noch einmal.', $duzen->uploadFehler);
+        $this->assertSame('Das Hochladen hat nicht geklappt. Bitte versuchen Sie es noch einmal.', $siezen->uploadFehler);
+        $this->assertSame(0, RecEmployeeProof::count());
+    }
 }
