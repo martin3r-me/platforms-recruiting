@@ -111,6 +111,25 @@ class PortalShellProfilBladeTest extends TestCase
         $this->assertStringContainsString('nicht änderbar', $blade);
     }
 
+    public function test_ablaufdaten_werden_nur_gezeigt_und_sagen_warum(): void
+    {
+        // F4: fuenf Datumsfelder sind zugleich Ablaufspalte einer
+        // Nachweisart. Sie stehen im Blatt, aber ohne Eingabefeld -- und mit
+        // einem Satz, der sagt, wo man sie aendert. Ohne diesen Satz waere
+        // das Feld einfach kaputt.
+        $blade = $this->blade();
+
+        $this->assertStringContainsString("!empty(\$feld['fest'])", $blade);
+        $this->assertStringContainsString('Dieses Datum kommt vom Nachweis', $blade);
+
+        // Der feste Zweig steht VOR den Eingabe-Zweigen -- sonst faengt der
+        // 'date'-Zweig das Feld ab und baut doch ein Eingabefeld.
+        $festPos = strpos($blade, "!empty(\$feld['fest'])");
+        $datumPos = strpos($blade, "\$feld['type'] === 'date'");
+        $this->assertNotFalse($datumPos);
+        $this->assertLessThan($datumPos, $festPos);
+    }
+
     public function test_der_gruppenname_steht_nicht_in_einer_zweiten_liste(): void
     {
         // §1.4 Punkt 2: die Doppelliste ist der Grund fuer E7. Im Blade darf

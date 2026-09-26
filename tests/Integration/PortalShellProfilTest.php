@@ -199,8 +199,57 @@ final class PortalShellProfilTest extends TestCase
 
         $shell->oeffneGruppe('Ausweis');
 
-        $this->assertArrayHasKey('identity_card_valid_until', $shell->profilWerte);
         $this->assertArrayNotHasKey('identity_card_front_file_id', $shell->profilWerte);
+
+        // GEDREHT am 26.09.2026 (Schlussfix F4): das Ablaufdatum stand hier
+        // bis dahin IM Formular. Es gehoert zum Nachweis, nicht zum Profil --
+        // wer es hier aenderte, bekam "Gespeichert.", waehrend der
+        // Start-Bildschirm weiter "Abgelaufen" sagte.
+        $this->assertArrayNotHasKey('identity_card_valid_until', $shell->profilWerte);
+    }
+
+    // -----------------------------------------------------------------
+    // F4 -- ein Datum, zwei Tueren: ab jetzt nur noch eine
+    // -----------------------------------------------------------------
+
+    public function test_das_ablaufdatum_steht_als_fester_wert_im_blatt(): void
+    {
+        // Es verschwindet nicht -- an dieser Stelle beantwortet es die Frage,
+        // die der Mensch hier hat ("bis wann gilt mein Ausweis?"). Es nimmt
+        // nur keine Eingabe mehr entgegen.
+        $ma = $this->mitarbeiter(['identity_card_valid_until' => '2032-01-01']);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Ausweis');
+
+        $methode = new \ReflectionMethod($shell, 'profilDaten');
+        $methode->setAccessible(true);
+        $felder = $methode->invoke($shell, $ma)['felder'];
+
+        $this->assertArrayHasKey('identity_card_valid_until', $felder);
+        $this->assertTrue($felder['identity_card_valid_until']['fest']);
+        $this->assertSame('01.01.2032', $felder['identity_card_valid_until']['wert']);
+        // Ein festes Feld bekommt keinen roten Pflicht-Rand: der Mensch kann
+        // hier nichts nachtragen, der Weg fuehrt ueber den Nachweis.
+        $this->assertFalse($felder['identity_card_valid_until']['fehlt']);
+    }
+
+    public function test_ein_untergeschobenes_ablaufdatum_wird_nicht_geschrieben(): void
+    {
+        // Ueber die Oberflaeche gibt es kein Eingabefeld mehr -- ueber
+        // $wire.set aber sehr wohl einen Weg, einen Wert in $profilWerte zu
+        // legen. Der Schreibweg muss ihn wegwerfen, nicht die Ansicht.
+        $ma = $this->mitarbeiter(['identity_card_valid_until' => '2032-01-01']);
+        $shell = $this->shell($ma);
+        $shell->oeffneGruppe('Ausweis');
+
+        $shell->profilWerte['identity_card_valid_until'] = '2040-01-01';
+        $shell->speichereGruppe();
+
+        $this->assertSame(
+            '2032-01-01',
+            $ma->fresh()->identity_card_valid_until?->format('Y-m-d'),
+            'F4: das Profil schreibt wieder in die Ablaufspalte des Nachweises',
+        );
     }
 
     public function test_speichern_schreibt_und_schliesst(): void

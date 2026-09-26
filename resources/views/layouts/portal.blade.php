@@ -211,6 +211,21 @@
         .portal-body .grouprow.tap:hover { background: var(--surface-2) }
         .portal-body .up.tap { cursor: pointer; font: inherit; color: inherit; width: 100% }
         .portal-body .feld.fehlt input, .portal-body .feld.fehlt select { border-color: var(--crit) }
+
+        /* F4: Ablaufdatum eines Nachweises -- im Profil nur lesbar. Bewusst
+           kein deaktiviertes Eingabefeld: ein graues Feld sieht kaputt aus
+           und laedt zum Antippen ein. */
+        .portal-body .feld .fest {
+            font-size: 15px; color: var(--ink); background: var(--surface-2);
+            border: 1px solid var(--line); border-radius: var(--r);
+            padding: 11px 12px;
+        }
+        .portal-body .feld .fest-hinweis { font-size: 12px; color: var(--ink-3); line-height: 1.4 }
+
+        /* Erfolgsmeldung nach dem Speichern (F5) -- .alert bringt von Haus
+           aus den warnenden Ton mit, hier ist es eine gute Nachricht. */
+        .portal-body .alert.ok { background: var(--ok-bg) }
+        .portal-body .alert.ok .txt { color: var(--ok) }
     </style>
     @endverbatim
     @livewireStyles

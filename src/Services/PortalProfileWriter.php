@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\PortalBoolValue;
 use Platform\Recruiting\Support\PortalProfileGuards;
+use Platform\Recruiting\Support\ProofTypes;
 
 /**
  * Stammdaten aus dem Mitarbeiterportal speichern — UEBER ELOQUENT.
@@ -100,6 +101,38 @@ final class PortalProfileWriter
             $formwerte = array_intersect_key($formwerte, $reichweite);
         }
 
+        // F4 (26.09.2026, RULING): DIE FUENF ABLAUFDATEN SIND HIER NICHT
+        // SCHREIBBAR. Sie werden VOR den Waechtern aus den Formularwerten
+        // entfernt -- nicht erst in der Schreibschleife, sonst koennte ein
+        // manipulierter POST der Kaskade ein Datum unterschieben, das
+        // anschliessend gar nicht geschrieben wird ("Ersthelfer=Ja" ginge
+        // durch, das Datum bliebe leer).
+        //
+        // identity_card_valid_until, school_certificate_valid_until,
+        // first_aider_valid_until, residence_permit_valid_until und
+        // work_permit_valid_until sind Profilfeld UND Ablaufspalte einer
+        // Nachweisart. Gespiegelt wurde bisher nur in EINE Richtung
+        // (ProofWriter: Nachweis -> Spalte). Wer das Datum im Profil aenderte,
+        // bekam "Gespeichert.", die Gruppenzeile zeigte das neue Datum, der
+        // Ring stieg -- und der Start-Bildschirm sagte WEITERHIN "Abgelaufen
+        // am 01.09.2026", dauerhaft, weil die Nachweis-Zeile unberuehrt blieb.
+        //
+        // WARUM NICHT DIE GEGENRICHTUNG SPIEGELN: die Nachweistabelle soll
+        // genau EINEN Schreiber behalten. Zwei Schreibwege auf dieselbe Spalte
+        // mit verschiedener Semantik (einer mit ZAS-Marker, einer ohne) sind
+        // genau die Sorte Doppelung, die in dieser Runde dreimal beseitigt
+        // wurde. Wer das Datum aendern will, laedt den Nachweis neu hoch --
+        // das ist ohnehin der richtige Vorgang, denn ein neues Ablaufdatum
+        // heisst neues Dokument.
+        //
+        // Welche Spalten das sind, sagt der Katalog (ProofTypes), nicht eine
+        // Liste hier.
+        foreach (array_keys($formwerte) as $feld) {
+            if (ProofTypes::istAblaufSpalte((string) $feld)) {
+                unset($formwerte[$feld]);
+            }
+        }
+
         // R15-R18: Endzustandspruefung in der bindenden Reihenfolge. Was das
         // Formular nicht mitbringt, kommt vom Datensatz — im neuen Portal ist
         // das der Normalfall, weil immer nur EINE Gruppe offen steht.
@@ -134,6 +167,9 @@ final class PortalProfileWriter
                 continue;                       // R19: manipulierter POST
             }
             $typ = $erlaubt[$feld]['type'] ?? 'text';
+            if (ProofTypes::istAblaufSpalte($feld)) {
+                continue;                       // F4: gehoert dem Nachweis, siehe oben
+            }
             if ($typ === 'file') {
                 // R20/E8: Dateien setzt ausschliesslich der Upload-Weg. Sonst
                 // koennte ein manipulierter POST fremde File-Ids setzen oder

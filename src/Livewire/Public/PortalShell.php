@@ -375,6 +375,9 @@ class PortalShell extends Component
             if (($meta['type'] ?? 'text') === 'file') {
                 continue;   // Dateien laufen ueber das Nachweis-Blatt (R20/E8)
             }
+            if (ProofTypes::istAblaufSpalte($schluessel)) {
+                continue;   // F4: das Ablaufdatum gehoert dem Nachweis, nur lesbar
+            }
             $this->profilWerte[$schluessel] = $this->formularwert($employee, $schluessel);
         }
     }
@@ -866,7 +869,14 @@ class PortalShell extends Component
                 if (($meta['type'] ?? 'text') === 'file') {
                     continue;   // Dateien laufen ueber das Nachweis-Blatt (R20/E8)
                 }
-                $fehlt = PortalFieldRelevance::istRelevant($meta, $datensatzOffeneGruppe)
+                // F4: die fuenf Ablaufdaten stehen im Blatt, aber NUR LESEND
+                // -- sie gehoeren dem Nachweis (siehe PortalProfileWriter).
+                // Sie bleiben sichtbar, weil das Datum an dieser Stelle die
+                // Frage beantwortet, die der Mensch hier hat ("bis wann gilt
+                // mein Ausweis?"); nur geaendert wird es ueber den Nachweis.
+                $fest = ProofTypes::istAblaufSpalte($schluessel);
+                $fehlt = !$fest
+                    && PortalFieldRelevance::istRelevant($meta, $datensatzOffeneGruppe)
                     && trim((string) ($this->profilWerte[$schluessel] ?? '')) === '';
                 $profilFelder[$schluessel] = [
                     'type'      => $meta['type'] ?? 'text',
@@ -876,6 +886,10 @@ class PortalShell extends Component
                     'maxlength' => $meta['maxlength'] ?? null,
                     'live'      => (bool) ($meta['live'] ?? false),
                     'fehlt'     => $fehlt,
+                    'fest'      => $fest,
+                    // Nur bei 'fest' belegt: das Blatt zeigt den gespeicherten
+                    // Stand als Text, es gibt kein Eingabefeld dafuer.
+                    'wert'      => $fest ? $this->anzeigewert($employee, $schluessel, $meta) : '',
                 ];
             }
         }

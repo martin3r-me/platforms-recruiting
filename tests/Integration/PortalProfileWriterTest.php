@@ -410,6 +410,13 @@ class PortalProfileWriterTest extends TestCase
     {
         // R15 verhindert den Zustand "Ersthelfer=Ja ohne Datum". Ueber ein
         // null waere er DURCH das Speichern entstanden.
+        //
+        // NACHGEZOGEN am 26.09.2026 (Schlussfix F4): seither kann dieser Weg
+        // das Datum gar nicht mehr anfassen -- first_aider_valid_until ist die
+        // Ablaufspalte der Nachweisart "ersthelfer" und wird im Profil nur
+        // noch gelesen. Der Waechter blockt deshalb nicht mehr (er sieht den
+        // unveraenderten Datensatz); die ZUSICHERUNG ist dieselbe und sogar
+        // haerter: das Datum ueberlebt.
         $ma = $this->mitarbeiter([
             'is_first_aider'                  => true,
             'first_aider_valid_until'         => '2027-01-01',
@@ -422,9 +429,8 @@ class PortalProfileWriterTest extends TestCase
             'Arbeitsschutz',
         );
 
-        $this->assertFalse($ergebnis['ok']);
-        $this->assertStringContainsString('Ersthelfer', (string) $ergebnis['fehler']);
         $this->assertSame('2027-01-01', $ma->fresh()->first_aider_valid_until?->format('Y-m-d'));
+        $this->assertSame('Keine Änderungen.', $ergebnis['meldung']);
     }
 
     public function test_ein_ausdrueckliches_null_setzt_die_pflichtantwort_nicht_zurueck(): void

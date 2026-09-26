@@ -565,11 +565,19 @@ final class PortalGleichstandTest extends TestCase
                 $shell->oeffneGruppe($gruppe);
 
                 $this->assertSame($gruppe, $shell->profilGruppe, "{$label}: „{$gruppe}“ bleibt zu");
+
+                // NACHGEZOGEN am 26.09.2026 (Schlussfix F4): gemessen wird das
+                // BLATT, nicht mehr der Formularstand. Seit F4 gibt es
+                // Gruppen, deren Inhalt ausschliesslich dem Nachweis gehoert
+                // — „Ausweis“ (drei Dateien plus das Ablaufdatum) und
+                // „Aufenthalt (Non-EU)“ (zwei Ablaufdaten). Ihr Blatt zeigt
+                // etwas, nimmt aber nichts entgegen; $profilWerte ist dort
+                // zu Recht leer. Ein Blatt ohne jeden Eintrag waere dagegen
+                // weiterhin eine Zeile, die beim Antippen ins Leere fuehrt.
                 $this->assertNotSame(
                     [],
-                    $shell->profilWerte,
-                    "{$label}: „{$gruppe}“ oeffnet sich, aber ohne ein einziges Formularfeld — "
-                    . 'eine reine Datei-Gruppe gibt es in der Feldliste nicht',
+                    $this->profil($shell, $ma)['felder'],
+                    "{$label}: „{$gruppe}“ oeffnet sich, aber das Blatt bleibt leer",
                 );
             }
         }
@@ -956,7 +964,15 @@ final class PortalGleichstandTest extends TestCase
 
         $nachher = $this->frisch($ma);
         $this->assertSame(4711, (int) $nachher->identity_card_front_file_id, 'R20/E8: die File-Id wurde ueberschrieben');
-        $this->assertStringStartsWith('2032-01-01', (string) $nachher->identity_card_valid_until);
+
+        // GEDREHT am 26.09.2026 (Schlussfix F4): das Ablaufdatum wurde hier
+        // bis dahin ueber das Profil geschrieben. Es ist zugleich die
+        // Ablaufspalte der Nachweisart "ausweis", und gespiegelt wurde nur in
+        // EINE Richtung (Nachweis -> Spalte). Der Mensch trug im Profil ein
+        // neues Datum ein, bekam "Gespeichert.", der Ring stieg -- und der
+        // Start-Bildschirm sagte WEITERHIN "Abgelaufen am ...", dauerhaft.
+        // Jetzt gehoert die Spalte dem Nachweis allein.
+        $this->assertNull($nachher->identity_card_valid_until, 'F4: das Profil schreibt wieder in die Ablaufspalte');
     }
 
     // =================================================================
@@ -1639,10 +1655,15 @@ final class PortalGleichstandTest extends TestCase
      * 11. DOPPELTUER bei fuenf Datumsfeldern: identity_card_valid_until,
      *     school_certificate_valid_until, first_aider_valid_until,
      *     residence_permit_valid_until und work_permit_valid_until sind
-     *     zugleich editierbare Profilfelder UND Ablaufspalte einer
-     *     Nachweisart. Ueber das Profil geschrieben setzen sie den ZAS-Marker
-     *     (wie im alten Portal), ueber das Nachweis-Blatt nicht. Beide Wege
-     *     bleiben — bewusst. GEMESSEN unten.
+     *     zugleich Profilfeld UND Ablaufspalte einer Nachweisart.
+     *     RICHTIGGESTELLT am 26.09.2026 (Schlussfix F4): "beide Wege bleiben
+     *     — bewusst" war falsch abgenommen. Gespiegelt wurde nur in EINE
+     *     Richtung (ProofWriter: Nachweis -> Spalte); wer das Datum im Profil
+     *     aenderte, bekam "Gespeichert.", die Gruppenzeile zeigte das neue
+     *     Datum, der Ring stieg — und der Start-Bildschirm sagte WEITERHIN
+     *     "Abgelaufen am ...", dauerhaft. Seit F4 gibt es nur noch EINE Tuer:
+     *     das Profil zeigt die fuenf Daten, schreibt sie aber nicht.
+     *     GEMESSEN unten.
      */
     public function test_abweichung_4_die_nicht_abgedeckten_punkte_des_plans(): void
     {
@@ -1750,9 +1771,10 @@ final class PortalGleichstandTest extends TestCase
             'E4: das Datumsfeld setzt color-scheme wieder selbst statt ueber das Layout',
         );
 
-        // Punkt 11 — die fuenf Doppeltueren. Beide Wege existieren, und das
-        // ist Absicht: das Profil, weil die Bestandsaufnahme 47 editierbare
-        // Felder verlangt; das Nachweis-Blatt, weil dort die Datei dazugehoert.
+        // Punkt 11 — die fuenf ehemaligen Doppeltueren. Sie stehen weiter im
+        // Profil (die Bestandsaufnahme verlangt 47 erreichbare Felder), aber
+        // nur noch lesend: geschrieben werden sie ausschliesslich ueber den
+        // Nachweis (F4).
         $ablaufSpalten = [];
         foreach (ProofTypes::all() as $code) {
             $spalte = ProofTypes::legacyExpiryColumn($code);
@@ -1769,5 +1791,14 @@ final class PortalGleichstandTest extends TestCase
             'school_certificate_valid_until',
             'work_permit_valid_until',
         ], $doppelt, 'Punkt 11: die Doppeltueren haben sich veraendert');
+
+        // ... und jede einzelne von ihnen ist im Profil wirklich nur lesbar.
+        // Gemessen an der Quelle der Wahrheit, nicht an der Liste oben.
+        foreach ($doppelt as $spalte) {
+            $this->assertTrue(
+                ProofTypes::istAblaufSpalte($spalte),
+                "Punkt 11: {$spalte} gilt nicht mehr als Ablaufspalte — das Profil wuerde sie wieder schreiben",
+            );
+        }
     }
 }

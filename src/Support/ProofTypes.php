@@ -203,6 +203,20 @@ final class ProofTypes
     }
 
     /**
+     * Ist diese Spalte das Ablaufdatum einer Nachweisart?
+     *
+     * Fuenf davon sind zugleich Profilfelder: identity_card_valid_until,
+     * school_certificate_valid_until, first_aider_valid_until,
+     * residence_permit_valid_until und work_permit_valid_until. Sie werden im
+     * Profil nur noch GELESEN (Schlussfix F4) -- geschrieben werden sie
+     * ausschliesslich ueber den Nachweis.
+     */
+    public static function istAblaufSpalte(string $feld): bool
+    {
+        return $feld !== '' && in_array($feld, self::legacyExpiryColumnsAll(), true);
+    }
+
+    /**
      * Die Rueckrichtung: zu welcher Nachweisart gehoert diese Altspalte?
      *
      * Damit kommt ein Datei-Feld aus RecEmployee::editableFieldGroups() ohne

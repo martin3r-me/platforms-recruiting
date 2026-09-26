@@ -671,7 +671,19 @@
                             <label class="{{ $randKlasse }}">
                                 <span class="n">{{ $feld['label'] }}</span>
 
-                                @if ($feld['type'] === 'lookup')
+                                @if (!empty($feld['fest']))
+                                    {{-- F4: Ablaufdatum einer Nachweisart. Es
+                                         wird hier NUR gezeigt -- geaendert
+                                         wird es ueber den Nachweis, weil ein
+                                         neues Ablaufdatum ein neues Dokument
+                                         heisst und die Nachweistabelle genau
+                                         einen Schreiber behaelt. --}}
+                                    <span class="fest">{{ $feld['wert'] !== '' ? $feld['wert'] : '—' }}</span>
+                                    <span class="fest-hinweis">{{ $duzen
+                                        ? 'Dieses Datum kommt vom Nachweis. Lade den Nachweis neu hoch, um es zu ändern.'
+                                        : 'Dieses Datum kommt vom Nachweis. Laden Sie den Nachweis neu hoch, um es zu ändern.' }}</span>
+
+                                @elseif ($feld['type'] === 'lookup')
                                     <select wire:model.defer="profilWerte.{{ $schluessel }}">
                                         <option value="">— bitte wählen —</option>
                                         @foreach ($optionen as $wert => $text)
