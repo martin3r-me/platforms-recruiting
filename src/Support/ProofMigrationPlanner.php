@@ -30,7 +30,7 @@ final class ProofMigrationPlanner
         foreach ($employees as $zeile) {
             $id = (int) ($zeile['id'] ?? 0);
             $key = trim((string) ($zeile['person_key'] ?? ''));
-            $person = $key !== '' ? "p:{$key}" : "e:{$id}";
+            $person = self::personSchluessel($key, $id);
 
             foreach (ProofTypes::all() as $code) {
                 $spalten = ProofTypes::legacyFileColumns($code);
@@ -67,6 +67,23 @@ final class ProofMigrationPlanner
         }
 
         return array_values($beste);
+    }
+
+    /**
+     * Der Schluessel, unter dem ein Nachweis EINER PERSON zugeordnet wird:
+     * ueber person_key, wenn es einen gibt, sonst ueber die Anstellung.
+     *
+     * Oeffentlich, damit der Umzug und die Warnung im Umstell-Kommando
+     * denselben Schluessel bauen. Zwei Kopien dieser vier Zeilen wuerden
+     * genau dann auseinanderlaufen, wenn es weh tut: die Warnung meldete
+     * Leute, die laengst umgezogen sind, oder schwiege bei denen, die es
+     * nicht sind.
+     */
+    public static function personSchluessel(?string $personKey, int $employeeId): string
+    {
+        $key = trim((string) $personKey);
+
+        return $key !== '' ? "p:{$key}" : "e:{$employeeId}";
     }
 
     /** Erst wer ein Gueltig-bis hat, dann der juengere Datensatz. */

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Console\Commands\SwitchPortalVersion;
+use Platform\Recruiting\Support\ProofTypes;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -56,8 +57,34 @@ final class SwitchPortalVersionTest extends TestCase
         $this->capsule->schema()->create('rec_employees', function ($t) {
             $t->increments('id');
             $t->integer('team_id')->nullable();
+            $t->string('person_key', 64)->nullable();
             $t->boolean('is_active')->default(true);
             $t->timestamp('portal_v2_since')->nullable();
+            // Die Altspalten kommen aus dem Katalog, nicht aus einer
+            // abgetippten Liste -- sonst prueft dieser Test eine andere Welt
+            // als die, in der die Warnung rechnet.
+            foreach (array_unique(ProofTypes::legacyFileColumnsAll()) as $spalte) {
+                $t->integer($spalte)->nullable();
+            }
+            foreach (ProofTypes::legacyExpiryColumnsAll() as $spalte) {
+                $t->date($spalte)->nullable();
+            }
+            $t->timestamps();
+        });
+
+        $this->capsule->schema()->create('rec_employee_proofs', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64);
+            $t->integer('team_id')->nullable();
+            $t->integer('rec_employee_id');
+            $t->string('person_key', 64)->nullable();
+            $t->string('proof_type_code', 40);
+            $t->integer('file_id')->nullable();
+            $t->integer('file_back_id')->nullable();
+            $t->date('valid_until')->nullable();
+            $t->integer('version')->default(1);
+            $t->timestamp('superseded_at')->nullable();
+            $t->string('uploaded_via', 20)->default('employee');
             $t->timestamps();
         });
     }
@@ -77,6 +104,19 @@ final class SwitchPortalVersionTest extends TestCase
             'is_active'       => true,
             'portal_v2_since' => null,
         ], $attr));
+    }
+
+    private function nachweis(int $employeeId, string $code): void
+    {
+        DB::table('rec_employee_proofs')->insert([
+            'uuid'            => 'p-' . uniqid('', true),
+            'team_id'         => 3,
+            'rec_employee_id' => $employeeId,
+            'proof_type_code' => $code,
+            'file_id'         => 5001,
+            'version'         => 1,
+            'uploaded_via'    => 'import',
+        ]);
     }
 
     /** @return array{0: int, 1: string} [exitCode, komplette Konsolenausgabe] */
@@ -186,6 +226,93 @@ final class SwitchPortalVersionTest extends TestCase
         $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
         $this->assertNotNull(DB::table('rec_employees')->find($id1)->portal_v2_since);
         $this->assertNotNull(DB::table('rec_employees')->find($id2)->portal_v2_since);
+    }
+
+    // -----------------------------------------------------------------
+    // F3 -- die Reihenfolge wird nicht erzwungen, aber genannt
+    // -----------------------------------------------------------------
+
+    public function test_warnt_wenn_altspalten_gefuellt_sind_aber_keine_nachweis_zeile(): void
+    {
+        // Wer umgestellt wird, BEVOR recruiting:nachweise-umziehen lief, hat
+        // seinen Ausweis in der Altspalte und keine Nachweis-Zeile. Start
+        // sagt dann "Fehlt noch", das Profil zeigt dieselbe Sache als
+        // hochgeladen -- und die Pilotgruppe laedt alles zweimal hoch.
+        $id = $this->mitarbeiter(['identity_card_front_file_id' => 5001]);
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $id,
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        // WARNEN, nicht abbrechen.
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertNotNull(DB::table('rec_employees')->find($id)->portal_v2_since);
+
+        $this->assertStringContainsString('1', $ausgabe);
+        $this->assertStringContainsString('nachweise-umziehen', $ausgabe);
+    }
+
+    public function test_warnt_nicht_wenn_die_nachweise_schon_umgezogen_sind(): void
+    {
+        $id = $this->mitarbeiter(['identity_card_front_file_id' => 5001]);
+        $this->nachweis($id, 'ausweis');
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $id,
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertStringNotContainsString('nachweise-umziehen', $ausgabe);
+    }
+
+    public function test_warnt_nicht_wenn_gar_keine_altspalte_gefuellt_ist(): void
+    {
+        // Ein frisch angelegter Mensch ohne Unterlagen hat nichts umzuziehen
+        // -- eine Warnung waere hier nur Rauschen, das die echte entwertet.
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $this->mitarbeiter(),
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertStringNotContainsString('nachweise-umziehen', $ausgabe);
+    }
+
+    public function test_warnt_auch_im_trockenlauf(): void
+    {
+        // Der Trockenlauf ist die Stelle, an der man es noch merken KANN.
+        $id = $this->mitarbeiter(['identity_card_front_file_id' => 5001]);
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $id,
+            '--ich-habe-den-sichttest-gemacht' => true,
+            '--dry-run' => true,
+        ]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertStringContainsString('nachweise-umziehen', $ausgabe);
+        $this->assertNull(DB::table('rec_employees')->find($id)->portal_v2_since);
+    }
+
+    public function test_die_warnung_zaehlt_menschen_und_nicht_nachweise(): void
+    {
+        // Ein Mensch mit drei unumgezogenen Arten ist EIN Fall, nicht drei --
+        // sonst liest sich die Zahl wie eine Betroffenenzahl und ist keine.
+        $id = $this->mitarbeiter([
+            'identity_card_front_file_id' => 5001,
+            'selfie_file_id'              => 5002,
+            'health_insurance_card_file_id' => 5003,
+        ]);
+        $zweiter = $this->mitarbeiter(['selfie_file_id' => 5004]);
+
+        [, $ausgabe] = $this->runCommand([
+            '--ids' => $id . ',' . $zweiter,
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertStringContainsString('Achtung: 2 der Betroffenen', $ausgabe);
     }
 
     // -----------------------------------------------------------------

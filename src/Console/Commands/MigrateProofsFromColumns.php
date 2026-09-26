@@ -64,9 +64,10 @@ final class MigrateProofsFromColumns extends Command
         $uebersprungen = 0;
 
         foreach ($plan as $eintrag) {
-            $person = $eintrag['person_key'] !== null
-                ? 'p:' . $eintrag['person_key']
-                : 'e:' . $eintrag['rec_employee_id'];
+            $person = ProofMigrationPlanner::personSchluessel(
+                $eintrag['person_key'],
+                $eintrag['rec_employee_id'],
+            );
 
             if (isset($vorhanden[$person . '|' . $eintrag['proof_type_code']])) {
                 $uebersprungen++;
@@ -124,8 +125,10 @@ final class MigrateProofsFromColumns extends Command
             ->orderBy('id')
             ->chunk(1000, function ($zeilen) use (&$out) {
                 foreach ($zeilen as $z) {
-                    $key = trim((string) ($z->person_key ?? ''));
-                    $person = $key !== '' ? "p:{$key}" : 'e:' . (int) $z->rec_employee_id;
+                    $person = ProofMigrationPlanner::personSchluessel(
+                        $z->person_key,
+                        (int) $z->rec_employee_id,
+                    );
                     $out[$person . '|' . $z->proof_type_code] = true;
                 }
             });

@@ -4,6 +4,8 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Support\ProofMigrationPlanner;
+use Platform\Recruiting\Support\ProofTypes;
 
 /**
  * Stellt Mitarbeiter auf das neue Portal um — oder zurueck.
@@ -113,6 +115,26 @@ final class SwitchPortalVersion extends Command
             return self::SUCCESS;
         }
 
+        // F3 (26.09.2026): die REIHENFOLGE erzwingt nichts, also wird sie
+        // wenigstens genannt. Wer umgestellt wird, BEVOR
+        // recruiting:nachweise-umziehen gelaufen ist, hat seinen Ausweis in
+        // der Altspalte, aber keine Nachweis-Zeile. Folge auf EINER Seite:
+        // Start sagt "Personalausweis — Fehlt noch" (rot), das Profil zeigt
+        // dieselbe Sache als gruene Kachel "hochgeladen", und der Ring zaehlt
+        // sie als gefuellt. Die Pilotgruppe laedt dann alles noch einmal hoch.
+        //
+        // Bewusst nur eine WARNUNG, kein Abbruch: es kann triftige Gruende
+        // geben, eine einzelne Person vorzuziehen, und ein zweiter Riegel vor
+        // einem Kommando, das schon einen hat, wird irgendwann pauschal
+        // uebergangen.
+        $ohneNachweise = $this->ohneUmgezogeneNachweise(clone $betroffen);
+        if ($ohneNachweise !== null && $ohneNachweise > 0) {
+            $this->warn("Achtung: {$ohneNachweise} der Betroffenen haben Nachweise nur in den Altspalten.");
+            $this->line('Bitte zuerst `recruiting:nachweise-umziehen` laufen lassen — sonst sagt der');
+            $this->line('Start-Bildschirm "Fehlt noch", während das Profil dieselbe Unterlage als');
+            $this->line('hochgeladen zeigt, und die Pilotgruppe lädt alles ein zweites Mal hoch.');
+        }
+
         if ($dryRun) {
             $this->info("Trockenlauf: {$anzahl} Mitarbeiter wuerden " .
                 ($zurueck ? 'auf das ALTE' : 'auf das NEUE') . ' Portal gestellt.');
@@ -131,5 +153,70 @@ final class SwitchPortalVersion extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Wie viele der Betroffenen haetten beim Umzug eine Nachweis-Zeile
+     * bekommen, haben aber noch keine?
+     *
+     * Gerechnet wird mit DEMSELBEN Planer, den auch
+     * recruiting:nachweise-umziehen benutzt (ProofMigrationPlanner) -- eine
+     * eigene Zaehlung wuerde frueher oder spaeter etwas anderes melden als
+     * der Umzug dann wirklich anlegt.
+     *
+     * null heisst "laesst sich hier nicht sagen" (Tabelle oder Spalte fehlt,
+     * etwa vor der Migration). Eine fehlende Warnung ist unangenehm, ein
+     * Abbruch der Notbremse waere schlimmer.
+     */
+    private function ohneUmgezogeneNachweise(object $betroffen): ?int
+    {
+        try {
+            $spalten = ['id', 'team_id', 'person_key'];
+            foreach (ProofTypes::all() as $code) {
+                $spalten = array_merge($spalten, ProofTypes::legacyFileColumns($code));
+                $ablauf = ProofTypes::legacyExpiryColumn($code);
+                if ($ablauf !== null) {
+                    $spalten[] = $ablauf;
+                }
+            }
+
+            $zeilen = $betroffen->orderBy('id')
+                ->get(array_values(array_unique($spalten)))
+                ->map(fn ($r) => (array) $r)
+                ->all();
+            if ($zeilen === []) {
+                return 0;
+            }
+
+            $vorhanden = [];
+            DB::table('rec_employee_proofs')
+                ->select(['rec_employee_id', 'person_key', 'proof_type_code'])
+                ->orderBy('id')
+                ->chunk(1000, function ($gefunden) use (&$vorhanden) {
+                    foreach ($gefunden as $z) {
+                        $person = ProofMigrationPlanner::personSchluessel(
+                            $z->person_key,
+                            (int) $z->rec_employee_id,
+                        );
+                        $vorhanden[$person . '|' . $z->proof_type_code] = true;
+                    }
+                });
+
+            $betroffenOhne = [];
+            foreach (ProofMigrationPlanner::plan($zeilen) as $eintrag) {
+                $person = ProofMigrationPlanner::personSchluessel(
+                    $eintrag['person_key'],
+                    $eintrag['rec_employee_id'],
+                );
+                if (isset($vorhanden[$person . '|' . $eintrag['proof_type_code']])) {
+                    continue;
+                }
+                $betroffenOhne[$eintrag['rec_employee_id']] = true;
+            }
+
+            return count($betroffenOhne);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }
