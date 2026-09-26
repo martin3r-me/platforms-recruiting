@@ -54,6 +54,28 @@ final class PortalProfileGuards
     private const MAIN_EMPLOYER_FELDER = ['is_main_employer', 'other_employer'];
 
     /**
+     * Die drei Waechter mit ihren Feldern -- EINE Quelle, in der bindenden
+     * Reihenfolge der Kaskade.
+     *
+     * Oeffentlich seit dem 26.09.2026 (Schlussfix F1): Ring, Offen-Zaehler
+     * und Start-Bildschirm muessen wissen, WELCHE Angaben Pflicht sind. Bis
+     * dahin wusste das nur diese Klasse, und der Offen-Zaehler zaehlte
+     * ausschliesslich Nachweise -- der Start-Bildschirm sagte "Wir haben
+     * alles, was wir von dir brauchen", waehrend der Ring daneben die
+     * fehlende Staatsangehoerigkeit anmahnte.
+     *
+     * Wer hier einen Waechter ergaenzt, ergaenzt ihn damit ueberall: die
+     * Anzeige tippt keine zweite Liste ab, sie liest diese.
+     *
+     * @var array<string, list<string>>
+     */
+    public const WAECHTER = [
+        'ersthelfer'           => self::FIRST_AIDER_FELDER,
+        'staatsangehoerigkeit' => self::NATIONALITY_FELDER,
+        'hauptarbeitgeber'     => self::MAIN_EMPLOYER_FELDER,
+    ];
+
+    /**
      * Fehlertext der ersten verletzten Regel oder null, wenn der Endzustand
      * (Formularwert, sonst Datensatz) alle BETROFFENEN Waechter passiert.
      *
@@ -107,6 +129,27 @@ final class PortalProfileGuards
         }
 
         return null;
+    }
+
+    /**
+     * Blockt genau DIESER Waechter den Datensatz, so wie er heute dasteht?
+     *
+     * Gemessen wird mit demselben fehler() wie beim Speichern -- ohne
+     * Formularwerte (es steht gerade nichts im Formular) und mit einer
+     * Reichweite aus genau den Feldern dieses einen Waechters. Damit kann
+     * die Anzeige nicht auseinanderlaufen mit dem, was beim Speichern
+     * wirklich passiert: es ist derselbe Aufruf.
+     *
+     * @param array<string,mixed> $datensatz gecastete Werte des Mitarbeiters
+     */
+    public static function blocktWaechter(string $name, array $datensatz): bool
+    {
+        $felder = self::WAECHTER[$name] ?? null;
+        if ($felder === null) {
+            return false;
+        }
+
+        return self::fehler([], $datensatz, array_fill_keys($felder, true)) !== null;
     }
 
     /** Betrifft dieser Waechter die Reichweite -- liegt mindestens eines seiner Felder darin? */

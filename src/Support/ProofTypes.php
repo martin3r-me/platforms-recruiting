@@ -179,6 +179,30 @@ final class ProofTypes
     }
 
     /**
+     * Alle Ablaufspalten des Katalogs, ohne Doppelte, Reihenfolge wie TYPES.
+     *
+     * Wer wissen will, welche Datumsfelder dem NACHWEIS gehoeren (und damit
+     * im Profil nur noch gelesen werden, Schlussfix F4), fragt hier -- statt
+     * die fuenf Namen abzutippen. Enthaelt bewusst auch Spalten, die gar
+     * kein Profilfeld sind (infection_protection_valid_until): die
+     * Schnittmenge mit dem Feldkatalog bildet der Aufrufer.
+     *
+     * @return list<string>
+     */
+    public static function legacyExpiryColumnsAll(): array
+    {
+        $alle = [];
+        foreach (self::TYPES as $art) {
+            $spalte = $art['ablauf_spalte'] ?? null;
+            if ($spalte !== null && !in_array($spalte, $alle, true)) {
+                $alle[] = $spalte;
+            }
+        }
+
+        return $alle;
+    }
+
+    /**
      * Die Rueckrichtung: zu welcher Nachweisart gehoert diese Altspalte?
      *
      * Damit kommt ein Datei-Feld aus RecEmployee::editableFieldGroups() ohne

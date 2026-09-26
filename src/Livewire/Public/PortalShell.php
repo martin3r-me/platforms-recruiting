@@ -21,6 +21,7 @@ use Platform\Recruiting\Support\PortalCompleteness;
 use Platform\Recruiting\Support\PortalFieldAccess;
 use Platform\Recruiting\Support\PortalFieldRelevance;
 use Platform\Recruiting\Support\PortalGroupSummary;
+use Platform\Recruiting\Support\PortalMandatory;
 use Platform\Recruiting\Support\PortalSectionHints;
 use Platform\Recruiting\Support\ProofChecklist;
 use Platform\Recruiting\Support\ProofTypes;
@@ -473,6 +474,49 @@ class PortalShell extends Component
     }
 
     /**
+     * Die offenen PFLICHTANGABEN als Aufgabenzeilen fuer den Start-Bereich
+     * -- in der Form einer dekorierten Nachweis-Zeile, damit Blade beide
+     * gleich rendern kann. Ein Klick fuehrt ins Profil, nicht ins
+     * Upload-Formular.
+     *
+     * Schlussfix F1 (26.09.2026): bis hierher gab es nur EINE solche Zeile,
+     * die Arbeitgeber-Frage. Staatsangehoerigkeit und Ersthelfer-Kopplung
+     * fehlten im Start-Bereich und im Offen-Zaehler vollstaendig -- der
+     * Bildschirm, auf dem der Mensch landet, entlastete ihn also von genau
+     * den Angaben, die ihn druecken sollten. Welche Angaben Pflicht sind,
+     * steht nicht hier, sondern bei den Waechtern (PortalMandatory).
+     *
+     * Der Text ist bewusst ANREDEFREI, bis auf die Arbeitgeber-Frage: die
+     * traegt ihren eigenen, gewachsenen Satz, weil er die FOLGE nennt (die
+     * Steuerklasse) und damit erklaert, warum diese Zeile ganz oben steht.
+     * Eine Satz-je-Feld-Tabelle waere die zweite Liste, die wir hier
+     * dreimal beseitigt haben -- ein neues Waechterfeld bekaeme darin
+     * still keinen Text.
+     *
+     * @param list<array{feld:string, gruppe:string, label:string}> $pflicht
+     * @return list<array{code:string, label:string, punkt:string, text:string, offen:bool}>
+     */
+    public static function pflichtAufgaben(array $pflicht, bool $duzen): array
+    {
+        return array_map(static function (array $eintrag) use ($duzen): array {
+            if ($eintrag['feld'] === 'is_main_employer') {
+                return self::arbeitgeberAufgabe($duzen);
+            }
+
+            return [
+                // Praefix, damit der Code niemals versehentlich eine echte
+                // Nachweisart trifft und ein Klick das Upload-Formular
+                // oeffnet (dieselbe Vorsicht wie bei 'arbeitgeber_frage').
+                'code'  => 'pflicht:' . $eintrag['feld'],
+                'label' => $eintrag['label'],
+                'punkt' => 'crit',
+                'text'  => 'Pflichtangabe — fehlt noch',
+                'offen' => true,
+            ];
+        }, $pflicht);
+    }
+
+    /**
      * Synthetische oberste Aufgabe im Start-Bereich: die Arbeitgeber-
      * Pflichtfrage, solange sie unbeantwortet ist. Kein ProofChecklist-
      * Eintrag -- es ist kein Nachweis, sondern eine Angabe, und ein Klick
@@ -585,25 +629,56 @@ class PortalShell extends Component
 
     public function render()
     {
+        return view('recruiting::livewire.public.portal-shell', $this->ansichtsDaten())
+            ->layout('recruiting::layouts.portal', [
+                'title' => 'Mein Portal · RheinGedeck',
+            ]);
+    }
+
+    /**
+     * ALLES, was die Ansicht braucht -- getrennt von render(), damit es ohne
+     * Sichtfabrik pruefbar ist (Schlussfix F1, 26.09.2026). Vorher liess sich
+     * der Offen-Zaehler nur an seinem Quelltext messen; dass der
+     * Start-Bildschirm "Alles vollstaendig" sagte, waehrend eine
+     * Pflichtangabe fehlte, konnte kein Test sehen.
+     *
+     * Bewusst protected: Livewire wuerde eine oeffentliche Methode als
+     * $wire.call-Ziel anbieten. Die Tests greifen ueber ReflectionMethod zu,
+     * wie bei profilDaten().
+     *
+     * @return array<string,mixed>
+     */
+    protected function ansichtsDaten(): array
+    {
         $employee = $this->berechtigterMitarbeiter();
 
         $dokumente = $employee ? $this->dokumente($employee) : [];
 
         $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
-        $offenAusNachweisen = count(array_filter($checklist, fn ($z) => $z['offen']));
+        $offeneNachweise = array_values(array_filter($checklist, fn ($z) => $z['offen']));
+        $offenAusNachweisen = count($offeneNachweise);
 
-        // Die Arbeitgeber-Pflichtfrage ist wichtiger als jeder Nachweis --
-        // solange sie fehlt, gehoert sie ganz oben in den Start-Bereich, und
-        // sie zaehlt im Gesamt-"offen" mit (Nav-Punkt, Reiter-Abzeichen).
-        $arbeitgeberOffen = $employee !== null && $employee->is_main_employer === null;
+        // Die PFLICHTANGABEN sind wichtiger als jeder Nachweis -- solange
+        // eine fehlt, gehoert sie ganz oben in den Start-Bereich, und sie
+        // zaehlt im Gesamt-"offen" mit (Nav-Punkt, Reiter-Abzeichen).
+        //
+        // Schlussfix F1 (26.09.2026): hier stand bis hierher nur die
+        // Arbeitgeber-Frage, und zwar als eigene Bedingung
+        // ($employee->is_main_employer === null). Staatsangehoerigkeit und
+        // Ersthelfer-Kopplung fehlten im Zaehler vollstaendig -- der
+        // Start-Bildschirm konnte "Alles vollstaendig" sagen, waehrend der
+        // Ring daneben eine Pflichtangabe anmahnte und der Waechter beim
+        // Speichern der zugehoerigen Gruppe blockte. Jetzt kommen alle drei
+        // aus derselben Quelle wie der Ring (PortalMandatory), und die
+        // offenen Nachweisarten gehen mit, damit nichts doppelt zaehlt.
+        $profil = $this->profilDaten($employee, array_column($offeneNachweise, 'code'));
+        $pflichtAufgaben = self::pflichtAufgaben($profil['pflicht'], $this->duzen);
 
-        $profil = $this->profilDaten($employee);
-
-        return view('recruiting::livewire.public.portal-shell', [
+        return [
             'aufgaben'          => self::dekoriert($checklist),
             'dokumente'         => $dokumente,
-            'offen'             => $offenAusNachweisen + ($arbeitgeberOffen ? 1 : 0),
-            'arbeitgeberAufgabe' => $arbeitgeberOffen ? self::arbeitgeberAufgabe($this->duzen) : null,
+            'offen'             => $offenAusNachweisen + count($pflichtAufgaben),
+            'pflichtAufgaben'   => $pflichtAufgaben,
             'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
             'uploadLabel'       => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
             'uploadHatAblauf'   => $this->uploadCode !== null && ProofTypes::hasExpiry($this->uploadCode),
@@ -614,13 +689,12 @@ class PortalShell extends Component
             'uploadAccept'    => '.' . implode(',.', ProofUploadRules::MIME_TYPES),
             'profilGruppen'   => $profil['gruppen'],
             'profilStand'     => $profil['stand'],
+            'pflicht'         => $profil['pflicht'],
             'profilFelder'    => $profil['felder'],
             'profilHinweis'   => $profil['hinweis'],
             'nurLesen'        => $profil['nurLesen'],
             'kacheln'         => $profil['kacheln'],
-        ])->layout('recruiting::layouts.portal', [
-            'title' => 'Mein Portal · RheinGedeck',
-        ]);
+        ];
     }
 
     /**
@@ -631,9 +705,12 @@ class PortalShell extends Component
      * Task 7 (das Blade) nur noch anzeigt und keine eigene Zuordnung
      * aufmacht (§1.4 Punkt 2, sonst droht E7 wieder).
      *
-     * @return array{gruppen:array, stand:array, felder:array, hinweis:?string, nurLesen:array, kacheln:array}
+     * @param list<string> $offeneNachweisCodes  Nachweisarten, die schon als
+     *        offene Aufgabe gelistet sind -- damit eine Pflichtangabe, die an
+     *        einem Nachweis haengt (Ersthelfer-Schein), nicht zweimal zaehlt.
+     * @return array{gruppen:array, stand:array, felder:array, hinweis:?string, nurLesen:array, kacheln:array, pflicht:list<array{feld:string, gruppe:string, label:string}>}
      */
-    private function profilDaten(?RecEmployee $employee): array
+    private function profilDaten(?RecEmployee $employee, array $offeneNachweisCodes = []): array
     {
         if ($employee === null) {
             return [
@@ -643,6 +720,7 @@ class PortalShell extends Component
                 'hinweis'  => null,
                 'nurLesen' => [],
                 'kacheln'  => [],
+                'pflicht'  => [],
             ];
         }
 
@@ -653,6 +731,12 @@ class PortalShell extends Component
         // am Datensatz, nicht an $profilWerte (die gehoeren nur zur offenen
         // Gruppe und wuerden fuer alle anderen Gruppen gar nicht passen).
         $sichtbar = PortalFieldAccess::sichtbareGruppen($gruppen, $datensatz, []);
+
+        // Die offenen PFLICHTANGABEN -- dieselbe Quelle fuer Ring, Offen-
+        // Zaehler, Start-Bildschirm und den roten Punkt an der Gruppenzeile
+        // (Schlussfix F1). Gefragt werden die Waechter selbst, nicht eine
+        // abgetippte Liste.
+        $pflicht = PortalMandatory::offen($gruppen, $datensatz, $offeneNachweisCodes);
 
         $profilGruppen = [];
         foreach ($sichtbar as $name => $felder) {
@@ -704,10 +788,24 @@ class PortalShell extends Component
                 $zeile = 'Nachweise liegen vor';
             }
 
+            // Schlussfix F1: der rote Punkt unterschied bislang NICHT
+            // zwischen "blockiert das Speichern" und "folgenlos" -- eine
+            // fehlende Staatsangehoerigkeit sah aus wie ein fehlender
+            // Geburtsname. Er traegt jetzt dieselbe Farbsprache wie die
+            // Aufgabenliste (dekoriert()): crit heisst "hier haengt ein
+            // Waechter", warn heisst "fehlt noch, ohne Folge". Bewusst KEIN
+            // zusaetzliches Zeichen und keine neue CSS-Klasse -- die drei
+            // Punktfarben sind im Portal schon eingefuehrt und gelernt, und
+            // ein Ausrufezeichen daneben waere eine zweite Sprache fuer
+            // dieselbe Aussage.
+            $pflichtInGruppe = PortalMandatory::trifftGruppe($pflicht, (string) $name);
+
             $profilGruppen[$name] = [
                 'felder' => $felder,
                 'zeile'  => $zeile,
                 'offen'  => $offenInGruppe,
+                'pflicht' => $pflichtInGruppe,
+                'punkt'  => $pflichtInGruppe ? 'crit' : 'warn',
             ];
         }
 
@@ -819,6 +917,7 @@ class PortalShell extends Component
             'hinweis'  => $hinweis,
             'nurLesen' => $employee->readOnlyDisplayFields(),
             'kacheln'  => $kacheln,
+            'pflicht'  => $pflicht,
         ];
     }
 

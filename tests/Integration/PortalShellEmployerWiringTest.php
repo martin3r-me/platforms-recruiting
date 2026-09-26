@@ -94,28 +94,42 @@ class PortalShellEmployerWiringTest extends TestCase
         $this->assertStringContainsString('$this->profilGruppe', $rumpf, 'Der Schreibweg muss auf die offene Gruppe begrenzt sein.');
     }
 
+    /**
+     * GEDREHT am 26.09.2026 (Schlussfix F1): der Test verlangte woertlich
+     * 'arbeitgeberAufgabe' und 'arbeitgeberOffen' im Rumpf von render().
+     * Die Arbeitgeber-Frage ist seit F1 keine Sonderzeile mehr, sondern EINE
+     * der drei Pflichtangaben, die alle aus derselben Quelle kommen
+     * (PortalMandatory ueber PortalProfileGuards::WAECHTER) -- vorher
+     * zaehlten Staatsangehoerigkeit und Ersthelfer-Kopplung im Offen-Wert
+     * gar nicht mit. Die ABSICHT des Tests bleibt: die Aufgabe wird geliefert
+     * UND sie zaehlt im Offen-Wert. Gemessen wird das jetzt am Ergebnis
+     * (PortalPflichtangabenTest), hier nur noch die Verdrahtung.
+     */
     public function test_render_liefert_die_aufgabe_und_zaehlt_sie_im_offen_wert(): void
     {
         $src = $this->quelle();
 
-        $renderStart = strpos($src, 'function render()');
-        $this->assertNotFalse($renderStart);
-        $renderBody = substr($src, $renderStart, 1200);
+        $renderStart = strpos($src, 'function ansichtsDaten()');
+        $this->assertNotFalse($renderStart, 'Die Ansichtsdaten werden nicht mehr an einer Stelle gebaut.');
+        $renderBody = substr($src, $renderStart, 2600);
 
-        $this->assertStringContainsString('arbeitgeberAufgabe', $renderBody);
-        $this->assertStringContainsString('arbeitgeberOffen', $renderBody);
+        $this->assertStringContainsString('pflichtAufgaben', $renderBody);
+        $this->assertStringContainsString('count($pflichtAufgaben)', $renderBody, 'Die Pflichtangaben zaehlen nicht mehr im Offen-Wert.');
+        // Und die Arbeitgeber-Frage ist eine davon -- ihr eigener Satz
+        // (Steuerklasse) haengt weiterhin an dieser Klasse.
+        $this->assertStringContainsString('arbeitgeberAufgabe', $src);
     }
 
     public function test_start_bereich_zeigt_die_arbeitgeber_aufgabe_vor_den_nachweisen(): void
     {
         $blade = $this->blade();
 
-        $arbeitgeberPos = strpos($blade, '$arbeitgeberAufgabe');
+        $pflichtPos = strpos($blade, '@foreach ($pflichtAufgaben as $aufgabe)');
         $foreachPos = strpos($blade, "@foreach (\$offeneAufgaben as \$aufgabe)");
 
-        $this->assertNotFalse($arbeitgeberPos, 'Blade zeigt die Arbeitgeber-Aufgabe nicht an');
+        $this->assertNotFalse($pflichtPos, 'Blade zeigt die Pflichtangaben nicht an');
         $this->assertNotFalse($foreachPos);
-        $this->assertLessThan($foreachPos, $arbeitgeberPos, 'Die Arbeitgeber-Aufgabe muss VOR der Nachweisliste stehen');
+        $this->assertLessThan($foreachPos, $pflichtPos, 'Die Pflichtangaben muessen VOR der Nachweisliste stehen');
     }
 
     public function test_profil_bereich_bietet_die_frage_ueber_den_gemeinsamen_gruppen_mechanismus_an(): void

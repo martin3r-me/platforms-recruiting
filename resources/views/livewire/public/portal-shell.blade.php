@@ -95,15 +95,25 @@
     @else
 
         @php
-            $untertitel = $offen === 0
+            // Schlussfix F1 (26.09.2026): "alles vollstaendig" haengt jetzt an
+            // DERSELBEN Quelle wie der Ring im Profil. Vorher sagte dieser
+            // Bildschirm "Wir haben alles, was wir von dir brauchen", waehrend
+            // der Ring daneben "92 % — es fehlt die Staatsangehoerigkeit"
+            // meldete: derselbe Satz, dieselbe Seite, entgegengesetzte
+            // Aussage. $offen zaehlt die Pflichtangaben seit F1 mit; die
+            // zweite Haelfte der Bedingung steht trotzdem ausdruecklich da,
+            // damit eine kuenftige Aenderung am Zaehler diesen Satz nicht
+            // still wieder von der Pflicht entlasten kann.
+            $allesDa = $offen === 0 && $pflichtAufgaben === [];
+            $untertitel = $allesDa
                 ? ($duzen ? 'Bei dir ist alles vollständig. Danke!' : 'Bei Ihnen ist alles vollständig. Danke!')
                 : ($duzen ? 'Es fehlt noch etwas von dir.' : 'Es fehlt noch etwas von Ihnen.');
             $offeneAufgaben = array_values(array_filter($aufgaben, fn ($a) => $a['offen']));
             $erledigt       = array_values(array_filter($aufgaben, fn ($a) => ! $a['offen']));
-            // Die Arbeitgeber-Frage ist wichtiger als jeder Nachweis -- sie
+            // Eine Pflichtangabe ist wichtiger als jeder Nachweis -- sie
             // gewinnt die "ganz oben"-Zeile der Zusammenfassung, solange sie
-            // unbeantwortet ist.
-            $ersteAufgabe   = $arbeitgeberAufgabe ?? ($offeneAufgaben[0] ?? null);
+            // offen ist.
+            $ersteAufgabe   = $pflichtAufgaben[0] ?? ($offeneAufgaben[0] ?? null);
         @endphp
 
         <div class="appbar">
@@ -168,7 +178,7 @@
                 --}}
                 <div class="next">
                     <div class="kicker">{{ $duzen ? 'Deine Unterlagen' : 'Ihre Unterlagen' }}</div>
-                    @if ($offen === 0)
+                    @if ($allesDa)
                         <h3>Alles vollständig</h3>
                         <div class="when">
                             {{ $duzen
@@ -177,7 +187,9 @@
                         </div>
                     @else
                         <h3>{{ $offen === 1 ? 'Ein Punkt offen' : $offen . ' Punkte offen' }}</h3>
-                        <div class="when">{{ $ersteAufgabe['label'] }} — {{ $ersteAufgabe['text'] }}</div>
+                        @if ($ersteAufgabe !== null)
+                            <div class="when">{{ $ersteAufgabe['label'] }} — {{ $ersteAufgabe['text'] }}</div>
+                        @endif
                     @endif
                 </div>
 
@@ -186,22 +198,25 @@
                     <div>
                         <div class="sec-label">Das fehlt noch <span class="count">{{ $offen }}</span></div>
                         <div class="card" style="margin-top:11px">
-                            @if ($arbeitgeberAufgabe !== null)
-                                {{--
-                                    Ganz oben, noch vor jedem Nachweis: an
-                                    dieser Angabe haengt die Steuerklasse. Ein
-                                    Klick fuehrt ins Profil -- dort steht die
-                                    eigentliche Frage, kein Upload-Formular.
-                                --}}
+                            {{--
+                                Ganz oben, noch vor jedem Nachweis: die
+                                Pflichtangaben. An der Arbeitgeber-Frage
+                                haengt die Steuerklasse, an der
+                                Staatsangehoerigkeit der ZAS-Export, an der
+                                Ersthelfer-Kopplung der Arbeitsschutz. Ein
+                                Klick fuehrt ins Profil -- dort stehen die
+                                eigentlichen Fragen, kein Upload-Formular.
+                            --}}
+                            @foreach ($pflichtAufgaben as $aufgabe)
                                 <div class="task tap" @click="tab = 'me'">
-                                    <span class="dot {{ $arbeitgeberAufgabe['punkt'] }}"></span>
+                                    <span class="dot {{ $aufgabe['punkt'] }}"></span>
                                     <div>
-                                        <div class="t">{{ $arbeitgeberAufgabe['label'] }}</div>
-                                        <div class="s">{{ $arbeitgeberAufgabe['text'] }}</div>
+                                        <div class="t">{{ $aufgabe['label'] }}</div>
+                                        <div class="s">{{ $aufgabe['text'] }}</div>
                                     </div>
                                     <span class="chev">›</span>
                                 </div>
-                            @endif
+                            @endforeach
                             @foreach ($offeneAufgaben as $aufgabe)
                                 <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
                                     <span class="dot {{ $aufgabe['punkt'] }}"></span>
@@ -368,14 +383,38 @@
                     $prozent = $profilStand['prozent'];
                     $ringStil = 'background: conic-gradient(var(--brand) 0 ' . $prozent
                         . '%, var(--surface-3) ' . $prozent . '% 100%)';
-                    $ringTitel = $prozent === 100
-                        ? 'Alles vollständig'
-                        : ($prozent >= 80 ? 'Fast vollständig' : 'Da fehlt noch einiges');
-                    $ringText = $profilStand['fehlend'] === []
+
+                    // Schlussfix F1 (26.09.2026): die Pflichtangaben stehen
+                    // IMMER im Satz, auch wenn gekuerzt wird. Vorher nannte
+                    // der Ring hoechstens drei Dinge in Katalogreihenfolge
+                    // und mischte Pflicht mit Kosmetik -- die
+                    // Staatsangehoerigkeit ist das LETZTE Feld der Gruppe
+                    // Adresse, drei fruehere Luecken (Geburtsname,
+                    // Konfession, Fuehrerschein) genuegten, und die einzige
+                    // Angabe, die wirklich blockt, stand nicht mehr im Satz.
+                    // Jetzt: Pflicht zuerst und vom Kuerzen ausgenommen, der
+                    // Rest fuellt auf.
+                    $pflichtFelder = array_column($pflicht, 'feld');
+                    $pflichtNamen  = array_column($pflicht, 'label');
+                    $restNamen = [];
+                    foreach ($profilStand['fehlendFelder'] as $feldSchluessel => $feldLabel) {
+                        if (!in_array($feldSchluessel, $pflichtFelder, true)) {
+                            $restNamen[] = $feldLabel;
+                        }
+                    }
+                    $platzFuerRest = max(0, 3 - count($pflichtNamen));
+                    $genannt = array_merge($pflichtNamen, array_slice($restNamen, 0, $platzFuerRest));
+                    $weitere = count($restNamen) - $platzFuerRest;
+
+                    $ringTitel = $pflicht !== []
+                        ? 'Bitte noch ergänzen'
+                        : ($prozent === 100
+                            ? 'Alles vollständig'
+                            : ($prozent >= 80 ? 'Fast vollständig' : 'Da fehlt noch einiges'));
+                    $ringText = $genannt === []
                         ? ($duzen ? 'Wir haben alles, was wir von dir brauchen.' : 'Wir haben alles, was wir von Ihnen brauchen.')
-                        : ($duzen ? 'Es fehlen noch: ' : 'Es fehlen noch: ')
-                            . implode(', ', array_slice($profilStand['fehlend'], 0, 3))
-                            . (count($profilStand['fehlend']) > 3 ? ' und weitere' : '') . '.';
+                        : 'Es fehlen noch: ' . implode(', ', $genannt)
+                            . ($weitere > 0 ? ' und weitere' : '') . '.';
                 @endphp
                 <div class="ring-row">
                     <div class="ring" style="{{ $ringStil }}"><b>{{ $prozent }}%</b></div>
@@ -415,7 +454,10 @@
                         @foreach ($profilGruppen as $name => $gruppe)
                             <button type="button" class="grouprow tap" wire:click="oeffneGruppe('{{ $name }}')">
                                 @if ($gruppe['offen'] > 0)
-                                    <span class="dot crit" style="margin-top:0"></span>
+                                    {{-- crit = hier haengt ein Waechter (das
+                                         Speichern dieser Gruppe blockt),
+                                         warn = fehlt noch, ohne Folge (F1). --}}
+                                    <span class="dot {{ $gruppe['punkt'] }}" style="margin-top:0"></span>
                                 @endif
                                 <div>
                                     <div class="n">{{ $name }}</div>
