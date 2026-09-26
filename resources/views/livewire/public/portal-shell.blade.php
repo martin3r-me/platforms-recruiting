@@ -26,13 +26,13 @@
         <div class="scroll">
             @if ($state === 'gesperrt')
                 <div class="greet">
-                    <h2>Dein Zugang ist gesperrt</h2>
-                    <p>Bitte melde dich bei deiner Ansprechperson bei RheinGedeck.</p>
+                    <h2>{{ $duzen ? 'Dein Zugang ist gesperrt' : 'Ihr Zugang ist gesperrt' }}</h2>
+                    <p>{{ $duzen ? 'Bitte melde dich bei deiner Ansprechperson bei RheinGedeck.' : 'Bitte melden Sie sich bei Ihrer Ansprechperson bei RheinGedeck.' }}</p>
                 </div>
             @elseif ($state === 'weg')
                 <div class="greet">
                     <h2>Bitte lade die Seite neu</h2>
-                    <p>An deinem Zugang hat sich gerade etwas geändert.</p>
+                    <p>{{ $duzen ? 'An deinem Zugang hat sich gerade etwas geändert.' : 'An Ihrem Zugang hat sich gerade etwas geändert.' }}</p>
                 </div>
             @elseif ($state === 'rateLimited')
                 <div class="greet">
