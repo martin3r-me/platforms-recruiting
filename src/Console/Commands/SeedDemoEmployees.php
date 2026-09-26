@@ -73,7 +73,18 @@ class SeedDemoEmployees extends Command
     {
         $url = (string) config('app.url');
 
-        if (self::istProduktion($url)) {
+        // Zweiter Riegel (Schlussfix F7): die UMGEBUNG zaehlt mit, nicht nur
+        // der Markenname im Wirt. app()->environment() kann in einem
+        // Kommando fehlen (kein gebootetes Laravel im Test) -- dann bleibt
+        // es bei der Namenspruefung.
+        $umgebung = null;
+        try {
+            $umgebung = (string) app()->environment();
+        } catch (\Throwable) {
+            $umgebung = null;
+        }
+
+        if (self::istProduktion($url, $umgebung)) {
             $wirt = (string) parse_url($url, PHP_URL_HOST);
             $this->error("Nicht auf der Produktion ({$wirt}). Dieses Kommando legt erfundene Menschen an.");
 
@@ -86,9 +97,25 @@ class SeedDemoEmployees extends Command
     /**
      * Die eigentliche Regel — herausgeloest, damit sie geprueft werden kann.
      * Im Zweifel NEIN: eine unlesbare oder leere Adresse gilt als Produktion.
+     *
+     * ZWEI RIEGEL (Schlussfix F7, 26.09.2026). Der Wirt-Vergleich allein hing
+     * an einem MARKENNAMEN: er greift heute (die Produktion laeuft unter
+     * mitarbeiter.rheingedeck.de), aber er faellt lautlos aus, sobald eine
+     * Produktion unter einer anderen Adresse steht — etwa bei einem zweiten
+     * Kunden oder nach einem Umzug. Die UMGEBUNG ist die Eigenschaft, die
+     * wirklich gemeint ist. Der Namensvergleich BLEIBT daneben: er faengt
+     * den umgekehrten Fall, eine Produktionsadresse mit falsch gesetztem
+     * APP_ENV.
+     *
+     * $umgebung = null heisst "nicht feststellbar" und oeffnet nichts: dann
+     * entscheidet weiter der Wirt allein.
      */
-    public static function istProduktion(?string $url): bool
+    public static function istProduktion(?string $url, ?string $umgebung = null): bool
     {
+        if (strtolower(trim((string) $umgebung)) === 'production') {
+            return true;
+        }
+
         $wirt = strtolower((string) parse_url((string) $url, PHP_URL_HOST));
 
         if ($wirt === '') {
