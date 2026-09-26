@@ -801,12 +801,14 @@ class PortalShell extends Component
             // fehlende Staatsangehoerigkeit sah aus wie ein fehlender
             // Geburtsname. Er traegt jetzt dieselbe Farbsprache wie die
             // Aufgabenliste (dekoriert()): crit heisst "hier haengt ein
-            // Waechter", warn heisst "fehlt noch, ohne Folge". Bewusst KEIN
+            // Waechter" -- gefragt wird derselbe Aufruf, der beim Speichern
+            // dieser Gruppe blockt --, warn heisst "fehlt noch, ohne
+            // Folge". Bewusst KEIN
             // zusaetzliches Zeichen und keine neue CSS-Klasse -- die drei
             // Punktfarben sind im Portal schon eingefuehrt und gelernt, und
             // ein Ausrufezeichen daneben waere eine zweite Sprache fuer
             // dieselbe Aussage.
-            $pflichtInGruppe = PortalMandatory::trifftGruppe($pflicht, (string) $name);
+            $pflichtInGruppe = PortalMandatory::blocktGruppe($gruppen[$name] ?? $felder, $datensatz);
 
             $profilGruppen[$name] = [
                 'felder' => $felder,

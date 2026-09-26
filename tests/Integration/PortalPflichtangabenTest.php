@@ -502,4 +502,34 @@ final class PortalPflichtangabenTest extends TestCase
         $this->assertSame('warn', $gruppen['Persoenliches']['punkt'], 'Ein fehlender Geburtsname wiegt so schwer wie eine Pflichtangabe.');
         $this->assertFalse($gruppen['Persoenliches']['pflicht']);
     }
+
+    public function test_der_gruppenpunkt_folgt_dem_waechter_und_nicht_dem_zaehler(): void
+    {
+        // Feiner, aber wichtiger Unterschied: der Ersthelfer-Schein wird im
+        // ZAEHLER nur einmal gezaehlt (als offener Nachweis), taucht also in
+        // der Pflichtangaben-Liste nicht auf. Der Waechter blockt das
+        // Speichern der Gruppe "Arbeitsschutz" trotzdem — und genau das soll
+        // der Punkt sagen. Haengt er an der Liste statt am Waechter, sieht
+        // eine blockierte Gruppe aus wie eine folgenlose.
+        $ma = $this->mitarbeiter([
+            'is_first_aider'                  => true,
+            'first_aider_valid_until'         => null,
+            'first_aider_certificate_file_id' => null,
+        ]);
+        $daten = $this->ansicht($this->shell($ma));
+
+        $this->assertSame([], $daten['pflicht'], 'Der Schein wird doch doppelt gezaehlt.');
+        $this->assertSame('crit', $daten['profilGruppen']['Arbeitsschutz']['punkt']);
+        $this->assertTrue($daten['profilGruppen']['Arbeitsschutz']['pflicht']);
+    }
+
+    public function test_die_pflichtangabe_nennt_ihre_gruppe(): void
+    {
+        // Damit der Mensch weiss, wo er sie findet -- und damit der Punkt an
+        // der richtigen Zeile haengen KANN.
+        $daten = $this->ansicht($this->shell($this->mitarbeiter(['nationality' => null])));
+
+        $this->assertSame('Adresse', $daten['pflicht'][0]['gruppe']);
+        $this->assertSame('Staatsangehörigkeit', $daten['pflicht'][0]['label']);
+    }
 }

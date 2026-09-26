@@ -98,21 +98,26 @@ final class PortalMandatory
     }
 
     /**
-     * Hat diese Gruppe eine offene Pflichtangabe? Der rote Punkt an der
-     * Gruppenzeile unterscheidet danach (F1): "blockiert das Speichern"
-     * wiegt schwerer als "fehlt noch, folgenlos".
+     * Wuerde ein Waechter das Speichern DIESER Gruppe blockieren?
      *
-     * @param list<array{feld:string, gruppe:string, label:string}> $offen
+     * Der rote Punkt an der Gruppenzeile unterscheidet danach (F1): "das
+     * blockiert das Speichern" wiegt schwerer als "fehlt noch, folgenlos".
+     *
+     * Gefragt wird mit demselben Aufruf und derselben Reichweite wie beim
+     * echten Speichern (PortalProfileWriter uebergibt genau die Felder der
+     * Gruppe) -- NICHT ueber die Liste aus offen(). Der Unterschied ist
+     * echt: offen() laesst eine Pflichtangabe weg, die schon als offener
+     * NACHWEIS gezaehlt wird (sonst zaehlte der Ersthelfer-Schein zweimal).
+     * Fuer den ZAEHLER ist das richtig, fuer den PUNKT waere es falsch --
+     * der Waechter blockt die Gruppe trotzdem, und genau das soll der Punkt
+     * sagen.
+     *
+     * @param array<string, array<string,mixed>> $gruppenFelder Felder DIESER Gruppe
+     * @param array<string,mixed> $datensatz
      */
-    public static function trifftGruppe(array $offen, string $gruppe): bool
+    public static function blocktGruppe(array $gruppenFelder, array $datensatz): bool
     {
-        foreach ($offen as $eintrag) {
-            if ($eintrag['gruppe'] === $gruppe) {
-                return true;
-            }
-        }
-
-        return false;
+        return PortalProfileGuards::fehler([], $datensatz, $gruppenFelder) !== null;
     }
 
     /**
