@@ -629,14 +629,30 @@ final class PortalGleichstandTest extends TestCase
      *      uebrigen editierbaren, nicht-Datei-Felder: keines von ihnen darf
      *      'fest' tragen.
      *
-     * GEGENPROBE GEMACHT UND ZURUECKGENOMMEN (siehe Abschlussbericht dieser
-     * Aenderung): first_aider_valid_until testweise wieder editierbar
-     * geschaltet (der istAblaufSpalte-Ausschluss in PortalShell entfernt) --
-     * dieser Test wurde rot, exakt an der erwarteten Stelle (Schreibversuch
-     * fuer first_aider_valid_until), die Aenderung wurde danach verworfen.
+     * WAS DAS KOSTET -- hier, nicht nur in Punkt 11: im ALTEN Portal liess
+     * sich eines dieser fuenf Daten TIPPEN, ohne ein Dokument hochzuladen.
+     * Im neuen geht das nicht mehr; eine Korrektur verlangt den Nachweis.
+     * Das ist ein echter VERLUST gegenueber dem alten Portal, in Kauf
+     * genommen gegen den oben beschriebenen Dauerzustand. Dieser Test
+     * ZEMENTIERT diesen Verlust bewusst -- wer ihn zurueckdrehen will,
+     * darf nicht einfach das Feld wieder editierbar machen (dann ist der
+     * Doppelschreiber zurueck), sondern braucht einen Weg, der Nachweis
+     * UND Spalte gemeinsam fortschreibt. Siehe Abweichung A4, Punkt 11.
+     *
+     * GEGENPROBE GEMACHT UND ZURUECKGENOMMEN: first_aider_valid_until
+     * testweise wieder editierbar geschaltet (der istAblaufSpalte-Ausschluss
+     * entfernt) -- dieser Test wurde rot, und zwar schon an der 'fest'-
+     * Pruefung von Richtung 1, bevor der Schreibversuch ueberhaupt lief
+     * (beide gehoeren zu Richtung 1, die erste Zusicherung faellt zuerst).
+     * Umgekehrt 'city' testweise als Ablaufspalte ausgegeben -- rot an der
+     * Gegenprobe von Richtung 2. Beide Aenderungen wurden verworfen.
      */
     public function test_die_fuenf_nur_lese_ablaufspalten_lassen_sich_nicht_ueberschreiben(): void
     {
+        // "editierbar" heisst hier: im ALTEN Portal beschreibbare Spalte
+        // (Quelle: RecEmployee::editableFieldGroups(), siehe alleFelder()).
+        // Genau fuenf davon sind im NEUEN Portal nur noch lesbar -- das ist
+        // der Unterschied, den dieser Test misst.
         $editierbar = array_keys($this->alleFelder());
         $ablaufSpalten = array_values(array_intersect($editierbar, ProofTypes::legacyExpiryColumnsAll()));
         sort($ablaufSpalten);
@@ -1865,6 +1881,17 @@ final class PortalGleichstandTest extends TestCase
      *     Datum, der Ring stieg — und der Start-Bildschirm sagte WEITERHIN
      *     "Abgelaufen am ...", dauerhaft. Seit F4 gibt es nur noch EINE Tuer:
      *     das Profil zeigt die fuenf Daten, schreibt sie aber nicht.
+     *     DAS KOSTET ETWAS, und das gehoert hier hin: im ALTEN Portal liess
+     *     sich eines dieser Daten TIPPEN, ohne ein Dokument hochzuladen
+     *     (EmployeePortal: normales Formularfeld). Im neuen geht das nicht
+     *     mehr — wer ein Datum korrigieren will, muss den Nachweis neu
+     *     hochladen. Das ist ein echter VERLUST gegenueber dem alten Portal,
+     *     kein reiner Zugewinn. Er ist in Kauf genommen, weil die Alternative
+     *     der oben beschriebene Dauerzustand war ("Gespeichert." im Profil,
+     *     "Abgelaufen am ..." auf dem Start-Bildschirm, fuer immer). Wer den
+     *     Verlust zurueckdrehen will, braucht KEINEN zweiten Schreiber auf
+     *     dieselbe Spalte, sondern einen Weg, der Nachweis UND Spalte
+     *     gemeinsam fortschreibt.
      *     GEMESSEN unten.
      */
     public function test_abweichung_4_die_nicht_abgedeckten_punkte_des_plans(): void
