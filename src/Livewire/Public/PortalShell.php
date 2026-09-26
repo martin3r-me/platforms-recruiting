@@ -405,12 +405,17 @@ class PortalShell extends Component
      * gueltige Anmeldung laeuft $wire.call('speichereGruppe') ins Leere,
      * genau wie bei speichereNachweis().
      *
-     * Die Waechter kommen mit dem Schreibweg (PortalProfileGuards) -- auch
-     * die, die mit der offenen Gruppe nichts zu tun haben. Das ist dieselbe
-     * Endzustandspruefung wie in EmployeePortal::saveAll(): ein
-     * unvollstaendiger Zustand soll nicht stehenbleiben, nur weil gerade ein
-     * anderes Blatt offen ist. Ein Waechterfehler haelt das Blatt OFFEN, OHNE
-     * die Eingaben neu zu laden -- sie bleiben stehen (EmployeePortal.php:288).
+     * Die Waechter kommen mit dem Schreibweg (PortalProfileGuards) -- seit
+     * C1 (Fixrunde 1, Ruling des Koordinators) aber nur noch mit der
+     * REICHWEITE der offenen Gruppe, nicht mehr alle drei unabhaengig davon.
+     * Vorher blockte eine fehlende Angabe aus einer FREMDEN Gruppe (z. B.
+     * Staatsangehoerigkeit) jedes Speichern, auch Bankdaten oder
+     * Hemdgroesse -- bei zwei gleichzeitig fehlenden Pflichtangaben ein
+     * echter Ping-Pong-Deadlock (siehe PortalProfileGuards-Docblock). Eine
+     * Vollspeicherung ohne Gruppe (altes Portal, EmployeePortal::saveAll())
+     * bleibt unveraendert bei allen drei Waechtern. Ein Waechterfehler haelt
+     * das Blatt OFFEN, OHNE die Eingaben neu zu laden -- sie bleiben stehen
+     * (EmployeePortal.php:288).
      */
     public function speichereGruppe(): void
     {
@@ -551,7 +556,18 @@ class PortalShell extends Component
             $anzeigewerte = [];
             $offenInGruppe = 0;
             foreach ($felder as $schluessel => $meta) {
-                $anzeigewerte[$schluessel] = $this->anzeigewert($employee, $schluessel, $meta);
+                // I1 (Fixrunde 1, Aufgabe 6): Datei-Felder laufen exklusiv
+                // ueber die Kacheln (Vollstaendigkeits-Icons) -- sie stehen
+                // auch nicht im Blatt (siehe unten). Eine rohe Datei-Id oder
+                // ein per Lookup aufgeloester Dateiname waere in der
+                // Gruppenzeile nur Rauschen und doppelt gemoppelt (Fund: die
+                // Ausweis-Zeile lautete "01.01.2032 · 5002 · 5003 · 5004").
+                // Der "offen"-Zaehler zaehlt ein fehlendes Datei-Feld
+                // trotzdem mit -- ein fehlendes Selfie bleibt eine offene
+                // Aufgabe, nur eine, die nicht in der Zeile auftaucht.
+                if (($meta['type'] ?? 'text') !== 'file') {
+                    $anzeigewerte[$schluessel] = $this->anzeigewert($employee, $schluessel, $meta);
+                }
                 if (PortalFieldRelevance::istRelevant($meta, $datensatz)) {
                     $wert = $datensatz[$schluessel] ?? null;
                     if ($wert === null || $wert === '' || $wert === []) {
@@ -577,7 +593,26 @@ class PortalShell extends Component
         $hinweis = null;
         if ($this->profilGruppe !== null && array_key_exists($this->profilGruppe, $sichtbar)) {
             $hinweis = PortalSectionHints::fuer($this->profilGruppe, $this->duzen);
-            foreach ($sichtbar[$this->profilGruppe] as $schluessel => $meta) {
+
+            // C2 (Critical, Fixrunde 1 zu Aufgabe 6): NUR fuer die OFFENE
+            // Gruppe zaehlt der FORMULARSTAND ($this->profilWerte), nicht
+            // nur der Datensatz -- alle anderen Gruppen bleiben oben gegen
+            // den Datensatz (siehe Kommentar dort, unveraendert). Ohne
+            // diesen Rueckfall blieb ein visible_if-Feld wie other_employer
+            // unsichtbar, waehrend der Mensch GERADE per Live-Auswahl
+            // (is_main_employer hat 'live' => true) von "ja" auf "nein"
+            // umstellt: der Formularwert ist schon '0', der Datensatz noch
+            // true, also verschwand das Namensfeld nie -- "Nein" war damit
+            // unerreichbar, obwohl gespeichert schon lange nicht mehr
+            // blockiert (C1). Genau daran haengt die Korrektur zu
+            // Steuerklasse VI.
+            $offeneGruppeSichtbar = PortalFieldAccess::sichtbareGruppen(
+                [$this->profilGruppe => $gruppen[$this->profilGruppe]],
+                $datensatz,
+                $this->profilWerte,
+            )[$this->profilGruppe] ?? [];
+
+            foreach ($offeneGruppeSichtbar as $schluessel => $meta) {
                 if (($meta['type'] ?? 'text') === 'file') {
                     continue;   // Dateien laufen ueber das Nachweis-Blatt (R20/E8)
                 }
@@ -678,7 +713,14 @@ class PortalShell extends Component
      * Anzeigewert fuer ein einzelnes Feld (Gruppenzeile, PortalGroupSummary)
      * -- woertlich wie EmployeePortal::formatDisplayValue() (Zeilen 547-559)
      * inklusive des default-Zweigs, in den inline_select faellt (§1.4
-     * Punkt 1: Wert und Beschriftung sind dort derselbe String).
+     * Punkt 1: Wert und Beschriftung sind dort derselbe String), UND
+     * inklusive des 'file'-Zweigs (I1, Fixrunde 1 zu Aufgabe 6): der fehlte
+     * hier zuerst und liess ein Datei-Feld auf den default-Zweig
+     * durchfallen -- eine rohe Datei-Id statt eines Dateinamens. Der
+     * aktuelle Aufrufer (profilDaten(), Gruppenzeile) ruft diesen Zweig
+     * bewusst nicht mehr auf Datei-Felder auf (siehe Kommentar dort), die
+     * Methode bleibt trotzdem fuer sich vollstaendig und in Deckung mit
+     * EmployeePortal.
      */
     private function anzeigewert(RecEmployee $employee, string $feld, array $meta): string
     {
@@ -693,8 +735,24 @@ class PortalShell extends Component
             'bool'   => $wert ? 'Ja' : 'Nein',
             'lookup' => $this->lookupOptionen($meta['lookup'] ?? '')[(string) $wert] ?? (string) $wert,
             'date'   => $this->anzeigedatum($wert),
+            'file'   => $this->dateiname((int) $wert) ?? "Datei #{$wert}",
             default  => (string) $wert,
         };
+    }
+
+    /** Dateiname zu einer ContextFile-Id -- woertlich wie EmployeePortal::fileNameForId(). */
+    private function dateiname(?int $fileId): ?string
+    {
+        if (!$fileId) {
+            return null;
+        }
+        try {
+            $file = \Platform\Core\Models\ContextFile::find($fileId);
+
+            return $file?->original_name;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function anzeigedatum($wert): string
