@@ -31,6 +31,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\BackfillBookingConfirmations::class,
                 \Platform\Recruiting\Console\Commands\PersonPairAudit::class,
                 \Platform\Recruiting\Console\Commands\EmployeeEdgeCases::class,
+                \Platform\Recruiting\Console\Commands\BackfillPersons::class,
                 \Platform\Recruiting\Console\Commands\MigrateProofsFromColumns::class,
                 \Platform\Recruiting\Console\Commands\SwitchPortalVersion::class,
                 \Platform\Recruiting\Console\Commands\SeedDemoEmployees::class,
