@@ -314,6 +314,125 @@ final class BackfillPersonsTest extends TestCase
         $this->assertNotNull(DB::table('rec_employees')->where('id', 1)->value('rec_person_id'));
         $this->assertNull(DB::table('rec_employees')->where('id', 2)->value('rec_person_id'), 'das andere Team darf der Team-Filter nicht anfassen');
     }
+
+    /**
+     * C1 (Schlusspruefung): der Lauf bestaetigt je Gruppe statt am Ende.
+     * Bricht er mitten drin ab, muessen die bis dahin verbundenen
+     * Datensaetze STEHEN BLEIBEN -- eine grosse Transaktion haette sie hier
+     * alle mit zurueckgerollt. Und der naechste Lauf macht sauber weiter,
+     * ohne das schon Erledigte noch einmal anzufassen.
+     *
+     * Der Abbruch ist echt und nicht gestellt: die Gruppe p-2 traegt zwei
+     * VERSCHIEDENE rec_person_id, das ist der Zusammenlege-Fall, und
+     * PersonLinker::verbinde() weigert sich dort ausdruecklich.
+     */
+    public function test_abbruch_behaelt_die_bis_dahin_verbundenen(): void
+    {
+        $personA = DB::table('rec_persons')->insertGetId([
+            'uuid' => 'p-a', 'team_id' => self::TEAM,
+            'created_at' => '2026-01-01 00:00:00', 'updated_at' => '2026-01-01 00:00:00',
+        ]);
+        $personB = DB::table('rec_persons')->insertGetId([
+            'uuid' => 'p-b', 'team_id' => self::TEAM,
+            'created_at' => '2026-01-01 00:00:00', 'updated_at' => '2026-01-01 00:00:00',
+        ]);
+
+        DB::table('rec_employees')->insert([
+            // Gruppe 1: sauber, wird VOR dem Abbruch bestaetigt.
+            ['id' => 1, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'rec_person_id' => null, 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 2, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'rec_person_id' => null, 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            // Gruppe 2: zwei gebundene Geschwister an VERSCHIEDENEN Personen
+            // plus ein ungebundenes -- daran stirbt der Lauf.
+            ['id' => 3, 'team_id' => self::TEAM, 'person_key' => 'p-2', 'rec_person_id' => $personA, 'phone' => '+4915122222222', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 4, 'team_id' => self::TEAM, 'person_key' => 'p-2', 'rec_person_id' => $personB, 'phone' => '+4915122222222', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 5, 'team_id' => self::TEAM, 'person_key' => 'p-2', 'rec_person_id' => null, 'phone' => '+4915122222222', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+        ]);
+
+        $geworfen = null;
+        try {
+            $this->lauf();
+        } catch (\InvalidArgumentException $e) {
+            $geworfen = $e;
+        }
+
+        $this->assertNotNull($geworfen, 'der Zusammenlege-Fall muss den Lauf abbrechen, nicht stillschweigend etwas raten');
+
+        $personGruppeEins = DB::table('rec_employees')->where('id', 1)->value('rec_person_id');
+        $this->assertNotNull($personGruppeEins, 'die vor dem Abbruch verbundene Gruppe muss stehen bleiben');
+        $this->assertSame(
+            (int) $personGruppeEins,
+            (int) DB::table('rec_employees')->where('id', 2)->value('rec_person_id'),
+            'eine Gruppe wird ganz oder gar nicht verbunden -- die Gruppe selbst bleibt atomar',
+        );
+        $this->assertNull(DB::table('rec_employees')->where('id', 5)->value('rec_person_id'), 'die abgebrochene Gruppe darf nichts hinterlassen');
+        $this->assertSame(3, (int) DB::table('rec_persons')->count(), 'A, B und die eine neue Zeile der ersten Gruppe');
+
+        // HR loest den Konflikt (beide Geschwister an dieselbe Person) --
+        // danach muss der zweite Lauf einfach weitermachen.
+        DB::table('rec_employees')->where('id', 4)->update(['rec_person_id' => $personA]);
+
+        $this->lauf();
+
+        $this->assertSame((int) $personA, (int) DB::table('rec_employees')->where('id', 5)->value('rec_person_id'));
+        $this->assertSame(
+            (int) $personGruppeEins,
+            (int) DB::table('rec_employees')->where('id', 1)->value('rec_person_id'),
+            'der zweite Lauf darf die schon erledigte Gruppe nicht noch einmal anfassen',
+        );
+        $this->assertSame(3, (int) DB::table('rec_persons')->count(), 'der zweite Lauf legt nichts Neues an');
+    }
+
+    /**
+     * C1, zweite Haelfte: der Trockenlauf rollt jetzt je Gruppe zurueck
+     * statt einmal am Ende. Auch ueber MEHRERE Gruppen hinweg darf danach
+     * nichts stehen.
+     */
+    public function test_dry_run_hinterlaesst_auch_ueber_mehrere_gruppen_nichts(): void
+    {
+        DB::table('rec_employees')->insert([
+            ['id' => 1, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 2, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 3, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915133333333', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 4, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915144444444', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+        ]);
+
+        $ausgabe = $this->lauf(dryRun: true)->ausgabe();
+
+        $this->assertSame(0, (int) DB::table('rec_persons')->count(), 'ein Trockenlauf darf nichts hinterlassen');
+        $this->assertSame(4, (int) DB::table('rec_employees')->whereNull('rec_person_id')->count());
+        $this->assertStringContainsString('Personen angelegt: 3', $ausgabe, 'der Trockenlauf muss trotzdem melden, was er anlegen WUERDE');
+    }
+
+    /**
+     * I3 (Schlusspruefung): "Nummern uneinig: 47" ist fuer HR wertlos, und
+     * ein zweiter Lauf bringt die Faelle nicht zurueck (die Gruppen sind
+     * dann gebunden). Also muessen die Kennungen im selben Lauf erscheinen
+     * -- beide Sorten getrennt, ohne Namen.
+     */
+    public function test_kennungen_der_grenzfaelle_stehen_unter_der_uebersicht(): void
+    {
+        DB::table('rec_employees')->insert([
+            // Uneinige Nummern in EINER Gruppe.
+            ['id' => 1, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 2, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'phone' => '+4915122222222', 'is_active' => 1, 'updated_at' => '2026-06-01 00:00:00'],
+            // Zwei Menschen an derselben Nummer: der zweite bekommt keine.
+            ['id' => 3, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915133333333', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 4, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915133333333', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+        ]);
+
+        $ausgabe = $this->lauf()->ausgabe();
+
+        $this->assertStringContainsString('Nummern uneinig: 1', $ausgabe);
+        $this->assertStringContainsString('Kennungen, Nummern uneinig', $ausgabe);
+        $this->assertStringContainsString("\n  1 + 2", $ausgabe, 'HR braucht die Kennungen der uneinigen Gruppe, nicht nur ihre Anzahl');
+
+        $this->assertStringContainsString('Nummer nicht gesetzt (Dublette oder unlesbar): 1', $ausgabe);
+        $this->assertStringContainsString("\n  4", $ausgabe, 'auch die zweite Sorte braucht ihre Kennung');
+
+        // Namen kommen nie mit (Muster recruiting:mitarbeiter-grenzfaelle):
+        // die Ausgabe darf ausser Zahlen und Ueberschriften nichts tragen.
+        $this->assertStringNotContainsString('+4915133333333', $ausgabe, 'eine Kennungsliste traegt keine Personendaten aus der Produktion');
+    }
 }
 
 /**
