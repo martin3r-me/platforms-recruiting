@@ -67,6 +67,41 @@ class Index extends Component
         return $options;
     }
 
+    /**
+     * Tagesweise blaettern (Kunde 26.09.): verschiebt BEIDE Datumsfelder um
+     * $days, ein gewaehlter Zeitraum behaelt also seine Laenge. Leere oder
+     * ungueltige Felder starten bei heute.
+     */
+    public function shiftDates(int $days): void
+    {
+        if ($days === 0) {
+            return;
+        }
+        $from = $this->isValidDate($this->dateFrom)
+            ? \Illuminate\Support\Carbon::parse($this->dateFrom)
+            : \Illuminate\Support\Carbon::today();
+        $to = $this->isValidDate($this->dateTo)
+            ? \Illuminate\Support\Carbon::parse($this->dateTo)
+            : $from->copy();
+
+        $this->dateFrom = $from->copy()->addDays($days)->toDateString();
+        $this->dateTo   = $to->copy()->addDays($days)->toDateString();
+
+        // Rueckwaerts blaettern soll auch etwas zeigen: liegt der Zeitraum
+        // komplett in der Vergangenheit, wuerde sonst der Kommend-Filter greifen
+        // und die Liste waere leer.
+        if ($this->dateTo < now()->toDateString()) {
+            $this->showPast = true;
+        }
+    }
+
+    /** Zurueck auf heute (nach weitem Blaettern). */
+    public function jumpToToday(): void
+    {
+        $this->dateFrom = now()->toDateString();
+        $this->dateTo   = now()->toDateString();
+    }
+
     private function isValidDate(string $value): bool
     {
         return (bool) preg_match('/^\d{4}-\d{2}-\d{2}$/', $value);

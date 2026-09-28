@@ -11,6 +11,10 @@
     </div>
 
     <div class="flex flex-wrap items-end gap-4 rounded-lg border border-gray-200 bg-white p-4">
+        {{-- Tagesweise blaettern (Kunde 26.09.): die Pfeile verschieben BEIDE
+             Felder um einen Tag, ein Zeitraum behaelt seine Laenge. --}}
+        <button type="button" wire:click="shiftDates(-1)" title="Einen Tag zurück"
+                class="rounded border border-gray-300 px-2 py-1 text-sm leading-5 text-gray-600 hover:bg-gray-50">&lsaquo;</button>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-gray-500">Datum von</label>
             <input type="date" wire:model.live="dateFrom" class="rounded border border-gray-300 px-2 py-1 text-sm">
@@ -19,6 +23,10 @@
             <label class="text-xs font-medium text-gray-500">Datum bis</label>
             <input type="date" wire:model.live="dateTo" class="rounded border border-gray-300 px-2 py-1 text-sm">
         </div>
+        <button type="button" wire:click="shiftDates(1)" title="Einen Tag vor"
+                class="rounded border border-gray-300 px-2 py-1 text-sm leading-5 text-gray-600 hover:bg-gray-50">&rsaquo;</button>
+        <button type="button" wire:click="jumpToToday" title="Zurück auf heute"
+                class="px-1 py-1 text-sm text-blue-600 hover:underline">Heute</button>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-gray-500">Filiale</label>
             <select wire:model.live="filialeFilter" class="rounded border border-gray-300 px-2 py-1 text-sm">
