@@ -88,4 +88,27 @@ final class PersonGroupPlannerTest extends TestCase
         $this->assertSame([3], $r['gruppen'][0]['ids']);
         $this->assertSame([9], $r['gruppen'][1]['ids']);
     }
+
+    public function test_zwei_leere_marker_sind_zwei_gruppen(): void
+    {
+        $r = PersonGroupPlanner::plan([
+            $this->ma(1, '', '+4915111111111'),
+            $this->ma(2, '', '+4915122222222'),
+        ]);
+
+        $this->assertCount(2, $r['gruppen'], 'zwei leere Marker sind kein Beleg fuer denselben Menschen — jeder bekommt sein Konto');
+        $this->assertSame([1], $r['gruppen'][0]['ids']);
+        $this->assertSame([2], $r['gruppen'][1]['ids']);
+    }
+
+    public function test_kennungen_innerhalb_einer_gruppe_sind_aufsteigend_sortiert(): void
+    {
+        $r = PersonGroupPlanner::plan([
+            $this->ma(9, 'p-1', null),
+            $this->ma(5, 'p-1', null),
+            $this->ma(3, 'p-1', null),
+        ]);
+
+        $this->assertSame([3, 5, 9], $r['gruppen'][0]['ids'], 'die Kennungen in einer Gruppe muessen aufsteigend sortiert sein');
+    }
 }

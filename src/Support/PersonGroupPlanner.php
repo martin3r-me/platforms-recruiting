@@ -17,7 +17,7 @@ namespace Platform\Recruiting\Support;
  * setzt, waere nicht pruefbar.
  *
  * phone_uneinig meldet Gruppen, in denen zwei VERSCHIEDENE Nummern stehen.
- * Verglichen wird ueber PhoneE164::suffix(), sonst zaehlte ""+49 152 ..." gegen
+ * Verglichen wird ueber PhoneE164::suffix(), sonst zaehlte "+49 152 ..." gegen
  * "0152 ..." als Streit, obwohl es dieselbe Nummer ist.
  *
  * Reine Logik (kein Framework/DB) → pure-unit-testbar.
