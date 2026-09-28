@@ -80,7 +80,13 @@ use Illuminate\Support\Facades\Schema;
  * Konto taugt er deshalb nicht (Spec 2026-09-28, Paragraph 4.3).
  *
  * Diese Zeile bekommt JEDER, auch ohne Konto und auch mit nur einer
- * Anstellung. Die Klammer ist damit von Tag eins vollstaendig.
+ * Anstellung.
+ *
+ * NACHTRAG 28.09.2026: Der urspruenglich hier vorgegebene Satz "die Klammer
+ * ist damit von Tag eins vollstaendig" ist in der Schlusspruefung gefallen
+ * und steht so NICHT mehr im Code. Der Backfill stellt die Klammer fuer den
+ * Zeitpunkt seines Laufs her; neue Anstellungen bekommen heute noch keine
+ * Zeile. Der gebaute Docblock sagt das, siehe die Migration im Arbeitsstand.
  *
  * Die Anmeldespalten (phone, password_hash, ...) entstehen hier mit, werden
  * in Stufe 1 aber von nichts gelesen. Sie jetzt wegzulassen hiesse, spaeter

@@ -29,7 +29,10 @@ final class PersonScopeResolver
      * Backfill stellt die Klammer nur fuer EINEN ZEITPUNKT her: neue
      * Anstellungen aus CreateEmployeeFromApplicantService (Anlage aus der
      * Bewerbung) und aus ZasInboundEmployeeImporter (ZAS-Neuanlage) rufen
-     * PersonLinker heute NICHT und bekommen deshalb keine Personen-Zeile.
+     * PersonLinker heute nicht unmittelbar und bekommen deshalb keine
+     * Personen-Zeile. Genauer beim ZAS-Import: er erreicht PersonLinker nur
+     * ueber die Paarung, also NUR beim doppelt-exakten Treffer — ein neu
+     * angelegter Einzelfall bleibt ohne Zeile.
      * Zweig 2 verschwindet erst, wenn dieser Haken in beiden Wegen sitzt —
      * das ist eine eigene Aufgabe mit eigener Pruefung. Bis dahin ist Zweig
      * 2 der einzige Weg, auf dem ein nach dem Backfill angelegter Mensch

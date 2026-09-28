@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\Schema;
  * Anstellungen bekommen noch KEINE Personen-Zeile —
  * CreateEmployeeFromApplicantService (Mitarbeiter-Anlage aus der Bewerbung)
  * und ZasInboundEmployeeImporter (Neuanlage aus der ZAS-Lieferung) rufen
- * PersonLinker nicht. Jeder Tag nach dem Backfill erzeugt also wieder
+ * PersonLinker nicht unmittelbar. Der ZAS-Import erreicht ihn nur ueber die
+ * Paarung (pairIfExact -> stamp -> verbindePerson), also NUR beim
+ * doppelt-exakten Treffer; ein neu angelegter Einzelfall bleibt ohne Zeile. Jeder Tag nach dem Backfill erzeugt also wieder
  * Datensaetze ohne rec_person_id. Den Haken in diese beiden Wege einzubauen
  * ist eine eigene Aufgabe mit eigener Pruefung (die Bewerber-Anlage ist der
  * Hauptweg der Mitarbeiter-Anlage dieses Moduls).

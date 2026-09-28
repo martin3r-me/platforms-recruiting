@@ -174,7 +174,10 @@ rec_persons        id, team_id,
 rec_employees      + rec_person_id      (eine neue, indizierte Spalte)
 ```
 
-Die Zeile ist **die Person**, nicht das Konto. Die Anmeldefelder sind Spalten darauf und bleiben leer, bis sich jemand registriert. Damit bekommt **jeder** eine Zeile — auch wer nie ein Konto anlegt, auch wer nur eine Anstellung hat. Die Klammer ist von Tag eins vollstaendig, und genau das ist der Unterschied zum Stempel.
+Die Zeile ist **die Person**, nicht das Konto. Die Anmeldefelder sind Spalten darauf und bleiben leer, bis sich jemand registriert. Damit bekommt **jeder** eine Zeile — auch wer nie ein Konto anlegt, auch wer nur eine Anstellung hat. Das ist der Unterschied zum Stempel, der nur beim Paaren gesetzt wird.
+
+> **Richtigstellung 28.09.2026 (Schlusspruefung Stufe 1):** Der frueher hier stehende Satz „die Klammer ist von Tag eins vollstaendig" war zu weit. Der Backfill stellt die Klammer fuer den Bestand her, **wie er zum Zeitpunkt des Laufs aussieht**. Neu angelegte Anstellungen bekommen heute noch keine Personen-Zeile: `CreateEmployeeFromApplicantService` (Anlage aus der Bewerbung) ruft `PersonLinker` gar nicht, und der ZAS-Import erreicht ihn nur ueber die Paarung, also **nur beim doppelt-exakten Treffer** — ein neu angelegter Einzelfall bleibt ohne Zeile.
+> Daraus folgen zwei Auflagen: Der **Haken in beiden Anlage-Wegen ist die naechste Aufgabe** und gehoert unmittelbar hinter Stufe 1, nicht hinter Stufe 2 — ohne ihn verfaellt der Wert des Backfills taeglich. Und der Rueckfall-Zweig in `PersonScopeResolver` darf **nicht entfernt werden**, bevor dieser Haken steht.
 
 Eine getrennte Konto-Tabelle wurde erwogen und verworfen: eine Person hat hoechstens ein Konto, das waere ein 1:1-Join ohne Gewinn.
 
