@@ -23,9 +23,18 @@ final class PersonScopeResolver
      * paart (Demo-Bestand, siehe PersonProofScope) und bei einem geteilten
      * Handy zwei verschiedene Menschen faelschlich zusammenzieht.
      *
-     * Zweig 2 ist ein Uebergang fuer noch nicht gebackfillte Zeilen. Er
-     * wird entfernt, sobald der Backfill auf der Produktion gelaufen ist —
-     * bis dahin muss er mitgetestet werden.
+     * Zweig 2 ist der Uebergang fuer Zeilen ohne rec_person_id. Er darf
+     * NICHT entfernt werden, sobald der Backfill auf der Produktion
+     * gelaufen ist — diese Zusage stand hier frueher und war falsch. Der
+     * Backfill stellt die Klammer nur fuer EINEN ZEITPUNKT her: neue
+     * Anstellungen aus CreateEmployeeFromApplicantService (Anlage aus der
+     * Bewerbung) und aus ZasInboundEmployeeImporter (ZAS-Neuanlage) rufen
+     * PersonLinker heute NICHT und bekommen deshalb keine Personen-Zeile.
+     * Zweig 2 verschwindet erst, wenn dieser Haken in beiden Wegen sitzt —
+     * das ist eine eigene Aufgabe mit eigener Pruefung. Bis dahin ist Zweig
+     * 2 der einzige Weg, auf dem ein nach dem Backfill angelegter Mensch
+     * seine zweite Anstellung ueberhaupt sieht, und er muss mitgetestet
+     * werden.
      *
      * @return array{ids: list<int>, abweichend: list<int>}
      */

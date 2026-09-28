@@ -12,8 +12,23 @@ use Illuminate\Support\Facades\Schema;
  * Anstellung hat, traegt NULL — das ist die Mehrheit. Als Anker fuer ein
  * Konto taugt er deshalb nicht (Spec 2026-09-28, Paragraph 4.3).
  *
- * Diese Zeile bekommt JEDER, auch ohne Konto und auch mit nur einer
- * Anstellung. Die Klammer ist damit von Tag eins vollstaendig.
+ * Diese Zeile ist fuer JEDEN gedacht, auch ohne Konto und auch mit nur
+ * einer Anstellung. Stand heute (Stufe 1) gilt das aber nur fuer EINEN
+ * ZEITPUNKT: der Backfill (recruiting:personen-anlegen) stellt die Klammer
+ * fuer den Bestand her, wie er zum Zeitpunkt des Laufs aussieht. NEUE
+ * Anstellungen bekommen noch KEINE Personen-Zeile —
+ * CreateEmployeeFromApplicantService (Mitarbeiter-Anlage aus der Bewerbung)
+ * und ZasInboundEmployeeImporter (Neuanlage aus der ZAS-Lieferung) rufen
+ * PersonLinker nicht. Jeder Tag nach dem Backfill erzeugt also wieder
+ * Datensaetze ohne rec_person_id. Den Haken in diese beiden Wege einzubauen
+ * ist eine eigene Aufgabe mit eigener Pruefung (die Bewerber-Anlage ist der
+ * Hauptweg der Mitarbeiter-Anlage dieses Moduls).
+ *
+ * Folge, die nicht uebersehen werden darf: der Uebergangs-Zweig in
+ * PersonScopeResolver (person_key + Telefon zur Laufzeit) darf NICHT
+ * entfernt werden, solange dieser Haken fehlt — auch dann nicht, wenn der
+ * Backfill auf der Produktion gelaufen ist. Ohne ihn saehe jeder nach dem
+ * Backfill neu angelegte Mensch seine zweite Anstellung nicht mehr.
  *
  * Die Anmeldespalten (phone, password_hash, ...) entstehen hier mit, werden
  * in Stufe 1 aber von nichts gelesen. Sie jetzt wegzulassen hiesse, spaeter
