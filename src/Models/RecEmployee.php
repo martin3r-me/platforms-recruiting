@@ -136,6 +136,7 @@ class RecEmployee extends Model
         'portal_locked_reason',
         'portal_last_seen_at',
         'portal_v2_since',
+        'rec_person_id',
 
         'created_by_user_id',
     ];
