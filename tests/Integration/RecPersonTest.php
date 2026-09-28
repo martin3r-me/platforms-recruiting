@@ -144,9 +144,10 @@ final class RecPersonTest extends TestCase
     }
 
     /**
-     * Die Migration behauptet: NULL ist erlaubt und mehrfach moeglich, wer
-     * keine Nummer hat bekommt trotzdem eine Zeile, nur kein Konto. Das ist
-     * heute unbewiesen — hier wird es belegt.
+     * Zeigt: zwei Personen-Zeilen ohne Nummer lassen sich im selben Team
+     * anlegen. NICHT gezeigt (M6, Schlusspruefung): dass der
+     * Eindeutigkeits-Index mehrere leere Nummern toleriert — dieser Test
+     * bliebe auch ohne jeden Index gruen.
      */
     public function test_mehrere_personen_ohne_nummer_sind_erlaubt(): void
     {
