@@ -142,7 +142,67 @@ HR sieht durchgaengig: wer eingeladen ist, wer registriert ist, wer nicht reagie
 
 **Person als Klammer UEBER `rec_employees`, kein Umbau der Tabelle.** Import, Export, Vertraege und Dispo bleiben an der Anstellung. Das ist keine Empfehlung, sondern die im Canvas festgelegte Bauweise — sie haelt den Eingriff klein und laesst ZAS unberuehrt.
 
-**Offen fuer Gate C (Datenmodell):** ob die Klammer der bestehende `person_key` bleibt oder eine eigene Personen-Zeile bekommt, an der das Konto haengt. `person_key` existiert seit dem 09.09.2026 und traegt die Paarung bereits; er ist aber nullable und kann sich beim Zusammenziehen aendern. Ein Konto, dessen Zugehoerigkeit an einem veraenderlichen Textschluessel haengt, ist eine Falle. **Entscheidung gehoert in Gate C, nicht in diese Spec.**
+Wie diese Klammer aussieht, steht in §4.3 — das ist Gate C und am 28.09.2026 entschieden.
+
+### 4.3 Gate C — die Klammer (entschieden am 28.09.2026)
+
+#### Was heute da ist, und warum es nicht reicht
+
+`rec_employees.person_key` existiert seit dem 09.09.2026. Zwei Dinge daran sind besser als oft angenommen: er ist eine **UuidV7**, also NICHT aus dem Namen abgeleitet — eine Heirat aendert ihn nicht. Und er hat bereits **genau einen Schreiber** (`PersonPairLinker::stamp`), der observer-frei ueber den Query Builder schreibt.
+
+Er taugt trotzdem nicht als Anker fuer ein Konto, und zwar aus einem Grund, der alle anderen schlaegt:
+
+> **Gesetzt wird er nur beim Paaren.** Wer nur EINE Anstellung hat, traegt `person_key = NULL`. Das ist die grosse Mehrheit.
+
+Ein Konto kann nicht an etwas haengen, das die meisten Menschen gar nicht haben. Dazu kommt das Verhalten beim Zusammenziehen: `stamp()` uebernimmt einen vorhandenen Schluessel der Gruppe und ueberschreibt damit den der anderen Seite. Fuer einen Paarungs-Marker ist das harmlos. Fuer die Zugehoerigkeit eines Kontos waere es ein stiller Verlust.
+
+`person_key` ist ein **Paarungs-Marker, keine Personen-Identitaet.**
+
+#### Die Entscheidung
+
+Eine eigene Personen-Zeile. Eine neue Tabelle, eine neue Spalte an `rec_employees`, **kein Umbau** — genau die Bauweise, die das Canvas vorgibt.
+
+```
+rec_persons        id, team_id,
+                   phone                (der Benutzername),
+                   password_hash        (leer bis zur Registrierung),
+                   email                (optional, nie zur Anmeldung),
+                   invited_at, registered_at, locked_at,
+                   merged_into_person_id (leer, ausser stillgelegt),
+                   timestamps
+
+rec_employees      + rec_person_id      (eine neue, indizierte Spalte)
+```
+
+Die Zeile ist **die Person**, nicht das Konto. Die Anmeldefelder sind Spalten darauf und bleiben leer, bis sich jemand registriert. Damit bekommt **jeder** eine Zeile — auch wer nie ein Konto anlegt, auch wer nur eine Anstellung hat. Die Klammer ist von Tag eins vollstaendig, und genau das ist der Unterschied zum Stempel.
+
+Eine getrennte Konto-Tabelle wurde erwogen und verworfen: eine Person hat hoechstens ein Konto, das waere ein 1:1-Join ohne Gewinn.
+
+#### Was aus dem `person_key` wird
+
+Er bleibt unveraendert und behaelt seine heutige Aufgabe. Er wird vom **Anker zum Futter**: beim Backfill und beim ZAS-Import sagt er, welche Anstellungen auf dieselbe Personen-Zeile zeigen sollen. Entschieden wird danach ueber `rec_person_id`.
+
+#### Regeln (alle tragend)
+
+1. **Ein Schreiber.** Genau eine Stelle darf `rec_person_id` setzen oder aendern — Muster `PersonPairLinker::stamp` und `ProofWriter`. Zwei Schreibwege auf dieselbe Zugehoerigkeit waeren die naechste Doppeltuer.
+2. **Observer-frei.** Geschrieben wird ueber den Query Builder. Eine Personen-Zuordnung ist keine fachliche Aenderung am Mitarbeiter und darf ihn nicht in den ZAS-Update-Export spuelen (`zas_changed_at` bleibt unberuehrt).
+3. **Zusammenziehen heisst umhaengen, nicht ueberschreiben.** Zwei Anstellungen zusammenlegen = `rec_person_id` auf dieselbe Zeile zeigen lassen. Nichts wird ueberschrieben, nichts geloescht, HR kann es zurueckdrehen — dieselben Eigenschaften, die die Paarung heute schon hat.
+4. **Zwei registrierte Personen, die derselbe Mensch sind** (moeglich, wenn beide Anstellungen verschiedene Nummern trugen): eine Zeile gewinnt, die andere bekommt `merged_into_person_id` und verliert ihre Anmeldung. Die Zeile bleibt stehen und ihre Nummer bleibt gesperrt — Canvas-Eintrag 1793: eine neu vergebene Nummer darf nie an alte Daten fuehren.
+5. **Die Nummer der Person ist die Wahrheit fuer die Anmeldung.** Sie steht doppelt (an der Person als Benutzername, an der Anstellung fuer ZAS-Export und CRM) — das ist die einzige bewusst hingenommene Doppelung. Aendert sie sich an der Person, wird sie im selben Vorgang auf alle Anstellungen dieser Person geschrieben. Ohne diese Regel entsteht genau die Drift, die §9.2 zaehlt.
+
+#### Backfill
+
+Alle Mitarbeiter bekommen eine Zeile, **auch inaktive** — sonst bekommt ein Rueckkehrer eine zweite Person. Datensaetze mit gleichem nicht-leerem `person_key` teilen sich eine. Weichen die Nummern zweier Anstellungen ab, gilt die Canvas-Regel *„der zuletzt geaenderte Wert gewinnt"*, und der Fall geht zusaetzlich auf die HR-Liste.
+
+#### Was der Umbau nebenbei beseitigt
+
+`PersonScopeResolver` / `PersonProofScope` loesen heute zur LAUFZEIT auf, welche Anstellungen zu einem Menschen gehoeren — ueber `person_key` plus uebereinstimmende Handynummer. Das war der Ersatz fuer eine fehlende Personen-Zeile, und er ist nachweislich fragil: im Demo-Bestand (keine Telefonnummern, weil erfundene Nummern echten Menschen gehoeren koennten) paart er gar nicht, und zwei Anstellungen desselben Menschen sehen einander nicht.
+
+Sobald `rec_person_id` gesetzt ist, gewinnt die Spalte. Die Laufzeit-Aufloesung bleibt waehrend der Umstellung nur als Rueckfall fuer noch nicht gefuellte Zeilen und wird nach dem Backfill **entfernt**. Identitaet gehoert in eine Spalte, nicht in eine Suchabfrage.
+
+#### Was NICHT mitwandert (bewusst)
+
+Stammdaten und Nachweise bleiben vorerst an der Anstellung. Das Canvas sieht vor, dass sie spaeter einmal an der Person liegen; mit dieser Zeile ist das eine Umzugs-Migration statt eines Umbaus. Der Umzug ist **nicht** Teil dieses Gates.
 
 ### 4.2 Zusammenfuehren
 
@@ -239,8 +299,10 @@ Canvas 68, Eintrag 1745, verlangt **drei** Zahlen, und zwar ausdruecklich vor Ga
 | # | Zahl | Stand 28.09.2026 |
 |---|---|---|
 | 1 | Nummer fehlt | vorhanden — `recruiting:mitarbeiter-grenzfaelle`, Fall `ohne_telefon_akte` |
-| 2 | Nummer mehrfach vergeben | **wird gerade gebaut** (§9.1) |
+| 2 | Nummer mehrfach vergeben | **gebaut** (§9.1), liegt auf `feat/ma-portal` |
 | 3 | Akte und Kontakt weichen ab | **fehlt noch** (§9.2) |
+
+Alle drei Zahlen liegen derzeit auf `feat/ma-portal` und damit **nirgends, wo sie auf dem Echtbestand laufen koennten**: das Grenzfall-Kommando ist auf diesem Branch neu, `main` kennt es nicht. Auf Wunsch des Kunden (28.09.) wird dafuer vorerst **nicht** auf `main` gemergt. Der Weg, wenn es soweit ist: ein eigener kleiner Branch von `main` mit Kommando, Planer und `PhoneE164::suffix()` — geprueft, das Kommando haengt an keiner Neuerung des Portal-Branchs.
 
 ### 9.1 Mehrfach vergebene Nummern
 
@@ -264,11 +326,11 @@ Das Kommando kennt heute `crm_ohne_nummer` (Kontakt ohne aktive Nummer), aber **
 | Punkt | Bei wem | Blockiert |
 |---|---|---|
 | Gate A — Bestaetigung des Canvas | Markus / RHEINGEDECK | den Bau, nicht diese Spec |
-| Aufbewahrungsfrist fuer aeltere Nachweis-Fassungen | RHEINGEDECK | Loeschlauf. *„Ohne genannte Frist wird nichts geloescht."* |
+| Aufbewahrungsfrist fuer aeltere Nachweis-Fassungen | RHEINGEDECK | **nichts.** Entscheidung 28.09.: vorerst **dauerhaft aufbewahren**, kein Loeschlauf. Nennt Markus spaeter eine Frist, wird sie nachgezogen — die Fassungen tragen ihren Gueltigkeitszeitraum, ein spaeterer Lauf findet sie |
 | Hinweistext beim ersten Login (gemeinsame Stammdaten RG+MA) | RHEINGEDECK | nichts — das Canvas haelt fest: *„Die datenschutzrechtliche Bewertung liegt bei RHEINGEDECK; sie hat keinen Einfluss auf Umsetzung oder Termin."* Der Kunde neigt am 28.09. dazu, ganz darauf zu verzichten |
 | Zwei Meta-Vorlagen (Einladung, Einmalcode) | RHEINGEDECK liefert Texte | Gate E. Fuer Codes gibt es bei Meta eine eigene Vorlagenklasse mit „Code kopieren" und schnellerer Genehmigung — **frueh einreichen** |
 | Minderjaehrige: Konto auf eigene oder Elternnummer | RHEINGEDECK | nur, falls §9.1 Treffer liefert |
-| Datenmodell der Personen-Klammer | Gate C | §4.1 |
+| ~~Datenmodell der Personen-Klammer~~ | ~~Gate C~~ | **entschieden 28.09., siehe §4.3** — eigene Personen-Zeile `rec_persons` + `rec_employees.rec_person_id`; `person_key` wird vom Anker zum Futter |
 | Feldliste HR-direkt-in-ZAS (Michel) | offener Posten vor dem Bau | Gate C |
 
 ---
