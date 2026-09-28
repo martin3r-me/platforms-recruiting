@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Support\SharedPhonePlanner;
 
 /**
  * Zaehlt Grenzfaelle im Mitarbeiterbestand.
@@ -29,6 +30,15 @@ final class EmployeeEdgeCases extends Command
         {--vorlauf=60 : Tage Vorlauf fuer "laeuft bald ab"}';
 
     protected $description = 'Grenzfaelle im Mitarbeiterbestand zaehlen (Portal-Tauglichkeit, Nachweise, Paarung)';
+
+    /**
+     * Memoisiert das Ergebnis von SharedPhonePlanner::plan() ueber den
+     * ganzen Kommandolauf — faelle() ruft es aus zwei Fall-Definitionen
+     * heraus auf, und beide sollen dieselbe (einmalige) Berechnung sehen.
+     *
+     * @var ?array{gleiche_person: list<int>, andere_person: list<int>}
+     */
+    private ?array $telefonPlan = null;
 
     public function handle(): int
     {
@@ -86,6 +96,32 @@ final class EmployeeEdgeCases extends Command
         return $q;
     }
 
+    /**
+     * @return array{gleiche_person: list<int>, andere_person: list<int>}
+     */
+    private function telefonPlan(): array
+    {
+        if ($this->telefonPlan !== null) {
+            return $this->telefonPlan;
+        }
+
+        // Nur AKTIVE Mitarbeiter: ausgeschiedene Leute bekommen keine
+        // Portal-Einladung, ihre Nummer kann also niemandem ein Konto
+        // blockieren.
+        $employees = $this->basis()
+            ->where('is_active', true)
+            ->get(['id', 'phone', 'birth_date', 'person_key'])
+            ->map(fn ($row) => [
+                'id' => (int) $row->id,
+                'phone' => $row->phone,
+                'birth_date' => $row->birth_date,
+                'person_key' => $row->person_key,
+            ])
+            ->all();
+
+        return $this->telefonPlan = SharedPhonePlanner::plan($employees);
+    }
+
     /** @return array<string, array{gruppe:string, label:string, filter:\Closure}> */
     private function faelle(int $vorlauf): array
     {
@@ -113,6 +149,10 @@ final class EmployeeEdgeCases extends Command
                     ->where(fn ($w) => $w->whereNull('birth_date')
                         ->orWhereNull('identity_card_number')
                         ->orWhere('identity_card_number', ''))],
+            'nummer_mehrfach_gleiche_person' => ['gruppe' => 'login', 'label' => 'Nummer an mehreren Datensaetzen — dieselbe Person (RG+MA, normal)', 'filter' =>
+                fn (Builder $q) => $q->whereIn('id', $this->telefonPlan()['gleiche_person'])],
+            'nummer_mehrfach_andere_person' => ['gruppe' => 'login', 'label' => 'Nummer an mehreren Datensaetzen — VERSCHIEDENE Menschen (Konto-Blocker)', 'filter' =>
+                fn (Builder $q) => $q->whereIn('id', $this->telefonPlan()['andere_person'])],
 
             // --- erreichen wir ihn? ---
             'ohne_telefon_akte' => ['gruppe' => 'erreichbar', 'label' => 'ohne Telefonnummer in der Akte', 'filter' =>
