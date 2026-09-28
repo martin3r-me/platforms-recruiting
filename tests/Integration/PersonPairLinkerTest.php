@@ -33,15 +33,29 @@ final class PersonPairLinkerTest extends TestCase
         Container::getInstance()->instance('db', $capsule->getDatabaseManager());
         Facade::setFacadeApplication(Container::getInstance());
 
+        // rec_persons + rec_person_id/phone an rec_employees: seit Aufgabe 6
+        // ruft stamp() zusaetzlich PersonLinker::verbinde() auf, das braucht
+        // beide.
+        Capsule::schema()->create('rec_persons', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64)->unique();
+            $t->integer('team_id')->nullable();
+            $t->string('phone', 32)->nullable();
+            $t->timestamps();
+            $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');
+        });
+
         Capsule::schema()->create('rec_employees', function ($t) {
             $t->id();
             $t->string('uuid')->nullable();
             $t->unsignedBigInteger('team_id');
             $t->unsignedBigInteger('rec_applicant_id')->nullable();
+            $t->integer('rec_person_id')->nullable();
             $t->string('person_key', 36)->nullable();
             $t->string('personnel_number')->nullable();
             $t->string('first_name')->nullable();
             $t->string('last_name')->nullable();
+            $t->string('phone')->nullable();
             $t->date('birth_date')->nullable();
             $t->timestamps();
         });
@@ -50,6 +64,7 @@ final class PersonPairLinkerTest extends TestCase
     protected function setUp(): void
     {
         Capsule::table('rec_employees')->delete();
+        Capsule::table('rec_persons')->delete();
     }
 
     private function emp(array $attrs): RecEmployee

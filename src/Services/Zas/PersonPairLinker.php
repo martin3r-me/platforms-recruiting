@@ -4,6 +4,8 @@ namespace Platform\Recruiting\Services\Zas;
 
 use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\PersonLinker;
+use Platform\Recruiting\Support\PersonGroupPlanner;
 use Platform\Recruiting\Support\PersonPairing;
 use Symfony\Component\Uid\UuidV7;
 
@@ -20,11 +22,18 @@ use Symfony\Component\Uid\UuidV7;
  *    Namensvarianten und Mehrdeutigkeit stempeln nie (Ergebnis 'ambiguous'
  *    bzw. 'none') — die gehoeren dem Menschen (Audit-Kommando).
  *  - stamp(): der gemeinsame Schreibweg fuer Audit-Kommando und Hand-Link.
+ *    Stempelt seit Aufgabe 6 zusaetzlich die Personen-Zeile (PersonLinker)
+ *    — ohne diesen zweiten Schritt bekaeme jedes NACH dem Backfill neu
+ *    gepaarte Paar zwar den person_key, aber keine rec_person_id und
+ *    fiele damit in den alten Laufzeit-Zweig zurueck, den wir gerade
+ *    loswerden.
  *
  * Schreibt per Query-Builder (observer-frei): ein Paar-Stempel ist keine
  * fachliche Aenderung des Mitarbeiters und darf ihn nicht in den
  * ZAS-Update-Export spuelen (zas_changed_at bleibt unberuehrt — dasselbe
- * Muster wie createEmployee im Importer).
+ * Muster wie createEmployee im Importer). PersonLinker::verbinde() schreibt
+ * ebenfalls per Query-Builder (siehe dessen Klassenkommentar), die Regel
+ * bleibt also observer-frei, auch mit dem zusaetzlichen Schritt.
  */
 class PersonPairLinker
 {
@@ -96,6 +105,53 @@ class PersonPairLinker
                 ->update(['rec_applicant_id' => $applicantId]);
         }
 
+        self::verbindePerson($employeeIds);
+
         return $key;
+    }
+
+    /**
+     * Haengt die gestempelte Gruppe zusaetzlich an eine gemeinsame
+     * rec_persons-Zeile (Aufgabe 6, Spec 2026-09-28, Paragraph 4). Traegt
+     * eine der Anstellungen schon eine rec_person_id, benutzt
+     * PersonLinker::verbinde() genau diese Zeile — es entsteht nie eine
+     * zweite.
+     *
+     * Die Nummer der Zeile bestimmt NICHT diese Methode, sondern
+     * PersonGroupPlanner::plan(): dieselbe Regel „der zuletzt geaenderte
+     * Wert gewinnt, bei Gleichstand die kleinere Kennung" darf nicht an
+     * zwei Stellen verschieden existieren (dasselbe Muster wie im
+     * Backfill-Kommando). Deshalb liest die Abfrage id, person_key, phone
+     * UND updated_at — genau die vier Felder, die der Planer braucht. Nach
+     * dem Setzen des Markers oben teilen sich alle betroffenen Zeilen
+     * denselben person_key, PersonGroupPlanner::plan() liefert also genau
+     * eine Gruppe.
+     *
+     * Traegt die Gruppe mehr als eine team_id, wird bewusst die des
+     * kleinsten id genommen (nicht etwa gemischt oder verworfen):
+     * Anstellungen derselben Person liegen im selben Team, ein
+     * Auseinanderfallen waere ein Datenfehler und kein Fall fuer stille
+     * Heilung.
+     *
+     * @param  list<int>  $employeeIds
+     */
+    private static function verbindePerson(array $employeeIds): void
+    {
+        $zeilen = DB::table('rec_employees')
+            ->whereIn('id', $employeeIds)
+            ->orderBy('id')
+            ->get(['id', 'team_id', 'person_key', 'phone', 'updated_at']);
+
+        $plan = PersonGroupPlanner::plan($zeilen->map(fn ($z) => [
+            'id'         => (int) $z->id,
+            'person_key' => $z->person_key,
+            'phone'      => $z->phone,
+            'updated_at' => $z->updated_at,
+        ])->all());
+
+        $teamId = $zeilen->first()->team_id !== null ? (int) $zeilen->first()->team_id : null;
+        $phone = $plan['gruppen'][0]['phone'] ?? null;
+
+        PersonLinker::verbinde($employeeIds, $teamId, $phone);
     }
 }
