@@ -136,7 +136,12 @@ class RecEmployee extends Model
         'portal_locked_reason',
         'portal_last_seen_at',
         'portal_v2_since',
-        'rec_person_id',
+        // rec_person_id bewusst NICHT hier (Ruling T3-D, Fixrunde 1 zu Task 3):
+        // sonst schreibt jedes $employee->update(['rec_person_id' => ...]) per
+        // Eloquent an PersonLinker vorbei — mit vollem Observer-Lauf. Die
+        // Personen-Zuordnung wird ausschliesslich von PersonLinker gesetzt,
+        // per DB::table(...). "EIN SCHREIBER" ist damit eine Eigenschaft des
+        // Modells, nicht nur eine Verabredung.
 
         'created_by_user_id',
     ];
