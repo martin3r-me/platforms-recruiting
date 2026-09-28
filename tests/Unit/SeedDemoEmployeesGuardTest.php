@@ -77,4 +77,51 @@ class SeedDemoEmployeesGuardTest extends TestCase
         $this->assertFalse(SeedDemoEmployees::istProduktion('https://demo.bhgdigital.de', ''));
         $this->assertTrue(SeedDemoEmployees::istProduktion('', 'local'));
     }
+
+    // -----------------------------------------------------------------
+    // Aufgabe 7 -- die Fall-Liste selbst
+    //
+    // Ruling P1: SeedDemoEmployees::faelle() ist oeffentlich und statisch --
+    // genau derselbe Weg wie istProduktion() oben: kein Container, keine
+    // Facade, keine Reflection. Deshalb wird sie hier wie istProduktion()
+    // direkt ueber den Klassennamen aufgerufen, nicht ueber eine zweite
+    // Zugriffsart in dieser Testklasse.
+    // -----------------------------------------------------------------
+
+    public function test_die_beiden_gregors_tragen_denselben_marker(): void
+    {
+        $faelle = SeedDemoEmployees::faelle();
+
+        $gregors = array_values(array_filter(
+            $faelle,
+            fn ($f) => str_starts_with($f['token'], 'demo-zwei-firmen'),
+        ));
+
+        $this->assertCount(2, $gregors);
+        $this->assertSame(
+            $gregors[0]['spalten']['person_key'],
+            $gregors[1]['spalten']['person_key'],
+            'ohne gemeinsamen Marker fuehrt der Fall nichts vor',
+        );
+        $this->assertNotSame(
+            $gregors[0]['spalten']['company'],
+            $gregors[1]['spalten']['company'],
+            'zwei Datensaetze derselben Firma waeren eine Dublette, keine zweite Anstellung',
+        );
+    }
+
+    public function test_kein_demo_fall_traegt_eine_telefonnummer(): void
+    {
+        // Bremse: dieser Test faellt um, sobald irgendein kuenftiger Fall
+        // 'phone' in seine Spalten schreibt -- etwa als naheliegende, aber
+        // falsche "Reparatur" der Zwei-Firmen-Paarung. Er iteriert ALLE
+        // Faelle, nicht nur die heute existierenden zwei Gregors.
+        foreach (SeedDemoEmployees::faelle() as $fall) {
+            $this->assertArrayNotHasKey(
+                'phone',
+                $fall['spalten'],
+                "Fall {$fall['token']} setzt eine Telefonnummer — eine erfundene Nummer koennte einem echten Menschen gehoeren",
+            );
+        }
+    }
 }

@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Platform\Recruiting\Services\PersonLinker;
 
 /**
  * Testmitarbeiter fuer die Demo-Umgebung — damit das neue Portal ohne echte
@@ -23,6 +24,12 @@ use Illuminate\Support\Str;
  *    (derselbe Mechanismus wie beim Vorfall am 02.09.2026).
  *  - Laeuft NICHT gegen die Produktion. Der Wirt wird geprueft, es gibt
  *    keinen Schalter, der das uebergeht.
+ *  - Personen-Klammer ueber PersonLinker::verbinde() (Aufgabe 7), niemals
+ *    ueber die Telefonnummer. Die beiden Gregors (demo-zwei-firmen /
+ *    demo-zwei-firmen-ma) landen dadurch trotz fehlender Nummer auf einer
+ *    gemeinsamen Personen-Zeile -- vorher paarte sie nichts, weil die alte
+ *    Laufzeit-Paarung uebereinstimmende Nummern verlangte und zwei leere
+ *    sich nicht bestaetigen.
  *
  * Aufruf:
  *   php artisan recruiting:demo-mitarbeiter --team=1
@@ -140,11 +147,18 @@ class SeedDemoEmployees extends Command
      * vorkommt und die beiden Sonderfaelle (Nicht-EU, zwei Gesellschaften)
      * sichtbar werden.
      *
+     * OEFFENTLICH UND STATISCH (Ruling P1, Aufgabe 7): genau wie
+     * istProduktion() darf auch die Fall-Liste aus einem reinen Unit-Test
+     * erreichbar sein, ohne Container und ohne Facade. Deshalb steht hier
+     * \Carbon\Carbon::now() statt des now()-Helpers — der haengt an der
+     * Date-Facade und stuerbe ohne gebootetes Laravel mit "A facade root
+     * has not been set".
+     *
      * @return list<array{token:string, vorname:string, nachname:string, was:string, spalten:array, nachweise:list<array>}>
      */
-    private function faelle(): array
+    public static function faelle(): array
     {
-        $heute = now();
+        $heute = \Carbon\Carbon::now();
 
         return [
             [
@@ -223,7 +237,15 @@ class SeedDemoEmployees extends Command
         $zeilen = [];
         $nummer = 0;
 
-        foreach ($this->faelle() as $fall) {
+        // Personen-Klammer (Aufgabe 7): gruppiert nach person_key, wo
+        // vorhanden, sonst je Fall fuer sich. Die beiden Gregors tragen
+        // denselben person_key ('demo-person-gregor') und landen dadurch in
+        // derselben Gruppe -- alle anderen Faelle sind in ihrer Gruppe
+        // allein und bekommen dadurch automatisch eine eigene Zeile, genau
+        // wie im Echtbetrieb.
+        $gruppen = [];
+
+        foreach (self::faelle() as $fall) {
             $nummer++;
 
             $vorhanden = DB::table('rec_employees')->where('portal_token', $fall['token'])->first();
@@ -248,6 +270,9 @@ class SeedDemoEmployees extends Command
                     'updated_at'            => $jetzt,
                 ], $fall['spalten']));
             }
+
+            $gruppenSchluessel = $fall['spalten']['person_key'] ?? $fall['token'];
+            $gruppen[$gruppenSchluessel][] = $employeeId;
 
             foreach ($fall['nachweise'] as [$code, $gueltigBis]) {
                 $schonDa = DB::table('rec_employee_proofs')
@@ -287,6 +312,16 @@ class SeedDemoEmployees extends Command
             ];
         }
 
+        // Personen-Zeile je Gruppe -- EIN Schreiber (PersonLinker), keine
+        // Telefonnummer (phone: null). Fuer die beiden Gregors ist das die
+        // gemeinsame Zeile, die den Fall ueberhaupt erst zeigt; fuer alle
+        // anderen die eigene Zeile, die es auch im Echtbetrieb gaebe. Ein
+        // zweiter Aufruf ist ungefaehrlich: verbinde() findet die schon
+        // gesetzte rec_person_id wieder und legt nichts doppelt an.
+        foreach ($gruppen as $employeeIds) {
+            PersonLinker::verbinde($employeeIds, $teamId, null);
+        }
+
         $this->info('Testmitarbeiter stehen. Anmeldung bei allen gleich:');
         $this->line('  Geburtsdatum  ' . self::GEBURTSDATUM . '   (17.05.1990)');
         $this->line('  Ausweis-Endziffern  4711');
@@ -311,10 +346,37 @@ class SeedDemoEmployees extends Command
             return self::SUCCESS;
         }
 
+        // Die Personen-Zeilen der Testleute merken, BEVOR die Anstellungen
+        // weg sind -- danach gibt es keinen Weg mehr zurueck zu ihnen. Der
+        // DEMO-Praefix an der Personalnummer identifiziert die Anstellungen
+        // sicher; die Personen-Zeile selbst traegt kein solches Merkmal, sie
+        // wird deshalb nur ueber diese Anstellungen gefunden.
+        $personIds = DB::table('rec_employees')
+            ->whereIn('id', $ids)
+            ->whereNotNull('rec_person_id')
+            ->pluck('rec_person_id')
+            ->unique();
+
         $nachweise = DB::table('rec_employee_proofs')->whereIn('rec_employee_id', $ids)->delete();
         $leute = DB::table('rec_employees')->whereIn('id', $ids)->delete();
 
-        $this->info("{$leute} Testmitarbeiter und {$nachweise} Nachweise entfernt.");
+        // Eine Personen-Zeile nur loeschen, wenn NACH dem Entfernen der
+        // Testmitarbeiter niemand mehr an ihr haengt. Eine Zeile, die (etwa
+        // durch einen spaeteren echten Zusammenlege-Fall) noch einen echten
+        // Menschen traegt, bleibt unangetastet -- lieber Muellzeile als ein
+        // getroffener echter Mensch.
+        $verwaistePersonen = 0;
+        foreach ($personIds as $personId) {
+            $nochGebraucht = DB::table('rec_employees')->where('rec_person_id', $personId)->exists();
+            if ($nochGebraucht) {
+                continue;
+            }
+
+            DB::table('rec_persons')->where('id', $personId)->delete();
+            $verwaistePersonen++;
+        }
+
+        $this->info("{$leute} Testmitarbeiter, {$nachweise} Nachweise und {$verwaistePersonen} Personen-Zeilen entfernt.");
 
         return self::SUCCESS;
     }
