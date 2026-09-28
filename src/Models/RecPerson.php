@@ -23,9 +23,26 @@ class RecPerson extends Model
 {
     protected $table = 'rec_persons';
 
+    // phone, password_hash, registered_at und merged_into_person_id sind
+    // bewusst NICHT hier (I4, Schlusspruefung — dieselbe Tuer, die Ruling
+    // T3-D fuer rec_employees.rec_person_id schon geschlossen hat): sonst
+    // waere "geschrieben wird ausschliesslich ueber PersonLinker" nur eine
+    // Verabredung, und nichts hielte sie. Die vier Spalten tragen
+    // Entscheidungen, die NEBENWIRKUNGEN haben, welche nur PersonLinker
+    // kennt:
+    //  - phone ist der spaetere Benutzername und muss auf ALLE Anstellungen
+    //    mitwandern (setzeNummer). Ein RecPerson::find($id)->update(
+    //    ['phone' => $neu]) uebergeht das still — der Einmalcode ginge dann
+    //    an die alte Nummer, und der Mensch sperrt sich selbst aus.
+    //  - password_hash und registered_at sind die Anmeldung; sie werden beim
+    //    Stilllegen geraeumt und gehoeren Stufe 2, nicht einem
+    //    Massen-Update.
+    //  - merged_into_person_id ist das Stilllegen selbst — mit den vier
+    //    Wachen aus fuehreZusammen(), sonst entsteht ein Ring, an dem sich
+    //    niemand mehr anmelden kann.
+    // PersonLinker schreibt per Query Builder und braucht $fillable nicht.
     protected $fillable = [
-        'uuid', 'team_id', 'phone', 'password_hash', 'email',
-        'invited_at', 'registered_at', 'locked_at', 'merged_into_person_id',
+        'uuid', 'team_id', 'email', 'invited_at', 'locked_at',
     ];
 
     protected $casts = [
