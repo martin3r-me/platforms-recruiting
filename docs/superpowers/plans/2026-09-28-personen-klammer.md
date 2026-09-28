@@ -720,8 +720,9 @@ recruiting:personen-anlegen
 
 **Verhalten:**
 - Betrachtet **alle** Mitarbeiter, auch inaktive — sonst bekommt ein Rueckkehrer eine zweite Person (Spec §4.3, „Backfill").
+- **KOLLISIONSREGEL (Ruling T1-A, lasttragend).** `rec_persons` traegt einen Eindeutigkeits-Index auf `(team_id, phone)`. Genau die Faelle, die der Mehrfachnummern-Zaehler zaehlt — zwei **verschiedene** Menschen an einer Nummer — wuerden damit beim Befuellen kollidieren und den Lauf auf prod mit einer Constraint-Verletzung toeten. Deshalb: **eine Nummer wird nie geschrieben, wenn sie in diesem Team schon an einer anderen Personen-Zeile haengt.** Die Person bekommt ihre Zeile trotzdem (die Klammer bleibt vollstaendig), `phone` bleibt NULL, und der Fall wird gezaehlt und in der Uebersicht genannt. Der Index bleibt unangetastet — er ist die Garantie. Canvas-Eintrag 1782 gibt solche Faelle ohnehin an HR statt in den automatischen Versand.
 - Datensaetze, die schon eine `rec_person_id` tragen, werden uebersprungen. Das Kommando ist damit **wiederholbar**.
-- Gibt am Ende aus: wie viele Personen angelegt, wie viele Anstellungen verbunden, und **wie viele Gruppen `phone_uneinig` sind** — das ist die HR-Liste.
+- Gibt am Ende aus: wie viele Personen angelegt, wie viele Anstellungen verbunden, **wie viele Gruppen `phone_uneinig` sind** und **wie viele Nummern wegen Kollision nicht geschrieben wurden** — das ist die HR-Liste. Die Zeile fuer die uneinigen Gruppen lautet exakt `Nummern uneinig: <n>`, die fuer die Kollisionen exakt `Nummer wegen Dublette nicht gesetzt: <n>` — der Test prueft diese Zeilen woertlich (Ruling P2: `assertStringContainsString('1', ...)` haelt nichts, die Ziffer steht in fast jeder Ausgabe).
 - Mit `--dry-run` wird nichts geschrieben und dieselbe Uebersicht gezeigt.
 
 - [ ] **Step 1: Den Test schreiben**
@@ -795,14 +796,34 @@ public function test_uneinige_nummern_werden_gemeldet(): void
         ['id' => 2, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'phone' => '+4915122222222', 'is_active' => 1, 'updated_at' => '2026-06-01 00:00:00'],
     ]);
 
-    $ausgabe = $this->laufMitAusgabe();
+    $ausgabe = $this->lauf()->ausgabe();
 
-    $this->assertStringContainsString('1', $ausgabe, 'die HR-Liste muss die uneinige Gruppe nennen');
+    $this->assertStringContainsString('Nummern uneinig: 1', $ausgabe, 'die HR-Liste muss die uneinige Gruppe nennen');
     $this->assertSame(
         '+4915122222222',
         DB::table('rec_persons')->value('phone'),
         'der zuletzt geaenderte Wert gewinnt (Canvas 68)',
     );
+}
+
+public function test_zwei_verschiedene_menschen_an_einer_nummer_toeten_den_lauf_nicht(): void
+{
+    // Genau der Fall, den der Mehrfachnummern-Zaehler zaehlt. Ohne die
+    // Kollisionsregel stirbt der Lauf hier an (team_id, phone).
+    DB::table('rec_employees')->insert([
+        ['id' => 1, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915112345678', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+        ['id' => 2, 'team_id' => self::TEAM, 'person_key' => null, 'phone' => '+4915112345678', 'is_active' => 1, 'updated_at' => '2026-02-01 00:00:00'],
+    ]);
+
+    $ausgabe = $this->lauf()->ausgabe();
+
+    $this->assertSame(2, (int) DB::table('rec_persons')->count(), 'beide bekommen ihre Zeile, die Klammer bleibt vollstaendig');
+    $this->assertSame(
+        1,
+        (int) DB::table('rec_persons')->whereNotNull('phone')->count(),
+        'nur einer darf die Nummer tragen — der Index ist die Garantie',
+    );
+    $this->assertStringContainsString('Nummer wegen Dublette nicht gesetzt: 1', $ausgabe);
 }
 
 public function test_backfill_setzt_keinen_zas_marker(): void

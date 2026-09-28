@@ -194,6 +194,12 @@ Er bleibt unveraendert und behaelt seine heutige Aufgabe. Er wird vom **Anker zu
 
 Alle Mitarbeiter bekommen eine Zeile, **auch inaktive** — sonst bekommt ein Rueckkehrer eine zweite Person. Datensaetze mit gleichem nicht-leerem `person_key` teilen sich eine. Weichen die Nummern zweier Anstellungen ab, gilt die Canvas-Regel *„der zuletzt geaenderte Wert gewinnt"*, und der Fall geht zusaetzlich auf die HR-Liste.
 
+**Und eine Regel, ohne die der Backfill auf prod stirbt:** `rec_persons` traegt einen Eindeutigkeits-Index auf `(team_id, phone)` — das ist die technische Fassung von *„eine Nummer darf nur an EINEM Konto haengen"*. Genau die Faelle, die §9.1 zaehlt (zwei VERSCHIEDENE Menschen an einer Nummer), wuerden damit beim Befuellen kollidieren.
+
+> Der Backfill schreibt eine Nummer **nie**, wenn sie in diesem Team bereits an einer anderen Personen-Zeile haengt. Die betroffene Person bekommt ihre Zeile trotzdem — die Klammer bleibt vollstaendig —, aber `phone` bleibt NULL, und der Fall wird gezaehlt und gemeldet.
+
+Der Index bleibt unangetastet; er ist die eigentliche Garantie. Wer ohne Nummer in der Personen-Zeile steht, kann sich spaeter nicht registrieren — und genau so ist es vorgesehen: Canvas-Eintrag 1782 gibt diese Faelle ohnehin an HR, nicht in den automatischen Einladungsversand.
+
 #### Was der Umbau nebenbei beseitigt
 
 `PersonScopeResolver` / `PersonProofScope` loesen heute zur LAUFZEIT auf, welche Anstellungen zu einem Menschen gehoeren — ueber `person_key` plus uebereinstimmende Handynummer. Das war der Ersatz fuer eine fehlende Personen-Zeile, und er ist nachweislich fragil: im Demo-Bestand (keine Telefonnummern, weil erfundene Nummern echten Menschen gehoeren koennten) paart er gar nicht, und zwei Anstellungen desselben Menschen sehen einander nicht.
