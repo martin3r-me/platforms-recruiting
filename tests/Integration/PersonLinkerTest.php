@@ -410,4 +410,114 @@ final class PersonLinkerTest extends TestCase
             'eine unlesbare Nummer darf den Lauf nicht toeten, aber auch keinen Muellwert speichern',
         );
     }
+
+    /**
+     * I1 (Schlusspruefung): loese() weist ausdruecklich an, danach
+     * setzeNummer() zu rufen. Wer der Anweisung folgt und dieselbe Nummer
+     * uebergibt, bekam bisher eine rohe UniqueConstraintViolationException
+     * aus dem Index. Jetzt benennt setzeNummer() den Fall — bewusst anders
+     * als verbinde(), das die Nummer stillschweigend weglaesst.
+     */
+    public function test_setze_nummer_benennt_die_schon_vergebene_nummer(): void
+    {
+        $gemeinsam = PersonLinker::verbinde([1, 2], self::TEAM, '+4915112345678');
+        $neuePerson = PersonLinker::loese(2);
+
+        try {
+            PersonLinker::setzeNummer($neuePerson, '+4915112345678');
+            $this->fail('setzeNummer() haette den Fall benennen muessen');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('gehoert im Team', $e->getMessage());
+            $this->assertStringContainsString((string) $gemeinsam, $e->getMessage(), 'die Meldung muss sagen, WEM die Nummer gehoert');
+        }
+
+        $this->assertNull(
+            DB::table('rec_persons')->where('id', $neuePerson)->value('phone'),
+            'ein abgewiesener Aufruf darf nichts halb geschrieben haben',
+        );
+    }
+
+    /**
+     * Die Pruefung muss auf der normalisierten Form arbeiten (Ruling T3-B) —
+     * sonst rutscht "015..." am Vergleich vorbei und stirbt danach am Index.
+     */
+    public function test_setze_nummer_erkennt_die_vergebene_nummer_auch_in_anderer_schreibweise(): void
+    {
+        PersonLinker::verbinde([1], self::TEAM, '+4915112345678');
+        $zweite = PersonLinker::verbinde([2], self::TEAM, null);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        PersonLinker::setzeNummer($zweite, '015112345678');
+    }
+
+    /**
+     * Gegenprobe zur Wache: die EIGENE Nummer noch einmal zu setzen ist kein
+     * Konflikt — sonst waere jede Wiederholung ein Fehler.
+     */
+    public function test_setze_nummer_darf_die_eigene_nummer_wiederholen(): void
+    {
+        $personId = PersonLinker::verbinde([1, 2], self::TEAM, '+4915112345678');
+
+        PersonLinker::setzeNummer($personId, '+4915112345678');
+
+        $this->assertSame('+4915112345678', DB::table('rec_persons')->where('id', $personId)->value('phone'));
+    }
+
+    /**
+     * I2 (Schlusspruefung): nach dem Loesen behauptete der person_key weiter
+     * "derselbe Mensch", waehrend rec_person_id "zwei Menschen" sagte. Der
+     * Fall war danach mit keinem Werkzeug mehr auffindbar (der Backfill
+     * sieht nur Gruppen mit ungebundenen Mitgliedern, das Audit ueberspringt
+     * Gruppen mit gemeinsamem Marker). Zwei Zustaende, die dasselbe
+     * behaupten sollen, duerfen nicht auseinanderlaufen.
+     */
+    public function test_loesen_raeumt_den_person_key_mit_ab(): void
+    {
+        DB::table('rec_employees')->whereIn('id', [1, 2])->update(['person_key' => 'gemeinsamer-marker']);
+        $gemeinsam = PersonLinker::verbinde([1, 2], self::TEAM, '+4915112345678');
+
+        $neuePerson = PersonLinker::loese(2);
+
+        $this->assertNull(
+            DB::table('rec_employees')->where('id', 2)->value('person_key'),
+            'der Marker der geloesten Anstellung muss mit abgeraeumt werden',
+        );
+        $this->assertSame(
+            'gemeinsamer-marker',
+            DB::table('rec_employees')->where('id', 1)->value('person_key'),
+            'die zurueckbleibende Anstellung behaelt ihren Marker',
+        );
+        $this->assertSame($gemeinsam, (int) DB::table('rec_employees')->where('id', 1)->value('rec_person_id'));
+        $this->assertSame($neuePerson, (int) DB::table('rec_employees')->where('id', 2)->value('rec_person_id'));
+    }
+
+    /**
+     * Das zusaetzliche Abraeumen des Markers laeuft im selben Update — es
+     * darf den Weg NICHT auf Eloquent umbiegen, sonst spuelt jedes Loesen
+     * den Menschen in die naechste ZAS-Update-Datei. Zweitbeleg ueber
+     * updated_at, weil ein Eloquent-save() es automatisch anfasst, ein
+     * DB::table()-Update nur auf Anweisung.
+     */
+    public function test_loesen_setzt_keinen_zas_marker(): void
+    {
+        DB::table('rec_employees')->whereIn('id', [1, 2])->update([
+            'person_key' => 'gemeinsamer-marker',
+            'zas_changed_at' => null,
+        ]);
+        PersonLinker::verbinde([1, 2], self::TEAM, '+4915112345678');
+
+        PersonLinker::loese(2);
+
+        $this->assertSame(
+            0,
+            (int) DB::table('rec_employees')->whereNotNull('zas_changed_at')->count(),
+            'ein HR-Rueckweg darf niemanden in die updates.csv spuelen',
+        );
+        $this->assertSame(
+            '2026-09-28 09:00:00',
+            (string) DB::table('rec_employees')->where('id', 2)->value('updated_at'),
+            'ein Eloquent-Schreibweg haette updated_at automatisch angefasst, der Query Builder nicht',
+        );
+    }
 }

@@ -132,6 +132,29 @@ class PersonLinker
      * ab jetzt noch die ALTE Nummer, waehrend ihre neue Person keine hat. Wer
      * loese() aufruft, muss anschliessend setzeNummer() fuer die neue Person
      * aufrufen, sonst driftet rec_employees.phone gegen rec_persons.phone.
+     * setzeNummer() weigert sich dabei ausdruecklich, wenn diese Nummer im
+     * Team schon einer anderen Personen-Zeile gehoert (siehe dort) — das ist
+     * gewollt: an einem geteilten Familienhandy MUSS ein Mensch entscheiden,
+     * wem die Nummer gehoert.
+     *
+     * I2 (Schlusspruefung): der person_key der geloesten Anstellung wird
+     * MITGELOESCHT. Sonst stuenden zwei Wahrheiten nebeneinander, die sich
+     * widersprechen — person_key sagt weiter "derselbe Mensch",
+     * rec_person_id sagt "zwei Menschen" —, und der Fall waere mit keinem
+     * Werkzeug mehr auffindbar: BackfillPersons liest nur Gruppen mit
+     * mindestens einem UNGEBUNDENEN Mitglied (hier sind beide gebunden), und
+     * PersonPairAuditPlanner ueberspringt Gruppen mit gemeinsamem,
+     * nicht-leerem person_key. Der Weg hierher ist kein Fehler, sondern der
+     * als Rueckweg vorgesehene HR-Vorgang — er darf keinen unsichtbaren
+     * Zustand hinterlassen.
+     *
+     * Folge, die HR kennen muss: die ZAS-Paarung (PersonPairLinker::
+     * pairIfExact) kann die beiden beim naechsten exakten Treffer — voller
+     * Name UND Geburtsdatum identisch — wieder zusammenfuehren. Das ist kein
+     * Fehler dieses Umbaus, sondern die Eigenschaft der Paarungsregel. Wer
+     * dauerhaft trennen will, muss an den DATEN etwas aendern, das die Regel
+     * unterscheidet (Name oder Geburtsdatum), sonst paart der naechste
+     * Import erneut.
      */
     public static function loese(int $employeeId): int
     {
@@ -143,7 +166,12 @@ class PersonLinker
         $teamId = $anstellung->team_id !== null ? (int) $anstellung->team_id : null;
         $neuePersonId = self::legeZeileAn($teamId, null);
 
-        DB::table('rec_employees')->where('id', $employeeId)->update(['rec_person_id' => $neuePersonId]);
+        // Beide Spalten in EINEM observer-freien Update: rec_person_id und
+        // person_key muessen dasselbe behaupten (siehe Docblock).
+        DB::table('rec_employees')->where('id', $employeeId)->update([
+            'rec_person_id' => $neuePersonId,
+            'person_key'    => null,
+        ]);
 
         return $neuePersonId;
     }
@@ -228,10 +256,49 @@ class PersonLinker
      * sperrt sich beim naechsten Einmalcode selbst aus (Spec §9.2, Vorfall
      * RG19734). In dieser Stufe hat setzeNummer() noch keinen Aufrufer; das
      * Nachziehen ist Aufgabe des ersten Aufrufers, nicht dieser Methode.
+     *
+     * I1 (Schlusspruefung): gehoert die Nummer im selben Team schon einer
+     * ANDEREN Personen-Zeile, wirft diese Methode eine
+     * InvalidArgumentException, die den Fall benennt — sie laeuft nicht in
+     * die rohe UniqueConstraintViolationException des Index. loese()
+     * verlangt ausdruecklich, danach setzeNummer() zu rufen; wer dieser
+     * Anweisung mit einer vergebenen Nummer folgt, muss lesen koennen, was
+     * los ist.
+     *
+     * BEWUSST ANDERS ALS verbinde(): dort wird eine schon vergebene Nummer
+     * stillschweigend WEGGELASSEN (Ruling T3-A), und das ist dort richtig —
+     * der Backfill laeuft ueber den ganzen Bestand und darf an einem
+     * geteilten Familienhandy nicht sterben; die Zeile entsteht ohne Nummer,
+     * der Fall geht gezaehlt an HR. Hier ist genau das falsch: es gibt
+     * keinen Bestandslauf, den man schuetzen muesste, sondern einen
+     * Aufrufer, der ausdruecklich DIESE Nummer fuer DIESE Person verlangt
+     * hat. Stillschweigend nichts zu tun waere schlimmer als ein klarer
+     * Fehler — die Person haette danach keine Nummer, der Einmalcode ginge
+     * nirgendwohin, und niemand wuesste warum. Wer den Unterschied
+     * vereinheitlicht, macht eine der beiden Stellen kaputt.
      */
     public static function setzeNummer(int $personId, ?string $phone): void
     {
         $phone = PhoneE164::normalize($phone);
+
+        $person = DB::table('rec_persons')->where('id', $personId)->first(['id', 'team_id']);
+        if ($person === null) {
+            throw new InvalidArgumentException("Person {$personId} existiert nicht.");
+        }
+
+        $teamId = $person->team_id !== null ? (int) $person->team_id : null;
+        $belegtVon = $phone !== null ? self::personMitNummer($teamId, $phone, $personId) : null;
+
+        if ($belegtVon !== null) {
+            throw new InvalidArgumentException(sprintf(
+                'Die Nummer %s gehoert im Team %s bereits Person %d — eine Nummer darf nur an EINEM Konto '
+                .'haengen (Canvas 68). Erst die andere Zeile klaeren (Nummer entfernen oder zusammenlegen), '
+                .'dann hier setzen.',
+                $phone,
+                $teamId !== null ? (string) $teamId : 'NULL',
+                $belegtVon,
+            ));
+        }
 
         DB::transaction(function () use ($personId, $phone) {
             DB::table('rec_persons')->where('id', $personId)->update([
@@ -268,6 +335,26 @@ class PersonLinker
 
     private static function nummerIstImTeamVergeben(?int $teamId, string $phone): bool
     {
-        return DB::table('rec_persons')->where('team_id', $teamId)->where('phone', $phone)->exists();
+        return self::personMitNummer($teamId, $phone) !== null;
+    }
+
+    /**
+     * Welche Personen-Zeile traegt diese Nummer im Team? Eine Stelle fuer
+     * beide Fragen (legeZeileAn: "ist sie vergeben?", setzeNummer: "und WEM
+     * gehoert sie?") — die Regel darf nicht zweimal existieren.
+     *
+     * Der Vergleich bildet den Eindeutigkeits-Index nach: bei einem
+     * NULL-Team trifft team_id = NULL in SQL nichts, genau wie der Index bei
+     * NULL nicht eindeutig ist (bekannte Grenze, steht in der Migration).
+     */
+    private static function personMitNummer(?int $teamId, string $phone, ?int $ausser = null): ?int
+    {
+        $id = DB::table('rec_persons')
+            ->where('team_id', $teamId)
+            ->where('phone', $phone)
+            ->when($ausser !== null, fn ($q) => $q->where('id', '!=', $ausser))
+            ->value('id');
+
+        return $id !== null ? (int) $id : null;
     }
 }
