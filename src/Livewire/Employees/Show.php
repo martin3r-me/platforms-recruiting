@@ -94,6 +94,108 @@ class Show extends Component
     /** Dispo-Taetigkeiten (aus ZAS, Kunde 15.09.) — nur Anzeige, gepflegt wird in ZAS. */
     public bool $showTaetigkeitenModal = false;
 
+    /**
+     * Reiter der Akte (Kunde 26.09.): 'stammdaten' | 'dispo'. In der URL, damit
+     * Browser-Zurueck und geteilte Links den Reiter behalten. Die Einsaetze als
+     * eigene Ansicht, weil die Akte sonst endlos lang wird.
+     */
+    #[\Livewire\Attributes\Url]
+    public string $tab = 'stammdaten';
+
+    public function setTab(string $tab): void
+    {
+        $this->tab = in_array($tab, ['stammdaten', 'dispo'], true) ? $tab : 'stammdaten';
+    }
+
+    /**
+     * Disponierte Einsaetze dieser Person (Kunde 26.09.) — kommende zuerst,
+     * Vergangene begrenzt.
+     *
+     * Ueber die GANZE Person, nicht nur ueber diesen Datensatz: wer als RG- und
+     * MA-Nummer gefuehrt wird, ist ueber die eine oder die andere disponiert
+     * (Fall Woettki 26.09.). Quellen: die Dispo-Identitaetsgruppe (CRM-Kontakt,
+     * wie auf der VA-Seite) UND der person_key-Marker.
+     *
+     * @return array{upcoming: list<array<string,mixed>>, past: list<array<string,mixed>>, past_total: int, total: int}
+     */
+    #[Computed]
+    public function dispoAssignments(): array
+    {
+        $employee = $this->employee;
+        if ($employee === null) {
+            return ['upcoming' => [], 'past' => [], 'past_total' => 0, 'total' => 0];
+        }
+
+        $ids = $this->personRecordIds((int) $employee->id, $employee->person_key);
+
+        $rows = \Platform\Recruiting\Models\RecDispoAssignment::query()
+            ->with('event:id,einsatz_ref,name,filiale,filial_nr')
+            ->whereIn('rec_employee_id', $ids)
+            ->orderBy('datum')
+            ->orderBy('von')
+            ->get();
+
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeAssignments::split($rows, now()->toDateString());
+    }
+
+    /**
+     * Nur die Zahl fuer den Reiter — die volle Liste wird erst geladen, wenn
+     * der Reiter offen ist.
+     */
+    #[Computed]
+    public function dispoAssignmentCount(): int
+    {
+        $employee = $this->employee;
+        if ($employee === null) {
+            return 0;
+        }
+
+        return \Platform\Recruiting\Models\RecDispoAssignment::query()
+            ->whereIn('rec_employee_id', $this->personRecordIds((int) $employee->id, $employee->person_key))
+            ->count();
+    }
+
+    /**
+     * Alle Datensaetze DERSELBEN Person (RG + MA). Faellt auf den eigenen
+     * Datensatz zurueck, wenn weder Gruppe noch Marker etwas hergeben.
+     *
+     * @return list<int>
+     */
+    /** @var array<string, list<int>> Cache je Anfrage (Reiter-Zahl + Liste fragen dasselbe). */
+    private array $personRecordIdsCache = [];
+
+    private function personRecordIds(int $employeeId, ?string $personKey): array
+    {
+        $cacheKey = $employeeId . '|' . ($personKey ?? '');
+        if (isset($this->personRecordIdsCache[$cacheKey])) {
+            return $this->personRecordIdsCache[$cacheKey];
+        }
+
+        $ids = [$employeeId];
+
+        try {
+            $groups = app(\Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver::class)->groupsFor([$employeeId]);
+            foreach ($groups as $group) {
+                foreach ($group as $id) {
+                    $ids[] = (int) $id;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Eine Stoerung der CRM-Aufloesung darf die Akte nicht abschiessen.
+            \Illuminate\Support\Facades\Log::warning('employee_dispo_identity_failed', [
+                'employee_id' => $employeeId, 'error' => $e->getMessage(),
+            ]);
+        }
+
+        if ($personKey !== null && $personKey !== '') {
+            foreach (RecEmployee::query()->where('person_key', $personKey)->pluck('id') as $id) {
+                $ids[] = (int) $id;
+            }
+        }
+
+        return $this->personRecordIdsCache[$cacheKey] = array_values(array_unique($ids));
+    }
+
     /** @return array{values: list<string>, synced_at: ?string} */
     #[Computed]
     public function dispoTaetigkeiten(): array

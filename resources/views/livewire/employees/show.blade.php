@@ -40,6 +40,21 @@
                     @endforeach
                 </div>
             @endif
+            {{-- Reiter (Kunde 26.09.): die Einsaetze als eigene Ansicht, sonst wird
+                 die Akte endlos lang. Der Reiter steht in der URL. --}}
+            <div class="mb-4 flex items-center gap-1 border-b border-gray-200">
+                <button type="button" wire:click="setTab('stammdaten')"
+                        class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{ $this->tab === 'stammdaten' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700' }}">Stammdaten</button>
+                <button type="button" wire:click="setTab('dispo')"
+                        class="-mb-px border-b-2 px-3 py-2 text-sm font-medium {{ $this->tab === 'dispo' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
+                    Dispo-Einsätze
+                    @if ($this->dispoAssignmentCount > 0)
+                        <span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-600 tabular-nums">{{ $this->dispoAssignmentCount }}</span>
+                    @endif
+                </button>
+            </div>
+
+            @if ($this->tab === 'stammdaten')
             @php $taet = $this->dispoTaetigkeiten; @endphp
             @if ($taet['values'] !== [])
                 <div class="mb-3 rounded-lg border border-gray-200 bg-white p-3">
@@ -592,6 +607,46 @@
                     <span wire:loading wire:target="saveAll">Speichere...</span>
                 </button>
             </div>
+            @endif
+
+            @if ($this->tab === 'dispo')
+                @php $dispo = $this->dispoAssignments; @endphp
+                <div class="space-y-4">
+                    <div class="text-sm text-gray-500">
+                        Einbuchungen aus ZAS — nur Anzeige. Bestätigen, absagen und anschreiben passiert in der Veranstaltung.
+                    </div>
+
+                    <div>
+                        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)]">
+                            Kommende Einsätze @if ($dispo['upcoming'] !== []) <span class="text-gray-400">({{ count($dispo['upcoming']) }})</span> @endif
+                        </h3>
+                        @if ($dispo['upcoming'] === [])
+                            <div class="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500">Aktuell keine Einbuchung.</div>
+                        @else
+                            <div class="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+                                @foreach ($dispo['upcoming'] as $row)
+                                    @include('recruiting::livewire.employees._dispo-row', ['row' => $row])
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+
+                    @if ($dispo['past'] !== [])
+                        <div x-data="{ open: false }">
+                            <button type="button" x-on:click="open = !open"
+                                    class="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700 hover:underline">
+                                <span x-text="open ? '▾ Vergangene Einsätze verbergen' : '▸ Vergangene Einsätze zeigen'">▸ Vergangene Einsätze zeigen</span>
+                                <span class="font-normal normal-case text-gray-400">({{ $dispo['past_total'] }}{{ $dispo['past_total'] > count($dispo['past']) ? ', jüngste ' . count($dispo['past']) : '' }})</span>
+                            </button>
+                            <div x-show="open" x-cloak class="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+                                @foreach ($dispo['past'] as $row)
+                                    @include('recruiting::livewire.employees._dispo-row', ['row' => $row])
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                </div>
+            @endif
         @endif
     </x-ui-page-container>
 
