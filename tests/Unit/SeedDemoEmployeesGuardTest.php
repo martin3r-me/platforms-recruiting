@@ -163,43 +163,63 @@ class SeedDemoEmployeesGuardTest extends TestCase
     // mehrzeilige Aufrufe erkennbar. token_get_all() ist reines PHP (keine
     // Ausfuehrung des Kommandos, kein Framework, keine Datenbank) und bleibt
     // damit im Rahmen von "tests/Unit bleibt pur".
+    //
+    // FIXRUNDE 3 (C1/C2, Pruefer-Befund): der phone-Waechter aus Fixrunde 2
+    // verglich nur das EINE Token direkt nach '=>' mit 'null' -- 'null ??
+    // <Nummer>' beginnt mit dem Token 'null' und rutschte deshalb durch,
+    // obwohl die Nummer zur Laufzeit gewinnt. Der verbinde()-Waechter
+    // daneben konnte das laengst richtig (argumente() sammelt ALLE Tokens
+    // bis zur Grenze ein) -- derselbe Datei-Commit hatte also zwei
+    // verschiedene Antworten auf dieselbe Frage. schluesselWertPaare()
+    // unten zieht diese Faehigkeit jetzt in eine gemeinsame Stelle: der
+    // GANZE Ausdruck nach '=>' zaehlt, nicht das erste Token. Zugleich wird
+    // jeder Array-Schluessel, der nicht aus GENAU EINEM String-Literal
+    // besteht (etwa eine Verkettung wie ('ph' . 'one')), nicht mehr still
+    // uebersprungen, sondern faellt selbst als eigener Verdachtsfall auf --
+    // im Seeder gibt es keinen legitimen Grund fuer einen zusammengesetzten
+    // Schluessel, und ein Waechter, der bei Unbekanntem schweigt statt zu
+    // melden, ist keiner.
     // -----------------------------------------------------------------
 
     public function test_im_quelltext_wird_phone_nirgends_auf_etwas_anderes_als_null_gesetzt(): void
     {
-        $tokens = $this->bedeutsameTokens();
-        $treffer = [];
+        $paare = $this->schluesselWertPaare();
+        $this->assertNotEmpty($paare, 'kein Array-Schluessel-Wert-Paar im Quelltext gefunden -- Tokenizer kaputt?');
 
-        foreach ($tokens as $i => $token) {
-            if (!is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING) {
-                continue;
+        $phoneGefunden = false;
+
+        foreach ($paare as $paar) {
+            // C2: ein Schluessel aus mehr als einem Token oder aus etwas
+            // anderem als einem String-Literal (Verkettung, Variable,
+            // Funktionsaufruf, ...) ist selbst der Verdachtsfall -- nicht
+            // stillschweigend uebersprungen, sondern ein eigener Fehlschlag.
+            if (count($paar['schluessel']) !== 1 || !$this->istStringLiteral($paar['schluessel'][0])) {
+                $this->fail(
+                    'zusammengesetzter oder unbekannter Array-Schluessel im Quelltext gefunden ('
+                    . $this->tokentextZusammen($paar['schluessel'])
+                    . ') -- im Seeder gibt es dafuer keinen legitimen Grund, das koennte eine versteckte Telefonnummer sein',
+                );
             }
 
-            // Anfuehrungszeichen mit abschneiden statt zwei Varianten im
-            // Vergleich zu pflegen -- 'phone' und "phone" sind fuer PHP
-            // bedeutungsgleich und kommen hier gleichermassen als
-            // T_CONSTANT_ENCAPSED_STRING an, Anfuehrungszeichen noch drin.
-            if (substr($token[1], 1, -1) !== 'phone') {
-                continue;
+            if ($this->stringLiteralWert($paar['schluessel'][0]) !== 'phone') {
+                continue; // ein anderer Schluessel, hier nicht von Interesse
             }
 
-            if (!$this->tokenIst($tokens[$i + 1] ?? null, T_DOUBLE_ARROW)) {
-                continue; // kein Array-Schluessel, z.B. ein anderer Fund von "phone"
-            }
+            $phoneGefunden = true;
 
-            $wertToken = $tokens[$i + 2] ?? null;
-            $treffer[] = is_array($wertToken) ? $wertToken[1] : (string) $wertToken;
-        }
+            // C1: der GANZE Ausdruck nach '=>' zaehlt, nicht nur das erste
+            // Token -- 'null ?? <Nummer>' beginnt mit 'null', ist zur
+            // Laufzeit aber die Nummer.
+            $wertText = $this->tokentextZusammen($paar['wert']);
 
-        $this->assertNotEmpty($treffer, 'keine phone-Zuweisung im Quelltext gefunden -- Tokenizer kaputt?');
-
-        foreach ($treffer as $wert) {
             $this->assertSame(
                 'null',
-                $wert,
-                "im Quelltext wird 'phone' auf {$wert} gesetzt statt auf null -- das waere eine erfundene Telefonnummer",
+                $wertText,
+                "im Quelltext wird 'phone' auf {$wertText} gesetzt statt auf null -- das waere eine erfundene Telefonnummer",
             );
         }
+
+        $this->assertTrue($phoneGefunden, 'keine phone-Zuweisung im Quelltext gefunden -- Tokenizer kaputt?');
     }
 
     public function test_person_linker_wird_im_quelltext_nie_mit_einer_nummer_aufgerufen(): void
@@ -294,6 +314,87 @@ class SeedDemoEmployeesGuardTest extends TestCase
     private function tokenIst($token, int $id): bool
     {
         return is_array($token) && $token[0] === $id;
+    }
+
+    /**
+     * Liest jedes Schluessel-Wert-Paar ('=>') im Quelltext aus -- ueber
+     * einen echten Klammer-Stapel (ein Frame je offener Klammer, mit
+     * eigenem Segment-Anfang und eigener '=>'-Position), nicht ueber
+     * Zeichen-Ausschluesse. Ein Frame ohne '=>' (z.B. ein normaler
+     * Funktionsaufruf oder ein Listen-Eintrag ohne Schluessel) liefert
+     * kein Paar -- nur echte 'schluessel => wert'-Konstrukte zaehlen,
+     * verschachtelt oder nicht, ein- oder mehrzeilig.
+     *
+     * @return list<array{schluessel: list<array{0:int,1:string,2:int}|string>, wert: list<array{0:int,1:string,2:int}|string>}>
+     */
+    private function schluesselWertPaare(): array
+    {
+        $tokens = $this->bedeutsameTokens();
+        $paare = [];
+        $stapel = []; // je offener Klammer: ['start' => int, 'pfeil' => int|null]
+
+        for ($i = 0; $i < count($tokens); $i++) {
+            $token = $tokens[$i];
+            $text = is_array($token) ? $token[1] : $token;
+
+            if ($text === '[' || $text === '(' || $text === '{') {
+                $stapel[] = ['start' => $i + 1, 'pfeil' => null];
+                continue;
+            }
+
+            if ($text === ']' || $text === ')' || $text === '}') {
+                $frame = array_pop($stapel);
+                if ($frame !== null && $frame['pfeil'] !== null) {
+                    $paare[] = [
+                        'schluessel' => array_slice($tokens, $frame['start'], $frame['pfeil'] - $frame['start']),
+                        'wert'       => array_slice($tokens, $frame['pfeil'] + 1, $i - $frame['pfeil'] - 1),
+                    ];
+                }
+                continue;
+            }
+
+            if ($stapel === []) {
+                continue; // ausserhalb jeder Klammer, fuer Schluessel-Wert-Paare nicht von Interesse
+            }
+
+            $oben = count($stapel) - 1;
+
+            if ($text === ',') {
+                if ($stapel[$oben]['pfeil'] !== null) {
+                    $paare[] = [
+                        'schluessel' => array_slice($tokens, $stapel[$oben]['start'], $stapel[$oben]['pfeil'] - $stapel[$oben]['start']),
+                        'wert'       => array_slice($tokens, $stapel[$oben]['pfeil'] + 1, $i - $stapel[$oben]['pfeil'] - 1),
+                    ];
+                }
+                $stapel[$oben]['start'] = $i + 1;
+                $stapel[$oben]['pfeil'] = null;
+                continue;
+            }
+
+            if ($stapel[$oben]['pfeil'] === null && $this->tokenIst($token, T_DOUBLE_ARROW)) {
+                $stapel[$oben]['pfeil'] = $i;
+            }
+        }
+
+        return $paare;
+    }
+
+    /** @param array{0:int,1:string,2:int}|string|null $token */
+    private function istStringLiteral($token): bool
+    {
+        return is_array($token) && $token[0] === T_CONSTANT_ENCAPSED_STRING;
+    }
+
+    /** Anfuehrungszeichen mit abschneiden -- 'phone' und "phone" sind fuer PHP bedeutungsgleich. */
+    private function stringLiteralWert(array $token): string
+    {
+        return substr($token[1], 1, -1);
+    }
+
+    /** @param list<array{0:int,1:string,2:int}|string> $tokens */
+    private function tokentextZusammen(array $tokens): string
+    {
+        return implode(' ', array_map(fn ($t) => is_array($t) ? $t[1] : $t, $tokens));
     }
 
     /**
