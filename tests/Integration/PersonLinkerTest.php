@@ -1,0 +1,206 @@
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Illuminate\Container\Container;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Events\Dispatcher;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Services\PersonLinker;
+
+/**
+ * PersonLinker ist der einzige Schreiber von rec_employees.rec_person_id.
+ * Diese Tests beweisen vor allem die zwei Stellen, an denen ein stiller
+ * Fehler NICHT auffallen wuerde, wenn man ihn nie hat scheitern sehen:
+ * keinen ZAS-Marker setzen, und die Nummer auf alle Anstellungen ziehen.
+ */
+final class PersonLinkerTest extends TestCase
+{
+    private const TEAM = 3;
+
+    private Capsule $capsule;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $container = Container::getInstance();
+        Container::setInstance($container);
+
+        $this->capsule = new Capsule($container);
+        $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $this->capsule->setEventDispatcher(new Dispatcher($container));
+        $this->capsule->setAsGlobal();
+        $this->capsule->bootEloquent();
+        Model::clearBootedModels();
+
+        $container->instance('db', $this->capsule->getDatabaseManager());
+        $container->instance('db.schema', $this->capsule->getConnection()->getSchemaBuilder());
+        Facade::setFacadeApplication($container);
+        Facade::clearResolvedInstances();
+
+        $this->capsule->schema()->create('rec_persons', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64)->unique();
+            $t->integer('team_id')->nullable();
+            $t->string('phone', 32)->nullable();
+            $t->string('password_hash')->nullable();
+            $t->string('email')->nullable();
+            $t->timestamp('invited_at')->nullable();
+            $t->timestamp('registered_at')->nullable();
+            $t->timestamp('locked_at')->nullable();
+            $t->integer('merged_into_person_id')->nullable();
+            $t->timestamps();
+
+            // Derselbe Eindeutigkeits-Index wie in der echten Migration —
+            // Ruling T3-A haengt genau an dieser Kollision.
+            $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');
+        });
+
+        $this->capsule->schema()->create('rec_employees', function ($t) {
+            $t->increments('id');
+            $t->integer('team_id')->nullable();
+            $t->string('first_name')->nullable();
+            $t->string('last_name')->nullable();
+            $t->string('person_key', 64)->nullable();
+            $t->integer('rec_person_id')->nullable();
+            $t->string('company')->nullable();
+            $t->string('phone')->nullable();
+            $t->boolean('is_active')->nullable();
+            $t->timestamp('zas_changed_at')->nullable();
+            $t->timestamps();
+        });
+
+        // Die Testfaelle setzen zwei bestehende Anstellungen voraus.
+        DB::table('rec_employees')->insert([
+            ['id' => 1, 'team_id' => self::TEAM, 'first_name' => 'Gregor', 'last_name' => 'Erste',
+             'company' => 'RG', 'is_active' => 1, 'zas_changed_at' => '2026-09-28 09:00:00',
+             'created_at' => '2026-09-28 09:00:00', 'updated_at' => '2026-09-28 09:00:00'],
+            ['id' => 2, 'team_id' => self::TEAM, 'first_name' => 'Gregor', 'last_name' => 'Zweite',
+             'company' => 'MA', 'is_active' => 1, 'zas_changed_at' => '2026-09-28 09:00:00',
+             'created_at' => '2026-09-28 09:00:00', 'updated_at' => '2026-09-28 09:00:00'],
+        ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Model::unsetConnectionResolver();
+        Model::clearBootedModels();
+        Facade::clearResolvedInstances();
+        parent::tearDown();
+    }
+
+    public function test_verbinden_legt_eine_zeile_an_und_haengt_beide_an(): void
+    {
+        $personId = PersonLinker::verbinde([1, 2], self::TEAM, '+4915112345678');
+
+        $this->assertSame(1, (int) DB::table('rec_persons')->count());
+        $this->assertSame(
+            [$personId, $personId],
+            DB::table('rec_employees')->orderBy('id')->pluck('rec_person_id')->map(fn ($v) => (int) $v)->all(),
+        );
+    }
+
+    public function test_verbinden_benutzt_eine_vorhandene_zeile_statt_einer_zweiten(): void
+    {
+        $erst = PersonLinker::verbinde([1], self::TEAM, '+4915112345678');
+        $zweit = PersonLinker::verbinde([1, 2], self::TEAM, '+4915112345678');
+
+        $this->assertSame($erst, $zweit);
+        $this->assertSame(1, (int) DB::table('rec_persons')->count());
+    }
+
+    public function test_verbinden_weigert_sich_bei_zwei_verschiedenen_personen(): void
+    {
+        $a = PersonLinker::verbinde([1], self::TEAM, null);
+        $b = PersonLinker::verbinde([2], self::TEAM, null);
+        $this->assertNotSame($a, $b);
+
+        $this->expectException(\InvalidArgumentException::class);
+        PersonLinker::verbinde([1, 2], self::TEAM, null);
+    }
+
+    public function test_verbinden_setzt_keinen_zas_marker(): void
+    {
+        DB::table('rec_employees')->where('id', 1)->update(['zas_changed_at' => null]);
+
+        PersonLinker::verbinde([1], self::TEAM, '+4915112345678');
+
+        $this->assertNull(
+            DB::table('rec_employees')->where('id', 1)->value('zas_changed_at'),
+            'die Zuordnung darf niemanden in die updates.csv spuelen',
+        );
+    }
+
+    public function test_zusammenfuehren_legt_still_statt_zu_loeschen(): void
+    {
+        $sieger = PersonLinker::verbinde([1], self::TEAM, '+4915111111111');
+        $verlierer = PersonLinker::verbinde([2], self::TEAM, '+4915122222222');
+        DB::table('rec_persons')->where('id', $verlierer)
+            ->update(['password_hash' => 'geheim', 'registered_at' => '2026-09-01 10:00:00']);
+
+        PersonLinker::fuehreZusammen($sieger, $verlierer);
+
+        $zeile = DB::table('rec_persons')->where('id', $verlierer)->first();
+        $this->assertSame($sieger, (int) $zeile->merged_into_person_id);
+        $this->assertNull($zeile->password_hash, 'die Anmeldung der Verlierer-Zeile muss weg sein');
+        $this->assertNull($zeile->registered_at);
+        $this->assertSame('+4915122222222', $zeile->phone, 'die Nummer bleibt gesperrt (Canvas 1793)');
+
+        $this->assertSame(
+            [$sieger, $sieger],
+            DB::table('rec_employees')->orderBy('id')->pluck('rec_person_id')->map(fn ($v) => (int) $v)->all(),
+        );
+    }
+
+    public function test_loesen_gibt_der_anstellung_eine_neue_person(): void
+    {
+        $gemeinsam = PersonLinker::verbinde([1, 2], self::TEAM, '+4915112345678');
+
+        $neu = PersonLinker::loese(2);
+
+        $this->assertNotSame($gemeinsam, $neu);
+        $this->assertSame($gemeinsam, (int) DB::table('rec_employees')->where('id', 1)->value('rec_person_id'));
+        $this->assertSame($neu, (int) DB::table('rec_employees')->where('id', 2)->value('rec_person_id'));
+    }
+
+    public function test_nummer_wandert_auf_alle_anstellungen(): void
+    {
+        $personId = PersonLinker::verbinde([1, 2], self::TEAM, '+4915111111111');
+
+        PersonLinker::setzeNummer($personId, '+4915199999999');
+
+        $this->assertSame('+4915199999999', DB::table('rec_persons')->where('id', $personId)->value('phone'));
+        $this->assertSame(
+            ['+4915199999999', '+4915199999999'],
+            DB::table('rec_employees')->orderBy('id')->pluck('phone')->all(),
+            'sonst kommt der Einmalcode auf einer anderen Nummer an als die Anmeldung',
+        );
+    }
+
+    /**
+     * Ruling T3-A: der Eindeutigkeits-Index laesst pro Team nur eine Person
+     * mit einer bestimmten Nummer zu. Im Bestand teilen sich aber zwei
+     * verschiedene Menschen manchmal ein Handy — verbinde() darf dann nicht
+     * sterben, sondern muss die Zeile ohne Nummer anlegen.
+     */
+    public function test_geteilte_nummer_erzeugt_zweite_zeile_ohne_nummer(): void
+    {
+        $erste = PersonLinker::verbinde([1], self::TEAM, '+4915112345678');
+
+        $zweite = PersonLinker::verbinde([2], self::TEAM, '+4915112345678');
+
+        $this->assertNotSame($erste, $zweite, 'zwei verschiedene Menschen bekommen zwei Personen-Zeilen');
+        $this->assertSame(
+            '+4915112345678',
+            DB::table('rec_persons')->where('id', $erste)->value('phone'),
+            'die zuerst angelegte Zeile behaelt die Nummer',
+        );
+        $this->assertNull(
+            DB::table('rec_persons')->where('id', $zweite)->value('phone'),
+            'ein geteiltes Handy darf den Lauf nicht toeten, aber auch keine zweite Zeile mit derselben Nummer erzeugen',
+        );
+    }
+}
