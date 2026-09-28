@@ -22,6 +22,16 @@ use Platform\Recruiting\Support\PersonPairAuditPlanner;
  * Sortiert nach Dringlichkeit: Dispo-Einsaetze auf UNVERLINKTEN Datensaetzen
  * zuerst (die verfaelschen den Schulung→Einsatz-Abgleich der Statistik).
  *
+ * I6 (Schlusspruefung): PersonPairLinker::stamp() konnte frueher praktisch
+ * nicht werfen; seit es zusaetzlich die Personen-Zeile schreibt (Aufgabe 6),
+ * kann es das aus mehreren Gruenden. Ein Wurf bei Paar 7 von 40 hinterliess
+ * sechs geschriebene Paare und KEINERLEI Ausgabe darueber, welche — die
+ * Tabelle wird erst nach der Schleife gedruckt. Deshalb wird je Paar
+ * gefangen: der Lauf geht weiter, das gescheiterte Paar steht mit Kennung
+ * und Grund in der Tabelle und noch einmal am Ende, und der Rueckgabewert
+ * meldet, dass etwas schiefging. stamp() ist selbst transaktional, ein
+ * gescheitertes Paar hinterlaesst also keinen halben Zustand.
+ *
  * Aufruf:
  *   php artisan recruiting:person-pair-audit                  (nur Bericht)
  *   php artisan recruiting:person-pair-audit --apply          (SICHER stempeln)
@@ -80,13 +90,24 @@ class PersonPairAudit extends Command
             $apply ? '' : ' (Bericht — stempeln mit --apply)',
         ));
 
+        $gescheitert = [];
+
         if ($plan['sicher'] !== []) {
             $rows = [];
             foreach ($plan['sicher'] as $paar) {
                 $ergebnis = 'sicher';
                 if ($apply) {
-                    PersonPairLinker::stamp($paar['ids'], $paar['applicant_id']);
-                    $ergebnis = 'gestempelt' . ($paar['applicant_id'] !== null ? ' + Bewerbung vererbt' : '');
+                    try {
+                        PersonPairLinker::stamp($paar['ids'], $paar['applicant_id']);
+                        $ergebnis = 'gestempelt' . ($paar['applicant_id'] !== null ? ' + Bewerbung vererbt' : '');
+                    } catch (\Throwable $e) {
+                        // Weiterlaufen statt abbrechen (I6): ein einzelner
+                        // Konflikt darf die restlichen 30 Paare nicht um
+                        // ihre Ausgabe bringen.
+                        $kennung = implode(' + ', $paar['ids']);
+                        $gescheitert[] = $kennung . ': ' . $e->getMessage();
+                        $ergebnis = 'GESCHEITERT: ' . $e->getMessage();
+                    }
                 }
                 $rows[] = [
                     implode(' + ', $paar['ids']),
@@ -117,6 +138,15 @@ class PersonPairAudit extends Command
             $this->table(['MA-IDs', 'Name', 'Geburtsdatum', 'Nummern', 'Einsaetze unverlinkt', 'Hand-Befehl'], $rows);
         }
 
+        if ($gescheitert !== []) {
+            $this->error(count($gescheitert) . ' Paar(e) konnten nicht gestempelt werden:');
+            foreach ($gescheitert as $zeile) {
+                $this->error('  ' . $zeile);
+            }
+
+            return self::FAILURE;
+        }
+
         return self::SUCCESS;
     }
 
@@ -143,7 +173,15 @@ class PersonPairAudit extends Command
                 $fehler++;
                 continue;
             }
-            $key = PersonPairLinker::stamp($ids, $applicants->first() !== null ? (int) $applicants->first() : null);
+            try {
+                $key = PersonPairLinker::stamp($ids, $applicants->first() !== null ? (int) $applicants->first() : null);
+            } catch (\Throwable $e) {
+                // Wie oben (I6): die restlichen von Hand bestaetigten Paare
+                // sollen trotzdem drankommen.
+                $this->error("Paar {$paar}: nicht gestempelt — " . $e->getMessage());
+                $fehler++;
+                continue;
+            }
             $this->info("Paar {$paar} gestempelt (person_key {$key}).");
         }
 

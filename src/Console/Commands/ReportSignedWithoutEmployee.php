@@ -582,7 +582,22 @@ class ReportSignedWithoutEmployee extends Command
                     ->where('rec_applicant_id', $applicantId)
                     ->pluck('id')->map(fn ($i) => (int) $i)->all();
                 if (count($anstellungen) > 1) {
-                    \Platform\Recruiting\Services\Zas\PersonPairLinker::stamp($anstellungen, null);
+                    // I6 (Schlusspruefung): stamp() schreibt seit Aufgabe 6
+                    // zusaetzlich die Personen-Zeile und kann deshalb
+                    // werfen. Ungefangen riss der Wurf den ganzen Lauf ab —
+                    // samt der Tabelle, die erst am Ende gedruckt wird, und
+                    // damit samt der Auskunft, welche Bewerber schon
+                    // verknuepft wurden. Die Verknuepfung oben steht
+                    // bereits (eigenes Update, ausserhalb von stamp()); nur
+                    // der Personen-Stempel fehlt, und genau das kommt in
+                    // die Zeile.
+                    try {
+                        \Platform\Recruiting\Services\Zas\PersonPairLinker::stamp($anstellungen, null);
+                    } catch (\Throwable $e) {
+                        $rows[] = [$applicantId, $key, $employee->id, 'verknuepft, aber NICHT als Person gestempelt: ' . $e->getMessage()];
+                        $errors++;
+                        continue;
+                    }
                     $rows[] = [$applicantId, $key, $employee->id, 'verknuepft + als Person gestempelt (' . count($anstellungen) . ' Anstellungen)'];
                     continue;
                 }
