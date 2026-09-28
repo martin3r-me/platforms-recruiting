@@ -41,7 +41,9 @@ final class RecPersonTest extends TestCase
 
         $this->capsule->schema()->create('rec_persons', function ($t) {
             $t->increments('id');
-            $t->string('uuid', 64)->nullable();
+            // NOT NULL + unique wie in der echten Migration (Zeile 37) — sonst
+            // prueft der Test eine schwaechere Garantie als die Produktion.
+            $t->string('uuid', 64)->unique();
             $t->integer('team_id')->nullable();
             $t->string('phone', 32)->nullable();
             $t->string('password_hash')->nullable();
@@ -51,6 +53,11 @@ final class RecPersonTest extends TestCase
             $t->timestamp('locked_at')->nullable();
             $t->integer('merged_into_person_id')->nullable();
             $t->timestamps();
+
+            // Eine Nummer haengt nur an einem Konto (Canvas 68, Eintrag 1740).
+            // NULL zaehlt in SQLite (wie in der echten Migration/MySQL) nicht
+            // als Kollision — mehrere Personen ohne Nummer sind erlaubt.
+            $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');
         });
 
         $this->capsule->schema()->create('rec_employees', function ($t) {
@@ -111,5 +118,51 @@ final class RecPersonTest extends TestCase
 
         $this->assertFalse(RecPerson::query()->find($sieger)->istStillgelegt());
         $this->assertTrue(RecPerson::query()->find($verlierer)->istStillgelegt());
+    }
+
+    /**
+     * phone ist der spaetere Benutzername (Stufe 2) — deshalb muss die
+     * Datenbank selbst verhindern, dass zwei Personen im selben Team
+     * dieselbe Nummer tragen, nicht nur die Anwendung.
+     */
+    public function test_dieselbe_nummer_im_team_wird_abgewiesen(): void
+    {
+        DB::table('rec_persons')->insert([
+            'uuid' => 'p-nummer-1', 'team_id' => self::TEAM, 'phone' => '+4915112345678',
+            'created_at' => '2026-09-28 10:00:00', 'updated_at' => '2026-09-28 10:00:00',
+        ]);
+
+        // Laravel wirft bei diesem Fehler die spezifischere Unterklasse von
+        // QueryException, keine generische — festgenagelt statt geraten.
+        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+        $this->expectExceptionMessageMatches('/UNIQUE constraint failed: rec_persons\.team_id, rec_persons\.phone/');
+
+        DB::table('rec_persons')->insert([
+            'uuid' => 'p-nummer-2', 'team_id' => self::TEAM, 'phone' => '+4915112345678',
+            'created_at' => '2026-09-28 10:00:00', 'updated_at' => '2026-09-28 10:00:00',
+        ]);
+    }
+
+    /**
+     * Die Migration behauptet: NULL ist erlaubt und mehrfach moeglich, wer
+     * keine Nummer hat bekommt trotzdem eine Zeile, nur kein Konto. Das ist
+     * heute unbewiesen — hier wird es belegt.
+     */
+    public function test_mehrere_personen_ohne_nummer_sind_erlaubt(): void
+    {
+        DB::table('rec_persons')->insert([
+            'uuid' => 'p-ohne-nummer-1', 'team_id' => self::TEAM, 'phone' => null,
+            'created_at' => '2026-09-28 10:00:00', 'updated_at' => '2026-09-28 10:00:00',
+        ]);
+        DB::table('rec_persons')->insert([
+            'uuid' => 'p-ohne-nummer-2', 'team_id' => self::TEAM, 'phone' => null,
+            'created_at' => '2026-09-28 10:00:00', 'updated_at' => '2026-09-28 10:00:00',
+        ]);
+
+        $this->assertSame(
+            2,
+            DB::table('rec_persons')->where('team_id', self::TEAM)->whereNull('phone')->count(),
+            'zwei Personen ohne Nummer im selben Team muessen beide anlegbar sein',
+        );
     }
 }
