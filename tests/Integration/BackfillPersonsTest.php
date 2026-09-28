@@ -191,14 +191,22 @@ final class BackfillPersonsTest extends TestCase
         DB::table('rec_employees')->insert([
             ['id' => 1, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
             ['id' => 2, 'team_id' => self::TEAM, 'person_key' => 'p-1', 'phone' => '+4915122222222', 'is_active' => 1, 'updated_at' => '2026-06-01 00:00:00'],
+            // Zweite Gruppe, EINIGE Nummer (M4, Fixrunde 1): ohne sie waeren
+            // "jede Gruppe zaehlt" und "nur uneinige Gruppen zaehlen" nicht
+            // zu unterscheiden -- der urspruengliche Test hatte im ganzen
+            // Lauf nur eine einzige Gruppe.
+            ['id' => 3, 'team_id' => self::TEAM, 'person_key' => 'p-2', 'phone' => '+4915133333333', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+            ['id' => 4, 'team_id' => self::TEAM, 'person_key' => 'p-2', 'phone' => '+4915133333333', 'is_active' => 1, 'updated_at' => '2026-01-02 00:00:00'],
         ]);
 
         $ausgabe = $this->lauf()->ausgabe();
 
-        $this->assertStringContainsString('Nummern uneinig: 1', $ausgabe, 'die HR-Liste muss die uneinige Gruppe nennen');
+        $this->assertStringContainsString('Nummern uneinig: 1', $ausgabe, 'die HR-Liste muss NUR die uneinige Gruppe nennen, nicht jede Gruppe');
+
+        $personIdGruppeEins = DB::table('rec_employees')->where('id', 1)->value('rec_person_id');
         $this->assertSame(
             '+4915122222222',
-            DB::table('rec_persons')->value('phone'),
+            DB::table('rec_persons')->where('id', $personIdGruppeEins)->value('phone'),
             'der zuletzt geaenderte Wert gewinnt (Canvas 68)',
         );
     }
@@ -220,7 +228,44 @@ final class BackfillPersonsTest extends TestCase
             (int) DB::table('rec_persons')->whereNotNull('phone')->count(),
             'nur einer darf die Nummer tragen -- der Index ist die Garantie',
         );
-        $this->assertStringContainsString('Nummer wegen Dublette nicht gesetzt: 1', $ausgabe);
+        $this->assertStringContainsString('Nummer nicht gesetzt (Dublette oder unlesbar): 1', $ausgabe);
+    }
+
+    /**
+     * Ruling T4-A (Fixrunde 1): "wiederholbar" heisst auch, dass ein
+     * SPAETERER Lauf mit einem neu dazugekommenen Geschwister (gleicher
+     * person_key) dieses Geschwister an die ALTE Person haengt. Reines
+     * whereNull('rec_person_id') wuerde das schon gebundene Geschwister aus
+     * der Abfrage werfen -- verbinde()s eigene Wiederverwendungspruefung
+     * saehe die gebundene Kennung dann gar nicht, und der Rueckkehrer
+     * bekaeme lautlos eine zweite Person.
+     */
+    public function test_rueckkehrer_mit_bereits_gebundenem_geschwister_bekommt_dieselbe_person(): void
+    {
+        DB::table('rec_employees')->insert([
+            ['id' => 1, 'team_id' => self::TEAM, 'person_key' => 'p-9', 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-01-01 00:00:00'],
+        ]);
+
+        $this->lauf();
+        $ersteId = (int) DB::table('rec_employees')->where('id', 1)->value('rec_person_id');
+
+        // Das Geschwister kommt ERST NACH dem ersten Lauf dazu -- genau der
+        // Fall, den Ruling T4-A abdeckt.
+        DB::table('rec_employees')->insert([
+            ['id' => 2, 'team_id' => self::TEAM, 'person_key' => 'p-9', 'phone' => '+4915111111111', 'is_active' => 1, 'updated_at' => '2026-02-01 00:00:00'],
+        ]);
+
+        $this->lauf();
+
+        $this->assertSame(
+            1,
+            (int) DB::table('rec_persons')->count(),
+            'das Geschwister braucht die ALTE Person, nicht eine zweite',
+        );
+        $this->assertSame(
+            $ersteId,
+            (int) DB::table('rec_employees')->where('id', 2)->value('rec_person_id'),
+        );
     }
 
     public function test_backfill_setzt_keinen_zas_marker(): void
