@@ -91,23 +91,31 @@ class PersonPairLinker
      */
     public static function stamp(array $employeeIds, ?int $applicantId): string
     {
-        $key = DB::table('rec_employees')
-            ->whereIn('id', $employeeIds)
-            ->whereNotNull('person_key')
-            ->value('person_key') ?? (string) UuidV7::generate();
-
-        DB::table('rec_employees')->whereIn('id', $employeeIds)->update(['person_key' => $key]);
-
-        if ($applicantId !== null) {
-            DB::table('rec_employees')
+        // Transaktional (Fixrunde 1, I2): alle drei Schritte gehoeren
+        // zusammen — flieg die Ausnahme aus verbindePerson() (z. B. weil
+        // PersonLinker::fuehreZusammen() scheitert), soll weder der
+        // person_key noch die Bewerbung-Vererbung stehen bleiben. Reine
+        // Query-Builder-Aufrufe, also observer-frei wie bisher — eine
+        // Transaktion aendert daran nichts.
+        return DB::transaction(function () use ($employeeIds, $applicantId): string {
+            $key = DB::table('rec_employees')
                 ->whereIn('id', $employeeIds)
-                ->whereNull('rec_applicant_id')
-                ->update(['rec_applicant_id' => $applicantId]);
-        }
+                ->whereNotNull('person_key')
+                ->value('person_key') ?? (string) UuidV7::generate();
 
-        self::verbindePerson($employeeIds);
+            DB::table('rec_employees')->whereIn('id', $employeeIds)->update(['person_key' => $key]);
 
-        return $key;
+            if ($applicantId !== null) {
+                DB::table('rec_employees')
+                    ->whereIn('id', $employeeIds)
+                    ->whereNull('rec_applicant_id')
+                    ->update(['rec_applicant_id' => $applicantId]);
+            }
+
+            self::verbindePerson($employeeIds);
+
+            return $key;
+        });
     }
 
     /**
@@ -117,15 +125,39 @@ class PersonPairLinker
      * PersonLinker::verbinde() genau diese Zeile — es entsteht nie eine
      * zweite.
      *
-     * Die Nummer der Zeile bestimmt NICHT diese Methode, sondern
-     * PersonGroupPlanner::plan(): dieselbe Regel „der zuletzt geaenderte
-     * Wert gewinnt, bei Gleichstand die kleinere Kennung" darf nicht an
-     * zwei Stellen verschieden existieren (dasselbe Muster wie im
-     * Backfill-Kommando). Deshalb liest die Abfrage id, person_key, phone
-     * UND updated_at — genau die vier Felder, die der Planer braucht. Nach
-     * dem Setzen des Markers oben teilen sich alle betroffenen Zeilen
+     * Ruling T6-A (Fixrunde 1, C1): traegt die Gruppe VOR dieser Stempelung
+     * schon ZWEI VERSCHIEDENE rec_person_id, ist das nicht mehr der
+     * "verbinden"-Fall, sondern der Zusammenlege-Fall. Das passiert genau
+     * dann, wenn das Audit-Kommando ein sicheres Paar findet: der Backfill
+     * hat laengst jedem markerlosen Datensatz seine EIGENE Personen-Zeile
+     * gegeben (PersonPairAuditPlanner ueberspringt eine Gruppe nur bei
+     * einem gemeinsamen, nicht-leeren person_key — die vom Audit gefundenen
+     * Paare haben also gerade KEINEN Marker und damit zwei getrennte
+     * Personen-Zeilen). PersonLinker::verbinde() WEIGERT sich in diesem
+     * Fall ausdruecklich (siehe ihr Docblock) — ein einfaches Verbinden
+     * wuerde also jeden `--apply`-Lauf beim ersten sicheren Paar abbrechen
+     * lassen. Richtig ist PersonLinker::fuehreZusammen(): das Audit sagt
+     * "das ist derselbe Mensch", die Folge ist Zusammenlegen, nicht
+     * Scheitern. Sieger ist die Zeile mit der KLEINSTEN rec_persons.id,
+     * damit zwei Laeufe (etwa ein wiederholter --pair) dasselbe Ergebnis
+     * liefern — derselbe Grundsatz wie beim Team-Tie-Break unten.
+     * fuehreZusammen() haengt dabei ALLE Anstellungen der Verlierer-Person
+     * um, nicht nur die beiden aus dieser Gruppe, und legt die
+     * Verlierer-Zeile still statt sie zu loeschen (Canvas 1793).
+     *
+     * Nach einem etwaigen Zusammenlegen (oder wenn schon vorher hoechstens
+     * eine Person beteiligt war) folgt der normale Weg: die Nummer der
+     * Gruppe bestimmt NICHT diese Methode, sondern PersonGroupPlanner::plan():
+     * dieselbe Regel "der zuletzt geaenderte Wert gewinnt, bei Gleichstand
+     * die kleinere Kennung" darf nicht an zwei Stellen verschieden
+     * existieren (dasselbe Muster wie im Backfill-Kommando). Deshalb liest
+     * die Abfrage id, person_key, phone, updated_at UND rec_person_id —
+     * die vier Felder des Planers plus die fuer den Zusammenlege-Check.
+     * Nach dem Setzen des Markers oben teilen sich alle betroffenen Zeilen
      * denselben person_key, PersonGroupPlanner::plan() liefert also genau
-     * eine Gruppe.
+     * eine Gruppe. PersonLinker::verbinde() haengt danach auch noch
+     * unverlinkte Mitglieder der Gruppe an dieselbe (ggf. gerade
+     * zusammengelegte) Person.
      *
      * Traegt die Gruppe mehr als eine team_id, wird bewusst die des
      * kleinsten id genommen (nicht etwa gemischt oder verworfen):
@@ -140,7 +172,21 @@ class PersonPairLinker
         $zeilen = DB::table('rec_employees')
             ->whereIn('id', $employeeIds)
             ->orderBy('id')
-            ->get(['id', 'team_id', 'person_key', 'phone', 'updated_at']);
+            ->get(['id', 'team_id', 'person_key', 'phone', 'updated_at', 'rec_person_id']);
+
+        $vorhandenePersonen = $zeilen->pluck('rec_person_id')
+            ->filter()
+            ->map(fn ($v) => (int) $v)
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($vorhandenePersonen->count() > 1) {
+            $sieger = $vorhandenePersonen->first();
+            foreach ($vorhandenePersonen->slice(1) as $verlierer) {
+                PersonLinker::fuehreZusammen($sieger, $verlierer);
+            }
+        }
 
         $plan = PersonGroupPlanner::plan($zeilen->map(fn ($z) => [
             'id'         => (int) $z->id,
