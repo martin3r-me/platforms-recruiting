@@ -144,20 +144,59 @@ class SeedDemoEmployeesGuardTest extends TestCase
     // eine Nummer ein. Diese beiden Tests durchsuchen deshalb den
     // QUELLTEXT der Datei selbst, nicht nur die von faelle() gebaute
     // Struktur.
+    //
+    // FIXRUNDE 2 (N1/N2, Pruefer-Befund): die urspruengliche Fassung
+    // benutzte reguleare Ausdruecke und hatte zwei Luecken -- ein Regex,
+    // der woertlich '...' (einfache Anfuehrungszeichen) verlangte, liess
+    // sich durch "..." umgehen (in PHP bedeutungsgleich); ein zweiter, der
+    // Zeilenumbrueche ausschloss (um nicht in die Klassenkommentar-
+    // Erwaehnung "PersonLinker::verbinde()" hineinzulaufen), schlug bei
+    // einem harmlos mehrzeilig umgebrochenen echten Aufruf faelschlich an.
+    // Beide Luecken sind zwei Seiten desselben Problems: ein regulaerer
+    // Ausdruck kennt keine PHP-Syntax, nur Zeichenfolgen. token_get_all()
+    // schon -- Anfuehrungszeichen-Stil ist fuer den Tokenizer unsichtbar
+    // (beide liefern T_CONSTANT_ENCAPSED_STRING), und ein Kommentar ist ein
+    // einziges T_COMMENT/T_DOC_COMMENT-Token ohne eigene PersonLinker-/
+    // verbinde-/Klammer-Tokens darin -- er kann dem Aufruf-Scanner also gar
+    // nicht mehr in die Quere kommen, ohne dass man das eigens ausschliessen
+    // muesste. Echte Klammertiefe statt Zeichen-Ausschluss macht ausserdem
+    // mehrzeilige Aufrufe erkennbar. token_get_all() ist reines PHP (keine
+    // Ausfuehrung des Kommandos, kein Framework, keine Datenbank) und bleibt
+    // damit im Rahmen von "tests/Unit bleibt pur".
     // -----------------------------------------------------------------
 
     public function test_im_quelltext_wird_phone_nirgends_auf_etwas_anderes_als_null_gesetzt(): void
     {
-        $quelltext = $this->quelltext();
+        $tokens = $this->bedeutsameTokens();
+        $treffer = [];
 
-        preg_match_all('/\'phone\'\s*=>\s*([^,)\]]+)/', $quelltext, $treffer);
+        foreach ($tokens as $i => $token) {
+            if (!is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING) {
+                continue;
+            }
 
-        $this->assertNotEmpty($treffer[1], 'keine phone-Zuweisung im Quelltext gefunden -- Regex kaputt?');
+            // Anfuehrungszeichen mit abschneiden statt zwei Varianten im
+            // Vergleich zu pflegen -- 'phone' und "phone" sind fuer PHP
+            // bedeutungsgleich und kommen hier gleichermassen als
+            // T_CONSTANT_ENCAPSED_STRING an, Anfuehrungszeichen noch drin.
+            if (substr($token[1], 1, -1) !== 'phone') {
+                continue;
+            }
 
-        foreach ($treffer[1] as $wert) {
+            if (!$this->tokenIst($tokens[$i + 1] ?? null, T_DOUBLE_ARROW)) {
+                continue; // kein Array-Schluessel, z.B. ein anderer Fund von "phone"
+            }
+
+            $wertToken = $tokens[$i + 2] ?? null;
+            $treffer[] = is_array($wertToken) ? $wertToken[1] : (string) $wertToken;
+        }
+
+        $this->assertNotEmpty($treffer, 'keine phone-Zuweisung im Quelltext gefunden -- Tokenizer kaputt?');
+
+        foreach ($treffer as $wert) {
             $this->assertSame(
                 'null',
-                trim($wert),
+                $wert,
                 "im Quelltext wird 'phone' auf {$wert} gesetzt statt auf null -- das waere eine erfundene Telefonnummer",
             );
         }
@@ -165,33 +204,114 @@ class SeedDemoEmployeesGuardTest extends TestCase
 
     public function test_person_linker_wird_im_quelltext_nie_mit_einer_nummer_aufgerufen(): void
     {
-        $quelltext = $this->quelltext();
+        $tokens = $this->bedeutsameTokens();
+        $aufrufe = [];
 
-        // [^()\n]+ verlangt mindestens EIN Zeichen zwischen echten Klammern
-        // auf DERSELBEN Zeile -- die Klassenkommentar-Erwaehnung
-        // "PersonLinker::verbinde()" (leere Klammern) kann dadurch gar
-        // nicht matchen, und der Match kann nicht ueber Klammern oder
-        // Zeilenenden hinaus in spaeteren Quelltext auslaufen (das war der
-        // erste Versuch dieses Tests: ohne diese beiden Ausschluesse fraess
-        // sich das Muster quer durch die halbe Datei bis zur naechsten
-        // schliessenden Klammer).
-        preg_match_all('/PersonLinker::verbinde\(([^()\n]+)\)/', $quelltext, $treffer);
+        foreach ($tokens as $i => $token) {
+            if (!is_array($token) || $token[0] !== T_STRING || $token[1] !== 'PersonLinker') {
+                continue;
+            }
+            if (!$this->tokenIst($tokens[$i + 1] ?? null, T_DOUBLE_COLON)) {
+                continue;
+            }
+
+            $methode = $tokens[$i + 2] ?? null;
+            if (!is_array($methode) || $methode[0] !== T_STRING || $methode[1] !== 'verbinde') {
+                continue;
+            }
+
+            if (($tokens[$i + 3] ?? null) !== '(') {
+                continue; // Erwaehnung ohne Aufruf, z.B. im Klassenkommentar
+            }
+
+            $aufrufe[] = $this->argumente($tokens, $i + 4);
+        }
 
         $this->assertNotEmpty(
-            $treffer[1],
-            'kein PersonLinker::verbinde()-Aufruf im Quelltext gefunden -- Regex kaputt?',
+            $aufrufe,
+            'kein PersonLinker::verbinde()-Aufruf im Quelltext gefunden -- Tokenizer kaputt?',
         );
 
-        foreach ($treffer[1] as $argumentListe) {
-            $argumente = array_map('trim', explode(',', $argumentListe));
+        foreach ($aufrufe as $argumente) {
             $drittesArgument = $argumente[2] ?? null;
 
             $this->assertSame(
                 'null',
                 $drittesArgument,
-                "PersonLinker::verbinde() wird mit einem dritten Argument aufgerufen, das nicht null ist ({$argumentListe}) -- das waere eine erfundene Telefonnummer",
+                'PersonLinker::verbinde() wird mit einem dritten Argument aufgerufen, das nicht null ist ('
+                . implode(', ', $argumente) . ') -- das waere eine erfundene Telefonnummer',
             );
         }
+    }
+
+    /**
+     * Liest die Argumente eines Funktionsaufrufs ab der Position direkt
+     * NACH der oeffnenden Klammer -- ueber echte Klammertiefe statt ueber
+     * Zeichen-Ausschluesse, damit ein mehrzeilig umgebrochener Aufruf
+     * genauso erkannt wird wie ein einzeiliger und eine abschliessende
+     * Komma (trailing comma) kein leeres viertes Argument erzeugt.
+     *
+     * @param  list<array{0:int,1:string,2:int}|string>  $tokens
+     * @return list<string>
+     */
+    private function argumente(array $tokens, int $start): array
+    {
+        $argumente = [];
+        $aktuell = '';
+        $tiefe = 1;
+
+        for ($i = $start; $i < count($tokens); $i++) {
+            $token = $tokens[$i];
+            $text = is_array($token) ? $token[1] : $token;
+
+            if ($text === '(') {
+                $tiefe++;
+            } elseif ($text === ')') {
+                $tiefe--;
+                if ($tiefe === 0) {
+                    break;
+                }
+            }
+
+            if ($tiefe === 1 && $text === ',') {
+                $argumente[] = trim($aktuell);
+                $aktuell = '';
+                continue;
+            }
+
+            $aktuell .= $text;
+        }
+
+        $rest = trim($aktuell);
+        if ($rest !== '') {
+            $argumente[] = $rest;
+        }
+
+        return $argumente;
+    }
+
+    /** @param array{0:int,1:string,2:int}|string|null $token */
+    private function tokenIst($token, int $id): bool
+    {
+        return is_array($token) && $token[0] === $id;
+    }
+
+    /**
+     * Alle Tokens der Datei OHNE Whitespace und Kommentare -- ein Kommentar
+     * ist im Tokenizer ein einziges T_COMMENT/T_DOC_COMMENT-Token ohne
+     * eigene Tokens fuer seinen Inhalt, kann also nach diesem Filter gar
+     * nicht mehr als "PersonLinker", "::", "verbinde" oder "(" erscheinen.
+     *
+     * @return list<array{0:int,1:string,2:int}|string>
+     */
+    private function bedeutsameTokens(): array
+    {
+        $tokens = token_get_all($this->quelltext());
+
+        return array_values(array_filter(
+            $tokens,
+            fn ($token) => !(is_array($token) && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)),
+        ));
     }
 
     private function quelltext(): string
