@@ -116,6 +116,14 @@ class SeedDemoEmployeesGuardTest extends TestCase
         // 'phone' in seine Spalten schreibt -- etwa als naheliegende, aber
         // falsche "Reparatur" der Zwei-Firmen-Paarung. Er iteriert ALLE
         // Faelle, nicht nur die heute existierenden zwei Gregors.
+        //
+        // Diese Bremse sieht nur die STRUKTUR, die faelle() zurueckgibt --
+        // eine Nummer, die stattdessen direkt an der Schreibstelle im
+        // Insert-Array oder als Argument an PersonLinker::verbinde()
+        // haengt, ist fuer sie unsichtbar (Pruefer-Befund I1, Fixrunde 1:
+        // 'phone' => null testweise auf eine Nummer geaendert, dieser Test
+        // blieb gruen). Die beiden Quelltext-Tests unten schliessen genau
+        // diese Luecke.
         foreach (SeedDemoEmployees::faelle() as $fall) {
             $this->assertArrayNotHasKey(
                 'phone',
@@ -123,5 +131,71 @@ class SeedDemoEmployeesGuardTest extends TestCase
                 "Fall {$fall['token']} setzt eine Telefonnummer — eine erfundene Nummer koennte einem echten Menschen gehoeren",
             );
         }
+    }
+
+    // -----------------------------------------------------------------
+    // I1 (Fixrunde 1, Pruefer-Befund): Quelltext-Waechter, Muster
+    // PortalShellProfilBladeTest. Der Struktur-Test oben prueft nur, was
+    // faelle() zurueckgibt -- eine Nummer, die jemand direkt an der
+    // Schreibstelle im Kommando hartkodiert (Insert-Array oder drittes
+    // Argument an PersonLinker::verbinde()), sieht er nicht. Genau das ist
+    // die naheliegende falsche "Reparatur": die Paarung geht nicht, also
+    // sucht jemand die Stelle, an der geschrieben wird, und traegt dort
+    // eine Nummer ein. Diese beiden Tests durchsuchen deshalb den
+    // QUELLTEXT der Datei selbst, nicht nur die von faelle() gebaute
+    // Struktur.
+    // -----------------------------------------------------------------
+
+    public function test_im_quelltext_wird_phone_nirgends_auf_etwas_anderes_als_null_gesetzt(): void
+    {
+        $quelltext = $this->quelltext();
+
+        preg_match_all('/\'phone\'\s*=>\s*([^,)\]]+)/', $quelltext, $treffer);
+
+        $this->assertNotEmpty($treffer[1], 'keine phone-Zuweisung im Quelltext gefunden -- Regex kaputt?');
+
+        foreach ($treffer[1] as $wert) {
+            $this->assertSame(
+                'null',
+                trim($wert),
+                "im Quelltext wird 'phone' auf {$wert} gesetzt statt auf null -- das waere eine erfundene Telefonnummer",
+            );
+        }
+    }
+
+    public function test_person_linker_wird_im_quelltext_nie_mit_einer_nummer_aufgerufen(): void
+    {
+        $quelltext = $this->quelltext();
+
+        // [^()\n]+ verlangt mindestens EIN Zeichen zwischen echten Klammern
+        // auf DERSELBEN Zeile -- die Klassenkommentar-Erwaehnung
+        // "PersonLinker::verbinde()" (leere Klammern) kann dadurch gar
+        // nicht matchen, und der Match kann nicht ueber Klammern oder
+        // Zeilenenden hinaus in spaeteren Quelltext auslaufen (das war der
+        // erste Versuch dieses Tests: ohne diese beiden Ausschluesse fraess
+        // sich das Muster quer durch die halbe Datei bis zur naechsten
+        // schliessenden Klammer).
+        preg_match_all('/PersonLinker::verbinde\(([^()\n]+)\)/', $quelltext, $treffer);
+
+        $this->assertNotEmpty(
+            $treffer[1],
+            'kein PersonLinker::verbinde()-Aufruf im Quelltext gefunden -- Regex kaputt?',
+        );
+
+        foreach ($treffer[1] as $argumentListe) {
+            $argumente = array_map('trim', explode(',', $argumentListe));
+            $drittesArgument = $argumente[2] ?? null;
+
+            $this->assertSame(
+                'null',
+                $drittesArgument,
+                "PersonLinker::verbinde() wird mit einem dritten Argument aufgerufen, das nicht null ist ({$argumentListe}) -- das waere eine erfundene Telefonnummer",
+            );
+        }
+    }
+
+    private function quelltext(): string
+    {
+        return file_get_contents(dirname(__DIR__, 2) . '/src/Console/Commands/SeedDemoEmployees.php');
     }
 }
