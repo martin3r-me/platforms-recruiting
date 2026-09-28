@@ -148,13 +148,19 @@ class PersonLinker
      * als Rueckweg vorgesehene HR-Vorgang — er darf keinen unsichtbaren
      * Zustand hinterlassen.
      *
-     * Folge, die HR kennen muss: die ZAS-Paarung (PersonPairLinker::
-     * pairIfExact) kann die beiden beim naechsten exakten Treffer — voller
-     * Name UND Geburtsdatum identisch — wieder zusammenfuehren. Das ist kein
-     * Fehler dieses Umbaus, sondern die Eigenschaft der Paarungsregel. Wer
-     * dauerhaft trennen will, muss an den DATEN etwas aendern, das die Regel
-     * unterscheidet (Name oder Geburtsdatum), sonst paart der naechste
-     * Import erneut.
+     * Folge, die HR kennen muss: die Paarungsregel kann die beiden beim
+     * naechsten exakten Treffer — voller Name UND Geburtsdatum identisch —
+     * wieder zusammenfuehren. Auf zwei Wegen: recruiting:person-pair-audit
+     * listet das Paar jetzt wieder als SICHER (die Marker sind nicht mehr
+     * gleich, die Gruppe wird also nicht mehr uebersprungen) und stempelt es
+     * mit --apply erneut, wobei PersonPairLinker sogar die beiden
+     * Personen-Zeilen zusammenlegt; und PersonPairLinker::pairIfExact paart
+     * einen spaeter neu importierten Datensatz derselben Person automatisch.
+     * Das ist kein Fehler dieses Umbaus, sondern die Eigenschaft der
+     * Paarungsregel — und es ist immer noch besser als der fruehere Zustand,
+     * in dem der Fall UNSICHTBAR war. Wer dauerhaft trennen will, muss an
+     * den DATEN etwas aendern, das die Regel unterscheidet (Name oder
+     * Geburtsdatum); sonst paart der naechste Lauf erneut.
      */
     public static function loese(int $employeeId): int
     {
