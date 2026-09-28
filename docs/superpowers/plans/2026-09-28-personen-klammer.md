@@ -724,6 +724,7 @@ recruiting:personen-anlegen
 - Datensaetze, die schon eine `rec_person_id` tragen, werden uebersprungen. Das Kommando ist damit **wiederholbar**.
 - Gibt am Ende aus: wie viele Personen angelegt, wie viele Anstellungen verbunden, **wie viele Gruppen `phone_uneinig` sind** und **wie viele Nummern wegen Kollision nicht geschrieben wurden** — das ist die HR-Liste. Die Zeile fuer die uneinigen Gruppen lautet exakt `Nummern uneinig: <n>`, die fuer die Kollisionen exakt `Nummer wegen Dublette nicht gesetzt: <n>` — der Test prueft diese Zeilen woertlich (Ruling P2: `assertStringContainsString('1', ...)` haelt nichts, die Ziffer steht in fast jeder Ausgabe).
 - Mit `--dry-run` wird nichts geschrieben und dieselbe Uebersicht gezeigt.
+  - *Nachtrag (Schlusspruefung):* so gebaut wurde es nicht, und das ist Absicht — der Trockenlauf faehrt den echten Schreiber und rollt je Gruppe zurueck, damit die Kollisionsregel nicht ein zweites Mal nachgebaut werden muss. Siehe Abnahme-Punkt 2 und den Klassenkommentar von `BackfillPersons`.
 
 - [ ] **Step 1: Den Test schreiben**
 
@@ -1117,7 +1118,7 @@ git commit -m "feat(recruiting): der Demo-Fall mit zwei Firmen fuehrt endlich vo
 Nach Task 7 muss gelten:
 
 1. `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml` ist gruen, Gesamtzahl >= 2539 plus die neuen Tests.
-2. `php artisan migrate` legt beide Strukturen an; `php artisan recruiting:personen-anlegen --dry-run` laeuft ohne Schreibzugriff durch und nennt drei Zahlen.
+2. `php artisan migrate` legt beide Strukturen an; `php artisan recruiting:personen-anlegen --dry-run` laeuft durch und nennt **vier** Zahlen (Personen angelegt, Anstellungen verbunden, Nummern uneinig, Nummer nicht gesetzt) plus darunter die **Kennungen** der beiden HR-Sorten. **Der Trockenlauf ist NICHT schreibfrei** (die frueher hier stehende Zusage war falsch): er fuehrt den echten Schreiber aus und rollt jede Gruppe sofort wieder zurueck. Strukturell bleibt nichts stehen, er verbraucht aber AUTO_INCREMENT-Kennungen in `rec_persons` — InnoDB rollt den Zaehler nicht zurueck. Seit der Umstellung auf **Teil-Commits je Gruppe** (Schlusspruefung C1) haelt weder der Trockenlauf noch der echte Lauf laenger Zeilensperren als eine Gruppe; beide duerfen neben dem Betrieb laufen. Vorher galt das ausdruecklich nicht: eine Transaktion ueber den ganzen Bestand sperrte Portal, HR-Speichern, Dispo und ZAS-Import bis zum Commit aus.
 3. Ein zweiter Lauf von `recruiting:personen-anlegen` legt **nichts** neu an.
 4. Auf der Demo: `demo-zwei-firmen` und `demo-zwei-firmen-ma` zeigen **beide Anstellungen**, und der Ausweis, der nur an der RG-Anstellung haengt, erscheint auch auf der MA-Seite.
 5. Kein Mitarbeiter hat durch den Backfill ein `zas_changed_at` bekommen. **Vor und nach dem Lauf zaehlen** (`SELECT COUNT(*) FROM rec_employees WHERE zas_changed_at IS NOT NULL`) — die Zahl muss gleich sein.
