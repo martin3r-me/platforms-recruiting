@@ -34,17 +34,40 @@
  * bringen null Testwert und sind das Heikelste am ganzen Bestand.
  *
  * ---------------------------------------------------------------------------
- * AUFRUF auf dem Produktionsserver, im Verzeichnis der Seite:
+ * ZWEI WEGE. Beide erzeugen dasselbe Ergebnis.
  *
- *     php tools/dump-mitarbeiter-pseudonym.php > /tmp/demo-mitarbeiter.sql
+ * WEG 1 — AUS EINER CSV, ALLES LOKAL (empfohlen):
+ *   Auf der Produktion NICHTS ausfuehren. In TablePlus gegen prod:
+ *       SELECT * FROM rec_employees;
+ *   Ergebnis als CSV exportieren (mit Kopfzeile), Datei herunterladen. Dann
+ *   bei dir auf dem Rechner:
  *
- * Das Skript LIEST nur. Es fuehrt kein INSERT, UPDATE oder DELETE aus und
- * beruehrt die Produktionsdatenbank ausschliesslich mit SELECT.
+ *       php tools/dump-mitarbeiter-pseudonym.php --csv=rec_employees.csv > demo-mitarbeiter.sql
  *
- * Die Meldungen (welche Spalte wie behandelt wurde, Warnungen) gehen nach
- * STDERR, die SQL nach STDOUT — deshalb funktioniert die Umleitung oben.
+ *   Kein Skript auf dem Server, keine Datenbankverbindung, kein lokales MySQL.
+ *
+ *   Eine Eigenart des CSV-Wegs: TablePlus schreibt NULL und leeren Text
+ *   gleich. Das Skript macht deshalb aus jedem leeren Feld ein NULL. Fuer
+ *   diesen Test ist das folgenlos — der Code behandelt beides ohnehin gleich
+ *   (leerer Marker, leere Nummer) — aber es ist ein Unterschied zum Original,
+ *   und der gehoert benannt.
+ *
+ * WEG 2 — DIREKT AUS DER DATENBANK:
+ *   Im Verzeichnis der Seite, dort wo eine .env mit den DB_-Zugangsdaten liegt:
+ *
+ *       php tools/dump-mitarbeiter-pseudonym.php > demo-mitarbeiter.sql
+ *
+ *   Nur lesende Zugriffe (SHOW COLUMNS, SELECT). Kein INSERT, UPDATE, DELETE.
+ *
+ * In beiden Faellen: Meldungen gehen nach STDERR, die SQL nach STDOUT —
+ * deshalb funktioniert die Umleitung mit >.
  * ---------------------------------------------------------------------------
  */
+
+// Jede PHP-Meldung geht nach STDERR. Ohne das landet schon ein harmloser
+// Deprecated-Hinweis mitten in der erzeugten SQL und macht sie unbrauchbar —
+// beim ersten Testlauf genau so passiert.
+ini_set('display_errors', 'stderr');
 
 const GEBURTSTAG_VERSCHIEBUNG = 137;      // Tage; Gleichheit bleibt, Identitaet geht
 const AUSWEIS_EINHEITLICH     = 'L01X00T4711';  // Anmeldung: Geburtsdatum + 4711
@@ -195,19 +218,65 @@ function envWert(string $schluessel, string $fallback = ''): string
     return $env[$schluessel] ?? $fallback;
 }
 
-$pdo = new PDO(
-    sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-        envWert('DB_HOST', '127.0.0.1'), envWert('DB_PORT', '3306'), envWert('DB_DATABASE')),
-    envWert('DB_USERNAME'),
-    envWert('DB_PASSWORD'),
-    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-);
+/** Anfuehrungszeichen fuer SQL, ohne dass eine Datenbankverbindung noetig waere. */
+function sqlWert(?string $wert): string
+{
+    if ($wert === null) {
+        return 'NULL';
+    }
 
-// ---------------------------------------------------------------------------
-// Spalten der ECHTEN Tabelle lesen — nicht raten.
-// ---------------------------------------------------------------------------
+    return "'" . str_replace(
+        ['\\', "'", "\n", "\r", "\0", "\x1a"],
+        ['\\\\', "''", '\\n', '\\r', '', ''],
+        $wert
+    ) . "'";
+}
 
-$spalten = $pdo->query('SHOW COLUMNS FROM rec_employees')->fetchAll(PDO::FETCH_COLUMN);
+$csvPfad = null;
+foreach ($argv as $arg) {
+    if (str_starts_with($arg, '--csv=')) {
+        $csvPfad = substr($arg, 6);
+    }
+}
+
+if ($csvPfad !== null) {
+    // ----- WEG 1: aus der CSV, ohne jede Datenbankverbindung -----
+    if (!is_readable($csvPfad)) {
+        fwrite(STDERR, "FEHLER: {$csvPfad} nicht lesbar.\n");
+        exit(1);
+    }
+    $griff = fopen($csvPfad, 'r');
+    $spalten = fgetcsv($griff, null, ',', '"', '');
+    if ($spalten === false || $spalten === [null]) {
+        fwrite(STDERR, "FEHLER: {$csvPfad} hat keine Kopfzeile.\n");
+        exit(1);
+    }
+    $spalten = array_map(fn ($s) => trim((string) $s, " \t\"'\xEF\xBB\xBF"), $spalten);
+
+    $zeilen = [];
+    while (($satz = fgetcsv($griff, null, ',', '"', '')) !== false) {
+        if ($satz === [null] || count($satz) !== count($spalten)) {
+            continue;
+        }
+        // TablePlus schreibt NULL und leeren Text gleich -> beides wird NULL.
+        $zeilen[] = array_map(fn ($w) => ($w === '' ? null : $w), array_combine($spalten, $satz));
+    }
+    fclose($griff);
+    fwrite(STDERR, "Quelle: CSV {$csvPfad}\n");
+} else {
+    // ----- WEG 2: direkt aus der Datenbank, nur lesend -----
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
+            envWert('DB_HOST', '127.0.0.1'), envWert('DB_PORT', '3306'), envWert('DB_DATABASE')),
+        envWert('DB_USERNAME'),
+        envWert('DB_PASSWORD'),
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+    $spalten = $pdo->query('SHOW COLUMNS FROM rec_employees')->fetchAll(PDO::FETCH_COLUMN);
+    $zeilen  = $pdo->query('SELECT * FROM rec_employees ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+    fwrite(STDERR, "Quelle: Datenbank " . envWert('DB_DATABASE') . "\n");
+}
+
 $unbekannt = [];
 
 foreach ($spalten as $spalte) {
@@ -232,8 +301,7 @@ if ($unbekannt !== []) {
 // Lesen und umschreiben
 // ---------------------------------------------------------------------------
 
-$zeilen = $pdo->query('SELECT * FROM rec_employees ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
-fwrite(STDERR, sprintf("%d Datensaetze gelesen.\n", count($zeilen)));
+fwrite(STDERR, sprintf("%d Datensaetze gelesen, %d Spalten.\n", count($zeilen), count($spalten)));
 
 echo "-- Pseudonymisierter Mitarbeiter-Dump, erzeugt am " . date('Y-m-d H:i') . "\n";
 echo "-- Geburtsdaten sind um " . GEBURTSTAG_VERSCHIEBUNG . " Tage verschoben.\n";
@@ -313,7 +381,7 @@ foreach (array_chunk($werte, 100) as $block) {
         $felder = [];
         foreach ($spalten as $spalte) {
             $w = $zeile[$spalte];
-            $felder[] = $w === null ? 'NULL' : $pdo->quote((string) $w);
+            $felder[] = sqlWert($w === null ? null : (string) $w);
         }
         $tupel[] = '(' . implode(', ', $felder) . ')';
     }
