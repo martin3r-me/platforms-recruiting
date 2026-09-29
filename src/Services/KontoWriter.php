@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\ContactPhoneSync;
 use Platform\Recruiting\Support\EinladungsToken;
 use Platform\Recruiting\Support\Einmalcode;
 use Platform\Recruiting\Support\PasswortRegeln;
@@ -319,6 +321,14 @@ final class KontoWriter
      * Der Zweck wird mitgeprueft (Migrations-Docblock): ein abgefangener
      * Code aus "Passwort zuruecksetzen" darf keinen Nummernwechsel
      * bestaetigen.
+     *
+     * ACHTUNG, zweiter Nachweis: ein eingeloester Code ALLEIN ist kein
+     * Identitaetsnachweis. loeseCodeEin(ZWECK_PASSWORT) gefolgt von
+     * setzePasswort() kaeme mit dem Code allein aus — wer ein fremdes
+     * Geraet in der Hand hat, uebernaehme damit das Konto. Die
+     * Zwei-Nachweis-Regel (Spec §2.4) lebt auf dieser Ebene NICHT; sie
+     * gehoert in den Ablauf darueber (Aufgabe 9) und darf dort nicht
+     * vergessen werden.
      */
     public static function loeseCodeEin(int $personId, string $zweck, string $codeKlartext): void
     {
@@ -377,6 +387,7 @@ final class KontoWriter
             // Die Regel "die Nummer wandert auf alle Anstellungen" lebt in
             // PersonLinker und nur dort — hier wird sie NICHT nachgebaut.
             PersonLinker::setzeNummer($personId, $neueNummer);
+            self::zieheCrmKontakteNach($personId);
         }
     }
 
@@ -384,6 +395,13 @@ final class KontoWriter
      * Neues Passwort setzen. Wirft, wenn das Passwort die Regeln verletzt —
      * derselbe Massstab wie bei der Registrierung, weil es sonst zwei Wege
      * mit zwei Massstaeben gaebe.
+     *
+     * ACHTUNG, zweiter Nachweis: diese Methode prueft NICHTS ausser den
+     * Passwortregeln. Wer sie aufruft, hat die Berechtigung vorher
+     * festzustellen — beim Zuruecksetzen also nicht nur den Einmalcode
+     * (loeseCodeEin), sondern den zweiten Nachweis aus Spec §2.4 dazu. Sonst
+     * genuegt der Zugriff auf ein fremdes Geraet, um das Konto zu
+     * uebernehmen. Der Ablauf liegt eine Ebene hoeher (Aufgabe 9).
      */
     public static function setzePasswort(int $personId, string $passwort): void
     {
@@ -525,6 +543,38 @@ final class KontoWriter
             return (new \DateTimeImmutable($wert))->format('Y-m-d');
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    /**
+     * Pflicht des Aufrufers von PersonLinker::setzeNummer() (dessen
+     * Docblock, Spec §9.2, Vorfall RG19734): der verknuepfte CRM-Kontakt
+     * wird sonst NICHT mitgezogen, weil setzeNummer() bewusst observer-frei
+     * schreibt und der RecEmployeePhoneSyncObserver nur auf
+     * Eloquent-Speicherungen anspringt. Folge ohne dieses Nachziehen: der
+     * Kontakt behaelt die alte Nummer, eingehende WhatsApp-Antworten landen
+     * in einem unverknuepften Thread — und der naechste Einmalcode geht ans
+     * ALTE Geraet, womit sich der Mensch selbst aussperrt. loeseCodeEin()
+     * ist heute der einzige Aufrufer.
+     *
+     * Scheitert der Abgleich (CRM nicht erreichbar, fehlender Nummerntyp),
+     * wird das protokolliert, aber der bereits vollzogene Nummernwechsel
+     * NICHT zurueckgedreht: die Nummer steht dann an Person und
+     * Anstellungen, nur der Kontakt hinkt hinterher. Das ist der kleinere
+     * Schaden — und es trifft je Anstellung, damit ein kaputter Kontakt
+     * nicht die uebrigen mitnimmt.
+     */
+    private static function zieheCrmKontakteNach(int $personId): void
+    {
+        foreach (RecEmployee::query()->where('rec_person_id', $personId)->get() as $anstellung) {
+            try {
+                app(ContactPhoneSync::class)->syncEmployee($anstellung);
+            } catch (\Throwable $e) {
+                Log::warning('recruiting.konto.contact_phone_sync_failed', [
+                    'rec_employee_id' => (int) $anstellung->id,
+                    'fehler'          => $e->getMessage(),
+                ]);
+            }
         }
     }
 

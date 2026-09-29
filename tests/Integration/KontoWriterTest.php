@@ -12,8 +12,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
 use Platform\Recruiting\Services\KontoWriter;
+use Platform\Recruiting\Services\Zas\ContactPhoneSync;
 use Platform\Recruiting\Support\Einmalcode;
 
 /**
@@ -33,11 +35,15 @@ use Platform\Recruiting\Support\Einmalcode;
  * dem ECHTEN RecEmployeeExportObserver, damit der Marker-Test nicht nur
  * beweist, dass es in diesem Lauf gar keinen Beobachter gibt.
  *
- * Der Hasher ist eine mitzaehlende Attrappe um BcryptHasher (mit wenigen
- * Runden, damit die Suite nicht an bcrypt haengt). Der Zaehler ist kein
- * Beiwerk: er ist der einzige Weg, den Dummy-Vergleich aus
- * pruefeAnmeldung() zu beweisen — ohne ihn koennte man den Vergleich
- * entfernen und kein Test wuerde rot.
+ * Der Hasher ist eine mitschreibende Attrappe um BcryptHasher (mit wenigen
+ * Runden, damit die Suite nicht an bcrypt haengt). Sie ist kein Beiwerk:
+ * nur ueber sie laesst sich der Leerlauf-Vergleich aus pruefeAnmeldung()
+ * beweisen. Und sie merkt sich nicht bloss, DASS check() lief, sondern
+ * WOGEGEN — denn Laravel kehrt bei leerem Hash sofort zurueck, ohne zu
+ * rechnen. Ein Vergleich gegen '' waere also kein Vergleich, saehe im
+ * Aufrufzaehler aber genauso aus; ein eingeladenes, noch nicht
+ * registriertes Konto (password_hash IS NULL) waere dann ueber die
+ * Antwortzeit von einem nicht existierenden unterscheidbar.
  */
 final class KontoWriterTest extends TestCase
 {
@@ -61,6 +67,9 @@ final class KontoWriterTest extends TestCase
 
     /** @var object{zeilen: list<array{stufe: string, nachricht: string, daten: array}>} */
     private object $log;
+
+    /** @var object{nachgezogen: list<array{id: int, phone: string}>, wirft: bool} */
+    private object $contactSync;
 
     private int $personId;
 
@@ -100,19 +109,47 @@ final class KontoWriterTest extends TestCase
         ]));
 
         // Vier Runden statt zwoelf: bcrypt ist absichtlich langsam, und diese
-        // Klasse hasht in fast jedem Testfall. Der Hasher zaehlt jeden
-        // check() mit — siehe Klassen-Docblock.
+        // Klasse hasht in fast jedem Testfall. Der Hasher merkt sich nicht
+        // nur, DASS verglichen wurde, sondern WOGEGEN — siehe
+        // Klassen-Docblock.
         $this->hasher = new class(['rounds' => 4]) extends BcryptHasher {
             public int $checks = 0;
+
+            /** @var list<string> die zweiten Argumente jedes check()-Aufrufs */
+            public array $gepruefteHashes = [];
 
             public function check($value, $hashedValue, array $options = []): bool
             {
                 $this->checks++;
+                $this->gepruefteHashes[] = (string) $hashedValue;
 
                 return parent::check($value, $hashedValue, $options);
             }
         };
         $container->instance('hash', $this->hasher);
+
+        // Der CRM-Abgleich nach einem Nummernwechsel (ContactPhoneSync)
+        // greift auf CRM-Tabellen zu, die es in dieser handgebauten Capsule
+        // nicht gibt. Die Attrappe merkt sich, WELCHE Anstellungen
+        // nachgezogen wurden — genau das ist die Zusicherung.
+        $this->contactSync = new class extends ContactPhoneSync {
+            /** @var list<array{id: int, phone: string}> */
+            public array $nachgezogen = [];
+
+            public bool $wirft = false;
+
+            public function syncEmployee(RecEmployee $employee, bool $dryRun = false): array
+            {
+                if ($this->wirft) {
+                    throw new \RuntimeException('CRM nicht erreichbar');
+                }
+
+                $this->nachgezogen[] = ['id' => (int) $employee->id, 'phone' => (string) $employee->phone];
+
+                return ['status' => 'synced', 'contacts' => 1];
+            }
+        };
+        $container->instance(ContactPhoneSync::class, $this->contactSync);
 
         $this->capsule = new Capsule($container);
         $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
@@ -212,6 +249,7 @@ final class KontoWriterTest extends TestCase
         $container->forgetInstance('log');
         $container->forgetInstance('config');
         $container->forgetInstance('hash');
+        $container->forgetInstance(ContactPhoneSync::class);
         Facade::clearResolvedInstances();
         parent::tearDown();
     }
@@ -265,6 +303,25 @@ final class KontoWriterTest extends TestCase
         ]);
 
         return $id;
+    }
+
+    /**
+     * Beweist, dass der Leerlauf-Vergleich WIRKLICH gerechnet hat: Laravel
+     * kehrt bei leerem Hash sofort zurueck, ein Aufrufzaehler allein wuerde
+     * das nicht bemerken. bcrypt-Praefix und Laenge sind der Beleg.
+     */
+    private function assertGegenEchtenHashVerglichen(): void
+    {
+        $this->assertNotEmpty($this->hasher->gepruefteHashes, 'es wurde ueberhaupt nicht verglichen');
+
+        foreach ($this->hasher->gepruefteHashes as $hash) {
+            $this->assertStringStartsWith(
+                '$2y$',
+                $hash,
+                'verglichen werden muss gegen einen echten bcrypt-Hash — gegen "" rechnet Laravel gar nicht erst',
+            );
+            $this->assertSame(60, strlen($hash), 'ein bcrypt-Hash ist 60 Zeichen lang');
+        }
     }
 
     /** Ein Code, der sicher NICHT der richtige ist — kein Zufall, kein Millionstel-Risiko. */
@@ -446,6 +503,7 @@ final class KontoWriterTest extends TestCase
     {
         $this->kontoEinrichten();
         $this->hasher->checks = 0;
+        $this->hasher->gepruefteHashes = [];
 
         $this->assertNull(KontoWriter::pruefeAnmeldung(self::TEAM, '+4915199999999', self::PASSWORT));
 
@@ -454,6 +512,24 @@ final class KontoWriterTest extends TestCase
             $this->hasher->checks,
             'auch bei unbekannter Nummer muss ein Passwortvergleich stattfinden, sonst verraet die Antwortzeit das Konto',
         );
+        $this->assertGegenEchtenHashVerglichen();
+    }
+
+    /**
+     * Der gefaehrlichere Zwilling des Falls darueber: ein eingeladenes, noch
+     * nicht registriertes Konto hat password_hash NULL. Ein Vergleich gegen
+     * '' kehrte sofort zurueck, ohne zu rechnen — die Antwortzeit
+     * unterschiede das Konto dann von einem nicht existierenden, und wer
+     * eingeladen ist, waere von aussen erkennbar.
+     */
+    public function test_ein_konto_ohne_passwort_prueft_gegen_einen_echten_hash(): void
+    {
+        KontoWriter::ladeEin($this->personId);
+        $this->hasher->gepruefteHashes = [];
+
+        $this->assertNull(KontoWriter::pruefeAnmeldung(self::TEAM, self::NUMMER, self::PASSWORT));
+
+        $this->assertGegenEchtenHashVerglichen();
     }
 
     public function test_eine_gesperrte_person_meldet_sich_nicht_an(): void
@@ -634,7 +710,16 @@ final class KontoWriterTest extends TestCase
      */
     public function test_ein_eingeloester_code_gilt_kein_zweites_mal(): void
     {
+        // Mit einem Fehlversuch VOR dem Einloesen: sonst steht code_versuche
+        // ohnehin auf 0, und die Zusicherung darunter waere schon erfuellt,
+        // ohne dass das Entwerten das Feld je angefasst haette.
         $code = KontoWriter::erzeugeCode($this->personId, KontoWriter::ZWECK_PASSWORT);
+        try {
+            KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_PASSWORT, $this->falscherCode($code));
+        } catch (\InvalidArgumentException $e) {
+            // erwartet
+        }
+        $this->assertSame(1, (int) $this->zeile()->code_versuche, 'Vorflug: der Zaehler steht wirklich auf 1');
 
         KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_PASSWORT, $code);
 
@@ -711,6 +796,64 @@ final class KontoWriterTest extends TestCase
             DB::table('rec_employees')->orderBy('id')->pluck('phone')->all(),
             'sonst kommt der naechste Einmalcode auf einer anderen Nummer an als die Anmeldung',
         );
+
+        // Hier — und nur hier — war code_neue_nummer vor dem Einloesen
+        // wirklich gefuellt. Im Passwort-Fall stand sie ohnehin auf null,
+        // die Zusicherung waere dort auch ohne Entwerten erfuellt.
+        $this->assertNull(
+            $this->zeile()->code_neue_nummer,
+            'die verbrauchte Zielnummer muss mit abgeraeumt werden',
+        );
+    }
+
+    /**
+     * Pflicht aus dem Docblock von PersonLinker::setzeNummer() (Spec §9.2,
+     * Vorfall RG19734): setzeNummer() schreibt observer-frei, der
+     * CRM-Kontakt wird also NICHT von selbst mitgezogen. Ohne dieses
+     * Nachziehen behaelt der Kontakt die alte Nummer — WhatsApp-Antworten
+     * landen in einem unverknuepften Thread, und der naechste Einmalcode
+     * geht ans ALTE Geraet.
+     */
+    public function test_der_nummernwechsel_zieht_die_crm_kontakte_nach(): void
+    {
+        $code = KontoWriter::erzeugeCode($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, '0152 33344455');
+
+        KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $code);
+
+        $this->assertSame(
+            [
+                ['id' => 1, 'phone' => '+4915233344455'],
+                ['id' => 2, 'phone' => '+4915233344455'],
+            ],
+            $this->contactSync->nachgezogen,
+            'jede Anstellung der Person muss nachgezogen werden, und zwar mit der NEUEN Nummer',
+        );
+    }
+
+    /**
+     * Scheitert der CRM-Abgleich, darf der bereits vollzogene
+     * Nummernwechsel nicht zurueckgedreht werden: die Nummer steht dann an
+     * Person und Anstellungen, nur der Kontakt hinkt hinterher — der
+     * kleinere Schaden, aber einer, den man im Log sehen muss.
+     */
+    public function test_ein_gescheiterter_crm_abgleich_dreht_den_nummernwechsel_nicht_zurueck(): void
+    {
+        $this->contactSync->wirft = true;
+        $code = KontoWriter::erzeugeCode($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, '0152 33344455');
+
+        KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $code);
+
+        $this->assertSame('+4915233344455', $this->zeile()->phone);
+        $this->assertSame(
+            ['+4915233344455', '+4915233344455'],
+            DB::table('rec_employees')->orderBy('id')->pluck('phone')->all(),
+        );
+
+        $gemeldet = array_filter(
+            $this->log->zeilen,
+            fn ($z) => $z['nachricht'] === 'recruiting.konto.contact_phone_sync_failed',
+        );
+        $this->assertCount(2, $gemeldet, 'je Anstellung eine Meldung — ein kaputter Kontakt darf die uebrigen nicht mitnehmen');
     }
 
     public function test_ein_nummernwechsel_ohne_lesbare_neue_nummer_wird_abgewiesen(): void
