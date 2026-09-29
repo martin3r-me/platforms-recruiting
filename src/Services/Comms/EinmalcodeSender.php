@@ -43,12 +43,23 @@ use Platform\Recruiting\Support\PhoneE164;
  * die Stelle, die den Versand ausloest, also hierher. Hoechstens drei Codes
  * je Nummer und Stunde, hoechstens fuenf am Kalendertag.
  *
+ * DAZU EIN ZWEITER ZAEHLER JE PERSON, mit denselben Grenzen (Fund F4). Der
+ * Zaehler je Nummer bremst das ZIEL; beim Nummernwechsel bestimmt der
+ * Anfordernde das Ziel aber selbst, und jede neue Zielnummer braechte einen
+ * frischen Zaehler mit. Ein Angemeldeter koennte so unbegrenzt
+ * Vorlagennachrichten an FREMDE Nummern schicken, auf unsere Rechnung und
+ * unter unserem Absender. Der zweite Zaehler bremst deshalb den AUSLOESER.
+ * Beide muessen zustimmen; keiner kann fuer den anderen einstehen.
+ *
  * WOHER DIE ZEITPUNKTE KOMMEN: aus dem CACHE, unter einem Schluessel je
  * Nummer (`drosselSchluessel()`), als Liste von 'Y-m-d H:i:s'-Zeitpunkten.
  * Es gibt dafuer heute keine Spalte, und es soll auch keine geben:
- *  - Eine Spalte an `rec_persons` koennte es nicht leisten. Beim
- *    Nummernwechsel geht der Code an eine Nummer, die noch an keiner Person
- *    haengt; der Zaehler muss an der NUMMER haengen, nicht an der Zeile.
+ *  - Eine Spalte an `rec_persons` koennte den Zaehler je NUMMER nicht
+ *    leisten. Beim Nummernwechsel geht der Code an eine Nummer, die noch an
+ *    keiner Person haengt; dieser Zaehler muss an der Nummer haengen, nicht
+ *    an der Zeile. (Der zweite, je Person, koennte dort stehen — aber dann
+ *    laegen die beiden Haelften derselben Bremse an zwei Orten mit zwei
+ *    Lebensdauern.)
  *  - `rec_auto_pilot_logs` braucht zwingend eine `rec_applicant_id` — die
  *    ZAS-Bestandsmitarbeiter ohne Bewerbung, also die groesste Gruppe,
  *    haetten dort gar keinen Zaehler (dieselbe Einschraenkung, an der schon
@@ -132,7 +143,11 @@ final class EinmalcodeSender
      */
     public const STATUS_FAILED = 'failed';
 
-    /** Vorsatz des Drossel-Schluessels; haelt ihn von den Zaehlern in PortalAuth getrennt. */
+    /**
+     * Vorsatz der Drossel-Schluessel; haelt sie von den Zaehlern in PortalAuth
+     * getrennt. Dahinter steht 'nummer:' oder 'person:' — die beiden Zaehler
+     * teilen sich den Speicher, aber nie einen Schluessel.
+     */
     private const DROSSEL_VORSATZ = 'konto_code_versand:';
 
     /**
@@ -206,11 +221,31 @@ final class EinmalcodeSender
         // ist. Andersherum entwertete ein gedrosselter Versuch den Code im
         // Daumen des Menschen und schickte keinen neuen.
         $jetzt = now()->format('Y-m-d H:i:s');
-        if (!CodeDrossel::darfSenden($this->anforderungen($nummer), $jetzt)) {
-            // Die Antwort aendert sich fuer den Menschen NICHT (sonst waere
-            // sie die Auskunft, dass es die Nummer gibt) — es wird nur nichts
-            // verschickt und eine Zeile geloggt.
-            return $this->fertig($personId, $zweck, $nummer, self::STATUS_GEDROSSELT, null);
+
+        // ZWEI ZAEHLER, BEIDE MUESSEN ZUSTIMMEN.
+        //
+        // Der je NUMMER ist der aus Ruling GD-1. Er allein haette ein Loch,
+        // und zwar das teurere: beim Nummernwechsel bestimmt der Anfordernde
+        // die Zielnummer selbst, und jede neue Zielnummer braechte einen
+        // frischen Zaehler mit. Ein Angemeldeter koennte damit unbegrenzt
+        // Vorlagennachrichten an FREMDE Nummern schicken — auf unsere
+        // Rechnung, unter unserem Absender, sieben Cent das Stueck.
+        //
+        // Deshalb der zweite je PERSON, mit denselben Grenzen. Er bremst den
+        // AUSLOESER, der Nummern-Zaehler das ZIEL; keiner von beiden kann fuer
+        // den anderen einstehen.
+        $schluessel = [
+            $this->nummernSchluessel($nummer),
+            $this->personenSchluessel($personId),
+        ];
+
+        foreach ($schluessel as $einzeln) {
+            if (!CodeDrossel::darfSenden($this->anforderungen($einzeln), $jetzt)) {
+                // Die Antwort aendert sich fuer den Menschen NICHT (sonst waere
+                // sie die Auskunft, dass es die Nummer gibt) - es wird nur nichts
+                // verschickt und eine Zeile geloggt.
+                return $this->fertig($personId, $zweck, $nummer, self::STATUS_GEDROSSELT, null);
+            }
         }
 
         try {
@@ -225,7 +260,9 @@ final class EinmalcodeSender
         // Gezaehlt wird, was erzeugt wurde: ab hier ist der vorherige Code
         // ohnehin tot, und ein scheiternder Versand darf nicht beliebig oft
         // wiederholbar sein.
-        $this->merkeAnforderung($nummer, $jetzt);
+        foreach ($schluessel as $einzeln) {
+            $this->merkeAnforderung($einzeln, $jetzt);
+        }
 
         $parameter = [];
         foreach ($vorlage['platzhalter'] as $name) {
@@ -415,9 +452,9 @@ final class EinmalcodeSender
      *
      * @return list<string>  'Y-m-d H:i:s'
      */
-    private function anforderungen(string $nummer): array
+    private function anforderungen(string $schluessel): array
     {
-        $liste = $this->speicher()->get($this->drosselSchluessel($nummer), []);
+        $liste = $this->speicher()->get($schluessel, []);
 
         return is_array($liste) ? array_values(array_map('strval', $liste)) : [];
     }
@@ -429,21 +466,17 @@ final class EinmalcodeSender
      * Richtigkeit (CodeDrossel zaehlt ohnehin nur innerhalb seiner Fenster),
      * sondern damit die Liste nicht endlos waechst.
      */
-    private function merkeAnforderung(string $nummer, string $jetzt): void
+    private function merkeAnforderung(string $schluessel, string $jetzt): void
     {
         $grenze = now()->subHours(self::DROSSEL_STUNDEN)->format('Y-m-d H:i:s');
 
         $liste = array_values(array_filter(
-            $this->anforderungen($nummer),
+            $this->anforderungen($schluessel),
             static fn (string $zeitpunkt): bool => $zeitpunkt >= $grenze,
         ));
         $liste[] = $jetzt;
 
-        $this->speicher()->put(
-            $this->drosselSchluessel($nummer),
-            $liste,
-            now()->addHours(self::DROSSEL_STUNDEN),
-        );
+        $this->speicher()->put($schluessel, $liste, now()->addHours(self::DROSSEL_STUNDEN));
     }
 
     /**
@@ -458,9 +491,22 @@ final class EinmalcodeSender
      * varchar(255) PRIMARY KEY). Kein kryptografischer Hash noetig — hier
      * wird nichts geprueft, nur ein Schluessel gebildet.
      */
-    private function drosselSchluessel(string $nummer): string
+    private function nummernSchluessel(string $nummer): string
     {
-        return self::DROSSEL_VORSATZ . hash('xxh128', $nummer);
+        return self::DROSSEL_VORSATZ . 'nummer:' . hash('xxh128', $nummer);
+    }
+
+    /**
+     * Der Zaehler des AUSLOESERS (Fund F4).
+     *
+     * Er haengt an der Personen-Kennung, nicht an einer Nummer: genau das
+     * Wechseln der Nummer soll er ja nicht belohnen. Die Kennung ist eine
+     * laufende Zahl ohne Personenbezug und braucht deshalb keinen Hash;
+     * gedeckelt ist die Schluessellaenge damit trotzdem.
+     */
+    private function personenSchluessel(int $personId): string
+    {
+        return self::DROSSEL_VORSATZ . 'person:' . $personId;
     }
 
     private function speicher(): CacheRepository

@@ -82,6 +82,9 @@ final class EinmalcodeSenderTest extends TestCase
 
     private const NEUE_NUMMER = '+4915122222222';
 
+    /** Eine dritte, fremde Nummer — Ziel der Nummernwechsel-Tests zu Fund F4. */
+    private const ZIEL_NUMMER = '+4915133333333';
+
     private const PFEFFER = 'pfeffer-fuer-den-test';
 
     /** Der bei Meta genehmigte Vorlagenname — in der Attrappe und in der Konfiguration. */
@@ -483,27 +486,105 @@ final class EinmalcodeSenderTest extends TestCase
 
     // ----------------------------------------------------- weitere Zusagen
 
-    /**
-     * Beim Nummernwechsel geht der Code an die NEUE Nummer — und er zaehlt
-     * auf DEREN Konto, nicht auf dem der alten.
-     */
+    /** Beim Nummernwechsel geht der Code an die NEUE Nummer. */
     public function testNummernwechselGehtAnDieNeueNummer(): void
     {
-        $sender = new EinmalcodeSender($this->cache);
-
-        // Die alte Nummer ist bereits ausgereizt.
-        for ($i = 0; $i < CodeDrossel::MAX_JE_STUNDE; $i++) {
-            $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
-        }
-        $this->assertSame(
-            EinmalcodeSender::STATUS_GEDROSSELT,
-            $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT)
-        );
-
-        $status = $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, self::NEUE_NUMMER);
+        $status = (new EinmalcodeSender($this->cache))
+            ->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, self::NEUE_NUMMER);
 
         $this->assertSame(EinmalcodeSender::STATUS_SENT, $status);
         $this->assertSame(self::NEUE_NUMMER, end($this->meta->calls)['to']);
+    }
+
+    /**
+     * Der Zaehler je NUMMER haengt wirklich an der Nummer — nicht an der
+     * Person, die ihn vollgemacht hat.
+     *
+     * Aufbau: Person A reizt die ZIELNUMMER aus, dann fordert Person B einen
+     * Code an dieselbe Zielnummer an. Ihr eigener Personen-Zaehler ist leer;
+     * blockieren kann hier also nur der Zaehler der Nummer. Ohne diese
+     * zweite Person waere der Unterschied zwischen "je Nummer" und "je
+     * Person" in dieser Testklasse gar nicht herstellbar.
+     */
+    public function testDieNummernbremseGiltAuchFuerEineZweitePerson(): void
+    {
+        $sender = new EinmalcodeSender($this->cache);
+        $zweite = $this->zweitePerson();
+
+        for ($i = 0; $i < CodeDrossel::MAX_JE_STUNDE; $i++) {
+            $this->assertSame(
+                EinmalcodeSender::STATUS_SENT,
+                $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, self::ZIEL_NUMMER)
+            );
+        }
+
+        $this->assertSame(
+            EinmalcodeSender::STATUS_GEDROSSELT,
+            $sender->sende($zweite, KontoWriter::ZWECK_NUMMERNWECHSEL, self::ZIEL_NUMMER),
+            'Die Zielnummer ist ausgereizt, egal wer fragt.'
+        );
+    }
+
+    /**
+     * FUND F4: der Zielwechsel umgeht die Bremse NICHT.
+     *
+     * Die eigene Nummer ist ausgereizt; die FRISCHE Zielnummer hat einen
+     * leeren eigenen Zaehler. Bliebe es beim Zaehler je Nummer, ginge die
+     * Nachricht raus — und ein Angemeldeter koennte unbegrenzt
+     * Vorlagennachrichten an fremde Nummern schicken, auf unsere Rechnung
+     * und unter unserem Absender. Blockieren kann hier nur der Zaehler je
+     * Person.
+     */
+    public function testZielwechselUmgehtDieBremseNicht(): void
+    {
+        $sender = new EinmalcodeSender($this->cache);
+
+        for ($i = 0; $i < CodeDrossel::MAX_JE_STUNDE; $i++) {
+            $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+        }
+
+        $this->assertSame(
+            EinmalcodeSender::STATUS_GEDROSSELT,
+            $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, self::ZIEL_NUMMER),
+            'Eine frische Zielnummer ist kein frisches Budget.'
+        );
+        $this->assertCount(CodeDrossel::MAX_JE_STUNDE, $this->meta->calls);
+    }
+
+    /**
+     * FUND F4, die Tagesgrenze: auch mit lauter VERSCHIEDENEN Zielnummern
+     * ist bei fuenf am Kalendertag Schluss.
+     *
+     * Jede Zielnummer wird nur einmal benutzt, ihr eigener Zaehler steht
+     * also nie ueber eins — und vor dem sechsten Versuch liegen nur zwei
+     * Anforderungen in der letzten Stunde. Weder die Nummern-Bremse noch die
+     * Stundengrenze kann hier einstehen.
+     */
+    public function testPersonenGrenzeAmTagTrotzVerschiedenerZielnummern(): void
+    {
+        $sender = new EinmalcodeSender($this->cache);
+
+        for ($i = 1; $i <= 3; $i++) {
+            $this->assertSame(
+                EinmalcodeSender::STATUS_SENT,
+                $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, self::zielNummer($i))
+            );
+        }
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(2));
+
+        for ($i = 4; $i <= 5; $i++) {
+            $this->assertSame(
+                EinmalcodeSender::STATUS_SENT,
+                $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, self::zielNummer($i))
+            );
+        }
+
+        $this->assertSame(
+            EinmalcodeSender::STATUS_GEDROSSELT,
+            $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, self::zielNummer(6)),
+        );
+        $this->assertCount(CodeDrossel::MAX_JE_TAG, $this->meta->calls);
     }
 
     /**
@@ -581,6 +662,31 @@ final class EinmalcodeSenderTest extends TestCase
     }
 
     // ------------------------------------------------------------- Hilfen
+
+    /**
+     * Eine von mehreren verschiedenen, je einmal benutzten Zielnummern.
+     * Jede ist eine gueltige deutsche Mobilnummer (sonst bricht der Versand
+     * schon an PhoneE164::normalize ab, und der Test pruefte nichts).
+     */
+    private static function zielNummer(int $i): string
+    {
+        return '+4915199900' . $i . '00';
+    }
+
+    /**
+     * Eine zweite, eigenstaendige Person im selben Team — fuer den Nachweis,
+     * dass der Nummern-Zaehler an der Nummer haengt und nicht am Anfordernden.
+     */
+    private function zweitePerson(): int
+    {
+        return (int) DB::table('rec_persons')->insertGetId([
+            'uuid'       => 'p-einmalcode-zweite',
+            'team_id'    => self::TEAM,
+            'phone'      => '+4915144444444',
+            'created_at' => self::ANGEFASST,
+            'updated_at' => self::ANGEFASST,
+        ]);
+    }
 
     /** @return array{hash: ?string, expires: ?string, zweck: ?string} */
     private function laufenderCode(): array
