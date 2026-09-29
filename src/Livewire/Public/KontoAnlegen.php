@@ -158,6 +158,20 @@ class KontoAnlegen extends Component
             // das darf niemand erfahren. Die Einladung bleibt gueltig — ein
             // Tippfehler im Datum verbrennt sie nicht, die Grenze ist der
             // Zaehler.
+            //
+            // GEFANGEN WIRD PAUSCHAL, und das ist hier vertretbar, nicht
+            // Schlamperei (Fund F7 der Pruefung). KontoWriter wirft aus vier
+            // Gruenden dieselbe Ausnahme: falscher Nachweis, Passwortregel,
+            // gesperrte/stillgelegte Zeile, fehlender Pfeffer. Die
+            // Passwortregel ist oben schon abgefangen; gesperrt und
+            // stillgelegt fallen bereits in personFuerEinladung() heraus und
+            // ergeben 404, bevor dieses Formular ueberhaupt erscheint; und
+            // der Pfeffer faellt in der Konfiguration auf app.key zurueck.
+            // Bleibt in der Praxis der falsche Nachweis — genau das, was
+            // gezaehlt werden soll. Wer eine dieser drei Absicherungen
+            // entfernt, muss hier nach Fall unterscheiden, sonst zaehlt ein
+            // Konfigurationsfehler als Rateversuch und sperrt den Menschen
+            // fuer eine Stunde aus.
             RateLimiter::hit(self::drosselSchluessel($this->token), self::SPERRE_SEKUNDEN);
 
             $this->fehler = $this->duzen

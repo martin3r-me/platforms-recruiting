@@ -378,6 +378,26 @@ final class KontoAnlegenTest extends TestCase
         $this->seite($token);
     }
 
+    /**
+     * F2 der Pruefung: der Verbraucht-Test daneben faehrt den echten Ablauf,
+     * und der NULLT den Hash gleich mit — `invite_used_at` traegt dort also
+     * nichts. Dieser Test stellt den Zustand DIREKT her (Hash steht noch,
+     * `invite_used_at` gesetzt). Heute unerreichbar, weil nur KontoWriter
+     * diese Spalten schreibt; laesst je jemand den Hash stehen, oeffnete die
+     * Seite sonst eine verbrauchte Einladung wieder.
+     */
+    public function test_eine_verbrauchte_einladung_mit_stehengebliebenem_hash_ist_404(): void
+    {
+        $token = $this->einladung();
+        DB::table('rec_persons')->where('id', $this->personId)
+            ->update(['invite_used_at' => self::ANGEFASST]);
+
+        $this->assertNotNull($this->zeile()->invite_token_hash, 'Vorflug: der Hash muss fuer diesen Test stehen bleiben');
+
+        $this->expectException(NotFoundHttpException::class);
+        $this->seite($token);
+    }
+
     public function test_gesperrte_person_ist_404(): void
     {
         $token = $this->einladung();
@@ -641,6 +661,27 @@ final class KontoAnlegenTest extends TestCase
         $this->seite(strtolower($token));
     }
 
+    /**
+     * F4 der Pruefung: die Sperre gilt eine STUNDE. Gemessen wird nicht die
+     * Konstante, sondern die Laufzeit, die wirklich im Zaehler steht — eine
+     * auf eine Minute verkuerzte Sperre bremst das Durchprobieren des
+     * Geburtsdatums (rund 25.000 plausible Tage) nicht mehr nennenswert.
+     */
+    public function test_die_sperre_gilt_eine_stunde(): void
+    {
+        $token = $this->einladung();
+        $seite = $this->seite($token);
+        $seite->passwort = self::PASSWORT;
+        $seite->passwortWiederholung = self::PASSWORT;
+        $seite->geburtsdatum = self::FALSCHE_GEBURT;
+        $seite->registriere();
+
+        $rest = RateLimiter::availableIn($this->drosselSchluessel($token));
+
+        $this->assertGreaterThan(3540, $rest, 'Die Sperre laeuft frueher ab als eine Stunde.');
+        $this->assertLessThanOrEqual(3600, $rest);
+    }
+
     public function test_der_erfolg_raeumt_den_zaehler_ab(): void
     {
         $token = $this->einladung();
@@ -816,6 +857,23 @@ final class KontoAnlegenTest extends TestCase
         // Und der Token steht nirgends auf der Seite: ein Geheimnis gehoert
         // nicht ins Markup, wo es der naechste Screenshot mitnimmt.
         $this->assertStringNotContainsString($seite->token, $html);
+    }
+
+    /**
+     * F3 der Pruefung: das Passwort darf NICHT im gerenderten Markup stehen.
+     * Ein `value="{{ $passwort }}"` am Feld ist die Bequemlichkeit, die
+     * jemand einbaut, damit nach einem Fehlversuch nicht neu getippt werden
+     * muss — und schreibt das Passwort damit in jeden Screenshot und in
+     * jeden Seitenquelltext.
+     */
+    public function test_das_passwort_steht_nicht_im_markup(): void
+    {
+        $seite = $this->seite($this->einladung());
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->passwort = self::PASSWORT;
+        $seite->passwortWiederholung = self::PASSWORT;
+
+        $this->assertStringNotContainsString(self::PASSWORT, $this->rendere($seite));
     }
 
     public function test_das_geburtsdatum_erzwingt_keine_zahlentastatur(): void

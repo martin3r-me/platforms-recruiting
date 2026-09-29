@@ -135,17 +135,32 @@ final class KontoWriter
      * Klassen-Docblock warnt — ein abweichender Schluessel, und das Geheimnis
      * gilt lautlos nie.
      *
-     * Kein Vergleich in SQL: der Hash muesste dafuer in der Abfrage stehen,
-     * und dann laege die Gueltigkeitsregel (abgelaufen? verbraucht?) ein
-     * zweites Mal in der WHERE-Klausel neben EinladungsToken::istGueltig().
-     * Stattdessen entscheidet AUSSCHLIESSLICH istGueltig(), so wie bei
-     * registriere() auch. Die Vorauswahl schneidet nur, was diese Klasse
-     * ohnehin nirgends anfasst: Zeilen ohne Token und Zeilen, die
-     * offeneZeile() gleich ablehnen wuerde — eine gesperrte oder
-     * stillgelegte Person soll aussehen, als gaebe es die Einladung nicht.
+     * Warum eine Vollsuche statt eines Index-Treffers auf den Hash: weil sie
+     * heute schlicht billig ist — ein HMAC auf acht Zeichen je Zeile, und
+     * Kandidaten sind nur Zeilen mit einem gesetzten Einladungs-Hash. Das
+     * ist der ganze Grund, kein tieferer. (Berichtigt nach der Pruefung zu
+     * Aufgabe 6: hier stand, ein Filter auf den Hash zwaenge die
+     * Gueltigkeitsregel ein zweites Mal in die WHERE-Klausel. Das stimmt
+     * nicht — man koennte auf den Hash filtern und trotzdem allein mit
+     * istGueltig() entscheiden. Ein falsches Argument ist teurer als keines,
+     * weil es dem naechsten Leser den billigen Ausweg verbaut.)
      *
-     * Der Vergleich selbst laeuft ueber hash_equals() in istGueltig(), nicht
-     * ueber die Datenbank.
+     * WER SIE SPAETER BESCHNEIDET, ziehe die Gueltigkeitsregel NICHT in die
+     * WHERE-Klausel. "Abgelaufen?" und "verbraucht?" entscheidet
+     * ausschliesslich EinladungsToken::istGueltig(), so wie bei registriere()
+     * auch; zwei Fassungen derselben Regel driften auseinander, und die
+     * Richtung, in die sie hier driften wuerde, heisst: eine Einladung gilt
+     * laenger, als sie darf.
+     *
+     * Die Vorauswahl (gesperrt, stillgelegt) ist dagegen sehr wohl eine
+     * ZWEITE FASSUNG einer Regel, naemlich der von offeneZeile(). Das ist
+     * gewollt — eine gesperrte oder stillgelegte Person soll aussehen, als
+     * gaebe es die Einladung gar nicht, statt erst am Formular zu scheitern
+     * — aber es heisst: wer offeneZeile() anfasst, muss diese beiden Zeilen
+     * mitnehmen, und umgekehrt.
+     *
+     * Der Vergleich des Geheimnisses selbst laeuft ueber hash_equals() in
+     * istGueltig(), nicht ueber die Datenbank.
      */
     public static function personFuerEinladung(string $tokenKlartext): ?int
     {
