@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Platform\Recruiting\Support\EinladungsToken;
 use Platform\Recruiting\Support\Einmalcode;
@@ -179,8 +180,14 @@ final class KontoWriter
      * allen Ablehnungsgruenden und nicht hinter einer fruehen Rueckgabe.
      *
      * Der Rueckgabewert nennt nie einen Grund: "falsches Passwort",
-     * "gesperrt" und "gibt es nicht" sind alle null. Wer daraus eine
-     * Meldung baut, darf keine unterscheiden.
+     * "gesperrt", "gibt es nicht" und "die Nummer ist mehrdeutig" sind alle
+     * null. Wer daraus eine Meldung baut, darf keine unterscheiden.
+     *
+     * Ruling GD-2: $teamId darf null sein und ist es auf der oeffentlichen
+     * Anmeldeseite auch — die hat keinen Team-Kontext. Dann wird ueber alle
+     * Teams gesucht, und bei mehr als einem lebenden Treffer scheitert die
+     * Anmeldung (fail closed, mit Log-Zeile). Der Parameter bleibt fuer
+     * Tests und Kommandos in der Signatur.
      */
     public static function pruefeAnmeldung(?int $teamId, string $nummer, string $passwort): ?int
     {
@@ -188,21 +195,56 @@ final class KontoWriter
         // PersonLinker): gespeichert ist E.164, getippt wird "0151 ...".
         $normalisiert = PhoneE164::normalize($nummer);
 
-        $person = $normalisiert === null ? null : DB::table('rec_persons')
-            ->where('team_id', $teamId)
+        // Ruling GD-2: OHNE team_id wird ueber ALLE Teams gesucht — die
+        // Anmeldeseite ist oeffentlich und hat keinen Team-Kontext. Ein
+        // uebergebenes Team schraenkt weiterhin ein (Tests und Kommandos).
+        // "Lebend" heisst: nicht zusammengefuehrt; eine stillgelegte Zeile
+        // ist ein Grabstein, keine Person. GESPERRTE zaehlen dagegen MIT —
+        // sie auszusortieren, um genau eine uebrig zu behalten, waere schon
+        // wieder Raten.
+        $kandidaten = $normalisiert === null ? [] : DB::table('rec_persons')
             ->where('phone', $normalisiert)
-            ->first(['id', 'password_hash', 'locked_at', 'merged_into_person_id']);
+            ->whereNull('merged_into_person_id')
+            ->when($teamId !== null, fn ($q) => $q->where('team_id', $teamId))
+            ->get(['id', 'team_id', 'password_hash', 'locked_at'])
+            ->all();
+
+        $person = count($kandidaten) === 1 ? $kandidaten[0] : null;
 
         $hash = $person->password_hash ?? null;
         $passwortStimmt = Hash::check($passwort, ($hash === null || $hash === '') ? self::LEERLAUF_HASH : $hash);
+
+        // Ruling GD-2, fail closed: die Eindeutigkeit der Nummer gilt nur JE
+        // TEAM (unique(team_id, phone)) — ueber Teamgrenzen hinweg kann
+        // dieselbe Nummer mehrfach existieren. Bei mehr als einer lebenden
+        // Person wird NICHT geraten: bei Identitaet ist Raten die
+        // schlechteste aller Moeglichkeiten. Lieber sperrt sich einer aus
+        // und ruft HR an, als dass er in einem fremden Konto landet. Die
+        // Antwort ist dieselbe wie bei falschem Passwort — der Vergleich
+        // oben ist trotzdem gelaufen, sonst verriete die Antwortzeit den
+        // Mehrfachtreffer.
+        if (count($kandidaten) > 1) {
+            Log::warning('recruiting.konto.anmeldung_mehrdeutig', [
+                'person_ids' => array_map(fn ($k) => (int) $k->id, $kandidaten),
+                'team_ids'   => array_map(fn ($k) => $k->team_id, $kandidaten),
+                // NIE die vollstaendige Nummer ins Log (Datenschutz): die
+                // letzten vier Stellen genuegen, um den Fall in der Akte
+                // wiederzufinden. PhoneE164::suffix() liefert neun Ziffern —
+                // fast die ganze Nummer —, deshalb wird hier auf vier
+                // gekuerzt.
+                'nummer_endet_auf' => substr(PhoneE164::suffix($normalisiert), -4),
+            ]);
+
+            return null;
+        }
 
         if ($person === null || !$passwortStimmt) {
             return null;
         }
 
-        // Gesperrt (HR/Datenschutz) und stillgelegt (Zusammenlegung, die
-        // Zeile behaelt nur noch ihre Nummer) melden sich nie an.
-        if ($person->locked_at !== null || $person->merged_into_person_id !== null) {
+        // Gesperrt (HR/Datenschutz) meldet sich nie an. Stillgelegte sind
+        // schon aus der Kandidatenliste gefallen.
+        if ($person->locked_at !== null) {
             return null;
         }
 

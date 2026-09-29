@@ -59,6 +59,9 @@ final class KontoWriterTest extends TestCase
     /** @var object{checks: int} */
     private object $hasher;
 
+    /** @var object{zeilen: list<array{stufe: string, nachricht: string, daten: array}>} */
+    private object $log;
+
     private int $personId;
 
     protected function setUp(): void
@@ -73,9 +76,24 @@ final class KontoWriterTest extends TestCase
         if (!class_exists('Log', false)) {
             class_alias(\Illuminate\Support\Facades\Log::class, 'Log');
         }
-        $container->instance('log', new class {
-            public function __call($m, $a) {}
-        });
+        // Die Attrappe merkt sich die Zeilen: Ruling GD-2 verlangt bei einer
+        // mehrdeutigen Nummer ausdruecklich eine Log-Zeile — ohne sie saehe
+        // HR den Fall nie, weil die Antwort dieselbe ist wie bei falschem
+        // Passwort.
+        $this->log = new class {
+            /** @var list<array{stufe: string, nachricht: string, daten: array}> */
+            public array $zeilen = [];
+
+            public function __call($m, $a)
+            {
+                $this->zeilen[] = [
+                    'stufe'     => $m,
+                    'nachricht' => (string) ($a[0] ?? ''),
+                    'daten'     => (array) ($a[1] ?? []),
+                ];
+            }
+        };
+        $container->instance('log', $this->log);
 
         $container->instance('config', new ConfigRepository([
             'recruiting' => ['konto' => ['pepper' => self::PFEFFER]],
@@ -220,6 +238,33 @@ final class KontoWriterTest extends TestCase
     private function setzePfeffer(string $pfeffer): void
     {
         Container::getInstance()->make('config')->set('recruiting.konto.pepper', $pfeffer);
+    }
+
+    /**
+     * Dieselbe Nummer in einem ANDEREN Team — der Eindeutigkeits-Index
+     * unique(team_id, phone) laesst das zu, und im Bestand kommt es vor.
+     * Mit eigenem Passwort und eigener aktiver Anstellung, damit die Zeile
+     * fuer sich genommen anmeldefaehig waere.
+     */
+    private function zweitePersonMitDerselbenNummer(): int
+    {
+        $id = (int) DB::table('rec_persons')->insertGetId([
+            'uuid'          => 'p-anderes-team',
+            'team_id'       => self::TEAM + 1,
+            'phone'         => self::NUMMER,
+            'password_hash' => Hash::make(self::PASSWORT),
+            'created_at'    => self::ANGEFASST,
+            'updated_at'    => self::ANGEFASST,
+        ]);
+
+        DB::table('rec_employees')->insert([
+            'id' => 9, 'team_id' => self::TEAM + 1, 'first_name' => 'Gregor', 'last_name' => 'Fremd',
+            'birth_date' => self::GEBURT, 'rec_person_id' => $id, 'company' => 'RG',
+            'phone' => self::NUMMER, 'is_active' => 1,
+            'created_at' => self::ANGEFASST, 'updated_at' => self::ANGEFASST,
+        ]);
+
+        return $id;
     }
 
     /** Ein Code, der sicher NICHT der richtige ist — kein Zufall, kein Millionstel-Risiko. */
@@ -456,6 +501,107 @@ final class KontoWriterTest extends TestCase
         // Gegenprobe: EINE aktive Anstellung genuegt.
         DB::table('rec_employees')->where('id', 2)->update(['is_active' => 1]);
         $this->assertSame($this->personId, KontoWriter::pruefeAnmeldung(self::TEAM, self::NUMMER, self::PASSWORT));
+    }
+
+    // ------------------------------------------------------- Ruling GD-2
+
+    /**
+     * Die oeffentliche Anmeldeseite hat keinen Team-Kontext und uebergibt
+     * null. Wuerde das wie "team_id = null" gelesen, faende sie kein
+     * einziges Konto — und zwar lautlos, weil die Antwort dieselbe ist wie
+     * bei falschem Passwort.
+     */
+    public function test_die_anmeldung_findet_die_person_auch_ohne_team(): void
+    {
+        $this->kontoEinrichten();
+
+        $this->assertSame(
+            $this->personId,
+            KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::PASSWORT),
+        );
+    }
+
+    /**
+     * Ruling GD-2, fail closed: die Nummer ist nur JE TEAM eindeutig. Gibt
+     * es sie in zwei Teams, wird nicht geraten — sonst landet jemand in
+     * einer fremden Akte.
+     */
+    public function test_zwei_lebende_personen_mit_derselben_nummer_melden_sich_nicht_an(): void
+    {
+        $this->kontoEinrichten();
+        $zweite = $this->zweitePersonMitDerselbenNummer();
+        $this->hasher->checks = 0;
+
+        $this->assertNull(KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::PASSWORT));
+
+        $this->assertGreaterThan(
+            0,
+            $this->hasher->checks,
+            'auch der Mehrfachtreffer wird erst NACH dem Vergleich beantwortet',
+        );
+
+        $zeile = null;
+        foreach ($this->log->zeilen as $eintrag) {
+            if ($eintrag['nachricht'] === 'recruiting.konto.anmeldung_mehrdeutig') {
+                $zeile = $eintrag;
+            }
+        }
+
+        $this->assertNotNull($zeile, 'ohne Log-Zeile sieht HR den Fall nie — die Antwort ist ja dieselbe wie bei falschem Passwort');
+        $this->assertSame([$this->personId, $zweite], $zeile['daten']['person_ids']);
+        $this->assertSame('1111', $zeile['daten']['nummer_endet_auf']);
+
+        foreach ($zeile['daten'] as $wert) {
+            $this->assertStringNotContainsString(
+                self::NUMMER,
+                json_encode($wert),
+                'eine vollstaendige Rufnummer gehoert nicht ins Log',
+            );
+        }
+    }
+
+    /**
+     * Gegenprobe zu "lebend": eine zusammengefuehrte Zeile ist ein
+     * Grabstein, keine zweite Person — sie darf die Anmeldung des
+     * Ueberlebenden nicht blockieren.
+     */
+    public function test_eine_stillgelegte_zweitzeile_macht_die_nummer_nicht_mehrdeutig(): void
+    {
+        $this->kontoEinrichten();
+        $zweite = $this->zweitePersonMitDerselbenNummer();
+        DB::table('rec_persons')->where('id', $zweite)->update(['merged_into_person_id' => $this->personId]);
+
+        $this->assertSame(
+            $this->personId,
+            KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::PASSWORT),
+        );
+    }
+
+    /**
+     * Gegenprobe in die andere Richtung: GESPERRTE zaehlen mit. Sie
+     * auszusortieren, um genau eine Zeile uebrig zu behalten, waere schon
+     * wieder Raten.
+     */
+    public function test_eine_gesperrte_zweitzeile_macht_die_nummer_trotzdem_mehrdeutig(): void
+    {
+        $this->kontoEinrichten();
+        $zweite = $this->zweitePersonMitDerselbenNummer();
+        DB::table('rec_persons')->where('id', $zweite)->update(['locked_at' => '2026-09-29 08:00:00']);
+
+        $this->assertNull(KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::PASSWORT));
+    }
+
+    /** Ein uebergebenes Team schraenkt weiterhin ein — Tests und Kommandos brauchen das. */
+    public function test_ein_uebergebenes_team_schraenkt_weiterhin_ein(): void
+    {
+        $this->kontoEinrichten();
+        $this->zweitePersonMitDerselbenNummer();
+
+        $this->assertSame(
+            $this->personId,
+            KontoWriter::pruefeAnmeldung(self::TEAM, self::NUMMER, self::PASSWORT),
+            'mit Team bleibt der Treffer eindeutig',
+        );
     }
 
     // ----------------------------------------------------------------- Codes
