@@ -720,9 +720,18 @@ final class KontoAnlegenTest extends TestCase
      * Browser direkt — hier waeren das WESSEN Konto angelegt wird und MIT
      * WELCHEM Nachweis.
      *
-     * Die Liste wird bewusst NICHT aus der Klasse abgeleitet: eine
+     * GESCHLOSSENE WELT, und das ist der Punkt: geprueft wird nicht nur, ob
+     * die eingetragenen Felder gesperrt sind, sondern dass es KEIN
+     * oeffentliches Feld gibt, das in keiner der beiden Listen steht. Die
+     * erste Fassung dieses Waechters nannte nur die vier gesperrten Namen —
+     * eine spaeter hinzugefuegte Zustands-Eigenschaft ohne #[Locked] waere
+     * lautlos durchgerutscht, und der Waechter haette dabei gruen geleuchtet.
+     * Das ist derselbe Bypass wie am 19.08., nur eine Runde spaeter.
+     *
+     * Die Listen werden trotzdem AUSGESCHRIEBEN und nicht abgeleitet: eine
      * abgeleitete Liste sagte "was gesperrt ist, ist gesperrt", also gar
-     * nichts. Ausgeschrieben haelt sie die ABSICHT fest.
+     * nichts. So muss sich jedes neue Feld entscheiden — gesperrt, oder mit
+     * einem Satz begruendet offen.
      */
     public function test_alles_was_ueber_identitaet_entscheidet_ist_gesperrt(): void
     {
@@ -731,6 +740,17 @@ final class KontoAnlegenTest extends TestCase
             'personId' => 'WESSEN Konto angelegt wird',
             'state'    => 'der Zustand der Seite — genau der Bypass vom 19.08.2026',
             'duzen'    => 'kommt aus den Team-Einstellungen, nicht vom Menschen',
+        ];
+
+        // Absichtlich OFFEN, jede mit ihrem Grund. Ihre Sicherheit sitzt
+        // nicht in der Unveraenderlichkeit, sondern darin, dass
+        // KontoWriter::registriere() bei JEDEM Aufruf beide Nachweise erneut
+        // prueft.
+        $offen = [
+            'geburtsdatum'         => 'die Eingabe des Menschen — gesperrt kann er nichts eintippen',
+            'passwort'             => 'dito',
+            'passwortWiederholung' => 'dito',
+            'fehler'               => 'nur eine Anzeige; wer sie sich selbst setzt, beschreibt seinen eigenen Bildschirm',
         ];
 
         $klasse = new \ReflectionClass(KontoAnlegen::class);
@@ -749,13 +769,30 @@ final class KontoAnlegenTest extends TestCase
             );
         }
 
-        // Negativ-Gegenstueck: die Eingaben des Menschen sind ABSICHTLICH
-        // offen, sonst kann er nichts eintippen.
-        foreach (['geburtsdatum', 'passwort', 'passwortWiederholung'] as $offen) {
+        foreach ($offen as $name => $warum) {
             $this->assertSame(
                 [],
-                $klasse->getProperty($offen)->getAttributes(Locked::class),
-                "{$offen} ist gesperrt — dann kann der Mensch nichts mehr eintippen",
+                $klasse->getProperty($name)->getAttributes(Locked::class),
+                "{$name} ist gesperrt — {$warum}",
+            );
+        }
+
+        // Der Schluss der geschlossenen Welt: kein oeffentliches Feld darf
+        // an beiden Listen vorbei existieren.
+        foreach ($klasse->getProperties(\ReflectionProperty::IS_PUBLIC) as $eigenschaft) {
+            if ($eigenschaft->isStatic()) {
+                continue;
+            }
+
+            $name = $eigenschaft->getName();
+
+            $this->assertTrue(
+                isset($gesperrt[$name]) || isset($offen[$name]),
+                "Die oeffentliche Eigenschaft \${$name} steht in keiner der beiden Listen. "
+                . 'Entscheide: gehoert sie zu dem, was ueber Identitaet oder Zustand entscheidet '
+                . '(dann #[Locked] und oben eintragen), oder ist sie eine Eingabe des Menschen '
+                . '(dann unten eintragen, mit Grund)? Genau hier ist am 19.08.2026 ein '
+                . 'Auth-Bypass entstanden.',
             );
         }
     }

@@ -1483,11 +1483,52 @@ final class PortalGleichstandTest extends TestCase
         // sperren" missverstanden wird: die Eingaben des Menschen sind
         // ABSICHTLICH offen. Ihre Sicherheit sitzt darin, dass jeder
         // Schreibweg erneut ueber berechtigterMitarbeiter() geht.
-        foreach (['birthDate', 'idLast4', 'profilWerte', 'uploadCode'] as $offen) {
+        //
+        // Diese Liste ist seit der Pruefung zu Aufgabe 6 VOLLSTAENDIG, nicht
+        // mehr beispielhaft: sie ist die zweite Haelfte der geschlossenen
+        // Welt unten.
+        $offen = [
+            'birthDate'             => 'Eingabe der Anmeldung',
+            'idLast4'               => 'Eingabe der Anmeldung',
+            'fehler'                => 'nur eine Anzeige; wer sie sich selbst setzt, beschreibt seinen eigenen Bildschirm',
+            'uploadCode'            => 'der Mensch waehlt die Nachweisart selbst',
+            'uploadGueltigBis'      => 'der Mensch tippt das Ablaufdatum',
+            'uploadDatei'           => 'die Datei, die er hochlaedt',
+            'uploadDateiRueckseite' => 'die zweite Datei der zweiseitigen Arten',
+            'uploadFehler'          => 'nur eine Anzeige',
+            'profilWerte'           => 'die Eingaben des offenen Gruppen-Blatts',
+            'profilFehler'          => 'nur eine Anzeige',
+            'profilMeldung'         => 'nur eine Anzeige',
+        ];
+
+        foreach ($offen as $name => $warum) {
             $this->assertSame(
                 [],
-                $klasse->getProperty($offen)->getAttributes(Locked::class),
-                "{$offen} ist gesperrt — dann kann der Mensch nichts mehr eintippen",
+                $klasse->getProperty($name)->getAttributes(Locked::class),
+                "{$name} ist gesperrt — {$warum}",
+            );
+        }
+
+        // GESCHLOSSENE WELT (Nacharbeit zur Pruefung von Aufgabe 6, wo diese
+        // Luecke von hier geerbt worden war): bis dahin prueften beide
+        // Waechter nur die NAMENTLICH eingetragenen Felder. Eine spaeter
+        // hinzugefuegte oeffentliche Eigenschaft ohne #[Locked] rutschte
+        // lautlos durch, und der Waechter leuchtete dabei gruen — derselbe
+        // Bypass wie am 19.08.2026, nur eine Runde spaeter. Jetzt muss sich
+        // jedes neue Feld entscheiden.
+        foreach ($klasse->getProperties(\ReflectionProperty::IS_PUBLIC) as $eigenschaft) {
+            if ($eigenschaft->isStatic()) {
+                continue;
+            }
+
+            $name = $eigenschaft->getName();
+
+            $this->assertTrue(
+                isset($gesperrt[$name]) || isset($offen[$name]),
+                "Die oeffentliche Eigenschaft \${$name} steht in keiner der beiden Listen. "
+                . 'Entscheide: entscheidet sie ueber Identitaet oder Zustand (dann #[Locked] '
+                . 'und oben eintragen), oder ist sie eine Eingabe des Menschen (dann unten '
+                . 'eintragen, mit Grund)? Genau hier ist E6 entstanden.',
             );
         }
     }
