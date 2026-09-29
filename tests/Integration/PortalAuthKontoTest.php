@@ -67,6 +67,9 @@ final class PortalAuthKontoTest extends TestCase
 
     private Repository $cache;
 
+    /** @var object{geschrieben: list<string>} die Cache-Attrappe hinter $cache */
+    private object $store;
+
     /** @var object{gepruefteHashes: list<string>} */
     private object $hasher;
 
@@ -125,7 +128,28 @@ final class PortalAuthKontoTest extends TestCase
         Facade::setFacadeApplication($container);
         Facade::clearResolvedInstances();
 
-        $this->cache = new Repository(new ArrayStore());
+        // Der Wirt faehrt CACHE_STORE=database, und cache.key ist dort
+        // varchar(255) PRIMARY KEY bei striktem MySQL. Ein ArrayStore kennt
+        // keine Grenze und wuerde einen ueberlangen Schluessel klaglos
+        // schlucken — die Attrappe zieht die Grenze des Wirts ein und merkt
+        // sich, welche Schluessel ueberhaupt geschrieben wurden.
+        $this->store = new class extends ArrayStore {
+            /** @var list<string> */
+            public array $geschrieben = [];
+
+            public function put($key, $value, $seconds): bool
+            {
+                if (strlen((string) $key) > 255) {
+                    throw new \RuntimeException(
+                        'SQLSTATE[22001]: Data too long for column key (' . strlen((string) $key) . ' Zeichen)',
+                    );
+                }
+                $this->geschrieben[] = (string) $key;
+
+                return parent::put($key, $value, $seconds);
+            }
+        };
+        $this->cache = new Repository($this->store);
 
         $this->capsule->schema()->create('rec_persons', function ($t) {
             $t->increments('id');
@@ -518,6 +542,39 @@ final class PortalAuthKontoTest extends TestCase
         }
     }
 
+    /**
+     * Die Eingabe kommt von einer oeffentlichen Seite und ist unbegrenzt
+     * lang. Landete sie roh im Cache-Schluessel, wuerde das Schreiben des
+     * Zaehlers beim Wirt (CACHE_STORE=database, cache.key varchar(255))
+     * SQLSTATE[22001] werfen — eine 500er-Antwort auf der Anmeldeseite, von
+     * jedem ausloesbar. Die Cache-Attrappe zieht dieselbe Grenze.
+     */
+    public function test_eine_ueberlange_eingabe_antwortet_falsch_statt_zu_werfen(): void
+    {
+        $ergebnis = $this->auth()->anmeldenMitNummer(null, str_repeat('9', 500), self::PASSWORT);
+
+        $this->assertSame(PortalAuth::FALSCH, $ergebnis['status']);
+        $this->assertNotEmpty($this->store->geschrieben, 'der Fehlversuch muss trotzdem gezaehlt worden sein');
+    }
+
+    /**
+     * Die vollstaendige Handynummer darf nicht fuenfzehn Minuten im Klartext
+     * in der Cache-Tabelle stehen — KontoWriter kuerzt dieselbe Nummer vor
+     * einer blossen Log-Zeile mit Datenschutz-Begruendung auf vier Stellen.
+     */
+    public function test_der_cache_schluessel_traegt_die_nummer_nicht_im_klartext(): void
+    {
+        $this->auth()->anmeldenMitNummer(self::TEAM, self::NUMMER_GETIPPT, self::FALSCHES_PASSWORT);
+
+        $this->assertNotEmpty($this->store->geschrieben);
+
+        foreach ($this->store->geschrieben as $schluessel) {
+            $this->assertStringNotContainsString(self::NUMMER, $schluessel);
+            $this->assertStringNotContainsString(self::NUMMER_GETIPPT, $schluessel);
+            $this->assertStringNotContainsString('15111111111', $schluessel, 'auch nicht ohne Vorwahl-Schreibweise');
+        }
+    }
+
     // ----------------------------------------------------------- Dispo-Sperre
 
     /**
@@ -596,7 +653,7 @@ final class PortalAuthKontoTest extends TestCase
      * Der Fall hier: die Eskalation hat beide Anstellungen gesperrt,
      * inzwischen ist die zweite beendet. HR drueckt den Knopf — er erreicht
      * nur noch die aktive. Fragte die Anmeldung eine groessere Menge,
-     * bekaeme HR „Portalzugang entsperrt" zu sehen, und der Mensch kaeme
+     * bekaeme HR "Portalzugang entsperrt" zu sehen, und der Mensch kaeme
      * trotzdem nicht hinein: eine Sperre, die sich nicht mehr aufheben
      * laesst und nur per SQL zu heilen waere.
      */

@@ -128,6 +128,14 @@ final class PortalAuth
     {
         $schluessel = $this->nummernSchluessel($nummer);
 
+        // Die Drossel steht VOR dem Passwortvergleich, und das ist Absicht:
+        // dahinter gestellt braeche sie die Antwortzeit-Eigenschaft zwar
+        // nicht, verloere aber ihre Wirkung — dann kostete jeder Versuch
+        // eines Gesperrten weiterhin einen vollen bcrypt-Lauf, und genau den
+        // soll die Sperre einsparen. Sie verraet dabei nichts: ihr
+        // Schluessel entsteht allein aus der Eingabe, ohne einen Blick in
+        // die Datenbank, und der Zaehler laeuft bei "falsches Passwort" und
+        // "gibt es nicht" gleich weiter.
         if ($this->isRateLimited($schluessel)) {
             return ['status' => self::GESPERRT, 'personId' => null];
         }
@@ -223,14 +231,30 @@ final class PortalAuth
      *
      * Er haengt an der NORMALISIERTEN Nummer, nicht am getippten Text: sonst
      * schuettelt man die Sperre durch eine andere Schreibweise derselben
-     * Nummer ab („0151 …" statt „+49151 …"), und die Drossel waere
+     * Nummer ab ("0151 ..." statt "+49151 ..."), und die Drossel waere
      * wirkungslos. Und er haengt an der Nummer, nicht an der gefundenen
      * Person: eine unbekannte Nummer wird genauso gedrosselt wie eine
      * bekannte, sonst waere der Unterschied im Verhalten genau die Auskunft,
      * die die Meldungen vermeiden.
      *
-     * Eine unlesbare Eingabe bekommt ihren getrimmten Rohtext als Schluessel
-     * — sie findet ohnehin nie ein Konto, soll aber trotzdem zaehlen.
+     * Eine unlesbare Eingabe bekommt ihren getrimmten Rohtext als Grundlage
+     * - sie findet ohnehin nie ein Konto, soll aber trotzdem zaehlen.
+     *
+     * GEHASHT, und zwar aus zwei Gruenden:
+     *  - Die Eingabe kommt von einer oeffentlichen Seite und ist UNBEGRENZT
+     *    lang. Der Wirt faehrt CACHE_STORE=database, und cache.key ist
+     *    varchar(255) PRIMARY KEY: ab rund 207 Zeichen Eingabe wirft das
+     *    Schreiben des Zaehlers SQLSTATE[22001] - eine 500er-Antwort auf der
+     *    Anmeldeseite, ausloesbar von jedem. Der Token-Weg hat das nicht,
+     *    dort erreicht nur ein gefundener Mitarbeiter den Zaehler. Ein Hash
+     *    ist immer gleich lang.
+     *  - Sonst stuende die vollstaendige Handynummer fuenfzehn Minuten im
+     *    Klartext in der Cache-Tabelle - waehrend KontoWriter dieselbe Nummer
+     *    vor einer Log-Zeile mit Datenschutz-Begruendung auf vier Stellen
+     *    kuerzt.
+     * Kein kryptografischer Hash noetig: hier wird nichts geprueft, nur ein
+     * Schluessel gebildet. Die Normalisierung laeuft VOR dem Hashen, sonst
+     * ergaeben zwei Schreibweisen derselben Nummer wieder zwei Zaehler.
      *
      * Der Vorsatz "nummer:" haelt die beiden Einstiege auseinander: Token und
      * Nummer teilen sich denselben Speicher und dieselben Zaehler, aber nie
@@ -241,7 +265,7 @@ final class PortalAuth
      */
     private function nummernSchluessel(string $nummer): string
     {
-        return 'nummer:' . (PhoneE164::normalize($nummer) ?? trim($nummer));
+        return 'nummer:' . hash('xxh128', PhoneE164::normalize($nummer) ?? trim($nummer));
     }
 
     public function clearFailures(string $token): void
