@@ -535,6 +535,15 @@ Die Nummer wird **nicht** abgefragt — sie steht durch den Token fest.
 - „Angemeldet bleiben" verlaengert die Sitzung, setzt **kein** dauerhaftes Geheimnis in
   einen Cookie.
 - `#[Locked]` wie in Task 6.
+- **ACHTUNG, Verwechslungsgefahr mit Folgen (Befund der Aufgabe-5-Pruefung).**
+  `PortalAuth::anmeldenMitNummer()` liefert eine **Personen**-Kennung (`rec_persons.id`);
+  `PortalAuth::sessionKey(int $employeeId)` erwartet eine **Anstellungs**-Kennung
+  (`rec_employees.id`). Beide sind `int`, nichts im Typ trennt sie. Wer die eine in die
+  andere steckt, baut genau die **Verschraenkung**, die die Global Constraints
+  verbieten: ein Konto-Nachweis oeffnete eine fremde Portal-Sitzung. Die Seite muss die
+  Personen-Kennung ausdruecklich in die Anstellungen aufloesen, bevor sie eine Sitzung
+  eroeffnet — und ein Test muss belegen, dass die Sitzung auf einer Anstellung DIESER
+  Person steht.
 
 - [ ] **Step 1: Test schreiben, rot sehen** — darunter: ein fremdes Weiterleitungsziel wird **verworfen**.
 - [ ] **Step 2: Komponente und Blade, Commit**
