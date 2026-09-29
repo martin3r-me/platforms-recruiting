@@ -38,25 +38,65 @@ namespace Platform\Recruiting\Support;
  */
 final class EinmalcodeVorlagen
 {
-    /** Der Konfigurationspfad — EINE Schreibweise, vom Sender und von hier benutzt. */
+    /**
+     * Der Konfigurationspfad der AKTUELLEN Vorlagen.
+     *
+     * EINE Schreibweise: EinmalcodeSender::vorlage() bildet seinen Pfad aus
+     * genau dieser Konstante (Fund N1). Ein eigener Literal dort waere die
+     * Stelle, an der die beiden auseinanderlaufen — und dann sendete der
+     * Sender weiter, waehrend namen() ins Leere liest und der Code wieder
+     * unmaskiert im Chat stuende.
+     */
     public const KONFIG = 'recruiting.konto.code_vorlagen';
+
+    /**
+     * Der Konfigurationspfad der ABGELEGTEN Vorlagennamen — eine schlichte
+     * Liste von Namen, die einmal Code-Vorlagen waren.
+     *
+     * WOZU (Fund N2, derselbe Gedanke wie bei der Schwaerzung aller Werte):
+     * eine Nachricht von gestern wurde mit der Konfiguration von gestern
+     * verschickt. Heisst die Vorlage eines Tages konto_einmalcode_v2, faellt
+     * der alte Name aus KONFIG heraus — und JEDE alte Nachricht stuende
+     * wieder unmaskiert im Verlauf. Nichts wuerde rot, niemand merkte es.
+     *
+     * DESHALB IST DIE LISTE NACH OBEN OFFEN UND WIRD NIE GEKUERZT. Der SENDER
+     * liest sie nicht (er verschickt nur mit den aktuellen Namen), die
+     * SCHWAERZUNG liest beide.
+     */
+    public const KONFIG_ALT = 'recruiting.konto.code_vorlagen_alt';
 
     /** Was statt des Codes in der Chat-Blase steht. */
     public const MASKE = '••••••';
 
     /**
-     * Die konfigurierten Meta-Vorlagennamen, klein geschrieben.
+     * ALLE Vorlagennamen, die je einen Code getragen haben — die aktuellen
+     * aus KONFIG und die abgelegten aus KONFIG_ALT, klein geschrieben.
+     *
+     * Bewusst beide: der Verlauf reicht weiter zurueck als die heutige
+     * Konfiguration (Fund N2).
      *
      * @return list<string>
      */
     public static function namen(): array
     {
         $namen = [];
-
-        foreach ((array) config(self::KONFIG, []) as $eintrag) {
-            $name = strtolower(trim((string) ($eintrag['name'] ?? '')));
+        $merke = static function (string $name) use (&$namen): void {
+            $name = strtolower(trim($name));
             if ($name !== '' && !in_array($name, $namen, true)) {
                 $namen[] = $name;
+            }
+        };
+
+        foreach ((array) config(self::KONFIG, []) as $eintrag) {
+            $merke((string) ($eintrag['name'] ?? ''));
+        }
+
+        // Abgelegte Namen stehen als blosse Zeichenketten da, nicht als
+        // Eintraege mit Platzhaltern: zum Schwaerzen braucht es nur den Namen,
+        // und je weniger dort zu pflegen ist, desto eher wird es gepflegt.
+        foreach ((array) config(self::KONFIG_ALT, []) as $alt) {
+            if (is_string($alt)) {
+                $merke($alt);
             }
         }
 

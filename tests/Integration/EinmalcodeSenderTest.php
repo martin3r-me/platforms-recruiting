@@ -21,6 +21,7 @@ use Platform\Recruiting\Services\Comms\EinmalcodeSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Support\CodeDrossel;
 use Platform\Recruiting\Support\Einmalcode;
+use Platform\Recruiting\Support\EinmalcodeVorlagen;
 
 /**
  * Der Versand des Einmalcodes — die Nachricht, mit der jemand sein Passwort
@@ -634,6 +635,10 @@ final class EinmalcodeSenderTest extends TestCase
         $datei = require dirname(__DIR__, 2) . '/config/recruiting.php';
 
         $this->assertArrayHasKey('code_vorlagen', $datei['konto']);
+        $this->assertIsArray(
+            $datei['konto']['code_vorlagen_alt'] ?? null,
+            'Fund N2: ohne diese Liste faellt ein umbenannter Vorlagenname aus der Schwaerzung.'
+        );
 
         foreach ([KontoWriter::ZWECK_ANMELDUNG, KontoWriter::ZWECK_PASSWORT, KontoWriter::ZWECK_NUMMERNWECHSEL] as $zweck) {
             $this->assertArrayHasKey($zweck, $datei['konto']['code_vorlagen'], "Zweck {$zweck} fehlt.");
@@ -671,7 +676,12 @@ final class EinmalcodeSenderTest extends TestCase
     public function testEinGrossGeschriebenerCodePlatzhalterZaehltAuch(): void
     {
         $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['platzhalter' => ['Code']]);
-        $this->meta->genehmigt[self::VORLAGE] = ['Code'];
+        // Die Attrappe bleibt Meta-treu: Meta laesst als parameter_name nur
+        // Kleinbuchstaben zu, die genehmigte Vorlage heisst also {{code}}.
+        // Genau daran haengt Fund N4 - die grosszuegige Lesart der
+        // Konfiguration darf nicht in einen abgelehnten Versand muenden, denn
+        // dann waere der Code erzeugt, verbraucht und nie angekommen.
+        $this->meta->genehmigt[self::VORLAGE] = ['code'];
 
         $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
 
@@ -686,6 +696,12 @@ final class EinmalcodeSenderTest extends TestCase
             self::JETZT,
             self::PFEFFER,
         ), 'Auch bei {{Code}} muss der echte Code drinstehen.');
+
+        $this->assertSame(
+            'code',
+            $this->meta->calls[0]['components'][0]['parameters'][0]['parameter_name'],
+            'Fund N4: der Name geht klein raus, sonst lehnt Meta ab.'
+        );
     }
 
     /**
@@ -711,6 +727,66 @@ final class EinmalcodeSenderTest extends TestCase
         $this->meta->lehntAbMitWert = false;
         $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
         $this->assertSame('info', $this->log->zeilen[0]['stufe'], 'Der Normalfall bleibt info.');
+    }
+
+    /**
+     * FUND N1: der Sender bildet seinen Konfigurationspfad aus DERSELBEN
+     * Konstante, aus der die Schwaerzung ihre Namen liest.
+     *
+     * Solange er einen eigenen Literal hatte, konnten die beiden
+     * auseinanderlaufen — und das ist kein Schoenheitsfehler: der Sender
+     * verschickte dann weiter, waehrend EinmalcodeVorlagen::namen() ins Leere
+     * las. Der Code stuende wieder unmaskiert im Chat, genau der Fehler, den
+     * F1 geschlossen hat, nur lautlos.
+     */
+    public function testDerSenderLiestDenselbenKonfigurationspfadWieDieSchwaerzung(): void
+    {
+        // Die Vorlagen stehen im Setup unter EinmalcodeVorlagen::KONFIG. Wenn
+        // der Sender von dort liest, findet er sie; leserte er anderswo, waere
+        // der Versand "nicht konfiguriert".
+        $this->assertSame(
+            EinmalcodeSender::STATUS_SENT,
+            (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT)
+        );
+
+        // Und die Gegenrichtung: derselbe Pfad traegt die Schwaerzung.
+        $this->assertTrue(EinmalcodeVorlagen::istCodeVorlage(self::VORLAGE));
+    }
+
+    /**
+     * FUND N2: ein ABGELEGTER Vorlagenname wird weiterhin geschwaerzt.
+     *
+     * Heisst die Vorlage eines Tages anders, faellt der alte Name aus
+     * code_vorlagen heraus — und ohne die zweite Liste stuenden alle alten
+     * Nachrichten wieder unmaskiert im Verlauf, ohne dass irgendetwas rot
+     * wuerde. Derselbe Gedanke wie bei der Schwaerzung ALLER Werte, nur eine
+     * Ebene hoeher.
+     */
+    public function testEinAbgelegterVorlagenNameWirdWeiterhinGeschwaerzt(): void
+    {
+        config()->set(EinmalcodeVorlagen::KONFIG_ALT, ['konto_einmalcode_v1']);
+
+        $this->assertTrue(
+            EinmalcodeVorlagen::istCodeVorlage('konto_einmalcode_v1'),
+            'Der Verlauf reicht weiter zurueck als die heutige Konfiguration.'
+        );
+        $this->assertSame(
+            [['type' => 'body', 'parameters' => [
+                ['type' => 'text', 'parameter_name' => 'code', 'text' => EinmalcodeVorlagen::MASKE],
+            ]]],
+            EinmalcodeVorlagen::geschwaerzt([['type' => 'body', 'parameters' => [
+                ['type' => 'text', 'parameter_name' => 'code', 'text' => '481516'],
+            ]]]),
+        );
+
+        // Der SENDER liest diese Liste bewusst nicht: ein abgelegter Name
+        // wird geschwaerzt, aber nicht mehr verschickt.
+        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => '']);
+        $this->assertSame(
+            EinmalcodeSender::STATUS_FAILED,
+            (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT)
+        );
+        $this->assertSame([], $this->meta->calls);
     }
 
     // ------------------------------- F2: vier Zusagen, die niemand hielt

@@ -11,6 +11,7 @@ use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Support\CodeDrossel;
 use Platform\Recruiting\Support\Einmalcode;
+use Platform\Recruiting\Support\EinmalcodeVorlagen;
 use Platform\Recruiting\Support\PhoneE164;
 
 /**
@@ -321,7 +322,12 @@ final class EinmalcodeSender
      */
     private function vorlage(string $zweck): array
     {
-        $schluessel = "recruiting.konto.code_vorlagen.{$zweck}";
+        // AUS DER KONSTANTE, nicht als eigener Literal (Fund N1). Liefen die
+        // beiden Schreibweisen auseinander, sendete dieser Sender munter
+        // weiter, waehrend EinmalcodeVorlagen::namen() ins Leere liest - und
+        // damit stuende der Code wieder unmaskiert im Chat. Genau der Fehler,
+        // den F1 geschlossen hat, nur lautlos.
+        $schluessel = EinmalcodeVorlagen::KONFIG . '.' . $zweck;
         $eintrag = config($schluessel);
 
         $fehler = fn (string $meldung): array => ['fehler' => $meldung, 'name' => '', 'sprache' => 'de', 'platzhalter' => []];
@@ -416,7 +422,15 @@ final class EinmalcodeSender
             default                                         => $this->vorname($personId),
         };
 
-        return ['type' => 'text', 'text' => $wert, 'parameter_name' => $name];
+        // KLEIN GESCHRIEBEN (Fund N4): Meta laesst als parameter_name nur
+        // Kleinbuchstaben zu. Die Konfiguration darf grosszuegig gelesen
+        // werden ({{Code}} zaehlt, siehe die Pflichtpruefung in vorlage()),
+        // aber ein grossgeschriebener Name im Versand wuerde abgelehnt - und
+        // dann waere der Code erzeugt, verbraucht und nie angekommen. Vorher
+        // scheiterte derselbe Tippfehler folgenlos an der Pflichtpruefung;
+        // ihn dort durchzulassen, ohne ihn hier zu glaetten, machte aus einem
+        // harmlosen Fehler einen teuren.
+        return ['type' => 'text', 'text' => $wert, 'parameter_name' => strtolower($name)];
     }
 
     /**
@@ -477,9 +491,14 @@ final class EinmalcodeSender
      * sondern damit die Liste nicht endlos waechst.
      *
      * NICHT ATOMAR, UND DAS IST EINE ENTSCHEIDUNG (Fund F7): Lesen und
-     * Schreiben sind zwei Schritte. Zwei Anforderungen, die sich genau
-     * ueberlappen, koennen einander ueberschreiben - im schlimmsten Fall geht
-     * eine Nachricht zu viel raus, sieben Cent. Eine Sperre (Cache::lock)
+     * Schreiben sind zwei Schritte. Anforderungen, die sich genau
+     * ueberlappen, koennen einander ueberschreiben: bei K gleichzeitigen
+     * lesen alle denselben Stand, und es gehen bis zu K-1 Nachrichten zu viel
+     * raus - nicht eine. (Hier stand vorher "eine Nachricht, sieben Cent";
+     * das galt nur fuer genau zwei und rechnete damit guenstiger als die
+     * Wirklichkeit.) Die Zahl ist trotzdem klein: K ist hier die Zahl der
+     * Anforderungen, die im selben Augenblick fuer DIESELBE Nummer oder
+     * Person laufen. Eine Sperre (Cache::lock)
      * waere teurer als der Schaden: sie kostet bei JEDEM Versand einen
      * zusaetzlichen Umlauf, und faellt sie aus, kommt niemand mehr an seinen
      * Code. Wer das aendern will, rechne erst den Preis beider Seiten aus.

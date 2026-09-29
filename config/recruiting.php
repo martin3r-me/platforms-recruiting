@@ -251,6 +251,27 @@ return [
                 'platzhalter' => ['code'],
             ],
         ],
+
+        // Vorlagennamen, die einmal einen Einmalcode getragen haben und es
+        // heute nicht mehr tun.
+        //
+        // WOZU: der Chat unter /recruiting/conversations setzt die gesendeten
+        // Werte wieder in den Vorlagentext ein. Fuer eine Code-Vorlage werden
+        // sie geschwaerzt — aber eine Nachricht von gestern wurde mit der
+        // Konfiguration von gestern verschickt. Faellt ein Name aus
+        // code_vorlagen heraus, stuenden ALLE alten Nachrichten mit diesem
+        // Namen wieder unmaskiert im Verlauf, und nichts wuerde davon rot.
+        //
+        // ANWEISUNG AN DEN NAECHSTEN: Wer eine Code-Vorlage umbenennt oder
+        // ersetzt, traegt den ALTEN Namen hier ein. Diese Liste wird NIE
+        // gekuerzt — ein Eintrag zu viel kostet nichts, ein fehlender kostet
+        // den ganzen Verlauf.
+        //
+        // Der Sender liest diese Liste NICHT (er verschickt nur mit den
+        // aktuellen Namen); nur die Schwaerzung liest beide.
+        'code_vorlagen_alt' => [
+            // 'konto_einmalcode_v1',
+        ],
     ],
 
     /*
