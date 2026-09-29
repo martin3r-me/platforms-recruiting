@@ -29,6 +29,13 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  *    wenn der Team-Schalter an ist und eine attended-Buchung existiert. Kein
  *    Versand. Scheitert das, bleibt der Mitarbeiter — siehe
  *    issueTrainingCertificate() unten.
+ *  - Verbindet den Mitarbeiter mit seiner Personen-Zeile (rec_persons), HINTER
+ *    dem Commit — siehe linkPerson() unten. Das ist der Ersatz fuer den
+ *    ZAS-Inbound, der frueher neue Mitarbeiter anlegte: seit der
+ *    Kundenentscheidung, dass neue Mitarbeiter NICHT mehr ueber ZAS entstehen,
+ *    ist dieser Service der einzige Weg, auf dem ein RecEmployee entsteht, und
+ *    damit die einzige Stelle, die die Personen-Zeile noch stempeln kann. Der
+ *    ZAS-Import bekommt hier bewusst KEINE Aenderung.
  *
  * Idempotent: existiert schon ein RecEmployee fuer diesen Applicant
  * (FK rec_applicant_id), wird der existierende zurueckgegeben — kein
@@ -182,6 +189,15 @@ class CreateEmployeeFromApplicantService
             return $employee->fresh();
         });
 
+        // Personen-Zeile VOR dem Zertifikat: sie ist die grundlegendere der
+        // beiden Nachwirkungen. Ohne sie ist der Mitarbeiter im naechsten
+        // Backfill-Lauf unsichtbar und kann sich (Stufe Handynummer +
+        // Passwort) nie registrieren — ein fehlendes Zertifikat ist
+        // demgegenueber nur ein fehlendes Dokument. Reihenfolge zweier
+        // gleichrangig HINTER-der-Transaktion laufender Schritte ist sonst
+        // beliebig; hier begruendet die Schwere der Folge sie.
+        $this->linkPerson($employee);
+
         // WEG (b) DER ZERTIFIKAT-AUSSTELLUNG, und die Stelle ist die Aussage:
         // HIER, hinter dem schliessenden `});` der Transaktion, nicht in ihrer
         // letzten Zeile. Innerhalb waere "alles oder nichts" die Zusage, und
@@ -198,6 +214,78 @@ class CreateEmployeeFromApplicantService
         $this->issueTrainingCertificate($applicant);
 
         return $employee;
+    }
+
+    /**
+     * Gibt dem frisch angelegten Mitarbeiter seine Personen-Zeile (Spec
+     * 2026-09-28, Paragraph 4) — der Ersatz fuer den ZAS-Inbound, der das
+     * bislang uebernahm. ZAS legt kuenftig KEINE neuen Mitarbeiter mehr an
+     * (Kundenentscheidung); dieser Weg hier (Vertragsunterschrift,
+     * DirectHire, RecApplicant) ist seither der EINZIGE, auf dem ein
+     * RecEmployee entsteht, und damit die einzige Stelle, an der die
+     * Personen-Zeile noch gestempelt werden kann. Ohne diesen Aufruf waere
+     * der Backfill vom 2026-09-28 nur eine Momentaufnahme: jeder danach
+     * angelegte Mensch bliebe unverbunden, und in der naechsten Stufe
+     * (Handynummer + Passwort haengen an der Personen-Zeile) koennte er sich
+     * nie registrieren.
+     *
+     * HINTER DER TRANSAKTION, aus demselben Grund wie beim Zertifikat oben:
+     * dieser Weg laeuft unter anderem beim Unterschreiben des
+     * Arbeitsvertrags — eine oeffentliche Strecke mit einem echten Menschen
+     * davor. Ein Sonderfall der Personen-Zuordnung (geteiltes Handy, kaputte
+     * Nummer, was auch immer der naechste Fall ist) darf diesen Menschen
+     * nicht daran hindern, seinen Vertrag abzuschliessen. Eine fehlende
+     * Personen-Zeile ist demgegenueber harmlos: der naechste
+     * Backfill-Lauf (recruiting:backfill-persons) heilt sie nach.
+     *
+     * EIGENER SAVEPOINT, aus demselben Grund wie beim Kontaktbuch-Sync und
+     * beim Zertifikat: DirectHire\Index::createEmployee() ruft
+     * createOrUpdate() innerhalb einer EIGENEN DB::transaction() auf. Dann
+     * ist dieser Aufruf hier nicht hinter einem Commit, sondern nur hinter
+     * einem Savepoint, und ein gefangener Statement-Fehler wuerde auf
+     * abort-on-error-Engines die Transaktion des Aufrufers vergiften — der
+     * Folgefehler waere dann die Mitarbeiter-Anlage selbst, also genau das,
+     * was diese Methode nicht anfassen darf.
+     *
+     * \Throwable statt einer Aufzaehlung, aus demselben Grund wie bei
+     * issueTrainingCertificate(): PersonLinker::verbinde() wirft
+     * InvalidArgumentException (Zusammenlege-Fall, leere Liste — hier
+     * praktisch nicht erreichbar, siehe unten) sowie jede QueryException
+     * eines DB-Fehlers; dazu kommen \Error bei kaputten Modell-Daten und
+     * \Exception bei einem nicht aufloesbaren Binding. \Exception und
+     * \Error sind die beiden einzigen Implementierungen von \Throwable —
+     * eine engere Liste waere nur eine laengere Schreibweise dafuer.
+     *
+     * STILL UEBERSPRUNGEN, wenn schon eine rec_person_id steht: createOrUpdate()
+     * heisst createOrUpdate() — ein zweiter Aufruf fuer denselben Bewerber
+     * (der Idempotenz-Zweig ganz oben greift hier nicht, weil der hier
+     * uebergebene Employee frisch angelegt wurde) darf keine zweite
+     * Personen-Zeile anlegen. Praktisch trifft das den Fall, dass ein
+     * frueherer Lauf hier schon gestempelt hat, bevor spaeter etwas anderes
+     * in derselben Anlage scheiterte.
+     */
+    private function linkPerson(RecEmployee $employee): void
+    {
+        if ($employee->rec_person_id !== null) {
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($employee) {
+                \Platform\Recruiting\Services\PersonLinker::verbinde(
+                    [$employee->id],
+                    $employee->team_id,
+                    $employee->phone,
+                );
+            });
+        } catch (\Throwable $e) {
+            Log::error('[CreateEmployeeFromApplicantService] Personen-Verknuepfung nach MA-Anlage fehlgeschlagen', [
+                'employee_id' => $employee->id,
+                'team_id'     => $employee->team_id,
+                'exception'   => get_class($e),
+                'error'       => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

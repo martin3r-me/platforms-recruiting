@@ -129,8 +129,21 @@ class EmployeeCreationCertificateTest extends TestCase
      * Idempotenz-Pfad (QUERIES_ZWEITER_AUFRUF) ist unberuehrt — dort steigt
      * createOrUpdate() vor diesem Query aus.
      */
-    private const QUERIES_VOR_DEM_HOOK = 23;
-    private const QUERIES_SCHALTER_AUS = 24;
+    /**
+     * 29.09.2026: beide Zahlen um drei erhoeht (23->26, 24->27).
+     *
+     * Dazugekommen ist der Personen-Link (CreateEmployeeFromApplicantService::
+     * linkPerson(), Luecke "neue Mitarbeiter ohne Personen-Zeile"): ein SELECT
+     * auf rec_employees (schon verbundene Geschwister? hier: nein), ein INSERT
+     * in rec_persons und ein UPDATE auf rec_employees.rec_person_id. Anders
+     * als der Zertifikat-Hook hat der Personen-Link KEINEN Team-Schalter —
+     * ZAS legt kuenftig keine neuen Mitarbeiter mehr an, also gibt es keinen
+     * zweiten Weg mehr, ueber den die Zeile sonst entstuende. Die drei Queries
+     * laufen deshalb in BEIDEN Konstanten gleich mit dazu, nicht nur in der
+     * SCHALTER_AUS-Zahl.
+     */
+    private const QUERIES_VOR_DEM_HOOK = 26;
+    private const QUERIES_SCHALTER_AUS = 27;
 
     /**
      * Der Idempotenz-Pfad: existiert der Mitarbeiter schon, steigt
@@ -287,6 +300,9 @@ class EmployeeCreationCertificateTest extends TestCase
      *  - drei Settings-Queries: zwei vom Kontaktbuch-Sync (select + insert der
      *    fehlenden Zeile), einer vom Hook. Ein vierter waere ein doppelter
      *    Lookup im Hook.
+     *  - eine rec_persons-Query (das INSERT des Personen-Links, siehe 29.09.
+     *    an den Konstanten): der Link laeuft OHNE Schalter, ist also auch in
+     *    diesem Szenario da.
      *  - die Gesamtzahl: alles andere, was jemand hier einbaut.
      */
     public function testSchalterAusLaesstDieAnlageBisAufEinenQuerySoWieHeute(): void
@@ -308,6 +324,7 @@ class EmployeeCreationCertificateTest extends TestCase
         $this->assertSame((int) $applicant->id, (int) $employee->rec_applicant_id);
         $this->assertFalse((bool) $applicant->refresh()->is_active);
         $this->assertSame(0, $this->zertifikatAnzahl($applicant));
+        $this->assertNotNull($employee->fresh()->rec_person_id, 'Der Personen-Link laeuft ohne Schalter, auch hier.');
 
         // Und der Weg dorthin.
         $this->assertSame([], $this->queriesAuf($queries, 'rec_training_certificates'));
@@ -316,6 +333,10 @@ class EmployeeCreationCertificateTest extends TestCase
             $this->queriesAuf($queries, 'rec_interview_bookings'),
             'Der Schalter ist das erste Gate: ohne ihn darf die attended-Pruefung nicht laufen.'
         );
+
+        $personQueries = $this->queriesAuf($queries, 'rec_persons');
+        $this->assertCount(1, $personQueries, "Erwartet: ein INSERT (keine Geschwister-Anstellung vorhanden).\n" . implode("\n", $personQueries));
+        $this->assertStringStartsWith('insert', $personQueries[0]);
 
         $settingsQueries = $this->queriesAuf($queries, 'rec_applicant_settings');
         $this->assertCount(3, $settingsQueries, "Erwartet: select + insert (Kontaktbuch-Sync) + select (Hook).\n" . implode("\n", $settingsQueries));
