@@ -617,6 +617,20 @@ sein Docblock ausdruecklich benennt.** Zwei davon treffen hier genauso:
 
 ### Task 9: Die fuenf Zuruecksetzen-Wege
 
+**Zwei Auflagen aus der Aufgabe-8-Pruefung, bevor irgendetwas gebaut wird:**
+
+- **„Passwort vergessen" braucht eine EIGENE Bremse.** `EinmalcodeSender::sende()` nimmt
+  eine **Personen**-Kennung, nicht eine Nummer — die Drossel aus Ruling GD-1 greift also
+  erst, wenn die Nummer **gefunden** wurde. Wer Nummern **durchprobiert**, laeuft nie in
+  sie hinein. Die Seite muss die Versuche deshalb selbst bremsen, nach dem Muster der
+  IP-Bremse aus Aufgabe 7 (`PortalAuth`, Ruling GD-12: `REMOTE_ADDR`, **nicht**
+  `$request->ip()` — der ist im Wirt faelschbar).
+- **Kein Status wird unterscheidbar angezeigt.** `sende()` liefert `sent`, `gedrosselt`
+  oder `failed`. **Alle drei sehen fuer den Menschen gleich aus** — auch `failed`, denn
+  dahinter steckt unter anderem ein gesperrtes Konto. Und eine unbekannte Nummer
+  antwortet genauso (Canvas 1789).
+
+
 **Files:**
 - Modify: `src/Livewire/Public/KontoAnmelden.php` (+ View)
 - Create: `src/Console/Commands/KontoZuruecksetzen.php` (Weg 5, HR)
