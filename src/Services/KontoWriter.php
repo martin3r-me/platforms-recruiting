@@ -725,6 +725,49 @@ final class KontoWriter
     }
 
     /**
+     * Weg 5 aus Spec §5: "Gar nichts geht — HR traegt die neue Nummer ein."
+     *
+     * Gibt die ALTE Nummer zurueck (fuer den Hinweis) oder null, wenn es
+     * keine gab.
+     *
+     * WARUM DAS HIER LIEGT UND NICHT IM KOMMANDO. PersonLinker::setzeNummer()
+     * allein genuegt NICHT: sein eigener Docblock verpflichtet jeden
+     * Aufrufer, den CRM-Kontakt nachzuziehen (Vorfall RG19734) — sonst
+     * behaelt der Kontakt die alte Nummer, und der naechste Einmalcode geht
+     * ans ALTE Geraet. Genau das wollte HR ja gerade beheben. Dazu kommen
+     * das Protokoll und das Abraeumen eines offenen Notfall-Antrags. Drei
+     * Pflichten, die ein Kommando vergessen kann; hier kann es sie nicht.
+     *
+     * KEIN ZWEITER NACHWEIS AUF DIESER EBENE, und das ist Absicht: den
+     * ersten erbringt HR ausserhalb des Systems (der Mensch steht davor oder
+     * ruft an), den zweiten das GEBURTSDATUM bei der Registrierung — ohne
+     * das kommt niemand durch registriere(). Weg 5 haendigt also kein Konto
+     * aus, er stellt nur die Einladung wieder zu. Wer hier je ein Passwort
+     * mitsetzt, macht aus dem HR-Knopf einen Generalschluessel.
+     */
+    public static function setzeNummerDurchHr(int $personId, string $neueNummer): ?string
+    {
+        $person = self::offeneZeile($personId);
+
+        $neu = PhoneE164::normalize($neueNummer);
+
+        if ($neu === null) {
+            throw new InvalidArgumentException(
+                "Die Nummer \"{$neueNummer}\" ist nicht lesbar — ohne lesbare Nummer gibt es kein Ziel.",
+            );
+        }
+
+        $alt = $person->phone === null ? null : (string) $person->phone;
+
+        PersonLinker::setzeNummer($personId, $neu);
+        self::zieheCrmKontakteNach($personId);
+        self::loescheWechselAntrag($personId);
+        self::protokolliereWechsel($personId, $alt, $neu, 'hr');
+
+        return $alt;
+    }
+
+    /**
      * Die offenen Antraege — die Arbeitsliste von HR.
      *
      * Ohne Frist-Filter: HR soll auch den sehen, der gleich faellig wird,

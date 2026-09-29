@@ -34,7 +34,10 @@ use Platform\Recruiting\Services\Comms\EinmalcodeSender;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\PortalAuth;
+use Platform\Recruiting\Console\Commands\KontoZuruecksetzen;
 use Platform\Recruiting\Services\Zas\ContactPhoneSync;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
  * Die Wege zurueck ins Konto (Spec §5, Canvas 1789) — was passiert, wenn
@@ -1608,6 +1611,211 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertSame(KontoWriter::ZWECK_NOTFALL, $zeilen[0]['daten']['weg']);
     }
 
+    // ============================================== Weg 5: der HR-Knopf
+
+    /**
+     * Weg 5 (Spec §5): "Gar nichts geht. HR traegt die neue Nummer im HCM
+     * ein, Einladung geht neu raus."
+     *
+     * Der Beleg ist nicht die Ausgabe, sondern dass die Nummer an Person UND
+     * Anstellung steht und der ausgegebene Code wirklich eine Einladung
+     * oeffnet.
+     */
+    public function test_weg5_setzt_die_nummer_und_erzeugt_eine_neue_einladung(): void
+    {
+        [$code, $ausgabe] = $this->kommando([
+            '--person' => (string) $this->personId,
+            '--nummer' => self::NEUE_NUMMER_GETIPPT,
+        ]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone);
+        $this->assertSame(
+            self::NEUE_NUMMER,
+            DB::table('rec_employees')->where('id', $this->anstellungId)->value('phone'),
+        );
+
+        $this->assertSame(1, preg_match('/Einladungscode ([A-Z0-9]{8})/', $ausgabe, $treffer), $ausgabe);
+        $this->assertSame(
+            $this->personId,
+            KontoWriter::personFuerEinladung($treffer[1]),
+            'der ausgegebene Code muss wirklich eine Einladung oeffnen',
+        );
+    }
+
+    /**
+     * Weg 5 haendigt KEIN Konto aus.
+     *
+     * Der erste Nachweis liegt ausserhalb des Systems (HR erkennt den
+     * Menschen), der zweite ist das GEBURTSDATUM bei der Registrierung. Wer
+     * hier ein Passwort mitsetzte, machte aus dem HR-Knopf einen
+     * Generalschluessel.
+     */
+    public function test_weg5_setzt_kein_passwort(): void
+    {
+        $vorher = $this->zeile()->password_hash;
+
+        $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT]);
+
+        $this->assertSame($vorher, $this->zeile()->password_hash);
+    }
+
+    /** Auch bei Weg 5 bekommt die alte Nummer ihren Hinweis. */
+    public function test_weg5_benachrichtigt_die_alte_nummer(): void
+    {
+        $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT]);
+
+        $hinweise = array_values(array_filter(
+            $this->meta->calls,
+            fn (array $call): bool => $call['templateName'] === self::VORLAGE_HINWEIS,
+        ));
+
+        $this->assertCount(1, $hinweise);
+        $this->assertSame(self::NUMMER, $hinweise[0]['to']);
+    }
+
+    public function test_weg5_braucht_beide_angaben(): void
+    {
+        [$code, $ausgabe] = $this->kommando(['--person' => (string) $this->personId]);
+
+        $this->assertSame(1, $code);
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+        $this->assertStringContainsString('BEIDE', $ausgabe);
+    }
+
+    public function test_der_probelauf_aendert_nichts(): void
+    {
+        $this->kommando([
+            '--person'  => (string) $this->personId,
+            '--nummer'  => self::NEUE_NUMMER_GETIPPT,
+            '--dry-run' => true,
+        ]);
+
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+        $this->assertNull($this->zeile()->invite_token_hash);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    /**
+     * Die Ausgabe nennt Kennungen und die letzten vier Stellen — keine Namen
+     * und keine vollstaendigen Nummern (Muster:
+     * recruiting:mitarbeiter-grenzfaelle).
+     */
+    public function test_die_ausgabe_nennt_keine_namen_und_keine_vollen_nummern(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        [, $ausgabe] = $this->kommando(['--offen' => true]);
+
+        $this->assertStringContainsString((string) $this->personId, $ausgabe);
+        $this->assertStringContainsString('5432', $ausgabe);
+        $this->assertStringNotContainsString('Gregor', $ausgabe);
+        $this->assertStringNotContainsString(self::NUMMER, $ausgabe);
+        $this->assertStringNotContainsString(self::NEUE_NUMMER, $ausgabe);
+    }
+
+    public function test_hr_stoppt_ueber_das_kommando(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        [$code] = $this->kommando(['--stopp' => (string) $this->personId]);
+
+        $this->assertSame(0, $code);
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(48));
+        $this->kommando(['--faellig' => true]);
+
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+    }
+
+    /** Ohne offenen Antrag ist das Stoppen kein Fehler, sondern eine Auskunft. */
+    public function test_stoppen_ohne_antrag_ist_kein_fehler(): void
+    {
+        [$code, $ausgabe] = $this->kommando(['--stopp' => (string) $this->personId]);
+
+        $this->assertSame(0, $code);
+        $this->assertStringContainsString('kein offener Antrag', $ausgabe);
+    }
+
+    /**
+     * --faellig wendet NUR an, was faellig ist.
+     *
+     * Ohne diese Zusicherung koennte der Lauf jeden Antrag sofort anwenden —
+     * und das 24-Stunden-Fenster waere eine Zeile Dokumentation ohne
+     * Wirkung.
+     */
+    public function test_faellig_wendet_nur_an_was_faellig_ist(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        $this->kommando(['--faellig' => true]);
+        $this->assertSame(self::NUMMER, $this->zeile()->phone, 'heute ist noch nichts faellig');
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(25));
+        [$code, $ausgabe] = $this->kommando(['--faellig' => true]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone);
+        $this->assertSame([], KontoWriter::offeneNummernwechsel());
+    }
+
+    /**
+     * Ein gescheiterter Antrag bleibt stehen und haelt die uebrigen nicht
+     * auf.
+     *
+     * Der Fehlschlag ist echt und nicht gestellt: die Zielnummer gehoert im
+     * Team inzwischen jemand anderem, und PersonLinker::setzeNummer()
+     * weigert sich dort ausdruecklich. Wer den Antrag in diesem Fall
+     * loescht, verliert ihn still — dabei muss genau ihn ein Mensch klaeren
+     * (Spec §6.2).
+     */
+    public function test_ein_gescheiterter_antrag_bleibt_stehen(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        // Jemand anderes belegt die Zielnummer, bevor die Frist ablaeuft.
+        $this->person(self::NEUE_NUMMER, 'p-dazwischen');
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(25));
+        [$code, $ausgabe] = $this->kommando(['--faellig' => true]);
+
+        $this->assertSame(1, $code, $ausgabe);
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+        $this->assertCount(1, KontoWriter::offeneNummernwechsel(), 'der Fall gehoert zu HR, nicht in den Papierkorb');
+    }
+
+    public function test_genau_eine_aufgabe_je_aufruf(): void
+    {
+        [$code, $ausgabe] = $this->kommando(['--offen' => true, '--faellig' => true]);
+
+        $this->assertSame(1, $code);
+        $this->assertStringContainsString('genau eines', $ausgabe);
+    }
+
+    public function test_ohne_aufgabe_passiert_nichts(): void
+    {
+        [$code] = $this->kommando([]);
+
+        $this->assertSame(1, $code);
+    }
+
+    /**
+     * Das Kommando ist im ServiceProvider eingetragen.
+     *
+     * Ohne diese Zeile gibt es die Datei, aber kein Kommando — und der
+     * Zeitplan ruft ins Leere, waehrend jeder Test hier gruen bleibt.
+     */
+    public function test_das_kommando_ist_registriert(): void
+    {
+        $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
+
+        $this->assertStringContainsString('Commands\\KontoZuruecksetzen::class', $quelle);
+    }
+
     // ================================================================= Das Blade
 
     public function test_die_anmeldung_zeigt_beide_wege_zurueck(): void
@@ -1656,6 +1864,25 @@ final class KontoZuruecksetzenTest extends TestCase
 
             $this->assertStringContainsString('wire:click="zurAnmeldung"', $this->rendere($seite));
         }
+    }
+
+    /**
+     * Das Kommando laufen lassen.
+     *
+     * @param  array<string, string|bool>  $optionen
+     * @return array{0: int, 1: string}  Rueckgabewert und Ausgabe
+     */
+    private function kommando(array $optionen): array
+    {
+        $command = new KontoZuruecksetzen();
+        $command->setLaravel(new KontoZuruecksetzenFakeLaravel());
+
+        $input = new ArrayInput($optionen, $command->getDefinition());
+        $output = new BufferedOutput();
+
+        $code = $command->run($input, $output);
+
+        return [$code, $output->fetch()];
     }
 
     // ----------------------------------------------------------------- Ablaeufe
@@ -1717,5 +1944,17 @@ final class KontoZuruecksetzenTest extends TestCase
     private function setzeFertigGrund(KontoAnmelden $seite, string $grund): void
     {
         (new \ReflectionProperty(KontoAnmelden::class, 'fertigGrund'))->setValue($seite, $grund);
+    }
+}
+
+/**
+ * Nur so viel Laravel, wie Illuminate\Console\Command::run() braucht
+ * (Muster: BackfillPersonsFakeLaravel): runningUnitTests(), sonst nichts.
+ */
+final class KontoZuruecksetzenFakeLaravel extends Container
+{
+    public function runningUnitTests(): bool
+    {
+        return true;
     }
 }
