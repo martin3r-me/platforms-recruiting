@@ -9,6 +9,7 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Http\Request;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
@@ -62,6 +63,11 @@ final class PortalAuthKontoTest extends TestCase
     private const AUSWEIS = 'L01X00T47';
 
     private const ANGEFASST = '2026-09-28 09:00:00';
+
+    /** Die Adresse, von der die Anfragen in diesen Tests kommen. */
+    private const IP = '203.0.113.7';
+
+    private const ANDERE_IP = '198.51.100.9';
 
     private Capsule $capsule;
 
@@ -194,6 +200,11 @@ final class PortalAuthKontoTest extends TestCase
             $t->timestamps();
         });
 
+        // Die IP-Bremse (Ruling GD-11) braucht eine Anfrage. Ohne sie fiele
+        // alles auf einen gemeinsamen Schluessel, und die Tests, die zwei
+        // Adressen unterscheiden, waeren stumm gruen.
+        $this->vonIp(self::IP);
+
         $this->personId = $this->person(self::TEAM, self::NUMMER, 'p-konto-anmeldung');
         $this->anstellung($this->personId, 'tok-1');
     }
@@ -206,6 +217,7 @@ final class PortalAuthKontoTest extends TestCase
         $container->forgetInstance('log');
         $container->forgetInstance('config');
         $container->forgetInstance('hash');
+        $container->forgetInstance('request');
         Facade::clearResolvedInstances();
         parent::tearDown();
     }
@@ -244,6 +256,70 @@ final class PortalAuthKontoTest extends TestCase
     private function auth(): PortalAuth
     {
         return new PortalAuth($this->cache);
+    }
+
+    /** Alle folgenden Anfragen kommen von dieser Adresse. */
+    private function vonIp(string $ip): void
+    {
+        Container::getInstance()->instance(
+            'request',
+            Request::create('/recruiting/konto', 'GET', [], [], [], ['REMOTE_ADDR' => $ip]),
+        );
+    }
+
+    /**
+     * Die Nummern, die ein Durchprobierer der Reihe nach abarbeitet. Jede
+     * bekommt ihren eigenen Zaehler, keiner erreicht die Fuenf — genau
+     * deshalb braucht es die zweite Bremse.
+     */
+    private function fremdeNummer(int $lauf): string
+    {
+        return '+4915190' . str_pad((string) $lauf, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Legt die Konten an, gegen die der Durchprobierer laeuft — alle mit
+     * DEMSELBEN, einmal gerechneten Hash.
+     *
+     * Das ist kein Schoenheitsfehler, sondern Absicht: eine Nummer, die es
+     * gar nicht gibt, laesst pruefeAnmeldung() gegen den Leerlauf-Hash
+     * rechnen, und der traegt bewusst zwoelf Runden. Dreissig solcher Laeufe
+     * je Test kosten Sekunden. Gegen ein vorhandenes Konto laeuft der
+     * Vergleich mit den vier Runden des Test-Hashers. Am Gepruefen aendert
+     * das nichts: die IP-Bremse zaehlt jeden Fehlschlag gleich, ob die Nummer
+     * unbekannt ist oder das Passwort nicht passt.
+     */
+    private function fremdeKonten(int $anzahl): void
+    {
+        $hash = Hash::make(self::PASSWORT);
+
+        for ($i = 1; $i <= $anzahl; $i++) {
+            DB::table('rec_persons')->insert([
+                'uuid'          => 'p-fremd-' . $i,
+                'team_id'       => self::TEAM,
+                'phone'         => $this->fremdeNummer($i),
+                'password_hash' => $hash,
+                'created_at'    => self::ANGEFASST,
+                'updated_at'    => self::ANGEFASST,
+            ]);
+        }
+    }
+
+    /**
+     * Die Adresse bis dicht unter die Grenze fahren: ein Fehlversuch weniger,
+     * als sie sperrt.
+     */
+    private function bisKurzVorDieGrenze(PortalAuth $auth): void
+    {
+        for ($i = 1; $i <= PortalAuth::MAX_IP_ATTEMPTS - 1; $i++) {
+            $ergebnis = $auth->anmeldenMitNummer(null, $this->fremdeNummer($i), self::FALSCHES_PASSWORT);
+
+            $this->assertSame(
+                PortalAuth::FALSCH,
+                $ergebnis['status'],
+                "Vorflug: Versuch {$i} darf die Bremse noch nicht ausloesen",
+            );
+        }
     }
 
     /** Ein CRM-Kontakt an einer Anstellung — so entsteht eine Dispo-Identitaet. */
@@ -747,5 +823,157 @@ final class PortalAuthKontoTest extends TestCase
         // down() darf auch dann nicht scheitern, wenn es nichts zu tun gibt.
         $migration->down();
         $this->assertFalse(Schema::hasIndex('rec_persons', 'rec_persons_phone_index'));
+    }
+    // ------------------------------------------- Ruling GD-11: die IP-Bremse
+
+    /**
+     * Der Angriff, den die Nummern-Bremse NICHT trifft: EIN verbreitetes
+     * Passwort gegen VIELE Nummern. Jede Nummer bekommt ihren eigenen
+     * Zaehler, keiner erreicht die Fuenf — ohne die zweite Bremse liefe das
+     * unbegrenzt, und jeder Versuch kostete uns einen vollen bcrypt-Lauf.
+     */
+    public function test_dreissig_fehlversuche_ueber_viele_nummern_sperren_die_ip(): void
+    {
+        $this->fremdeKonten(PortalAuth::MAX_IP_ATTEMPTS);
+        $auth = $this->auth();
+
+        $this->bisKurzVorDieGrenze($auth);
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(
+                null,
+                $this->fremdeNummer(PortalAuth::MAX_IP_ATTEMPTS),
+                self::FALSCHES_PASSWORT,
+            )['status'],
+            'Der dreissigste Fehlversuch von derselben Adresse muss sperren.',
+        );
+
+        // Und danach kommt auch das RICHTIGE Passwort nicht mehr durch —
+        // sonst waere die Bremse an der entscheidenden Stelle offen.
+        $danach = $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT);
+        $this->assertSame(PortalAuth::GESPERRT, $danach['status']);
+        $this->assertNull($danach['personId']);
+    }
+
+    /**
+     * Die Bremse soll die KOSTEN deckeln, nicht bloss die Antwort aendern:
+     * hinter ihr darf kein bcrypt-Lauf mehr stattfinden.
+     */
+    public function test_die_ip_sperre_spart_den_passwortvergleich(): void
+    {
+        $this->fremdeKonten(PortalAuth::MAX_IP_ATTEMPTS);
+        $auth = $this->auth();
+
+        $this->bisKurzVorDieGrenze($auth);
+        $auth->anmeldenMitNummer(null, $this->fremdeNummer(PortalAuth::MAX_IP_ATTEMPTS), self::FALSCHES_PASSWORT);
+
+        $vorher = count($this->hasher->gepruefteHashes);
+        $this->assertGreaterThan(0, $vorher, 'Vorflug: vor der Sperre wurde sehr wohl verglichen');
+
+        $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT);
+
+        $this->assertSame(
+            $vorher,
+            count($this->hasher->gepruefteHashes),
+            'Hinter der IP-Sperre wurde noch ein bcrypt-Lauf gerechnet — genau dessen Kosten soll sie deckeln.',
+        );
+    }
+
+    /**
+     * Die beiden Bremsen sind verschiedene Schluessel. Fuenf Fehlversuche auf
+     * EINER Nummer sperren diese Nummer — aber nicht die ganze Adresse, sonst
+     * sperrte ein Fremder ein ganzes Buero aus, indem er eine oeffentlich
+     * bekannte Nummer durchprobiert.
+     */
+    public function test_die_nummern_sperre_sperrt_nicht_die_ganze_ip(): void
+    {
+        $auth = $this->auth();
+
+        for ($i = 0; $i < PortalAuth::MAX_ATTEMPTS; $i++) {
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::FALSCHES_PASSWORT);
+        }
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Vorflug: die Nummer muss jetzt gesperrt sein',
+        );
+
+        // Ein Kollege am selben Anschluss kommt weiterhin hinein.
+        $kollegeId = $this->person(self::TEAM, '+4915144444444', 'p-kollege');
+        $this->anstellung($kollegeId, 'tok-kollege');
+
+        $ergebnis = $auth->anmeldenMitNummer(null, '+4915144444444', self::PASSWORT);
+
+        $this->assertSame(PortalAuth::OK, $ergebnis['status']);
+        $this->assertSame($kollegeId, $ergebnis['personId']);
+    }
+
+    /**
+     * Eine richtige Anmeldung raeumt den Zaehler DER NUMMER ab, nicht den der
+     * Adresse. Sonst haette jeder Durchprobierer mit einem eigenen Konto in
+     * der Hand alle dreissig Versuche einen Knopf "Zaehler auf null".
+     */
+    public function test_eine_richtige_anmeldung_raeumt_den_ip_zaehler_nicht_ab(): void
+    {
+        $this->fremdeKonten(PortalAuth::MAX_IP_ATTEMPTS);
+        $auth = $this->auth();
+
+        $this->bisKurzVorDieGrenze($auth);
+
+        $this->assertSame(
+            PortalAuth::OK,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Vorflug: vor der Grenze kommt das eigene Konto noch durch',
+        );
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(
+                null,
+                $this->fremdeNummer(PortalAuth::MAX_IP_ATTEMPTS),
+                self::FALSCHES_PASSWORT,
+            )['status'],
+            'Die richtige Anmeldung hat den IP-Zaehler abgeraeumt.',
+        );
+    }
+
+    public function test_eine_andere_adresse_ist_nicht_mitgesperrt(): void
+    {
+        $this->fremdeKonten(PortalAuth::MAX_IP_ATTEMPTS);
+        $auth = $this->auth();
+
+        $this->bisKurzVorDieGrenze($auth);
+        $auth->anmeldenMitNummer(null, $this->fremdeNummer(PortalAuth::MAX_IP_ATTEMPTS), self::FALSCHES_PASSWORT);
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Vorflug: diese Adresse muss gesperrt sein',
+        );
+
+        $this->vonIp(self::ANDERE_IP);
+
+        $this->assertSame(
+            PortalAuth::OK,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Die Sperre einer Adresse hat eine andere mitgetroffen.',
+        );
+    }
+
+    /**
+     * Eine IP ist ein personenbezogenes Datum und gehoert nicht im Klartext
+     * in die Cache-Tabelle — dieselbe Regel, nach der KontoWriter sogar vor
+     * einer Log-Zeile die Handynummer auf vier Stellen kuerzt.
+     */
+    public function test_die_adresse_steht_nicht_im_klartext_im_speicher(): void
+    {
+        $this->auth()->anmeldenMitNummer(null, $this->fremdeNummer(1), self::FALSCHES_PASSWORT);
+
+        $this->assertNotSame([], $this->store->geschrieben, 'Vorflug: es wurde ueberhaupt geschrieben');
+
+        foreach ($this->store->geschrieben as $schluessel) {
+            $this->assertStringNotContainsString(self::IP, $schluessel);
+        }
     }
 }

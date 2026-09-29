@@ -304,8 +304,15 @@ final class KontoAnmeldenTest extends TestCase
     {
         $this->router();
 
+        $anfrage = Request::create($adresse, 'GET', [], [], [], ['REMOTE_ADDR' => '203.0.113.7']);
+
+        // Die laufende Anfrage gehoert in den Container: PortalAuth liest von
+        // dort die Adresse fuer die IP-Bremse (Ruling GD-11). Ohne sie liefe
+        // dieser Test durch einen anderen Zweig als der Wirt.
+        $this->container->instance('request', $anfrage);
+
         $seite = new KontoAnmelden();
-        $seite->mount(Request::create($adresse, 'GET'));
+        $seite->mount($anfrage);
 
         return $seite;
     }

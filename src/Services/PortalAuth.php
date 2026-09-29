@@ -37,11 +37,46 @@ use Platform\Recruiting\Support\PhoneE164;
  * Schluessel unterscheidet sich: dort der Token, hier die Nummer. Zwei
  * aehnliche Mechaniken nebeneinander waeren die Stelle, an der die eine
  * repariert und die andere vergessen wird.
+ *
+ * Seit Ruling GD-11 gibt es beim Konto-Einstieg eine ZWEITE Bremse je IP
+ * (dreissig Fehlversuche je Stunde, s. MAX_IP_ATTEMPTS). Sie trifft den
+ * umgekehrten Angriff: EIN verbreitetes Passwort gegen VIELE Nummern laeuft
+ * an der Nummern-Bremse vorbei, weil jede Nummer ihren eigenen Zaehler hat.
+ * Beide Bremsen benutzen dieselbe Mechanik, nur mit anderer Grenze und
+ * anderer Dauer.
  */
 final class PortalAuth
 {
     public const MAX_ATTEMPTS = 5;
     public const LOCKOUT_MINUTES = 15;
+
+    /**
+     * Ruling GD-11: die ZWEITE Bremse, je IP.
+     *
+     * Die Bremse darueber haengt an der NUMMER und trifft damit nur, wer
+     * viele Passwoerter gegen EINE Nummer probiert. Der umgekehrte Weg — EIN
+     * verbreitetes Passwort gegen VIELE Nummern — laeuft an ihr vorbei, denn
+     * jede Nummer bekommt ihren eigenen Zaehler und keiner erreicht die
+     * Fuenf. Handynummern lassen sich der Reihe nach durchzaehlen, und jeder
+     * Versuch kostet uns einen vollen bcrypt-Lauf plus eine Zeile in der
+     * Cache-Tabelle. Genau diese Kosten deckelt diese Bremse — sie greift
+     * deshalb VOR dem Passwortvergleich.
+     *
+     * DREISSIG, nicht fuenf: hinter einer Firmen-IP koennen viele Menschen
+     * sitzen. Ein echter Mensch scheitert zwei- bis dreimal, nicht
+     * dreissigmal; wer dreissig Fehlversuche in einer Stunde braucht, sucht
+     * nicht sein Passwort.
+     *
+     * KEIN ZEITKANAL: der Zaehler entsteht allein aus der Adresse des
+     * Anfragenden, ohne einen Blick in die Datenbank, und er laeuft bei
+     * "falsches Passwort" und "gibt es gar nicht" gleich weiter. Er verraet
+     * also nichts darueber, ob es zu einer Nummer ein Konto gibt — dieselbe
+     * Begruendung wie bei der Nummern-Bremse.
+     */
+    public const MAX_IP_ATTEMPTS = 30;
+
+    /** Eine Stunde. Passend zu MAX_IP_ATTEMPTS, an genau einer Stelle. */
+    public const IP_LOCKOUT_MINUTES = 60;
 
     public const OK      = 'ok';
     public const FALSCH  = 'falsch';
@@ -110,11 +145,14 @@ final class PortalAuth
      *  - FALSCH steht fuer falsches Passwort, unbekannte Nummer, gesperrtes
      *    oder stillgelegtes Konto und mehrdeutige Nummer gleichermassen —
      *    KontoWriter gibt dafuer schon zeichengleich null zurueck.
-     *  - GESPERRT gibt es auf zwei Wegen: die Drossel (die jede Nummer
-     *    trifft, auch eine, zu der es gar kein Konto gibt) und die
-     *    Dispo-Sperre. Letztere wird erst NACH dem Passwort ausgewertet —
-     *    andersherum erfuehre jeder, der bloss die Nummer kennt, dass es
-     *    dazu ein Konto gibt und dass es gesperrt ist.
+     *  - GESPERRT gibt es auf drei Wegen: die Nummern-Drossel (die jede
+     *    Nummer trifft, auch eine, zu der es gar kein Konto gibt), die
+     *    IP-Drossel (Ruling GD-11, die jede Anfrage von dieser Adresse
+     *    trifft) und die Dispo-Sperre. Letztere wird erst NACH dem Passwort
+     *    ausgewertet — andersherum erfuehre jeder, der bloss die Nummer
+     *    kennt, dass es dazu ein Konto gibt und dass es gesperrt ist. Die
+     *    ersten beiden haengen an nichts Gespeichertem und verraten daher
+     *    nichts.
      *
      * Zur Antwortzeit: pruefeAnmeldung() rechnet mit Absicht IMMER einen
      * Passwortvergleich, auch ins Leere, damit die Dauer nicht verraet, ob
@@ -126,7 +164,8 @@ final class PortalAuth
      */
     public function anmeldenMitNummer(?int $teamId, string $nummer, string $passwort): array
     {
-        $schluessel = $this->nummernSchluessel($nummer);
+        $schluessel   = $this->nummernSchluessel($nummer);
+        $ipSchluessel = $this->ipSchluessel();
 
         // Die Drossel steht VOR dem Passwortvergleich, und das ist Absicht:
         // dahinter gestellt braeche sie die Antwortzeit-Eigenschaft zwar
@@ -136,23 +175,35 @@ final class PortalAuth
         // Schluessel entsteht allein aus der Eingabe, ohne einen Blick in
         // die Datenbank, und der Zaehler laeuft bei "falsches Passwort" und
         // "gibt es nicht" gleich weiter.
-        if ($this->isRateLimited($schluessel)) {
+        // Dasselbe gilt fuer die IP-Bremse (Ruling GD-11): sie soll den
+        // bcrypt-Lauf einsparen, nicht bloss die Antwort aendern.
+        if ($this->isRateLimited($schluessel) || $this->isRateLimited($ipSchluessel)) {
             return ['status' => self::GESPERRT, 'personId' => null];
         }
 
         $personId = KontoWriter::pruefeAnmeldung($teamId, $nummer, $passwort);
 
         if ($personId === null) {
-            $versuche = $this->recordFailure($schluessel);
+            $versuche   = $this->recordFailure($schluessel);
+            $ipVersuche = $this->recordFailure($ipSchluessel, self::MAX_IP_ATTEMPTS, self::IP_LOCKOUT_MINUTES);
 
             return [
-                'status'   => $versuche >= self::MAX_ATTEMPTS ? self::GESPERRT : self::FALSCH,
+                'status'   => ($versuche >= self::MAX_ATTEMPTS || $ipVersuche >= self::MAX_IP_ATTEMPTS)
+                    ? self::GESPERRT
+                    : self::FALSCH,
                 'personId' => null,
             ];
         }
 
-        // Das Passwort stimmte — der Zaehler gehoert abgeraeumt, auch wenn
-        // die Dispo-Sperre gleich zuschlaegt: das war kein Rateversuch.
+        // Das Passwort stimmte — der Zaehler DER NUMMER gehoert abgeraeumt,
+        // auch wenn die Dispo-Sperre gleich zuschlaegt: das war kein
+        // Rateversuch.
+        //
+        // DER IP-ZAEHLER BLEIBT STEHEN, und das ist der Punkt: wer viele
+        // Nummern durchprobiert, hat in aller Regel ein eigenes Konto zur
+        // Hand. Duerfte er damit zwischendurch seinen IP-Zaehler abraeumen,
+        // waere die Bremse mit einem einzigen richtigen Passwort alle
+        // dreissig Versuche wieder auf null — also keine Bremse.
         $this->clearFailures($schluessel);
 
         if ($this->istDispoGesperrt($personId)) {
@@ -274,17 +325,54 @@ final class PortalAuth
         $this->store()->forget($this->lockoutKey($token));
     }
 
-    /** @return int Anzahl der Fehlversuche nach diesem hier. */
-    private function recordFailure(string $token): int
+    /**
+     * Ein Fehlversuch auf einem Schluessel.
+     *
+     * Grenze und Dauer sind Parameter mit Vorgabewerten, damit die IP-Bremse
+     * DIESELBE Mechanik benutzt wie die Nummern-Bremse (Ruling GD-11) —
+     * dieselben Zaehler, dieselben Schluesselformen, derselbe Speicher. Zwei
+     * aehnliche Mechaniken nebeneinander waeren genau die Stelle, an der die
+     * eine repariert und die andere vergessen wird; davor warnt schon der
+     * Klassen-Docblock.
+     *
+     * @return int Anzahl der Fehlversuche nach diesem hier.
+     */
+    private function recordFailure(string $token, int $grenze = self::MAX_ATTEMPTS, int $minuten = self::LOCKOUT_MINUTES): int
     {
         $versuche = ((int) $this->store()->get($this->attemptsKey($token), 0)) + 1;
-        $this->store()->put($this->attemptsKey($token), $versuche, now()->addMinutes(self::LOCKOUT_MINUTES));
+        $this->store()->put($this->attemptsKey($token), $versuche, now()->addMinutes($minuten));
 
-        if ($versuche >= self::MAX_ATTEMPTS) {
-            $this->store()->put($this->lockoutKey($token), true, now()->addMinutes(self::LOCKOUT_MINUTES));
+        if ($versuche >= $grenze) {
+            $this->store()->put($this->lockoutKey($token), true, now()->addMinutes($minuten));
         }
 
         return $versuche;
+    }
+
+    /**
+     * Der Drossel-Schluessel der Adresse, von der die Anfrage kommt.
+     *
+     * GEHASHT, aus denselben zwei Gruenden wie bei der Nummer: eine IP ist
+     * ein personenbezogenes Datum und hat im Klartext nichts in der
+     * Cache-Tabelle zu suchen, und ein Hash ist immer gleich lang (cache.key
+     * ist varchar(255) PRIMARY KEY).
+     *
+     * OHNE ANFRAGE — auf der Konsole, in Tests ohne gebundene Anfrage —
+     * faellt alles auf EINEN Schluessel. Das ist gewollt und harmlos: ueber
+     * diesen Weg meldet sich niemand von der Konsole an, und ein gemeinsamer
+     * Zaehler ist strenger als gar keiner.
+     *
+     * WELCHE Adresse hier steht, entscheidet der Wirt: hinter einem
+     * Vermittler liefert ip() dessen Adresse, solange er nicht als
+     * vertrauenswuerdig eingetragen ist. Wer die Bremse scharf haben will,
+     * prueft das dort — hier laesst sich das nicht entscheiden.
+     */
+    private function ipSchluessel(): string
+    {
+        $anfrage = app()->bound('request') ? app('request') : null;
+        $ip = is_object($anfrage) && method_exists($anfrage, 'ip') ? (string) $anfrage->ip() : '';
+
+        return 'ip:' . hash('xxh128', $ip);
     }
 
     private function store(): CacheRepository

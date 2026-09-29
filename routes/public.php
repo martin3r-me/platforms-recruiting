@@ -99,10 +99,20 @@ Route::get('/konto/anlegen', \Platform\Recruiting\Livewire\Public\KontoAnlegen::
 // Mitarbeiterkonto, Anmeldung (Canvas 68, Spec 2.1). Handynummer und
 // Passwort - oeffentlich, ohne Token, ohne Team-Kontext (Ruling GD-2).
 //
-// KEINE Route-Drossel: die Anmeldeversuche laufen ueber /livewire/update und
-// fassen diese GET-Adresse gar nicht wieder an. Die wirksame Bremse sitzt in
-// PortalAuth (fuenf Versuche je Nummer, fuenfzehn Minuten) - wer hier eine
-// Route-Drossel ergaenzt, gewinnt nichts und sperrt Firmen-IPs aus.
+// KEINE Route-Drossel, und das ist KEINE Entwarnung (berichtigt nach der
+// Pruefung, Ruling GD-11). Richtig ist nur der erste Teil: ueber diese
+// GET-Adresse kann keine Anmeldung laufen, die Versuche gehen an
+// /livewire/update. Daraus folgt aber nicht, dass es eine Bremse gibt -
+// /livewire/update ist im Wirt ungedrosselt.
+//
+// Gebremst wird deshalb in PortalAuth, und zwar zweifach:
+//  1. je NUMMER (fuenf Versuche, fuenfzehn Minuten) gegen viele Passwoerter
+//     auf eine Nummer,
+//  2. je IP (dreissig Fehlversuche je Stunde, MAX_IP_ATTEMPTS) gegen EIN
+//     Passwort auf viele Nummern - dieser Weg liefe sonst unbegrenzt, weil
+//     jede Nummer ihren eigenen Zaehler bekommt.
+// Eine Route-Drossel hier ersetzt keine von beiden; sie traefe nur das
+// Aufrufen der Seite.
 Route::get('/konto', \Platform\Recruiting\Livewire\Public\KontoAnmelden::class)
     ->name('recruiting.public.konto');
 
