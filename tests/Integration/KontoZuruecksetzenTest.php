@@ -971,6 +971,38 @@ final class KontoZuruecksetzenTest extends TestCase
     }
 
     /**
+     * Der zweite Schritt einer UNBEKANNTEN Nummer scheitert genauso wie ein
+     * falscher Code — leise, mit derselben Meldung.
+     *
+     * NACHGETRAGEN NACH EINER UEBERLEBENDEN MUTATION: die Wache gegen eine
+     * leere Personen-Kennung war ungedeckt. Ohne sie geht null an einen
+     * int-Parameter, das ist ein TypeError und KEINE
+     * InvalidArgumentException — er liefe also am catch vorbei und ergaebe
+     * eine 500er-Antwort. Und genau die waere das Orakel, das die
+     * Begleitregel vermeiden soll: "Fehlerseite" hiesse "diese Nummer kennen
+     * wir nicht".
+     */
+    public function test_eine_unbekannte_nummer_scheitert_im_zweiten_schritt_wie_ein_falscher_code(): void
+    {
+        $seite = $this->seite();
+        $seite->zumPasswortVergessen();
+        $seite->nummer = '0151 99999999';
+        $seite->passwortCodeAnfordern($this->sender());
+
+        $this->assertSame('vergessen-code', $seite->state);
+        $this->assertNull($seite->personId);
+
+        $seite->code = '123456';
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->neuesPasswort = self::NEUES_PASSWORT;
+        $seite->neuesPasswortWiederholung = self::NEUES_PASSWORT;
+        $seite->passwortSetzen();
+
+        $this->assertSame('vergessen-code', $seite->state);
+        $this->assertSame(KontoAnmelden::MELDUNG_ZURUECK, $seite->fehler);
+    }
+
+    /**
      * Der ZWEITE Nachweis traegt: der richtige Code mit falschem Geburtsdatum
      * setzt kein Passwort.
      *
