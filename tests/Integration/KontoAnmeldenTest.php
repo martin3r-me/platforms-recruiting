@@ -213,6 +213,8 @@ final class KontoAnmeldenTest extends TestCase
             $t->boolean('is_active')->default(true);
             $t->timestamp('portal_locked_at')->nullable();
             $t->timestamp('portal_v2_since')->nullable();
+            $t->timestamp('portal_verified_at')->nullable();
+            $t->timestamp('zas_changed_at')->nullable();
             $t->timestamps();
         });
 
@@ -297,6 +299,11 @@ final class KontoAnmeldenTest extends TestCase
     private function auth(): PortalAuth
     {
         return new PortalAuth($this->cache);
+    }
+
+    private function anstellungsZeile(int $id): object
+    {
+        return DB::table('rec_employees')->where('id', $id)->first();
     }
 
     /** Die Seite, so wie sie nach dem Aufruf einer Adresse dasteht. */
@@ -597,6 +604,24 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertNotSame([], $this->store->geschrieben, 'Der Speicher sieht gar keine Schreibvorgaenge.');
     }
 
+    /**
+     * Fund Q3: der Zweig oben kehrt zurueck, BEVOR das Leeren weiter unten
+     * kommt. Ein getipptes Passwort neben einer vergessenen Nummer fuhr
+     * dadurch im Livewire-Schnappschuss weiter mit — und landete damit im
+     * Klartext im Browser, bei jedem weiteren Aufruf wieder auf der Leitung.
+     */
+    public function test_auch_bei_vergessener_nummer_faehrt_das_passwort_nicht_weiter(): void
+    {
+        $seite = $this->seite();
+        $seite->nummer = '';
+        $seite->passwort = self::PASSWORT;
+
+        $seite->anmelden($this->auth());
+
+        $this->assertNotSame('', $seite->fehler);
+        $this->assertSame('', $seite->passwort);
+    }
+
     // --------------------------------------------------------------- Ruling GD-2
 
     /**
@@ -650,6 +675,22 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertNotNull($ziel);
         $this->assertStringEndsWith('/mitarbeiter/neu/tok-gregor', $ziel);
         $this->assertStringNotContainsString('tok-fremd', (string) $ziel);
+    }
+
+    /**
+     * Fund Q1: die feste Reihenfolge war ungedeckt. Wer zwei umgestellte
+     * Anstellungen hat, landet IMMER in derselben — ohne feste Reihenfolge
+     * mal in der einen, mal in der anderen, je nachdem, wie die Datenbank die
+     * Zeilen liefert. Genommen wird die kleinere Kennung.
+     */
+    public function test_bei_zwei_umgestellten_anstellungen_gewinnt_die_kleinere_kennung(): void
+    {
+        $this->anstellung(11, self::PERSON_GREGOR, 'tok-gregor-2');
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+
+        $this->assertStringEndsWith('/mitarbeiter/neu/tok-gregor', (string) $this->weiterleitung($seite));
     }
 
     public function test_ein_eigenes_ziel_wird_angesprungen(): void
@@ -868,6 +909,154 @@ final class KontoAnmeldenTest extends TestCase
         );
     }
 
+    // ------------------------------------------------- Der Portal-Stempel
+
+    /**
+     * Denselben Stempel wie der Token-Weg (PortalShell::verify) — an ihm
+     * haengt die Frage "wer nutzt das Portal ueberhaupt?".
+     *
+     * Die Weiterleitung auf die Huelle setzt ihn NICHT nach: dort springt der
+     * Mount-Pfad mit bestehender Sitzung ohne Stempel auf 'verified', und
+     * genau dort laeuft der Konto-Weg durch. Ohne diese Zeile bliebe die
+     * Spalte fuer jeden leer, der ueber das Konto hereinkommt.
+     */
+    public function test_die_anmeldung_stempelt_den_portal_zugriff(): void
+    {
+        $this->anstellung(11, self::PERSON_GREGOR, 'tok-gregor-2');
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+
+        $this->assertNotNull($this->anstellungsZeile(self::ANSTELLUNG_GREGOR)->portal_verified_at);
+        $this->assertNotNull($this->anstellungsZeile(11)->portal_verified_at);
+
+        // Die fremde Anstellung wird NICHT mitgestempelt.
+        $this->assertNull($this->anstellungsZeile(self::ANSTELLUNG_FREMD)->portal_verified_at);
+    }
+
+    /**
+     * Der Stempel laeuft ueber den Query Builder und fasst die Zeile NICHT
+     * als Modell an: eine Anmeldung ist keine fachliche Aenderung und hat in
+     * der ZAS-Schlange nichts verloren.
+     *
+     * Gemessen wird das an updated_at, nicht am Export-Marker allein: den
+     * setzt der RecEmployeeExportObserver ohnehin nur fuer die Spalten in
+     * RELEVANT_EMPLOYEE_FIELDS, und portal_verified_at steht dort nicht — ein
+     * Test bloss darauf waere gruen, egal wie geschrieben wird. Ein Schreiben
+     * ueber das Modell zieht dagegen IMMER updated_at mit (Eloquents
+     * Builder::update haengt die Spalte selbst an), und genau das ist der
+     * sichtbare Unterschied.
+     */
+    public function test_die_anmeldung_fasst_die_zeile_nicht_als_modell_an(): void
+    {
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+
+        $zeile = $this->anstellungsZeile(self::ANSTELLUNG_GREGOR);
+
+        $this->assertNull($zeile->zas_changed_at);
+        $this->assertSame(
+            self::ANGEFASST,
+            $zeile->updated_at,
+            'updated_at hat sich bewegt — die Zeile wurde als Modell geschrieben.',
+        );
+    }
+
+    // ------------------------------------------------- Ein fremder Token im Ziel
+
+    /**
+     * Zweifel 3 der ersten Runde, nach der Pruefung zugedreht: ein Ziel mit
+     * FREMDEM Token faellt weg.
+     *
+     * Es fuehrt niemanden in fremde Daten — die Zielseiten entscheiden selbst
+     * ueber ihren Token —, aber es setzt den frisch Angemeldeten auf UNSERER
+     * Domain vor eine Anmeldemaske, die nach Geburtsdatum und
+     * Ausweis-Endziffern fragt. Das ist eine gute Phishing-Kulisse. Nebenbei
+     * liesse sich damit der Versuchszaehler eines fremden Tokens leerlaufen.
+     */
+    public function test_ein_ziel_mit_fremdem_token_faellt_weg(): void
+    {
+        $seite = $this->anmeldung('/konto?weiter=' . rawurlencode('/einsaetze/tok-fremd'));
+
+        // Vorflug: die Adresse ist als solche in Ordnung — sie scheitert
+        // NICHT schon an der Positivliste, sondern erst am fremden Token.
+        $this->assertSame('/einsaetze/tok-fremd', $seite->weiter);
+
+        $seite->anmelden($this->auth());
+
+        $ziel = (string) $this->weiterleitung($seite);
+
+        $this->assertStringNotContainsString('tok-fremd', $ziel);
+        $this->assertStringEndsWith('/mitarbeiter/neu/tok-gregor', $ziel);
+    }
+
+    public function test_ein_ziel_mit_eigenem_zweitem_token_bleibt(): void
+    {
+        $this->anstellung(11, self::PERSON_GREGOR, 'tok-gregor-2');
+
+        $seite = $this->anmeldung('/konto?weiter=' . rawurlencode('/einsaetze/tok-gregor-2'));
+        $seite->anmelden($this->auth());
+
+        $this->assertSame('/einsaetze/tok-gregor-2', $this->weiterleitung($seite));
+    }
+
+    /**
+     * Verglichen werden ganze Pfadsegmente. Ein Ziel, in dem der eigene Token
+     * bloss irgendwo vorkommt, ist kein eigenes Ziel — sonst haengte man ihn
+     * einfach an eine fremde Adresse an.
+     */
+    public function test_der_eigene_token_als_beiwerk_genuegt_nicht(): void
+    {
+        $seite = $this->anmeldung(
+            '/konto?weiter=' . rawurlencode('/einsaetze/tok-fremd?hinweis=tok-gregor'),
+        );
+
+        $this->assertSame('/einsaetze/tok-fremd?hinweis=tok-gregor', $seite->weiter);
+
+        $seite->anmelden($this->auth());
+
+        $this->assertStringEndsWith('/mitarbeiter/neu/tok-gregor', (string) $this->weiterleitung($seite));
+    }
+
+    // --------------------------------------------------------- Abmelden
+
+    /**
+     * Fund Q4: 'ohne-ziel' war eine Sackgasse — angemeldet, kein Weg weiter,
+     * kein Weg zurueck.
+     */
+    public function test_aus_dem_zustand_ohne_ziel_kann_man_sich_abmelden(): void
+    {
+        DB::table('rec_employees')->where('id', self::ANSTELLUNG_GREGOR)
+            ->update(['portal_v2_since' => null]);
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        $this->assertSame('ohne-ziel', $seite->state);
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+
+        $seite->abmelden();
+
+        $this->assertSame('formular', $seite->state);
+        $this->assertFalse($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+        $this->assertSame('', $seite->nummer);
+        $this->assertSame([], $seite->geoeffnet);
+    }
+
+    /**
+     * Abmelden schliesst genau die Sitzungen DIESER Anmeldung — nicht die
+     * eines fremden Menschen, der am selben Geraet noch offen ist.
+     */
+    public function test_abmelden_trifft_keine_fremde_sitzung(): void
+    {
+        $this->session->put(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD), true);
+
+        $seite = $this->anmeldung();
+        $seite->anmelden($this->auth());
+        $seite->abmelden();
+
+        $this->assertTrue($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_FREMD)));
+    }
+
     // ---------------------------------------------------------- Der Waechter
 
     /**
@@ -890,6 +1079,8 @@ final class KontoAnmeldenTest extends TestCase
             'state'  => 'der Zustand der Seite — genau der Bypass vom 19.08.2026',
             'weiter' => 'das gepruefte Weiterleitungsziel; ohne Sperre setzte $wire.set nach der '
                 . 'Pruefung eine beliebige Adresse, und die Positivliste waere Zierat',
+            'geoeffnet' => 'welche Sitzungen abmelden() wieder schliesst; aus dem Browser gesetzt '
+                . 'liessen sich damit fremde Sitzungen schliessen',
         ];
 
         // Absichtlich OFFEN, jede mit ihrem Grund. Ihre Sicherheit sitzt nicht
@@ -1022,7 +1213,12 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertStringContainsString($seite->fehler, $this->rendere($seite));
     }
 
-    public function test_ohne_ziel_zeigt_die_seite_kein_formular_mehr(): void
+    /**
+     * Fund Q4: der Zustand sagt, woran es liegt, UND bietet einen Weg zurueck.
+     * Ohne den Knopf stuende der Mensch vor einer leeren Seite und koennte
+     * nicht einmal neu anfangen.
+     */
+    public function test_ohne_ziel_zeigt_die_seite_kein_formular_mehr_aber_einen_ausweg(): void
     {
         DB::table('rec_employees')->where('id', self::ANSTELLUNG_GREGOR)
             ->update(['portal_v2_since' => null]);
@@ -1034,6 +1230,8 @@ final class KontoAnmeldenTest extends TestCase
 
         $this->assertStringNotContainsString('wire:model="passwort"', $html);
         $this->assertStringContainsString('angemeldet', $html);
+        $this->assertStringContainsString('noch nicht freigeschaltet', $html);
+        $this->assertStringContainsString('wire:click="abmelden"', $html);
     }
 
     public function test_blade_kompiliert(): void

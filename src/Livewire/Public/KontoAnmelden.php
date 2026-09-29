@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecEmployee;
@@ -112,6 +113,19 @@ class KontoAnmelden extends Component
     #[Locked] public string $weiter = '';
 
     /**
+     * Die Anstellungen, fuer die diese Anmeldung eine Sitzung geoeffnet hat.
+     *
+     * Gebraucht wird sie nur von abmelden(): der Zustand 'ohne-ziel' bleibt
+     * stehen, und ohne diese Liste wuesste die Seite nicht, welche
+     * Sitzungsschluessel sie wieder wegnehmen soll.
+     *
+     * #[Locked], weil sie bestimmt, WELCHE Sitzungen geschlossen werden. Aus
+     * dem Browser gesetzt, koennte jemand hier fremde Kennungen eintragen —
+     * er koennte damit zwar nichts oeffnen, aber fremde Sitzungen schliessen.
+     */
+    #[Locked] public array $geoeffnet = [];
+
+    /**
      * Die Eingaben — bewusst NICHT gesperrt, sie kommen ja vom Menschen. Ihre
      * Sicherheit sitzt nicht in der Unveraenderlichkeit, sondern darin, dass
      * anmelden() bei JEDEM Aufruf Nummer und Passwort erneut pruefen laesst.
@@ -154,6 +168,12 @@ class KontoAnmelden extends Component
         if (trim($this->nummer) === '' || $this->passwort === '') {
             $this->fehler = 'Bitte geben Sie Handynummer und Passwort ein.';
 
+            // Auch hier leeren (Fund Q3): dieser Zweig kehrt zurueck, BEVOR
+            // das Leeren weiter unten kommt — ein getipptes Passwort neben
+            // einer vergessenen Nummer faehrt sonst im Livewire-Schnappschuss
+            // weiter mit.
+            $this->passwort = '';
+
             return;
         }
 
@@ -180,11 +200,16 @@ class KontoAnmelden extends Component
         $anstellungen = self::anstellungenVon($ergebnis['personId']);
 
         if ($anstellungen === []) {
-            // Ueber diesen Weg nicht erreichbar: pruefeAnmeldung() laesst
-            // niemanden ohne aktive Anstellung durch. Trotzdem fail closed —
-            // ohne Anstellung gaebe es keinen Sitzungsschluessel, und eine
-            // "erfolgreiche" Anmeldung ohne Sitzung waere eine Seite, die
-            // stumm nichts tut.
+            // HEUTE UNERREICHBAR, und bewusst ohne Test (Fund Q1):
+            // KontoWriter::pruefeAnmeldung() prueft dieselbe Menge
+            // (hatAktiveAnstellung, is_active = 1) und laesst niemanden ohne
+            // aktive Anstellung durch. Scharf wird dieser Zweig, sobald die
+            // beiden Mengen auseinanderlaufen — etwa wenn dort ein Team-
+            // oder Firmen-Schnitt hinzukommt, hier aber nicht, oder wenn
+            // zwischen der Pruefung und dieser Zeile die letzte Anstellung
+            // beendet wird. Dann greift fail closed: ohne Anstellung gaebe es
+            // keinen Sitzungsschluessel, und eine "erfolgreiche" Anmeldung
+            // ohne Sitzung waere eine Seite, die stumm nichts tut.
             $this->fehler = self::MELDUNG;
 
             return;
@@ -193,11 +218,47 @@ class KontoAnmelden extends Component
         // HIER liegt die Falle, vor der der Klassen-Docblock warnt: in
         // sessionKey() gehoert eine ANSTELLUNGS-Kennung, niemals die
         // Personen-Kennung aus $ergebnis.
+        $kennungen = [];
         foreach ($anstellungen as $anstellung) {
+            $kennungen[] = (int) $anstellung->id;
             session()->put(PortalAuth::sessionKey((int) $anstellung->id), true);
         }
+        $this->geoeffnet = $kennungen;
 
-        $ziel = $this->weiter !== '' ? $this->weiter : self::startseiteFuer($anstellungen);
+        // DENSELBEN STEMPEL wie der Token-Weg (PortalShell::verify): an ihm
+        // haengt die Frage "wer nutzt das Portal ueberhaupt?", mit der die
+        // Groesse der Umstellung bestimmt wird. Er stand bisher nur im
+        // Token-Weg; die Weiterleitung auf die Huelle setzt ihn NICHT nach,
+        // weil dort der Mount-Pfad mit bestehender Sitzung ohne Stempel auf
+        // 'verified' springt. Ohne diese Zeile bliebe die Spalte fuer jeden
+        // leer, der ueber das Konto hereinkommt.
+        //
+        // UEBER DEN QUERY BUILDER, damit kein Modell-Ereignis und damit kein
+        // Export-Marker entsteht: eine Anmeldung ist keine fachliche
+        // Aenderung und hat in der ZAS-Schlange nichts verloren.
+        DB::table('rec_employees')->whereIn('id', $kennungen)
+            ->update(['portal_verified_at' => now()]);
+
+        $ziel = $this->weiter;
+
+        // Das mitgegebene Ziel muss auf einen EIGENEN Token zeigen.
+        //
+        // Ohne diese Frage landete der frisch Angemeldete auf UNSERER Domain
+        // vor der Anmeldemaske eines fremden Tokens, die nach Geburtsdatum
+        // und Ausweis-Endziffern fragt — eine gute Phishing-Kulisse, auch
+        // ohne dass Daten abfliessen. Nebenbei liesse sich so der
+        // Versuchszaehler eines beliebigen fremden Tokens leerlaufen.
+        //
+        // KEINE KOPPLUNG an die Parameter der Zielrouten: gefragt wird nur,
+        // ob irgendein Pfadsegment einer der eigenen portal_token ist. WER
+        // KUENFTIG eine Route ohne Token in ZIEL_ROUTEN aufnimmt, muss diese
+        // Stelle mitnehmen — ein Ziel ohne Token faellt hier sonst immer weg
+        // und landet still auf der Startseite.
+        if ($ziel !== '' && !self::zieltAufEigenenToken($ziel, $anstellungen)) {
+            $ziel = '';
+        }
+
+        $ziel = $ziel !== '' ? $ziel : self::startseiteFuer($anstellungen);
 
         if ($ziel === null) {
             // Angemeldet, aber es gibt nichts zu oeffnen: die Anstellung ist
@@ -210,6 +271,31 @@ class KontoAnmelden extends Component
         }
 
         $this->redirect($ziel);
+    }
+
+    /**
+     * Abmelden aus dem Zustand 'ohne-ziel' (Fund Q4).
+     *
+     * Ohne diesen Weg waere der Zustand eine Sackgasse: angemeldet, kein Weg
+     * weiter, und nicht einmal die Moeglichkeit, von vorn anzufangen — etwa
+     * weil jemand die Nummer eines Kollegen getippt hat oder weil das Geraet
+     * geteilt wird.
+     *
+     * Geschlossen werden genau die Sitzungen, die DIESE Anmeldung geoeffnet
+     * hat. Eine neue Abfrage ueber die Person waere eine zweite Wahrheit und
+     * traefe im Zweifel andere Zeilen als das Oeffnen.
+     */
+    public function abmelden(): void
+    {
+        foreach ($this->geoeffnet as $kennung) {
+            session()->forget(PortalAuth::sessionKey((int) $kennung));
+        }
+
+        $this->geoeffnet = [];
+        $this->state = 'formular';
+        $this->nummer = '';
+        $this->passwort = '';
+        $this->fehler = '';
     }
 
     public function render()
@@ -247,6 +333,36 @@ class KontoAnmelden extends Component
             ->orderBy('id')
             ->get(['id', 'portal_token', 'portal_v2_since'])
             ->all();
+    }
+
+    /**
+     * Traegt das Ziel einen Token, der DIESEM Menschen gehoert?
+     *
+     * Verglichen werden ganze Pfadsegmente, nicht Teilzeichenketten: sonst
+     * genuegte ein Ziel, in dem der eigene Token irgendwo vorkommt
+     * ("/einsaetze/tok-fremd?x=tok-eigen"), und die Frage waere umgangen.
+     *
+     * @param list<object> $anstellungen
+     */
+    private static function zieltAufEigenenToken(string $ziel, array $anstellungen): bool
+    {
+        $eigene = [];
+        foreach ($anstellungen as $anstellung) {
+            $token = (string) ($anstellung->portal_token ?? '');
+
+            if ($token !== '') {
+                $eigene[] = $token;
+            }
+        }
+
+        if ($eigene === []) {
+            return false;
+        }
+
+        $pfad = (string) (parse_url($ziel, PHP_URL_PATH) ?: '');
+        $segmente = array_map('rawurldecode', explode('/', $pfad));
+
+        return array_intersect($segmente, $eigene) !== [];
     }
 
     /**

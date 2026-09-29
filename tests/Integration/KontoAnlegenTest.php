@@ -1055,6 +1055,29 @@ final class KontoAnlegenTest extends TestCase
         $this->assertNull($this->zeile()->password_hash);
     }
 
+    /**
+     * Fund Q1: der Riegel in oeffneCode() war ungedeckt. Aus dem OFFENEN
+     * Formular — also mit einer gueltigen Einladung in der Hand — darf ein
+     * $wire.call('oeffneCode') nicht auf eine andere Einladung umleiten.
+     * Ohne den Riegel waere die Seite ein bequemer Sprungbrett-Aufruf auf
+     * jeden beliebigen Token, und der Zaehler der eigenen Einladung bliebe
+     * dabei unberuehrt.
+     */
+    public function test_aus_dem_offenen_formular_leitet_der_code_nicht_um(): void
+    {
+        $this->router();
+        $seite = $this->seite($this->einladung());
+        $this->assertSame('formular', $seite->state, 'Vorflug: die Seite steht im Formular');
+
+        $seite->code = 'ZZZZZZZZ';
+        $seite->oeffneCode();
+
+        $this->assertNull(
+            \Livewire\store($seite)->get('redirect'),
+            'Aus dem offenen Formular wurde auf einen fremden Token umgeleitet.',
+        );
+    }
+
     public function test_das_codefeld_steht_allein(): void
     {
         $seite = new KontoAnlegen();

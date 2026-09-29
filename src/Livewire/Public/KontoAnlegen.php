@@ -162,10 +162,14 @@ class KontoAnlegen extends Component
         // Token und zaehlte als Fehlversuch), 'code' hat gar keine Einladung
         // und damit nichts zu registrieren.
         //
-        // NACHGEPRUEFT PER MUTATION: der Teil 'code' ist heute unerreichbar —
-        // in diesem Zustand ist $personId immer null, und daran scheitert der
-        // Aufruf ohnehin. Wer die zweite Bedingung je entfernt, braucht die
-        // erste; kein Test faellt dabei um.
+        // NACHGEPRUEFT PER MUTATION: der Teil 'code' ist heute unerreichbar
+        // und bewusst ohne eigenen Test — in diesem Zustand ist $personId
+        // immer null, weil mount() ohne Token gar nichts nachschlaegt, und
+        // daran scheitert der Aufruf ohnehin. SCHARF wird er, sobald der
+        // Code-Zustand je eine Personen-Kennung traegt: etwa wenn jemand die
+        // Pruefung doch in die tokenlose Seite zieht, statt weiterzuleiten.
+        // Dann ist diese Bedingung die einzige, die ein
+        // $wire.call('registriere') aus dem Code-Feld heraus abhaelt.
         if ($this->state !== 'formular' || $this->personId === null) {
             return;
         }

@@ -24,7 +24,7 @@
     // Vorberechnet, nicht im Attribut entschieden (Hausregel).
     $codeUrl = route('recruiting.public.konto-anlegen-code');
     $ohneZielTitel = 'Sie sind angemeldet';
-    $ohneZielText = 'Ihr Zugang zum Mitarbeiterportal ist noch nicht freigeschaltet. '
+    $ohneZielText = 'Ihr eigener Bereich ist noch nicht freigeschaltet. '
         . 'Bitte wenden Sie sich an Ihre Ansprechperson bei RheinGedeck.';
 @endphp
 
@@ -39,6 +39,17 @@
             <div class="greet">
                 <h2>{{ $ohneZielTitel }}</h2>
                 <p>{{ $ohneZielText }}</p>
+            </div>
+
+            {{--
+                Ohne diesen Knopf waere der Zustand eine Sackgasse:
+                angemeldet, kein Weg weiter, und nicht einmal die
+                Moeglichkeit, von vorn anzufangen - etwa weil jemand die
+                Nummer eines Kollegen getippt hat oder weil das Geraet
+                geteilt wird.
+            --}}
+            <div class="card">
+                <button type="button" class="btn" wire:click="abmelden">Abmelden</button>
             </div>
         @else
             <div class="greet">
