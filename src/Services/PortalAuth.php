@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Facades\Cache;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Support\PhoneE164;
 
 /**
  * Die Anmeldeschicht des Mitarbeiterportals — als eigene Schicht, damit das
@@ -21,6 +22,20 @@ use Platform\Recruiting\Models\RecEmployee;
  *
  * Der Versuchszaehler haengt am TOKEN, nicht am Mitarbeiter: Wer einen fremden
  * Link durchprobiert, soll sich nicht durch Wechseln der Kennung freischalten.
+ *
+ * Seit dem Konto (Canvas 68) gibt es einen ZWEITEN Einstieg:
+ * anmeldenMitNummer() mit Handynummer und Passwort. Beide laufen waehrend der
+ * Umstellung nebeneinander, aber sie sind NICHT verschraenkt — kein
+ * Konto-Nachweis oeffnet den Token-Weg und umgekehrt. Der Grund: heute ist der
+ * Token das Geheimnis, kuenftig ist der Benutzername die Handynummer, und die
+ * ist keines. Ein Weg, der beides mischt, waere unsicherer als der
+ * Ist-Zustand.
+ *
+ * Die Drossel ist fuer beide Einstiege DIESELBE Mechanik (fuenf Versuche,
+ * fuenfzehn Minuten, dieselben Zaehler und derselbe Speicher) — nur der
+ * Schluessel unterscheidet sich: dort der Token, hier die Nummer. Zwei
+ * aehnliche Mechaniken nebeneinander waeren die Stelle, an der die eine
+ * repariert und die andere vergessen wird.
  */
 final class PortalAuth
 {
@@ -75,6 +90,117 @@ final class PortalAuth
             'status'      => $verbleibend === 0 ? self::GESPERRT : self::FALSCH,
             'verbleibend' => $verbleibend,
         ];
+    }
+
+    /**
+     * Ein Anmeldeversuch mit Handynummer und Passwort — der Konto-Einstieg.
+     *
+     * Die Entscheidung "wer ist das?" trifft KontoWriter::pruefeAnmeldung();
+     * hier liegt nur, was an die ANMELDUNG gehoert und nicht an das Konto:
+     * die Drossel und die Dispo-Sperre.
+     *
+     * Ruling GD-2: $teamId darf null sein und ist es auf der oeffentlichen
+     * Anmeldeseite auch — die hat keinen Team-Kontext. Dann wird ueber alle
+     * Teams gesucht. Der Parameter wird nur durchgereicht; die Regel dazu
+     * (und das fail closed bei mehreren lebenden Personen) lebt in
+     * KontoWriter und wird hier NICHT nachgebaut.
+     *
+     * Keine der drei Antworten verraet, ob es die Nummer gibt:
+     *  - FALSCH steht fuer falsches Passwort, unbekannte Nummer, gesperrtes
+     *    oder stillgelegtes Konto und mehrdeutige Nummer gleichermassen —
+     *    KontoWriter gibt dafuer schon zeichengleich null zurueck.
+     *  - GESPERRT gibt es auf zwei Wegen: die Drossel (die jede Nummer
+     *    trifft, auch eine, zu der es gar kein Konto gibt) und die
+     *    Dispo-Sperre. Letztere wird erst NACH dem Passwort ausgewertet —
+     *    andersherum erfuehre jeder, der bloss die Nummer kennt, dass es
+     *    dazu ein Konto gibt und dass es gesperrt ist.
+     *
+     * Zur Antwortzeit: pruefeAnmeldung() rechnet mit Absicht IMMER einen
+     * Passwortvergleich, auch ins Leere, damit die Dauer nicht verraet, ob
+     * ein Konto existiert. Vor diesem Aufruf steht deshalb nichts, was
+     * frueher zurueckkehren koennte, ausser der Drossel — und die trifft
+     * jede Nummer gleich, ob es sie gibt oder nicht.
+     *
+     * @return array{status: string, personId: ?int}
+     */
+    public function anmeldenMitNummer(?int $teamId, string $nummer, string $passwort): array
+    {
+        $schluessel = $this->nummernSchluessel($nummer);
+
+        if ($this->isRateLimited($schluessel)) {
+            return ['status' => self::GESPERRT, 'personId' => null];
+        }
+
+        $personId = KontoWriter::pruefeAnmeldung($teamId, $nummer, $passwort);
+
+        if ($personId === null) {
+            $versuche = $this->recordFailure($schluessel);
+
+            return [
+                'status'   => $versuche >= self::MAX_ATTEMPTS ? self::GESPERRT : self::FALSCH,
+                'personId' => null,
+            ];
+        }
+
+        // Das Passwort stimmte — der Zaehler gehoert abgeraeumt, auch wenn
+        // die Dispo-Sperre gleich zuschlaegt: das war kein Rateversuch.
+        $this->clearFailures($schluessel);
+
+        if ($this->istDispoGesperrt($personId)) {
+            // Bewusst OHNE personId: "gesperrt" heisst kein Zutritt, und wer
+            // keine Kennung bekommt, kann sie auch nicht versehentlich als
+            // Identitaet weiterverwenden.
+            return ['status' => self::GESPERRT, 'personId' => null];
+        }
+
+        return ['status' => self::OK, 'personId' => $personId];
+    }
+
+    /**
+     * Die Eskalations-Stufe-3-Sperre aus der Dispo, fuer den ganzen Menschen.
+     *
+     * KontoWriter prueft portal_locked_at bewusst NICHT: die Spalte haengt an
+     * der ANSTELLUNG, nicht an der Person, und ist damit keine Frage des
+     * Kontos. Die Antwort auf sie gehoert hierher.
+     *
+     * Gesperrt ist, wer AN IRGENDEINER seiner Anstellungen gesperrt ist —
+     * derselbe Massstab wie im Einsatz-Bereich (EmployeeAssignments:80:
+     * „Gesperrt, wenn irgendein Datensatz der Gruppe gesperrt ist") und beim
+     * Anhang-Abruf (DispoAttachmentController:31). Zwei verschiedene
+     * Antworten auf dieselbe Sperre waeren die Luecke: dort zu, hier offen.
+     */
+    private function istDispoGesperrt(int $personId): bool
+    {
+        return RecEmployee::query()
+            ->where('rec_person_id', $personId)
+            ->whereNotNull('portal_locked_at')
+            ->exists();
+    }
+
+    /**
+     * Der Drossel-Schluessel der Nummer.
+     *
+     * Er haengt an der NORMALISIERTEN Nummer, nicht am getippten Text: sonst
+     * schuettelt man die Sperre durch eine andere Schreibweise derselben
+     * Nummer ab („0151 …" statt „+49151 …"), und die Drossel waere
+     * wirkungslos. Und er haengt an der Nummer, nicht an der gefundenen
+     * Person: eine unbekannte Nummer wird genauso gedrosselt wie eine
+     * bekannte, sonst waere der Unterschied im Verhalten genau die Auskunft,
+     * die die Meldungen vermeiden.
+     *
+     * Eine unlesbare Eingabe bekommt ihren getrimmten Rohtext als Schluessel
+     * — sie findet ohnehin nie ein Konto, soll aber trotzdem zaehlen.
+     *
+     * Der Vorsatz "nummer:" haelt die beiden Einstiege auseinander: Token und
+     * Nummer teilen sich denselben Speicher und dieselben Zaehler, aber nie
+     * einen Schluessel. Eine gesperrte Nummer sperrt den Token-Weg NICHT mit
+     * (sonst sperrte ein Fremder einen Mitarbeiter aus, indem er dessen
+     * oeffentlich bekannte Nummer durchprobiert), und ein gesperrter Token
+     * nicht das Konto.
+     */
+    private function nummernSchluessel(string $nummer): string
+    {
+        return 'nummer:' . (PhoneE164::normalize($nummer) ?? trim($nummer));
     }
 
     public function clearFailures(string $token): void
