@@ -14,11 +14,13 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
+use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\Compilers\BladeCompiler;
 use Livewire\Attributes\Locked;
+use Livewire\Mechanisms\DataStore;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\KontoAnlegen;
 use Platform\Recruiting\Services\KontoWriter;
@@ -115,7 +117,16 @@ final class KontoAnlegenTest extends TestCase
 
         $container->instance('config', new ConfigRepository([
             'recruiting' => ['konto' => ['pepper' => self::PFEFFER]],
+            // Livewires redirect() fragt danach; fehlt der Schluessel, kommt
+            // der Vorgabewert.
+            'livewire'   => ['render_on_redirect' => false],
         ]));
+
+        // Livewires store() haengt an EINEM DataStore. Ein blanker Container
+        // baut bei jedem app()-Aufruf einen neuen — dann schriebe redirect()
+        // in den einen und der Test laese aus dem anderen, und jede
+        // Weiterleitungs-Zusicherung waere stumm gruen.
+        $container->instance(DataStore::class, new DataStore());
 
         // Vier Runden statt zwoelf: bcrypt ist absichtlich langsam.
         $container->instance('hash', new BcryptHasher(['rounds' => 4]));
@@ -328,6 +339,14 @@ final class KontoAnlegenTest extends TestCase
         require dirname(__DIR__, 2) . '/routes/public.php';
 
         $router->getRoutes()->refreshNameLookups();
+
+        // route() in oeffneCode() braucht den Erzeuger — und zwar denselben
+        // Routenbestand, sonst zeigt die Weiterleitung woandershin als die
+        // Route, die geprueft wurde.
+        $this->container->instance('url', new UrlGenerator(
+            $router->getRoutes(),
+            Request::create('http://localhost/konto/anlegen', 'GET'),
+        ));
 
         return $router;
     }
@@ -792,6 +811,9 @@ final class KontoAnlegenTest extends TestCase
             'passwort'             => 'dito',
             'passwortWiederholung' => 'dito',
             'fehler'               => 'nur eine Anzeige; wer sie sich selbst setzt, beschreibt seinen eigenen Bildschirm',
+            'code'                 => 'der abgetippte Einladungscode — eine Eingabe wie jede andere. '
+                . 'Er entscheidet ueber nichts: oeffneCode() leitet mit ihm nur auf die Token-Route '
+                . 'weiter, und dort prueft dieselbe mount(), die auch der Link durchlaeuft',
         ];
 
         $klasse = new \ReflectionClass(KontoAnlegen::class);
@@ -919,7 +941,161 @@ final class KontoAnlegenTest extends TestCase
         $this->assertSame(0, $code, implode("\n", $ausgabe));
     }
 
+    // -------------------------------------------- Die zweite Tuer: der Code
+
+    /**
+     * Ruling GD-4, Canvas 68 Eintrag 1740: die Einladung geht "als Link UND
+     * als kurzen lesbaren Code ... am Rechner kann man den Code auch
+     * eintippen." Ohne Token zeigt dieselbe Komponente genau ein Feld.
+     */
+    public function test_ohne_token_zeigt_die_seite_das_codefeld(): void
+    {
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+
+        $this->assertSame('code', $seite->state);
+        $this->assertNull($seite->personId);
+        $this->assertSame('', $seite->token);
+    }
+
+    /**
+     * KEIN ZWEITER PRUEFPFAD: die tokenlose Seite prueft nichts, sie leitet
+     * auf die Token-Route weiter. Deshalb darf sie auch bei einem Code, den
+     * es gar nicht gibt, nichts nachschlagen — sonst gaebe es die Regel
+     * zweimal, und die beiden liefen auseinander.
+     */
+    public function test_die_tokenlose_seite_schlaegt_nichts_nach(): void
+    {
+        $this->einladung();
+        $this->router();
+
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+        $seite->code = 'ZZZZZZZZ';
+        $seite->oeffneCode();
+
+        $this->assertSame('code', $seite->state);
+        $this->assertSame('', $seite->fehler, 'Die tokenlose Seite hat den Code selbst beurteilt.');
+        $this->assertNull($seite->personId);
+    }
+
+    public function test_der_getippte_code_landet_auf_der_token_route(): void
+    {
+        $token = $this->einladung();
+        $this->router();
+
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+        // So tippt ein Mensch ab, was ihm am Telefon vorgelesen wurde.
+        $seite->code = strtolower(substr($token, 0, 4)) . ' - ' . strtolower(substr($token, 4));
+
+        $seite->oeffneCode();
+
+        $this->assertSame(
+            'http://localhost/konto/anlegen/' . $token,
+            (string) \Livewire\store($seite)->get('redirect'),
+            'Die Eingabe muss auf die Token-Route zeigen — mit DERSELBEN Normalisierung wie der Link.',
+        );
+    }
+
+    /**
+     * Dieselbe Antwort wie ein ungueltiger Token: 404. Kein "Code nicht
+     * gefunden" — das waere die Auskunft, dass es ihn gibt. Geprueft wird der
+     * ganze Weg, also die Weiterleitung UND was am Ziel passiert.
+     */
+    public function test_ein_falscher_code_endet_wie_ein_falscher_token(): void
+    {
+        $this->einladung();
+        $this->router();
+
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+        $seite->code = 'zzzz-zzzz';
+        $seite->oeffneCode();
+
+        $ziel = (string) \Livewire\store($seite)->get('redirect');
+        $this->assertSame('http://localhost/konto/anlegen/ZZZZZZZZ', $ziel);
+
+        // Und am Ziel gibt es die Seite nicht.
+        $this->expectException(NotFoundHttpException::class);
+        $this->seite('ZZZZZZZZ');
+    }
+
+    public function test_ein_leerer_code_leitet_nicht_weiter(): void
+    {
+        $this->router();
+
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+        $seite->code = '  -  ';
+
+        $seite->oeffneCode();
+
+        $this->assertNull(\Livewire\store($seite)->get('redirect'));
+        $this->assertNotSame('', $seite->fehler);
+    }
+
+    /**
+     * Aus dem Code-Zustand fuehrt kein Weg ins Registrieren. Ohne diesen
+     * Riegel liefe registriere() mit leerem Token und leerer Personen-Kennung
+     * — und jeder Aufruf von $wire.call('registriere') waere ein Rateversuch
+     * auf einer Seite, die gar keine Einladung kennt.
+     */
+    public function test_aus_dem_code_zustand_wird_nicht_registriert(): void
+    {
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->passwort = self::PASSWORT;
+        $seite->passwortWiederholung = self::PASSWORT;
+
+        $seite->registriere();
+
+        $this->assertSame('code', $seite->state);
+        $this->assertNull($this->zeile()->password_hash);
+    }
+
+    public function test_das_codefeld_steht_allein(): void
+    {
+        $seite = new KontoAnlegen();
+        $seite->mount('');
+
+        $html = $this->rendere($seite);
+
+        $this->assertStringContainsString('wire:model="code"', $html);
+        $this->assertStringContainsString('wire:submit="oeffneCode"', $html);
+
+        // Geburtsdatum und Passwort haben hier nichts zu suchen — sie kommen
+        // erst, wenn der Code zu einer Einladung gefuehrt hat.
+        $this->assertStringNotContainsString('wire:model="geburtsdatum"', $html);
+        $this->assertStringNotContainsString('wire:model="passwort"', $html);
+    }
+
     // -------------------------------------------------------------- Die Route
+
+    public function test_die_tokenlose_route_faehrt_dieselbe_komponente(): void
+    {
+        $treffer = $this->router()->getRoutes()->match(Request::create('/konto/anlegen', 'GET'));
+
+        $this->assertSame('recruiting.public.konto-anlegen-code', $treffer->getName());
+        $this->assertStringStartsWith(
+            KontoAnlegen::class,
+            (string) $treffer->getAction('uses'),
+            'Die tokenlose Adresse muss DIESELBE Komponente fahren — eine zweite waere ein zweiter Pruefpfad.',
+        );
+    }
+
+    /**
+     * Dieselbe Bremse wie am Link, und zwar zwingend: ohne sie waere die
+     * tokenlose Seite die bequemere Tuer zum Durchprobieren. Acht Zeichen aus
+     * 31 sind rund 850 Milliarden Moeglichkeiten — aber nur mit Bremse.
+     */
+    public function test_die_tokenlose_route_ist_ebenso_gedrosselt(): void
+    {
+        $treffer = $this->router()->getRoutes()->match(Request::create('/konto/anlegen', 'GET'));
+
+        $this->assertContains('throttle:20,1', $treffer->gatherMiddleware());
+    }
 
     public function test_die_route_traegt_den_token_am_ende(): void
     {

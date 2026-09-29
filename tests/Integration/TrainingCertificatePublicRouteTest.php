@@ -69,11 +69,25 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * Komponente: throttle:20,1 gegen das Durchprobieren von Token, ein
      * Zaehler je Einladung gegen das Durchprobieren des Geburtsdatums, und
      * 404 statt einer Meldung, wenn der Token nicht (mehr) gilt.
+     *
+     * 'konto-anlegen-code': dieselbe Komponente OHNE Token (Canvas 68,
+     * Aufgabe 7, Ruling GD-4) - wer am Rechner sitzt, tippt die acht Zeichen
+     * ein. Sie prueft nichts und leitet auf 'konto-anlegen' weiter; die
+     * Bremse ist dieselbe (throttle:20,1).
+     *
+     * 'konto': die Anmeldung mit Handynummer und Passwort (Canvas 68,
+     * Aufgabe 7). Oeffentlich und ohne Token - das ist der Sinn der Sache,
+     * der Benutzername IST die Nummer. Die Bremse sitzt nicht an der Route,
+     * sondern in PortalAuth (fuenf Versuche je Nummer, fuenfzehn Minuten):
+     * die Anmeldeversuche laufen ueber /livewire/update und fassen diese
+     * GET-Adresse gar nicht wieder an.
      */
     private const SPAETER = [
         'recruiting.public.employee-assignments',
         'recruiting.public.employee-assignments.attachment',
+        'recruiting.public.konto',
         'recruiting.public.konto-anlegen',
+        'recruiting.public.konto-anlegen-code',
         'recruiting.public.portal-mockup',
         'recruiting.public.portal-shell',
     ];

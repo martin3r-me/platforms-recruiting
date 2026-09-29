@@ -76,6 +76,36 @@ Route::get('/konto/anlegen/{token}', \Platform\Recruiting\Livewire\Public\KontoA
     ->middleware('throttle:20,1')
     ->name('recruiting.public.konto-anlegen');
 
+// Dieselbe Komponente OHNE Token - die zweite Haelfte von Ruling GD-4.
+// Canvas 68, Eintrag 1740: die Einladung geht "als Link UND als kurzen
+// lesbaren Code ... am Rechner kann man den Code auch eintippen." Der Link
+// steht darueber, hier ist das Eingabefeld.
+//
+// KEINE ZWEITE SEITE und kein zweiter Pruefpfad: die Komponente zeigt ohne
+// Token nur ein Feld und leitet die Eingabe auf die Route darueber weiter.
+// Geprueft wird also weiterhin genau einmal.
+//
+// DIESELBE DROSSEL wie oben, und zwar zwingend: ohne sie waere diese Seite
+// die bequemere Tuer zum Durchprobieren als der Link. Acht Zeichen aus 31
+// sind rund 850 Milliarden Moeglichkeiten - aber nur mit Bremse.
+//
+// KEINE KOLLISION mit der Route darueber: die beiden haben eine
+// unterschiedliche Anzahl an Pfadsegmenten (zwei vs. drei), und {token}
+// matcht nur gegen genau ein Segment ohne Slash.
+Route::get('/konto/anlegen', \Platform\Recruiting\Livewire\Public\KontoAnlegen::class)
+    ->middleware('throttle:20,1')
+    ->name('recruiting.public.konto-anlegen-code');
+
+// Mitarbeiterkonto, Anmeldung (Canvas 68, Spec 2.1). Handynummer und
+// Passwort - oeffentlich, ohne Token, ohne Team-Kontext (Ruling GD-2).
+//
+// KEINE Route-Drossel: die Anmeldeversuche laufen ueber /livewire/update und
+// fassen diese GET-Adresse gar nicht wieder an. Die wirksame Bremse sitzt in
+// PortalAuth (fuenf Versuche je Nummer, fuenfzehn Minuten) - wer hier eine
+// Route-Drossel ergaenzt, gewinnt nichts und sperrt Firmen-IPs aus.
+Route::get('/konto', \Platform\Recruiting\Livewire\Public\KontoAnmelden::class)
+    ->name('recruiting.public.konto');
+
 // Dispo-Einsatz-Seite (token-only, NICHT im MA-Portal verlinkt — Spec 2026-08-14).
 // Token am URL-Ende: Meta-URL-Buttons erlauben die Variable nur als Suffix.
 Route::get('/einsaetze/{token}', \Platform\Recruiting\Livewire\Public\EmployeeAssignments::class)

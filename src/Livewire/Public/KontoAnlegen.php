@@ -23,6 +23,13 @@ use Platform\Recruiting\Support\PasswortRegeln;
  * Pfeffer. Diese Seite ist die Oberflaeche davor und traegt nur, was nicht
  * zum Konto gehoert, sondern zur Seite:
  *
+ * ZWEI TUEREN, EIN PRUEFPFAD (Ruling GD-4). Dieselbe Komponente haengt an
+ * zwei Routen: /konto/anlegen/{token} (der Link aus der Einladung) und
+ * /konto/anlegen (ohne Token — wer am Rechner sitzt, tippt die acht Zeichen
+ * ein). Die tokenlose Fassung PRUEFT NICHTS; sie leitet auf die Token-Route
+ * weiter. So bleibt es bei genau einer Pruefung, und ein falscher Code
+ * antwortet zeichengleich wie ein falscher Token.
+ *
  *  - Sichtbarkeit: eine Einladung, die es nicht (mehr) gibt, ergibt 404.
  *  - Die zweite Drossel (s.u.).
  *  - Die Trennung zwischen "das Passwort taugt nicht" (eine Formularsache)
@@ -74,8 +81,11 @@ class KontoAnlegen extends Component
     #[Locked] public ?int $personId = null;
 
     /**
-     * 'formular' oder 'fertig'. #[Locked] — genau diese Art Eigenschaft war
-     * der Bypass vom 19.08.2026 ($wire.set state=verified).
+     * 'code' (die tokenlose Tuer, nur ein Eingabefeld), 'formular' oder
+     * 'fertig'. #[Locked] — genau diese Art Eigenschaft war der Bypass vom
+     * 19.08.2026 ($wire.set state=verified). Ohne die Sperre setzte der
+     * Browser sich vom Code-Zustand aus einfach auf 'formular' und stuende
+     * ohne Einladung vor dem Registrierungsformular.
      */
     #[Locked] public string $state = 'formular';
 
@@ -92,10 +102,40 @@ class KontoAnlegen extends Component
     public string $passwort = '';
     public string $passwortWiederholung = '';
 
+    /**
+     * Der abgetippte Einladungscode — nur im Zustand 'code' im Spiel.
+     *
+     * BEWUSST NICHT GESPERRT (Waechter-Entscheidung, Ruling GD-4): er ist
+     * eine Eingabe des Menschen wie das Geburtsdatum, und er entscheidet
+     * ueber gar nichts. oeffneCode() leitet mit ihm nur auf die Token-Route
+     * weiter; ob der Code etwas taugt, entscheidet dort dieselbe mount(),
+     * die auch der Link durchlaeuft. Gesperrt koennte hier niemand etwas
+     * eintippen.
+     */
+    public string $code = '';
+
     public string $fehler = '';
 
-    public function mount(string $token): void
+    /**
+     * Ohne Token: die zweite Tuer (Ruling GD-4). Canvas 68, Eintrag 1740,
+     * verlangt die Einladung "als Link UND als kurzen lesbaren Code ... am
+     * Rechner kann man den Code auch eintippen." Der Link war Aufgabe 6,
+     * das Eingabefeld ist diese Haelfte.
+     *
+     * Hier wird NICHTS geprueft. Die Seite zeigt bloss ein Feld; wer es
+     * ausfuellt, wird auf die Token-Route geschickt und laeuft durch genau
+     * diese mount() ein zweites Mal. So gibt es weiterhin GENAU EINEN
+     * Pruefpfad — eine zweite Pruefung hier waere eine zweite Fassung
+     * derselben Regel, und die beiden driften auseinander.
+     */
+    public function mount(string $token = ''): void
     {
+        if (trim($token) === '') {
+            $this->state = 'code';
+
+            return;
+        }
+
         $lesbar = self::lesbarerToken($token);
         $personId = KontoWriter::personFuerEinladung($lesbar);
 
@@ -117,7 +157,11 @@ class KontoAnlegen extends Component
         // Ein zweites Absenden desselben Formulars liefe in den
         // verbrauchten Token und zaehlte als Fehlversuch — obwohl es nur ein
         // Doppelklick war.
-        if ($this->state === 'fertig' || $this->personId === null) {
+        // Jeder Zustand ausser dem offenen Formular laeuft ins Leere: 'fertig'
+        // waere ein Doppelklick (der zweite Aufruf liefe in den verbrauchten
+        // Token und zaehlte als Fehlversuch), 'code' hat gar keine Einladung
+        // und damit nichts zu registrieren.
+        if ($this->state !== 'formular' || $this->personId === null) {
             return;
         }
 
@@ -202,6 +246,44 @@ class KontoAnlegen extends Component
         $this->passwortWiederholung = '';
         $this->geburtsdatum = '';
         $this->state = 'fertig';
+    }
+
+    /**
+     * Der abgetippte Code fuehrt auf die Token-Route — dort und nur dort
+     * wird geprueft.
+     *
+     * Ein falscher Code gibt deshalb zeichengleich dieselbe Antwort wie ein
+     * falscher Token: 404. Kein "Code nicht gefunden" — das waere die
+     * Auskunft, dass es ihn gibt.
+     *
+     * Normalisiert wird mit lesbarerToken(), derselben Methode, die auch der
+     * Link-Weg benutzt. Eine zweite Fassung dieser Regel haetten wir in
+     * diesem Zweig schon zweimal, und sie sind jedes Mal auseinandergelaufen.
+     *
+     * DIE BREMSE bleibt wirksam, obwohl dieser Aufruf ueber /livewire/update
+     * laeuft und die Route-Drossel dort nicht greift: geprueft wird erst auf
+     * der Token-Route, und die traegt throttle:20,1. Wer Codes durchprobiert,
+     * schlaegt also weiterhin gegen dieselbe Bremse.
+     */
+    public function oeffneCode(): void
+    {
+        if ($this->state !== 'code') {
+            return;
+        }
+
+        $lesbar = self::lesbarerToken($this->code);
+
+        if ($lesbar === '') {
+            // Ueber die eigene, leere Eingabe darf die Seite reden — diese
+            // Meldung haengt an nichts Gespeichertem.
+            $this->fehler = 'Bitte tippen Sie Ihren Einladungscode ein.';
+
+            return;
+        }
+
+        $this->fehler = '';
+
+        $this->redirect(route('recruiting.public.konto-anlegen', ['token' => $lesbar]));
     }
 
     public function render()

@@ -27,6 +27,11 @@
         'Mindestens %d Zeichen. Laenge zaehlt mehr als Sonderzeichen.',
         \Platform\Recruiting\Support\PasswortRegeln::MINDESTLAENGE,
     );
+    // Die tokenlose Tuer (Ruling GD-4): ein Feld, sonst nichts.
+    $codeTitel = 'Einladungscode eingeben';
+    $codeText = 'Sie haben von uns einen kurzen Code bekommen. Gross- und Kleinschreibung, '
+        . 'Leerzeichen und Bindestriche sind egal.';
+    $labelCode = 'Ihr Einladungscode';
     $fertigTitel = 'Das Konto steht';
     $fertigText = $duzen
         ? 'Ab jetzt meldest du dich mit deiner Rufnummer und diesem Passwort an.'
@@ -45,6 +50,36 @@
                 <h2>{{ $fertigTitel }}</h2>
                 <p>{{ $fertigText }}</p>
             </div>
+        @elseif ($state === 'code')
+            <div class="greet">
+                <h2>{{ $codeTitel }}</h2>
+                <p>{{ $codeText }}</p>
+            </div>
+
+            <form class="card login" wire:submit="oeffneCode">
+                <label class="feld">
+                    <span class="n">{{ $labelCode }}</span>
+                    {{--
+                        Der Code enthaelt BUCHSTABEN. Ein Attribut, das am
+                        Handy die reine Zahlentastatur erzwingt, waere hier
+                        derselbe Login-Blocker wie am 06.08.2026 - deshalb
+                        steht es weder hier noch sonst in dieser Datei, auch
+                        nicht in Prosa.
+                    --}}
+                    <input type="text" wire:model="code" required maxlength="20"
+                           autocomplete="off" autocapitalize="characters"
+                           autocorrect="off" spellcheck="false">
+                </label>
+
+                @if ($fehler !== '')
+                    <div class="alert crit">
+                        <span class="dot crit" style="margin-top:6px"></span>
+                        <div class="txt">{{ $fehler }}</div>
+                    </div>
+                @endif
+
+                <button type="submit" class="btn primary" wire:loading.attr="disabled">Weiter</button>
+            </form>
         @else
             <div class="greet">
                 <h2>{{ $titel }}</h2>
