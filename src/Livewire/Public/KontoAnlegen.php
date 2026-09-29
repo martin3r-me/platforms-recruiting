@@ -160,18 +160,31 @@ class KontoAnlegen extends Component
             // Zaehler.
             //
             // GEFANGEN WIRD PAUSCHAL, und das ist hier vertretbar, nicht
-            // Schlamperei (Fund F7 der Pruefung). KontoWriter wirft aus vier
+            // Schlamperei (Fund F7 der Pruefung). KontoWriter wirft aus FUENF
             // Gruenden dieselbe Ausnahme: falscher Nachweis, Passwortregel,
-            // gesperrte/stillgelegte Zeile, fehlender Pfeffer. Die
-            // Passwortregel ist oben schon abgefangen; gesperrt und
-            // stillgelegt fallen bereits in personFuerEinladung() heraus und
-            // ergeben 404, bevor dieses Formular ueberhaupt erscheint; und
-            // der Pfeffer faellt in der Konfiguration auf app.key zurueck.
-            // Bleibt in der Praxis der falsche Nachweis — genau das, was
-            // gezaehlt werden soll. Wer eine dieser drei Absicherungen
-            // entfernt, muss hier nach Fall unterscheiden, sonst zaehlt ein
-            // Konfigurationsfehler als Rateversuch und sperrt den Menschen
-            // fuer eine Stunde aus.
+            // gesperrte Zeile, stillgelegte Zeile, verschwundene Zeile
+            // ("Person X existiert nicht") — dazu der fehlende Pfeffer aus
+            // der Konfiguration.
+            //
+            // Die Passwortregel ist oben schon abgefangen. Gesperrt und
+            // stillgelegt fallen in personFuerEinladung() heraus und ergeben
+            // 404 — ABER NUR NACH DEM STAND BEIM SEITENAUFRUF (Nachpruefung
+            // zu F7): wer waehrend des offenen Formulars gesperrt oder
+            // zusammengelegt wird, landet hier und bekommt einen Fehlversuch
+            // gutgeschrieben. Dasselbe gilt fuer die verschwundene Zeile;
+            // einen harten Loeschweg auf rec_persons gibt es
+            // (SeedDemoEmployees), auf dem Demosystem ist das also real. Der
+            // Pfeffer faellt in der Konfiguration auf app.key zurueck.
+            //
+            // Betrieblich ist das folgenlos: alle diese Faelle bedeuten
+            // ohnehin "kein Konto fuer diesen Menschen", und der Zaehler
+            // laeuft nach einer Stunde ab. Aber es heisst: der Zaehler ist
+            // NICHT zeichengleich mit "falsche Nachweise", er ist es nur
+            // praktisch. Wer eine der Absicherungen entfernt — die
+            // Passwort-Vorpruefung oben oder die Vorauswahl in
+            // personFuerEinladung() —, muss hier nach Fall unterscheiden,
+            // sonst zaehlt ein Konfigurationsfehler als Rateversuch und
+            // sperrt den Menschen fuer eine Stunde aus.
             RateLimiter::hit(self::drosselSchluessel($this->token), self::SPERRE_SEKUNDEN);
 
             $this->fehler = $this->duzen
