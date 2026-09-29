@@ -678,6 +678,15 @@ recruiting:konto-einladen
 `--bericht` liefert, was Spec §3 verlangt: **wer eingeladen ist, wer registriert ist, wer
 nicht erreichbar ist** (keine Nummer, kein WhatsApp).
 
+**Dazu die offenen Notfall-Antraege aus Weg 4 (Befund der Aufgabe-9-Pruefung).** Spec §5
+gibt HR fuer Weg 4 ein **Stopp-Recht innerhalb von 24 Stunden**. Heute entsteht dabei nur
+eine Log-Zeile und ein Eintrag, den `recruiting:konto-zuruecksetzen --offen` zeigt —
+**solange niemand das faehrt, ist das Stopp-Recht theoretisch**, und der Wechsel wird
+still wirksam. Ein Recht, von dem niemand erfaehrt, ist keines.
+`--bericht` fuehrt deshalb einen eigenen Abschnitt **„Nummernwechsel beantragt"** mit
+Personen-Kennung, gekuerzter Zielnummer und **wirksam ab** — die faelligen zuerst.
+Kennungen, nie Namen, nie eine volle Rufnummer.
+
 **Bindende Vorgaben:**
 - Wiederholbar: wer schon ein Konto hat, wird uebersprungen.
 - **Wer kein hinterlegtes Geburtsdatum hat, wird NICHT eingeladen** (Befund F6 der
