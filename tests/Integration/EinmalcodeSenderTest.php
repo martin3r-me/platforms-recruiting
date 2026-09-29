@@ -661,6 +661,104 @@ final class EinmalcodeSenderTest extends TestCase
         );
     }
 
+    // ------------------------------- F2: vier Zusagen, die niemand hielt
+
+    /**
+     * Der Drossel-Schluessel traegt die Nummer NICHT im Klartext.
+     *
+     * Mit genau dieser Eigenschaft wird die Cache-Entscheidung verteidigt
+     * (der Wirt faehrt CACHE_STORE=database, cache.key ist ein varchar(255)
+     * PRIMARY KEY, und eine vollstaendige Handynummer hat dort nichts zu
+     * suchen) — die Attrappe schrieb die Schluessel bisher mit, ohne dass
+     * sie je einer gelesen haette. Woertlich abgeschaut bei
+     * PortalAuthKontoTest::test_der_cache_schluessel_traegt_die_nummer_nicht_im_klartext.
+     */
+    public function testDerDrosselSchluesselTraegtDieNummerNichtImKlartext(): void
+    {
+        (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertNotEmpty($this->cache->schluessel, 'Es muss ueberhaupt etwas geschrieben worden sein.');
+
+        foreach ($this->cache->schluessel as $schluessel) {
+            $this->assertStringNotContainsString(self::NUMMER, $schluessel);
+            $this->assertStringNotContainsString('15111111111', $schluessel, 'auch nicht ohne Laendervorwahl');
+            $this->assertLessThanOrEqual(255, strlen($schluessel), 'cache.key ist varchar(255).');
+        }
+    }
+
+    /**
+     * Auch die Fehlermeldung VON META darf den Code nicht ins Log tragen.
+     *
+     * Meta zitiert bei einem Parameterfehler den beanstandeten Wert. Diese
+     * Meldung lief bisher ungeprueft durch — der zweite Weg des Geheimnisses
+     * ins Log, neben dem Ausnahmetext.
+     */
+    public function testMetaFehlertextMitCodeWirdImLogGeschwaerzt(): void
+    {
+        $this->meta->lehntAbMitWert = true;
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+
+        $gesendet = $this->einzigerParameter($this->meta->calls[0]['components']);
+        $this->assertMatchesRegularExpression('/^\d{6}$/', $gesendet);
+        $this->assertStringNotContainsString($gesendet, $this->logText());
+        $this->assertStringContainsString('Parameter format does not match', $this->logText(), 'Die Ursache bleibt lesbar.');
+    }
+
+    /**
+     * Die VOLLSTAENDIGE Nummer steht in keiner Log-Zeile — nur die letzten
+     * vier Stellen, wie KontoWriter es mit derselben Begruendung haelt.
+     *
+     * Geprueft ueber alle Ausgaenge (Erfolg, gedrosselt, Fehler), weil die
+     * Kuerzung an genau einer Stelle sitzt und ein Ausgang, der an ihr
+     * vorbeischreibt, sonst unbemerkt bliebe.
+     */
+    public function testDieVolleNummerStehtInKeinerLogZeile(): void
+    {
+        $sender = new EinmalcodeSender($this->cache);
+
+        for ($i = 0; $i <= CodeDrossel::MAX_JE_STUNDE; $i++) {
+            $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+        }
+        $this->vorlageSetzen(KontoWriter::ZWECK_ANMELDUNG, ['name' => '']);
+        $sender->sende($this->personId, KontoWriter::ZWECK_ANMELDUNG);
+
+        $text = $this->logText();
+
+        $this->assertNotEmpty($this->log->zeilen);
+        $this->assertStringNotContainsString(self::NUMMER, $text);
+        $this->assertStringNotContainsString('15111111111', $text, 'auch nicht ohne Laendervorwahl');
+
+        foreach ($this->log->zeilen as $zeile) {
+            if (array_key_exists('nummer_endet_auf', $zeile['daten'])) {
+                $this->assertSame('1111', $zeile['daten']['nummer_endet_auf'], 'genau vier Stellen, die letzten');
+            }
+        }
+    }
+
+    /**
+     * Ohne aktiven WhatsApp-Kanal geht nichts raus — und es wird auch kein
+     * Code erzeugt.
+     *
+     * Die Wache stand vor erzeugeCode(), war aber von keinem Test gehalten:
+     * ohne sie liefe der Versand in eine Ausnahme aus dem Meta-Dienst, und
+     * der laufende Code waere schon ueberschrieben.
+     */
+    public function testOhneKanalWirdNichtsVerschicktUndKeinCodeErzeugt(): void
+    {
+        $vorher = $this->laufenderCode();
+        DB::table('comms_channels')->delete();
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($vorher, $this->laufenderCode());
+        $this->assertStringContainsString('Kanal', $this->logText());
+    }
+
     // ------------------------------------------------------------- Hilfen
 
     /**
@@ -744,6 +842,15 @@ final class EinmalcodeSenderTest extends TestCase
             /** Wirft eine Ausnahme, deren Text den gesendeten Parameter woertlich enthaelt. */
             public bool $wirftMitParameter = false;
 
+            /**
+             * Lehnt ab UND zitiert den beanstandeten Wert in der Meldung —
+             * so, wie Meta es bei einem Parameterfehler tut
+             * ("Parameter format does not match: <wert>"). Ohne diesen Knopf
+             * koennte diese Testklasse gar nicht herstellen, was
+             * ohneCode() an der meta_payload-Meldung zu verhindern hat.
+             */
+            public bool $lehntAbMitWert = false;
+
             public function __construct(string $vorlage)
             {
                 $this->genehmigt = [$vorlage => ['code']];
@@ -782,6 +889,10 @@ final class EinmalcodeSenderTest extends TestCase
                         'HTTP 400 beim Senden: {"template":{"name":"' . $templateName
                         . '","components":[{"text":"' . implode(',', $werte) . '"}]}}'
                     );
+                }
+
+                if ($this->lehntAbMitWert) {
+                    return $this->abgelehnt('Parameter format does not match: ' . implode(',', $werte));
                 }
 
                 $erwartet = $this->genehmigt[$templateName] ?? null;
