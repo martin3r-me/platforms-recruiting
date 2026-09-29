@@ -31,6 +31,66 @@
 -- ============================================================================
 
 
+-- ############################################################################
+-- ABFRAGE 0 -- DIE UEBERSICHT. Wenn du nur EINE Sache laufen laesst, diese.
+--
+-- Liefert alle drei Vorflug-Zahlen in EINER Zeile. Die Einzelabfragen weiter
+-- unten brauchst du nur fuer die Faelle, deren Zahl nicht null ist.
+-- ############################################################################
+WITH basis AS (
+    SELECT
+        e.id,
+        NULLIF(TRIM(COALESCE(e.person_key, '')), '')    AS marker,
+        DATE(e.birth_date)                              AS geburtstag,
+        RIGHT(REGEXP_REPLACE(e.phone, '[^0-9]', ''), 9) AS suffix
+    FROM rec_employees e
+    WHERE e.is_active = 1
+      AND LENGTH(REGEXP_REPLACE(COALESCE(e.phone, ''), '[^0-9]', '')) >= 9
+),
+gruppen AS (
+    SELECT
+        suffix,
+        (COUNT(marker) = COUNT(*) AND COUNT(DISTINCT marker) = 1)         AS marker_einig,
+        (COUNT(geburtstag) = COUNT(*) AND COUNT(DISTINCT geburtstag) = 1) AS geburt_einig
+    FROM basis
+    GROUP BY suffix
+    HAVING COUNT(*) > 1
+)
+SELECT
+    (SELECT COUNT(*) FROM rec_employees WHERE is_active = 1)
+        AS aktive_mitarbeiter,
+    (SELECT COUNT(*) FROM rec_employees
+      WHERE is_active = 1 AND TRIM(COALESCE(phone, '')) = '')
+        AS ohne_nummer,
+    (SELECT COUNT(*) FROM rec_employees
+      WHERE is_active = 1 AND TRIM(COALESCE(phone, '')) <> ''
+        AND LENGTH(REGEXP_REPLACE(phone, '[^0-9]', '')) < 9)
+        AS nummer_zu_kurz,
+    (SELECT COALESCE(SUM(CASE WHEN marker_einig OR geburt_einig THEN 1 ELSE 0 END), 0) FROM gruppen)
+        AS nummer_geteilt_dieselbe_person,
+    (SELECT COALESCE(SUM(CASE WHEN marker_einig OR geburt_einig THEN 0 ELSE 1 END), 0) FROM gruppen)
+        AS nummer_geteilt_VERSCHIEDENE_MENSCHEN,
+    (SELECT COUNT(*) FROM rec_employees e
+      WHERE e.is_active = 1
+        AND LENGTH(REGEXP_REPLACE(COALESCE(e.phone, ''), '[^0-9]', '')) >= 9
+        AND EXISTS (
+            SELECT 1 FROM crm_contact_links l
+            JOIN crm_phone_numbers p ON p.phoneable_id = l.contact_id
+             AND p.is_active = 1 AND p.international IS NOT NULL
+             AND (p.phoneable_type = 'crm_contact' OR p.phoneable_type LIKE '%CrmContact')
+            WHERE l.linkable_id = e.id AND l.linkable_type LIKE '%RecEmployee')
+        AND NOT EXISTS (
+            SELECT 1 FROM crm_contact_links l
+            JOIN crm_phone_numbers p ON p.phoneable_id = l.contact_id
+             AND p.is_active = 1 AND p.international IS NOT NULL
+             AND (p.phoneable_type = 'crm_contact' OR p.phoneable_type LIKE '%CrmContact')
+            WHERE l.linkable_id = e.id AND l.linkable_type LIKE '%RecEmployee'
+              AND RIGHT(REGEXP_REPLACE(p.international, '[^0-9]', ''), 9)
+                = RIGHT(REGEXP_REPLACE(e.phone, '[^0-9]', ''), 9)))
+        AS akte_gegen_kontakt_abweichend
+;
+
+
 -- ----------------------------------------------------------------------------
 -- 1. NUMMER FEHLT
 --
