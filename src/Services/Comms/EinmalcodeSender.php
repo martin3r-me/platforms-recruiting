@@ -83,11 +83,22 @@ use Platform\Recruiting\Support\PhoneE164;
  * ihn an genau einer privaten Stelle und reicht ihn weiter. Hier wird
  * `erzeugeCode()` gerufen und der Klartext entgegengenommen, mehr nicht.
  *
- * DAS GEHEIMNIS GEHT IN DIE NACHRICHT UND SONST NIRGENDWOHIN. Kein Log,
- * keine Ausnahme, kein Dump. Das ist hier besonders heikel, weil
- * Versand-Code traditionell viel protokolliert und eine HTTP-Ausnahme den
- * gesendeten Rumpf im Text mitfuehrt — deshalb laeuft JEDER fremde Text, der
- * ins Log geht, durch `ohneCode()`.
+ * DAS GEHEIMNIS GEHT IN DIE NACHRICHT UND SONST NIRGENDWOHIN — SOWEIT DIESE
+ * KLASSE REICHT. Kein Log, keine Ausnahme, kein Dump: jeder fremde Text, der
+ * von hier ins Log geht, laeuft durch `ohneCode()` (die Begruendung dort ist
+ * nachgemessen, nicht vermutet).
+ *
+ * SIE REICHT ABER NICHT BIS ANS ENDE, und wer das nicht weiss, haelt eine
+ * Zusage fuer eingeloest, die es nicht ist:
+ * `WhatsAppMetaService::handleSendResponse()` legt unsere `components` als
+ * `comms_whatsapp_messages.template_params` ab UND gibt sie ein zweites Mal
+ * an `CommsLog::log(details: [...])`. Der Einmalcode steht damit im Klartext
+ * in der CRM-Datenbank und im Kommunikations-Protokoll — zehn Minuten lang
+ * gueltig, danach ein toter Wert, aber eben gespeichert. Das ist KEIN Fund
+ * dieser Klasse zum Selberbeheben: die Stelle liegt in platform-crm und
+ * haengt an allen anderen Sendern mit dran. Wer sie angeht, tut es dort und
+ * bewusst (etwa: `template_params` fuer Vorlagen aus `code_vorlagen` nicht
+ * ablegen).
  *
  * DIE ANTWORT VERRAET NICHTS. `STATUS_GEDROSSELT` muss fuer den Menschen
  * genauso aussehen wie `STATUS_SENT`, sonst waere sie die Auskunft, dass es
@@ -493,11 +504,20 @@ final class EinmalcodeSender
     /**
      * Schwaerzt den Code in einem fremden Text.
      *
-     * Kein erfundener Fall: Guzzle und Laravels HTTP-Klasse fuehren den
-     * gesendeten Rumpf im Ausnahmetext mit, und darin steht der Code als
-     * Parameterwert. ProofReminderSender protokolliert $e->getMessage()
-     * woertlich — bei einem Geheimnis darf das nicht sein, und ein Log ist
-     * genau der Ort, an den man spaeter jemanden schauen laesst.
+     * Der Weg dorthin ist NACHGEMESSEN, nicht vermutet:
+     * WhatsAppMetaService::handleSendResponse() schreibt unsere `components`
+     * als `template_params` in comms_whatsapp_messages. Scheitert dieses
+     * INSERT (Feldlaenge, Verbindung), traegt die QueryException den Code im
+     * Text — Laravel setzt die Bindings in die Meldung ein
+     * (QueryException::formatMessage, Str::replaceArray). Genau so eine
+     * Meldung stand in diesem Testlauf auf dem Schirm:
+     * „... SQL: insert into "comms_channels" (...) values (3, chan-konto-code, ...)".
+     *
+     * ProofReminderSender protokolliert $e->getMessage() woertlich — bei
+     * einem Geheimnis darf das nicht sein, und ein Log ist genau der Ort, an
+     * den man spaeter jemanden schauen laesst. Dasselbe gilt fuer die
+     * Fehlermeldung aus dem meta_payload: sie kommt von Meta zurueck und
+     * zitiert bei einem Parameterfehler den gesendeten Wert.
      */
     private function ohneCode(string $text, string $klartext): string
     {
