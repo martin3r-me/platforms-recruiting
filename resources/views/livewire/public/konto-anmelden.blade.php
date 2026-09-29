@@ -70,15 +70,14 @@
                            autocorrect="off" spellcheck="false">
                 </label>
 
-                <label class="feld haken">
-                    {{--
-                        "Angemeldet bleiben" verlaengert die Sitzung. Es legt
-                        KEIN dauerhaftes Geheimnis in einen Cookie ab - das
-                        waere ein zweiter Anmeldeweg ohne Passwort.
-                    --}}
-                    <input type="checkbox" wire:model="angemeldetBleiben">
-                    <span class="n">Angemeldet bleiben</span>
-                </label>
+                {{--
+                    HIER STAND EINMAL "Angemeldet bleiben" (Ruling GD-10).
+                    Der Haken setzte einen Merker in die Sitzung und bewirkte
+                    sonst nichts; eine echte Verlaengerung braucht Middleware
+                    im Wirt und wartet auf eine Freigabe. Ein
+                    Kontrollkaestchen, das nichts tut, ist ein Versprechen,
+                    das nicht gehalten wird.
+                --}}
 
                 @if ($fehler !== '')
                     <div class="alert crit">

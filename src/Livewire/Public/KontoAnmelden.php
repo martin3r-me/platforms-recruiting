@@ -36,10 +36,22 @@ use Platform\Recruiting\Services\PortalAuth;
  * ausdruecklich in ihre Anstellungen auf, und nur deren Kennungen erreichen
  * sessionKey().
  *
+ * OFFEN, BEWUSST NICHT GEBAUT (Ruling GD-10): "Angemeldet bleiben". Spec 2.1
+ * nennt den Haken fuer das eigene Handy, und er stand hier schon einmal — er
+ * setzte einen Merker in die Sitzung und bewirkte damit NICHTS. Eine
+ * Verlaengerung braucht eine Middleware im Wirt, die die Lebensdauer dieser
+ * Sitzung heraufsetzt; das liegt ausserhalb dieses Moduls und wartet auf eine
+ * Freigabe. Bis dahin steht der Haken bewusst nicht da: ein
+ * Kontrollkaestchen, das nichts tut, ist ein Versprechen, das nicht gehalten
+ * wird — der Mensch hakt es an, fliegt nach zwei Stunden heraus und ruft HR
+ * an. Was dabei NIE kommen darf, ist ein dauerhaftes Geheimnis im Browser
+ * (ein "remember me"-Token): das waere ein zweiter Anmeldeweg ohne Passwort.
+ *
  * DIE BREMSE liegt nicht an dieser Route, sondern in PortalAuth: fuenf
- * Versuche je Nummer, fuenfzehn Minuten. Eine Route-Drossel haette hier wenig
- * Wert, weil die Anmeldeversuche ueber /livewire/update laufen und die
- * GET-Adresse /konto gar nicht wieder anfassen.
+ * Versuche je Nummer und fuenfzehn Minuten, dazu dreissig Fehlversuche je
+ * Stunde und IP (Ruling GD-11). Eine Route-Drossel haette hier wenig Wert,
+ * weil die Anmeldeversuche ueber /livewire/update laufen und die GET-Adresse
+ * /konto gar nicht wieder anfassen — sie ersetzt aber auch keine der beiden.
  *
  * Sicherheit: dieselbe Lehre wie aus dem Auth-Bypass vom 19.08.2026 — alles,
  * was ueber Identitaet oder Zustand entscheidet, ist #[Locked]. $wire.set
@@ -84,14 +96,6 @@ class KontoAnmelden extends Component
     ];
 
     /**
-     * Der Merker fuer die verlaengerte Sitzung. Bewusst IN DER SITZUNG und
-     * nicht in einem eigenen Cookie: ein dauerhaftes Geheimnis im Browser
-     * (ein "remember me"-Token) waere ein zweiter Anmeldeweg ohne Passwort,
-     * und genau den soll es nicht geben.
-     */
-    public const LANGE_SITZUNG = 'recruiting.konto.lange_sitzung';
-
-    /**
      * 'formular' oder 'ohne-ziel'. #[Locked] — genau diese Art Eigenschaft
      * war der Bypass vom 19.08.2026 ($wire.set state=verified).
      */
@@ -114,7 +118,6 @@ class KontoAnmelden extends Component
      */
     public string $nummer = '';
     public string $passwort = '';
-    public bool $angemeldetBleiben = false;
 
     public string $fehler = '';
 
@@ -192,10 +195,6 @@ class KontoAnmelden extends Component
         // Personen-Kennung aus $ergebnis.
         foreach ($anstellungen as $anstellung) {
             session()->put(PortalAuth::sessionKey((int) $anstellung->id), true);
-        }
-
-        if ($this->angemeldetBleiben) {
-            session()->put(self::LANGE_SITZUNG, true);
         }
 
         $ziel = $this->weiter !== '' ? $this->weiter : self::startseiteFuer($anstellungen);

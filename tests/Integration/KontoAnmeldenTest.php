@@ -831,47 +831,41 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertStringEndsWith('/mitarbeiter/neu/tok-gregor-3', (string) $this->weiterleitung($seite));
     }
 
-    // -------------------------------------------------- Angemeldet bleiben
+    // ------------------------------------------------------------- Cookies
 
     /**
-     * "Angemeldet bleiben" verlaengert die Sitzung — es legt KEIN dauerhaftes
-     * Geheimnis in einen Cookie. Ein solches Geheimnis waere ein zweiter
-     * Anmeldeweg ohne Passwort, und genau den soll es nicht geben.
+     * DIE ANMELDUNG SETZT KEINEN COOKIE — weder bei Erfolg noch bei einem
+     * Fehlversuch.
+     *
+     * Das ist die bindende Vorgabe hinter "Angemeldet bleiben": ein
+     * dauerhaftes Geheimnis im Browser ("remember me") waere ein zweiter
+     * Anmeldeweg ohne Passwort. Der Haken selbst ist mit Ruling GD-10 wieder
+     * ausgebaut worden (er bewirkte ohne Middleware im Wirt nichts), diese
+     * Zusicherung bleibt aber stehen: sonst faellt die Vorgabe mit dem Haken
+     * aus der Deckung, und der Naechste, der ihn nachbaut, baut ihn mit
+     * Cookie.
      */
-    public function test_angemeldet_bleiben_legt_kein_geheimnis_in_einen_cookie(): void
+    public function test_die_anmeldung_setzt_keinen_cookie(): void
     {
         $seite = $this->anmeldung();
-        $seite->angemeldetBleiben = true;
-
         $seite->anmelden($this->auth());
 
-        $this->assertTrue($this->session->get(KontoAnmelden::LANGE_SITZUNG, false));
         $this->assertSame(
             [],
             $this->cookies->getQueuedCookies(),
-            'Die Anmeldung hat einen Cookie gesetzt — dort gehoert kein dauerhaftes Geheimnis hin.',
+            'Die gelungene Anmeldung hat einen Cookie gesetzt — dort gehoert kein Geheimnis hin.',
         );
-    }
 
-    public function test_ohne_haken_bleibt_die_sitzung_kurz(): void
-    {
-        $seite = $this->anmeldung();
+        $fehl = $this->seite();
+        $fehl->nummer = self::NUMMER_GETIPPT;
+        $fehl->passwort = self::FALSCHES_PASSWORT;
+        $fehl->anmelden($this->auth());
 
-        $seite->anmelden($this->auth());
-
-        $this->assertFalse($this->session->get(KontoAnmelden::LANGE_SITZUNG, false));
-    }
-
-    public function test_ein_fehlversuch_verlaengert_nichts(): void
-    {
-        $seite = $this->seite();
-        $seite->nummer = self::NUMMER_GETIPPT;
-        $seite->passwort = self::FALSCHES_PASSWORT;
-        $seite->angemeldetBleiben = true;
-
-        $seite->anmelden($this->auth());
-
-        $this->assertFalse($this->session->get(KontoAnmelden::LANGE_SITZUNG, false));
+        $this->assertSame(
+            [],
+            $this->cookies->getQueuedCookies(),
+            'Ein Fehlversuch hat einen Cookie gesetzt.',
+        );
     }
 
     // ---------------------------------------------------------- Der Waechter
@@ -904,8 +898,6 @@ final class KontoAnmeldenTest extends TestCase
         $offen = [
             'nummer'            => 'die Eingabe des Menschen — gesperrt kann er nichts eintippen',
             'passwort'          => 'dito',
-            'angemeldetBleiben' => 'der Haken des Menschen; er entscheidet ueber die Dauer der '
-                . 'Sitzung, nicht ueber den Zutritt',
             'fehler'            => 'nur eine Anzeige; wer sie sich selbst setzt, beschreibt seinen '
                 . 'eigenen Bildschirm',
         ];
@@ -960,7 +952,6 @@ final class KontoAnmeldenTest extends TestCase
 
         $this->assertStringContainsString('wire:model="nummer"', $html);
         $this->assertStringContainsString('wire:model="passwort"', $html);
-        $this->assertStringContainsString('wire:model="angemeldetBleiben"', $html);
         $this->assertStringContainsString('wire:submit="anmelden"', $html);
     }
 
@@ -970,6 +961,19 @@ final class KontoAnmeldenTest extends TestCase
      * hier als zweiter Weg offen, kaeme jeder, der eine Nummer kennt, ueber
      * die Nebentuer hinein — unsicherer als der heutige Token-Weg.
      */
+    /**
+     * Ruling GD-10: der Haken "Angemeldet bleiben" ist wieder draussen. Er
+     * bewirkte ohne Middleware im Wirt nichts — ein Kontrollkaestchen, das
+     * nichts tut, ist ein Versprechen, das nicht gehalten wird.
+     */
+    public function test_die_seite_verspricht_keine_lange_sitzung(): void
+    {
+        $html = $this->rendere($this->seite());
+
+        $this->assertStringNotContainsString('type="checkbox"', $html);
+        $this->assertStringNotContainsStringIgnoringCase('Angemeldet bleiben</span>', $html);
+    }
+
     public function test_die_seite_bietet_das_alte_verfahren_nicht_an(): void
     {
         $html = $this->rendere($this->seite());
