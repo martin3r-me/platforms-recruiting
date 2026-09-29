@@ -41,17 +41,30 @@ class RecPerson extends Model
     //    Wachen aus fuehreZusammen(), sonst entsteht ein Ring, an dem sich
     //    niemand mehr anmelden kann.
     // PersonLinker schreibt per Query Builder und braucht $fillable nicht.
+    //
+    // Dieselbe Tuer bleibt zu fuer die Kontofelder (invite_*, code_*,
+    // letzte_anmeldung_at): sie schreibt ausschliesslich KontoWriter, per
+    // Query Builder. Stuenden sie in $fillable, koennte jedes
+    // RecPerson::update([...]) daran vorbeischreiben — und zwar per
+    // Eloquent, also mit Beobachter-Lauf.
     protected $fillable = [
         'uuid', 'team_id', 'email', 'invited_at', 'locked_at',
     ];
 
     protected $casts = [
-        'invited_at'    => 'datetime',
-        'registered_at' => 'datetime',
-        'locked_at'     => 'datetime',
+        'invited_at'          => 'datetime',
+        'registered_at'       => 'datetime',
+        'locked_at'           => 'datetime',
+        'invite_expires_at'   => 'datetime',
+        'invite_used_at'      => 'datetime',
+        'code_expires_at'     => 'datetime',
+        'letzte_anmeldung_at' => 'datetime',
     ];
 
-    protected $hidden = ['password_hash'];
+    // Alle drei Hash-Spalten verborgen: von einer Serialisierung geht es in
+    // Logs, Antworten und Fehlerseiten — dieselbe Begruendung wie bei
+    // password_hash gilt fuer invite_token_hash und code_hash genauso.
+    protected $hidden = ['password_hash', 'invite_token_hash', 'code_hash'];
 
     protected static function booted(): void
     {
