@@ -1,0 +1,570 @@
+# Konto und Anmeldeschicht (Gate D) Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Ein Mitarbeiter legt sich einmal ein Konto an und meldet sich danach mit **Handynummer und Passwort** an — auf jedem Geraet, ohne Link, ohne Ausweis zur Hand.
+
+**Architecture:** Die Anmeldeschicht `PortalAuth` bekommt einen **zweiten Einstieg** neben dem heutigen Token-Weg; beide laufen waehrend der Umstellung nebeneinander. Die Kontodaten liegen an der Personen-Zeile aus Stufe 1 (`rec_persons`). Ein einziger Schreiber (`KontoWriter`) fasst sie an, nach demselben Muster wie `PersonLinker`. Die Regeln (Passwort, Einladungs-Token, Einmalcode) sind **reine Logik** und getrennt testbar.
+
+**Tech Stack:** Laravel 11, Livewire 3, PHPUnit (Unit pur / Integration mit handgebautem Capsule + SQLite), `Illuminate\Support\Facades\Hash`, Symfony UuidV7.
+
+**Spec:** `docs/superpowers/specs/2026-09-28-mitarbeiterkonto-canvas68.md` — massgeblich sind **§2 (Das Konto)**, **§3 (Registrierung)** und **§5 (Zuruecksetzen, fuenf Wege)**. Autoritaet ist das Canvas 68, die Spec argumentiert daraus.
+
+**Branch:** `feat/ma-konto`, aufsetzend auf dem Stand der Personen-Klammer (`7d2f5f8`).
+
+## Global Constraints
+
+Jede Aufgabe traegt diese Anforderungen implizit mit.
+
+- **DAS ALTE VERFAHREN DARF NIE ALS ZWEITER ANMELDEWEG DANEBENSTEHEN.** Heute ist der TOKEN das Geheimnis; kuenftig ist der Benutzername die Handynummer, die kein Geheimnis ist. Bliebe „Geburtsdatum + Ausweis-Endziffern" als alternativer Login offen, ginge jeder, der die Nummer kennt, durch die Nebentuer — **unsicherer als der Ist-Zustand**. Ausweisziffern kommen nur in Weg 4 des Zuruecksetzens vor, dort mit zweitem Nachweis und HR-Stopp.
+- **ZWEI-NACHWEIS-REGEL (tragend, Spec §2.4).** Ein Code allein reicht nie. Kontoanlage = Token + Geburtsdatum · Passwort zuruecksetzen = Code + Geburtsdatum · Nummernwechsel = Passwort + Code an die neue Nummer.
+- **EIN SCHREIBER.** Nur `KontoWriter` setzt oder aendert die Kontofelder an `rec_persons`. Muster: `src/Services/PersonLinker.php`.
+- **OBSERVER-FREI, wo `rec_employees` beruehrt wird.** Wandert die Nummer auf die Anstellungen, laeuft das ueber den Query Builder — eine Kontoaenderung darf `zas_changed_at` nicht setzen.
+- **DIE NUMMER DER PERSON IST DIE WAHRHEIT.** Aendert sie sich, wird sie im selben Vorgang auf **alle** Anstellungen dieser Person geschrieben (Spec §4.3 Regel 5). Sonst geht der Einmalcode an eine andere Nummer als die Anmeldung — die Aussperrung aus §9.2.
+- **`portal_locked_at` bleibt wirksam.** Die Dispo-Sperre (Eskalationsstufe 3) gilt auch fuer das Konto.
+- **Geheimnisse werden nie im Klartext gespeichert.** Passwort, Einladungs-Token und Einmalcode liegen als Hash. Eine gestohlene Datenbank darf keine Konten aushaendigen.
+- **Meldungen verraten nie, ob es eine Nummer gibt.** „Passwort vergessen" antwortet immer gleich (Canvas 1789), sonst kann man Nummern durchprobieren.
+- Kommentare auf Deutsch, sie erklaeren das WARUM. Keine typografischen Anfuehrungszeichen.
+- `tests/Unit` ist **pur** (kein Framework, keine DB, keine Facades). `tests/Integration` baut Container + Capsule + SQLite von Hand, Vorbild `tests/Integration/PersonLinkerTest.php`, inklusive `Facade::clearResolvedInstances()`.
+- `php -l` auf jede geaenderte PHP-Datei. Blade wird mit `php tools/blade-check.php` geprueft, **nicht** mit `php -l`.
+- Gesamtlauf: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml`. Ausgangsstand: **2609 Tests, 12374 Assertions, gruen.**
+
+### Entscheidung, die der Spec fehlt (Ruling GD-1)
+
+Das Canvas nennt keine Obergrenze fuer Code-Anforderungen. Eine Nachricht kostet rund
+7 Cent, und „Passwort vergessen" ist ein Knopf, den man haemmern kann.
+
+> **Hoechstens 3 Einmalcodes je Nummer und Stunde, hoechstens 5 je Tag.** Beim
+> Ueberschreiten aendert sich die Antwort **nicht** (sonst waere sie eine Auskunft
+> darueber, dass es die Nummer gibt) — es wird nur nichts verschickt und eine Zeile
+> geloggt.
+
+Kostet falsch: Wer am selben Tag fuenfmal scheitert, muss bis zum naechsten Tag warten
+oder HR anrufen. Die Grenzen stehen als Konstanten an einer Stelle und sind aenderbar.
+
+---
+
+## Dateien
+
+| Datei | Verantwortung |
+|---|---|
+| `database/migrations/2026_09_29_000001_add_konto_felder_to_rec_persons.php` | Einladung, Code, Sperre |
+| `src/Support/PasswortRegeln.php` | **rein**: was ein gueltiges Passwort ist |
+| `src/Support/EinladungsToken.php` | **rein**: erzeugen, lesbarer Code, Gueltigkeit |
+| `src/Support/Einmalcode.php` | **rein**: erzeugen, pruefen, Versuchszaehler |
+| `src/Support/CodeDrossel.php` | **rein**: Obergrenze je Nummer (Ruling GD-1) |
+| `src/Services/KontoWriter.php` | der **eine** Schreiber der Kontofelder |
+| `src/Services/Comms/EinmalcodeSender.php` | WhatsApp-Versand des Codes |
+| `src/Livewire/Public/KontoAnlegen.php` (+ View) | Registrierung |
+| `src/Livewire/Public/KontoAnmelden.php` (+ View) | Anmeldung, Passwort vergessen, Nummernwechsel |
+| `src/Services/PortalAuth.php` | **geaendert**: zweiter Einstieg neben dem Token |
+| `src/Console/Commands/KontoEinladen.php` | HR: Einladungen erzeugen und verschicken |
+
+---
+
+### Task 1: Die Kontofelder an der Personen-Zeile
+
+**Files:**
+- Create: `database/migrations/2026_09_29_000001_add_konto_felder_to_rec_persons.php`
+- Modify: `src/Models/RecPerson.php`
+- Test: `tests/Integration/KontoFelderTest.php`
+
+**Interfaces:**
+- Produces: Spalten an `rec_persons` — `invite_token_hash` (string 64, nullable), `invite_expires_at` (timestamp, nullable), `invite_used_at` (timestamp, nullable), `code_hash` (string 64, nullable), `code_expires_at` (timestamp, nullable), `code_versuche` (unsignedTinyInteger, default 0), `code_zweck` (string 20, nullable), `code_neue_nummer` (string 32, nullable), `letzte_anmeldung_at` (timestamp, nullable). Modell `RecPerson` verbirgt alle drei Hash-Spalten.
+
+**Warum Hashes und keine Klartexte:** Ein gestohlener Datenbankauszug darf keine Konten
+aushaendigen. Der Token steht genau einmal im Klartext — in der Nachricht an den Menschen.
+
+**Warum `code_zweck` und `code_neue_nummer`:** Ein Code fuer „Passwort zuruecksetzen" darf
+keinen Nummernwechsel bestaetigen. Und beim Nummernwechsel geht der Code an die **neue**
+Nummer, die erst nach Bestaetigung die echte wird — bis dahin muss sie irgendwo stehen.
+
+- [ ] **Step 1: Migration schreiben**
+
+Nach dem Muster von `2026_09_28_000002_add_rec_person_id_to_rec_employees.php` (Spalten
+einzeln mit `hasColumn`-Wache, `down()` als echte Umkehrung). Der Kopf-Docblock nennt,
+**warum** die Geheimnisse als Hash liegen und warum Zweck und neue Nummer eigene Spalten
+brauchen.
+
+- [ ] **Step 2: Test schreiben, rot sehen**
+
+`tests/Integration/KontoFelderTest.php`, Aufbau wie `tests/Integration/PersonLinkerTest.php`:
+
+```php
+public function test_die_geheimnisse_stehen_nicht_in_der_serialisierung(): void
+{
+    $person = RecPerson::query()->find($this->personAnlegen([
+        'password_hash'    => 'geheim-hash',
+        'invite_token_hash'=> 'token-hash',
+        'code_hash'        => 'code-hash',
+    ]));
+
+    $serialisiert = $person->toArray();
+
+    foreach (['password_hash', 'invite_token_hash', 'code_hash'] as $feld) {
+        $this->assertArrayNotHasKey(
+            $feld,
+            $serialisiert,
+            "{$feld} darf nie in einer Serialisierung landen — von dort geht es in Logs, Antworten und Fehlerseiten",
+        );
+    }
+}
+
+public function test_die_zeitstempel_kommen_als_datum_zurueck(): void
+{
+    $person = RecPerson::query()->find($this->personAnlegen([
+        'invite_expires_at' => '2026-10-06 12:00:00',
+    ]));
+
+    $this->assertNotNull($person->invite_expires_at);
+    $this->assertSame('2026-10-06', $person->invite_expires_at->format('Y-m-d'));
+}
+```
+
+- [ ] **Step 3: Modell ergaenzen**
+
+`$hidden` um die drei Hash-Spalten erweitern (`password_hash` steht schon drin),
+`$casts` um die vier Zeitstempel, `$fillable` **NICHT** erweitern — Ruling T3-D aus der
+Personen-Klammer gilt weiter: die Kontofelder schreibt nur `KontoWriter`, per Query
+Builder.
+
+- [ ] **Step 4: Gesamtlauf, gruen bestaetigen**
+
+- [ ] **Step 5: `php -l`, Commit**
+
+```bash
+git add database/migrations/2026_09_29_000001_add_konto_felder_to_rec_persons.php \
+        src/Models/RecPerson.php tests/Integration/KontoFelderTest.php
+git commit -m "feat(recruiting): die Personen-Zeile bekommt ihre Kontofelder — Geheimnisse nur als Hash"
+```
+
+---
+
+### Task 2: Die reinen Regeln
+
+**Files:**
+- Create: `src/Support/PasswortRegeln.php`, `src/Support/EinladungsToken.php`, `src/Support/Einmalcode.php`
+- Test: `tests/Unit/PasswortRegelnTest.php`, `tests/Unit/EinladungsTokenTest.php`, `tests/Unit/EinmalcodeTest.php`
+
+**Interfaces:**
+- Produces:
+  ```php
+  PasswortRegeln::pruefe(string $passwort): ?string;   // null = in Ordnung, sonst die Meldung
+  PasswortRegeln::MINDESTLAENGE;                        // 10
+
+  EinladungsToken::erzeuge(): array{klartext: string, hash: string};
+  EinladungsToken::lesbar(string $klartext): string;    // 8 Zeichen, ohne Verwechsler
+  EinladungsToken::istGueltig(?string $hash, ?string $ablauf, ?string $benutztAm, string $klartext, string $jetzt): bool;
+  EinladungsToken::GUELTIG_TAGE;                        // 7
+
+  Einmalcode::erzeuge(): array{klartext: string, hash: string};   // sechs Ziffern
+  Einmalcode::istGueltig(?string $hash, ?string $ablauf, int $versuche, string $klartext, string $jetzt): bool;
+  Einmalcode::GUELTIG_MINUTEN;                          // 10
+  Einmalcode::MAX_VERSUCHE;                             // 5
+  ```
+
+**Bindende Vorgaben:**
+- Passwort: **Mindestlaenge, kein Zwang zu Sonderzeichen** (Spec §2.3). Laenge 10, weil
+  die Nummer als Benutzername oeffentlich ist und allein das Passwort traegt.
+- Der lesbare Code laesst `0/O` und `1/I/l` weg — er wird am Telefon vorgelesen und
+  abgetippt.
+- `istGueltig()` vergleicht **in konstanter Zeit** (`hash_equals`), nie mit `===`.
+- Abgelaufen, schon benutzt oder zu viele Versuche → `false`, ohne zu verraten, welches
+  davon zutraf.
+
+- [ ] **Step 1: Die drei Tests schreiben, rot sehen**
+
+`tests/Unit/EinmalcodeTest.php` (die anderen beiden analog):
+
+```php
+public function test_ein_code_hat_sechs_ziffern(): void
+{
+    ['klartext' => $k] = Einmalcode::erzeuge();
+    $this->assertMatchesRegularExpression('/^\d{6}$/', $k);
+}
+
+public function test_zwei_codes_sind_verschieden(): void
+{
+    $a = Einmalcode::erzeuge()['klartext'];
+    $b = Einmalcode::erzeuge()['klartext'];
+    $this->assertNotSame($a, $b, 'ein vorhersagbarer Code ist kein Nachweis');
+}
+
+public function test_der_richtige_code_gilt(): void
+{
+    ['klartext' => $k, 'hash' => $h] = Einmalcode::erzeuge();
+    $this->assertTrue(Einmalcode::istGueltig($h, '2026-09-29 12:10:00', 0, $k, '2026-09-29 12:05:00'));
+}
+
+public function test_ein_falscher_code_gilt_nicht(): void
+{
+    ['hash' => $h] = Einmalcode::erzeuge();
+    $this->assertFalse(Einmalcode::istGueltig($h, '2026-09-29 12:10:00', 0, '000000', '2026-09-29 12:05:00'));
+}
+
+public function test_ein_abgelaufener_code_gilt_nicht(): void
+{
+    ['klartext' => $k, 'hash' => $h] = Einmalcode::erzeuge();
+    $this->assertFalse(Einmalcode::istGueltig($h, '2026-09-29 12:10:00', 0, $k, '2026-09-29 12:11:00'));
+}
+
+public function test_nach_zu_vielen_versuchen_gilt_auch_der_richtige_nicht(): void
+{
+    ['klartext' => $k, 'hash' => $h] = Einmalcode::erzeuge();
+    $this->assertFalse(
+        Einmalcode::istGueltig($h, '2026-09-29 12:10:00', Einmalcode::MAX_VERSUCHE, $k, '2026-09-29 12:05:00'),
+        'sonst kann man sechs Ziffern in Ruhe durchprobieren',
+    );
+}
+
+public function test_ohne_hash_gilt_nichts(): void
+{
+    $this->assertFalse(Einmalcode::istGueltig(null, null, 0, '123456', '2026-09-29 12:00:00'));
+}
+```
+
+- [ ] **Step 2: Die drei Klassen schreiben**
+
+Rein, kein Framework. Die Kopf-Docblocks nennen das WARUM: warum zehn Zeichen, warum
+`hash_equals`, warum die Verwechsler fehlen, warum ein Versuchszaehler noetig ist
+(sechs Ziffern sind in Minuten durchprobiert).
+
+- [ ] **Step 3: Gesamtlauf gruen, `php -l`, Commit**
+
+---
+
+### Task 3: `CodeDrossel` — die Obergrenze (Ruling GD-1)
+
+**Files:**
+- Create: `src/Support/CodeDrossel.php`
+- Test: `tests/Unit/CodeDrosselTest.php`
+
+**Interfaces:**
+- Produces:
+  ```php
+  /** @param list<string> $bisherigeAnforderungen  Zeitstempel Y-m-d H:i:s, neueste zuerst */
+  CodeDrossel::darfSenden(array $bisherigeAnforderungen, string $jetzt): bool;
+  CodeDrossel::MAX_JE_STUNDE;   // 3
+  CodeDrossel::MAX_JE_TAG;      // 5
+  ```
+
+Rein, damit die Regel ohne Datenbank pruefbar ist.
+
+- [ ] **Step 1: Test schreiben, rot sehen**
+
+```php
+public function test_ohne_vorgeschichte_darf_gesendet_werden(): void
+{
+    $this->assertTrue(CodeDrossel::darfSenden([], '2026-09-29 12:00:00'));
+}
+
+public function test_die_vierte_anforderung_in_einer_stunde_wird_gebremst(): void
+{
+    $this->assertFalse(CodeDrossel::darfSenden(
+        ['2026-09-29 11:59:00', '2026-09-29 11:40:00', '2026-09-29 11:10:00'],
+        '2026-09-29 12:00:00',
+    ));
+}
+
+public function test_was_laenger_als_eine_stunde_her_ist_zaehlt_nicht_mehr_fuer_die_stunde(): void
+{
+    $this->assertTrue(CodeDrossel::darfSenden(
+        ['2026-09-29 10:59:00', '2026-09-29 10:40:00', '2026-09-29 10:10:00'],
+        '2026-09-29 12:00:00',
+    ));
+}
+
+public function test_die_sechste_am_tag_wird_gebremst(): void
+{
+    $this->assertFalse(CodeDrossel::darfSenden([
+        '2026-09-29 11:00:00', '2026-09-29 09:00:00', '2026-09-29 07:00:00',
+        '2026-09-29 05:00:00', '2026-09-29 03:00:00',
+    ], '2026-09-29 12:00:00'));
+}
+
+public function test_unlesbare_zeitstempel_werden_uebersprungen_und_bremsen_nicht(): void
+{
+    $this->assertTrue(CodeDrossel::darfSenden(['nicht-lesbar'], '2026-09-29 12:00:00'));
+}
+```
+
+- [ ] **Step 2: Klasse schreiben, gruen, Commit**
+
+---
+
+### Task 4: `KontoWriter` — der eine Schreiber
+
+**Files:**
+- Create: `src/Services/KontoWriter.php`
+- Test: `tests/Integration/KontoWriterTest.php`
+
+**Interfaces:**
+- Consumes: `PasswortRegeln`, `EinladungsToken`, `Einmalcode` (Task 2), Spalten aus Task 1.
+- Produces:
+  ```php
+  /** Erzeugt einen Einladungs-Token, speichert nur den Hash, gibt den Klartext zurueck. */
+  KontoWriter::ladeEin(int $personId): string;
+
+  /** Token + Geburtsdatum + Passwort -> Konto steht. Wirft bei ungueltigem Token. */
+  KontoWriter::registriere(int $personId, string $tokenKlartext, string $geburtsdatum, string $passwort): void;
+
+  /** Prueft Nummer + Passwort. Gibt die Personen-Kennung zurueck oder null. */
+  KontoWriter::pruefeAnmeldung(?int $teamId, string $nummer, string $passwort): ?int;
+
+  /** Legt einen Einmalcode ab und gibt den Klartext zurueck (Versand macht der Sender). */
+  KontoWriter::erzeugeCode(int $personId, string $zweck, ?string $neueNummer = null): string;
+
+  /** Code einloesen. Wirft bei ungueltigem Code. */
+  KontoWriter::loeseCodeEin(int $personId, string $zweck, string $codeKlartext): void;
+
+  /** Neues Passwort setzen. Wirft, wenn das Passwort die Regeln verletzt. */
+  KontoWriter::setzePasswort(int $personId, string $passwort): void;
+  ```
+
+**Bindende Vorgaben:**
+- Jeder Schreibzugriff auf `rec_persons` **und** `rec_employees` laeuft ueber den Query
+  Builder. Beim Nummernwechsel wandert die Nummer ueber
+  `PersonLinker::setzeNummer()` — **nicht** selbst geschrieben, die Regel „die Nummer
+  wandert auf alle Anstellungen" lebt dort und nur dort.
+- `pruefeAnmeldung()` prueft **immer** das Passwort, auch wenn es die Nummer nicht gibt
+  (gegen einen Dummy-Hash) — sonst verraet die Antwortzeit, ob ein Konto existiert.
+- Eine Person mit `locked_at` oder mit `merged_into_person_id` meldet sich **nie** an.
+- Eine Person, deren Anstellungen alle inaktiv sind, meldet sich **nie** an (Canvas 1793:
+  Konten Ausgeschiedener werden gesperrt, weil Nummern neu vergeben werden).
+
+- [ ] **Step 1: Die Tests schreiben, rot sehen**
+
+Pflichtfaelle in `tests/Integration/KontoWriterTest.php`:
+
+```php
+public function test_registrieren_setzt_passwort_und_verbraucht_den_token(): void
+public function test_ein_zweites_mal_mit_demselben_token_geht_nicht(): void
+public function test_ein_abgelaufener_token_geht_nicht(): void
+public function test_falsches_geburtsdatum_geht_nicht(): void
+public function test_anmelden_mit_richtigem_passwort(): void
+public function test_anmelden_mit_falschem_passwort_scheitert(): void
+public function test_eine_gesperrte_person_meldet_sich_nicht_an(): void
+public function test_eine_stillgelegte_person_meldet_sich_nicht_an(): void
+public function test_wer_nur_inaktive_anstellungen_hat_meldet_sich_nicht_an(): void
+public function test_ein_code_fuer_passwort_gilt_nicht_fuer_den_nummernwechsel(): void
+public function test_die_nummer_wandert_beim_wechsel_auf_alle_anstellungen(): void
+public function test_kontoaenderungen_setzen_keinen_zas_marker(): void
+```
+
+**Der letzte ist der wichtigste und in diesem Zweig schon dreimal stumm gruen geblieben.**
+`zas_changed_at` allein beweist nichts, weil die Kontofelder gar nicht in
+`RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS` stehen. Der tragende Beleg ist,
+dass sich `rec_employees.updated_at` **nicht** aendert — Eloquent fasst die Spalte bei
+jedem Speichern an, der Query Builder nur auf ausdrueckliche Anweisung. Registrier dafuer
+den echten Beobachter im Test, wie `tests/Integration/PersonLinkerTest.php` es vormacht
+(Log-Attrappe binden, dann `Facade::clearResolvedInstances()` — sonst ReflectionException).
+
+- [ ] **Step 2: Den Dienst schreiben**
+
+- [ ] **Step 3: Mutationsprobe selbst fahren**
+
+Stell einen Schreibweg testweise auf Eloquent um und belege, dass
+`test_kontoaenderungen_setzen_keinen_zas_marker` rot wird. Zuruecknehmen,
+`git status --short` zeigen.
+
+- [ ] **Step 4: Gesamtlauf gruen, `php -l`, Commit**
+
+---
+
+### Task 5: Der zweite Einstieg in `PortalAuth`
+
+**Files:**
+- Modify: `src/Services/PortalAuth.php`
+- Test: `tests/Integration/PortalAuthKontoTest.php`
+
+**Interfaces:**
+- Consumes: `KontoWriter::pruefeAnmeldung()` (Task 4).
+- Produces: `PortalAuth::anmeldenMitNummer(?int $teamId, string $nummer, string $passwort): array{status: string, personId: ?int}` — Status wie bisher `ok` / `falsch` / `gesperrt`.
+
+**Warum hier und nicht neu:** Der Kopf von `PortalAuth` sagt seit dem Portal-Umbau:
+
+> *„Heute beantwortet sie die Frage ‚wer ist das?' mit Token plus Geburtsdatum und
+> Ausweis-Endziffern. Spaeter mit Handynummer und Passwort. Die vier Portal-Bereiche
+> wissen nichts davon, wie die Antwort zustande kam."*
+
+Das Konto wird **eingehaengt**, nicht eingebaut.
+
+**Bindende Vorgaben:**
+- Der bestehende Token-Weg bleibt **unveraendert** und muss weiter gruen sein. Beide laufen
+  waehrend der Umstellung nebeneinander.
+- Versuchszaehler und Sperre: **dieselbe Mechanik** wie heute (5 Versuche, 15 Minuten),
+  aber der Schluessel haengt an der **Nummer**, nicht am Token — wer Nummern
+  durchprobiert, soll sich nicht durch Wechseln freischalten.
+- `portal_locked_at` sperrt auch hier.
+
+- [ ] **Step 1: Test schreiben, rot sehen**
+
+```php
+public function test_der_alte_token_weg_funktioniert_unveraendert(): void
+public function test_anmelden_mit_nummer_und_passwort(): void
+public function test_fuenf_fehlversuche_sperren_die_nummer(): void
+public function test_die_sperre_haengt_an_der_nummer_nicht_am_token(): void
+public function test_eine_dispo_gesperrte_person_kommt_nicht_rein(): void
+```
+
+- [ ] **Step 2: `anmeldenMitNummer()` ergaenzen, gruen, Commit**
+
+---
+
+### Task 6: Registrierung — die Seite
+
+**Files:**
+- Create: `src/Livewire/Public/KontoAnlegen.php` + `resources/views/livewire/public/konto-anlegen.blade.php`
+- Modify: `routes/public.php`
+- Test: `tests/Integration/KontoAnlegenTest.php`
+
+**Route:** `Route::get('/konto/anlegen/{token}', KontoAnlegen::class)->name('recruiting.public.konto-anlegen');`
+**Token am URL-Ende** — Meta-URL-Knoepfe erlauben die Variable nur als Suffix (dieselbe
+Falle wie beim Portal, siehe `routes/public.php`).
+
+**Drei Felder, mehr nicht** (Spec §3): Geburtsdatum, Passwort, Passwort wiederholen.
+Die Nummer wird **nicht** abgefragt — sie steht durch den Token fest.
+
+**Bindende Vorgaben:**
+- Alles, was ueber Identitaet oder Zustand entscheidet, ist `#[Locked]`. Das ist der
+  Auth-Bypass vom 19.08. (`$wire.set state=verified` umging die Pruefung) — er war
+  verifiziert ausnutzbar.
+- Kein Zahlentastatur-Zwang am Geburtsdatum (Login-Blocker vom 06.08.).
+- Ungueltiger, abgelaufener oder verbrauchter Token → **404**, nicht „Token ungueltig".
+  Letzteres waere eine Auskunft darueber, dass es den Token gibt.
+
+- [ ] **Step 1: Test schreiben, rot sehen** — gerenderte Durchlaeufe nach dem Muster von `tests/Integration/PortalShellProfilBladeTest.php`, plus ein Waechter, dass alle identitaetsentscheidenden Eigenschaften `#[Locked]` tragen (Muster: der E6-Test im Abnahmetest der Portal-Huelle).
+- [ ] **Step 2: Komponente und Blade schreiben**
+- [ ] **Step 3: `php tools/blade-check.php`, Gesamtlauf, Commit**
+
+---
+
+### Task 7: Anmelden — die Seite
+
+**Files:**
+- Create: `src/Livewire/Public/KontoAnmelden.php` + View
+- Modify: `routes/public.php`
+- Test: `tests/Integration/KontoAnmeldenTest.php`
+
+**Route:** `Route::get('/konto', KontoAnmelden::class)->name('recruiting.public.konto');`
+
+**Bindende Vorgaben:**
+- **Ein Weiterleitungsziel wird mitgefuehrt** und nach erfolgreicher Anmeldung
+  angesprungen (Spec §2.2: „WhatsApp-Knoepfe fuehren zur Login-Seite und nach dem Passwort
+  direkt zum Ziel. Ein Link meldet nie von selbst an."). Das Ziel wird gegen eine
+  **Positivliste eigener Routen** geprueft — ein offener Weiterleiter waere eine Einladung.
+- „Angemeldet bleiben" verlaengert die Sitzung, setzt **kein** dauerhaftes Geheimnis in
+  einen Cookie.
+- `#[Locked]` wie in Task 6.
+
+- [ ] **Step 1: Test schreiben, rot sehen** — darunter: ein fremdes Weiterleitungsziel wird **verworfen**.
+- [ ] **Step 2: Komponente und Blade, Commit**
+
+---
+
+### Task 8: Der Code-Versand
+
+**Files:**
+- Create: `src/Services/Comms/EinmalcodeSender.php`
+- Test: `tests/Integration/EinmalcodeSenderTest.php`
+
+**Interfaces:**
+- Consumes: `KontoWriter::erzeugeCode()` (Task 4), `CodeDrossel` (Task 3).
+- Produces: `EinmalcodeSender::sende(int $personId, string $zweck, ?string $anNummer = null): string` — Status `sent` / `failed` / `gedrosselt`.
+
+**Vorbild ist `src/Services/ProofReminderSender.php`, und zwar wegen der drei Fehler, die
+sein Docblock ausdruecklich benennt.** Zwei davon treffen hier genauso:
+
+1. `RecEmployee::sendPortalNotification()` meldet `ok: true` direkt nach `sendTemplate()`,
+   **ohne `$message->status` zu pruefen** — ein von Meta ABGELEHNTER Versand gilt dort als
+   Erfolg. Dieser Sender prueft den Status und meldet `failed`. Sonst wartet jemand auf
+   einen Code, der nie ankam, und das Protokoll sagt „verschickt".
+2. `HoldingTemplateComponents::build()` setzt bei einem **unbekannten Platzhalter** still
+   den Vornamen ein. Heisst der Platzhalter in der Meta-Vorlage anders als gedacht,
+   bekaeme jemand seinen Vornamen statt des Codes zugeschickt — und Meta naehme es an.
+   Dieser Sender prueft die Platzhalter selbst und **lehnt den Versand ab**, statt Muell
+   zu verschicken.
+
+**Bindende Vorgaben:**
+- Die Drossel wird **vor** dem Erzeugen gefragt. Ein gedrosselter Versuch darf keinen
+  neuen Code ablegen — sonst entwertet er den, der unterwegs ist.
+- Die Antwort an den Menschen ist bei `gedrosselt` **dieselbe** wie bei `sent`.
+
+- [ ] **Step 1: Test schreiben, rot sehen** — darunter: ein von Meta abgelehnter Versand ergibt `failed` (nicht `sent`), und ein unbekannter Platzhalter fuehrt zu **keinem** Versand.
+- [ ] **Step 2: Sender schreiben, Commit**
+
+---
+
+### Task 9: Die fuenf Zuruecksetzen-Wege
+
+**Files:**
+- Modify: `src/Livewire/Public/KontoAnmelden.php` (+ View)
+- Create: `src/Console/Commands/KontoZuruecksetzen.php` (Weg 5, HR)
+- Test: `tests/Integration/KontoZuruecksetzenTest.php`
+
+Die fuenf Wege stehen woertlich in **Spec §5**. Jeder braucht **zwei** Nachweise:
+
+| # | Lage | Nachweise | HR |
+|---|---|---|---|
+| 1 | Neue Nummer, alte aktiv | angemeldet + Passwort, dann Code an die neue | nein |
+| 2 | Neue Nummer, alte weg, Passwort bekannt | alte Nummer + Passwort, dann Code an die neue | nein |
+| 3 | Passwort vergessen, Nummer aktiv | Code an die Nummer + Geburtsdatum | nein |
+| 4 | Nummer weg **und** Passwort vergessen | Geburtsdatum + Ausweisziffern, Code an die neue | Meldung, 24h Stopp |
+| 5 | Gar nichts geht | HR traegt die neue Nummer ein | ja |
+
+**Begleitregeln (alle nicht verhandelbar, Canvas 1789):**
+- Die **alte Nummer** bekommt einmalig einen Hinweis, dass die Nummer geaendert wurde,
+  sofern noch zustellbar.
+- „Passwort vergessen" **antwortet immer gleich**, egal ob die Nummer im System ist.
+- **Jeder Wechsel wird protokolliert.**
+- Weg 4 setzt den Wechsel erst nach **24 Stunden** wirksam; HR kann in dieser Zeit stoppen.
+
+- [ ] **Step 1: Test je Weg schreiben, rot sehen** — dazu die drei Begleitregeln als eigene Zusicherungen, insbesondere: **die Antwort auf „Passwort vergessen" ist fuer eine unbekannte Nummer zeichengleich mit der fuer eine bekannte.**
+- [ ] **Step 2: Wege 1 bis 3 bauen, Commit**
+- [ ] **Step 3: Weg 4 mit 24-Stunden-Fenster bauen, Commit**
+- [ ] **Step 4: Weg 5 als Kommando bauen, Commit**
+
+---
+
+### Task 10: HR sieht den Stand
+
+**Files:**
+- Create: `src/Console/Commands/KontoEinladen.php`
+- Test: `tests/Integration/KontoEinladenTest.php`
+
+```
+recruiting:konto-einladen
+    {--team= : Nur dieses Team}
+    {--ids= : Bestimmte Personen, komma-getrennt}
+    {--welle= : Hoechstens so viele auf einmal}
+    {--dry-run : Nur zeigen, was passieren wuerde}
+    {--bericht : Nur den Stand ausgeben, nichts verschicken}
+```
+
+`--bericht` liefert, was Spec §3 verlangt: **wer eingeladen ist, wer registriert ist, wer
+nicht erreichbar ist** (keine Nummer, kein WhatsApp).
+
+**Bindende Vorgaben:**
+- Wiederholbar: wer schon ein Konto hat, wird uebersprungen.
+- Ohne `--welle` **kein** Versand an alle — eine Welle ist eine bewusste Handlung.
+- Kennungen in der Ausgabe, **nie Namen** (Muster: `recruiting:mitarbeiter-grenzfaelle`).
+
+- [ ] **Step 1: Test schreiben, rot sehen**
+- [ ] **Step 2: Kommando bauen, im ServiceProvider registrieren, Commit**
+
+---
+
+## Abnahme
+
+1. Gesamtlauf gruen, Zahl deutlich ueber 2609.
+2. `php artisan migrate` legt die Kontofelder an.
+3. Auf der Demo: eine Person per `recruiting:konto-einladen --ids=<id> --dry-run` ansehen, dann einladen, den Token aus der Ausgabe nehmen, `/recruiting/konto/anlegen/<token>` aufrufen, Konto anlegen, abmelden, unter `/recruiting/konto` mit Nummer und Passwort wieder anmelden.
+4. „Passwort vergessen" fuer eine **unbekannte** Nummer liefert dieselbe Antwort wie fuer eine bekannte.
+5. Der alte Token-Weg ins Portal funktioniert unveraendert.
+
+## Was dieser Plan NICHT tut
+
+- **Keine Einladungswellen an den Bestand** — das ist Gate E und braucht die genehmigte Meta-Vorlage.
+- **Kein Umstecken der Portal-Anmeldung** — das ist Gate F. Bis dahin laufen beide Wege nebeneinander.
+- **Keine Passkeys** — ausdrueckliche Ausbaustufe (Canvas 1744).
+- **Kein Konto fuer Bewerber** — die Grenze ist die Vertragsunterschrift.
