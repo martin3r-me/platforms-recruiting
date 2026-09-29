@@ -423,6 +423,7 @@ Stell einen Schreibweg testweise auf Eloquent um und belege, dass
 
 **Files:**
 - Modify: `src/Services/PortalAuth.php`
+- Create: `database/migrations/2026_09_29_000002_add_phone_index_to_rec_persons.php`
 - Test: `tests/Integration/PortalAuthKontoTest.php`
 
 **Interfaces:**
@@ -444,6 +445,20 @@ Das Konto wird **eingehaengt**, nicht eingebaut.
   aber der Schluessel haengt an der **Nummer**, nicht am Token — wer Nummern
   durchprobiert, soll sich nicht durch Wechseln freischalten.
 - `portal_locked_at` sperrt auch hier.
+- **Ein Index auf `phone` (Befund der Aufgabe-4-Pruefung).** `rec_persons` hat heute nur
+  `unique(team_id, phone)`. Die Anmeldung nach Ruling GD-2 fragt bei `teamId = null`
+  allein nach `phone` — dafuer ist ein zusammengesetzter Index mit `team_id` an erster
+  Stelle unbrauchbar, die Tabelle wird voll gelesen. Vorher schraenkte `team_id` ein.
+  Bei heutiger Groesse belanglos (ein paar tausend Zeilen gegen 170 ms bcrypt im selben
+  Aufruf), aber es ist ein **oeffentlicher, durchprobierbarer Einstieg** — und die
+  Anmeldeseite entsteht in Aufgabe 7. Eigene Migration, eine Zeile:
+  ```php
+  $table->index('phone', 'rec_persons_phone_index');
+  ```
+  Bewusst eine **zweite** Migration statt einer Ergaenzung der ersten: die Migration aus
+  Aufgabe 1 koennte auf der Demo schon gelaufen sein, und eine nachtraeglich geaenderte
+  Migration laeuft dort nie wieder an. `down()` nimmt den Index zurueck, mit
+  `hasIndex`-Wache nach dem Muster der ersten Migration.
 
 - [ ] **Step 1: Test schreiben, rot sehen**
 
