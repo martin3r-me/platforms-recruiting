@@ -161,6 +161,11 @@ class KontoAnlegen extends Component
         // waere ein Doppelklick (der zweite Aufruf liefe in den verbrauchten
         // Token und zaehlte als Fehlversuch), 'code' hat gar keine Einladung
         // und damit nichts zu registrieren.
+        //
+        // NACHGEPRUEFT PER MUTATION: der Teil 'code' ist heute unerreichbar —
+        // in diesem Zustand ist $personId immer null, und daran scheitert der
+        // Aufruf ohnehin. Wer die zweite Bedingung je entfernt, braucht die
+        // erste; kein Test faellt dabei um.
         if ($this->state !== 'formular' || $this->personId === null) {
             return;
         }

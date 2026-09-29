@@ -626,9 +626,30 @@ final class KontoAnmeldenTest extends TestCase
             'schemarelativ'               => '//fremde.seite/einsaetze/tok-gregor',
             'Rueckwaerts-Schraegstriche'  => '/\\fremde.seite/x',
             'Skript-Schema'               => 'javascript:alert(1)',
+            // Ein Schema OHNE Host, dessen Pfad eine erlaubte Route trifft.
+            // Diese Form ist der einzige Fall, in dem allein die Frage nach
+            // dem Schema abwehrt: ohne Host greift die Host-Frage nicht, und
+            // der Pfad beginnt mit einem Schraegstrich, also greift auch die
+            // Pfad-Wache nicht. Gefunden durch eine Mutation, die vorher
+            // gruen blieb.
+            'Schema mit eigenem Pfad'     => 'javascript:/einsaetze/tok-gregor',
             'mit Benutzer davor'          => 'https://uns.de@fremde.seite/x',
             'Zeilenumbruch'               => "/einsaetze/tok-gregor\nhttps://fremde.seite",
             'gar kein Pfad'               => 'einsaetze/tok-gregor',
+            // Die drei folgenden Formen treffen sonst eine ERLAUBTE Route und
+            // kaemen ohne ihre jeweilige Wache durch. Sie stehen hier, weil
+            // die erste Fassung dieser Liste sie nicht enthielt und drei
+            // Mutationen deshalb stumm gruen blieben.
+            //
+            // Rueckwaerts-Schraegstrich am Ende: der Browser liest ihn wie
+            // einen Schraegstrich und landet woanders als unsere Pruefung.
+            'Schraegstrich rueckwaerts am Ende' => '/einsaetze/tok-gregor\\',
+            // Drei Schraegstriche: parse_url findet keinen Host, der Browser
+            // liest '//einsaetze' aber als fremden Host.
+            'drei Schraegstriche'         => '///einsaetze/tok-gregor',
+            // Zeilenumbruch mitten drin: das Ziel landet in einem
+            // Location-Kopf, und ein Umbruch dort beginnt einen neuen Kopf.
+            'Kopfzeilen-Einschleusung'    => "/einsaetze/tok-gregor\r\nX-Beliebig: 1",
         ];
 
         foreach ($faelle as $fall => $eingabe) {

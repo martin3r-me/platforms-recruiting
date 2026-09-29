@@ -310,13 +310,30 @@ class KontoAnmelden extends Component
         // Rueckwaerts-Schraegstriche: Browser lesen sie wie Schraegstriche,
         // parse_url nicht. "/\fremde.seite" waere hier ein harmloser Pfad und
         // im Browser ein fremder Host.
+        //
+        // BERICHTIGT NACH DER MUTATION: diese Zeile faengt heute KEINEN Fall,
+        // den nicht schon etwas anderes faengt — Symfony lehnt einen
+        // Rueckwaerts-Schraegstrich in Request::create() selbst ab
+        // ("A URI cannot contain a backslash"), und das ergibt unten im
+        // try/catch dasselbe Ergebnis. Sie bleibt trotzdem stehen, weil die
+        // Abwehr sonst an einem Fremdverhalten haengt, das niemand hier
+        // nachliest; ein Test kann sie aber nicht gruen halten. Wer sie
+        // entfernt, faellt in keinem Lauf auf.
         if (str_contains($roh, '\\')) {
             return '';
         }
 
-        // Schemarelativ ("//fremde.seite/x") — parse_url erkennt den Host,
-        // aber diese Zeile steht trotzdem hier: sie haelt auch die Formen ab,
-        // bei denen parse_url gar keinen Host findet ("///x").
+        // Schemarelativ ("//fremde.seite/x") — der Browser liest "fremde.seite"
+        // als Host, obwohl kein Schema dasteht.
+        //
+        // BERICHTIGT NACH DER MUTATION: diese Zeile und der Host-Eintrag in
+        // der Liste unten decken DENSELBEN Fall ab; nimmt man eine von beiden
+        // weg, wird kein Test rot, nimmt man beide weg, faellt die Abwehr.
+        // Der urspruengliche Grund ("sie faengt auch '///x', wo parse_url
+        // keinen Host findet") stimmt nicht: bei "///x" gibt parse_url
+        // schlicht false zurueck, und das faengt die Wache darunter. Beide
+        // bleiben stehen, weil jede fuer sich naheliegend ist und die
+        // doppelte Abwehr nichts kostet.
         if (str_starts_with($roh, '//')) {
             return '';
         }
