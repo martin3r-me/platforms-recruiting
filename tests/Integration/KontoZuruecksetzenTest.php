@@ -142,6 +142,9 @@ final class KontoZuruecksetzenTest extends TestCase
     /** @var object{calls: list<array<string, mixed>>, genehmigt: array<string, list<string>>} */
     private object $meta;
 
+    /** @var object{nachgezogen: list<array{id: int, phone: string}>} */
+    private object $crmSync;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -246,12 +249,24 @@ final class KontoZuruecksetzenTest extends TestCase
 
         // Der CRM-Abgleich nach einem Nummernwechsel greift auf CRM-Tabellen
         // zu, die es in dieser handgebauten Capsule nicht gibt.
-        $container->instance(ContactPhoneSync::class, new class extends ContactPhoneSync {
+        //
+        // Die Attrappe MERKT SICH, welche Anstellungen nachgezogen wurden —
+        // genau das ist die Zusicherung (Vorfall RG19734): ohne den Nachzug
+        // behaelt der CRM-Kontakt die alte Nummer, und der naechste
+        // Einmalcode geht ans ALTE Geraet. Eine Attrappe, die bloss "ja"
+        // sagt, prueft das nicht.
+        $this->crmSync = new class extends ContactPhoneSync {
+            /** @var list<array{id: int, phone: string}> */
+            public array $nachgezogen = [];
+
             public function syncEmployee(RecEmployee $employee, bool $dryRun = false): array
             {
+                $this->nachgezogen[] = ['id' => (int) $employee->id, 'phone' => (string) $employee->phone];
+
                 return ['status' => 'synced', 'contacts' => 1];
             }
-        });
+        };
+        $container->instance(ContactPhoneSync::class, $this->crmSync);
 
         $this->tabellen();
         $this->echteMigrationen();
@@ -1672,6 +1687,45 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->assertCount(1, $hinweise);
         $this->assertSame(self::NUMMER, $hinweise[0]['to']);
+    }
+
+    /**
+     * Weg 5 zieht den CRM-Kontakt nach.
+     *
+     * PersonLinker::setzeNummer() schreibt bewusst observer-frei, der
+     * RecEmployeePhoneSyncObserver springt also NICHT an (Vorfall RG19734).
+     * Ohne den Nachzug behaelt der Kontakt die alte Nummer — und der
+     * naechste Einmalcode geht ans ALTE Geraet, also genau dorthin, wo der
+     * Mensch ihn nicht lesen kann. Das ist der Fehler, den HR mit diesem
+     * Knopf gerade beheben wollte.
+     *
+     * NACHGETRAGEN NACH EINER UEBERLEBENDEN MUTATION: der Nachzug liess sich
+     * aus setzeNummerDurchHr() entfernen, ohne dass ein Test rot wurde.
+     */
+    public function test_weg5_zieht_den_crm_kontakt_nach(): void
+    {
+        $this->kommando(['--person' => (string) $this->personId, '--nummer' => self::NEUE_NUMMER_GETIPPT]);
+
+        $this->assertSame(
+            [['id' => $this->anstellungId, 'phone' => self::NEUE_NUMMER]],
+            $this->crmSync->nachgezogen,
+        );
+    }
+
+    /** Und der angewendete Notfall-Antrag ebenso. */
+    public function test_der_angewendete_antrag_zieht_den_crm_kontakt_nach(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+        $this->crmSync->nachgezogen = [];
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(25));
+        $this->kommando(['--faellig' => true]);
+
+        $this->assertSame(
+            [['id' => $this->anstellungId, 'phone' => self::NEUE_NUMMER]],
+            $this->crmSync->nachgezogen,
+        );
     }
 
     public function test_weg5_braucht_beide_angaben(): void
