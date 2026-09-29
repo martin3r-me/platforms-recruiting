@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Facades\Cache;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Support\PhoneE164;
 
 /**
@@ -163,16 +164,56 @@ final class PortalAuth
      * der ANSTELLUNG, nicht an der Person, und ist damit keine Frage des
      * Kontos. Die Antwort auf sie gehoert hierher.
      *
-     * Gesperrt ist, wer AN IRGENDEINER seiner Anstellungen gesperrt ist —
-     * derselbe Massstab wie im Einsatz-Bereich (EmployeeAssignments:80:
-     * „Gesperrt, wenn irgendein Datensatz der Gruppe gesperrt ist") und beim
-     * Anhang-Abruf (DispoAttachmentController:31). Zwei verschiedene
-     * Antworten auf dieselbe Sperre waeren die Luecke: dort zu, hier offen.
+     * Ruling GD-9: Gefragt wird GENAU DIE MENGE, DIE DIE ENTSPERRUNG BEDIENT
+     * — die Dispo-Identitaetsgruppe aus DispoIdentityResolver. Sie gruppiert
+     * ueber den gemeinsamen CRM-Kontakt und nur ueber AKTIVE Anstellungen des
+     * Anker-Teams; genau diese Gruppe sperrt die Eskalation
+     * (DispoEmployeeGateway::lockPortal), genau diese entsperrt HR
+     * (Show.php::unlockPortal, Zeile 354), und genau diese lesen der
+     * Einsatz-Bereich (EmployeeAssignments) und der Anhang-Abruf
+     * (DispoAttachmentController).
+     *
+     * Eine selbstgebaute Abfrage ueber rec_person_id waere eine ZWEITE
+     * Wahrheit, und die beiden erreichen einander nicht:
+     *  - Eine Sperre an einer Anstellung ausserhalb der Gruppe liesse sich
+     *    nicht mehr aufheben. HR drueckt den Knopf, bekommt "Portalzugang
+     *    entsperrt" — und der Mensch kommt trotzdem nicht hinein, ohne
+     *    erkennbaren Grund und nur per SQL zu heilen.
+     *  - Umgekehrt liegt ein gesperrter Geschwister-Datensatz mit fehlendem
+     *    oder abweichendem rec_person_id ausserhalb der Personen-Klammer: im
+     *    Einsatz-Bereich zu, an der Anmeldung offen.
+     *
+     * Der Preis: eine Sperre an einer inzwischen BEENDETEN Anstellung greift
+     * hier nicht mehr, weil die Gruppe nur aktive kennt. Das ist die
+     * gewollte Richtung — eine Eskalationsstufe bezieht sich auf laufende
+     * Einsaetze, und eine Sperre, die niemand mehr aufheben kann, ist
+     * schlimmer als eine, die zu frueh endet. Deshalb werden auch nur AKTIVE
+     * Anstellungen als Anker in groupsFor() gegeben: ein inaktiver Anker
+     * faellt dort auf sich selbst zurueck und brauchte genau die Sperre
+     * wieder ein, die HR nicht mehr erreicht.
      */
     private function istDispoGesperrt(int $personId): bool
     {
-        return RecEmployee::query()
+        $anker = RecEmployee::query()
             ->where('rec_person_id', $personId)
+            ->where('is_active', true)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        if ($anker === []) {
+            // Kommt ueber diesen Weg nicht vor: pruefeAnmeldung() laesst
+            // niemanden ohne aktive Anstellung durch.
+            return false;
+        }
+
+        $gruppe = [];
+        foreach (app(DispoIdentityResolver::class)->groupsFor($anker) as $teilgruppe) {
+            $gruppe = array_merge($gruppe, $teilgruppe);
+        }
+
+        return RecEmployee::query()
+            ->whereIn('id', array_values(array_unique($gruppe)))
             ->whereNotNull('portal_locked_at')
             ->exists();
     }

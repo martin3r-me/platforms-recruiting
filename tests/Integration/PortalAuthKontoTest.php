@@ -15,7 +15,9 @@ use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\PortalAuth;
+use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 
 /**
  * Der zweite Einstieg in die Anmeldeschicht: Handynummer + Passwort.
@@ -83,8 +85,14 @@ final class PortalAuthKontoTest extends TestCase
             public function __call($m, $a) {}
         });
 
+        // inbound_team_id ist der Team-Anker des DispoIdentityResolver — ohne
+        // ihn gruppiert er fail closed gar nicht, und die Gruppen-Tests waeren
+        // stumm gruen.
         $container->instance('config', new ConfigRepository([
-            'recruiting' => ['konto' => ['pepper' => 'pfeffer-fuer-den-test']],
+            'recruiting' => [
+                'konto' => ['pepper' => 'pfeffer-fuer-den-test'],
+                'zas'   => ['inbound_team_id' => self::TEAM],
+            ],
         ]));
 
         // Vier Runden statt zwoelf: bcrypt ist absichtlich langsam. Der
@@ -149,6 +157,19 @@ final class PortalAuthKontoTest extends TestCase
             $t->timestamps();
         });
 
+        // Die Dispo-Identitaet haengt am CRM-Kontakt, nicht an der
+        // Personen-Klammer — der DispoIdentityResolver liest diese Tabelle.
+        $this->capsule->schema()->create('crm_contact_links', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64)->nullable();
+            $t->integer('contact_id')->nullable();
+            $t->integer('team_id')->nullable();
+            $t->integer('created_by_user_id')->nullable();
+            $t->integer('linkable_id')->nullable();
+            $t->string('linkable_type')->nullable();
+            $t->timestamps();
+        });
+
         $this->personId = $this->person(self::TEAM, self::NUMMER, 'p-konto-anmeldung');
         $this->anstellung($this->personId, 'tok-1');
     }
@@ -199,6 +220,34 @@ final class PortalAuthKontoTest extends TestCase
     private function auth(): PortalAuth
     {
         return new PortalAuth($this->cache);
+    }
+
+    /** Ein CRM-Kontakt an einer Anstellung — so entsteht eine Dispo-Identitaet. */
+    private function crmVerknuepfung(int $employeeId, int $contactId): void
+    {
+        DB::table('crm_contact_links')->insert([
+            'uuid'               => 'lnk-' . $employeeId . '-' . $contactId,
+            'contact_id'         => $contactId,
+            'team_id'            => self::TEAM,
+            'created_by_user_id' => 1,
+            'linkable_id'        => $employeeId,
+            'linkable_type'      => (new RecEmployee())->getMorphClass(),
+            'created_at'         => self::ANGEFASST,
+            'updated_at'         => self::ANGEFASST,
+        ]);
+    }
+
+    /**
+     * Die HR-Entsperrung, Zeile fuer Zeile wie Show.php::unlockPortal() sie
+     * fuehrt (Show.php:354). Nachgebaut und nicht gerufen, weil die
+     * Livewire-Komponente hier nicht laeuft — aber wenn sich der Weg dort
+     * aendert, gehoert dieser Test angepasst.
+     */
+    private function hrEntsperrt(int $employeeId): void
+    {
+        $ids = app(DispoIdentityResolver::class)->groupFor($employeeId);
+
+        RecEmployee::query()->whereIn('id', $ids)->update(['portal_locked_at' => null]);
     }
 
     /**
@@ -534,6 +583,72 @@ final class PortalAuthKontoTest extends TestCase
 
         $this->assertSame(
             PortalAuth::OK,
+            $this->auth()->anmeldenMitNummer(self::TEAM, self::NUMMER, self::PASSWORT)['status'],
+        );
+    }
+
+    /**
+     * Ruling GD-9: Die Anmeldung muss GENAU die Menge fragen, die die
+     * Entsperrung bedient. HR entsperrt ueber DispoIdentityResolver::
+     * groupFor() (Show.php:354), und die kennt nur AKTIVE Anstellungen am
+     * gemeinsamen CRM-Kontakt.
+     *
+     * Der Fall hier: die Eskalation hat beide Anstellungen gesperrt,
+     * inzwischen ist die zweite beendet. HR drueckt den Knopf — er erreicht
+     * nur noch die aktive. Fragte die Anmeldung eine groessere Menge,
+     * bekaeme HR „Portalzugang entsperrt" zu sehen, und der Mensch kaeme
+     * trotzdem nicht hinein: eine Sperre, die sich nicht mehr aufheben
+     * laesst und nur per SQL zu heilen waere.
+     */
+    public function test_nach_der_hr_entsperrung_kommt_man_wieder_hinein(): void
+    {
+        $aktiv = (int) DB::table('rec_employees')->where('rec_person_id', $this->personId)->value('id');
+        $beendet = $this->anstellung($this->personId, 'tok-beendet', ['is_active' => 0]);
+        DB::table('rec_employees')->whereIn('id', [$aktiv, $beendet])
+            ->update(['portal_locked_at' => self::ANGEFASST]);
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $this->auth()->anmeldenMitNummer(self::TEAM, self::NUMMER, self::PASSWORT)['status'],
+            'Vorflug: die Eskalation sperrt',
+        );
+
+        $this->hrEntsperrt($aktiv);
+
+        $this->assertNotNull(
+            DB::table('rec_employees')->where('id', $beendet)->value('portal_locked_at'),
+            'Vorflug: an der beendeten Anstellung bleibt die Sperre stehen — genau das ist der Fall',
+        );
+        $this->assertSame(
+            PortalAuth::OK,
+            $this->auth()->anmeldenMitNummer(self::TEAM, self::NUMMER, self::PASSWORT)['status'],
+            'was HR entsperrt hat, muss auch offen sein',
+        );
+    }
+
+    /**
+     * Die andere Haelfte derselben Naht: ein gesperrter Datensatz, den
+     * groupFor() ueber den CRM-Kontakt findet, den die Personen-Klammer aber
+     * nicht kennt (rec_person_id fehlt). Im Einsatz-Bereich ist der Mensch
+     * damit gesperrt — an der Anmeldung darf er es nicht anders sein.
+     */
+    public function test_ein_gesperrter_geschwister_datensatz_ohne_personen_klammer_sperrt_mit(): void
+    {
+        $aktiv = (int) DB::table('rec_employees')->where('rec_person_id', $this->personId)->value('id');
+        $geschwister = $this->anstellung($this->personId, 'tok-geschwister', [
+            'rec_person_id'    => null,
+            'portal_locked_at' => self::ANGEFASST,
+        ]);
+        $this->crmVerknuepfung($aktiv, 4711);
+        $this->crmVerknuepfung($geschwister, 4711);
+
+        $this->assertSame(
+            [$aktiv, $geschwister],
+            app(DispoIdentityResolver::class)->groupFor($aktiv),
+            'Vorflug: die Dispo sieht beide als EINE Person',
+        );
+        $this->assertSame(
+            PortalAuth::GESPERRT,
             $this->auth()->anmeldenMitNummer(self::TEAM, self::NUMMER, self::PASSWORT)['status'],
         );
     }
