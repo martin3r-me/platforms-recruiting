@@ -627,6 +627,13 @@ nicht erreichbar ist** (keine Nummer, kein WhatsApp).
 - Wiederholbar: wer schon ein Konto hat, wird uebersprungen.
 - Ohne `--welle` **kein** Versand an alle — eine Welle ist eine bewusste Handlung.
 - Kennungen in der Ausgabe, **nie Namen** (Muster: `recruiting:mitarbeiter-grenzfaelle`).
+- **`letzte_anmeldung_at` heisst NICHT „war zuletzt im Portal" (Ruling GD-8).** Der
+  Stempel sitzt in `KontoWriter::pruefeAnmeldung()` und wird gesetzt, sobald das
+  Passwort stimmt — auch dann, wenn die Dispo-Sperre (`portal_locked_at`) den Menschen
+  unmittelbar danach abweist. Er bedeutet also **„letzter erfolgreicher
+  Passwortnachweis"**. Beschrifte die Spalte im Bericht entsprechend; „zuletzt
+  angemeldet" waere bei einem gesperrten Konto eine Falschaussage, und HR entscheidet
+  danach, ob ein Konto funktioniert.
 
 - [ ] **Step 1: Test schreiben, rot sehen**
 - [ ] **Step 2: Kommando bauen, im ServiceProvider registrieren, Commit**
