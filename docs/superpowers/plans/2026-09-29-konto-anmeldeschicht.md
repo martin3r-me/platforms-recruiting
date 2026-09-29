@@ -634,6 +634,13 @@ nicht erreichbar ist** (keine Nummer, kein WhatsApp).
 
 **Bindende Vorgaben:**
 - Wiederholbar: wer schon ein Konto hat, wird uebersprungen.
+- **Wer kein hinterlegtes Geburtsdatum hat, wird NICHT eingeladen** (Befund F6 der
+  Aufgabe-6-Pruefung). Sonst bekommt der Mensch fuenfmal „pruef dein Geburtsdatum" und
+  danach eine Stunde lang 404 — ohne dass irgendetwas an ihm falsch waere, und ohne dass
+  er es je richtig machen koennte. Der Riegel gehoert an diesen Knopf, nicht an die
+  Seite: die Registrierung kann den Fall nicht von einem Tippfehler unterscheiden.
+  Diese Faelle gehoeren in die `--bericht`-Ausgabe unter „nicht erreichbar", mit eigenem
+  Grund neben „keine Nummer".
 - Ohne `--welle` **kein** Versand an alle — eine Welle ist eine bewusste Handlung.
 - Kennungen in der Ausgabe, **nie Namen** (Muster: `recruiting:mitarbeiter-grenzfaelle`).
 - **`letzte_anmeldung_at` heisst NICHT „war zuletzt im Portal" (Ruling GD-8).** Der
