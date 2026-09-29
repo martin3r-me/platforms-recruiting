@@ -1111,6 +1111,12 @@ final class KontoAnmeldenTest extends TestCase
                 . 'Liste wird Abmelden zur Attrappe — die Seite sieht abgemeldet aus, die '
                 . 'Sitzungsschluessel bleiben stehen, und auf einem geteilten Geraet kommt der '
                 . 'Naechste hinein',
+            'personId' => 'WESSEN Vorgang auf den Wegen zurueck laeuft (Spec §5). Frei setzbar '
+                . 'liesse sich im zweiten Schritt eine FREMDE Person einsetzen — der eigene '
+                . 'Code, das fremde Konto',
+            'fertigGrund' => 'Teil des Zustands: er waehlt den Text der Schlussseite. Frei '
+                . 'setzbar zeigte er "Ihre Nummer wurde geaendert", ohne dass etwas geaendert '
+                . 'wurde — eine Seite, die luegt',
         ];
 
         // Absichtlich OFFEN, jede mit ihrem Grund. Ihre Sicherheit sitzt nicht
@@ -1119,6 +1125,12 @@ final class KontoAnmeldenTest extends TestCase
         $offen = [
             'nummer'            => 'die Eingabe des Menschen — gesperrt kann er nichts eintippen',
             'passwort'          => 'dito',
+            'neueNummer'        => 'dito',
+            'code'              => 'dito — und er entscheidet ueber nichts: geprueft wird er im '
+                . 'EINEN Schreiber, bei jedem Aufruf erneut',
+            'geburtsdatum'      => 'dito',
+            'neuesPasswort'     => 'dito',
+            'neuesPasswortWiederholung' => 'dito',
             'fehler'            => 'nur eine Anzeige; wer sie sich selbst setzt, beschreibt seinen '
                 . 'eigenen Bildschirm',
         ];

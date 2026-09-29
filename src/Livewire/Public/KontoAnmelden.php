@@ -4,10 +4,17 @@ namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
+use InvalidArgumentException;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Comms\EinmalcodeSender;
+use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
+use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\PortalAuth;
+use Platform\Recruiting\Support\PasswortRegeln;
+use Platform\Recruiting\Support\PhoneE164;
 
 /**
  * Die Anmeldeseite des Mitarbeiterkontos (Canvas 68, Spec 2.1).
@@ -57,6 +64,53 @@ use Platform\Recruiting\Services\PortalAuth;
  * Sicherheit: dieselbe Lehre wie aus dem Auth-Bypass vom 19.08.2026 — alles,
  * was ueber Identitaet oder Zustand entscheidet, ist #[Locked]. $wire.set
  * kommt daran nicht vorbei.
+ *
+ * ------------------------------------------------------------------------
+ * DIE WEGE ZURUECK INS KONTO (Spec §5, Canvas 1789, Aufgabe 9)
+ * ------------------------------------------------------------------------
+ *
+ * Wer seine Nummer verliert, sein Passwort vergisst oder beides, kommt ueber
+ * diese Seite zurueck. JEDER WEG BRAUCHT ZWEI NACHWEISE — ein Code allein
+ * reicht nie, denn ein Code beweist nur, dass jemand ein Geraet in der Hand
+ * hat, und Anbieter geben Handynummern nach Monaten neu aus (Spec §6.1).
+ *
+ *  - WEG 1+2, "Nummer wechseln": alte Nummer + Passwort, dann ein Code an die
+ *    NEUE Nummer. Die beiden Zeilen der Spec-Tabelle unterscheiden sich nur
+ *    darin, WO der Mensch startet (angemeldet oder nicht) — die Nachweise
+ *    sind woertlich dieselben (Passwort, dann Code an die neue Nummer).
+ *    Deshalb tragen sie hier EINEN Ablauf. Er lehnt sich ausdruecklich nicht
+ *    an die Sitzung an: die Seite ist oeffentlich, und ein Ablauf, der die
+ *    Sitzung als Nachweis nimmt, waere der schwaechere der beiden.
+ *  - WEG 3, "Passwort vergessen": Code an die hinterlegte Nummer, und beim
+ *    Einloesen zusaetzlich das Geburtsdatum. Die Antwort auf die Anforderung
+ *    ist IMMER dieselbe, auch fuer eine Nummer, die es gar nicht gibt.
+ *  - WEG 4, "Nummer weg UND Passwort vergessen": alte Nummer + Geburtsdatum
+ *    + Ausweisziffern, dann ein Code an die neue Nummer. Der Wechsel wird
+ *    erst nach 24 Stunden wirksam; HR kann in dieser Zeit stoppen.
+ *  - WEG 5 liegt NICHT hier, sondern bei HR (recruiting:konto-zuruecksetzen).
+ *
+ * WEG 4 IST KEIN ZWEITER ANMELDEWEG, und das ist die wichtigste Eigenschaft
+ * dieser Seite. Ausweisziffern kommen im ganzen Konto nur dort vor, und sie
+ * oeffnen nichts: der Weg endet mit einem BEANTRAGTEN Nummernwechsel, nicht
+ * mit einer Sitzung und nicht mit einem Passwort. Wer ihn durchlaeuft, muss
+ * danach immer noch Weg 3 gehen. Waere das alte Verfahren (Geburtsdatum plus
+ * Ausweisziffern) hier eine Abkuerzung ins Konto, kaeme jeder, der eine
+ * Nummer kennt, ueber die Nebentuer hinein — und die Umstellung machte das
+ * Portal unsicherer als vorher.
+ *
+ * DIE EIGENE BREMSE (Auflage der Aufgabe-8-Pruefung). EinmalcodeSender::sende()
+ * nimmt eine PERSONEN-Kennung; seine Drossel greift also erst, wenn die
+ * Nummer GEFUNDEN wurde. Wer Nummern durchprobiert, laeuft nie in sie hinein.
+ * Deshalb bremst diese Seite selbst, je Adresse der Verbindung
+ * (MAX_ANFRAGEN_JE_IP) — und zwar nach dem Muster aus PortalAuth, mit
+ * REMOTE_ADDR und ausdruecklich NICHT mit $request->ip() (Ruling GD-12,
+ * Begruendung an ipSchluessel()).
+ *
+ * KEIN STATUS WIRD UNTERSCHEIDBAR ANGEZEIGT. sende() liefert 'sent',
+ * 'gedrosselt' oder 'failed'; alle drei sehen fuer den Menschen gleich aus —
+ * auch 'failed', denn dahinter steckt unter anderem ein gesperrtes Konto. Und
+ * eine unbekannte Nummer antwortet genauso. Der Rueckgabewert wird hier
+ * deshalb gar nicht erst ausgewertet; er ist fuer das Protokoll da.
  */
 class KontoAnmelden extends Component
 {
@@ -78,6 +132,64 @@ class KontoAnmelden extends Component
      */
     public const MELDUNG = 'Das hat nicht geklappt. Bitte prüfen Sie Handynummer und Passwort '
         . 'und versuchen Sie es in einigen Minuten noch einmal.';
+
+    /**
+     * EINE Meldung fuer jeden Fehlschlag auf den Wegen zurueck.
+     *
+     * Sie deckt zusammen ab: falscher Code, abgelaufener Code, falsches
+     * Geburtsdatum, falsche Ausweisziffern, unbekannte Nummer, gesperrtes
+     * Konto, eine Nummer, die im Team schon jemandem gehoert, und die
+     * Bremsen. Genau das ist der Zweck — jede Aufspaltung waere eine Auskunft
+     * darueber, welcher der beiden Nachweise gestimmt hat, und dann muss nur
+     * noch der andere geraten werden.
+     *
+     * Sie nennt KEINE Felder beim Namen ("prüfen Sie Ihr Geburtsdatum" waere
+     * schon die Auskunft, dass der Code stimmte). "Ihre Eingaben" trifft jeden
+     * dieser Faelle gleichermassen.
+     */
+    public const MELDUNG_ZURUECK = 'Das hat nicht geklappt. Bitte prüfen Sie Ihre Eingaben '
+        . 'und versuchen Sie es in einigen Minuten noch einmal.';
+
+    /**
+     * Wie viele Anforderungen eines Einmalcodes ueber die Rueckwege je
+     * Verbindungsadresse und Stunde — die EIGENE Bremse dieser Seite (Auflage
+     * der Aufgabe-8-Pruefung).
+     *
+     * SIE ZAEHLT JEDEN VERSUCH, nicht nur die fehlgeschlagenen, und das ist
+     * der Unterschied zu den Zaehlern in PortalAuth. Dort laesst sich
+     * "fehlgeschlagen" feststellen, ohne etwas zu verraten. Hier nicht: ob
+     * eine Nummer bekannt ist, ist genau die Auskunft, die diese Seite nicht
+     * geben darf — eine Bremse, die nur bei Unbekannten zaehlt, waere selbst
+     * das Orakel.
+     *
+     * ZWANZIG, und die Zahl ist gerechnet, nicht geraten: Nummern
+     * durchzuprobieren braucht Tausende von Versuchen, zwanzig je Stunde
+     * machen daraus Wochen. Ein echter Mensch braucht einen, im schlechten
+     * Fall zwei. Der Abstand dazwischen ist der Spielraum fuer ein Buero, in
+     * dem mehrere hinter derselben Adresse sitzen — und sie liegt niedriger
+     * als MAX_IP_ATTEMPTS in PortalAuth (dreissig), weil dort nur
+     * FEHLVERSUCHE zaehlen und hier jeder Versuch.
+     */
+    public const MAX_ANFRAGEN_JE_IP = 20;
+
+    /** Eine Stunde, passend zu MAX_ANFRAGEN_JE_IP, an genau einer Stelle. */
+    public const IP_FENSTER_SEKUNDEN = 3600;
+
+    /**
+     * Fehlversuche am ZWEITEN Nachweis (Geburtsdatum, Ausweisziffern) je
+     * Vorgang und Stunde.
+     *
+     * WARUM TRAGEND: der Einmalcode ist gegen Raten durch Einmalcode::
+     * MAX_VERSUCHE gedeckelt, der zweite Nachweis durch gar nichts. Ein
+     * plausibler Geburtsjahrgang-Bereich sind rund 25.000 Moeglichkeiten —
+     * an einem Nachmittag durch, wenn niemand mitzaehlt. Dieselbe Zahl und
+     * dieselbe Begruendung wie bei KontoAnlegen::MAX_VERSUCHE; dort ist es
+     * derselbe Nachweis.
+     */
+    public const MAX_FEHLVERSUCHE = 5;
+
+    /** Eine Stunde. Lang genug, dass Durchprobieren sich nicht lohnt. */
+    public const FEHLVERSUCH_FENSTER_SEKUNDEN = 3600;
 
     /**
      * Die Routen, auf die nach der Anmeldung gesprungen werden darf.
@@ -106,8 +218,22 @@ class KontoAnmelden extends Component
     ];
 
     /**
-     * 'formular' oder 'ohne-ziel'. #[Locked] — genau diese Art Eigenschaft
-     * war der Bypass vom 19.08.2026 ($wire.set state=verified).
+     * Der Zustand der Seite. #[Locked] — genau diese Art Eigenschaft war der
+     * Bypass vom 19.08.2026 ($wire.set state=verified).
+     *
+     * 'formular'       die Anmeldung (Nummer + Passwort)
+     * 'ohne-ziel'      angemeldet, aber nichts freigeschaltet
+     * 'nummer'         Weg 1+2, Schritt 1: alte Nummer, Passwort, neue Nummer
+     * 'nummer-code'    Weg 1+2, Schritt 2: der Code von der neuen Nummer
+     * 'vergessen'      Weg 3, Schritt 1: die Nummer
+     * 'vergessen-code' Weg 3, Schritt 2: Code, Geburtsdatum, neues Passwort
+     * 'fertig'         geschafft; WAS geschafft wurde, sagt $fertigGrund
+     *
+     * OHNE DIESE SPERRE waere die ganze Aufgabe hinfaellig: ein
+     * $wire.set('state', 'nummer-code') aus dem Anmeldeformular heraus
+     * uebersprunge den Passwortnachweis von Schritt 1. Dass $personId
+     * ebenfalls gesperrt ist, faengt es ein zweites Mal ab — beide Sperren
+     * sind noetig, keine steht fuer die andere ein.
      */
     #[Locked] public string $state = 'formular';
 
@@ -146,6 +272,44 @@ class KontoAnmelden extends Component
      */
     public string $nummer = '';
     public string $passwort = '';
+
+    /**
+     * WESSEN Vorgang hier laeuft — gesetzt erst, NACHDEM der erste Nachweis
+     * erbracht ist (Passwort in Weg 1+2, die Nummer in Weg 3).
+     *
+     * #[Locked], und hier haengt mehr daran als anderswo: mit einer frei
+     * setzbaren Personen-Kennung liesse sich im zweiten Schritt eine FREMDE
+     * Person einsetzen — der eigene Code, das fremde Konto. Das ist der
+     * Auth-Bypass vom 19.08.2026 in seiner teuersten Form.
+     *
+     * Bleibt in Weg 3 ausdruecklich null, wenn die Nummer unbekannt ist. Der
+     * zweite Schritt scheitert dann mit derselben Meldung wie ein falscher
+     * Code — sonst waere der Unterschied die Auskunft, dass es die Nummer
+     * nicht gibt.
+     */
+    #[Locked] public ?int $personId = null;
+
+    /**
+     * Was im Zustand 'fertig' geschafft wurde: 'nummer' oder 'passwort'.
+     *
+     * #[Locked], obwohl es nur einen Text auswaehlt: es ist ein Teil des
+     * Zustands, und die geschlossene Welt des Waechter-Tests verlangt eine
+     * Entscheidung je Feld. Frei setzbar zeigte es einem Menschen "Ihre
+     * Nummer wurde geaendert", ohne dass etwas geaendert wurde — eine Seite,
+     * die luegt, ist schlimmer als eine, die nichts sagt.
+     */
+    #[Locked] public string $fertigGrund = '';
+
+    /**
+     * Die Eingaben der Rueckwege — bewusst NICHT gesperrt, sie kommen ja vom
+     * Menschen. Ihre Sicherheit sitzt darin, dass jeder Schritt seine
+     * Nachweise erneut pruefen laesst, und zwar im EINEN Schreiber.
+     */
+    public string $neueNummer = '';
+    public string $code = '';
+    public string $geburtsdatum = '';
+    public string $neuesPasswort = '';
+    public string $neuesPasswortWiederholung = '';
 
     public string $fehler = '';
 
@@ -306,10 +470,320 @@ class KontoAnmelden extends Component
         }
 
         $this->geoeffnet = [];
+        $this->zurAnmeldung();
+    }
+
+    // ----------------------------------------------- Die Wege zurueck: Navigation
+
+    /**
+     * Zurueck auf die Anmeldung — und dabei wird ALLES abgeraeumt.
+     *
+     * Insbesondere $personId: eine stehengebliebene Kennung aus einem
+     * abgebrochenen Vorgang waere im naechsten genau der erste Nachweis, den
+     * niemand mehr erbracht hat. Und die Geheimnisse (Passwort, Code) haben
+     * nach einem Wechsel des Zustands auf der Seite nichts mehr zu suchen —
+     * sie fuehren sonst im Livewire-Schnappschuss weiter mit.
+     */
+    public function zurAnmeldung(): void
+    {
         $this->state = 'formular';
+        $this->personId = null;
+        $this->fertigGrund = '';
         $this->nummer = '';
-        $this->passwort = '';
+        $this->neueNummer = '';
+        $this->geburtsdatum = '';
         $this->fehler = '';
+        $this->leereGeheimnisse();
+    }
+
+    /** Weg 1+2: die Nummer wechseln, mit dem Passwort als erstem Nachweis. */
+    public function zumNummernwechsel(): void
+    {
+        $this->zurAnmeldung();
+        $this->state = 'nummer';
+    }
+
+    /** Weg 3: Passwort vergessen. */
+    public function zumPasswortVergessen(): void
+    {
+        $this->zurAnmeldung();
+        $this->state = 'vergessen';
+    }
+
+    // ------------------------------------------- Weg 1+2: die Nummer wechseln
+
+    /**
+     * Schritt 1: alte Nummer + Passwort + neue Nummer -> Code an die NEUE.
+     *
+     * DER PASSWORTNACHWEIS LAEUFT UEBER PortalAuth, nicht ueber eine eigene
+     * Abfrage. Damit gelten hier dieselben Bremsen wie an der Anmeldung
+     * (fuenf Versuche je Nummer, dreissig Fehlversuche je Adresse und Stunde)
+     * und dieselbe Dispo-Sperre. Eine zweite Fassung des Passwortnachweises
+     * waere genau die Stelle, an der die eine Bremse repariert und die andere
+     * vergessen wird.
+     *
+     * WARUM HIER KEINE EIGENE IP-BREMSE STEHT, anders als bei Weg 3: dieser
+     * Ablauf verschickt erst NACH einem richtigen Passwort. Wer Nummern
+     * durchprobiert, kommt ueber den Fehlschlag nicht hinaus — und der zaehlt
+     * bereits in PortalAuth.
+     *
+     * DIE NEUE NUMMER WIRD HIER NICHT DARAUF GEPRUEFT, ob sie im Team schon
+     * jemandem gehoert. Diese Regel lebt in PersonLinker::setzeNummer() und
+     * schlaegt beim Einloesen zu; ein zweiter Pruefweg waere die Doppelung,
+     * die dieses Projekt schon mehrfach beseitigt hat. Der Preis steht bei
+     * nummerBestaetigen().
+     */
+    public function nummerAnfordern(PortalAuth $auth, EinmalcodeSender $sender): void
+    {
+        if ($this->state !== 'nummer') {
+            return;
+        }
+
+        $this->fehler = '';
+
+        // Leere Eingaben kosten keinen Versuch. Diese Meldung verraet nichts:
+        // sie haengt an der EIGENEN Eingabe und nicht daran, was gespeichert
+        // ist.
+        if (trim($this->nummer) === '' || $this->passwort === '' || trim($this->neueNummer) === '') {
+            $this->fehler = 'Bitte füllen Sie alle drei Felder aus.';
+            $this->leereGeheimnisse();
+
+            return;
+        }
+
+        // Normalisiert VOR dem Versand: an diese Form geht der Code, und in
+        // dieser Form wird sie spaeter geschrieben. Eine unlesbare Nummer
+        // faellt hier heraus und nicht erst im Sender — dort haette sie
+        // bereits den laufenden Code entwertet.
+        $neu = PhoneE164::normalize($this->neueNummer);
+
+        if ($neu === null) {
+            $this->fehler = 'Diese neue Handynummer können wir nicht lesen. Bitte prüfen Sie die Schreibweise.';
+            $this->leereGeheimnisse();
+
+            return;
+        }
+
+        $ergebnis = $auth->anmeldenMitNummer(null, $this->nummer, $this->passwort);
+
+        // Das Passwort hat nach dem Versuch auf der Seite nichts mehr zu
+        // suchen.
+        $this->passwort = '';
+
+        if ($ergebnis['status'] !== PortalAuth::OK || $ergebnis['personId'] === null) {
+            $this->fehler = self::MELDUNG;
+
+            return;
+        }
+
+        $this->personId = $ergebnis['personId'];
+
+        // DER RUECKGABEWERT WIRD NICHT AUSGEWERTET (s. Klassen-Docblock):
+        // 'sent', 'gedrosselt' und 'failed' sehen fuer den Menschen gleich
+        // aus. Hier ist der Nachweis zwar schon erbracht, aber eine
+        // Unterscheidung an dieser Stelle waere trotzdem eine Auskunft ueber
+        // den Zustand des Kontos ("gesperrt") an jemanden, der bloss das
+        // Passwort kennt.
+        $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $neu);
+
+        $this->state = 'nummer-code';
+    }
+
+    /**
+     * Schritt 2: der Code von der neuen Nummer — und damit der zweite
+     * Nachweis.
+     *
+     * DIE ALTE NUMMER WIRD VORHER GEMERKT. loeseCodeEin() zieht
+     * PersonLinker::setzeNummer() nach, und danach steht sie nirgends mehr;
+     * der Hinweis aus Spec §5 ("die alte Nummer bekommt einmalig einen
+     * Hinweis") ginge sonst an das neue Geraet, das ihn nicht braucht.
+     *
+     * EINE IM TEAM SCHON VERGEBENE NEUE NUMMER endet hier in derselben
+     * Meldung wie ein falscher Code, und der Code ist dabei verbraucht
+     * (loeseCodeEin entwertet, bevor PersonLinker wirft — dessen Docblock
+     * erklaert, warum das kein Versehen ist). Das ist bewusst so: die
+     * Ausnahme nennt die fremde Personen-Kennung, und "diese Nummer gehoert
+     * schon einem Konto" ist genau die Auskunft, die diese Seite niemandem
+     * geben darf. Der Mensch fordert einen neuen Code an; den Fall muss
+     * ohnehin HR klaeren (Spec §6.2).
+     */
+    public function nummerBestaetigen(NummernwechselHinweisSender $hinweis): void
+    {
+        if ($this->state !== 'nummer-code' || $this->personId === null) {
+            return;
+        }
+
+        $this->fehler = '';
+
+        if (trim($this->code) === '') {
+            $this->fehler = 'Bitte geben Sie den Code ein, den wir Ihnen geschickt haben.';
+
+            return;
+        }
+
+        $alteNummer = KontoWriter::aktuelleNummer($this->personId);
+
+        try {
+            KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, trim($this->code));
+        } catch (InvalidArgumentException) {
+            // Die Ausnahme wird NICHT angezeigt und NICHT protokolliert: sie
+            // benennt, woran es lag.
+            $this->code = '';
+            $this->fehler = self::MELDUNG_ZURUECK;
+
+            return;
+        }
+
+        $this->code = '';
+
+        if ($alteNummer !== null) {
+            // "sofern noch zustellbar" laesst sich vorher nicht feststellen —
+            // der Sender versucht es und protokolliert das Ergebnis. Ein
+            // Fehlschlag dreht den Wechsel NICHT zurueck; er ist vollzogen.
+            $hinweis->sende($this->personId, $alteNummer);
+        }
+
+        $this->fertigGrund = 'nummer';
+        $this->state = 'fertig';
+    }
+
+    // ----------------------------------------------- Weg 3: Passwort vergessen
+
+    /**
+     * Schritt 1: die Nummer — und sonst nichts.
+     *
+     * DIE ANTWORT IST IMMER DIESELBE (Spec §5, Begleitregel; Canvas 1789):
+     * bekannte Nummer, unbekannte Nummer, gesperrtes Konto, gedrosselter
+     * Versand, ausgefallene Meta-Vorlage — die Seite geht in JEDEM Fall in
+     * denselben Zustand mit demselben Text. Sonst liessen sich Nummern
+     * durchprobieren, und wer eine findet, weiss, dass dahinter ein Mensch
+     * mit Ausweiskopie und Bankverbindung steht.
+     *
+     * WARUM DER CODE OHNE ZWEITEN NACHWEIS RAUSGEHT: er geht an die
+     * hinterlegte Nummer, also an das Geraet, das sie ohnehin hat — er
+     * erreicht niemanden, der nicht schon Zugriff darauf hat. Der zweite
+     * Nachweis (Geburtsdatum) steht im naechsten Schritt, dort, wo das
+     * Passwort wirklich gesetzt wird. Genau das ist das Gegenmittel gegen
+     * Spec §6.1: der neue Inhaber einer neu vergebenen Nummer bekommt den
+     * Code und kommt trotzdem nicht weiter.
+     *
+     * HIER STEHT DIE EIGENE BREMSE (Auflage der Aufgabe-8-Pruefung): die
+     * Drossel des Senders greift erst, wenn die Person gefunden ist, und
+     * schuetzt deshalb genau den Fall nicht, um den es hier geht.
+     */
+    public function passwortCodeAnfordern(EinmalcodeSender $sender): void
+    {
+        if ($this->state !== 'vergessen') {
+            return;
+        }
+
+        $this->fehler = '';
+
+        if (trim($this->nummer) === '') {
+            $this->fehler = 'Bitte geben Sie Ihre Handynummer ein.';
+
+            return;
+        }
+
+        // Die Bremse zaehlt VOR dem Nachschlagen: wuerde sie danach zaehlen,
+        // haette jeder Versuch die Datenbank schon angefasst — und genau
+        // diese Kosten soll sie deckeln.
+        if ($this->darfAnfordern()) {
+            // Dieselbe Menge, ueber die auch die Anmeldung entscheidet
+            // (KontoWriter). Eine eigene Abfrage hier waere eine zweite
+            // Fassung derselben Regel.
+            $this->personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
+
+            if ($this->personId !== null) {
+                $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+            }
+        }
+
+        // IMMER derselbe Ausgang. Auch wenn nichts verschickt wurde.
+        $this->state = 'vergessen-code';
+    }
+
+    /**
+     * Schritt 2: Code + Geburtsdatum + neues Passwort.
+     *
+     * DIE ZWEI NACHWEISE PRUEFT DER SCHREIBER, nicht diese Seite:
+     * KontoWriter::setzePasswortMitCode() verlangt beide und setzt das
+     * Passwort nur, wenn beide stimmen. Hier steht nur, was zur SEITE
+     * gehoert — die Passwort-Wiederholung, die Bremse und die eine Meldung.
+     *
+     * DIE PASSWORT-VORPRUEFUNG STEHT VOR DER BREMSE UND VOR DEM SCHREIBER,
+     * aus demselben Grund wie bei KontoAnlegen: ein zu kurzes Passwort ist
+     * eine Formsache und kein Rateversuch. Ohne sie sperrte sich aus, wer
+     * fuenfmal ein zu kurzes Passwort tippt — und der Code waere jedes Mal
+     * verbrannt.
+     */
+    public function passwortSetzen(): void
+    {
+        if ($this->state !== 'vergessen-code') {
+            return;
+        }
+
+        $this->fehler = '';
+
+        if (trim($this->code) === '' || trim($this->geburtsdatum) === '' || $this->neuesPasswort === '') {
+            $this->fehler = 'Bitte füllen Sie alle Felder aus.';
+            $this->leereGeheimnisse();
+
+            return;
+        }
+
+        if ($this->neuesPasswort !== $this->neuesPasswortWiederholung) {
+            $this->fehler = 'Die beiden Passwörter sind nicht gleich. Bitte tippen Sie sie noch einmal.';
+            $this->leereGeheimnisse();
+
+            return;
+        }
+
+        // Geprueft wird mit DERSELBEN Klasse, die der Schreiber benutzt —
+        // kein zweiter Massstab.
+        $passwortMeldung = PasswortRegeln::pruefe($this->neuesPasswort);
+
+        if ($passwortMeldung !== null) {
+            $this->fehler = $passwortMeldung;
+            $this->leereGeheimnisse();
+
+            return;
+        }
+
+        // Unbekannte Nummer ($personId === null) und ausgeschoepfte Bremse
+        // muenden in DIESELBE Meldung wie ein falscher Code. Der Zweig fuer
+        // die unbekannte Nummer ist die zweite Haelfte der Begleitregel aus
+        // Schritt 1: ohne ihn endete der Weg fuer eine unbekannte Nummer
+        // sichtbar anders.
+        if ($this->personId === null || RateLimiter::tooManyAttempts($this->fehlversuchSchluessel(), self::MAX_FEHLVERSUCHE)) {
+            $this->fehler = self::MELDUNG_ZURUECK;
+            $this->leereGeheimnisse();
+
+            return;
+        }
+
+        try {
+            KontoWriter::setzePasswortMitCode(
+                $this->personId,
+                trim($this->code),
+                trim($this->geburtsdatum),
+                $this->neuesPasswort,
+            );
+        } catch (InvalidArgumentException) {
+            RateLimiter::hit($this->fehlversuchSchluessel(), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
+
+            $this->fehler = self::MELDUNG_ZURUECK;
+            $this->leereGeheimnisse();
+
+            return;
+        }
+
+        RateLimiter::clear($this->fehlversuchSchluessel());
+
+        $this->leereGeheimnisse();
+        $this->geburtsdatum = '';
+        $this->fertigGrund = 'passwort';
+        $this->state = 'fertig';
     }
 
     public function render()
@@ -321,6 +795,90 @@ class KontoAnmelden extends Component
     }
 
     // ------------------------------------------------------------------ intern
+
+    /**
+     * Raeumt die Geheimnisse von der Seite.
+     *
+     * Passwort und Einmalcode fahren sonst im Livewire-Schnappschuss weiter
+     * mit — bei JEDEM folgenden Aufruf, auch dem, der bloss ein Feld
+     * aktualisiert. An EINER Stelle, weil es sonst genau der Zweig vergisst,
+     * der frueh zurueckkehrt (Fund Q3 der Aufgabe-7-Pruefung, damals in
+     * anmelden()).
+     */
+    private function leereGeheimnisse(): void
+    {
+        $this->passwort = '';
+        $this->code = '';
+        $this->neuesPasswort = '';
+        $this->neuesPasswortWiederholung = '';
+    }
+
+    /**
+     * Darf von dieser Adresse noch ein Code angefordert werden — und wenn
+     * ja, zaehle diesen Versuch mit.
+     *
+     * Fragen und Zaehlen in EINER Methode, damit es keinen Aufrufer geben
+     * kann, der fragt und das Zaehlen vergisst; genau so waere die Bremse
+     * eine, die nicht bremst.
+     */
+    private function darfAnfordern(): bool
+    {
+        $schluessel = self::ipSchluessel();
+
+        if (RateLimiter::tooManyAttempts($schluessel, self::MAX_ANFRAGEN_JE_IP)) {
+            return false;
+        }
+
+        RateLimiter::hit($schluessel, self::IP_FENSTER_SEKUNDEN);
+
+        return true;
+    }
+
+    /**
+     * Der Bremsschluessel der Adresse, von der die Anfrage kommt.
+     *
+     * NICHT $request->ip(), UND DAS IST DER GANZE PUNKT (Ruling GD-12,
+     * ausfuehrlich begruendet in PortalAuth::ipSchluessel()). Der Wirt setzt
+     * trustProxies(at: '*'); damit liest Laravel die Adresse aus der Kopfzeile
+     * X-Forwarded-For, und die schreibt der Anfragende selbst. Eine Bremse
+     * darauf waere schlimmer als gar keine: ein neuer Kopfzeilen-Wert je
+     * Anfrage gaebe einen frischen Zaehler (sie bremste also nicht), und
+     * zugleich sperrte ein Fremder mit der Adresse eines Bueros in der
+     * Kopfzeile genau dieses Buero aus.
+     *
+     * Genommen wird REMOTE_ADDR, die Adresse der TCP-Verbindung. Sie steht
+     * fest, bevor irgendeine Kopfzeile gelesen wird.
+     *
+     * GEHASHT: eine IP ist ein personenbezogenes Datum und hat im Klartext
+     * nichts in der Cache-Tabelle zu suchen, und ein Hash ist immer gleich
+     * lang (cache.key ist varchar(255) PRIMARY KEY).
+     *
+     * OHNE ANFRAGE faellt alles auf EINEN Schluessel. Das ist gewollt und
+     * harmlos: ueber diesen Weg fordert niemand von der Konsole einen Code
+     * an, und ein gemeinsamer Zaehler ist strenger als gar keiner.
+     */
+    private static function ipSchluessel(): string
+    {
+        $anfrage = app()->bound('request') ? app('request') : null;
+        $ip = $anfrage instanceof Request ? (string) $anfrage->server->get('REMOTE_ADDR', '') : '';
+
+        return 'konto-zurueck:ip:' . hash('xxh128', $ip);
+    }
+
+    /**
+     * Der Bremsschluessel fuer den zweiten Nachweis.
+     *
+     * AN DER PERSON, nicht an der getippten Nummer: an dieser Stelle ist die
+     * Person schon aufgeloest, und der Zaehler soll genau den Vorgang
+     * bremsen, an dem geraten wird. Die Kennung ist eine laufende Zahl ohne
+     * Personenbezug und braucht keinen Hash; gedeckelt ist die
+     * Schluessellaenge damit trotzdem (derselbe Gedanke wie beim
+     * Personen-Schluessel im Einmalcode-Sender).
+     */
+    private function fehlversuchSchluessel(): string
+    {
+        return 'konto-zurueck:nachweis:' . (int) $this->personId;
+    }
 
     /**
      * Die Anstellungen DIESER Person.

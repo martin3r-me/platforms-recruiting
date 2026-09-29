@@ -252,6 +252,30 @@ return [
             ],
         ],
 
+        // Der Hinweis AN DIE ALTE NUMMER, nachdem die Nummer gewechselt wurde
+        // (Platform\Recruiting\Services\Comms\NummernwechselHinweisSender).
+        //
+        // Begleitregel aus Spec §5, Canvas 1789: "Die alte Nummer bekommt einmalig
+        // einen Hinweis, dass die Nummer geaendert wurde, sofern noch zustellbar."
+        // Sie ist die einzige Warnung, die ein Mensch bekommt, dem jemand das Konto
+        // umgehaengt hat — und sie erreicht ihn auf dem Geraet, das er noch in der
+        // Hand haelt.
+        //
+        // DIESE VORLAGE TRAEGT KEIN GEHEIMNIS und deshalb auch keinen Platzhalter,
+        // der eines sein koennte. Befuellbar ist nur der Vorname ({{name}},
+        // {{vorname}}); die NEUE Nummer steht bewusst NICHT darin — wer das alte
+        // Geraet in der Hand hat, soll nicht auch noch erfahren, wohin das Konto
+        // gewandert ist. Eine Vorlage ganz ohne Platzhalter ist der Normalfall.
+        //
+        // OHNE NAMEN WIRD NICHT VERSCHICKT — derselbe Zustand wie bei den
+        // Code-Vorlagen bis zur Freigabe bei Meta. Der Wechsel selbst haengt nicht
+        // daran: er ist zu diesem Zeitpunkt schon vollzogen.
+        'hinweis_vorlage' => [
+            'name'        => env('RECRUITING_KONTO_VORLAGE_HINWEIS', ''),
+            'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
+            'platzhalter' => [],
+        ],
+
         // Vorlagennamen, die einmal einen Einmalcode getragen haben und es
         // heute nicht mehr tun.
         //

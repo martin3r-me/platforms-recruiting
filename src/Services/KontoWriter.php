@@ -276,12 +276,7 @@ final class KontoWriter
         // ist ein Grabstein, keine Person. GESPERRTE zaehlen dagegen MIT —
         // sie auszusortieren, um genau eine uebrig zu behalten, waere schon
         // wieder Raten.
-        $kandidaten = $normalisiert === null ? [] : DB::table('rec_persons')
-            ->where('phone', $normalisiert)
-            ->whereNull('merged_into_person_id')
-            ->when($teamId !== null, fn ($q) => $q->where('team_id', $teamId))
-            ->get(['id', 'team_id', 'password_hash', 'locked_at'])
-            ->all();
+        $kandidaten = self::lebendeKandidaten($teamId, $normalisiert);
 
         $person = count($kandidaten) === 1 ? $kandidaten[0] : null;
 
@@ -316,17 +311,7 @@ final class KontoWriter
             return null;
         }
 
-        // Gesperrt (HR/Datenschutz) meldet sich nie an. Stillgelegte sind
-        // schon aus der Kandidatenliste gefallen.
-        if ($person->locked_at !== null) {
-            return null;
-        }
-
-        // Canvas 1793: Konten Ausgeschiedener werden gesperrt, weil Anbieter
-        // Handynummern nach Monaten neu vergeben — sonst meldet sich der
-        // naechste Inhaber der Nummer in einer fremden Akte an. Eine Person
-        // ganz ohne Anstellung faellt in denselben Zweig.
-        if (!self::hatAktiveAnstellung((int) $person->id)) {
+        if (!self::darfSichAnmelden($person)) {
             return null;
         }
 
@@ -336,6 +321,44 @@ final class KontoWriter
         ]);
 
         return (int) $person->id;
+    }
+
+    /**
+     * Wer steckt hinter dieser Nummer — und koennte sich damit ueberhaupt
+     * anmelden? Gibt die Personen-Kennung zurueck oder null, OHNE Passwort.
+     *
+     * WOFUER: "Passwort vergessen" (Spec §5, Weg 3) hat kein Passwort — es
+     * ist ja das, was fehlt. Die Seite braucht trotzdem eine Personen-Kennung,
+     * um einen Code verschicken zu lassen.
+     *
+     * DASS DAS OHNE PASSWORT GEHT, IST KEIN LOCH: diese Methode oeffnet
+     * nichts. Sie sagt nur, an wen ein Code gehen soll — und der geht an die
+     * hinterlegte Nummer, also an das Geraet, das die Nummer ohnehin hat. Wer
+     * das Ergebnis fuer mehr haelt, baut den Bypass; deshalb heisst sie nicht
+     * "personFuerNummer", sondern nennt die Frage, die sie beantwortet.
+     *
+     * DIESELBE MENGE WIE pruefeAnmeldung(), nur ohne den Passwortvergleich:
+     * genau eine lebende Zeile (fail closed bei mehreren, Ruling GD-2), nicht
+     * gesperrt, mit aktiver Anstellung (Canvas 1793). Beide fragen ueber
+     * lebendeKandidaten() und darfSichAnmelden(), damit die Regel nicht in
+     * zwei Fassungen existiert — sonst bekaeme ein ausgeschiedener Mensch
+     * Codes fuer ein Konto, in das er nicht mehr hineinkommt.
+     *
+     * KEIN LEERLAUF-VERGLEICH und keine Log-Zeile beim Mehrfachtreffer: hier
+     * wird nichts geoeffnet, es gibt also nichts zu verraten. Die
+     * Antwortzeit-Frage stellt sich an der aufrufenden Seite trotzdem, und
+     * zwar schaerfer (ein echter Versand geht ueber das Netz zu Meta) —
+     * dagegen steht dort die Bremse, nicht hier.
+     */
+    public static function anmeldefaehigePersonFuerNummer(?int $teamId, string $nummer): ?int
+    {
+        $kandidaten = self::lebendeKandidaten($teamId, PhoneE164::normalize($nummer));
+
+        if (count($kandidaten) !== 1) {
+            return null;
+        }
+
+        return self::darfSichAnmelden($kandidaten[0]) ? (int) $kandidaten[0]->id : null;
     }
 
     /**
@@ -456,11 +479,83 @@ final class KontoWriter
         ]);
 
         if ($zweck === self::ZWECK_NUMMERNWECHSEL && $neueNummer !== null) {
+            $alteNummer = $person->phone === null ? null : (string) $person->phone;
+
             // Die Regel "die Nummer wandert auf alle Anstellungen" lebt in
             // PersonLinker und nur dort — hier wird sie NICHT nachgebaut.
             PersonLinker::setzeNummer($personId, $neueNummer);
             self::zieheCrmKontakteNach($personId);
+
+            // NACH setzeNummer() und nicht davor: scheitert der Wechsel an
+            // einer im Team schon vergebenen Nummer, wirft setzeNummer() —
+            // und dann darf im Protokoll kein Wechsel stehen, der nie
+            // stattgefunden hat.
+            self::protokolliereWechsel($personId, $alteNummer, $neueNummer, self::ZWECK_NUMMERNWECHSEL);
         }
+    }
+
+    /**
+     * Die heute hinterlegte Nummer dieser Person — nur LESEND.
+     *
+     * Warum das hier steht und nicht als eigene Abfrage in der Seite: der
+     * Nummernwechsel raeumt die alte Nummer weg (PersonLinker::setzeNummer
+     * ueberschreibt rec_persons.phone), und die Begleitregel aus Spec §5
+     * verlangt anschliessend einen Hinweis AN DIE ALTE NUMMER. Wer den
+     * schicken will, muss sie sich vorher merken. Eine eigene Abfrage in der
+     * Seite waere eine zweite Stelle, die die Kontospalten kennt.
+     */
+    public static function aktuelleNummer(int $personId): ?string
+    {
+        $wert = DB::table('rec_persons')->where('id', $personId)->value('phone');
+
+        return $wert === null ? null : (string) $wert;
+    }
+
+    /**
+     * Weg 3 aus Spec §5: "Passwort vergessen" — Code an die Nummer PLUS
+     * Geburtsdatum, dann das neue Passwort.
+     *
+     * WARUM DIESE METHODE HIER LIEGT UND NICHT IN DER SEITE. Der Docblock von
+     * loeseCodeEin() warnt ausdruecklich: loeseCodeEin(ZWECK_PASSWORT)
+     * gefolgt von setzePasswort() kaeme mit dem Code ALLEIN aus — wer ein
+     * fremdes Geraet in der Hand haelt, uebernaehme damit das Konto. Laege
+     * die Zwei-Nachweis-Regel (Spec §2.4) in der Seite, koennte die naechste
+     * Seite, das naechste Kommando, der naechste HR-Knopf sie vergessen, und
+     * nichts fiele auf. Hier gibt es die schwache Reihenfolge schlicht nicht
+     * mehr zu bauen.
+     *
+     * DIE REIHENFOLGE IST TRAGEND, und zwar in beide Richtungen:
+     *
+     *  1. Die PASSWORTREGEL zuerst. Sie ist eine Formsache und kein
+     *     Rateversuch; stuende sie hinter dem Einloesen, verbrennte ein zu
+     *     kurzes Passwort den Code, und der Mensch braeuchte fuer jeden
+     *     Tippfehler einen neuen — wovon die Sendedrossel drei je Stunde
+     *     zulaesst.
+     *  2. Das GEBURTSDATUM vor dem Einloesen, aus demselben Grund wie bei
+     *     registriere(): ein Tippfehler im Datum darf den Code nicht
+     *     verbrennen. Die Grenze gegen das Durchprobieren des Datums ist
+     *     deshalb NICHT dieser Code, sondern eine Bremse in der aufrufenden
+     *     Seite — wer diese Methode von woanders ruft, braucht eine eigene.
+     *  3. Das EINLOESEN zuletzt. Es entwertet den Code und zaehlt
+     *     Fehlversuche; erst danach steht das Passwort.
+     *
+     * EINE MELDUNG FUER BEIDE NACHWEISE, wie bei registriere(): wer erfaehrt,
+     * dass der Code stimmte und nur das Datum falsch war, hat den ersten
+     * Nachweis bestaetigt bekommen und muss nur noch das Datum raten.
+     */
+    public static function setzePasswortMitCode(int $personId, string $codeKlartext, string $geburtsdatum, string $passwort): void
+    {
+        self::offeneZeile($personId);
+
+        // Formsache zuerst (s. Docblock, Punkt 1).
+        self::pruefePasswort($passwort);
+
+        if (!self::geburtsdatumStimmt($personId, $geburtsdatum)) {
+            throw new InvalidArgumentException('Der Code oder das Geburtsdatum stimmen nicht.');
+        }
+
+        self::loeseCodeEin($personId, self::ZWECK_PASSWORT, $codeKlartext);
+        self::setzePasswort($personId, $passwort);
     }
 
     /**
@@ -648,6 +743,82 @@ final class KontoWriter
                 ]);
             }
         }
+    }
+
+    /**
+     * "Jeder Wechsel wird protokolliert" — Begleitregel aus Spec §5, Canvas
+     * 1789.
+     *
+     * OHNE DIE NUMMERN IM KLARTEXT, dieselbe Kuerzung auf vier Stellen wie in
+     * pruefeAnmeldung(): ein Protokoll ist genau der Ort, an den man spaeter
+     * jemanden schauen laesst, und die letzten vier Stellen genuegen, um den
+     * Fall in der Akte wiederzufinden. PhoneE164::suffix() waere hier falsch
+     * — er liefert neun Ziffern und damit fast die ganze Nummer.
+     *
+     * Die Stufe ist `notice` und nicht `info`: ein Nummernwechsel ist der
+     * Vorgang, nach dem im Streitfall gesucht wird ("seit wann geht sein
+     * Code auf ein anderes Geraet?"). Zwischen den Versand-Zeilen des
+     * Einmalcode-Senders, die auf `info` stehen, ginge er unter.
+     */
+    private static function protokolliereWechsel(int $personId, ?string $alt, string $neu, string $weg): void
+    {
+        Log::notice('recruiting.konto.nummer_gewechselt', [
+            'person_id'     => $personId,
+            'weg'           => $weg,
+            'alt_endet_auf' => $alt === null ? null : substr($alt, -4),
+            'neu_endet_auf' => substr($neu, -4),
+        ]);
+    }
+
+    /**
+     * Die LEBENDEN Zeilen zu einer Nummer.
+     *
+     * Ruling GD-2: OHNE team_id wird ueber ALLE Teams gesucht — die
+     * Anmeldeseite ist oeffentlich und hat keinen Team-Kontext. Ein
+     * uebergebenes Team schraenkt weiterhin ein (Tests und Kommandos).
+     * "Lebend" heisst: nicht zusammengefuehrt; eine stillgelegte Zeile ist
+     * ein Grabstein, keine Person. GESPERRTE zaehlen dagegen MIT — sie
+     * auszusortieren, um genau eine uebrig zu behalten, waere schon wieder
+     * Raten.
+     *
+     * Erwartet die BEREITS NORMALISIERTE Nummer (oder null): wer hier einen
+     * rohen Text hereingibt, vergleicht "0151 ..." gegen das gespeicherte
+     * "+49151 ..." und findet nie etwas.
+     *
+     * @return list<object>
+     */
+    private static function lebendeKandidaten(?int $teamId, ?string $normalisiert): array
+    {
+        if ($normalisiert === null) {
+            return [];
+        }
+
+        return DB::table('rec_persons')
+            ->where('phone', $normalisiert)
+            ->whereNull('merged_into_person_id')
+            ->when($teamId !== null, fn ($q) => $q->where('team_id', $teamId))
+            ->get(['id', 'team_id', 'password_hash', 'locked_at'])
+            ->all();
+    }
+
+    /**
+     * Darf sich diese Zeile ueberhaupt anmelden — unabhaengig vom Passwort?
+     *
+     * Gesperrt (HR/Datenschutz) meldet sich nie an; stillgelegte sind schon
+     * aus der Kandidatenliste gefallen. Und Canvas 1793: Konten
+     * Ausgeschiedener werden gesperrt, weil Anbieter Handynummern nach
+     * Monaten neu vergeben — sonst meldet sich der naechste Inhaber der
+     * Nummer in einer fremden Akte an. Eine Person ganz ohne Anstellung
+     * faellt in denselben Zweig.
+     *
+     * EINE Fassung fuer pruefeAnmeldung() und
+     * anmeldefaehigePersonFuerNummer(): liefe die zweite auseinander,
+     * bekaeme ein Ausgeschiedener Einmalcodes fuer ein Konto, in das er nicht
+     * mehr hineinkommt.
+     */
+    private static function darfSichAnmelden(object $person): bool
+    {
+        return $person->locked_at === null && self::hatAktiveAnstellung((int) $person->id);
     }
 
     private static function hatAktiveAnstellung(int $personId): bool
