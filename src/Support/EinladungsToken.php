@@ -40,6 +40,30 @@ namespace Platform\Recruiting\Support;
  * kaum zu unterscheiden — ein anderer Zweck als bei RefCodeParser, deshalb
  * ein eigenes, engeres Alphabet.
  *
+ * Ruling GD-5: gehasht wird mit `hash_hmac('sha256', $klartext, $pepper)`,
+ * nicht mit einem blossen `hash('sha256', ...)`. Acht Zeichen aus 31 sind
+ * "nur" rund 850 Milliarden Moeglichkeiten (s.o.) — ungesalzenes SHA-256
+ * laeuft auf handelsueblicher GPU-Hardware im zweistelligen
+ * Milliarden-Bereich pro Sekunde, der gesamte Schluesselraum waere in
+ * Sekunden durch, und zwar fuer ALLE Zeilen eines Dumps gleichzeitig. Die
+ * Zwei-Nachweis-Regel (s.o.) rettet hier nichts, weil der zweite Nachweis
+ * (Geburtsdatum) in derselben Datenbank steht wie der Hash.
+ *
+ * Der Pfeffer wird als Parameter hereingereicht, NICHT gelesen — die Klasse
+ * bleibt rein. Er lebt spaeter in der `.env` des Servers, also gerade
+ * NICHT in der Datenbank: ein Dump allein reicht dann nicht mehr fuer die
+ * Ruecktransformation. Ein leerer Pfeffer ist ein Konfigurationsfehler, kein
+ * Normalfall, und wirft deshalb eine `InvalidArgumentException` — still
+ * ungepfeffert weiterzurechnen saehe sicher aus und waere es nicht.
+ *
+ * Der Pfeffer betrifft AUSSCHLIESSLICH dieses kurzlebige Geheimnis (sieben
+ * Tage) und den Einmalcode (zehn Minuten) — NICHT das Passwort. Das Passwort
+ * bekommt spaeter ganz normal `Hash::make()`. Grund: geht der Pfeffer
+ * verloren oder wird er gewechselt, sterben alle offenen Einladungen und
+ * Codes — verschmerzbar, weil kurzlebig. Waere das Passwort mitgepfeffert,
+ * wuerde derselbe Verlust jeden Mitarbeiter DAUERHAFT aussperren. Diese
+ * Asymmetrie ist Absicht.
+ *
  * Reine Logik (kein Framework/DB) → pure-unit-testbar.
  */
 final class EinladungsToken
@@ -55,7 +79,7 @@ final class EinladungsToken
     /**
      * @return array{klartext: string, hash: string}
      */
-    public static function erzeuge(): array
+    public static function erzeuge(string $pepper): array
     {
         $laenge = strlen(self::ALPHABET);
 
@@ -66,7 +90,7 @@ final class EinladungsToken
 
         return [
             'klartext' => $klartext,
-            'hash' => self::hash($klartext),
+            'hash' => self::hash($klartext, $pepper),
         ];
     }
 
@@ -81,7 +105,7 @@ final class EinladungsToken
      * abweichenden Zeichen ab und verraet ueber die Antwortzeit, wie viele
      * Stellen des Hash schon stimmen.
      */
-    public static function istGueltig(?string $hash, ?string $ablauf, ?string $benutztAm, string $klartext, string $jetzt): bool
+    public static function istGueltig(?string $hash, ?string $ablauf, ?string $benutztAm, string $klartext, string $jetzt, string $pepper): bool
     {
         if ($hash === null || $ablauf === null || $benutztAm !== null) {
             return false;
@@ -91,11 +115,15 @@ final class EinladungsToken
             return false;
         }
 
-        return hash_equals($hash, self::hash($klartext));
+        return hash_equals($hash, self::hash($klartext, $pepper));
     }
 
-    private static function hash(string $klartext): string
+    private static function hash(string $klartext, string $pepper): string
     {
-        return hash('sha256', $klartext);
+        if ($pepper === '') {
+            throw new \InvalidArgumentException('Pepper darf nicht leer sein.');
+        }
+
+        return hash_hmac('sha256', $klartext, $pepper);
     }
 }
