@@ -95,15 +95,20 @@ final class EinladungsToken
     }
 
     /**
-     * Abgelaufen, schon benutzt oder falscher Klartext ergeben alle dasselbe
-     * `false` — wer nur die Antwortzeit oder den Rueckgabewert sieht, soll
-     * nicht erfahren, welcher Grund zutraf. Fehlender Ablauf (`$ablauf ===
-     * null`) zaehlt ebenfalls als ungueltig: bei einem Geheimnis ist die
-     * sichere Richtung die, die im Zweifel ablehnt, nicht die, die im
-     * Zweifel durchlaesst. Der eigentliche Vergleich laeuft ueber
-     * `hash_equals()`, NIE ueber `===`: `===` bricht beim ersten
-     * abweichenden Zeichen ab und verraet ueber die Antwortzeit, wie viele
-     * Stellen des Hash schon stimmen.
+     * Abgelaufen, schon benutzt, falscher Klartext oder ein unlesbarer
+     * Zeitstempel ergeben alle dasselbe `false` — wer nur den Rueckgabewert
+     * sieht, soll nicht erfahren, welcher Grund zutraf. Fehlender Ablauf
+     * (`$ablauf === null`) und ein unlesbarer `$jetzt`/`$ablauf` zaehlen
+     * ebenfalls als ungueltig: bei einem Geheimnis ist die sichere Richtung
+     * die, die im Zweifel ablehnt (und keine 500er-Antwort auf einen
+     * kaputten Datenbankwert wirft), nicht die, die im Zweifel durchlaesst.
+     * Der VERGLEICH des Geheimnisses laeuft ueber `hash_equals()`, NIE ueber
+     * `===`: `===` bricht beim ersten abweichenden Zeichen ab und verraet
+     * ueber die Antwortzeit, wie viele Stellen des Hash schon stimmen. (Dass
+     * die fruehen Ablehnungen die Hash-Berechnung ueberspringen, kostet nur
+     * Mikrosekunden und ist ueber Netz nicht ausnutzbar; das
+     * Zeitgleichheits-Versprechen gilt fuer den Geheimnisvergleich selbst,
+     * nicht fuer die Funktion als Ganzes.)
      */
     public static function istGueltig(?string $hash, ?string $ablauf, ?string $benutztAm, string $klartext, string $jetzt, string $pepper): bool
     {
@@ -111,7 +116,15 @@ final class EinladungsToken
             return false;
         }
 
-        if (new \DateTimeImmutable($jetzt) >= new \DateTimeImmutable($ablauf)) {
+        try {
+            $abgelaufen = new \DateTimeImmutable($jetzt) >= new \DateTimeImmutable($ablauf);
+        } catch (\Throwable) {
+            // Unlesbarer Zeitstempel = Datenfehler, kein Nachweis. Im
+            // Zweifel ungueltig statt einer 500er-Antwort (F11).
+            return false;
+        }
+
+        if ($abgelaufen) {
             return false;
         }
 

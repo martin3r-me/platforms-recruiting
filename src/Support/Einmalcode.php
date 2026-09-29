@@ -39,13 +39,20 @@ namespace Platform\Recruiting\Support;
  * wuerde derselbe Verlust jeden Mitarbeiter DAUERHAFT aussperren. Diese
  * Asymmetrie ist Absicht.
  *
- * `istGueltig()` vergleicht Hashes mit `hash_equals()`, NIE mit `===`: ein
- * Vergleich, der beim ersten abweichenden Zeichen abbricht, verraet ueber
- * die Antwortzeit, wie viele Ziffern schon stimmen — bei sechs Ziffern der
- * Unterschied zwischen einer Million Versuchen und sechzig.
+ * Der VERGLEICH des Geheimnisses laeuft ueber `hash_equals()`, NIE ueber
+ * `===`: ein Vergleich, der beim ersten abweichenden Zeichen abbricht,
+ * verraet ueber die Antwortzeit, wie viele Ziffern schon stimmen — bei
+ * sechs Ziffern der Unterschied zwischen einer Million Versuchen und
+ * sechzig. (Ueber den RUECKGABEWERT verraet die Funktion ohnehin nie den
+ * Grund — dass die fruehen Ablehnungen die Hash-Berechnung ueberspringen,
+ * kostet nur Mikrosekunden und ist ueber Netz nicht ausnutzbar; das
+ * Zeitgleichheits-Versprechen gilt fuer den Geheimnisvergleich selbst.)
  *
- * Abgelaufen, schon zu oft falsch versucht oder schlicht falsch: alle drei
- * ergeben `false`, ohne zu verraten, welcher Grund zutraf.
+ * Abgelaufen, schon zu oft falsch versucht, ein unlesbarer Zeitstempel oder
+ * schlicht falsch: alle vier ergeben `false`, ohne zu verraten, welcher
+ * Grund zutraf. Ein unlesbarer `$jetzt`/`$ablauf` ist ein Datenfehler, kein
+ * Nachweis — dieselbe sichere Richtung wie bei fehlendem Ablauf (im
+ * Zweifel ungueltig statt einer 500er-Antwort).
  *
  * Reine Logik (kein Framework/DB) → pure-unit-testbar.
  */
@@ -82,7 +89,15 @@ final class Einmalcode
             return false;
         }
 
-        if (new \DateTimeImmutable($jetzt) >= new \DateTimeImmutable($ablauf)) {
+        try {
+            $abgelaufen = new \DateTimeImmutable($jetzt) >= new \DateTimeImmutable($ablauf);
+        } catch (\Throwable) {
+            // Unlesbarer Zeitstempel = Datenfehler, kein Nachweis. Im
+            // Zweifel ungueltig statt einer 500er-Antwort (F11).
+            return false;
+        }
+
+        if ($abgelaufen) {
             return false;
         }
 

@@ -22,6 +22,43 @@ final class EinladungsTokenTest extends TestCase
         $this->assertMatchesRegularExpression('/^[A-HJ-KM-NP-Z2-9]{8}$/', $k);
     }
 
+    /** F8: die Ablaufsekunde selbst zaehlt schon als abgelaufen (strenger Vergleich >=). */
+    public function test_die_ablaufsekunde_selbst_gilt_bereits_als_abgelaufen(): void
+    {
+        ['klartext' => $k, 'hash' => $h] = EinladungsToken::erzeuge(self::PEPPER);
+        $this->assertFalse(EinladungsToken::istGueltig($h, '2026-09-29 12:00:00', null, $k, '2026-09-29 12:00:00', self::PEPPER));
+    }
+
+    /** F11: ein unlesbarer Ablauf ist ein Datenfehler, kein Nachweis — false statt 500er. */
+    public function test_ein_unlesbarer_ablauf_gilt_als_ungueltig(): void
+    {
+        ['klartext' => $k, 'hash' => $h] = EinladungsToken::erzeuge(self::PEPPER);
+        $this->assertFalse(EinladungsToken::istGueltig($h, 'kaputt', null, $k, '2026-09-29 12:00:00', self::PEPPER));
+    }
+
+    /** F11: ebenso bei unlesbarem "jetzt". */
+    public function test_ein_unlesbares_jetzt_gilt_als_ungueltig(): void
+    {
+        ['klartext' => $k, 'hash' => $h] = EinladungsToken::erzeuge(self::PEPPER);
+        $this->assertFalse(EinladungsToken::istGueltig($h, '2026-10-06 12:00:00', null, $k, 'kaputt', self::PEPPER));
+    }
+
+    /**
+     * F9: der Regex-Test oben prueft nur EINE Ziehung von acht Zeichen —
+     * mit I/L/O zurueck im Alphabet bliebe er in bis zu 8 von 20 Laeufen
+     * gruen (rechnerisch bestaetigt). Die Konstante selbst festnageln, statt
+     * auf gezogene Zeichen zu hoffen: ein Test, der nur meistens faellt, ist
+     * keiner.
+     */
+    public function test_das_alphabet_enthaelt_keine_verwechselbaren_zeichen(): void
+    {
+        $alphabet = (new \ReflectionClassConstant(EinladungsToken::class, 'ALPHABET'))->getValue();
+
+        foreach (['0', 'O', '1', 'I', 'L'] as $verwechselbar) {
+            $this->assertStringNotContainsString($verwechselbar, $alphabet);
+        }
+    }
+
     public function test_zwei_token_sind_verschieden(): void
     {
         $a = EinladungsToken::erzeuge(self::PEPPER)['klartext'];

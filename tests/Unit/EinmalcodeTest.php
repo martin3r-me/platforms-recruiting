@@ -82,6 +82,27 @@ final class EinmalcodeTest extends TestCase
         $this->assertFalse(Einmalcode::istGueltig($h, null, 0, $k, '2026-09-29 12:05:00', self::PEPPER));
     }
 
+    /** F8: die Ablaufsekunde selbst zaehlt schon als abgelaufen (strenger Vergleich >=). */
+    public function test_die_ablaufsekunde_selbst_gilt_bereits_als_abgelaufen(): void
+    {
+        ['klartext' => $k, 'hash' => $h] = Einmalcode::erzeuge(self::PEPPER);
+        $this->assertFalse(Einmalcode::istGueltig($h, '2026-09-29 12:10:00', 0, $k, '2026-09-29 12:10:00', self::PEPPER));
+    }
+
+    /** F11: ein unlesbarer Ablauf ist ein Datenfehler, kein Nachweis — false statt 500er. */
+    public function test_ein_unlesbarer_ablauf_gilt_als_ungueltig(): void
+    {
+        ['klartext' => $k, 'hash' => $h] = Einmalcode::erzeuge(self::PEPPER);
+        $this->assertFalse(Einmalcode::istGueltig($h, 'kaputt', 0, $k, '2026-09-29 12:05:00', self::PEPPER));
+    }
+
+    /** F11: ebenso bei unlesbarem "jetzt". */
+    public function test_ein_unlesbares_jetzt_gilt_als_ungueltig(): void
+    {
+        ['klartext' => $k, 'hash' => $h] = Einmalcode::erzeuge(self::PEPPER);
+        $this->assertFalse(Einmalcode::istGueltig($h, '2026-09-29 12:10:00', 0, $k, 'kaputt', self::PEPPER));
+    }
+
     /**
      * Ruling GD-5: derselbe Klartext ergibt mit unterschiedlichem Pfeffer
      * unterschiedliche Hashes — das ist die Regel, die gegen einen reinen
