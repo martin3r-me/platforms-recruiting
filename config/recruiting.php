@@ -202,6 +202,48 @@ return [
         // Passwort mitgepfeffert, sperrte derselbe Verlust jeden Mitarbeiter
         // DAUERHAFT aus.
         'pepper' => env('RECRUITING_KONTO_PEPPER') ?: config('app.key'),
+
+        // Der Versand des Einmalcodes (Platform\Recruiting\Services\Comms\EinmalcodeSender).
+        //
+        // WARUM DAS HIER STEHT UND NICHT IM CODE: die Meta-Vorlagen sind noch nicht
+        // genehmigt — Namen und Platzhalter stehen nicht sicher fest. Fest verdrahtet
+        // braeuchte jede Aenderung ein Deploy; so genuegt ein .env-Eintrag. Muster sind
+        // die ZAS- und Flynk-Bloecke weiter oben.
+        //
+        // OHNE NAMEN WIRD NICHT VERSCHICKT, und der Sender sagt im Log, welcher
+        // Schluessel fehlt. Das ist der Zustand bis zur Freigabe bei Meta und bewusst
+        // kein stiller Fehlschlag: ein Versand mit geratenem Vorlagennamen waere bei
+        // Meta ohnehin abgelehnt, nur ohne lesbaren Grund.
+        //
+        // - name:        der bei Meta genehmigte Vorlagenname.
+        // - sprache:     der Sprachcode der genehmigten Fassung (Meta unterscheidet sie).
+        // - platzhalter: die Body-Platzhalter der Vorlage, IN IHRER REIHENFOLGE.
+        //                Befuellbar sind {{code}} (der Einmalcode), {{minuten}} (seine
+        //                Gueltigkeitsdauer) und der Vorname ({{name}}, {{vorname}},
+        //                {{1}}). Ein anderer Name verhindert den Versand — sonst
+        //                stuende dort still der Vorname statt des Codes, und Meta
+        //                naehme die Nachricht an. {{code}} ist Pflicht.
+        //
+        // Drei Zwecke, weil der Text sich unterscheidet ("Konto einrichten" gegen
+        // "neue Nummer bestaetigen"). Genehmigt Meta nur EINE Vorlage, traegt man
+        // ueberall denselben Namen ein.
+        'code_vorlagen' => [
+            'anmeldung' => [
+                'name'        => env('RECRUITING_KONTO_VORLAGE_ANMELDUNG', ''),
+                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
+                'platzhalter' => ['code'],
+            ],
+            'passwort' => [
+                'name'        => env('RECRUITING_KONTO_VORLAGE_PASSWORT', ''),
+                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
+                'platzhalter' => ['code'],
+            ],
+            'nummernwechsel' => [
+                'name'        => env('RECRUITING_KONTO_VORLAGE_NUMMERNWECHSEL', ''),
+                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
+                'platzhalter' => ['code'],
+            ],
+        ],
     ],
 
     /*
