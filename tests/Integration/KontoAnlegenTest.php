@@ -461,9 +461,12 @@ final class KontoAnlegenTest extends TestCase
         $this->assertStringStartsWith('$2y$', (string) $zeile->password_hash);
 
         // Und es faehrt nach dem Erfolg auch nicht weiter im
-        // Livewire-Schnappschuss mit.
+        // Livewire-Schnappschuss mit — das Geburtsdatum ebenso wenig: es ist
+        // der zweite Nachweis und hat auf einer fertigen Seite nichts mehr zu
+        // suchen.
         $this->assertSame('', $seite->passwort);
         $this->assertSame('', $seite->passwortWiederholung);
+        $this->assertSame('', $seite->geburtsdatum);
     }
 
     public function test_falsches_geburtsdatum_meldet_ohne_zu_verraten(): void
@@ -555,6 +558,28 @@ final class KontoAnlegenTest extends TestCase
         $seite->passwortWiederholung = self::PASSWORT . 'abweichend';
         $seite->registriere();
 
+        $this->assertSame(0, RateLimiter::attempts($this->drosselSchluessel($token)));
+    }
+
+    /**
+     * Ein zweites Absenden desselben Formulars (Doppelklick, Zurueck-Taste)
+     * liefe in den inzwischen verbrauchten Token — und zaehlte damit als
+     * Rateversuch, obwohl niemand geraten hat. Fuenf Doppelklicks und die
+     * eigene Seite antwortet mit 404.
+     */
+    public function test_ein_zweites_absenden_zaehlt_nicht_als_rateversuch(): void
+    {
+        $token = $this->einladung();
+        $seite = $this->seite($token);
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->passwort = self::PASSWORT;
+        $seite->passwortWiederholung = self::PASSWORT;
+        $seite->registriere();
+
+        $seite->registriere();
+
+        $this->assertSame('fertig', $seite->state);
+        $this->assertSame('', $seite->fehler);
         $this->assertSame(0, RateLimiter::attempts($this->drosselSchluessel($token)));
     }
 
@@ -654,6 +679,31 @@ final class KontoAnlegenTest extends TestCase
             $this->assertStringNotContainsString($token, $schluessel);
             $this->assertLessThanOrEqual(255, strlen($schluessel));
         }
+    }
+
+    /**
+     * REIHENFOLGE, und die ist tragend: erst nachschlagen, dann drosseln.
+     *
+     * Die Eingabe aus der Adresszeile ist unbegrenzt lang. Stuende die
+     * Drossel VOR dem Nachschlagen, schriebe jeder Aufruf einen Zaehler —
+     * und auf dem Wirt (CACHE_STORE=database, cache.key varchar(255)) waere
+     * das bei einer langen Adresse eine 500er-Seite, ausloesbar von jedem.
+     * Genau dieser Fund hat auf der Anmeldeseite einen Fix gekostet. Hier
+     * faellt der unbekannte Token vorher heraus; die Cache-Attrappe zieht
+     * die Grenze des Wirts ein und wuerde es sonst melden.
+     */
+    public function test_eine_ueberlange_adresse_ist_nur_404(): void
+    {
+        $this->einladung();
+
+        try {
+            $this->seite(str_repeat('A', 500));
+            $this->fail('Ein unbekannter Token muss 404 ergeben.');
+        } catch (NotFoundHttpException) {
+            // So soll es sein.
+        }
+
+        $this->assertSame([], $this->store->geschrieben, 'Ein unbekannter Token hat etwas in den Cache geschrieben.');
     }
 
     // ---------------------------------------------------------- Der Waechter
