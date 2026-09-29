@@ -182,6 +182,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Mitarbeiter-Konto (Canvas 68)
+    |--------------------------------------------------------------------------
+    |
+    | Gelesen wird der Pfeffer ausschliesslich von
+    | Platform\Recruiting\Services\KontoWriter — die Regel-Klassen
+    | (EinladungsToken, Einmalcode) bekommen ihn hereingereicht und bleiben
+    | dadurch rein und ohne Framework testbar (Ruling GD-5).
+    */
+    'konto' => [
+        // Pfeffer fuer Einladungs-Token und Einmalcode. NICHT fuer das Passwort.
+        // Faellt bewusst auf app.key zurueck: der steht auch nicht in der Datenbank,
+        // ist auf jedem Host gesetzt, und so kann kein vergessener .env-Eintrag die
+        // Kontoanlage auf prod stillegen. Ein eigener Wert geht vor, wenn gesetzt.
+        //
+        // Ein Wechsel des Pfeffers (oder des APP_KEY) macht offene Einladungen und
+        // laufende Codes ungueltig — sieben Tage beziehungsweise zehn Minuten.
+        // Passwoerter beruehrt er nicht, die haengen an Hash::make(); waere das
+        // Passwort mitgepfeffert, sperrte derselbe Verlust jeden Mitarbeiter
+        // DAUERHAFT aus.
+        'pepper' => env('RECRUITING_KONTO_PEPPER') ?: config('app.key'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Filialen (zentrale Zuordnung Nummer → Filiale)
     |--------------------------------------------------------------------------
     |
