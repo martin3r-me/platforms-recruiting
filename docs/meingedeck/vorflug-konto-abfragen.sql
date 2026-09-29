@@ -303,3 +303,82 @@ FROM rec_employees
 WHERE is_active = 1
   -- AND team_id = ?
 ;
+
+
+-- ############################################################################
+-- ABFRAGE 5 -- DIE ENTSCHEIDENDE: TRAEGT DER BESTAND UEBERHAUPT GENUG MARKER?
+--
+-- Nachgetragen am 29.09.2026, nachdem die Vorflug-Zahlen vorlagen (1572 aktive,
+-- 354 Nummerngruppen mit derselben Person, 728 Datensaetze).
+--
+-- Der Anlass: PersonGroupPlanner::plan() gruppiert AUSSCHLIESSLICH ueber
+-- rec_employees.person_key. Wer keinen Marker traegt, bekommt eine EIGENE
+-- Personen-Zeile -- auch wenn er nachweislich derselbe Mensch ist.
+--
+-- Die 354 Paare sind ueber die TELEFONNUMMER sichtbar. Zusammengezogen werden
+-- aber nur die mit gemeinsamem MARKER. Fuer alle uebrigen legt der Backfill
+-- zwei Personen-Zeilen an, und Gate C ("ab hier ist bekannt, wer zusammen-
+-- gehoert") waere verfehlt, obwohl der Lauf fehlerfrei durchlaeuft.
+--
+-- Diese Abfrage sagt, wie gross die Luecke ist. Ist die mittlere Spalte gross,
+-- muss VOR dem Backfill das Paarungs-Audit laufen:
+--     php artisan recruiting:person-pair-audit            (erst nur Bericht)
+--     php artisan recruiting:person-pair-audit --apply    (dann stempeln)
+-- ############################################################################
+WITH basis AS (
+    SELECT
+        e.id,
+        NULLIF(TRIM(COALESCE(e.person_key, '')), '')    AS marker,
+        DATE(e.birth_date)                              AS geburtstag,
+        RIGHT(REGEXP_REPLACE(e.phone, '[^0-9]', ''), 9) AS suffix
+    FROM rec_employees e
+    WHERE e.is_active = 1
+      AND LENGTH(REGEXP_REPLACE(COALESCE(e.phone, ''), '[^0-9]', '')) >= 9
+),
+gruppen AS (
+    SELECT
+        suffix,
+        COUNT(*)                                                          AS datensaetze,
+        (COUNT(marker) = COUNT(*) AND COUNT(DISTINCT marker) = 1)         AS marker_einig,
+        (COUNT(geburtstag) = COUNT(*) AND COUNT(DISTINCT geburtstag) = 1) AS geburt_einig
+    FROM basis
+    GROUP BY suffix
+    HAVING COUNT(*) > 1
+)
+SELECT
+    -- Diese zieht der Backfill zusammen: gemeinsamer Marker vorhanden.
+    COALESCE(SUM(CASE WHEN marker_einig THEN 1 ELSE 0 END), 0)
+        AS backfill_zieht_zusammen,
+    -- DIESE NICHT: derselbe Mensch (gleiches Geburtsdatum), aber kein
+    -- gemeinsamer Marker. Sie bekommen ZWEI Personen-Zeilen.
+    COALESCE(SUM(CASE WHEN NOT marker_einig AND geburt_einig THEN 1 ELSE 0 END), 0)
+        AS derselbe_mensch_OHNE_marker,
+    COALESCE(SUM(CASE WHEN NOT marker_einig AND geburt_einig THEN datensaetze ELSE 0 END), 0)
+        AS davon_datensaetze
+FROM gruppen
+;
+
+
+-- ############################################################################
+-- ABFRAGE 6 -- WIE VIELE PERSONEN-ZEILEN LEGT DER BACKFILL AN?
+--
+-- Genau die Zahl, die der Trockenlauf spaeter melden wird -- hier vorab, ohne
+-- irgendetwas zu schreiben. Sie bildet die Gruppierungsregel des Backfills
+-- nach: je Marker eine Zeile, je markerlosem Datensatz eine eigene.
+--
+-- Vergleich mit 1572 aktiven Mitarbeitern sagt, wie viel der Backfill
+-- ueberhaupt zusammenzieht.
+-- ############################################################################
+SELECT
+    (SELECT COUNT(DISTINCT NULLIF(TRIM(COALESCE(person_key, '')), ''))
+       FROM rec_employees WHERE is_active = 1)
+        AS zeilen_fuer_gepaarte,
+    (SELECT COUNT(*) FROM rec_employees
+      WHERE is_active = 1 AND NULLIF(TRIM(COALESCE(person_key, '')), '') IS NULL)
+        AS zeilen_fuer_markerlose,
+    (SELECT COUNT(DISTINCT NULLIF(TRIM(COALESCE(person_key, '')), ''))
+       FROM rec_employees WHERE is_active = 1)
+  + (SELECT COUNT(*) FROM rec_employees
+      WHERE is_active = 1 AND NULLIF(TRIM(COALESCE(person_key, '')), '') IS NULL)
+        AS personen_zeilen_gesamt
+;
