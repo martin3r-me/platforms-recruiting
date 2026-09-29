@@ -61,10 +61,33 @@
         . 'geschickt. Bitte geben Sie ihn zusammen mit Ihrem Geburtsdatum ein und waehlen Sie '
         . 'ein neues Passwort.';
 
-    $fertigTitel = $fertigGrund === 'nummer' ? 'Ihre Handynummer ist geaendert' : 'Ihr Passwort steht';
-    $fertigText = $fertigGrund === 'nummer'
-        ? 'Ab jetzt melden Sie sich mit der neuen Nummer und Ihrem bisherigen Passwort an.'
-        : 'Ab jetzt melden Sie sich mit Ihrer Handynummer und dem neuen Passwort an.';
+    // Weg 4 (Spec 5): Nummer weg UND Passwort vergessen.
+    $notfallTitel = 'Nummer und Passwort weg';
+    $notfallText = 'Damit wir sicher sind, dass Sie es sind, brauchen wir Ihr Geburtsdatum und '
+        . 'die letzten vier Ziffern Ihrer Ausweisnummer. Den Bestaetigungscode schicken wir an '
+        . 'die neue Nummer.';
+    // AUCH DIESER TEXT SAGT "Falls": er steht genauso da, wenn die Nachweise
+    // nicht gestimmt haben. Sonst waeren die Ausweisziffern ein Orakel.
+    $notfallCodeTitel = 'Code eingeben';
+    $notfallCodeText = 'Falls Ihre Angaben stimmen, haben wir gerade einen Code an Ihre neue '
+        . 'Handynummer geschickt.';
+
+    $fertigTitel = match ($fertigGrund) {
+        'nummer'  => 'Ihre Handynummer ist geaendert',
+        'notfall' => 'Wir haben Ihre Meldung',
+        default   => 'Ihr Passwort steht',
+    };
+    $fertigText = match ($fertigGrund) {
+        'nummer'  => 'Ab jetzt melden Sie sich mit der neuen Nummer und Ihrem bisherigen Passwort an.',
+        // Der Antrag wirkt erst nach der Frist, und danach fehlt immer noch
+        // das Passwort - beides gehoert hier gesagt, sonst wartet der Mensch
+        // auf etwas anderes, als passiert.
+        'notfall' => 'Ihre neue Handynummer wird am ' . $wirksamAb . ' uebernommen. '
+            . 'Danach waehlen Sie ueber "Passwort vergessen" ein neues Passwort. '
+            . 'Wenn Sie das nicht selbst veranlasst haben, melden Sie sich bitte sofort bei '
+            . 'Ihrer Ansprechperson bei RheinGedeck.',
+        default   => 'Ab jetzt melden Sie sich mit Ihrer Handynummer und dem neuen Passwort an.',
+    };
 @endphp
 
 <div class="screen anmeldung">
@@ -252,6 +275,89 @@
             <div class="card">
                 <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
             </div>
+        @elseif ($state === 'notfall')
+            <div class="greet">
+                <h2>{{ $notfallTitel }}</h2>
+                <p>{{ $notfallText }}</p>
+            </div>
+
+            <form class="card login" wire:submit="notfallAnfordern">
+                <label class="feld">
+                    <span class="n">Ihre bisherige Handynummer</span>
+                    <input type="tel" wire:model="nummer" required
+                           autocomplete="tel" autocapitalize="off"
+                           autocorrect="off" spellcheck="false" placeholder="z.B. 0151 23456789">
+                </label>
+
+                <label class="feld">
+                    <span class="n">Ihr Geburtsdatum</span>
+                    {{--
+                        Gebunden an eine Y-m-d-Zeichenkette, nie an eine
+                        Datums-Umwandlung.
+                    --}}
+                    <input type="date" wire:model="geburtsdatum" required autocomplete="bday">
+                </label>
+
+                <label class="feld">
+                    <span class="n">Die letzten vier Ziffern Ihrer Ausweisnummer</span>
+                    {{--
+                        Bewusst KEIN Attribut, das am Handy die reine
+                        Zahlentastatur erzwingt: Ausweisnummern enthalten
+                        BUCHSTABEN. Genau dieser Fehler war am 06.08.2026
+                        schon einmal ein Login-Blocker.
+                    --}}
+                    <input type="text" wire:model="ausweis" required maxlength="4"
+                           autocomplete="off" autocapitalize="characters"
+                           autocorrect="off" spellcheck="false">
+                </label>
+
+                <label class="feld">
+                    <span class="n">Ihre neue Handynummer</span>
+                    <input type="tel" wire:model="neueNummer" required
+                           autocomplete="off" autocapitalize="off"
+                           autocorrect="off" spellcheck="false" placeholder="z.B. 0170 98765432">
+                </label>
+
+                @if ($fehler !== '')
+                    <div class="alert crit">
+                        <span class="dot crit" style="margin-top:6px"></span>
+                        <div class="txt">{{ $fehler }}</div>
+                    </div>
+                @endif
+
+                <button type="submit" class="btn primary" wire:loading.attr="disabled">Code anfordern</button>
+            </form>
+
+            <div class="card">
+                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            </div>
+        @elseif ($state === 'notfall-code')
+            <div class="greet">
+                <h2>{{ $notfallCodeTitel }}</h2>
+                <p>{{ $notfallCodeText }}</p>
+            </div>
+
+            <form class="card login" wire:submit="notfallBestaetigen">
+                <label class="feld">
+                    <span class="n">Ihr Code</span>
+                    <input type="text" wire:model="code" required maxlength="10"
+                           autocomplete="one-time-code" autocapitalize="off"
+                           autocorrect="off" spellcheck="false">
+                </label>
+
+                @if ($fehler !== '')
+                    <div class="alert crit">
+                        <span class="dot crit" style="margin-top:6px"></span>
+                        <div class="txt">{{ $fehler }}</div>
+                    </div>
+                @endif
+
+                <button type="submit" class="btn primary" wire:loading.attr="disabled">Absenden</button>
+            </form>
+
+            <div class="card">
+                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            </div>
         @else
             <div class="greet">
                 <h2>Anmelden</h2>
@@ -309,6 +415,7 @@
             <div class="card">
                 <button type="button" class="btn" wire:click="zumPasswortVergessen">Passwort vergessen</button>
                 <button type="button" class="btn" wire:click="zumNummernwechsel">Neue Handynummer</button>
+                <button type="button" class="btn" wire:click="zumNotfall">Nummer und Passwort weg</button>
             </div>
 
             <div class="card">

@@ -186,6 +186,12 @@ final class KontoWriterTest extends TestCase
             $t->string('code_neue_nummer', 32)->nullable();
             $t->timestamp('letzte_anmeldung_at')->nullable();
 
+            // Deckungsgleich mit 2026_09_29_000003_add_nummernwechsel_zu_rec_persons.php.
+            $t->string('wechsel_neue_nummer', 32)->nullable();
+            $t->timestamp('wechsel_beantragt_at')->nullable();
+            $t->timestamp('wechsel_wirksam_ab')->nullable();
+            $t->string('wechsel_quelle', 20)->nullable();
+
             $t->timestamps();
 
             $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');

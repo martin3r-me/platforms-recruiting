@@ -250,6 +250,15 @@ return [
                 'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
                 'platzhalter' => ['code'],
             ],
+            // Weg 4 aus Spec 5: Nummer weg UND Passwort vergessen. Eigener
+            // Zweck, weil sein Code den Wechsel nur BEANTRAGT (24 Stunden,
+            // HR kann stoppen) - der Text darf das sagen. Genehmigt Meta nur
+            // EINE Vorlage, traegt man ueberall denselben Namen ein.
+            'notfall' => [
+                'name'        => env('RECRUITING_KONTO_VORLAGE_NOTFALL', ''),
+                'sprache'     => env('RECRUITING_KONTO_VORLAGE_SPRACHE', 'de'),
+                'platzhalter' => ['code'],
+            ],
         ],
 
         // Der Hinweis AN DIE ALTE NUMMER, nachdem die Nummer gewechselt wurde

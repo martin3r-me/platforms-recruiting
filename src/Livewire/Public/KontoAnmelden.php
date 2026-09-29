@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\RateLimiter;
 use InvalidArgumentException;
 use Livewire\Attributes\Locked;
@@ -227,6 +228,9 @@ class KontoAnmelden extends Component
      * 'nummer-code'    Weg 1+2, Schritt 2: der Code von der neuen Nummer
      * 'vergessen'      Weg 3, Schritt 1: die Nummer
      * 'vergessen-code' Weg 3, Schritt 2: Code, Geburtsdatum, neues Passwort
+     * 'notfall'        Weg 4, Schritt 1: Nummer, Geburtsdatum, Ausweisziffern,
+     *                  neue Nummer
+     * 'notfall-code'   Weg 4, Schritt 2: der Code von der neuen Nummer
      * 'fertig'         geschafft; WAS geschafft wurde, sagt $fertigGrund
      *
      * OHNE DIESE SPERRE waere die ganze Aufgabe hinfaellig: ein
@@ -301,6 +305,16 @@ class KontoAnmelden extends Component
     #[Locked] public string $fertigGrund = '';
 
     /**
+     * Ab wann der beantragte Nummernwechsel wirksam wird — nur eine Anzeige,
+     * fertig formatiert.
+     *
+     * #[Locked], weil sie zum Zustand gehoert: frei setzbar zeigte sie eine
+     * Frist, die nicht in der Datenbank steht, und der Mensch richtete sich
+     * danach.
+     */
+    #[Locked] public string $wirksamAb = '';
+
+    /**
      * Die Eingaben der Rueckwege — bewusst NICHT gesperrt, sie kommen ja vom
      * Menschen. Ihre Sicherheit sitzt darin, dass jeder Schritt seine
      * Nachweise erneut pruefen laesst, und zwar im EINEN Schreiber.
@@ -310,6 +324,16 @@ class KontoAnmelden extends Component
     public string $geburtsdatum = '';
     public string $neuesPasswort = '';
     public string $neuesPasswortWiederholung = '';
+
+    /**
+     * Die letzten Ziffern der Ausweisnummer — NUR in Weg 4, und dort nur als
+     * zweiter Nachweis neben dem Geburtsdatum (Spec §5).
+     *
+     * Sie oeffnen nichts: Weg 4 endet mit einem BEANTRAGTEN Nummernwechsel,
+     * nicht mit einer Sitzung und nicht mit einem Passwort. Wer daraus eine
+     * Abkuerzung ins Konto baut, hebt die Umstellung auf.
+     */
+    public string $ausweis = '';
 
     public string $fehler = '';
 
@@ -492,6 +516,8 @@ class KontoAnmelden extends Component
         $this->nummer = '';
         $this->neueNummer = '';
         $this->geburtsdatum = '';
+        $this->ausweis = '';
+        $this->wirksamAb = '';
         $this->fehler = '';
         $this->leereGeheimnisse();
     }
@@ -508,6 +534,13 @@ class KontoAnmelden extends Component
     {
         $this->zurAnmeldung();
         $this->state = 'vergessen';
+    }
+
+    /** Weg 4: Nummer weg UND Passwort vergessen. */
+    public function zumNotfall(): void
+    {
+        $this->zurAnmeldung();
+        $this->state = 'notfall';
     }
 
     // ------------------------------------------- Weg 1+2: die Nummer wechseln
@@ -755,7 +788,7 @@ class KontoAnmelden extends Component
         // die unbekannte Nummer ist die zweite Haelfte der Begleitregel aus
         // Schritt 1: ohne ihn endete der Weg fuer eine unbekannte Nummer
         // sichtbar anders.
-        if ($this->personId === null || RateLimiter::tooManyAttempts($this->fehlversuchSchluessel(), self::MAX_FEHLVERSUCHE)) {
+        if ($this->personId === null || RateLimiter::tooManyAttempts(self::nachweisSchluessel($this->personId), self::MAX_FEHLVERSUCHE)) {
             $this->fehler = self::MELDUNG_ZURUECK;
             $this->leereGeheimnisse();
 
@@ -770,7 +803,7 @@ class KontoAnmelden extends Component
                 $this->neuesPasswort,
             );
         } catch (InvalidArgumentException) {
-            RateLimiter::hit($this->fehlversuchSchluessel(), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
+            RateLimiter::hit(self::nachweisSchluessel($this->personId), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
 
             $this->fehler = self::MELDUNG_ZURUECK;
             $this->leereGeheimnisse();
@@ -778,11 +811,139 @@ class KontoAnmelden extends Component
             return;
         }
 
-        RateLimiter::clear($this->fehlversuchSchluessel());
+        RateLimiter::clear(self::nachweisSchluessel($this->personId));
 
         $this->leereGeheimnisse();
         $this->geburtsdatum = '';
         $this->fertigGrund = 'passwort';
+        $this->state = 'fertig';
+    }
+
+    // ------------------------------- Weg 4: Nummer weg UND Passwort vergessen
+
+    /**
+     * Schritt 1: alte Nummer + Geburtsdatum + Ausweisziffern + neue Nummer.
+     *
+     * DIE BEIDEN NACHWEISE STEHEN HIER UND NICHT IM ZWEITEN SCHRITT, anders
+     * als bei Weg 3 — und der Unterschied ist zwingend: der Code geht an eine
+     * Nummer, die der Anfordernde SELBST eingetippt hat. Ohne Nachweis vorher
+     * koennte jeder eine Vorlagennachricht an eine beliebige fremde Nummer
+     * ausloesen, auf unsere Rechnung und unter unserem Absender. Bei Weg 3
+     * geht der Code an die HINTERLEGTE Nummer; dort stellt sich die Frage
+     * nicht.
+     *
+     * DIE ANTWORT IST TROTZDEM IMMER DIESELBE. Stimmen die Nachweise nicht,
+     * wird nichts verschickt — aber die Seite geht in denselben Zustand mit
+     * demselben Text. Sonst waeren die Ausweisziffern ein Orakel: wer eine
+     * Nummer kennt, koennte ausprobieren, welches Geburtsdatum dazu passt.
+     *
+     * ZWEI BREMSEN, und sie zaehlen Verschiedenes:
+     *  - Die IP-Bremse zaehlt JEDEN Versuch (wie bei Weg 3) und deckelt das
+     *    Durchprobieren von NUMMERN.
+     *  - Die Nachweis-Bremse zaehlt nur FEHLVERSUCHE je Person und deckelt
+     *    das Durchprobieren von Geburtsdatum und Ausweisziffern. Sie darf
+     *    hier auf Fehlversuche zaehlen, ohne etwas zu verraten: ihr
+     *    Schluessel entsteht erst, NACHDEM die Nummer gefunden wurde, und
+     *    nach aussen aendert sie an der Antwort nichts.
+     *
+     * GEBURTSDATUM UND AUSWEISZIFFERN WERDEN DANACH GELEERT. Sie sind der
+     * sensibelste Teil dieser Seite und haben im Schnappschuss des zweiten
+     * Schritts nichts mehr zu suchen.
+     */
+    public function notfallAnfordern(EinmalcodeSender $sender): void
+    {
+        if ($this->state !== 'notfall') {
+            return;
+        }
+
+        $this->fehler = '';
+
+        if (trim($this->nummer) === '' || trim($this->geburtsdatum) === ''
+            || trim($this->ausweis) === '' || trim($this->neueNummer) === '') {
+            $this->fehler = 'Bitte füllen Sie alle Felder aus.';
+
+            return;
+        }
+
+        $neu = PhoneE164::normalize($this->neueNummer);
+
+        if ($neu === null) {
+            $this->fehler = 'Diese neue Handynummer können wir nicht lesen. Bitte prüfen Sie die Schreibweise.';
+
+            return;
+        }
+
+        if ($this->darfAnfordern()) {
+            $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
+
+            if ($personId !== null && !RateLimiter::tooManyAttempts(self::nachweisSchluessel($personId), self::MAX_FEHLVERSUCHE)) {
+                if (KontoWriter::ausweisNachweisStimmt($personId, trim($this->geburtsdatum), trim($this->ausweis))) {
+                    RateLimiter::clear(self::nachweisSchluessel($personId));
+
+                    $this->personId = $personId;
+                    $sender->sende($personId, KontoWriter::ZWECK_NOTFALL, $neu);
+                } else {
+                    RateLimiter::hit(self::nachweisSchluessel($personId), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
+                }
+            }
+        }
+
+        $this->geburtsdatum = '';
+        $this->ausweis = '';
+
+        // IMMER derselbe Ausgang. Auch wenn nichts verschickt wurde.
+        $this->state = 'notfall-code';
+    }
+
+    /**
+     * Schritt 2: der Code von der neuen Nummer — und damit der Antrag.
+     *
+     * HIER WIRD NICHTS GEWECHSELT UND NICHTS GEOEFFNET. Der Wechsel ist
+     * beantragt und wird nach KontoWriter::WECHSEL_FRIST_STUNDEN faellig;
+     * bis dahin kann HR ihn stoppen (recruiting:konto-zuruecksetzen
+     * --stopp=<id>). Wer diesen Weg gegangen ist, hat danach immer noch kein
+     * Passwort — er muss anschliessend Weg 3 gehen. Genau das macht Weg 4 zu
+     * keinem zweiten Anmeldeweg.
+     *
+     * EINE LEERE PERSONEN-KENNUNG endet in DERSELBEN Meldung wie ein
+     * falscher Code, und dieser Zweig ist tragend: er ist die zweite Haelfte
+     * der Zusage aus Schritt 1. Ohne ihn saehe der Weg fuer jemanden, dessen
+     * Nachweise nicht stimmten, sichtbar anders aus als fuer jemanden mit
+     * falschem Code.
+     */
+    public function notfallBestaetigen(): void
+    {
+        if ($this->state !== 'notfall-code') {
+            return;
+        }
+
+        $this->fehler = '';
+
+        if (trim($this->code) === '') {
+            $this->fehler = 'Bitte geben Sie den Code ein, den wir Ihnen geschickt haben.';
+
+            return;
+        }
+
+        if ($this->personId === null) {
+            $this->code = '';
+            $this->fehler = self::MELDUNG_ZURUECK;
+
+            return;
+        }
+
+        try {
+            $wirksamAb = KontoWriter::beantrageNummerwechselMitCode($this->personId, trim($this->code));
+        } catch (InvalidArgumentException) {
+            $this->code = '';
+            $this->fehler = self::MELDUNG_ZURUECK;
+
+            return;
+        }
+
+        $this->code = '';
+        $this->wirksamAb = Carbon::parse($wirksamAb)->format('d.m.Y, H:i') . ' Uhr';
+        $this->fertigGrund = 'notfall';
         $this->state = 'fertig';
     }
 
@@ -875,9 +1036,9 @@ class KontoAnmelden extends Component
      * Schluessellaenge damit trotzdem (derselbe Gedanke wie beim
      * Personen-Schluessel im Einmalcode-Sender).
      */
-    private function fehlversuchSchluessel(): string
+    private static function nachweisSchluessel(int $personId): string
     {
-        return 'konto-zurueck:nachweis:' . (int) $this->personId;
+        return 'konto-zurueck:nachweis:' . $personId;
     }
 
     /**

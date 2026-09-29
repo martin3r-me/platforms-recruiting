@@ -1117,6 +1117,9 @@ final class KontoAnmeldenTest extends TestCase
             'fertigGrund' => 'Teil des Zustands: er waehlt den Text der Schlussseite. Frei '
                 . 'setzbar zeigte er "Ihre Nummer wurde geaendert", ohne dass etwas geaendert '
                 . 'wurde — eine Seite, die luegt',
+            'wirksamAb' => 'die angezeigte Frist des beantragten Nummernwechsels. Frei setzbar '
+                . 'zeigte sie eine Frist, die nicht in der Datenbank steht, und der Mensch '
+                . 'richtete sich danach',
         ];
 
         // Absichtlich OFFEN, jede mit ihrem Grund. Ihre Sicherheit sitzt nicht
@@ -1131,6 +1134,10 @@ final class KontoAnmeldenTest extends TestCase
             'geburtsdatum'      => 'dito',
             'neuesPasswort'     => 'dito',
             'neuesPasswortWiederholung' => 'dito',
+            'ausweis'           => 'die Eingabe des Menschen. Sie ist der zweite Nachweis von '
+                . 'Weg 4 und wird bei JEDEM Aufruf erneut gegen '
+                . 'RecEmployee::verifyPortalAccess() geprueft — gesperrt koennte er sie gar '
+                . 'nicht eintippen',
             'fehler'            => 'nur eine Anzeige; wer sie sich selbst setzt, beschreibt seinen '
                 . 'eigenen Bildschirm',
         ];

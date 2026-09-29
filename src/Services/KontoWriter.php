@@ -81,11 +81,49 @@ final class KontoWriter
     public const ZWECK_NUMMERNWECHSEL = 'nummernwechsel';
 
     /**
+     * Weg 4 aus Spec §5: Nummer weg UND Passwort vergessen. Der Code geht
+     * ebenfalls an die NEUE Nummer — aber sein Einloesen wechselt sie NICHT,
+     * es BEANTRAGT den Wechsel (24 Stunden, HR kann stoppen).
+     *
+     * EIN EIGENER ZWECK UND NICHT ZWECK_NUMMERNWECHSEL, und das ist die
+     * ganze Sicherheit dieses Weges: loeseCodeEin() wechselt bei
+     * ZWECK_NUMMERNWECHSEL sofort. Ein Code aus Weg 4 mit diesem Zweck
+     * uebersprunge also das 24-Stunden-Fenster und damit das Stopp-Recht von
+     * HR — und Weg 4 ist der einzige Weg, der ohne Passwort auskommt.
+     */
+    public const ZWECK_NOTFALL = 'notfall';
+
+    /**
      * Ein getippter Zweck ("passwort_reset") wuerde sonst still einen Code
      * ablegen, den kein Einloesen je trifft: der Mensch wartet dann auf eine
      * Bestaetigung, die nie kommen kann. Deshalb eine geschlossene Liste.
      */
-    private const ZWECKE = [self::ZWECK_ANMELDUNG, self::ZWECK_PASSWORT, self::ZWECK_NUMMERNWECHSEL];
+    private const ZWECKE = [
+        self::ZWECK_ANMELDUNG,
+        self::ZWECK_PASSWORT,
+        self::ZWECK_NUMMERNWECHSEL,
+        self::ZWECK_NOTFALL,
+    ];
+
+    /**
+     * Die Zwecke, bei denen der Code an eine NOCH NICHT hinterlegte Nummer
+     * geht — und die deshalb eine Zielnummer brauchen.
+     *
+     * Eine Liste und keine zwei Vergleiche: der Sender muss dieselbe Frage
+     * beantworten wie erzeugeCode() ("an welche Nummer geht der Code?"). Wer
+     * sie an zwei Stellen ausschreibt, schickt beim naechsten Zweck den Code
+     * an die alte Nummer, waehrend der Schreiber die neue erwartet.
+     *
+     * @var list<string>
+     */
+    private const ZWECKE_MIT_ZIELNUMMER = [self::ZWECK_NUMMERNWECHSEL, self::ZWECK_NOTFALL];
+
+    /**
+     * Wie lange zwischen dem Beweis und der Wirkung eines Notfall-Wechsels
+     * liegt — Spec §5, Weg 4: "HR bekommt eine Meldung und kann innerhalb
+     * von 24 Stunden stoppen."
+     */
+    public const WECHSEL_FRIST_STUNDEN = 24;
 
     /**
      * Gegen-Hash fuer den Vergleich ins Leere (Nummer unbekannt, Konto noch
@@ -362,6 +400,18 @@ final class KontoWriter
     }
 
     /**
+     * Geht der Code dieses Zwecks an eine noch NICHT hinterlegte Nummer?
+     *
+     * Der Sender muss dieselbe Frage beantworten wie erzeugeCode(); deshalb
+     * ist sie hier oeffentlich und wird dort nicht zum zweiten Mal
+     * ausgeschrieben.
+     */
+    public static function brauchtZielNummer(string $zweck): bool
+    {
+        return in_array($zweck, self::ZWECKE_MIT_ZIELNUMMER, true);
+    }
+
+    /**
      * Legt einen Einmalcode ab und gibt den Klartext zurueck (Versand macht
      * der Sender). Ein neuer Code ersetzt den laufenden vollstaendig,
      * einschliesslich Versuchszaehler und alter neuer Nummer — sonst haengt
@@ -378,7 +428,7 @@ final class KontoWriter
         self::pruefeZweck($zweck);
 
         $zielNummer = null;
-        if ($zweck === self::ZWECK_NUMMERNWECHSEL) {
+        if (self::brauchtZielNummer($zweck)) {
             // Der Code geht an die NEUE Nummer — ohne lesbare Nummer gibt es
             // niemanden, der ihn bekommen koennte. Gespeichert wird die
             // E.164-Form, sonst wechselt die Nummer spaeter in einer anderen
@@ -486,6 +536,11 @@ final class KontoWriter
             PersonLinker::setzeNummer($personId, $neueNummer);
             self::zieheCrmKontakteNach($personId);
 
+            // Ein offener Notfall-Antrag ist damit ueberholt (Begruendung an
+            // loescheWechselAntrag): dieser Weg hat das Passwort gesehen,
+            // jener nicht.
+            self::loescheWechselAntrag($personId);
+
             // NACH setzeNummer() und nicht davor: scheitert der Wechsel an
             // einer im Team schon vergebenen Nummer, wirft setzeNummer() —
             // und dann darf im Protokoll kein Wechsel stehen, der nie
@@ -556,6 +611,207 @@ final class KontoWriter
 
         self::loeseCodeEin($personId, self::ZWECK_PASSWORT, $codeKlartext);
         self::setzePasswort($personId, $passwort);
+    }
+
+    // ------------------------------------------------------- Weg 4, das Fenster
+
+    /**
+     * Der zweite Nachweis von Weg 4: Geburtsdatum UND die letzten vier
+     * Ziffern der Ausweisnummer.
+     *
+     * DER EINZIGE ORT, AN DEM AUSWEISZIFFERN IM KONTO NOCH VORKOMMEN (Spec
+     * §5). Geprueft wird mit RecEmployee::verifyPortalAccess() — derselben
+     * und einzigen Fassung, die auch der alte Token-Weg benutzt. Eine zweite
+     * Fassung waere die Stelle, an der eine von beiden lockerer wird.
+     *
+     * DASS DIESE METHODE NICHTS OEFFNET, IST IHRE WICHTIGSTE EIGENSCHAFT.
+     * Sie gibt bool zurueck, keine Kennung und kein Sitzungsrecht. Ihr
+     * einziger Aufrufer ist Weg 4, und der endet mit einem BEANTRAGTEN
+     * Nummernwechsel — nicht mit einer Anmeldung und nicht mit einem
+     * Passwort. Wer aus ihr eine Abkuerzung ins Konto baut, hebt die
+     * Umstellung auf: der Benutzername ist die Handynummer und kein
+     * Geheimnis, also waere "Nummer + Geburtsdatum + Ausweisziffern" ein
+     * Anmeldeweg ohne Passwort.
+     *
+     * Gefragt werden ALLE AKTIVEN Anstellungen dieses Menschen: bei einem
+     * RG/MA-Paar stehen die Ausweisdaten nicht zwingend an beiden Zeilen.
+     * verifyPortalAccess() lehnt eine Zeile ohne Geburtsdatum oder ohne
+     * Ausweisnummer von sich aus ab — wer nirgends beides hinterlegt hat,
+     * kommt ueber Weg 4 nicht weiter und braucht HR (Weg 5). Das ist die
+     * gewollte Richtung.
+     *
+     * NUR LESEND. Weder hier noch im ganzen Weg wird an rec_employees
+     * geschrieben; ein Nachweisversuch darf zas_changed_at nicht setzen.
+     */
+    public static function ausweisNachweisStimmt(int $personId, string $geburtsdatum, string $ausweisEndziffern): bool
+    {
+        if (trim($geburtsdatum) === '' || trim($ausweisEndziffern) === '') {
+            return false;
+        }
+
+        foreach (RecEmployee::query()->where('rec_person_id', $personId)->where('is_active', 1)->get() as $anstellung) {
+            if ($anstellung->verifyPortalAccess($geburtsdatum, $ausweisEndziffern)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Weg 4, Schritt 2: den Code einloesen und den Wechsel BEANTRAGEN.
+     *
+     * Der Unterschied zu loeseCodeEin(ZWECK_NUMMERNWECHSEL) ist der ganze
+     * Zweck dieses Weges: hier wird NICHTS gewechselt. Es entsteht ein
+     * Antrag, der nach WECHSEL_FRIST_STUNDEN faellig wird und den HR bis
+     * dahin stoppen kann.
+     *
+     * DIE NEUE NUMMER WIRD VOR DEM EINLOESEN GELESEN: loeseCodeEin() raeumt
+     * code_neue_nummer ab (das Entwerten ist seine Aufgabe, Fund F13). Wer
+     * sie danach liest, findet null und legt einen Antrag ohne Ziel an.
+     *
+     * Bei einem falschen Code wirft loeseCodeEin(), und es wird NICHTS
+     * geschrieben — auch kein Antrag.
+     *
+     * Ein ZWEITER Antrag ersetzt den ersten vollstaendig, einschliesslich
+     * seiner Frist. Sonst stuenden zwei Ziele nebeneinander, und es
+     * entschiede die Reihenfolge des Kommandos, welches gewinnt.
+     *
+     * @return string 'Y-m-d H:i:s' — ab wann der Wechsel faellig ist
+     */
+    public static function beantrageNummerwechselMitCode(int $personId, string $codeKlartext): string
+    {
+        $person = self::offeneZeile($personId);
+
+        $neueNummer = $person->code_neue_nummer === null ? null : (string) $person->code_neue_nummer;
+
+        self::loeseCodeEin($personId, self::ZWECK_NOTFALL, $codeKlartext);
+
+        if ($neueNummer === null) {
+            // Kann ueber erzeugeCode() nicht entstehen (dort ist die
+            // Zielnummer fuer diesen Zweck Pflicht). Die Wache steht hier,
+            // weil ein Antrag ohne Ziel spaeter still nichts taete und der
+            // Mensch bis zum Anruf bei HR glaubte, er habe es geschafft.
+            throw new InvalidArgumentException(
+                "Der Code von Person {$personId} traegt keine neue Nummer — ein Antrag ohne Ziel waere wirkungslos.",
+            );
+        }
+
+        $wirksamAb = now()->addHours(self::WECHSEL_FRIST_STUNDEN);
+
+        DB::table('rec_persons')->where('id', $personId)->update([
+            'wechsel_neue_nummer'  => $neueNummer,
+            'wechsel_beantragt_at' => now(),
+            'wechsel_wirksam_ab'   => $wirksamAb,
+            'wechsel_quelle'       => self::ZWECK_NOTFALL,
+            'updated_at'           => now(),
+        ]);
+
+        // DIE MELDUNG AN HR (Spec §5, Weg 4). Auf der Stufe `warning` und
+        // nicht `info`: dieser Weg kommt ohne Passwort aus, und die 24
+        // Stunden sind nur dann ein Stopp-Recht, wenn jemand den Antrag auch
+        // SIEHT. Zwischen den Versand-Zeilen auf `info` ginge er unter.
+        // Sichtbar wird er ausserdem ueber recruiting:konto-zuruecksetzen
+        // --offen; das Log allein ist eine Spur, keine Arbeitsliste.
+        Log::warning('recruiting.konto.nummernwechsel_beantragt', [
+            'person_id'        => $personId,
+            'quelle'           => self::ZWECK_NOTFALL,
+            'wirksam_ab'       => $wirksamAb->format('Y-m-d H:i:s'),
+            'neu_endet_auf'    => substr($neueNummer, -4),
+            'alt_endet_auf'    => $person->phone === null ? null : substr((string) $person->phone, -4),
+        ]);
+
+        return $wirksamAb->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Die offenen Antraege — die Arbeitsliste von HR.
+     *
+     * Ohne Frist-Filter: HR soll auch den sehen, der gleich faellig wird,
+     * und den, den das Kommando noch nicht angewendet hat. Sortiert nach
+     * Faelligkeit, damit das Dringendste oben steht.
+     *
+     * @return list<object>
+     */
+    public static function offeneNummernwechsel(?int $teamId = null): array
+    {
+        return DB::table('rec_persons')
+            ->whereNotNull('wechsel_wirksam_ab')
+            ->whereNotNull('wechsel_neue_nummer')
+            ->whereNull('merged_into_person_id')
+            ->when($teamId !== null, fn ($q) => $q->where('team_id', $teamId))
+            ->orderBy('wechsel_wirksam_ab')
+            ->get(['id', 'team_id', 'phone', 'wechsel_neue_nummer', 'wechsel_beantragt_at', 'wechsel_wirksam_ab', 'wechsel_quelle'])
+            ->all();
+    }
+
+    /**
+     * HR stoppt einen Antrag. Gibt zurueck, ob ueberhaupt einer offen war.
+     *
+     * Der Antrag wird geloescht und nicht als "gestoppt" markiert: der
+     * Schlitz ist ein Schlitz und keine Historie (s. Migration
+     * 2026_09_29_000003). Dass gestoppt wurde, steht im Protokoll.
+     */
+    public static function stoppeNummerwechsel(int $personId): bool
+    {
+        $person = DB::table('rec_persons')->where('id', $personId)->first();
+
+        if ($person === null || $person->wechsel_wirksam_ab === null) {
+            return false;
+        }
+
+        self::loescheWechselAntrag($personId);
+
+        Log::warning('recruiting.konto.nummernwechsel_gestoppt', [
+            'person_id'     => $personId,
+            'neu_endet_auf' => $person->wechsel_neue_nummer === null
+                ? null
+                : substr((string) $person->wechsel_neue_nummer, -4),
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Wendet einen FAELLIGEN Antrag an. Gibt die alte und die neue Nummer
+     * zurueck — oder null, wenn nichts (mehr) faellig war.
+     *
+     * Die alte Nummer braucht der Aufrufer fuer den Hinweis aus Spec §5; nach
+     * setzeNummer() steht sie nirgends mehr.
+     *
+     * DER ANTRAG WIRD ERST NACH dem Wechsel geloescht. Scheitert
+     * setzeNummer() (die Nummer gehoert im Team inzwischen jemand anderem),
+     * bleibt er stehen und taucht weiter unter --offen auf — genau richtig,
+     * denn diesen Fall muss ein Mensch klaeren (Spec §6.2). Wer erst
+     * loescht, verliert ihn still.
+     *
+     * @return array{alt: ?string, neu: string}|null
+     */
+    public static function wendeNummernwechselAn(int $personId): ?array
+    {
+        $person = self::offeneZeile($personId);
+
+        if ($person->wechsel_wirksam_ab === null || $person->wechsel_neue_nummer === null) {
+            return null;
+        }
+
+        // Verglichen wird ueber Zeitstempel und nicht ueber die Zeichenkette:
+        // die Spalte kommt je nach Treiber in verschiedenen Schreibweisen
+        // zurueck, und ein Zeichenvergleich waere dann mal richtig und mal
+        // still falsch.
+        if (strtotime((string) $person->wechsel_wirksam_ab) > strtotime(self::jetzt())) {
+            return null;
+        }
+
+        $alt = $person->phone === null ? null : (string) $person->phone;
+        $neu = (string) $person->wechsel_neue_nummer;
+
+        PersonLinker::setzeNummer($personId, $neu);
+        self::zieheCrmKontakteNach($personId);
+        self::loescheWechselAntrag($personId);
+        self::protokolliereWechsel($personId, $alt, $neu, self::ZWECK_NOTFALL);
+
+        return ['alt' => $alt, 'neu' => $neu];
     }
 
     /**
@@ -760,6 +1016,28 @@ final class KontoWriter
      * Code auf ein anderes Geraet?"). Zwischen den Versand-Zeilen des
      * Einmalcode-Senders, die auf `info` stehen, ginge er unter.
      */
+    /**
+     * Raeumt den offenen Notfall-Antrag ab.
+     *
+     * Er wird nicht nur beim Anwenden und beim Stoppen geloescht, sondern
+     * auch bei JEDEM anderen vollzogenen Nummernwechsel. Grund: Weg 1 und 2
+     * verlangen das Passwort und sind damit der staerkere Nachweis. Bliebe
+     * ein Notfall-Antrag daneben stehen, zoege er die Nummer 24 Stunden
+     * spaeter still noch einmal weiter — auf das Ziel, das jemand OHNE
+     * Passwort eingetragen hat. Genau der Fall, gegen den das Fenster gebaut
+     * ist, traete dann hinter dem Ruecken des rechtmaessigen Inhabers ein.
+     */
+    private static function loescheWechselAntrag(int $personId): void
+    {
+        DB::table('rec_persons')->where('id', $personId)->update([
+            'wechsel_neue_nummer'  => null,
+            'wechsel_beantragt_at' => null,
+            'wechsel_wirksam_ab'   => null,
+            'wechsel_quelle'       => null,
+            'updated_at'           => now(),
+        ]);
+    }
+
     private static function protokolliereWechsel(int $personId, ?string $alt, string $neu, string $weg): void
     {
         Log::notice('recruiting.konto.nummer_gewechselt', [

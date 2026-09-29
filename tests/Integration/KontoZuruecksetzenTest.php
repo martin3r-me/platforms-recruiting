@@ -181,6 +181,9 @@ final class KontoZuruecksetzenTest extends TestCase
                         KontoWriter::ZWECK_NUMMERNWECHSEL => [
                             'name' => self::VORLAGE_CODE, 'sprache' => 'de', 'platzhalter' => ['code'],
                         ],
+                        KontoWriter::ZWECK_NOTFALL => [
+                            'name' => self::VORLAGE_CODE, 'sprache' => 'de', 'platzhalter' => ['code'],
+                        ],
                     ],
                     'hinweis_vorlage' => [
                         'name' => self::VORLAGE_HINWEIS, 'sprache' => 'de', 'platzhalter' => [],
@@ -314,6 +317,12 @@ final class KontoZuruecksetzenTest extends TestCase
             $t->string('code_zweck', 20)->nullable();
             $t->string('code_neue_nummer', 32)->nullable();
             $t->timestamp('letzte_anmeldung_at')->nullable();
+
+            // Deckungsgleich mit 2026_09_29_000003_add_nummernwechsel_zu_rec_persons.php.
+            $t->string('wechsel_neue_nummer', 32)->nullable();
+            $t->timestamp('wechsel_beantragt_at')->nullable();
+            $t->timestamp('wechsel_wirksam_ab')->nullable();
+            $t->string('wechsel_quelle', 20)->nullable();
 
             $t->timestamps();
 
@@ -1251,6 +1260,354 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertSame('', $seite->code);
     }
 
+    // ================================================================== Weg 4
+
+    /**
+     * Weg 4 (Spec §5): Nummer weg UND Passwort vergessen. Geburtsdatum +
+     * Ausweisziffern, Code an die neue Nummer — und der Wechsel wird erst
+     * nach 24 Stunden wirksam.
+     *
+     * DIE VIERUNDZWANZIG STEHEN HIER AUSGESCHRIEBEN und werden nicht aus
+     * KontoWriter::WECHSEL_FRIST_STUNDEN gelesen: Code und Test laesen sonst
+     * dieselbe Zahl, und eine Mutation der Konstante bliebe unbemerkt.
+     */
+    public function test_weg4_beantragt_den_wechsel_und_vollzieht_ihn_nicht(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        $this->assertSame('fertig', $seite->state, $seite->fehler);
+        $this->assertSame('notfall', $seite->fertigGrund);
+
+        $zeile = $this->zeile();
+
+        $this->assertSame(self::NUMMER, $zeile->phone, 'die Nummer darf sich JETZT noch nicht geaendert haben');
+        $this->assertSame(self::NEUE_NUMMER, $zeile->wechsel_neue_nummer);
+        $this->assertSame(KontoWriter::ZWECK_NOTFALL, $zeile->wechsel_quelle);
+        $this->assertSame(
+            Carbon::parse(self::JETZT)->addHours(24)->format('Y-m-d H:i:s'),
+            Carbon::parse($zeile->wechsel_wirksam_ab)->format('Y-m-d H:i:s'),
+        );
+    }
+
+    /**
+     * WEG 4 IST KEIN ZWEITER ANMELDEWEG — die wichtigste Zusicherung dieser
+     * Aufgabe.
+     *
+     * Ausweisziffern kommen im ganzen Konto nur hier vor, und sie oeffnen
+     * nichts: keine Sitzung, kein Passwort, nicht einmal die Nummer (die
+     * wandert erst nach der Frist). Waere das alte Verfahren hier eine
+     * Abkuerzung, kaeme jeder, der eine Nummer kennt, ueber die Nebentuer
+     * hinein — und die Umstellung machte das Portal unsicherer als vorher.
+     */
+    public function test_weg4_oeffnet_weder_sitzung_noch_passwort(): void
+    {
+        $vorher = $this->zeile()->password_hash;
+
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        $this->assertSame($vorher, $this->zeile()->password_hash, 'Weg 4 setzt KEIN Passwort');
+        $this->assertSame([], $this->session->all(), 'Weg 4 oeffnet KEINE Portal-Sitzung');
+        $this->assertSame([], $seite->geoeffnet);
+        $this->assertNull($this->zeile()->letzte_anmeldung_at, 'Weg 4 ist keine Anmeldung');
+    }
+
+    /** Der Code geht an die NEUE Nummer — an die alte kommt der Mensch ja nicht mehr. */
+    public function test_der_notfall_code_geht_an_die_neue_nummer(): void
+    {
+        $this->notfallBisZumCode();
+
+        $this->assertCount(1, $this->meta->calls);
+        $this->assertSame(self::NEUE_NUMMER, $this->meta->calls[0]['to']);
+    }
+
+    /**
+     * Falsche Ausweisziffern verschicken nichts — und antworten zeichengleich.
+     *
+     * Ohne die Zeichengleichheit waeren die Ausweisziffern ein Orakel: wer
+     * eine Nummer kennt, probierte aus, welche vier Ziffern dazu passen.
+     */
+    public function test_falsche_ausweisziffern_antworten_zeichengleich(): void
+    {
+        $richtig = $this->notfallBisZumCode();
+        $vorherigeCalls = count($this->meta->calls);
+
+        $falsch = $this->seite();
+        $falsch->zumNotfall();
+        $falsch->nummer = self::NUMMER_GETIPPT;
+        $falsch->geburtsdatum = self::GEBURT;
+        $falsch->ausweis = '9999';
+        $falsch->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $falsch->notfallAnfordern($this->sender());
+
+        $this->assertCount($vorherigeCalls, $this->meta->calls, 'falsche Ziffern verschicken nichts');
+        $this->assertSame($richtig->state, $falsch->state);
+
+        // Der richtige Lauf traegt den Code noch auf der Seite; fuer den
+        // Vergleich des Markups zaehlt nur, was der Mensch SIEHT.
+        $richtig->code = '';
+
+        $this->assertSame($this->rendere($richtig), $this->rendere($falsch));
+    }
+
+    /** Dasselbe fuer ein falsches Geburtsdatum. */
+    public function test_ein_falsches_geburtsdatum_verschickt_in_weg4_nichts(): void
+    {
+        $seite = $this->seite();
+        $seite->zumNotfall();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::FALSCHE_GEBURT;
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
+
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('notfall-code', $seite->state);
+        $this->assertNull($seite->personId);
+    }
+
+    /**
+     * Geburtsdatum und Ausweisziffern bleiben nach dem ersten Schritt nicht
+     * auf der Seite stehen — sie sind der sensibelste Teil dieser Seite und
+     * haben im Schnappschuss des zweiten Schritts nichts zu suchen.
+     */
+    public function test_die_nachweise_bleiben_nicht_auf_der_seite_stehen(): void
+    {
+        $seite = $this->notfallBisZumCode();
+
+        $this->assertSame('', $seite->geburtsdatum);
+        $this->assertSame('', $seite->ausweis);
+
+        $html = $this->rendere($seite);
+
+        $this->assertStringNotContainsString('0T47', $html);
+        $this->assertStringNotContainsString(self::GEBURT, $html);
+    }
+
+    /**
+     * Nach fuenf falschen Nachweisen geht auch mit den richtigen nichts mehr.
+     *
+     * Ohne diese Bremse waere Weg 4 der bequemste Angriff des ganzen Kontos:
+     * ein plausibler Geburtsjahrgang-Bereich sind rund 25.000 Moeglichkeiten,
+     * vier Ausweisziffern rund 1,7 Millionen — beides zusammen bleibt gross,
+     * aber der ERSTE Nachweis allein ist an einem Nachmittag durch, und
+     * danach zaehlt nur noch der zweite.
+     *
+     * FUENF STEHT AUSGESCHRIEBEN und wird nicht aus der Konstante gelesen.
+     */
+    public function test_nach_fuenf_falschen_nachweisen_geht_auch_mit_den_richtigen_nichts(): void
+    {
+        for ($i = 0; $i < 5; $i++) {
+            $seite = $this->seite();
+            $seite->zumNotfall();
+            $seite->nummer = self::NUMMER_GETIPPT;
+            $seite->geburtsdatum = self::FALSCHE_GEBURT;
+            $seite->ausweis = '0T47';
+            $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+            $seite->notfallAnfordern($this->sender());
+        }
+
+        $seite = $this->seite();
+        $seite->zumNotfall();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
+
+        $this->assertSame([], $this->meta->calls);
+        $this->assertNull($seite->personId);
+        $this->assertSame('notfall-code', $seite->state, 'die Antwort bleibt trotzdem dieselbe');
+    }
+
+    /** Ein falscher Code legt keinen Antrag an. */
+    public function test_ohne_gueltigen_code_entsteht_kein_antrag(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->code = '000000';
+        $seite->notfallBestaetigen();
+
+        $this->assertSame('notfall-code', $seite->state);
+        $this->assertSame(KontoAnmelden::MELDUNG_ZURUECK, $seite->fehler);
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab);
+    }
+
+    /**
+     * Wessen Nachweise nicht gestimmt haben, scheitert im zweiten Schritt
+     * genauso wie jemand mit falschem Code — leise, mit derselben Meldung.
+     *
+     * Das ist die zweite Haelfte der Zusage aus Schritt 1: ohne diesen Zweig
+     * saehe der Weg fuer die beiden sichtbar verschieden aus.
+     */
+    public function test_ohne_stimmende_nachweise_scheitert_der_zweite_schritt_wie_ein_falscher_code(): void
+    {
+        $seite = $this->seite();
+        $seite->zumNotfall();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::FALSCHE_GEBURT;
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
+
+        $seite->code = '123456';
+        $seite->notfallBestaetigen();
+
+        $this->assertSame('notfall-code', $seite->state);
+        $this->assertSame(KontoAnmelden::MELDUNG_ZURUECK, $seite->fehler);
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab);
+    }
+
+    /**
+     * DAS FENSTER: vor Ablauf der Frist bewirkt das Anwenden nichts, danach
+     * wandert die Nummer.
+     *
+     * VIERUNDZWANZIG STUNDEN STEHEN AUSGESCHRIEBEN, und zwar von beiden
+     * Seiten: dreiundzwanzig Stunden und neunundfuenfzig Minuten sind noch zu
+     * frueh, vierundzwanzig Stunden und eine Minute sind faellig. Nur eine
+     * der beiden Proben liesse eine Frist von einer Stunde oder von einer
+     * Woche gruen durchgehen.
+     */
+    public function test_der_antrag_wird_erst_nach_vierundzwanzig_stunden_wirksam(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(23)->addMinutes(59));
+        $this->assertNull(KontoWriter::wendeNummernwechselAn($this->personId), 'noch nicht faellig');
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(24)->addMinutes(1));
+        $ergebnis = KontoWriter::wendeNummernwechselAn($this->personId);
+
+        $this->assertSame(['alt' => self::NUMMER, 'neu' => self::NEUE_NUMMER], $ergebnis);
+        $this->assertSame(self::NEUE_NUMMER, $this->zeile()->phone);
+        $this->assertSame(
+            self::NEUE_NUMMER,
+            DB::table('rec_employees')->where('id', $this->anstellungId)->value('phone'),
+        );
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab, 'der angewendete Antrag ist weg');
+    }
+
+    /**
+     * HR kann stoppen — Spec §5, Weg 4: "HR bekommt eine Meldung und kann
+     * innerhalb von 24 Stunden stoppen."
+     *
+     * Der Beleg ist nicht, dass stoppeNummerwechsel() true zurueckgibt,
+     * sondern dass der Wechsel NACH Ablauf der Frist immer noch nicht
+     * passiert.
+     */
+    public function test_hr_kann_den_antrag_innerhalb_der_frist_stoppen(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(2));
+        $this->assertTrue(KontoWriter::stoppeNummerwechsel($this->personId));
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(48));
+        $this->assertNull(KontoWriter::wendeNummernwechselAn($this->personId));
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+    }
+
+    /** Ohne offenen Antrag hat HR nichts zu stoppen. */
+    public function test_ohne_antrag_gibt_es_nichts_zu_stoppen(): void
+    {
+        $this->assertFalse(KontoWriter::stoppeNummerwechsel($this->personId));
+    }
+
+    /**
+     * Ein passwortgedeckter Wechsel (Weg 1+2) raeumt einen offenen
+     * Notfall-Antrag ab.
+     *
+     * Bliebe er stehen, zoege er die Nummer 24 Stunden spaeter still noch
+     * einmal weiter — auf das Ziel, das jemand OHNE Passwort eingetragen
+     * hat. Genau der Fall, gegen den das Fenster gebaut ist, traete dann
+     * hinter dem Ruecken des rechtmaessigen Inhabers ein.
+     */
+    public function test_ein_passwortgedeckter_wechsel_raeumt_den_notfall_antrag_ab(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+        $this->assertNotNull($this->zeile()->wechsel_wirksam_ab);
+
+        // Der rechtmaessige Inhaber wechselt selbst — auf eine DRITTE Nummer.
+        $eigen = $this->seite();
+        $eigen->zumNummernwechsel();
+        $eigen->nummer = self::NUMMER_GETIPPT;
+        $eigen->passwort = self::PASSWORT;
+        $eigen->neueNummer = '0160 12341234';
+        $eigen->nummerAnfordern($this->auth(), $this->sender());
+        $eigen->code = $this->codeAusDerNachricht();
+        $eigen->nummerBestaetigen($this->hinweisSender());
+
+        $this->assertSame('+4916012341234', $this->zeile()->phone);
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab, 'der Notfall-Antrag ist ueberholt');
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(48));
+        $this->assertNull(KontoWriter::wendeNummernwechselAn($this->personId));
+        $this->assertSame('+4916012341234', $this->zeile()->phone);
+    }
+
+    /**
+     * Die Meldung an HR steht im Protokoll — auf `warning`, nicht auf `info`.
+     *
+     * Die 24 Stunden sind nur dann ein Stopp-Recht, wenn jemand den Antrag
+     * auch SIEHT. Zwischen den Versand-Zeilen auf `info` ginge er unter.
+     */
+    public function test_der_antrag_steht_als_warnung_im_protokoll(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        $zeilen = $this->logZeilen('recruiting.konto.nummernwechsel_beantragt');
+
+        $this->assertCount(1, $zeilen);
+        $this->assertSame('warning', $zeilen[0]['stufe']);
+        $this->assertSame($this->personId, $zeilen[0]['daten']['person_id']);
+        $this->assertSame('5432', $zeilen[0]['daten']['neu_endet_auf']);
+
+        $alles = json_encode($this->log->zeilen);
+        $this->assertStringNotContainsString(self::NUMMER, $alles);
+        $this->assertStringNotContainsString(self::NEUE_NUMMER, $alles);
+    }
+
+    /** Und HR findet ihn in der Arbeitsliste wieder. */
+    public function test_der_offene_antrag_steht_in_der_liste(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        $offen = KontoWriter::offeneNummernwechsel();
+
+        $this->assertCount(1, $offen);
+        $this->assertSame($this->personId, (int) $offen[0]->id);
+        $this->assertSame(self::NEUE_NUMMER, $offen[0]->wechsel_neue_nummer);
+
+        KontoWriter::stoppeNummerwechsel($this->personId);
+
+        $this->assertSame([], KontoWriter::offeneNummernwechsel());
+    }
+
+    /**
+     * Der angewendete Wechsel wird protokolliert wie jeder andere — mit
+     * seinem Weg, damit spaeter erkennbar ist, dass er OHNE Passwort
+     * zustande kam.
+     */
+    public function test_der_angewendete_wechsel_nennt_seinen_weg(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(25));
+        KontoWriter::wendeNummernwechselAn($this->personId);
+
+        $zeilen = $this->logZeilen('recruiting.konto.nummer_gewechselt');
+
+        $this->assertCount(1, $zeilen);
+        $this->assertSame(KontoWriter::ZWECK_NOTFALL, $zeilen[0]['daten']['weg']);
+    }
+
     // ================================================================= Das Blade
 
     public function test_die_anmeldung_zeigt_beide_wege_zurueck(): void
@@ -1259,6 +1616,7 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->assertStringContainsString('wire:click="zumPasswortVergessen"', $html);
         $this->assertStringContainsString('wire:click="zumNummernwechsel"', $html);
+        $this->assertStringContainsString('wire:click="zumNotfall"', $html);
     }
 
     /**
@@ -1278,7 +1636,10 @@ final class KontoZuruecksetzenTest extends TestCase
 
     public function test_jeder_zustand_kompiliert_und_rendert(): void
     {
-        foreach (['formular', 'ohne-ziel', 'nummer', 'nummer-code', 'vergessen', 'vergessen-code'] as $zustand) {
+        foreach ([
+            'formular', 'ohne-ziel', 'nummer', 'nummer-code',
+            'vergessen', 'vergessen-code', 'notfall', 'notfall-code',
+        ] as $zustand) {
             $seite = $this->seite();
             $this->setzeZustand($seite, $zustand);
 
@@ -1288,7 +1649,7 @@ final class KontoZuruecksetzenTest extends TestCase
             $this->assertStringContainsString('class="wordmark"', $this->rendere($seite), "Zustand {$zustand}");
         }
 
-        foreach (['nummer', 'passwort'] as $grund) {
+        foreach (['nummer', 'passwort', 'notfall'] as $grund) {
             $seite = $this->seite();
             $this->setzeZustand($seite, 'fertig');
             $this->setzeFertigGrund($seite, $grund);
@@ -1311,6 +1672,22 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $seite->code = $this->codeAusDerNachricht();
         $seite->nummerBestaetigen($this->hinweisSender());
+
+        return $seite;
+    }
+
+    /** Weg 4 bis zu dem Punkt, an dem der Code auf der Seite steht. */
+    private function notfallBisZumCode(): KontoAnmelden
+    {
+        $seite = $this->seite();
+        $seite->zumNotfall();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::GEBURT;
+        // Die letzten vier Ziffern von 'L01X00T47'.
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
+        $seite->code = $this->codeAusDerNachricht();
 
         return $seite;
     }

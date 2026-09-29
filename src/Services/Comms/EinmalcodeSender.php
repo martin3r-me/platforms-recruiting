@@ -201,10 +201,18 @@ final class EinmalcodeSender
             return $this->fertig($personId, $zweck, null, self::STATUS_FAILED, "Person {$personId} existiert nicht.");
         }
 
-        // Beim Nummernwechsel geht der Code an die NEUE Nummer — sie ist ja
-        // das, was bestaetigt werden soll. Sonst an die hinterlegte.
+        // Beim Nummernwechsel und im Notfall-Weg geht der Code an die NEUE
+        // Nummer — sie ist ja das, was bestaetigt werden soll. Sonst an die
+        // hinterlegte.
+        //
+        // GEFRAGT WIRD DER SCHREIBER, nicht eine eigene Liste (Fund N1 in
+        // anderer Gestalt): erzeugeCode() entscheidet mit derselben Frage,
+        // ob es eine Zielnummer verlangt. Liefen die beiden auseinander,
+        // ginge der Code an die alte Nummer, waehrend der Schreiber die neue
+        // ablegt — und der Mensch bekaeme die Bestaetigung fuer eine Nummer,
+        // die er gerade verloren hat.
         $nummer = PhoneE164::normalize(
-            $zweck === KontoWriter::ZWECK_NUMMERNWECHSEL ? $anNummer : $person->phone
+            KontoWriter::brauchtZielNummer($zweck) ? $anNummer : $person->phone
         );
         if ($nummer === null) {
             return $this->fertig($personId, $zweck, null, self::STATUS_FAILED, 'Keine lesbare Handynummer fuer den Versand.');
