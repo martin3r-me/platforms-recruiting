@@ -682,17 +682,22 @@ final class KontoAnlegenTest extends TestCase
     }
 
     /**
-     * REIHENFOLGE, und die ist tragend: erst nachschlagen, dann drosseln.
+     * Eine ueberlange Adresse ergibt 404 und schreibt NICHTS.
      *
-     * Die Eingabe aus der Adresszeile ist unbegrenzt lang. Stuende die
-     * Drossel VOR dem Nachschlagen, schriebe jeder Aufruf einen Zaehler —
-     * und auf dem Wirt (CACHE_STORE=database, cache.key varchar(255)) waere
-     * das bei einer langen Adresse eine 500er-Seite, ausloesbar von jedem.
-     * Genau dieser Fund hat auf der Anmeldeseite einen Fix gekostet. Hier
-     * faellt der unbekannte Token vorher heraus; die Cache-Attrappe zieht
-     * die Grenze des Wirts ein und wuerde es sonst melden.
+     * Der Zaehler haengt nicht an der blossen Adresse: wer Token
+     * durchprobiert, fuellt damit nicht die Cache-Tabelle des Wirts. Dagegen
+     * steht an der Route die erste Drossel (throttle:20,1).
+     *
+     * EHRLICH GESAGT, was dieser Test NICHT beweist (nachgemessen in der
+     * Mutationsrunde): die Reihenfolge in mount() — erst nachschlagen, dann
+     * drosseln — bleibt auch umgedreht gruen, weil tooManyAttempts() nur
+     * LIEST. Der 500er-Fund der Anmeldeseite (unbegrenzt lange Eingabe in
+     * cache.key) entsteht erst beim Schreiben, und geschrieben wird nur in
+     * registriere() hinter einem nachgeschlagenen, achtstelligen Token. Was
+     * ihn hier endgueltig ausschliesst, ist der gehashte Schluessel — und
+     * DER ist gedeckt (test_der_token_steht_nicht_im_klartext_im_cache).
      */
-    public function test_eine_ueberlange_adresse_ist_nur_404(): void
+    public function test_ein_unbekannter_token_schreibt_nichts_in_den_cache(): void
     {
         $this->einladung();
 

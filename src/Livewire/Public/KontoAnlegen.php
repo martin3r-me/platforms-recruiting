@@ -213,11 +213,17 @@ class KontoAnlegen extends Component
      *
      * GEHASHT, weil der Token ein Geheimnis ist: roh stuende er eine Stunde
      * lang im Klartext in der Cache-Tabelle (der Wirt faehrt
-     * CACHE_STORE=database). Ein Hash ist ausserdem immer gleich lang und
-     * passt damit sicher in cache.key (varchar(255) PRIMARY KEY) — die
-     * Eingabe aus der Adresszeile ist unbegrenzt lang, und ein zu langer
-     * Schluessel waere eine 500er-Seite, ausloesbar von jedem (derselbe
-     * Fund wie auf der Anmeldeseite).
+     * CACHE_STORE=database) — waehrend KontoWriter sogar vor einer blossen
+     * Log-Zeile die Handynummer auf vier Stellen kuerzt.
+     *
+     * Der 500er-Fund der Anmeldeseite (unbegrenzt lange Eingabe im
+     * Schluessel, cache.key ist varchar(255) PRIMARY KEY) greift hier nicht
+     * von selbst: GESCHRIEBEN wird der Zaehler nur in registriere(), und
+     * dort steht in $token laengst ein nachgeschlagener, achtstelliger Wert
+     * — die Pruefung in mount() liest bloss. Der Hash macht die Frage
+     * trotzdem endgueltig gegenstandslos, statt sie von dieser Reihenfolge
+     * abhaengig zu lassen. Wer hier einmal aus einer rohen Eingabe einen
+     * Schluessel schreibt, hat den Fund zurueck.
      */
     private static function drosselSchluessel(string $token): string
     {
