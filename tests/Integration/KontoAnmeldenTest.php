@@ -89,6 +89,9 @@ final class KontoAnmeldenTest extends TestCase
 
     private Repository $cache;
 
+    /** @var object{geschrieben: list<string>} die Attrappe hinter $cache */
+    private object $store;
+
     private Store $session;
 
     private CookieJar $cookies;
@@ -160,7 +163,29 @@ final class KontoAnmeldenTest extends TestCase
         // Weiterleitungs-Zusicherung waere stumm gruen.
         $container->instance(DataStore::class, new DataStore());
 
-        $this->cache = new Repository(new ArrayStore());
+        // Der Speicher merkt sich, WAS ueberhaupt geschrieben wurde. Ein
+        // blanker ArrayStore sieht das nicht — und eine Zusicherung ueber den
+        // Zaehler, die bloss einen Schluessel abfragt, ist genau die Art
+        // Zusicherung, die strukturell gruen bleibt (Fund F1 der Pruefung).
+        $this->store = new class extends ArrayStore {
+            /** @var list<string> */
+            public array $geschrieben = [];
+
+            public function put($key, $value, $seconds): bool
+            {
+                $this->geschrieben[] = (string) $key;
+
+                return parent::put($key, $value, $seconds);
+            }
+
+            public function increment($key, $value = 1)
+            {
+                $this->geschrieben[] = (string) $key;
+
+                return parent::increment($key, $value);
+            }
+        };
+        $this->cache = new Repository($this->store);
 
         $this->capsule->schema()->create('rec_persons', function ($t) {
             $t->increments('id');
@@ -528,6 +553,16 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertNull($this->weiterleitung($seite));
     }
 
+    /**
+     * Leere Eingaben kosten keinen Versuch — sonst sperrte sich mit fuenf
+     * Leeraufrufen von $wire.call('anmelden') jeder selbst aus.
+     *
+     * BERICHTIGT NACH DER PRUEFUNG (Fund F1): hier stand eine Abfrage auf
+     * 'employee_portal_attempts:nummer:'. Diesen Schluessel gibt es nicht —
+     * PortalAuth haengt einen Hash daran —, und mit dem Standardwert konnte
+     * die Zusicherung gar nicht fehlschlagen. Geprueft wird jetzt der
+     * Speicher selbst: es darf UEBERHAUPT nichts geschrieben worden sein.
+     */
     public function test_leere_eingaben_melden_ohne_einen_versuch_zu_kosten(): void
     {
         $seite = $this->seite();
@@ -538,10 +573,21 @@ final class KontoAnmeldenTest extends TestCase
 
         $this->assertNotSame('', $seite->fehler);
         $this->assertFalse($this->session->has(PortalAuth::sessionKey(self::ANSTELLUNG_GREGOR)));
+        $this->assertSame(
+            [],
+            $this->store->geschrieben,
+            'Ein Leeraufruf hat einen Zaehler geschrieben.',
+        );
 
-        // Der Zaehler in PortalAuth wurde nicht angefasst — sonst sperrte
-        // sich mit fuenf Leeraufrufen jeder selbst aus.
-        $this->assertSame([], $this->cache->get('employee_portal_attempts:nummer:', []) ?: []);
+        // Und der Beobachtungsweg taugt etwas: ein ECHTER Fehlversuch
+        // schreibt sehr wohl. Ohne diese Gegenprobe pruefte die Zusicherung
+        // oben nur, dass die Attrappe blind ist.
+        $echt = $this->seite();
+        $echt->nummer = self::NUMMER_GETIPPT;
+        $echt->passwort = self::FALSCHES_PASSWORT;
+        $echt->anmelden($this->auth());
+
+        $this->assertNotSame([], $this->store->geschrieben, 'Der Speicher sieht gar keine Schreibvorgaenge.');
     }
 
     // --------------------------------------------------------------- Ruling GD-2
@@ -714,6 +760,30 @@ final class KontoAnmeldenTest extends TestCase
 
             $this->assertSame('', $seite->weiter, "Die Route \"{$fall}\" wurde als Ziel angenommen.");
         }
+    }
+
+    /**
+     * Fund F2 der Pruefung: /recruiting/konto?weiter[]=a liefert ein ARRAY.
+     * Eine Umwandlung nach string warf dort "Array to string conversion" —
+     * auf dem Wirt eine 500er-Antwort, von jedem beliebig oft ausloesbar,
+     * auf einer oeffentlichen Seite.
+     *
+     * Der eigene Fehlerbehandler ist noetig, weil eine PHP-Warnung sonst
+     * bloss im Protokoll landet; hier soll sie den Test umwerfen.
+     */
+    public function test_ein_array_als_ziel_wirft_die_seite_nicht_um(): void
+    {
+        set_error_handler(static function (int $stufe, string $text): bool {
+            throw new \ErrorException($text, 0, $stufe);
+        });
+
+        try {
+            $seite = $this->seite('/konto?weiter[]=' . rawurlencode('/einsaetze/tok-gregor'));
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame('', $seite->weiter);
     }
 
     public function test_ein_pfad_ohne_route_ist_kein_ziel(): void

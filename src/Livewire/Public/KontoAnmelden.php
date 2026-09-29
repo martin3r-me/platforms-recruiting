@@ -126,7 +126,18 @@ class KontoAnmelden extends Component
         // entfernen), baut sich aus einer fremden Adresse eine eigene
         // zusammen und trifft am Ende doch etwas, das er nicht treffen
         // sollte.
-        $this->weiter = self::erlaubtesZiel((string) $anfrage->query('weiter', ''));
+        $roh = $anfrage->query('weiter', '');
+
+        // NUR eine Zeichenkette kommt in Frage. "?weiter[]=a" liefert ein
+        // Array, und jede Umwandlung davon nach string wirft "Array to string
+        // conversion" — auf dem Wirt eine 500er-Antwort, von jedem beliebig
+        // oft ausloesbar (Fund F2 der Pruefung).
+        //
+        // NICHT ueber $anfrage->string('weiter'): das ruft Str::of() auf, und
+        // dessen Stringable-Bauer wandelt ebenfalls nach string um — nachge-
+        // messen mit dieser Laravel-Fassung, die Warnung faellt dort genauso.
+        // Die Frage nach dem Typ ist die einzige Fassung, die haelt.
+        $this->weiter = self::erlaubtesZiel(is_string($roh) ? $roh : '');
     }
 
     public function anmelden(PortalAuth $auth): void
