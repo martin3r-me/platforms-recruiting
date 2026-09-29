@@ -22,6 +22,18 @@ final class EinmalcodeTest extends TestCase
         $this->assertMatchesRegularExpression('/^\d{6}$/', $k);
     }
 
+    /**
+     * N4: die Spalte code_hash ist VARCHAR(64). Ein Wechsel auf z.B. sha512
+     * wuerde dort still abgeschnitten und jede spaetere Pruefung scheitern
+     * lassen, ohne dass die Suite das merkt — deshalb die Laenge direkt
+     * festnageln, nicht nur ueber das Format der Hex-Zeichen.
+     */
+    public function test_der_hash_ist_vierundsechzig_zeichen_lang(): void
+    {
+        ['hash' => $h] = Einmalcode::erzeuge(self::PEPPER);
+        $this->assertSame(64, strlen($h));
+    }
+
     public function test_zwei_codes_sind_verschieden(): void
     {
         $a = Einmalcode::erzeuge(self::PEPPER)['klartext'];

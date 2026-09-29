@@ -94,4 +94,31 @@ final class PasswortRegelnTest extends TestCase
     {
         $this->assertNull(PasswortRegeln::pruefe(str_repeat(' ', 10)));
     }
+
+    /**
+     * N1: die Steuerzeichen-Pruefung laeuft bewusst OHNE `u`-Schalter, weil
+     * UTF-8-Folgebytes von Mehrbyte-Zeichen im Bereich `>= 0x80` liegen und
+     * damit ausserhalb von `[\x00-\x1F\x7F]` — Umlaute, Emoji und Kyrillisch
+     * duerfen also durchgehen. Bisher hatte kein Test ein GUELTIGES
+     * Mehrbyte-Passwort: der einzige Umlaut-Fall im Test war absichtlich zu
+     * kurz und erreichte die Zeichenpruefung nie. Eine Mutation auf
+     * `[\x00-\x1F\x7F-\xFF]`, die jedes Mehrbyte-Zeichen abweisen wuerde,
+     * blieb deshalb unbemerkt gruen (Pruefbericht-Nachtrag N1).
+     */
+    public function test_ein_passwort_mit_umlaut_ist_gueltig(): void
+    {
+        $this->assertNull(PasswortRegeln::pruefe('Schöneswetter123'));
+    }
+
+    /** N1: auch Drei-/Vier-Byte-UTF-8-Folgen (Kyrillisch, Emoji) sind gueltig. */
+    public function test_ein_passwort_mit_kyrillisch_und_emoji_ist_gueltig(): void
+    {
+        $this->assertNull(PasswortRegeln::pruefe('пароль-geheim-🔑'));
+    }
+
+    /** N2: die 200 ist die Zahl aus dem Docblock — woertlich festnageln wie MINDESTLAENGE (F4). */
+    public function test_die_hoechstlaenge_ist_zweihundert(): void
+    {
+        $this->assertSame(200, PasswortRegeln::HOECHSTLAENGE);
+    }
 }

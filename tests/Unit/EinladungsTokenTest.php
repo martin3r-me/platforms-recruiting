@@ -22,6 +22,17 @@ final class EinladungsTokenTest extends TestCase
         $this->assertMatchesRegularExpression('/^[A-HJ-KM-NP-Z2-9]{8}$/', $k);
     }
 
+    /**
+     * N4: die Spalte invite_token_hash ist VARCHAR(64). Ein Wechsel auf z.B.
+     * sha512 wuerde dort still abgeschnitten und jede spaetere Pruefung
+     * scheitern lassen, ohne dass die Suite das merkt.
+     */
+    public function test_der_hash_ist_vierundsechzig_zeichen_lang(): void
+    {
+        ['hash' => $h] = EinladungsToken::erzeuge(self::PEPPER);
+        $this->assertSame(64, strlen($h));
+    }
+
     /** F8: die Ablaufsekunde selbst zaehlt schon als abgelaufen (strenger Vergleich >=). */
     public function test_die_ablaufsekunde_selbst_gilt_bereits_als_abgelaufen(): void
     {

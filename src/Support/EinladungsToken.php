@@ -12,8 +12,9 @@ namespace Platform\Recruiting\Support;
  * `lesbar()`-Ableitung aus dem Klartext wurde deshalb ersatzlos entfernt: eine
  * Ableitung, die nicht in `istGueltig()` einfliesst, kann man nicht eintippen).
  *
- * Gespeichert wird NIE der Klartext, sondern nur sein SHA-256-Hash
- * (Schema: rec_persons.invite_token_hash, VARCHAR(64) — siehe Kommentar an
+ * Gespeichert wird NIE der Klartext, sondern nur sein Hash (seit Ruling
+ * GD-5 ein HMAC, s.u., nicht mehr blosses SHA-256; Schema:
+ * rec_persons.invite_token_hash, VARCHAR(64) — siehe Kommentar an
  * RecPerson: "genau wie schon bei password_hash"). Der Klartext existiert
  * nur den einen Moment lang, in dem er erzeugt und in Link sowie Eingabefeld
  * geschrieben wird.
@@ -55,6 +56,15 @@ namespace Platform\Recruiting\Support;
  * Ruecktransformation. Ein leerer Pfeffer ist ein Konfigurationsfehler, kein
  * Normalfall, und wirft deshalb eine `InvalidArgumentException` — still
  * ungepfeffert weiterzurechnen saehe sicher aus und waere es nicht.
+ *
+ * Der Wurf sitzt bewusst in `hash()`, am ENDE von `istGueltig()`, nicht am
+ * Anfang der Methode: sicherheitsseitig ist beides gleichwertig, weil ein
+ * leerer Pfeffer nie `true` erzeugen kann — der einzige Weg zum Vergleich
+ * fuehrt durch `hash()`. Vorne wuerde der Wurf zusaetzlich bei JEDEM
+ * Ratversuch schlagen (auch bei geratenen Token), hinten nur beim ersten
+ * wirklich gueltigen — die leisere Variante, und mit dem geplanten Fallback
+ * auf `app.key` ist ein leerer Pfeffer ohnehin ein kaum erreichbarer
+ * Zustand. Nicht nach vorne ziehen.
  *
  * Der Pfeffer betrifft AUSSCHLIESSLICH dieses kurzlebige Geheimnis (sieben
  * Tage) und den Einmalcode (zehn Minuten) — NICHT das Passwort. Das Passwort

@@ -31,6 +31,15 @@ namespace Platform\Recruiting\Support;
  * Normalfall, und wirft deshalb eine `InvalidArgumentException` — still
  * ungepfeffert weiterzurechnen saehe sicher aus und waere es nicht.
  *
+ * Der Wurf sitzt bewusst in `hash()`, am ENDE von `istGueltig()`, nicht am
+ * Anfang der Methode: sicherheitsseitig ist beides gleichwertig, weil ein
+ * leerer Pfeffer nie `true` erzeugen kann — der einzige Weg zum Vergleich
+ * fuehrt durch `hash()`. Vorne wuerde der Wurf zusaetzlich bei JEDEM
+ * Ratversuch schlagen (auch bei geratenen Codes), hinten nur beim ersten
+ * wirklich gueltigen — die leisere Variante, und mit dem geplanten Fallback
+ * auf `app.key` ist ein leerer Pfeffer ohnehin ein kaum erreichbarer
+ * Zustand. Nicht nach vorne ziehen.
+ *
  * Der Pfeffer betrifft AUSSCHLIESSLICH dieses kurzlebige Geheimnis (zehn
  * Minuten) und den Einladungs-Token (sieben Tage) — NICHT das Passwort. Das
  * Passwort bekommt spaeter ganz normal `Hash::make()`. Grund: geht der
