@@ -365,8 +365,8 @@ public function test_unlesbare_zeitstempel_werden_uebersprungen_und_bremsen_nich
   nicht, die haengen an `Hash::make()`.
 - **`Einmalcode` kennt kein „benutzt" (Fund F13 der Pruefung).** Anders als
   `EinladungsToken` hat er kein `benutzt_at`. `loeseCodeEin()` muss den Code deshalb
-  **selbst entwerten**: `code_hash`, `code_ablauf`, `code_zweck`, `code_neue_nummer` auf
-  `null` und `code_versuche` auf `0`. Wer das vergisst, baut einen Code, der zehn Minuten
+  **selbst entwerten**: `code_hash`, `code_expires_at`, `code_zweck`, `code_neue_nummer`
+  auf `null` und `code_versuche` auf `0`. Wer das vergisst, baut einen Code, der zehn Minuten
   lang beliebig oft gilt. Eigener Test dafuer:
   `test_ein_eingeloester_code_gilt_kein_zweites_mal`.
 - Jeder Schreibzugriff auf `rec_persons` **und** `rec_employees` laeuft ueber den Query
