@@ -15,6 +15,13 @@ namespace Platform\Recruiting\Support;
  * Reine Logik (kein Framework/DB), damit die Regel ohne Datenbank pruefbar
  * ist — der Aufrufer liefert die bisherigen Anforderungszeitpunkte selbst
  * (z.B. aus einem Log), diese Klasse zaehlt nur.
+ *
+ * MAX_JE_TAG zaehlt den KALENDERTAG von `$jetzt`, bewusst kein rollierendes
+ * 24-Stunden-Fenster. Das ist die Kante, die HR versteht ("fuenf am Tag"),
+ * und keine Nachlaessigkeit: an der Mitternachtsgrenze koennte jemand
+ * theoretisch fuenf kurz vor 23:00 und fuenf kurz nach 0:00 anfordern — die
+ * Stundengrenze (MAX_JE_STUNDE) deckelt das aber ohnehin auf hoechstens drei
+ * je Stunde, egal auf welcher Seite der Mitternacht sie liegen.
  */
 final class CodeDrossel
 {

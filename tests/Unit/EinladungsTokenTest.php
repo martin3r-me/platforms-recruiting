@@ -6,19 +6,17 @@ use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Support\EinladungsToken;
 
 /**
- * Analog zu EinmalcodeTest, aber mit zwei Darstellungen desselben Tokens:
- * dem langen Klartext (Link) und der kurzen `lesbar()`-Form (Vorlesen).
- * Der Sicherheitsnachweis (istGueltig) haengt ausschliesslich am Klartext.
+ * Analog zu EinmalcodeTest. Ruling GD-4: der Klartext IST der lesbare
+ * 8-Zeichen-Code — Link und manuelles Eintippen tragen denselben Wert, es
+ * gibt keine separate Anzeige-Ableitung mehr.
  */
 final class EinladungsTokenTest extends TestCase
 {
-    public function test_der_klartext_ist_ausreichend_lang(): void
+    public function test_der_klartext_hat_acht_zeichen_ohne_verwechsler(): void
     {
         ['klartext' => $k] = EinladungsToken::erzeuge();
-        // 32 Zufallsbytes als Hex -> 64 Zeichen, passend zur Spaltenbreite
-        // von invite_token_hash.
-        $this->assertSame(64, strlen($k));
-        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $k);
+        $this->assertSame(8, strlen($k));
+        $this->assertMatchesRegularExpression('/^[A-HJ-KM-NP-Z2-9]{8}$/', $k);
     }
 
     public function test_zwei_token_sind_verschieden(): void
@@ -26,21 +24,6 @@ final class EinladungsTokenTest extends TestCase
         $a = EinladungsToken::erzeuge()['klartext'];
         $b = EinladungsToken::erzeuge()['klartext'];
         $this->assertNotSame($a, $b, 'ein vorhersagbarer Token ist kein Nachweis');
-    }
-
-    public function test_die_lesbare_form_hat_acht_zeichen_ohne_verwechsler(): void
-    {
-        ['klartext' => $k] = EinladungsToken::erzeuge();
-        $lesbar = EinladungsToken::lesbar($k);
-
-        $this->assertSame(8, strlen($lesbar));
-        $this->assertMatchesRegularExpression('/^[A-HJ-KM-NP-Z2-9]{8}$/', $lesbar);
-    }
-
-    public function test_die_lesbare_form_ist_fuer_denselben_klartext_immer_gleich(): void
-    {
-        ['klartext' => $k] = EinladungsToken::erzeuge();
-        $this->assertSame(EinladungsToken::lesbar($k), EinladungsToken::lesbar($k));
     }
 
     public function test_der_richtige_token_gilt(): void
