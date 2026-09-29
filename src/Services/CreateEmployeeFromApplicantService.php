@@ -256,13 +256,20 @@ class CreateEmployeeFromApplicantService
      * \Error sind die beiden einzigen Implementierungen von \Throwable —
      * eine engere Liste waere nur eine laengere Schreibweise dafuer.
      *
-     * STILL UEBERSPRUNGEN, wenn schon eine rec_person_id steht: createOrUpdate()
-     * heisst createOrUpdate() — ein zweiter Aufruf fuer denselben Bewerber
-     * (der Idempotenz-Zweig ganz oben greift hier nicht, weil der hier
-     * uebergebene Employee frisch angelegt wurde) darf keine zweite
-     * Personen-Zeile anlegen. Praktisch trifft das den Fall, dass ein
-     * frueherer Lauf hier schon gestempelt hat, bevor spaeter etwas anderes
-     * in derselben Anlage scheiterte.
+     * STILL UEBERSPRUNGEN, wenn schon eine rec_person_id steht — TOTE
+     * VERTEIDIGUNG, EHRLICH BENANNT (Fixrunde 1, Pruefer-Befund M-Skip): der
+     * Idempotenz-Zweig ganz oben in createOrUpdate() kehrt fuer jeden schon
+     * bestehenden Mitarbeiter zurueck, BEVOR linkPerson() ueberhaupt erreicht
+     * wird — ein hier ankommender Employee ist deshalb heute immer frisch
+     * angelegt und traegt nie eine rec_person_id. Der Guard wird also von
+     * KEINEM heutigen Pfad ausgeloest (belegt per Mutation: Zeile entfernt,
+     * Gesamtlauf bleibt gruen). Er bleibt trotzdem stehen, als Vorsorge fuer
+     * den Tag, an dem createOrUpdate() ihren Idempotenz-Zweig einmal anders
+     * baut (etwa: bestehenden Mitarbeiter zurueckgeben, aber trotzdem
+     * nachpruefen) — dann verhindert er, dass ein zweiter Aufruf fuer
+     * denselben Bewerber eine zweite Personen-Zeile anlegt. Tote
+     * Verteidigung ist in Ordnung, solange sie sich nicht als lebendig
+     * ausgibt.
      */
     private function linkPerson(RecEmployee $employee): void
     {

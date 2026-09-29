@@ -107,6 +107,19 @@ class EmployeeCreationPersonLinkTest extends TestCase
         Facade::clearResolvedInstances();
 
         self::runRealMigrations();
+
+        // EIN einziger, dauerhafter Listener fuer die ganze Klasse (I1): er
+        // protokolliert bei JEDER rec_persons-INSERT-Query die zu diesem
+        // Zeitpunkt geltende Transaktionsebene. Wird pro Testmethode in
+        // setUp() geleert, nicht neu registriert -- ein zweiter
+        // DB::listen()-Aufruf je Test wuerde denselben Event mehrfach
+        // aufzeichnen, ohne einen Vorteil zu bringen.
+        Capsule::connection()->listen(function ($event) {
+            $sql = trim((string) $event->sql);
+            if (str_starts_with(strtolower($sql), 'insert into "rec_persons"')) {
+                self::$erfassteTransaktionsEbenen[] = DB::transactionLevel();
+            }
+        });
     }
 
     public static function tearDownAfterClass(): void
@@ -119,10 +132,14 @@ class EmployeeCreationPersonLinkTest extends TestCase
     protected function setUp(): void
     {
         self::$logZeilen = [];
+        self::$erfassteTransaktionsEbenen = [];
     }
 
     /** @var list<array{level: string, message: string, context: array}> */
     private static array $logZeilen = [];
+
+    /** @var list<int> Siehe testSavepointLiegtEineEbeneUeberDerFremdenTransaktion(). */
+    private static array $erfassteTransaktionsEbenen = [];
 
     public static function merkeLog(string $level, array $args): void
     {
@@ -184,9 +201,28 @@ class EmployeeCreationPersonLinkTest extends TestCase
         $applicant = $this->bewerber('Bergmann', 'Oskar');
         $service = new CreateEmployeeFromApplicantService();
 
+        // Baseline VOR dem ersten Aufruf: andere Tests dieser Klasse teilen
+        // sich dieselbe :memory:-DB und haben bereits eigene rec_persons-
+        // Zeilen hinterlassen — die Vorbedingung unten prueft deshalb ein
+        // DELTA, nicht die absolute Anzahl.
+        $anzahlVorErstemAufruf = DB::table('rec_persons')->count();
+
         $ersterMitarbeiter = $service->createOrUpdate($applicant, null);
         $ersteRecPersonId = $ersterMitarbeiter->fresh()->rec_person_id;
         $anzahlNachErstemAufruf = DB::table('rec_persons')->count();
+
+        // Echte Vorbedingung (Fixrunde 1, Pruefer-Befund M4): ohne diese
+        // beiden Zeilen waere der Test vakuumsfaehig — er wuerde auch dann
+        // gruen bleiben, wenn linkPerson() gar nichts getan haette (null ===
+        // null, 0 === 0 nach dem zweiten Aufruf). Erst wenn feststeht, dass
+        // der ERSTE Aufruf tatsaechlich eine Personen-Zeile hinterlassen hat,
+        // sagt die Gleichheit nach dem zweiten Aufruf etwas ueber Idempotenz.
+        $this->assertNotNull($ersteRecPersonId, 'Vorbedingung: der erste Aufruf muss bereits eine Personen-Kennung gesetzt haben.');
+        $this->assertSame(
+            $anzahlVorErstemAufruf + 1,
+            $anzahlNachErstemAufruf,
+            'Vorbedingung: der erste Aufruf muss genau eine rec_persons-Zeile hinzufuegen.'
+        );
 
         $zweiterMitarbeiter = $service->createOrUpdate($applicant, null);
 
@@ -241,6 +277,85 @@ class EmployeeCreationPersonLinkTest extends TestCase
         $this->assertStringContainsString('Personen', $zeile['message']);
         $this->assertSame((int) $employee->id, (int) $zeile['context']['employee_id']);
         $this->assertNotEmpty($zeile['context']['error']);
+    }
+
+    // -----------------------------------------------------------------
+    // Der Beweis: der eigene Savepoint wirkt wirklich (Fixrunde 1, I1)
+    // -----------------------------------------------------------------
+
+    /**
+     * Der Docblock von linkPerson() begruendet den eigenen Savepoint auf neun
+     * Zeilen, ohne dass bisher ein Test ihn festnagelt (Pruefer-Befund I1,
+     * Mutation: DB::transaction(...) in linkPerson() entfernt, direkter
+     * Aufruf — der Testsatz blieb 9/9 gruen). Dieser Test macht den Savepoint
+     * MESSBAR, nach demselben Muster wie
+     * EmployeeCreationCertificateTest::testFremdeTransaktionUeberlebtEinenAusstellungsfehler:
+     * eine FREMDE Transaktion um den ganzen createOrUpdate()-Aufruf (Stand-in
+     * fuer DirectHire\Index::createEmployee(), die createOrUpdate() genauso
+     * innerhalb ihrer eigenen DB::transaction() ruft), dazu ein DB::listen(),
+     * das bei der rec_persons-INSERT-Query DB::transactionLevel() mitschreibt.
+     *
+     * Erwartete Ebene: 2. Ebene 1 ist die FREMDE Transaktion von aussen; die
+     * eigene Anlage-Transaktion in createOrUpdate() ist zu diesem Zeitpunkt
+     * schon wieder committet (linkPerson() laeuft ja HINTER ihr) und traegt
+     * hier also nichts mehr bei — die einzige noch offene zweite Ebene ist
+     * der Savepoint von linkPerson() selbst. Ohne ihn (Mutation) waere die
+     * Ebene bei der Query 1, nicht 2 — genau das faengt dieser Test.
+     */
+    public function testSavepointLiegtEineEbeneUeberDerFremdenTransaktion(): void
+    {
+        $applicant = $this->bewerber('Thalberg', 'Nora');
+        self::$erfassteTransaktionsEbenen = [];
+
+        $employee = DB::transaction(function () use ($applicant) {
+            return (new CreateEmployeeFromApplicantService())->createOrUpdate($applicant, null);
+        });
+
+        $this->assertSame(0, DB::transactionLevel(), 'Die fremde Transaktion muss committet haben.');
+        $this->assertNotNull($employee->fresh()->rec_person_id, 'Und der Personen-Link muss tatsaechlich gelaufen sein.');
+
+        $this->assertNotEmpty(
+            self::$erfassteTransaktionsEbenen,
+            'Die rec_persons-INSERT-Query wurde nicht protokolliert -- Listener oder SQL-Muster kaputt?'
+        );
+        $this->assertSame(
+            2,
+            self::$erfassteTransaktionsEbenen[0],
+            'Der Savepoint muss GENAU eine Ebene ueber der fremden Transaktion liegen.'
+        );
+    }
+
+    /**
+     * Die Gegenprobe zur gemessenen Ebene oben: scheitert der Personen-Link
+     * INNERHALB einer fremden Transaktion (wie bei DirectHire), muss GENAU
+     * der eigene Savepoint zurueckrollen -- die fremde Transaktion committet
+     * trotzdem, der Mitarbeiter steht. Ohne den Savepoint (Mutation) wuerde
+     * der gefangene Statement-Fehler auf abort-on-error-Engines die fremde
+     * Transaktion vergiften; SQLite deckt genau diesen Unterschied nicht auf
+     * (siehe Docblock-Hinweis in EmployeeCreationCertificateTest zum selben
+     * Fall beim Zertifikat) -- gemessen wird deshalb, DASS die fremde
+     * Transaktion sauber committet und der Mitarbeiter danach existiert,
+     * nicht, was auf Postgres ohne Savepoint passieren wuerde.
+     */
+    public function testFremdeTransaktionUeberlebtEinenPersonenLinkFehler(): void
+    {
+        $applicant = $this->bewerber('Voss', 'Karsten');
+
+        Schema::dropIfExists('rec_persons');
+        try {
+            $employee = DB::transaction(function () use ($applicant) {
+                return (new CreateEmployeeFromApplicantService())->createOrUpdate($applicant, null);
+            });
+        } finally {
+            self::stelleRecPersonsWieder();
+        }
+
+        $this->assertSame(0, DB::transactionLevel(), 'Keine offene Transaktion mehr.');
+        $this->assertNotNull(RecEmployee::find($employee->id), 'Die fremde Transaktion hat committet, der Mitarbeiter steht.');
+        $this->assertNull($employee->fresh()->rec_person_id, 'Ohne rec_persons-Tabelle konnte nichts verknuepft werden.');
+
+        $this->assertCount(1, self::$logZeilen);
+        $this->assertSame('error', self::$logZeilen[0]['level']);
     }
 
     // -----------------------------------------------------------------

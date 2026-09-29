@@ -142,7 +142,7 @@ class EmployeeCreationCertificateTest extends TestCase
      * laufen deshalb in BEIDEN Konstanten gleich mit dazu, nicht nur in der
      * SCHALTER_AUS-Zahl.
      */
-    private const QUERIES_VOR_DEM_HOOK = 26;
+    private const QUERIES_VOR_DEM_ZERTIFIKAT_HOOK = 26;
     private const QUERIES_SCHALTER_AUS = 27;
 
     /**
@@ -345,8 +345,8 @@ class EmployeeCreationCertificateTest extends TestCase
         $this->assertSame(
             self::QUERIES_SCHALTER_AUS,
             count($queries),
-            "Die Mitarbeiter-Anlage hat einen Query dazubekommen (vor dem Hook: "
-            . self::QUERIES_VOR_DEM_HOOK . "):\n" . implode("\n", array_column($queries, 'query'))
+            "Die Mitarbeiter-Anlage hat einen Query dazubekommen (vor dem Zertifikat-Hook: "
+            . self::QUERIES_VOR_DEM_ZERTIFIKAT_HOOK . "):\n" . implode("\n", array_column($queries, 'query'))
         );
 
         $this->assertSame([], self::$logZeilen, 'Ein ausgeschalteter Schalter ist kein Fehler.');
