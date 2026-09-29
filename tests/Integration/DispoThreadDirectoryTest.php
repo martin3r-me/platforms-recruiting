@@ -20,6 +20,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
+use Platform\Recruiting\Support\EinmalcodeVorlagen;
 
 /**
  * DispoThreadDirectory loest Person -> Thread auf (Runde 4, #1), fuer den
@@ -448,6 +449,97 @@ class DispoThreadDirectoryTest extends TestCase
         $this->assertSame('template', $result[0]['kind']);
         $this->assertSame('Hallo Tristan, am 24.09.2026 bist du bei Messe Düsseldorf eingeteilt.', $result[0]['body']);
         $this->assertSame(['Einsatz ansehen'], $result[0]['template_buttons']);
+    }
+
+    /**
+     * DER EINMALCODE STEHT NICHT IM CHAT.
+     *
+     * Der Sender schickt den Code als Vorlagen-Parameter, WhatsAppMetaService
+     * legt ihn als template_params ab, und die Zeile darueber setzt die Werte
+     * wieder in den Vorlagentext ein. Ohne Schwaerzung stuende hier dauerhaft
+     * "Dein Code lautet 123456" — fuer jeden, der die Unterhaltung sehen darf,
+     * und damit waere der Einmalcode ein Eintrag in einem Verlauf.
+     *
+     * Geprueft wird die SACHE, nicht die Maske: die sechs Ziffern duerfen in
+     * der gerenderten Blase nicht vorkommen. Der uebrige Satz bleibt stehen,
+     * damit erkennbar ist, DASS ein Code ging.
+     */
+    public function test_ein_einmalcode_wird_in_der_blase_geschwaerzt(): void
+    {
+        if (!Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
+            $this->markTestSkipped('Integrations-Paket nicht geladen.');
+        }
+
+        // Dieselbe Liste, aus der der Sender seine Vorlagennamen nimmt.
+        config()->set(EinmalcodeVorlagen::KONFIG, [
+            'passwort' => ['name' => 'konto_einmalcode', 'sprache' => 'de', 'platzhalter' => ['code']],
+        ]);
+
+        Capsule::table('integrations_whatsapp_templates')->insert([
+            'uuid' => 'tpl-code', 'external_id' => 'ext-code', 'name' => 'konto_einmalcode',
+            'language' => 'de', 'status' => 'APPROVED', 'whatsapp_account_id' => 1, 'user_id' => 1,
+            'components' => json_encode([
+                ['type' => 'BODY', 'text' => 'Dein Code lautet {{code}}.'],
+            ]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 172 8888890', null, false, '2026-09-29 09:00:00');
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound',
+            'body' => 'Template: konto_einmalcode',
+            'message_type' => 'template', 'template_name' => 'konto_einmalcode',
+            'template_params' => [
+                ['type' => 'body', 'parameters' => [
+                    ['type' => 'text', 'parameter_name' => 'code', 'text' => '481516'],
+                ]],
+            ],
+        ]);
+
+        $result = $this->directory()->messages(CommsWhatsAppThread::find($threadId), []);
+
+        $this->assertCount(1, $result);
+        $this->assertStringNotContainsString('481516', $result[0]['body'], 'Der Code gehoert nicht in den Verlauf.');
+        $this->assertStringContainsString('Dein Code lautet', $result[0]['body'], 'Dass einer ging, bleibt sichtbar.');
+        $this->assertStringNotContainsString('{{code}}', $result[0]['body'], 'Der Platzhalter muss ersetzt bleiben.');
+    }
+
+    /**
+     * Die Gegenprobe: eine Vorlage, die KEINE Code-Vorlage ist, zeigt ihre
+     * Werte weiterhin. Ohne sie koennte die Schwaerzung alles schwaerzen und
+     * der Test oben bliebe gruen.
+     */
+    public function test_eine_gewoehnliche_vorlage_zeigt_ihre_werte_weiter(): void
+    {
+        if (!Capsule::schema()->hasTable('integrations_whatsapp_templates')) {
+            $this->markTestSkipped('Integrations-Paket nicht geladen.');
+        }
+
+        config()->set(EinmalcodeVorlagen::KONFIG, [
+            'passwort' => ['name' => 'konto_einmalcode', 'sprache' => 'de', 'platzhalter' => ['code']],
+        ]);
+
+        Capsule::table('integrations_whatsapp_templates')->insert([
+            'uuid' => 'tpl-normal', 'external_id' => 'ext-normal', 'name' => 't_wo_bist',
+            'language' => 'de', 'status' => 'APPROVED', 'whatsapp_account_id' => 1, 'user_id' => 1,
+            'components' => json_encode([['type' => 'BODY', 'text' => 'Hi {{1}}, wo bist du?']]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 172 8888891', null, false, '2026-09-29 09:00:00');
+        CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'outbound',
+            'body' => 'Template: t_wo_bist', 'message_type' => 'template', 'template_name' => 't_wo_bist',
+            'template_params' => [
+                ['type' => 'body', 'parameters' => [['type' => 'text', 'text' => 'Vesa']]],
+            ],
+        ]);
+
+        $result = $this->directory()->messages(CommsWhatsAppThread::find($threadId), []);
+
+        $this->assertSame('Hi Vesa, wo bist du?', $result[0]['body']);
     }
 
     /** Ohne bekannte Vorlage bleibt die Karte, aber ohne erfundenen Text. */

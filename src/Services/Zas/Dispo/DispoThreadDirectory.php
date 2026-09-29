@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services\Zas\Dispo;
 
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Support\EinmalcodeVorlagen;
 use Platform\Recruiting\Support\WhatsAppTemplateRenderer;
 use Platform\Recruiting\Models\RecDispoAssignment;
 
@@ -303,8 +304,20 @@ class DispoThreadDirectory
             // ist beim Versand mit "Template: <name>" belegt und damit NICHT leer.
             $isTemplate = !empty($m->template_name);
             $definition = $isTemplate ? ($definitions[(string) $m->template_name] ?? null) : null;
+
+            // EINMALCODES WERDEN GESCHWAERZT, bevor sie in den Satz
+            // zurueckwandern. Der Sender schickt den Code als
+            // Vorlagen-Parameter, WhatsAppMetaService legt ihn als
+            // template_params ab — ungeschwaerzt stuende hier dauerhaft
+            // "Dein Code lautet 123456", fuer jeden, der die Unterhaltung
+            // sehen darf. DASS ein Code ging und WANN bleibt sichtbar; WAS
+            // er war, gehoert dem Menschen mit dem Handy in der Hand.
+            $werte = EinmalcodeVorlagen::istCodeVorlage($m->template_name)
+                ? EinmalcodeVorlagen::geschwaerzt($m->template_params)
+                : $m->template_params;
+
             $rendered = $definition !== null
-                ? WhatsAppTemplateRenderer::render($definition, $m->template_params)
+                ? WhatsAppTemplateRenderer::render($definition, $werte)
                 : null;
             $buttons = $definition !== null ? WhatsAppTemplateRenderer::buttonLabels($definition) : [];
 
