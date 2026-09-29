@@ -163,13 +163,16 @@ class KontoAnmelden extends Component
      * geben darf — eine Bremse, die nur bei Unbekannten zaehlt, waere selbst
      * das Orakel.
      *
-     * ZWANZIG, und die Zahl ist gerechnet, nicht geraten: Nummern
-     * durchzuprobieren braucht Tausende von Versuchen, zwanzig je Stunde
-     * machen daraus Wochen. Ein echter Mensch braucht einen, im schlechten
-     * Fall zwei. Der Abstand dazwischen ist der Spielraum fuer ein Buero, in
-     * dem mehrere hinter derselben Adresse sitzen — und sie liegt niedriger
-     * als MAX_IP_ATTEMPTS in PortalAuth (dreissig), weil dort nur
-     * FEHLVERSUCHE zaehlen und hier jeder Versuch.
+     * ZWANZIG, und die Zahl ist nachgerechnet: zwanzig je Stunde sind 480
+     * am Tag. Eine Liste von ein paar tausend Handynummern
+     * durchzuprobieren dauert damit Tage statt Minuten — und jeder dieser
+     * Versuche kostet uns eine Datenbankabfrage, kein Geld (verschickt wird
+     * nur an bekannte Nummern, und dort greift zusaetzlich die Drossel des
+     * Senders). Ein echter Mensch braucht einen Versuch, im schlechten Fall
+     * zwei; der Abstand dazwischen ist der Spielraum fuer ein Buero, in dem
+     * mehrere hinter derselben Adresse sitzen. Sie liegt niedriger als
+     * MAX_IP_ATTEMPTS in PortalAuth (dreissig), weil dort nur FEHLVERSUCHE
+     * zaehlen und hier jeder Versuch.
      */
     public const MAX_ANFRAGEN_JE_IP = 20;
 

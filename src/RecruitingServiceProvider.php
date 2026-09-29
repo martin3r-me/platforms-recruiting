@@ -269,6 +269,29 @@ class RecruitingServiceProvider extends ServiceProvider
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/zas-contact-backfill.log'));
 
+        // Weg 4 des Mitarbeiterkontos (Spec §5): der beantragte
+        // Nummernwechsel wird erst 24 Stunden nach dem Beweis faellig — und
+        // in diesem Augenblick ist niemand mehr da, der ihn ausloesen
+        // koennte. Die Person kommt ja gerade NICHT in ihr Konto, und HR
+        // soll nur STOPPEN muessen, nicht bestaetigen. Ohne diesen Eintrag
+        // bliebe jeder Antrag ewig liegen, und Weg 4 waere ein Formular ohne
+        // Wirkung.
+        //
+        // STUENDLICH, nicht minuetlich: die Frist ist eine Schutzfrist und
+        // keine Zusage auf die Minute. Der Preis steht hier, damit ihn
+        // niemand spaeter entdeckt — ein Wechsel wird bis zu einer Stunde
+        // SPAETER wirksam als die 24 Stunden, die der Mensch auf dem
+        // Bildschirm gelesen hat. In die andere Richtung kann es nicht
+        // gehen: KontoWriter::wendeNummernwechselAn() prueft die
+        // Faelligkeit selbst und laesst nichts zu frueh durch.
+        //
+        // Ohne offene Antraege ist der Lauf ein No-op (eine Abfrage, keine
+        // Nachricht).
+        Schedule::command('recruiting:konto-zuruecksetzen --faellig')
+            ->hourly()
+            ->withoutOverlapping(10)
+            ->runInBackground();
+
         // recruiting:nachweise-erinnern ABSICHTLICH OHNE Zeitplan-Eintrag
         // (Fixrunde 1, Aufgabe 4 — Ruling gegen einen fest auf --dry-run
         // stehenden Eintrag hier): ein Eintrag, der dauerhaft im Trockenlauf

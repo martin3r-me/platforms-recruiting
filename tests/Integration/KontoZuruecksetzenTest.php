@@ -1362,10 +1362,9 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertCount($vorherigeCalls, $this->meta->calls, 'falsche Ziffern verschicken nichts');
         $this->assertSame($richtig->state, $falsch->state);
 
-        // Der richtige Lauf traegt den Code noch auf der Seite; fuer den
-        // Vergleich des Markups zaehlt nur, was der Mensch SIEHT.
-        $richtig->code = '';
-
+        // OHNE VORHERIGES GLEICHMACHEN: hier wird nichts an den beiden
+        // Seiten zurechtgerueckt, bevor verglichen wird. Was sich
+        // unterscheidet, muss sich im Markup zeigen duerfen.
         $this->assertSame($this->rendere($richtig), $this->rendere($falsch));
     }
 
@@ -1868,6 +1867,28 @@ final class KontoZuruecksetzenTest extends TestCase
         $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
 
         $this->assertStringContainsString('Commands\\KontoZuruecksetzen::class', $quelle);
+    }
+
+    /**
+     * Und --faellig steht im Zeitplan.
+     *
+     * DAS IST DIE ZEILE, OHNE DIE WEG 4 NICHT FUNKTIONIERT: der beantragte
+     * Wechsel wird erst 24 Stunden spaeter faellig, und dann ist niemand
+     * mehr da, der ihn ausloest — die Person kommt ja gerade nicht in ihr
+     * Konto. Ohne Zeitplan-Eintrag bliebe jeder Antrag liegen, und jeder
+     * Test dieser Klasse bliebe trotzdem gruen, weil sie das Anwenden selbst
+     * ausloesen.
+     *
+     * Geprueft wird der Quelltext des ServiceProviders und nicht der
+     * laufende Zeitplan: diese Suite bootet den Wirt nicht (kein Laravel,
+     * kein Scheduler). Das ist die schwaechere Form — sie faengt das
+     * VERGESSEN, nicht einen falschen Rhythmus.
+     */
+    public function test_die_faelligen_antraege_stehen_im_zeitplan(): void
+    {
+        $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
+
+        $this->assertStringContainsString("Schedule::command('recruiting:konto-zuruecksetzen --faellig')", $quelle);
     }
 
     // ================================================================= Das Blade

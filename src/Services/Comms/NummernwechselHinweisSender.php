@@ -44,11 +44,20 @@ use Platform\Recruiting\Support\PhoneE164;
  * WARUM DAS NICHT IM EinmalcodeSender MITLAEUFT, obwohl Vorlagen-Aufloesung,
  * Kanal und Statuspruefung dort sehr aehnlich aussehen — drei Gruende, jeder
  * fuer sich ausreichend:
- *  1. DIE DROSSEL. Der Einmalcode-Sender bremst je Nummer und je Person
- *     (drei je Stunde). Der Hinweis faellt ZWANGSLAEUFIG in denselben
- *     Augenblick wie der dritte Code eines Vorgangs — er wuerde also gerade
- *     dann verschluckt, wenn am meisten passiert ist. Eine Warnung, die die
- *     Kostenbremse fuer Geheimnisse mitbremst, ist keine Warnung.
+ *  1. DIE DROSSEL. Der Einmalcode-Sender bremst je Nummer und je PERSON
+ *     (CodeDrossel::MAX_JE_STUNDE = 3). Liefe der Hinweis durch denselben
+ *     Zaehler, verschwaende er nicht nur einen Platz — er wuerde
+ *     VERSCHLUCKT, sobald die Person in dieser Stunde schon drei Codes
+ *     angefordert hat. NACHGERECHNET, nicht vermutet: bei genau einem
+ *     Vorgang (ein Code, dann der Hinweis) stuende der Zaehler erst bei
+ *     eins, es ginge also gut. Eng wird es bei dem, der sich vertippt hat
+ *     und es noch einmal versucht — und das ist genau der Mensch, bei dem am
+ *     meisten passiert ist. Eine Warnung, die ausfaellt, wenn viel los war,
+ *     ist keine Warnung.
+ *     (Berichtigt: hier stand "faellt ZWANGSLAEUFIG in denselben Augenblick
+ *     wie der dritte Code". Das stimmt nicht — bei einem glatten Vorgang
+ *     ginge der Hinweis durch. Die Entscheidung bleibt richtig, der Satz war
+ *     zu stark.)
  *  2. DAS GEHEIMNIS. Der andere Sender traegt einen Code und schwaerzt ihn
  *     deshalb aus jeder fremden Meldung (ohneCode()). Diese Vorlage traegt
  *     keines; sie braucht die Schwaerzung nicht und darf ihre Abwesenheit
@@ -133,7 +142,11 @@ final class NummernwechselHinweisSender
         }
 
         // Eine Vorlage ohne Platzhalter bekommt auch keinen leeren
-        // body-Abschnitt: Meta lehnt "parameters": [] ab.
+        // body-Abschnitt: was wir nicht befuellen, schicken wir auch nicht
+        // mit. Ob Meta ein leeres "parameters" annaehme, ist hier NICHT
+        // gemessen — die Frage stellt sich gar nicht, wenn der Abschnitt
+        // nicht entsteht. (Kein Satz ueber fremdes Verhalten, den niemand
+        // nachgerechnet hat.)
         $components = $parameter === [] ? [] : [['type' => 'body', 'parameters' => $parameter]];
 
         try {
