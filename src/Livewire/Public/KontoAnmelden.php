@@ -90,6 +90,15 @@ class KontoAnmelden extends Component
      * Beide Eintraege sind die Ziele aus Spec 2.2: die WhatsApp-Knoepfe
      * (Dokument, Erinnerung) fuehren auf das Portal, die Einsatz-Seite ist
      * die dort benannte Ausnahme (Spec 7).
+     *
+     * WER HIER ETWAS ERGAENZT, muss zieltAufEigenenToken() mitnehmen: dort
+     * wird verlangt, dass ein Pfadsegment des Ziels einer der eigenen
+     * portal_token ist. Eine Route OHNE Token in der Adresse liefe sauber
+     * durch erlaubtesZiel(), scheiterte dort still und landete auf der
+     * Huelle — kein Fehler, kein Log, nur ein Ziel, das nie ankommt.
+     * Festgenagelt ist das in einem Waechter-Test, der fuer jeden Eintrag
+     * ein {token} in der Route-Adresse verlangt; eine Warnung, die niemand
+     * liest, ist keine.
      */
     public const ZIEL_ROUTEN = [
         'recruiting.public.portal-shell',
@@ -119,9 +128,14 @@ class KontoAnmelden extends Component
      * stehen, und ohne diese Liste wuesste die Seite nicht, welche
      * Sitzungsschluessel sie wieder wegnehmen soll.
      *
-     * #[Locked], weil sie bestimmt, WELCHE Sitzungen geschlossen werden. Aus
-     * dem Browser gesetzt, koennte jemand hier fremde Kennungen eintragen —
-     * er koennte damit zwar nichts oeffnen, aber fremde Sitzungen schliessen.
+     * #[Locked] — aber NICHT aus dem Grund, der hier zuerst stand. "Fremde
+     * Sitzungen schliessen" geht damit nicht: session()->forget() arbeitet
+     * auf der Sitzung DIESER Anfrage, also der des Angreifers selbst.
+     *
+     * Der echte Grund ist der umgekehrte: mit einer geleerten Liste wird
+     * "Abmelden" zur ATTRAPPE. Die Seite sieht abgemeldet aus, die
+     * Sitzungsschluessel bleiben stehen — und auf einem geteilten Geraet
+     * kommt der Naechste, der die Seite oeffnet, einfach hinein.
      */
     #[Locked] public array $geoeffnet = [];
 
@@ -250,10 +264,10 @@ class KontoAnmelden extends Component
         // Versuchszaehler eines beliebigen fremden Tokens leerlaufen.
         //
         // KEINE KOPPLUNG an die Parameter der Zielrouten: gefragt wird nur,
-        // ob irgendein Pfadsegment einer der eigenen portal_token ist. WER
-        // KUENFTIG eine Route ohne Token in ZIEL_ROUTEN aufnimmt, muss diese
-        // Stelle mitnehmen — ein Ziel ohne Token faellt hier sonst immer weg
-        // und landet still auf der Startseite.
+        // ob irgendein Pfadsegment einer der eigenen portal_token ist. Die
+        // Auflage fuer kuenftige Eintraege in ZIEL_ROUTEN steht dort, wo sie
+        // gelesen wird — im Docblock der Liste —, und ein Waechter-Test haelt
+        // sie fest.
         if ($ziel !== '' && !self::zieltAufEigenenToken($ziel, $anstellungen)) {
             $ziel = '';
         }

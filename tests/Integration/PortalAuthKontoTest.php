@@ -315,6 +315,8 @@ final class PortalAuthKontoTest extends TestCase
      */
     private function fremdeKonten(int $anzahl): void
     {
+        // Gezaehlt wird ab eins: fremdeNummer(0) bleibt bewusst OHNE Konto,
+        // damit bisKurzVorDieGrenze() einen echten Leerlauf-Fall hat (N2).
         $hash = Hash::make(self::PASSWORT);
 
         for ($i = 1; $i <= $anzahl; $i++) {
@@ -336,7 +338,21 @@ final class PortalAuthKontoTest extends TestCase
     private function bisKurzVorDieGrenze(PortalAuth $auth): void
     {
         for ($i = 1; $i <= PortalAuth::MAX_IP_ATTEMPTS - 1; $i++) {
-            $ergebnis = $auth->anmeldenMitNummer(null, $this->fremdeNummer($i), self::FALSCHES_PASSWORT);
+            // DER ERSTE VERSUCH LAEUFT GEGEN EINE NUMMER OHNE KONTO (Fund
+            // N2). Das ist der teure Fall — pruefeAnmeldung() rechnet dafuer
+            // gegen den Leerlauf-Hash mit zwoelf Runden —, aber genau er
+            // deckt die tragende Zusicherung ab: der IP-Zaehler haengt an der
+            // Adresse und NICHT daran, ob es zu einer Nummer ein Konto gibt.
+            // Liefe er nur bei vorhandenen Konten mit, waere er ein Orakel
+            // ueber deren Bestand. Einer genuegt dafuer, die uebrigen
+            // achtundzwanzig bleiben billig.
+            //
+            // Die Beschleunigung dieser Schleife (22 s auf 1,8 s) hatte genau
+            // diese eine Zusicherung stillgelegt: die zugehoerige Mutation
+            // blieb gruen, weil alle Versuche gegen vorhandene Konten liefen.
+            $nummer = $i === 1 ? $this->fremdeNummer(0) : $this->fremdeNummer($i);
+
+            $ergebnis = $auth->anmeldenMitNummer(null, $nummer, self::FALSCHES_PASSWORT);
 
             $this->assertSame(
                 PortalAuth::FALSCH,

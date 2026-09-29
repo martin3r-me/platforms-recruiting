@@ -834,6 +834,34 @@ final class KontoAnmeldenTest extends TestCase
         $this->assertSame('', $seite->weiter);
     }
 
+    /**
+     * Jeder Eintrag in ZIEL_ROUTEN muss einen Token in der Adresse tragen.
+     *
+     * Das ist kein Selbstzweck: zieltAufEigenenToken() verlangt, dass ein
+     * Pfadsegment des Ziels einer der eigenen portal_token ist. Eine Route
+     * OHNE Token liefe sauber durch erlaubtesZiel(), scheiterte dort still
+     * und landete auf der Huelle — kein Fehler, kein Log, nur ein Ziel, das
+     * nie ankommt. Dieser Test faellt genau dann, wenn jemand die Liste
+     * erweitert, ohne jene Stelle mitzunehmen. Eine Warnung im Kommentar, die
+     * niemand liest, ist keine.
+     */
+    public function test_jedes_ziel_traegt_einen_token_in_der_adresse(): void
+    {
+        $this->assertNotSame([], KontoAnmelden::ZIEL_ROUTEN, 'Vorflug: die Liste darf nicht leer sein');
+
+        foreach (KontoAnmelden::ZIEL_ROUTEN as $name) {
+            $route = $this->router()->getRoutes()->getByName($name);
+
+            $this->assertNotNull($route, "Die Route {$name} aus ZIEL_ROUTEN ist gar nicht registriert.");
+            $this->assertStringContainsString(
+                '{token}',
+                $route->uri(),
+                "Die Route {$name} traegt keinen Token in der Adresse. Dann faellt jedes Ziel auf "
+                . 'sie in zieltAufEigenenToken() still weg — dort muss diese Aenderung mitgenommen werden.',
+            );
+        }
+    }
+
     public function test_ein_pfad_ohne_route_ist_kein_ziel(): void
     {
         $seite = $this->seite('/konto?weiter=' . rawurlencode('/gibt-es-nicht'));
@@ -1079,8 +1107,10 @@ final class KontoAnmeldenTest extends TestCase
             'state'  => 'der Zustand der Seite — genau der Bypass vom 19.08.2026',
             'weiter' => 'das gepruefte Weiterleitungsziel; ohne Sperre setzte $wire.set nach der '
                 . 'Pruefung eine beliebige Adresse, und die Positivliste waere Zierat',
-            'geoeffnet' => 'welche Sitzungen abmelden() wieder schliesst; aus dem Browser gesetzt '
-                . 'liessen sich damit fremde Sitzungen schliessen',
+            'geoeffnet' => 'welche Sitzungen abmelden() wieder schliesst; mit einer geleerten '
+                . 'Liste wird Abmelden zur Attrappe — die Seite sieht abgemeldet aus, die '
+                . 'Sitzungsschluessel bleiben stehen, und auf einem geteilten Geraet kommt der '
+                . 'Naechste hinein',
         ];
 
         // Absichtlich OFFEN, jede mit ihrem Grund. Ihre Sicherheit sitzt nicht
