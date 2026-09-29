@@ -527,6 +527,38 @@ Die Nummer wird **nicht** abgefragt — sie steht durch den Token fest.
 
 **Route:** `Route::get('/konto', KontoAnmelden::class)->name('recruiting.public.konto');`
 
+### Zweiter Teil dieser Aufgabe: der abtippbare Einladungscode bekommt endlich eine Tuer
+
+Ruling GD-4 haelt fest, was Canvas 68 (Eintrag 1740) woertlich verlangt: die Einladung
+geht raus **„als Link UND als kurzen lesbaren Code ... am Rechner kann man den Code auch
+eintippen."** Aufgabe 6 hat den Link gebaut (`/konto/anlegen/{token}`) — **die zweite
+Haelfte fehlt.** Es gibt heute keinen Weg, die acht Zeichen einzutippen; wer am Rechner
+sitzt und kein Handy zur Hand hat, kommt nicht hinein. Das ist keine Kuer, sondern die
+haelfte des Weges, den das Canvas beschreibt.
+
+**Bau die Tuer, nicht eine zweite Seite:**
+
+- Eine **tokenlose Route** `Route::get('/konto/anlegen', ...)` auf **dieselbe Komponente**
+  `KontoAnlegen`. Ohne Token zeigt sie **ein** Feld: den Einladungscode. Nach Eingabe
+  laeuft genau derselbe Weg wie beim Link — kein zweiter Pruefpfad, keine zweite Fassung
+  der Regel. Am einfachsten: die Eingabe leitet auf die bestehende Token-Route weiter,
+  dann gibt es die Pruefung weiterhin genau einmal.
+- **Dieselbe Route-Drossel** (`throttle:20,1`). Ohne sie waere die tokenlose Seite die
+  bequemere Tuer zum Durchprobieren als der Link — acht Zeichen aus 31 sind rund
+  850 Milliarden, aber nur mit Bremse.
+- **Grosszuegig lesen, streng pruefen:** Gross-/Kleinschreibung, Leerzeichen und
+  Bindestriche werden geschluckt (die acht Zeichen werden am Telefon vorgelesen und
+  abgetippt). Aufgabe 6 hat diese Normalisierung schon — **benutz sie, schreib sie nicht
+  neu.**
+- **Ein falscher Code gibt dieselbe Antwort wie ein ungueltiger Token.** Kein „Code
+  nicht gefunden" — das waere die Auskunft, dass es ihn gibt.
+- Von der Anmeldeseite fuehrt ein Verweis dorthin („Ich habe einen Einladungscode").
+
+**Waechter-Pflicht:** `KontoAnlegen` traegt seit Aufgabe 6 einen `#[Locked]`-Waechter als
+**geschlossene Welt** — jede oeffentliche Eigenschaft steht in genau einer der beiden
+Listen. Ein neues Feld fuer den Code zwingt dich zu einer Entscheidung. Triff sie
+bewusst und schreib den Grund hin.
+
 **Bindende Vorgaben:**
 - **Ein Weiterleitungsziel wird mitgefuehrt** und nach erfolgreicher Anmeldung
   angesprungen (Spec §2.2: „WhatsApp-Knoepfe fuehren zur Login-Seite und nach dem Passwort
