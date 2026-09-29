@@ -50,7 +50,7 @@ oder HR anrufen. Die Grenzen stehen als Konstanten an einer Stelle und sind aend
 |---|---|
 | `database/migrations/2026_09_29_000001_add_konto_felder_to_rec_persons.php` | Einladung, Code, Sperre |
 | `src/Support/PasswortRegeln.php` | **rein**: was ein gueltiges Passwort ist |
-| `src/Support/EinladungsToken.php` | **rein**: erzeugen, lesbarer Code, Gueltigkeit |
+| `src/Support/EinladungsToken.php` | **rein**: erzeugen (der Klartext IST der lesbare Code), Gueltigkeit |
 | `src/Support/Einmalcode.php` | **rein**: erzeugen, pruefen, Versuchszaehler |
 | `src/Support/CodeDrossel.php` | **rein**: Obergrenze je Nummer (Ruling GD-1) |
 | `src/Services/KontoWriter.php` | der **eine** Schreiber der Kontofelder |
@@ -153,7 +153,8 @@ git commit -m "feat(recruiting): die Personen-Zeile bekommt ihre Kontofelder —
   PasswortRegeln::MINDESTLAENGE;                        // 10
 
   EinladungsToken::erzeuge(): array{klartext: string, hash: string};
-  EinladungsToken::lesbar(string $klartext): string;    // 8 Zeichen, ohne Verwechsler
+  // klartext = 8 Zeichen ohne Verwechsler. Das IST der lesbare Code (Ruling GD-4),
+  // keine zweite Ableitung. Der Link traegt denselben Wert als Pfadstueck.
   EinladungsToken::istGueltig(?string $hash, ?string $ablauf, ?string $benutztAm, string $klartext, string $jetzt): bool;
   EinladungsToken::GUELTIG_TAGE;                        // 7
 
@@ -166,8 +167,14 @@ git commit -m "feat(recruiting): die Personen-Zeile bekommt ihre Kontofelder —
 **Bindende Vorgaben:**
 - Passwort: **Mindestlaenge, kein Zwang zu Sonderzeichen** (Spec §2.3). Laenge 10, weil
   die Nummer als Benutzername oeffentlich ist und allein das Passwort traegt.
-- Der lesbare Code laesst `0/O` und `1/I/l` weg — er wird am Telefon vorgelesen und
-  abgetippt.
+- **Ruling GD-4: ein Geheimnis, zwei Darreichungsformen.** Canvas 68 Eintrag 1740 sagt
+  woertlich „als Link **und** als kurzen lesbaren Code ... am Rechner kann man den Code
+  auch eintippen". Der Klartext ist deshalb selbst der abtippbare Acht-Zeichen-Code;
+  eine Anzeige-Ableitung, die `istGueltig()` nicht kennt, koennte man nicht eintippen.
+  Das Alphabet laesst `0/O` und `1/I/L` weg — der Code wird am Telefon vorgelesen.
+- **Folgeauflage aus GD-4 fuer Aufgabe 6:** acht Zeichen aus 31 sind rund 8,5e11
+  Moeglichkeiten bei sieben Tagen Gueltigkeit. Das traegt nur wegen der
+  Zwei-Nachweis-Regel — die Registrierungsseite **muss** Fehlversuche drosseln.
 - `istGueltig()` vergleicht **in konstanter Zeit** (`hash_equals`), nie mit `===`.
 - Abgelaufen, schon benutzt oder zu viele Versuche → `false`, ohne zu verraten, welches
   davon zutraf.
@@ -432,6 +439,22 @@ Die Nummer wird **nicht** abgefragt — sie steht durch den Token fest.
 - Kein Zahlentastatur-Zwang am Geburtsdatum (Login-Blocker vom 06.08.).
 - Ungueltiger, abgelaufener oder verbrauchter Token → **404**, nicht „Token ungueltig".
   Letzteres waere eine Auskunft darueber, dass es den Token gibt.
+- **Zwei Drosseln, aus Ruling GD-4 (tragend).** Der Token ist acht Zeichen aus 31 und
+  sieben Tage gueltig; ohne Bremse ist er erratbar.
+  1. **Die Route selbst** bekommt `->middleware('throttle:20,1')` — hoechstens 20
+     Aufrufe je Minute und IP. Das trifft das Durchprobieren von Token. Zwanzig statt
+     zehn, weil mehrere Mitarbeiter hinter derselben Firmen-IP sitzen koennen und ein
+     Fehlalarm hier die Kontoanlage blockiert.
+  2. **Das falsche Geburtsdatum** wird je Token gezaehlt:
+     `RateLimiter::tooManyAttempts('konto-anlegen:' . sha1($token), 5)` vor der
+     Pruefung, `RateLimiter::hit(..., 3600)` nach jedem Fehlschlag, `clear()` nach
+     Erfolg. Das trifft das Durchprobieren des zweiten Nachweises bei bekanntem Token —
+     ein plausibler Geburtsjahrgang-Bereich sind nur rund 25.000 Moeglichkeiten.
+     Beim Ueberschreiten antwortet die Seite **wie bei einem ungueltigen Token: 404**.
+     Eine eigene Meldung waere die Auskunft, dass es diesen Token gibt.
+  `RateLimiter` ist hier erlaubt — die Drossel sitzt in der Livewire-Komponente, nicht
+  in `src/Support`; die Reinheitsregel bindet die Regel-Klassen, nicht die Seite. Kein
+  neuer Spaltenname, keine zweite Migration: der Zaehler lebt im Cache.
 
 - [ ] **Step 1: Test schreiben, rot sehen** — gerenderte Durchlaeufe nach dem Muster von `tests/Integration/PortalShellProfilBladeTest.php`, plus ein Waechter, dass alle identitaetsentscheidenden Eigenschaften `#[Locked]` tragen (Muster: der E6-Test im Abnahmetest der Portal-Huelle).
 - [ ] **Step 2: Komponente und Blade schreiben**
