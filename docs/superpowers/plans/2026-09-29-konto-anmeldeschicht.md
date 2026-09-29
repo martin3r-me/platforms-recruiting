@@ -152,14 +152,14 @@ git commit -m "feat(recruiting): die Personen-Zeile bekommt ihre Kontofelder —
   PasswortRegeln::pruefe(string $passwort): ?string;   // null = in Ordnung, sonst die Meldung
   PasswortRegeln::MINDESTLAENGE;                        // 10
 
-  EinladungsToken::erzeuge(): array{klartext: string, hash: string};
+  EinladungsToken::erzeuge(string $pepper): array{klartext: string, hash: string};
   // klartext = 8 Zeichen ohne Verwechsler. Das IST der lesbare Code (Ruling GD-4),
   // keine zweite Ableitung. Der Link traegt denselben Wert als Pfadstueck.
-  EinladungsToken::istGueltig(?string $hash, ?string $ablauf, ?string $benutztAm, string $klartext, string $jetzt): bool;
+  EinladungsToken::istGueltig(?string $hash, ?string $ablauf, ?string $benutztAm, string $klartext, string $jetzt, string $pepper): bool;
   EinladungsToken::GUELTIG_TAGE;                        // 7
 
-  Einmalcode::erzeuge(): array{klartext: string, hash: string};   // sechs Ziffern
-  Einmalcode::istGueltig(?string $hash, ?string $ablauf, int $versuche, string $klartext, string $jetzt): bool;
+  Einmalcode::erzeuge(string $pepper): array{klartext: string, hash: string};   // sechs Ziffern
+  Einmalcode::istGueltig(?string $hash, ?string $ablauf, int $versuche, string $klartext, string $jetzt, string $pepper): bool;
   Einmalcode::GUELTIG_MINUTEN;                          // 10
   Einmalcode::MAX_VERSUCHE;                             // 5
   ```
@@ -176,6 +176,24 @@ git commit -m "feat(recruiting): die Personen-Zeile bekommt ihre Kontofelder —
   Moeglichkeiten bei sieben Tagen Gueltigkeit. Das traegt nur wegen der
   Zwei-Nachweis-Regel — die Registrierungsseite **muss** Fehlversuche drosseln.
 - `istGueltig()` vergleicht **in konstanter Zeit** (`hash_equals`), nie mit `===`.
+- **Ruling GD-5: die beiden kurzlebigen Geheimnisse werden gepfeffert.** `hash_hmac(
+  'sha256', $klartext, $pepper)` statt `hash('sha256', ...)`. Ein ungesalzenes SHA-256
+  ueber sechs Ziffern sind eine Million Moeglichkeiten — aus einem Datenbank-Abzug in
+  Sekunden zurueckgerechnet, fuer alle Zeilen in einem Durchlauf. Die Zwei-Nachweis-Regel
+  traegt hier NICHT: der zweite Nachweis ist das Geburtsdatum, und das steht in derselben
+  Datenbank. Der Pfeffer wird als Parameter hereingereicht (die Klassen bleiben rein) und
+  lebt spaeter in der `.env`, also gerade nicht im Abzug. Ausgabe bleibt 64 Zeichen Hex,
+  **keine Migration**. Leerer Pfeffer -> `InvalidArgumentException`; still ungepfeffert
+  weiterzurechnen saehe sicher aus und waere es nicht.
+- **Das Passwort wird NICHT gepfeffert** — es bekommt `Hash::make()`. Geht der Pfeffer
+  verloren, sterben offene Einladungen (sieben Tage) und laufende Codes (zehn Minuten);
+  das ist verschmerzbar. Mitgepfeffert wuerde derselbe Verlust jeden Mitarbeiter
+  dauerhaft aussperren. Die Asymmetrie ist Absicht.
+- **Passwort: Steuerzeichen abweisen** (`\0` bis `\x1F`, `\x7F`) — sonst wirft
+  `password_hash` spaeter `ValueError` und der Mitarbeiter sieht eine 500 statt einer
+  Formularmeldung. Hoechstlaenge 200. **Nicht trimmen:** truege nur, wenn jeder Aufrufer
+  beim Setzen UND beim Anmelden gleich trimmt — vergisst es einer, sperrt es alle
+  lautlos aus. Der rohe String braucht keine Absprache zwischen zwei Stellen.
 - Abgelaufen, schon benutzt oder zu viele Versuche → `false`, ohne zu verraten, welches
   davon zutraf.
 
@@ -303,6 +321,7 @@ public function test_unlesbare_zeitstempel_werden_uebersprungen_und_bremsen_nich
 
 **Files:**
 - Create: `src/Services/KontoWriter.php`
+- Modify: `config/recruiting.php` (Block `konto.pepper`)
 - Test: `tests/Integration/KontoWriterTest.php`
 
 **Interfaces:**
@@ -329,6 +348,27 @@ public function test_unlesbare_zeitstempel_werden_uebersprungen_und_bremsen_nich
   ```
 
 **Bindende Vorgaben:**
+- **Woher der Pfeffer kommt (Ruling GD-5).** `KontoWriter` ist die Stelle, die ihn
+  liest und an `EinladungsToken`/`Einmalcode` weiterreicht. Neuer Eintrag in
+  `config/recruiting.php` nach dem Muster der ZAS-Schluessel:
+  ```php
+  'konto' => [
+      // Pfeffer fuer Einladungs-Token und Einmalcode. NICHT fuer das Passwort.
+      // Faellt bewusst auf app.key zurueck: der steht auch nicht in der Datenbank,
+      // ist auf jedem Host gesetzt, und so kann kein vergessener .env-Eintrag die
+      // Kontoanlage auf prod stillegen. Ein eigener Wert geht vor, wenn gesetzt.
+      'pepper' => env('RECRUITING_KONTO_PEPPER') ?: config('app.key'),
+  ],
+  ```
+  Ein Wechsel des Pfeffers (oder des `APP_KEY`) macht offene Einladungen und laufende
+  Codes ungueltig — sieben Tage beziehungsweise zehn Minuten. Passwoerter beruehrt er
+  nicht, die haengen an `Hash::make()`.
+- **`Einmalcode` kennt kein „benutzt" (Fund F13 der Pruefung).** Anders als
+  `EinladungsToken` hat er kein `benutzt_at`. `loeseCodeEin()` muss den Code deshalb
+  **selbst entwerten**: `code_hash`, `code_ablauf`, `code_zweck`, `code_neue_nummer` auf
+  `null` und `code_versuche` auf `0`. Wer das vergisst, baut einen Code, der zehn Minuten
+  lang beliebig oft gilt. Eigener Test dafuer:
+  `test_ein_eingeloester_code_gilt_kein_zweites_mal`.
 - Jeder Schreibzugriff auf `rec_persons` **und** `rec_employees` laeuft ueber den Query
   Builder. Beim Nummernwechsel wandert die Nummer ueber
   `PersonLinker::setzeNummer()` — **nicht** selbst geschrieben, die Regel „die Nummer
@@ -354,6 +394,7 @@ public function test_eine_gesperrte_person_meldet_sich_nicht_an(): void
 public function test_eine_stillgelegte_person_meldet_sich_nicht_an(): void
 public function test_wer_nur_inaktive_anstellungen_hat_meldet_sich_nicht_an(): void
 public function test_ein_code_fuer_passwort_gilt_nicht_fuer_den_nummernwechsel(): void
+public function test_ein_eingeloester_code_gilt_kein_zweites_mal(): void
 public function test_die_nummer_wandert_beim_wechsel_auf_alle_anstellungen(): void
 public function test_kontoaenderungen_setzen_keinen_zas_marker(): void
 ```
