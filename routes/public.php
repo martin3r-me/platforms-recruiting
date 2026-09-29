@@ -59,6 +59,23 @@ Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\Employee
 Route::get('/mitarbeiter/neu/{token}', \Platform\Recruiting\Livewire\Public\PortalShell::class)
     ->name('recruiting.public.portal-shell');
 
+// Mitarbeiterkonto, Registrierung (Canvas 68, Spec 3). Die Einladung von HR
+// fuehrt hierher: Token aus der Adresse, dazu Geburtsdatum und Passwort.
+//
+// TOKEN AM URL-ENDE, wie bei /mitarbeiter/neu/{token} und /einsaetze/{token}:
+// Meta-URL-Buttons erlauben die Variable nur als Suffix, und diese Adresse geht
+// per WhatsApp-Knopf raus.
+//
+// DROSSEL 1 VON 2 (Ruling GD-4, tragend): der Token ist acht Zeichen aus 31 und
+// sieben Tage gueltig. Diese Bremse trifft das Durchprobieren von TOKEN -
+// hoechstens 20 Aufrufe je Minute und IP. Zwanzig statt zehn, weil mehrere
+// Mitarbeiter hinter derselben Firmen-IP sitzen koennen und ein Fehlalarm hier
+// die Kontoanlage blockierte. Die zweite Bremse (falsches Geburtsdatum bei
+// bekanntem Token) sitzt in der Komponente; keine der beiden ersetzt die andere.
+Route::get('/konto/anlegen/{token}', \Platform\Recruiting\Livewire\Public\KontoAnlegen::class)
+    ->middleware('throttle:20,1')
+    ->name('recruiting.public.konto-anlegen');
+
 // Dispo-Einsatz-Seite (token-only, NICHT im MA-Portal verlinkt — Spec 2026-08-14).
 // Token am URL-Ende: Meta-URL-Buttons erlauben die Variable nur als Suffix.
 Route::get('/einsaetze/{token}', \Platform\Recruiting\Livewire\Public\EmployeeAssignments::class)

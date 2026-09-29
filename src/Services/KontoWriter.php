@@ -124,6 +124,63 @@ final class KontoWriter
     }
 
     /**
+     * Wer steckt hinter diesem Einladungs-Token? Gibt die Personen-Kennung
+     * zurueck oder null — und nennt NIE einen Grund.
+     *
+     * Die Registrierungsseite bekommt aus der Adresse nur den Token; um
+     * registriere() aufzurufen, braucht sie die Personen-Kennung. Diese
+     * Aufloesung liegt HIER und nicht in der Seite, weil sie den Pfeffer
+     * braucht (Ruling GD-5): er wird an genau einer privaten Stelle gelesen.
+     * Eine zweite Stelle, die ihn holt, waere genau der Fehler, vor dem der
+     * Klassen-Docblock warnt — ein abweichender Schluessel, und das Geheimnis
+     * gilt lautlos nie.
+     *
+     * Kein Vergleich in SQL: der Hash muesste dafuer in der Abfrage stehen,
+     * und dann laege die Gueltigkeitsregel (abgelaufen? verbraucht?) ein
+     * zweites Mal in der WHERE-Klausel neben EinladungsToken::istGueltig().
+     * Stattdessen entscheidet AUSSCHLIESSLICH istGueltig(), so wie bei
+     * registriere() auch. Die Vorauswahl schneidet nur, was diese Klasse
+     * ohnehin nirgends anfasst: Zeilen ohne Token und Zeilen, die
+     * offeneZeile() gleich ablehnen wuerde — eine gesperrte oder
+     * stillgelegte Person soll aussehen, als gaebe es die Einladung nicht.
+     *
+     * Der Vergleich selbst laeuft ueber hash_equals() in istGueltig(), nicht
+     * ueber die Datenbank.
+     */
+    public static function personFuerEinladung(string $tokenKlartext): ?int
+    {
+        if (trim($tokenKlartext) === '') {
+            return null;
+        }
+
+        $pfeffer = self::pfeffer();
+        $jetzt   = self::jetzt();
+
+        $kandidaten = DB::table('rec_persons')
+            ->whereNotNull('invite_token_hash')
+            ->whereNull('locked_at')
+            ->whereNull('merged_into_person_id')
+            ->get(['id', 'invite_token_hash', 'invite_expires_at', 'invite_used_at']);
+
+        foreach ($kandidaten as $person) {
+            $gilt = EinladungsToken::istGueltig(
+                $person->invite_token_hash,
+                $person->invite_expires_at,
+                $person->invite_used_at,
+                $tokenKlartext,
+                $jetzt,
+                $pfeffer,
+            );
+
+            if ($gilt) {
+                return (int) $person->id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Token + Geburtsdatum + Passwort -> Konto steht.
      *
      * Zwei-Nachweis-Regel (Spec §2.4): acht Zeichen Token sind fuer sich

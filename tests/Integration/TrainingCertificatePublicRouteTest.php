@@ -62,10 +62,18 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * 'employee-assignments.attachment': Anhang-Download von der Einsatz-Seite
      * (Runde 3, Task 7), ebenfalls token-only, Ownership + Portalsperre in
      * DispoAttachmentAccess. Gleiches Muster wie oben.
+     *
+     * 'konto-anlegen': Registrierung des Mitarbeiterkontos (Canvas 68,
+     * Aufgabe 6). Auch sie ist allein mit einem Token erreichbar - gesehen
+     * und gewollt. Was sie dagegen traegt, steht an der Route und in der
+     * Komponente: throttle:20,1 gegen das Durchprobieren von Token, ein
+     * Zaehler je Einladung gegen das Durchprobieren des Geburtsdatums, und
+     * 404 statt einer Meldung, wenn der Token nicht (mehr) gilt.
      */
     private const SPAETER = [
         'recruiting.public.employee-assignments',
         'recruiting.public.employee-assignments.attachment',
+        'recruiting.public.konto-anlegen',
         'recruiting.public.portal-mockup',
         'recruiting.public.portal-shell',
     ];
