@@ -219,10 +219,17 @@ return [
         // - sprache:     der Sprachcode der genehmigten Fassung (Meta unterscheidet sie).
         // - platzhalter: die Body-Platzhalter der Vorlage, IN IHRER REIHENFOLGE.
         //                Befuellbar sind {{code}} (der Einmalcode), {{minuten}} (seine
-        //                Gueltigkeitsdauer) und der Vorname ({{name}}, {{vorname}},
-        //                {{1}}). Ein anderer Name verhindert den Versand — sonst
-        //                stuende dort still der Vorname statt des Codes, und Meta
-        //                naehme die Nachricht an. {{code}} ist Pflicht.
+        //                Gueltigkeitsdauer) und der Vorname ({{name}}, {{vorname}}).
+        //                Ein anderer Name verhindert den Versand — sonst stuende dort
+        //                still der Vorname statt des Codes, und Meta naehme die
+        //                Nachricht an. {{code}} ist Pflicht.
+        //
+        // ANFORDERUNG AN DIE META-VORLAGE: BENANNTE Platzhalter, kein {{1}}. Meta
+        // laesst benannte und positionelle Platzhalter nicht in derselben Vorlage zu;
+        // weil {{code}} benannt sein muss, kann eine Code-Vorlage gar nicht
+        // positionell sein. Wer trotzdem eine positionelle beantragt, bekommt sie
+        // genehmigt und dann von Meta jede Nachricht abgelehnt — und braucht am Ende
+        // genau das Deploy, das dieser Block vermeiden soll.
         //
         // Drei Zwecke, weil der Text sich unterscheidet ("Konto einrichten" gegen
         // "neue Nummer bestaetigen"). Genehmigt Meta nur EINE Vorlage, traegt man

@@ -261,7 +261,7 @@ final class EinmalcodeSenderTest extends TestCase
      * antwortet wie Meta mit status=failed. Wer $message->status nicht
      * anschaut (der Fehler aus RecEmployee::sendPortalNotification), meldet
      * hier `sent` — und jemand wartet auf einen Code, der nie ankam, waehrend
-     * das Protokoll „verschickt" sagt.
+     * das Protokoll "verschickt" sagt.
      */
     public function testVonMetaAbgelehnterVersandErgibtFailed(): void
     {
@@ -659,6 +659,58 @@ final class EinmalcodeSenderTest extends TestCase
             array_map(fn ($p) => $p->getName(), $echt),
             array_map(fn ($p) => $p->getName(), $attrappe),
         );
+    }
+
+    /**
+     * FUND F8: die {{code}}-Pflicht und die Platzhalter-Wache waren
+     * verschieden streng — die eine verglich gross/klein genau, die andere
+     * nicht. Eine Vorlage mit {{Code}} fiel deshalb an der Pflicht durch,
+     * obwohl der Wert befuellbar gewesen waere. Jetzt vergleichen beide
+     * klein.
+     */
+    public function testEinGrossGeschriebenerCodePlatzhalterZaehltAuch(): void
+    {
+        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['platzhalter' => ['Code']]);
+        $this->meta->genehmigt[self::VORLAGE] = ['Code'];
+
+        $status = (new EinmalcodeSender($this->cache))->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+
+        $this->assertSame(EinmalcodeSender::STATUS_SENT, $status);
+
+        $zeile = $this->laufenderCode();
+        $this->assertTrue(Einmalcode::istGueltig(
+            $zeile['hash'],
+            $zeile['expires'],
+            0,
+            $this->einzigerParameter($this->meta->calls[0]['components']),
+            self::JETZT,
+            self::PFEFFER,
+        ), 'Auch bei {{Code}} muss der echte Code drinstehen.');
+    }
+
+    /**
+     * FUND F5: ein Zustand, in dem sich NIEMAND mehr anmelden kann, darf
+     * nicht auf derselben Log-Stufe stehen wie jeder Erfolg — sonst geht er
+     * in der Flut unter.
+     */
+    public function testAusfaelleStehenAufDerRichtigenLogStufe(): void
+    {
+        $sender = new EinmalcodeSender($this->cache);
+
+        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => '']);
+        $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+        $this->assertSame('error', $this->log->zeilen[0]['stufe'], 'Keine Vorlage = niemand kommt mehr an einen Code.');
+
+        $this->log->zeilen = [];
+        $this->vorlageSetzen(KontoWriter::ZWECK_PASSWORT, ['name' => self::VORLAGE]);
+        $this->meta->lehntAbMitWert = true;
+        $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+        $this->assertSame('warning', $this->log->zeilen[0]['stufe'], 'Ein abgelehnter Versand ist Betrieb, kein Ausfall.');
+
+        $this->log->zeilen = [];
+        $this->meta->lehntAbMitWert = false;
+        $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+        $this->assertSame('info', $this->log->zeilen[0]['stufe'], 'Der Normalfall bleibt info.');
     }
 
     // ------------------------------- F2: vier Zusagen, die niemand hielt

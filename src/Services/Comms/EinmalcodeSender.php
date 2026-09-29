@@ -25,7 +25,7 @@ use Platform\Recruiting\Support\PhoneE164;
  *     `sendTemplate()`, OHNE `$message->status` zu pruefen — ein von Meta
  *     abgelehnter Versand gilt dort als Erfolg. Diese Klasse prueft den
  *     Status und meldet `STATUS_FAILED`. Sonst wartet jemand auf einen Code,
- *     der nie ankam, und das Protokoll sagt „verschickt".
+ *     der nie ankam, und das Protokoll sagt "verschickt".
  *  2. `HoldingTemplateComponents::build()` setzt bei einem UNBEKANNTEN
  *     Platzhalter still den Vornamen (oder den Beispielwert der Vorlage)
  *     ein. Heisst der Platzhalter in der Meta-Vorlage anders als gedacht,
@@ -115,7 +115,7 @@ use Platform\Recruiting\Support\PhoneE164;
  * genauso aussehen wie `STATUS_SENT`, sonst waere sie die Auskunft, dass es
  * die Nummer gibt. Fuer die aufrufende SEITE (Aufgabe 9) heisst das
  * schaerfer: sie darf KEINEN der drei Werte unterscheidbar anzeigen — auch
- * `STATUS_FAILED` nicht, denn dahinter steckt unter anderem „gesperrtes
+ * `STATUS_FAILED` nicht, denn dahinter steckt unter anderem "gesperrtes
  * Konto". Die Werte sind fuer das Protokoll und fuer Kommandos da, nicht
  * fuer die Oberflaeche.
  *
@@ -163,14 +163,19 @@ final class EinmalcodeSender
     private const DROSSEL_STUNDEN = 25;
 
     /**
-     * Die Platzhalternamen, die HoldingTemplateComponents::build() als
-     * VORNAMEN behandelt (isNameVar). Sie stehen hier, damit eine Vorlage
-     * mit {{name}} dasselbe bekommt wie ueberall sonst im Modul — und nicht,
-     * damit sie fuer irgendetwas anderes einstehen koennen.
+     * Die Platzhalternamen, die als VORNAME befuellt werden. Dieselben wie in
+     * HoldingTemplateComponents::build() (isNameVar), damit eine Vorlage mit
+     * {{name}} hier dasselbe bekommt wie ueberall sonst im Modul.
+     *
+     * OHNE das dortige '1' (Fund F3): eine Code-Vorlage traegt {{code}} und
+     * ist damit benannt, und Meta laesst benannte und positionelle
+     * Platzhalter nicht nebeneinander zu. Ein {{1}} kann in dieser Vorlage
+     * also gar nicht vorkommen; es hier zu fuehren, verspraeche etwas, das
+     * bei Meta scheitert.
      *
      * @var list<string>
      */
-    private const NAME_PLATZHALTER = ['name', 'vorname', '1'];
+    private const NAME_PLATZHALTER = ['name', 'vorname'];
 
     /** Platzhalter fuer den Code selbst. Ohne ihn geht die Vorlage nicht raus. */
     private const PLATZHALTER_CODE = 'code';
@@ -206,12 +211,12 @@ final class EinmalcodeSender
 
         $vorlage = $this->vorlage($zweck);
         if ($vorlage['fehler'] !== null) {
-            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, $vorlage['fehler']);
+            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, $vorlage['fehler'], 'error');
         }
 
         $kanal = $this->kanal((int) $person->team_id);
         if ($kanal === null) {
-            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, 'Kein aktiver WhatsApp-Kanal fuer das Team.');
+            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, 'Kein aktiver WhatsApp-Kanal fuer das Team.', 'error');
         }
 
         // ---- ab hier erst: die Drossel, und DANN das Erzeugen ------------
@@ -281,7 +286,7 @@ final class EinmalcodeSender
         } catch (\Throwable $e) {
             // ohneCode(): eine HTTP-Ausnahme fuehrt den gesendeten Rumpf im
             // Text mit, und darin steht der Code.
-            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, $this->ohneCode($e->getMessage(), $klartext));
+            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, $this->ohneCode($e->getMessage(), $klartext), 'warning');
         }
 
         // DIE ZEILE GEGEN DEN BEKANNTEN FEHLER: ein Erfolg gilt erst nach
@@ -289,7 +294,7 @@ final class EinmalcodeSender
         if (($nachricht->status ?? null) === 'failed') {
             $meldung = (string) ($nachricht->meta_payload['error']['message'] ?? 'Meta hat den Versand abgelehnt.');
 
-            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, $this->ohneCode($meldung, $klartext));
+            return $this->fertig($personId, $zweck, $nummer, self::STATUS_FAILED, $this->ohneCode($meldung, $klartext), 'warning');
         }
 
         return $this->fertig($personId, $zweck, $nummer, self::STATUS_SENT, null);
@@ -348,7 +353,10 @@ final class EinmalcodeSender
         // Ohne {{code}} ginge eine formal einwandfreie Nachricht raus, Meta
         // naehme sie an, der Versand gaelte als Erfolg — und dem Menschen
         // fehlte genau die Zahl, wegen der sie verschickt wurde.
-        if (!in_array(self::PLATZHALTER_CODE, $platzhalter, true)) {
+        // Gross-/Kleinschreibung egal - dieselbe Strenge wie bei der
+        // Platzhalter-Wache darueber, die schon immer klein verglichen hat
+        // (Fund F8: die beiden waren ungleich).
+        if (!in_array(self::PLATZHALTER_CODE, array_map('strtolower', $platzhalter), true)) {
             return $fehler(sprintf(
                 'Die Vorlage "%s" hat keinen {{%s}}-Platzhalter — eine Nachricht ohne den Code waere keine.',
                 $name,
@@ -387,11 +395,18 @@ final class EinmalcodeSender
     /**
      * Ein einzelner Body-Parameter.
      *
-     * `parameter_name` nur bei benannten Platzhaltern — eine Vorlage mit
-     * {{1}} ist positionell, und Meta lehnt einen Namen dort ab. Dieselbe
-     * Unterscheidung wie in HoldingTemplateComponents::build().
+     * IMMER BENANNT (Fund F3): hier stand eine Abzweigung fuer positionelle
+     * Vorlagen, und die war tot. Eine Code-Vorlage muss {{code}} enthalten,
+     * ist also benannt; Meta laesst benannte und positionelle Platzhalter in
+     * derselben Vorlage nicht nebeneinander zu. Ein positioneller Platzhalter
+     * konnte den Code folglich nie tragen - der Zweig sah aber aus, als
+     * koennte er es, und der Konfigurations-Kommentar versprach es sogar. Wer
+     * sich darauf verlaesst, beantragt bei Meta eine positionelle Vorlage und
+     * braucht am Ende genau das Deploy, das die Konfiguration vermeiden
+     * sollte. Damit ist es eine ANFORDERUNG AN DIE META-VORLAGE: benannte
+     * Platzhalter, {{code}} darunter.
      *
-     * @return array{type: string, text: string, parameter_name?: string}
+     * @return array{type: string, text: string, parameter_name: string}
      */
     private function parameter(string $name, string $klartext, int $personId): array
     {
@@ -401,12 +416,7 @@ final class EinmalcodeSender
             default                                         => $this->vorname($personId),
         };
 
-        $eintrag = ['type' => 'text', 'text' => $wert];
-        if (!is_numeric($name)) {
-            $eintrag['parameter_name'] = $name;
-        }
-
-        return $eintrag;
+        return ['type' => 'text', 'text' => $wert, 'parameter_name' => $name];
     }
 
     /**
@@ -465,6 +475,14 @@ final class EinmalcodeSender
      * Beim Schreiben werden zu alte Eintraege weggelassen — nicht fuer die
      * Richtigkeit (CodeDrossel zaehlt ohnehin nur innerhalb seiner Fenster),
      * sondern damit die Liste nicht endlos waechst.
+     *
+     * NICHT ATOMAR, UND DAS IST EINE ENTSCHEIDUNG (Fund F7): Lesen und
+     * Schreiben sind zwei Schritte. Zwei Anforderungen, die sich genau
+     * ueberlappen, koennen einander ueberschreiben - im schlimmsten Fall geht
+     * eine Nachricht zu viel raus, sieben Cent. Eine Sperre (Cache::lock)
+     * waere teurer als der Schaden: sie kostet bei JEDEM Versand einen
+     * zusaetzlichen Umlauf, und faellt sie aus, kommt niemand mehr an seinen
+     * Code. Wer das aendern will, rechne erst den Preis beider Seiten aus.
      */
     private function merkeAnforderung(string $schluessel, string $jetzt): void
     {
@@ -526,8 +544,21 @@ final class EinmalcodeSender
      * UND NIE DER CODE. Er steht in `$meldung` nur dann, wenn ihn ein
      * fremder Text mitgebracht hat — und der ist vor dem Aufruf durch
      * ohneCode() gelaufen.
+     *
+     * DREI STUFEN (Fund F5), und die Grenze verlaeuft nach der REICHWEITE:
+     *  - `error`   trifft ALLE: fehlende Vorlagen-Einstellung, unbekannter
+     *              Platzhalter, kein WhatsApp-Kanal. In diesem Zustand kann
+     *              sich niemand mehr ein Passwort zuruecksetzen. Auf `info`
+     *              stuende das auf derselben Stufe wie jeder Erfolg und ginge
+     *              in der Flut unter.
+     *  - `warning` trifft EINEN Versand, obwohl alles eingerichtet war: von
+     *              Meta abgelehnt, Ausnahme beim Senden. Einzelne Zeilen sind
+     *              Betrieb, viele sind ein Ausfall.
+     *  - `info`    der normale Verlauf, einschliesslich dessen, was an genau
+     *              diesem einen Menschen liegt (gesperrt, keine lesbare
+     *              Nummer), und die Drossel.
      */
-    private function fertig(int $personId, string $zweck, ?string $nummer, string $status, ?string $meldung): string
+    private function fertig(int $personId, string $zweck, ?string $nummer, string $status, ?string $meldung, string $stufe = 'info'): string
     {
         $daten = [
             'person_id' => $personId,
@@ -542,7 +573,7 @@ final class EinmalcodeSender
             $daten['meldung'] = $meldung;
         }
 
-        Log::info('recruiting.konto.einmalcode_versand', $daten);
+        Log::{$stufe}('recruiting.konto.einmalcode_versand', $daten);
 
         return $status;
     }
@@ -557,7 +588,7 @@ final class EinmalcodeSender
      * Text — Laravel setzt die Bindings in die Meldung ein
      * (QueryException::formatMessage, Str::replaceArray). Genau so eine
      * Meldung stand in diesem Testlauf auf dem Schirm:
-     * „... SQL: insert into "comms_channels" (...) values (3, chan-konto-code, ...)".
+     * "... SQL: insert into "comms_channels" (...) values (3, chan-konto-code, ...)".
      *
      * ProofReminderSender protokolliert $e->getMessage() woertlich — bei
      * einem Geheimnis darf das nicht sein, und ein Log ist genau der Ort, an

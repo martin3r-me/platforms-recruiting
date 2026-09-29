@@ -12,7 +12,7 @@ namespace Platform\Recruiting\Support;
  * Parameter als comms_whatsapp_messages.template_params ab, und
  * DispoThreadDirectory::messages() setzt sie ueber WhatsAppTemplateRenderer
  * wieder in den Vorlagentext ein (Kunde 23.09.: der Chat soll zeigen, was der
- * Mitarbeiter gelesen hat). Ohne diese Klasse stuende dort dauerhaft „Dein
+ * Mitarbeiter gelesen hat). Ohne diese Klasse stuende dort dauerhaft "Dein
  * Code lautet 123456" — fuer jeden, der die Unterhaltung sehen darf. Der
  * Einmalcode waere dann kein Einmalcode mehr, sondern ein Eintrag in einem
  * Verlauf.
