@@ -80,7 +80,10 @@ const TELEFON_PRAEFIX         = '+49000';
 
 /** Unveraendert uebernehmen — kein Personenbezug oder fuer den Test noetig. */
 const BEHALTEN = [
-    'id', 'team_id', 'is_active', 'company', 'employment_type',
+    // team_id steht bewusst NICHT hier: sie kommt aus der Produktion und passt
+    // auf keiner anderen Umgebung. Ohne --team landen die Datensaetze am
+    // falschen Mandanten und die Liste bleibt leer, obwohl alles drin ist.
+    'id', 'is_active', 'company', 'employment_type',
     'employment_classification', 'art_der_tatigkeit', 'umfang_der_tatigkeit',
     'is_eu_citizen', 'nationality', 'birth_country',
     'gender', 'marital_status', 'religion', 'number_of_children', 'tax_class',
@@ -233,10 +236,25 @@ function sqlWert(?string $wert): string
 }
 
 $csvPfad = null;
+$zielTeam = null;
 foreach ($argv as $arg) {
     if (str_starts_with($arg, '--csv=')) {
         $csvPfad = substr($arg, 6);
     }
+    if (str_starts_with($arg, '--team=')) {
+        $zielTeam = (int) substr($arg, 7);
+    }
+}
+
+if ($zielTeam === null) {
+    fwrite(STDERR, "FEHLER: --team=<kennung> fehlt.\n\n");
+    fwrite(STDERR, "Die Mandanten-Kennung aus der Produktion passt auf keiner anderen\n");
+    fwrite(STDERR, "Umgebung. Ohne sie landen die Datensaetze am falschen Mandanten und\n");
+    fwrite(STDERR, "die Liste bleibt leer, obwohl alles in der Tabelle steht.\n\n");
+    fwrite(STDERR, "Welche Kennung die Zielumgebung benutzt, verraet dort:\n");
+    fwrite(STDERR, "    SELECT team_id, COUNT(*) FROM rec_positions GROUP BY team_id;\n\n");
+    fwrite(STDERR, "Beispiel:  php tools/dump-mitarbeiter-pseudonym.php --csv=employe.csv --team=6 > demo.sql\n");
+    exit(1);
 }
 
 if ($csvPfad !== null) {
@@ -280,7 +298,8 @@ if ($csvPfad !== null) {
 $unbekannt = [];
 
 foreach ($spalten as $spalte) {
-    if (!in_array($spalte, BEHALTEN, true)
+    if ($spalte !== 'team_id'                       // wird aus --team gesetzt
+        && !in_array($spalte, BEHALTEN, true)
         && !in_array($spalte, DATEI_SPALTEN, true)
         && !in_array($spalte, ERSETZEN, true)
         && !in_array($spalte, LEEREN, true)) {
@@ -306,7 +325,8 @@ fwrite(STDERR, sprintf("%d Datensaetze gelesen, %d Spalten.\n", count($zeilen), 
 echo "-- Pseudonymisierter Mitarbeiter-Dump, erzeugt am " . date('Y-m-d H:i') . "\n";
 echo "-- Geburtsdaten sind um " . GEBURTSTAG_VERSCHIEBUNG . " Tage verschoben.\n";
 echo "-- Anmeldung im Portal: verschobenes Geburtsdatum + Ausweis-Endziffern 4711\n";
-echo "-- Telefonnummern liegen im Bereich " . TELEFON_PRAEFIX . " (nicht waehlbar).\n\n";
+echo "-- Telefonnummern liegen im Bereich " . TELEFON_PRAEFIX . " (nicht waehlbar).\n";
+echo "-- Alle Datensaetze haengen an Mandant " . $zielTeam . ".\n\n";
 echo "SET FOREIGN_KEY_CHECKS = 0;\n";
 echo "TRUNCATE TABLE rec_employees;\n\n";
 
@@ -316,6 +336,10 @@ foreach ($zeilen as $zeile) {
     foreach ($spalten as $spalte) {
         $wert = $zeile[$spalte];
 
+        if ($spalte === 'team_id') {
+            $neu[$spalte] = (string) $zielTeam;
+            continue;
+        }
         if (in_array($spalte, BEHALTEN, true) || in_array($spalte, DATEI_SPALTEN, true)) {
             $neu[$spalte] = $wert;
             continue;
