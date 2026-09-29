@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Services;
 
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
@@ -67,11 +68,15 @@ final class PortalAuth
      * dreissigmal; wer dreissig Fehlversuche in einer Stunde braucht, sucht
      * nicht sein Passwort.
      *
-     * KEIN ZEITKANAL: der Zaehler entsteht allein aus der Adresse des
-     * Anfragenden, ohne einen Blick in die Datenbank, und er laeuft bei
+     * KEIN ZEITKANAL: der Zaehler entsteht allein aus der Adresse der
+     * Verbindung, ohne einen Blick in die Datenbank, und er laeuft bei
      * "falsches Passwort" und "gibt es gar nicht" gleich weiter. Er verraet
      * also nichts darueber, ob es zu einer Nummer ein Konto gibt — dieselbe
      * Begruendung wie bei der Nummern-Bremse.
+     *
+     * WELCHE Adresse das ist, entscheidet ipSchluessel() — und zwar
+     * ausdruecklich NICHT ueber $request->ip() (Ruling GD-12, Begruendung
+     * dort).
      */
     public const MAX_IP_ATTEMPTS = 30;
 
@@ -352,6 +357,35 @@ final class PortalAuth
     /**
      * Der Drossel-Schluessel der Adresse, von der die Anfrage kommt.
      *
+     * NICHT $request->ip(), UND DAS IST DER GANZE PUNKT (Ruling GD-12).
+     *
+     * Der Wirt vertraut ALLEN Vermittlern: meingedeck/bootstrap/app.php
+     * setzt trustProxies(at: '*', headers: HEADER_X_FORWARDED_FOR | ...).
+     * Damit liest Laravel die Adresse aus der Kopfzeile X-Forwarded-For, und
+     * die schreibt der Anfragende selbst. Nachgemessen mit genau dieser
+     * Einstellung: bei REMOTE_ADDR 203.0.113.7 und der Kopfzeile 9.9.9.9
+     * liefert ip() den Wert 9.9.9.9.
+     *
+     * Eine Bremse auf dieser Grundlage waere schlimmer als gar keine:
+     *  - Sie deckelte die bcrypt-Kosten NICHT — ein neuer Kopfzeilen-Wert je
+     *    Anfrage gibt einen frischen Zaehler, und genau das, wofuer Ruling
+     *    GD-11 gebaut wurde, fiele aus.
+     *  - Sie waere eine AUSSPERR-WAFFE: dreissig Fehlversuche mit der
+     *    Buero-Adresse in der Kopfzeile sperrten dieses Buero eine Stunde
+     *    lang aus, und die Leute dort saehen dieselbe Meldung wie bei
+     *    falschem Passwort. Niemand kaeme darauf, woran es liegt.
+     *
+     * Genommen wird deshalb REMOTE_ADDR, die Adresse der TCP-Verbindung. Sie
+     * steht fest, bevor irgendeine Kopfzeile gelesen wird, und laesst sich
+     * vom Anfragenden nicht setzen.
+     *
+     * WANN DAS HIER BRICHT: kommt je ein CDN oder ein echter Vermittler
+     * davor, ist REMOTE_ADDR dessen Adresse — dann fallen ALLE Anfragen in
+     * einen Topf, und die Bremse sperrt alle zugleich aus. Dann, und erst
+     * dann, gehoert trustProxies im Wirt auf die tatsaechliche
+     * Vermittler-Adresse eingeengt (statt '*'); ab da ist $request->ip()
+     * wieder die richtige Quelle, und diese Methode gehoert zurueckgebaut.
+     *
      * GEHASHT, aus denselben zwei Gruenden wie bei der Nummer: eine IP ist
      * ein personenbezogenes Datum und hat im Klartext nichts in der
      * Cache-Tabelle zu suchen, und ein Hash ist immer gleich lang (cache.key
@@ -361,16 +395,11 @@ final class PortalAuth
      * faellt alles auf EINEN Schluessel. Das ist gewollt und harmlos: ueber
      * diesen Weg meldet sich niemand von der Konsole an, und ein gemeinsamer
      * Zaehler ist strenger als gar keiner.
-     *
-     * WELCHE Adresse hier steht, entscheidet der Wirt: hinter einem
-     * Vermittler liefert ip() dessen Adresse, solange er nicht als
-     * vertrauenswuerdig eingetragen ist. Wer die Bremse scharf haben will,
-     * prueft das dort — hier laesst sich das nicht entscheiden.
      */
     private function ipSchluessel(): string
     {
         $anfrage = app()->bound('request') ? app('request') : null;
-        $ip = is_object($anfrage) && method_exists($anfrage, 'ip') ? (string) $anfrage->ip() : '';
+        $ip = $anfrage instanceof Request ? (string) $anfrage->server->get('REMOTE_ADDR', '') : '';
 
         return 'ip:' . hash('xxh128', $ip);
     }

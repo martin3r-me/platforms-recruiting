@@ -218,6 +218,12 @@ final class PortalAuthKontoTest extends TestCase
         $container->forgetInstance('config');
         $container->forgetInstance('hash');
         $container->forgetInstance('request');
+
+        // setTrustedProxies ist PROZESSWEIT statisch. Bleibt der Eintrag
+        // stehen, liest jede spaetere Testklasse ihre Adresse ploetzlich aus
+        // einer Kopfzeile — ein Schaden, der nur im Gesamtlauf auffaellt.
+        Request::setTrustedProxies([], 0);
+
         Facade::clearResolvedInstances();
         parent::tearDown();
     }
@@ -258,13 +264,31 @@ final class PortalAuthKontoTest extends TestCase
         return new PortalAuth($this->cache);
     }
 
-    /** Alle folgenden Anfragen kommen von dieser Adresse. */
-    private function vonIp(string $ip): void
+    /**
+     * Alle folgenden Anfragen kommen von dieser Verbindung — wahlweise mit
+     * einer gefaelschten Kopfzeile X-Forwarded-For.
+     *
+     * DER WIRT WIRD DABEI NACHGEBAUT, und zwar genau so, wie Laravels
+     * TrustProxies-Werk es bei at: '*' tut: die anrufende Adresse gilt als
+     * vertrauenswuerdiger Vermittler (meingedeck/bootstrap/app.php). Ohne
+     * das waere diese Attrappe GROSSZUEGIGER als der Wirt — ip() lieferte
+     * dann brav REMOTE_ADDR, und der Test bliebe gruen, egal welche Quelle
+     * die Bremse nimmt.
+     */
+    private function vonIp(string $ip, ?string $gefaelschteKopfzeile = null): Request
     {
-        Container::getInstance()->instance(
-            'request',
-            Request::create('/recruiting/konto', 'GET', [], [], [], ['REMOTE_ADDR' => $ip]),
-        );
+        $server = ['REMOTE_ADDR' => $ip];
+
+        if ($gefaelschteKopfzeile !== null) {
+            $server['HTTP_X_FORWARDED_FOR'] = $gefaelschteKopfzeile;
+        }
+
+        $anfrage = Request::create('/recruiting/konto', 'GET', [], [], [], $server);
+        $anfrage->setTrustedProxies([$ip], Request::HEADER_X_FORWARDED_FOR);
+
+        Container::getInstance()->instance('request', $anfrage);
+
+        return $anfrage;
     }
 
     /**
@@ -935,6 +959,43 @@ final class PortalAuthKontoTest extends TestCase
                 self::FALSCHES_PASSWORT,
             )['status'],
             'Die richtige Anmeldung hat den IP-Zaehler abgeraeumt.',
+        );
+    }
+
+    /**
+     * Ruling GD-12: eine gefaelschte Kopfzeile verschiebt den Zaehler NICHT.
+     *
+     * Der Wirt vertraut allen Vermittlern (bootstrap/app.php, trustProxies
+     * at: '*'), also bestimmt der Anfragende, was $request->ip() liefert.
+     * Haengte der Zaehler daran, gaebe ein neuer Kopfzeilen-Wert je Anfrage
+     * einen frischen Zaehler — die Bremse waere wirkungslos —, und umgekehrt
+     * liesse sich damit ein fremdes Buero aussperren.
+     */
+    public function test_eine_gefaelschte_kopfzeile_verschiebt_den_zaehler_nicht(): void
+    {
+        $this->fremdeKonten(PortalAuth::MAX_IP_ATTEMPTS);
+        $auth = $this->auth();
+
+        // Vorflug: der Wirt IST faelschbar. Ohne diesen Nachweis pruefte der
+        // Test unten nur, dass zwei gleiche Dinge gleich sind.
+        $anfrage = $this->vonIp(self::IP, '9.9.9.9');
+        $this->assertSame('9.9.9.9', $anfrage->ip(), 'Vorflug: ip() muss hier die Kopfzeile liefern');
+        $this->assertSame(self::IP, $anfrage->server->get('REMOTE_ADDR'));
+
+        // Jede Anfrage mit einer ANDEREN Kopfzeile. Haengte der Zaehler an
+        // ip(), bekaeme jede ihren eigenen und keiner erreichte je die
+        // Grenze.
+        for ($i = 1; $i <= PortalAuth::MAX_IP_ATTEMPTS; $i++) {
+            $this->vonIp(self::IP, '9.9.9.' . $i);
+            $auth->anmeldenMitNummer(null, $this->fremdeNummer($i), self::FALSCHES_PASSWORT);
+        }
+
+        $this->vonIp(self::IP, '9.9.9.200');
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Die Bremse laesst sich mit einer selbstgeschriebenen Kopfzeile abschuetteln.',
         );
     }
 
