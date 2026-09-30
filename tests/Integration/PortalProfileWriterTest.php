@@ -589,14 +589,23 @@ class PortalProfileWriterTest extends TestCase
      * Ergebnis an einem Schreibvorgang ohne Portal in
      * EmployerFieldsExportMarkerTest. Hier wird der PORTAL-Schreibweg
      * gemessen — der ist es, der bisher an der Feldliste vorbeischrieb.
+     *
+     * DER AUSGANGSDATENSATZ TRAEGT DEN NAMEN SCHON, den das Formular
+     * mitschickt. Das sieht nach einem Widerspruch aus (bei "ja" leert R21
+     * die Spalte), ist aber Absicht: nur so aendert dieser Speichervorgang
+     * AUSSCHLIESSLICH is_main_employer. Mit einem leeren Ausgangswert wechselt
+     * other_employer mit, und der Test bliebe gruen, wenn man is_main_employer
+     * aus RELEVANT_EMPLOYEE_FIELDS herausnimmt — er wuerde dann gar nicht
+     * messen, was sein Name sagt. Genau diese Mutation wurde gefahren.
      */
     public function test_hauptarbeitgeber_setzt_den_marker(): void
     {
-        $ma = $this->mitarbeiter(['is_main_employer' => true]);
+        $ma = $this->mitarbeiter(['is_main_employer' => true, 'other_employer' => 'Mueller GmbH']);
 
         (new PortalProfileWriter())->speichere($ma, ['is_main_employer' => '0', 'other_employer' => 'Mueller GmbH'], 'Arbeitgeber');
 
         $this->assertFalse($ma->fresh()->is_main_employer);
+        $this->assertSame('Mueller GmbH', $ma->fresh()->other_employer, 'Der Test misst nicht mehr is_main_employer allein');
         $this->assertNotNull($this->frisch($ma)->zas_changed_at);
     }
 
@@ -605,6 +614,11 @@ class PortalProfileWriterTest extends TestCase
      * Ja/Nein-Antwort bleibt hier unveraendert auf "nein", nur der Name des
      * anderen Arbeitgebers wechselt. Sonst wuerde dieser Test bloss noch
      * einmal is_main_employer messen.
+     *
+     * Deshalb faellt dieser Test bei der Mutation "is_main_employer aus
+     * RELEVANT_EMPLOYEE_FIELDS herausnehmen" NICHT um — er haengt an der
+     * anderen Spalte. Seine Mutation ist "other_employer herausnehmen", und
+     * die wurde gefahren.
      *
      * Begruendung und Vorgeschichte: siehe den Test darueber. Bis zum
      * 30.09.2026 stand hier "setzt keinen Marker".
@@ -689,7 +703,10 @@ class PortalProfileWriterTest extends TestCase
         // Das alte Portal loest ihn aus, das neue tat es nicht, weil es ueber
         // den Query Builder schrieb. Genau diese Abweichung schliesst der
         // gemeinsame Schreibweg.
-        $ma = $this->mitarbeiter(['is_main_employer' => true]);
+        // Ausgangswert des Namens wie im Test des ZAS-Markers: so aendert
+        // sich hier nur is_main_employer, und die Schluss-Zeile haengt an
+        // keiner zweiten Spalte.
+        $ma = $this->mitarbeiter(['is_main_employer' => true, 'other_employer' => 'Mueller GmbH']);
 
         (new PortalProfileWriter())->speichere($ma, ['is_main_employer' => '0', 'other_employer' => 'Mueller GmbH'], 'Arbeitgeber');
 
