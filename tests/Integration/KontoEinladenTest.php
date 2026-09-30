@@ -55,7 +55,8 @@ use Symfony\Component\Console\Output\BufferedOutput;
  *     schon zweimal passiert.
  *  7. OBSERVER-FREI: eine Welle fasst rec_employees nicht an. Der Beleg ist
  *     rec_employees.updated_at (das fasst nur Eloquent automatisch an), bei
- *     registriertem ECHTEN Beobachter.
+ *     registriertem ECHTEN Beobachter. Die Zusicherung auf zas_changed_at
+ *     daneben ist ZIERDE und kein Nachweis — Naeheres am Test selbst.
  *
  * Schema und Aufbau von Hand (Migrationen laufen in dieser Suite nicht),
  * Vorbild KontoZuruecksetzenTest — inklusive Log-Attrappe vor
@@ -797,10 +798,18 @@ final class KontoEinladenTest extends TestCase
     /**
      * OBSERVER-FREI: eine Welle fasst rec_employees nicht an.
      *
-     * Der Beleg ist rec_employees.updated_at — das fasst nur Eloquent
-     * automatisch an. zas_changed_at kaeme hier ohnehin nicht in Frage (die
-     * Kontofelder stehen nicht in RELEVANT_EMPLOYEE_FIELDS); updated_at
-     * faellt dagegen bei JEDEM Eloquent-Speichern.
+     * ES TRAEGT GENAU EINE DER BEIDEN ZUSICHERUNGEN, naemlich die auf
+     * updated_at: das fasst nur Eloquent automatisch an, und die
+     * Mutationsprobe M17 hat sie fallen sehen (ein touch() auf die
+     * Anstellung macht sie rot).
+     *
+     * DIE ZWEITE IST ZIERDE. zas_changed_at laesst sich hier nicht zum
+     * Fallen bringen: der Marker entstuende nur ueber den Beobachter, der
+     * Beobachter nur ueber ein Eloquent-Speichern, und ein solches bricht
+     * in dieser Umgebung im catch (Throwable) des Kommandos ab, bevor die
+     * Zeile geprueft wird (Probe M18, nicht entscheidbar). Sie steht als
+     * Warnschild fuer einen spaeteren Umbau da — als Nachweis taugt sie
+     * nicht, und wer sie fuer einen haelt, glaubt den Marker geprueft.
      */
     public function test_eine_welle_fasst_die_anstellung_nicht_an(): void
     {
@@ -810,7 +819,11 @@ final class KontoEinladenTest extends TestCase
         $this->kommando(['--welle' => '10']);
 
         $zeile = DB::table('rec_employees')->where('id', $anstellung)->first();
+        // Diese Zeile traegt (Probe M17).
         $this->assertSame(self::ANGEFASST, (string) $zeile->updated_at);
+        // ZIERDE, KEIN NACHWEIS (Probe M18): strukturell gruen, weil der
+        // Marker in dieser Umgebung gar nicht entstehen kann. Nicht als
+        // Beleg zitieren.
         $this->assertNull($zeile->zas_changed_at);
     }
 

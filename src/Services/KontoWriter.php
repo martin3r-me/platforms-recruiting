@@ -957,18 +957,6 @@ final class KontoWriter
     }
 
     /**
-     * Neues Passwort setzen. Wirft, wenn das Passwort die Regeln verletzt —
-     * derselbe Massstab wie bei der Registrierung, weil es sonst zwei Wege
-     * mit zwei Massstaeben gaebe.
-     *
-     * ACHTUNG, zweiter Nachweis: diese Methode prueft NICHTS ausser den
-     * Passwortregeln. Wer sie aufruft, hat die Berechtigung vorher
-     * festzustellen — beim Zuruecksetzen also nicht nur den Einmalcode
-     * (loeseCodeEin), sondern den zweiten Nachweis aus Spec §2.4 dazu. Sonst
-     * genuegt der Zugriff auf ein fremdes Geraet, um das Konto zu
-     * uebernehmen. Der Ablauf liegt eine Ebene hoeher (Aufgabe 9).
-     */
-    /**
      * Welche dieser Personen haben NIRGENDS ein brauchbares Geburtsdatum?
      *
      * WOFUER: der Riegel am Einladungsknopf (Befund F6 der
@@ -1015,6 +1003,18 @@ final class KontoWriter
         return array_values(array_filter($personIds, static fn (int $id): bool => !isset($mitDatum[$id])));
     }
 
+    /**
+     * Neues Passwort setzen. Wirft, wenn das Passwort die Regeln verletzt —
+     * derselbe Massstab wie bei der Registrierung, weil es sonst zwei Wege
+     * mit zwei Massstaeben gaebe.
+     *
+     * ACHTUNG, zweiter Nachweis: diese Methode prueft NICHTS ausser den
+     * Passwortregeln. Wer sie aufruft, hat die Berechtigung vorher
+     * festzustellen — beim Zuruecksetzen also nicht nur den Einmalcode
+     * (loeseCodeEin), sondern den zweiten Nachweis aus Spec §2.4 dazu. Sonst
+     * genuegt der Zugriff auf ein fremdes Geraet, um das Konto zu
+     * uebernehmen. Der Ablauf liegt eine Ebene hoeher (Aufgabe 9).
+     */
     public static function setzePasswort(int $personId, string $passwort): void
     {
         self::offeneZeile($personId);
