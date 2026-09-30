@@ -1456,9 +1456,17 @@ final class KontoEinladenTest extends TestCase
      *
      * Der Pruefer hat ein update() in den Berichtszweig gesetzt — gruen.
      * Geprueft wird deshalb jetzt, was der Beobachter-Test unten vormacht:
-     * rec_persons.updated_at. Das faellt bei JEDEM Schreiben auf die Zeile,
-     * auch bei einem, das mit Einladungen gar nichts zu tun hat. Ein
-     * Bericht, der schreibt, ist kein Bericht.
+     * rec_persons.updated_at. Ein Bericht, der schreibt, ist kein Bericht.
+     *
+     * DIE GRENZE DIESER ZUSICHERUNG, und sie gehoert dazu: updated_at ist
+     * ein STELLVERTRETER, kein Beweis. Eloquent fasst die Spalte bei jedem
+     * Speichern an, und auch die Schreibwege dieses Kommandos fuehren sie
+     * mit — ein Schreiben ueber den Query-Builder, das updated_at
+     * AUSLAESST, ueberlebt diesen Test jedoch. Dieselbe Grenze hat der
+     * Beobachter-Test unten seit jeher. Wasserdicht waere nur ein
+     * Query-Listener; der waere teurer als der Gewinn. Wer diesen Test
+     * zitiert, sage also "es wird nicht auf die Zeile gestempelt" und
+     * nicht "es wird nichts geschrieben" — das steht hier nicht.
      */
     public function test_der_bericht_schreibt_gar_nichts(): void
     {
@@ -1475,10 +1483,12 @@ final class KontoEinladenTest extends TestCase
         [$code, $ausgabe] = $this->kommando(['--bericht' => true]);
 
         $this->assertSame(0, $code, $ausgabe);
+        // STELLVERTRETER, kein Beweis (s. Docblock): ein Query-Builder-
+        // Schreiben ohne updated_at ueberlebt diese Zeile.
         $this->assertSame(
             self::ANGEFASST,
             (string) $this->zeile($person)->updated_at,
-            "--bericht hat auf rec_persons geschrieben:\n{$ausgabe}",
+            "--bericht hat auf rec_persons gestempelt:\n{$ausgabe}",
         );
     }
 
@@ -1486,6 +1496,10 @@ final class KontoEinladenTest extends TestCase
      * Dasselbe fuer den Probelauf. "Nichts geaendert." steht in seiner
      * eigenen Ausgabe — es muss auch stimmen, und zwar fuer die ganze
      * Zeile, nicht nur fuer die Einladungsfelder.
+     *
+     * MIT DERSELBEN GRENZE wie oben: updated_at ist ein Stellvertreter. Ein
+     * Query-Builder-Schreiben, das die Spalte auslaesst, ueberlebt auch
+     * diesen Test.
      */
     public function test_der_probelauf_schreibt_gar_nichts(): void
     {
@@ -1495,10 +1509,11 @@ final class KontoEinladenTest extends TestCase
         [$code, $ausgabe] = $this->kommando(['--welle' => '10', '--dry-run' => true]);
 
         $this->assertSame(0, $code, $ausgabe);
+        // STELLVERTRETER, kein Beweis (s. Docblock).
         $this->assertSame(
             self::ANGEFASST,
             (string) $this->zeile($person)->updated_at,
-            "der Probelauf hat auf rec_persons geschrieben:\n{$ausgabe}",
+            "der Probelauf hat auf rec_persons gestempelt:\n{$ausgabe}",
         );
     }
 
@@ -1540,6 +1555,85 @@ final class KontoEinladenTest extends TestCase
         // Und der Grund steht im Log, damit ihn jemand findet.
         $alles = json_encode($this->log->zeilen, JSON_UNESCAPED_UNICODE) ?: '';
         $this->assertStringContainsString('recruiting.konto.einladung_fehler', $alles);
+    }
+
+    /**
+     * EIN ZAHLENANFANG MIT SCHROTT DAHINTER — die Menge, fuer die
+     * istZiffernfolge() ueberhaupt da ist.
+     *
+     * Die drei bisherigen Werte (abc, 0, leer) belegen die Funktion NICHT:
+     * jede der drei Optionen prueft zusaetzlich eine Untergrenze, und die
+     * erschlaegt sie alle mit. "ctype_digit(...)" durch "return true" zu
+     * ersetzen liess die ganze Suite gruen — derselbe Mechanismus wie bei
+     * Z4b, nur andersherum: zwei Waechter uebereinander, und der obere ist
+     * ungedeckt, weil der untere jeden Testwert schon faengt.
+     *
+     * Was daran haengt: ohne den Waechter wuerde aus "--ids=17;rm" still
+     * Person 17. Und die naheliegendste spaetere "Vereinfachung" ist
+     * is_numeric() — is_numeric('1.5') ist true.
+     *
+     * Getippt wird deshalb die EIGENE Kennung mit einem Zeichen dahinter:
+     * faellt der Waechter, laedt der Lauf genau diese Person ein, und der
+     * Test sieht es.
+     */
+    public function test_eine_kennung_mit_schrott_dahinter_ist_keine_kennung(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--ids' => $person . 'x', '--welle' => '10']);
+
+        $this->assertSame(1, $code, "'{$person}x' ging als Kennung durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /** Dasselbe fuer --team: sonst wuerde aus "3x" still Team 3. */
+    public function test_ein_team_mit_schrott_dahinter_ist_kein_team(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--team' => self::TEAM . 'x', '--welle' => '10']);
+
+        $this->assertSame(1, $code, "'" . self::TEAM . "x' ging als Team durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /** Und fuer --welle: sonst wuerde aus "1x" still eine Welle von einem. */
+    public function test_eine_welle_mit_schrott_dahinter_ist_keine_welle(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '1x']);
+
+        $this->assertSame(1, $code, "'1x' ging als Welle durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /**
+     * EINE KOMMAZAHL IST KEINE WELLE — der Waechter gegen die naheliegende
+     * "Vereinfachung" auf is_numeric().
+     *
+     * Die drei Tests darueber fangen sie NICHT: is_numeric('1x') ist selbst
+     * false. Was is_numeric durchliesse, sind Kommazahlen, Exponenten und
+     * Vorzeichen — is_numeric('1.5'), is_numeric('1e3') und is_numeric('+5')
+     * sind alle true, und (int) macht daraus 1, 1000 und 5. Aus
+     * "--welle=1e3" wuerde damit still eine Welle von tausend Menschen.
+     *
+     * EIN Test genuegt, weil istZiffernfolge() GETEILT ist: --team, --ids
+     * und --welle fragen dieselbe Methode, und eine Ersetzung faellt schon
+     * auf, wenn ein einziger Aufrufer sie bemerkt.
+     */
+    public function test_eine_kommazahl_ist_keine_welle(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '1.5']);
+
+        $this->assertSame(1, $code, "'1.5' ging als Welle durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
     }
 
     /** Die Tabellenzeile, deren erste Spalte diese Kennung traegt. */

@@ -146,6 +146,21 @@ final class KontoEinladen extends Command
         // Teilweise unbrauchbar: das VERENGT nur und ist damit die
         // ungefaehrliche Richtung — aber HR hat es getippt und wartet auf
         // eine Antwort, also wird es benannt statt still verschluckt.
+        //
+        // WARUM DER TEILAUSFALL HIER NICHT IN DEN RUECKGABEWERT GEHT: das
+        // Kommando ist gar nicht unbeaufsichtigt benutzbar. Sein Ertrag ist
+        // der Einladungscode, und der existiert ausschliesslich auf diesem
+        // Bildschirm — wer das Kommando faehrt, liest seine Ausgabe, sonst
+        // haette er es nicht gefahren. Der Teilausfall ist damit sichtbar,
+        // nicht destruktiv und vollstaendig heilbar (Kennung noch einmal
+        // tippen).
+        //
+        // MIT GATE E FAELLT DIESES ARGUMENT WEG. Sobald wirklich verschickt
+        // wird, liest niemand mehr zwingend mit, und das Kommando wird
+        // skriptfaehig; dann gehoert ein Teilausfall in den Rueckgabewert,
+        // weil ihn sonst nichts mehr bemerkt. Dann ist diese Stelle neu zu
+        // entscheiden — zusammen mit der Wiederholbarkeit, die aus demselben
+        // Grund am selben Tag faellig wird (s. Klassen-Docblock).
         if ($getippt['unbrauchbar'] !== []) {
             $this->line(sprintf(
                 'Keine Kennung, uebergangen: %s',
@@ -782,6 +797,21 @@ final class KontoEinladen extends Command
      * EINE Fassung dieser Frage fuer --team, --ids und --welle: drei
      * Fassungen liefen auseinander, und dann waere "--team=1x" abgewiesen
      * und "--welle=1x" nicht.
+     *
+     * WOFUER SIE DA IST, und das ist enger als es aussieht: alle drei
+     * Aufrufer pruefen ZUSAETZLICH eine Untergrenze. Ein "abc" oder eine "0"
+     * faengt die schon. Was NUR diese Methode faengt, ist der Zahlenanfang
+     * mit Schrott dahinter — "1x", "17;rm", "3 OR 1=1". Ohne sie wuerde
+     * daraus still Person 17 beziehungsweise Team 1, mit Rueckgabewert 0.
+     *
+     * NICHT DURCH is_numeric() ERSETZEN, so verlockend es aussieht:
+     * is_numeric('1.5'), is_numeric('1e3') und is_numeric('+5') sind alle
+     * true — und (int) macht daraus 1, 1000 und 5. Keins davon ist eine
+     * Kennung, und aus "--welle=1e3" wuerde eine Welle von tausend.
+     *
+     * (Fuehrende Leerzeichen sind KEIN Grund: die faengt das trim() hier
+     * ohnehin, und ein falsches Argument verbaut dem naechsten Leser den
+     * billigen Ausweg.)
      */
     private static function istZiffernfolge(mixed $wert): bool
     {
