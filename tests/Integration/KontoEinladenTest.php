@@ -1012,6 +1012,262 @@ final class KontoEinladenTest extends TestCase
         $this->assertStringContainsString('Kein offener Notfall-Antrag.', $offen);
     }
 
+    // ------------------------------------------- Nachgezogen aus den Proben
+
+    /**
+     * NACHGEZOGEN (Probe M8). Die Kennung im Antrags-Abschnitt war von
+     * keinem Test gedeckt: sie aus NummernwechselTafel::zeilen() zu
+     * entfernen liess die ganze Suite gruen — auch die von
+     * KontoZuruecksetzen.
+     *
+     * Sie ist aber das einzige, womit HR handeln kann: das Stoppen heisst
+     * recruiting:konto-zuruecksetzen --stopp=<Person>. Ein Antrag ohne
+     * Kennung ist eine Nachricht, auf die niemand antworten kann.
+     *
+     * Warum der Zeichenvergleich der beiden Kommandos das nicht gefangen
+     * hat: beide lesen DIESELBE Tafel — faellt die Spalte, faellt sie in
+     * beiden, und die Ausgaben bleiben identisch. Geteilter Code deckt sich
+     * nicht selbst ab.
+     */
+    public function test_der_bericht_nennt_die_kennung_des_antrags(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+        DB::table('rec_persons')->where('id', $person)->update([
+            'wechsel_neue_nummer'  => self::NUMMER_D,
+            'wechsel_beantragt_at' => self::JETZT,
+            'wechsel_wirksam_ab'   => '2026-09-30 12:00:00',
+            'wechsel_quelle'       => 'notfall',
+        ]);
+
+        [, $ausgabe] = $this->kommando(['--bericht' => true]);
+
+        $zeile = $this->antragsZeile($ausgabe);
+        $this->assertMatchesRegularExpression(
+            '/^\|\s*' . $person . '\s*\|/',
+            $zeile,
+            "die Kennung steht nicht in der ersten Spalte des Antrags:\n{$zeile}",
+        );
+    }
+
+    /**
+     * NACHGEZOGEN (Probe M24). Ein 'available' an DERSELBEN Nummer hebt ein
+     * 'unavailable' auf — die Entscheidung stand im Docblock, aber kein
+     * Test hielt sie fest: die aufhebende Bedingung zu loeschen liess alles
+     * gruen.
+     *
+     * Die Folge waere nicht klein: im CRM stehen alte und neue Zeilen
+     * nebeneinander, und ein veraltetes 'unavailable' wuerde sonst
+     * nachweislich erreichbare Menschen dauerhaft von der Umstellung
+     * ausschliessen — ohne Meldung, denn "kein WhatsApp" sieht wie eine
+     * Tatsache aus.
+     */
+    public function test_ein_available_hebt_ein_unavailable_an_derselben_nummer_auf(): void
+    {
+        $person     = $this->person(self::NUMMER, 'p-a');
+        $anstellung = $this->anstellung($person, 'tok-a');
+        $this->kontaktMitNummer($anstellung, 901, self::NUMMER, 'unavailable');
+
+        // Dieselbe Nummer, derselbe Kontakt, aber nachweislich erreichbar —
+        // die andere Zeile ist der veraltete Eintrag.
+        DB::table('crm_phone_numbers')->insert([
+            'phoneable_type'  => (new CrmContact())->getMorphClass(),
+            'phoneable_id'    => 901,
+            'international'   => self::NUMMER,
+            'is_active'       => 1,
+            'whatsapp_status' => 'available',
+            'created_at'      => self::ANGEFASST,
+            'updated_at'      => self::ANGEFASST,
+        ]);
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10']);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertNotNull(
+            $this->zeile($person)->invite_token_hash,
+            "ein veraltetes 'unavailable' haelt jemanden auf, der nachweislich erreichbar ist:\n{$ausgabe}",
+        );
+    }
+
+    /**
+     * NACHGEZOGEN (Probe M31). Der bestehende Gruppen-Test hat von jeder
+     * Gruppe GENAU EINE — damit sind 'registriert', 'eingeladen' und
+     * 'noch nicht eingeladen' gegeneinander austauschbar: die Zaehler zu
+     * vertauschen liess ihn gruen.
+     *
+     * Hier hat jede Gruppe eine EIGENE Groesse (1/2/3/4). Jede Verwechslung
+     * faellt damit auf, und das ist der Punkt von Spec §3: HR liest an
+     * diesen vier Zahlen ab, wie weit die Umstellung ist.
+     */
+    public function test_der_bericht_haelt_die_gruppen_auseinander(): void
+    {
+        $n = 0;
+        $anlegen = function (array $personAttr, array $anstellungAttr = []) use (&$n): void {
+            $n++;
+            $nummer = '+49151' . str_pad((string) $n, 7, '0', STR_PAD_LEFT);
+            $id     = $this->person($nummer, 'p-' . $n, $personAttr);
+            $this->anstellung($id, 'tok-' . $n, array_merge(['phone' => $nummer], $anstellungAttr));
+        };
+
+        // 1 registriert
+        $anlegen(['password_hash' => Hash::make(self::PASSWORT), 'registered_at' => self::ANGEFASST]);
+
+        // 2 eingeladen, kein Konto
+        for ($i = 0; $i < 2; $i++) {
+            $anlegen([
+                'invited_at'        => self::ANGEFASST,
+                'invite_token_hash' => str_repeat((string) $i, 64),
+                'invite_expires_at' => '2026-10-05 09:00:00',
+            ]);
+        }
+
+        // 3 noch nicht eingeladen
+        for ($i = 0; $i < 3; $i++) {
+            $anlegen([]);
+        }
+
+        // 4 nicht erreichbar
+        for ($i = 0; $i < 4; $i++) {
+            $anlegen([], ['birth_date' => null]);
+        }
+
+        [, $ausgabe] = $this->kommando(['--bericht' => true]);
+
+        $this->assertMatchesRegularExpression('/registriert\s*\|\s*1\s/', $ausgabe, $ausgabe);
+        $this->assertMatchesRegularExpression('/eingeladen, kein Konto\s*\|\s*2\s/', $ausgabe, $ausgabe);
+        $this->assertMatchesRegularExpression('/noch nicht eingeladen\s*\|\s*3\s/', $ausgabe, $ausgabe);
+        $this->assertMatchesRegularExpression('/nicht erreichbar\s*\|\s*4\s/', $ausgabe, $ausgabe);
+    }
+
+    /**
+     * NACHGEZOGEN (Probe M34). Der Antrags-Abschnitt wird ABSICHTLICH nicht
+     * nach --ids gefiltert — das stand im Docblock, aber ein Filter davor
+     * liess die Suite gruen.
+     *
+     * Der Abschnitt ist dafuer da, dass HR von einem Antrag ERFAEHRT. Ein
+     * Filter, den HR aus einem ganz anderen Grund gesetzt hat, duerfte das
+     * Stopp-Recht nicht lautlos abschalten.
+     */
+    public function test_ein_filter_auf_kennungen_versteckt_die_antraege_nicht(): void
+    {
+        $mitAntrag = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($mitAntrag, 'tok-a');
+        DB::table('rec_persons')->where('id', $mitAntrag)->update([
+            'wechsel_neue_nummer'  => self::NUMMER_D,
+            'wechsel_beantragt_at' => self::JETZT,
+            'wechsel_wirksam_ab'   => '2026-09-30 12:00:00',
+            'wechsel_quelle'       => 'notfall',
+        ]);
+
+        $anderer = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($anderer, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        [, $ausgabe] = $this->kommando(['--bericht' => true, '--ids' => (string) $anderer]);
+
+        $zeile = $this->antragsZeile($ausgabe);
+        $this->assertMatchesRegularExpression(
+            '/^\|\s*' . $mitAntrag . '\s*\|/',
+            $zeile,
+            "ein Filter auf andere Kennungen versteckt den Antrag:\n{$ausgabe}",
+        );
+    }
+
+    /**
+     * NACHGEZOGEN (Probe M36). Die Welle geht nach Kennung AUFSTEIGEND —
+     * die Sortierung umzudrehen liess die Suite gruen, weil der
+     * Wellen-Test nur die ANZAHL zaehlt.
+     *
+     * Die Reihenfolge ist aber die Zusage: zwei Laeufe hintereinander
+     * sollen dieselbe Menge meinen. Waere sie unbestimmt, waere "die
+     * naechsten 50" jedes Mal eine andere Gruppe Menschen, und niemand
+     * kaeme je an die Reihe.
+     */
+    public function test_die_welle_nimmt_die_kleinsten_kennungen_zuerst(): void
+    {
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+        $b = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($b, 'tok-b', ['phone' => self::NUMMER_B]);
+        $c = $this->person(self::NUMMER_C, 'p-c');
+        $this->anstellung($c, 'tok-c', ['phone' => self::NUMMER_C]);
+
+        [, $ausgabe] = $this->kommando(['--welle' => '1']);
+
+        $this->assertNotNull($this->zeile($a)->invite_token_hash, "nicht die kleinste Kennung zuerst:\n{$ausgabe}");
+        $this->assertNull($this->zeile($b)->invite_token_hash);
+        $this->assertNull($this->zeile($c)->invite_token_hash);
+    }
+
+    /**
+     * NACHGEZOGEN (Proben M39/M40). Die Spalte "Einladung gilt bis" und
+     * ihre Markierung "(abgelaufen)" waren von nichts gedeckt: beide
+     * wegzunehmen liess die Suite gruen.
+     *
+     * HR entscheidet danach, ob nachzufassen ist. Eine abgelaufene
+     * Einladung sieht ohne die Markierung genauso aus wie eine laufende —
+     * und der Mensch steht weiter unter "eingeladen", waehrend sein Code
+     * laengst tot ist.
+     */
+    public function test_der_bericht_markiert_eine_abgelaufene_einladung(): void
+    {
+        $abgelaufen = $this->person(self::NUMMER, 'p-a', [
+            'invited_at'        => '2026-09-20 09:00:00',
+            'invite_token_hash' => str_repeat('a', 64),
+            'invite_expires_at' => '2026-09-27 09:00:00',
+        ]);
+        $this->anstellung($abgelaufen, 'tok-a');
+
+        $laeuft = $this->person(self::NUMMER_B, 'p-b', [
+            'invited_at'        => self::ANGEFASST,
+            'invite_token_hash' => str_repeat('b', 64),
+            'invite_expires_at' => '2026-10-05 09:00:00',
+        ]);
+        $this->anstellung($laeuft, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        [, $ausgabe] = $this->kommando(['--bericht' => true]);
+
+        $alte  = $this->tabellenZeile($ausgabe, $abgelaufen);
+        $neue  = $this->tabellenZeile($ausgabe, $laeuft);
+
+        $this->assertStringContainsString('2026-09-27 09:00:00', $alte, 'die Frist fehlt');
+        $this->assertStringContainsString('(abgelaufen)', $alte, 'die abgelaufene Einladung ist nicht markiert');
+
+        $this->assertStringContainsString('2026-10-05 09:00:00', $neue, 'die Frist fehlt');
+        $this->assertStringNotContainsString('(abgelaufen)', $neue, 'eine laufende Einladung ist als abgelaufen markiert');
+    }
+
+    /**
+     * NACHGEZOGEN (Probe M41). Eine "0" ist keine Kennung — den Filter
+     * wegzunehmen liess die Suite gruen.
+     *
+     * Geprueft wird der RUECKGABEWERT, denn daran haengt die Sache: ginge
+     * die "0" als Kennung durch, waere --ids nicht mehr leer, die Bremse
+     * "ohne --welle kein Versand an alle" fiele aus, und ein abgeschnittener
+     * Aufruf (--ids=, aus einem Skript) liefe still als Erfolg durch.
+     */
+    public function test_eine_null_ist_keine_kennung(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--ids' => '0,']);
+
+        $this->assertSame(1, $code, "eine '0' ist als Kennung durchgegangen:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /** Die Tabellenzeile, deren erste Spalte diese Kennung traegt. */
+    private function tabellenZeile(string $ausgabe, int $kennung): string
+    {
+        foreach (explode("\n", $ausgabe) as $zeile) {
+            if (preg_match('/^\|\s*' . $kennung . '\s*\|/', trim($zeile)) === 1) {
+                return trim($zeile);
+            }
+        }
+
+        $this->fail("Keine Tabellenzeile fuer Kennung {$kennung} in der Ausgabe:\n{$ausgabe}");
+    }
+
     /**
      * Das Kommando ist im ServiceProvider eingetragen.
      *
