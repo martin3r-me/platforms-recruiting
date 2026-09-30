@@ -283,8 +283,13 @@ class DispoDressPackageTest extends DressTestCase
         $package = $this->package('Standard schwarz-weiss', 'weisses Hemd; schwarze Hose');
 
         $this->assertNotEmpty($package->uuid);
-        $this->assertTrue($package->is_active, 'Neue Pakete sind aktiv.');
-        $this->assertSame(0, $package->sort_order);
+
+        // fresh(): is_active und sort_order stehen als DB-Defaults in der
+        // Migration, nicht in den uebergebenen Attributen — das frisch
+        // erzeugte Model kennt sie noch nicht.
+        $reloaded = $package->fresh();
+        $this->assertTrue($reloaded->is_active, 'Neue Pakete sind aktiv.');
+        $this->assertSame(0, $reloaded->sort_order);
     }
 
     public function test_active_scope_hides_deactivated_packages(): void
@@ -1462,7 +1467,10 @@ Dazu die beiden Computed-Listen:
     #[Computed]
     public function dressPackages(): array
     {
+        // settingsTeamId() ist die vorhandene Team-Regel dieser Komponente —
+        // dieselbe, nach der die Pflegemaske und der Seeder schreiben.
         return \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->where('team_id', $this->settingsTeamId())
             ->active()
             ->orderBy('sort_order')->orderBy('name')
             ->pluck('name', 'id')
@@ -1479,7 +1487,10 @@ Dazu die beiden Computed-Listen:
     public function dressTexts(): array
     {
         $out = [];
-        foreach (\Platform\Recruiting\Models\RecDispoDressPackage::query()->active()->get() as $package) {
+        $query = \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->where('team_id', $this->settingsTeamId())
+            ->active();
+        foreach ($query->get() as $package) {
             $out[(string) $package->id] = (string) $package->items_text;
         }
 
