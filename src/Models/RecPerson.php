@@ -47,8 +47,28 @@ class RecPerson extends Model
     // Query Builder. Stuenden sie in $fillable, koennte jedes
     // RecPerson::update([...]) daran vorbeischreiben — und zwar per
     // Eloquent, also mit Beobachter-Lauf.
+    //
+    // invited_at und locked_at STANDEN hier, obwohl drei Docblocks das
+    // Gegenteil behaupteten (Schlusspruefung B2). Die Docblocks hatten
+    // recht, die Liste war falsch — beide sind jetzt draussen:
+    //  - invited_at setzt ladeEin() im selben Schreibvorgang wie den
+    //    Einladungs-Hash, und recruiting:konto-einladen liest die Spalte als
+    //    "schon eingeladen" und ueberspringt danach. Ein Stempel ohne
+    //    Einladung liesse Menschen still aus der Welle fallen.
+    //  - locked_at ist das Tor, an dem offeneZeile(), personFuerEinladung()
+    //    und darfSichAnmelden() haengen. Massenzuweisbar liesse sich eine
+    //    Sperre mit einem beliebigen Update AUFHEBEN — und die Sperre ist
+    //    die einzige Handhabe, die HR gegen ein Konto hat.
+    // Geschrieben hat beide im ganzen Modul nie jemand per Eloquent (ueber
+    // src/ gegriffen); der Ausbau kostet also nichts.
+    //
+    // WELCHE SPALTE HIER STEHEN DARF UND WELCHE NICHT, haelt seit dieser
+    // Runde ein Waechter ueber die GANZE Tabelle fest, keine Namensliste
+    // mehr: tests/Integration/MassenzuweisungGeschlosseneWeltTest.php. Wer
+    // eine Spalte ergaenzt, muss sie dort einordnen — beschreibbar oder
+    // gesperrt mit Grund.
     protected $fillable = [
-        'uuid', 'team_id', 'email', 'invited_at', 'locked_at',
+        'uuid', 'team_id', 'email',
     ];
 
     protected $casts = [

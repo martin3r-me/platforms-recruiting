@@ -27,6 +27,11 @@ use Platform\Recruiting\Support\PhoneE164;
  *    des Codes — nur noch eine Verabredung. Bei Anmeldedaten ist der Preis
  *    eines Fehlers hoch: ein durchgelassenes Geheimnis zeigt einem Menschen
  *    die Akte eines anderen.
+ *    Dieser Satz war bis zur Schlussrunde nur zur Haelfte wahr: invited_at
+ *    (setzt ladeEin()) und locked_at (das Tor dieser Klasse) STANDEN in
+ *    $fillable. Beide sind draussen, und seitdem haelt die Zusage keine
+ *    Namensliste mehr, sondern eine geschlossene Welt ueber die ganze
+ *    Tabelle — tests/Integration/MassenzuweisungGeschlosseneWeltTest.php.
  *
  *  - OBSERVER-FREI: jeder Schreibzugriff laeuft ueber DB::table(...), nie
  *    ueber Eloquent. Eine Kontoaenderung ist keine fachliche Aenderung am

@@ -142,6 +142,12 @@ class RecEmployee extends Model
         // Personen-Zuordnung wird ausschliesslich von PersonLinker gesetzt,
         // per DB::table(...). "EIN SCHREIBER" ist damit eine Eigenschaft des
         // Modells, nicht nur eine Verabredung.
+        // Bis zur Schlussrunde hielt diesen Satz allerdings KEIN Test —
+        // rec_person_id eingetragen liess die ganze Suite gruen. Jetzt haelt
+        // ihn ein Waechter ueber die GANZE Tabelle:
+        // tests/Integration/MassenzuweisungGeschlosseneWeltTest.php. Wer hier
+        // eine Spalte ergaenzt oder an der Tabelle eine neue anlegt, muss sie
+        // dort einordnen — beschreibbar oder gesperrt mit Grund.
 
         'created_by_user_id',
     ];
