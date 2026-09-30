@@ -1338,6 +1338,113 @@ final class KontoEinladenTest extends TestCase
         $this->assertNull($this->zeile($person)->invite_token_hash);
     }
 
+    /**
+     * DER GEFAEHRLICHE FALL: `--ids=abc --welle=10` darf NICHT die ganze
+     * Zielgruppe einladen.
+     *
+     * Eine leere Kennungsliste heisst in diesem Kommando nicht "niemand",
+     * sondern "KEIN FILTER". Solange die Wellen-Bremse greift, faellt das
+     * nicht auf — steht aber ein --welle dabei (und in einem Skript steht
+     * es praktisch immer), lud der Lauf frueher den ganzen Bestand ein, mit
+     * Rueckgabewert 0 und ohne ein Wort darueber, dass --ids verworfen
+     * wurde.
+     *
+     * Das ist die GEGENRICHTUNG zum Wellen-Fehler und die teurere: die
+     * Welle verengte still auf niemanden, --ids weitete still auf alle. Eine
+     * Welle laesst sich nicht zuruecknehmen.
+     */
+    public function test_unbrauchbare_kennungen_laden_nicht_die_ganze_zielgruppe_ein(): void
+    {
+        $a = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($a, 'tok-a');
+        $b = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($b, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        [$code, $ausgabe] = $this->kommando(['--ids' => 'abc', '--welle' => '10']);
+
+        $this->assertSame(1, $code, "ein unbrauchbares --ids lief als Erfolg durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($a)->invite_token_hash, "die ganze Zielgruppe wurde eingeladen:\n{$ausgabe}");
+        $this->assertNull($this->zeile($b)->invite_token_hash, "die ganze Zielgruppe wurde eingeladen:\n{$ausgabe}");
+    }
+
+    /**
+     * Dasselbe fuer die "0" — und zwar MIT Welle.
+     *
+     * Der Anlass, den der Docblock von kennungen() nennt, ist ein
+     * abgeschnittener Aufruf aus einem Skript ("--ids=,"). Ein Skript hat in
+     * aller Regel ein --welle dabei; ohne Welle greift noch die andere
+     * Bremse, und der Test prueft dann die harmlose Haelfte.
+     */
+    public function test_eine_null_mit_welle_laedt_nicht_alle_ein(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--ids' => '0,', '--welle' => '10']);
+
+        $this->assertSame(1, $code, "eine '0' als einzige Kennung lief mit Welle durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /** Auch der Bericht laeuft nicht mit einem verworfenen --ids weiter. */
+    public function test_der_bericht_weist_ein_unbrauchbares_ids_ab(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--ids' => 'abc', '--bericht' => true]);
+
+        $this->assertSame(1, $code, "der Bericht lief mit verworfenem --ids weiter:\n{$ausgabe}");
+    }
+
+    /**
+     * Teilweise unbrauchbar VERENGT nur — das ist die ungefaehrliche
+     * Richtung, und der Lauf geht weiter. Benannt wird es trotzdem: HR hat
+     * es getippt und wartet auf eine Antwort.
+     */
+    public function test_teilweise_unbrauchbare_kennungen_verengen_nur(): void
+    {
+        $gemeint = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($gemeint, 'tok-a');
+        $anderer = $this->person(self::NUMMER_B, 'p-b');
+        $this->anstellung($anderer, 'tok-b', ['phone' => self::NUMMER_B]);
+
+        [$code, $ausgabe] = $this->kommando(['--ids' => 'abc,' . $gemeint]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertNotNull($this->zeile($gemeint)->invite_token_hash);
+        $this->assertNull($this->zeile($anderer)->invite_token_hash);
+        $this->assertStringContainsString('abc', $ausgabe, 'das Unbrauchbare wird still verschluckt');
+    }
+
+    /**
+     * `--team=abc` wurde still zu Team 0 — und weil es kein Team 0 gibt, war
+     * die Zielgruppe leer und der Lauf meldete "0 eingeladen" mit Erfolg.
+     * Dieselbe stille Verengung wie frueher bei --welle, dieselbe Antwort.
+     */
+    public function test_ein_team_das_keine_kennung_ist_wird_abgewiesen(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--team' => 'abc', '--welle' => '10']);
+
+        $this->assertSame(1, $code, "ein unbrauchbares --team lief als Erfolg durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /** Ein richtiges Team geht weiterhin durch — die Abweisung ist kein Riegel. */
+    public function test_ein_richtiges_team_geht_weiterhin_durch(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--team' => (string) self::TEAM, '--welle' => '10']);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertNotNull($this->zeile($person)->invite_token_hash);
+    }
+
     /** Die Tabellenzeile, deren erste Spalte diese Kennung traegt. */
     private function tabellenZeile(string $ausgabe, int $kennung): string
     {

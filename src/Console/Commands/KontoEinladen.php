@@ -104,8 +104,56 @@ final class KontoEinladen extends Command
 
     public function handle(): int
     {
-        $teamId = $this->option('team') !== null ? (int) $this->option('team') : null;
-        $ids    = $this->kennungen();
+        $rohTeam = $this->option('team');
+
+        // EIN TEAM IST EINE KENNUNG, SONST IST ES KEINES. Hier stand blosses
+        // (int)-Umdeuten: "--team=abc" wurde damit still zu Team 0, und weil
+        // es kein Team 0 gibt, war die Zielgruppe leer. Der Lauf meldete
+        // dann "0 eingeladen" mit Erfolg — dieselbe stille Verengung wie
+        // frueher bei --welle.
+        if ($rohTeam !== null && (!self::istZiffernfolge($rohTeam) || (int) $rohTeam < 1)) {
+            $this->error(sprintf(
+                '--team braucht eine Team-Kennung, keine Angabe wie "%s". Beispiel: --team=3.',
+                (string) $rohTeam,
+            ));
+
+            return self::FAILURE;
+        }
+
+        $teamId = $rohTeam !== null ? (int) $rohTeam : null;
+
+        $getippt = $this->kennungen();
+
+        // --ids GAB ES, ABER NICHTS DAVON IST EINE KENNUNG.
+        //
+        // Das ist der gefaehrlichste der drei Faelle, und er ist die
+        // GEGENRICHTUNG zum Wellen-Fehler: eine leere Kennungsliste heisst
+        // in diesem Kommando nicht "niemand", sondern "KEIN FILTER". Wer
+        // "--ids=abc --welle=10" tippte, meinte drei Menschen und bekam die
+        // ganze Zielgruppe — mit Rueckgabewert 0 und ohne ein Wort darueber,
+        // dass --ids verworfen wurde. Eine Welle laesst sich nicht
+        // zuruecknehmen.
+        if ($getippt['brauchbar'] === [] && $getippt['unbrauchbar'] !== []) {
+            $this->error(sprintf(
+                '--ids enthaelt keine Kennung: %s. Kennungen sind positive Zahlen, komma-getrennt (z. B. --ids=17,205). '
+                . 'Abgebrochen, weil ein leeres --ids KEIN Filter ist — der Lauf ginge sonst an die ganze Zielgruppe.',
+                implode(', ', $getippt['unbrauchbar']),
+            ));
+
+            return self::FAILURE;
+        }
+
+        // Teilweise unbrauchbar: das VERENGT nur und ist damit die
+        // ungefaehrliche Richtung — aber HR hat es getippt und wartet auf
+        // eine Antwort, also wird es benannt statt still verschluckt.
+        if ($getippt['unbrauchbar'] !== []) {
+            $this->line(sprintf(
+                'Keine Kennung, uebergangen: %s',
+                implode(', ', $getippt['unbrauchbar']),
+            ));
+        }
+
+        $ids = $getippt['brauchbar'];
 
         return $this->option('bericht')
             ? $this->bericht($teamId, $ids)
@@ -139,7 +187,7 @@ final class KontoEinladen extends Command
         //
         // Der Probelauf ist NICHT ausgenommen: eine falsch getippte Welle
         // sagt ihm genauso wenig, wie gross die echte waere.
-        if ($rohWelle !== null && !ctype_digit(trim((string) $rohWelle))) {
+        if ($rohWelle !== null && !self::istZiffernfolge($rohWelle)) {
             $this->error(sprintf(
                 '--welle braucht eine Anzahl, keine Angabe wie "%s". Beispiel: --welle=50.',
                 (string) $rohWelle,
@@ -672,22 +720,59 @@ final class KontoEinladen extends Command
     }
 
     /**
-     * Die getippten Kennungen. Alles, was keine positive Zahl ist, faellt
-     * weg — eine "0" oder ein Leerfeld aus einem abgeschnittenen Aufruf darf
-     * nicht als Kennung durchgehen.
+     * Die getippten Kennungen, getrennt nach brauchbar und unbrauchbar.
      *
-     * @return list<int>
+     * WARUM DAS UNBRAUCHBARE MITKOMMT UND NICHT EINFACH WEGFAELLT: eine
+     * leere Kennungsliste heisst in diesem Kommando nicht "niemand",
+     * sondern "KEIN FILTER". Gaebe diese Methode fuer "--ids=abc" nur ein
+     * leeres Feld zurueck, liefe "--ids=abc --welle=10" gegen die GANZE
+     * Zielgruppe, und der Aufrufer koennte den Fall nicht mehr von "--ids
+     * wurde gar nicht getippt" unterscheiden. Die Entscheidung, was daraus
+     * folgt, faellt in handle(); hier wird nur sauber getrennt.
+     *
+     * Eine "0" ist keine Kennung: sie entsteht aus einem abgeschnittenen
+     * Aufruf ("--ids=,") genauso wie aus einem Vertipper.
+     *
+     * @return array{brauchbar: list<int>, unbrauchbar: list<string>}
      */
     private function kennungen(): array
     {
         $roh = trim((string) ($this->option('ids') ?? ''));
 
         if ($roh === '') {
-            return [];
+            return ['brauchbar' => [], 'unbrauchbar' => []];
         }
 
-        $ids = array_map(static fn (string $teil): int => (int) trim($teil), explode(',', $roh));
+        $brauchbar   = [];
+        $unbrauchbar = [];
 
-        return array_values(array_unique(array_filter($ids, static fn (int $id): bool => $id > 0)));
+        foreach (explode(',', $roh) as $teil) {
+            $teil = trim($teil);
+
+            if (self::istZiffernfolge($teil) && (int) $teil > 0) {
+                $brauchbar[] = (int) $teil;
+
+                continue;
+            }
+
+            $unbrauchbar[] = $teil === '' ? '(leer)' : $teil;
+        }
+
+        return [
+            'brauchbar'   => array_values(array_unique($brauchbar)),
+            'unbrauchbar' => array_values(array_unique($unbrauchbar)),
+        ];
+    }
+
+    /**
+     * Ist das eine reine Ziffernfolge?
+     *
+     * EINE Fassung dieser Frage fuer --team, --ids und --welle: drei
+     * Fassungen liefen auseinander, und dann waere "--team=1x" abgewiesen
+     * und "--welle=1x" nicht.
+     */
+    private static function istZiffernfolge(mixed $wert): bool
+    {
+        return ctype_digit(trim((string) $wert));
     }
 }
