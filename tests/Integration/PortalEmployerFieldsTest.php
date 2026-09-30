@@ -152,15 +152,15 @@ class PortalEmployerFieldsTest extends TestCase
     }
 
     /**
-     * Beide Felder gehen (noch) NICHT nach ZAS. Stuenden sie in der
-     * Beobachtungsliste, setzte die erste Portal-Eingabe den Update-Marker
-     * und der Mitarbeiter landete in updates.csv — mit einer VOLLEN Zeile,
-     * die in ZAS gepflegte Felder ueberschreibt.
+     * Seit 30.09.2026 gehen beide Felder nach ZAS (Spalten Hauptarbeitgeber /
+     * AndererArbeitgeber, mit Olaf abgestimmt) — also muss eine Korrektur dort
+     * auch ankommen. Vorher standen sie bewusst NICHT in der Liste: ein Marker
+     * haette eine volle Zeile nach ZAS geschoben, in der kein neuer Wert steht.
      */
-    public function test_kein_zas_export_marker(): void
+    public function test_zas_export_marker(): void
     {
-        $this->assertNotContains('is_main_employer', RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS);
-        $this->assertNotContains('other_employer', RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS);
+        $this->assertContains('is_main_employer', RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS);
+        $this->assertContains('other_employer', RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS);
     }
 
     public function test_werte_werden_gespeichert_und_bool_gecastet(): void
