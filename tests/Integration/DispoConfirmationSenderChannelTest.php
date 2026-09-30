@@ -72,6 +72,7 @@ class DispoConfirmationSenderChannelTest extends TestCase
     {
         Container::getInstance()->forgetInstance('config');
         Container::getInstance()->forgetInstance(WhatsAppMetaService::class);
+        Container::getInstance()->forgetInstance('log');
         Facade::clearResolvedInstances();
     }
 
@@ -191,6 +192,67 @@ class DispoConfirmationSenderChannelTest extends TestCase
 
         $assignment = RecDispoAssignment::where('ds_ref', 'DS-CONF-FALLBACK')->first();
         $this->assertNotNull($assignment->reminder_sent_at);
+    }
+
+    /**
+     * Fix-Runde 3, Befund 5: der freeze()-Aufruf steht im Sender NACH dem
+     * erfolgreichen Meta-Versand und vor $sent++. Ohne eigenen try/catch
+     * landete ein Empfaenger in $failed, obwohl die WhatsApp raus ist — ein
+     * Nachversand doppelte die Nachricht an einen echten Menschen. Der reale
+     * Ausloeser ist eine fehlende Spalte nach einem Deploy, dessen Skript im
+     * npm-Teil gerissen ist (Code live, migrate nicht gelaufen).
+     */
+    public function test_failing_freeze_does_not_turn_a_delivered_message_into_a_failure(): void
+    {
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-CONF-FREEZE-ERR', 'name' => 'Test-VA-Freeze-Fehler', 'filial_nr' => self::FILIAL_NR,
+            'vorlauf_minuten' => 30,
+        ]);
+
+        RecDispoAssignment::create([
+            'ds_ref' => 'DS-CONF-FREEZE-ERR', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeId,
+            'rec_employee_id' => self::$employeeId, 'datum' => '2026-08-26', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG,
+        ]);
+
+        $this->stubLog();
+        $kaputt = new class extends \Platform\Recruiting\Services\Zas\Dispo\DispoDressResolver {
+            public function freeze(array $assignmentIds): int
+            {
+                throw new \RuntimeException('no such column: dress_frozen_at');
+            }
+        };
+
+        $sender = new DispoConfirmationSender(new DispoEmployeeGateway(), $kaputt);
+        $assignmentId = (int) RecDispoAssignment::where('ds_ref', 'DS-CONF-FREEZE-ERR')->value('id');
+        $recipients = [[
+            'employee_id'     => self::$employeeId,
+            'phone'           => RecEmployee::find(self::$employeeId)->phone,
+            'assignment_ids'  => [$assignmentId],
+            'first_datum'     => '2026-08-26',
+            'is_reminder'     => false,
+        ]];
+
+        $result = $sender->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(1, $result['sent'], 'Die Nachricht ist raus — der Empfaenger zaehlt als gesendet.');
+        $this->assertSame([], $result['failed'], 'Ein Fehler beim Festschreiben darf den Versand nicht umdeuten.');
+        $this->assertNotNull(RecDispoAssignment::find($assignmentId)->reminder_sent_at,
+            'Der Angeschrieben-Stempel steht bereits — ein Nachversand wuerde sonst doppeln.');
+    }
+
+    /**
+     * Log-Attrappe fuer den Warnpfad. Facade-Cache mit leeren, sonst greift
+     * eine zuvor aufgeloeste Instanz (Memory reference_log_facade_test_stub).
+     */
+    private function stubLog(): void
+    {
+        \Illuminate\Support\Facades\Log::clearResolvedInstances();
+        Container::getInstance()->instance('log', new class {
+            public function warning($message, array $context = []): void
+            {
+            }
+        });
     }
 
     private static function seedFixtures(): void

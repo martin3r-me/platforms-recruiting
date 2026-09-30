@@ -136,7 +136,28 @@ class DispoConfirmationSender
                 // bestaetigt, darf sich durch spaetere Aenderungen am Paket
                 // nicht rueckwirkend aendern. Je Einbuchung, nicht je
                 // Empfaenger — die Taetigkeit kann pro Tag abweichen.
-                $this->dress->freeze($recipient['assignment_ids']);
+                //
+                // EIGENER try/catch (Fix-Runde 3, Befund 5): die WhatsApp ist
+                // an dieser Stelle raus und die Einbuchung gestempelt. Wuerde
+                // ein Fehler hier in den grossen catch laufen, landete der
+                // Empfaenger in $failed, obwohl er die Nachricht hat — ein
+                // Nachversand doppelte sie an einen echten Menschen. Der
+                // reale Ausloeser ist die fehlende Spalte nach einem Deploy,
+                // dessen Skript im npm-Teil gerissen ist (Code live,
+                // migrate nicht gelaufen). Kleidung fehlt dann auf der
+                // Einsatz-Seite — das ist der kleinere Schaden und laesst
+                // sich mit einem zweiten Versand oder
+                // recruiting:dispo-unfreeze-dress nachziehen.
+                try {
+                    $this->dress->freeze($recipient['assignment_ids']);
+                } catch (\Throwable $dressError) {
+                    Log::warning('Dispo-Bestaetigung: Waeschepaket nicht festgeschrieben (Versand war erfolgreich)', [
+                        'event_id'       => $event->id,
+                        'employee_id'    => $recipient['employee_id'],
+                        'assignment_ids' => $recipient['assignment_ids'],
+                        'error'          => $dressError->getMessage(),
+                    ]);
+                }
                 $sent++;
             } catch (\Throwable $e) {
                 Log::warning('Dispo-Bestaetigung: Versand fehlgeschlagen', [
