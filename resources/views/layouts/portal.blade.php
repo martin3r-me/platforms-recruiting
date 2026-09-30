@@ -88,6 +88,58 @@
         }
         /* 16px ist Absicht: darunter zoomt iOS beim Antippen ins Feld hinein. */
 
+        /* --- Konto-Seiten: Rangfolge statt lauter gleich lauter Kaesten ---
+           Der Hauptweg ist die Anmeldung. Die Wege zurueck sind Ausnahmen und
+           treten optisch zurueck; der Einladungscode ist eine Fusszeile und
+           kein zweiter Kasten. Die Abstaende sind bewusst UNGLEICH: was
+           zusammengehoert rueckt zusammen, zwischen den Gruppen steht Luft —
+           gleiche Abstaende ueberall waren der Grund fuer das Gedraengte.
+
+           Alles haengt an .konto und nicht an .anmeldung: die Anmeldung der
+           Portal-Huelle (portal-shell) traegt .anmeldung ebenfalls und soll
+           sich nicht mit veraendern. */
+        .portal-body .screen.konto .greet { margin-top: 7px; margin-bottom: 4px }
+        .portal-body .screen.konto .card.login { padding: 19px; gap: 16px }
+
+        /* Die Wege zurueck gehoeren zusammen und stehen deshalb eng
+           untereinander; die Luft steht davor, nicht zwischen ihnen. Die
+           17px Zwischenraum der .scroll kommen oben drauf. */
+        .portal-body .screen.konto .wege {
+            display: flex; flex-direction: column; align-items: flex-start;
+            gap: 0; margin-top: 10px;
+        }
+        /* Leiser Textknopf statt Umriss-Kasten. min-height haelt die
+           Trefferflaeche am Handy bei 44px, auch wenn die Schrift klein ist. */
+        .portal-body .screen.konto .weg {
+            border: none; background: none; padding: 10px 2px;
+            font-family: var(--body); font-size: 13.5px; font-weight: 600;
+            color: var(--brand-mid); cursor: pointer;
+            text-align: left; width: auto; min-height: 44px;
+        }
+        .portal-body .screen.konto .weg:hover { color: var(--brand); text-decoration: underline }
+
+        /* Der Einladungscode: eine abgesetzte Zeile am Fuss. Ein Haarstrich
+           statt eines Rahmens um einen Rahmen. */
+        .portal-body .screen.konto .fuss-konto {
+            margin-top: 12px; padding-top: 19px;
+            border-top: 1px solid var(--line);
+            font-size: 13px; color: var(--ink-3); line-height: 1.6;
+        }
+        .portal-body .screen.konto .fuss-konto a {
+            color: var(--brand-mid); font-weight: 600;
+            display: inline-block; padding: 6px 0;
+        }
+
+        /* Der Passworthinweis unter dem Feld. .hint des Entwurfs ist WEISSE
+           Schrift auf dem dunklen Praesentationsband und wird nur unterhalb
+           940px Fensterbreite eingefaerbt — in einer hellen Karte am Rechner
+           stand der Hinweis damit unsichtbar da. Benutzt wird .hint nur auf
+           diesen beiden Seiten. */
+        .portal-body .feld .hint {
+            margin-top: 0; text-align: left; font-size: 12px;
+            color: var(--ink-3); line-height: 1.4;
+        }
+
         /* ---------- Handy: die Seitenleiste des Entwurfs schlaeft ---------- */
         .portal-body .brail { display: none }
 

@@ -11,6 +11,18 @@
     Werte vorberechnen statt einer Direktive im Attribut - beides kompiliert
     sonst still nicht, und der falsche Zweig rendert lautlos.
 
+    RANGFOLGE: Wer hier landet, will sich anmelden. Deshalb traegt nur der
+    Anmeldeblock eine Karte; die Wege zurueck sind leise Textknoepfe und der
+    Einladungscode ist eine Fusszeile hinter einem Haarstrich. Vorher stand
+    alles gleich laut in eigenen Kaesten, zuletzt sogar ein Rahmen um einen
+    Rahmen. Ein Kasten oder keiner, nie beides ineinander.
+
+    Der Bildschirm traegt ausser .anmeldung auch .konto; daran haengen diese
+    Regeln (Layout: layouts/portal.blade.php, Abschnitt "Konto-Seiten").
+    Die Portal-Huelle traegt .anmeldung ebenfalls und bleibt unberuehrt.
+    Die Abstaende sind mit Absicht UNGLEICH - gleiche Abstaende ueberall
+    waren der Grund, warum die Seite gedraengt wirkte.
+
     IM ANMELDEFORMULAR STEHT KEIN GEBURTSDATUM UND KEINE AUSWEISNUMMER. Das
     alte Verfahren darf dort nicht als zweiter Weg danebenstehen: der
     Benutzername ist die Handynummer und kein Geheimnis - eine Nebentuer mit
@@ -90,7 +102,7 @@
     };
 @endphp
 
-<div class="screen anmeldung">
+<div class="screen anmeldung konto">
 
     <div class="appbar">
         <div class="wordmark">Rhein<span>Gedeck</span></div>
@@ -110,18 +122,14 @@
                 Nummer eines Kollegen getippt hat oder weil das Geraet
                 geteilt wird.
             --}}
-            <div class="card">
-                <button type="button" class="btn" wire:click="abmelden">Abmelden</button>
-            </div>
+            <button type="button" class="btn" wire:click="abmelden">Abmelden</button>
         @elseif ($state === 'fertig')
             <div class="greet">
                 <h2>{{ $fertigTitel }}</h2>
                 <p>{{ $fertigText }}</p>
             </div>
 
-            <div class="card">
-                <button type="button" class="btn primary" wire:click="zurAnmeldung">Zur Anmeldung</button>
-            </div>
+            <button type="button" class="btn primary" wire:click="zurAnmeldung">Zur Anmeldung</button>
         @elseif ($state === 'nummer')
             <div class="greet">
                 <h2>{{ $nummerTitel }}</h2>
@@ -160,8 +168,8 @@
                 <button type="submit" class="btn primary" wire:loading.attr="disabled">Code anfordern</button>
             </form>
 
-            <div class="card">
-                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            <div class="wege">
+                <button type="button" class="weg" wire:click="zurAnmeldung">Abbrechen</button>
             </div>
         @elseif ($state === 'nummer-code')
             <div class="greet">
@@ -194,8 +202,8 @@
                 <button type="submit" class="btn primary" wire:loading.attr="disabled">Nummer aendern</button>
             </form>
 
-            <div class="card">
-                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            <div class="wege">
+                <button type="button" class="weg" wire:click="zurAnmeldung">Abbrechen</button>
             </div>
         @elseif ($state === 'vergessen')
             <div class="greet">
@@ -221,8 +229,8 @@
                 <button type="submit" class="btn primary" wire:loading.attr="disabled">Code anfordern</button>
             </form>
 
-            <div class="card">
-                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            <div class="wege">
+                <button type="button" class="weg" wire:click="zurAnmeldung">Abbrechen</button>
             </div>
         @elseif ($state === 'vergessen-code')
             <div class="greet">
@@ -272,8 +280,8 @@
                 <button type="submit" class="btn primary" wire:loading.attr="disabled">Passwort speichern</button>
             </form>
 
-            <div class="card">
-                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            <div class="wege">
+                <button type="button" class="weg" wire:click="zurAnmeldung">Abbrechen</button>
             </div>
         @elseif ($state === 'notfall')
             <div class="greet">
@@ -328,8 +336,8 @@
                 <button type="submit" class="btn primary" wire:loading.attr="disabled">Code anfordern</button>
             </form>
 
-            <div class="card">
-                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            <div class="wege">
+                <button type="button" class="weg" wire:click="zurAnmeldung">Abbrechen</button>
             </div>
         @elseif ($state === 'notfall-code')
             <div class="greet">
@@ -355,8 +363,8 @@
                 <button type="submit" class="btn primary" wire:loading.attr="disabled">Absenden</button>
             </form>
 
-            <div class="card">
-                <button type="button" class="btn" wire:click="zurAnmeldung">Abbrechen</button>
+            <div class="wege">
+                <button type="button" class="weg" wire:click="zurAnmeldung">Abbrechen</button>
             </div>
         @else
             <div class="greet">
@@ -411,17 +419,29 @@
                 Die Wege zurueck (Spec 5). Sie stehen als Knoepfe da und
                 nicht als zweites Formular: was hier ein Eingabefeld haette,
                 waere ein zweiter Anmeldeweg neben dem oberen.
+
+                Sie sind Ausnahmen und sehen auch so aus: leise Textknoepfe,
+                eng untereinander, mit Luft davor - vorher schrien drei
+                gleich grosse Umriss-Kaesten so laut wie der Hauptweg.
+                Ihre Beschriftungen bleiben die einzige Auskunft: was ein
+                Weg an Nachweisen verlangt, steht erst auf der Seite, zu der
+                er fuehrt - hier nicht, und auch nicht in Prosa.
             --}}
-            <div class="card">
-                <button type="button" class="btn" wire:click="zumPasswortVergessen">Passwort vergessen</button>
-                <button type="button" class="btn" wire:click="zumNummernwechsel">Neue Handynummer</button>
-                <button type="button" class="btn" wire:click="zumNotfall">Nummer und Passwort weg</button>
+            <div class="wege">
+                <button type="button" class="weg" wire:click="zumPasswortVergessen">Passwort vergessen</button>
+                <button type="button" class="weg" wire:click="zumNummernwechsel">Neue Handynummer</button>
+                <button type="button" class="weg" wire:click="zumNotfall">Nummer und Passwort weg</button>
             </div>
 
-            <div class="card">
-                <p>Sie haben noch kein Konto?</p>
-                <a class="btn" href="{{ $codeUrl }}">Ich habe einen Einladungscode</a>
-            </div>
+            {{--
+                Der Einladungscode ist der seltenste Fall und steht als
+                abgesetzte Fusszeile da - vorher war er ein Rahmen um einen
+                Rahmen. Die Adresse bleibt unveraendert am href.
+            --}}
+            <p class="fuss-konto">
+                Sie haben noch kein Konto?
+                <a href="{{ $codeUrl }}">Ich habe einen Einladungscode</a>
+            </p>
         @endif
     </div>
 

@@ -10,6 +10,18 @@
     Werte vorberechnen statt einer Direktive im Attribut - beides kompiliert
     sonst still nicht, und der falsche Zweig rendert lautlos.
 
+    Der Bildschirm traegt ausser .anmeldung auch .konto. Daran haengen die
+    Abstaende und die Rangfolge, die sich diese Seite mit der Anmeldung
+    (konto-anmelden) teilt - die beiden sollen wie ein Paar wirken. Die
+    Regeln stehen im Layout (layouts/portal.blade.php, Abschnitt
+    "Konto-Seiten"), nicht hier. Die Portal-Huelle traegt .anmeldung
+    ebenfalls und bleibt davon unberuehrt.
+
+    Die Rufnummer wird hier NICHT abgefragt: sie liegt durch die Einladung
+    fest. Ein Waechter-Test haelt das Formular frei von jenem laengeren Wort
+    dafuer, deshalb steht es hier nicht einmal in Prosa - im Fliesstext
+    heisst es "Rufnummer".
+
     Der Token steht NICHT auf dieser Seite. Er ist ein Geheimnis und hat im
     Markup nichts verloren; die Seite kennt ihn serverseitig.
 --}}
@@ -38,7 +50,7 @@
         : 'Ab jetzt melden Sie sich mit Ihrer Rufnummer und diesem Passwort an.';
 @endphp
 
-<div class="screen anmeldung">
+<div class="screen anmeldung konto">
 
     <div class="appbar">
         <div class="wordmark">Rhein<span>Gedeck</span></div>
