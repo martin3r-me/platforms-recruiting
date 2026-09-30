@@ -34,6 +34,19 @@ use Platform\Recruiting\Support\ShortTermDayBudget;
  * VOLLEN Zeilen in die naechste updates.csv (Vorfall 02.09.2026). Die
  * Nachlieferung an ZAS ist ein eigener, angekuendigter Schritt.
  *
+ * NICHT AUSGEFUEHRT, STAND 30.09.2026 — und das ist eine Entscheidung, keine
+ * Vergesslichkeit. Wir gehen davon aus, dass der Wert in ZAS von HR und
+ * Disposition gepflegt wird und dort verlaesslich ist; unsere Rekonstruktion
+ * aus dem Vertrag waere dann bestenfalls gleichwertig. Fuer den Bestand liefern
+ * wir `TageErlaubt` deshalb bewusst LEER, und leer heisst mit ZAS vereinbart
+ * "keine Grundlage, euer Wert gilt".
+ *
+ * WANN DIESER LAUF DOCH RICHTIG WAERE: wenn sich herausstellt, dass ZAS fuer
+ * diese Menschen pauschal von der vollen Grenze herunterzaehlt. Dann haetten
+ * alle, die im laufenden Jahr schon woanders kurzfristig gearbeitet haben, zu
+ * viele freie Tage im Konto — mit Statusverlust und Nachzahlung als Preis. Die
+ * Frage liegt bei Olaf (Mail 30.09.2026). Vorher nicht starten.
+ *
  * Aufruf:
  *   php artisan recruiting:backfill-tagekonto --dry-run
  *   php artisan recruiting:backfill-tagekonto
