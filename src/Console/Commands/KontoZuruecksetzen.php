@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
+use Platform\Recruiting\Support\NummernwechselTafel;
 use Throwable;
 
 /**
@@ -164,24 +165,16 @@ class KontoZuruecksetzen extends Command
         $offene = KontoWriter::offeneNummernwechsel($teamId);
 
         if ($offene === []) {
-            $this->line('Kein offener Notfall-Antrag.');
+            $this->line(NummernwechselTafel::LEER);
 
             return self::SUCCESS;
         }
 
-        $this->table(
-            ['Person', 'Team', 'alt', 'neu', 'beantragt', 'wirksam ab', 'Quelle', 'Zustand'],
-            array_map(fn (object $zeile): array => [
-                (int) $zeile->id,
-                $zeile->team_id,
-                '...' . $this->kurz((string) ($zeile->phone ?? '')),
-                '...' . $this->kurz((string) $zeile->wechsel_neue_nummer),
-                (string) $zeile->wechsel_beantragt_at,
-                (string) $zeile->wechsel_wirksam_ab,
-                (string) $zeile->wechsel_quelle,
-                $this->zustand($zeile),
-            ], $offene),
-        );
+        // EINE Fassung der Tafel, nicht zwei: recruiting:konto-einladen
+        // --bericht zeigt dieselben Antraege, damit HR ueberhaupt von ihnen
+        // erfaehrt. Liefen die beiden auseinander, saehe HR denselben Antrag
+        // an zwei Stellen verschieden.
+        $this->table(NummernwechselTafel::kopf(), NummernwechselTafel::zeilen($offene));
 
         $this->line('Stoppen mit: recruiting:konto-zuruecksetzen --stopp=<Person>');
 
@@ -338,24 +331,12 @@ class KontoZuruecksetzen extends Command
 
     /**
      * Warum ein Antrag nicht angewendet wird, obwohl er in der Liste steht
-     * (Befund G5).
-     *
-     * Gesperrte und stillgelegte Zeilen kommen seit G5 mit in die Liste —
-     * ihr Antrag laesst sich nie anwenden (wendeNummernwechselAn() geht
-     * durch offeneZeile()), und ohne Anzeige stuenden sie dort als
-     * unerklaerliche Dauergaeste. Stoppen kann HR sie trotzdem.
+     * (Befund G5) — die Antwort liegt in NummernwechselTafel, weil der
+     * Bericht dieselbe Frage stellt.
      */
     private function zustand(object $zeile): string
     {
-        if (($zeile->merged_into_person_id ?? null) !== null) {
-            return 'stillgelegt, wird nie angewendet';
-        }
-
-        if (($zeile->locked_at ?? null) !== null) {
-            return 'gesperrt, wird nie angewendet';
-        }
-
-        return 'offen';
+        return NummernwechselTafel::zustand($zeile);
     }
 
     /**
@@ -413,9 +394,9 @@ class KontoZuruecksetzen extends Command
         return $geschwaerzt ?? $text;
     }
 
-    /** Die letzten vier Stellen — dieselbe Kuerzung wie im Protokoll. */
+    /** Die letzten vier Stellen — dieselbe Kuerzung wie in der Tafel. */
     private function kurz(string $nummer): string
     {
-        return substr($nummer, -4);
+        return NummernwechselTafel::kurz($nummer);
     }
 }

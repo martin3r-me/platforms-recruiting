@@ -36,6 +36,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\SwitchPortalVersion::class,
                 \Platform\Recruiting\Console\Commands\SeedDemoEmployees::class,
                 \Platform\Recruiting\Console\Commands\KontoZuruecksetzen::class,
+                \Platform\Recruiting\Console\Commands\KontoEinladen::class,
                 \Platform\Recruiting\Console\Commands\ReleaseStaleSeats::class,
                 \Platform\Recruiting\Console\Commands\RelinkOrphanedThreads::class,
                 \Platform\Recruiting\Console\Commands\RelinkWhatsAppThreads::class,

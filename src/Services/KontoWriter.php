@@ -968,6 +968,53 @@ final class KontoWriter
      * genuegt der Zugriff auf ein fremdes Geraet, um das Konto zu
      * uebernehmen. Der Ablauf liegt eine Ebene hoeher (Aufgabe 9).
      */
+    /**
+     * Welche dieser Personen haben NIRGENDS ein brauchbares Geburtsdatum?
+     *
+     * WOFUER: der Riegel am Einladungsknopf (Befund F6 der
+     * Aufgabe-6-Pruefung). Wer kein hinterlegtes Geburtsdatum hat, kann sich
+     * nicht registrieren — die Registrierung verlangt es als zweiten
+     * Nachweis (Zwei-Nachweis-Regel, Spec §2.4). Ohne diesen Riegel bekaeme
+     * der Mensch fuenfmal "pruef dein Geburtsdatum" und danach eine Stunde
+     * lang eine 404, ohne dass etwas an ihm falsch waere und ohne dass er es
+     * je richtig machen koennte. Die Seite kann diesen Fall nicht von einem
+     * Tippfehler unterscheiden; der Riegel gehoert deshalb an den Knopf.
+     *
+     * DIESELBE FRAGE WIE geburtsdatumStimmt(), und deshalb steht sie hier
+     * und nicht im Kommando: was als Geburtsdatum zaehlt, entscheidet
+     * alsTag() — ein leerer oder unlesbarer Wert ist ein Datenfehler und
+     * kein Nachweis. Eine zweite Fassung im Kommando (etwa ein blosses
+     * whereNotNull) liesse genau die Zeilen durch, an denen die Registrierung
+     * danach scheitert.
+     *
+     * EINE Abfrage fuer die ganze Menge: eine Welle geht ueber den
+     * Bestand, und eine Abfrage je Person waere dort tausendfach.
+     *
+     * @param  list<int>  $personIds
+     * @return list<int>  die Kennungen OHNE brauchbares Geburtsdatum
+     */
+    public static function personenOhneGeburtsdatum(array $personIds): array
+    {
+        if ($personIds === []) {
+            return [];
+        }
+
+        $mitDatum = [];
+
+        $zeilen = DB::table('rec_employees')
+            ->whereIn('rec_person_id', $personIds)
+            ->whereNotNull('birth_date')
+            ->get(['rec_person_id', 'birth_date']);
+
+        foreach ($zeilen as $zeile) {
+            if (self::alsTag((string) $zeile->birth_date) !== null) {
+                $mitDatum[(int) $zeile->rec_person_id] = true;
+            }
+        }
+
+        return array_values(array_filter($personIds, static fn (int $id): bool => !isset($mitDatum[$id])));
+    }
+
     public static function setzePasswort(int $personId, string $passwort): void
     {
         self::offeneZeile($personId);
