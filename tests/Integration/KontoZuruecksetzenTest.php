@@ -1937,6 +1937,62 @@ final class KontoZuruecksetzenTest extends TestCase
     }
 
     /**
+     * N2: ein Antrag, der nur zur Anzeige dasteht, laesst den stuendlichen
+     * Lauf nicht auf Fehler enden.
+     *
+     * Folge der G5-Loesung: offeneNummernwechsel() zeigt seit dort auch die
+     * Antraege gesperrter und stillgelegter Personen — damit HR sie
+     * ueberhaupt findet. Anwenden laesst sich keiner von ihnen
+     * (wendeNummernwechselAn geht durch offeneZeile und wirft). Ohne die
+     * Wache liefe --faellig STUENDLICH auf exit 1, dauerhaft, bis jemand
+     * --stopp faehrt — und ein Fehlerausgang, der drei Tage lang immer
+     * kommt, verdeckt den echten Fehlschlag (die inzwischen vergebene
+     * Zielnummer).
+     *
+     * Geprueft wird deshalb der RUECKGABEWERT des Laufs, nicht bloss ein
+     * Wort in der Ausgabe: an ihm haengt, ob der Zeitplan Alarm schlaegt.
+     */
+    public function test_ein_antrag_nur_zur_anzeige_laesst_den_lauf_nicht_scheitern(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        DB::table('rec_persons')->where('id', $this->personId)->update(['locked_at' => self::ANGEFASST]);
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(25));
+        [$code, $ausgabe] = $this->kommando(['--faellig' => true]);
+
+        $this->assertSame(0, $code, "der stuendliche Lauf darf daran nicht scheitern:\n{$ausgabe}");
+        $this->assertStringContainsString('1 liegen bei HR', $ausgabe, 'uebersprungen heisst nicht vergessen');
+        $this->assertStringContainsString('--stopp', $ausgabe, 'HR braucht den Weg, ihn wegzuraeumen');
+
+        // Und er bleibt stehen: wegraeumen darf ihn nur ein Mensch.
+        $this->assertCount(1, KontoWriter::offeneNummernwechsel());
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+    }
+
+    /**
+     * Der ECHTE Fehlschlag endet weiterhin im Fehlerausgang — sonst haette
+     * die Wache aus N2 ihn gleich mit verschluckt.
+     *
+     * (Der Fall selbst steht in
+     * test_ein_gescheiterter_antrag_bleibt_stehen; hier zaehlt nur, dass die
+     * beiden Ausgaenge auseinandergehalten werden.)
+     */
+    public function test_der_echte_fehlschlag_endet_weiterhin_im_fehlerausgang(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+        $this->person(self::NEUE_NUMMER, 'p-dazwischen');
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(25));
+        [$code, $ausgabe] = $this->kommando(['--faellig' => true]);
+
+        $this->assertSame(1, $code, $ausgabe);
+        $this->assertStringContainsString('0 liegen bei HR', $ausgabe);
+    }
+
+    /**
      * F4: der EINTRAG IM ZEITPLAN, samt Rhythmus.
      *
      * DER VORGAENGER DIESES TESTS PRUEFTE EINE ZEICHENKETTE IM QUELLTEXT und

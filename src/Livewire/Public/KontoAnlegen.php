@@ -332,22 +332,6 @@ class KontoAnlegen extends Component
 
     // ------------------------------------------------------------------ intern
 
-    /**
-     * Beim Einlesen grosszuegig, beim Pruefen streng.
-     *
-     * Ruling GD-4: der lesbare Code IST der Token, nicht eine Ableitung
-     * davon — derselbe Wert steht im Link und im Eingabefeld. Wer ihn am
-     * Rechner abtippt, tippt ihn klein, in Vierergruppen oder mit
-     * Bindestrichen. Das sind Schreibweisen desselben Codes, keine anderen
-     * Codes. Geprueft wird danach streng (hash_equals in
-     * EinladungsToken::istGueltig), und das Alphabet kennt weder
-     * Kleinbuchstaben noch Trennzeichen — es kann hier also nichts
-     * zusammenfallen, was nicht dasselbe ist.
-     *
-     * Normalisiert wird VOR allem anderen, auch vor dem Drossel-Schluessel:
-     * sonst schuettelte eine andere Schreibweise die Sperre ab (dieselbe
-     * Falle wie beim Nummern-Schluessel in PortalAuth).
-     */
     /** Der Token des laufenden Vorgangs — aus der Sitzung, nie vom Browser. */
     private function laufenderToken(): string
     {
@@ -383,6 +367,22 @@ class KontoAnlegen extends Component
         session()->put(self::SITZUNG_PERSON, $personId);
     }
 
+    /**
+     * Beim Einlesen grosszuegig, beim Pruefen streng.
+     *
+     * Ruling GD-4: der lesbare Code IST der Token, nicht eine Ableitung
+     * davon — derselbe Wert steht im Link und im Eingabefeld. Wer ihn am
+     * Rechner abtippt, tippt ihn klein, in Vierergruppen oder mit
+     * Bindestrichen. Das sind Schreibweisen desselben Codes, keine anderen
+     * Codes. Geprueft wird danach streng (hash_equals in
+     * EinladungsToken::istGueltig), und das Alphabet kennt weder
+     * Kleinbuchstaben noch Trennzeichen — es kann hier also nichts
+     * zusammenfallen, was nicht dasselbe ist.
+     *
+     * Normalisiert wird VOR allem anderen, auch vor dem Drossel-Schluessel:
+     * sonst schuettelte eine andere Schreibweise die Sperre ab (dieselbe
+     * Falle wie beim Nummern-Schluessel in PortalAuth).
+     */
     private static function lesbarerToken(string $eingabe): string
     {
         return strtoupper((string) preg_replace('/[\s\-]+/', '', $eingabe));

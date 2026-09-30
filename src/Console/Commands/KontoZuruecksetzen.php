@@ -224,6 +224,20 @@ class KontoZuruecksetzen extends Command
      * — genau richtig, denn diesen Fall muss ein Mensch klaeren (Spec §6.2).
      * Die uebrigen laufen weiter; sonst haelt ein einziger Grenzfall alle
      * anderen auf.
+     *
+     * WAS NICHT 'offen' IST, WIRD UEBERSPRUNGEN (Befund N2). Seit G5 zeigt
+     * offeneNummernwechsel() auch die Antraege gesperrter und stillgelegter
+     * Personen — aber ZUR ANZEIGE, damit HR sie ueberhaupt findet und
+     * wegraeumen kann. Anwenden laesst sich keiner von ihnen:
+     * wendeNummernwechselAn() geht durch offeneZeile() und wirft. Ohne diese
+     * Wache liefe dieser Lauf STUENDLICH auf exit 1, dauerhaft, bis jemand
+     * --stopp faehrt. Die Nummer wanderte dabei nicht, es waere also kein
+     * Schaden — aber es ist die Sorte Laerm, die nach drei Tagen niemand mehr
+     * liest, und dann faellt der ECHTE Fehlschlag (die vergebene Zielnummer)
+     * auch nicht mehr auf. Genau dafuer ist der Fehlerausgang da.
+     *
+     * Gezaehlt und genannt werden sie trotzdem: uebersprungen heisst nicht
+     * vergessen, und HR soll sehen, dass da etwas liegt.
      */
     private function wendeFaelligeAn(?int $teamId): int
     {
@@ -232,9 +246,19 @@ class KontoZuruecksetzen extends Command
         $angewendet = 0;
         $offenGeblieben = 0;
         $gescheitert = 0;
+        $liegtBeiHr = 0;
 
         foreach ($offene as $zeile) {
             $personId = (int) $zeile->id;
+
+            // Steht nur zur Anzeige da (gesperrt, stillgelegt) — anwenden
+            // laesst er sich nicht, und ein Versuch endete jede Stunde aufs
+            // Neue im Fehlerausgang.
+            if ($this->zustand($zeile) !== 'offen') {
+                $liegtBeiHr++;
+
+                continue;
+            }
 
             if ($this->option('dry-run')) {
                 $this->line("Person {$personId}: wirksam ab {$zeile->wechsel_wirksam_ab}.");
@@ -268,17 +292,27 @@ class KontoZuruecksetzen extends Command
         }
 
         if ($this->option('dry-run')) {
-            $this->line(sprintf('%d offene Antraege (Probelauf, nichts geaendert).', count($offene)));
+            $this->line(sprintf(
+                '%d offene Antraege, davon %d nur zur Anzeige (Probelauf, nichts geaendert).',
+                count($offene),
+                $liegtBeiHr,
+            ));
 
             return self::SUCCESS;
         }
 
         $this->line(sprintf(
-            '%d angewendet, %d noch nicht faellig, %d gescheitert.',
+            '%d angewendet, %d noch nicht faellig, %d gescheitert, %d liegen bei HR.',
             $angewendet,
             $offenGeblieben,
             $gescheitert,
+            $liegtBeiHr,
         ));
+
+        if ($liegtBeiHr > 0) {
+            $this->line('Die Antraege gesperrter oder stillgelegter Personen werden nie angewendet — '
+                . 'ansehen mit --offen, wegraeumen mit --stopp=<Person>.');
+        }
 
         return $gescheitert > 0 ? self::FAILURE : self::SUCCESS;
     }

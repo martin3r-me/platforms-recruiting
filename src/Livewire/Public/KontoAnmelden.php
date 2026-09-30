@@ -1086,16 +1086,6 @@ class KontoAnmelden extends Component
     }
 
     /**
-     * Der Bremsschluessel fuer den zweiten Nachweis.
-     *
-     * AN DER PERSON, nicht an der getippten Nummer: an dieser Stelle ist die
-     * Person schon aufgeloest, und der Zaehler soll genau den Vorgang
-     * bremsen, an dem geraten wird. Die Kennung ist eine laufende Zahl ohne
-     * Personenbezug und braucht keinen Hash; gedeckelt ist die
-     * Schluessellaenge damit trotzdem (derselbe Gedanke wie beim
-     * Personen-Schluessel im Einmalcode-Sender).
-     */
-    /**
      * WESSEN Vorgang laeuft — aus der Sitzung, nicht aus einer Eigenschaft.
      *
      * Streng auf int geprueft: was in der Sitzung liegt, kommt aus einer
@@ -1123,6 +1113,16 @@ class KontoAnmelden extends Component
         session()->put(self::SITZUNG_PERSON, $personId);
     }
 
+    /**
+     * Der Bremsschluessel fuer den zweiten Nachweis.
+     *
+     * AN DER PERSON, nicht an der getippten Nummer: an dieser Stelle ist die
+     * Person schon aufgeloest, und der Zaehler soll genau den Vorgang
+     * bremsen, an dem geraten wird. Die Kennung ist eine laufende Zahl ohne
+     * Personenbezug und braucht keinen Hash; gedeckelt ist die
+     * Schluessellaenge damit trotzdem (derselbe Gedanke wie beim
+     * Personen-Schluessel im Einmalcode-Sender).
+     */
     private static function nachweisSchluessel(int $personId): string
     {
         return 'konto-zurueck:nachweis:' . $personId;

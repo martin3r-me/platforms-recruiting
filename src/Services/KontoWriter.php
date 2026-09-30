@@ -1144,21 +1144,6 @@ final class KontoWriter
     }
 
     /**
-     * "Jeder Wechsel wird protokolliert" — Begleitregel aus Spec §5, Canvas
-     * 1789.
-     *
-     * OHNE DIE NUMMERN IM KLARTEXT, dieselbe Kuerzung auf vier Stellen wie in
-     * pruefeAnmeldung(): ein Protokoll ist genau der Ort, an den man spaeter
-     * jemanden schauen laesst, und die letzten vier Stellen genuegen, um den
-     * Fall in der Akte wiederzufinden. PhoneE164::suffix() waere hier falsch
-     * — er liefert neun Ziffern und damit fast die ganze Nummer.
-     *
-     * Die Stufe ist `notice` und nicht `info`: ein Nummernwechsel ist der
-     * Vorgang, nach dem im Streitfall gesucht wird ("seit wann geht sein
-     * Code auf ein anderes Geraet?"). Zwischen den Versand-Zeilen des
-     * Einmalcode-Senders, die auf `info` stehen, ginge er unter.
-     */
-    /**
      * Raeumt den offenen Notfall-Antrag ab.
      *
      * Er wird nicht nur beim Anwenden und beim Stoppen geloescht, sondern
@@ -1180,6 +1165,21 @@ final class KontoWriter
         ]);
     }
 
+    /**
+     * "Jeder Wechsel wird protokolliert" — Begleitregel aus Spec §5, Canvas
+     * 1789.
+     *
+     * OHNE DIE NUMMERN IM KLARTEXT, dieselbe Kuerzung auf vier Stellen wie in
+     * pruefeAnmeldung(): ein Protokoll ist genau der Ort, an den man spaeter
+     * jemanden schauen laesst, und die letzten vier Stellen genuegen, um den
+     * Fall in der Akte wiederzufinden. PhoneE164::suffix() waere hier falsch
+     * — er liefert neun Ziffern und damit fast die ganze Nummer.
+     *
+     * Die Stufe ist `notice` und nicht `info`: ein Nummernwechsel ist der
+     * Vorgang, nach dem im Streitfall gesucht wird ("seit wann geht sein
+     * Code auf ein anderes Geraet?"). Zwischen den Versand-Zeilen des
+     * Einmalcode-Senders, die auf `info` stehen, ginge er unter.
+     */
     private static function protokolliereWechsel(int $personId, ?string $alt, string $neu, string $weg): void
     {
         Log::notice('recruiting.konto.nummer_gewechselt', [
