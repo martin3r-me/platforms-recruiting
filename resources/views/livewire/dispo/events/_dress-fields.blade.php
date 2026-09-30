@@ -30,11 +30,16 @@
             @endif
         </label>
 
-        @foreach ($dressTaetigkeiten as $taetigkeit)
-            @php $vorschauTag = $dressTexts[$dressByTaetigkeit[$taetigkeit] ?? ''] ?? null; @endphp
+        {{-- Bindung ueber den numerischen Index, nicht ueber den Taetigkeit-Text:
+             Livewire zerlegt wire:model-Pfade am literalen Punkt, und Taetigkeit
+             ist ungefilterter ZAS-Freitext ("2.OG" wuerde sonst einen
+             verschachtelten Pfad erzeugen). Index i gehoert zu
+             eventTaetigkeiten()[i] — siehe Show::$dressByTaetigkeit. --}}
+        @foreach ($dressTaetigkeiten as $index => $taetigkeit)
+            @php $vorschauTag = $dressTexts[$dressByTaetigkeit[$index] ?? ''] ?? null; @endphp
             <label class="block">
                 <span class="mb-1 block text-xs text-gray-600">{{ $taetigkeit }}</span>
-                <select wire:model.live="dressByTaetigkeit.{{ $taetigkeit }}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                <select wire:model.live="dressByTaetigkeit.{{ $index }}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                     <option value="">— wie alle übrigen —</option>
                     @foreach ($dressOptions as $id => $name)
                         <option value="{{ $id }}">{{ $name }}</option>

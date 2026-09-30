@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Livewire\Dispo\Events\Show;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoDressPackage;
 use Platform\Recruiting\Models\RecDispoEvent;
@@ -42,6 +43,14 @@ abstract class DressTestCase extends TestCase
         Facade::setFacadeApplication($container);
         $container->instance('config', new ConfigRepository([]));
 
+        // EventBus als Singleton binden: Fix-Runde 1 (Task 6) testet
+        // loadDressForm()/persistDress() ueber echte Show-Instanzen. Diese
+        // greifen auf #[Computed]-Properties (event(), eventTaetigkeiten())
+        // zu, deren Magic-Getter Livewire normalerweise beim Component-Boot
+        // verdrahtet. Ohne Singleton-Bindung erzeugt jeder app(EventBus::class)-
+        // Aufruf eine neue, leere Instanz und die Registrierung ginge verloren.
+        $container->singleton(\Livewire\EventBus::class);
+
         $own = dirname(__DIR__, 2);
         foreach ([
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
@@ -49,6 +58,8 @@ abstract class DressTestCase extends TestCase
             'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php',
             'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php',
             'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php',
+            'database/migrations/2026_08_27_000001_create_rec_dispo_attachments_table.php',
+            'database/migrations/2026_09_03_000001_allow_multiple_dispo_attachments.php',
             'database/migrations/2026_09_30_000001_create_rec_dispo_dress_packages_table.php',
             'database/migrations/2026_09_30_000002_create_rec_dispo_event_dress_table.php',
             'database/migrations/2026_09_30_000003_add_dress_fields_to_dispo_tables.php',
@@ -69,7 +80,7 @@ abstract class DressTestCase extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['rec_dispo_events', 'rec_dispo_assignments', 'rec_dispo_dress_packages', 'rec_dispo_event_dress'] as $t) {
+        foreach (['rec_dispo_events', 'rec_dispo_assignments', 'rec_dispo_attachments', 'rec_dispo_dress_packages', 'rec_dispo_event_dress'] as $t) {
             Capsule::table($t)->delete();
         }
     }
@@ -111,5 +122,35 @@ abstract class DressTestCase extends TestCase
             'name'       => $name,
             'items_text' => $text,
         ]);
+    }
+
+    /**
+     * Baut eine Show-Komponente OHNE Livewire-Mount/Request-Zyklus (kein
+     * Testbench hier) und verdrahtet die #[Computed]-Properties von Hand:
+     * Livewire haengt deren Magic-Getter normalerweise beim Component-Boot
+     * ein (SupportAttributes-Feature). Ohne das wirft jeder Zugriff auf
+     * $this->event / $this->eventTaetigkeiten in Show.php eine
+     * PropertyNotFoundException — siehe EventBus-Singleton-Kommentar oben.
+     */
+    protected function dispoComponent(int $eventId): Show
+    {
+        $c = new Show();
+        $c->eventId = $eventId;
+        $c->getAttributes()->each(function ($attribute) {
+            if (method_exists($attribute, 'boot')) {
+                $attribute->boot();
+            }
+        });
+
+        return $c;
+    }
+
+    /** Ruft eine private/protected Methode der Komponente fuer den Test auf. */
+    protected function callPrivate(object $object, string $method, array $args = []): mixed
+    {
+        $ref = new \ReflectionMethod($object, $method);
+        $ref->setAccessible(true);
+
+        return $ref->invoke($object, ...$args);
     }
 }

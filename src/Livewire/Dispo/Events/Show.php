@@ -51,7 +51,16 @@ class Show extends Component
 
     /** Paket-Auswahl im Sende-Fenster: '' = keins. Strings, weil Selects Strings liefern. */
     public string $dressAll = '';
-    /** taetigkeit => Paket-ID als String */
+    /**
+     * Paket je Taetigkeit — INDIZIERT wie eventTaetigkeiten(), NICHT nach
+     * Taetigkeit-Text gekeyt: Index i => Paket-ID fuer eventTaetigkeiten()[i].
+     *
+     * Fix-Runde 1: Livewire zerlegt wire:model-Pfade am literalen Punkt
+     * (data_get/data_set). Taetigkeit ist ZAS-Freitext ohne Normalisierung
+     * (siehe Migration) — ein Wert wie "2.OG" wuerde als Pfad "dressByTaetigkeit.2.OG"
+     * eine verschachtelte Struktur erzeugen und persistDress() brechen. Das
+     * Blade-Partial bindet deshalb ueber $loop->index, nicht ueber den Text.
+     */
     public array $dressByTaetigkeit = [];
     public string $eventHinweis = '';
     /** Haken „ZAS-Text gesehen" — Gegenstueck zu dressNeedsAck(). */
@@ -1704,12 +1713,33 @@ class Show extends Component
      * Taetigkeiten, die in DIESER VA vorkommen — aus den Einbuchungen, nicht
      * aus einem Katalog. Freitext aus ZAS, deshalb nur trimmen und sortieren.
      *
+     * Fix-Runde 1: nur eindeutig tote Einbuchungen werden herausgefiltert
+     * (storniert, aus ZAS verschwunden, zur Loeschung gemeldet, abgesagt) —
+     * bewusst NICHT das Empfaenger-Praedikat aus sendPreview()/infoPreview().
+     * Wuerde man auf aktive Empfaenger filtern, waere die Auswahl bei einem
+     * Nachversand leer (alle schon angeschrieben) und die Dispo koennte gar
+     * kein Paket mehr setzen. Vergangene Tage und bereits Angeschriebene
+     * bleiben deshalb absichtlich waehlbar.
+     *
+     * WICHTIG: die Reihenfolge dieser Liste ist die Indizierung, auf der
+     * loadDressForm(), persistDress() und das Blade-Partial aufsetzen
+     * (Livewire zerlegt wire:model-Pfade am Punkt, Taetigkeit-Freitext kann
+     * aber Punkte enthalten, z. B. "2.OG" — deshalb Index statt Freitext im
+     * Pfad). sort() ist deterministisch, solange die Einbuchungen dieser VA
+     * sich waehrend der Sitzung nicht aendern.
+     *
      * @return list<string>
      */
     #[Computed]
     public function eventTaetigkeiten(): array
     {
         $values = $this->event->assignments
+            ->filter(function ($a) {
+                return $a->status_id !== RecDispoAssignment::STATUS_STORNO
+                    && $a->missing_since === null
+                    && $a->deletion_marked_at === null
+                    && $a->declined_at === null;
+            })
             ->map(fn ($a) => trim((string) $a->taetigkeit))
             ->filter(fn (string $t) => $t !== '')
             ->unique()
@@ -1727,19 +1757,22 @@ class Show extends Component
             ->where('rec_dispo_event_id', $event->id)
             ->get();
 
+        $byTaetigkeit = [];
         $this->dressAll = '';
-        $this->dressByTaetigkeit = [];
         foreach ($rows as $row) {
             $id = (string) $row->rec_dispo_dress_package_id;
             if ((string) $row->taetigkeit === \Platform\Recruiting\Models\RecDispoEventDress::ALL) {
                 $this->dressAll = $id;
                 continue;
             }
-            $this->dressByTaetigkeit[(string) $row->taetigkeit] = $id;
+            $byTaetigkeit[(string) $row->taetigkeit] = $id;
         }
 
+        // Index-Reihenfolge = eventTaetigkeiten() — dieselbe, auf die
+        // persistDress() und das Blade-Partial sich verlassen.
+        $this->dressByTaetigkeit = [];
         foreach ($this->eventTaetigkeiten as $taetigkeit) {
-            $this->dressByTaetigkeit[$taetigkeit] ??= '';
+            $this->dressByTaetigkeit[] = $byTaetigkeit[$taetigkeit] ?? '';
         }
 
         $this->eventHinweis = (string) ($event->hinweis ?? '');
@@ -1751,7 +1784,13 @@ class Show extends Component
 
     private function persistDress(\Platform\Recruiting\Models\RecDispoEvent $event): void
     {
-        $wanted = $this->dressByTaetigkeit;
+        // dressByTaetigkeit ist index-indiziert (siehe Property-Kommentar) —
+        // dieselbe Reihenfolge wie eventTaetigkeiten() bildet den Taetigkeit-Text
+        // zurueck, bevor gespeichert wird.
+        $wanted = [];
+        foreach ($this->eventTaetigkeiten as $index => $taetigkeit) {
+            $wanted[$taetigkeit] = $this->dressByTaetigkeit[$index] ?? '';
+        }
         $wanted[\Platform\Recruiting\Models\RecDispoEventDress::ALL] = $this->dressAll;
 
         foreach ($wanted as $taetigkeit => $packageId) {
