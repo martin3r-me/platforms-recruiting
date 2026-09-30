@@ -49,11 +49,26 @@ class ZasRatingExportTest extends TestCase
         $this->assertSame($expected, array_slice($columns, $start, count($expected)));
     }
 
-    public function test_firma_ist_die_letzte_spalte(): void
+    public function test_firma_steht_direkt_hinter_den_bewertungen(): void
     {
-        // Von ZAS angefragt; steht bewusst hinter allem anderen, damit sich
-        // keine bestehende Spaltenposition verschiebt.
-        $this->assertSame('Firma', array_slice(ZasEmployeeFieldResolver::COLUMNS, -1)[0]);
+        // Von ZAS angefragt; stand bis 30.09.2026 ganz am Ende. Seither haengt
+        // das Tagekonto dahinter (mit Olaf abgestimmt) — Firma behaelt dadurch
+        // seine Position, es schiebt sich nichts VOR eine bestehende Spalte.
+        $columns = ZasEmployeeFieldResolver::COLUMNS;
+        $firma   = array_search('Firma', $columns, true);
+
+        $this->assertNotFalse($firma, 'Firma fehlt im Export.');
+        $this->assertSame('BewertungTeamintegration', $columns[$firma - 1]);
+    }
+
+    public function test_tagekonto_haengt_als_letztes_dran(): void
+    {
+        // Reihenfolge und Lage sind mit ZAS abgestimmt (30.09.2026): drei
+        // Spalten ans Zeilenende, der Zeilenende-Marker rueckt mit.
+        $this->assertSame(
+            ['Hauptarbeitgeber', 'AndererArbeitgeber', 'TageErlaubt'],
+            array_slice(ZasEmployeeFieldResolver::COLUMNS, -3)
+        );
     }
 
     public function test_firma_loest_einen_update_export_aus(): void

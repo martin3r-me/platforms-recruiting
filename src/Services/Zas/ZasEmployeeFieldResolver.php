@@ -122,6 +122,13 @@ class ZasEmployeeFieldResolver
         // Personalnummer existiert, aus deren Praefix sie ablesbar waere. Die
         // Kostenstelle taugt dafuer nicht: 100/200/300/400 gibt es fuer RG UND MA.
         'Firma',
+
+        // Tagekonto der kurzfristigen Beschaeftigung (ans Ende, nie dazwischen;
+        // mit Olaf abgestimmt 30.09.2026). TageErlaubt ist der EINZIGE Wert
+        // dieses Kreislaufs, den wir besitzen — der Startwert aus der
+        // §15-Erklaerung des Arbeitsvertrags. Ab da fuehrt ZAS das Konto und
+        // liefert TageGearbeitetJahr + ArbeitstageRest zurueck.
+        'Hauptarbeitgeber', 'AndererArbeitgeber', 'TageErlaubt',
     ];
 
     /**
@@ -286,6 +293,22 @@ class ZasEmployeeFieldResolver
             'UUID'                              => (string) $employee->uuid,
             'ZasPersonalNr'                     => $employee->personnel_number,
             'Firma'                             => $employee->company,
+
+            // Tagekonto. Hauptarbeitgeber ist DREIWERTIG: ohne Erklaerung bleibt
+            // die Spalte leer — ein 'Nein' hiesse "jemand anderes ist es", und
+            // AndererArbeitgeber waere dann leer. Das waere ein Widerspruch in
+            // einem Feld, an dem die Sozialversicherung haengt.
+            'Hauptarbeitgeber'        => $employee->is_main_employer === null
+                ? null
+                : $this->boolLabel($employee->is_main_employer),
+            'AndererArbeitgeber'      => $employee->other_employer,
+            // NUR wenn der Startwert fuer das LAUFENDE Kalenderjahr gilt: das
+            // Kontingent ist jahresgebunden, eine 50 aus 2026 waere 2027 falsch.
+            // Leer heisst "keine Grundlage" — ZAS wendet dann nichts an.
+            'TageErlaubt'             => \Platform\Recruiting\Support\ShortTermDayBudget::isCurrentYear($hr?->short_term_days_allowed_year)
+                    && $hr?->short_term_days_allowed !== null
+                ? (string) $hr->short_term_days_allowed
+                : null,
 
             // Arbeitsschutz
             'Ersthelfer'              => $this->boolLabel($employee->is_first_aider),
