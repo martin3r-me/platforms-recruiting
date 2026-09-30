@@ -127,15 +127,20 @@
                     Über alle Tage: {{ $dispoTotal }} gesamt · {{ $dispoConfirmed }} bestätigt · {{ $dispoOpen }} offen
                 </div>
             @else
+            {{-- Kunde 30.09.: "angeschrieben" ist eine TEILMENGE der Offenen und
+                 stand bisher gleichrangig daneben — 61 + 1 + 3 sah nach 65 aus,
+                 obwohl es 64 sind. Jetzt als Zusatz zur Offen-Zahl. --}}
             <div class="mt-1 text-sm">
                 <span class="font-semibold tabular-nums">{{ $dispoTotal }}</span> gesamt
                 · <span class="font-semibold tabular-nums text-green-700">{{ $dispoConfirmed }}</span> bestätigt
-                · <span class="tabular-nums">{{ $dispoSent }}</span> angeschrieben
                 @if ($dispoDeclined > 0)
                     · <span class="font-semibold tabular-nums text-red-600">{{ $dispoDeclined }}</span> abgesagt
                 @endif
                 @if ($dispoOpen > 0)
                     <span class="ml-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs font-semibold text-orange-600">{{ $dispoOpen }} offen</span>
+                    @if ($dispoSent > 0)
+                        <span class="text-xs text-gray-500">davon {{ $dispoSent }} angeschrieben</span>
+                    @endif
                 @else
                     <span class="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">alle bestätigt</span>
                 @endif
@@ -217,7 +222,12 @@
             {{-- Desktop: Pills wie gehabt. --}}
             <div class="hidden items-center gap-1.5 lg:flex">
                 @foreach ($rfLabels as $rfKey => $rfLabel)
+                    {{-- "Alle" zaehlt AUCH Verschwundene/zur Loeschung Gemeldete, die
+                         Status-Pills nicht — sonst wirkt die Summe falsch (Kunde 30.09.). --}}
                     <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
+                            @if ($rfKey === '' && $rfCounts[''] > $rfCounts['open'] + $rfCounts['confirmed'] + $rfCounts['declined'])
+                                title="Enthält auch {{ $rfCounts[''] - $rfCounts['open'] - $rfCounts['confirmed'] - $rfCounts['declined'] }} Einbuchungen, die aus ZAS verschwunden oder zur Löschung gemeldet sind — die Status-Filter zählen die nicht mit."
+                            @endif
                             class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
                         {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
                     </button>
@@ -852,6 +862,10 @@
                         <span class="mb-1 block font-medium text-gray-700">Wer?</span>
                         <select wire:model.live="infoFilter" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
                             <option value="">Alle disponierten Mitarbeiter</option>
+                            {{-- Kunde 30.09.: "Hinweis an die bestaetigten Mitarbeiter" war
+                                 bisher nicht waehlbar. Bestaetigt = ALLE kommenden Tage zugesagt. --}}
+                            <option value="confirmed">Nur bestätigte</option>
+                            <option value="open">Nur noch offene</option>
                             @if ($this->infoTaetigkeitOptions !== [])
                                 <optgroup label="Tätigkeit (aus dieser VA)">
                                     @foreach ($this->infoTaetigkeitOptions as $taetigkeit)
@@ -929,7 +943,8 @@
                     @endphp
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         @if ($infoWaOn)
-                            <div>Geht an <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern — jede/r bekommt die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
+                            @php $infoMitNummer = max(0, $infoSelected->count() - $infoSelNoPhone); @endphp
+                            <div>Geht an <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern; <strong>{{ $infoMitNummer }}</strong> {{ $infoMitNummer === 1 ? 'bekommt' : 'bekommen' }} die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
                             @if ($infoSelNoPhone > 0)
                                 <div class="text-gray-500">{{ $infoSelNoPhone }} × ohne Handynummer (bekommen Anhang/Hinweis, aber keine WhatsApp)</div>
                             @endif

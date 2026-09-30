@@ -1289,7 +1289,11 @@ class Show extends Component
     // Qualifikation an viele MA auf einmal + Info-WhatsApp mit Link.
     // ------------------------------------------------------------------
     public bool $showInfoModal = false;
-    /** Filter: '' = alle, 't:<Taetigkeit>' (aus den Einbuchungen) oder 'q:<Lookup-value>' (Qualifikation). */
+    /**
+     * Filter: '' = alle, 'confirmed' = nur wer ALLE kommenden Tage bestaetigt hat,
+     * 'open' = die uebrigen, 't:<Taetigkeit>' (aus den Einbuchungen) oder
+     * 'q:<Lookup-value>' (Qualifikation).
+     */
     public string $infoFilter = '';
     /** Abgewaehlte Personen (kanonische ids) — Checkboxen in der Vorschau. @var list<int> */
     public array $infoExcluded = [];
@@ -1399,6 +1403,11 @@ class Show extends Component
             $byCanon[$c]['assignment_ids'][] = (int) $a->id;
             $byCanon[$c]['has_note'] = ($byCanon[$c]['has_note'] ?? false) || trim((string) $a->individual_note) !== '';
             $byCanon[$c]['taetigkeiten'][trim((string) $a->taetigkeit)] = true;
+            // Fuer den Filter "nur Bestaetigte" (Kunde 30.09.): bestaetigt ist,
+            // wer JEDEN seiner kommenden Tage bestaetigt hat — wer noch einen
+            // offenen Tag hat, gehoert nicht in eine Info an die Zugesagten.
+            $byCanon[$c]['all_confirmed'] = ($byCanon[$c]['all_confirmed'] ?? true) && $a->confirmed_at !== null;
+            $byCanon[$c]['any_confirmed'] = ($byCanon[$c]['any_confirmed'] ?? false) || $a->confirmed_at !== null;
         }
         if ($byCanon === []) {
             return ['persons' => [], 'no_phone' => 0];
@@ -1420,7 +1429,15 @@ class Show extends Component
         foreach ($byCanon as $c => $data) {
             $group = $groups[$c] ?? [$c];
 
-            if (str_starts_with($this->infoFilter, 't:')) {
+            if ($this->infoFilter === 'confirmed') {
+                if (empty($data['all_confirmed'])) {
+                    continue;
+                }
+            } elseif ($this->infoFilter === 'open') {
+                if (!empty($data['all_confirmed'])) {
+                    continue;
+                }
+            } elseif (str_starts_with($this->infoFilter, 't:')) {
                 // Taetigkeit aus den Einbuchungen DIESER VA (immer gefuellt, ZAS liefert sie mit).
                 if (!isset($data['taetigkeiten'][substr($this->infoFilter, 2)])) {
                     continue;
