@@ -87,6 +87,17 @@ class Show extends Component
     public string $eventHinweis = '';
     /** Haken „ZAS-Text gesehen" — Gegenstueck zu dressNeedsAck(). */
     public bool $dressAck = false;
+    /**
+     * Sichtbare Bestaetigung fuer „Nur Kleidung speichern" — Muster $escSaved.
+     *
+     * Fix-Runde 3, Befund 1: die Paketauswahl haengt sonst ausschliesslich am
+     * Senden-Knopf, und der ist deaktiviert, sobald die VA durchbestaetigt ist
+     * (DispoRecipientPlanner wirft bestaetigte und bereits angeschriebene
+     * Einbuchungen aus der Empfaengermenge). Genau dann — bei jeder
+     * Nachbesserung — waere die Auswahl ohne eigenen Knopf unerreichbar und
+     * ginge beim Schliessen des Fensters lautlos verloren.
+     */
+    public bool $dressSaved = false;
 
     /**
      * Kunde 03.09. (Nummern-Nachzug): NUR Empfaenger mit Zustellfehler erneut
@@ -1864,6 +1875,70 @@ class Show extends Component
         return false;
     }
 
+    /**
+     * Riegel fuer BEIDE Speicherwege (Senden und „Nur Kleidung speichern").
+     *
+     * @return bool true = geblockt, der Aufrufer muss abbrechen
+     */
+    private function dressGateBlocks(RecDispoEvent $event): bool
+    {
+        $chosen = array_values($this->dressByTaetigkeit);
+        $chosen[] = $this->dressAll;
+
+        if (!self::dressNeedsAck($chosen, $event->dresscode, $this->dressAck)) {
+            return false;
+        }
+
+        $this->addError('dressAck', 'Bitte einmal bestätigen, dass der bisherige Kleidungstext aus ZAS gesehen wurde — er verschwindet für die Empfänger.');
+
+        return true;
+    }
+
+    /**
+     * Die Kleidungs-Spalten der VA — eine Quelle fuer den Sende-Weg (dort in
+     * dasselbe update() wie Vorlaufzeit/Ansprechpartner) und fuer saveDress().
+     *
+     * @return array<string, mixed>
+     */
+    private function dressEventAttributes(RecDispoEvent $event): array
+    {
+        return [
+            'hinweis'          => trim($this->eventHinweis) === '' ? null : trim($this->eventHinweis),
+            'dresscode_ack'    => $this->dressAck ? $event->dresscode : $event->dresscode_ack,
+            'dresscode_ack_at' => $this->dressAck ? now() : $event->dresscode_ack_at,
+        ];
+    }
+
+    /**
+     * „Nur Kleidung speichern" im Sende-Fenster (Fix-Runde 3, Befund 1):
+     * Paketauswahl, Hinweis und Ack festhalten, OHNE zu senden — Muster
+     * saveEscalation(). Der Senden-Knopf ist bei einer durchbestaetigten VA
+     * dauerhaft deaktiviert; ohne diesen Weg waere die Auswahl dann gar nicht
+     * mehr speicherbar.
+     */
+    public function saveDress(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+
+        $this->dressSaved = false;
+        $event = RecDispoEvent::findOrFail($this->eventId);
+
+        if ($this->dressGateBlocks($event)) {
+            return;
+        }
+        $this->resetErrorBag('dressAck');
+
+        $event->update($this->dressEventAttributes($event));
+        $this->persistDress($event);
+        // Computed-Cache der VA verwerfen, damit der Kasten den gespeicherten
+        // Stand zeigt (Muster persistEscalation()).
+        unset($this->event);
+
+        $this->dressSaved = true;
+    }
+
     /** Crew-Modal (Kunde 02.09.): abgespecktes Personal-Kaertchen statt Link in die MA-Akte. */
     #[Locked]
     public ?int $crewEmployeeId = null;
@@ -2130,6 +2205,8 @@ class Show extends Component
         $this->loadContactForm();
 
         $this->loadDressForm();
+        $this->dressSaved = false;
+        $this->resetErrorBag('dressAck');
 
         $this->showSendModal = true;
     }
@@ -2183,21 +2260,17 @@ class Show extends Component
 
         $event = RecDispoEvent::findOrFail($this->eventId);
 
-        $chosen = array_values($this->dressByTaetigkeit);
-        $chosen[] = $this->dressAll;
-        if (self::dressNeedsAck($chosen, $event->dresscode, $this->dressAck)) {
-            $this->addError('dressAck', 'Bitte einmal bestätigen, dass der bisherige Kleidungstext aus ZAS gesehen wurde — er verschwindet für die Empfänger.');
+        // Derselbe Riegel wie in saveDress() — beide Speicherwege muessen ihn
+        // durchlaufen (Fix-Runde 3, Befund 1).
+        if ($this->dressGateBlocks($event)) {
             return;
         }
 
-        $event->update([
+        $event->update(array_merge([
             'vorlauf_minuten' => (int) $this->vorlaufMinuten,
             // Nur manuelle Ueberschreibung speichern; Standard-Teamleitung -> null (zieht live mit).
             'ansprechpartner' => DispoContactResolver::toStore($this->ansprechpartner, $this->teamLeads),
-            'hinweis'         => trim($this->eventHinweis) === '' ? null : trim($this->eventHinweis),
-            'dresscode_ack'   => $this->dressAck ? $event->dresscode : $event->dresscode_ack,
-            'dresscode_ack_at' => $this->dressAck ? now() : $event->dresscode_ack_at,
-        ]);
+        ], $this->dressEventAttributes($event)));
 
         $this->persistDress($event);
 

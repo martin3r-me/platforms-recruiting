@@ -13,6 +13,46 @@ use Platform\Recruiting\Models\RecDispoEventDress;
  */
 class DispoDressSendFormTest extends DressTestCase
 {
+    public static function setUpBeforeClass(): void
+    {
+        parent::setUpBeforeClass();
+
+        // Fix-Runde 3, Befund 2: persistDress() prueft die eingereichte
+        // Paket-ID gegen die waehlbare Menge (Show::dressPackages()), und die
+        // haengt an settingsTeamId(). Ohne diesen Key faellt settingsTeamId()
+        // auf auth()->user() zurueck — in der Capsule-Suite ein Fehler.
+        // NUR hier gesetzt, nicht in DressTestCase: der Key schaltet
+        // gleichzeitig DispoIdentityResolver scharf (crm_contact_links).
+        \Illuminate\Container\Container::getInstance()->instance(
+            'config',
+            new \Illuminate\Config\Repository(['recruiting' => ['zas' => ['inbound_team_id' => self::TEAM]]])
+        );
+
+        // Livewire::getErrorBag() holt sich die zuvor geteilten Fehler ueber
+        // app('view') — ohne gebootetes View-System waere jedes addError()
+        // in saveDress() eine BindingResolutionException. Attrappe mit dem
+        // einen Aufruf, den der Pfad braucht.
+        \Illuminate\Container\Container::getInstance()->instance('view', new class {
+            public function getShared(): array
+            {
+                return [];
+            }
+        });
+
+        // Der Fehler-Beutel liegt in Livewires DataStore. Ohne
+        // Singleton-Bindung erzeugt jeder app(DataStore::class)-Aufruf eine
+        // neue, leere Instanz — set() und get() traefen sich nie (gleiches
+        // Muster wie die EventBus-Bindung in DressTestCase).
+        \Illuminate\Container\Container::getInstance()->singleton(\Livewire\Mechanisms\DataStore::class);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        \Illuminate\Container\Container::getInstance()->forgetInstance('view');
+        \Illuminate\Container\Container::getInstance()->forgetInstance(\Livewire\Mechanisms\DataStore::class);
+        parent::tearDownAfterClass();
+    }
+
     public function test_no_package_chosen_means_no_gate(): void
     {
         $this->assertFalse(Show::dressNeedsAck([], 'Bitte folgende Kleidung: weisses Hemd', false));
@@ -196,5 +236,56 @@ class DispoDressSendFormTest extends DressTestCase
             'Das fuer "Service" gewaehlte Paket muss an "Service" landen, nicht an der neu dazugekommenen "Empfang".'
         );
         $this->assertArrayNotHasKey('Empfang', $rows->all(), '"Empfang" kam erst NACH der Auswahl hinzu — die Dispo hat dafuer nie ein Paket gewaehlt.');
+    }
+
+    /**
+     * Fix-Runde 3, Befund 1: die Paketauswahl muss OHNE Versand speicherbar
+     * sein. Der Senden-Knopf ist deaktiviert, sobald die VA durchbestaetigt
+     * ist (DispoRecipientPlanner wirft bestaetigte und bereits angeschriebene
+     * Einbuchungen aus der Empfaengermenge) — ohne eigenen Knopf waere die
+     * Auswahl bei jeder Nachbesserung unerreichbar.
+     */
+    public function test_save_dress_persists_selection_hinweis_and_ack_without_sending(): void
+    {
+        $event = $this->event(['dresscode' => 'Ansprechpartner: Tristan anrufen']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->dressAll = (string) $pkg->id;
+        $c->eventHinweis = 'Bitte Ausweis mitbringen';
+        $c->dressAck = true;
+
+        $c->saveDress();
+
+        $this->assertTrue($c->dressSaved, 'Sichtbare Bestaetigung wie beim Eskalations-Knopf.');
+        $rows = RecDispoEventDress::query()->where('rec_dispo_event_id', $event->id)->get()->keyBy('taetigkeit');
+        $this->assertSame((int) $pkg->id, (int) $rows[RecDispoEventDress::ALL]->rec_dispo_dress_package_id);
+
+        $event->refresh();
+        $this->assertSame('Bitte Ausweis mitbringen', $event->hinweis);
+        $this->assertSame('Ansprechpartner: Tristan anrufen', $event->dresscode_ack);
+        $this->assertNotNull($event->dresscode_ack_at);
+    }
+
+    /** Fix-Runde 3, Befund 1: der Riegel greift auch im Speichern-Weg. */
+    public function test_save_dress_is_blocked_by_the_ack_gate(): void
+    {
+        $event = $this->event(['dresscode' => 'Ansprechpartner: Tristan anrufen']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->dressAll = (string) $pkg->id;
+        $c->dressAck = false;
+
+        $c->saveDress();
+
+        $this->assertFalse($c->dressSaved);
+        $this->assertTrue($c->getErrorBag()->has('dressAck'), 'Ohne "Text gesehen" wird nicht gespeichert.');
+        $this->assertCount(0, RecDispoEventDress::query()->where('rec_dispo_event_id', $event->id)->get(),
+            'Nichts darf durchrutschen, solange der Riegel zu ist.');
     }
 }

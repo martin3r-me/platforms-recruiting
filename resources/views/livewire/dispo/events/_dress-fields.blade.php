@@ -77,5 +77,19 @@
             <span class="mb-1 block text-xs text-gray-600">Hinweise zur Veranstaltung <span class="text-gray-400">(steht auf der Einsatz-Seite unter der Kleidung)</span></span>
             <textarea wire:model="eventHinweis" rows="3" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"></textarea>
         </label>
+
+        {{-- Eigener Speichern-Knopf (Fix-Runde 3, Befund 1): der Senden-Knopf
+             ist deaktiviert, sobald die VA durchbestaetigt ist — ohne diesen
+             Weg waere die Auswahl bei jeder Nachbesserung unerreichbar und
+             ginge beim Schliessen des Fensters lautlos verloren. Muster:
+             „Nur Eskalation speichern". --}}
+        <div class="flex items-center justify-end gap-2">
+            @if ($dressSaved)
+                <span class="text-xs text-green-600">✓ Kleidung gespeichert</span>
+            @endif
+            <button type="button" wire:click="saveDress"
+                    wire:loading.attr="disabled" wire:target="saveDress"
+                    class="rounded border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">Nur Kleidung speichern</button>
+        </div>
     @endif
 </div>

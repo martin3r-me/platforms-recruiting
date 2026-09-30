@@ -41,6 +41,10 @@ abstract class DressTestCase extends TestCase
         $container->instance('db', $capsule->getDatabaseManager());
         $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
         Facade::setFacadeApplication($container);
+        // BEWUSST ohne recruiting.zas.inbound_team_id: DispoIdentityResolver
+        // bleibt dadurch fail-closed und fasst crm_contact_links nie an (siehe
+        // DispoDressOnAssignmentPageTest). Wer den Team-Anker braucht, bindet
+        // ihn in der eigenen Klasse nach — siehe DispoDressSendFormTest.
         $container->instance('config', new ConfigRepository([]));
 
         // EventBus als Singleton binden: Fix-Runde 1 (Task 6) testet
