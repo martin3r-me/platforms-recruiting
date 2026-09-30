@@ -923,31 +923,40 @@ class KontoAnmelden extends Component
             return;
         }
 
-        if (!self::weg4Aktiv()) {
-            // Der Riegel aus der Aufgabe-9-Pruefung, jetzt ausdruecklich
-            // (config/recruiting.php, konto.weg4_aktiv). KEINE eigene
-            // Meldung: die Seite geht in denselben Zustand mit demselben
-            // Text wie bei falschen Nachweisen. Eine Meldung "dieser Weg ist
-            // abgeschaltet" waere selbst eine Auskunft.
-            Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'anfordern']);
-        } elseif ($this->darfAnfordern()) {
-            $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
+        // DIE BREMSE ZUERST, DER SCHALTER DANACH. Der Riegel aus der
+        // Aufgabe-9-Pruefung darf die IP-Bremse nicht ueberspringen: sonst
+        // schreibt bei abgeschaltetem Weg 4 JEDER Aufruf eine Log-Zeile, und
+        // ueber das im Wirt ungedrosselte /livewire/update ist das unbegrenzt
+        // ausloesbar. Auf derselben Stufe (`warning`) liegt
+        // recruiting.konto.nummernwechsel_beantragt — die Zeile, deren ganzer
+        // Sinn es ist, gesehen zu werden. Eine Flut daneben macht sie
+        // unsichtbar; dieses Projekt hatte genau diese Log-Flut schon einmal.
+        if ($this->darfAnfordern()) {
+            if (!self::weg4Aktiv()) {
+                // KEINE eigene Meldung (config/recruiting.php,
+                // konto.weg4_aktiv): die Seite geht in denselben Zustand mit
+                // demselben Text wie bei falschen Nachweisen. Ein "dieser Weg
+                // ist abgeschaltet" waere selbst eine Auskunft.
+                Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'anfordern']);
+            } else {
+                $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
 
-            // RULING GD-13: ein gestoppter Antrag sperrt Weg 4 fuer diese
-            // Person. Gefragt wird VOR den Nachweisen — ein Gesperrter soll
-            // nicht einmal durch Ausprobieren erfahren, ob sein Geburtsdatum
-            // stimmt. Die Antwort aendert sich dadurch nicht; er erfaehrt
-            // nicht, dass er gesperrt ist.
-            if ($personId !== null
-                && KontoWriter::darfNotfallWeg($personId)
-                && !RateLimiter::tooManyAttempts(self::nachweisSchluessel($personId), self::MAX_FEHLVERSUCHE)) {
-                if (KontoWriter::ausweisNachweisStimmt($personId, trim($this->geburtsdatum), trim($this->ausweis))) {
-                    RateLimiter::clear(self::nachweisSchluessel($personId));
+                // RULING GD-13: ein gestoppter Antrag sperrt Weg 4 fuer diese
+                // Person. Gefragt wird VOR den Nachweisen — ein Gesperrter soll
+                // nicht einmal durch Ausprobieren erfahren, ob sein Geburtsdatum
+                // stimmt. Die Antwort aendert sich dadurch nicht; er erfaehrt
+                // nicht, dass er gesperrt ist.
+                if ($personId !== null
+                    && KontoWriter::darfNotfallWeg($personId)
+                    && !RateLimiter::tooManyAttempts(self::nachweisSchluessel($personId), self::MAX_FEHLVERSUCHE)) {
+                    if (KontoWriter::ausweisNachweisStimmt($personId, trim($this->geburtsdatum), trim($this->ausweis))) {
+                        RateLimiter::clear(self::nachweisSchluessel($personId));
 
-                    $this->merkePerson($personId);
-                    $sender->sende($personId, KontoWriter::ZWECK_NOTFALL, $neu);
-                } else {
-                    RateLimiter::hit(self::nachweisSchluessel($personId), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
+                        $this->merkePerson($personId);
+                        $sender->sende($personId, KontoWriter::ZWECK_NOTFALL, $neu);
+                    } else {
+                        RateLimiter::hit(self::nachweisSchluessel($personId), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
+                    }
                 }
             }
         }
@@ -989,23 +998,31 @@ class KontoAnmelden extends Component
             return;
         }
 
-        // AUCH HIER, und nicht nur in Schritt 1: eine Sitzung, die vor dem
-        // Abschalten begonnen hat, traegt die Personen-Kennung im
-        // Sitzungs-Schlitz und kaeme sonst noch durch — der Schalter waere
-        // dann erst ab dem naechsten Neustart wirksam. Die Antwort ist
-        // dieselbe wie bei einem falschen Code.
-        if (!self::weg4Aktiv()) {
-            Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'bestaetigen']);
+        $personId = $this->laufendePerson();
 
+        if ($personId === null) {
             $this->code = '';
             $this->fehler = self::MELDUNG_ZURUECK;
 
             return;
         }
 
-        $personId = $this->laufendePerson();
+        // AUCH HIER, und nicht nur in Schritt 1: eine Sitzung, die vor dem
+        // Abschalten begonnen hat, traegt die Personen-Kennung im
+        // Sitzungs-Schlitz und kaeme sonst noch durch — der Schalter waere
+        // dann erst ab dem naechsten Neustart wirksam. Die Antwort ist
+        // dieselbe wie bei einem falschen Code.
+        //
+        // HINTER der Personen-Wache und HINTER der Bremse, aus demselben
+        // Grund wie in Schritt 1: die Zeile darf nicht unbegrenzt
+        // ausloesbar sein. Gezaehlt wird nur im abgeschalteten Fall — der
+        // eingeschaltete Weg 4 bleibt unveraendert und wird hier NICHT
+        // gedrosselt.
+        if (!self::weg4Aktiv()) {
+            if ($this->darfAnfordern()) {
+                Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'bestaetigen']);
+            }
 
-        if ($personId === null) {
             $this->code = '';
             $this->fehler = self::MELDUNG_ZURUECK;
 
@@ -1056,14 +1073,6 @@ class KontoAnmelden extends Component
     }
 
     /**
-     * Darf von dieser Adresse noch ein Code angefordert werden — und wenn
-     * ja, zaehle diesen Versuch mit.
-     *
-     * Fragen und Zaehlen in EINER Methode, damit es keinen Aufrufer geben
-     * kann, der fragt und das Zaehlen vergisst; genau so waere die Bremse
-     * eine, die nicht bremst.
-     */
-    /**
      * IST WEG 4 UEBERHAUPT FREIGEGEBEN?
      *
      * Die Schlusspruefung zu Aufgabe 9 hat verlangt: Weg 4 darf nicht
@@ -1088,6 +1097,14 @@ class KontoAnmelden extends Component
         return (bool) config('recruiting.konto.weg4_aktiv', false);
     }
 
+    /**
+     * Darf von dieser Adresse noch ein Code angefordert werden — und wenn
+     * ja, zaehle diesen Versuch mit.
+     *
+     * Fragen und Zaehlen in EINER Methode, damit es keinen Aufrufer geben
+     * kann, der fragt und das Zaehlen vergisst; genau so waere die Bremse
+     * eine, die nicht bremst.
+     */
     private function darfAnfordern(): bool
     {
         $schluessel = self::ipSchluessel();

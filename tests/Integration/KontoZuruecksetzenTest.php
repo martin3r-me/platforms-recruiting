@@ -2750,6 +2750,97 @@ final class KontoZuruecksetzenTest extends TestCase
     }
 
     /**
+     * NACHPRUEFUNG N2: der Riegel darf die IP-BREMSE NICHT UEBERSPRINGEN.
+     *
+     * Stand der Schalter vor der Bremse, schrieb bei abgeschaltetem Weg 4
+     * JEDER Aufruf eine warning-Zeile — und ueber das im Wirt ungedrosselte
+     * /livewire/update ist das unbegrenzt ausloesbar. Auf derselben Stufe
+     * liegt recruiting.konto.nummernwechsel_beantragt, die Zeile, deren
+     * ganzer Sinn es ist, gesehen zu werden; eine Flut daneben macht sie
+     * unsichtbar. Dieses Projekt hatte genau diese Log-Flut schon einmal.
+     *
+     * Gefahren werden fuenf Aufrufe MEHR, als die Bremse zulaesst. Die Zahl
+     * selbst prueft dieser Test nicht (das tun die Bremsen-Tests in
+     * KontoAnmeldenTest); hier geht es allein darum, DASS sie gefragt wird.
+     */
+    public function test_der_abgeschaltete_weg4_laeuft_nicht_an_der_ip_bremse_vorbei(): void
+    {
+        $this->schalteWeg4Ab();
+
+        $versuche = KontoAnmelden::MAX_ANFRAGEN_JE_IP + 5;
+
+        for ($i = 0; $i < $versuche; $i++) {
+            $seite = $this->seite();
+            $seite->zumNotfall();
+            $seite->nummer = self::NUMMER_GETIPPT;
+            $seite->geburtsdatum = self::GEBURT;
+            $seite->ausweis = '0T47';
+            $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+            $seite->notfallAnfordern($this->sender());
+        }
+
+        $zeilen = array_values(array_filter(
+            $this->log->zeilen,
+            static fn (array $z): bool => $z['nachricht'] === 'recruiting.konto.weg4_abgeschaltet',
+        ));
+
+        // Vorflug: es wurde ueberhaupt protokolliert. Sonst waere dieser Test
+        // auch dann gruen, wenn die Zeile gar nicht mehr geschrieben wird —
+        // und dass sie geschrieben wird, ist der Punkt des Riegels.
+        $this->assertNotSame([], $zeilen, 'es wurde ueberhaupt keine Zeile geschrieben');
+
+        $this->assertCount(
+            KontoAnmelden::MAX_ANFRAGEN_JE_IP,
+            $zeilen,
+            'der abgeschaltete Weg 4 schreibt an der IP-Bremse vorbei ins Log — unbegrenzt ausloesbar',
+        );
+
+        // Und die Antwort bleibt dieselbe: gedrosselt sieht aus wie nicht
+        // gedrosselt.
+        $letzte = $this->seite();
+        $letzte->zumNotfall();
+        $letzte->nummer = self::NUMMER_GETIPPT;
+        $letzte->geburtsdatum = self::GEBURT;
+        $letzte->ausweis = '0T47';
+        $letzte->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $letzte->notfallAnfordern($this->sender());
+
+        $this->assertSame('notfall-code', $letzte->state);
+        $this->assertSame([], $this->meta->calls, 'es darf nichts rausgegangen sein');
+    }
+
+    /**
+     * Dasselbe fuer den zweiten Schritt: auch dort haengt die Log-Zeile
+     * hinter der Bremse — und hinter der Personen-Wache, damit ein Aufruf
+     * ohne laufenden Vorgang gar nichts schreibt.
+     */
+    public function test_auch_der_zweite_schritt_schreibt_nicht_unbegrenzt(): void
+    {
+        $seite = $this->notfallBisZumCode();
+
+        $this->schalteWeg4Ab();
+
+        for ($i = 0; $i < KontoAnmelden::MAX_ANFRAGEN_JE_IP + 5; $i++) {
+            $seite->code = '123456';
+            $seite->notfallBestaetigen();
+        }
+
+        $zeilen = array_values(array_filter(
+            $this->log->zeilen,
+            static fn (array $z): bool => $z['nachricht'] === 'recruiting.konto.weg4_abgeschaltet'
+                && $z['daten']['schritt'] === 'bestaetigen',
+        ));
+
+        $this->assertNotSame([], $zeilen, 'es wurde ueberhaupt keine Zeile geschrieben');
+        $this->assertLessThanOrEqual(
+            KontoAnmelden::MAX_ANFRAGEN_JE_IP,
+            count($zeilen),
+            'der zweite Schritt schreibt an der IP-Bremse vorbei ins Log',
+        );
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab, 'und es entsteht weiterhin kein Antrag');
+    }
+
+    /**
      * Der Riegel greift AUCH IM ZWEITEN SCHRITT.
      *
      * Eine Sitzung, die vor dem Abschalten begonnen hat, traegt die

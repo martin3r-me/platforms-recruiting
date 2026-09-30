@@ -49,15 +49,20 @@ final class NummernSchwaerzung
             $text,
         );
 
-        // preg_replace_callback gibt bei einem Fehler null zurueck (etwa bei
-        // ungueltigem UTF-8 in einer fremden Meldung). Dann geht der
-        // Originaltext durch — UNGESCHWAERZT. Das ist der Rueckfall, den die
-        // Fassung in recruiting:konto-zuruecksetzen schon hatte, und er wird
-        // hier bewusst nicht stillschweigend verschaerft: der Fall ist bei
-        // Meldungen aus dem eigenen Code nicht erreichbar, und eine leere
-        // Zeichenkette saehe im Log aus wie "es gab keinen Grund". Wer den
-        // Schwaerzer je an Text aus einer fremden Quelle haengt, entscheidet
-        // diese Frage neu.
+        // preg_replace_callback gibt bei einem Fehler null zurueck. Dann
+        // ginge der Originaltext durch — UNGESCHWAERZT.
+        //
+        // DIESER ZWEIG IST HEUTE UNERREICHBAR, und zwar aus einem anderen
+        // Grund, als hier zuerst stand. Nachgemessen: das Muster laeuft OHNE
+        // /u, PCRE arbeitet also byteweise. Auch ungueltiges UTF-8 wird
+        // klaglos ersetzt, preg_last_error() bleibt 0 — die frueher hier
+        // genannte Begruendung ("etwa bei ungueltigem UTF-8") mass nicht,
+        // was sie behauptete. Erst MIT /u liefert dieselbe Eingabe null.
+        //
+        // Der Rueckfall bleibt trotzdem stehen: er ist billiger als eine
+        // Wache, und eine leere Zeichenkette saehe im Log aus wie "es gab
+        // keinen Grund". WER JE EIN /u ERGAENZT, macht ihn scharf und muss
+        // dann entscheiden, ob ein ungeschwaerzter Text ins Log darf.
         return $geschwaerzt ?? $text;
     }
 }
