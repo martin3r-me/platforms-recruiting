@@ -170,7 +170,13 @@ class EmployeeAssignments extends Component
                 'taetigkeit'      => $assignment->taetigkeit,
                 'assignment_id'  => $assignment->id,
                 'dress'          => null,
-                'dress_text'     => $dressByAssignment[$assignment->id]?->items_text,
+                // Festgeschriebene Textkopie schlaegt den lebenden Paket-Text:
+                // was der Mitarbeiter beim Versand bekommen hat, darf sich
+                // durch spaetere Pflege am Paket nicht rueckwirkend aendern
+                // (DispoDressResolver::freeze()).
+                'dress_text'     => trim((string) $assignment->dress_items_text) !== ''
+                    ? (string) $assignment->dress_items_text
+                    : $dressByAssignment[$assignment->id]?->items_text,
                 'arrival'         => $arrival,
                 'confirmed'       => $assignment->confirmed_at !== null,
                 'individual_note' => $assignment->individual_note,

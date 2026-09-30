@@ -174,6 +174,46 @@ class DispoDressOnAssignmentPageTest extends DressTestCase
         $this->assertNull($groups[0]['dress_hinweis']);
     }
 
+    /**
+     * Fix-Runde 3, Befund 3: das Einfrieren haelt den TEXT fest, nicht nur die
+     * Referenz. Die Pflegemaske schreibt items_text in den bestehenden
+     * Paket-Datensatz — ohne Kopie aenderte sich rueckwirkend, was der
+     * Mitarbeiter bereits bestaetigt hat.
+     */
+    public function test_frozen_text_survives_a_later_edit_of_the_package(): void
+    {
+        $employee = $this->employeeWithToken('tok-dress-3');
+        $event = $this->event(['dresscode' => 'Bitte folgende Kleidung: weisses Hemd']);
+        $paket = $this->package('Logistik', 'Hoodie; Sicherheitsschuhe');
+        RecDispoEventDress::create([
+            'rec_dispo_event_id' => $event->id, 'taetigkeit' => RecDispoEventDress::ALL,
+            'rec_dispo_dress_package_id' => $paket->id,
+        ]);
+        $assignment = $this->assignment($event, [
+            'rec_employee_id'  => $employee->id,
+            'datum'            => now()->addDay()->toDateString(),
+            'reminder_sent_at' => now()->subHour(),
+        ]);
+
+        // Versandzeitpunkt: Paket festschreiben.
+        (new DispoDressResolver())->freeze([$assignment->id]);
+        $this->assertSame('Hoodie; Sicherheitsschuhe', $assignment->fresh()->dress_items_text,
+            'freeze() muss die Textkopie mitstempeln, nicht nur die Referenz.');
+
+        // Drei Wochen spaeter aendert jemand den Inhalt von "Logistik".
+        $paket->update(['items_text' => 'Komplett andere Kleidung']);
+
+        $component = new EmployeeAssignments();
+        $component->mount('tok-dress-3');
+        $groups = $component->eventGroups();
+
+        $this->assertSame(
+            ['heading' => DressPanels::HEADING_PACKAGE, 'text' => 'Hoodie; Sicherheitsschuhe'],
+            $groups[0]['dress_group'],
+            'Die festgeschriebene Einbuchung muss weiter den Text vom Versandzeitpunkt zeigen.'
+        );
+    }
+
     private function employeeWithToken(string $token): RecEmployee
     {
         return RecEmployee::create([

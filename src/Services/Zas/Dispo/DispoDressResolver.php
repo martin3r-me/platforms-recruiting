@@ -19,6 +19,14 @@ use Platform\Recruiting\Models\RecDispoEventDress;
  *
  * forAssignments() ist rein lesend — die Einsatz-Seite darf es gefahrlos
  * aufrufen. Geschrieben wird ausschliesslich in freeze().
+ *
+ * freeze() stempelt BEIDES: die Paket-Referenz und eine Kopie des
+ * Kleidungstextes (dress_items_text). Die Referenz allein haette nicht
+ * gereicht — die Pflegemaske schreibt items_text in den BESTEHENDEN
+ * Paket-Datensatz, und die Einsatz-Seite las den Text live von dort. Aendert
+ * jemand drei Wochen spaeter den Inhalt von "Logistik", haette sich damit
+ * rueckwirkend geaendert, was ein Mitarbeiter bereits bestaetigt hat. Die
+ * Einsatz-Seite bevorzugt deshalb die Kopie (EmployeeAssignments::eventGroups()).
  */
 class DispoDressResolver
 {
@@ -82,7 +90,8 @@ class DispoDressResolver
     }
 
     /**
-     * Schreibt das aufgeloeste Paket an die Einbuchungen fest (Versandzeitpunkt).
+     * Schreibt das aufgeloeste Paket an die Einbuchungen fest (Versandzeitpunkt)
+     * — Referenz plus Textkopie, siehe Kopfkommentar.
      *
      * Bereits gestempelte Einbuchungen bleiben unberuehrt: was jemand bestaetigt
      * hat, darf sich durch einen zweiten Versand nicht aendern.
@@ -109,11 +118,13 @@ class DispoDressResolver
 
         // Nach Paket gruppieren, damit aus n Einbuchungen wenige Updates werden.
         $byPackage = [];
+        $texte = [];
         foreach ($resolved as $assignmentId => $package) {
             if ($package === null) {
                 continue;
             }
             $byPackage[(int) $package->id][] = $assignmentId;
+            $texte[(int) $package->id] = (string) $package->items_text;
         }
 
         $stamped = 0;
@@ -121,7 +132,13 @@ class DispoDressResolver
         foreach ($byPackage as $packageId => $ids) {
             $stamped += RecDispoAssignment::query()
                 ->whereIn('id', $ids)
-                ->update(['rec_dispo_dress_package_id' => $packageId, 'dress_frozen_at' => $now]);
+                ->update([
+                    'rec_dispo_dress_package_id' => $packageId,
+                    'dress_frozen_at'            => $now,
+                    // Wortlaut des Versandzeitpunkts — die Einsatz-Seite zeigt
+                    // ab jetzt diese Kopie, nicht mehr den lebenden Paket-Text.
+                    'dress_items_text'           => (string) $texte[$packageId],
+                ]);
         }
 
         return $stamped;

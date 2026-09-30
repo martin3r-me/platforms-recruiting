@@ -48,7 +48,7 @@ class RecDispoAssignment extends Model
         'escalation_1_message_id',
         'escalation_2_message_id',
         'source_meta',
-        'rec_dispo_dress_package_id', 'dress_frozen_at',
+        'rec_dispo_dress_package_id', 'dress_frozen_at', 'dress_items_text',
     ];
 
     /**
