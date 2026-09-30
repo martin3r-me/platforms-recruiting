@@ -3,7 +3,12 @@
      x-ui-input-select + @entangle verliert die Auswahl beim Speichern. --}}
 @php
     $dressOptions = $this->dressPackages;
-    $dressTaetigkeiten = $this->eventTaetigkeiten;
+    // Fix-Runde 2: NICHT $this->eventTaetigkeiten (frisch berechnet, kann
+    // sich zwischen Oeffnen und Senden verschieben) — der Schnappschuss vom
+    // Oeffnen ist die einzige Liste, gegen die dressByTaetigkeit-Indizes
+    // noch gueltig sind. Das Fenster zeigt damit bewusst den Stand von
+    // seinem Oeffnen, nicht live nachgezogene ZAS-Aenderungen.
+    $dressTaetigkeiten = $dressTaetigkeitenSnapshot;
     $zasText = trim((string) ($this->event->dresscode ?? ''));
 @endphp
 <div class="rounded-lg border border-gray-200 p-3 text-sm space-y-3">
@@ -34,7 +39,7 @@
              Livewire zerlegt wire:model-Pfade am literalen Punkt, und Taetigkeit
              ist ungefilterter ZAS-Freitext ("2.OG" wuerde sonst einen
              verschachtelten Pfad erzeugen). Index i gehoert zu
-             eventTaetigkeiten()[i] — siehe Show::$dressByTaetigkeit. --}}
+             dressTaetigkeitenSnapshot[i] — siehe Show::$dressByTaetigkeit. --}}
         @foreach ($dressTaetigkeiten as $index => $taetigkeit)
             @php $vorschauTag = $dressTexts[$dressByTaetigkeit[$index] ?? ''] ?? null; @endphp
             <label class="block">

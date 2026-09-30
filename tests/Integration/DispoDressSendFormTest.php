@@ -50,6 +50,9 @@ class DispoDressSendFormTest extends DressTestCase
         $order = $c->eventTaetigkeiten; // tatsaechliche Sortierung, nicht angenommen
         $this->assertSame(['2.OG', 'Service'], $order, 'Testannahme zur Sortierung — sonst zeigt der Test das Falsche.');
 
+        // In der echten Komponente stammt der Schnappschuss aus loadDressForm();
+        // hier direkt gesetzt, um die Indizes im Test kontrolliert vorzugeben.
+        $c->dressTaetigkeitenSnapshot = $order;
         $c->dressAll = (string) $pkgAll->id;
         // Index 0 = "2.OG" bleibt leer (erbt von "Alle uebrigen"), Index 1 = "Service" bekommt ein eigenes Paket.
         $c->dressByTaetigkeit = ['', (string) $pkgService->id];
@@ -73,6 +76,7 @@ class DispoDressSendFormTest extends DressTestCase
         $pkg = $this->package('Weiss', 'Weisses Hemd');
 
         $c = $this->dispoComponent($event->id);
+        $c->dressTaetigkeitenSnapshot = ['Service'];
         $c->dressAll = (string) $pkg->id;
         $c->dressByTaetigkeit = [(string) $pkg->id];
         $this->callPrivate($c, 'persistDress', [$event]);
@@ -80,6 +84,7 @@ class DispoDressSendFormTest extends DressTestCase
 
         // Jetzt nur noch "Alle uebrigen" leeren — "Service" bleibt unberuehrt.
         $c2 = $this->dispoComponent($event->id);
+        $c2->dressTaetigkeitenSnapshot = ['Service'];
         $c2->dressAll = '';
         $c2->dressByTaetigkeit = [(string) $pkg->id];
         $this->callPrivate($c2, 'persistDress', [$event]);
@@ -132,5 +137,64 @@ class DispoDressSendFormTest extends DressTestCase
         $c2 = $this->dispoComponent($changed->id);
         $this->callPrivate($c2, 'loadDressForm');
         $this->assertFalse($c2->dressAck, 'ZAS hat den Text geaendert -> Riegel ist wieder scharf.');
+    }
+
+    /**
+     * Fix-Runde 2: Reihenfolge-Drift der Index-Bindung. eventTaetigkeiten()
+     * ist #[Computed] und wird bei jedem Livewire-Roundtrip (= jeder
+     * Hydration, also jeder eigenen Show-Instanz) frisch berechnet — kommt
+     * zwischen Oeffnen (loadDressForm, Request 1 / Instanz $cOpen) und
+     * Senden (persistDress, Request 2 / Instanz $cSend, mit den von
+     * Livewire "rehydrierten" oeffentlichen Properties) eine ZAS-Lieferung
+     * herein, die eine neue, alphabetisch VORN einsortierte Taetigkeit
+     * bringt, verschiebt sich die sortierte Liste und Index 0 zeigt danach
+     * auf eine andere Taetigkeit als beim Oeffnen. Ohne Schnappschuss
+     * wuerde persistDress() das fuer "Service" gewaehlte Paket dann
+     * lautlos an "Empfang" haengen.
+     */
+    public function test_persist_dress_survives_taetigkeit_drift_between_open_and_send(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+
+        // Request 1: Fenster oeffnen.
+        $cOpen = $this->dispoComponent($event->id);
+        $this->callPrivate($cOpen, 'loadDressForm');
+        $this->assertSame(['Service'], $cOpen->dressTaetigkeitenSnapshot, 'Testannahme: beim Oeffnen gibt es nur "Service".');
+
+        // Dispo waehlt fuer "Service" (Index 0 im Schnappschuss) ein Paket.
+        $cOpen->dressByTaetigkeit[0] = (string) $pkg->id;
+
+        // Waehrenddessen: eine ZAS-Lieferung bringt eine neue Einbuchung mit
+        // einer Taetigkeit, die alphabetisch VOR "Service" einsortiert
+        // ("Empfang" < "Service") — eine frische Berechnung liefert jetzt
+        // ['Empfang', 'Service'], Index 0 verschiebt sich also.
+        $this->assignment($event, ['taetigkeit' => 'Empfang', 'rec_employee_id' => null]);
+
+        // Request 2: Senden. Eine NEUE Show-Instanz (wie nach einer echten
+        // Livewire-Rehydration), oeffentliche Properties wie von Livewire
+        // aus dem Request-Payload restauriert — aber eventTaetigkeiten()
+        // wird in DIESER Instanz zum ersten Mal berechnet, also frisch.
+        $cSend = $this->dispoComponent($event->id);
+        $cSend->dressAll = $cOpen->dressAll;
+        $cSend->dressByTaetigkeit = $cOpen->dressByTaetigkeit;
+        $cSend->dressTaetigkeitenSnapshot = $cOpen->dressTaetigkeitenSnapshot;
+
+        $this->assertSame(
+            ['Empfang', 'Service'],
+            $cSend->eventTaetigkeiten,
+            'Testannahme: die frische Berechnung hat sich tatsaechlich verschoben — sonst zeigt der Test das Falsche.'
+        );
+
+        $this->callPrivate($cSend, 'persistDress', [$event]);
+
+        $rows = RecDispoEventDress::query()->where('rec_dispo_event_id', $event->id)->get()->keyBy('taetigkeit');
+        $this->assertSame(
+            (int) $pkg->id,
+            (int) ($rows['Service']->rec_dispo_dress_package_id ?? null),
+            'Das fuer "Service" gewaehlte Paket muss an "Service" landen, nicht an der neu dazugekommenen "Empfang".'
+        );
+        $this->assertArrayNotHasKey('Empfang', $rows->all(), '"Empfang" kam erst NACH der Auswahl hinzu — die Dispo hat dafuer nie ein Paket gewaehlt.');
     }
 }

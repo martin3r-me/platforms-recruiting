@@ -52,16 +52,38 @@ class Show extends Component
     /** Paket-Auswahl im Sende-Fenster: '' = keins. Strings, weil Selects Strings liefern. */
     public string $dressAll = '';
     /**
-     * Paket je Taetigkeit — INDIZIERT wie eventTaetigkeiten(), NICHT nach
-     * Taetigkeit-Text gekeyt: Index i => Paket-ID fuer eventTaetigkeiten()[i].
+     * Paket je Taetigkeit — INDIZIERT wie dressTaetigkeitenSnapshot, NICHT
+     * nach Taetigkeit-Text gekeyt: Index i => Paket-ID fuer
+     * dressTaetigkeitenSnapshot[i].
      *
      * Fix-Runde 1: Livewire zerlegt wire:model-Pfade am literalen Punkt
      * (data_get/data_set). Taetigkeit ist ZAS-Freitext ohne Normalisierung
      * (siehe Migration) — ein Wert wie "2.OG" wuerde als Pfad "dressByTaetigkeit.2.OG"
      * eine verschachtelte Struktur erzeugen und persistDress() brechen. Das
-     * Blade-Partial bindet deshalb ueber $loop->index, nicht ueber den Text.
+     * Blade-Partial bindet deshalb ueber den numerischen Index aus der
+     * @foreach-Schluessel, nicht ueber den Taetigkeit-Text.
      */
     public array $dressByTaetigkeit = [];
+    /**
+     * Schnappschuss der Taetigkeiten-Reihenfolge vom Oeffnen des Fensters —
+     * die Grundlage der Index-Bindung oben.
+     *
+     * Fix-Runde 2: eventTaetigkeiten() ist #[Computed] und wird bei JEDEM
+     * Livewire-Roundtrip frisch aus den aktuellen Einbuchungen berechnet.
+     * Kommt zwischen Oeffnen und Senden eine ZAS-Lieferung herein, die eine
+     * Einbuchung hinzufuegt/storniert/absagt, verschiebt sich die sortierte
+     * Liste — persistDress() wuerde dann gegen eine ANDERE Reihenfolge als
+     * die schreiben, mit der die Dispo die Auswahl getroffen hat, und das
+     * Paket landete lautlos an der falschen Taetigkeit. #[Locked] +
+     * ausschliesslich serverseitig in loadDressForm() gesetzt (Muster:
+     * die #[Locked]-Properties in EmployeeAssignments.php). NICHT durch
+     * eventTaetigkeiten() ersetzen, auch nicht "zum Aufraeumen" — das
+     * bringt den Drift zurueck.
+     *
+     * @var list<string>
+     */
+    #[Locked]
+    public array $dressTaetigkeitenSnapshot = [];
     public string $eventHinweis = '';
     /** Haken „ZAS-Text gesehen" — Gegenstueck zu dressNeedsAck(). */
     public bool $dressAck = false;
@@ -1721,12 +1743,13 @@ class Show extends Component
      * kein Paket mehr setzen. Vergangene Tage und bereits Angeschriebene
      * bleiben deshalb absichtlich waehlbar.
      *
-     * WICHTIG: die Reihenfolge dieser Liste ist die Indizierung, auf der
-     * loadDressForm(), persistDress() und das Blade-Partial aufsetzen
-     * (Livewire zerlegt wire:model-Pfade am Punkt, Taetigkeit-Freitext kann
-     * aber Punkte enthalten, z. B. "2.OG" — deshalb Index statt Freitext im
-     * Pfad). sort() ist deterministisch, solange die Einbuchungen dieser VA
-     * sich waehrend der Sitzung nicht aendern.
+     * Fix-Runde 2: diese Methode ist #[Computed] und wird bei JEDEM
+     * Livewire-Roundtrip NEU berechnet — die Reihenfolge kann sich also
+     * zwischen zwei Aufrufen verschieben (neue/stornierte/abgesagte
+     * Einbuchung waehrend das Sende-Fenster offen ist). loadDressForm(),
+     * persistDress() und das Blade-Partial verlassen sich deshalb NICHT
+     * mehr auf diese Methode direkt, sondern auf den einmalig beim Oeffnen
+     * gezogenen Schnappschuss $dressTaetigkeitenSnapshot — siehe dort.
      *
      * @return list<string>
      */
@@ -1768,10 +1791,14 @@ class Show extends Component
             $byTaetigkeit[(string) $row->taetigkeit] = $id;
         }
 
-        // Index-Reihenfolge = eventTaetigkeiten() — dieselbe, auf die
-        // persistDress() und das Blade-Partial sich verlassen.
+        // Schnappschuss JETZT festschreiben — dieselbe Reihenfolge, in der
+        // dressByTaetigkeit aufgebaut wird. persistDress() und das
+        // Blade-Partial lesen spaeter GEGEN DIESEN Schnappschuss, nicht
+        // gegen eine zwischenzeitlich neu berechnete eventTaetigkeiten()
+        // (Fix-Runde 2: sonst Drift bei ZAS-Lieferung waehrend das Fenster offen ist).
+        $this->dressTaetigkeitenSnapshot = $this->eventTaetigkeiten;
         $this->dressByTaetigkeit = [];
-        foreach ($this->eventTaetigkeiten as $taetigkeit) {
+        foreach ($this->dressTaetigkeitenSnapshot as $taetigkeit) {
             $this->dressByTaetigkeit[] = $byTaetigkeit[$taetigkeit] ?? '';
         }
 
@@ -1785,10 +1812,12 @@ class Show extends Component
     private function persistDress(\Platform\Recruiting\Models\RecDispoEvent $event): void
     {
         // dressByTaetigkeit ist index-indiziert (siehe Property-Kommentar) —
-        // dieselbe Reihenfolge wie eventTaetigkeiten() bildet den Taetigkeit-Text
-        // zurueck, bevor gespeichert wird.
+        // gegen den SCHNAPPSCHUSS vom Oeffnen, NICHT gegen eine frische
+        // eventTaetigkeiten()-Berechnung (Fix-Runde 2: die waere bei einer
+        // zwischenzeitlich eingegangenen ZAS-Lieferung eine ANDERE Reihenfolge
+        // als die, mit der die Dispo ihre Auswahl getroffen hat).
         $wanted = [];
-        foreach ($this->eventTaetigkeiten as $index => $taetigkeit) {
+        foreach ($this->dressTaetigkeitenSnapshot as $index => $taetigkeit) {
             $wanted[$taetigkeit] = $this->dressByTaetigkeit[$index] ?? '';
         }
         $wanted[\Platform\Recruiting\Models\RecDispoEventDress::ALL] = $this->dressAll;
