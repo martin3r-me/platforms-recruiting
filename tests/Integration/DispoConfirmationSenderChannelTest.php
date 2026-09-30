@@ -195,6 +195,58 @@ class DispoConfirmationSenderChannelTest extends TestCase
     }
 
     /**
+     * Fix-Runde 3, Befund 6: der Sender-Test deckte freeze() bisher nur
+     * scheinbar ab — ohne die Waeschepaket-Migrationen lief der Aufruf ohne
+     * Ausnahme durch (siehe Kommentar in runMigrations()). Dieser Fall prueft,
+     * dass die Empfaenger-Einbuchung nach send() tatsaechlich gestempelt ist:
+     * Paket-Referenz, Zeitpunkt und Textkopie.
+     */
+    public function test_confirmation_send_freezes_the_dress_package_on_the_assignment(): void
+    {
+        $event = RecDispoEvent::create([
+            'einsatz_ref' => 'RG-CONF-FREEZE', 'name' => 'Test-VA-Freeze', 'filial_nr' => self::FILIAL_NR,
+            'vorlauf_minuten' => 30,
+        ]);
+
+        $paket = \Platform\Recruiting\Models\RecDispoDressPackage::create([
+            'team_id' => self::TEAM, 'name' => 'Logistik', 'items_text' => 'Hoodie; Sicherheitsschuhe',
+        ]);
+        \Platform\Recruiting\Models\RecDispoEventDress::create([
+            'rec_dispo_event_id' => $event->id,
+            'taetigkeit' => \Platform\Recruiting\Models\RecDispoEventDress::ALL,
+            'rec_dispo_dress_package_id' => $paket->id,
+        ]);
+
+        RecDispoAssignment::create([
+            'ds_ref' => 'DS-CONF-FREEZE', 'rec_dispo_event_id' => $event->id, 'pnr_raw' => 'RG' . self::$employeeId,
+            'rec_employee_id' => self::$employeeId, 'datum' => '2026-08-26', 'von' => '16:00', 'bis' => '22:00',
+            'status_id' => RecDispoAssignment::STATUS_AUFTRAG, 'taetigkeit' => 'Service',
+        ]);
+
+        $sender = new DispoConfirmationSender(new DispoEmployeeGateway());
+        $assignmentId = (int) RecDispoAssignment::where('ds_ref', 'DS-CONF-FREEZE')->value('id');
+        $recipients = [[
+            'employee_id'     => self::$employeeId,
+            'phone'           => RecEmployee::find(self::$employeeId)->phone,
+            'assignment_ids'  => [$assignmentId],
+            'first_datum'     => '2026-08-26',
+            'is_reminder'     => false,
+        ]];
+
+        $result = $sender->send($event, $recipients, self::$templateId);
+
+        $this->assertSame(1, $result['sent']);
+        $this->assertSame([], $result['failed']);
+
+        $assignment = RecDispoAssignment::find($assignmentId);
+        $this->assertSame((int) $paket->id, (int) $assignment->rec_dispo_dress_package_id,
+            'send() muss das aufgeloeste Paket an der Empfaenger-Einbuchung festschreiben.');
+        $this->assertNotNull($assignment->dress_frozen_at);
+        $this->assertSame('Hoodie; Sicherheitsschuhe', $assignment->dress_items_text,
+            'Die Textkopie gehoert mit an die Einbuchung (Befund 3).');
+    }
+
+    /**
      * Fix-Runde 3, Befund 5: der freeze()-Aufruf steht im Sender NACH dem
      * erfolgreichen Meta-Versand und vor $sent++. Ohne eigenen try/catch
      * landete ein Empfaenger in $failed, obwohl die WhatsApp raus ist — ein
@@ -335,6 +387,17 @@ class DispoConfirmationSenderChannelTest extends TestCase
             [$own, 'database/migrations/2026_08_24_000003_add_alarm_message_id_to_rec_dispo_events.php'],
             [$own, 'database/migrations/2026_08_24_000004_add_portal_lock_to_rec_employees.php'],
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
+            // Waeschepakete (Fix-Runde 3, Befund 6): send() ruft seit dem
+            // Einfrieren DispoDressResolver::freeze(). Ohne diese drei
+            // Migrationen lief der Aufruf hier OHNE Ausnahme durch und lieferte
+            // 0 — dieselbe SQLite-Falle wie oben bei personnel_number/company:
+            // ein doppelt gequoteter Bezeichner, der keine Spalte ist, gilt als
+            // String-Literal. "dress_frozen_at" IS NULL war damit schlicht
+            // falsch statt ein Fehler, die Tests blieben gruen und der neue
+            // Schritt war nicht abgedeckt.
+            [$own, 'database/migrations/2026_09_30_000001_create_rec_dispo_dress_packages_table.php'],
+            [$own, 'database/migrations/2026_09_30_000002_create_rec_dispo_event_dress_table.php'],
+            [$own, 'database/migrations/2026_09_30_000003_add_dress_fields_to_dispo_tables.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
             [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
