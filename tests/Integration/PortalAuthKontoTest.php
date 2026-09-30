@@ -869,6 +869,56 @@ final class PortalAuthKontoTest extends TestCase
         $migration->down();
         $this->assertFalse(Schema::hasIndex('rec_persons', 'rec_persons_phone_index'));
     }
+
+    /**
+     * SCHLUSSPRUEFUNG C2: die Umkehrung der Stufe-1-Migration scheiterte auf
+     * SQLite, weil die Spalte gedroppt wurde, ohne ihren Index vorher zu
+     * loeschen ("error in index rec_employees_rec_person_id_index after drop
+     * column").
+     *
+     * Auf MySQL — Produktion und Demo — war das folgenlos: MySQL raeumt
+     * einen Index ueber genau diese eine Spalte selbst mit ab. Getroffen
+     * haette es nur einen Rollback auf SQLite, also genau die Umgebung, in
+     * der man eine Migration ueblicherweise ausprobiert; und wer sie je als
+     * Vorlage kopiert, erbt den Fehler.
+     *
+     * Der Test faehrt den vollen Kreis gegen das handgebaute Schema. Die
+     * Spalte wird vorher entfernt, sonst legte up() sie (und ihren Index)
+     * gar nicht erst an und die Umkehrung haette nichts zu tun.
+     */
+    public function test_die_personen_klammer_laesst_sich_umkehren(): void
+    {
+        $migration = require __DIR__ . '/../../database/migrations/2026_09_28_000002_add_rec_person_id_to_rec_employees.php';
+
+        Schema::table('rec_employees', function ($t) {
+            $t->dropColumn('rec_person_id');
+        });
+
+        $migration->up();
+
+        // Vorflug: erst wenn der Index WIRKLICH da ist, prueft die Umkehrung
+        // unten etwas. Ohne ihn liefe down() klaglos durch, auch in der
+        // kaputten Fassung.
+        $this->assertTrue(Schema::hasColumn('rec_employees', 'rec_person_id'));
+        $this->assertTrue(
+            Schema::hasIndex('rec_employees', 'rec_employees_rec_person_id_index'),
+            'Vorflug: ohne Index ist die Umkehrung nicht auf die Probe gestellt',
+        );
+
+        // Die Wache: auf der Demo kann die Migration schon gelaufen sein.
+        $migration->up();
+        $this->assertTrue(Schema::hasColumn('rec_employees', 'rec_person_id'));
+
+        $migration->down();
+
+        $this->assertFalse(Schema::hasColumn('rec_employees', 'rec_person_id'));
+        $this->assertFalse(Schema::hasIndex('rec_employees', 'rec_employees_rec_person_id_index'));
+
+        // down() darf auch dann nicht scheitern, wenn es nichts zu tun gibt.
+        $migration->down();
+        $this->assertFalse(Schema::hasColumn('rec_employees', 'rec_person_id'));
+    }
+
     // ------------------------------------------- Ruling GD-11: die IP-Bremse
 
     /**

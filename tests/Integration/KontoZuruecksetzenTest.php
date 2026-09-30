@@ -184,6 +184,15 @@ final class KontoZuruecksetzenTest extends TestCase
             'recruiting' => [
                 'konto' => [
                     'pepper'        => self::PFEFFER,
+
+                    // WEG 4 IST IN DER VORGABE AUS (konto.weg4_aktiv, seit
+                    // der Schlussrunde ein ausdruecklicher Schalter statt
+                    // eines leeren .env-Eintrags). Diese Klasse prueft, was
+                    // Weg 4 TUT, und stellt ihn dafuer an. Dass er in der
+                    // Vorgabe aus ist und dann wie ein fehlgeschlagener
+                    // Versuch antwortet, steht weiter unten in eigenen
+                    // Tests — die stellen ihn ausdruecklich wieder ab.
+                    'weg4_aktiv'    => true,
                     'code_vorlagen' => [
                         KontoWriter::ZWECK_ANMELDUNG => [
                             'name' => self::VORLAGE_CODE, 'sprache' => 'de', 'platzhalter' => ['code'],
@@ -2642,6 +2651,132 @@ final class KontoZuruecksetzenTest extends TestCase
         $seite->code = $this->codeAusDerNachricht();
 
         return $seite;
+    }
+
+    // ------------------------------- C1: der Freigabe-Riegel von Weg 4
+
+    /**
+     * Weg 4 IST IN DER AUSLIEFERUNG AUS, und zwar ausdruecklich.
+     *
+     * Bis zur Schlussrunde hielt diesen Riegel allein ein leerer
+     * .env-Eintrag: RECRUITING_KONTO_VORLAGE_NOTFALL war nicht gesetzt, und
+     * ohne Vorlagennamen verschickt der Sender nichts. Das ist ein Zufall
+     * und kein Riegel — wer irgendwann alle vier Vorlagen auf einmal
+     * eintraegt, schaltet Weg 4 mit, ohne es zu merken. Und Weg 4 gefolgt
+     * von Weg 3 ergibt die volle Uebernahme eines Kontos allein aus Nummer,
+     * Geburtsdatum und Ausweisziffern.
+     *
+     * DIESER TEST LIEST DIE AUSGELIEFERTE DATEI und nicht die
+     * Test-Konfiguration: die Testklasse stellt Weg 4 fuer ihre uebrigen
+     * Faelle ausdruecklich an, und eine Vorgabe, die man nur im Test sieht,
+     * ist keine.
+     */
+    public function test_die_vorgabe_von_weg4_ist_aus(): void
+    {
+        $konfiguration = require __DIR__ . '/../../config/recruiting.php';
+
+        $this->assertArrayHasKey(
+            'weg4_aktiv',
+            $konfiguration['konto'],
+            'der Schalter fehlt — dann haelt den Riegel wieder nur ein leerer .env-Eintrag',
+        );
+        $this->assertFalse(
+            $konfiguration['konto']['weg4_aktiv'],
+            'Weg 4 darf in der Auslieferung NICHT scharf sein (Freigabe-Riegel der Aufgabe-9-Pruefung)',
+        );
+    }
+
+    /** Den Schalter im laufenden Test abdrehen. */
+    private function schalteWeg4Ab(): void
+    {
+        $this->container->make('config')->set('recruiting.konto.weg4_aktiv', false);
+    }
+
+    /**
+     * Ohne Freigabe antwortet Weg 4 wie ein FEHLGESCHLAGENER VERSUCH — nicht
+     * mit einer eigenen Meldung.
+     *
+     * Eine Meldung "dieser Weg ist abgeschaltet" waere selbst eine Auskunft:
+     * sie sagte einem Fremden, dass dieses Konto auf diesem Weg gerade nicht
+     * angreifbar ist, und einem Mitarbeiter, dass er sich den Anruf sparen
+     * kann. Verglichen wird deshalb mit dem Fall, den es ohnehin gibt:
+     * falsche Ausweisziffern.
+     *
+     * ANKER: erst steht fest, DASS eine Antwort da ist (zwei leere
+     * Zeichenketten sind zeichengleich), dann, dass beide dieselbe ist.
+     */
+    public function test_ohne_freigabe_antwortet_weg4_wie_ein_fehlgeschlagener_versuch(): void
+    {
+        // Der Vergleichsfall, mit Freigabe: alles richtig ausser den
+        // Ausweisziffern.
+        $mitFalschenZiffern = $this->seite();
+        $mitFalschenZiffern->zumNotfall();
+        $mitFalschenZiffern->nummer = self::NUMMER_GETIPPT;
+        $mitFalschenZiffern->geburtsdatum = self::GEBURT;
+        $mitFalschenZiffern->ausweis = '9999';
+        $mitFalschenZiffern->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $mitFalschenZiffern->notfallAnfordern($this->sender());
+
+        $vergleich = $this->rendere($mitFalschenZiffern);
+        $this->assertNotSame('', trim($vergleich), 'ohne Antwort stuende der Mensch vor einer stummen Seite');
+        $this->assertSame('notfall-code', $mitFalschenZiffern->state);
+        $this->assertSame([], $this->meta->calls, 'Vorflug: falsche Ziffern verschicken nichts');
+
+        // Und jetzt derselbe Weg mit ALLEN Angaben richtig, aber
+        // abgeschaltet.
+        $this->schalteWeg4Ab();
+
+        $seite = $this->seite();
+        $seite->zumNotfall();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
+
+        $this->assertSame([], $this->meta->calls, 'ohne Freigabe darf kein Code rausgehen');
+        $this->assertSame(
+            $vergleich,
+            $this->rendere($seite),
+            'der abgeschaltete Weg muss zeichengleich antworten wie ein fehlgeschlagener Versuch',
+        );
+
+        $versuche = array_values(array_filter(
+            $this->log->zeilen,
+            static fn (array $z): bool => $z['nachricht'] === 'recruiting.konto.weg4_abgeschaltet',
+        ));
+        $this->assertCount(1, $versuche, 'dass es jemand versucht hat, muss im Log stehen');
+        $this->assertSame('anfordern', $versuche[0]['daten']['schritt']);
+    }
+
+    /**
+     * Der Riegel greift AUCH IM ZWEITEN SCHRITT.
+     *
+     * Eine Sitzung, die vor dem Abschalten begonnen hat, traegt die
+     * Personen-Kennung im Sitzungs-Schlitz. Ohne die Wache dort waere der
+     * Schalter erst ab dem naechsten Neustart wirksam — und genau der Fall
+     * ist der wahrscheinliche: jemand dreht ihn ab, WEIL gerade etwas
+     * laeuft.
+     */
+    public function test_ohne_freigabe_entsteht_auch_aus_einem_laufenden_vorgang_kein_antrag(): void
+    {
+        $seite = $this->notfallBisZumCode();
+
+        $this->schalteWeg4Ab();
+
+        $seite->notfallBestaetigen();
+
+        $this->assertSame('notfall-code', $seite->state, 'der Vorgang darf nicht auf "fertig" laufen');
+        $this->assertSame(KontoAnmelden::MELDUNG_ZURUECK, $seite->fehler, 'dieselbe Meldung wie bei falschem Code');
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab, 'es darf kein Antrag entstanden sein');
+        $this->assertNull($this->zeile()->wechsel_neue_nummer);
+
+        $versuche = array_values(array_filter(
+            $this->log->zeilen,
+            static fn (array $z): bool => $z['nachricht'] === 'recruiting.konto.weg4_abgeschaltet',
+        ));
+        $this->assertCount(1, $versuche);
+        $this->assertSame('bestaetigen', $versuche[0]['daten']['schritt']);
     }
 
     /**

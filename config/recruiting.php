@@ -203,6 +203,42 @@ return [
         // DAUERHAFT aus.
         'pepper' => env('RECRUITING_KONTO_PEPPER') ?: config('app.key'),
 
+        // WEG 4 (Spec 5: Nummer weg UND Passwort vergessen) IST AUS.
+        // Vorgabe false, ausdruecklich und nicht als Nebenwirkung.
+        //
+        // WARUM DIESER SCHALTER EXISTIERT. Die Schlusspruefung zu Aufgabe 9
+        // hat festgehalten: Weg 4 darf nicht scharf sein, bevor die
+        // HR-Meldung gebaut ist. Gehalten wurde dieser Riegel bis zur
+        // Schlussrunde allein davon, dass RECRUITING_KONTO_VORLAGE_NOTFALL
+        // leer ist und der Sender ohne Vorlagennamen nicht verschickt. Das
+        // ist ein Zufall und kein Riegel: wer irgendwann alle vier Vorlagen
+        // auf einmal eintraegt, schaltet Weg 4 mit, ohne es zu merken — und
+        // Weg 4 gefolgt von Weg 3 ergibt die volle Uebernahme eines Kontos
+        // allein aus Nummer, Geburtsdatum und Ausweisziffern, verzoegert um
+        // vierundzwanzig Stunden.
+        //
+        // WAS ERFUELLT SEIN MUSS, BEVOR JEMAND HIER true EINTRAEGT:
+        //  1. Die HR-Meldung aus Aufgabe 10 wird WIRKLICH GELESEN. Nicht
+        //     "sie existiert": es muss verabredet sein, WER
+        //     recruiting:konto-einladen --bericht (oder
+        //     recruiting:konto-zuruecksetzen --offen) wie oft ansieht. Die
+        //     vierundzwanzig Stunden sind nur dann ein Stopp-Recht, wenn in
+        //     ihnen jemand hinsieht; sonst ist Weg 4 ein stiller
+        //     Selbstbedienungs-Uebernahmeweg.
+        //  2. Die Meta-Vorlage aus 'code_vorlagen.notfall' ist genehmigt und
+        //     eingetragen — sonst ist der Schalter zwar an, aber es geht
+        //     ohnehin kein Code raus.
+        //  3. Es ist entschieden, ob der Bericht als Meldung genuegt oder ob
+        //     eine echte Mail gebraucht wird (offene Frage aus Aufgabe 9;
+        //     event@ ist ein Sammelkonto).
+        //
+        // IST ER AUS, verhaelt sich Weg 4 wie ein FEHLGESCHLAGENER VERSUCH —
+        // dieselbe Seite, derselbe Text, kein Versand. Eine eigene Meldung
+        // ("dieser Weg ist abgeschaltet") waere selbst eine Auskunft und
+        // machte den Schalter nach aussen sichtbar. Dass es jemand versucht
+        // hat, steht im Log (recruiting.konto.weg4_abgeschaltet).
+        'weg4_aktiv' => (bool) env('RECRUITING_KONTO_WEG4_AKTIV', false),
+
         // Der Versand des Einmalcodes (Platform\Recruiting\Services\Comms\EinmalcodeSender).
         //
         // WARUM DAS HIER STEHT UND NICHT IM CODE: die Meta-Vorlagen sind noch nicht

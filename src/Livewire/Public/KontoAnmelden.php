@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Public;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\RateLimiter;
 use InvalidArgumentException;
@@ -922,7 +923,14 @@ class KontoAnmelden extends Component
             return;
         }
 
-        if ($this->darfAnfordern()) {
+        if (!self::weg4Aktiv()) {
+            // Der Riegel aus der Aufgabe-9-Pruefung, jetzt ausdruecklich
+            // (config/recruiting.php, konto.weg4_aktiv). KEINE eigene
+            // Meldung: die Seite geht in denselben Zustand mit demselben
+            // Text wie bei falschen Nachweisen. Eine Meldung "dieser Weg ist
+            // abgeschaltet" waere selbst eine Auskunft.
+            Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'anfordern']);
+        } elseif ($this->darfAnfordern()) {
             $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
 
             // RULING GD-13: ein gestoppter Antrag sperrt Weg 4 fuer diese
@@ -977,6 +985,20 @@ class KontoAnmelden extends Component
 
         if (trim($this->code) === '') {
             $this->fehler = 'Bitte geben Sie den Code ein, den wir Ihnen geschickt haben.';
+
+            return;
+        }
+
+        // AUCH HIER, und nicht nur in Schritt 1: eine Sitzung, die vor dem
+        // Abschalten begonnen hat, traegt die Personen-Kennung im
+        // Sitzungs-Schlitz und kaeme sonst noch durch — der Schalter waere
+        // dann erst ab dem naechsten Neustart wirksam. Die Antwort ist
+        // dieselbe wie bei einem falschen Code.
+        if (!self::weg4Aktiv()) {
+            Log::warning('recruiting.konto.weg4_abgeschaltet', ['schritt' => 'bestaetigen']);
+
+            $this->code = '';
+            $this->fehler = self::MELDUNG_ZURUECK;
 
             return;
         }
@@ -1041,6 +1063,31 @@ class KontoAnmelden extends Component
      * kann, der fragt und das Zaehlen vergisst; genau so waere die Bremse
      * eine, die nicht bremst.
      */
+    /**
+     * IST WEG 4 UEBERHAUPT FREIGEGEBEN?
+     *
+     * Die Schlusspruefung zu Aufgabe 9 hat verlangt: Weg 4 darf nicht
+     * scharf sein, bevor die HR-Meldung gebaut ist. Gehalten wurde dieser
+     * Riegel bis zur Schlussrunde allein davon, dass
+     * RECRUITING_KONTO_VORLAGE_NOTFALL leer ist — ein Zufall und kein
+     * Riegel: wer alle vier Vorlagen auf einmal eintraegt, schaltet Weg 4
+     * mit, ohne es zu merken.
+     *
+     * Was erfuellt sein muss, bevor jemand konto.weg4_aktiv auf true setzt,
+     * steht ausgeschrieben in config/recruiting.php — der Kern: die
+     * HR-Meldung aus Aufgabe 10 muss WIRKLICH GELESEN werden, mit einer
+     * Verabredung darueber, wer wie oft hinsieht. Die vierundzwanzig
+     * Stunden sind nur dann ein Stopp-Recht.
+     *
+     * VORGABE FALSE, und der zweite Parameter von config() ist die Wache
+     * gegen einen alten Konfigurations-Cache ohne diesen Schluessel: fehlt
+     * er, ist Weg 4 aus und nicht an.
+     */
+    private static function weg4Aktiv(): bool
+    {
+        return (bool) config('recruiting.konto.weg4_aktiv', false);
+    }
+
     private function darfAnfordern(): bool
     {
         $schluessel = self::ipSchluessel();
