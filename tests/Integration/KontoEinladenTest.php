@@ -1451,6 +1451,97 @@ final class KontoEinladenTest extends TestCase
         $this->assertNotNull($this->zeile($person)->invite_token_hash);
     }
 
+    /**
+     * "--bericht verschickt nichts" hiess bisher nur "keine Einladung".
+     *
+     * Der Pruefer hat ein update() in den Berichtszweig gesetzt — gruen.
+     * Geprueft wird deshalb jetzt, was der Beobachter-Test unten vormacht:
+     * rec_persons.updated_at. Das faellt bei JEDEM Schreiben auf die Zeile,
+     * auch bei einem, das mit Einladungen gar nichts zu tun hat. Ein
+     * Bericht, der schreibt, ist kein Bericht.
+     */
+    public function test_der_bericht_schreibt_gar_nichts(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+        DB::table('rec_persons')->where('id', $person)->update([
+            'wechsel_neue_nummer'  => self::NUMMER_D,
+            'wechsel_beantragt_at' => self::JETZT,
+            'wechsel_wirksam_ab'   => '2026-09-30 12:00:00',
+            'wechsel_quelle'       => 'notfall',
+            'updated_at'           => self::ANGEFASST,
+        ]);
+
+        [$code, $ausgabe] = $this->kommando(['--bericht' => true]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertSame(
+            self::ANGEFASST,
+            (string) $this->zeile($person)->updated_at,
+            "--bericht hat auf rec_persons geschrieben:\n{$ausgabe}",
+        );
+    }
+
+    /**
+     * Dasselbe fuer den Probelauf. "Nichts geaendert." steht in seiner
+     * eigenen Ausgabe — es muss auch stimmen, und zwar fuer die ganze
+     * Zeile, nicht nur fuer die Einladungsfelder.
+     */
+    public function test_der_probelauf_schreibt_gar_nichts(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10', '--dry-run' => true]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertSame(
+            self::ANGEFASST,
+            (string) $this->zeile($person)->updated_at,
+            "der Probelauf hat auf rec_persons geschrieben:\n{$ausgabe}",
+        );
+    }
+
+    /**
+     * EIN GESCHEITERTER LAUF MELDET SICH IM RUECKGABEWERT.
+     *
+     * Der ganze catch-Zweig war von nichts beruehrt: "return $gescheitert > 0
+     * ? FAILURE : SUCCESS" liess sich durch "return SUCCESS" ersetzen, ohne
+     * dass ein Test rot wurde. An diesem Wert haengt, ob ein Zeitplan oder
+     * ein Skript ueberhaupt bemerkt, dass Einladungen ausgefallen sind — und
+     * ausgefallene Einladungen sieht sonst niemand, weil das Kommando nichts
+     * verschickt.
+     *
+     * Zum Scheitern gebracht wird es auf dem realistischen Weg: ohne Pfeffer
+     * duerfen weder Einladungs-Token noch Einmalcodes erzeugt werden
+     * (KontoWriter::pfeffer() wirft), und eine Fehlkonfiguration ist genau
+     * der Fall, in dem eine ganze Welle reihenweise ausfaellt.
+     */
+    public function test_eine_gescheiterte_einladung_meldet_sich_im_rueckgabewert(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        // NUR DEN EINEN SCHLUESSEL: die Konfiguration traegt auch die
+        // Datenbank-Einstellungen der Capsule — sie auszutauschen risse dem
+        // Test die Verbindung unter den Fuessen weg.
+        $this->container->make('config')->set('recruiting.konto.pepper', '');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '10']);
+
+        $this->assertSame(1, $code, "ein gescheiterter Lauf meldete Erfolg:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+
+        // Auf dem Bildschirm steht die Kennung und der Verweis aufs Log,
+        // NICHT die Ausnahmemeldung: die nennt die Konfigurationsschluessel.
+        $this->assertStringContainsString((string) $person, $ausgabe);
+        $this->assertStringNotContainsString('pepper', $ausgabe);
+
+        // Und der Grund steht im Log, damit ihn jemand findet.
+        $alles = json_encode($this->log->zeilen, JSON_UNESCAPED_UNICODE) ?: '';
+        $this->assertStringContainsString('recruiting.konto.einladung_fehler', $alles);
+    }
+
     /** Die Tabellenzeile, deren erste Spalte diese Kennung traegt. */
     private function tabellenZeile(string $ausgabe, int $kennung): string
     {

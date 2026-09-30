@@ -577,6 +577,39 @@ final class KontoZuruecksetzenTest extends TestCase
         return LivewireUtils::getPublicPropertiesDefinedOnSubclass($seite);
     }
 
+    /**
+     * Der Anker unter jedem Schnappschuss-Vergleich.
+     *
+     * ZWEI LEERE FELDER SIND GLEICH. Ein blosses assertSame($a, $b) ueber
+     * zwei Schnappschuesse belegt gar nichts, wenn beide leer sind — und
+     * leer werden sie schneller, als man denkt: getPublicPropertiesDefinedOnSubclass()
+     * liefert NUR, was auf der Unterklasse steht. Wandert eine Eigenschaft
+     * in eine Oberklasse, faellt sie lautlos aus dem Vergleich, und der
+     * Test bleibt gruen, waehrend er nichts mehr prueft.
+     *
+     * Deshalb wird hier belegt, DASS ueberhaupt Felder verglichen werden,
+     * und dass die zustandstragenden darunter sind — genau die, an denen
+     * sich ein Leck zeigen wuerde.
+     *
+     * @param  array<string, mixed>  $felder
+     */
+    private function verankere(array $felder, string $was): void
+    {
+        $this->assertNotSame([], $felder, "{$was} vergleicht gar keine Felder");
+
+        // Die Eigenschaften, an denen sich ein Unterschied zeigen WUERDE.
+        // Fehlt eine davon, vergleicht der Test nicht mehr, was er zu
+        // vergleichen behauptet.
+        foreach (['state', 'fehler', 'fertigGrund', 'geoeffnet'] as $feld) {
+            $this->assertArrayHasKey(
+                $feld,
+                $felder,
+                "{$was} enthaelt '{$feld}' nicht mehr — die Eigenschaft ist wohl in eine Oberklasse gewandert "
+                . 'und faellt damit lautlos aus dem Schnappschuss-Vergleich.',
+            );
+        }
+    }
+
     private function auth(): PortalAuth
     {
         return new PortalAuth($this->cache);
@@ -982,8 +1015,17 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->assertSame($bekannt->state, $unbekannt->state);
         $this->assertSame($bekannt->fehler, $unbekannt->fehler);
+
+        // ANKER: ohne ihn waere dieser Test auch dann gruen, wenn beide
+        // Seiten gar nichts mehr rendern — zwei leere Zeichenketten sind
+        // zeichengleich. Geprueft wird deshalb erst, DASS eine Antwort da
+        // ist, und dann, dass beide dieselbe ist.
+        $antwort = $this->rendere($bekannt);
+        $this->assertNotSame('', trim($antwort), 'ohne Antwort stuende der Mensch vor einer stummen Seite');
+        $this->assertSame('vergessen-code', $bekannt->state, 'die Seite steht gar nicht im Code-Schritt');
+
         $this->assertSame(
-            $this->rendere($bekannt),
+            $antwort,
             $this->rendere($unbekannt),
             'die Antwort auf eine unbekannte Nummer muss zeichengleich sein mit der auf eine bekannte',
         );
@@ -1416,7 +1458,14 @@ final class KontoZuruecksetzenTest extends TestCase
         // OHNE VORHERIGES GLEICHMACHEN: hier wird nichts an den beiden
         // Seiten zurechtgerueckt, bevor verglichen wird. Was sich
         // unterscheidet, muss sich im Markup zeigen duerfen.
-        $this->assertSame($this->rendere($richtig), $this->rendere($falsch));
+        //
+        // ANKER: zwei leere Zeichenketten sind zeichengleich. Erst steht
+        // fest, DASS eine Antwort da ist, dann, dass beide dieselbe ist.
+        $antwort = $this->rendere($richtig);
+        $this->assertNotSame('', trim($antwort), 'ohne Antwort stuende der Mensch vor einer stummen Seite');
+        $this->assertSame('notfall-code', $richtig->state, 'die Seite steht gar nicht im Code-Schritt');
+
+        $this->assertSame($antwort, $this->rendere($falsch));
     }
 
     /** Dasselbe fuer ein falsches Geburtsdatum. */
@@ -2394,6 +2443,8 @@ final class KontoZuruecksetzenTest extends TestCase
         $b = $this->schnappschuss($unbekannt);
         unset($a['nummer'], $b['nummer']);
 
+        $this->verankere($a, 'der Vergleich der beiden Schnappschuesse');
+
         $this->assertSame($a, $b, 'Ein Feld des wire:snapshot unterscheidet bekannte von unbekannter Nummer.');
     }
 
@@ -2421,6 +2472,8 @@ final class KontoZuruecksetzenTest extends TestCase
         $falsch->neueNummer = self::NEUE_NUMMER_GETIPPT;
         $falsch->notfallAnfordern($this->sender());
 
+        $this->verankere($this->schnappschuss($richtig), 'der Vergleich der beiden Schnappschuesse');
+
         $this->assertSame(
             $this->schnappschuss($richtig),
             $this->schnappschuss($falsch),
@@ -2445,7 +2498,15 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->assertSame($this->personId, $this->gemerktePerson());
 
-        foreach ($this->schnappschuss($seite) as $feld => $wert) {
+        $felder = $this->schnappschuss($seite);
+
+        // ANKER: ohne ihn liefe die Schleife unten bei leerem Schnappschuss
+        // gar nicht, und der Test bliebe gruen, ohne ein einziges Feld
+        // angesehen zu haben — ausgerechnet der Test, der begruenden soll,
+        // warum die beiden Vergleiche darueber etwas beweisen.
+        $this->verankere($felder, 'die Suche nach der Kennung im Schnappschuss');
+
+        foreach ($felder as $feld => $wert) {
             $this->assertNotSame(
                 $this->personId,
                 $wert,
