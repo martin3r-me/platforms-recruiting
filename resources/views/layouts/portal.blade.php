@@ -125,9 +125,13 @@
             border-top: 1px solid var(--line);
             font-size: 13px; color: var(--ink-3); line-height: 1.6;
         }
+        /* Der Verweis steht auf einer eigenen Zeile statt mitten im Satz:
+           so ist die Trefferflaeche die ganze Zeilenbreite und hoch genug
+           zum Antippen, ohne dass ein Inline-Polster in die Nachbarzeile
+           ragt. */
         .portal-body .screen.konto .fuss-konto a {
             color: var(--brand-mid); font-weight: 600;
-            display: inline-block; padding: 6px 0;
+            display: block; padding: 11px 0 0;
         }
 
         /* Der Passworthinweis unter dem Feld. .hint des Entwurfs ist WEISSE
