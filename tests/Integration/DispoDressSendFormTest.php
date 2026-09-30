@@ -50,6 +50,8 @@ class DispoDressSendFormTest extends DressTestCase
     {
         \Illuminate\Container\Container::getInstance()->forgetInstance('view');
         \Illuminate\Container\Container::getInstance()->forgetInstance(\Livewire\Mechanisms\DataStore::class);
+        \Illuminate\Container\Container::getInstance()->forgetInstance('log');
+        \Illuminate\Support\Facades\Log::clearResolvedInstances();
         parent::tearDownAfterClass();
     }
 
@@ -287,5 +289,83 @@ class DispoDressSendFormTest extends DressTestCase
         $this->assertTrue($c->getErrorBag()->has('dressAck'), 'Ohne "Text gesehen" wird nicht gespeichert.');
         $this->assertCount(0, RecDispoEventDress::query()->where('rec_dispo_event_id', $event->id)->get(),
             'Nichts darf durchrutschen, solange der Riegel zu ist.');
+    }
+
+    /**
+     * Fix-Runde 3, Befund 2: ein zugeordnetes, inzwischen ausgemustertes Paket
+     * muss in der Auswahl sichtbar bleiben. Fehlt die Option, zeigt der
+     * Browser "— kein Paket —", die Property traegt serverseitig aber weiter
+     * die alte ID — und beim naechsten Speichern wird sie unveraendert
+     * zurueckgeschrieben, waehrend die Dispo glaubt, sie haette nichts gesetzt.
+     */
+    public function test_retired_but_assigned_package_stays_selectable_and_is_labelled(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $aktiv = $this->package('Weiss', 'Weisses Hemd');
+        $alt   = $this->package('Alte Messe-Kleidung', 'Hemd via Kunden');
+        RecDispoEventDress::create([
+            'rec_dispo_event_id' => $event->id, 'taetigkeit' => RecDispoEventDress::ALL,
+            'rec_dispo_dress_package_id' => $alt->id,
+        ]);
+        $alt->update(['is_active' => false]);
+
+        $c = $this->dispoComponent($event->id);
+        $auswahl = $c->dressPackages;
+
+        $this->assertArrayHasKey((int) $aktiv->id, $auswahl);
+        $this->assertArrayHasKey((int) $alt->id, $auswahl, 'Das zugeordnete Paket darf nicht aus der Auswahl fallen.');
+        $this->assertSame('Alte Messe-Kleidung (ausgemustert)', $auswahl[(int) $alt->id]);
+        $this->assertSame('Weiss', $auswahl[(int) $aktiv->id], 'Aktive Pakete behalten ihr Label.');
+        $this->assertArrayHasKey((string) $alt->id, $c->dressTexts, 'Auch die Vorschau braucht den Text.');
+    }
+
+    /** Fix-Runde 3, Befund 2: ein ausgemustertes Paket OHNE Zuordnung bleibt draussen. */
+    public function test_retired_package_without_assignment_is_not_offered(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $alt = $this->package('Ausgemustert', 'Alter Text');
+        $alt->update(['is_active' => false]);
+
+        $c = $this->dispoComponent($event->id);
+
+        $this->assertArrayNotHasKey((int) $alt->id, $c->dressPackages);
+    }
+
+    /**
+     * Fix-Runde 3, Befund 2 (zweiter Teil): persistDress() nimmt nur IDs aus
+     * der angebotenen Menge an. Damit faellt auch eine von Hand
+     * untergeschobene fremde Paket-ID durch.
+     */
+    public function test_persist_dress_rejects_package_id_outside_the_offered_set(): void
+    {
+        $this->stubLog();
+
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $fremd = $this->package('Nicht angeboten', 'Irgendwas');
+        $fremd->update(['is_active' => false]);
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->dressAll = (string) $fremd->id;
+
+        $this->callPrivate($c, 'persistDress', [$event]);
+
+        $this->assertCount(0, RecDispoEventDress::query()->where('rec_dispo_event_id', $event->id)->get(),
+            'Eine ID, die das Fenster nie angeboten hat, darf nicht geschrieben werden.');
+    }
+
+    /**
+     * Log-Attrappe: der Ablehnungspfad schreibt Log::warning. Facade-Cache
+     * mit leeren, sonst greift eine zuvor aufgeloeste Instanz
+     * (siehe Memory reference_log_facade_test_stub).
+     */
+    private function stubLog(): void
+    {
+        \Illuminate\Support\Facades\Log::clearResolvedInstances();
+        \Illuminate\Container\Container::getInstance()->instance('log', new class {
+            public function warning($message, array $context = []): void
+            {
+            }
+        });
     }
 }

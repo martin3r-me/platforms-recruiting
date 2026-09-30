@@ -1693,18 +1693,60 @@ class Show extends Component
         return (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
     }
 
-    /** @return array<int,string> aktive Pakete als id => name */
+    /**
+     * Die in DIESEM Fenster waehlbaren Pakete: aktive des Teams PLUS die, die
+     * an dieser VA bereits zugeordnet sind.
+     *
+     * Fix-Runde 3, Befund 2: mit reinem active()-Filter verschwand ein
+     * inzwischen ausgemustertes, aber zugeordnetes Paket aus dem <select>.
+     * Der Browser zeigte dann "— kein Paket —", serverseitig trug die
+     * Property weiter die alte ID, ein change-Ereignis feuerte nie — und
+     * beim naechsten Speichern wurde die ausgemusterte ID unveraendert
+     * zurueckgeschrieben. Die Zuordnung muss sichtbar bleiben, damit die
+     * Dispo sie bewusst wegnehmen oder ersetzen kann.
+     *
+     * @return \Illuminate\Support\Collection<int, \Platform\Recruiting\Models\RecDispoDressPackage>
+     */
+    private function dressPackageChoices(): \Illuminate\Support\Collection
+    {
+        $assigned = \Platform\Recruiting\Models\RecDispoEventDress::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->pluck('rec_dispo_dress_package_id')
+            ->map(fn ($v) => (int) $v)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        // settingsTeamId() ist die vorhandene Team-Regel dieser Komponente —
+        // dieselbe, nach der die Pflegemaske und der Seeder schreiben. Die
+        // zugeordneten IDs kommen ohne Team-Filter dazu: ein bereits
+        // zugeordnetes Paket muss sichtbar bleiben, egal woher es stammt.
+        $teamId = $this->settingsTeamId();
+
+        return \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->where(function ($q) use ($teamId, $assigned) {
+                $q->where(fn ($inner) => $inner->where('team_id', $teamId)->where('is_active', true));
+                if ($assigned !== []) {
+                    $q->orWhereIn('id', $assigned);
+                }
+            })
+            ->orderBy('sort_order')->orderBy('name')
+            ->get();
+    }
+
+    /** @return array<int,string> waehlbare Pakete als id => Label */
     #[Computed]
     public function dressPackages(): array
     {
-        // settingsTeamId() ist die vorhandene Team-Regel dieser Komponente —
-        // dieselbe, nach der die Pflegemaske und der Seeder schreiben.
-        return \Platform\Recruiting\Models\RecDispoDressPackage::query()
-            ->where('team_id', $this->settingsTeamId())
-            ->active()
-            ->orderBy('sort_order')->orderBy('name')
-            ->pluck('name', 'id')
-            ->all();
+        $out = [];
+        foreach ($this->dressPackageChoices() as $package) {
+            $out[(int) $package->id] = $package->is_active
+                ? (string) $package->name
+                : (string) $package->name . ' (ausgemustert)';
+        }
+
+        return $out;
     }
 
     /**
@@ -1717,10 +1759,7 @@ class Show extends Component
     public function dressTexts(): array
     {
         $out = [];
-        $query = \Platform\Recruiting\Models\RecDispoDressPackage::query()
-            ->where('team_id', $this->settingsTeamId())
-            ->active();
-        foreach ($query->get() as $package) {
+        foreach ($this->dressPackageChoices() as $package) {
             $out[(string) $package->id] = (string) $package->items_text;
         }
 
@@ -1833,11 +1872,28 @@ class Show extends Component
         }
         $wanted[\Platform\Recruiting\Models\RecDispoEventDress::ALL] = $this->dressAll;
 
+        // Fix-Runde 3, Befund 2: serverseitige Pruefung der eingereichten
+        // Paket-ID. Die Menge ist genau die, die das Fenster anbietet (aktive
+        // Pakete des Teams plus die an dieser VA bereits zugeordneten) —
+        // damit faellt sowohl eine von Hand untergeschobene fremde ID durch
+        // als auch eine, die zwischen Oeffnen und Speichern ausgemustert
+        // UND abgewaehlt wurde.
+        $erlaubt = array_map('intval', array_keys($this->dressPackages));
+
         foreach ($wanted as $taetigkeit => $packageId) {
             $key = ['rec_dispo_event_id' => $event->id, 'taetigkeit' => (string) $taetigkeit];
 
             if (trim((string) $packageId) === '') {
                 \Platform\Recruiting\Models\RecDispoEventDress::query()->where($key)->delete();
+                continue;
+            }
+
+            if (!in_array((int) $packageId, $erlaubt, true)) {
+                // Bestehende Zeile bleibt unberuehrt — lieber der alte Stand
+                // als ein Paket, das diese VA gar nicht waehlen durfte.
+                \Illuminate\Support\Facades\Log::warning('dispo_dress_package_not_allowed', [
+                    'event_id' => $event->id, 'taetigkeit' => (string) $taetigkeit, 'package_id' => (int) $packageId,
+                ]);
                 continue;
             }
 
