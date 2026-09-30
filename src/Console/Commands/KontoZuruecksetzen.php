@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
+use Platform\Recruiting\Support\NummernSchwaerzung;
 use Platform\Recruiting\Support\NummernwechselTafel;
 use Throwable;
 
@@ -371,27 +372,16 @@ class KontoZuruecksetzen extends Command
     /**
      * Schwaerzt vollstaendige Rufnummern in einem fremden Text.
      *
-     * NACHGEMESSEN, nicht vermutet: PersonLinker::setzeNummer() baut seine
-     * Ausnahme mit sprintf und setzt die normalisierte Nummer woertlich ein
-     * ("Die Nummer %s gehoert im Team %s bereits Person %d"). Ohne diese
-     * Schwaerzung stuende sie im Log, waehrend KontoWriter dieselbe Nummer
-     * vor einer Log-Zeile mit Datenschutz-Begruendung auf vier Stellen
-     * kuerzt.
-     *
-     * Getroffen wird eine Ziffernfolge von mindestens sieben Stellen, mit
-     * oder ohne fuehrendes Plus — kurze Zahlen wie eine Team- oder
-     * Personen-Kennung bleiben stehen. Sie gehoeren ins Log; nur auf den
-     * Bildschirm gehoeren sie nicht.
+     * Die Regel und ihre Begruendung wohnen seit der Schlussrunde in
+     * NummernSchwaerzung — recruiting:konto-einladen legte dieselbe Art
+     * Meldung roh ins Log, und zwei Massstaebe fuer dieselbe Frage sind
+     * genau die Stelle, an der der eine nachgezogen und der andere vergessen
+     * wird. Diese Methode bleibt als Name stehen, weil sie an drei Stellen
+     * gelesen wird.
      */
     private function ohneVolleNummern(string $text): string
     {
-        $geschwaerzt = preg_replace_callback(
-            '/\+?\d{7,}/',
-            static fn (array $treffer): string => '...' . substr($treffer[0], -4),
-            $text,
-        );
-
-        return $geschwaerzt ?? $text;
+        return NummernSchwaerzung::anwenden($text);
     }
 
     /** Die letzten vier Stellen — dieselbe Kuerzung wie in der Tafel. */

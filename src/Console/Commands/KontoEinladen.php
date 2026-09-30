@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\KontoWriter;
+use Platform\Recruiting\Support\NummernSchwaerzung;
 use Platform\Recruiting\Support\NummernwechselTafel;
 use Platform\Recruiting\Support\PhoneE164;
 use Throwable;
@@ -275,9 +276,19 @@ final class KontoEinladen extends Command
                 $this->error("Person {$personId}: die Einladung scheiterte (Naeheres im Log).");
                 // Der Grund ins Log, aber NIE der Code und nie eine volle
                 // Nummer — dieselbe Regel wie im ganzen Konto-Zweig.
+                //
+                // DIE MELDUNG GEHT DURCH DEN SCHWAERZER, und zwar seit der
+                // Schlussrunde: hier stand $e->getMessage() roh, waehrend das
+                // Schwesterkommando recruiting:konto-zuruecksetzen dieselbe
+                // Art Meldung schwaerzt. Die Zusage im Kommentar darueber
+                // stimmte nur zufaellig — die heute erreichbaren Wuerfe aus
+                // ladeEin() tragen keine Nummer. Sobald einer es tut (eine
+                // QueryException traegt die SQL samt eingesetzter Werte, und
+                // PersonLinker::setzeNummer() setzt die Nummer woertlich in
+                // seine Ausnahme), leckte sie hier still.
                 Log::warning('recruiting.konto.einladung_fehler', [
                     'person_id' => $personId,
-                    'fehler'    => $e->getMessage(),
+                    'fehler'    => NummernSchwaerzung::anwenden($e->getMessage()),
                 ]);
 
                 continue;

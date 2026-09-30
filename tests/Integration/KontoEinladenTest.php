@@ -865,6 +865,74 @@ final class KontoEinladenTest extends TestCase
     }
 
     /**
+     * SCHLUSSPRUEFUNG B4: der catch-Zweig legte $e->getMessage() ROH ins Log,
+     * unter einem Kommentar, der das Gegenteil versprach ("aber NIE der Code
+     * und nie eine volle Nummer"). Das Schwesterkommando
+     * recruiting:konto-zuruecksetzen schwaerzt dieselbe Art Meldung seit
+     * jeher.
+     *
+     * WARUM DIE AUSNAHME HIER UEBER EINE FEHLENDE SPALTE ENTSTEHT. Die heute
+     * erreichbaren Wuerfe aus ladeEin() tragen keine Nummer — deshalb stimmte
+     * die Zusage bisher zufaellig, und deshalb laesst sich der Fall nicht
+     * ueber den Fachweg herstellen. Der realistische Leck-Fall ist eine
+     * QueryException: ihre Meldung traegt die SQL samt EINGESETZTER
+     * Bindungen, und genau so hatte dieses Projekt schon eine 22001 im Log
+     * (MA-Anlage an zu langem Feldwert). Worauf es ankommt, ist die Meldung,
+     * nicht ihre Ursache.
+     *
+     * Die Personen-Kennung ist bewusst zehnstellig: nur dann ist an der
+     * geschwaerzten Zeile UEBERHAUPT etwas zu sehen. Ohne diese Laenge waere
+     * der Test gruen, ob die Meldung nun durch den Schwaerzer laeuft oder
+     * nicht (dieselbe Falle wie "zwei leere Arrays sind gleich").
+     */
+    public function test_der_catch_zweig_schwaerzt_lange_ziffernfolgen_im_log(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-lang', ['id' => 5551234567]);
+        $this->anstellung($person, 'tok-lang');
+
+        // Ab hier scheitert das UPDATE in ladeEin().
+        $this->capsule->schema()->table('rec_persons', function ($t) {
+            $t->dropColumn('invite_used_at');
+        });
+
+        [$code, $ausgabe] = $this->kommando(['--ids' => '5551234567']);
+
+        $this->assertSame(1, $code, "der Lauf haette scheitern muessen:\n{$ausgabe}");
+
+        $fehlerzeilen = array_values(array_filter(
+            $this->log->zeilen,
+            static fn (array $z): bool => $z['nachricht'] === 'recruiting.konto.einladung_fehler',
+        ));
+
+        $this->assertCount(1, $fehlerzeilen, 'genau eine Fehlerzeile erwartet');
+
+        $gemeldet = (string) $fehlerzeilen[0]['daten']['fehler'];
+
+        // Vorflug: die Meldung traegt ueberhaupt die SQL mit der Kennung —
+        // sonst pruefte der Test unten nur, dass eine Zeichenkette eine
+        // andere nicht enthaelt, die sie nie enthalten haette.
+        $this->assertStringContainsString(
+            'invite_used_at',
+            $gemeldet,
+            'Vorflug: die Meldung muss die gescheiterte Abfrage beschreiben',
+        );
+        $this->assertStringContainsString(
+            '...4567',
+            $gemeldet,
+            'die Ziffernfolge muss auf ihre letzten vier Stellen gekuerzt ankommen',
+        );
+        $this->assertStringNotContainsString(
+            '5551234567',
+            $gemeldet,
+            'die Meldung geht roh ins Log — dieselbe Meldung kann eine volle Rufnummer tragen',
+        );
+
+        // Die Personen-Kennung im eigenen Feld bleibt vollstaendig: sie ist
+        // die Handhabe, mit der HR den Fall wiederfindet.
+        $this->assertSame(5551234567, $fehlerzeilen[0]['daten']['person_id']);
+    }
+
+    /**
      * OBSERVER-FREI: eine Welle fasst rec_employees nicht an.
      *
      * ES TRAEGT GENAU EINE DER BEIDEN ZUSICHERUNGEN, naemlich die auf
