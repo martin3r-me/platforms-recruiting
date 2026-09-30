@@ -1299,10 +1299,16 @@ final class KontoEinladenTest extends TestCase
         ]);
         $this->anstellung($abgelaufen, 'tok-a');
 
+        // 18:00 AM TAG DER EINGEFRORENEN ZEIT — mit Bedacht so gewaehlt.
+        // Nach der Uhr des Kommandos (JETZT = 12:00) laeuft diese Einladung
+        // noch; nach der WANDUHR ist der Zeitpunkt laengst vorbei. Ein
+        // Rueckfall auf time() druckt hier also "(abgelaufen)" und faellt
+        // auf. Mit einem Datum in ferner Zukunft laege der Test nur
+        // zufaellig richtig und kippte irgendwann von selbst.
         $laeuft = $this->person(self::NUMMER_B, 'p-b', [
             'invited_at'        => self::ANGEFASST,
             'invite_token_hash' => str_repeat('b', 64),
-            'invite_expires_at' => '2026-10-05 09:00:00',
+            'invite_expires_at' => '2026-09-29 18:00:00',
         ]);
         $this->anstellung($laeuft, 'tok-b', ['phone' => self::NUMMER_B]);
 
@@ -1314,7 +1320,7 @@ final class KontoEinladenTest extends TestCase
         $this->assertStringContainsString('2026-09-27 09:00:00', $alte, 'die Frist fehlt');
         $this->assertStringContainsString('(abgelaufen)', $alte, 'die abgelaufene Einladung ist nicht markiert');
 
-        $this->assertStringContainsString('2026-10-05 09:00:00', $neue, 'die Frist fehlt');
+        $this->assertStringContainsString('2026-09-29 18:00:00', $neue, 'die Frist fehlt');
         $this->assertStringNotContainsString('(abgelaufen)', $neue, 'eine laufende Einladung ist als abgelaufen markiert');
     }
 

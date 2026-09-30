@@ -705,7 +705,18 @@ final class KontoEinladen extends Command
         ));
     }
 
-    /** Wie es um die offene Einladung dieser Person steht. */
+    /**
+     * Wie es um die offene Einladung dieser Person steht.
+     *
+     * GEMESSEN WIRD AN now(), NICHT AN time(). Hier stand die Wanduhr
+     * (time()), und das war nicht bloss unsauber: der ganze Zweig friert
+     * die Zeit ein (Carbon::setTestNow), und alles andere im Kommando —
+     * auch die Frist, die ladeEin() setzt — rechnet mit now(). Zwei Uhren
+     * im selben Kommando heisst, dass eine Einladung als abgelaufen gedruckt
+     * wird, die nach der Uhr des Kommandos noch laeuft. Der Test darueber
+     * lag nur zufaellig richtig und waere am 2026-10-05 von selbst
+     * umgekippt, ohne dass jemand etwas angefasst haette.
+     */
     private function einladungsstand(object $person): string
     {
         if ($person->invite_token_hash === null) {
@@ -713,8 +724,9 @@ final class KontoEinladen extends Command
         }
 
         $giltBis = (string) $person->invite_expires_at;
+        $zeitpunkt = strtotime($giltBis);
 
-        return strtotime($giltBis) !== false && strtotime($giltBis) <= time()
+        return $zeitpunkt !== false && $zeitpunkt <= now()->getTimestamp()
             ? $giltBis . ' (abgelaufen)'
             : $giltBis;
     }
