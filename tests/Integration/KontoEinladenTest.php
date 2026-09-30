@@ -1019,6 +1019,78 @@ final class KontoEinladenTest extends TestCase
     }
 
     /**
+     * SCHLUSSPRUEFUNG A2: der Bericht sah vollstaendig aus und war es nicht.
+     *
+     * Alle Zeilen darueber starten an rec_persons. Eine Anstellung OHNE
+     * Personen-Zeile — so legt ZasInboundEmployeeImporter sie bei jeder
+     * Lieferung an, die nicht doppelt-exakt paart — kommt in KEINER Spalte
+     * vor, auch nicht unter "nicht erreichbar". Sie kann kein Konto bekommen
+     * und sich nie anmelden. HR liest "alle erfasst", und es fehlen
+     * Menschen.
+     *
+     * Der Test zaehlt zwei solche Anstellungen: eine mit rec_person_id NULL
+     * und eine mit einer Kennung, die ins Leere zeigt. Der zweite Fall macht
+     * denselben Schaden, und ein blosses whereNull wuerde ihn uebersehen.
+     *
+     * Vorflug: die gesunde Person muss im Bericht auftauchen — sonst waere
+     * die Zeile "2" auch dann richtig, wenn der Bericht ueberhaupt nichts
+     * mehr faende.
+     */
+    public function test_der_bericht_nennt_die_anstellungen_ohne_personen_zeile(): void
+    {
+        $gesund = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($gesund, 'tok-a');
+
+        // Kommt aus einer ZAS-Lieferung: keine Personen-Zeile.
+        $this->anstellung(0, 'tok-zas', ['rec_person_id' => null, 'phone' => self::NUMMER_B]);
+        // Und eine Kennung, die ins Leere zeigt.
+        $this->anstellung(0, 'tok-leer', ['rec_person_id' => 999999, 'phone' => self::NUMMER_C]);
+
+        [$code, $ausgabe] = $this->kommando(['--bericht' => true]);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertMatchesRegularExpression('/noch nicht eingeladen\s*\|\s*1\s/', $ausgabe, $ausgabe);
+        $this->assertStringContainsString('Ohne Personen-Zeile: 2 aktive Anstellung', $ausgabe, $ausgabe);
+        $this->assertStringContainsString('recruiting:personen-anlegen', $ausgabe, $ausgabe);
+    }
+
+    /**
+     * Die Zeile steht AUCH DANN da, wenn es keine gibt.
+     *
+     * Eine Meldung, die nur im Schadensfall erscheint, ist von einer
+     * fehlenden Meldung nicht zu unterscheiden — und genau dieser Bericht
+     * war an dieser Stelle schon einmal stumm.
+     */
+    public function test_der_bericht_sagt_auch_dass_keine_anstellung_ohne_personen_zeile_uebrig_ist(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [, $ausgabe] = $this->kommando(['--bericht' => true]);
+
+        $this->assertStringContainsString('Ohne Personen-Zeile: keine', $ausgabe, $ausgabe);
+    }
+
+    /**
+     * Eine inaktive Anstellung ohne Personen-Zeile ist KEIN Fall fuer diese
+     * Zeile: der ganze Bericht sieht nur aktive Anstellungen (stand() fragt
+     * whereExists ... is_active = 1), und ein Ausgeschiedener braucht kein
+     * Konto. Ohne diese Gegenprobe zaehlte die Zeile irgendwann den ganzen
+     * Altbestand mit und HR liefe einem Kommando hinterher, das nichts
+     * aendert.
+     */
+    public function test_eine_inaktive_anstellung_ohne_personen_zeile_zaehlt_nicht_mit(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+        $this->anstellung(0, 'tok-alt', ['rec_person_id' => null, 'is_active' => 0, 'phone' => self::NUMMER_B]);
+
+        [, $ausgabe] = $this->kommando(['--bericht' => true]);
+
+        $this->assertStringContainsString('Ohne Personen-Zeile: keine', $ausgabe, $ausgabe);
+    }
+
+    /**
      * RULING GD-8. letzte_anmeldung_at bedeutet "letzter erfolgreicher
      * Passwortnachweis" — der Stempel faellt in
      * KontoWriter::pruefeAnmeldung(), sobald das Passwort stimmt, auch wenn

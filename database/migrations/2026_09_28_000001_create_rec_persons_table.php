@@ -13,18 +13,32 @@ use Illuminate\Support\Facades\Schema;
  * Konto taugt er deshalb nicht (Spec 2026-09-28, Paragraph 4.3).
  *
  * Diese Zeile ist fuer JEDEN gedacht, auch ohne Konto und auch mit nur
- * einer Anstellung. Stand heute (Stufe 1) gilt das aber nur fuer EINEN
- * ZEITPUNKT: der Backfill (recruiting:personen-anlegen) stellt die Klammer
- * fuer den Bestand her, wie er zum Zeitpunkt des Laufs aussieht. NEUE
- * Anstellungen bekommen noch KEINE Personen-Zeile —
- * CreateEmployeeFromApplicantService (Mitarbeiter-Anlage aus der Bewerbung)
- * und ZasInboundEmployeeImporter (Neuanlage aus der ZAS-Lieferung) rufen
- * PersonLinker nicht unmittelbar. Der ZAS-Import erreicht ihn nur ueber die
- * Paarung (pairIfExact -> stamp -> verbindePerson), also NUR beim
- * doppelt-exakten Treffer; ein neu angelegter Einzelfall bleibt ohne Zeile. Jeder Tag nach dem Backfill erzeugt also wieder
- * Datensaetze ohne rec_person_id. Den Haken in diese beiden Wege einzubauen
- * ist eine eigene Aufgabe mit eigener Pruefung (die Bewerber-Anlage ist der
- * Hauptweg der Mitarbeiter-Anlage dieses Moduls).
+ * einer Anstellung. Stand heute gilt das aber noch nicht fuer jeden
+ * Entstehungsweg:
+ *
+ *  - Der Backfill (recruiting:personen-anlegen) stellt die Klammer fuer den
+ *    Bestand her, wie er zum ZEITPUNKT DES LAUFS aussieht.
+ *  - CreateEmployeeFromApplicantService (Mitarbeiter-Anlage aus der
+ *    Bewerbung — der Hauptweg dieses Moduls) ruft PersonLinker seit Commit
+ *    c318c15 unmittelbar mit (linkPerson()). HIER STAND BIS ZUR
+ *    SCHLUSSRUNDE DAS GEGENTEIL: der Absatz ist aelter als der Haken, und
+ *    wer die erste Haelfte nachprueft und falsch vorfindet, glaubt der
+ *    zweiten nicht mehr — und die zweite ist die teure.
+ *  - ZasInboundEmployeeImporter (Neuanlage aus der ZAS-Lieferung) ruft ihn
+ *    WEITERHIN NICHT. Er erreicht PersonLinker nur ueber die Paarung
+ *    (pairIfExact -> stamp -> verbindePerson), also NUR beim
+ *    doppelt-exakten Treffer; ein neu angelegter Einzelfall bleibt ohne
+ *    Zeile. DAS IST DIE VERBLIEBENE LUECKE, und jede ZAS-Lieferung nach dem
+ *    Backfill erzeugt wieder Anstellungen ohne rec_person_id.
+ *
+ * WAS DIE LUECKE IN STUFE 2 KOSTET: ein so angelegter Mensch kann KEIN Konto
+ * bekommen und sich nie anmelden. Im Bericht von recruiting:konto-einladen
+ * tauchte er lange gar nicht auf, auch nicht unter "nicht erreichbar" — die
+ * Abfrage startet an rec_persons, und wer dort keine Zeile hat, kommt in
+ * keiner Spalte vor. Seit der Schlussrunde nennt der Bericht wenigstens
+ * ihre ANZAHL in einer eigenen Zeile, mit dem Hinweis auf
+ * recruiting:personen-anlegen. Den Haken in den ZAS-Import einzubauen ist
+ * eine eigene Aufgabe mit eigener Pruefung.
  *
  * Folge, die nicht uebersehen werden darf: der Uebergangs-Zweig in
  * PersonScopeResolver (person_key + Telefon zur Laufzeit) darf NICHT

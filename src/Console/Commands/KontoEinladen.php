@@ -364,6 +364,8 @@ final class KontoEinladen extends Command
             ['nicht erreichbar', count($stand['nicht_erreichbar'])],
         ]);
 
+        $this->nenneAnstellungenOhnePersonenZeile($teamId);
+
         $this->zeigeNichtErreichbare($stand['nicht_erreichbar'], true);
 
         $this->line('');
@@ -410,6 +412,62 @@ final class KontoEinladen extends Command
         $this->zeigeOffeneNummernwechsel($teamId);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * DIE ZEILE, DIE DEN BERICHT EHRLICH MACHT: wie viele aktive
+     * Anstellungen haben ueberhaupt keine Personen-Zeile?
+     *
+     * Der ganze uebrige Bericht startet an rec_persons (s. stand()). Wer
+     * dort keine Zeile hat, kommt in KEINER Spalte vor — nicht unter
+     * "noch nicht eingeladen", nicht unter "nicht erreichbar", nirgends. Er
+     * kann kein Konto bekommen und sich nie anmelden, und der Bericht sah
+     * trotzdem vollstaendig aus. Das ist die gefaehrlichste Sorte Ausgabe:
+     * HR liest "alle erfasst", und es fehlen Menschen.
+     *
+     * SO ENTSTEHEN SIE: ZasInboundEmployeeImporter legt Anstellungen aus
+     * einer ZAS-Lieferung ohne rec_person_id an — er erreicht PersonLinker
+     * nur beim doppelt-exakten Paarungstreffer. Jede Lieferung nach dem
+     * letzten Backfill erzeugt also wieder solche Zeilen. Stand der Luecke:
+     * Docblock von 2026_09_28_000001_create_rec_persons_table.
+     *
+     * NUR DIE ZAHL, kein Namensverzeichnis: es koennen viele sein, die
+     * Abhilfe ist fuer alle dieselbe (ein Kommando), und eine lange Liste
+     * verdeckte den Rest des Berichts.
+     *
+     * DIE ZEILE STEHT AUCH DANN DA, WENN ES KEINE GIBT. Eine Meldung, die
+     * nur im Schadensfall erscheint, ist von einer fehlenden Meldung nicht
+     * zu unterscheiden — und an genau dieser Stelle war der Bericht schon
+     * einmal stumm.
+     *
+     * --ids greift hier bewusst nicht: diese Anstellungen haben keine
+     * Personen-Kennung, ueber die man sie ansprechen koennte. --team greift.
+     */
+    private function nenneAnstellungenOhnePersonenZeile(?int $teamId): void
+    {
+        $ohneZeile = (int) DB::table('rec_employees')
+            ->where('is_active', 1)
+            ->when($teamId !== null, fn ($q) => $q->where('team_id', $teamId))
+            // NOT EXISTS und nicht bloss "rec_person_id IS NULL": eine
+            // Kennung, die ins Leere zeigt, macht denselben Schaden und
+            // faellt hier mit auf.
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')
+                ->from('rec_persons')
+                ->whereColumn('rec_persons.id', 'rec_employees.rec_person_id'))
+            ->count();
+
+        if ($ohneZeile === 0) {
+            $this->line('Ohne Personen-Zeile: keine — jede aktive Anstellung haengt an einem Menschen.');
+
+            return;
+        }
+
+        $this->warn(sprintf(
+            'Ohne Personen-Zeile: %d aktive Anstellung(en). Sie stehen in KEINER Zeile dieses Berichts, '
+            .'auch nicht unter "nicht erreichbar", und koennen kein Konto bekommen. '
+            .'Zuerst: php artisan recruiting:personen-anlegen',
+            $ohneZeile,
+        ));
     }
 
     /**
