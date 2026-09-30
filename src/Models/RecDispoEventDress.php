@@ -21,6 +21,11 @@ class RecDispoEventDress extends Model
 
     protected $fillable = ['uuid', 'rec_dispo_event_id', 'taetigkeit', 'rec_dispo_dress_package_id'];
 
+    protected $casts = [
+        'rec_dispo_event_id' => 'integer',
+        'rec_dispo_dress_package_id' => 'integer',
+    ];
+
     protected static function booted(): void
     {
         static::creating(function (self $model) {
