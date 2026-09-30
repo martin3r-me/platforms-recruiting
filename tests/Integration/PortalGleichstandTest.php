@@ -56,10 +56,15 @@ use Platform\Recruiting\Support\ProofTypes;
  *   - die Marker-Verbote aus RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS
  *     und RecApplicantSettings::DEFAULT_SETTINGS.
  *
- * Die Zahlen der Bestandsaufnahme (47 Felder, 13 Gruppen, 42 mit ZAS-Marker,
- * 5 mit Marker-Verbot, 13 lohnrelevant, 8 Datei-Felder) stehen als BEHAUPTUNG
+ * Die Zahlen der Bestandsaufnahme (47 Felder, 13 Gruppen, 44 mit ZAS-Marker,
+ * 3 mit Marker-Verbot, 13 lohnrelevant, 8 Datei-Felder) stehen als BEHAUPTUNG
  * in den Zusicherungen — gerechnet werden sie jedes Mal neu aus dem Code. Wer
  * ein Feld herausnimmt, macht diesen Test rot, ohne die Spec zu kennen.
+ *
+ * 42/5 galten bis zum 30.09.2026. Seit Commit b01fbc1 stehen is_main_employer
+ * und other_employer im ZAS-Export und damit in
+ * RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS; die Bestandsaufnahme
+ * §3.2 ist mit demselben Datum nachgezogen.
  *
  * ---------------------------------------------------------------------------
  * ZUORDNUNG Bestandsaufnahme -> Test
@@ -78,7 +83,7 @@ use Platform\Recruiting\Support\ProofTypes;
  *   R27, R29, R30                 test_sichtbarkeit_nach_eu_status_und_beschaeftigung
  *   R20/E8                        test_datei_felder_werden_ueber_das_nachweis_blatt_gesetzt
  *   R31, N7                       test_nebenwirkung_leerraum_wird_entfernt
- *   N1, §3.2                      test_nebenwirkung_zas_marker_und_die_fuenf_verbote
+ *   N1, §3.2                      test_nebenwirkung_zas_marker_und_die_drei_verbote
  *   N2, §3.3                      test_nebenwirkung_lohn_trigger
  *   N5                            test_nebenwirkung_telefonabgleich
  *   E3                            test_kein_erzwingendes_zahlentastatur_attribut
@@ -1202,36 +1207,44 @@ final class PortalGleichstandTest extends TestCase
      *
      * Das ist die dritte der "drei Dinge, die beim Umbau am ehesten vergessen
      * werden": wer fuer die Profilfelder auf den Query Builder ausweicht, weil
-     * es bequemer ist, verliert den Marker fuer 42 Spalten still — und wer
-     * umgekehrt alles ueber Eloquent schreibt, setzt ihn fuer die fuenf
-     * Spalten mit ausdruecklichem Verbot. Hinter jeder dieser fuenf steht ein
+     * es bequemer ist, verliert den Marker fuer 44 Spalten still — und wer
+     * umgekehrt alles ueber Eloquent schreibt, setzt ihn fuer die drei
+     * Spalten mit ausdruecklichem Verbot. Hinter jeder dieser drei steht ein
      * Vorfall.
      *
-     * Die Zahlen 42/5 werden GERECHNET (Schnittmenge der 47 editierbaren
+     * Die Zahlen 44/3 werden GERECHNET (Schnittmenge der 47 editierbaren
      * Felder mit RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS), nicht
      * abgetippt.
+     *
+     * BIS ZUM 30.09.2026 HIESSEN DIE ZAHLEN 42/5: is_main_employer und
+     * other_employer standen unter Verbot, weil die beiden Spalten gar nicht
+     * in der Exportdatei standen — ein Marker haette eine VOLLE ZEILE nach
+     * ZAS geschoben, in der kein neuer Wert steht (Vorfall 02.09.2026).
+     * Seit Commit b01fbc1 sind sie im Export (mit Olaf abgestimmt), also
+     * muss eine Korrektur ankommen; die Arbeitgeber-Antwort setzt den Marker
+     * jetzt, und das wird unten auch so gemessen.
      */
-    public function test_nebenwirkung_zas_marker_und_die_fuenf_verbote(): void
+    public function test_nebenwirkung_zas_marker_und_die_drei_verbote(): void
     {
         $editierbar = array_keys($this->alleFelder());
         $mitMarker = array_values(array_intersect($editierbar, RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS));
         $ohneMarker = array_values(array_diff($editierbar, RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS));
 
-        $this->assertCount(42, $mitMarker, '§3.2 nennt 42 Spalten mit Marker, gerechnet: ' . count($mitMarker));
+        $this->assertCount(44, $mitMarker, '§3.2 nennt 44 Spalten mit Marker, gerechnet: ' . count($mitMarker));
         // SORTIERT verglichen: die Reihenfolge kommt aus den Feldgruppen, und
         // deren Reihenfolge ist Anzeige, nicht Zusage. Ein Umsortieren der
         // Gruppen ist folgenlos und darf diese Abnahme nicht aus dem falschen
         // Grund rot machen.
         sort($ohneMarker);
         $erwartetOhneMarker = [
-            'phone', 'is_main_employer', 'other_employer',
+            'phone',
             'erstbescheinigung_file_id', 'first_aider_certificate_file_id',
         ];
         sort($erwartetOhneMarker);
         $this->assertSame(
             $erwartetOhneMarker,
             $ohneMarker,
-            '§3.2: die fuenf Spalten mit Marker-VERBOT haben sich geaendert',
+            '§3.2: die drei Spalten mit Marker-VERBOT haben sich geaendert',
         );
 
         // N1 — eine relevante Spalte setzt den Marker.
@@ -1255,8 +1268,12 @@ final class PortalGleichstandTest extends TestCase
         $this->assertSame('+4915100000002', $this->frisch($ma2)->phone, 'Der Speichervorgang lief gar nicht');
         $this->assertNull($this->frisch($ma2)->zas_changed_at, '§3.2: phone hat den ZAS-Marker gesetzt');
 
-        // §3.2 — und die Arbeitgeber-Antwort ebenfalls nicht (Vorfall
-        // 02.09.2026: die Aktualisierungsdatei liefert VOLLE ZEILEN).
+        // §3.2 — die Arbeitgeber-Antwort setzt ihn dagegen SEIT dem
+        // 30.09.2026 (b01fbc1): die Spalten Hauptarbeitgeber und
+        // AndererArbeitgeber stehen jetzt in der Exportdatei, eine Korrektur
+        // muss bei ZAS ankommen. Bis dahin stand hier die Gegenprobe, weil
+        // ein Marker eine volle Zeile ohne neuen Wert geschoben haette
+        // (Vorfall 02.09.2026).
         $ma3 = $this->mitarbeiter(['nationality' => 'deutsch', 'is_main_employer' => null]);
         $shell3 = $this->shell($ma3);
         $shell3->oeffneGruppe('Arbeitgeber');
@@ -1265,7 +1282,7 @@ final class PortalGleichstandTest extends TestCase
         $shell3->speichereGruppe();
 
         $this->assertSame('Mueller GmbH', $this->frisch($ma3)->other_employer);
-        $this->assertNull($this->frisch($ma3)->zas_changed_at, '§3.2: die Arbeitgeber-Antwort hat den Marker gesetzt');
+        $this->assertNotNull($this->frisch($ma3)->zas_changed_at, '§3.2: die Arbeitgeber-Antwort hat den Marker NICHT gesetzt');
     }
 
     /**

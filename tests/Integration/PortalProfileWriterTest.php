@@ -30,11 +30,20 @@ use Platform\Recruiting\Services\Zas\ContactPhoneSync;
  *   N7  Leerraum raus aus steuer_id und sozialversicherungsnummer
  *   R15-R18 die Waechter-Kaskade VOR jedem Schreiben
  *
- * Die fuenf Spalten mit Marker-VERBOT werden einzeln gemessen, nicht
- * gesammelt: phone, is_main_employer, other_employer,
- * erstbescheinigung_file_id, first_aider_certificate_file_id. Hinter jeder
- * steht ein Vorfall; am 02.09.2026 hat ein Massenlauf 505 volle Akten in die
- * Aktualisierungsdatei gespuelt und dort gepflegte Daten ueberschrieben.
+ * Die drei Spalten mit Marker-VERBOT werden einzeln gemessen, nicht
+ * gesammelt: phone, erstbescheinigung_file_id,
+ * first_aider_certificate_file_id. Hinter jeder steht ein Vorfall; am
+ * 02.09.2026 hat ein Massenlauf 505 volle Akten in die Aktualisierungsdatei
+ * gespuelt und dort gepflegte Daten ueberschrieben.
+ *
+ * BIS ZUM 30.09.2026 WAREN ES FUENF. is_main_employer und other_employer
+ * standen damals ebenfalls unter Verbot, und das war richtig: die beiden
+ * Spalten standen gar nicht in der Exportdatei, ein Marker haette also eine
+ * VOLLE ZEILE nach ZAS geschoben, in der kein einziger neuer Wert steht —
+ * Risiko ohne Nutzen. Seit Commit b01fbc1 sind sie im Export (Spalten
+ * Hauptarbeitgeber/AndererArbeitgeber, mit Olaf abgestimmt), und damit dreht
+ * sich die Regel um: eine Korrektur MUSS jetzt ankommen. Gemessen wird das
+ * in den beiden Tests …_setzt_den_marker weiter unten.
  */
 class PortalProfileWriterTest extends TestCase
 {
@@ -540,7 +549,8 @@ class PortalProfileWriterTest extends TestCase
     }
 
     // -----------------------------------------------------------------
-    // §3.2 — die fuenf Spalten mit Marker-VERBOT, einzeln gemessen
+    // §3.2 — die drei Spalten mit Marker-VERBOT, einzeln gemessen
+    // (bis zum 30.09.2026 waren es fuenf — siehe Klassen-Docblock)
     // -----------------------------------------------------------------
 
     public function test_telefon_setzt_keinen_marker(): void
@@ -555,26 +565,58 @@ class PortalProfileWriterTest extends TestCase
         $this->assertNull($this->frisch($ma)->zas_changed_at);
     }
 
-    public function test_hauptarbeitgeber_setzt_keinen_marker(): void
+    /**
+     * Der Hauptarbeitgeber MUSS den ZAS-Update-Marker setzen — seit die
+     * beiden Arbeitgeber-Spalten am 30.09.2026 in den Export gewandert sind
+     * (Commit b01fbc1, Spalten Hauptarbeitgeber/AndererArbeitgeber, mit Olaf
+     * abgestimmt).
+     *
+     * BIS DAHIN GALT HIER DAS GEGENTEIL, und zwar aus gutem Grund. Der alte
+     * Kommentar an genau dieser Stelle lautete: "Vorfall 02.09.2026: unsere
+     * Aktualisierungsdatei liefert VOLLE ZEILEN — ein Marker wuerde die in
+     * ZAS gepflegte Akte ueberschreiben." Das stimmte, solange die beiden
+     * Felder gar nicht in der Datei standen: der Marker haette eine volle
+     * Zeile ohne einen einzigen neuen Wert nach ZAS geschoben — Risiko ohne
+     * Nutzen. Jetzt ist es umgekehrt. Ohne Marker bliebe eine Korrektur des
+     * Hauptarbeitgebers bei uns liegen, obwohl ZAS die Spalte bekommt.
+     *
+     * Kein Massen-Effekt: markiert wird beim AENDERN, nicht rueckwirkend,
+     * und der einzige Massen-Schreibweg
+     * (recruiting:backfill-employer-declaration) schreibt ueber
+     * DB::table()->update() am Eloquent-Ereignis vorbei.
+     *
+     * Die Gegenprobe zur Feldliste steht in PortalEmployerFieldsTest, das
+     * Ergebnis an einem Schreibvorgang ohne Portal in
+     * EmployerFieldsExportMarkerTest. Hier wird der PORTAL-Schreibweg
+     * gemessen — der ist es, der bisher an der Feldliste vorbeischrieb.
+     */
+    public function test_hauptarbeitgeber_setzt_den_marker(): void
     {
-        // Vorfall 02.09.2026: unsere Aktualisierungsdatei liefert VOLLE
-        // ZEILEN — ein Marker wuerde die in ZAS gepflegte Akte ueberschreiben.
         $ma = $this->mitarbeiter(['is_main_employer' => true]);
 
         (new PortalProfileWriter())->speichere($ma, ['is_main_employer' => '0', 'other_employer' => 'Mueller GmbH'], 'Arbeitgeber');
 
         $this->assertFalse($ma->fresh()->is_main_employer);
-        $this->assertNull($this->frisch($ma)->zas_changed_at);
+        $this->assertNotNull($this->frisch($ma)->zas_changed_at);
     }
 
-    public function test_anderer_arbeitgeber_setzt_keinen_marker(): void
+    /**
+     * Dasselbe fuer die zweite der beiden Spalten, und zwar ALLEIN: die
+     * Ja/Nein-Antwort bleibt hier unveraendert auf "nein", nur der Name des
+     * anderen Arbeitgebers wechselt. Sonst wuerde dieser Test bloss noch
+     * einmal is_main_employer messen.
+     *
+     * Begruendung und Vorgeschichte: siehe den Test darueber. Bis zum
+     * 30.09.2026 stand hier "setzt keinen Marker".
+     */
+    public function test_anderer_arbeitgeber_setzt_den_marker(): void
     {
         $ma = $this->mitarbeiter(['is_main_employer' => false, 'other_employer' => 'Alt GmbH']);
 
         (new PortalProfileWriter())->speichere($ma, ['is_main_employer' => '0', 'other_employer' => 'Neu GmbH'], 'Arbeitgeber');
 
         $this->assertSame('Neu GmbH', $ma->fresh()->other_employer);
-        $this->assertNull($this->frisch($ma)->zas_changed_at);
+        $this->assertNotNull($this->frisch($ma)->zas_changed_at);
     }
 
     public function test_erstbescheinigung_datei_setzt_keinen_marker(): void
@@ -601,12 +643,34 @@ class PortalProfileWriterTest extends TestCase
 
     public function test_die_verbotenen_spalten_stehen_nicht_in_der_feldliste(): void
     {
-        // Die Absicht neben der Messung — wer eine der fuenf spaeter
+        // Die Absicht neben der Messung — wer eine der drei spaeter
         // aufnimmt, faellt hier auf und muss die Frage an ZAS geklaert haben.
+        //
+        // Jeder verbliebene Eintrag am 30.09.2026 einzeln nachgeprueft:
+        //
+        //   phone — steht nicht in RELEVANT_EMPLOYEE_FIELDS, die Begruendung
+        //     steht an Ort und Stelle im Observer (:47-51): fuehrend ist ZAS,
+        //     ein Rueck-Export wuerde per PNr-Match dortige Akten
+        //     ueberschreiben (Vorfall Katona RG999999). Unveraendert gueltig.
+        //     Der Konto-Zweig haengt daran: PersonLinker::setzeNummer()
+        //     schiebt die neue Nummer beim Nummernwechsel ueber den Query
+        //     Builder auf alle Anstellungen, also ohnehin observer-frei — die
+        //     Abwesenheit hier ist die zweite Sicherung.
+        //
+        //   erstbescheinigung_file_id — steht nicht in der Liste, bewusst
+        //     nicht im ZAS-Export (Commit 8095dad). Unveraendert gueltig.
+        //
+        //   first_aider_certificate_file_id — steht nicht in der Liste;
+        //     exportiert werden aus dem Arbeitsschutz nur is_first_aider und
+        //     first_aider_valid_until. Unveraendert gueltig.
+        //
+        // HERAUSGENOMMEN am 30.09.2026: is_main_employer und other_employer.
+        // Sie stehen seit b01fbc1 im Export und MUESSEN den Marker setzen;
+        // gemessen in test_hauptarbeitgeber_setzt_den_marker und
+        // test_anderer_arbeitgeber_setzt_den_marker, die Zugehoerigkeit zur
+        // Feldliste prueft PortalEmployerFieldsTest.
         foreach ([
             'phone',
-            'is_main_employer',
-            'other_employer',
             'erstbescheinigung_file_id',
             'first_aider_certificate_file_id',
         ] as $spalte) {
@@ -632,8 +696,12 @@ class PortalProfileWriterTest extends TestCase
         $frisch = $this->frisch($ma);
         $this->assertNotNull($frisch->payroll_data_changed_at);
         $this->assertStringContainsString('is_main_employer', (string) $frisch->payroll_data_changed_fields);
-        // ... und trotzdem kein ZAS-Marker.
-        $this->assertNull($frisch->zas_changed_at);
+        // ... und seit dem 30.09.2026 (b01fbc1) zusaetzlich der ZAS-Marker:
+        // die beiden Arbeitgeber-Spalten stehen jetzt im Export, eine
+        // Korrektur muss dort ankommen. Bis dahin stand hier die Gegenprobe
+        // "und trotzdem kein ZAS-Marker" — der Lohn-Teil darueber ist davon
+        // unberuehrt und gilt unveraendert weiter.
+        $this->assertNotNull($frisch->zas_changed_at);
     }
 
     public function test_die_erste_antwort_ist_eine_erstbefuellung_und_loest_nichts_aus(): void

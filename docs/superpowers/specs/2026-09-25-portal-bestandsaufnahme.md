@@ -245,10 +245,25 @@ Portal schreibt bewusst über den Query Builder
 
 ### 3.2 Welche Portal-Felder den ZAS-Marker auslösen — und welche nicht
 
-Schnittmenge der 47 editierbaren Felder mit
-`RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS` (`:37-102`).
+> **Nachtrag 30.09.2026.** Dieser Abschnitt sagte bis dahin 42/5. Mit Commit
+> `b01fbc1` sind `is_main_employer` und `other_employer` in
+> `RELEVANT_EMPLOYEE_FIELDS` aufgenommen worden — es sind jetzt **44/3**.
+> Grund: seit dem 30.09.2026 stehen die beiden Spalten unter den Namen
+> `Hauptarbeitgeber` und `AndererArbeitgeber` **im ZAS-Export** (mit Olaf
+> abgestimmt). Das dreht die Abwägung um. Solange sie gar nicht in der Datei
+> standen, hätte ein Marker eine VOLLE ZEILE nach ZAS geschoben, in der kein
+> einziger neuer Wert steht — Risiko ohne Nutzen, und volle Zeilen
+> überschreiben die dort gepflegte Akte (Vorfall 02.09.2026). Jetzt bliebe
+> ohne Marker eine Korrektur des Hauptarbeitgebers bei uns liegen, obwohl ZAS
+> die Spalte bekommt. Kein Massen-Effekt: markiert wird beim **Ändern**, nicht
+> rückwirkend, und der einzige Massen-Schreibweg
+> (`recruiting:backfill-employer-declaration`) schreibt über
+> `DB::table()->update()` am Eloquent-Ereignis vorbei.
 
-**Lösen den Marker aus (42):** `email`, `street`, `house_number`, `zip`, `city`,
+Schnittmenge der 47 editierbaren Felder mit
+`RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS` (`:37-114`).
+
+**Lösen den Marker aus (44):** `email`, `street`, `house_number`, `zip`, `city`,
 `country_code`, `birth_country`, `nationality`, `birth_name`, `birth_place`,
 `gender`, `marital_status`, `employment_type`, `religion`, `number_of_children`,
 `iban`, `bic`, `bank_institute`, `account_holder`, `tax_class`, `steuer_id`,
@@ -260,18 +275,26 @@ Schnittmenge der 47 editierbaren Felder mit
 `infection_protection_first_issued_at`, `is_first_aider`,
 `first_aider_valid_until`, `shirt_size`, `pants_size`, `shoe_size`,
 `drivers_license_class`, `has_car`, `residence_permit_valid_until`,
-`work_permit_valid_until`. (Das sind 42 Schlüssel — gezählt über die Liste, nicht
-geschätzt.)
+`work_permit_valid_until`, `is_main_employer`, `other_employer`. (Das sind 44
+Schlüssel — gezählt über die Liste, nicht geschätzt.)
 
-**Lösen ihn ausdrücklich NICHT aus (5) — das ist jeweils eine Entscheidung:**
+**Lösen ihn ausdrücklich NICHT aus (3) — das ist jeweils eine Entscheidung:**
 
 | Spalte | Begründung im Code |
 |---|---|
 | `phone` | „fehlt hier BEWUSST (03.09.): führend ist ZAS — ein Rück-Export würde per PNr-Match dortige Akten überschreiben (Vorfall Katona RG999999)" (`RecEmployeeExportObserver.php:47-51`) |
 | `erstbescheinigung_file_id` | „Bewusst NICHT im ZAS-Export (RelevantFields unverändert)" (Commit `8095dad`) |
 | `first_aider_certificate_file_id` | steht nicht in der Liste; exportiert werden nur `is_first_aider` und `first_aider_valid_until` |
-| `is_main_employer` | ZAS soll die Angabe (noch) nicht sehen; die Aktualisierungsdatei liefert VOLLE ZEILEN, ein Marker würde die in ZAS gepflegte Akte überschreiben (Vorfall 02.09.2026) — `PortalShell.php:326-338`, Test `tests/Integration/EmployerFieldsNoExportMarkerTest.php` |
-| `other_employer` | wie oben |
+
+`is_main_employer` und `other_employer` standen bis zum 30.09.2026 als vierte
+und fünfte Zeile in dieser Tabelle, mit der Begründung: ZAS soll die Angabe
+(noch) nicht sehen, die Aktualisierungsdatei liefert VOLLE ZEILEN. Sie sind seit `b01fbc1` in
+der Marker-Liste, siehe den Nachtrag oben. Gemessen wird das in
+`tests/Integration/EmployerFieldsExportMarkerTest.php` (Schreibvorgang ohne
+Portal), `tests/Integration/PortalEmployerFieldsTest.php` (Zugehörigkeit zur
+Feldliste) und `tests/Integration/PortalProfileWriterTest.php`
+(`test_hauptarbeitgeber_setzt_den_marker`,
+`test_anderer_arbeitgeber_setzt_den_marker`).
 
 ### 3.3 Welche Portal-Felder den Lohn-Trigger auslösen
 
@@ -421,16 +444,17 @@ die Abnahmeliste.
    false === ''` sperrt jeden aus, der korrekt „nein" geantwortet hat (E11).
    Zusätzlich ist die Kaskade selbst Teil des Verhaltens — eine parallele
    Sammelvalidierung würde andere Fehlertexte zeigen als heute.
-3. **Welche Felder den ZAS-Marker NICHT setzen dürfen** (§3.2). Fünf Spalten
+3. **Welche Felder den ZAS-Marker NICHT setzen dürfen** (§3.2). Drei Spalten
    haben ein ausdrückliches Verbot mit je einem Vorfall dahinter: `phone`
-   (Katona RG999999), `is_main_employer` und `other_employer` (Vorfall
-   02.09.2026, volle Zeilen in der Aktualisierungsdatei),
-   `erstbescheinigung_file_id` und `first_aider_certificate_file_id`. Weil das
+   (Katona RG999999), `erstbescheinigung_file_id` und
+   `first_aider_certificate_file_id`. (`is_main_employer` und `other_employer`
+   gehörten bis zum 30.09.2026 dazu — seit `b01fbc1` stehen sie im Export und
+   **müssen** den Marker setzen, siehe Nachtrag in §3.2.) Weil das
    neue Portal über den Query Builder schreibt, fällt das heute nicht auf —
    sobald aber jemand für die Profilfelder auf Eloquent umstellt, weil es
    bequemer ist, setzt der Observer den Marker, und die nächste Aktualisierung
    überschreibt vollständige, in ZAS gepflegte Akten. Umgekehrt gilt genauso:
-   wer alles über den Query Builder schreibt, verliert für die **42**
+   wer alles über den Query Builder schreibt, verliert für die **44**
    Spalten aus §3.2 den Marker, den Lohn-Trigger für 13 Felder, den
    CRM-Telefon-Sync und die beiden Leerraum-Mutatoren.
 
