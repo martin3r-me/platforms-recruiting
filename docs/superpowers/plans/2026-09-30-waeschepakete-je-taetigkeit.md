@@ -19,7 +19,7 @@ Container + Capsule (kein testbench), SQLite im Speicher.
 
 ## Global Constraints
 
-- **Tests laufen ueber die Host-App:** `../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
+- **Tests laufen ueber die Host-App:** `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
   (dieses Modul hat kein eigenes `vendor/`).
 - **Keine zufaellige Testreihenfolge.** `--order-by=random` ist in diesem Modul
   defekt (siehe Kommentar in `phpunit.xml`). Immer Default-Reihenfolge.
@@ -311,12 +311,12 @@ class DispoDressPackageTest extends DressTestCase
 
 - [ ] **Step 5: Test laufen lassen, Fehlschlag pruefen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressPackageTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressPackageTest`
 Expected: FAIL — `Class "Platform\Recruiting\Models\RecDispoDressPackage" not found` bzw. fehlende Migration.
 
 - [ ] **Step 6: Test laufen lassen, gruen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressPackageTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressPackageTest`
 Expected: PASS (2 Tests)
 
 - [ ] **Step 7: Commit**
@@ -610,17 +610,17 @@ class DispoEventDressTest extends DressTestCase
 
 - [ ] **Step 7: Test laufen lassen, Fehlschlag pruefen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoEventDressTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoEventDressTest`
 Expected: FAIL — Tabelle `rec_dispo_event_dress` fehlt.
 
 - [ ] **Step 8: Test laufen lassen, gruen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoEventDressTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoEventDressTest`
 Expected: PASS (3 Tests)
 
 - [ ] **Step 9: Bestehende Dispo-Tests gegenpruefen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --testsuite Integration`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --testsuite Integration`
 Expected: PASS — die Model-Aenderungen duerfen nichts kippen.
 
 - [ ] **Step 10: Commit**
@@ -763,7 +763,7 @@ class DispoDressResolverTest extends DressTestCase
 
 - [ ] **Step 2: Test laufen lassen, Fehlschlag pruefen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressResolverTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressResolverTest`
 Expected: FAIL — `Class "…\DispoDressResolver" not found`
 
 - [ ] **Step 3: Resolver schreiben**
@@ -902,7 +902,7 @@ class DispoDressResolver
 
 - [ ] **Step 4: Test laufen lassen, gruen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressResolverTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressResolverTest`
 Expected: PASS (5 Tests)
 
 - [ ] **Step 5: Commit**
@@ -1006,7 +1006,7 @@ class DressPanelsTest extends TestCase
 
 - [ ] **Step 2: Test laufen lassen, Fehlschlag pruefen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DressPanelsTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DressPanelsTest`
 Expected: FAIL — `Class "Platform\Recruiting\Support\DressPanels" not found`
 
 - [ ] **Step 3: Implementierung schreiben**
@@ -1097,7 +1097,7 @@ class DressPanels
 
 - [ ] **Step 4: Test laufen lassen, gruen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DressPanelsTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DressPanelsTest`
 Expected: PASS (5 Tests)
 
 - [ ] **Step 5: Commit**
@@ -1219,7 +1219,7 @@ class DispoDressOnAssignmentPageTest extends DressTestCase
 
 - [ ] **Step 2: Test laufen lassen, gruen erwartet**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressOnAssignmentPageTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressOnAssignmentPageTest`
 Expected: PASS (3 Tests). Faellt er rot aus, fehlt `hinweis` im `$fillable`
 von `RecDispoEvent` (Task 2, Step 4) — dort nachziehen, nicht hier.
 
@@ -1278,7 +1278,7 @@ zurueckgegeben wird, die Panels berechnen:
 
 - [ ] **Step 4: Test laufen lassen, gruen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressOnAssignmentPageTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressOnAssignmentPageTest`
 Expected: PASS (3 Tests)
 
 - [ ] **Step 5: Blade anpassen**
@@ -1325,7 +1325,7 @@ Expected: keine Fehlermeldung
 
 - [ ] **Step 7: Gesamte Suite laufen lassen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
 Expected: PASS — besonders `DispoPortalConfirmTest` und `DispoIndividualNoteTest`.
 
 - [ ] **Step 8: Commit**
@@ -1405,7 +1405,7 @@ class DispoDressSendFormTest extends DressTestCase
 
 - [ ] **Step 2: Test laufen lassen, Fehlschlag pruefen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressSendFormTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressSendFormTest`
 Expected: FAIL — `Call to undefined method …Show::dressNeedsAck()`
 
 - [ ] **Step 3: Riegel-Regel implementieren**
@@ -1443,7 +1443,7 @@ In `src/Livewire/Dispo/Events/Show.php` ergaenzen:
 
 - [ ] **Step 4: Test laufen lassen, gruen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressSendFormTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressSendFormTest`
 Expected: PASS (3 Tests)
 
 - [ ] **Step 5: Formular-Zustand in `Show` ergaenzen**
@@ -1726,7 +1726,7 @@ Expected: keine Fehlermeldung
 
 - [ ] **Step 11: Suite laufen lassen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
 Expected: PASS
 
 - [ ] **Step 12: Commit**
@@ -1800,7 +1800,7 @@ class DispoDressFreezeOnSendTest extends DressTestCase
 
 - [ ] **Step 2: Test laufen lassen, gruen erwartet**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressFreezeOnSendTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoDressFreezeOnSendTest`
 Expected: PASS — die Logik stammt aus Task 3; dieser Test haelt das Verhalten
 fuer die Versand-Verdrahtung fest.
 
@@ -1829,7 +1829,7 @@ Direkt hinter dem bestehenden Stempel-Update (`->update($stamp);`) ergaenzen:
 
 - [ ] **Step 4: Suite laufen lassen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
 Expected: PASS — besonders `DispoConfirmationSenderChannelTest`.
 
 - [ ] **Step 5: Commit**
@@ -1917,7 +1917,7 @@ class DispoSeedDressPackagesTest extends DressTestCase
 
 - [ ] **Step 2: Test laufen lassen, Fehlschlag pruefen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoSeedDressPackagesTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoSeedDressPackagesTest`
 Expected: FAIL — Klasse `DispoSeedDressPackages` fehlt.
 
 - [ ] **Step 3: Kommando schreiben**
@@ -2016,7 +2016,7 @@ class DispoSeedDressPackages extends Command
 
 - [ ] **Step 4: Test laufen lassen, gruen**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoSeedDressPackagesTest`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter DispoSeedDressPackagesTest`
 Expected: PASS (3 Tests)
 
 - [ ] **Step 5: Pflegemaske schreiben**
@@ -2205,7 +2205,7 @@ Expected: keine Fehlermeldung
 
 - [ ] **Step 9: Gesamte Suite**
 
-Run: `../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
+Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml`
 Expected: PASS
 
 - [ ] **Step 10: Commit**
