@@ -72,7 +72,22 @@ ini_set('display_errors', 'stderr');
 const GEBURTSTAG_VERSCHIEBUNG = 137;      // Tage; Gleichheit bleibt, Identitaet geht
 const AUSWEIS_EINHEITLICH     = 'L01X00T4711';  // Anmeldung: Geburtsdatum + 4711
 const PERSONALNUMMER_PRAEFIX  = 'DUMP-';
-const TELEFON_PRAEFIX         = '+49000';
+// 30.09.2026 berichtigt: der alte Praefix '+49000' war zwar nicht waehlbar,
+// aber PhoneE164::normalize() lieferte dafuer NULL — 000 ist keine Vorwahl,
+// und mit neun Folgeziffern kam eine 14-stellige Nummer heraus. Auf der Demo
+// hatten danach 1235 von 1242 Menschen GAR KEINE Nummer, und weil die Nummer
+// der Benutzername des Kontos ist, konnte sich niemand anmelden.
+//
+// Jetzt: gueltiges Mobilformat (13 Ziffern), damit die Demo benutzbar ist.
+// DAMIT IST DIE NUMMER NICHT MEHR VON SICH AUS UNERREICHBAR — einen deutschen
+// Bereich, der zugleich gueltig und garantiert niemandem zugeteilt ist, gibt
+// es nicht, und den offiziellen britischen Film-Bereich (+447700900...) lehnt
+// unser Normalisierer ab (er nimmt nur deutsche Nummern).
+// DER SCHUTZ IST JETZT DIE UMGEBUNG: auf der Demo sind keine Meta-Vorlagen
+// eingetragen, ohne die geht keine einzige Nachricht raus. Wer dort je
+// Vorlagen eintraegt, schreibt an Fremde. Das ist kein Rest-Risiko, sondern
+// eine Bedingung — sie gehoert geprueft, bevor jemand den Versand scharf macht.
+const TELEFON_PRAEFIX         = '+491570';
 
 // ---------------------------------------------------------------------------
 // Spaltenregeln. Alles, was hier nicht steht, wird GELEERT und gemeldet.
@@ -175,8 +190,9 @@ function ausPool(string $original, array $pool, array &$karte, string $praefix =
 /**
  * Telefonnummer: die letzten NEUN Ziffern entscheiden ueber alles (PhoneE164::
  * suffix). Also wird genau der Suffix eindeutig zugeordnet — dieselbe Nummer
- * bleibt dieselbe, eine andere bleibt eine andere. Der Praefix +49000 ist
- * keine gueltige Vorwahl; die Nummern sind nicht waehlbar.
+ * bleibt dieselbe, eine andere bleibt eine andere. Der Praefix steht an der
+ * Konstante TELEFON_PRAEFIX — dort steht auch, warum die Nummern seit dem
+ * 30.09.2026 gueltig sind und was das voraussetzt.
  */
 function telefon(?string $roh, array &$karte): ?string
 {
@@ -189,7 +205,10 @@ function telefon(?string $roh, array &$karte): ?string
 
     $suffix = substr($ziffern, -9);
     if (!isset($karte[$suffix])) {
-        $karte[$suffix] = str_pad((string) (100000000 + count($karte)), 9, '0', STR_PAD_LEFT);
+        // Sieben Stellen: +491570 (6 Ziffern) + 7 = 13 Ziffern, das ist ein
+        // gueltiges deutsches Mobilformat. Neun waeren es 15 und damit wieder
+        // unlesbar. Reicht fuer 10 Mio. verschiedene Nummern.
+        $karte[$suffix] = str_pad((string) count($karte), 7, '0', STR_PAD_LEFT);
     }
 
     return TELEFON_PRAEFIX . $karte[$suffix];
