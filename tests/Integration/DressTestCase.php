@@ -50,6 +50,8 @@ abstract class DressTestCase extends TestCase
             'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php',
             'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php',
             'database/migrations/2026_09_30_000001_create_rec_dispo_dress_packages_table.php',
+            'database/migrations/2026_09_30_000002_create_rec_dispo_event_dress_table.php',
+            'database/migrations/2026_09_30_000003_add_dress_fields_to_dispo_tables.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {
@@ -67,7 +69,7 @@ abstract class DressTestCase extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['rec_dispo_events', 'rec_dispo_assignments', 'rec_dispo_dress_packages'] as $t) {
+        foreach (['rec_dispo_events', 'rec_dispo_assignments', 'rec_dispo_dress_packages', 'rec_dispo_event_dress'] as $t) {
             Capsule::table($t)->delete();
         }
     }

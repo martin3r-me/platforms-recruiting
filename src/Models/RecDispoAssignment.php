@@ -48,6 +48,7 @@ class RecDispoAssignment extends Model
         'escalation_1_message_id',
         'escalation_2_message_id',
         'source_meta',
+        'rec_dispo_dress_package_id', 'dress_frozen_at',
     ];
 
     /**
@@ -107,6 +108,7 @@ class RecDispoAssignment extends Model
         'escalation_1_message_id' => 'integer',
         'escalation_2_message_id' => 'integer',
         'source_meta'   => 'array',
+        'dress_frozen_at' => 'datetime',
     ];
 
     protected static function booted(): void
