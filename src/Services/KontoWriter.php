@@ -126,6 +126,23 @@ final class KontoWriter
     public const WECHSEL_FRIST_STUNDEN = 24;
 
     /**
+     * Wie lange Weg 4 nach einem GESTOPPTEN Antrag fuer diese Person
+     * gesperrt ist (Ruling GD-13).
+     *
+     * Ohne diese Sperre waere das Stopp-Recht ein Einmal-Recht: die
+     * Nachweis-Bremse zaehlt nur FEHLversuche und wird bei Erfolg geleert,
+     * ein erfolgreicher Antragsteller laeuft also nie in sie hinein. HR
+     * stoppt, er stellt sofort neu — ohne Ende. Ein Stopp-Recht, das man
+     * aussitzen kann, ist keines.
+     *
+     * Es sperrt niemanden aus: gesperrt ist NUR die Selbstbedienung ueber
+     * Weg 4. Wer gestoppt wurde, ist HR ohnehin gerade aufgefallen — und HR
+     * kann die neue Nummer selbst eintragen (Weg 5). Anmeldung und Weg 3
+     * bleiben unberuehrt.
+     */
+    public const NOTFALL_SPERRE_TAGE = 7;
+
+    /**
      * Gegen-Hash fuer den Vergleich ins Leere (Nummer unbekannt, Konto noch
      * ohne Passwort). Ohne ihn verriete die Antwortzeit von pruefeAnmeldung(),
      * ob es zu einer Nummer ein Konto gibt — und Handynummern lassen sich
@@ -611,6 +628,19 @@ final class KontoWriter
 
         self::loeseCodeEin($personId, self::ZWECK_PASSWORT, $codeKlartext);
         self::setzePasswort($personId, $passwort);
+
+        // F2: ein offener Notfall-Antrag ist damit ueberholt.
+        //
+        // WER HIER STEHT, HAT DIE ALTE NUMMER NOCH — der Code ging ja an sie.
+        // Er ist also der rechtmaessige Inhaber, und er hat gerade das
+        // staerkere Nachweispaar erbracht (Code an die hinterlegte Nummer
+        // plus Geburtsdatum) als jeder Notfall-Antrag. Bliebe der Antrag
+        // stehen, haette dieser Mensch mit dem Zuruecksetzen NICHTS
+        // erreicht: die Nummer wanderte 24 Stunden spaeter trotzdem weg, auf
+        // ein Ziel, das ein anderer eingetragen hat. Genau der Fall, gegen
+        // den das Fenster gebaut ist, traete hinter seinem Ruecken ein —
+        // und er haette ihn in der Hand gehabt.
+        self::loescheWechselAntrag($personId);
     }
 
     // ------------------------------------------------------- Weg 4, das Fenster
@@ -774,6 +804,16 @@ final class KontoWriter
      * und den, den das Kommando noch nicht angewendet hat. Sortiert nach
      * Faelligkeit, damit das Dringendste oben steht.
      *
+     * UND OHNE FILTER AUF GESPERRTE ODER STILLGELEGTE ZEILEN (Befund G5).
+     * Hier stand einmal whereNull('merged_into_person_id'), und das war
+     * genau falsch herum: der Antrag einer stillgelegten Person laesst sich
+     * ohnehin nie anwenden (wendeNummernwechselAn() geht durch
+     * offeneZeile()) — aber er blieb damit auch UNSICHTBAR und lag fuer
+     * immer in der Tabelle. Sichtbar ist er hier, stoppbar ueber
+     * stoppeNummerwechsel(), und was ihn blockiert, sagt die Spalte
+     * daneben. Ein Eintrag, den niemand sieht und niemand wegraeumen kann,
+     * ist schlimmer als einer, der stoert.
+     *
      * @return list<object>
      */
     public static function offeneNummernwechsel(?int $teamId = null): array
@@ -781,10 +821,12 @@ final class KontoWriter
         return DB::table('rec_persons')
             ->whereNotNull('wechsel_wirksam_ab')
             ->whereNotNull('wechsel_neue_nummer')
-            ->whereNull('merged_into_person_id')
             ->when($teamId !== null, fn ($q) => $q->where('team_id', $teamId))
             ->orderBy('wechsel_wirksam_ab')
-            ->get(['id', 'team_id', 'phone', 'wechsel_neue_nummer', 'wechsel_beantragt_at', 'wechsel_wirksam_ab', 'wechsel_quelle'])
+            ->get([
+                'id', 'team_id', 'phone', 'wechsel_neue_nummer', 'wechsel_beantragt_at',
+                'wechsel_wirksam_ab', 'wechsel_quelle', 'locked_at', 'merged_into_person_id',
+            ])
             ->all();
     }
 
@@ -793,7 +835,14 @@ final class KontoWriter
      *
      * Der Antrag wird geloescht und nicht als "gestoppt" markiert: der
      * Schlitz ist ein Schlitz und keine Historie (s. Migration
-     * 2026_09_29_000003). Dass gestoppt wurde, steht im Protokoll.
+     * 2026_09_29_000003). Dass gestoppt wurde, steht im Protokoll — und
+     * seit Ruling GD-13 zusaetzlich als Sperre in notfall_gesperrt_bis.
+     *
+     * BEWUSST OHNE offeneZeile() (Befund G5), und das ist kein Versehen:
+     * gesperrte und stillgelegte Zeilen sind genau die, deren Antrag sich
+     * nie anwenden laesst und deshalb liegen bleibt. Wuerde das Stoppen sie
+     * abweisen, waere ihr Antrag unsichtbar UND unstoppbar. Stoppen nimmt
+     * nur etwas weg; dafuer braucht es keine offene Zeile.
      */
     public static function stoppeNummerwechsel(int $personId): bool
     {
@@ -803,16 +852,66 @@ final class KontoWriter
             return false;
         }
 
+        $gesperrtBis = now()->addDays(self::NOTFALL_SPERRE_TAGE);
+
         self::loescheWechselAntrag($personId);
+
+        // RULING GD-13: der Stopp sperrt Weg 4 fuer diese Person. Ohne das
+        // koennte der Antragsteller sofort neu stellen, und HR stoppte
+        // endlos. Geschrieben NACH dem Abraeumen, damit
+        // loescheWechselAntrag() nichts davon weiss und an allen seinen
+        // anderen Aufrufstellen unveraendert bleibt.
+        DB::table('rec_persons')->where('id', $personId)->update([
+            'notfall_gesperrt_bis' => $gesperrtBis,
+            'updated_at'           => now(),
+        ]);
 
         Log::warning('recruiting.konto.nummernwechsel_gestoppt', [
             'person_id'     => $personId,
+            'gesperrt_bis'  => $gesperrtBis->format('Y-m-d H:i:s'),
             'neu_endet_auf' => $person->wechsel_neue_nummer === null
                 ? null
                 : substr((string) $person->wechsel_neue_nummer, -4),
         ]);
 
         return true;
+    }
+
+    /**
+     * Darf diese Person Weg 4 ueberhaupt gehen — oder liegt eine Sperre aus
+     * einem gestoppten Antrag darauf (Ruling GD-13)?
+     *
+     * DIESE METHODE PROTOKOLLIERT den abgewiesenen Versuch, und das ist ihr
+     * zweiter Zweck: die Sperre ist die Folge einer HR-Entscheidung gegen
+     * einen laufenden Uebernahmeversuch. Wer danach weiter probiert, ist
+     * genau die Beobachtung, die HR braucht — auf `warning`, damit sie
+     * zwischen den Versand-Zeilen auf `info` nicht untergeht.
+     *
+     * NACH AUSSEN AENDERT SIE NICHTS. Die aufrufende Seite antwortet dem
+     * Gesperrten zeichengleich wie jedem anderen; er erfaehrt nicht, dass er
+     * gesperrt ist. Sonst waere die Sperre selbst die Auskunft, dass jemand
+     * mit diesem Konto etwas versucht hat.
+     */
+    public static function darfNotfallWeg(int $personId): bool
+    {
+        $bis = DB::table('rec_persons')->where('id', $personId)->value('notfall_gesperrt_bis');
+
+        if ($bis === null) {
+            return true;
+        }
+
+        // Ueber Zeitstempel und nicht ueber die Zeichenkette: die Spalte
+        // kommt je nach Treiber in verschiedenen Schreibweisen zurueck.
+        if (strtotime((string) $bis) <= strtotime(self::jetzt())) {
+            return true;
+        }
+
+        Log::warning('recruiting.konto.notfall_gesperrt', [
+            'person_id'    => $personId,
+            'gesperrt_bis' => (string) $bis,
+        ]);
+
+        return false;
     }
 
     /**

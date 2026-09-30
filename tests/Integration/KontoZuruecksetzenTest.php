@@ -343,6 +343,9 @@ final class KontoZuruecksetzenTest extends TestCase
             $t->timestamp('wechsel_wirksam_ab')->nullable();
             $t->string('wechsel_quelle', 20)->nullable();
 
+            // Deckungsgleich mit 2026_09_29_000004_add_notfall_sperre_zu_rec_persons.php.
+            $t->timestamp('notfall_gesperrt_bis')->nullable();
+
             $t->timestamps();
 
             $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');
@@ -1933,6 +1936,160 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertStringContainsString("Schedule::command('recruiting:konto-zuruecksetzen --faellig')", $quelle);
     }
 
+    // ================================ F2, GD-13, G5: das Fenster haelt dicht
+
+    /**
+     * F2: wer innerhalb der 24 Stunden sein Passwort neu setzt, raeumt den
+     * Notfall-Antrag ab.
+     *
+     * DER MENSCH HIER IST DER RECHTMAESSIGE INHABER — der Code von Weg 3
+     * ging an die HINTERLEGTE Nummer, er hat die alte SIM also noch. Er hat
+     * damit das staerkere Nachweispaar erbracht als jeder Notfall-Antrag.
+     * Ohne diese Zeile haette er mit dem Zuruecksetzen NICHTS erreicht: die
+     * Nummer waere 24 Stunden spaeter trotzdem weggewandert, auf ein Ziel,
+     * das ein anderer eingetragen hat. Genau der Fall, gegen den das Fenster
+     * gebaut ist — hinter seinem Ruecken, obwohl er ihn in der Hand hatte.
+     */
+    public function test_wer_sein_passwort_neu_setzt_raeumt_den_notfall_antrag_ab(): void
+    {
+        $notfall = $this->notfallBisZumCode();
+        $notfall->notfallBestaetigen();
+        $this->assertNotNull($this->zeile()->wechsel_wirksam_ab);
+
+        // Derselbe Mensch, am alten Geraet, setzt sein Passwort neu.
+        $seite = $this->vergessenBisZumCode();
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->neuesPasswort = self::NEUES_PASSWORT;
+        $seite->neuesPasswortWiederholung = self::NEUES_PASSWORT;
+        $seite->passwortSetzen();
+
+        $this->assertSame('fertig', $seite->state, $seite->fehler);
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab, 'der Notfall-Antrag ist ueberholt');
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addHours(48));
+        $this->assertNull(KontoWriter::wendeNummernwechselAn($this->personId));
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+    }
+
+    /**
+     * RULING GD-13: ein gestoppter Antrag sperrt Weg 4 fuer sieben Tage.
+     *
+     * Ohne die Sperre waere das Stopp-Recht ein EINMAL-Recht: die
+     * Nachweis-Bremse zaehlt nur Fehlversuche und wird bei Erfolg geleert —
+     * wer die Nachweise kennt, laeuft nie in sie hinein. HR stoppt, er
+     * stellt sofort neu, ohne Ende.
+     *
+     * SIEBEN TAGE STEHEN AUSGESCHRIEBEN und werden nicht aus der Konstante
+     * gelesen; und geprueft wird von BEIDEN Seiten (nach sechs Tagen noch
+     * gesperrt, nach acht wieder frei). Nur eine der beiden Proben liesse
+     * eine Sperre von einer Stunde oder von einem Jahr gruen durchgehen.
+     */
+    public function test_ein_gestoppter_antrag_sperrt_weg4_fuer_sieben_tage(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+        KontoWriter::stoppeNummerwechsel($this->personId);
+
+        // Der Code des ERSTEN, bewilligten Versuchs steht noch im Protokoll
+        // der Attrappe. Gemessen wird ab hier, also wird hier abgeraeumt —
+        // sonst zaehlte jede Zusicherung darunter ihn mit.
+        $this->meta->calls = [];
+
+        // Sofort noch einmal: nichts geht raus, und die Antwort ist dieselbe.
+        $zweiter = $this->notfallVersuch();
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame('notfall-code', $zweiter->state);
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab);
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addDays(6));
+        $this->notfallVersuch();
+        $this->assertSame([], $this->meta->calls, 'nach sechs Tagen noch gesperrt');
+
+        Carbon::setTestNow(Carbon::parse(self::JETZT)->addDays(8));
+        $dritter = $this->notfallVersuch();
+        $this->assertCount(1, $this->meta->calls, 'nach acht Tagen wieder frei');
+
+        $dritter->code = $this->codeAusDerNachricht();
+        $dritter->notfallBestaetigen();
+        $this->assertNotNull($this->zeile()->wechsel_wirksam_ab);
+    }
+
+    /** Der abgewiesene Versuch steht im Protokoll — das ist, was HR sehen soll. */
+    public function test_ein_versuch_waehrend_der_sperre_wird_protokolliert(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+        KontoWriter::stoppeNummerwechsel($this->personId);
+
+        $this->notfallVersuch();
+
+        $zeilen = $this->logZeilen('recruiting.konto.notfall_gesperrt');
+
+        $this->assertCount(1, $zeilen);
+        $this->assertSame('warning', $zeilen[0]['stufe']);
+        $this->assertSame($this->personId, $zeilen[0]['daten']['person_id']);
+    }
+
+    /** Die Sperre trifft NUR Weg 4 — Weg 3 und die Anmeldung bleiben offen. */
+    public function test_die_sperre_trifft_nur_weg4(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+        KontoWriter::stoppeNummerwechsel($this->personId);
+
+        $vergessen = $this->vergessenBisZumCode();
+        $vergessen->geburtsdatum = self::GEBURT;
+        $vergessen->neuesPasswort = self::NEUES_PASSWORT;
+        $vergessen->neuesPasswortWiederholung = self::NEUES_PASSWORT;
+        $vergessen->passwortSetzen();
+
+        $this->assertSame('fertig', $vergessen->state, $vergessen->fehler);
+        $this->assertSame($this->personId, KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::NEUES_PASSWORT));
+    }
+
+    /**
+     * G5: der Antrag einer stillgelegten Person ist sichtbar UND stoppbar.
+     *
+     * Er laesst sich nie anwenden (wendeNummernwechselAn geht durch
+     * offeneZeile). Waere er zusaetzlich unsichtbar, laege er fuer immer in
+     * der Tabelle, und niemand koennte ihn wegraeumen — schlimmer als einer,
+     * der stoert.
+     */
+    public function test_der_antrag_einer_stillgelegten_person_ist_sichtbar_und_stoppbar(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        $sieger = $this->person(null, 'p-sieger');
+        DB::table('rec_persons')->where('id', $this->personId)
+            ->update(['merged_into_person_id' => $sieger]);
+
+        $offen = KontoWriter::offeneNummernwechsel();
+        $this->assertCount(1, $offen, 'ein stillgelegter Antrag muss in der Arbeitsliste stehen');
+        $this->assertSame($this->personId, (int) $offen[0]->id);
+
+        [, $ausgabe] = $this->kommando(['--offen' => true]);
+        $this->assertStringContainsString('stillgelegt', $ausgabe);
+
+        $this->assertTrue(KontoWriter::stoppeNummerwechsel($this->personId));
+        $this->assertSame([], KontoWriter::offeneNummernwechsel());
+    }
+
+    /** Dasselbe fuer eine gesperrte Person. */
+    public function test_der_antrag_einer_gesperrten_person_ist_sichtbar_und_stoppbar(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $seite->notfallBestaetigen();
+
+        DB::table('rec_persons')->where('id', $this->personId)->update(['locked_at' => self::ANGEFASST]);
+
+        [, $ausgabe] = $this->kommando(['--offen' => true]);
+        $this->assertStringContainsString('gesperrt', $ausgabe);
+
+        $this->assertTrue(KontoWriter::stoppeNummerwechsel($this->personId));
+        $this->assertSame([], KontoWriter::offeneNummernwechsel());
+    }
+
     // ====================================================== Der Schnappschuss
 
     /**
@@ -2112,6 +2269,20 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $seite->code = $this->codeAusDerNachricht();
         $seite->nummerBestaetigen($this->hinweisSender());
+
+        return $seite;
+    }
+
+    /** Ein vollstaendiger Weg-4-Versuch mit den RICHTIGEN Nachweisen. */
+    private function notfallVersuch(): KontoAnmelden
+    {
+        $seite = $this->seite();
+        $seite->zumNotfall();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
 
         return $seite;
     }

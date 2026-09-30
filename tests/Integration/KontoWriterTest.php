@@ -192,6 +192,9 @@ final class KontoWriterTest extends TestCase
             $t->timestamp('wechsel_wirksam_ab')->nullable();
             $t->string('wechsel_quelle', 20)->nullable();
 
+            // Deckungsgleich mit 2026_09_29_000004_add_notfall_sperre_zu_rec_persons.php.
+            $t->timestamp('notfall_gesperrt_bis')->nullable();
+
             $t->timestamps();
 
             $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');

@@ -156,7 +156,7 @@ class KontoZuruecksetzen extends Command
         }
 
         $this->table(
-            ['Person', 'Team', 'alt', 'neu', 'beantragt', 'wirksam ab', 'Quelle'],
+            ['Person', 'Team', 'alt', 'neu', 'beantragt', 'wirksam ab', 'Quelle', 'Zustand'],
             array_map(fn (object $zeile): array => [
                 (int) $zeile->id,
                 $zeile->team_id,
@@ -165,6 +165,7 @@ class KontoZuruecksetzen extends Command
                 (string) $zeile->wechsel_beantragt_at,
                 (string) $zeile->wechsel_wirksam_ab,
                 (string) $zeile->wechsel_quelle,
+                $this->zustand($zeile),
             ], $offene),
         );
 
@@ -285,6 +286,28 @@ class KontoZuruecksetzen extends Command
         if ($status !== NummernwechselHinweisSender::STATUS_SENT) {
             $this->line("Person {$personId}: Hinweis an die alte Nummer nicht zugestellt (Naeheres im Log).");
         }
+    }
+
+    /**
+     * Warum ein Antrag nicht angewendet wird, obwohl er in der Liste steht
+     * (Befund G5).
+     *
+     * Gesperrte und stillgelegte Zeilen kommen seit G5 mit in die Liste —
+     * ihr Antrag laesst sich nie anwenden (wendeNummernwechselAn() geht
+     * durch offeneZeile()), und ohne Anzeige stuenden sie dort als
+     * unerklaerliche Dauergaeste. Stoppen kann HR sie trotzdem.
+     */
+    private function zustand(object $zeile): string
+    {
+        if (($zeile->merged_into_person_id ?? null) !== null) {
+            return 'stillgelegt, wird nie angewendet';
+        }
+
+        if (($zeile->locked_at ?? null) !== null) {
+            return 'gesperrt, wird nie angewendet';
+        }
+
+        return 'offen';
     }
 
     /** Die letzten vier Stellen — dieselbe Kuerzung wie im Protokoll. */

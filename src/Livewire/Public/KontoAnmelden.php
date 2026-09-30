@@ -925,7 +925,14 @@ class KontoAnmelden extends Component
         if ($this->darfAnfordern()) {
             $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
 
-            if ($personId !== null && !RateLimiter::tooManyAttempts(self::nachweisSchluessel($personId), self::MAX_FEHLVERSUCHE)) {
+            // RULING GD-13: ein gestoppter Antrag sperrt Weg 4 fuer diese
+            // Person. Gefragt wird VOR den Nachweisen — ein Gesperrter soll
+            // nicht einmal durch Ausprobieren erfahren, ob sein Geburtsdatum
+            // stimmt. Die Antwort aendert sich dadurch nicht; er erfaehrt
+            // nicht, dass er gesperrt ist.
+            if ($personId !== null
+                && KontoWriter::darfNotfallWeg($personId)
+                && !RateLimiter::tooManyAttempts(self::nachweisSchluessel($personId), self::MAX_FEHLVERSUCHE)) {
                 if (KontoWriter::ausweisNachweisStimmt($personId, trim($this->geburtsdatum), trim($this->ausweis))) {
                     RateLimiter::clear(self::nachweisSchluessel($personId));
 
