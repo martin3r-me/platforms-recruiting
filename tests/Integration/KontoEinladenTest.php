@@ -567,6 +567,26 @@ final class KontoEinladenTest extends TestCase
         $this->assertStringContainsString('kein Geburtsdatum', $ausgabe, 'HR hat die Kennung getippt und braucht die Antwort');
     }
 
+    /**
+     * Ein LEERES Geburtsdatum ist genauso wenig ein Nachweis wie gar keines.
+     *
+     * Der Fall ist nicht ausgedacht: ein Datumsfeld kann einen leeren String
+     * tragen, und DateTimeImmutable('') bedeutet JETZT — eine Pruefung, die
+     * nur auf NULL sieht, laedt genau diese Menschen ein, und die
+     * Registrierung weist sie danach fuenfmal ab. Geprueft wird deshalb
+     * gegen dieselbe Lesart, die KontoWriter::alsTag() anlegt.
+     */
+    public function test_ein_leeres_geburtsdatum_zaehlt_nicht(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a', ['birth_date' => '']);
+
+        [, $ausgabe] = $this->kommando(['--welle' => '10']);
+
+        $this->assertNull($this->zeile($person)->invite_token_hash, $ausgabe);
+        $this->assertStringContainsString('kein Geburtsdatum', $ausgabe);
+    }
+
     public function test_ohne_nummer_keine_einladung(): void
     {
         $person = $this->person(null, 'p-a');
