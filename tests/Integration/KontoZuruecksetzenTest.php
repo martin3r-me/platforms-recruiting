@@ -4,6 +4,11 @@ namespace Platform\Recruiting\Tests\Integration;
 
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\RateLimiter as RateLimiterWerk;
+use Illuminate\Console\Scheduling\CacheEventMutex;
+use Illuminate\Console\Scheduling\CacheSchedulingMutex;
+use Illuminate\Console\Scheduling\EventMutex;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Console\Scheduling\SchedulingMutex;
 use Illuminate\Cache\Repository as CacheRepository;
 use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
@@ -36,6 +41,7 @@ use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Console\Commands\KontoZuruecksetzen;
+use Platform\Recruiting\RecruitingServiceProvider;
 use Platform\Recruiting\Services\Zas\ContactPhoneSync;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -1884,6 +1890,22 @@ final class KontoZuruecksetzenTest extends TestCase
         $this->assertSame(1, $code, $ausgabe);
         $this->assertSame(self::NUMMER, $this->zeile()->phone);
         $this->assertCount(1, KontoWriter::offeneNummernwechsel(), 'der Fall gehoert zu HR, nicht in den Papierkorb');
+
+        // F5: DIESER ZWEIG WURDE VORHER GEFAHREN, ABER NICHT ANGESEHEN. Die
+        // Ausnahme von PersonLinker::setzeNummer() nennt die volle Rufnummer
+        // UND die Kennung der fremden Person, der sie gehoert — beides stand
+        // roh auf dem Bildschirm, waehrend der Docblock des Kommandos vier
+        // Stellen versprach.
+        $this->assertStringNotContainsString(self::NEUE_NUMMER, $ausgabe);
+        $this->assertStringNotContainsString('98765432', $ausgabe);
+        $this->assertStringNotContainsString('gehoert im Team', $ausgabe, 'die Ausnahme steht roh auf dem Bildschirm');
+        $this->assertStringContainsString('...5432', $ausgabe, 'die vier Stellen sollen bleiben');
+
+        // Und im Log steht der Grund — auch dort ohne volle Nummer.
+        $zeilen = $this->logZeilen('recruiting.konto.hr_nummernwechsel_fehler');
+        $this->assertCount(1, $zeilen);
+        $this->assertStringContainsString('gehoert im Team', $zeilen[0]['daten']['fehler']);
+        $this->assertStringNotContainsString(self::NEUE_NUMMER, $zeilen[0]['daten']['fehler']);
     }
 
     public function test_genau_eine_aufgabe_je_aufruf(): void
@@ -1915,25 +1937,215 @@ final class KontoZuruecksetzenTest extends TestCase
     }
 
     /**
-     * Und --faellig steht im Zeitplan.
+     * F4: der EINTRAG IM ZEITPLAN, samt Rhythmus.
      *
-     * DAS IST DIE ZEILE, OHNE DIE WEG 4 NICHT FUNKTIONIERT: der beantragte
-     * Wechsel wird erst 24 Stunden spaeter faellig, und dann ist niemand
-     * mehr da, der ihn ausloest — die Person kommt ja gerade nicht in ihr
-     * Konto. Ohne Zeitplan-Eintrag bliebe jeder Antrag liegen, und jeder
-     * Test dieser Klasse bliebe trotzdem gruen, weil sie das Anwenden selbst
-     * ausloesen.
+     * DER VORGAENGER DIESES TESTS PRUEFTE EINE ZEICHENKETTE IM QUELLTEXT und
+     * blieb damit gruen, wenn der Eintrag auskommentiert war oder auf
+     * ->yearly() stand. Das ist Variante 1 der bekannten Liste: er prueft
+     * einen NAMEN statt der Sache.
      *
-     * Geprueft wird der Quelltext des ServiceProviders und nicht der
-     * laufende Zeitplan: diese Suite bootet den Wirt nicht (kein Laravel,
-     * kein Scheduler). Das ist die schwaechere Form — sie faengt das
-     * VERGESSEN, nicht einen falschen Rhythmus.
+     * Hier laeuft stattdessen registerSchedule() des echten ServiceProviders
+     * gegen einen echten Illuminate\Console\Scheduling\Schedule, und gefragt
+     * wird der Cron-Ausdruck des entstandenen Eintrags. "0 * * * *" steht
+     * AUSGESCHRIEBEN da und wird nicht aus ->hourly() abgeleitet — sonst
+     * laesen Code und Test wieder dieselbe Zeile.
+     *
+     * WARUM DER EINTRAG UEBERHAUPT TRAEGT: der Weg-4-Antrag wird erst 24
+     * Stunden nach dem Beweis faellig, und dann ist niemand mehr da, der ihn
+     * ausloest — die Person kommt ja gerade nicht in ihr Konto. Ohne diesen
+     * Lauf bliebe jeder Antrag liegen, und jeder andere Test dieser Klasse
+     * bliebe trotzdem gruen, weil sie das Anwenden selbst ausloesen.
      */
-    public function test_die_faelligen_antraege_stehen_im_zeitplan(): void
+    public function test_die_faelligen_antraege_laufen_stuendlich_im_zeitplan(): void
     {
-        $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
+        $eintraege = $this->zeitplanEintraege();
 
-        $this->assertStringContainsString("Schedule::command('recruiting:konto-zuruecksetzen --faellig')", $quelle);
+        $treffer = array_values(array_filter(
+            $eintraege,
+            static fn (array $eintrag): bool => str_contains($eintrag['befehl'], 'recruiting:konto-zuruecksetzen --faellig'),
+        ));
+
+        $this->assertCount(
+            1,
+            $treffer,
+            'recruiting:konto-zuruecksetzen --faellig steht nicht im Zeitplan. Ohne diesen Lauf '
+            . 'bleibt jeder Weg-4-Antrag liegen, und Weg 4 ist ein Formular ohne Wirkung. '
+            . 'Gefunden: ' . implode(' | ', array_column($eintraege, 'befehl')),
+        );
+
+        $this->assertSame(
+            '0 * * * *',
+            $treffer[0]['ausdruck'],
+            'Der Rhythmus stimmt nicht. Stuendlich ist die Zusage: ein Wechsel darf hoechstens '
+            . 'eine Stunde SPAETER wirksam werden als die 24 Stunden, die der Mensch gelesen hat.',
+        );
+    }
+
+    /**
+     * Was registerSchedule() des echten ServiceProviders anmeldet.
+     *
+     * Der Zeitplan wird mit einem echten Schedule gebaut — kein Nachbau, und
+     * kein Blick in den Quelltext. Gebraucht werden dafuer nur die beiden
+     * Sperren (sonst holt sich Schedule sie ueber die Cache-Fabrik) und ein
+     * Container, der storagePath() kennt: ein anderer Eintrag in derselben
+     * Methode schreibt seine Ausgabe in eine Datei.
+     *
+     * @return list<array{befehl: string, ausdruck: string}>
+     */
+    private function zeitplanEintraege(): array
+    {
+        $cacheFabrik = new class implements \Illuminate\Contracts\Cache\Factory {
+            public function store($name = null)
+            {
+                return new CacheRepository(new ArrayStore());
+            }
+        };
+
+        $wirt = new class extends Container {
+            public function storagePath($pfad = '')
+            {
+                return sys_get_temp_dir() . ($pfad !== '' ? '/' . $pfad : '');
+            }
+        };
+        $wirt->instance(\Illuminate\Contracts\Cache\Factory::class, $cacheFabrik);
+        $wirt->instance(EventMutex::class, new CacheEventMutex($cacheFabrik));
+        $wirt->instance(SchedulingMutex::class, new CacheSchedulingMutex($cacheFabrik));
+
+        // DER WIRT MUSS STEHEN, BEVOR der Zeitplan entsteht: sein Konstruktor
+        // holt sich die beiden Sperren ueber Container::getInstance(), und
+        // ein spaeteres Umhaengen kaeme zu spaet.
+        $vorher = Container::getInstance();
+        Container::setInstance($wirt);
+        Facade::setFacadeApplication($wirt);
+
+        $zeitplan = new Schedule();
+        $wirt->instance(Schedule::class, $zeitplan);
+
+        try {
+            $anbieter = new RecruitingServiceProvider($wirt);
+            $methode = new \ReflectionMethod(RecruitingServiceProvider::class, 'registerSchedule');
+            $methode->invoke($anbieter);
+        } finally {
+            Container::setInstance($vorher);
+            Facade::setFacadeApplication($this->container);
+            Facade::clearResolvedInstances();
+        }
+
+        $eintraege = [];
+        foreach ($zeitplan->events() as $ereignis) {
+            $eintraege[] = [
+                'befehl'   => (string) $ereignis->command,
+                'ausdruck' => (string) $ereignis->expression,
+            ];
+        }
+
+        return $eintraege;
+    }
+
+
+    // ========================================= F3: die sechs Zustandswachen
+
+    /**
+     * Die Zustandsmaschine ist so tragend wie die Eigenschaftsliste — und war
+     * bis hierher ungedeckt: fuenf der sechs Wachen liessen sich einzeln
+     * entfernen, ohne dass ein Test rot wurde.
+     *
+     * JEDER DIESER TESTS IST SO GEBAUT, dass NUR die Wache im Weg steht:
+     * Sitzung, Code, Nachweise und Eingaben sind vollstaendig und richtig.
+     * Faellt die Wache, geht der Schritt durch — genau das wird gemessen.
+     *
+     * Warum das zaehlt: $state ist zwar #[Locked] und damit vom Browser nicht
+     * setzbar — aber die Aktionen sind es. $wire.call('passwortSetzen') laesst
+     * sich aus JEDEM Zustand ausloesen. Ohne Wache liefe der zweite Schritt
+     * eines Weges mit dem Zustand eines anderen.
+     */
+    public function test_ohne_den_richtigen_zustand_fordert_nummerAnfordern_nichts_an(): void
+    {
+        $seite = $this->seite();
+        $seite->zumPasswortVergessen();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwort = self::PASSWORT;
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+
+        $seite->nummerAnfordern($this->auth(), $this->sender());
+
+        $this->assertSame('vergessen', $seite->state);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertNull($this->zeile()->code_hash);
+    }
+
+    public function test_ohne_den_richtigen_zustand_wechselt_nummerBestaetigen_nichts(): void
+    {
+        $seite = $this->seite();
+        $seite->zumNummernwechsel();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwort = self::PASSWORT;
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->nummerAnfordern($this->auth(), $this->sender());
+
+        $seite->code = $this->codeAusDerNachricht();
+
+        // Alles stimmt — nur der Zustand nicht.
+        $this->setzeZustand($seite, 'nummer');
+        $seite->nummerBestaetigen($this->hinweisSender());
+
+        $this->assertSame('nummer', $seite->state);
+        $this->assertSame(self::NUMMER, $this->zeile()->phone);
+        $this->assertNotNull($this->zeile()->code_hash, 'der Code darf nicht einmal entwertet werden');
+    }
+
+    public function test_ohne_den_richtigen_zustand_fordert_passwortCodeAnfordern_nichts_an(): void
+    {
+        $seite = $this->vergessenBisZumCode();
+        $this->meta->calls = [];
+
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwortCodeAnfordern($this->sender());
+
+        $this->assertSame('vergessen-code', $seite->state);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    public function test_ohne_den_richtigen_zustand_setzt_passwortSetzen_kein_passwort(): void
+    {
+        $seite = $this->vergessenBisZumCode();
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->neuesPasswort = self::NEUES_PASSWORT;
+        $seite->neuesPasswortWiederholung = self::NEUES_PASSWORT;
+
+        $this->setzeZustand($seite, 'vergessen');
+        $seite->passwortSetzen();
+
+        $this->assertSame('vergessen', $seite->state);
+        $this->assertNull(KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::NEUES_PASSWORT));
+        $this->assertSame($this->personId, KontoWriter::pruefeAnmeldung(null, self::NUMMER, self::PASSWORT));
+    }
+
+    public function test_ohne_den_richtigen_zustand_fordert_notfallAnfordern_nichts_an(): void
+    {
+        $seite = $this->notfallBisZumCode();
+        $this->meta->calls = [];
+
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->geburtsdatum = self::GEBURT;
+        $seite->ausweis = '0T47';
+        $seite->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $seite->notfallAnfordern($this->sender());
+
+        $this->assertSame('notfall-code', $seite->state);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    public function test_ohne_den_richtigen_zustand_beantragt_notfallBestaetigen_nichts(): void
+    {
+        $seite = $this->notfallBisZumCode();
+
+        $this->setzeZustand($seite, 'notfall');
+        $seite->notfallBestaetigen();
+
+        $this->assertSame('notfall', $seite->state);
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab);
+        $this->assertNotNull($this->zeile()->code_hash, 'der Code darf nicht einmal entwertet werden');
     }
 
     // ================================ F2, GD-13, G5: das Fenster haelt dicht

@@ -29,10 +29,14 @@ use Illuminate\Support\Facades\Schema;
  *     Zeilen zu und braeuchte eine Regel, welche gewinnt; genau solche
  *     Regeln driften, und hier hiesse Drift: die Nummer wandert an das
  *     falsche Geraet.
- *  2. EIN SCHREIBER. Die Kontofelder stehen bewusst nicht in
- *     RecPerson::$fillable, und KontoWriter ist ihre einzige Schreibstelle.
- *     Eine eigene Tabelle braeuchte entweder ein Modell (und damit einen
- *     zweiten Weg) oder dieselben DB::table()-Aufrufe an einem zweiten Ort.
+ *  2. (SCHWACH, und das gehoert dabeigesagt.) Hier stand einmal: "eine
+ *     eigene Tabelle braeuchte ein Modell und damit einen zweiten Schreiber".
+ *     Das stimmt nicht — KontoWriter koennte eine zweite Tabelle mit
+ *     denselben DB::table()-Aufrufen bedienen, ohne dass ein zweiter
+ *     Schreibweg entstuende. Der Satz bleibt nur als Warnung stehen: wer je
+ *     umbaut, darf dabei KEIN Modell einfuehren, sonst steht die
+ *     Ein-Schreiber-Regel wieder zur Disposition. Getragen wird die
+ *     Entscheidung von 1 und 3.
  *  3. DER VERLAUF STEHT IM PROTOKOLL, nicht in der Tabelle. "Jeder Wechsel
  *     wird protokolliert" ist die Begleitregel aus Spec §5, und sie wird von
  *     Log-Zeilen erfuellt (recruiting.konto.nummernwechsel_*) — so wie es

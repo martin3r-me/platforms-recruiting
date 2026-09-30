@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Services\Comms\NummernwechselHinweisSender;
 use Platform\Recruiting\Services\KontoWriter;
 use Throwable;
@@ -35,6 +36,15 @@ use Throwable;
  * Einladungs-Token aus Weg 5: ohne ihn kann HR die Einladung nicht
  * weitergeben, und er ist genau dafuer da. Er steht auf dem Bildschirm und
  * geht NICHT ins Log.
+ *
+ * DESHALB KOMMT KEINE AUSNAHMEMELDUNG AUF DEN BILDSCHIRM (Befund F5). Hier
+ * stand einmal $e->getMessage() roh — und PersonLinker::setzeNummer() nennt
+ * darin die VOLLE Rufnummer und die Kennung der FREMDEN Person, der sie
+ * gehoert ("Die Nummer +49170... gehoert im Team 3 bereits Person 2"). Das
+ * ist beides eine Auskunft, die auf keinen Bildschirm gehoert, und es machte
+ * die Zusage zwei Absaetze weiter oben zur Behauptung. Der Grund steht
+ * seither im Log; auf dem Bildschirm steht, WAS nicht ging und WEN es
+ * betrifft.
  *
  * WIEDERHOLBAR: --faellig ueberspringt, was nicht (mehr) faellig ist;
  * --stopp meldet ehrlich, wenn gar nichts offen war. Weg 5 ist bewusst NICHT
@@ -114,7 +124,7 @@ class KontoZuruecksetzen extends Command
         try {
             $alt = KontoWriter::setzeNummerDurchHr($personId, $nummer);
         } catch (Throwable $e) {
-            $this->error("Person {$personId}: {$e->getMessage()}");
+            $this->fehlerOhneAuskunft($personId, $nummer, $e);
 
             return self::FAILURE;
         }
@@ -132,7 +142,11 @@ class KontoZuruecksetzen extends Command
         try {
             $token = KontoWriter::ladeEin($personId);
         } catch (Throwable $e) {
-            $this->error("Person {$personId}: Nummer gesetzt, aber die Einladung scheiterte — {$e->getMessage()}");
+            $this->error("Person {$personId}: Nummer gesetzt, aber die Einladung scheiterte (Naeheres im Log).");
+            Log::warning('recruiting.konto.hr_einladung_fehler', [
+                'person_id' => $personId,
+                'fehler'    => $this->ohneVolleNummern($e->getMessage()),
+            ]);
 
             return self::FAILURE;
         }
@@ -232,7 +246,7 @@ class KontoZuruecksetzen extends Command
                 $ergebnis = KontoWriter::wendeNummernwechselAn($personId);
             } catch (Throwable $e) {
                 $gescheitert++;
-                $this->error("Person {$personId}: {$e->getMessage()}");
+                $this->fehlerOhneAuskunft($personId, (string) $zeile->wechsel_neue_nummer, $e);
 
                 continue;
             }
@@ -308,6 +322,61 @@ class KontoZuruecksetzen extends Command
         }
 
         return 'offen';
+    }
+
+    /**
+     * Ein gescheiterter Nummernwechsel — auf dem Bildschirm ohne Auskunft,
+     * im Log mit Grund (Befund F5).
+     *
+     * AUF DEM BILDSCHIRM steht die Personen-Kennung (die HR gerade selbst
+     * eingetippt hat) und die letzten vier Stellen der Zielnummer. NICHT die
+     * volle Nummer und NICHT die fremde Personen-Kennung aus der Meldung von
+     * PersonLinker::setzeNummer() — "zu dieser Nummer gibt es schon ein
+     * Konto, und zwar das von Person X" ist eine Auskunft ueber einen
+     * Dritten.
+     *
+     * IM LOG steht der Grund, und auch dort ohne volle Nummern: dieselbe
+     * Regel wie im ganzen Konto-Zweig.
+     */
+    private function fehlerOhneAuskunft(int $personId, string $nummer, Throwable $e): void
+    {
+        $this->error(sprintf(
+            'Person %d: Die Nummer ...%s liess sich nicht setzen (Naeheres im Log).',
+            $personId,
+            $this->kurz($nummer),
+        ));
+
+        Log::warning('recruiting.konto.hr_nummernwechsel_fehler', [
+            'person_id'       => $personId,
+            'nummer_endet_auf' => $this->kurz($nummer),
+            'fehler'          => $this->ohneVolleNummern($e->getMessage()),
+        ]);
+    }
+
+    /**
+     * Schwaerzt vollstaendige Rufnummern in einem fremden Text.
+     *
+     * NACHGEMESSEN, nicht vermutet: PersonLinker::setzeNummer() baut seine
+     * Ausnahme mit sprintf und setzt die normalisierte Nummer woertlich ein
+     * ("Die Nummer %s gehoert im Team %s bereits Person %d"). Ohne diese
+     * Schwaerzung stuende sie im Log, waehrend KontoWriter dieselbe Nummer
+     * vor einer Log-Zeile mit Datenschutz-Begruendung auf vier Stellen
+     * kuerzt.
+     *
+     * Getroffen wird eine Ziffernfolge von mindestens sieben Stellen, mit
+     * oder ohne fuehrendes Plus — kurze Zahlen wie eine Team- oder
+     * Personen-Kennung bleiben stehen. Sie gehoeren ins Log; nur auf den
+     * Bildschirm gehoeren sie nicht.
+     */
+    private function ohneVolleNummern(string $text): string
+    {
+        $geschwaerzt = preg_replace_callback(
+            '/\+?\d{7,}/',
+            static fn (array $treffer): string => '...' . substr($treffer[0], -4),
+            $text,
+        );
+
+        return $geschwaerzt ?? $text;
     }
 
     /** Die letzten vier Stellen — dieselbe Kuerzung wie im Protokoll. */
