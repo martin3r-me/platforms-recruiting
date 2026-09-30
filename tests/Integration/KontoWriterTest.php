@@ -1075,6 +1075,359 @@ final class KontoWriterTest extends TestCase
         KontoWriter::ladeEin(999999);
     }
 
+    // ------------------------------------------- Die Sperr-Wache, Aufrufstelle fuer Aufrufstelle
+
+    /*
+     * offeneZeile() ist die EINZIGE Stelle, die "gesperrt" (locked_at) und
+     * "stillgelegt" (merged_into_person_id) im ganzen Konto durchsetzt, und
+     * sie wird an neun Stellen gerufen. Die Schlusspruefung hat jede
+     * Aufrufstelle einzeln durch eine ungewachte Zeilen-Abfrage ersetzt: nur
+     * drei davon wurden rot (ladeEin, erzeugeCode, setzePasswort — die drei
+     * deckt der Test darueber ab). Die sechs uebrigen hielt nichts.
+     *
+     * Das ist die zehnte Variante eine Ebene hoeher: eine GETEILTE WACHE
+     * deckt sich nicht selbst ab. Sie ist dort gedeckt, wo sie zufaellig
+     * mitgetestet wurde, und unbewacht an den Stellen, an denen sie dasselbe
+     * verspricht. Die folgenden sechs Tests nennen je EINE Aufrufstelle und
+     * je einen Schaden, der ohne sie eintraete.
+     *
+     * Der gemeinsame Fall ist ueberall derselbe und der wichtigste, den es
+     * fuer eine Sperre gibt: HR sperrt, WAEHREND ein Geheimnis unterwegs ist
+     * — die Einladung, der Code, der Antrag sind schon draussen.
+     */
+
+    private function sperre(): void
+    {
+        DB::table('rec_persons')->where('id', $this->personId)->update(['locked_at' => '2026-09-29 08:00:00']);
+    }
+
+    private function entsperre(): void
+    {
+        DB::table('rec_persons')->where('id', $this->personId)->update(['locked_at' => null]);
+    }
+
+    /** Legt die Zeile still (Grabstein) und gibt die Kennung des Siegers zurueck. */
+    private function legeStill(): int
+    {
+        $sieger = (int) DB::table('rec_persons')->insertGetId([
+            'uuid'       => 'p-sieger-'.uniqid(),
+            'team_id'    => self::TEAM,
+            'created_at' => self::ANGEFASST,
+            'updated_at' => self::ANGEFASST,
+        ]);
+        DB::table('rec_persons')->where('id', $this->personId)
+            ->update(['merged_into_person_id' => $sieger]);
+
+        return $sieger;
+    }
+
+    /**
+     * Fuehrt den Aufruf aus und verlangt, dass er an der Sperr-Wache
+     * scheitert — NICHT bloss irgendwie.
+     *
+     * Die Meldung wird mitgeprueft, weil mehrere dieser Methoden hinter der
+     * Wache noch weitere Wachen haben (Passwortregel, Geburtsdatum, eine
+     * zweite offeneZeile() in einer gerufenen Methode). Ein blosses
+     * expectException waere dort auch dann gruen, wenn die Wache an DIESER
+     * Stelle fehlt und der Abbruch erst zwei Schritte spaeter und aus einem
+     * anderen Grund kommt.
+     */
+    private function assertScheitertAnDerWache(callable $aufruf, string $wort, string $fall): void
+    {
+        try {
+            $aufruf();
+            $this->fail("{$fall}: haette an der Sperr-Wache scheitern muessen");
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString(
+                $wort,
+                $e->getMessage(),
+                "{$fall}: der Abbruch muss von der Sperr-Wache kommen, nicht von einer spaeteren Pruefung",
+            );
+        }
+    }
+
+    /** Die Nummer steht unveraendert an der Person UND an beiden Anstellungen. */
+    private function assertNummerUnveraendert(string $fall): void
+    {
+        $this->assertSame(self::NUMMER, (string) $this->zeile()->phone, "{$fall}: die Nummer der Person");
+        $this->assertSame(
+            [self::NUMMER, self::NUMMER],
+            DB::table('rec_employees')->whereIn('id', [1, 2])->orderBy('id')->pluck('phone')->all(),
+            "{$fall}: die Nummer an den Anstellungen",
+        );
+        $this->assertSame([], $this->contactSync->nachgezogen, "{$fall}: es wurde kein CRM-Kontakt nachgezogen");
+    }
+
+    /**
+     * Aufrufstelle 1 von 6 — registriere().
+     *
+     * Die Einladung ging RAUS, bevor HR gesperrt hat; der Token in der
+     * Nachricht gilt sieben Tage. Ohne die Wache steht danach ein Konto mit
+     * Passwort an einer gesperrten Zeile — und die Sperre ist die einzige
+     * Handhabe, die HR gegen ein Konto hat.
+     *
+     * personFuerEinladung() filtert gesperrt/stillgelegt zwar vorab weg, aber
+     * sein eigener Docblock nennt das ausdruecklich eine ZWEITE FASSUNG
+     * derselben Regel, die synchron bleiben muss. Genau dafuer braucht es an
+     * beiden Enden einen Test; dieser ist das Ende beim Schreiber.
+     */
+    public function test_eine_sperre_waehrend_der_einladung_verhindert_die_registrierung(): void
+    {
+        $token = KontoWriter::ladeEin($this->personId);
+        $this->sperre();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::registriere($this->personId, $token, self::GEBURT, self::PASSWORT),
+            'gesperrt',
+            'gesperrt',
+        );
+
+        $zeile = $this->zeile();
+        $this->assertNull($zeile->password_hash, 'an einer gesperrten Zeile darf kein Passwort entstehen');
+        $this->assertNull($zeile->registered_at);
+        $this->assertNotNull($zeile->invite_token_hash, 'die Einladung wurde nicht verbraucht');
+        $this->assertNull($zeile->invite_used_at);
+
+        // Dieselbe Wache, zweiter Zweig: eine stillgelegte Zeile. Hier
+        // entstuende sogar ein ZWEITES Konto fuer einen Menschen, der schon
+        // eines hat — an der Zeile, an der keine Anstellung mehr haengt.
+        $this->entsperre();
+        $this->legeStill();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::registriere($this->personId, $token, self::GEBURT, self::PASSWORT),
+            'stillgelegt',
+            'stillgelegt',
+        );
+
+        $this->assertNull($this->zeile()->password_hash);
+    }
+
+    /**
+     * Aufrufstelle 2 von 6 — loeseCodeEin().
+     *
+     * DER TEUERSTE DER SECHS: ein Code fuer den Nummernwechsel ist schon
+     * unterwegs, HR sperrt. Ohne die Wache loest der Code ein, und
+     * PersonLinker::setzeNummer() traegt die neue Nummer an die Person UND
+     * an alle ihre Anstellungen — der naechste Einmalcode ginge danach ans
+     * neue Geraet, obwohl HR das Konto gerade zugemacht hat.
+     */
+    public function test_eine_sperre_waehrend_ein_code_unterwegs_ist_haelt_den_nummernwechsel_auf(): void
+    {
+        $code = KontoWriter::erzeugeCode($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, '0152 33344455');
+        $this->sperre();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $code),
+            'gesperrt',
+            'gesperrt',
+        );
+
+        $this->assertNummerUnveraendert('gesperrt');
+        $this->assertNotNull($this->zeile()->code_hash, 'gesperrt: der Code darf nicht entwertet worden sein');
+
+        $this->entsperre();
+        $this->legeStill();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $code),
+            'stillgelegt',
+            'stillgelegt',
+        );
+
+        $this->assertNummerUnveraendert('stillgelegt');
+        $this->assertNotNull($this->zeile()->code_hash, 'stillgelegt: der Code darf nicht entwertet worden sein');
+    }
+
+    /**
+     * Aufrufstelle 3 von 6 — setzePasswortMitCode() (Weg 3).
+     *
+     * Diese Methode hat hinter ihrer Wache noch zwei weitere
+     * (loeseCodeEin(), setzePasswort()), die denselben Abbruch erzwingen
+     * wuerden. Was NUR die Wache an dieser Stelle leistet, ist die
+     * REIHENFOLGE: sie steht vor der Passwortregel und vor dem
+     * Geburtsdatum-Vergleich. Fehlt sie, beantwortet ein gesperrtes Konto
+     * dem Anrufer noch die Frage, ob das Geburtsdatum stimmt — ein
+     * Nachweis-Orakel an genau der Zeile, die HR zugemacht hat, und der
+     * zweite Nachweis von Weg 3 ist eben dieses Datum.
+     *
+     * Deshalb wird hier die MELDUNG geprueft und nicht bloss, dass etwas
+     * fliegt: ohne die Wache fliegt auch etwas, nur aus dem falschen Grund.
+     */
+    public function test_ein_gesperrtes_konto_verraet_beim_passwort_zuruecksetzen_nichts(): void
+    {
+        $this->kontoEinrichten();
+        $code = KontoWriter::erzeugeCode($this->personId, KontoWriter::ZWECK_PASSWORT);
+        $this->sperre();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::setzePasswortMitCode($this->personId, $code, self::GEBURT, 'kurz'),
+            'gesperrt',
+            'gesperrt, Passwort zu kurz',
+        );
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::setzePasswortMitCode($this->personId, $code, '1991-05-17', 'ein-neues-geheimnis-2026'),
+            'gesperrt',
+            'gesperrt, falsches Geburtsdatum',
+        );
+
+        $this->entsperre();
+        $this->legeStill();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::setzePasswortMitCode($this->personId, $code, self::GEBURT, 'kurz'),
+            'stillgelegt',
+            'stillgelegt, Passwort zu kurz',
+        );
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::setzePasswortMitCode($this->personId, $code, '1991-05-17', 'ein-neues-geheimnis-2026'),
+            'stillgelegt',
+            'stillgelegt, falsches Geburtsdatum',
+        );
+
+        $this->assertTrue(
+            Hash::check(self::PASSWORT, $this->zeile()->password_hash),
+            'das Passwort des Inhabers muss unangetastet bleiben',
+        );
+        $this->assertNotNull($this->zeile()->code_hash, 'der Code darf nicht entwertet worden sein');
+    }
+
+    /**
+     * Aufrufstelle 4 von 6 — beantrageNummerwechselMitCode() (Weg 4).
+     *
+     * EHRLICH GESAGT, WAS DIESER TEST HAELT UND WAS NICHT: die Wache an
+     * dieser Stelle ist Tiefenstaffelung. Unmittelbar danach ruft die
+     * Methode loeseCodeEin(), das dieselbe Wache noch einmal passiert, und
+     * zwischen beiden steht nur ein Lesezugriff — es gibt deshalb KEINEN
+     * Zustand, in dem diese eine Wache allein entscheidet. Entfernt man sie
+     * fuer sich, bleibt dieser Test gruen; entfernt man sie zusammen mit
+     * der in loeseCodeEin(), wird er rot. Die Schlusspruefung hat daraus
+     * geschlossen, ohne sie wandere die Nummer — das stimmt fuer
+     * loeseCodeEin(), nicht fuer diese Stelle.
+     *
+     * Die Zusicherung, die hier steht, ist trotzdem die richtige und war
+     * bisher nirgends aufgeschrieben: aus einem gesperrten Konto entsteht
+     * kein 24-Stunden-Antrag — weder ein Eintrag noch die HR-Meldung, die
+     * ihn begleitet.
+     */
+    public function test_ein_gesperrtes_konto_beantragt_keinen_notfall_wechsel(): void
+    {
+        $code = KontoWriter::erzeugeCode($this->personId, KontoWriter::ZWECK_NOTFALL, '0152 33344455');
+        $this->sperre();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::beantrageNummerwechselMitCode($this->personId, $code),
+            'gesperrt',
+            'gesperrt',
+        );
+
+        $zeile = $this->zeile();
+        $this->assertNull($zeile->wechsel_wirksam_ab, 'es darf kein Antrag entstanden sein');
+        $this->assertNull($zeile->wechsel_neue_nummer);
+        $this->assertNull($zeile->wechsel_beantragt_at);
+        $this->assertNotNull($zeile->code_hash, 'der Code darf nicht entwertet worden sein');
+
+        $gemeldet = array_values(array_filter(
+            $this->log->zeilen,
+            static fn (array $z): bool => $z['nachricht'] === 'recruiting.konto.nummernwechsel_beantragt',
+        ));
+        $this->assertSame([], $gemeldet, 'HR darf keinen Antrag gemeldet bekommen, den es nicht gibt');
+
+        $this->entsperre();
+        $this->legeStill();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::beantrageNummerwechselMitCode($this->personId, $code),
+            'stillgelegt',
+            'stillgelegt',
+        );
+
+        $this->assertNull($this->zeile()->wechsel_wirksam_ab);
+    }
+
+    /**
+     * Aufrufstelle 5 von 6 — setzeNummerDurchHr() (Weg 5).
+     *
+     * Der Grabstein-Fall ist der teure: ohne die Wache traegt HR die neue
+     * Nummer an eine STILLGELEGTE Zeile, und PersonLinker::setzeNummer()
+     * schreibt sie von dort auf alle Anstellungen, die noch auf diese
+     * Kennung zeigen. HR sieht eine Erfolgsmeldung, der Mensch bekommt
+     * nichts — und die lebende Zeile, an der sein Konto haengt, weiss von
+     * der neuen Nummer nichts.
+     */
+    public function test_hr_traegt_an_einer_gesperrten_oder_stillgelegten_zeile_keine_nummer_ein(): void
+    {
+        $this->sperre();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::setzeNummerDurchHr($this->personId, '0152 33344455'),
+            'gesperrt',
+            'gesperrt',
+        );
+        $this->assertNummerUnveraendert('gesperrt');
+
+        $this->entsperre();
+        $this->legeStill();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::setzeNummerDurchHr($this->personId, '0152 33344455'),
+            'stillgelegt',
+            'stillgelegt',
+        );
+        $this->assertNummerUnveraendert('stillgelegt');
+    }
+
+    /**
+     * Aufrufstelle 6 von 6 — wendeNummernwechselAn().
+     *
+     * DIESE WACHE TRAEGT EINE BEGRUENDUNG, DIE ANDERSWO STEHT.
+     * offeneNummernwechsel() zeigt Antraege gesperrter und stillgelegter
+     * Personen bewusst MIT an (Befund G5, Ruling N2), und das Argument
+     * dafuer lautet woertlich: "der Antrag einer stillgelegten Person laesst
+     * sich ohnehin nie anwenden (wendeNummernwechselAn() geht durch
+     * offeneZeile())". Faellt die Wache hier, wird aus dem sichtbaren
+     * Antrag ein wirksamer — und zwar durch das stuendliche Kommando, ohne
+     * dass jemand etwas anklickt.
+     *
+     * Der Antrag entsteht ueber den echten Weg 4, nicht per Hand in die
+     * Spalte geschrieben: sonst pruefte der Test eine Zeile, die so nie
+     * entsteht.
+     */
+    public function test_ein_faelliger_antrag_wird_an_einer_gesperrten_oder_stillgelegten_zeile_nicht_angewendet(): void
+    {
+        $code = KontoWriter::erzeugeCode($this->personId, KontoWriter::ZWECK_NOTFALL, '0152 33344455');
+        KontoWriter::beantrageNummerwechselMitCode($this->personId, $code);
+
+        // Faellig machen, ohne an der Wanduhr zu haengen: zwei Stunden in
+        // die Vergangenheit, relativ zu jetzt.
+        DB::table('rec_persons')->where('id', $this->personId)
+            ->update(['wechsel_wirksam_ab' => now()->subHours(2)->format('Y-m-d H:i:s')]);
+
+        $this->sperre();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::wendeNummernwechselAn($this->personId),
+            'gesperrt',
+            'gesperrt',
+        );
+        $this->assertNummerUnveraendert('gesperrt');
+        $this->assertNotNull(
+            $this->zeile()->wechsel_wirksam_ab,
+            'gesperrt: der Antrag bleibt stehen und bleibt damit fuer HR sichtbar',
+        );
+
+        $this->entsperre();
+        $this->legeStill();
+
+        $this->assertScheitertAnDerWache(
+            fn () => KontoWriter::wendeNummernwechselAn($this->personId),
+            'stillgelegt',
+            'stillgelegt',
+        );
+        $this->assertNummerUnveraendert('stillgelegt');
+        $this->assertNotNull($this->zeile()->wechsel_wirksam_ab, 'stillgelegt: der Antrag bleibt stehen');
+    }
+
     // ------------------------------------------------------------ ZAS-Marker
 
     /**
