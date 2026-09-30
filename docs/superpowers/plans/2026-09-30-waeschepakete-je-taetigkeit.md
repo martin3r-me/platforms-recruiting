@@ -1339,7 +1339,7 @@ git commit -m "feat(recruiting): Einsatz-Seite zeigt das Waeschepaket statt des 
 **Files:**
 - Modify: `src/Livewire/Dispo/Events/Show.php` (Properties, `openSendModal()`, `doSendConfirmations()`)
 - Create: `resources/views/livewire/dispo/events/_dress-fields.blade.php`
-- Modify: `resources/views/livewire/dispo/events/show.blade.php:505` (Einbindung)
+- Modify: `resources/views/livewire/dispo/events/show.blade.php` (Einbindung im Sende-Fenster)
 - Test: `tests/Integration/DispoDressSendFormTest.php`
 
 **Interfaces:**
@@ -1695,8 +1695,14 @@ Das bestehende `$event->update([...])` um die neuen Felder erweitern:
 - [ ] **Step 9: Partial einbinden**
 
 In `resources/views/livewire/dispo/events/show.blade.php` direkt hinter dem
-Block mit dem Ansprechpartner-Feld (dem `@include` von `_contact-field`, um
-Zeile 505) einfuegen:
+Block mit dem Ansprechpartner-Feld einfuegen.
+
+**Achtung, es gibt zwei Einbindungen von `_contact-field`.** Die richtige ist
+die INNERHALB von `@if ($showSendModal)` (Bestätigungen senden, aktuell um
+Zeile 506) — nicht die zweite weiter unten (aktuell um Zeile 838), die zu
+einem anderen Fenster gehoert. Vor dem Einfuegen mit
+`grep -n "_contact-field" resources/views/livewire/dispo/events/show.blade.php`
+die aktuellen Zeilen pruefen; die Datei bewegt sich.
 
 ```blade
                     @include('recruiting::livewire.dispo.events._dress-fields')
