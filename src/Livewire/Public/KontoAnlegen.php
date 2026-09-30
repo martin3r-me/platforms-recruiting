@@ -55,6 +55,12 @@ use Platform\Recruiting\Support\PasswortRegeln;
  * Sicherheit: dieselbe Lehre wie aus dem Auth-Bypass vom 19.08.2026 — alles,
  * was ueber Identitaet oder Zustand entscheidet, ist #[Locked]. $wire.set
  * kommt daran nicht vorbei.
+ *
+ * UND EINE ZWEITE, TEURER GELERNTE: #[Locked] verhindert das SETZEN, nicht
+ * das AUSLIEFERN. Was ueber Identitaet entscheidet UND ein Geheimnis ist —
+ * hier der Einladungs-Token — darf deshalb gar keine oeffentliche
+ * Eigenschaft sein, sonst steht es im wire:snapshot. Begruendung an
+ * SITZUNG_TOKEN.
  */
 class KontoAnlegen extends Component
 {
@@ -65,20 +71,33 @@ class KontoAnlegen extends Component
     public const SPERRE_SEKUNDEN = 3600;
 
     /**
-     * Der Einladungs-Token, normalisiert (s. lesbarerToken()).
+     * Der Einladungs-Token und WESSEN Konto angelegt wird liegen in der
+     * SITZUNG und sind KEINE oeffentlichen Eigenschaften.
      *
-     * #[Locked]: er IST der Besitznachweis. Wer ihn vom Browser aus setzen
-     * koennte, braeuchte gar keine Einladung — er nimmt einfach die eines
-     * anderen.
+     * HIER STAND BEIDES ALS #[Locked] public, UND DAS WAR EIN FEHLER — der
+     * Unterschied zwischen SETZEN und AUSLIEFERN. #[Locked] verhindert, dass
+     * der Browser eine Eigenschaft setzt; es verhindert nicht, dass Livewire
+     * sie dehydriert. Jede oeffentliche Eigenschaft landet als wire:snapshot
+     * im HTML (Livewire\Drawer\Utils::getPublicPropertiesDefinedOnSubclass,
+     * benutzt von HandleComponents::dehydrateProperties).
+     *
+     * Der Token ist ein GEHEIMNIS: acht Zeichen, sieben Tage gueltig, und er
+     * traegt zusammen mit dem Geburtsdatum die ganze Registrierung. Als
+     * oeffentliche Eigenschaft stand er im Quelltext der Seite — also in
+     * jedem Bildschirmfoto eines Support-Falls, in jeder gespeicherten Seite
+     * und auf jedem geteilten Bildschirm. Das Blade verspricht ausdruecklich
+     * das Gegenteil ("Der Token steht NICHT auf dieser Seite ... die Seite
+     * kennt ihn serverseitig"); seit diesem Umbau stimmt der Satz.
+     *
+     * DER PREIS: die Sitzung gehoert dem BROWSER, nicht dem Reiter. Wer zwei
+     * Einladungen in zwei Reitern oeffnet, arbeitet in beiden mit der
+     * zuletzt geoeffneten weiter. Das ist verschmerzbar — eine Einladung
+     * gehoert einem Menschen, und niemand richtet zwei Konten gleichzeitig
+     * ein.
      */
-    #[Locked] public string $token = '';
+    private const SITZUNG_TOKEN = 'recruiting.konto.anlegen.token';
 
-    /**
-     * WESSEN Konto hier angelegt wird. #[Locked] aus demselben Grund wie
-     * $employeeId in der Portal-Huelle: eine gesetzte fremde Kennung waere
-     * ein fremdes Konto.
-     */
-    #[Locked] public ?int $personId = null;
+    private const SITZUNG_PERSON = 'recruiting.konto.anlegen.person';
 
     /**
      * 'code' (die tokenlose Tuer, nur ein Eingabefeld), 'formular' oder
@@ -132,6 +151,7 @@ class KontoAnlegen extends Component
     {
         if (trim($token) === '') {
             $this->state = 'code';
+            $this->merkeEinladung(null, null);
 
             return;
         }
@@ -147,8 +167,7 @@ class KontoAnlegen extends Component
             abort(404);
         }
 
-        $this->token = $lesbar;
-        $this->personId = $personId;
+        $this->merkeEinladung($lesbar, $personId);
         $this->duzen = $this->anredeFuer($personId);
     }
 
@@ -170,11 +189,14 @@ class KontoAnlegen extends Component
         // Pruefung doch in die tokenlose Seite zieht, statt weiterzuleiten.
         // Dann ist diese Bedingung die einzige, die ein
         // $wire.call('registriere') aus dem Code-Feld heraus abhaelt.
-        if ($this->state !== 'formular' || $this->personId === null) {
+        $personId = $this->laufendePerson();
+        $token = $this->laufenderToken();
+
+        if ($this->state !== 'formular' || $personId === null || $token === '') {
             return;
         }
 
-        if ($this->zuVieleFehlversuche($this->token)) {
+        if ($this->zuVieleFehlversuche($token)) {
             abort(404);
         }
 
@@ -204,7 +226,7 @@ class KontoAnlegen extends Component
         }
 
         try {
-            KontoWriter::registriere($this->personId, $this->token, $this->geburtsdatum, $this->passwort);
+            KontoWriter::registriere($personId, $token, $this->geburtsdatum, $this->passwort);
         } catch (InvalidArgumentException) {
             // Die Ausnahme wird NICHT angezeigt und NICHT protokolliert: sie
             // benennt, welcher der beiden Nachweise nicht stimmte, und genau
@@ -238,7 +260,7 @@ class KontoAnlegen extends Component
             // personFuerEinladung() —, muss hier nach Fall unterscheiden,
             // sonst zaehlt ein Konfigurationsfehler als Rateversuch und
             // sperrt den Menschen fuer eine Stunde aus.
-            RateLimiter::hit(self::drosselSchluessel($this->token), self::SPERRE_SEKUNDEN);
+            RateLimiter::hit(self::drosselSchluessel($token), self::SPERRE_SEKUNDEN);
 
             $this->fehler = $this->duzen
                 ? 'Das hat nicht geklappt. Bitte prüfe dein Geburtsdatum und versuche es noch einmal.'
@@ -247,13 +269,18 @@ class KontoAnlegen extends Component
             return;
         }
 
-        RateLimiter::clear(self::drosselSchluessel($this->token));
+        RateLimiter::clear(self::drosselSchluessel($token));
 
         // Das Konto steht — das Passwort hat auf dieser Seite nichts mehr zu
         // suchen. Es faehrt sonst im Livewire-Schnappschuss weiter mit.
         $this->passwort = '';
         $this->passwortWiederholung = '';
         $this->geburtsdatum = '';
+
+        // Das Konto steht: Token und Kennung haben in der Sitzung nichts
+        // mehr zu suchen. Der Token ist ohnehin verbraucht.
+        $this->merkeEinladung(null, null);
+
         $this->state = 'fertig';
     }
 
@@ -321,6 +348,41 @@ class KontoAnlegen extends Component
      * sonst schuettelte eine andere Schreibweise die Sperre ab (dieselbe
      * Falle wie beim Nummern-Schluessel in PortalAuth).
      */
+    /** Der Token des laufenden Vorgangs — aus der Sitzung, nie vom Browser. */
+    private function laufenderToken(): string
+    {
+        $wert = session()->get(self::SITZUNG_TOKEN);
+
+        return is_string($wert) ? $wert : '';
+    }
+
+    /**
+     * WESSEN Konto — aus der Sitzung.
+     *
+     * Streng auf int geprueft: ein (int)-Cast auf einen Unsinnswert ergaebe
+     * 0, und mit 0 muesste KontoWriter arbeiten, statt abzulehnen.
+     */
+    private function laufendePerson(): ?int
+    {
+        $wert = session()->get(self::SITZUNG_PERSON);
+
+        return is_int($wert) ? $wert : null;
+    }
+
+    /** Beide zusammen, damit nie nur eines von beiden gesetzt ist. */
+    private function merkeEinladung(?string $token, ?int $personId): void
+    {
+        if ($token === null || $personId === null) {
+            session()->forget(self::SITZUNG_TOKEN);
+            session()->forget(self::SITZUNG_PERSON);
+
+            return;
+        }
+
+        session()->put(self::SITZUNG_TOKEN, $token);
+        session()->put(self::SITZUNG_PERSON, $personId);
+    }
+
     private static function lesbarerToken(string $eingabe): string
     {
         return strtoupper((string) preg_replace('/[\s\-]+/', '', $eingabe));

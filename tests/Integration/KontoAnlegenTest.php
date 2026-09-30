@@ -15,11 +15,14 @@ use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Routing\UrlGenerator;
+use Illuminate\Session\ArraySessionHandler;
+use Illuminate\Session\Store;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\Compilers\BladeCompiler;
 use Livewire\Attributes\Locked;
+use Livewire\Drawer\Utils as LivewireUtils;
 use Livewire\Mechanisms\DataStore;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\KontoAnlegen;
@@ -72,6 +75,8 @@ final class KontoAnlegenTest extends TestCase
 
     private Repository $cache;
 
+    private Store $session;
+
     /** @var object{geschrieben: list<string>} die Cache-Attrappe hinter $cache */
     private object $store;
 
@@ -121,6 +126,12 @@ final class KontoAnlegenTest extends TestCase
             // der Vorgabewert.
             'livewire'   => ['render_on_redirect' => false],
         ]));
+
+        // Token und Personen-Kennung liegen seit dem Schnappschuss-Fund in
+        // der SITZUNG und nicht mehr in oeffentlichen Eigenschaften — ohne
+        // gebundene Sitzung liefe hier gar nichts.
+        $this->session = new Store('test', new ArraySessionHandler(60));
+        $container->instance('session', $this->session);
 
         // Livewires store() haengt an EINEM DataStore. Ein blanker Container
         // baut bei jedem app()-Aufruf einen neuen — dann schriebe redirect()
@@ -282,6 +293,24 @@ final class KontoAnlegenTest extends TestCase
         return $seite;
     }
 
+    /**
+     * Was sich die Seite serverseitig gemerkt hat.
+     *
+     * Bewusst ueber die Sitzung und nicht ueber eine Eigenschaft: seit dem
+     * Schnappschuss-Fund liegen Token und Kennung dort, und genau das ist
+     * die Zusicherung. Die Schluessel werden hier ABSICHTLICH nachgetippt —
+     * liest der Test sie aus der Klasse, prueft er nur sich selbst.
+     */
+    private function gemerkterToken(): ?string
+    {
+        return $this->session->get('recruiting.konto.anlegen.token');
+    }
+
+    private function gemerktePerson(): ?int
+    {
+        return $this->session->get('recruiting.konto.anlegen.person');
+    }
+
     private function zeile(): object
     {
         return DB::table('rec_persons')->where('id', $this->personId)->first();
@@ -360,8 +389,8 @@ final class KontoAnlegenTest extends TestCase
         $seite = $this->seite($token);
 
         $this->assertSame('formular', $seite->state);
-        $this->assertSame($this->personId, $seite->personId);
-        $this->assertSame($token, $seite->token);
+        $this->assertSame($this->personId, $this->gemerktePerson());
+        $this->assertSame($token, $this->gemerkterToken());
     }
 
     public function test_unbekannter_token_ist_404(): void
@@ -449,8 +478,8 @@ final class KontoAnlegenTest extends TestCase
 
         $seite = $this->seite($getippt);
 
-        $this->assertSame($token, $seite->token);
-        $this->assertSame($this->personId, $seite->personId);
+        $this->assertSame($token, $this->gemerkterToken());
+        $this->assertSame($this->personId, $this->gemerktePerson());
     }
 
     public function test_streng_geprueft_wird_trotzdem(): void
@@ -795,9 +824,19 @@ final class KontoAnlegenTest extends TestCase
      */
     public function test_alles_was_ueber_identitaet_entscheidet_ist_gesperrt(): void
     {
+        // GAR KEINE EIGENSCHAFT, und das ist die zweite Lehre: #[Locked]
+        // verhindert das SETZEN, nicht das AUSLIEFERN. Diese beiden standen
+        // hier einmal als #[Locked] public und wurden damit als
+        // wire:snapshot ins HTML dehydriert — der Einladungs-Token also im
+        // Quelltext der Seite, obwohl das Blade das Gegenteil verspricht.
+        $nichtImSchnappschuss = [
+            'token'    => 'der Besitznachweis selbst UND ein Geheimnis — acht Zeichen, sieben Tage '
+                . 'gueltig. Als oeffentliche Eigenschaft stuende er im wire:snapshot und damit in '
+                . 'jedem Bildschirmfoto',
+            'personId' => 'WESSEN Konto angelegt wird — gehoert aus demselben Grund in die Sitzung',
+        ];
+
         $gesperrt = [
-            'token'    => 'der Besitznachweis selbst — wer ihn setzen kann, braucht keine Einladung',
-            'personId' => 'WESSEN Konto angelegt wird',
             'state'    => 'der Zustand der Seite — genau der Bypass vom 19.08.2026',
             'duzen'    => 'kommt aus den Team-Einstellungen, nicht vom Menschen',
         ];
@@ -817,6 +856,14 @@ final class KontoAnlegenTest extends TestCase
         ];
 
         $klasse = new \ReflectionClass(KontoAnlegen::class);
+
+        foreach ($nichtImSchnappschuss as $name => $warum) {
+            $this->assertFalse(
+                $klasse->hasProperty($name) && $klasse->getProperty($name)->isPublic(),
+                "KontoAnlegen::\${$name} ist wieder eine oeffentliche Eigenschaft — {$warum}. "
+                . '#[Locked] hilft dagegen NICHT: es verhindert das Setzen, nicht das Ausliefern.',
+            );
+        }
 
         foreach ($gesperrt as $name => $warum) {
             $this->assertTrue(
@@ -840,24 +887,25 @@ final class KontoAnlegenTest extends TestCase
             );
         }
 
-        // Der Schluss der geschlossenen Welt: kein oeffentliches Feld darf
-        // an beiden Listen vorbei existieren.
-        foreach ($klasse->getProperties(\ReflectionProperty::IS_PUBLIC) as $eigenschaft) {
-            if ($eigenschaft->isStatic()) {
-                continue;
-            }
+        // DER SCHLUSS DER GESCHLOSSENEN WELT, und zwar auf der Ebene, auf
+        // der es zaehlt: gefragt wird DIESELBE Funktion, mit der Livewire
+        // dehydriert (HandleComponents::dehydrateProperties ruft genau sie).
+        // Eine nachgebaute Reflexionsschleife waere ein Modell des Wirts —
+        // diese Liste IST der Schnappschuss.
+        $erwartet = array_keys(array_merge($gesperrt, $offen));
+        $tatsaechlich = array_keys(LivewireUtils::getPublicPropertiesDefinedOnSubclass(new KontoAnlegen()));
+        sort($erwartet);
+        sort($tatsaechlich);
 
-            $name = $eigenschaft->getName();
-
-            $this->assertTrue(
-                isset($gesperrt[$name]) || isset($offen[$name]),
-                "Die oeffentliche Eigenschaft \${$name} steht in keiner der beiden Listen. "
-                . 'Entscheide: gehoert sie zu dem, was ueber Identitaet oder Zustand entscheidet '
-                . '(dann #[Locked] und oben eintragen), oder ist sie eine Eingabe des Menschen '
-                . '(dann unten eintragen, mit Grund)? Genau hier ist am 19.08.2026 ein '
-                . 'Auth-Bypass entstanden.',
-            );
-        }
+        $this->assertSame(
+            $erwartet,
+            $tatsaechlich,
+            'Der wire:snapshot traegt andere Felder als die beiden Listen. Entscheide je Feld: '
+            . 'gehoert es ueberhaupt nicht in den Schnappschuss (dann in die Sitzung und oben in '
+            . '$nichtImSchnappschuss eintragen), entscheidet es ueber Identitaet oder Zustand '
+            . '(dann #[Locked] und in $gesperrt), oder ist es eine Eingabe des Menschen (dann in '
+            . '$offen, mit Grund)? Genau hier ist am 19.08.2026 ein Auth-Bypass entstanden.',
+        );
     }
 
     // -------------------------------------------------------------- Das Blade
@@ -878,7 +926,7 @@ final class KontoAnlegenTest extends TestCase
 
         // Und der Token steht nirgends auf der Seite: ein Geheimnis gehoert
         // nicht ins Markup, wo es der naechste Screenshot mitnimmt.
-        $this->assertStringNotContainsString($seite->token, $html);
+        $this->assertStringNotContainsString((string) $this->gemerkterToken(), $html);
     }
 
     /**
@@ -954,8 +1002,8 @@ final class KontoAnlegenTest extends TestCase
         $seite->mount('');
 
         $this->assertSame('code', $seite->state);
-        $this->assertNull($seite->personId);
-        $this->assertSame('', $seite->token);
+        $this->assertNull($this->gemerktePerson());
+        $this->assertNull($this->gemerkterToken());
     }
 
     /**
@@ -976,7 +1024,7 @@ final class KontoAnlegenTest extends TestCase
 
         $this->assertSame('code', $seite->state);
         $this->assertSame('', $seite->fehler, 'Die tokenlose Seite hat den Code selbst beurteilt.');
-        $this->assertNull($seite->personId);
+        $this->assertNull($this->gemerktePerson());
     }
 
     public function test_der_getippte_code_landet_auf_der_token_route(): void

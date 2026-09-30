@@ -238,9 +238,10 @@ class KontoAnmelden extends Component
      *
      * OHNE DIESE SPERRE waere die ganze Aufgabe hinfaellig: ein
      * $wire.set('state', 'nummer-code') aus dem Anmeldeformular heraus
-     * uebersprunge den Passwortnachweis von Schritt 1. Dass $personId
-     * ebenfalls gesperrt ist, faengt es ein zweites Mal ab — beide Sperren
-     * sind noetig, keine steht fuer die andere ein.
+     * uebersprunge den Passwortnachweis von Schritt 1. Dass die
+     * Personen-Kennung gar keine Eigenschaft ist, sondern in der Sitzung
+     * liegt, faengt es ein zweites Mal ab — der Browser kann sie also weder
+     * setzen noch lesen.
      */
     #[Locked] public string $state = 'formular';
 
@@ -281,20 +282,44 @@ class KontoAnmelden extends Component
     public string $passwort = '';
 
     /**
-     * WESSEN Vorgang hier laeuft — gesetzt erst, NACHDEM der erste Nachweis
-     * erbracht ist (Passwort in Weg 1+2, die Nummer in Weg 3).
+     * WESSEN Vorgang hier laeuft, liegt in der SITZUNG und ist KEINE
+     * oeffentliche Eigenschaft.
      *
-     * #[Locked], und hier haengt mehr daran als anderswo: mit einer frei
-     * setzbaren Personen-Kennung liesse sich im zweiten Schritt eine FREMDE
-     * Person einsetzen — der eigene Code, das fremde Konto. Das ist der
-     * Auth-Bypass vom 19.08.2026 in seiner teuersten Form.
+     * DAS IST DER UNTERSCHIED ZWISCHEN SETZEN UND AUSLIEFERN, und er hat
+     * hier eine Runde gekostet. #[Locked] verhindert, dass der Browser eine
+     * Eigenschaft SETZT — es verhindert nicht, dass Livewire sie AUSLIEFERT.
+     * Jede oeffentliche Eigenschaft wird dehydriert und steht als
+     * wire:snapshot im HTML (Livewire\Drawer\Utils::
+     * getPublicPropertiesDefinedOnSubclass, benutzt von
+     * HandleComponents::dehydrateProperties).
+     *
+     * Als oeffentliche Eigenschaft stuende im Zustand 'vergessen-code' also
+     * "personId": 4711 im Quelltext — und bei unbekannter Nummer null.
+     * Nummer tippen, Quelltext ansehen, fertig: eine exakte, kostenlose
+     * Auskunft darueber, ob es zu dieser Nummer ein Konto gibt. In Weg 4
+     * waere es schaerfer: dort wird die Kennung NUR bei stimmenden
+     * Ausweisziffern gesetzt, der Schnappschuss sagte also "die Nachweise
+     * waren richtig".
+     *
+     * Das ist genau die Begleitregel aus Spec §5, und ein Vergleich des
+     * gerenderten Markups kann sie nicht belegen — der Schnappschuss steht
+     * nicht im Blade. Der Waechter dazu vergleicht deshalb die dehydrierten
+     * Eigenschaften selbst.
+     *
+     * DER PREIS, und er ist bewusst bezahlt: die Sitzung gehoert dem
+     * BROWSER, nicht dem Reiter. Zwei gleichzeitig offene Rueckwege in zwei
+     * Reitern teilen sich diesen Schlitz, der zweite ueberschreibt den
+     * ersten. Das ist verschmerzbar (niemand setzt in zwei Reitern
+     * gleichzeitig sein Passwort zurueck) und die guenstigere Seite des
+     * Tauschs: die Alternative war eine Auskunft, die jeder ohne Aufwand
+     * abholen kann.
      *
      * Bleibt in Weg 3 ausdruecklich null, wenn die Nummer unbekannt ist. Der
      * zweite Schritt scheitert dann mit derselben Meldung wie ein falscher
      * Code — sonst waere der Unterschied die Auskunft, dass es die Nummer
      * nicht gibt.
      */
-    #[Locked] public ?int $personId = null;
+    private const SITZUNG_PERSON = 'recruiting.konto.rueckweg.person';
 
     /**
      * Was im Zustand 'fertig' geschafft wurde: 'nummer' oder 'passwort'.
@@ -505,16 +530,16 @@ class KontoAnmelden extends Component
     /**
      * Zurueck auf die Anmeldung — und dabei wird ALLES abgeraeumt.
      *
-     * Insbesondere $personId: eine stehengebliebene Kennung aus einem
-     * abgebrochenen Vorgang waere im naechsten genau der erste Nachweis, den
-     * niemand mehr erbracht hat. Und die Geheimnisse (Passwort, Code) haben
+     * Insbesondere die Personen-Kennung in der Sitzung: eine
+     * stehengebliebene Kennung aus einem abgebrochenen Vorgang waere im
+     * naechsten genau der erste Nachweis, den niemand mehr erbracht hat. Und die Geheimnisse (Passwort, Code) haben
      * nach einem Wechsel des Zustands auf der Seite nichts mehr zu suchen —
      * sie fuehren sonst im Livewire-Schnappschuss weiter mit.
      */
     public function zurAnmeldung(): void
     {
         $this->state = 'formular';
-        $this->personId = null;
+        $this->merkePerson(null);
         $this->fertigGrund = '';
         $this->nummer = '';
         $this->neueNummer = '';
@@ -612,7 +637,8 @@ class KontoAnmelden extends Component
             return;
         }
 
-        $this->personId = $ergebnis['personId'];
+        $personId = (int) $ergebnis['personId'];
+        $this->merkePerson($personId);
 
         // DER RUECKGABEWERT WIRD NICHT AUSGEWERTET (s. Klassen-Docblock):
         // 'sent', 'gedrosselt' und 'failed' sehen fuer den Menschen gleich
@@ -620,7 +646,7 @@ class KontoAnmelden extends Component
         // Unterscheidung an dieser Stelle waere trotzdem eine Auskunft ueber
         // den Zustand des Kontos ("gesperrt") an jemanden, der bloss das
         // Passwort kennt.
-        $sender->sende($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $neu);
+        $sender->sende($personId, KontoWriter::ZWECK_NUMMERNWECHSEL, $neu);
 
         $this->state = 'nummer-code';
     }
@@ -645,7 +671,7 @@ class KontoAnmelden extends Component
      */
     public function nummerBestaetigen(NummernwechselHinweisSender $hinweis): void
     {
-        if ($this->state !== 'nummer-code' || $this->personId === null) {
+        if ($this->state !== 'nummer-code') {
             return;
         }
 
@@ -657,10 +683,23 @@ class KontoAnmelden extends Component
             return;
         }
 
-        $alteNummer = KontoWriter::aktuelleNummer($this->personId);
+        $personId = $this->laufendePerson();
+
+        if ($personId === null) {
+            // Ueber den Ablauf nicht erreichbar (dieser Zustand entsteht nur
+            // nach einem richtigen Passwort), aber die Sitzung kann
+            // zwischendurch ablaufen. Dann dieselbe Meldung wie bei einem
+            // falschen Code, statt still nichts zu tun.
+            $this->code = '';
+            $this->fehler = self::MELDUNG_ZURUECK;
+
+            return;
+        }
+
+        $alteNummer = KontoWriter::aktuelleNummer($personId);
 
         try {
-            KontoWriter::loeseCodeEin($this->personId, KontoWriter::ZWECK_NUMMERNWECHSEL, trim($this->code));
+            KontoWriter::loeseCodeEin($personId, KontoWriter::ZWECK_NUMMERNWECHSEL, trim($this->code));
         } catch (InvalidArgumentException) {
             // Die Ausnahme wird NICHT angezeigt und NICHT protokolliert: sie
             // benennt, woran es lag.
@@ -676,9 +715,12 @@ class KontoAnmelden extends Component
             // "sofern noch zustellbar" laesst sich vorher nicht feststellen —
             // der Sender versucht es und protokolliert das Ergebnis. Ein
             // Fehlschlag dreht den Wechsel NICHT zurueck; er ist vollzogen.
-            $hinweis->sende($this->personId, $alteNummer);
+            $hinweis->sende($personId, $alteNummer);
         }
 
+        // Der Vorgang ist zu Ende; die Kennung hat in der Sitzung nichts
+        // mehr zu suchen.
+        $this->merkePerson(null);
         $this->fertigGrund = 'nummer';
         $this->state = 'fertig';
     }
@@ -728,10 +770,11 @@ class KontoAnmelden extends Component
             // Dieselbe Menge, ueber die auch die Anmeldung entscheidet
             // (KontoWriter). Eine eigene Abfrage hier waere eine zweite
             // Fassung derselben Regel.
-            $this->personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
+            $personId = KontoWriter::anmeldefaehigePersonFuerNummer(null, $this->nummer);
+            $this->merkePerson($personId);
 
-            if ($this->personId !== null) {
-                $sender->sende($this->personId, KontoWriter::ZWECK_PASSWORT);
+            if ($personId !== null) {
+                $sender->sende($personId, KontoWriter::ZWECK_PASSWORT);
             }
         }
 
@@ -786,12 +829,14 @@ class KontoAnmelden extends Component
             return;
         }
 
+        $personId = $this->laufendePerson();
+
         // Unbekannte Nummer ($personId === null) und ausgeschoepfte Bremse
         // muenden in DIESELBE Meldung wie ein falscher Code. Der Zweig fuer
         // die unbekannte Nummer ist die zweite Haelfte der Begleitregel aus
         // Schritt 1: ohne ihn endete der Weg fuer eine unbekannte Nummer
         // sichtbar anders.
-        if ($this->personId === null || RateLimiter::tooManyAttempts(self::nachweisSchluessel($this->personId), self::MAX_FEHLVERSUCHE)) {
+        if ($personId === null || RateLimiter::tooManyAttempts(self::nachweisSchluessel($personId), self::MAX_FEHLVERSUCHE)) {
             $this->fehler = self::MELDUNG_ZURUECK;
             $this->leereGeheimnisse();
 
@@ -800,13 +845,13 @@ class KontoAnmelden extends Component
 
         try {
             KontoWriter::setzePasswortMitCode(
-                $this->personId,
+                $personId,
                 trim($this->code),
                 trim($this->geburtsdatum),
                 $this->neuesPasswort,
             );
         } catch (InvalidArgumentException) {
-            RateLimiter::hit(self::nachweisSchluessel($this->personId), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
+            RateLimiter::hit(self::nachweisSchluessel($personId), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
 
             $this->fehler = self::MELDUNG_ZURUECK;
             $this->leereGeheimnisse();
@@ -814,9 +859,10 @@ class KontoAnmelden extends Component
             return;
         }
 
-        RateLimiter::clear(self::nachweisSchluessel($this->personId));
+        RateLimiter::clear(self::nachweisSchluessel($personId));
 
         $this->leereGeheimnisse();
+        $this->merkePerson(null);
         $this->geburtsdatum = '';
         $this->fertigGrund = 'passwort';
         $this->state = 'fertig';
@@ -883,7 +929,7 @@ class KontoAnmelden extends Component
                 if (KontoWriter::ausweisNachweisStimmt($personId, trim($this->geburtsdatum), trim($this->ausweis))) {
                     RateLimiter::clear(self::nachweisSchluessel($personId));
 
-                    $this->personId = $personId;
+                    $this->merkePerson($personId);
                     $sender->sende($personId, KontoWriter::ZWECK_NOTFALL, $neu);
                 } else {
                     RateLimiter::hit(self::nachweisSchluessel($personId), self::FEHLVERSUCH_FENSTER_SEKUNDEN);
@@ -928,7 +974,9 @@ class KontoAnmelden extends Component
             return;
         }
 
-        if ($this->personId === null) {
+        $personId = $this->laufendePerson();
+
+        if ($personId === null) {
             $this->code = '';
             $this->fehler = self::MELDUNG_ZURUECK;
 
@@ -936,7 +984,7 @@ class KontoAnmelden extends Component
         }
 
         try {
-            $wirksamAb = KontoWriter::beantrageNummerwechselMitCode($this->personId, trim($this->code));
+            $wirksamAb = KontoWriter::beantrageNummerwechselMitCode($personId, trim($this->code));
         } catch (InvalidArgumentException) {
             $this->code = '';
             $this->fehler = self::MELDUNG_ZURUECK;
@@ -945,6 +993,7 @@ class KontoAnmelden extends Component
         }
 
         $this->code = '';
+        $this->merkePerson(null);
         $this->wirksamAb = Carbon::parse($wirksamAb)->format('d.m.Y, H:i') . ' Uhr';
         $this->fertigGrund = 'notfall';
         $this->state = 'fertig';
@@ -1039,6 +1088,34 @@ class KontoAnmelden extends Component
      * Schluessellaenge damit trotzdem (derselbe Gedanke wie beim
      * Personen-Schluessel im Einmalcode-Sender).
      */
+    /**
+     * WESSEN Vorgang laeuft — aus der Sitzung, nicht aus einer Eigenschaft.
+     *
+     * Streng auf int geprueft: was in der Sitzung liegt, kommt aus einer
+     * frueheren Anfrage und hat nach einem Umbau womoeglich eine andere
+     * Gestalt. Ein (int)-Cast auf einen Unsinnswert ergaebe 0, und 0 waere
+     * eine Personen-Kennung, die es nie gibt — aber eine, mit der
+     * KontoWriter arbeiten MUESSTE, statt abzulehnen.
+     */
+    private function laufendePerson(): ?int
+    {
+        $wert = session()->get(self::SITZUNG_PERSON);
+
+        return is_int($wert) ? $wert : null;
+    }
+
+    /** null raeumt den Schlitz ab. */
+    private function merkePerson(?int $personId): void
+    {
+        if ($personId === null) {
+            session()->forget(self::SITZUNG_PERSON);
+
+            return;
+        }
+
+        session()->put(self::SITZUNG_PERSON, $personId);
+    }
+
     private static function nachweisSchluessel(int $personId): string
     {
         return 'konto-zurueck:nachweis:' . $personId;

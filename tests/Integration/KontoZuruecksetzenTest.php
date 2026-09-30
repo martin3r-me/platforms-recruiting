@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\View\Compilers\BladeCompiler;
+use Livewire\Drawer\Utils as LivewireUtils;
 use Livewire\Mechanisms\DataStore;
 use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CommsChannel;
@@ -539,6 +540,34 @@ final class KontoZuruecksetzenTest extends TestCase
         return DB::table('rec_persons')->where('id', $personId ?? $this->personId)->first();
     }
 
+    /**
+     * WESSEN Vorgang sich die Seite serverseitig gemerkt hat.
+     *
+     * Ueber die Sitzung, nicht ueber eine Eigenschaft — genau das ist seit
+     * dem Schnappschuss-Fund die Zusicherung. Der Schluessel wird hier
+     * ABSICHTLICH nachgetippt: liest der Test ihn aus der Klasse, prueft er
+     * nur sich selbst.
+     */
+    private function gemerktePerson(): ?int
+    {
+        return $this->session->get('recruiting.konto.rueckweg.person');
+    }
+
+    /**
+     * DER SCHNAPPSCHUSS, den Livewire ins HTML schreibt.
+     *
+     * Gefragt wird DIESELBE Funktion, die HandleComponents::
+     * dehydrateProperties() benutzt — kein Nachbau. Ein Nachbau waere hier
+     * besonders verfuehrerisch und besonders falsch: die ganze Zusage haengt
+     * daran, dass wirklich NICHTS ausgeliefert wird, was Auskunft gibt.
+     *
+     * @return array<string, mixed>
+     */
+    private function schnappschuss(KontoAnmelden $seite): array
+    {
+        return LivewireUtils::getPublicPropertiesDefinedOnSubclass($seite);
+    }
+
     private function auth(): PortalAuth
     {
         return new PortalAuth($this->cache);
@@ -727,7 +756,7 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->assertSame([], $this->meta->calls);
         $this->assertSame('nummer', $seite->state);
-        $this->assertNull($seite->personId);
+        $this->assertNull($this->gemerktePerson());
         $this->assertSame(KontoAnmelden::MELDUNG, $seite->fehler);
         $this->assertNull($this->zeile()->code_hash, 'ohne Passwort darf gar kein Code entstehen');
     }
@@ -960,7 +989,7 @@ final class KontoZuruecksetzenTest extends TestCase
         $seite->passwortCodeAnfordern($this->sender());
 
         $this->assertSame([], $this->meta->calls);
-        $this->assertNull($seite->personId);
+        $this->assertNull($this->gemerktePerson());
     }
 
     /**
@@ -1017,7 +1046,7 @@ final class KontoZuruecksetzenTest extends TestCase
         $seite->passwortCodeAnfordern($this->sender());
 
         $this->assertSame('vergessen-code', $seite->state);
-        $this->assertNull($seite->personId);
+        $this->assertNull($this->gemerktePerson());
 
         $seite->code = '123456';
         $seite->geburtsdatum = self::GEBURT;
@@ -1269,11 +1298,11 @@ final class KontoZuruecksetzenTest extends TestCase
     public function test_zurueck_zur_anmeldung_raeumt_die_personen_kennung_ab(): void
     {
         $seite = $this->vergessenBisZumCode();
-        $this->assertSame($this->personId, $seite->personId);
+        $this->assertSame($this->personId, $this->gemerktePerson());
 
         $seite->zurAnmeldung();
 
-        $this->assertNull($seite->personId);
+        $this->assertNull($this->gemerktePerson());
         $this->assertSame('formular', $seite->state);
         $this->assertSame('', $seite->code);
     }
@@ -1326,8 +1355,21 @@ final class KontoZuruecksetzenTest extends TestCase
         $seite->notfallBestaetigen();
 
         $this->assertSame($vorher, $this->zeile()->password_hash, 'Weg 4 setzt KEIN Passwort');
-        $this->assertSame([], $this->session->all(), 'Weg 4 oeffnet KEINE Portal-Sitzung');
         $this->assertSame([], $seite->geoeffnet);
+
+        // GEFRAGT WIRD NACH DEN PORTAL-SCHLUESSELN, nicht nach einer leeren
+        // Sitzung: die Seite legt dort inzwischen selbst etwas ab (die
+        // laufende Personen-Kennung, seit sie nicht mehr im Schnappschuss
+        // steht). "Die Sitzung ist leer" haette also ab jetzt das Falsche
+        // gemessen — und waere, als es noch stimmte, bloss zufaellig gruen
+        // gewesen.
+        $portalSchluessel = array_filter(
+            array_keys($this->session->all()),
+            static fn (string $schluessel): bool => str_starts_with($schluessel, 'employee_portal_'),
+        );
+
+        $this->assertSame([], $portalSchluessel, 'Weg 4 oeffnet KEINE Portal-Sitzung');
+        $this->assertFalse($this->session->has(PortalAuth::sessionKey($this->anstellungId)));
         $this->assertNull($this->zeile()->letzte_anmeldung_at, 'Weg 4 ist keine Anmeldung');
     }
 
@@ -1381,7 +1423,7 @@ final class KontoZuruecksetzenTest extends TestCase
 
         $this->assertSame([], $this->meta->calls);
         $this->assertSame('notfall-code', $seite->state);
-        $this->assertNull($seite->personId);
+        $this->assertNull($this->gemerktePerson());
     }
 
     /**
@@ -1434,7 +1476,7 @@ final class KontoZuruecksetzenTest extends TestCase
         $seite->notfallAnfordern($this->sender());
 
         $this->assertSame([], $this->meta->calls);
-        $this->assertNull($seite->personId);
+        $this->assertNull($this->gemerktePerson());
         $this->assertSame('notfall-code', $seite->state, 'die Antwort bleibt trotzdem dieselbe');
     }
 
@@ -1889,6 +1931,102 @@ final class KontoZuruecksetzenTest extends TestCase
         $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
 
         $this->assertStringContainsString("Schedule::command('recruiting:konto-zuruecksetzen --faellig')", $quelle);
+    }
+
+    // ====================================================== Der Schnappschuss
+
+    /**
+     * DIE BEGLEITREGEL AUF DER EBENE, AUF DER SIE ENTSCHIEDEN WIRD.
+     *
+     * Livewire dehydriert JEDE oeffentliche Eigenschaft und schreibt sie als
+     * wire:snapshot ins HTML. #[Locked] verhindert das SETZEN durch den
+     * Browser — nicht das AUSLIEFERN. Stuende die Personen-Kennung dort,
+     * saehe man nach "Nummer tippen, Quelltext ansehen" exakt und kostenlos,
+     * ob es zu dieser Nummer ein Konto gibt.
+     *
+     * Der Markup-Vergleich weiter oben kann das NICHT belegen: der
+     * Schnappschuss steht nicht im Blade. Deshalb dieser Test — und er fragt
+     * DIESELBE Funktion, die HandleComponents::dehydrateProperties()
+     * benutzt, statt sie nachzubauen.
+     */
+    public function test_der_schnappschuss_verraet_nicht_ob_es_die_nummer_gibt(): void
+    {
+        $bekannt = $this->seite();
+        $bekannt->zumPasswortVergessen();
+        $bekannt->nummer = self::NUMMER_GETIPPT;
+        $bekannt->passwortCodeAnfordern($this->sender());
+
+        $unbekannt = $this->seite();
+        $unbekannt->zumPasswortVergessen();
+        $unbekannt->nummer = '0151 99999999';
+        $unbekannt->passwortCodeAnfordern($this->sender());
+
+        // Die getippte Nummer ist die EIGENE Eingabe des Menschen und steht
+        // in beiden Faellen im Schnappschuss — sie verraet ihm nichts, was
+        // er nicht gerade selbst geschrieben hat. Alles andere muss gleich
+        // sein.
+        $a = $this->schnappschuss($bekannt);
+        $b = $this->schnappschuss($unbekannt);
+        unset($a['nummer'], $b['nummer']);
+
+        $this->assertSame($a, $b, 'Ein Feld des wire:snapshot unterscheidet bekannte von unbekannter Nummer.');
+    }
+
+    /**
+     * Dasselbe fuer Weg 4, und dort ist es schaerfer: die Kennung wuerde nur
+     * bei STIMMENDEN Ausweisziffern gesetzt. Ein Unterschied im
+     * Schnappschuss saegte also nicht bloss "diese Nummer gibt es", sondern
+     * "Geburtsdatum und Ausweisziffern waren richtig".
+     */
+    public function test_der_schnappschuss_verraet_nicht_ob_die_ausweisziffern_stimmten(): void
+    {
+        $richtig = $this->seite();
+        $richtig->zumNotfall();
+        $richtig->nummer = self::NUMMER_GETIPPT;
+        $richtig->geburtsdatum = self::GEBURT;
+        $richtig->ausweis = '0T47';
+        $richtig->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $richtig->notfallAnfordern($this->sender());
+
+        $falsch = $this->seite();
+        $falsch->zumNotfall();
+        $falsch->nummer = self::NUMMER_GETIPPT;
+        $falsch->geburtsdatum = self::GEBURT;
+        $falsch->ausweis = '9999';
+        $falsch->neueNummer = self::NEUE_NUMMER_GETIPPT;
+        $falsch->notfallAnfordern($this->sender());
+
+        $this->assertSame(
+            $this->schnappschuss($richtig),
+            $this->schnappschuss($falsch),
+            'Ein Feld des wire:snapshot verraet, ob die Ausweisziffern gestimmt haben.',
+        );
+    }
+
+    /**
+     * Und der Grund, warum die beiden Tests ueberhaupt etwas beweisen: die
+     * Kennung IST vorhanden, sie steht nur woanders.
+     *
+     * Ohne diese Zusicherung koennte die Seite die Kennung schlicht gar
+     * nicht mehr fuehren — beide Schnappschuesse waeren gleich, beide Wege
+     * kaputt, und die Tests darueber blieben gruen.
+     */
+    public function test_die_kennung_liegt_in_der_sitzung_und_nicht_im_schnappschuss(): void
+    {
+        $seite = $this->seite();
+        $seite->zumPasswortVergessen();
+        $seite->nummer = self::NUMMER_GETIPPT;
+        $seite->passwortCodeAnfordern($this->sender());
+
+        $this->assertSame($this->personId, $this->gemerktePerson());
+
+        foreach ($this->schnappschuss($seite) as $feld => $wert) {
+            $this->assertNotSame(
+                $this->personId,
+                $wert,
+                "Die Personen-Kennung steht im wire:snapshot-Feld \"{$feld}\".",
+            );
+        }
     }
 
     // ================================================================= Das Blade

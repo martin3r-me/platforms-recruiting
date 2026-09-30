@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\View\Compilers\BladeCompiler;
 use Livewire\Attributes\Locked;
+use Livewire\Drawer\Utils as LivewireUtils;
 use Livewire\Mechanisms\DataStore;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\KontoAnmelden;
@@ -1103,6 +1104,17 @@ final class KontoAnmeldenTest extends TestCase
      */
     public function test_alles_was_ueber_identitaet_entscheidet_ist_gesperrt(): void
     {
+        // GAR KEINE EIGENSCHAFT: #[Locked] verhindert das SETZEN, nicht das
+        // AUSLIEFERN. Eine oeffentliche Personen-Kennung stuende als
+        // wire:snapshot im HTML — und waere damit die exakte, kostenlose
+        // Auskunft, ob es zu einer getippten Nummer ein Konto gibt (in Weg 4
+        // sogar, ob die Ausweisziffern stimmten).
+        $nichtImSchnappschuss = [
+            'personId' => 'WESSEN Vorgang auf den Wegen zurueck laeuft (Spec §5). Gehoert in die '
+                . 'Sitzung: als oeffentliche Eigenschaft verraet der Quelltext der Seite, ob es '
+                . 'die getippte Nummer gibt',
+        ];
+
         $gesperrt = [
             'state'  => 'der Zustand der Seite — genau der Bypass vom 19.08.2026',
             'weiter' => 'das gepruefte Weiterleitungsziel; ohne Sperre setzte $wire.set nach der '
@@ -1111,9 +1123,6 @@ final class KontoAnmeldenTest extends TestCase
                 . 'Liste wird Abmelden zur Attrappe — die Seite sieht abgemeldet aus, die '
                 . 'Sitzungsschluessel bleiben stehen, und auf einem geteilten Geraet kommt der '
                 . 'Naechste hinein',
-            'personId' => 'WESSEN Vorgang auf den Wegen zurueck laeuft (Spec §5). Frei setzbar '
-                . 'liesse sich im zweiten Schritt eine FREMDE Person einsetzen — der eigene '
-                . 'Code, das fremde Konto',
             'fertigGrund' => 'Teil des Zustands: er waehlt den Text der Schlussseite. Frei '
                 . 'setzbar zeigte er "Ihre Nummer wurde geaendert", ohne dass etwas geaendert '
                 . 'wurde — eine Seite, die luegt',
@@ -1144,6 +1153,14 @@ final class KontoAnmeldenTest extends TestCase
 
         $klasse = new \ReflectionClass(KontoAnmelden::class);
 
+        foreach ($nichtImSchnappschuss as $name => $warum) {
+            $this->assertFalse(
+                $klasse->hasProperty($name) && $klasse->getProperty($name)->isPublic(),
+                "KontoAnmelden::\${$name} ist wieder eine oeffentliche Eigenschaft — {$warum}. "
+                . '#[Locked] hilft dagegen NICHT: es verhindert das Setzen, nicht das Ausliefern.',
+            );
+        }
+
         foreach ($gesperrt as $name => $warum) {
             $this->assertTrue(
                 $klasse->hasProperty($name),
@@ -1166,22 +1183,25 @@ final class KontoAnmeldenTest extends TestCase
             );
         }
 
-        foreach ($klasse->getProperties(\ReflectionProperty::IS_PUBLIC) as $eigenschaft) {
-            if ($eigenschaft->isStatic()) {
-                continue;
-            }
+        // DER SCHLUSS DER GESCHLOSSENEN WELT auf der Ebene, auf der es
+        // zaehlt: gefragt wird DIESELBE Funktion, mit der Livewire
+        // dehydriert (HandleComponents::dehydrateProperties ruft genau sie).
+        // Eine nachgebaute Reflexionsschleife waere ein Modell des Wirts —
+        // diese Liste IST der Schnappschuss.
+        $erwartet = array_keys(array_merge($gesperrt, $offen));
+        $tatsaechlich = array_keys(LivewireUtils::getPublicPropertiesDefinedOnSubclass(new KontoAnmelden()));
+        sort($erwartet);
+        sort($tatsaechlich);
 
-            $name = $eigenschaft->getName();
-
-            $this->assertTrue(
-                isset($gesperrt[$name]) || isset($offen[$name]),
-                "Die oeffentliche Eigenschaft \${$name} steht in keiner der beiden Listen. "
-                . 'Entscheide: gehoert sie zu dem, was ueber Identitaet oder Zustand entscheidet '
-                . '(dann #[Locked] und oben eintragen), oder ist sie eine Eingabe des Menschen '
-                . '(dann unten eintragen, mit Grund)? Genau hier ist am 19.08.2026 ein '
-                . 'Auth-Bypass entstanden.',
-            );
-        }
+        $this->assertSame(
+            $erwartet,
+            $tatsaechlich,
+            'Der wire:snapshot traegt andere Felder als die Listen. Entscheide je Feld: gehoert es '
+            . 'ueberhaupt nicht in den Schnappschuss (dann in die Sitzung und oben in '
+            . '$nichtImSchnappschuss), entscheidet es ueber Identitaet oder Zustand (dann '
+            . '#[Locked] und in $gesperrt), oder ist es eine Eingabe des Menschen (dann in '
+            . '$offen, mit Grund)?',
+        );
     }
 
     // -------------------------------------------------------------- Das Blade
