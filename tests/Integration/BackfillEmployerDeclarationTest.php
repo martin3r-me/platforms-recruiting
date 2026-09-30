@@ -217,7 +217,9 @@ class BackfillEmployerDeclarationTest extends TestCase
 
         $this->assertNull(
             $ma->fresh()->zas_changed_at,
-            'Sobald die Spalten exportiert werden, spuelte ein Eloquent-Lauf den halben Bestand in updates.csv.',
+            'Seit 30.09.2026 stehen die Spalten im Export UND in der Marker-Liste — '
+            . 'ein Eloquent-Lauf spuelte hier also den halben Bestand in updates.csv. '
+            . 'Der Backfill schreibt deshalb ueber DB::table() am Observer vorbei.',
         );
     }
 

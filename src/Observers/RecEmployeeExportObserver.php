@@ -99,6 +99,18 @@ class RecEmployeeExportObserver
         // Lifecycle
         'is_eu_citizen', 'employment_ended_at',
         'is_active',
+
+        // Haupt-/Nebenarbeitgeber — seit 30.09.2026 im Export (Spalten
+        // Hauptarbeitgeber/AndererArbeitgeber, mit Olaf abgestimmt). Bis dahin
+        // standen sie hier BEWUSST NICHT: ein Marker haette eine volle Zeile
+        // nach ZAS geschoben, in der kein einziger neuer Wert steht — Risiko
+        // ohne Nutzen. Jetzt ist es umgekehrt, eine Korrektur muss ankommen.
+        //
+        // Kein Massen-Effekt: markiert wird beim AENDERN, nicht rueckwirkend,
+        // und der einzige Massen-Schreibweg
+        // (recruiting:backfill-employer-declaration) schreibt ueber
+        // DB::table()->update() am Eloquent-Ereignis vorbei.
+        'is_main_employer', 'other_employer',
     ];
 
     /**

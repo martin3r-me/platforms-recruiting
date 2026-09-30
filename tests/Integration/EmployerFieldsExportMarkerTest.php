@@ -13,21 +13,26 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
 
 /**
- * Haupt-/Nebenarbeitgeber darf (noch) KEINEN ZAS-Update-Marker setzen.
+ * Haupt-/Nebenarbeitgeber MUSS den ZAS-Update-Marker setzen — seit die beiden
+ * Spalten am 30.09.2026 in den Export gewandert sind (mit Olaf abgestimmt).
  *
- * Die Felder gehen erst raus, wenn der Kunde die Rueckfrage beantwortet hat.
- * Bis dahin gilt: unsere Aktualisierungsdatei liefert VOLLE ZEILEN — ein
- * Marker auf einem Bestandsmitarbeiter wuerde also dessen komplette, in ZAS
- * gepflegte Akte ueberschreiben. Das ist der Vorfall vom 02.09.2026.
+ * Bis dahin galt das Gegenteil, und zwar aus gutem Grund: die Felder standen
+ * gar nicht in der Datei, ein Marker haette also eine VOLLE ZEILE nach ZAS
+ * geschoben, in der kein einziger neuer Wert steht — und eine volle Zeile
+ * ueberschreibt die dort gepflegte Akte (Vorfall 02.09.2026). Jetzt ist es
+ * umgekehrt: ohne Marker bliebe eine Korrektur des Hauptarbeitgebers bei uns
+ * liegen, obwohl ZAS die Spalte bekommt.
  *
- * WARUM DIESER TEST NEBEN DER FELDLISTE STEHT: PortalEmployerFieldsTest
- * prueft, dass die beiden Spalten nicht in RELEVANT_EMPLOYEE_FIELDS stehen.
- * Das ist die Absicht. Hier wird das ERGEBNIS gemessen — mit registriertem
- * Observer und einem echten Schreibvorgang. Ein Test auf der Liste allein
- * uebersaehe, wenn ein Schreibweg spaeter noch andere Spalten mitschreibt
- * (etwa ein erweitertes update() in ContractSigning).
+ * Kein Massen-Effekt: markiert wird beim AENDERN, nicht rueckwirkend, und der
+ * einzige Massen-Schreibweg (recruiting:backfill-employer-declaration) schreibt
+ * ueber DB::table()->update() am Eloquent-Ereignis vorbei.
+ *
+ * WARUM DIESER TEST NEBEN DER FELDLISTE STEHT: PortalEmployerFieldsTest prueft,
+ * DASS die beiden Spalten in RELEVANT_EMPLOYEE_FIELDS stehen. Hier wird das
+ * ERGEBNIS gemessen — mit registriertem Observer und einem echten
+ * Schreibvorgang.
  */
-class EmployerFieldsNoExportMarkerTest extends TestCase
+class EmployerFieldsExportMarkerTest extends TestCase
 {
     private const TEAM = 614;
 
@@ -113,20 +118,20 @@ class EmployerFieldsNoExportMarkerTest extends TestCase
         ]);
     }
 
-    public function test_arbeitgeber_angabe_setzt_keinen_update_marker(): void
+    public function test_arbeitgeber_angabe_setzt_den_update_marker(): void
     {
         $employee = $this->employee();
         Capsule::table('rec_employees')->where('id', $employee->id)->update(['zas_changed_at' => null]);
 
         $employee->update(['is_main_employer' => false, 'other_employer' => 'Musterkantine GmbH']);
 
-        $this->assertNull(
+        $this->assertNotNull(
             $employee->fresh()->zas_changed_at,
-            'Sonst landet der Mitarbeiter mit einer VOLLEN Zeile in updates.csv — Vorfall 02.09.2026.',
+            'Sonst bliebe die Korrektur bei uns liegen, obwohl ZAS die Spalte bekommt.',
         );
     }
 
-    public function test_aenderung_der_angabe_setzt_ebenfalls_keinen_marker(): void
+    public function test_aenderung_der_angabe_setzt_ebenfalls_den_marker(): void
     {
         $employee = $this->employee();
         $employee->update(['is_main_employer' => true]);
@@ -134,7 +139,7 @@ class EmployerFieldsNoExportMarkerTest extends TestCase
 
         $employee->update(['is_main_employer' => false, 'other_employer' => 'Andere GmbH']);
 
-        $this->assertNull($employee->fresh()->zas_changed_at);
+        $this->assertNotNull($employee->fresh()->zas_changed_at);
 
         // Gegenprobe, dass der Observer hier wirklich gearbeitet hat und
         // nicht still in safelyRun gescheitert ist: die Angabe ist

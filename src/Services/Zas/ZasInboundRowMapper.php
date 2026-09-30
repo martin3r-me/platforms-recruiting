@@ -113,6 +113,23 @@ class ZasInboundRowMapper
     ];
 
     /**
+     * CSV-Spalte → rec_employee_hr_data-Integer-Spalte.
+     *
+     * Das Tagekonto der kurzfristigen Beschaeftigung GEHOERT ZAS (Abstimmung
+     * 30.09.2026): dort wird eingebucht, dort wird gezaehlt. Beide Felder sind
+     * bei uns schreibgeschuetzt und wandern nie zurueck — sie stehen deshalb
+     * bewusst NICHT in RecEmployeeExportObserver::RELEVANT_HR_FIELDS, ein
+     * Marker waere ein Re-Export ohne eigene Aenderung.
+     *
+     * ArbeitstageRest darf negativ sein (mehr gearbeitet als erlaubt) —
+     * Spalte ist seit 2026_09_30 vorzeichenbehaftet.
+     */
+    private const HR_INTS = [
+        'TageGearbeitetJahr' => 'short_term_days_worked',
+        'ArbeitstageRest'    => 'short_term_days_remaining',
+    ];
+
+    /**
      * ZAS-Spalten, die map() von Hand liest — Default, Sonderregel oder
      * Schluessel, jedenfalls nicht ueber eine der Tabellen oben.
      */
@@ -137,6 +154,7 @@ class ZasInboundRowMapper
             array_keys(self::BOOLS),
             array_keys(self::LOOKUPS),
             array_keys(self::HR_DATES),
+            array_keys(self::HR_INTS),
             self::HANDLED_SEPARATELY,
         );
 
@@ -256,6 +274,17 @@ class ZasInboundRowMapper
         $employee['country_code'] = $land !== '' ? $land : 'de';
 
         // HR-Daten
+        foreach (self::HR_INTS as $col => $field) {
+            $v = $get($col);
+            if ($v === '') {
+                continue; // leer = kein Stand geliefert, vorhandenen Wert stehen lassen
+            }
+            if (preg_match('/^-?\d+$/', $v) !== 1) {
+                $warnings[] = "{$col}: '{$v}' ist keine ganze Zahl — Feld nicht uebernommen";
+                continue;
+            }
+            $hr[$field] = (int) $v;
+        }
         foreach (self::HR_DATES as $col => $field) {
             $v = $get($col);
             $d = $this->date($v);
