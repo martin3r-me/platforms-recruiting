@@ -62,7 +62,9 @@ use Throwable;
  * OHNE --welle KEIN VERSAND AN ALLE. Eine Welle ist eine bewusste Handlung;
  * ein versehentliches "recruiting:konto-einladen" darf nicht den ganzen
  * Bestand umstellen. Der Probelauf (--dry-run) bleibt frei — er schreibt
- * nichts.
+ * nichts. Eine Welle, die keine positive Zahl ist, wird abgewiesen statt
+ * stillschweigend auf null gesetzt: sonst meldete --welle=abc einen Erfolg
+ * ueber niemanden.
  *
  * KENNUNGEN IN DER AUSGABE, NIE NAMEN (Muster:
  * recruiting:mitarbeiter-grenzfaelle), und von Nummern nur die letzten vier
@@ -117,8 +119,44 @@ final class KontoEinladen extends Command
      */
     private function einladen(?int $teamId, array $ids): int
     {
-        $welle    = $this->option('welle') !== null ? max(0, (int) $this->option('welle')) : null;
+        $rohWelle  = $this->option('welle');
         $probelauf = (bool) $this->option('dry-run');
+
+        // EINE WELLE IST EINE POSITIVE ZAHL, SONST IST SIE KEINE.
+        //
+        // Hier stand frueher max(0, (int) ...). Das machte aus --welle=abc
+        // klaglos eine Null: die Welle war leer, das Kommando meldete "0
+        // eingeladen" und gab SUCCESS zurueck. HR wollte fuenfzig Leute
+        // einladen und bekam eine Erfolgsmeldung ueber niemanden — und weil
+        // ein zweiter Lauf die vorige Einladung entwertet (s.
+        // Klassen-Docblock), faellt der Irrtum spaeter an einer ganz anderen
+        // Stelle auf.
+        //
+        // Auch die Null selbst wird abgewiesen: "--welle=0" ist keine Welle,
+        // und wer sie tippt, hat sich vertan oder ein Skript hat eine leere
+        // Variable eingesetzt. Wer nur nachsehen will, hat --dry-run und
+        // --bericht.
+        //
+        // Der Probelauf ist NICHT ausgenommen: eine falsch getippte Welle
+        // sagt ihm genauso wenig, wie gross die echte waere.
+        if ($rohWelle !== null && !ctype_digit(trim((string) $rohWelle))) {
+            $this->error(sprintf(
+                '--welle braucht eine Anzahl, keine Angabe wie "%s". Beispiel: --welle=50.',
+                (string) $rohWelle,
+            ));
+
+            return self::FAILURE;
+        }
+
+        if ($rohWelle !== null && (int) $rohWelle < 1) {
+            $this->error(
+                '--welle=0 ist keine Welle. Zum Nachsehen: --dry-run (schreibt nichts) oder --bericht.',
+            );
+
+            return self::FAILURE;
+        }
+
+        $welle = $rohWelle !== null ? (int) $rohWelle : null;
 
         // OHNE --welle KEIN VERSAND AN ALLE. Der Probelauf ist ausgenommen:
         // er schreibt nichts, und er ist genau der Weg, auf dem HR sieht,

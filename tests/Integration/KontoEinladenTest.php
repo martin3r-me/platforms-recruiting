@@ -495,6 +495,75 @@ final class KontoEinladenTest extends TestCase
         $this->assertNull($this->zeile($person)->invite_token_hash, 'ohne --welle darf nichts entstehen');
     }
 
+    /**
+     * Eine Welle, die keine Zahl ist, wird ABGEWIESEN — nicht auf null
+     * gesetzt.
+     *
+     * Frueher machte max(0, (int) ...) aus "abc" klaglos eine Null: die
+     * Welle war leer, das Kommando meldete "0 eingeladen" und gab SUCCESS
+     * zurueck. HR wollte fuenfzig Leute einladen und bekam eine
+     * Erfolgsmeldung ueber niemanden.
+     *
+     * GEPRUEFT WIRD DER RUECKGABEWERT, nicht ein Wort in der Ausgabe. An ihm
+     * haengt, ob ein Zeitplan oder ein Skript den Fehlgriff ueberhaupt
+     * bemerkt; eine Meldung, die niemand liest, ist keine.
+     */
+    public function test_eine_welle_die_keine_zahl_ist_wird_abgewiesen(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => 'abc']);
+
+        $this->assertSame(1, $code, "eine Welle 'abc' lief als Erfolg durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /**
+     * --welle=0 ist keine Welle.
+     *
+     * Wer sie tippt, hat sich vertan oder ein Skript hat eine leere Variable
+     * eingesetzt. Auch hier zaehlt der RUECKGABEWERT: "0 eingeladen" mit
+     * Erfolg sieht aus wie ein erledigter Lauf.
+     */
+    public function test_eine_welle_von_null_wird_abgewiesen(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '0']);
+
+        $this->assertSame(1, $code, "eine Welle von 0 lief als Erfolg durch:\n{$ausgabe}");
+        $this->assertNull($this->zeile($person)->invite_token_hash);
+    }
+
+    /**
+     * Auch der Probelauf ist nicht ausgenommen: eine falsch getippte Welle
+     * sagt ihm genauso wenig, wie gross die echte waere — und ein
+     * "0 wuerden eingeladen" saehe aus wie eine Tatsache ueber den Bestand.
+     */
+    public function test_auch_der_probelauf_weist_eine_unsinnige_welle_ab(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => 'abc', '--dry-run' => true]);
+
+        $this->assertSame(1, $code, "der Probelauf schluckt eine unsinnige Welle:\n{$ausgabe}");
+    }
+
+    /** Eine richtige Welle geht weiterhin durch — die Abweisung ist kein Riegel. */
+    public function test_eine_richtige_welle_geht_weiterhin_durch(): void
+    {
+        $person = $this->person(self::NUMMER, 'p-a');
+        $this->anstellung($person, 'tok-a');
+
+        [$code, $ausgabe] = $this->kommando(['--welle' => '50']);
+
+        $this->assertSame(0, $code, $ausgabe);
+        $this->assertNotNull($this->zeile($person)->invite_token_hash);
+    }
+
     public function test_mit_genannten_kennungen_braucht_es_keine_welle(): void
     {
         $person = $this->person(self::NUMMER, 'p-a');
