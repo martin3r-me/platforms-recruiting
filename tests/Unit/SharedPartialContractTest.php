@@ -47,6 +47,11 @@ class SharedPartialContractTest extends TestCase
         'statistics/no-assignment-campaign' => [
             \Platform\Recruiting\Livewire\Statistics\Index::class,
         ],
+        // Waeschepakete im Sende-Fenster (30.09.2026): greift auf
+        // $this->dressPackages, $this->dressTexts und $this->event zu.
+        'dispo/events/_dress-fields' => [
+            \Platform\Recruiting\Livewire\Dispo\Events\Show::class,
+        ],
     ];
 
     /**
