@@ -197,7 +197,8 @@
                     $whenLine = $labelDate($first['datum']) . ' – ' . $labelDate($last['datum']) . ' · ' . $dayCount . ' Tage';
                 }
 
-                $hasPanel = !empty($group['adresse']) || !empty($group['zusatz_ort']) || !empty($group['kleidung']);
+                $hasPanel = !empty($group['adresse']) || !empty($group['zusatz_ort'])
+                    || !empty($group['dress_group']) || !empty($group['dress_hinweis']);
                 $singleNote = ($dayCount <= 1 && $first) ? ($first['individual_note'] ?? null) : null;
                 $singleNoteNew = ($dayCount <= 1 && $first) ? !empty($first['note_new']) : false;
 
@@ -308,6 +309,12 @@
                                     <div class="b">{{ $day['individual_note'] }}</div>
                                 </div>
                             @endif
+                            @if ($day['dress'])
+                                <div class="hint">
+                                    <div class="h">{{ $day['dress']['heading'] }} · {{ $labelDate($day['datum']) }}</div>
+                                    <div class="b">{{ $day['dress']['text'] }}</div>
+                                </div>
+                            @endif
                         @endforeach
                     @endif
 
@@ -319,8 +326,11 @@
                             @if ($group['zusatz_ort'])
                                 <div class="panel"><div class="h">Anfahrt / wo genau</div><div class="b">{{ $group['zusatz_ort'] }}</div></div>
                             @endif
-                            @if ($group['kleidung'])
-                                <div class="panel"><div class="h">Kleidung / Infos</div><div class="b">{{ $group['kleidung'] }}</div></div>
+                            @if ($group['dress_group'])
+                                <div class="panel"><div class="h">{{ $group['dress_group']['heading'] }}</div><div class="b">{{ $group['dress_group']['text'] }}</div></div>
+                            @endif
+                            @if ($group['dress_hinweis'])
+                                <div class="panel"><div class="h">Hinweise zur Veranstaltung</div><div class="b">{{ $group['dress_hinweis'] }}</div></div>
                             @endif
                         </div>
                     @endif

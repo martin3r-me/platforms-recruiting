@@ -9,10 +9,12 @@ use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoAttachment;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Zas\Dispo\DispoContactResolver;
+use Platform\Recruiting\Services\Zas\Dispo\DispoDressResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTeamLeadResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoTimeCalculator;
+use Platform\Recruiting\Support\DressPanels;
 
 /**
  * Oeffentliche Einsatz-Seite (Dispo-Bestaetigung), token-only.
@@ -130,6 +132,9 @@ class EmployeeAssignments extends Component
 
         $leadsByEvent = $this->teamLeadsByEvent($assignments->pluck('rec_dispo_event_id')->unique()->values()->all());
 
+        // Waeschepakete je Einbuchung — ein Aufruf fuer alle Tage, nicht je Zeile.
+        $dressByAssignment = app(DispoDressResolver::class)->forAssignments($assignments);
+
         $groups = [];
         foreach ($assignments as $assignment) {
             $event = $assignment->event;
@@ -141,6 +146,9 @@ class EmployeeAssignments extends Component
                 'adresse'      => $event->venue_text,
                 'zusatz_ort'   => $event->ort,
                 'kleidung'     => $event->dresscode,
+                'hinweis'       => $event->hinweis,
+                'dress_group'   => null,
+                'dress_hinweis' => null,
                 // Standard = disponierte Teamleitung (live), manuelle Eingabe gewinnt.
                 'contact_line' => DispoContactResolver::effective($event->ansprechpartner, $leadsByEvent[$event->id] ?? [])['label'],
                 'vorlauf_minuten' => (int) ($event->vorlauf_minuten ?? 0),
@@ -160,6 +168,9 @@ class EmployeeAssignments extends Component
                 'von'             => $assignment->von,
                 'bis'             => $assignment->bis,
                 'taetigkeit'      => $assignment->taetigkeit,
+                'assignment_id'  => $assignment->id,
+                'dress'          => null,
+                'dress_text'     => $dressByAssignment[$assignment->id]?->items_text,
                 'arrival'         => $arrival,
                 'confirmed'       => $assignment->confirmed_at !== null,
                 'individual_note' => $assignment->individual_note,
@@ -172,6 +183,21 @@ class EmployeeAssignments extends Component
             }
             if ($assignment->reconfirm_required_at !== null) {
                 $groups[$key]['has_reconfirm'] = true;
+            }
+        }
+
+        foreach ($groups as $key => $group) {
+            $days = [];
+            foreach ($group['days'] as $day) {
+                $days[$day['assignment_id']] = $day['dress_text'];
+            }
+
+            $panels = DressPanels::build($days, $group['kleidung'], $group['hinweis']);
+
+            $groups[$key]['dress_group']   = $panels['group'];
+            $groups[$key]['dress_hinweis'] = $panels['hinweis'];
+            foreach ($groups[$key]['days'] as $i => $day) {
+                $groups[$key]['days'][$i]['dress'] = $panels['perDay'][$day['assignment_id']] ?? null;
             }
         }
 
