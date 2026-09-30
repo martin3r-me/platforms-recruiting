@@ -49,6 +49,14 @@ class Show extends Component
     public string $ansprechpartner = '';
     public bool $includeReminders = false;
 
+    /** Paket-Auswahl im Sende-Fenster: '' = keins. Strings, weil Selects Strings liefern. */
+    public string $dressAll = '';
+    /** taetigkeit => Paket-ID als String */
+    public array $dressByTaetigkeit = [];
+    public string $eventHinweis = '';
+    /** Haken „ZAS-Text gesehen" — Gegenstueck zu dressNeedsAck(). */
+    public bool $dressAck = false;
+
     /**
      * Kunde 03.09. (Nummern-Nachzug): NUR Empfaenger mit Zustellfehler erneut
      * anschreiben — die uebrigen Angeschriebenen ohne Antwort bleiben aussen vor.
@@ -1643,6 +1651,151 @@ class Show extends Component
         return (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
     }
 
+    /** @return array<int,string> aktive Pakete als id => name */
+    #[Computed]
+    public function dressPackages(): array
+    {
+        // settingsTeamId() ist die vorhandene Team-Regel dieser Komponente —
+        // dieselbe, nach der die Pflegemaske und der Seeder schreiben.
+        return \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->where('team_id', $this->settingsTeamId())
+            ->active()
+            ->orderBy('sort_order')->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Paket-Texte fuer die Vorschau unter jeder Auswahl — Schluessel als
+     * String, weil die Selects Strings liefern.
+     *
+     * @return array<string,string>
+     */
+    #[Computed]
+    public function dressTexts(): array
+    {
+        $out = [];
+        $query = \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->where('team_id', $this->settingsTeamId())
+            ->active();
+        foreach ($query->get() as $package) {
+            $out[(string) $package->id] = (string) $package->items_text;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Uebernimmt den ZAS-Text in unser Hinweisfeld. Haengt an, statt zu
+     * ersetzen — ein bereits getippter Hinweis darf nicht verlorengehen.
+     */
+    public function copyZasToHinweis(): void
+    {
+        $zas = trim((string) ($this->event->dresscode ?? ''));
+        if ($zas === '') {
+            return;
+        }
+
+        $current = trim($this->eventHinweis);
+        $this->eventHinweis = $current === '' ? $zas : ($current . "\n\n" . $zas);
+    }
+
+    /**
+     * Taetigkeiten, die in DIESER VA vorkommen — aus den Einbuchungen, nicht
+     * aus einem Katalog. Freitext aus ZAS, deshalb nur trimmen und sortieren.
+     *
+     * @return list<string>
+     */
+    #[Computed]
+    public function eventTaetigkeiten(): array
+    {
+        $values = $this->event->assignments
+            ->map(fn ($a) => trim((string) $a->taetigkeit))
+            ->filter(fn (string $t) => $t !== '')
+            ->unique()
+            ->values()
+            ->all();
+        sort($values);
+
+        return $values;
+    }
+
+    private function loadDressForm(): void
+    {
+        $event = $this->event;
+        $rows = \Platform\Recruiting\Models\RecDispoEventDress::query()
+            ->where('rec_dispo_event_id', $event->id)
+            ->get();
+
+        $this->dressAll = '';
+        $this->dressByTaetigkeit = [];
+        foreach ($rows as $row) {
+            $id = (string) $row->rec_dispo_dress_package_id;
+            if ((string) $row->taetigkeit === \Platform\Recruiting\Models\RecDispoEventDress::ALL) {
+                $this->dressAll = $id;
+                continue;
+            }
+            $this->dressByTaetigkeit[(string) $row->taetigkeit] = $id;
+        }
+
+        foreach ($this->eventTaetigkeiten as $taetigkeit) {
+            $this->dressByTaetigkeit[$taetigkeit] ??= '';
+        }
+
+        $this->eventHinweis = (string) ($event->hinweis ?? '');
+        // Ein bereits bestaetigter Text zaehlt nur, solange ZAS ihn nicht
+        // geaendert hat — sonst muss die Dispo erneut hinsehen.
+        $this->dressAck = $event->dresscode_ack_at !== null
+            && trim((string) $event->dresscode_ack) === trim((string) $event->dresscode);
+    }
+
+    private function persistDress(\Platform\Recruiting\Models\RecDispoEvent $event): void
+    {
+        $wanted = $this->dressByTaetigkeit;
+        $wanted[\Platform\Recruiting\Models\RecDispoEventDress::ALL] = $this->dressAll;
+
+        foreach ($wanted as $taetigkeit => $packageId) {
+            $key = ['rec_dispo_event_id' => $event->id, 'taetigkeit' => (string) $taetigkeit];
+
+            if (trim((string) $packageId) === '') {
+                \Platform\Recruiting\Models\RecDispoEventDress::query()->where($key)->delete();
+                continue;
+            }
+
+            \Platform\Recruiting\Models\RecDispoEventDress::updateOrCreate(
+                $key,
+                ['rec_dispo_dress_package_id' => (int) $packageId]
+            );
+        }
+    }
+
+    /**
+     * Braucht dieser Versand die Bestaetigung „ZAS-Text gesehen"?
+     *
+     * Ja, sobald irgendein Paket gesetzt ist UND in ZAS noch Text steht — denn
+     * ab dann verschwindet dieser Text von der Einsatz-Seite. Statisch, damit
+     * die Regel ohne Livewire-Aufbau testbar bleibt.
+     *
+     * @param list<string> $chosen Paket-IDs als String, '' = keins
+     */
+    public static function dressNeedsAck(array $chosen, ?string $zasText, bool $acked): bool
+    {
+        if ($acked) {
+            return false;
+        }
+        if (trim((string) $zasText) === '') {
+            return false;
+        }
+
+        foreach ($chosen as $value) {
+            if (trim((string) $value) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Crew-Modal (Kunde 02.09.): abgespecktes Personal-Kaertchen statt Link in die MA-Akte. */
     #[Locked]
     public ?int $crewEmployeeId = null;
@@ -1908,6 +2061,8 @@ class Show extends Component
         // Ansprechpartner: Teamleitung ist Standard, gespeicherte manuelle Eingabe gewinnt.
         $this->loadContactForm();
 
+        $this->loadDressForm();
+
         $this->showSendModal = true;
     }
 
@@ -1959,11 +2114,24 @@ class Show extends Component
         }
 
         $event = RecDispoEvent::findOrFail($this->eventId);
+
+        $chosen = array_values($this->dressByTaetigkeit);
+        $chosen[] = $this->dressAll;
+        if (self::dressNeedsAck($chosen, $event->dresscode, $this->dressAck)) {
+            $this->addError('dressAck', 'Bitte einmal bestätigen, dass der bisherige Kleidungstext aus ZAS gesehen wurde — er verschwindet für die Empfänger.');
+            return;
+        }
+
         $event->update([
             'vorlauf_minuten' => (int) $this->vorlaufMinuten,
             // Nur manuelle Ueberschreibung speichern; Standard-Teamleitung -> null (zieht live mit).
             'ansprechpartner' => DispoContactResolver::toStore($this->ansprechpartner, $this->teamLeads),
+            'hinweis'         => trim($this->eventHinweis) === '' ? null : trim($this->eventHinweis),
+            'dresscode_ack'   => $this->dressAck ? $event->dresscode : $event->dresscode_ack,
+            'dresscode_ack_at' => $this->dressAck ? now() : $event->dresscode_ack_at,
         ]);
+
+        $this->persistDress($event);
 
         // Eskalation pro Sendung: eigenen Plan validieren und als konkrete
         // Zeitpunkte mitgeben — der Sender stempelt sie den Empfaengern.

@@ -506,6 +506,8 @@
                         @include('recruiting::livewire.dispo.events._contact-field', ['leads' => $this->teamLeads])
                     </label>
 
+                    @include('recruiting::livewire.dispo.events._dress-fields')
+
                     @php
                         $escDefaults = $this->dispoSettings['escalation_defaults'];
                         $escDayPart = match ($escDay) {

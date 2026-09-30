@@ -1,0 +1,71 @@
+{{-- Waeschepakete: Auswahl je Taetigkeit, daneben der Text, der dadurch
+     fuer die Empfaenger verschwindet. Schlichte Selects mit wire:model —
+     x-ui-input-select + @entangle verliert die Auswahl beim Speichern. --}}
+@php
+    $dressOptions = $this->dressPackages;
+    $dressTaetigkeiten = $this->eventTaetigkeiten;
+    $zasText = trim((string) ($this->event->dresscode ?? ''));
+@endphp
+<div class="rounded-lg border border-gray-200 p-3 text-sm space-y-3">
+    <div class="font-medium text-gray-700">Kleidung</div>
+
+    @if (count($dressOptions) === 0)
+        <p class="text-xs text-gray-500">Noch keine Wäschepakete angelegt (Disposition → Wäschepakete).</p>
+    @else
+        {{-- Vorschau: unter jeder Auswahl steht der Text, den der Mitarbeiter
+             lesen wird. wire:model.live, damit sie der Auswahl sofort folgt. --}}
+        @php $dressTexts = $this->dressTexts; @endphp
+
+        <label class="block">
+            <span class="mb-1 block text-xs text-gray-600">Alle übrigen</span>
+            <select wire:model.live="dressAll" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                <option value="">— kein Paket —</option>
+                @foreach ($dressOptions as $id => $name)
+                    <option value="{{ $id }}">{{ $name }}</option>
+                @endforeach
+            </select>
+            @php $vorschauAll = $dressTexts[$dressAll] ?? null; @endphp
+            @if ($vorschauAll)
+                <span class="mt-1 block text-xs text-gray-500">Mitarbeiter liest: {{ $vorschauAll }}</span>
+            @endif
+        </label>
+
+        @foreach ($dressTaetigkeiten as $taetigkeit)
+            @php $vorschauTag = $dressTexts[$dressByTaetigkeit[$taetigkeit] ?? ''] ?? null; @endphp
+            <label class="block">
+                <span class="mb-1 block text-xs text-gray-600">{{ $taetigkeit }}</span>
+                <select wire:model.live="dressByTaetigkeit.{{ $taetigkeit }}" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                    <option value="">— wie alle übrigen —</option>
+                    @foreach ($dressOptions as $id => $name)
+                        <option value="{{ $id }}">{{ $name }}</option>
+                    @endforeach
+                </select>
+                @if ($vorschauTag)
+                    <span class="mt-1 block text-xs text-gray-500">Mitarbeiter liest: {{ $vorschauTag }}</span>
+                @endif
+            </label>
+        @endforeach
+
+        @if ($zasText !== '')
+            <div class="rounded bg-amber-50 p-2">
+                <div class="text-xs font-medium text-amber-800">Bisheriger Text aus ZAS — verschwindet für alle mit Paket</div>
+                <div class="mt-1 whitespace-pre-line text-xs text-amber-900">{{ $zasText }}</div>
+                <div class="mt-2 flex flex-wrap items-center gap-3">
+                    <label class="flex items-center gap-2 text-xs text-amber-900">
+                        <input type="checkbox" wire:model.live="dressAck" class="rounded border-gray-300">
+                        Gesehen — Wichtiges habe ich in den Hinweis übernommen
+                    </label>
+                    <button type="button" wire:click="copyZasToHinweis" class="rounded border border-amber-300 px-2 py-1 text-xs text-amber-900 hover:bg-amber-100">
+                        Text in den Hinweis übernehmen
+                    </button>
+                </div>
+                @error('dressAck') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+            </div>
+        @endif
+
+        <label class="block">
+            <span class="mb-1 block text-xs text-gray-600">Hinweise zur Veranstaltung <span class="text-gray-400">(steht auf der Einsatz-Seite unter der Kleidung)</span></span>
+            <textarea wire:model="eventHinweis" rows="3" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"></textarea>
+        </label>
+    @endif
+</div>
