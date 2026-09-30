@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Http\Request;
 use Illuminate\Hashing\BcryptHasher;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
@@ -223,6 +224,10 @@ final class PortalAuthKontoTest extends TestCase
         // stehen, liest jede spaetere Testklasse ihre Adresse ploetzlich aus
         // einer Kopfzeile — ein Schaden, der nur im Gesamtlauf auffaellt.
         Request::setTrustedProxies([], 0);
+
+        // Die Uhr ist PROZESSWEIT statisch — bleibt sie gestellt, rechnen
+        // alle spaeteren Testklassen mit einem Datum aus dieser Klasse.
+        Carbon::setTestNow();
 
         Facade::clearResolvedInstances();
         parent::tearDown();
@@ -1035,6 +1040,117 @@ final class PortalAuthKontoTest extends TestCase
             PortalAuth::OK,
             $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
             'Die Sperre einer Adresse hat eine andere mitgetroffen.',
+        );
+    }
+
+    // ----------------------------- Die ZWEI ZAHLEN der IP-Bremse, ausgeschrieben
+
+    /*
+     * WARUM HIER 30 UND 60 AUSGESCHRIEBEN STEHEN und nicht
+     * PortalAuth::MAX_IP_ATTEMPTS / ::IP_LOCKOUT_MINUTES.
+     *
+     * Alle Tests darueber lesen die Konstanten selbst. Sie belegen damit die
+     * TRENNUNG der beiden Bremsen (je Nummer / je Adresse), aber nicht ihre
+     * GROESSE: setzt jemand MAX_IP_ATTEMPTS auf 3000, zaehlen ihre Schleifen
+     * brav bis 3000 mit und bleiben gruen — beide Mutationen (30 -> 3000 und
+     * 60 -> 1) liessen die volle Suite gruen (Schlusspruefung B3, Variante 7:
+     * Code und Test lesen dieselbe Konstante).
+     *
+     * Die beiden folgenden Tests nennen die Zahlen deshalb selbst und pruefen
+     * jede Grenze von BEIDEN Seiten: eine Probe allein liesse eine Grenze von
+     * drei oder von dreitausend durchgehen.
+     *
+     * Kosten, falls die Zahlen sich aendern sollen: diese beiden Tests
+     * scheitern und muessen mitgeaendert werden. Genau das ist der Zweck —
+     * eine Kostenbremse, die sich lautlos verstellen laesst, ist keine.
+     */
+
+    /**
+     * Die GRENZE: neunundzwanzig Fehlversuche sperren noch nicht, dreissig
+     * sperren.
+     */
+    public function test_die_ip_bremse_sperrt_bei_dreissig_fehlversuchen_und_keinem_frueher(): void
+    {
+        $this->fremdeKonten(30);
+        $auth = $this->auth();
+
+        for ($i = 1; $i <= 29; $i++) {
+            // Der erste Versuch laeuft gegen eine Nummer OHNE Konto (Fund
+            // N2) — der Zaehler haengt an der Adresse und nicht daran, ob es
+            // zu einer Nummer ein Konto gibt.
+            $nummer = $i === 1 ? $this->fremdeNummer(0) : $this->fremdeNummer($i);
+
+            $this->assertSame(
+                PortalAuth::FALSCH,
+                $auth->anmeldenMitNummer(null, $nummer, self::FALSCHES_PASSWORT)['status'],
+                "Untere Seite der Grenze: Fehlversuch {$i} darf noch nicht sperren (die Grenze ist 30).",
+            );
+        }
+
+        // Untere Seite, zweite Probe: nach neunundzwanzig Fehlversuchen kommt
+        // ein richtiges Passwort von derselben Adresse noch durch. Eine
+        // erfolgreiche Anmeldung raeumt den IP-Zaehler bewusst NICHT ab (s.
+        // Test darueber), der naechste Fehlversuch ist also der dreissigste.
+        $this->assertSame(
+            PortalAuth::OK,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Nach 29 Fehlversuchen darf die Adresse noch nicht gesperrt sein.',
+        );
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(null, $this->fremdeNummer(30), self::FALSCHES_PASSWORT)['status'],
+            'Obere Seite der Grenze: der DREISSIGSTE Fehlversuch muss sperren.',
+        );
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Und danach kommt auch das richtige Passwort nicht mehr durch.',
+        );
+    }
+
+    /**
+     * Die DAUER: nach neunundfuenfzig Minuten noch gesperrt, nach
+     * einundsechzig wieder frei.
+     *
+     * Die Sperre laeuft ueber die Lebensdauer des Cache-Eintrags ab und nicht
+     * ueber einen eigenen Zeitvergleich — deshalb wird hier die Uhr gestellt
+     * und nicht gewartet. Die Cache-Attrappe erbt die Ablaufrechnung des
+     * ArrayStore und folgt der gestellten Uhr.
+     */
+    public function test_die_ip_sperre_haelt_eine_stunde_und_keine_minute_laenger(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-29 10:00:00'));
+
+        $this->fremdeKonten(30);
+        $auth = $this->auth();
+
+        for ($i = 1; $i <= 30; $i++) {
+            $nummer = $i === 1 ? $this->fremdeNummer(0) : $this->fremdeNummer($i);
+            $auth->anmeldenMitNummer(null, $nummer, self::FALSCHES_PASSWORT);
+        }
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Vorflug: die Adresse muss jetzt gesperrt sein, sonst prueft der Rest nichts.',
+        );
+
+        Carbon::setTestNow(Carbon::parse('2026-09-29 10:59:00'));
+
+        $this->assertSame(
+            PortalAuth::GESPERRT,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Nach 59 Minuten muss die Sperre noch stehen — sie gilt eine volle Stunde.',
+        );
+
+        Carbon::setTestNow(Carbon::parse('2026-09-29 11:01:00'));
+
+        $this->assertSame(
+            PortalAuth::OK,
+            $auth->anmeldenMitNummer(null, self::NUMMER, self::PASSWORT)['status'],
+            'Nach 61 Minuten muss die Sperre abgelaufen sein — sie ist eine Bremse, keine Verbannung.',
         );
     }
 
