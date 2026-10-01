@@ -186,6 +186,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_NICHT_KONFIGURIERT, $status);
         $this->assertSame([], $this->meta->calls);
+        $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
     }
 
     public function testDieAusgelieferteKonfigurationKenntBeideAnlaesse(): void
@@ -215,6 +216,7 @@ final class AufgabenSenderTest extends TestCase
         $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
         $this->assertSame([], $this->meta->calls, 'Kein Versand.');
         $this->assertStringContainsString('gibt_es_nicht', $this->logText(), 'Das Log nennt den Platzhalter.');
+        $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
     }
 
     /**
@@ -232,18 +234,21 @@ final class AufgabenSenderTest extends TestCase
     }
 
     /**
-     * Gegenprobe zu obigem Test: `anzahl` darf bei NULL offenen Punkten den
-     * Wert "0" tragen und MUSS trotzdem als befuellt gelten. Eine Pruefung
-     * ueber `empty($wert)` statt `$wert === ''` wuerde "0" faelschlich als
-     * unbefuellbar behandeln und faende keinen eigenen Test — deshalb eigens
-     * hier verankert.
+     * ET-22 (Entscheidung Review 01.10.2026): NULL offene Punkte verhindern
+     * den Versand. Eine Nachricht "0 offene Punkte, schau ins Portal" ist
+     * sinnlos und kostet trotzdem. Bis zur Nachbesserung hielt dieser Test
+     * (unter anderem Namen) das GENAUE GEGENTEIL fest — "0" galt als
+     * befuellter, versendbarer Wert. Das war im Rahmen von Aufgabe 9 korrekt
+     * (die Frage, OB bei null Punkten ueberhaupt gesendet werden darf, war
+     * dort nicht beantwortet), ist nach der Entscheidung hier aber umgedreht.
      */
-    public function testNullOffenePunkteGiltAlsBefuellt(): void
+    public function testNullOffenePunkteVerhindertDenVersand(): void
     {
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(anzahl: 0), 'neu');
 
-        $this->assertSame(AufgabenSender::STATUS_SENT, $status);
-        $this->assertSame('0', $this->meta->calls[0]['components'][0]['parameters'][0]['text']);
+        $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls, 'Eine Nachricht ueber nichts wird nicht verschickt.');
+        $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
     }
 
     /**
@@ -279,6 +284,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
         $this->assertCount(1, $this->meta->calls, 'Der Versuch lief — abgelehnt hat Meta, nicht wir.');
+        $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
     }
 
     /**
@@ -294,6 +300,7 @@ final class AufgabenSenderTest extends TestCase
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
 
         $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
+        $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
     }
 
     public function testErfolgreicherVersandSchicktDieKonfigurierteVorlage(): void
@@ -315,6 +322,12 @@ final class AufgabenSenderTest extends TestCase
         );
     }
 
+    /**
+     * ET-20 (Review 01.10.2026): das Datum geht als `d.m.Y` an den Menschen,
+     * NICHT im ISO-Format, das `OffenePunkte::fuer()` liefert. Vor der
+     * Nachbesserung zementierte dieser Test die ISO-Form ("2026-10-20") als
+     * Erwartung — genau der Fehler, den der Pruefer fand.
+     */
     public function testErinnerungSchicktAuchDasDatum(): void
     {
         $status = (new AufgabenSender())->sende($this->ma, $this->stand(anzahl: 1, datum: '2026-10-20'), 'erinnerung');
@@ -323,7 +336,7 @@ final class AufgabenSenderTest extends TestCase
         $this->assertSame(
             [['type' => 'body', 'parameters' => [
                 ['type' => 'text', 'parameter_name' => 'anzahl', 'text' => '1'],
-                ['type' => 'text', 'parameter_name' => 'datum', 'text' => '2026-10-20'],
+                ['type' => 'text', 'parameter_name' => 'datum', 'text' => '20.10.2026'],
             ]]],
             $this->meta->calls[0]['components'],
         );
@@ -358,6 +371,67 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
         $this->assertSame([], $this->meta->calls);
+        $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
+    }
+
+    // --------------------------------------------------------- Rufnummer
+
+    /**
+     * ET-21 (Review 01.10.2026): ohne lesbare Rufnummer wird NICHT
+     * verschickt — genau wie `EinmalcodeSender` an derselben Stelle
+     * abbricht. Vor der Nachbesserung fiel der Sender auf die Rohnummer
+     * zurueck und haette bei `phone = null` einen bezahlten, von vornherein
+     * aussichtslosen Meta-Aufruf mit leerem Empfaenger ausgeloest.
+     */
+    public function testOhneLesbareRufnummerWirdNichtsVerschickt(): void
+    {
+        DB::table('rec_employees')->where('id', $this->ma->id)->update(['phone' => null]);
+        $ma = RecEmployee::find($this->ma->id);
+
+        $status = (new AufgabenSender())->sende($ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null, 'Review-Befund E: die Logzeile braucht einen Personenbezug.');
+    }
+
+    /**
+     * ET-21, die Gegenprobe: eine NATIONAL geschriebene Nummer wird vor dem
+     * Versand normalisiert. Diese Zeile schuetzt `PhoneE164::normalize()`
+     * selbst — ohne sie koennte man die Normalisierung ersatzlos entfernen
+     * (alle anderen Tests fahren dieselbe, bereits normalisierte Nummer),
+     * und eine nationale "0151…"-Nummer bekaeme bei Meta dieselbe Folge wie
+     * im dokumentierten Fehler 131026 (deutsche Nummer als US-`wa_id`
+     * gedeutet).
+     */
+    public function testEineNationaleNummerWirdVorDemVersandNormalisiert(): void
+    {
+        DB::table('rec_employees')->where('id', $this->ma->id)->update(['phone' => '0151 1111 1111']);
+        $ma = RecEmployee::find($this->ma->id);
+
+        $status = (new AufgabenSender())->sende($ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_SENT, $status);
+        $this->assertSame(self::NUMMER, $this->meta->calls[0]['to']);
+    }
+
+    // --------------------------------------------------------------- Sprache
+
+    /**
+     * Befund C (Review 01.10.2026): `sprache` aus der Konfiguration wird
+     * tatsaechlich weitergereicht, nicht fest auf 'de' verdrahtet. Ohne
+     * diesen Test aenderte das Festverdrahten keinen anderen Test (alle
+     * fahren dieselbe 'de'-Konfiguration) — eine spaeter in anderer Sprache
+     * genehmigte Vorlage wuerde dann bei Meta abgelehnt, ohne erkennbaren
+     * Grund.
+     */
+    public function testKonfigurierteSpracheWirdWeitergereicht(): void
+    {
+        $this->vorlageSetzen('neu', ['sprache' => 'en']);
+
+        (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame('en', $this->meta->calls[0]['languageCode']);
     }
 
     // ------------------------------------------------------- ET-9: das Log

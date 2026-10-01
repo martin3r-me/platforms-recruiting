@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Services\Comms;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
@@ -37,6 +38,28 @@ use Platform\Recruiting\Support\PhoneE164;
  * einzelnen Menschen auslassen. Ein Ausfall bei Meta darf einen Mitarbeiter
  * kosten, nicht den Durchlauf.
  *
+ * NACHBESSERUNG RUNDE 1 (Review 01.10.2026) — drei weitere Zusagen, die
+ * jetzt nachgewiesen sind:
+ *
+ *  - ET-20: das Einsatzdatum geht als `d.m.Y` an den Menschen, nicht im
+ *    ISO-Format, das `OffenePunkte::fuer()` zusagt. Die Umformung passiert
+ *    HIER, nicht dort — `OffenePunkte`s Vertrag ist ISO (das Portal sortiert
+ *    danach), die Lesbarkeit fuer ein Handy ist eine Eigenschaft der
+ *    NACHRICHT, nicht der Datenquelle.
+ *  - ET-21: ohne lesbare Rufnummer wird NICHT verschickt (genau wie
+ *    `EinmalcodeSender::sende()` bei `PhoneE164::normalize() === null`
+ *    abbricht) — sonst ginge ein bezahlter, von vornherein aussichtsloser
+ *    Meta-Aufruf mit leerem Empfaenger raus. Und die Normalisierung selbst
+ *    ist jetzt durch `testEineNationaleNummerWirdVorDemVersandNormalisiert`
+ *    geschuetzt: ohne sie haette eine nationale "0151…"-Nummer bei Meta
+ *    dieselbe Folge wie im dokumentierten Fehler 131026 (deutsche Nummer als
+ *    US-`wa_id` gedeutet, "sent" mit spaeterem stillen "failed" per Webhook).
+ *  - ET-22 (Entscheidung): der Sender verweigert bei NULL offenen Punkten.
+ *    Eine Nachricht "0 offene Punkte, schau ins Portal" waere sinnlos und
+ *    kostet trotzdem. Aufgabe 10 kann diesen Fall nach heutigem Stand nicht
+ *    erzeugen (eine leere Signatur loest keinen Versand aus) — dieser Sender
+ *    verlaesst sich darauf aber nicht und weigert sich selbst.
+ *
  * DIE NACHRICHT NENNT DIE OFFENEN PUNKTE NICHT EINZELN (Spec §2.1: das
  * Portal traegt die Aufgaben) — sie nennt nur ihre ANZAHL und verweist aufs
  * Portal. Waere die Nachricht selbst der Traeger, muesste jede Aenderung an
@@ -45,7 +68,10 @@ use Platform\Recruiting\Support\PhoneE164;
  * KEINE VOLLE RUFNUMMER IM LOG (Datenschutz, gleiche Kuerzung wie in
  * `KontoWriter`/`EinmalcodeSender`): `PhoneE164::suffix()` liefert die
  * letzten neun Ziffern formatunabhaengig, geloggt werden davon nur die
- * letzten vier.
+ * letzten vier. Die MITARBEITER-KENNUNG steht dagegen in JEDER Logzeile
+ * (Review-Befund E) — sie ist keine Rufnummer und faellt nicht unter die
+ * Datenschutz-Vorgabe; ohne sie liesse sich nach einem Lauf ueber hunderte
+ * Menschen nicht feststellen, WER nicht erreicht wurde.
  *
  * OBSERVER-FREI: diese Klasse liest nur `$employee->phone` und
  * `$employee->team_id` und schreibt NICHTS an `rec_employees`. Ein Versand
@@ -59,8 +85,9 @@ final class AufgabenSender
 
     /**
      * Alles andere, was NACH einer vollstaendigen Konfiguration noch
-     * schiefgehen kann: unbefuellbarer Platzhalter, kein WhatsApp-Kanal, von
-     * Meta abgelehnt, Ausnahme beim Senden.
+     * schiefgehen kann: keine offenen Punkte zum Melden (ET-22), keine
+     * lesbare Rufnummer (ET-21), unbefuellbarer Platzhalter, kein
+     * WhatsApp-Kanal, von Meta abgelehnt, Ausnahme beim Senden.
      */
     public const STATUS_FAILED = 'failed';
 
@@ -79,14 +106,32 @@ final class AufgabenSender
         if ($name === '') {
             // Kein stiller Fehlschlag: ohne Vorlage kann niemand erreicht
             // werden, und das ist bis zur Freigabe bei Meta der Normalfall.
-            Log::error('recruiting.aufgaben.vorlage_fehlt', ['anlass' => $anlass]);
+            Log::error('recruiting.aufgaben.vorlage_fehlt', [
+                'anlass'      => $anlass,
+                'mitarbeiter' => $employee->id,
+            ]);
 
             return self::STATUS_NICHT_KONFIGURIERT;
         }
 
+        $anzahl = count($stand['punkte'] ?? []);
+        if ($anzahl === 0) {
+            // ET-22 (Entscheidung Review 01.10.2026): eine Nachricht "0
+            // offene Punkte, schau ins Portal" ist sinnlos und kostet
+            // trotzdem. Aufgabe 10 kann diesen Fall nach heutigem Stand
+            // nicht erzeugen, aber dieser Sender verlaesst sich darauf
+            // nicht und weigert sich selbst.
+            Log::info('recruiting.aufgaben.keine_offenen_punkte', [
+                'anlass'      => $anlass,
+                'mitarbeiter' => $employee->id,
+            ]);
+
+            return self::STATUS_FAILED;
+        }
+
         $werte = [
-            'anzahl' => (string) count($stand['punkte'] ?? []),
-            'datum'  => (string) ($stand['einsatz']['datum'] ?? ''),
+            'anzahl' => (string) $anzahl,
+            'datum'  => $this->menschlichesDatum((string) ($stand['einsatz']['datum'] ?? '')),
         ];
 
         $komponenten = [];
@@ -94,9 +139,11 @@ final class AufgabenSender
             $platzhalter = (string) $platzhalter;
             $schluessel  = strtolower($platzhalter);
 
-            // Strikter Leerstring-Vergleich, NICHT empty(): "0" offene Punkte
-            // ist ein gueltiger, befuellter Wert und darf nicht wie ein
-            // fehlender behandelt werden.
+            // Strikter Leerstring-Vergleich, NICHT empty(): nach dem
+            // Null-Guard oben kann 'anzahl' hier nie mehr "0" sein, aber die
+            // strikte Form bleibt die richtige — ein kuenftiger, legitim
+            // falsy-aber-nicht-leerer Wert soll nicht wie ein fehlender
+            // behandelt werden.
             if (!array_key_exists($schluessel, $werte) || $werte[$schluessel] === '') {
                 // HoldingTemplateComponents::build() wuerde hier still den
                 // Vornamen einsetzen — der Mensch bekaeme seinen Namen statt
@@ -104,6 +151,7 @@ final class AufgabenSender
                 Log::warning('recruiting.aufgaben.platzhalter_unbefuellbar', [
                     'anlass'      => $anlass,
                     'platzhalter' => $platzhalter,
+                    'mitarbeiter' => $employee->id,
                 ]);
 
                 return self::STATUS_FAILED;
@@ -112,14 +160,31 @@ final class AufgabenSender
             $komponenten[] = ['type' => 'text', 'parameter_name' => $schluessel, 'text' => $werte[$schluessel]];
         }
 
-        $kanal = $this->kanal((int) $employee->team_id);
-        if ($kanal === null) {
-            Log::error('recruiting.aufgaben.kein_kanal', ['anlass' => $anlass]);
+        // ET-21 (Review 01.10.2026): ohne lesbare Rufnummer wird NICHT
+        // verschickt — genau wie EinmalcodeSender::sende() an derselben
+        // Stelle abbricht. Der vorherige Rueckfall auf die Rohnummer haette
+        // bei phone=null/'' einen bezahlten, von vornherein aussichtslosen
+        // Meta-Aufruf mit leerem Empfaenger ausgeloest.
+        $nummer = PhoneE164::normalize($employee->phone);
+        if ($nummer === null || $nummer === '') {
+            Log::error('recruiting.aufgaben.keine_nummer', [
+                'anlass'      => $anlass,
+                'mitarbeiter' => $employee->id,
+            ]);
 
             return self::STATUS_FAILED;
         }
 
-        $nummer = PhoneE164::normalize($employee->phone) ?? (string) $employee->phone;
+        $kanal = $this->kanal((int) $employee->team_id);
+        if ($kanal === null) {
+            Log::error('recruiting.aufgaben.kein_kanal', [
+                'anlass'      => $anlass,
+                'mitarbeiter' => $employee->id,
+            ]);
+
+            return self::STATUS_FAILED;
+        }
+
         $sprache = trim((string) ($vorlage['sprache'] ?? 'de')) ?: 'de';
         $components = [['type' => 'body', 'parameters' => $komponenten]];
 
@@ -137,6 +202,7 @@ final class AufgabenSender
             // Meta kostet einen Mitarbeiter, nicht den Lauf.
             Log::warning('recruiting.aufgaben.ausnahme', [
                 'anlass'           => $anlass,
+                'mitarbeiter'      => $employee->id,
                 'nummer_endet_auf' => $this->endungVon($nummer),
             ]);
 
@@ -149,6 +215,7 @@ final class AufgabenSender
         if (($nachricht->status ?? null) === 'failed') {
             Log::warning('recruiting.aufgaben.abgelehnt', [
                 'anlass'           => $anlass,
+                'mitarbeiter'      => $employee->id,
                 'nummer_endet_auf' => $this->endungVon($nummer),
             ]);
 
@@ -156,6 +223,30 @@ final class AufgabenSender
         }
 
         return self::STATUS_SENT;
+    }
+
+    /**
+     * ET-20 (Review 01.10.2026): das Datum geht als `d.m.Y` an den Menschen.
+     * `OffenePunkte::fuer()` sagt bewusst ISO zu (das Portal sortiert
+     * danach) — die Umformung fuer ein lesbares Handy gehoert hierher, nicht
+     * in die Datenquelle. Ein leerer Eingabewert bleibt leer (der
+     * Platzhalter-Check oben entscheidet dann ueber "unbefuellbar"); ein
+     * NICHT im `Y-m-d`-Format vorliegender Wert faellt auf sich selbst
+     * zurueck, statt den Versand mit einer Ausnahme abzubrechen — das kann
+     * nach heutigem Vertrag von `OffenePunkte` nicht vorkommen, ist aber
+     * billiger als ein Fehlschlag mitten im Format.
+     */
+    private function menschlichesDatum(string $iso): string
+    {
+        if ($iso === '') {
+            return '';
+        }
+
+        try {
+            return Carbon::createFromFormat('Y-m-d', $iso)->format('d.m.Y');
+        } catch (\Throwable) {
+            return $iso;
+        }
     }
 
     /**
