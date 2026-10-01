@@ -89,6 +89,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\SendProofReminders::class,
                 \Platform\Recruiting\Console\Commands\DispoSeedDressPackages::class,
                 \Platform\Recruiting\Console\Commands\DispoUnfreezeDress::class,
+                \Platform\Recruiting\Console\Commands\EinsatzPruefung::class,
             ]);
         }
 
@@ -294,6 +295,29 @@ class RecruitingServiceProvider extends ServiceProvider
         Schedule::command('recruiting:konto-zuruecksetzen --faellig')
             ->hourly()
             ->withoutOverlapping(10)
+            ->runInBackground();
+
+        // DER EINSATZ-TRIGGER. Stuendlich und NACH dem Dispo-Import (Spec
+        // 3.3): der Import soll importieren, und stolpert die Pruefung, darf
+        // das die Lieferung nicht gefaehrden. Ein eigener Lauf statt eines
+        // Anhaengsels am Import macht genau das moeglich.
+        //
+        // KEIN --welle IM EINTRAG, UND DAS IST ABSICHT: ohne die Flagge
+        // verschickt das Kommando NICHTS. Der Zeitplan fuehrt damit bis auf
+        // Weiteres nur die PRUEFUNG aus — HR-Faelle entstehen, Signaturen
+        // werden geraeumt, der Bericht steht im Protokoll, aber niemand wird
+        // angeschrieben. Der scharfe Versand wird von Hand gefahren, bis die
+        // Meta-Vorlagen (recruiting.aufgaben.vorlagen) genehmigt sind und
+        // der Probelauf gezeigt hat, wie viele Menschen eine Welle wirklich
+        // trifft. Wer hier --welle ergaenzt, schaltet den Versand scharf —
+        // das ist eine Entscheidung und kein Versehen.
+        //
+        // withoutOverlapping, weil der Lauf ueber den ganzen Bestand geht und
+        // zwei gleichzeitige Laeufe denselben Menschen zweimal anschreiben
+        // koennten (die Signatur wird erst NACH dem Versand geschrieben).
+        Schedule::command('recruiting:einsatz-pruefung')
+            ->hourly()
+            ->withoutOverlapping(30)
             ->runInBackground();
 
         // recruiting:nachweise-erinnern ABSICHTLICH OHNE Zeitplan-Eintrag
