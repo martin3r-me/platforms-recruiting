@@ -3,7 +3,7 @@
     // wer geschrieben oder bestaetigt hat. Waehrend ein Fenster offen ist wird
     // NICHT gepollt — ein Render mitten im Tippen kann den Entwurf kosten.
     $pollBlocked = $showSendModal || $showInfoModal || $showNoteModal || $showNotesModal || $showAttachmentModal
-        || $showDeclineModal || $crewEmployeeId !== null;
+        || $showDeclineModal || $crewEmployeeId !== null || $showDressModal;
 @endphp
 <div class="p-4 lg:p-6 space-y-6" @if (!$pollBlocked) wire:poll.visible.30s @endif>
     @php
@@ -52,12 +52,43 @@
                 <div class="mt-1 whitespace-pre-line text-sm">{{ $event->ort }}</div>
             </div>
         @endif
-        @if ($event->dresscode)
-            <div class="rounded-lg border border-gray-200 bg-white p-4">
-                <div class="text-sm font-medium text-gray-500">Kleidung / Infos</div>
-                <div class="mt-1 whitespace-pre-line text-sm">{{ $event->dresscode }}</div>
+        @php
+            // Kleidung-Umzug (10/2026): die Karte rendert jetzt IMMER — vorher
+            // nur bei gefuelltem dresscode. dressSummary() ist die eine Quelle,
+            // die auch das Sende-Fenster liest (Show::dressSummary()).
+            $dressSummary = $this->dressSummary;
+            $dressHinweis = trim((string) ($event->hinweis ?? ''));
+            $dressZas = trim((string) ($event->dresscode ?? ''));
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+            <div class="flex items-center justify-between">
+                <div class="text-sm font-medium text-gray-500">{{ $dressSummary !== [] ? 'Kleidung' : 'Kleidung / Infos' }}</div>
+                @if (!$eventOnly)
+                    <button type="button" wire:click="openDressModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+                @endif
             </div>
-        @endif
+            @if ($dressSummary !== [])
+                <div class="mt-1 space-y-0.5 text-sm">
+                    @foreach ($dressSummary as $row)
+                        <div>{{ $row['label'] }} → {{ $row['paket'] }}</div>
+                    @endforeach
+                </div>
+                @if ($dressHinweis !== '')
+                    <div class="mt-2">
+                        <div class="text-xs font-medium text-gray-500">Infos für alle</div>
+                        <div class="mt-0.5 whitespace-pre-line text-sm">{{ $dressHinweis }}</div>
+                    </div>
+                @endif
+                @if ($dressZas !== '')
+                    <div class="mt-2 text-xs text-gray-400">
+                        <div class="font-medium">ZAS-Text — wird für alle mit Paket ersetzt</div>
+                        <div class="mt-0.5 whitespace-pre-line">{{ $dressZas }}</div>
+                    </div>
+                @endif
+            @else
+                <div class="mt-1 whitespace-pre-line text-sm">{{ $dressZas !== '' ? $dressZas : '—' }}</div>
+            @endif
+        </div>
         @php
             $contactEff = $this->contactEffective;
         @endphp
@@ -127,15 +158,20 @@
                     Über alle Tage: {{ $dispoTotal }} gesamt · {{ $dispoConfirmed }} bestätigt · {{ $dispoOpen }} offen
                 </div>
             @else
+            {{-- Kunde 30.09.: "angeschrieben" ist eine TEILMENGE der Offenen und
+                 stand bisher gleichrangig daneben — 61 + 1 + 3 sah nach 65 aus,
+                 obwohl es 64 sind. Jetzt als Zusatz zur Offen-Zahl. --}}
             <div class="mt-1 text-sm">
                 <span class="font-semibold tabular-nums">{{ $dispoTotal }}</span> gesamt
                 · <span class="font-semibold tabular-nums text-green-700">{{ $dispoConfirmed }}</span> bestätigt
-                · <span class="tabular-nums">{{ $dispoSent }}</span> angeschrieben
                 @if ($dispoDeclined > 0)
                     · <span class="font-semibold tabular-nums text-red-600">{{ $dispoDeclined }}</span> abgesagt
                 @endif
                 @if ($dispoOpen > 0)
                     <span class="ml-1 rounded bg-orange-50 px-1.5 py-0.5 text-xs font-semibold text-orange-600">{{ $dispoOpen }} offen</span>
+                    @if ($dispoSent > 0)
+                        <span class="text-xs text-gray-500">davon {{ $dispoSent }} angeschrieben</span>
+                    @endif
                 @else
                     <span class="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-800">alle bestätigt</span>
                 @endif
@@ -217,7 +253,12 @@
             {{-- Desktop: Pills wie gehabt. --}}
             <div class="hidden items-center gap-1.5 lg:flex">
                 @foreach ($rfLabels as $rfKey => $rfLabel)
+                    {{-- "Alle" zaehlt AUCH Verschwundene/zur Loeschung Gemeldete, die
+                         Status-Pills nicht — sonst wirkt die Summe falsch (Kunde 30.09.). --}}
                     <button type="button" wire:click="$set('rowFilter', '{{ $rfKey }}')"
+                            @if ($rfKey === '' && $rfCounts[''] > $rfCounts['open'] + $rfCounts['confirmed'] + $rfCounts['declined'])
+                                title="Enthält auch {{ $rfCounts[''] - $rfCounts['open'] - $rfCounts['confirmed'] - $rfCounts['declined'] }} Einbuchungen, die aus ZAS verschwunden oder zur Löschung gemeldet sind — die Status-Filter zählen die nicht mit."
+                            @endif
                             class="shrink-0 rounded-full border px-2.5 py-1 text-xs {{ $rowFilter === $rfKey ? 'border-blue-600 bg-blue-50 font-medium text-blue-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50' }}">
                         {{ $rfLabel }} <span class="tabular-nums opacity-60">{{ $rfCounts[$rfKey] }}</span>
                     </button>
@@ -495,6 +536,47 @@
                         <span class="mb-1 block font-medium text-gray-700">Ansprechpartner vor Ort <span class="text-gray-400">(optional)</span></span>
                         @include('recruiting::livewire.dispo.events._contact-field', ['leads' => $this->teamLeads])
                     </label>
+
+                    {{-- Kleidung-Umzug (10/2026): die Pflege ist auf die VA-Seite
+                         gewandert (openDressModal). Hier bleibt nur die
+                         Zusammenfassung plus der Riegel, der den Versand bedient —
+                         wer nicht quittiert, kann unten nicht senden. --}}
+                    @php
+                        $dressSummarySend = $this->dressSummary;
+                        $dressZasSend = trim((string) ($this->event->dresscode ?? ''));
+                    @endphp
+                    <div class="rounded-lg border border-gray-200 p-3 text-sm space-y-2">
+                        <div class="flex items-center justify-between">
+                            <div class="font-medium text-gray-700">Kleidung</div>
+                            <button type="button" wire:click="openDressModalFromSend" class="text-xs text-blue-600 hover:underline">ändern</button>
+                        </div>
+                        @if ($dressSummarySend === [])
+                            <p class="text-xs text-gray-500">Keine Kleidung hinterlegt</p>
+                        @else
+                            <div class="space-y-0.5">
+                                @foreach ($dressSummarySend as $row)
+                                    <div>{{ $row['label'] }} → {{ $row['paket'] }}</div>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        @if ($dressSummarySend !== [] && $dressZasSend !== '')
+                            <div class="rounded bg-amber-50 p-2">
+                                <div class="text-xs font-medium text-amber-800">Bisheriger Text aus ZAS — verschwindet für alle mit Paket</div>
+                                <div class="mt-1 whitespace-pre-line text-xs text-amber-900">{{ $dressZasSend }}</div>
+                                <div class="mt-2 flex flex-wrap items-center gap-3">
+                                    <label class="flex items-center gap-2 text-xs text-amber-900">
+                                        <input type="checkbox" wire:model.live="dressAck" class="rounded border-gray-300">
+                                        Gesehen — Wichtiges habe ich in den Hinweis übernommen
+                                    </label>
+                                    <button type="button" wire:click="copyZasToHinweis" class="rounded border border-amber-300 px-2 py-1 text-xs text-amber-900 hover:bg-amber-100">
+                                        Text in den Hinweis übernehmen
+                                    </button>
+                                </div>
+                                @error('dressAck') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                        @endif
+                    </div>
 
                     @php
                         $escDefaults = $this->dispoSettings['escalation_defaults'];
@@ -835,6 +917,21 @@
         </div>
     @endif
 
+    {{-- Kleidung-Umzug (10/2026): eigenes Fenster, Muster Ansprechpartner-Modal
+         oben. Die Kleidung ist eine Eigenschaft der Veranstaltung, nicht eines
+         Versands — hier bleibt sie auch bei einer durchbestaetigten VA erreichbar. --}}
+    @if ($showDressModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showDressModal', false)">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Kleidung</h2>
+                @include('recruiting::livewire.dispo.events._dress-fields')
+                <div class="flex justify-end">
+                    <button wire:click="$set('showDressModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Schließen</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     {{-- "Info an Crew" (Kunde 03.09.): Anhang/Hinweis gefiltert nach Qualifikation
          an viele MA auf einmal + Info-WhatsApp mit Link auf die Einsatz-Seite. --}}
     @if ($showInfoModal)
@@ -852,6 +949,10 @@
                         <span class="mb-1 block font-medium text-gray-700">Wer?</span>
                         <select wire:model.live="infoFilter" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">
                             <option value="">Alle disponierten Mitarbeiter</option>
+                            {{-- Kunde 30.09.: "Hinweis an die bestaetigten Mitarbeiter" war
+                                 bisher nicht waehlbar. Bestaetigt = ALLE kommenden Tage zugesagt. --}}
+                            <option value="confirmed">Nur bestätigte</option>
+                            <option value="open">Nur noch offene</option>
                             @if ($this->infoTaetigkeitOptions !== [])
                                 <optgroup label="Tätigkeit (aus dieser VA)">
                                     @foreach ($this->infoTaetigkeitOptions as $taetigkeit)
@@ -929,7 +1030,8 @@
                     @endphp
                     <div class="rounded bg-gray-50 p-3 text-sm space-y-1">
                         @if ($infoWaOn)
-                            <div>Geht an <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern — jede/r bekommt die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
+                            @php $infoMitNummer = max(0, $infoSelected->count() - $infoSelNoPhone); @endphp
+                            <div>Geht an <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern; <strong>{{ $infoMitNummer }}</strong> {{ $infoMitNummer === 1 ? 'bekommt' : 'bekommen' }} die WhatsApp „Neue Infos" mit Link auf die Einsatz-Seite.</div>
                             @if ($infoSelNoPhone > 0)
                                 <div class="text-gray-500">{{ $infoSelNoPhone }} × ohne Handynummer (bekommen Anhang/Hinweis, aber keine WhatsApp)</div>
                             @endif

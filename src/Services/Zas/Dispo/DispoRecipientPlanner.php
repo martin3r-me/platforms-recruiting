@@ -46,16 +46,22 @@ class DispoRecipientPlanner
                 continue;
             }
             $employeeId = (int) $a['employee_id'];
-            if (!isset($phones[$employeeId]) || $phones[$employeeId] === null || $phones[$employeeId] === '') {
-                $skipped['no_phone']++;
-                continue;
-            }
+            // Abgesagt und bestaetigt VOR der Telefonnummer pruefen (Kunde 30.09.):
+            // Wer ohnehin nicht angeschrieben wird, gehoert nicht in den Topf
+            // "ohne Handynummer" — sonst meldete das Fenster 51 bestaetigte,
+            // waehrend Karte und Filter 61 zeigten, weil 10 bestaetigte Zeilen
+            // unter der fehlenden Nummer einsortiert waren. An der Empfaenger-
+            // menge aendert die Reihenfolge nichts, nur an der Begruendung.
             if (!empty($a['declined_at'])) {
                 $skipped['declined']++;
                 continue;
             }
             if (!empty($a['confirmed_at'])) {
                 $skipped['confirmed']++;
+                continue;
+            }
+            if (!isset($phones[$employeeId]) || $phones[$employeeId] === null || $phones[$employeeId] === '') {
+                $skipped['no_phone']++;
                 continue;
             }
             $alreadySent = !empty($a['reminder_sent_at']);

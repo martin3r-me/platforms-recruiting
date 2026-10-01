@@ -26,6 +26,7 @@ class RecDispoEvent extends Model
         'alarm_message_id',
         'escalation_day', 'escalation_time_1', 'escalation_time_2', 'escalation_time_3', 'escalation_date',
         'source_meta',
+        'hinweis', 'dresscode_ack', 'dresscode_ack_at',
     ];
 
     protected $casts = [
@@ -36,6 +37,7 @@ class RecDispoEvent extends Model
         'alarm_message_id' => 'integer',
         'source_meta' => 'array',
         'escalation_date' => 'date:Y-m-d',
+        'dresscode_ack_at' => 'datetime',
     ];
 
     /**

@@ -49,6 +49,56 @@ class Show extends Component
     public string $ansprechpartner = '';
     public bool $includeReminders = false;
 
+    /** Paket-Auswahl im Sende-Fenster: '' = keins. Strings, weil Selects Strings liefern. */
+    public string $dressAll = '';
+    /**
+     * Paket je Taetigkeit — INDIZIERT wie dressTaetigkeitenSnapshot, NICHT
+     * nach Taetigkeit-Text gekeyt: Index i => Paket-ID fuer
+     * dressTaetigkeitenSnapshot[i].
+     *
+     * Fix-Runde 1: Livewire zerlegt wire:model-Pfade am literalen Punkt
+     * (data_get/data_set). Taetigkeit ist ZAS-Freitext ohne Normalisierung
+     * (siehe Migration) — ein Wert wie "2.OG" wuerde als Pfad "dressByTaetigkeit.2.OG"
+     * eine verschachtelte Struktur erzeugen und persistDress() brechen. Das
+     * Blade-Partial bindet deshalb ueber den numerischen Index aus der
+     * @foreach-Schluessel, nicht ueber den Taetigkeit-Text.
+     */
+    public array $dressByTaetigkeit = [];
+    /**
+     * Schnappschuss der Taetigkeiten-Reihenfolge vom Oeffnen des Fensters —
+     * die Grundlage der Index-Bindung oben.
+     *
+     * Fix-Runde 2: eventTaetigkeiten() ist #[Computed] und wird bei JEDEM
+     * Livewire-Roundtrip frisch aus den aktuellen Einbuchungen berechnet.
+     * Kommt zwischen Oeffnen und Senden eine ZAS-Lieferung herein, die eine
+     * Einbuchung hinzufuegt/storniert/absagt, verschiebt sich die sortierte
+     * Liste — persistDress() wuerde dann gegen eine ANDERE Reihenfolge als
+     * die schreiben, mit der die Dispo die Auswahl getroffen hat, und das
+     * Paket landete lautlos an der falschen Taetigkeit. #[Locked] +
+     * ausschliesslich serverseitig in loadDressForm() gesetzt (Muster:
+     * die #[Locked]-Properties in EmployeeAssignments.php). NICHT durch
+     * eventTaetigkeiten() ersetzen, auch nicht "zum Aufraeumen" — das
+     * bringt den Drift zurueck.
+     *
+     * @var list<string>
+     */
+    #[Locked]
+    public array $dressTaetigkeitenSnapshot = [];
+    public string $eventHinweis = '';
+    /** Haken „ZAS-Text gesehen" — Gegenstueck zu dressNeedsAck(). */
+    public bool $dressAck = false;
+    /**
+     * Sichtbare Bestaetigung fuer „Nur Kleidung speichern" — Muster $escSaved.
+     *
+     * Fix-Runde 3, Befund 1: die Paketauswahl haengt sonst ausschliesslich am
+     * Senden-Knopf, und der ist deaktiviert, sobald die VA durchbestaetigt ist
+     * (DispoRecipientPlanner wirft bestaetigte und bereits angeschriebene
+     * Einbuchungen aus der Empfaengermenge). Genau dann — bei jeder
+     * Nachbesserung — waere die Auswahl ohne eigenen Knopf unerreichbar und
+     * ginge beim Schliessen des Fensters lautlos verloren.
+     */
+    public bool $dressSaved = false;
+
     /**
      * Kunde 03.09. (Nummern-Nachzug): NUR Empfaenger mit Zustellfehler erneut
      * anschreiben — die uebrigen Angeschriebenen ohne Antwort bleiben aussen vor.
@@ -76,6 +126,14 @@ class Show extends Component
     public string $contactSource = '';
     /** Anpassen-Dialog fuer den Ansprechpartner (ohne Senden). */
     public bool $showContactModal = false;
+
+    /**
+     * Anpassen-Dialog fuer die Kleidung (Umzug von der Senden-Maske auf die
+     * VA-Seite, 10/2026): die Kleidung ist eine Eigenschaft der Veranstaltung,
+     * nicht eines Versands, und der Senden-Knopf ist bei durchbestaetigten
+     * VAs deaktiviert — ohne eigenes Fenster waere die Pflege dann unerreichbar.
+     */
+    public bool $showDressModal = false;
 
     /** Individueller Hinweis pro Mitarbeiter, keyed by rec_employee_id → Text. */
     public array $notes = [];
@@ -853,6 +911,46 @@ class Show extends Component
     }
 
     /**
+     * Oeffnet das eigene Kleidung-Fenster auf der VA-Seite (Umzug 10/2026,
+     * Muster openContactModal()). loadDressForm() zieht den Schnappschuss der
+     * Taetigkeiten-Reihenfolge frisch — siehe $dressTaetigkeitenSnapshot.
+     */
+    public function openDressModal(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->loadDressForm();
+        $this->dressSaved = false;
+        $this->resetErrorBag('dressAck');
+        $this->showDressModal = true;
+    }
+
+    /**
+     * "aendern" in der Kleidung-Zusammenfassung des Sende-Fensters: wechselt
+     * dorthin, OHNE ein zweites Fenster ueber dem ersten zu oeffnen.
+     *
+     * BEWUSST OHNE loadDressForm()/openDressModal(): das Sende-Fenster hat den
+     * Formularzustand (dressAck, dressAll, dressByTaetigkeit, eventHinweis)
+     * schon beim eigenen Oeffnen (openSendModal()) geladen — er steht korrekt
+     * im Speicher, inklusive allem, was die Dispo seitdem getippt oder
+     * angehakt hat (z. B. "Text in den Hinweis übernehmen"). Ein erneutes
+     * loadDressForm() wuerde genau das aus der DB ueberschreiben und damit
+     * wegwerfen, bevor "Nur Kleidung speichern" je lief. NICHT nachruesten,
+     * auch nicht "zur Konsistenz mit openDressModal()" — das bringt den
+     * Datenverlust zurueck (siehe DispoDressSendFormTest::test_open_dress_modal_from_send_keeps_the_already_loaded_form_state).
+     */
+    public function openDressModalFromSend(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->dressSaved = false;
+        $this->showSendModal = false;
+        $this->showDressModal = true;
+    }
+
+    /**
      * @return array{groups: array<int,list<int>>, canon: array<int,int>, byCanon: array<int,list<int>>}
      *         Identitaet der disponierten MA dieser VA. groupsFor() schluesselt NUR ueber die
      *         angefragten (Einbuchungs-)ids — byCanon schluesselt zusaetzlich ueber die kanonische
@@ -1289,7 +1387,11 @@ class Show extends Component
     // Qualifikation an viele MA auf einmal + Info-WhatsApp mit Link.
     // ------------------------------------------------------------------
     public bool $showInfoModal = false;
-    /** Filter: '' = alle, 't:<Taetigkeit>' (aus den Einbuchungen) oder 'q:<Lookup-value>' (Qualifikation). */
+    /**
+     * Filter: '' = alle, 'confirmed' = nur wer ALLE kommenden Tage bestaetigt hat,
+     * 'open' = die uebrigen, 't:<Taetigkeit>' (aus den Einbuchungen) oder
+     * 'q:<Lookup-value>' (Qualifikation).
+     */
     public string $infoFilter = '';
     /** Abgewaehlte Personen (kanonische ids) — Checkboxen in der Vorschau. @var list<int> */
     public array $infoExcluded = [];
@@ -1399,6 +1501,11 @@ class Show extends Component
             $byCanon[$c]['assignment_ids'][] = (int) $a->id;
             $byCanon[$c]['has_note'] = ($byCanon[$c]['has_note'] ?? false) || trim((string) $a->individual_note) !== '';
             $byCanon[$c]['taetigkeiten'][trim((string) $a->taetigkeit)] = true;
+            // Fuer den Filter "nur Bestaetigte" (Kunde 30.09.): bestaetigt ist,
+            // wer JEDEN seiner kommenden Tage bestaetigt hat — wer noch einen
+            // offenen Tag hat, gehoert nicht in eine Info an die Zugesagten.
+            $byCanon[$c]['all_confirmed'] = ($byCanon[$c]['all_confirmed'] ?? true) && $a->confirmed_at !== null;
+            $byCanon[$c]['any_confirmed'] = ($byCanon[$c]['any_confirmed'] ?? false) || $a->confirmed_at !== null;
         }
         if ($byCanon === []) {
             return ['persons' => [], 'no_phone' => 0];
@@ -1420,7 +1527,15 @@ class Show extends Component
         foreach ($byCanon as $c => $data) {
             $group = $groups[$c] ?? [$c];
 
-            if (str_starts_with($this->infoFilter, 't:')) {
+            if ($this->infoFilter === 'confirmed') {
+                if (empty($data['all_confirmed'])) {
+                    continue;
+                }
+            } elseif ($this->infoFilter === 'open') {
+                if (!empty($data['all_confirmed'])) {
+                    continue;
+                }
+            } elseif (str_starts_with($this->infoFilter, 't:')) {
                 // Taetigkeit aus den Einbuchungen DIESER VA (immer gefuellt, ZAS liefert sie mit).
                 if (!isset($data['taetigkeiten'][substr($this->infoFilter, 2)])) {
                     continue;
@@ -1624,6 +1739,360 @@ class Show extends Component
     private function settingsTeamId(): int
     {
         return (int) (config('recruiting.zas.inbound_team_id') ?: auth()->user()->currentTeam->id);
+    }
+
+    /**
+     * Die in DIESEM Fenster waehlbaren Pakete: aktive des Teams PLUS die, die
+     * an dieser VA bereits zugeordnet sind.
+     *
+     * Fix-Runde 3, Befund 2: mit reinem active()-Filter verschwand ein
+     * inzwischen ausgemustertes, aber zugeordnetes Paket aus dem <select>.
+     * Der Browser zeigte dann "— kein Paket —", serverseitig trug die
+     * Property weiter die alte ID, ein change-Ereignis feuerte nie — und
+     * beim naechsten Speichern wurde die ausgemusterte ID unveraendert
+     * zurueckgeschrieben. Die Zuordnung muss sichtbar bleiben, damit die
+     * Dispo sie bewusst wegnehmen oder ersetzen kann.
+     *
+     * @return \Illuminate\Support\Collection<int, \Platform\Recruiting\Models\RecDispoDressPackage>
+     */
+    private function dressPackageChoices(): \Illuminate\Support\Collection
+    {
+        $assigned = \Platform\Recruiting\Models\RecDispoEventDress::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->pluck('rec_dispo_dress_package_id')
+            ->map(fn ($v) => (int) $v)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        // settingsTeamId() ist die vorhandene Team-Regel dieser Komponente —
+        // dieselbe, nach der die Pflegemaske und der Seeder schreiben. Die
+        // zugeordneten IDs kommen ohne Team-Filter dazu: ein bereits
+        // zugeordnetes Paket muss sichtbar bleiben, egal woher es stammt.
+        $teamId = $this->settingsTeamId();
+
+        return \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->where(function ($q) use ($teamId, $assigned) {
+                $q->where(fn ($inner) => $inner->where('team_id', $teamId)->where('is_active', true));
+                if ($assigned !== []) {
+                    $q->orWhereIn('id', $assigned);
+                }
+            })
+            ->orderBy('sort_order')->orderBy('name')
+            ->get();
+    }
+
+    /** @return array<int,string> waehlbare Pakete als id => Label */
+    #[Computed]
+    public function dressPackages(): array
+    {
+        $out = [];
+        foreach ($this->dressPackageChoices() as $package) {
+            $out[(int) $package->id] = $package->is_active
+                ? (string) $package->name
+                : (string) $package->name . ' (ausgemustert)';
+        }
+
+        return $out;
+    }
+
+    /**
+     * Paket-Texte fuer die Vorschau unter jeder Auswahl — Schluessel als
+     * String, weil die Selects Strings liefern.
+     *
+     * @return array<string,string>
+     */
+    #[Computed]
+    public function dressTexts(): array
+    {
+        $out = [];
+        foreach ($this->dressPackageChoices() as $package) {
+            $out[(string) $package->id] = (string) $package->items_text;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Eine Quelle fuer die Kleidung-Zeilen — Karte auf der VA-Seite UND
+     * Zusammenfassung im Sende-Fenster lesen beide von hier (Umzug 10/2026).
+     * Nur tatsaechlich gesetzte Zuordnungen, "Alle uebrigen" zuerst, der Rest
+     * in der Reihenfolge des Taetigkeits-Schnappschusses (Fenster bereits
+     * geoeffnet) bzw. der frischen eventTaetigkeiten()-Berechnung (Karte vor
+     * dem ersten Oeffnen — der Schnappschuss ist dann noch leer).
+     *
+     * @return list<array{label:string, paket:string}>
+     */
+    #[Computed]
+    public function dressSummary(): array
+    {
+        $rows = \Platform\Recruiting\Models\RecDispoEventDress::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->get()
+            ->keyBy('taetigkeit');
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $packageIds = $rows->pluck('rec_dispo_dress_package_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
+        $packageNames = \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->whereIn('id', $packageIds)
+            ->pluck('name', 'id');
+
+        $out = [];
+
+        $allRow = $rows->get(\Platform\Recruiting\Models\RecDispoEventDress::ALL);
+        if ($allRow !== null) {
+            $out[] = [
+                'label' => 'Alle übrigen',
+                'paket' => (string) ($packageNames[(int) $allRow->rec_dispo_dress_package_id] ?? ''),
+            ];
+        }
+
+        $taetigkeiten = $this->dressTaetigkeitenSnapshot !== [] ? $this->dressTaetigkeitenSnapshot : $this->eventTaetigkeiten;
+        foreach ($taetigkeiten as $taetigkeit) {
+            $row = $rows->get($taetigkeit);
+            if ($row === null) {
+                continue;
+            }
+            $out[] = [
+                'label' => $taetigkeit,
+                'paket' => (string) ($packageNames[(int) $row->rec_dispo_dress_package_id] ?? ''),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Uebernimmt den ZAS-Text in unser Hinweisfeld. Haengt an, statt zu
+     * ersetzen — ein bereits getippter Hinweis darf nicht verlorengehen.
+     */
+    public function copyZasToHinweis(): void
+    {
+        $zas = trim((string) ($this->event->dresscode ?? ''));
+        if ($zas === '') {
+            return;
+        }
+
+        $current = trim($this->eventHinweis);
+        $this->eventHinweis = $current === '' ? $zas : ($current . "\n\n" . $zas);
+    }
+
+    /**
+     * Taetigkeiten, die in DIESER VA vorkommen — aus den Einbuchungen, nicht
+     * aus einem Katalog. Freitext aus ZAS, deshalb nur trimmen und sortieren.
+     *
+     * Fix-Runde 1: nur eindeutig tote Einbuchungen werden herausgefiltert
+     * (storniert, aus ZAS verschwunden, zur Loeschung gemeldet, abgesagt) —
+     * bewusst NICHT das Empfaenger-Praedikat aus sendPreview()/infoPreview().
+     * Wuerde man auf aktive Empfaenger filtern, waere die Auswahl bei einem
+     * Nachversand leer (alle schon angeschrieben) und die Dispo koennte gar
+     * kein Paket mehr setzen. Vergangene Tage und bereits Angeschriebene
+     * bleiben deshalb absichtlich waehlbar.
+     *
+     * Fix-Runde 2: diese Methode ist #[Computed] und wird bei JEDEM
+     * Livewire-Roundtrip NEU berechnet — die Reihenfolge kann sich also
+     * zwischen zwei Aufrufen verschieben (neue/stornierte/abgesagte
+     * Einbuchung waehrend das Sende-Fenster offen ist). loadDressForm(),
+     * persistDress() und das Blade-Partial verlassen sich deshalb NICHT
+     * mehr auf diese Methode direkt, sondern auf den einmalig beim Oeffnen
+     * gezogenen Schnappschuss $dressTaetigkeitenSnapshot — siehe dort.
+     *
+     * @return list<string>
+     */
+    #[Computed]
+    public function eventTaetigkeiten(): array
+    {
+        $values = $this->event->assignments
+            ->filter(function ($a) {
+                return $a->status_id !== RecDispoAssignment::STATUS_STORNO
+                    && $a->missing_since === null
+                    && $a->deletion_marked_at === null
+                    && $a->declined_at === null;
+            })
+            ->map(fn ($a) => trim((string) $a->taetigkeit))
+            ->filter(fn (string $t) => $t !== '')
+            ->unique()
+            ->values()
+            ->all();
+        sort($values);
+
+        return $values;
+    }
+
+    private function loadDressForm(): void
+    {
+        $event = $this->event;
+        $rows = \Platform\Recruiting\Models\RecDispoEventDress::query()
+            ->where('rec_dispo_event_id', $event->id)
+            ->get();
+
+        $byTaetigkeit = [];
+        $this->dressAll = '';
+        foreach ($rows as $row) {
+            $id = (string) $row->rec_dispo_dress_package_id;
+            if ((string) $row->taetigkeit === \Platform\Recruiting\Models\RecDispoEventDress::ALL) {
+                $this->dressAll = $id;
+                continue;
+            }
+            $byTaetigkeit[(string) $row->taetigkeit] = $id;
+        }
+
+        // Schnappschuss JETZT festschreiben — dieselbe Reihenfolge, in der
+        // dressByTaetigkeit aufgebaut wird. persistDress() und das
+        // Blade-Partial lesen spaeter GEGEN DIESEN Schnappschuss, nicht
+        // gegen eine zwischenzeitlich neu berechnete eventTaetigkeiten()
+        // (Fix-Runde 2: sonst Drift bei ZAS-Lieferung waehrend das Fenster offen ist).
+        $this->dressTaetigkeitenSnapshot = $this->eventTaetigkeiten;
+        $this->dressByTaetigkeit = [];
+        foreach ($this->dressTaetigkeitenSnapshot as $taetigkeit) {
+            $this->dressByTaetigkeit[] = $byTaetigkeit[$taetigkeit] ?? '';
+        }
+
+        $this->eventHinweis = (string) ($event->hinweis ?? '');
+        // Ein bereits bestaetigter Text zaehlt nur, solange ZAS ihn nicht
+        // geaendert hat — sonst muss die Dispo erneut hinsehen.
+        $this->dressAck = $event->dresscode_ack_at !== null
+            && trim((string) $event->dresscode_ack) === trim((string) $event->dresscode);
+    }
+
+    private function persistDress(\Platform\Recruiting\Models\RecDispoEvent $event): void
+    {
+        // dressByTaetigkeit ist index-indiziert (siehe Property-Kommentar) —
+        // gegen den SCHNAPPSCHUSS vom Oeffnen, NICHT gegen eine frische
+        // eventTaetigkeiten()-Berechnung (Fix-Runde 2: die waere bei einer
+        // zwischenzeitlich eingegangenen ZAS-Lieferung eine ANDERE Reihenfolge
+        // als die, mit der die Dispo ihre Auswahl getroffen hat).
+        $wanted = [];
+        foreach ($this->dressTaetigkeitenSnapshot as $index => $taetigkeit) {
+            $wanted[$taetigkeit] = $this->dressByTaetigkeit[$index] ?? '';
+        }
+        $wanted[\Platform\Recruiting\Models\RecDispoEventDress::ALL] = $this->dressAll;
+
+        // Fix-Runde 3, Befund 2: serverseitige Pruefung der eingereichten
+        // Paket-ID. Die Menge ist genau die, die das Fenster anbietet (aktive
+        // Pakete des Teams plus die an dieser VA bereits zugeordneten) —
+        // damit faellt sowohl eine von Hand untergeschobene fremde ID durch
+        // als auch eine, die zwischen Oeffnen und Speichern ausgemustert
+        // UND abgewaehlt wurde.
+        $erlaubt = array_map('intval', array_keys($this->dressPackages));
+
+        foreach ($wanted as $taetigkeit => $packageId) {
+            $key = ['rec_dispo_event_id' => $event->id, 'taetigkeit' => (string) $taetigkeit];
+
+            if (trim((string) $packageId) === '') {
+                \Platform\Recruiting\Models\RecDispoEventDress::query()->where($key)->delete();
+                continue;
+            }
+
+            if (!in_array((int) $packageId, $erlaubt, true)) {
+                // Bestehende Zeile bleibt unberuehrt — lieber der alte Stand
+                // als ein Paket, das diese VA gar nicht waehlen durfte.
+                \Illuminate\Support\Facades\Log::warning('dispo_dress_package_not_allowed', [
+                    'event_id' => $event->id, 'taetigkeit' => (string) $taetigkeit, 'package_id' => (int) $packageId,
+                ]);
+                continue;
+            }
+
+            \Platform\Recruiting\Models\RecDispoEventDress::updateOrCreate(
+                $key,
+                ['rec_dispo_dress_package_id' => (int) $packageId]
+            );
+        }
+    }
+
+    /**
+     * Braucht dieser Versand die Bestaetigung „ZAS-Text gesehen"?
+     *
+     * Ja, sobald irgendein Paket gesetzt ist UND in ZAS noch Text steht — denn
+     * ab dann verschwindet dieser Text von der Einsatz-Seite. Statisch, damit
+     * die Regel ohne Livewire-Aufbau testbar bleibt.
+     *
+     * @param list<string> $chosen Paket-IDs als String, '' = keins
+     */
+    public static function dressNeedsAck(array $chosen, ?string $zasText, bool $acked): bool
+    {
+        if ($acked) {
+            return false;
+        }
+        if (trim((string) $zasText) === '') {
+            return false;
+        }
+
+        foreach ($chosen as $value) {
+            if (trim((string) $value) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Riegel fuer BEIDE Speicherwege (Senden und „Nur Kleidung speichern").
+     *
+     * @return bool true = geblockt, der Aufrufer muss abbrechen
+     */
+    private function dressGateBlocks(RecDispoEvent $event): bool
+    {
+        $chosen = array_values($this->dressByTaetigkeit);
+        $chosen[] = $this->dressAll;
+
+        if (!self::dressNeedsAck($chosen, $event->dresscode, $this->dressAck)) {
+            return false;
+        }
+
+        $this->addError('dressAck', 'Bitte einmal bestätigen, dass der bisherige Kleidungstext aus ZAS gesehen wurde — er verschwindet für die Empfänger.');
+
+        return true;
+    }
+
+    /**
+     * Die Kleidungs-Spalten der VA — eine Quelle fuer den Sende-Weg (dort in
+     * dasselbe update() wie Vorlaufzeit/Ansprechpartner) und fuer saveDress().
+     *
+     * @return array<string, mixed>
+     */
+    private function dressEventAttributes(RecDispoEvent $event): array
+    {
+        return [
+            'hinweis'          => trim($this->eventHinweis) === '' ? null : trim($this->eventHinweis),
+            'dresscode_ack'    => $this->dressAck ? $event->dresscode : $event->dresscode_ack,
+            'dresscode_ack_at' => $this->dressAck ? now() : $event->dresscode_ack_at,
+        ];
+    }
+
+    /**
+     * „Nur Kleidung speichern" im Sende-Fenster (Fix-Runde 3, Befund 1):
+     * Paketauswahl, Hinweis und Ack festhalten, OHNE zu senden — Muster
+     * saveEscalation(). Der Senden-Knopf ist bei einer durchbestaetigten VA
+     * dauerhaft deaktiviert; ohne diesen Weg waere die Auswahl dann gar nicht
+     * mehr speicherbar.
+     */
+    public function saveDress(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+
+        $this->dressSaved = false;
+        $event = RecDispoEvent::findOrFail($this->eventId);
+
+        if ($this->dressGateBlocks($event)) {
+            return;
+        }
+        $this->resetErrorBag('dressAck');
+
+        $event->update($this->dressEventAttributes($event));
+        $this->persistDress($event);
+        // Computed-Cache der VA verwerfen, damit der Kasten den gespeicherten
+        // Stand zeigt (Muster persistEscalation()).
+        unset($this->event);
+
+        $this->dressSaved = true;
     }
 
     /** Crew-Modal (Kunde 02.09.): abgespecktes Personal-Kaertchen statt Link in die MA-Akte. */
@@ -1891,6 +2360,10 @@ class Show extends Component
         // Ansprechpartner: Teamleitung ist Standard, gespeicherte manuelle Eingabe gewinnt.
         $this->loadContactForm();
 
+        $this->loadDressForm();
+        $this->dressSaved = false;
+        $this->resetErrorBag('dressAck');
+
         $this->showSendModal = true;
     }
 
@@ -1942,11 +2415,20 @@ class Show extends Component
         }
 
         $event = RecDispoEvent::findOrFail($this->eventId);
-        $event->update([
+
+        // Derselbe Riegel wie in saveDress() — beide Speicherwege muessen ihn
+        // durchlaufen (Fix-Runde 3, Befund 1).
+        if ($this->dressGateBlocks($event)) {
+            return;
+        }
+
+        $event->update(array_merge([
             'vorlauf_minuten' => (int) $this->vorlaufMinuten,
             // Nur manuelle Ueberschreibung speichern; Standard-Teamleitung -> null (zieht live mit).
             'ansprechpartner' => DispoContactResolver::toStore($this->ansprechpartner, $this->teamLeads),
-        ]);
+        ], $this->dressEventAttributes($event)));
+
+        $this->persistDress($event);
 
         // Eskalation pro Sendung: eigenen Plan validieren und als konkrete
         // Zeitpunkte mitgeben — der Sender stempelt sie den Empfaengern.

@@ -87,6 +87,8 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\ZasPnrLookup::class,
                 \Platform\Recruiting\Console\Commands\ArchiveOldConversations::class,
                 \Platform\Recruiting\Console\Commands\SendProofReminders::class,
+                \Platform\Recruiting\Console\Commands\DispoSeedDressPackages::class,
+                \Platform\Recruiting\Console\Commands\DispoUnfreezeDress::class,
             ]);
         }
 

@@ -126,5 +126,7 @@ Route::get('/dispo-attachments/{uuid}', \Platform\Recruiting\Http\Controllers\Di
     ->where('uuid', '[0-9a-fA-F-]{36}');
 Route::get('/dispo-settings', \Platform\Recruiting\Livewire\Dispo\Settings::class)
     ->name('recruiting.dispo.settings');
+Route::get('/dispo-dress-packages', \Platform\Recruiting\Livewire\Dispo\DressPackages::class)
+    ->name('recruiting.dispo.dress-packages');
 Route::get('/dispo-kommunikation', \Platform\Recruiting\Livewire\Dispo\Conversations\Index::class)
     ->name('recruiting.dispo.conversations');

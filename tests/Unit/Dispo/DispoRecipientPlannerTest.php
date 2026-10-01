@@ -122,6 +122,26 @@ class DispoRecipientPlannerTest extends TestCase
         $this->assertSame('2026-09-01', $result['recipients'][0]['first_datum']);
     }
 
+    /**
+     * Fall VA 1560 (30.09.2026): 10 bestaetigte Zeilen gehoerten zu einer Person
+     * ohne Handynummer. Die Nummer wurde zuerst geprueft, deshalb meldete das
+     * Sende-Fenster 51 bestaetigte, waehrend Karte und Filter 61 zeigten.
+     * Wer ohnehin nicht angeschrieben wird, gehoert nicht in den Nummern-Topf.
+     */
+    public function test_bestaetigt_schlaegt_fehlende_nummer_in_der_begruendung(): void
+    {
+        $result = $this->planner->plan([
+            $this->row(['id' => 1, 'employee_id' => 7, 'confirmed_at' => '2026-08-19 10:00:00']),
+            $this->row(['id' => 2, 'employee_id' => 8, 'declined_at' => '2026-08-19 10:00:00']),
+            $this->row(['id' => 3, 'employee_id' => 9]),
+        ], [], false); // niemand hat eine Nummer
+
+        $this->assertSame(1, $result['skipped']['confirmed']);
+        $this->assertSame(1, $result['skipped']['declined']);
+        $this->assertSame(1, $result['skipped']['no_phone'], 'Nur der wirklich Offene faellt an der Nummer aus.');
+        $this->assertSame([], $result['recipients'], 'An der Empfaengermenge aendert die Reihenfolge nichts.');
+    }
+
     public function test_declined_rows_are_skipped_and_counted(): void
     {
         $r = $this->planner->plan([
