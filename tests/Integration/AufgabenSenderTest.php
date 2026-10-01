@@ -433,6 +433,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls, 'es darf nicht einmal ein Versuch bei Meta entstehen');
+        $this->assertSame('recruiting.aufgaben.vorlage_ohne_link', $this->logGrund());
     }
 
     /**
@@ -449,6 +450,15 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls);
+
+        // DER GRUND MUSS UNTERSCHEIDBAR SEIN, und darum steht diese Zeile
+        // hier: ohne die eigene Wache faengt die URL-Knopf-Pruefung den Fall
+        // ebenfalls ab (eine fehlende Vorlage hat keine Komponenten, also
+        // auch keinen Knopf) — mit demselben Status, aber mit der falschen
+        // Logzeile. Wer am Deploy-Tag ins Protokoll schaut, muss wissen, ob
+        // die Vorlage fehlt oder ob ihr der Knopf fehlt: das sind zwei
+        // verschiedene Handgriffe.
+        $this->assertSame('recruiting.aufgaben.vorlage_unbekannt', $this->logGrund());
     }
 
     /** Eine nicht genehmigte Vorlage zaehlt nicht — auch nicht als „irgendwas". */
@@ -462,6 +472,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_unbekannt', $this->logGrund());
     }
 
     /**
@@ -489,6 +500,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_unbekannt', $this->logGrund());
     }
 
     /**
@@ -703,6 +715,17 @@ final class AufgabenSenderTest extends TestCase
             'einsatz'  => $datum !== null ? ['datum' => $datum, 'taetigkeit' => 'Service', 'event' => 'Messe'] : null,
             'gesperrt' => false,
         ];
+    }
+
+    /**
+     * Der Schluessel der ERSTEN Logzeile — also der Grund, aus dem der
+     * Versand unterblieben ist. Zwei Gruende mit demselben Status muessen im
+     * Protokoll unterscheidbar bleiben, sonst weiss am Deploy-Tag niemand,
+     * welcher Handgriff faellig ist.
+     */
+    private function logGrund(): string
+    {
+        return (string) ($this->log->zeilen[0]['nachricht'] ?? '');
     }
 
     private function logText(): string
