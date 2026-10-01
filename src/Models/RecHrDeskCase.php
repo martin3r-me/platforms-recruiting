@@ -10,9 +10,14 @@ class RecHrDeskCase extends Model
 {
     protected $table = 'rec_hr_desk_cases';
 
+    // rec_employee_id steht hier BEWUSST drin: den HR-Fall legt der
+    // Einsatz-Trigger regulaer per create() an — anders als die
+    // Trigger-Zustandsspalten, die am Beobachter vorbei geschrieben werden
+    // muessen. An rec_hr_desk_cases haengt kein ZAS-Export-Marker.
     protected $fillable = [
         'uuid',
         'rec_applicant_id',
+        'rec_employee_id',
         'team_id',
         'reason',
         'status',
@@ -43,6 +48,11 @@ class RecHrDeskCase extends Model
     // aus der Anwesenheitspflege (InterviewBookings\Index::submitClarification).
     public const REASON_TRAINING_CLARIFICATION = 'training_clarification';
 
+    // Die Arbeitserlaubnis fehlt oder ist abgelaufen (Canvas-Abgleich Folie 14).
+    // Angelegt vom Einsatz-Trigger, nicht aus dem Bewerberprozess — deshalb
+    // haengt dieser Grund am MITARBEITER und nicht am Bewerber.
+    public const REASON_WORK_PERMIT = 'work_permit';
+
     /** Map reason-codes auf sprechende deutsche Labels für UI-Anzeige. */
     /**
      * Offene Faelle dieser Reasons blockieren den VERTRAGSVERSAND aus der
@@ -63,6 +73,7 @@ class RecHrDeskCase extends Model
         self::REASON_APPLICANT_CANCELLED_TRAINING => 'Schulung vom Bewerber abgesagt',
         self::REASON_MINOR => 'Minderjährig (unter 18)',
         self::REASON_TRAINING_CLARIFICATION => 'Klärung aus der Schulung',
+        self::REASON_WORK_PERMIT => 'Arbeitserlaubnis fehlt oder ist abgelaufen',
     ];
 
     public function reasonLabel(): string
