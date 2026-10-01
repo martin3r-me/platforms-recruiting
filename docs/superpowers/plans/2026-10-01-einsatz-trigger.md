@@ -1439,8 +1439,36 @@ Ein Fall mit `rec_applicant_id = NULL` hat keinen — er faellt aus **beiden** A
 heraus. Der Trigger legte damit Faelle an, **die niemand je sieht**, und die Sperre waere
 genau so folgenlos wie die fehlende Verbindung zu ZAS.
 
-**Das gehoert in diese Aufgabe:** `HrDeskCaseVisibility` muss Faelle **ohne** Bewerber
-mitnehmen, wenn sie an einem Mitarbeiter haengen. Zwei Pflichttests:
+**Und es ist kein vergessener Filter, sondern Absicht** (Befund der Aufgabe-4/5-Pruefung,
+von mir am Code nachgelesen). `constrainApplicant()` filtert zusaetzlich mit
+`whereDoesntHave('employee')` — der HR-Schreibtisch zeigt **bewusst** nur Bewerber, die
+noch **keine** Mitarbeiter sind. Die Sperre ist also **doppelt**: einmal ueber den
+fehlenden Bewerber, einmal ueber den vorhandenen Mitarbeiter.
+
+**Damit ist es eine Entscheidung, keine Reparatur.** Zwei Wege, und der Umsetzer trifft
+die Wahl und begruendet sie im Bericht:
+
+- **Der HR-Schreibtisch nimmt Mitarbeiter-Faelle mit.** Dann muessen beide Filter
+  aufgeweicht werden, und die urspruengliche Absicht („dieser Schreibtisch gehoert dem
+  Bewerberprozess") faellt. Die Bewerber-Faelle duerfen sich dabei **nicht** aendern —
+  ein eigener Test muss das festhalten.
+- **Die Arbeitserlaubnis-Faelle bekommen eine eigene Stelle**, etwa eine Zeile im Bericht
+  des Einsatz-Pruefungs-Kommandos. Dann bleibt der Schreibtisch, wie er ist, aber HR
+  muss an zwei Orte schauen.
+
+**Was NICHT geht:** den Fall anlegen und es dabei belassen. Dann ist die harte Sperre
+genau so folgenlos wie die fehlende Verbindung zu ZAS.
+
+**`RecHrDeskCase` hat heute keine `employee()`-Beziehung** — die gehoert dazu, egal
+welcher Weg gewaehlt wird.
+
+**Und die elfte Falle liegt hier bereit:** drei Dateien bauen `rec_hr_desk_cases` von
+Hand **ohne** `rec_employee_id` — `HrDeskNoRoutingForEmployeesTest`,
+`HrDeskCaseVisibilityTest`, `ManualBookingCandidatesTest`. Wer die Sichtbarkeit anfasst,
+zieht diese Schemata mit, sonst prueft er gegen eine Spalte, die SQLite in ein
+String-Literal verwandelt.
+
+Zwei Pflichttests, wenn der erste Weg gewaehlt wird:
 
 ```php
 public function test_ein_fall_ohne_bewerber_steht_im_hr_schreibtisch(): void
