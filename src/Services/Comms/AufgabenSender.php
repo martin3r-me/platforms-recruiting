@@ -255,18 +255,27 @@ final class AufgabenSender
         // dann pruefen, dass sie einen dynamischen URL-Knopf hat, dann den
         // Token hineinlegen. Jeder dieser Schritte kann VERWEIGERN — eine
         // Portal-Nachricht ohne Weg ins Portal geht nicht raus.
-        $metaVorlage = $this->metaVorlage($name, $sprache);
-        if ($metaVorlage === null) {
-            Log::error('recruiting.aufgaben.vorlage_unbekannt', [
+        $nachschlag = $this->vorlageNachschlagen($name, $sprache);
+        if ($nachschlag['vorlage'] === null) {
+            // ET-29: VIER BETRIEBSLAGEN, VIER LOGZEILEN. An dieser Zeile
+            // haengt am Deploy-Tag ein Handgriff, und die vier sind
+            // verschiedene: die Vorlage ist gar nicht da (Meta-Abgleich
+            // laufen lassen) · sie ist nicht genehmigt (bei Meta nachhaken)
+            // · sie gibt es nur in einer anderen Sprache (env korrigieren)
+            // · es gibt zwei gleichnamige genehmigte (die falsche WABA
+            // aufraeumen). „Irgendwas mit der Vorlage" schickt jemanden in
+            // die falsche Richtung.
+            Log::error('recruiting.aufgaben.'.$nachschlag['grund'], [
                 'anlass'      => $anlass,
                 'vorlage'     => $name,
+                'sprache'     => $sprache,
                 'mitarbeiter' => $employee->id,
             ]);
 
             return self::STATUS_VORLAGE_UNTAUGLICH;
         }
 
-        $vorlagenTeile = (array) ($metaVorlage->components ?? []);
+        $vorlagenTeile = (array) ($nachschlag['vorlage']->components ?? []);
 
         if (WhatsAppTemplateUrlButtons::dynamicIndexes($vorlagenTeile) === []) {
             // Wortgleich zur Begruendung in ProofReminderSender: ohne Link
@@ -296,7 +305,7 @@ final class AufgabenSender
         $knopf = ApplicantTemplateSender::buildTokenComponents($vorlagenTeile, $token);
         if (!$knopf['ok']) {
             // Mehr als ein dynamischer Knopf — nicht eindeutig sendbar.
-            Log::error('recruiting.aufgaben.vorlage_mehrdeutig', [
+            Log::error('recruiting.aufgaben.vorlage_mehrere_knoepfe', [
                 'anlass'      => $anlass,
                 'vorlage'     => $name,
                 'mitarbeiter' => $employee->id,
@@ -392,22 +401,47 @@ final class AufgabenSender
      * Der Name kommt aus der Konfiguration (env), nicht aus einer
      * Team-Einstellung wie bei `ProofReminderSender` — das ist der Stand aus
      * Aufgabe 9 und bleibt so; nachgeschlagen wird hier nur der AUFBAU.
+     *
+     * ET-29: der GRUND kommt mit zurueck, nicht nur ein null. Die vier Wege
+     * hierher sind vier verschiedene Handgriffe (siehe Aufrufstelle).
+     *
+     * @return array{vorlage: ?IntegrationsWhatsAppTemplate, grund: ?string}
      */
-    private function metaVorlage(string $name, string $sprache): ?IntegrationsWhatsAppTemplate
+    private function vorlageNachschlagen(string $name, string $sprache): array
     {
+        $fehlt = fn (string $grund) => ['vorlage' => null, 'grund' => $grund];
+
         if (!class_exists(IntegrationsWhatsAppTemplate::class)) {
-            return null;
+            return $fehlt('vorlage_fehlt_ganz');
         }
 
-        $treffer = IntegrationsWhatsAppTemplate::query()
+        // EINMAL ueber den Namen, dann in PHP einengen: so kann jede Stufe
+        // sagen, WORAN es lag. Mit drei where() auf der Abfrage waere am
+        // Ende nur bekannt, dass nichts passt.
+        $mitNamen = IntegrationsWhatsAppTemplate::query()
             ->where('name', $name)
-            ->where('language', $sprache)
-            ->where('status', 'APPROVED')
             ->orderBy('id')
-            ->limit(2)
             ->get();
 
-        return $treffer->count() === 1 ? $treffer->first() : null;
+        if ($mitNamen->isEmpty()) {
+            return $fehlt('vorlage_fehlt_ganz');
+        }
+
+        $inSprache = $mitNamen->where('language', $sprache);
+        if ($inSprache->isEmpty()) {
+            return $fehlt('vorlage_falsche_sprache');
+        }
+
+        $genehmigt = $inSprache->where('status', 'APPROVED')->values();
+        if ($genehmigt->isEmpty()) {
+            return $fehlt('vorlage_nicht_genehmigt');
+        }
+
+        if ($genehmigt->count() > 1) {
+            return $fehlt('vorlage_nicht_eindeutig');
+        }
+
+        return ['vorlage' => $genehmigt->first(), 'grund' => null];
     }
 
     /**

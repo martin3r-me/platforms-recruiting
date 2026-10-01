@@ -418,6 +418,75 @@ final class AufgabenSenderTest extends TestCase
     // ------------------------------------------------- F1: der Portal-Link
 
     /**
+     * ET-29 — DIE VIER BETRIEBSLAGEN MUESSEN UNTERSCHEIDBAR BLEIBEN.
+     *
+     * Vorher teilten sich vier Lagen eine Zeichenkette, und drei Tests
+     * sicherten dieselbe zu — der Status allein sagt nur „irgendwas mit der
+     * Vorlage" und schickt am Deploy-Tag jemanden in die falsche Richtung.
+     * Dieser Test ist die GESCHLOSSENE Form davon: ein einziger Mutant, der
+     * zwei dieser Zeilen gleich macht, faellt hier auf, auch wenn er die
+     * Einzeltests ueberlebt.
+     */
+    public function testJedeVorlagenLageHatIhreEigeneLogZeile(): void
+    {
+        $lagen = [
+            'vorlage_fehlt_ganz' => function (): void {
+                DB::table('integrations_whatsapp_templates')->where('name', self::VORLAGE_NEU)->delete();
+            },
+            'vorlage_falsche_sprache' => function (): void {
+                $this->vorlageSetzen('neu', ['sprache' => 'fr']);
+            },
+            'vorlage_nicht_genehmigt' => function (): void {
+                DB::table('integrations_whatsapp_templates')
+                    ->where('name', self::VORLAGE_NEU)->update(['status' => 'PENDING']);
+            },
+            'vorlage_nicht_eindeutig' => function (): void {
+                DB::table('integrations_whatsapp_templates')->insert([
+                    'uuid' => 'tpl-zweit', 'external_id' => 'ext-zweit',
+                    'name' => self::VORLAGE_NEU, 'language' => 'de', 'status' => 'APPROVED',
+                    'category' => 'UTILITY', 'components' => json_encode($this->vorlagenAufbau()),
+                    'whatsapp_account_id' => 2, 'user_id' => 1,
+                    'created_at' => self::ANGEFASST, 'updated_at' => self::ANGEFASST,
+                ]);
+            },
+        ];
+
+        $gemessen = [];
+
+        foreach ($lagen as $erwartet => $herstellen) {
+            // Jede Lage auf einem frischen Stand: die vorige zurueckdrehen.
+            DB::table('integrations_whatsapp_templates')->delete();
+            $this->vorlageSetzen('neu', ['sprache' => 'de']);
+            $this->metaVorlagenAnlegen();
+            $this->log->zeilen = [];
+
+            $herstellen();
+
+            $this->assertSame(
+                AufgabenSender::STATUS_VORLAGE_UNTAUGLICH,
+                (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu'),
+                "Lage {$erwartet}: es muss verweigert werden.",
+            );
+            $gemessen[$erwartet] = $this->logGrund();
+        }
+
+        $this->assertSame(
+            [
+                'vorlage_fehlt_ganz'      => 'recruiting.aufgaben.vorlage_fehlt_ganz',
+                'vorlage_falsche_sprache' => 'recruiting.aufgaben.vorlage_falsche_sprache',
+                'vorlage_nicht_genehmigt' => 'recruiting.aufgaben.vorlage_nicht_genehmigt',
+                'vorlage_nicht_eindeutig' => 'recruiting.aufgaben.vorlage_nicht_eindeutig',
+            ],
+            $gemessen,
+        );
+
+        // Und die Gegenrichtung: wirklich VIER verschiedene, nicht viermal
+        // dieselbe. Ohne diese Zeile waere der Vergleich oben schon mit
+        // einem Namen je Lage erfuellt, der zufaellig passt.
+        $this->assertCount(4, array_unique($gemessen));
+    }
+
+    /**
      * F1 — OHNE LINK GEHT NICHTS RAUS. Wortgleich zur Begruendung in
      * `ProofReminderSender`: „ohne Link waere die Erinnerung eine
      * Sackgasse". Die Nachricht sagt „schau ins Portal" — eine Vorlage ohne
@@ -458,7 +527,7 @@ final class AufgabenSenderTest extends TestCase
         // Logzeile. Wer am Deploy-Tag ins Protokoll schaut, muss wissen, ob
         // die Vorlage fehlt oder ob ihr der Knopf fehlt: das sind zwei
         // verschiedene Handgriffe.
-        $this->assertSame('recruiting.aufgaben.vorlage_unbekannt', $this->logGrund());
+        $this->assertSame('recruiting.aufgaben.vorlage_fehlt_ganz', $this->logGrund());
     }
 
     /** Eine nicht genehmigte Vorlage zaehlt nicht — auch nicht als „irgendwas". */
@@ -472,7 +541,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls);
-        $this->assertSame('recruiting.aufgaben.vorlage_unbekannt', $this->logGrund());
+        $this->assertSame('recruiting.aufgaben.vorlage_nicht_genehmigt', $this->logGrund());
     }
 
     /**
@@ -500,7 +569,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls);
-        $this->assertSame('recruiting.aufgaben.vorlage_unbekannt', $this->logGrund());
+        $this->assertSame('recruiting.aufgaben.vorlage_nicht_eindeutig', $this->logGrund());
     }
 
     /**
@@ -526,12 +595,31 @@ final class AufgabenSenderTest extends TestCase
      */
     public function testDerLinkTraegtDenTokenDiesesMenschen(): void
     {
-        DB::table('rec_employees')->where('id', $this->ma->id)->update(['portal_token' => 'nur-fuer-gregor']);
+        // ET-28: ZWEI Zeilen, und verschickt wird an die ZWEITE. Mit nur
+        // einer Zeile konnte die Umgebung den Unterschied gar nicht
+        // herstellen — „nimm den Token des Mitarbeiters mit der kleinsten
+        // Kennung" ueberlebte die Mutationsprobe. Genau diese Zusage ist in
+        // diesem Modul schon einmal gebrochen worden: im Theo-Wirtz-Fall
+        // wurde ein Form-Token in JEDEN URL-Knopf injiziert.
+        $zweiteId = (int) DB::table('rec_employees')->insertGetId([
+            'team_id'      => self::TEAM,
+            'first_name'   => 'Wilma',
+            'last_name'    => 'Zweite',
+            'phone'        => '+4915122222222',
+            'portal_token' => 'nur-fuer-wilma',
+            'is_active'    => 1,
+            'created_at'   => self::ANGEFASST,
+            'updated_at'   => self::ANGEFASST,
+        ]);
 
-        (new AufgabenSender())->sende($this->ma->fresh(), $this->stand(), 'neu');
+        $this->assertGreaterThan($this->ma->id, $zweiteId, 'Vorflug: die Zweite hat die groessere Kennung.');
+        $this->assertSame(self::TOKEN, DB::table('rec_employees')->where('id', $this->ma->id)->value('portal_token'),
+            'Vorflug: die Erste traegt einen ANDEREN Token.');
+
+        (new AufgabenSender())->sende(RecEmployee::find($zweiteId), $this->stand(), 'neu');
 
         $knopf = $this->meta->calls[0]['components'][1];
-        $this->assertSame('nur-fuer-gregor', $knopf['parameters'][0]['text']);
+        $this->assertSame('nur-fuer-wilma', $knopf['parameters'][0]['text']);
     }
 
     // --------------------------------------------------------------- Kanal
@@ -628,6 +716,7 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
         $this->assertSame([], $this->meta->calls);
+        $this->assertSame('recruiting.aufgaben.vorlage_falsche_sprache', $this->logGrund());
     }
 
     // ------------------------------------------------------- ET-9: das Log
