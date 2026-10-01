@@ -632,6 +632,34 @@ final class EinsatzPruefungTest extends TestCase
     }
 
     /**
+     * Und die Zahlen muessen in beiden Laufarten dieselben sein. Die
+     * ET-26-Flagge haengt deshalb an der FAELLIGKEIT und nicht am Versand:
+     * im Trockenlauf wird nie verschickt, also meldete eine am Versand
+     * haengende Flagge dort eine Erinnerung als faellig, die der scharfe
+     * Lauf gar nicht schickt — genau der Fehler, der bei F5 schon einmal
+     * durchgerutscht ist, und genau die Zahl, nach der jemand die
+     * Wellengroesse bemisst.
+     */
+    public function test_der_trockenlauf_meldet_bei_et26_dieselben_zahlen(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-03', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-25', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01', ['--dry-run' => true]);
+        $trocken = $this->faelligZeile();
+
+        $this->laufe('2026-10-01');
+        $scharf = $this->faelligZeile();
+
+        $this->assertSame($scharf, $trocken);
+        // Und beide sagen die SACHE, nicht nur dasselbe: eine neue
+        // Nachricht, keine faellige Erinnerung, eine unterdrueckte.
+        $this->assertStringContainsString('0 Mensch(en) fuer eine Erinnerung', $scharf);
+        $this->assertStringContainsString('1 bekommen in diesem Lauf schon die neue Nachricht', $scharf);
+    }
+
+    /**
      * ET-27 — DIE PAUSE DARF AUCH HIER KEINE NACHRICHT HINTER IHREN EINSATZ
      * SCHIEBEN, und die Messung ist die des Pruefers: Einsaetze am 05.10.
      * und 09.10., elf Laeufe.
@@ -1865,6 +1893,18 @@ final class EinsatzPruefungTest extends TestCase
             $this->cache->lock('recruiting:einsatz-pruefung:lauf', 1800)->get(),
             'Vorflug: die Sperre war vorher frei.',
         );
+    }
+
+    /** Die „Faellig:"-Zeile des letzten Laufs — die Zahlen, nach denen jemand plant. */
+    private function faelligZeile(): string
+    {
+        foreach (preg_split('/\R/', $this->letzteAusgabe) ?: [] as $zeile) {
+            if (str_starts_with(trim($zeile), 'Faellig:')) {
+                return trim($zeile);
+            }
+        }
+
+        $this->fail('Der Bericht hat keine "Faellig:"-Zeile.');
     }
 
     private function senderAttrappe(): object
