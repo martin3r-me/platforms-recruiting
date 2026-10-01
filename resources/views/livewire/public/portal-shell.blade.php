@@ -196,7 +196,8 @@
                 {{--
                     Aufgabe 11: dieselben offenen Punkte wie unten, aber MIT
                     dem naechsten Einsatz als Bezug -- "Ausweis fehlt" wird
-                    "Ausweis fehlt -- gebraucht fuer deinen Einsatz am 12.10.".
+                    "Ausweis fehlt -- gebraucht fuer deinen Einsatz am 12.10.2026"
+                    (ET-25: volles Jahr, nicht nur 'd.m.' -- Begruendung weiter unten).
                     OffenePunkte::fuer() (Aufgabe 8) liefert 'einsatz' REGELMAESSIG
                     als null (stornierter/aus der ZAS-Lieferung verschwundener
                     Einsatz) -- der Kasten traegt dann trotzdem, nur ohne den
@@ -220,7 +221,7 @@
                         --}}
                         @if ($offenePunkte['gesperrt'])
                             <div class="aufgaben-sperre">
-                                <span class="dot crit" style="margin-top:6px"></span>
+                                <span class="dot crit"></span>
                                 <div class="txt">{{ $duzen
                                     ? 'Mit diesem Stand darfst du nicht zum Einsatz.'
                                     : 'Mit diesem Stand dürfen Sie nicht zum Einsatz.' }}</div>
@@ -229,8 +230,15 @@
 
                         @if ($offenePunkte['einsatz'] !== null)
                             @php
+                                // ET-25 (Entscheidung des Koordinators): volles Jahr, nicht
+                                // nur 'd.m.' -- der Brief-Code sagte 'd.m.', die bindende
+                                // Vorgabe darueber 'd.m.Y'. Zwei Gruende: 'd.m.' ist ueber den
+                                // Jahreswechsel mehrdeutig (05.01. -- dieses oder naechstes
+                                // Jahr?), und der Mensch bekommt dasselbe Datum vorher schon
+                                // ausgeschrieben per WhatsApp ('20.10.2026') -- zwei
+                                // Schreibweisen fuer denselben Tag waeren unnoetige Reibung.
                                 $offenePunkteBezug = ($duzen ? 'Für deinen Einsatz am ' : 'Für Ihren Einsatz am ')
-                                    . \Illuminate\Support\Carbon::parse($offenePunkte['einsatz']['datum'])->format('d.m.')
+                                    . \Illuminate\Support\Carbon::parse($offenePunkte['einsatz']['datum'])->format('d.m.Y')
                                     . ($offenePunkte['einsatz']['event'] ? ' — ' . $offenePunkte['einsatz']['event'] : '');
                             @endphp
                             <p class="aufgaben-bezug">{{ $offenePunkteBezug }}</p>

@@ -285,15 +285,18 @@ final class PortalAufgabenBladeTest extends TestCase
      * OffenePunkte::fuer(): PortalShell::ansichtsDaten() ruft die Klasse
      * ohne zweites Argument auf (Produktionscode), genau wie der Brief es
      * vorschreibt ("Keine neue oeffentliche Eigenschaft").
+     *
+     * $duzen default true (der Normalfall im Portal); die Siez-Probe
+     * (Nachbesserung, M17) ruft explizit mit false.
      */
-    private function rendereHuelle(RecEmployee $ma, string $heute): string
+    private function rendereHuelle(RecEmployee $ma, string $heute, bool $duzen = true): string
     {
         Carbon::setTestNow($heute);
 
         $shell = new PortalShell();
         $shell->employeeId = $ma->id;
         $shell->state = 'verified';
-        $shell->duzen = true;
+        $shell->duzen = $duzen;
 
         $ansichtsDaten = $this->privat($shell, 'ansichtsDaten');
         $variablen = array_merge(get_object_vars($shell), $ansichtsDaten);
@@ -326,13 +329,42 @@ final class PortalAufgabenBladeTest extends TestCase
     public function test_der_huelle_nennt_den_einsatz_zum_offenen_punkt(): void
     {
         $ma = $this->mitarbeiterOhneNachweise();
-        $this->einbuchung($ma, ['datum' => '2026-10-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
+        $this->einbuchung($ma, [
+            'datum' => '2026-10-12', 'status_id' => 1, 'taetigkeit' => 'Service',
+            'event_name' => 'Messe Duesseldorf',
+        ]);
 
         $markup = $this->rendereHuelle($ma, '2026-10-01');
 
         $this->assertStringContainsString('Ausweis', $markup);
         // Der Bezug macht aus einer Liste eine Aufforderung.
-        $this->assertStringContainsString('12.10.', $markup);
+        // ET-25: volles Jahr, nicht nur 'd.m.' -- ueber den Jahreswechsel
+        // waere '12.10.' sonst mehrdeutig, und der Mensch bekommt denselben
+        // Tag vorher schon als 'TT.MM.JJJJ' per WhatsApp.
+        $this->assertStringContainsString('12.10.2026', $markup);
+        // M18 (Nachbesserung): der Projektname ist die halbe Aussage des
+        // Features -- "fuer deinen Einsatz am 12.10.2026" allein waere nur
+        // die Haelfte von dem, was OffenePunkte::fuer()['einsatz']['event']
+        // zusaetzlich zum Datum liefert.
+        $this->assertStringContainsString('Messe Duesseldorf', $markup);
+    }
+
+    /**
+     * M17 (Nachbesserung): "Die Seite duzt" ist eine bindende Vorgabe --
+     * geprueft war bisher nur, dass sie beim Normalfall ($duzen=true)
+     * stimmt, nie die Gegenprobe. Ein vertauschter Ternary-Zweig
+     * ($duzen ? 'Sie' : 'du') waere unentdeckt geblieben, solange nie mit
+     * $duzen=false gerendert wurde.
+     */
+    public function test_die_seite_siezt_auf_wunsch_beim_einsatz_bezug(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01', duzen: false);
+
+        $this->assertStringContainsString('Für Ihren Einsatz am', $markup);
+        $this->assertStringNotContainsString('Für deinen Einsatz am', $markup);
     }
 
     public function test_ein_ko_punkt_ist_als_solcher_erkennbar(): void
@@ -416,6 +448,10 @@ final class PortalAufgabenBladeTest extends TestCase
         $markup = $this->rendereHuelle($ma, '2026-10-01');
 
         $this->assertStringContainsString('aufgaben-sperre', $markup);
+        // M19 (Nachbesserung): bei einem Arbeitsverbot ist der SATZ die ganze
+        // Information -- ein roter Balken mit Punkt, aber ohne Text, waere
+        // bisher unbemerkt gruen geblieben (die Klasse allein reicht nicht).
+        $this->assertStringContainsString('nicht zum Einsatz.', $markup);
     }
 
     /**
@@ -453,6 +489,48 @@ final class PortalAufgabenBladeTest extends TestCase
                 $klasse . '{',
                 $stile,
                 "Fuer {$klasse} fehlt eine eigene Stilregel -- der Kasten erscheint sonst ungestaltet."
+            );
+        }
+    }
+
+    /**
+     * M9/M10 (Nachbesserung): der Test oben bewacht nur EIN Ende der
+     * Kopplung -- dass die Stilvorlage die Klasse kennt. Er sagt nichts
+     * darueber, ob das BLADE sie wirklich noch so benennt. Wird eine Klasse
+     * im Blade umbenannt (`aufgaben-bezug` -> `aufgaben-bezugX`), bleibt die
+     * Stilregel unberuehrt gruen, und der Kasten erscheint trotzdem
+     * ungestaltet -- derselbe Defekt, von der anderen Seite. Diese Schleife
+     * schliesst die zweite Richtung: sie prueft den exakten, im Blade
+     * STEHENDEN Textbaustein, nicht nur eine Teilstring-Erwaehnung.
+     *
+     * Grenzgenau statt bloss `assertStringContainsString($klasse, ...)`:
+     * ein Anhaengen am ENDE ('aufgaben-kastenX') waere sonst eine
+     * Teilstring-Falle (die laengere Zeichenkette enthaelt die kuerzere) --
+     * dieselbe Lehre, die der Pruefer bei M11/M12 gezogen hat. Jede Probe
+     * unten verlangt deshalb das Zeichen, das im Original UNMITTELBAR auf
+     * den Klassennamen folgt (schliessendes Anfuehrungszeichen bzw.
+     * Semikolon) -- ein angehaengtes 'X' schiebt dieses Zeichen weg und
+     * macht die Probe scharf in beide Richtungen.
+     */
+    public function test_die_neuen_klassen_stehen_auch_wirklich_so_im_blade(): void
+    {
+        $blade = $this->bladeQuelle();
+
+        foreach ([
+            'aufgaben-kasten' => 'class="aufgaben-kasten"',
+            'aufgaben-bezug'  => 'class="aufgaben-bezug"',
+            'aufgaben-sperre' => 'class="aufgaben-sperre"',
+            // Keine literale class="aufgabe" im Markup (sie kommt ueber
+            // $offenerPunktKlasse) -- bewacht wird deshalb die Stelle, an
+            // der der String tatsaechlich entsteht.
+            'aufgabe'         => ": 'aufgabe';",
+            'aufgabe-ko'      => "'aufgabe aufgabe-ko'",
+        ] as $klasse => $beleg) {
+            $this->assertStringContainsString(
+                $beleg,
+                $blade,
+                "Die Klasse {$klasse} steht nicht mehr so im Blade wie erwartet -- "
+                . 'entweder umbenannt (dann haengt die Stilregel ins Leere) oder entfernt.'
             );
         }
     }
