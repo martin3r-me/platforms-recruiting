@@ -78,6 +78,9 @@ final class EmployeeNachweisUebersichtTest extends TestCase
             $t->string('last_name')->nullable();
             $t->string('person_key', 36)->nullable();
             $t->string('phone')->nullable();
+            // Siehe ProofReaderTest: ohne diese Spalte uebersieht SQLite den
+            // Filter auf die aktiven Anstellungen stillschweigend.
+            $t->boolean('is_active')->nullable();
             $t->boolean('is_eu_citizen')->nullable();
             $t->string('employment_type')->nullable();
             $t->boolean('is_first_aider')->nullable();
@@ -113,7 +116,7 @@ final class EmployeeNachweisUebersichtTest extends TestCase
 
         Capsule::table('rec_employees')->insert([
             // Nicht-EU, damit Aufenthaltstitel/Arbeitsgenehmigung Pflicht sind.
-            ['id' => 900, 'uuid' => 'remp-900', 'team_id' => self::TEAM, 'first_name' => 'Lydia', 'last_name' => 'Bontioti', 'is_eu_citizen' => false],
+            ['id' => 900, 'uuid' => 'remp-900', 'team_id' => self::TEAM, 'first_name' => 'Lydia', 'last_name' => 'Bontioti', 'is_active' => true, 'is_eu_citizen' => false],
         ]);
 
         Capsule::table('users')->insert([

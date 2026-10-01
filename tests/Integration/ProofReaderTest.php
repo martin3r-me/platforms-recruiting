@@ -49,6 +49,13 @@ final class ProofReaderTest extends TestCase
             $t->integer('team_id')->nullable();
             $t->string('person_key', 64)->nullable();
             $t->string('phone')->nullable();
+            // Die echte Tabelle hat is_active, dieses Schema hatte sie nicht.
+            // SQLite wirft bei einer fehlenden Spalte in doppelten
+            // Anfuehrungszeichen KEINEN Fehler, sondern liefert ein
+            // String-Literal zurueck — ProofReader haette den Filter auf die
+            // aktiven Anstellungen hier also still uebersprungen und jeder
+            // Testfall waere unbemerkt im Rueckfallzweig gelandet.
+            $t->boolean('is_active')->nullable();
             $t->boolean('is_eu_citizen')->nullable();
             $t->string('employment_type')->nullable();
             $t->boolean('is_first_aider')->nullable();
@@ -97,7 +104,7 @@ final class ProofReaderTest extends TestCase
     {
         DB::table('rec_employees')->insert(array_merge([
             'id' => $id, 'uuid' => "u-{$id}", 'team_id' => 3,
-            'person_key' => 'p-1', 'phone' => '+4915112345678',
+            'person_key' => 'p-1', 'phone' => '+4915112345678', 'is_active' => true,
         ], $attr));
 
         return RecEmployee::find($id);
