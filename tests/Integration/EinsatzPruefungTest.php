@@ -60,6 +60,8 @@ final class EinsatzPruefungTest extends TestCase
 
     private object $log;
 
+    private object $cache;
+
     private string $ausgabe = '';
 
     protected function setUp(): void
@@ -84,6 +86,11 @@ final class EinsatzPruefungTest extends TestCase
         };
         $container->instance('log', $this->log);
         $container->instance('config', new ConfigRepository([]));
+
+        // ET-24: die Laufsperre. Die Attrappe verhaelt sich wie ein echtes
+        // Cache-Schloss — wer es haelt, haelt es, bis er es freigibt.
+        $this->cache = $this->cacheAttrappe();
+        $container->instance('cache', $this->cache);
 
         $this->capsule = new Capsule($container);
         $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
@@ -116,6 +123,7 @@ final class EinsatzPruefungTest extends TestCase
         $container = Container::getInstance();
         $container->forgetInstance('log');
         $container->forgetInstance('config');
+        $container->forgetInstance('cache');
         $container->forgetInstance('db');
         $container->forgetInstance('db.schema');
         $container->forgetInstance(AufgabenSender::class);
@@ -731,6 +739,75 @@ final class EinsatzPruefungTest extends TestCase
     }
 
     // =================================================================
+    // ET-24 — die Laufsperre
+    // =================================================================
+
+    /**
+     * `withoutOverlapping(30)` am Zeitplan schuetzt den Zeitplan nur gegen
+     * SICH SELBST. Der geplante Betrieb ist aber ein Mischbetrieb:
+     * stuendlich prueft der Zeitplan, von Hand werden die Wellen gefahren.
+     * Zwei Laeufe gleichzeitig lesen denselben alten Stand (die Signatur
+     * wird erst NACH dem Versand geschrieben) und schreiben beide — der
+     * Mensch bekaeme die Nachricht zweimal, in derselben Minute, und keine
+     * der Bremsen greift.
+     */
+    public function test_ein_zweiter_lauf_kommt_nicht_dazwischen(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->sperreBelegen();
+
+        $ergebnis = $this->laufe('2026-10-01');
+
+        $this->assertSame([], $this->sender->versandt);
+        $this->assertNull($this->person($ma)->aufgaben_signatur);
+        $this->assertSame(0, RecHrDeskCase::query()->count(), 'auch die Fall-Anlage bleibt aus');
+        $this->assertStringContainsString('laeuft bereits', $this->ausgabe);
+
+        // SUCCESS, nicht FAILURE: eine Kollision ist der vorgesehene
+        // Betrieb, und die Arbeit holt der naechste Lauf nach. Mit FAILURE
+        // schlueg der Zeitplan jedes Mal Alarm, wenn jemand von Hand eine
+        // Welle faehrt.
+        $this->assertSame(Command::SUCCESS, $ergebnis);
+    }
+
+    /**
+     * Die Gegenrichtung: die Sperre wird am Ende wieder freigegeben. Ohne
+     * das Freigeben liefe nach dem ersten Lauf nie wieder etwas — und zwar
+     * bis zum Verfall des Schlosses, also eine halbe Stunde lang.
+     */
+    public function test_die_sperre_wird_am_ende_wieder_freigegeben(): void
+    {
+        $a = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($a, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->laufe('2026-10-01');
+        $this->assertCount(1, $this->sender->versandt);
+
+        $b = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($b, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->laufe('2026-10-02');
+
+        $this->assertCount(2, $this->sender->versandt);
+        $this->assertSame($b->id, $this->sender->versandt[1]['ma']);
+    }
+
+    /** Und ein Trockenlauf laeuft auch neben einem scharfen Lauf. */
+    public function test_der_trockenlauf_braucht_die_sperre_nicht(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->sperreBelegen();
+
+        $this->laufe('2026-10-01', ['--dry-run' => true]);
+
+        $this->assertStringContainsString('Faellig: 1 Mensch(en)', $this->ausgabe);
+        $this->assertStringNotContainsString('laeuft bereits', $this->ausgabe);
+        $this->assertSame([], $this->sender->versandt);
+    }
+
+    // =================================================================
     // Die Betriebsvorgaben
     // =================================================================
 
@@ -1111,6 +1188,53 @@ final class EinsatzPruefungTest extends TestCase
         $this->ausgabe .= $output->fetch();
 
         return $ergebnis;
+    }
+
+    /**
+     * Ein Cache-Schloss, das sich wie eines verhaelt: get() nur beim ersten
+     * Mal, release() gibt frei. Eine Attrappe, die IMMER true liefert, waere
+     * grosszuegiger als der Wirt und machte jede Sperr-Zusicherung wertlos.
+     */
+    private function cacheAttrappe(): object
+    {
+        return new class {
+            /** @var array<string, true> */
+            public array $gehalten = [];
+
+            public function lock(string $name, int $sekunden = 0): object
+            {
+                return new class($this, $name) {
+                    public function __construct(private object $speicher, private string $name) {}
+
+                    public function get(): bool
+                    {
+                        if (isset($this->speicher->gehalten[$this->name])) {
+                            return false;
+                        }
+
+                        $this->speicher->gehalten[$this->name] = true;
+
+                        return true;
+                    }
+
+                    public function release(): bool
+                    {
+                        unset($this->speicher->gehalten[$this->name]);
+
+                        return true;
+                    }
+                };
+            }
+        };
+    }
+
+    /** Jemand anderes haelt gerade die Laufsperre. */
+    private function sperreBelegen(): void
+    {
+        $this->assertTrue(
+            $this->cache->lock('recruiting:einsatz-pruefung:lauf', 1800)->get(),
+            'Vorflug: die Sperre war vorher frei.',
+        );
     }
 
     private function senderAttrappe(): object

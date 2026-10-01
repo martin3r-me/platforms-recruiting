@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Console\Commands;
 
 use DateTimeImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Models\CommsWhatsAppMessage;
@@ -125,6 +126,25 @@ use Platform\Recruiting\Support\TriggerRegeln;
  * DIE BETRIEBSVORGABEN
  * ===================================================================
  *
+ * ET-24 — EINE EIGENE LAUFSPERRE, NICHT NUR withoutOverlapping. Der
+ * Zeitplan-Eintrag traegt `withoutOverlapping(30)`, aber das schuetzt den
+ * Zeitplan nur gegen SICH SELBST. Der geplante Betriebsmodus ist ein
+ * Mischbetrieb: stuendlich prueft der Zeitplan, von Hand werden die Wellen
+ * gefahren. Zwei solche Laeufe gleichzeitig sind innerhalb EINES Laufs
+ * unbedenklich (gruppen() fasst jeden Menschen zu genau einem Durchgang
+ * zusammen), ZWISCHEN zwei Laeufen aber nicht: die Signatur wird erst NACH
+ * dem Versand geschrieben, beide Laeufe lesen also denselben alten Stand und
+ * schreiben beide. Der Mensch bekaeme die Nachricht zweimal, in derselben
+ * Minute, und keine der Bremsen greift. Deshalb nimmt das Kommando eine
+ * eigene Sperre, die Zeitplan- UND Handlauf erfasst.
+ * EIN TROCKENLAUF BRAUCHT SIE NICHT und nimmt sie auch nicht: er schreibt
+ * nichts und verschickt nichts, kann also nichts doppeln — und wer waehrend
+ * des stuendlichen Laufs nachsehen will, soll das koennen.
+ * EINE KOLLISION IST KEIN FEHLER: sie ist der vorgesehene Betrieb, und die
+ * Arbeit holt der naechste Lauf nach. Deshalb SUCCESS mit deutlicher
+ * Warnung und nicht FAILURE — sonst schlueg der Zeitplan jedes Mal Alarm,
+ * wenn jemand von Hand eine Welle faehrt.
+ *
  * OHNE --welle GEHT NICHTS RAUS. Dieselbe Bremse wie bei
  * recruiting:konto-einladen, und aus demselben Grund: ein Kommando, das
  * WhatsApp verschickt und keine Obergrenze kennt, ist eine Falle. Wie viele
@@ -178,14 +198,50 @@ class EinsatzPruefung extends Command
 
     protected $description = 'Einsatz-Trigger: prueft vor einem gebuchten Einsatz, was dem Menschen fehlt, meldet es ihm und oeffnet bei fehlender Arbeitserlaubnis einen HR-Fall';
 
+    /** ET-24: der Schluessel der Laufsperre — ein Lauf im ganzen Haus. */
+    private const LAUF_SPERRE = 'recruiting:einsatz-pruefung:lauf';
+
+    /**
+     * Grosszuegig, weil ein scharfer Lauf ueber den Bestand viele
+     * Einzel-Aufrufe an Meta macht. Die Sperre verfaellt von selbst — ein
+     * abgestuerzter Lauf legt das Kommando also nicht dauerhaft still.
+     */
+    private const SPERRE_SEKUNDEN = 1800;
+
     public function handle(): int
+    {
+        $dryRun = (bool) $this->option('dry-run');
+
+        // ET-24: der Trockenlauf nimmt die Sperre nicht — er schreibt nichts
+        // und verschickt nichts, kann also nichts doppeln.
+        if ($dryRun) {
+            return $this->lauf(true);
+        }
+
+        $sperre = Cache::lock(self::LAUF_SPERRE, self::SPERRE_SEKUNDEN);
+
+        if (!$sperre->get()) {
+            $this->warn('Es laeuft bereits eine Einsatz-Pruefung — dieser Lauf macht NICHTS. '
+                .'Das ist der vorgesehene Betrieb (stuendlicher Lauf neben einem Hand-Lauf); '
+                .'die Arbeit holt der naechste Lauf nach. Zum blossen Nachsehen genuegt --dry-run.');
+
+            return self::SUCCESS;
+        }
+
+        try {
+            return $this->lauf(false);
+        } finally {
+            $sperre->release();
+        }
+    }
+
+    private function lauf(bool $dryRun): int
     {
         $heute = now()->toDateString();
         $jetzt = now()->toDateTimeString();
 
         $teamId = $this->option('team') !== null ? (int) $this->option('team') : null;
         $ids    = $this->idsOption();
-        $dryRun = (bool) $this->option('dry-run');
         $welle  = $this->option('welle') !== null ? max(0, (int) $this->option('welle')) : 0;
 
         $this->info(sprintf(
@@ -448,6 +504,14 @@ class EinsatzPruefung extends Command
         $ausEinsatz = DB::table('rec_dispo_assignments as a')
             ->join('rec_employees as e', 'e.id', '=', 'a.rec_employee_id')
             ->where('a.status_id', RecDispoAssignment::STATUS_AUFTRAG)
+            // GUERTEL UND HOSENTRAEGER, und das steht hier, damit niemand
+            // diese Zeile fuer die tragende haelt: eine verschwundene
+            // Einbuchung wird weiter unten ohnehin zweimal ausgeschlossen —
+            // in OffenePunkte::naechsterEinsatz() und in
+            // erinnerungsKandidaten(). Faellt sie hier weg, kaeme der Mensch
+            // zwar in den Zielkreis, bekaeme aber trotzdem nichts. Sie bleibt
+            // stehen, weil sie den Zielkreis klein haelt, nicht weil eine
+            // Regel an ihr haengt.
             ->whereNull('a.missing_since')
             ->where('a.datum', '>=', $heute)
             ->when($teamId !== null, fn ($q) => $q->where('e.team_id', $teamId))
