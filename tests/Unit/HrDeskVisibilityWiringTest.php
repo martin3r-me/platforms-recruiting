@@ -142,6 +142,32 @@ final class HrDeskVisibilityWiringTest extends TestCase
         );
     }
 
+    /**
+     * Die Rueckmeldung nach dem Freigeben haengt daran, OB es einen Bewerber
+     * gibt. Vorher stand dort fest „Case freigegeben — Bewerber zurück im
+     * normalen Flow." — fuer einen Menschen, der nie Bewerber war, eine
+     * falsche Auskunft an HR ueber das, was gerade passiert ist.
+     *
+     * Quelltext-Zusicherung wie die beiden darueber: die Komponente ist im
+     * Modul nicht instanziierbar.
+     */
+    public function testDieRueckmeldungNachDemFreigebenUnterscheidetBeideFaelle(): void
+    {
+        $src = $this->source('Livewire/HrDesk/Index.php');
+
+        $this->assertStringContainsString(
+            "\$case->rec_applicant_id !== null
+                    ? 'Case freigegeben — Bewerber zurück im normalen Flow.'",
+            $src,
+            'Die Rueckmeldung nach dem Freigeben ist wieder fest verdrahtet.',
+        );
+        $this->assertStringContainsString(
+            "'Fall geschlossen — der Mitarbeiter bleibt unverändert",
+            $src,
+            'Fuer den Fall ohne Bewerber fehlt die eigene Rueckmeldung.',
+        );
+    }
+
     private function blade(): string
     {
         return file_get_contents(

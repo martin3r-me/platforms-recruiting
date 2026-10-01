@@ -205,7 +205,14 @@ class Index extends Component
         if ($this->resolvingAction === 'approve') {
             try {
                 $service->approveCase($case, $userId, $notes);
-                session()->flash('message', 'Case freigegeben — Bewerber zurück im normalen Flow.');
+                // Ein Fall ohne Bewerber (Einsatz-Trigger, Arbeitserlaubnis)
+                // hat keinen Funnel, in den jemand zurückkehren könnte —
+                // "Freigeben" heißt dort schlicht "schließen". Die alte,
+                // feste Meldung war für diese Fälle eine falsche Auskunft an
+                // HR über einen Menschen, der nie Bewerber war.
+                session()->flash('message', $case->rec_applicant_id !== null
+                    ? 'Case freigegeben — Bewerber zurück im normalen Flow.'
+                    : 'Fall geschlossen — der Mitarbeiter bleibt unverändert, es wurde nichts versendet.');
             } catch (LegalStatusNotCheckedException) {
                 session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
             }
