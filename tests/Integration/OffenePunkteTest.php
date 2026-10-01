@@ -234,6 +234,10 @@ final class OffenePunkteTest extends TestCase
 
         $this->assertTrue($titel['ko']);
         $this->assertTrue($stand['gesperrt']);
+        // Label und Status an den richtigen Schluesseln (nicht vertauscht) —
+        // das Portal (Aufgabe 11) zeigt das Label an und entscheidet am Status.
+        $this->assertSame('Aufenthaltstitel', $titel['label']);
+        $this->assertSame('fehlt', $titel['status']);
     }
 
     public function test_ein_fehlender_ausweis_sperrt_nicht(): void
@@ -273,6 +277,29 @@ final class OffenePunkteTest extends TestCase
         ]);
 
         $this->assertNull((new OffenePunkte())->fuer($ma, '2026-10-01')['einsatz']);
+    }
+
+    /**
+     * Der Einsatz-Bezug gehoert der PERSON, nicht der einen Anstellung, mit
+     * der man gerade zu tun hat (gleiches Muster wie
+     * ProofReaderPersonPflichtenTest) — die Einbuchung haengt an der
+     * SCHWESTER-Anstellung derselben Person, nicht an $ma selbst. Ohne den
+     * PersonScopeResolver in naechsterEinsatz() (z. B. ein versehentliches
+     * [$employee->id] statt des aufgeloesten Umfangs) bliebe diese Einbuchung
+     * unsichtbar, und kein anderer Test hier wuerde das merken, weil alle
+     * uebrigen Faelle mit genau einer Anstellung arbeiten.
+     */
+    public function test_der_einsatz_einer_anderen_anstellung_derselben_person_zaehlt_mit(): void
+    {
+        $person = $this->personAnlegen();
+        $rg = $this->mitarbeiter(['rec_person_id' => $person, 'employment_type' => 'student']);
+        $ma = $this->mitarbeiter(['rec_person_id' => $person, 'employment_type' => 'aushilfe']);
+        $this->einbuchung($rg, ['datum' => '2026-10-20', 'status_id' => 1, 'taetigkeit' => 'Garderobe']);
+
+        $einsatz = (new OffenePunkte())->fuer($ma, '2026-10-01')['einsatz'];
+
+        $this->assertSame('2026-10-20', $einsatz['datum']);
+        $this->assertSame('Garderobe', $einsatz['taetigkeit']);
     }
 
     /**
