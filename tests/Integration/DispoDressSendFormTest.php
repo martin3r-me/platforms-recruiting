@@ -538,6 +538,40 @@ class DispoDressSendFormTest extends DressTestCase
     }
 
     /**
+     * Review-Nachbesserung (Minor): ein FREMDER Fehler im Bag darf den
+     * Rueckweg nicht blockieren. Realer Ablauf: Dispo klickt im Sende-Fenster
+     * "Jetzt senden", die Eskalations-Validierung schlaegt fehl (escPlanDate)
+     * und haengt im Bag; sie wechselt dann ueber "aendern" ins
+     * Kleidung-Fenster und setzt ein Paket. "Speichern und zurueck" darf nur
+     * noch an 'dressAck' scheitern, nicht an diesem alten, hier gar nicht
+     * sichtbaren Fehler — sonst tut der Knopf scheinbar nichts.
+     */
+    public function test_save_dress_and_return_ignores_foreign_errors_from_the_send_modal(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+        $c->openDressModalFromSend();
+        $c->dressAll = (string) $pkg->id;
+        $c->dressAck = true;
+
+        // Simuliert den liegengebliebenen Fehler aus einem gescheiterten
+        // "Jetzt senden" (Eskalations-Validierung) im selben Request-Zyklus.
+        $c->addError('escPlanDate', 'Bitte ein Datum waehlen.');
+
+        $c->saveDressAndReturn();
+
+        $this->assertTrue($c->dressSaved, 'Der Kleidung-Pfad selbst hat nichts beanstandet.');
+        $this->assertTrue($c->showSendModal, 'Ein fremder Fehler (Eskalation) darf den Rueckweg nicht blockieren.');
+        $this->assertFalse($c->showDressModal);
+        $this->assertTrue($c->getErrorBag()->has('escPlanDate'), 'Der fremde Fehler bleibt unangetastet stehen.');
+    }
+
+    /**
      * Log-Attrappe: der Ablehnungspfad schreibt Log::warning. Facade-Cache
      * mit leeren, sonst greift eine zuvor aufgeloeste Instanz
      * (siehe Memory reference_log_facade_test_stub).

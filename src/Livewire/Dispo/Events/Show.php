@@ -991,7 +991,18 @@ class Show extends Component
     {
         $this->saveDress();
 
-        if ($this->getErrorBag()->isNotEmpty()) {
+        // GEZIELT auf 'dressAck' pruefen, NICHT pauschal auf isNotEmpty():
+        // der Fehler-Beutel ist komponentenweit EIN Bag. Wer vorher "Jetzt
+        // senden" geklickt hat und an der Eskalations-Validierung
+        // (escPlanDate/escTime1, siehe sendConfirmations()) oder der
+        // Vorlaufzeit scheiterte, traegt dessen Fehler noch im Bag, waehrend
+        // das Sende-Fenster laengst durch das Kleidung-Fenster ueberdeckt
+        // ist. isNotEmpty() wuerde DANN blocken, obwohl saveDress() selbst
+        // nichts beanstandet hat — der Rueckweg bliebe ohne sichtbaren Grund
+        // zu. Einzig 'dressAck' ist der Schluessel, den der Kleidung-Pfad
+        // (dressGateBlocks()) je setzt — siehe dort. NICHT auf isNotEmpty()
+        // "vereinfachen", auch nicht aus Symmetrie-Gruenden.
+        if ($this->getErrorBag()->has('dressAck')) {
             return;
         }
 
