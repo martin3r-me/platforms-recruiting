@@ -500,9 +500,12 @@
     </div>
 
     @if ($showSendModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showSendModal', false)">
-            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Bestätigungen senden</h2>
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="$set('showSendModal', false)">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Bestätigungen senden</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
 
                 @if ($sendResult === null)
                     @php
@@ -660,7 +663,20 @@
                             @endif
                         @endforeach
                     </div>
-
+                @else
+                    <div class="rounded bg-green-50 p-3 text-sm text-green-800">{{ $sendResult['sent'] }} Nachricht(en) gesendet.</div>
+                    @if ($sendResult['failed'] !== [])
+                        <div class="rounded bg-red-50 p-3 text-sm text-red-800">
+                            <div class="font-medium">{{ count($sendResult['failed']) }} fehlgeschlagen:</div>
+                            @foreach ($sendResult['failed'] as $failure)
+                                <div>MA #{{ $failure['employee_id'] }}: {{ $failure['error'] }}</div>
+                            @endforeach
+                        </div>
+                    @endif
+                @endif
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
+                @if ($sendResult === null)
                     <div class="flex justify-end gap-3">
                         <button wire:click="$set('showSendModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                         <button wire:click="sendConfirmations"
@@ -672,27 +688,22 @@
                         </button>
                     </div>
                 @else
-                    <div class="rounded bg-green-50 p-3 text-sm text-green-800">{{ $sendResult['sent'] }} Nachricht(en) gesendet.</div>
-                    @if ($sendResult['failed'] !== [])
-                        <div class="rounded bg-red-50 p-3 text-sm text-red-800">
-                            <div class="font-medium">{{ count($sendResult['failed']) }} fehlgeschlagen:</div>
-                            @foreach ($sendResult['failed'] as $failure)
-                                <div>MA #{{ $failure['employee_id'] }}: {{ $failure['error'] }}</div>
-                            @endforeach
-                        </div>
-                    @endif
                     <div class="flex justify-end">
                         <button wire:click="$set('showSendModal', false)" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
                     </div>
                 @endif
+                </div>
             </div>
         </div>
     @endif
 
     @if ($showDeclineModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showDeclineModal', false)">
-            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Absage erfassen</h2>
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="$set('showDeclineModal', false)">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Absage erfassen</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                 <p class="text-sm text-gray-500">Stoppt Eskalation und weitere Erinnerungen für die gewählten Tage.</p>
 
                 @php $dayOpts = $this->declineDayOptions; @endphp
@@ -738,10 +749,12 @@
 
                 @error('declineReason')<div class="text-sm text-red-600">{{ $message }}</div>@enderror
                 @error('declineNote')<div class="text-sm text-red-600">{{ $message }}</div>@enderror
-
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
                 <div class="flex justify-end gap-2">
                     <button type="button" wire:click="$set('showDeclineModal', false)" class="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button type="button" wire:click="saveDecline" wire:loading.attr="disabled" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">Absage speichern</button>
+                </div>
                 </div>
             </div>
         </div>
@@ -840,26 +853,34 @@
     @endif
 
     @if ($showNoteModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeNoteModal">
-            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Hinweis für {{ $noteEmployeeName !== '' ? $noteEmployeeName : 'diesen Mitarbeiter' }}</h2>
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="closeNoteModal">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Hinweis für {{ $noteEmployeeName !== '' ? $noteEmployeeName : 'diesen Mitarbeiter' }}</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                 <p class="text-sm text-gray-500">Erscheint auf der Einsatz-Seite dieses Mitarbeiters unter „Hinweis für dich" — für alle Tage dieser Veranstaltung.</p>
 
                 <textarea wire:model="noteDraft" rows="5" placeholder="z. B. Bitte am Nebeneingang melden, Türcode 1234"
                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"></textarea>
-
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
                 <div class="flex justify-end gap-3">
                     <button wire:click="closeNoteModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveNoteFromModal" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                </div>
                 </div>
             </div>
         </div>
     @endif
 
     @if ($showAttachmentModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="closeAttachmentModal">
-            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Anhänge für {{ $attachmentEmployeeName !== '' ? $attachmentEmployeeName : 'diesen Mitarbeiter' }}</h2>
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="closeAttachmentModal">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Anhänge für {{ $attachmentEmployeeName !== '' ? $attachmentEmployeeName : 'diesen Mitarbeiter' }}</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                 <p class="text-sm text-gray-500">PDF, JPG oder PNG, max. 10 MB — der Mitarbeiter öffnet sie über seine Einsatz-Seite, für alle Tage dieser Veranstaltung. Hochladen fügt hinzu; gelöscht wird gezielt je Datei.</p>
 
                 @php $modalAtts = $attachmentEmployeeId !== null ? ($this->attachmentsByEmployee[$attachmentEmployeeId] ?? []) : []; @endphp
@@ -892,26 +913,34 @@
                 @endif
                 @error('attachmentUploads') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
                 @error('attachmentUploads.*') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
-
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
                 <div class="flex justify-end gap-3">
                     <button wire:click="closeAttachmentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveAttachment" wire:loading.attr="disabled" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">Hinzufügen</button>
+                </div>
                 </div>
             </div>
         </div>
     @endif
 
     @if ($showContactModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showContactModal', false)">
-            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Ansprechpartner vor Ort</h2>
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="$set('showContactModal', false)">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Ansprechpartner vor Ort</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                 <p class="text-sm text-gray-500">Gilt für alle Einsatztage dieser Veranstaltung und erscheint sofort auf der Einsatz-Seite — kein Neu-Senden nötig.</p>
                 <label class="block text-sm">
                     @include('recruiting::livewire.dispo.events._contact-field', ['leads' => $this->teamLeads])
                 </label>
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
                 <div class="flex justify-end gap-3">
                     <button wire:click="$set('showContactModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveContact" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                </div>
                 </div>
             </div>
         </div>
@@ -921,12 +950,36 @@
          oben. Die Kleidung ist eine Eigenschaft der Veranstaltung, nicht eines
          Versands — hier bleibt sie auch bei einer durchbestaetigten VA erreichbar. --}}
     @if ($showDressModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showDressModal', false)">
-            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Kleidung</h2>
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="closeDressModal">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Kleidung</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                 @include('recruiting::livewire.dispo.events._dress-fields')
-                <div class="flex justify-end">
-                    <button wire:click="$set('showDressModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Schließen</button>
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
+                {{-- Rueckweg (Kunde-Wunsch): kam das Fenster ueber "aendern" aus
+                     dem Sende-Fenster (dressFromSend), fuehren die Knoepfe
+                     dorthin zurueck statt alles zu schliessen. --}}
+                @if ($dressFromSend)
+                    <div class="flex justify-end gap-3">
+                        <button type="button" wire:click="closeDressModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                        <button type="button" wire:click="saveDressAndReturn"
+                                wire:loading.attr="disabled" wire:target="saveDressAndReturn"
+                                class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern und zurück</button>
+                    </div>
+                @else
+                    <div class="flex items-center justify-end gap-2">
+                        @if ($dressSaved)
+                            <span class="text-xs text-green-600">✓ Kleidung gespeichert</span>
+                        @endif
+                        <button type="button" wire:click="saveDress"
+                                wire:loading.attr="disabled" wire:target="saveDress"
+                                class="rounded border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">Nur Kleidung speichern</button>
+                        <button type="button" wire:click="closeDressModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Schließen</button>
+                    </div>
+                @endif
                 </div>
             </div>
         </div>
@@ -935,9 +988,12 @@
     {{-- "Info an Crew" (Kunde 03.09.): Anhang/Hinweis gefiltert nach Qualifikation
          an viele MA auf einmal + Info-WhatsApp mit Link auf die Einsatz-Seite. --}}
     @if ($showInfoModal)
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showInfoModal', false)">
-            <div class="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 space-y-4">
-                <h2 class="text-lg font-semibold">Info an Crew</h2>
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="$set('showInfoModal', false)">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Info an Crew</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
 
                 @if ($infoResult === null)
                     @php
@@ -1039,17 +1095,6 @@
                             <div>Wird <strong>{{ $infoSelected->count() }}</strong> von {{ count($infoPrev['persons']) }} Mitarbeitern zugewiesen — <span class="font-medium">ohne WhatsApp</span>. Die Infos stehen auf der Einsatz-Seite, sobald der Link rausgeht (z. B. mit der Bestätigung).</div>
                         @endif
                     </div>
-
-                    <div class="flex justify-end gap-3">
-                        <button wire:click="$set('showInfoModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
-                        <button wire:click="sendCrewInfo"
-                                wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUploads"
-                                @if ($infoSelected->count() === 0) disabled @endif
-                                class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
-                            <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : 'Zuweisen' }}</span>
-                            <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : 'Wird zugewiesen …' }}</span>
-                        </button>
-                    </div>
                 @else
                     <div class="rounded bg-green-50 p-3 text-sm text-green-800">
                         @if ($infoResult['sent'] > 0)
@@ -1075,10 +1120,26 @@
                             @endforeach
                         </div>
                     @endif
+                @endif
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
+                @if ($infoResult === null)
+                    <div class="flex justify-end gap-3">
+                        <button wire:click="$set('showInfoModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                        <button wire:click="sendCrewInfo"
+                                wire:loading.attr="disabled" wire:target="sendCrewInfo, infoUploads"
+                                @if ($infoSelected->count() === 0) disabled @endif
+                                class="rounded px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 {{ $infoSelected->count() > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-400' }}">
+                            <span wire:loading.remove wire:target="sendCrewInfo">{{ $infoWaOn ? 'Info senden' : 'Zuweisen' }}</span>
+                            <span wire:loading wire:target="sendCrewInfo">{{ $infoWaOn ? 'Wird gesendet …' : 'Wird zugewiesen …' }}</span>
+                        </button>
+                    </div>
+                @else
                     <div class="flex justify-end">
                         <button wire:click="$set('showInfoModal', false)" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Schließen</button>
                     </div>
                 @endif
+                </div>
             </div>
         </div>
     @endif
@@ -1089,7 +1150,8 @@
         @php $crew = $this->crewCard; @endphp
         <div class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" wire:click.self="closeCrew"
              x-data="{ zoom: false }">
-            <div class="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-6 sm:max-w-lg sm:rounded-2xl sm:p-7" wire:key="crew-{{ $crewEmployeeId }}">
+            <div class="flex w-full max-h-[calc(100dvh-2rem)] flex-col rounded-t-2xl bg-white sm:max-w-lg sm:rounded-2xl" wire:key="crew-{{ $crewEmployeeId }}">
+            <div class="min-h-0 flex-1 overflow-y-auto p-6 sm:p-7">
                 @if ($crew === null)
                     <div class="text-sm text-gray-500">Keine Daten gefunden.</div>
                 @else
@@ -1154,6 +1216,7 @@
                         @endif
                     </div>
                 @endif
+            </div>
             </div>
 
             {{-- Vollbild-Zoom des Selfies (Alpine, kein Server-Roundtrip). --}}
