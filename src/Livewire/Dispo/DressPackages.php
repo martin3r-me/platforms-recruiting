@@ -316,6 +316,16 @@ class DressPackages extends Component
         if ($this->items === []) {
             $this->addError('items', 'Mindestens ein Teil muss vorhanden sein.');
             $ok = false;
+        } else {
+            // Grenze liegt bewusst auf dem ZUSAMMENGESETZTEN Text (vormals
+            // itemsText: max:2000), nicht auf der Zahl der Chips: der
+            // Mitarbeiter liest auf der Einsatz-Seite eine Zeile, keine
+            // Liste — die Chips sind nur unsere Bedienung dafuer.
+            $joined = implode('; ', $this->items);
+            if (mb_strlen($joined) > 2000) {
+                $this->addError('items', 'Die Kleidung ist als ein Satz zu lang (max. 2000 Zeichen) — bitte kuerzen.');
+                $ok = false;
+            }
         }
 
         return $ok;

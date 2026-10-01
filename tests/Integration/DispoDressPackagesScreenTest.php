@@ -105,6 +105,31 @@ class DispoDressPackagesScreenTest extends DressTestCase
         $this->assertTrue($c->getErrorBag()->has('newItem'));
     }
 
+    // --- addSuggestion() ---------------------------------------------------
+
+    /** Reviewer-Nachtrag: addSuggestion() ist ein duenner Wrapper um addItem() — genau das hier belegen. */
+    public function test_add_suggestion_takes_over_the_value_as_a_chip(): void
+    {
+        $c = $this->component();
+
+        $c->addSuggestion('Schuhe');
+
+        $this->assertSame(['Schuhe'], $c->items);
+        $this->assertSame('', $c->newItem, 'Derselbe Weg wie addItem() — Eingabefeld wird geleert.');
+    }
+
+    /** Reviewer-Nachtrag: die Dubletten-Abwehr aus addItem() muss auch ueber addSuggestion() greifen. */
+    public function test_add_suggestion_is_rejected_when_already_present_case_insensitively(): void
+    {
+        $c = $this->component();
+        $c->items = ['Weißes Hemd'];
+
+        $c->addSuggestion('weißes hemd');
+
+        $this->assertSame(['Weißes Hemd'], $c->items, 'Vorschlag darf keine Dublette durchlassen.');
+        $this->assertTrue($c->getErrorBag()->has('newItem'));
+    }
+
     // --- removeItem() ---------------------------------------------------
 
     public function test_remove_item(): void
@@ -233,6 +258,36 @@ class DispoDressPackagesScreenTest extends DressTestCase
         $this->assertFalse($c->saved);
         $this->assertTrue($c->getErrorBag()->has('items'));
         $this->assertNull(RecDispoDressPackage::query()->where('name', 'Leer')->first());
+    }
+
+    /**
+     * Reviewer-Nachtrag: die alte itemsText-Grenze (max:2000) war ersatzlos
+     * weggefallen. Die Grenze liegt bewusst auf dem ZUSAMMENGESETZTEN Text,
+     * nicht auf der Zahl der Chips — ein einzelner sehr langer Teil reicht
+     * schon, um sie zu reissen.
+     */
+    public function test_save_blocks_when_the_joined_items_text_exceeds_2000_characters(): void
+    {
+        $c = $this->component();
+        $c->name = 'Zu lang';
+        $c->items = [str_repeat('A', 2001)];
+
+        $c->save();
+
+        $this->assertFalse($c->saved);
+        $this->assertTrue($c->getErrorBag()->has('items'));
+        $this->assertNull(RecDispoDressPackage::query()->where('name', 'Zu lang')->first());
+    }
+
+    public function test_save_allows_exactly_2000_characters(): void
+    {
+        $c = $this->component();
+        $c->name = 'Genau am Limit';
+        $c->items = [str_repeat('A', 2000)];
+
+        $c->save();
+
+        $this->assertTrue($c->saved);
     }
 
     // --- duplicate() --------------------------------------------------
