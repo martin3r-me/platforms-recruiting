@@ -48,6 +48,13 @@ final class HrDeskNoRoutingForEmployeesTest extends TestCase
         $this->capsule->setAsGlobal();
         $this->capsule->bootEloquent();
 
+        // Die DB-Fassade braucht einen Wurzel-Container: HrDeskRoutingService
+        // ::rejectCase() laeuft in DB::transaction().
+        $container->instance('db', $this->capsule->getDatabaseManager());
+        $container->instance('db.schema', $this->capsule->getConnection()->getSchemaBuilder());
+        \Illuminate\Support\Facades\Facade::setFacadeApplication($container);
+        \Illuminate\Support\Facades\Facade::clearResolvedInstances();
+
         $schema = $this->capsule->schema();
 
         $schema->create('rec_applicants', function ($t) {
@@ -73,7 +80,13 @@ final class HrDeskNoRoutingForEmployeesTest extends TestCase
         $schema->create('rec_hr_desk_cases', function ($t) {
             $t->increments('id');
             $t->string('uuid', 36)->nullable();
-            $t->integer('rec_applicant_id');
+            // rec_employee_id und das nullable auf rec_applicant_id kommen
+            // aus 2026_10_01_000002: ein Fall haengt seit dem an EINEM von
+            // beiden. Fehlte die Spalte hier, machte SQLite aus ihrem Namen
+            // in der Sichtbarkeits-Abfrage ein String-Literal statt eines
+            // Fehlers — der Test waere gruen und wertlos.
+            $t->integer('rec_applicant_id')->nullable();
+            $t->unsignedBigInteger('rec_employee_id')->nullable();
             $t->integer('team_id');
             $t->string('reason', 50);
             $t->string('status', 20)->default('open');
@@ -103,6 +116,14 @@ final class HrDeskNoRoutingForEmployeesTest extends TestCase
         foreach (['rec_auto_pilot_logs', 'rec_hr_desk_cases', 'rec_employees', 'rec_applicants'] as $table) {
             $schema->drop($table);
         }
+
+        // Sonst zeigt 'db'/'db.schema' aus DIESER Capsule in spaetere
+        // Testklassen.
+        $container = Container::getInstance();
+        $container->forgetInstance('db');
+        $container->forgetInstance('db.schema');
+        \Illuminate\Support\Facades\Facade::clearResolvedInstances();
+
         parent::tearDown();
     }
 
@@ -134,6 +155,61 @@ final class HrDeskNoRoutingForEmployeesTest extends TestCase
 
         $this->assertNotNull($log, 'Das Uebergehen hinterlaesst keine Spur.');
         $this->assertStringContainsString('Mitarbeiter', (string) $log->summary);
+    }
+
+    /**
+     * Seit der Schreibtisch auch Faelle ANZEIGT, die an einem Mitarbeiter
+     * und an keinem Bewerber haengen (Einsatz-Trigger, REASON_WORK_PERMIT),
+     * kann HR dort auf "Freigeben" druecken. Ohne die Wache im Service
+     * stuerbe der Knopf an $applicant->hrDeskCases() — und zwar mit einem
+     * 500er auf der ganzen Seite, der dann AUCH alle Bewerber-Faelle
+     * unsichtbar machte. Freigeben heisst hier schlicht: schliessen.
+     */
+    public function testEinFallOhneBewerberLaesstSichFreigeben(): void
+    {
+        $fall = $this->mitarbeiterFall();
+
+        (new HrDeskRoutingService())->approveCase($fall, 7, 'geprueft');
+
+        $fall->refresh();
+        $this->assertSame(RecHrDeskCase::STATUS_APPROVED, $fall->status);
+        $this->assertNotNull($fall->resolved_at);
+        $this->assertSame(7, (int) $fall->resolved_by_user_id);
+    }
+
+    /**
+     * Dasselbe fuer den zweiten Riegel: "Ablehnen" steht an so einer Karte
+     * zwar gar nicht (Blade), aber der Service darf daran trotzdem nicht
+     * sterben — der Knopf ist eine wire:click-Adresse und von aussen
+     * aufrufbar.
+     */
+    public function testEinFallOhneBewerberLaesstSichSchliessenStattAbzulehnen(): void
+    {
+        $fall = $this->mitarbeiterFall();
+
+        (new HrDeskRoutingService())->rejectCase($fall, 7, null);
+
+        $this->assertSame(RecHrDeskCase::STATUS_REJECTED, $fall->refresh()->status);
+    }
+
+    /** Ein offener Fall am MITARBEITER, ohne jeden Bewerber. */
+    private function mitarbeiterFall(): RecHrDeskCase
+    {
+        $employeeId = $this->capsule->table('rec_employees')->insertGetId(['rec_applicant_id' => null]);
+
+        $fall = new RecHrDeskCase();
+        $fall->forceFill([
+            'uuid'             => 'uuid-'.uniqid('', true),
+            'rec_applicant_id' => null,
+            'rec_employee_id'  => $employeeId,
+            'team_id'          => self::TEAM,
+            'reason'           => RecHrDeskCase::REASON_WORK_PERMIT,
+            'status'           => RecHrDeskCase::STATUS_OPEN,
+            'opened_at'        => '2026-10-01 09:00:00',
+        ]);
+        $fall->save();
+
+        return $fall;
     }
 
     /**

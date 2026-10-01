@@ -37,10 +37,24 @@ final class HrDeskVisibilityWiringTest extends TestCase
             $src,
             'Die Fall-Liste baut ihre Sichtbarkeitsregel wieder selbst.',
         );
+        // Seit 01.10.2026 rechnet die Regelklasse die Zaehler selbst
+        // (HrDeskCaseVisibility::reasonCounts) — die Komponente ruft sie nur
+        // noch auf. Grund: die Zaehler muessen seitdem BEIDE Haelften
+        // zusammenziehen (Bewerber-Menschen und Mitarbeiter-Faelle), und
+        // diese Rechnung stuende in der Komponente ungemessen, weil sie im
+        // Modul nicht instanziierbar ist.
         $this->assertStringContainsString(
-            'HrDeskCaseVisibility::applicants(',
+            'HrDeskCaseVisibility::reasonCounts(',
             $src,
             'Die Zaehler je Grund bauen ihre Sichtbarkeitsregel wieder selbst.',
+        );
+
+        // Und die Komponente rechnet NICHT mehr selbst mit: ein
+        // zurueckgekehrtes whereHas auf hrDeskCases waere die alte Kopie.
+        $this->assertStringNotContainsString(
+            "whereHas('hrDeskCases'",
+            $src,
+            'Die Zaehler je Grund rechnen wieder in der Komponente.',
         );
     }
 

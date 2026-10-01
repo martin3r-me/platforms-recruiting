@@ -95,6 +95,16 @@ class RecHrDeskCase extends Model
         return $this->belongsTo(RecApplicant::class, 'rec_applicant_id');
     }
 
+    /**
+     * Der Mitarbeiter, an dem dieser Fall haengt — bei Faellen aus dem
+     * Einsatz-Trigger (REASON_WORK_PERMIT) statt eines Bewerbers. Ein Fall
+     * haengt an einem von beiden.
+     */
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(RecEmployee::class, 'rec_employee_id');
+    }
+
     public function team(): BelongsTo
     {
         return $this->belongsTo(\Platform\Core\Models\Team::class, 'team_id');

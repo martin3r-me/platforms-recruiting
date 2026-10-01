@@ -104,6 +104,14 @@
                                             <a href="{{ route('recruiting.applicants.show', $applicant->id) }}" wire:navigate class="hover:text-[var(--ui-primary)]">
                                                 {{ $name !== '' ? $name : 'Bewerber #' . $applicant->id }}
                                             </a>
+                                        @elseif($case->rec_employee_id)
+                                            {{-- Fall aus dem Einsatz-Trigger: er haengt am MITARBEITER,
+                                                 nicht an einem Bewerber. Ohne diesen Zweig stuende hier
+                                                 "Gelöschter Bewerber" — eine sichtbare Luege ueber einen
+                                                 Menschen, der nie Bewerber war. --}}
+                                            <a href="{{ route('recruiting.employees.show', $case->rec_employee_id) }}" wire:navigate class="hover:text-[var(--ui-primary)]">
+                                                Mitarbeiter #{{ $case->rec_employee_id }}
+                                            </a>
                                         @else
                                             <span class="text-[var(--ui-muted)]">— Gelöschter Bewerber —</span>
                                         @endif
@@ -404,13 +412,19 @@
                                 @if($approveBlocked)
                                     <span class="text-xs text-amber-700 text-center">Erst Rechtsstatus prüfen</span>
                                 @endif
-                                <button
-                                    wire:click="openResolveModal({{ $case->id }}, 'reject')"
-                                    class="px-3 py-1.5 text-sm font-medium rounded-md border border-red-200 text-red-700 bg-white hover:bg-red-50"
-                                >
-                                    @svg('heroicon-o-x-mark', 'w-4 h-4 inline-block -mt-0.5')
-                                    Ablehnen
-                                </button>
+                                @if($applicant)
+                                    {{-- "Ablehnen" heisst: den BEWERBER ablehnen (rejected_at,
+                                         stillgelegt, AutoPilot aus). Bei einem Fall ohne Bewerber
+                                         gibt es niemanden, den das traefe — dort bleibt nur
+                                         "Freigeben", und das heisst dort schlicht "schliessen". --}}
+                                    <button
+                                        wire:click="openResolveModal({{ $case->id }}, 'reject')"
+                                        class="px-3 py-1.5 text-sm font-medium rounded-md border border-red-200 text-red-700 bg-white hover:bg-red-50"
+                                    >
+                                        @svg('heroicon-o-x-mark', 'w-4 h-4 inline-block -mt-0.5')
+                                        Ablehnen
+                                    </button>
+                                @endif
                                 @if($applicant)
                                     <a href="{{ route('recruiting.applicants.show', $applicant->id) }}"
                                        wire:navigate

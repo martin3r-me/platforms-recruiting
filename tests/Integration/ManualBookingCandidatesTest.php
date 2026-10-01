@@ -93,7 +93,13 @@ final class ManualBookingCandidatesTest extends TestCase
 
         $schema->create('rec_hr_desk_cases', function ($t) {
             $t->increments('id');
-            $t->integer('rec_applicant_id');
+            // rec_employee_id und das nullable auf rec_applicant_id kommen
+            // aus 2026_10_01_000002: ein Fall haengt seit dem an EINEM von
+            // beiden. Fehlte die Spalte hier, machte SQLite aus ihrem Namen
+            // in der Sichtbarkeits-Abfrage ein String-Literal statt eines
+            // Fehlers — der Test waere gruen und wertlos.
+            $t->integer('rec_applicant_id')->nullable();
+            $t->unsignedBigInteger('rec_employee_id')->nullable();
             $t->integer('team_id');
             $t->string('reason');
             $t->string('status')->default('open');

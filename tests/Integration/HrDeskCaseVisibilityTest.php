@@ -71,7 +71,13 @@ final class HrDeskCaseVisibilityTest extends TestCase
         $schema->create('rec_hr_desk_cases', function ($t) {
             $t->increments('id');
             $t->string('uuid', 36)->nullable();
-            $t->integer('rec_applicant_id');
+            // rec_employee_id und das nullable auf rec_applicant_id kommen
+            // aus 2026_10_01_000002: ein Fall haengt seit dem an EINEM von
+            // beiden. Fehlte die Spalte hier, machte SQLite aus ihrem Namen
+            // in der Sichtbarkeits-Abfrage ein String-Literal statt eines
+            // Fehlers — der Test waere gruen und wertlos.
+            $t->integer('rec_applicant_id')->nullable();
+            $t->unsignedBigInteger('rec_employee_id')->nullable();
             $t->integer('team_id');
             $t->string('reason', 50);
             $t->string('status', 20)->default('open');
@@ -220,6 +226,137 @@ final class HrDeskCaseVisibilityTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+    // Die Faelle, die an einem MITARBEITER haengen (Einsatz-Trigger)
+    // -----------------------------------------------------------------
+
+    /**
+     * Pflichttest der Entscheidung (Aufgabe 10): ein Fall ohne Bewerber
+     * steht auf dem Schreibtisch. Vorher fiel er aus der Abfrage heraus,
+     * weil `whereHas('applicant', ...)` keinen Bewerber zum Anhaengen hatte
+     * — die harte Sperre des Einsatz-Triggers waere damit genau so folgenlos
+     * gewesen wie die fehlende Verbindung zu ZAS.
+     */
+    public function testEinFallOhneBewerberStehtImHrSchreibtisch(): void
+    {
+        $fall = $this->mitarbeiterFall();
+
+        $this->assertSame(
+            [$fall->id],
+            HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all(),
+        );
+    }
+
+    /** Und er zaehlt in den Gruenden mit, sonst findet HR ihn ueber den Filter nicht. */
+    public function testErZaehltAuchInDenGruendenMit(): void
+    {
+        $this->mitarbeiterFall();
+
+        $zaehler = HrDeskCaseVisibility::reasonCounts(self::TEAM);
+
+        $this->assertSame(1, $zaehler['all']);
+        $this->assertSame(1, $zaehler[RecHrDeskCase::REASON_WORK_PERMIT]);
+        $this->assertSame(0, $zaehler[RecHrDeskCase::REASON_MINOR], 'nur SEIN Grund, nicht alle');
+    }
+
+    /**
+     * DIE WICHTIGSTE ZUSICHERUNG DIESER ENTSCHEIDUNG, und sie geht in BEIDE
+     * Richtungen: der neue Zweig darf an den Bewerber-Faellen NICHTS
+     * aendern.
+     *
+     *  - was sichtbar war, bleibt sichtbar,
+     *  - was ausgeblendet war, bleibt ausgeblendet (hier: der Bewerber, der
+     *    schon Mitarbeiter ist — das ist der Ausschluss, der am ehesten
+     *    mitfallen koennte, weil der neue Zweig gerade Mitarbeiter
+     *    hereinlaesst),
+     *  - und die Zahl der Bewerber-Zaehler bleibt dieselbe.
+     *
+     * Ohne diese Probe liesse sich `whereHas('applicant', ...)` bedingungslos
+     * machen (oder `whereDoesntHave('employee')` streichen), ohne dass etwas
+     * rot wuerde.
+     */
+    public function testBewerberFaelleAendernSichDurchDenMitarbeiterZweigNicht(): void
+    {
+        $sichtbar = $this->offenerFall(['is_parked' => true]);
+
+        $versteckt = $this->offenerFall();
+        $this->capsule->table('rec_employees')->insert([
+            'rec_applicant_id' => $versteckt->rec_applicant_id,
+        ]);
+
+        $vorher = HrDeskCaseVisibility::reasonCounts(self::TEAM);
+
+        $mitarbeiterFall = $this->mitarbeiterFall();
+
+        $this->assertSame(
+            [$mitarbeiterFall->id, $sichtbar->id],
+            HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all(),
+            'Der versteckte Bewerber-Fall darf durch den neuen Zweig nicht hereinrutschen.',
+        );
+
+        $nachher = HrDeskCaseVisibility::reasonCounts(self::TEAM);
+
+        $this->assertSame(
+            $vorher[RecHrDeskCase::REASON_TRAINING_CLARIFICATION],
+            $nachher[RecHrDeskCase::REASON_TRAINING_CLARIFICATION],
+            'Die Bewerber-Zaehler duerfen sich nicht veraendert haben.',
+        );
+        $this->assertSame(1, $vorher[RecHrDeskCase::REASON_TRAINING_CLARIFICATION]);
+    }
+
+    /**
+     * Die Gegenprobe zum neuen Zweig selbst: ein Fall OHNE Bewerber UND OHNE
+     * Mitarbeiter bleibt draussen. Er gehoert zu niemandem, und ohne diese
+     * Probe liesse sich der Zweig auf ein blosses `whereNull('rec_applicant_id')`
+     * verkuerzen — dann stuenden alle verwaisten Altfaelle auf dem
+     * Schreibtisch.
+     */
+    public function testEinFallOhneBewerberUndOhneMitarbeiterBleibtDraussen(): void
+    {
+        $this->mitarbeiterFall(['rec_employee_id' => null]);
+
+        $this->assertSame([], HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all());
+        $this->assertSame(0, HrDeskCaseVisibility::reasonCounts(self::TEAM)['all']);
+    }
+
+    /** Geschlossen heisst geschlossen — auch beim Mitarbeiter-Fall. */
+    public function testEinGeschlossenerMitarbeiterFallErscheintNicht(): void
+    {
+        $this->mitarbeiterFall(['status' => RecHrDeskCase::STATUS_APPROVED]);
+
+        $this->assertSame([], HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all());
+    }
+
+    /** Und das fremde Team bleibt fremd. */
+    public function testEinMitarbeiterFallEinesFremdenTeamsErscheintNicht(): void
+    {
+        $this->mitarbeiterFall(['team_id' => self::TEAM + 1]);
+
+        $this->assertSame([], HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all());
+    }
+
+    // -----------------------------------------------------------------
+
+    /** Ein offener Fall am MITARBEITER, ohne jeden Bewerber (Einsatz-Trigger). */
+    private function mitarbeiterFall(array $caseAttributes = []): RecHrDeskCase
+    {
+        $employeeId = $this->capsule->table('rec_employees')->insertGetId([
+            'rec_applicant_id' => null,
+        ]);
+
+        $case = new RecHrDeskCase();
+        $case->forceFill(array_merge([
+            'uuid'             => 'uuid-'.uniqid('', true),
+            'rec_applicant_id' => null,
+            'rec_employee_id'  => $employeeId,
+            'team_id'          => self::TEAM,
+            'reason'           => RecHrDeskCase::REASON_WORK_PERMIT,
+            'status'           => RecHrDeskCase::STATUS_OPEN,
+            'opened_at'        => '2026-10-01 09:00:00',
+        ], $caseAttributes));
+        $case->save();
+
+        return $case;
+    }
 
     private function applicant(array $attributes = []): RecApplicant
     {

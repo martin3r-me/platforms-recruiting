@@ -63,19 +63,15 @@ class Index extends Component
     public bool $issueCertificate = false;
     public bool $canIssueCertificate = false;
 
+    /**
+     * Die Rechnung selbst liegt in HrDeskCaseVisibility und ist dort gegen
+     * eine echte DB gemessen — hier stuende sie ungemessen, weil diese
+     * Komponente im Modul nicht instanziierbar ist (Auth::user()->currentTeam).
+     */
     #[Computed]
     public function reasonCounts(): array
     {
-        $teamId = (int) Auth::user()->currentTeam->id;
-        $base = HrDeskCaseVisibility::applicants($teamId);
-
-        $counts = ['all' => (clone $base)->count()];
-        foreach (RecHrDeskCase::REASON_LABELS as $reason => $label) {
-            $counts[$reason] = (clone $base)
-                ->whereHas('hrDeskCases', fn ($q) => $q->where('reason', $reason)->open())
-                ->count();
-        }
-        return $counts;
+        return HrDeskCaseVisibility::reasonCounts((int) Auth::user()->currentTeam->id);
     }
 
     #[Computed]
@@ -85,6 +81,10 @@ class Index extends Component
 
         $query = HrDeskCaseVisibility::openCases($teamId)
             ->with([
+                // employee: fuer die Faelle ohne Bewerber (Einsatz-Trigger) —
+                // ohne das Vorladen feuerte die Karte je Fall eine eigene
+                // Abfrage.
+                'employee:id,team_id',
                 'applicant.crmContactLinks.contact.emailAddresses',
                 'applicant.crmContactLinks.contact.phoneNumbers',
                 'applicant.phase',

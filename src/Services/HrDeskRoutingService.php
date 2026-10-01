@@ -262,6 +262,16 @@ class HrDeskRoutingService
             'resolution_notes' => $notes,
         ]);
 
+        // Ein Fall OHNE Bewerber (Einsatz-Trigger, REASON_WORK_PERMIT: er
+        // haengt am Mitarbeiter) hat keinen Funnel, in den jemand
+        // zurueckkehren koennte — freigeben heisst hier schliessen, und
+        // damit ist er fertig. Ohne diese Wache stuerbe der Knopf an
+        // $applicant->hrDeskCases() unten, seit der Schreibtisch diese
+        // Faelle anzeigt.
+        if ($applicant === null) {
+            return;
+        }
+
         // Only release from HR desk if no other open cases remain
         $hasOtherOpenCases = $applicant->hrDeskCases()
             ->where('id', '!=', $case->id)
@@ -335,6 +345,15 @@ class HrDeskRoutingService
         ]);
 
         $applicant = $case->applicant;
+
+        // Dieselbe Wache wie in approveCase(): einen Fall ohne Bewerber kann
+        // man schliessen, aber nicht "ablehnen" — es gibt niemanden im
+        // Funnel, den eine Ablehnung traefe. Der Knopf dafuer steht an der
+        // Karte auch gar nicht (Blade), diese Wache ist der zweite Riegel.
+        if ($applicant === null) {
+            return;
+        }
+
         $attributes = [
             'rejected_at' => now(),
             'is_on_hr_desk' => false,
