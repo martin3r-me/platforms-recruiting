@@ -1484,6 +1484,35 @@ Tests muessen rot werden.
 3. Signatur bilden, `darfMelden()` fragen, Vorlauf ueber `loestAus()` pruefen → ggf. `sende(..., 'neu')`, dann Signatur und Zeitpunkt an der Person schreiben
 4. Je Einbuchung: `erinnerungFaellig()` und noch nicht erinnert → `sende(..., 'erinnerung')`, dann `aufgaben_erinnert_at` schreiben
 
+**ZWEI FUNDE DER PRUEFUNG ZU AUFGABE 6/7, BEIDE GEMESSEN — SIE LANDEN HIER, WEIL DIESE
+AUFGABE DIE ZUSTANDSSPALTEN BESITZT. Ohne sie ist der Motor gebaut und trotzdem stumm.**
+
+**ET-16 — das System verstummt dauerhaft, und zwar im Regelfall.** Die Signatur wird
+heute nie geloescht, wenn nichts mehr offen ist. Gemessener Ablauf: 01.01. fehlt der
+Ausweis, Nachricht geht raus, Signatur H(ausweis) steht an der Person. 30.01. ist der
+Ausweis da, die Liste ist leer — die Signatur bleibt aber stehen. 20.07. laeuft genau
+derselbe Ausweis ab: dieselbe Punktmenge, also dieselbe Signatur, also Schweigen. Und
+zwar fuer immer. Das ist kein Randfall, das ist der Normalfall ablaufender Dokumente.
+**Auflage: sobald die Liste leer ist, werden `aufgaben_signatur` und
+`aufgaben_gemeldet_at` zurueckgesetzt** (observer-frei, wie alles hier). Das kann nicht
+spammen, weil ueber eine leere Liste ohnehin nie etwas rausgeht. Pflichttest: der
+Dreischritt oben, mit einer zweiten Nachricht am Ende.
+
+**ET-15 — die Pause verschluckt den zweiten Einsatz.** Gemessen: 03.10. Nachricht zu
+Einsatz E1 am 20.10. 05.10. kommt ein neuer Punkt dazu UND ein Einsatz E2 am 09.10.
+`loestAus()` ist wahr, aber die Pause laeuft bis 10.10. — die Nachricht zu E2 kommt
+**nie**, denn danach ist E2 vorbei. Uebrig bliebe nur die Erinnerung, also genau die
+Nachricht, die der Docblock selbst als wertlos bezeichnet; und auch die kann ausfallen,
+weil `aufgaben_erinnert_at` an der Einbuchung haengt und nicht an der Signatur.
+**Auflage: die Pause darf eine Nachricht nie hinter den Einsatz schieben, zu dem sie
+gehoert.** Konkret: liegt der ausloesende Einsatz vor dem Ende der Pause, gewinnt der
+Einsatz. Pflichttest: der Ablauf oben, die Nachricht zu E2 muss rausgehen.
+
+**Die drei Zahlen 4/2/7 stehen damit zur Frage an den Kunden** (der User hat sie
+ausdruecklich als vorlaeufig markiert). Die Auflage oben ist die Reparatur, die
+unabhaengig von den Zahlen traegt — sie macht die Kollision unmoeglich, statt sie
+wegzurechnen.
+
 - [ ] **Step 1: Die Tests schreiben**
 
 ```php
