@@ -304,6 +304,55 @@ final class HrDeskCaseVisibilityTest extends TestCase
     }
 
     /**
+     * B1/B2 (Pruefung Runde 1, schwerster Fund) — DIE DISJUNKTHEIT SELBST.
+     *
+     * Die ganze Begruendung der Entscheidung ruht auf einem Satz: der
+     * Mitarbeiter-Zweig kann an Bewerber-Faellen nichts aendern, weil
+     * `rec_applicant_id IS NULL` jeden Bewerber-Fall ausschliesst. Diese
+     * Bedingung war ungemessen — sie liess sich an BEIDEN Stellen
+     * (constrainEmployeeCase und employeeCases) ersatzlos streichen, ohne
+     * dass ein Test fiel, weil kein Test je einen Fall mit BEIDEN Kennungen
+     * baute.
+     *
+     * Hier ist er: ein Bewerber, der schon Mitarbeiter ist (also durch
+     * `whereDoesntHave('employee')` verdeckt), dessen Fall ZUSAETZLICH die
+     * Mitarbeiter-Kennung traegt. Heute entsteht so ein Fall nicht — der
+     * Einsatz-Trigger setzt `rec_applicant_id` immer auf null. Der naechste
+     * "HR-Fall fuer den Bewerber, der schon Mitarbeiter ist" erzeugt ihn,
+     * und dann macht das Streichen der scheinbar redundanten Zeile
+     * versteckte Bewerber-Faelle sichtbar.
+     */
+    public function testEinFallMitBeidenKennungenBleibtVerstecktWieJederBewerberFall(): void
+    {
+        $fall = $this->fallMitBeidenKennungen();
+
+        $this->assertSame(
+            [],
+            HrDeskCaseVisibility::openCases(self::TEAM)->pluck('id')->all(),
+            'Der Bewerber ist schon Mitarbeiter und damit verdeckt — die zweite Kennung '
+            .'am Fall darf ihn nicht durch die Hintertuer hereinlassen.',
+        );
+
+        // Vorflug: der Fall ist wirklich da und offen, der Test prueft also
+        // nicht eine leere Tabelle.
+        $this->assertSame(RecHrDeskCase::STATUS_OPEN, $fall->refresh()->status);
+        $this->assertNotNull($fall->rec_applicant_id);
+        $this->assertNotNull($fall->rec_employee_id);
+    }
+
+    /** Dieselbe Bedingung an der zweiten Stelle: in den Zaehlern. */
+    public function testEinFallMitBeidenKennungenZaehltAuchNichtMit(): void
+    {
+        $this->fallMitBeidenKennungen();
+
+        $zaehler = HrDeskCaseVisibility::reasonCounts(self::TEAM);
+
+        $this->assertSame(0, $zaehler['all']);
+        $this->assertSame(0, $zaehler[RecHrDeskCase::REASON_WORK_PERMIT]);
+        $this->assertSame(0, $zaehler[RecHrDeskCase::REASON_TRAINING_CLARIFICATION]);
+    }
+
+    /**
      * Die Gegenprobe zum neuen Zweig selbst: ein Fall OHNE Bewerber UND OHNE
      * Mitarbeiter bleibt draussen. Er gehoert zu niemandem, und ohne diese
      * Probe liesse sich der Zweig auf ein blosses `whereNull('rec_applicant_id')`
@@ -335,6 +384,36 @@ final class HrDeskCaseVisibilityTest extends TestCase
     }
 
     // -----------------------------------------------------------------
+
+    /**
+     * Ein Fall mit BEIDEN Kennungen, dessen Bewerber auf dem Schreibtisch
+     * nichts zu suchen hat (er ist schon Mitarbeiter). Genau die Kombination,
+     * an der die Disjunktheit haengt.
+     */
+    private function fallMitBeidenKennungen(): RecHrDeskCase
+    {
+        $applicant = $this->applicant();
+
+        // Dieser Mitarbeiter-Datensatz ist es, der den Bewerber verdeckt
+        // (constrainApplicant: whereDoesntHave('employee')).
+        $employeeId = $this->capsule->table('rec_employees')->insertGetId([
+            'rec_applicant_id' => $applicant->id,
+        ]);
+
+        $case = new RecHrDeskCase();
+        $case->forceFill([
+            'uuid'             => 'uuid-'.uniqid('', true),
+            'rec_applicant_id' => $applicant->id,
+            'rec_employee_id'  => $employeeId,
+            'team_id'          => self::TEAM,
+            'reason'           => RecHrDeskCase::REASON_WORK_PERMIT,
+            'status'           => RecHrDeskCase::STATUS_OPEN,
+            'opened_at'        => '2026-10-01 09:00:00',
+        ]);
+        $case->save();
+
+        return $case;
+    }
 
     /** Ein offener Fall am MITARBEITER, ohne jeden Bewerber (Einsatz-Trigger). */
     private function mitarbeiterFall(array $caseAttributes = []): RecHrDeskCase

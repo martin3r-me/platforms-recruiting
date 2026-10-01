@@ -75,6 +75,81 @@ final class HrDeskVisibilityWiringTest extends TestCase
     }
 
     /**
+     * E1 (Pruefung Runde 1) — DIE KARTE LUEGT NICHT MEHR.
+     *
+     * Seit der Schreibtisch auch Faelle ohne Bewerber zeigt, stuende ohne
+     * diesen Zweig an jeder solchen Karte "— Gelöschter Bewerber —" — eine
+     * sichtbare Luege ueber einen Menschen, der nie Bewerber war. Der Zweig
+     * liess sich spurlos zuruecknehmen; keine Zusicherung beruehrte ihn.
+     *
+     * Quelltext-Zusicherung, wie testDerSchreibtischBenutztDieGemeinsameRegel:
+     * eine Livewire-Komponente ist in diesem Modul nicht instanziierbar, und
+     * die Quelle ist der ehrlichste verfuegbare Beleg.
+     */
+    public function testDieKarteNenntDenMitarbeiterStattEinesGeloeschtenBewerbers(): void
+    {
+        $blade = $this->blade();
+
+        $this->assertStringContainsString(
+            '@elseif($case->rec_employee_id)',
+            $blade,
+            'Die Karte hat keinen Zweig mehr fuer den Fall ohne Bewerber.',
+        );
+        $this->assertStringContainsString(
+            'Mitarbeiter #{{ $case->rec_employee_id }}',
+            $blade,
+            'Die Karte nennt die Mitarbeiter-Kennung nicht.',
+        );
+
+        // Und die alte Beschriftung wird nur noch EINMAL ausgegeben, also
+        // nur im letzten Zweig, wo wirklich beide Kennungen fehlen. Gezaehlt
+        // wird die gerenderte Form mit den Gedankenstrichen, nicht das blosse
+        // Wortpaar — das steht auch im Kommentar darueber.
+        $this->assertSame(
+            1,
+            substr_count($blade, '— Gelöschter Bewerber —'),
+            'Die alte Beschriftung wird mehrfach ausgegeben — einer der Zweige luegt.',
+        );
+    }
+
+    /**
+     * E2 — "ABLEHNEN" NUR, WO ES JEMANDEN ZUM ABLEHNEN GIBT.
+     *
+     * Der Knopf loest eine Ablehnung des BEWERBERS aus (rejected_at,
+     * stillgelegt, AutoPilot aus). Bei einem Fall ohne Bewerber gibt es
+     * niemanden, den das traefe; der Service faengt es ab (zweiter Riegel,
+     * gemessen in HrDeskNoRoutingForEmployeesTest), aber ein Knopf, der
+     * sichtbar nichts tut, gehoert nicht an die Karte.
+     *
+     * Geprueft wird die STRUKTUR, nicht ein Wortlaut: zwischen dem
+     * umschliessenden @if($applicant) und dem Knopf darf kein @endif liegen.
+     */
+    public function testDerAblehnenKnopfStehtNurWoEsEinenBewerberGibt(): void
+    {
+        $blade = $this->blade();
+
+        $knopf = strpos($blade, "openResolveModal({{ \$case->id }}, 'reject')");
+        $this->assertNotFalse($knopf, 'Den Ablehnen-Knopf gibt es nicht mehr — dann gehoert dieser Test angepasst.');
+
+        $davor = substr($blade, 0, $knopf);
+        $letztesIf = strrpos($davor, '@if($applicant)');
+        $this->assertNotFalse($letztesIf, 'Vor dem Ablehnen-Knopf steht kein @if($applicant).');
+
+        $this->assertFalse(
+            strpos($davor, '@endif', $letztesIf),
+            'Zwischen dem @if($applicant) und dem Ablehnen-Knopf steht ein @endif — '
+            .'der Knopf liegt also ausserhalb der Wache und erscheint auch an einem Fall ohne Bewerber.',
+        );
+    }
+
+    private function blade(): string
+    {
+        return file_get_contents(
+            dirname(__DIR__, 2).'/resources/views/livewire/hr-desk/index.blade.php'
+        );
+    }
+
+    /**
      * Die Dashboard-Kachel ist die zweite Tuer zum selben Schreibtisch. Liess
      * man dort den Park-Ausschluss stehen, waere eine geparkte Person auf der
      * einen Seite sichtbar und auf der anderen nicht — und genau dieses

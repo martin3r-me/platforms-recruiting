@@ -972,12 +972,28 @@ final class EinsatzPruefungTest extends TestCase
         $this->assertSame(self::ANGEFASST, (string) DB::table('rec_dispo_assignments')->value('updated_at'));
     }
 
+    /**
+     * NICHT-EU, und das ist der Punkt (Pruefung Runde 1, A22): die Ausgabe
+     * hat ZWEI Zeilen mit Personenbezug — die der Angeschriebenen und die
+     * der Gesperrten. Mit einem EU-Mitarbeiter wurde die zweite nie
+     * erreicht, ein Name liess sich dort einsetzen, ohne dass etwas fiel.
+     * Der Vorflug unten belegt, dass beide Zeilen wirklich entstanden sind.
+     */
     public function test_die_ausgabe_nennt_keine_namen(): void
     {
-        $ma = $this->mitarbeiterOhneNachweise(['first_name' => 'Hannelore', 'last_name' => 'Kowalski']);
+        $ma = $this->mitarbeiterOhneNachweise([
+            'first_name'    => 'Hannelore',
+            'last_name'     => 'Kowalski',
+            'is_eu_citizen' => false,
+        ]);
         $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
 
         $this->laufe('2026-10-01', ['--welle' => 10]);
+
+        // Vorflug: BEIDE Zeilen mit Personenbezug sind entstanden.
+        $this->assertStringContainsString('(neu: sent)', $this->ausgabe, 'die Versand-Zeile fehlt');
+        $this->assertStringContainsString('Arbeitserlaubnis fehlt: 1 Mensch(en)', $this->ausgabe, 'die Sperr-Zeile fehlt');
+        $this->assertStringContainsString('(aufenthaltstitel', $this->ausgabe, 'die Sperr-Zeile nennt den Grund');
 
         $this->assertStringNotContainsString('Hannelore', $this->ausgabe);
         $this->assertStringNotContainsString('Kowalski', $this->ausgabe);
@@ -994,14 +1010,135 @@ final class EinsatzPruefungTest extends TestCase
      */
     public function test_die_ausgabe_nennt_keine_volle_rufnummer(): void
     {
-        $ma = $this->mitarbeiterOhneNachweise(['phone' => '+4915199887766']);
+        $ma = $this->mitarbeiterOhneNachweise([
+            'phone'         => '+4915199887766',
+            'is_eu_citizen' => false,
+        ]);
         $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
 
         $this->laufe('2026-10-01', ['--welle' => 10]);
 
+        // Vorflug wie oben: beide Zeilen mit Personenbezug sind entstanden
+        // (A23b — mit einem EU-Mitarbeiter blieb die Sperr-Zeile ungedeckt).
+        $this->assertStringContainsString('(neu: sent)', $this->ausgabe);
+        $this->assertStringContainsString('Arbeitserlaubnis fehlt: 1 Mensch(en)', $this->ausgabe);
+
         $this->assertStringNotContainsString('99887766', $this->ausgabe);
         $this->assertStringNotContainsString('+4915199887766', $this->ausgabe);
         $this->assertStringContainsString('#'.$ma->id, $this->ausgabe);
+    }
+
+    /**
+     * D1 — DER ERSTE LAUF NACH DEM DEPLOY. Am Tag der Auslieferung sind die
+     * Meta-Vorlagen noch nicht genehmigt, der Sender meldet also
+     * `nicht_konfiguriert`. Schriebe das Kommando dafuer einen Stempel,
+     * verzoegerte sich der echte Start um eine ganze Pause — sieben Tage, in
+     * denen niemand erfaehrt, was ihm fehlt. Und es MUSS sofort losgehen,
+     * sobald die Vorlage eingetragen ist: der zweite Teil misst genau das.
+     */
+    public function test_ohne_meta_vorlage_wird_weder_signatur_noch_stempel_geschrieben(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->sender->antwort = AufgabenSender::STATUS_NICHT_KONFIGURIERT;
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt, 'Vorflug: versucht wurde es');
+        $this->assertNull($this->person($ma)->aufgaben_signatur);
+        $this->assertNull($this->person($ma)->aufgaben_gemeldet_at, 'ein Stempel hier kostet sieben Tage');
+
+        // Und am naechsten Tag ist die Vorlage da: es geht SOFORT los, ohne
+        // Wartezeit.
+        $this->sender->antwort = AufgabenSender::STATUS_SENT;
+        $this->laufe('2026-10-02');
+
+        $this->assertCount(2, $this->sender->versandt);
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur);
+    }
+
+    /**
+     * A8 — DER TOTE VERWEIS. Der Docblock verspricht: eine Nachricht, die es
+     * nicht mehr gibt, gilt als "nichts nachzulesen" und NICHT als
+     * Fehlschlag. Sonst loeste das Aufraeumen alter Nachrichten eine
+     * Versandwelle aus. Geprueft wird das ueber die Abwehr selbst: mit
+     * `!== 'sent'` statt `=== 'failed'` wuerde hier geraeumt und nach der
+     * Pause ein zweites Mal gesendet.
+     */
+    public function test_ein_toter_verweis_raeumt_die_signatur_nicht(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->sender->nachrichtId = $this->nachrichtAnlegen('sent');
+        $this->laufe('2026-10-01');
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur);
+
+        // Die Nachricht wird aufgeraeumt, der Verweis zeigt ins Leere.
+        DB::table('comms_whatsapp_messages')->where('id', $this->sender->nachrichtId)->delete();
+
+        $this->laufe('2026-10-08');   // die Pause waere um
+
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur);
+        $this->assertCount(1, $this->sender->versandt);
+    }
+
+    /**
+     * Und dieselbe Abwehr fuer einen Zwischenstatus: solange Meta noch nicht
+     * gemeldet hat, dass die Zustellung gescheitert ist, gilt der Mensch als
+     * informiert. Nur `failed` raeumt.
+     */
+    public function test_eine_noch_unentschiedene_nachricht_raeumt_die_signatur_nicht(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->sender->nachrichtId = $this->nachrichtAnlegen('sent');
+        $this->laufe('2026-10-01');
+
+        DB::table('comms_whatsapp_messages')
+            ->where('id', $this->sender->nachrichtId)
+            ->update(['status' => 'pending']);
+
+        $this->laufe('2026-10-08');
+
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur);
+        $this->assertCount(1, $this->sender->versandt);
+    }
+
+    /**
+     * D2 — `--team=` im ZWEITEN Zweig des Zielkreises. Der Einsatz-Zweig war
+     * gemessen, der Signatur-Zweig nicht: wer eine Signatur traegt, wurde
+     * auch bei `--team=3` aus jedem anderen Team mitgezogen und voll
+     * bedient.
+     *
+     * Gemessen wird am sichtbarsten Eingriff, den dieser Zweig hat: dem
+     * Raeumen der Signatur bei leerer Liste. Der fremde Mensch hat KEINEN
+     * kommenden Auftrag — er kaeme also ausschliesslich ueber den
+     * Signatur-Zweig in den Lauf.
+     */
+    public function test_der_team_filter_greift_auch_im_signatur_zweig(): void
+    {
+        $fremder = $this->mitarbeiterOhneNachweise(['team_id' => self::TEAM + 1]);
+        $this->alleNachweiseErbringen($fremder, '2026-10-01', '2027-06-01');
+        DB::table('rec_persons')->where('id', $fremder->rec_person_id)->update([
+            'aufgaben_signatur'    => str_repeat('a', 64),
+            'aufgaben_gemeldet_at' => '2026-09-01 09:00:00',
+        ]);
+
+        $this->laufe('2026-10-01', ['--team' => (string) self::TEAM]);
+
+        $this->assertNotNull(
+            $this->person($fremder)->aufgaben_signatur,
+            'das fremde Team darf der Lauf nicht anfassen',
+        );
+
+        // Die Gegenrichtung im selben Test: OHNE --team wird er sehr wohl
+        // geprueft und seine Signatur geraeumt. Ohne diese Haelfte waere die
+        // Zusicherung oben auch mit einem Lauf erfuellt, der gar nichts tut.
+        $this->laufe('2026-10-02');
+
+        $this->assertNull($this->person($fremder)->aufgaben_signatur);
     }
 
     public function test_der_team_filter_laesst_andere_teams_unberuehrt(): void
@@ -1123,7 +1260,26 @@ final class EinsatzPruefungTest extends TestCase
     {
         $quelle = file_get_contents(dirname(__DIR__, 2).'/src/RecruitingServiceProvider.php');
 
-        $this->assertStringNotContainsString('recruiting:einsatz-pruefung --welle', $quelle);
+        // DIE SACHE, NICHT DER WORTLAUT (Pruefung Runde 1): die vorige
+        // Fassung suchte nach der Zeichenkette
+        // 'recruiting:einsatz-pruefung --welle' und waere bei
+        // ->command('recruiting:einsatz-pruefung', ['--welle' => 50]) gruen
+        // geblieben. Geprueft wird jetzt der GANZE Eintrag bis zum
+        // abschliessenden Semikolon — in welcher Schreibweise die Flagge
+        // auch stuende, sie faellt auf.
+        $anfang = strpos($quelle, "Schedule::command('recruiting:einsatz-pruefung'");
+        $this->assertNotFalse($anfang, 'Es gibt keinen Zeitplan-Eintrag fuer das Kommando.');
+
+        $ende = strpos($quelle, ';', $anfang);
+        $eintrag = substr($quelle, $anfang, $ende - $anfang);
+
+        $this->assertStringNotContainsString(
+            'welle',
+            $eintrag,
+            'Der Zeitplan-Eintrag traegt eine Welle und schaltet damit den Versand ueber den '
+            .'ganzen Bestand scharf. Das ist eine Entscheidung, kein Versehen — und sie gehoert '
+            .'nicht hierher, solange die Meta-Vorlagen nicht genehmigt sind.',
+        );
     }
 
     /**
