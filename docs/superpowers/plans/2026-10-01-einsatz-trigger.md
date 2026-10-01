@@ -1508,6 +1508,20 @@ weil `aufgaben_erinnert_at` an der Einbuchung haengt und nicht an der Signatur.
 gehoert.** Konkret: liegt der ausloesende Einsatz vor dem Ende der Pause, gewinnt der
 Einsatz. Pflichttest: der Ablauf oben, die Nachricht zu E2 muss rausgehen.
 
+**ET-23 — `sent` ist KEIN Beweis der Zustellung. Aus der Pruefung zu Aufgabe 9.** Der
+Status kommt allein aus dem HTTP-Ergebnis des Annahme-Aufrufs; dass eine Nachricht nicht
+zugestellt werden konnte, meldet Meta erst spaeter per Webhook (Fall 131026). **Haekelt
+dieses Kommando auf `sent` hin ab, bekommt der betroffene Mensch NIE WIEDER eine
+Nachricht** — dieselbe Sackgasse wie ET-16, nur ueber einen anderen Weg.
+**Auflage: beim naechsten Lauf die gespeicherte Nachricht nachlesen; steht sie auf
+`failed`, die Signatur raeumen, damit es einen zweiten Versuch gibt.** Das ist nicht
+perfekt — im Core-Webhook kann ein spaetes `sent` ein `failed` ueberschreiben, bekannter
+Altfehler — aber strikt besser als Dauerschweigen.
+**Die Gegenrichtung ist ebenfalls real:** faellt die Ausnahme NACH dem HTTP-POST (die
+Anlage von Thread, Nachricht und Protokoll passiert erst danach), meldet der Sender
+`failed`, obwohl die Nachricht drausen ist — dann sendet dieses Kommando erneut, und der
+Mensch bekommt sie zweimal. Beim Zuschnitt der Wiederholung mitdenken.
+
 **ET-18 — der tote Stempel. Aus der Pruefung zu Aufgabe 8, gemessen.** Verschwindet eine
 Einbuchung aus der ZAS-Lieferung und taucht spaeter wieder auf, setzt
 `ZasDispoWebexportImporter.php:193` beim Wiederauftauchen `missing_since => null`
