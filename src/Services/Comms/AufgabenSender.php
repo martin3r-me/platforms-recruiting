@@ -6,8 +6,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
+use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\PhoneE164;
+use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
 
 /**
  * Verschickt die Aufgaben-Nachricht per WhatsApp — den Hinweis, dass im
@@ -60,6 +62,24 @@ use Platform\Recruiting\Support\PhoneE164;
  *    erzeugen (eine leere Signatur loest keinen Versand aus) — dieser Sender
  *    verlaesst sich darauf aber nicht und weigert sich selbst.
  *
+ * F1 (Abschlusspruefung) — DIE NACHRICHT TRAEGT DEN PORTAL-LINK. Vorher
+ * baute diese Klasse ausschliesslich einen Rumpf: kein URL-Knopf, kein
+ * Token. Eine Nachricht, die "schau ins Portal" sagt und keinen Weg dorthin
+ * gibt, ist genau die Sackgasse, gegen die `ProofReminderSender` gebaut
+ * wurde — der VERWEIGERT den Versand mit dem Wortlaut "ohne Link waere die
+ * Erinnerung eine Sackgasse". Schlimmer war die andere Richtung: traegt die
+ * genehmigte Meta-Vorlage den noetigen dynamischen URL-Knopf (und sie MUSS
+ * einen tragen, sonst erreicht niemand sein Portal), ging der Aufruf ohne
+ * dessen Komponente raus, Meta lehnte ab, der Aufrufer stempelte und
+ * wiederholte in sieben Tagen — eine woechentliche Fehlschlag-Schleife ueber
+ * den ganzen Bestand, jede Woche bezahlt.
+ * DAS VORBILD IM DOCBLOCK WAR FALSCH GEWAEHLT: `EinmalcodeSender` traegt
+ * seinen Inhalt (den Code) im Rumpf und braucht keinen Link. Fuer eine
+ * Portal-Nachricht ist `ProofReminderSender` das Vorbild, und von dort kommt
+ * jetzt auch der Weg: `WhatsAppTemplateUrlButtons::dynamicIndexes()` prueft,
+ * `ApplicantTemplateSender::buildTokenComponents()` fuellt — dieselbe
+ * Fix-Klasse, die den Theo-Wirtz-Fehler behoben hat, keine eigene Kopie.
+ *
  * DIE NACHRICHT NENNT DIE OFFENEN PUNKTE NICHT EINZELN (Spec §2.1: das
  * Portal traegt die Aufgaben) — sie nennt nur ihre ANZAHL und verweist aufs
  * Portal. Waere die Nachricht selbst der Traeger, muesste jede Aenderung an
@@ -93,6 +113,21 @@ final class AufgabenSender
 
     /** Kein Meta-Vorlagenname fuer diesen Anlass eingetragen — es wird nichts verschickt. */
     public const STATUS_NICHT_KONFIGURIERT = 'nicht_konfiguriert';
+
+    /**
+     * F1: die eingetragene Vorlage taugt nicht — sie ist nicht gefunden,
+     * nicht eindeutig, oder sie hat keinen dynamischen URL-Knopf, in den der
+     * Portal-Link passt.
+     *
+     * EIGENER STATUS UND NICHT STATUS_FAILED, und das ist der Kern des
+     * Fundes: `failed` liesse den Aufrufer den Stempel setzen und in sieben
+     * Tagen denselben aussichtslosen Versuch wiederholen — eine
+     * woechentliche Fehlschlag-Schleife ueber den ganzen Bestand. Wie bei
+     * STATUS_NICHT_KONFIGURIERT schreibt der Aufrufer hier GAR NICHTS: es
+     * hat kein Versuch bei Meta stattgefunden, es ist nichts zu bremsen, und
+     * sobald die Vorlage richtig steht, geht es ohne Wartezeit los.
+     */
+    public const STATUS_VORLAGE_UNTAUGLICH = 'vorlage_untauglich';
 
     /**
      * Die Kennung der zuletzt angelegten Nachricht — NUR nach STATUS_SENT
@@ -215,7 +250,66 @@ final class AufgabenSender
         }
 
         $sprache = trim((string) ($vorlage['sprache'] ?? 'de')) ?: 'de';
-        $components = [['type' => 'body', 'parameters' => $komponenten]];
+
+        // F1: der Portal-Link. Erst die genehmigte Vorlage nachschlagen,
+        // dann pruefen, dass sie einen dynamischen URL-Knopf hat, dann den
+        // Token hineinlegen. Jeder dieser Schritte kann VERWEIGERN — eine
+        // Portal-Nachricht ohne Weg ins Portal geht nicht raus.
+        $metaVorlage = $this->metaVorlage($name, $sprache);
+        if ($metaVorlage === null) {
+            Log::error('recruiting.aufgaben.vorlage_unbekannt', [
+                'anlass'      => $anlass,
+                'vorlage'     => $name,
+                'mitarbeiter' => $employee->id,
+            ]);
+
+            return self::STATUS_VORLAGE_UNTAUGLICH;
+        }
+
+        $vorlagenTeile = (array) ($metaVorlage->components ?? []);
+
+        if (WhatsAppTemplateUrlButtons::dynamicIndexes($vorlagenTeile) === []) {
+            // Wortgleich zur Begruendung in ProofReminderSender: ohne Link
+            // waere die Nachricht eine Sackgasse.
+            Log::error('recruiting.aufgaben.vorlage_ohne_link', [
+                'anlass'      => $anlass,
+                'vorlage'     => $name,
+                'mitarbeiter' => $employee->id,
+            ]);
+
+            return self::STATUS_VORLAGE_UNTAUGLICH;
+        }
+
+        $token = trim((string) $employee->portal_token);
+        if ($token === '') {
+            // Ein Datenproblem an DIESEM Menschen, kein Vorlagen-Problem:
+            // deshalb STATUS_FAILED, damit der Aufrufer bremst und ihn im
+            // Bericht nennt, statt es stuendlich zu wiederholen.
+            Log::error('recruiting.aufgaben.kein_portal_token', [
+                'anlass'      => $anlass,
+                'mitarbeiter' => $employee->id,
+            ]);
+
+            return self::STATUS_FAILED;
+        }
+
+        $knopf = ApplicantTemplateSender::buildTokenComponents($vorlagenTeile, $token);
+        if (!$knopf['ok']) {
+            // Mehr als ein dynamischer Knopf — nicht eindeutig sendbar.
+            Log::error('recruiting.aufgaben.vorlage_mehrdeutig', [
+                'anlass'      => $anlass,
+                'vorlage'     => $name,
+                'mitarbeiter' => $employee->id,
+                'grund'       => $knopf['error'],
+            ]);
+
+            return self::STATUS_VORLAGE_UNTAUGLICH;
+        }
+
+        $components = array_merge(
+            [['type' => 'body', 'parameters' => $komponenten]],
+            $knopf['components'],
+        );
 
         try {
             $nachricht = app(WhatsAppMetaService::class)->sendTemplate(
@@ -282,6 +376,38 @@ final class AufgabenSender
         } catch (\Throwable) {
             return $iso;
         }
+    }
+
+    /**
+     * Die genehmigte Meta-Vorlage zu diesem Namen — gebraucht wird nur ihr
+     * Aufbau (`components`), um den dynamischen URL-Knopf zu finden.
+     *
+     * NAME UND SPRACHE, UND EINDEUTIG: gibt es zu einem Namen mehr als eine
+     * genehmigte Vorlage (zwei WABAs mit gleichnamigen Vorlagen), wird NICHT
+     * geraten — dann koennte der Knopf an der falschen Position sitzen und
+     * der Link ins Leere fuehren. Dieselbe Strenge wie bei
+     * `buildTokenComponents()`, das bei zwei dynamischen Knoepfen ebenfalls
+     * abbricht statt zu raten.
+     *
+     * Der Name kommt aus der Konfiguration (env), nicht aus einer
+     * Team-Einstellung wie bei `ProofReminderSender` — das ist der Stand aus
+     * Aufgabe 9 und bleibt so; nachgeschlagen wird hier nur der AUFBAU.
+     */
+    private function metaVorlage(string $name, string $sprache): ?IntegrationsWhatsAppTemplate
+    {
+        if (!class_exists(IntegrationsWhatsAppTemplate::class)) {
+            return null;
+        }
+
+        $treffer = IntegrationsWhatsAppTemplate::query()
+            ->where('name', $name)
+            ->where('language', $sprache)
+            ->where('status', 'APPROVED')
+            ->orderBy('id')
+            ->limit(2)
+            ->get();
+
+        return $treffer->count() === 1 ? $treffer->first() : null;
     }
 
     /**

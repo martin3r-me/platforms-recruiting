@@ -1366,6 +1366,33 @@ final class EinsatzPruefungTest extends TestCase
     }
 
     /**
+     * F1, von der Seite des Kommandos: eine untaugliche Vorlage (kein
+     * Portal-Link) darf genauso wenig stempeln wie eine fehlende. Sonst
+     * machte ein Konfigurationsfehler aus dem stuendlichen Lauf eine
+     * woechentlich wiederholte, aussichtslose Versandwelle ueber den ganzen
+     * Bestand — und sobald die Vorlage richtig steht, soll es ohne
+     * Wartezeit losgehen.
+     */
+    public function test_eine_untaugliche_vorlage_wird_weder_signatur_noch_stempel(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->sender->antwort = AufgabenSender::STATUS_VORLAGE_UNTAUGLICH;
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt, 'Vorflug: versucht wurde es');
+        $this->assertNull($this->person($ma)->aufgaben_signatur);
+        $this->assertNull($this->person($ma)->aufgaben_gemeldet_at);
+
+        $this->sender->antwort = AufgabenSender::STATUS_SENT;
+        $this->laufe('2026-10-02');
+
+        $this->assertCount(2, $this->sender->versandt);
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur);
+    }
+
+    /**
      * A8 — DER TOTE VERWEIS. Der Docblock verspricht: eine Nachricht, die es
      * nicht mehr gibt, gilt als "nichts nachzulesen" und NICHT als
      * Fehlschlag. Sonst loeste das Aufraeumen alter Nachrichten eine

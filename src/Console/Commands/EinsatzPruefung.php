@@ -920,15 +920,20 @@ class EinsatzPruefung extends Command
      * (ET-23, beide Richtungen): ein Fehlschlag gilt nicht als informiert,
      * bremst die Wiederholung aber auf die Pause herunter.
      *
-     * `nicht_konfiguriert` schreibt GAR NICHTS: solange keine Meta-Vorlage
-     * eingetragen ist, hat kein Versuch stattgefunden, den man bremsen
-     * muesste — und sobald sie eingetragen ist, soll es sofort losgehen.
+     * `nicht_konfiguriert` und `vorlage_untauglich` schreiben GAR NICHTS
+     * (F1): solange keine brauchbare Meta-Vorlage eingetragen ist, hat kein
+     * Versuch bei Meta stattgefunden, den man bremsen muesste — und sobald
+     * sie richtig steht, soll es ohne Wartezeit losgehen. Ein Stempel waere
+     * hier das Gegenteil von Vorsicht: er machte aus einem
+     * Konfigurationsfehler eine woechentlich wiederholte, aussichtslose
+     * Versandwelle ueber den ganzen Bestand.
      *
      * @param  array<string,int>  $z
      */
     private function buchen(int $personId, string $signatur, string $ergebnis, ?int $nachrichtId, array &$z): void
     {
-        if ($ergebnis === AufgabenSender::STATUS_NICHT_KONFIGURIERT) {
+        if ($ergebnis === AufgabenSender::STATUS_NICHT_KONFIGURIERT
+            || $ergebnis === AufgabenSender::STATUS_VORLAGE_UNTAUGLICH) {
             $z['fehlversand']++;
 
             return;

@@ -65,6 +65,8 @@ final class AufgabenSenderTest extends TestCase
 
     private const VORLAGE_ERINNERUNG = 'aufgaben_erinnerung';
 
+    private const TOKEN = 'portal-token-abc';
+
     private Capsule $capsule;
 
     /** @var object{zeilen: list<array{stufe: string, nachricht: string, daten: array}>} */
@@ -139,6 +141,7 @@ final class AufgabenSenderTest extends TestCase
             $t->string('last_name')->nullable();
             $t->boolean('is_eu_citizen')->nullable();
             $t->string('phone')->nullable();
+            $t->string('portal_token', 64)->nullable();
             $t->boolean('is_active')->nullable();
             $t->timestamp('zas_changed_at')->nullable();
             $t->timestamps();
@@ -157,11 +160,14 @@ final class AufgabenSenderTest extends TestCase
             'first_name'     => 'Gregor',
             'last_name'      => 'Erste',
             'phone'          => self::NUMMER,
+            'portal_token'   => self::TOKEN,
             'is_active'      => 1,
             'created_at'     => self::ANGEFASST,
             'updated_at'     => self::ANGEFASST,
         ]);
         $this->ma = RecEmployee::find($maId);
+
+        $this->metaVorlagenAnlegen();
     }
 
     protected function tearDown(): void
@@ -315,9 +321,17 @@ final class AufgabenSenderTest extends TestCase
         $this->assertSame(self::NUMMER, $call['to']);
         $this->assertSame('de', $call['languageCode']);
         $this->assertSame(
-            [['type' => 'body', 'parameters' => [
-                ['type' => 'text', 'parameter_name' => 'anzahl', 'text' => '2'],
-            ]]],
+            [
+                ['type' => 'body', 'parameters' => [
+                    ['type' => 'text', 'parameter_name' => 'anzahl', 'text' => '2'],
+                ]],
+                // F1: der Weg ins Portal. Ohne diese Komponente waere die
+                // Nachricht eine Sackgasse — und mit einer Vorlage, die den
+                // Knopf traegt, lehnte Meta den Aufruf ab.
+                ['type' => 'button', 'sub_type' => 'url', 'index' => 0, 'parameters' => [
+                    ['type' => 'text', 'text' => self::TOKEN],
+                ]],
+            ],
             $call['components'],
         );
     }
@@ -369,10 +383,15 @@ final class AufgabenSenderTest extends TestCase
 
         $this->assertSame(AufgabenSender::STATUS_SENT, $status);
         $this->assertSame(
-            [['type' => 'body', 'parameters' => [
-                ['type' => 'text', 'parameter_name' => 'anzahl', 'text' => '1'],
-                ['type' => 'text', 'parameter_name' => 'datum', 'text' => '20.10.2026'],
-            ]]],
+            [
+                ['type' => 'body', 'parameters' => [
+                    ['type' => 'text', 'parameter_name' => 'anzahl', 'text' => '1'],
+                    ['type' => 'text', 'parameter_name' => 'datum', 'text' => '20.10.2026'],
+                ]],
+                ['type' => 'button', 'sub_type' => 'url', 'index' => 0, 'parameters' => [
+                    ['type' => 'text', 'text' => self::TOKEN],
+                ]],
+            ],
             $this->meta->calls[0]['components'],
         );
     }
@@ -394,6 +413,113 @@ final class AufgabenSenderTest extends TestCase
         $text = json_encode($this->meta->calls[0]['components']);
         $this->assertStringNotContainsString('Aufenthaltstitel', $text);
         $this->assertStringNotContainsString('Ausweis', $text);
+    }
+
+    // ------------------------------------------------- F1: der Portal-Link
+
+    /**
+     * F1 — OHNE LINK GEHT NICHTS RAUS. Wortgleich zur Begruendung in
+     * `ProofReminderSender`: „ohne Link waere die Erinnerung eine
+     * Sackgasse". Die Nachricht sagt „schau ins Portal" — eine Vorlage ohne
+     * dynamischen URL-Knopf gibt dem Menschen keinen Weg dorthin.
+     */
+    public function testEineVorlageOhneUrlKnopfVerhindertDenVersand(): void
+    {
+        DB::table('integrations_whatsapp_templates')
+            ->where('name', self::VORLAGE_NEU)
+            ->update(['components' => json_encode($this->vorlagenAufbau(mitDynamischemKnopf: false))]);
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
+        $this->assertSame([], $this->meta->calls, 'es darf nicht einmal ein Versuch bei Meta entstehen');
+    }
+
+    /**
+     * Und wenn es die genehmigte Vorlage gar nicht gibt. Der Aufruf ginge
+     * sonst mit einem Rumpf ohne Knopf raus; traegt die echte Vorlage einen,
+     * lehnt Meta ab — und der Aufrufer bremste sieben Tage und versuchte es
+     * wieder. Eine woechentliche Fehlschlag-Schleife ueber den Bestand.
+     */
+    public function testEineUnbekannteVorlageVerhindertDenVersand(): void
+    {
+        DB::table('integrations_whatsapp_templates')->where('name', self::VORLAGE_NEU)->delete();
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    /** Eine nicht genehmigte Vorlage zaehlt nicht — auch nicht als „irgendwas". */
+    public function testEineNichtGenehmigteVorlageVerhindertDenVersand(): void
+    {
+        DB::table('integrations_whatsapp_templates')
+            ->where('name', self::VORLAGE_NEU)
+            ->update(['status' => 'PENDING']);
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    /**
+     * Zwei genehmigte Vorlagen desselben Namens (zwei WABAs) — es wird NICHT
+     * geraten. Der Knopf koennte in der anderen Fassung woanders sitzen, und
+     * dann fuehrte der Link ins Leere.
+     */
+    public function testZweiGleichnamigeVorlagenVerhindernDenVersand(): void
+    {
+        DB::table('integrations_whatsapp_templates')->insert([
+            'uuid'                => 'tpl-zweitwaba',
+            'external_id'         => 'ext-zweitwaba',
+            'name'                => self::VORLAGE_NEU,
+            'language'            => 'de',
+            'status'              => 'APPROVED',
+            'category'            => 'UTILITY',
+            'components'          => json_encode($this->vorlagenAufbau()),
+            'whatsapp_account_id' => 2,
+            'user_id'             => 1,
+            'created_at'          => self::ANGEFASST,
+            'updated_at'          => self::ANGEFASST,
+        ]);
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
+        $this->assertSame([], $this->meta->calls);
+    }
+
+    /**
+     * Ohne Portal-Token des Mitarbeiters gibt es keinen Link. Das ist ein
+     * Datenproblem an DIESEM Menschen und kein Vorlagen-Problem — deshalb
+     * STATUS_FAILED (der Aufrufer bremst und nennt ihn im Bericht) und nicht
+     * STATUS_VORLAGE_UNTAUGLICH (das wuerde stuendlich wiederholt).
+     */
+    public function testOhnePortalTokenWirdNichtVerschickt(): void
+    {
+        DB::table('rec_employees')->where('id', $this->ma->id)->update(['portal_token' => null]);
+
+        $status = (new AufgabenSender())->sende($this->ma->fresh(), $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_FAILED, $status);
+        $this->assertSame([], $this->meta->calls);
+        $this->assertSame($this->ma->id, $this->log->zeilen[0]['daten']['mitarbeiter'] ?? null);
+    }
+
+    /**
+     * Und der Link traegt den Token GENAU DIESES Menschen. Ein fester oder
+     * vertauschter Token fuehrte ihn in die Akte eines anderen.
+     */
+    public function testDerLinkTraegtDenTokenDiesesMenschen(): void
+    {
+        DB::table('rec_employees')->where('id', $this->ma->id)->update(['portal_token' => 'nur-fuer-gregor']);
+
+        (new AufgabenSender())->sende($this->ma->fresh(), $this->stand(), 'neu');
+
+        $knopf = $this->meta->calls[0]['components'][1];
+        $this->assertSame('nur-fuer-gregor', $knopf['parameters'][0]['text']);
     }
 
     // --------------------------------------------------------------- Kanal
@@ -463,10 +589,33 @@ final class AufgabenSenderTest extends TestCase
     public function testKonfigurierteSpracheWirdWeitergereicht(): void
     {
         $this->vorlageSetzen('neu', ['sprache' => 'en']);
+        // Und die genehmigte Vorlage muss es in GENAU dieser Sprache geben:
+        // der Aufbau (und damit die Knopf-Position) haengt an der
+        // Sprachfassung, nicht nur am Namen.
+        DB::table('integrations_whatsapp_templates')
+            ->where('name', self::VORLAGE_NEU)
+            ->update(['language' => 'en']);
 
-        (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
 
+        $this->assertSame(AufgabenSender::STATUS_SENT, $status);
         $this->assertSame('en', $this->meta->calls[0]['languageCode']);
+    }
+
+    /**
+     * Die Gegenprobe dazu, und sie ist kein Randfall: steht in der
+     * Konfiguration eine Sprache, zu der es keine genehmigte Vorlage gibt,
+     * wird NICHT geraten. Sonst ginge der Knopf-Parameter an eine
+     * Sprachfassung, deren Knopf woanders sitzt.
+     */
+    public function testEineSpracheOhneGenehmigteVorlageVerhindertDenVersand(): void
+    {
+        $this->vorlageSetzen('neu', ['sprache' => 'fr']);
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_VORLAGE_UNTAUGLICH, $status);
+        $this->assertSame([], $this->meta->calls);
     }
 
     // ------------------------------------------------------- ET-9: das Log
@@ -633,8 +782,15 @@ final class AufgabenSenderTest extends TestCase
                     return $this->abgelehnt('Meta hat den Versand abgelehnt.');
                 }
 
+                // NUR der Rumpf traegt benannte Platzhalter. Die
+                // Knopf-Komponente (type=button) traegt einen Positions-
+                // Parameter ohne Namen — sie hier mitzuzaehlen hiesse, die
+                // Attrappe strenger zu machen als Meta.
                 $namen = [];
                 foreach ($components as $component) {
+                    if (($component['type'] ?? '') !== 'body') {
+                        continue;
+                    }
                     foreach ($component['parameters'] ?? [] as $parameter) {
                         $namen[] = (string) ($parameter['parameter_name'] ?? '');
                     }
@@ -674,7 +830,47 @@ final class AufgabenSenderTest extends TestCase
     }
 
     /**
-     * comms_channels, integrations_whatsapp_accounts und
+     * Die beiden genehmigten Meta-Vorlagen, jede mit einem dynamischen
+     * URL-Knopf — so, wie die echten aussehen muessen, damit der Mensch sein
+     * Portal erreicht.
+     */
+    private function metaVorlagenAnlegen(array $ueberschreiben = []): void
+    {
+        foreach ([self::VORLAGE_NEU, self::VORLAGE_ERINNERUNG] as $name) {
+            DB::table('integrations_whatsapp_templates')->insert(array_merge([
+                'uuid'                => 'tpl-'.$name,
+                'external_id'         => 'ext-'.$name,
+                'name'                => $name,
+                'language'            => 'de',
+                'status'              => 'APPROVED',
+                'category'            => 'UTILITY',
+                'components'          => json_encode($this->vorlagenAufbau()),
+                'whatsapp_account_id' => 1,
+                'user_id'             => 1,
+                'created_at'          => self::ANGEFASST,
+                'updated_at'          => self::ANGEFASST,
+            ], $ueberschreiben));
+        }
+    }
+
+    /** @return list<array<string, mixed>> Rumpf plus ein dynamischer URL-Knopf an Position 0. */
+    private function vorlagenAufbau(bool $mitDynamischemKnopf = true): array
+    {
+        return [
+            ['type' => 'BODY', 'text' => 'Du hast {{anzahl}} offene Punkte.'],
+            ['type' => 'BUTTONS', 'buttons' => [[
+                'type' => 'URL',
+                'text' => 'Zum Portal',
+                'url'  => $mitDynamischemKnopf
+                    ? 'https://meingedeck.de/recruiting/portal/{{1}}'
+                    : 'https://meingedeck.de/recruiting/portal',
+            ]]],
+        ];
+    }
+
+    /**
+     * comms_channels, integrations_whatsapp_accounts,
+     * integrations_whatsapp_templates und
      * rec_applicant_settings aus den ECHTEN Migrationen — Vorbild
      * EinmalcodeSenderTest. Ihre Form gehoert nicht diesem Modul.
      */
@@ -688,6 +884,10 @@ final class AufgabenSenderTest extends TestCase
             [$eigen, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
+            // F1: der Sender schlaegt den AUFBAU der genehmigten Vorlage
+            // nach, um den dynamischen URL-Knopf zu finden. Ohne die echte
+            // Tabelle liefe der Test gegen eine Form, die es so nicht gibt.
+            [$integrations, 'database/migrations/2026_02_12_000001_create_integrations_whatsapp_templates_table.php'],
         ];
 
         foreach ($dateien as [$wurzel, $relativ]) {
