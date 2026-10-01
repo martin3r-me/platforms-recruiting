@@ -3,7 +3,7 @@
     // wer geschrieben oder bestaetigt hat. Waehrend ein Fenster offen ist wird
     // NICHT gepollt — ein Render mitten im Tippen kann den Entwurf kosten.
     $pollBlocked = $showSendModal || $showInfoModal || $showNoteModal || $showNotesModal || $showAttachmentModal
-        || $showDeclineModal || $crewEmployeeId !== null;
+        || $showDeclineModal || $crewEmployeeId !== null || $showDressModal;
 @endphp
 <div class="p-4 lg:p-6 space-y-6" @if (!$pollBlocked) wire:poll.visible.30s @endif>
     @php
@@ -52,12 +52,43 @@
                 <div class="mt-1 whitespace-pre-line text-sm">{{ $event->ort }}</div>
             </div>
         @endif
-        @if ($event->dresscode)
-            <div class="rounded-lg border border-gray-200 bg-white p-4">
-                <div class="text-sm font-medium text-gray-500">Kleidung / Infos</div>
-                <div class="mt-1 whitespace-pre-line text-sm">{{ $event->dresscode }}</div>
+        @php
+            // Kleidung-Umzug (10/2026): die Karte rendert jetzt IMMER — vorher
+            // nur bei gefuelltem dresscode. dressSummary() ist die eine Quelle,
+            // die auch das Sende-Fenster liest (Show::dressSummary()).
+            $dressSummary = $this->dressSummary;
+            $dressHinweis = trim((string) ($event->hinweis ?? ''));
+            $dressZas = trim((string) ($event->dresscode ?? ''));
+        @endphp
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+            <div class="flex items-center justify-between">
+                <div class="text-sm font-medium text-gray-500">{{ $dressSummary !== [] ? 'Kleidung' : 'Kleidung / Infos' }}</div>
+                @if (!$eventOnly)
+                    <button type="button" wire:click="openDressModal" class="text-xs text-blue-600 hover:underline">Anpassen</button>
+                @endif
             </div>
-        @endif
+            @if ($dressSummary !== [])
+                <div class="mt-1 space-y-0.5 text-sm">
+                    @foreach ($dressSummary as $row)
+                        <div>{{ $row['label'] }} → {{ $row['paket'] }}</div>
+                    @endforeach
+                </div>
+                @if ($dressHinweis !== '')
+                    <div class="mt-2">
+                        <div class="text-xs font-medium text-gray-500">Infos für alle</div>
+                        <div class="mt-0.5 whitespace-pre-line text-sm">{{ $dressHinweis }}</div>
+                    </div>
+                @endif
+                @if ($dressZas !== '')
+                    <div class="mt-2 text-xs text-gray-400">
+                        <div class="font-medium">ZAS-Text — wird für alle mit Paket ersetzt</div>
+                        <div class="mt-0.5 whitespace-pre-line">{{ $dressZas }}</div>
+                    </div>
+                @endif
+            @else
+                <div class="mt-1 whitespace-pre-line text-sm">{{ $dressZas !== '' ? $dressZas : '—' }}</div>
+            @endif
+        </div>
         @php
             $contactEff = $this->contactEffective;
         @endphp
@@ -506,7 +537,46 @@
                         @include('recruiting::livewire.dispo.events._contact-field', ['leads' => $this->teamLeads])
                     </label>
 
-                    @include('recruiting::livewire.dispo.events._dress-fields')
+                    {{-- Kleidung-Umzug (10/2026): die Pflege ist auf die VA-Seite
+                         gewandert (openDressModal). Hier bleibt nur die
+                         Zusammenfassung plus der Riegel, der den Versand bedient —
+                         wer nicht quittiert, kann unten nicht senden. --}}
+                    @php
+                        $dressSummarySend = $this->dressSummary;
+                        $dressZasSend = trim((string) ($this->event->dresscode ?? ''));
+                    @endphp
+                    <div class="rounded-lg border border-gray-200 p-3 text-sm space-y-2">
+                        <div class="flex items-center justify-between">
+                            <div class="font-medium text-gray-700">Kleidung</div>
+                            <button type="button" wire:click="openDressModalFromSend" class="text-xs text-blue-600 hover:underline">ändern</button>
+                        </div>
+                        @if ($dressSummarySend === [])
+                            <p class="text-xs text-gray-500">Keine Kleidung hinterlegt</p>
+                        @else
+                            <div class="space-y-0.5">
+                                @foreach ($dressSummarySend as $row)
+                                    <div>{{ $row['label'] }} → {{ $row['paket'] }}</div>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        @if ($dressSummarySend !== [] && $dressZasSend !== '')
+                            <div class="rounded bg-amber-50 p-2">
+                                <div class="text-xs font-medium text-amber-800">Bisheriger Text aus ZAS — verschwindet für alle mit Paket</div>
+                                <div class="mt-1 whitespace-pre-line text-xs text-amber-900">{{ $dressZasSend }}</div>
+                                <div class="mt-2 flex flex-wrap items-center gap-3">
+                                    <label class="flex items-center gap-2 text-xs text-amber-900">
+                                        <input type="checkbox" wire:model.live="dressAck" class="rounded border-gray-300">
+                                        Gesehen — Wichtiges habe ich in den Hinweis übernommen
+                                    </label>
+                                    <button type="button" wire:click="copyZasToHinweis" class="rounded border border-amber-300 px-2 py-1 text-xs text-amber-900 hover:bg-amber-100">
+                                        Text in den Hinweis übernehmen
+                                    </button>
+                                </div>
+                                @error('dressAck') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
+                            </div>
+                        @endif
+                    </div>
 
                     @php
                         $escDefaults = $this->dispoSettings['escalation_defaults'];
@@ -842,6 +912,21 @@
                 <div class="flex justify-end gap-3">
                     <button wire:click="$set('showContactModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveContact" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Speichern</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Kleidung-Umzug (10/2026): eigenes Fenster, Muster Ansprechpartner-Modal
+         oben. Die Kleidung ist eine Eigenschaft der Veranstaltung, nicht eines
+         Versands — hier bleibt sie auch bei einer durchbestaetigten VA erreichbar. --}}
+    @if ($showDressModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" wire:click.self="$set('showDressModal', false)">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6 space-y-4">
+                <h2 class="text-lg font-semibold">Kleidung</h2>
+                @include('recruiting::livewire.dispo.events._dress-fields')
+                <div class="flex justify-end">
+                    <button wire:click="$set('showDressModal', false)" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Schließen</button>
                 </div>
             </div>
         </div>

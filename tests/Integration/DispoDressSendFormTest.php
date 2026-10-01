@@ -355,6 +355,62 @@ class DispoDressSendFormTest extends DressTestCase
     }
 
     /**
+     * Kleidung-Umzug (10/2026): dressSummary() ist die eine Quelle fuer Karte
+     * (VA-Seite) UND Sende-Fenster — hier ohne geoeffnetes Fenster
+     * (dressTaetigkeitenSnapshot ist dann noch leer, Fallback auf die frische
+     * eventTaetigkeiten()-Berechnung).
+     */
+    public function test_dress_summary_is_empty_when_nothing_is_assigned(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+
+        $c = $this->dispoComponent($event->id);
+
+        $this->assertSame([], $c->dressSummary);
+    }
+
+    public function test_dress_summary_shows_only_the_all_uebrigen_row(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+        RecDispoEventDress::create([
+            'rec_dispo_event_id' => $event->id, 'taetigkeit' => RecDispoEventDress::ALL,
+            'rec_dispo_dress_package_id' => $pkg->id,
+        ]);
+
+        $c = $this->dispoComponent($event->id);
+
+        $this->assertSame([['label' => 'Alle übrigen', 'paket' => 'Weiss']], $c->dressSummary);
+    }
+
+    public function test_dress_summary_shows_all_uebrigen_plus_one_taetigkeit(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $this->assignment($event, ['taetigkeit' => '2.OG', 'rec_employee_id' => null]);
+        $pkgAll = $this->package('Weiss', 'Weisses Hemd');
+        $pkgService = $this->package('Schwarz', 'Schwarze Hose');
+        RecDispoEventDress::create([
+            'rec_dispo_event_id' => $event->id, 'taetigkeit' => RecDispoEventDress::ALL,
+            'rec_dispo_dress_package_id' => $pkgAll->id,
+        ]);
+        RecDispoEventDress::create([
+            'rec_dispo_event_id' => $event->id, 'taetigkeit' => 'Service',
+            'rec_dispo_dress_package_id' => $pkgService->id,
+        ]);
+
+        $c = $this->dispoComponent($event->id);
+        $this->assertSame(['2.OG', 'Service'], $c->eventTaetigkeiten, 'Testannahme zur Sortierung — sonst zeigt der Test das Falsche.');
+
+        $this->assertSame([
+            ['label' => 'Alle übrigen', 'paket' => 'Weiss'],
+            ['label' => 'Service', 'paket' => 'Schwarz'],
+        ], $c->dressSummary, '"Alle übrigen" zuerst, "2.OG" bleibt aussen vor (keine eigene Zuordnung).');
+    }
+
+    /**
      * Log-Attrappe: der Ablehnungspfad schreibt Log::warning. Facade-Cache
      * mit leeren, sonst greift eine zuvor aufgeloeste Instanz
      * (siehe Memory reference_log_facade_test_stub).

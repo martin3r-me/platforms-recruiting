@@ -127,6 +127,14 @@ class Show extends Component
     /** Anpassen-Dialog fuer den Ansprechpartner (ohne Senden). */
     public bool $showContactModal = false;
 
+    /**
+     * Anpassen-Dialog fuer die Kleidung (Umzug von der Senden-Maske auf die
+     * VA-Seite, 10/2026): die Kleidung ist eine Eigenschaft der Veranstaltung,
+     * nicht eines Versands, und der Senden-Knopf ist bei durchbestaetigten
+     * VAs deaktiviert — ohne eigenes Fenster waere die Pflege dann unerreichbar.
+     */
+    public bool $showDressModal = false;
+
     /** Individueller Hinweis pro Mitarbeiter, keyed by rec_employee_id → Text. */
     public array $notes = [];
 
@@ -900,6 +908,32 @@ class Show extends Component
         $this->validate(['ansprechpartner' => 'nullable|string|max:255']);
         $this->persistContact();
         $this->showContactModal = false;
+    }
+
+    /**
+     * Oeffnet das eigene Kleidung-Fenster auf der VA-Seite (Umzug 10/2026,
+     * Muster openContactModal()). loadDressForm() zieht den Schnappschuss der
+     * Taetigkeiten-Reihenfolge frisch — siehe $dressTaetigkeitenSnapshot.
+     */
+    public function openDressModal(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->loadDressForm();
+        $this->dressSaved = false;
+        $this->resetErrorBag('dressAck');
+        $this->showDressModal = true;
+    }
+
+    /**
+     * "aendern" in der Kleidung-Zusammenfassung des Sende-Fensters: wechselt
+     * dorthin, OHNE ein zweites Fenster ueber dem ersten zu oeffnen.
+     */
+    public function openDressModalFromSend(): void
+    {
+        $this->showSendModal = false;
+        $this->openDressModal();
     }
 
     /**
@@ -1761,6 +1795,58 @@ class Show extends Component
         $out = [];
         foreach ($this->dressPackageChoices() as $package) {
             $out[(string) $package->id] = (string) $package->items_text;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Eine Quelle fuer die Kleidung-Zeilen — Karte auf der VA-Seite UND
+     * Zusammenfassung im Sende-Fenster lesen beide von hier (Umzug 10/2026).
+     * Nur tatsaechlich gesetzte Zuordnungen, "Alle uebrigen" zuerst, der Rest
+     * in der Reihenfolge des Taetigkeits-Schnappschusses (Fenster bereits
+     * geoeffnet) bzw. der frischen eventTaetigkeiten()-Berechnung (Karte vor
+     * dem ersten Oeffnen — der Schnappschuss ist dann noch leer).
+     *
+     * @return list<array{label:string, paket:string}>
+     */
+    #[Computed]
+    public function dressSummary(): array
+    {
+        $rows = \Platform\Recruiting\Models\RecDispoEventDress::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->get()
+            ->keyBy('taetigkeit');
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $packageIds = $rows->pluck('rec_dispo_dress_package_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
+        $packageNames = \Platform\Recruiting\Models\RecDispoDressPackage::query()
+            ->whereIn('id', $packageIds)
+            ->pluck('name', 'id');
+
+        $out = [];
+
+        $allRow = $rows->get(\Platform\Recruiting\Models\RecDispoEventDress::ALL);
+        if ($allRow !== null) {
+            $out[] = [
+                'label' => 'Alle übrigen',
+                'paket' => (string) ($packageNames[(int) $allRow->rec_dispo_dress_package_id] ?? ''),
+            ];
+        }
+
+        $taetigkeiten = $this->dressTaetigkeitenSnapshot !== [] ? $this->dressTaetigkeitenSnapshot : $this->eventTaetigkeiten;
+        foreach ($taetigkeiten as $taetigkeit) {
+            $row = $rows->get($taetigkeit);
+            if ($row === null) {
+                continue;
+            }
+            $out[] = [
+                'label' => $taetigkeit,
+                'paket' => (string) ($packageNames[(int) $row->rec_dispo_dress_package_id] ?? ''),
+            ];
         }
 
         return $out;
