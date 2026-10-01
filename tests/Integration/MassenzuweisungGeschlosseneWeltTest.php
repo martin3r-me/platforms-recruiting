@@ -121,6 +121,15 @@ final class MassenzuweisungGeschlosseneWeltTest extends TestCase
 
         'notfall_gesperrt_bis' => 'Die Sperre nach einem gestoppten Antrag (Ruling GD-13); '
             .'massenzuweisbar waere das Stopp-Recht von HR wieder aussitzbar.',
+
+        'aufgaben_signatur' => 'Der Zustand des Einsatz-Triggers. Geschrieben wird er ausschliesslich '
+            .'ueber den Query Builder im Kommando, also beobachter-frei: per Eloquent liefe der '
+            .'Beobachter-Lauf mit und setzte den ZAS-Export-Marker. Eine blosse PRUEFUNG, die niemandes '
+            .'Daten aendert, spuelte damit den Bestand in die naechste ZAS-Update-Datei (Vorfall 02.09.2026).',
+        'aufgaben_gemeldet_at' => 'Der Zustand des Einsatz-Triggers, aus demselben Grund wie '
+            .'aufgaben_signatur beobachter-frei. Zusaetzlich ist der Stempel die einzige Bremse gegen '
+            .'eine zweite Nachricht mit demselben Inhalt — massenzuweisbar liesse er sich auf null '
+            .'setzen und die Bremse damit loesen.',
     ];
 
     /**

@@ -62,6 +62,16 @@ class RecPerson extends Model
     // Geschrieben hat beide im ganzen Modul nie jemand per Eloquent (ueber
     // src/ gegriffen); der Ausbau kostet also nichts.
     //
+    // Dieselbe Tuer bleibt zu fuer die beiden Spalten des Einsatz-Triggers
+    // (aufgaben_signatur, aufgaben_gemeldet_at): geschrieben werden sie
+    // ausschliesslich ueber den Query Builder im Kommando, also
+    // beobachter-frei. Per Eloquent geschrieben liefe der Beobachter-Lauf
+    // mit — und damit genau der ZAS-Export-Marker, den dieser Zweig
+    // vermeidet. Eine blosse PRUEFUNG, die niemandes Daten aendert, spuelte
+    // dann den halben Bestand in die naechste ZAS-Update-Datei (Vorfall
+    // 02.09.2026: ein Telefon-Lauf hat 505 Bestands-Mitarbeiter so
+    // verschoben).
+    //
     // WELCHE SPALTE HIER STEHEN DARF UND WELCHE NICHT, haelt seit dieser
     // Runde ein Waechter ueber die GANZE Tabelle fest, keine Namensliste
     // mehr: tests/Integration/MassenzuweisungGeschlosseneWeltTest.php. Wer
@@ -73,6 +83,10 @@ class RecPerson extends Model
 
     protected $casts = [
         'invited_at'          => 'datetime',
+        // Der Einsatz-Trigger stempelt hier, WANN der Mensch zuletzt auf
+        // seine offenen Punkte hingewiesen wurde. Als Datum, weil die
+        // Nachrichtenregel damit rechnet und nicht vergleicht.
+        'aufgaben_gemeldet_at' => 'datetime',
         'registered_at'       => 'datetime',
         'locked_at'           => 'datetime',
         'invite_expires_at'   => 'datetime',

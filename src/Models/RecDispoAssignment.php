@@ -49,6 +49,12 @@ class RecDispoAssignment extends Model
         'escalation_2_message_id',
         'source_meta',
         'rec_dispo_dress_package_id', 'dress_frozen_at', 'dress_items_text',
+        // aufgaben_erinnert_at steht hier BEWUSST NICHT: den Stempel des
+        // Einsatz-Triggers setzt ausschliesslich der Query Builder im
+        // Kommando, beobachter-frei. Per Eloquent geschrieben liefe der
+        // Beobachter-Lauf mit — und damit der ZAS-Export-Marker, den dieser
+        // Zweig vermeidet; eine blosse Pruefung duerfte den Bestand nicht in
+        // die naechste ZAS-Update-Datei spuelen.
     ];
 
     /**
@@ -110,6 +116,9 @@ class RecDispoAssignment extends Model
         'source_meta'   => 'array',
         'dress_frozen_at' => 'datetime',
         'rec_dispo_dress_package_id' => 'integer',
+        // Wann der Mensch wegen GENAU DIESER Einbuchung erinnert wurde. Als
+        // Datum, damit die Frist gerechnet und nicht als Text verglichen wird.
+        'aufgaben_erinnert_at' => 'datetime',
     ];
 
     protected static function booted(): void
