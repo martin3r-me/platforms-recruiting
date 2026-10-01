@@ -15,9 +15,14 @@ use Platform\Recruiting\Support\ProofTypes;
  * kommen dazu — eine gespeicherte Liste waere nach einer Nacht falsch.
  *
  * Der Bezug ist der naechste KOMMENDE Auftrag. Er macht aus „Ausweis fehlt"
- * ein „Ausweis fehlt — gebraucht fuer deinen Einsatz am 12.10. in
- * Duesseldorf". Ohne kommenden Einsatz bleibt die Liste trotzdem richtig, nur
- * ohne Anlass.
+ * ein „Ausweis fehlt — gebraucht fuer deinen Einsatz am 12.10. (Projekt:
+ * Messe Duesseldorf)". Projiziert wird NUR die Projektbezeichnung
+ * (`rec_dispo_events.name`, siehe `event` unten) — nicht der Ort
+ * (`rec_dispo_events.ort`); das Portal (Aufgabe 11) kann aus dieser
+ * Rueckgabe also einen Satz mit Datum und Projektname bauen, keinen mit
+ * Ort. Ohne kommenden Einsatz bleibt die Liste trotzdem richtig, nur ohne
+ * Anlass. (Korrektur Review Runde 1, F2: die urspruengliche Illustration
+ * aus dem Brief nannte woertlich einen Ort, den die Rueckgabe nie trug.)
  *
  * ET-8 (Review vor Task 8): der Rueckgabetyp verspricht fuer `einsatz` genau
  * {datum, taetigkeit, event}. EinsatzBezug::naechster() reicht aber die
@@ -32,9 +37,32 @@ use Platform\Recruiting\Support\ProofTypes;
  * sie, koennte es nach status_id filtern und die Regel ein zweites Mal
  * (und womoeglich abweichend) implementieren. Gedeckt durch
  * test_der_einsatz_bezug_traegt_nur_die_drei_versprochenen_felder.
+ *
+ * ET-17 (Review Runde 1): der Personen-Umfang nutzt bewusst nur
+ * `PersonScopeResolver::forEmployee()['ids']`, nie `['abweichend']` — genau
+ * wie `ProofReader`. Eine abweichende Behandlung von Nachweisen und
+ * Einsaetzen wuerde die beiden darueber uneins machen lassen, WER der
+ * Mensch ist, und das waere schlimmer als die Luecke darunter. BEKANNTE
+ * GRENZE (unveraendert durch diese Entscheidung): ohne `rec_person_id`
+ * verlangt Zweig 2 des `PersonScopeResolver` zusaetzlich dieselbe
+ * Handynummer; weicht sie ab, landet die Schwester-Anstellung in
+ * `abweichend` und ihr Einsatz verschwindet aus dieser Klasse HERAUS
+ * SPURLOS — kein Hinweis, keine Fehlermeldung. Der Heilweg ist das Setzen
+ * von `rec_person_id` (Backfill/PersonLinker); das Sichtbarmachen dieser
+ * Faelle ist NICHT Aufgabe dieser Klasse, sondern Aufgabe 10.
  */
 class OffenePunkte
 {
+    /**
+     * Die beiden Parameter sind KEINE Einspritzpunkte im ueblichen Sinn:
+     * `ProofReader` und `PersonScopeResolver` sind `final`, es gibt keine
+     * Schnittstelle dahinter, und `$this->scope` wird an `ProofReader` auch
+     * nicht durchgereicht (der baut sich intern seinen eigenen). Nur
+     * gleichwertige Instanzen sind ueberhaupt uebergebbar. Beibehalten,
+     * weil `ProofReader` selbst exakt dieses Muster traegt (default-
+     * instanziierter Konstruktor-Parameter) — eine abweichende Form hier
+     * waere die Ausnahme im Modul, nicht die Konsistenz.
+     */
     public function __construct(
         private readonly ProofReader $nachweise = new ProofReader(),
         private readonly PersonScopeResolver $scope = new PersonScopeResolver(),
@@ -75,6 +103,9 @@ class OffenePunkte
         $einsaetze = RecDispoAssignment::query()
             ->whereIn('rec_employee_id', $this->scope->forEmployee($employee)['ids'])
             ->whereNull('missing_since')
+            // ->with('event'): ohne das waere jeder $a->event?->name unten
+            // eine eigene Abfrage (N+1) — bei vielen Einbuchungen sichtbar.
+            ->with('event')
             ->get(['datum', 'status_id', 'taetigkeit', 'rec_dispo_event_id'])
             ->map(fn (RecDispoAssignment $a) => [
                 // Explizit formatiert, nicht (string)-gecastet: der Cast
@@ -83,7 +114,7 @@ class OffenePunkte
                 // dem Carbon-Objekt — das liefert das volle
                 // "Y-m-d H:i:s" und haette hier ein stilles Format-Leck
                 // erzeugt (so auch ueberall sonst im Modul gehandhabt, z. B.
-                // DispoEmployeeAssignments::naechsteEinsaetze()).
+                // DispoEmployeeAssignments::split(), Zeile 35).
                 'datum'      => $a->datum?->format('Y-m-d') ?? '',
                 'status_id'  => (int) $a->status_id,
                 'taetigkeit' => $a->taetigkeit,

@@ -134,8 +134,8 @@ final class OffenePunkteTest extends TestCase
         return (int) DB::table('rec_persons')->insertGetId([
             'uuid' => 'p-'.$this->naechsteId++,
             'team_id' => self::TEAM,
-            'created_at' => '2026-10-01 09:00:00',
-            'updated_at' => '2026-10-01 09:00:00',
+            'created_at' => '2026-12-01 09:00:00',
+            'updated_at' => '2026-12-01 09:00:00',
         ]);
     }
 
@@ -150,8 +150,8 @@ final class OffenePunkteTest extends TestCase
             'is_eu_citizen' => true,
             'employment_type' => 'aushilfe',
             'is_first_aider' => false,
-            'created_at' => '2026-10-01 09:00:00',
-            'updated_at' => '2026-10-01 09:00:00',
+            'created_at' => '2026-12-01 09:00:00',
+            'updated_at' => '2026-12-01 09:00:00',
         ], $attr));
 
         return RecEmployee::find($id);
@@ -163,8 +163,8 @@ final class OffenePunkteTest extends TestCase
             'uuid' => 'ev-'.$this->naechsteId++,
             'einsatz_ref' => 'RG-'.$this->naechsteId,
             'name' => $attr['event_name'] ?? null,
-            'created_at' => '2026-10-01 09:00:00',
-            'updated_at' => '2026-10-01 09:00:00',
+            'created_at' => '2026-12-01 09:00:00',
+            'updated_at' => '2026-12-01 09:00:00',
         ]);
         unset($attr['event_name']);
 
@@ -174,23 +174,23 @@ final class OffenePunkteTest extends TestCase
             'rec_dispo_event_id' => $eventId,
             'pnr_raw' => 'RG14',
             'rec_employee_id' => $employee->id,
-            'datum' => '2026-10-12',
+            'datum' => '2026-12-12',
             'status_id' => 1,
-            'created_at' => '2026-10-01 09:00:00',
-            'updated_at' => '2026-10-01 09:00:00',
+            'created_at' => '2026-12-01 09:00:00',
+            'updated_at' => '2026-12-01 09:00:00',
         ], $attr));
     }
 
-    private function nachweis(RecEmployee $employee, string $code): void
+    private function nachweis(RecEmployee $employee, string $code, ?string $validUntil = null): void
     {
         DB::table('rec_employee_proofs')->insert([
             'uuid' => 'pf-'.$this->naechsteId++,
             'team_id' => self::TEAM,
             'rec_employee_id' => $employee->id,
             'proof_type_code' => $code,
-            'valid_until' => null,
-            'created_at' => '2026-10-01 09:00:00',
-            'updated_at' => '2026-10-01 09:00:00',
+            'valid_until' => $validUntil,
+            'created_at' => '2026-12-01 09:00:00',
+            'updated_at' => '2026-12-01 09:00:00',
         ]);
     }
 
@@ -210,11 +210,11 @@ final class OffenePunkteTest extends TestCase
     {
         $person = $this->personAnlegen();
         $ma = $this->mitarbeiter(['rec_person_id' => $person]);
-        $this->einbuchung($ma, ['datum' => '2026-10-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
+        $this->einbuchung($ma, ['datum' => '2026-12-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
 
-        $stand = (new OffenePunkte())->fuer($ma, '2026-10-01');
+        $stand = (new OffenePunkte())->fuer($ma, '2026-12-01');
 
-        $this->assertSame('2026-10-12', $stand['einsatz']['datum']);
+        $this->assertSame('2026-12-12', $stand['einsatz']['datum']);
         $this->assertSame('Service', $stand['einsatz']['taetigkeit']);
     }
 
@@ -222,14 +222,14 @@ final class OffenePunkteTest extends TestCase
     {
         $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
 
-        $this->assertNull((new OffenePunkte())->fuer($ma, '2026-10-01')['einsatz']);
+        $this->assertNull((new OffenePunkte())->fuer($ma, '2026-12-01')['einsatz']);
     }
 
     public function test_ein_fehlender_aufenthaltstitel_macht_den_punkt_zum_ko(): void
     {
         $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen(), 'is_eu_citizen' => false]);
 
-        $stand = (new OffenePunkte())->fuer($ma, '2026-10-01');
+        $stand = (new OffenePunkte())->fuer($ma, '2026-12-01');
         $titel = $this->zeileMitCode($stand['punkte'], 'aufenthaltstitel');
 
         $this->assertTrue($titel['ko']);
@@ -244,7 +244,7 @@ final class OffenePunkteTest extends TestCase
     {
         $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen(), 'is_eu_citizen' => true]);
 
-        $stand = (new OffenePunkte())->fuer($ma, '2026-10-01');
+        $stand = (new OffenePunkte())->fuer($ma, '2026-12-01');
 
         $this->assertFalse($stand['gesperrt']);
         $this->assertFalse($this->zeileMitCode($stand['punkte'], 'ausweis')['ko']);
@@ -255,7 +255,7 @@ final class OffenePunkteTest extends TestCase
         $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
         $this->nachweis($ma, 'ausweis');
 
-        $codes = array_column((new OffenePunkte())->fuer($ma, '2026-10-01')['punkte'], 'code');
+        $codes = array_column((new OffenePunkte())->fuer($ma, '2026-12-01')['punkte'], 'code');
 
         $this->assertNotContains('ausweis', $codes);
     }
@@ -271,35 +271,134 @@ final class OffenePunkteTest extends TestCase
     {
         $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
         $this->einbuchung($ma, [
-            'datum' => '2026-10-12',
+            'datum' => '2026-12-12',
             'status_id' => 1,
-            'missing_since' => '2026-09-30 09:00:00',
+            'missing_since' => '2026-11-30 09:00:00',
         ]);
 
-        $this->assertNull((new OffenePunkte())->fuer($ma, '2026-10-01')['einsatz']);
+        $this->assertNull((new OffenePunkte())->fuer($ma, '2026-12-01')['einsatz']);
     }
 
     /**
      * Der Einsatz-Bezug gehoert der PERSON, nicht der einen Anstellung, mit
      * der man gerade zu tun hat (gleiches Muster wie
      * ProofReaderPersonPflichtenTest) — die Einbuchung haengt an der
-     * SCHWESTER-Anstellung derselben Person, nicht an $ma selbst. Ohne den
-     * PersonScopeResolver in naechsterEinsatz() (z. B. ein versehentliches
-     * [$employee->id] statt des aufgeloesten Umfangs) bliebe diese Einbuchung
-     * unsichtbar, und kein anderer Test hier wuerde das merken, weil alle
-     * uebrigen Faelle mit genau einer Anstellung arbeiten.
+     * SCHWESTER-Anstellung derselben Person, nicht an $ma selbst. Das deckt
+     * NUR die Richtung "zu wenig" (die Einbuchung der Schwester darf nicht
+     * fehlen) — nicht, dass ein FREMDER Mensch draussen bleibt (das deckt
+     * test_ein_fremder_mensch_taucht_nicht_als_einsatz_bezug_auf), und nicht,
+     * dass BEIDE eigenen Anstellungen gemeinsam zaehlen statt nur
+     * irgendeiner (das deckt
+     * test_der_einsatz_bezug_zaehlt_beide_anstellungen_eigene_zuerst).
+     * Nachbesserung Review Runde 1: ein ersatzloses Entfernen des gesamten
+     * Personen-Umfang-Filters ueberlebte hier noch (M-A), weil es in der
+     * ganzen Testklasse keinen zweiten Menschen MIT Einbuchung gab.
      */
     public function test_der_einsatz_einer_anderen_anstellung_derselben_person_zaehlt_mit(): void
     {
         $person = $this->personAnlegen();
         $rg = $this->mitarbeiter(['rec_person_id' => $person, 'employment_type' => 'student']);
         $ma = $this->mitarbeiter(['rec_person_id' => $person, 'employment_type' => 'aushilfe']);
-        $this->einbuchung($rg, ['datum' => '2026-10-20', 'status_id' => 1, 'taetigkeit' => 'Garderobe']);
+        $this->einbuchung($rg, ['datum' => '2026-12-20', 'status_id' => 1, 'taetigkeit' => 'Garderobe']);
 
-        $einsatz = (new OffenePunkte())->fuer($ma, '2026-10-01')['einsatz'];
+        $einsatz = (new OffenePunkte())->fuer($ma, '2026-12-01')['einsatz'];
 
-        $this->assertSame('2026-10-20', $einsatz['datum']);
+        $this->assertSame('2026-12-20', $einsatz['datum']);
         $this->assertSame('Garderobe', $einsatz['taetigkeit']);
+    }
+
+    /**
+     * Nachbesserung M-A (Review Runde 1, der schwerste Fund): die
+     * Gegenrichtung zum Test oben. Ein FREMDER Mensch (eigene
+     * rec_person_id, keine Beziehung zu $ich) hat eine Einbuchung — die darf
+     * $ich niemals als seinen Bezug sehen. Vorher liess sich der gesamte
+     * Personen-Umfang-Filter in naechsterEinsatz() ersatzlos loeschen, ohne
+     * dass ein Test rot wurde: "zu wenig" (Schwester fehlt) war gedeckt, "zu
+     * viel" (ein Fremder leckt herein) nicht — und "zu viel" ist die
+     * gefaehrlichere Richtung, weil sie die Daten eines anderen Menschen
+     * zeigen wuerde.
+     */
+    public function test_ein_fremder_mensch_taucht_nicht_als_einsatz_bezug_auf(): void
+    {
+        $ich = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
+        $fremder = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
+        $this->einbuchung($fremder, ['datum' => '2026-12-05', 'status_id' => 1, 'taetigkeit' => 'Service']);
+
+        $this->assertNull((new OffenePunkte())->fuer($ich, '2026-12-01')['einsatz']);
+    }
+
+    /**
+     * Nachbesserung M-C (Review Runde 1): Spiegelung des
+     * Schwester-Tests oben. Die Einbuchung haengt diesmal an BEIDEN
+     * Anstellungen derselben Person, die EIGENE (hier abgefragte, $ma)
+     * zeitlich FRUEHER als die der Schwester ($rg). Nur so ist bewiesen,
+     * dass die eigene Anstellung selbst mitzaehlt (nicht nur die Schwester)
+     * UND dass die Vereinigung nach dem fruehesten Datum sortiert
+     * (EinsatzBezug::naechster()). Ein Mutant, der nur die ERSTE Anstellung
+     * des aufgeloesten Umfangs nimmt (z. B. array_slice auf Index 0), haette
+     * den Schwester-Test allein ueberlebt, weil dort die Schwester ($rg) die
+     * einzige mit Einbuchung ist und zugleich zuerst im Scope steht — hier
+     * nicht, weil die Einbuchung der ZWEITEN Anstellung im Scope ($ma) die
+     * naeher liegende ist.
+     */
+    public function test_der_einsatz_bezug_zaehlt_beide_anstellungen_eigene_zuerst(): void
+    {
+        $person = $this->personAnlegen();
+        $rg = $this->mitarbeiter(['rec_person_id' => $person, 'employment_type' => 'student']);
+        $ma = $this->mitarbeiter(['rec_person_id' => $person, 'employment_type' => 'aushilfe']);
+        $this->einbuchung($rg, ['datum' => '2026-12-20', 'status_id' => 1, 'taetigkeit' => 'Garderobe']);
+        $this->einbuchung($ma, ['datum' => '2026-12-10', 'status_id' => 1, 'taetigkeit' => 'Service']);
+
+        $einsatz = (new OffenePunkte())->fuer($ma, '2026-12-01')['einsatz'];
+
+        $this->assertSame('2026-12-10', $einsatz['datum']);
+        $this->assertSame('Service', $einsatz['taetigkeit']);
+    }
+
+    /**
+     * Nachbesserung M-E (Review Runde 1): ein stornierter Einsatz darf nicht
+     * als "naechster Bezug" durchgereicht werden. Die Regel selbst steckt in
+     * EinsatzBezug::naechster() (ET-13) und ist dort schon gedeckt — dieser
+     * Test sichert zu, dass OffenePunkte den ECHTEN status_id-Wert der
+     * Einbuchung hereinreicht (nicht etwa hartcodiert 1), sonst koennte die
+     * Regel hier nie greifen.
+     */
+    public function test_ein_stornierter_einsatz_ist_kein_naechster_bezug(): void
+    {
+        $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
+        $this->einbuchung($ma, ['datum' => '2026-12-12', 'status_id' => 3]);
+
+        $this->assertNull((new OffenePunkte())->fuer($ma, '2026-12-01')['einsatz']);
+    }
+
+    /**
+     * Nachbesserung M-F/M-U (Review Runde 1, die "Zeitbombe"): bis hierhin
+     * benutzten ALLE Tests '2026-12-01' als Heute — und damit war der Wert
+     * austauschbar gegen `now()->toDateString()`, ohne dass ein Test das
+     * gemerkt haette. ZEITLOS statt eines zweiten Stichtags: $heute wird
+     * absichtlich weit in die VERGANGENHEIT gelegt (2020), die Testdaten
+     * liegen dazwischen (nach $heute, aber vor dem tatsaechlichen "jetzt" zum
+     * Zeitpunkt JEDES kuenftigen Testlaufs — dieser Code existiert erst seit
+     * 2026, "jetzt" liegt also garantiert immer nach 2024/2025). Mit dem
+     * ECHTEN $heute (2020) ist der Einsatz noch Jahre entfernt (kommender
+     * Bezug) und der Ausweis noch Jahre gueltig (status 'ok', nicht offen).
+     * Ersetzt der Mutant $heute durch das echte "jetzt" (M-F) bzw. durch
+     * null, das intern auf "jetzt" faellt (M-U, siehe ProofReader::checklist()
+     * `$heute ?? now()->toDateString()`), kippt BEIDES: der Einsatz liegt
+     * dann in der Vergangenheit (kein Bezug mehr) und der Ausweis ist
+     * abgelaufen (steht dann in $punkte). Beide Assertions treffen daher
+     * unabhaengig vom Tag, an dem dieser Test tatsaechlich laeuft.
+     */
+    public function test_ein_heute_weit_in_der_vergangenheit_veraendert_den_stand_nicht_auf_jetzt(): void
+    {
+        $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
+        $this->nachweis($ma, 'ausweis', '2025-06-01');
+        $this->einbuchung($ma, ['datum' => '2024-06-01', 'status_id' => 1, 'taetigkeit' => 'Service']);
+
+        $stand = (new OffenePunkte())->fuer($ma, '2020-01-01');
+
+        $this->assertSame('2024-06-01', $stand['einsatz']['datum'] ?? null, 'Einsatz 2024 ist aus Sicht von 2020 noch kommend.');
+        $this->assertNotContains('ausweis', array_column($stand['punkte'], 'code'), 'Ausweis ist aus Sicht von 2020 noch Jahre gueltig.');
     }
 
     /**
@@ -310,9 +409,9 @@ final class OffenePunkteTest extends TestCase
     public function test_der_einsatz_bezug_traegt_nur_die_drei_versprochenen_felder(): void
     {
         $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
-        $this->einbuchung($ma, ['datum' => '2026-10-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
+        $this->einbuchung($ma, ['datum' => '2026-12-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
 
-        $einsatz = (new OffenePunkte())->fuer($ma, '2026-10-01')['einsatz'];
+        $einsatz = (new OffenePunkte())->fuer($ma, '2026-12-01')['einsatz'];
 
         $this->assertSame(['datum', 'taetigkeit', 'event'], array_keys($einsatz));
     }
@@ -321,12 +420,12 @@ final class OffenePunkteTest extends TestCase
     {
         $ma = $this->mitarbeiter(['rec_person_id' => $this->personAnlegen()]);
         $this->einbuchung($ma, [
-            'datum' => '2026-10-12',
+            'datum' => '2026-12-12',
             'status_id' => 1,
             'event_name' => 'Messe Duesseldorf',
         ]);
 
-        $einsatz = (new OffenePunkte())->fuer($ma, '2026-10-01')['einsatz'];
+        $einsatz = (new OffenePunkte())->fuer($ma, '2026-12-01')['einsatz'];
 
         $this->assertSame('Messe Duesseldorf', $einsatz['event']);
     }
