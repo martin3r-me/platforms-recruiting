@@ -323,6 +323,41 @@ final class AufgabenSenderTest extends TestCase
     }
 
     /**
+     * ET-23: nach einem Erfolg haelt der Sender fest, WELCHE Nachricht er
+     * angelegt hat. Ohne diese Kennung koennte der naechste Lauf nicht
+     * nachlesen, ob Meta die Zustellung spaeter per Webhook doch noch als
+     * gescheitert gemeldet hat — und der Mensch bekaeme nie wieder etwas.
+     */
+    public function testNachEinemErfolgStehtDieKennungDerNachrichtBereit(): void
+    {
+        $sender = new AufgabenSender();
+
+        $this->assertNull($sender->letzteNachrichtId(), 'vor dem ersten Versand gibt es nichts nachzulesen');
+
+        $this->assertSame(AufgabenSender::STATUS_SENT, $sender->sende($this->ma, $this->stand(), 'neu'));
+        $this->assertSame(4711, $sender->letzteNachrichtId());
+    }
+
+    /**
+     * Die Gegenrichtung, und die ist die gefaehrliche: nach einem
+     * FEHLGESCHLAGENEN Versand darf die Kennung des vorherigen, erfolgreichen
+     * nicht stehenbleiben. Sonst laese der naechste Lauf den Status einer
+     * fremden Nachricht nach — und zwar eines Erfolgs, also genau das
+     * Dauerschweigen, gegen das ET-23 erfunden wurde.
+     */
+    public function testNachEinemFehlschlagStehtKeineKennungMehr(): void
+    {
+        $sender = new AufgabenSender();
+        $this->assertSame(AufgabenSender::STATUS_SENT, $sender->sende($this->ma, $this->stand(), 'neu'));
+        $this->assertSame(4711, $sender->letzteNachrichtId());
+
+        $this->meta->lehntAb();
+
+        $this->assertSame(AufgabenSender::STATUS_FAILED, $sender->sende($this->ma, $this->stand(), 'neu'));
+        $this->assertNull($sender->letzteNachrichtId());
+    }
+
+    /**
      * ET-20 (Review 01.10.2026): das Datum geht als `d.m.Y` an den Menschen,
      * NICHT im ISO-Format, das `OffenePunkte::fuer()` liefert. Vor der
      * Nachbesserung zementierte dieser Test die ISO-Form ("2026-10-20") als
@@ -611,6 +646,11 @@ final class AufgabenSenderTest extends TestCase
                 }
 
                 return new class {
+                    // Wie comms_whatsapp_messages.id: die Kennung der
+                    // gespeicherten Nachricht. ET-23 liest ueber sie beim
+                    // naechsten Lauf den Status nach.
+                    public int $id = 4711;
+
                     public string $status = 'sent';
 
                     public array $meta_payload = [];

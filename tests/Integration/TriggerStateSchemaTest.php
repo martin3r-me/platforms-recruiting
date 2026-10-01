@@ -321,6 +321,47 @@ final class TriggerStateSchemaTest extends TestCase
         }
     }
 
+    /**
+     * ET-23 braucht eine VIERTE Spalte: welche Nachricht zuletzt rausging.
+     * Sie kommt aus einer eigenen Migration (000003) und wird hier mit
+     * demselben Mass gemessen wie die drei darueber — Name, Typ, nullable,
+     * und auf MySQL der Anker, den SQLite nicht kennt.
+     */
+    public function test_die_nachrichten_spalte_steht_im_schema(): void
+    {
+        $this->assertTrue(Schema::hasColumn('rec_persons', 'aufgaben_nachricht_id'));
+        $this->assertSame('integer', Schema::getColumnType('rec_persons', 'aufgaben_nachricht_id'));
+
+        // Die Sache statt des Namens: ein Wert geht rein und kommt zurueck,
+        // und eine Zeile ohne ihn laesst sich anlegen.
+        $personId = $this->personAnlegen();
+        $leer = Capsule::table('rec_persons')->where('id', $personId)->first();
+        $this->assertObjectHasProperty('aufgaben_nachricht_id', $leer);
+        $this->assertNull($leer->aufgaben_nachricht_id);
+
+        Capsule::table('rec_persons')->where('id', $personId)->update(['aufgaben_nachricht_id' => 4711]);
+        $this->assertSame(4711, (int) Capsule::table('rec_persons')->where('id', $personId)->value('aufgaben_nachricht_id'));
+
+        // Und nicht massenzuweisbar — geschrieben wird nur ueber den Query
+        // Builder im Kommando.
+        $this->assertNotContains('aufgaben_nachricht_id', (new RecPerson())->getFillable());
+    }
+
+    public function test_auf_mysql_haengt_die_nachrichten_spalte_hinter_dem_stempel(): void
+    {
+        $ddl = $this->ddlAufMysql('database/migrations/2026_10_01_000003_add_aufgaben_nachricht_to_rec_persons.php');
+
+        $this->assertStringContainsString(
+            'add `aufgaben_nachricht_id` bigint unsigned null after `aufgaben_gemeldet_at`',
+            $ddl,
+            "DDL war:\n".$ddl,
+        );
+
+        // Der Anker ist kein toter Name: die Spalte steht wirklich im Schema,
+        // das die uebrigen Migrationen bauen.
+        $this->assertTrue(Schema::hasColumn('rec_persons', 'aufgaben_gemeldet_at'));
+    }
+
     public function test_die_migration_ist_idempotent_und_umkehrbar(): void
     {
         $migration = $this->migration();

@@ -62,8 +62,9 @@ class RecPerson extends Model
     // Geschrieben hat beide im ganzen Modul nie jemand per Eloquent (ueber
     // src/ gegriffen); der Ausbau kostet also nichts.
     //
-    // Dieselbe Tuer bleibt zu fuer die beiden Spalten des Einsatz-Triggers
-    // (aufgaben_signatur, aufgaben_gemeldet_at): geschrieben werden sie
+    // Dieselbe Tuer bleibt zu fuer die drei Spalten des Einsatz-Triggers
+    // (aufgaben_signatur, aufgaben_gemeldet_at, aufgaben_nachricht_id):
+    // geschrieben werden sie
     // ausschliesslich ueber den Query Builder im Kommando, also
     // beobachter-frei. Per Eloquent geschrieben liefe der Beobachter-Lauf
     // mit — und damit genau der ZAS-Export-Marker, den dieser Zweig
@@ -87,6 +88,10 @@ class RecPerson extends Model
         // seine offenen Punkte hingewiesen wurde. Als Datum, weil die
         // Nachrichtenregel damit rechnet und nicht vergleicht.
         'aufgaben_gemeldet_at' => 'datetime',
+        // ET-23: WELCHE Nachricht zuletzt rausging. Der naechste Lauf liest
+        // ihren Status nach — steht sie inzwischen auf 'failed', war 'sent'
+        // nur die Annahme bei Meta und nicht die Zustellung.
+        'aufgaben_nachricht_id' => 'integer',
         'registered_at'       => 'datetime',
         'locked_at'           => 'datetime',
         'invite_expires_at'   => 'datetime',

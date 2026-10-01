@@ -130,6 +130,10 @@ final class MassenzuweisungGeschlosseneWeltTest extends TestCase
             .'aufgaben_signatur beobachter-frei. Zusaetzlich ist der Stempel die einzige Bremse gegen '
             .'eine zweite Nachricht mit demselben Inhalt — massenzuweisbar liesse er sich auf null '
             .'setzen und die Bremse damit loesen.',
+        'aufgaben_nachricht_id' => 'Der Verweis auf die zuletzt verschickte Aufgaben-Nachricht (ET-23). '
+            .'Beobachter-frei aus demselben Grund wie die beiden Spalten darueber; zusaetzlich ist er '
+            .'die einzige Handhabe, mit der ein spaeter per Webhook gemeldetes "failed" ueberhaupt '
+            .'auffaellt — massenzuweisbar liesse er sich auf eine fremde Nachricht zeigen lassen.',
     ];
 
     /**

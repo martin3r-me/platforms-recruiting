@@ -95,11 +95,40 @@ final class AufgabenSender
     public const STATUS_NICHT_KONFIGURIERT = 'nicht_konfiguriert';
 
     /**
+     * Die Kennung der zuletzt angelegten Nachricht — NUR nach STATUS_SENT
+     * gesetzt, sonst null (ET-23).
+     *
+     * WARUM NICHT IM RUECKGABEWERT: `sende()` sagt `: string` zu, und diese
+     * Zusage ist in Aufgabe 9 geprueft und anderweitig benutzt. Ein Umbau auf
+     * ein Array haette dort jede Aufrufstelle und jeden Test mitgerissen,
+     * ohne dass eine einzige davon besser geworden waere.
+     *
+     * WAS DAS KOSTET: der Wert gehoert dem LETZTEN Aufruf. Der Aufrufer
+     * (EinsatzPruefung) arbeitet eine Person nach der anderen ab und liest
+     * ihn unmittelbar nach `sende()`; wer parallel senden will, braucht eine
+     * eigene Instanz. Zurueckgesetzt wird er am ANFANG jedes Aufrufs, damit
+     * ein fehlgeschlagener Versand nicht die Kennung des vorherigen erbt —
+     * das waere der gefaehrliche Fall: der naechste Lauf laese dann den
+     * Status einer fremden Nachricht nach.
+     */
+    private ?int $letzteNachrichtId = null;
+
+    public function letzteNachrichtId(): ?int
+    {
+        return $this->letzteNachrichtId;
+    }
+
+    /**
      * @param  array{punkte: list<array{code:string, label:string, status:string, ko:bool}>, einsatz: ?array{datum:string, taetigkeit:?string, event:?string}, gesperrt: bool}  $stand  Rueckgabe von OffenePunkte::fuer()
      * @param  string  $anlass  'neu' oder 'erinnerung'
      */
     public function sende(RecEmployee $employee, array $stand, string $anlass): string
     {
+        // ET-23: zuerst raeumen. Ein Rueckfall auf die Kennung des
+        // vorherigen Aufrufs waere schlimmer als gar keine — der naechste
+        // Lauf wuerde den Status einer fremden Nachricht nachlesen.
+        $this->letzteNachrichtId = null;
+
         $vorlage = (array) config("recruiting.aufgaben.vorlagen.{$anlass}", []);
         $name = trim((string) ($vorlage['name'] ?? ''));
 
@@ -221,6 +250,12 @@ final class AufgabenSender
 
             return self::STATUS_FAILED;
         }
+
+        // ET-23: die Kennung erst HIER, nach dem Status-Blick. Eine von Meta
+        // abgelehnte Nachricht ist kein Beleg, den der naechste Lauf
+        // nachlesen muesste — sie hat den Versand schon jetzt als
+        // fehlgeschlagen gemeldet.
+        $this->letzteNachrichtId = isset($nachricht->id) ? (int) $nachricht->id : null;
 
         return self::STATUS_SENT;
     }
