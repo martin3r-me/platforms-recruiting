@@ -181,6 +181,15 @@ p{margin:0}
 .alert .txt{font-size:13px; line-height:1.4; color:var(--warn); font-weight:500}
 .alert .txt b{font-weight:700}
 
+/* ---------- Aufgabe 11: offene Punkte mit Einsatz-Bezug ---------- */
+.aufgaben-kasten{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-card); overflow:hidden}
+.aufgaben-sperre{display:flex; gap:10px; align-items:flex-start; padding:12px 13px; background:var(--crit-bg); border-bottom:1px solid var(--line)}
+.aufgaben-sperre .txt{font-size:13px; line-height:1.4; color:var(--crit); font-weight:700}
+.aufgaben-bezug{font-size:12.5px; color:var(--ink-2); padding:12px 13px 0}
+.aufgabe{font-size:14px; font-weight:600; padding:12px 13px; border-bottom:1px solid var(--line)}
+.aufgabe:last-child{border-bottom:none}
+.aufgabe-ko{background:var(--crit-bg); color:var(--crit)}
+
 .tabbar{display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--line); background:var(--surface); padding:7px 6px 13px}
 .tab{border:none; background:none; cursor:pointer; font-family:var(--body); display:flex; flex-direction:column; align-items:center; gap:4px; padding:6px 2px; color:var(--ink-3); font-size:10px; font-weight:600; border-radius:var(--r)}
 .tab svg{width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}

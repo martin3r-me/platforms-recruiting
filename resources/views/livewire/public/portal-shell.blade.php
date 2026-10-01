@@ -209,6 +209,24 @@
                 --}}
                 @if ($offenePunkte['punkte'] !== [])
                     <div class="aufgaben-kasten">
+                        {{--
+                            Nachbesserung (Koordinator): das Arbeitsverbot
+                            braucht ein eigenes Signal auf KASTEN-Ebene, nicht
+                            nur die Farbnuance an der einzelnen Zeile
+                            (aufgabe-ko) weiter unten. "Dir fehlt noch was"
+                            ist etwas anderes als "du darfst mit diesem Stand
+                            nicht zum Einsatz" -- deshalb zuerst im Kasten,
+                            vor dem Einsatz-Bezug.
+                        --}}
+                        @if ($offenePunkte['gesperrt'])
+                            <div class="aufgaben-sperre">
+                                <span class="dot crit" style="margin-top:6px"></span>
+                                <div class="txt">{{ $duzen
+                                    ? 'Mit diesem Stand darfst du nicht zum Einsatz.'
+                                    : 'Mit diesem Stand dürfen Sie nicht zum Einsatz.' }}</div>
+                            </div>
+                        @endif
+
                         @if ($offenePunkte['einsatz'] !== null)
                             @php
                                 $offenePunkteBezug = ($duzen ? 'Für deinen Einsatz am ' : 'Für Ihren Einsatz am ')

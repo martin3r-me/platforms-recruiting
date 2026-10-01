@@ -392,4 +392,68 @@ final class PortalAufgabenBladeTest extends TestCase
         $this->assertStringContainsString('aufgaben-kasten', $markup);
         $this->assertStringNotContainsString('aufgaben-bezug', $markup);
     }
+
+    // -----------------------------------------------------------------
+    // Nachbesserung (Auftrag des Koordinators): das Sperr-Kennzeichen muss
+    // auf KASTEN-Ebene sichtbar sein, nicht nur als Farbnuance an der
+    // einzelnen Zeile (aufgabe-ko). "Dir fehlt noch was" ist etwas anderes
+    // als "du darfst mit diesem Stand nicht zum Einsatz" -- beide Richtungen
+    // geprueft, derselbe Fehlertyp wie beim ko-Negativtest oben (eine
+    // Zusicherung nur in EINER Richtung waere wertlos).
+    // -----------------------------------------------------------------
+
+    /**
+     * Arbeitserlaubnis::istGesperrt() ist wahr, sobald ein KO-Code (hier:
+     * 'aufenthaltstitel', weil is_eu_citizen=false) FEHLT oder ABGELAUFEN
+     * ist -- derselbe Datensatz wie test_ein_ko_punkt_ist_als_solcher_erkennbar,
+     * der die Vorbedingung schon einmal belegt (er faellt unter derselben
+     * Fixture bereits auf 'aufgabe-ko').
+     */
+    public function test_eine_sperre_zeigt_sich_auf_kastenebene(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        $this->assertStringContainsString('aufgaben-sperre', $markup);
+    }
+
+    /**
+     * Gegenprobe: derselbe Mensch wie im allerersten Test (EU-Buerger, nur
+     * 'ausweis' offen, kein KO-Code) darf das Sperr-Kennzeichen NICHT sehen
+     * -- sonst waere "aufgaben-sperre" ein Textbaustein, der immer mitkommt,
+     * und keine Aussage ueber den Zustand.
+     */
+    public function test_ohne_sperre_erscheint_kein_sperr_hinweis(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        $this->assertStringNotContainsString('aufgaben-sperre', $markup);
+    }
+
+    /**
+     * "Eine Stilregel laesst sich schlecht testen" (Koordinator) -- das
+     * stimmt fuer das AUSSEHEN (Farben, Abstaende, Markenkonformitaet: nur
+     * gesehen, nicht gemessen). Was sich sehr wohl messen laesst: dass die
+     * vier neuen Klassennamen nicht nur im Blade stehen, sondern auch eine
+     * Stilregel in der Stilvorlage HABEN -- sonst erscheint der Kasten
+     * ungestaltet, der genaue Befund des Koordinators. Reiner
+     * Quelltext-Grep, Muster PortalShellProfilBladeTest.
+     */
+    public function test_die_neuen_klassen_haben_eine_stilregel(): void
+    {
+        $stile = (string) file_get_contents(
+            dirname(__DIR__, 2) . '/resources/views/layouts/portal-styles.blade.php'
+        );
+
+        foreach (['.aufgaben-kasten', '.aufgabe', '.aufgabe-ko', '.aufgaben-bezug', '.aufgaben-sperre'] as $klasse) {
+            $this->assertStringContainsString(
+                $klasse . '{',
+                $stile,
+                "Fuer {$klasse} fehlt eine eigene Stilregel -- der Kasten erscheint sonst ungestaltet."
+            );
+        }
+    }
 }
