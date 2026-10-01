@@ -66,6 +66,38 @@ final class PersonPflichtenTest extends TestCase
         $this->assertSame(array_values(array_unique($pflichten)), $pflichten);
     }
 
+    /**
+     * Nachtrag U1, nachgemessen: der Form-Test darueber nimmt ZWEI GLEICHE
+     * Anstellungen — dabei entstehen gar keine Schluessel-Luecken, und die
+     * Mutation "array_values raus" ueberlebt ihn. Erst gemischte Anstellungen
+     * erzeugen die Luecken (hier 0,1,3,4,5,6,7), aus denen json_encode ein
+     * Objekt statt eines Feldes macht, obwohl list<string> deklariert ist.
+     * Deshalb die Erwartung woertlich auf das ganze Feld: assertSame vergleicht
+     * bei Feldern auch Schluessel und Reihenfolge. Das nagelt zugleich die
+     * Reihenfolge fest — erste Nennung gewinnt die Position.
+     */
+    public function test_gemischte_anstellungen_ergeben_ein_lueckenloses_feld(): void
+    {
+        $pflichten = PersonPflichten::vereinige([
+            ['is_eu_citizen' => true,  'employment_type' => 'student',  'is_first_aider' => false],
+            ['is_eu_citizen' => false, 'employment_type' => 'schueler', 'is_first_aider' => true],
+        ]);
+
+        $this->assertSame([
+            'ausweis',
+            'immatrikulation',
+            'nationalpass',
+            'aufenthaltstitel',
+            'arbeitsgenehmigung',
+            'schulbescheinigung',
+            'ersthelfer',
+        ], $pflichten);
+
+        // Der tatsaechliche Schaden steht erst an der Schnittstelle: mit
+        // Luecken in den Schluesseln schreibt json_encode {"0":...} statt [...].
+        $this->assertSame('[', json_encode($pflichten)[0]);
+    }
+
     public function test_ohne_anstellung_gibt_es_keine_pflichten(): void
     {
         $this->assertSame([], PersonPflichten::vereinige([]));
