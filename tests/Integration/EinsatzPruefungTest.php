@@ -64,6 +64,9 @@ final class EinsatzPruefungTest extends TestCase
 
     private string $ausgabe = '';
 
+    /** Die Ausgabe NUR des letzten Laufs — fuer Zahlen, die sich je Lauf aendern. */
+    private string $letzteAusgabe = '';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -344,27 +347,100 @@ final class EinsatzPruefungTest extends TestCase
     }
 
     /**
-     * Die Erinnerung nennt das Datum IHRER Einbuchung, nicht pauschal das
-     * des naechsten Einsatzes. Zwei Einbuchungen in der Erinnerungsfrist
-     * (09.10. und 10.10.) ergeben zwei Erinnerungen mit zwei Daten — ohne
-     * diese Zuordnung saehe der Mensch zweimal denselben Tag und haette
-     * keine Ahnung, welcher Einsatz gemeint ist.
+     * F3 — EINE ERINNERUNG JE MENSCH UND LAUF, und sie nennt den
+     * NAECHSTLIEGENDEN faelligen Einsatz.
+     *
+     * Vorher ergaben zwei Einbuchungen in der Frist zwei Nachrichten.
+     * Gemessen hat die Abschlusspruefung drei WhatsApp in EINEM Lauf.
+     * Gestempelt werden trotzdem BEIDE — die Nachricht spricht fuer alle in
+     * dieser Frist, und ein ungestempelter Rest wuerde in der naechsten
+     * Stunde eine zweite Nachricht ausloesen.
      */
-    public function test_jede_erinnerung_nennt_das_datum_ihrer_eigenen_einbuchung(): void
+    public function test_eine_erinnerung_je_mensch_und_lauf_nennt_den_naechsten_faelligen(): void
     {
         $ma = $this->mitarbeiterOhneNachweise();
-        $this->einbuchung($ma, ['datum' => '2026-10-09', 'status_id' => 1]);
-        $this->einbuchung($ma, ['datum' => '2026-10-10', 'status_id' => 1]);
+        $a = $this->einbuchung($ma, ['datum' => '2026-10-09', 'status_id' => 1]);
+        $b = $this->einbuchung($ma, ['datum' => '2026-10-10', 'status_id' => 1]);
 
         $this->laufe('2026-10-01');
         $this->laufe('2026-10-08');
 
-        $daten = array_values(array_map(
-            fn ($v) => $v['stand']['einsatz']['datum'] ?? null,
-            array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung'),
-        ));
+        $erinnerungen = array_values(array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung'));
 
-        $this->assertSame(['2026-10-09', '2026-10-10'], $daten);
+        $this->assertCount(1, $erinnerungen);
+        $this->assertSame('2026-10-09', $erinnerungen[0]['stand']['einsatz']['datum']);
+
+        foreach ([$a, $b] as $id) {
+            $this->assertNotNull(
+                DB::table('rec_dispo_assignments')->where('id', $id)->value('aufgaben_erinnert_at'),
+                'auch die zweite Einbuchung muss gestempelt sein, sonst kommt in einer Stunde die naechste Nachricht',
+            );
+        }
+    }
+
+    /**
+     * F3, in der Form, in der die Pruefung es gemessen hat: drei
+     * Einbuchungen an drei Tagen, EIN Lauf. Vorher drei WhatsApp, jetzt
+     * eine.
+     */
+    public function test_drei_einbuchungen_in_der_frist_ergeben_eine_nachricht(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        foreach (['2026-10-01', '2026-10-02', '2026-10-03'] as $datum) {
+            $this->einbuchung($ma, ['datum' => $datum, 'status_id' => 1]);
+        }
+
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt);
+        $this->assertSame('erinnerung', $this->sender->versandt[0]['anlass']);
+        $this->assertSame(
+            0,
+            DB::table('rec_dispo_assignments')->whereNull('aufgaben_erinnert_at')->count(),
+            'alle drei muessen gestempelt sein',
+        );
+    }
+
+    /**
+     * Und die mehrtaegige Veranstaltung, die der Pruefer genannt hat: eine
+     * Fuenf-Tage-Messe ist in rec_dispo_assignments eine Zeile JE TAG. Ohne
+     * die Pause je Mensch haette dieser Mensch an fuenf Tagen hintereinander
+     * eine Erinnerung bekommen.
+     */
+    public function test_eine_fuenf_tage_messe_ergibt_eine_erinnerung(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        foreach (['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14'] as $datum) {
+            $this->einbuchung($ma, ['datum' => $datum, 'status_id' => 1]);
+        }
+
+        foreach (['2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14'] as $tag) {
+            $this->laufe($tag);
+        }
+
+        $erinnerungen = array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung');
+        $this->assertCount(1, $erinnerungen);
+    }
+
+    /**
+     * Die Gegenrichtung zur Pause: ist sie um, geht die naechste Erinnerung
+     * sehr wohl raus. Ohne diese Haelfte liesse sich die Erinnerung ganz
+     * abschalten, und die Tests oben blieben gruen.
+     */
+    public function test_nach_der_pause_erinnert_es_wieder(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-02', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');                  // erinnert an den 02.10.
+        $this->laufe('2026-10-18');                  // sieben Tage spaeter: erinnert an den 20.10.
+
+        $erinnerungen = array_values(array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung'));
+
+        $this->assertCount(2, $erinnerungen);
+        $this->assertSame('2026-10-02', $erinnerungen[0]['stand']['einsatz']['datum']);
+        $this->assertSame('2026-10-20', $erinnerungen[1]['stand']['einsatz']['datum']);
     }
 
     /**
@@ -397,6 +473,160 @@ final class EinsatzPruefungTest extends TestCase
         // Vorflug: der Lauf hat diesen Menschen sehr wohl bedient.
         $this->assertCount(1, $this->sender->versandt);
         $this->assertSame('neu', $this->sender->versandt[0]['anlass']);
+    }
+
+    // =================================================================
+    // F2 — ein naher Einsatz darf keinen fernen verdecken
+    // =================================================================
+
+    /**
+     * `OffenePunkte` liefert GENAU EINEN Bezug: den naechsten. Liegt der
+     * naeher als die Vorlaufzeit, loeste frueher gar nichts aus — der
+     * spaetere Einsatz, fuer den die Nachricht noch rechtzeitig kaeme, kam
+     * nie zur Sprache. Gemessen hat die Pruefung: Einsatz in zwei Tagen plus
+     * Einsatz in 24 Tagen ergab nur eine Erinnerung und KEINE Signatur.
+     */
+    public function test_ein_naher_einsatz_verdeckt_den_fernen_nicht(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-03', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-25', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $neue = array_values(array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'neu'));
+
+        $this->assertCount(1, $neue);
+        $this->assertSame(
+            '2026-10-25',
+            $neue[0]['stand']['einsatz']['datum'],
+            'Genannt wird der AUSLOESENDE Einsatz — der, fuer den die Nachricht noch rechtzeitig kommt.',
+        );
+        $this->assertNotNull($this->person($ma)->aufgaben_signatur);
+    }
+
+    /**
+     * Die Gegenrichtung: gibt es KEINEN kommenden Auftrag mit genug Vorlauf,
+     * bleibt es dabei, dass nichts ausloest. Ohne diese Haelfte liesse sich
+     * die Vorlaufpruefung in der neuen Schleife ersatzlos streichen.
+     */
+    public function test_ohne_einen_einzigen_auftrag_mit_vorlauf_loest_nichts_aus(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-02', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-03', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-04', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $neue = array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'neu');
+        $this->assertSame([], $neue);
+        $this->assertNull($this->person($ma)->aufgaben_signatur);
+    }
+
+    /**
+     * Die Messung der Pruefung, in ihrer Form: ein Mensch mit je einem
+     * Einsatz an 28 aufeinanderfolgenden Tagen, 14 stuendliche Laeufe.
+     *
+     * VORHER: 16 Erinnerungen und NULL "neu"-Nachrichten — der naechste
+     * Einsatz lag immer innerhalb von vier Tagen, also loeste nie etwas aus,
+     * und weil nie eine Signatur entstand, lief auch der ganze
+     * ET-16/ET-23-Haushalt fuer diesen Menschen leer. Betroffen war genau
+     * die Gruppe, auf die es ankommt: die oft im Einsatz ist.
+     *
+     * JETZT: eine "neu"-Nachricht (danach haelt die Signatur) und zwei
+     * Erinnerungen (die Pause je Mensch).
+     */
+    public function test_ein_dicht_gebuchter_mensch_wird_erreicht_und_nicht_zugeschuettet(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        for ($tag = 1; $tag <= 28; $tag++) {
+            $this->einbuchung($ma, [
+                'datum'     => date('Y-m-d', strtotime('2026-10-01 +'.$tag.' days')),
+                'status_id' => 1,
+            ]);
+        }
+
+        for ($tag = 0; $tag < 14; $tag++) {
+            $this->laufe(date('Y-m-d', strtotime('2026-10-01 +'.$tag.' days')));
+        }
+
+        $anlaesse = array_count_values(array_column($this->sender->versandt, 'anlass'));
+
+        $this->assertSame(1, $anlaesse['neu'] ?? 0, 'genau eine fruehe Nachricht, danach haelt die Signatur');
+        $this->assertSame(2, $anlaesse['erinnerung'] ?? 0, 'zwei Erinnerungen in 14 Tagen, nicht sechzehn');
+    }
+
+    // =================================================================
+    // F4 — der Bote ist die Anstellung mit dem Portal, nicht die mit der Buchung
+    // =================================================================
+
+    /**
+     * `portal_v2_since`, Rufnummer, Kanal und Portal-Token stehen alle an
+     * der ANSTELLUNG. Welche Anstellung frueher den Ausschlag gab, haengte
+     * davon ab, wo gerade eine Einbuchung lag — bei einem
+     * Doppelbeschaeftigten RG+MA mit halb durchgefuehrter Pilotumstellung
+     * bekam derselbe Mensch je nach Reihenfolge der Kennungen alles oder gar
+     * nichts.
+     *
+     * Hier die harmlose Reihenfolge: die umgestellte Anstellung hat die
+     * GROESSERE Kennung und traegt die Einbuchung.
+     */
+    public function test_der_bote_ist_die_umgestellte_anstellung(): void
+    {
+        $person = $this->personAnlegen();
+        $altesPortal = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'portal_v2_since' => null]);
+        $neuesPortal = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person]);
+        $this->einbuchung($neuesPortal, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt);
+        $this->assertSame($neuesPortal->id, $this->sender->versandt[0]['ma']);
+        $this->assertGreaterThan($altesPortal->id, $neuesPortal->id, 'Vorflug: die Reihenfolge ist die hier gemeinte');
+    }
+
+    /**
+     * Und die Reihenfolge, an der es gemessen GESCHEITERT ist: die
+     * umgestellte Anstellung hat die KLEINERE Kennung, die Einbuchung haengt
+     * an der NICHT umgestellten. Vorher: versandt = 0, der Mensch stand im
+     * Bericht unter „altes Portal" — obwohl er ueber die andere Zeile ein
+     * funktionierendes Portal hat.
+     */
+    public function test_der_bote_wird_auch_gefunden_wenn_die_buchung_woanders_haengt(): void
+    {
+        $person = $this->personAnlegen();
+        $neuesPortal = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person]);
+        $altesPortal = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'portal_v2_since' => null]);
+        $this->einbuchung($altesPortal, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt);
+        $this->assertSame(
+            $neuesPortal->id,
+            $this->sender->versandt[0]['ma'],
+            'Die Nachricht muss ueber die Anstellung gehen, die das Portal hat — Nummer, Kanal und Token gehoeren zusammen.',
+        );
+        $this->assertLessThan($altesPortal->id, $neuesPortal->id, 'Vorflug: die Reihenfolge ist die hier gemeinte');
+    }
+
+    /**
+     * Die Gegenrichtung: hat KEINE einzige Anstellung des Menschen das neue
+     * Portal, geht weiterhin nichts raus. Sonst waere die Suche nach dem
+     * Boten eine Hintertuer am Portal-Filter.
+     */
+    public function test_ohne_eine_einzige_umgestellte_anstellung_geht_nichts_raus(): void
+    {
+        $person = $this->personAnlegen();
+        $a = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'portal_v2_since' => null]);
+        $this->mitarbeiterOhneNachweise(['rec_person_id' => $person, 'portal_v2_since' => null]);
+        $this->einbuchung($a, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertSame([], $this->sender->versandt);
+        $this->assertStringContainsString('altes Portal', $this->ausgabe);
     }
 
     // =================================================================
@@ -805,6 +1035,84 @@ final class EinsatzPruefungTest extends TestCase
         $this->assertStringContainsString('Faellig: 1 Mensch(en)', $this->ausgabe);
         $this->assertStringNotContainsString('laeuft bereits', $this->ausgabe);
         $this->assertSame([], $this->sender->versandt);
+    }
+
+    // =================================================================
+    // F5 / F6 — der Trockenlauf und die vierte Sackgasse
+    // =================================================================
+
+    /**
+     * F6 — DIE VIERTE SACKGASSE. Ohne Personen-Zeile sprang der `continue`
+     * ueber die GANZE Schleife, also auch ueber die Erinnerung. Die
+     * Begruendung („es gibt keinen Ort, an dem ‚schon gemeldet' stehen
+     * koennte") traegt nur fuer die neue Nachricht: der Zustand der
+     * Erinnerung liegt in `rec_dispo_assignments.aufgaben_erinnert_at` und
+     * braucht keine Personen-Zeile.
+     *
+     * Fuer diese Menschen ist die Erinnerung der EINZIGE Kanal, und die
+     * Gruppe waechst nach: neue Anstellungen aus Funnel und ZAS entstehen
+     * weiterhin ohne Personen-Zeile. Jeder neue Mitarbeiter war ab Anlage
+     * dauerhaft stumm.
+     */
+    public function test_ohne_personen_zeile_geht_die_erinnerung_trotzdem_raus(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['rec_person_id' => null]);
+        $einbuchung = $this->einbuchung($ma, ['datum' => '2026-10-02', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt);
+        $this->assertSame('erinnerung', $this->sender->versandt[0]['anlass']);
+        $this->assertNotNull(
+            DB::table('rec_dispo_assignments')->where('id', $einbuchung)->value('aufgaben_erinnert_at'),
+            'die Wiederholungsbremse der Erinnerung braucht keine Personen-Zeile',
+        );
+        $this->assertStringContainsString('ohne Personen-Zeile: 1 ', $this->ausgabe);
+    }
+
+    /**
+     * Die Gegenrichtung, die zugleich zeigt, dass die alte Begruendung fuer
+     * die NEUE Nachricht weiter gilt: ohne Personen-Zeile wird sie nicht
+     * verschickt, denn es gaebe keinen Ort fuer „schon gemeldet" und sie
+     * ginge in jedem stuendlichen Lauf erneut raus.
+     */
+    public function test_ohne_personen_zeile_bleibt_die_neue_nachricht_aus(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['rec_person_id' => null]);
+        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+        $this->laufe('2026-10-02');
+
+        $this->assertSame([], $this->sender->versandt);
+    }
+
+    /**
+     * F5 — DER TROCKENLAUF DARF NICHT UNTERTREIBEN. Die ET-23-Raeumung
+     * setzte `$letzteSignatur = null` nur im scharfen Zweig; der
+     * Trockenlauf rechnete deshalb mit der alten Signatur weiter und meldete
+     * „Faellig: 0", wo der scharfe Lauf „Faellig: 1" meldet. Das ist genau
+     * die Zahl, nach der jemand die Wellengroesse bemisst.
+     */
+    public function test_der_trockenlauf_zaehlt_dieselben_faelligen_wie_der_scharfe_lauf(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+
+        $this->sender->nachrichtId = $this->nachrichtAnlegen('sent');
+        $this->laufe('2026-10-01');
+
+        // Meta meldet die Nichtzustellung per Webhook nach.
+        DB::table('comms_whatsapp_messages')->where('id', $this->sender->nachrichtId)->update(['status' => 'failed']);
+
+        $this->laufe('2026-10-20', ['--dry-run' => true]);
+        $this->assertStringContainsString('Faellig: 1 Mensch(en) fuer eine neue Nachricht', $this->letzteAusgabe);
+
+        // Und der scharfe Lauf tut dann auch wirklich, was der Trockenlauf
+        // angekuendigt hat.
+        $this->laufe('2026-10-20');
+        $this->assertStringContainsString('Faellig: 1 Mensch(en) fuer eine neue Nachricht', $this->letzteAusgabe);
+        $this->assertCount(2, $this->sender->versandt);
     }
 
     // =================================================================
@@ -1341,7 +1649,8 @@ final class EinsatzPruefungTest extends TestCase
         $output = new BufferedOutput();
 
         $ergebnis = $command->run($input, $output);
-        $this->ausgabe .= $output->fetch();
+        $this->letzteAusgabe = $output->fetch();
+        $this->ausgabe .= $this->letzteAusgabe;
 
         return $ergebnis;
     }

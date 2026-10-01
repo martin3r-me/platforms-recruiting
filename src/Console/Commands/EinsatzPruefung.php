@@ -123,6 +123,39 @@ use Platform\Recruiting\Support\TriggerRegeln;
  * wird der Fleck ueber `rec_person_id` (recruiting:personen-anlegen).
  *
  * ===================================================================
+ * DIE VIER FUNDE DER ABSCHLUSSPRUEFUNG (Fugen zwischen den Aufgaben)
+ * ===================================================================
+ *
+ * F2 — EIN NAHER EINSATZ DARF KEINEN FERNEN VERDECKEN. `OffenePunkte`
+ * liefert genau EINEN Bezug, den naechsten. Lag der naeher als die
+ * Vorlaufzeit, loeste gar nichts aus, und ein spaeterer, fuer den die
+ * Nachricht noch rechtzeitig gekommen waere, kam nie zur Sprache. Gemessen:
+ * 28 Einbuchungen an 28 Tagen, 14 Laeufe, NULL "neu"-Nachrichten — und weil
+ * nie eine Signatur entsteht, lief auch ET-16/ET-23 fuer diesen Menschen
+ * leer. Getroffen war genau die Gruppe, auf die es ankommt. Gefragt wird
+ * jetzt die ganze Menge der kommenden Auftraege; der erste mit genug
+ * Vorlauf ist der Anlass und steht auch als Datum in der Nachricht.
+ *
+ * F3 — DIE ERINNERUNG HAT EINE BREMSE JE MENSCH. Sie hing an gar nichts
+ * ausser dem Stempel je EINBUCHUNG: gemessen drei WhatsApp in EINEM Lauf,
+ * 16 in 14 Tagen, und eine fuenftaegige Messe (eine Zeile je Tag) waere bis
+ * zu fuenf gleiche Nachrichten gewesen. `--welle` bremst das nicht, die
+ * zaehlt Menschen. Jetzt: hoechstens EINE Erinnerung je Mensch und Lauf,
+ * dieselbe Pause wie bei der neuen Nachricht (gemessen am juengsten Stempel
+ * ueber alle Anstellungen), und gestempelt werden ALLE in dieser Frist
+ * faelligen Einbuchungen — die Nachricht spricht fuer sie alle.
+ *
+ * F4 — DER BOTE IST DIE ANSTELLUNG MIT DEM PORTAL, nicht die mit der
+ * Buchung. Siehe bote().
+ *
+ * F6 — OHNE PERSONEN-ZEILE FAELLT NUR DIE NEUE NACHRICHT AUS, NICHT DIE
+ * ERINNERUNG. Deren Zustand steht in `rec_dispo_assignments`, nicht in
+ * `rec_persons`. Vorher sprang ein `continue` ueber beides — und fuer diese
+ * Menschen ist die Erinnerung der EINZIGE Kanal, waehrend die Gruppe
+ * nachwaechst (neue Anstellungen aus Funnel und ZAS entstehen weiterhin ohne
+ * Personen-Zeile). Jeder neue Mitarbeiter war ab Anlage dauerhaft stumm.
+ *
+ * ===================================================================
  * DIE BETRIEBSVORGABEN
  * ===================================================================
  *
@@ -180,10 +213,12 @@ use Platform\Recruiting\Support\TriggerRegeln;
  * traegt. Derselbe Schnitt wie in SendProofReminders, dort ohne
  * Ausnahme-Option.
  *
- * OHNE PERSONEN-ZEILE WIRD NICHT GEMELDET. Es gibt dann keinen Ort, an dem
- * "schon gemeldet" stehen koennte — gesendet wuerde also in JEDEM
- * stuendlichen Lauf erneut. Fail-closed: uebersprungen und im Bericht
- * genannt. Der HR-Fall entsteht trotzdem, denn er haengt am Mitarbeiter.
+ * OHNE PERSONEN-ZEILE WIRD DIE NEUE NACHRICHT NICHT GEMELDET. Es gibt dann
+ * keinen Ort, an dem "schon gemeldet" stehen koennte — gesendet wuerde also
+ * in JEDEM stuendlichen Lauf erneut. Fail-closed: uebersprungen und im
+ * Bericht genannt. Der HR-Fall entsteht trotzdem, denn er haengt am
+ * Mitarbeiter; und die ERINNERUNG geht ebenfalls raus (F6), denn ihr Zustand
+ * haengt an der Einbuchung.
  * Geheilt wird das mit recruiting:personen-anlegen; neue Anstellungen aus
  * Funnel und ZAS entstehen weiterhin ohne Personen-Zeile, der Fleck waechst
  * also nach.
@@ -200,6 +235,17 @@ class EinsatzPruefung extends Command
 
     /** ET-24: der Schluessel der Laufsperre — ein Lauf im ganzen Haus. */
     private const LAUF_SPERRE = 'recruiting:einsatz-pruefung:lauf';
+
+    /**
+     * Die Marke, mit der die Pause der ERINNERUNG ueber dieselbe geprueften
+     * Funktion gefragt wird wie die der neuen Nachricht (F3). Zwei der drei
+     * Waechter in TriggerRegeln::darfMelden() sind dabei absichtlich
+     * wirkungslos: die Marke ist nie leer, und die "letzte Signatur" ist
+     * immer null, also nie gleich. Uebrig bleibt genau die Pausen-Rechnung —
+     * und die soll fuer beide Nachrichten DIESELBE sein, statt ein zweites
+     * Mal nachgebaut zu werden.
+     */
+    private const ERINNERUNG_MARKE = 'erinnerung';
 
     /**
      * Grosszuegig, weil ein scharfer Lauf ueber den Bestand viele
@@ -264,6 +310,7 @@ class EinsatzPruefung extends Command
             'nachtraeglich'   => 0,
             'faellig_neu'     => 0,
             'faellig_erinn'   => 0,
+            'erinn_pause'     => 0,
             'gesendet_neu'    => 0,
             'gesendet_erinn'  => 0,
             'fehlversand'     => 0,
@@ -317,147 +364,185 @@ class EinsatzPruefung extends Command
                     }
                 }
 
-                if ($personId === null) {
-                    $z['ohne_person']++;
-                    continue;
-                }
-
-                $person = DB::table('rec_persons')->where('id', $personId)->first();
-                if ($person === null) {
-                    // Verwaister Verweis: dieselbe Lage wie gar keine Zeile.
-                    $z['ohne_person']++;
-                    continue;
-                }
-
-                // ---- ET-16: die leere Liste raeumt.
+                // ---- Ist nichts offen, ist auch nichts zu melden und nichts
+                // zu erinnern. Vorher raeumen (ET-16), dann fertig.
                 if ($punkte === []) {
-                    $stehtWas = $person->aufgaben_signatur !== null
-                        || $person->aufgaben_gemeldet_at !== null
-                        || $person->aufgaben_nachricht_id !== null;
-
-                    if ($stehtWas && !$dryRun) {
-                        DB::table('rec_persons')->where('id', $personId)->update([
-                            'aufgaben_signatur'     => null,
-                            'aufgaben_gemeldet_at'  => null,
-                            'aufgaben_nachricht_id' => null,
-                        ]);
-                    }
-                    if ($stehtWas) {
-                        $z['geraeumt']++;
-                    }
+                    $this->raeumen($personId, $dryRun, $z);
                     continue;
                 }
 
-                $letzteSignatur = $person->aufgaben_signatur;
-                $gemeldetAm     = $person->aufgaben_gemeldet_at;
+                // ---- F4: WER TRAEGT DIE NACHRICHT? Nicht die Anstellung, an
+                // der gerade eine Einbuchung haengt, sondern die, ueber die
+                // dieser MENSCH sein Portal erreicht. portal_v2_since,
+                // Telefonnummer, Portal-Token und Kanal stehen alle an der
+                // ANSTELLUNG, nicht am Menschen — und bei einem
+                // Doppelbeschaeftigten RG+MA ist "eine Zeile umgestellt, eine
+                // nicht" der Normalfall einer Pilotumstellung. Vorher
+                // entschied die kleinste Kennung UNTER DEN KANDIDATEN, also
+                // der Zufall, wo gerade gebucht ist: derselbe Mensch bekam je
+                // nach Reihenfolge alles oder gar nichts.
+                $bote = $this->bote($umfang['ids']);
+                $amAltenPortal = $bote === null;
 
-                // ---- ET-23: die gespeicherte Nachricht nachlesen.
-                if ($letzteSignatur !== null
-                    && $person->aufgaben_nachricht_id !== null
-                    && $this->nachrichtGescheitert((int) $person->aufgaben_nachricht_id)) {
-                    if (!$dryRun) {
-                        // Der STEMPEL bleibt stehen: der zweite Versuch kommt
-                        // nach der Pause, nicht in der naechsten Stunde.
-                        DB::table('rec_persons')->where('id', $personId)->update([
-                            'aufgaben_signatur'     => null,
-                            'aufgaben_nachricht_id' => null,
-                        ]);
+                // ---- F2: NICHT NUR DER NAECHSTE EINSATZ. OffenePunkte
+                // liefert GENAU EINEN Bezug (den naechsten). Liegt der naeher
+                // als die Vorlaufzeit, loeste frueher gar nichts aus — ein
+                // spaeterer Einsatz, der ausloesen WUERDE, kam nie zur
+                // Sprache. Beim regelmaessig Gebuchten war das kein
+                // Aufschub, sondern Dauerschweigen: gemessen 28 Einbuchungen
+                // an 28 Tagen, 14 Laeufe, null "neu"-Nachrichten — und weil
+                // nie eine Signatur entsteht, lief auch der ganze
+                // ET-16/ET-23-Haushalt fuer ihn leer. Gefragt wird deshalb
+                // die ganze Menge der kommenden Auftraege, und der ERSTE mit
+                // genug Vorlauf wird der Anlass.
+                $kommende  = $this->kommendeAuftraege($umfang['ids'], $heute);
+                $ausloeser = $this->ausloesenderEinsatz($kommende, $heute);
+                $loest     = $ausloeser !== null;
+
+                // ---- Die neue Nachricht. NUR sie braucht die Personen-Zeile:
+                // ihr Zustand (Signatur, Stempel) liegt in rec_persons.
+                $person = $personId !== null
+                    ? DB::table('rec_persons')->where('id', $personId)->first()
+                    : null;
+
+                if ($person === null) {
+                    // Keine oder eine verwaiste Personen-Zeile. F6: das
+                    // ueberspringt ab hier NUR die neue Nachricht, nicht mehr
+                    // die Erinnerung — deren Zustand haengt an der
+                    // Einbuchung und braucht keine Personen-Zeile.
+                    $z['ohne_person']++;
+                } else {
+                    $letzteSignatur = $person->aufgaben_signatur;
+                    $gemeldetAm     = $person->aufgaben_gemeldet_at;
+
+                    // ---- ET-23: die gespeicherte Nachricht nachlesen.
+                    if ($letzteSignatur !== null
+                        && $person->aufgaben_nachricht_id !== null
+                        && $this->nachrichtGescheitert((int) $person->aufgaben_nachricht_id)) {
+                        if (!$dryRun) {
+                            // Der STEMPEL bleibt stehen: der zweite Versuch
+                            // kommt nach der Pause, nicht in der naechsten
+                            // Stunde.
+                            DB::table('rec_persons')->where('id', $personId)->update([
+                                'aufgaben_signatur'     => null,
+                                'aufgaben_nachricht_id' => null,
+                            ]);
+                        }
+                        // F5: AUSSERHALB des Schreibzweigs. Vorher rechnete
+                        // der Trockenlauf mit der alten Signatur weiter und
+                        // meldete weniger Faellige als der scharfe Lauf
+                        // (gemessen 0 gegen 1) — ausgerechnet die Zahl, nach
+                        // der jemand die Wellengroesse bemisst, und in der
+                        // untertreibenden Richtung falsch.
                         $letzteSignatur = null;
+                        $z['nachtraeglich']++;
                     }
-                    $z['nachtraeglich']++;
-                }
 
-                $signatur = TriggerRegeln::signatur($punkte);
-                $einsatz  = $stand['einsatz'];
+                    $signatur = TriggerRegeln::signatur($punkte);
 
-                // OffenePunkte liefert nur KOMMENDE AUFTRAEGE (ET-13 in
-                // EinsatzBezug::naechster) und projiziert status_id bewusst
-                // weg (ET-8). Die Angabe hier ist deshalb eine
-                // Wiederholung dieser Zusage, kein zweiter Filter: was
-                // ueberhaupt ankommt, IST ein Auftrag.
-                $loest = $einsatz !== null && EinsatzBezug::loestAus(
-                    ['datum' => $einsatz['datum'], 'status_id' => RecDispoAssignment::STATUS_AUFTRAG],
-                    $heute,
-                    EinsatzBezug::VORLAUF_TAGE,
-                );
+                    $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, EinsatzBezug::PAUSE_TAGE);
 
-                $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, EinsatzBezug::PAUSE_TAGE);
+                    // ---- ET-15: der Einsatz schlaegt die Pause.
+                    if (!$darf && $loest
+                        && $this->einsatzVorPausenende($gemeldetAm, EinsatzBezug::PAUSE_TAGE, $ausloeser['datum'])) {
+                        // Dieselbe geprueften Funktion, nur ohne Pause: der
+                        // Signatur-Waechter bleibt in Kraft, es faellt
+                        // ausschliesslich die Wartezeit.
+                        $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, 0);
+                    }
 
-                // ---- ET-15: der Einsatz schlaegt die Pause.
-                if (!$darf && $loest
-                    && $this->einsatzVorPausenende($gemeldetAm, EinsatzBezug::PAUSE_TAGE, $einsatz['datum'])) {
-                    // Dieselbe geprueften Funktion, nur ohne Pause: der
-                    // Signatur-Waechter bleibt in Kraft, es faellt
-                    // ausschliesslich die Wartezeit.
-                    $darf = TriggerRegeln::darfMelden($letzteSignatur, $gemeldetAm, $signatur, $jetzt, 0);
-                }
+                    if ($darf && $loest) {
+                        if ($amAltenPortal) {
+                            $z['altes_portal']++;
+                        } else {
+                            $z['faellig_neu']++;
 
-                $amAltenPortal = $rep->portal_v2_since === null;
+                            if (!$dryRun && $this->welleNimmt($schluessel, $welle, $angeschrieben)) {
+                                // Der Anlass ist der AUSLOESENDE Einsatz, nicht
+                                // der naechste: er ist der, fuer den die
+                                // Nachricht noch rechtzeitig kommt.
+                                $standFuerNeu = $stand;
+                                $standFuerNeu['einsatz'] = $ausloeser;
 
-                if ($darf && $loest) {
-                    if ($amAltenPortal) {
-                        $z['altes_portal']++;
-                    } else {
-                        $z['faellig_neu']++;
-
-                        if (!$dryRun && $this->welleNimmt($schluessel, $welle, $angeschrieben)) {
-                            $ergebnis = $sender->sende($rep, $stand, 'neu');
-                            $angesprochen[] = sprintf('MA #%d (neu: %s)', $rep->id, $ergebnis);
-                            $this->buchen($personId, $signatur, $ergebnis, $sender->letzteNachrichtId(), $z);
+                                $ergebnis = $sender->sende($bote, $standFuerNeu, 'neu');
+                                $angesprochen[] = sprintf('MA #%d (neu: %s)', $bote->id, $ergebnis);
+                                $this->buchen($personId, $signatur, $ergebnis, $sender->letzteNachrichtId(), $z);
+                            }
                         }
                     }
                 }
 
-                // ---- Die Erinnerung, je Einbuchung.
+                // ---- Die Erinnerung. F6: sie laeuft AUCH ohne Personen-Zeile
+                // — ihr Zustand steht in rec_dispo_assignments.
                 if ($amAltenPortal) {
                     continue;
                 }
 
-                foreach ($this->erinnerungsKandidaten($umfang['ids']) as $einbuchung) {
-                    $datum = $einbuchung->datum?->format('Y-m-d') ?? '';
+                $faellige = $this->faelligeErinnerungen($kommende, $heute);
+                if ($faellige === []) {
+                    continue;
+                }
 
-                    if (!EinsatzBezug::erinnerungFaellig(
-                        ['datum' => $datum, 'status_id' => (int) $einbuchung->status_id],
-                        $heute,
-                        EinsatzBezug::ERINNERUNG_TAGE,
-                    )) {
-                        continue;
-                    }
+                // ---- F3: EINE BREMSE JE MENSCH. Die Erinnerung hing an gar
+                // nichts ausser dem Stempel je EINBUCHUNG — gemessen drei
+                // WhatsApp in EINEM Lauf und 16 in 14 Tagen, und --welle
+                // bremst das nicht (die zaehlt Menschen und laesst einen
+                // bereits aufgenommenen durch). Eine fuenftaegige Messe ist
+                // in rec_dispo_assignments eine Zeile JE TAG. Markus' Folie
+                // 27 nennt "zu viele Nachrichten" als eines der drei Dinge,
+                // die zu vermeiden sind.
+                //
+                // Zwei Riegel: HOECHSTENS EINE Erinnerung je Mensch und Lauf,
+                // und dieselbe Pause wie bei der neuen Nachricht, gemessen am
+                // juengsten Stempel ueber ALLE Anstellungen des Menschen.
+                //
+                // WAS DAS KOSTET, damit es niemand spaeter entdeckt: zwei
+                // verschiedene Einsaetze innerhalb einer Pause ergeben nur
+                // EINE Erinnerung. Der Inhalt ist bis aufs Datum derselbe
+                // ("du hast X offene Punkte"), und der Mensch wurde gerade
+                // erst erreicht — gegen eine Kette gleicher Nachrichten ist
+                // das der kleinere Preis.
+                $erinnerungErlaubt = TriggerRegeln::darfMelden(
+                    null,
+                    $this->letzteErinnerung($umfang['ids']),
+                    self::ERINNERUNG_MARKE,
+                    $jetzt,
+                    EinsatzBezug::PAUSE_TAGE,
+                );
 
-                    $z['faellig_erinn']++;
+                if (!$erinnerungErlaubt) {
+                    $z['erinn_pause']++;
+                    continue;
+                }
 
-                    if ($dryRun || !$this->welleNimmt($schluessel, $welle, $angeschrieben)) {
-                        continue;
-                    }
+                $z['faellig_erinn']++;
 
-                    // Die Erinnerung nennt das Datum IHRER Einbuchung, nicht
-                    // pauschal das des naechsten Einsatzes — sonst saehe der
-                    // Mensch bei zwei Einsaetzen in der Frist zweimal
-                    // denselben Tag.
-                    $standFuerDiese = $stand;
-                    $standFuerDiese['einsatz'] = [
-                        'datum'      => $datum,
-                        'taetigkeit' => $einbuchung->taetigkeit,
-                        'event'      => $einbuchung->event?->name,
-                    ];
+                if ($dryRun || !$this->welleNimmt($schluessel, $welle, $angeschrieben)) {
+                    continue;
+                }
 
-                    $ergebnis = $sender->sende($rep, $standFuerDiese, 'erinnerung');
-                    $angesprochen[] = sprintf('MA #%d (Erinnerung: %s)', $rep->id, $ergebnis);
+                // Genannt wird der NAECHSTLIEGENDE faellige Einsatz; die
+                // Nachricht spricht aber fuer alle in dieser Frist, deshalb
+                // werden auch alle gestempelt.
+                $standFuerErinnerung = $stand;
+                $standFuerErinnerung['einsatz'] = $faellige[0]['bezug'];
 
-                    if ($ergebnis === AufgabenSender::STATUS_SENT) {
-                        // whereNull zusaetzlich: macht das Update wiederholbar,
-                        // falls zwei Laeufe dieselbe Einbuchung treffen.
-                        DB::table('rec_dispo_assignments')
-                            ->where('id', $einbuchung->id)
-                            ->whereNull('aufgaben_erinnert_at')
-                            ->update(['aufgaben_erinnert_at' => now()]);
-                        $z['gesendet_erinn']++;
-                    } else {
-                        // KEIN Stempel: eine nicht angenommene Erinnerung wird
-                        // morgen erneut versucht, solange der Einsatz noch in
-                        // der Frist liegt (Muster SendProofReminders).
-                        $z['fehlversand']++;
-                    }
+                $ergebnis = $sender->sende($bote, $standFuerErinnerung, 'erinnerung');
+                $angesprochen[] = sprintf('MA #%d (Erinnerung: %s)', $bote->id, $ergebnis);
+
+                if ($ergebnis === AufgabenSender::STATUS_SENT) {
+                    // whereNull zusaetzlich: macht das Update wiederholbar,
+                    // falls zwei Laeufe dieselbe Einbuchung treffen.
+                    DB::table('rec_dispo_assignments')
+                        ->whereIn('id', array_column($faellige, 'id'))
+                        ->whereNull('aufgaben_erinnert_at')
+                        ->update(['aufgaben_erinnert_at' => now()]);
+                    $z['gesendet_erinn']++;
+                } else {
+                    // KEIN Stempel: eine nicht angenommene Erinnerung wird
+                    // morgen erneut versucht, solange der Einsatz noch in
+                    // der Frist liegt (Muster SendProofReminders).
+                    $z['fehlversand']++;
                 }
             } catch (\Throwable $e) {
                 $z['abgebrochen']++;
@@ -647,28 +732,185 @@ class EinsatzPruefung extends Command
     }
 
     /**
-     * Die Einbuchungen, fuer die eine Erinnerung ueberhaupt in Frage kommt.
+     * ALLE kommenden Auftraege dieses Menschen, frueheste zuerst — die
+     * gemeinsame Grundlage fuer den Anlass (F2) und die Erinnerung.
+     *
+     * Eine Abfrage statt zweier: die beiden brauchen dieselbe Menge, und
+     * zwei Abfragen koennten zwischen ihnen auseinanderlaufen.
      *
      * `missing_since` muss leer sein: eine aus der ZAS-Lieferung gefallene
-     * Einbuchung ist keine verlaessliche Grundlage. `aufgaben_erinnert_at`
-     * muss leer sein: die Erinnerung geht einmal je Einbuchung.
+     * Einbuchung ist keine verlaessliche Grundlage fuer eine Nachricht.
      *
      * @param  list<int>  $umfangIds
      * @return \Illuminate\Support\Collection<int, RecDispoAssignment>
      */
-    private function erinnerungsKandidaten(array $umfangIds)
+    private function kommendeAuftraege(array $umfangIds, string $heute)
     {
         return RecDispoAssignment::query()
             ->whereIn('rec_employee_id', $umfangIds)
             ->where('status_id', RecDispoAssignment::STATUS_AUFTRAG)
             ->whereNull('missing_since')
-            ->whereNull('aufgaben_erinnert_at')
-            // ohne with('event') waere jedes $a->event?->name unten eine
-            // eigene Abfrage.
+            ->where('datum', '>=', $heute)
+            // ohne with('event') waere jedes $a->event?->name eine eigene
+            // Abfrage.
             ->with('event')
             ->orderBy('datum')
             ->orderBy('id')
             ->get();
+    }
+
+    /**
+     * F2: der ERSTE kommende Auftrag mit genug Vorlauf — nicht der naechste.
+     *
+     * Der naechste kann zu nah sein; dann loest er nicht aus, und ein
+     * spaeterer, fuer den die Nachricht noch rechtzeitig kaeme, bliebe
+     * ungesehen. Weil die Liste nach Datum sortiert ist, ist der erste
+     * Treffer zugleich der frueheste, fuer den die Nachricht noch hilft.
+     *
+     * @param  \Illuminate\Support\Collection<int, RecDispoAssignment>  $kommende
+     * @return array{datum:string, taetigkeit:?string, event:?string}|null
+     */
+    private function ausloesenderEinsatz($kommende, string $heute): ?array
+    {
+        foreach ($kommende as $einbuchung) {
+            $datum = $einbuchung->datum?->format('Y-m-d') ?? '';
+
+            // status_id steht hier, weil loestAus() es verlangt; gefiltert
+            // hat darauf schon die Abfrage (ET-8/ET-13: eine Wiederholung
+            // der Zusage, kein zweiter Filter).
+            if (EinsatzBezug::loestAus(
+                ['datum' => $datum, 'status_id' => (int) $einbuchung->status_id],
+                $heute,
+                EinsatzBezug::VORLAUF_TAGE,
+            )) {
+                return [
+                    'datum'      => $datum,
+                    'taetigkeit' => $einbuchung->taetigkeit,
+                    'event'      => $einbuchung->event?->name,
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Die Einbuchungen in der Erinnerungsfrist, die noch keinen Stempel
+     * tragen — frueheste zuerst.
+     *
+     * @param  \Illuminate\Support\Collection<int, RecDispoAssignment>  $kommende
+     * @return list<array{id:int, bezug: array{datum:string, taetigkeit:?string, event:?string}}>
+     */
+    private function faelligeErinnerungen($kommende, string $heute): array
+    {
+        $faellige = [];
+
+        foreach ($kommende as $einbuchung) {
+            if ($einbuchung->aufgaben_erinnert_at !== null) {
+                continue;
+            }
+
+            $datum = $einbuchung->datum?->format('Y-m-d') ?? '';
+
+            if (!EinsatzBezug::erinnerungFaellig(
+                ['datum' => $datum, 'status_id' => (int) $einbuchung->status_id],
+                $heute,
+                EinsatzBezug::ERINNERUNG_TAGE,
+            )) {
+                continue;
+            }
+
+            $faellige[] = [
+                'id'    => (int) $einbuchung->id,
+                'bezug' => [
+                    'datum'      => $datum,
+                    'taetigkeit' => $einbuchung->taetigkeit,
+                    'event'      => $einbuchung->event?->name,
+                ],
+            ];
+        }
+
+        return $faellige;
+    }
+
+    /**
+     * Wann wurde dieser MENSCH zuletzt erinnert? Der juengste Stempel ueber
+     * alle seine Anstellungen (F3) — die Erinnerung gehoert dem Menschen,
+     * auch wenn ihr Zustand an der Einbuchung haengt.
+     *
+     * @param  list<int>  $umfangIds
+     */
+    private function letzteErinnerung(array $umfangIds): ?string
+    {
+        $wert = DB::table('rec_dispo_assignments')
+            ->whereIn('rec_employee_id', $umfangIds)
+            ->max('aufgaben_erinnert_at');
+
+        return $wert === null ? null : (string) $wert;
+    }
+
+    /**
+     * F4: die Anstellung, ueber die dieser MENSCH sein Portal erreicht.
+     *
+     * `portal_v2_since` steht an der ANSTELLUNG, nicht am Menschen, und
+     * umgestellt wird je Zeile (`recruiting:portal-umstellen --ids`). Bei
+     * einem Doppelbeschaeftigten RG+MA ist "eine Zeile umgestellt, eine
+     * nicht" der Normalfall einer Pilotumstellung. Gefragt wird deshalb der
+     * ganze Personen-Umfang, und zwar nach der kleinsten Kennung — damit die
+     * Antwort nicht davon abhaengt, an welcher Anstellung gerade eine
+     * Einbuchung haengt.
+     *
+     * An dieser Anstellung haengen Rufnummer, Kanal und Portal-Token der
+     * Nachricht; sie muessen zusammen passen, denn die Nachricht verweist
+     * auf GENAU DIESES Portal.
+     *
+     * @param  list<int>  $umfangIds
+     */
+    private function bote(array $umfangIds): ?RecEmployee
+    {
+        return RecEmployee::query()
+            ->whereIn('id', $umfangIds)
+            ->whereNotNull('portal_v2_since')
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * ET-16: ist nichts mehr offen, verschwindet der ganze gespeicherte
+     * Zustand. Ohne Personen-Zeile gibt es nichts zu raeumen — dann wird nur
+     * gezaehlt.
+     *
+     * @param  array<string,int>  $z
+     */
+    private function raeumen(?int $personId, bool $dryRun, array &$z): void
+    {
+        $person = $personId !== null
+            ? DB::table('rec_persons')->where('id', $personId)->first()
+            : null;
+
+        if ($person === null) {
+            $z['ohne_person']++;
+
+            return;
+        }
+
+        $stehtWas = $person->aufgaben_signatur !== null
+            || $person->aufgaben_gemeldet_at !== null
+            || $person->aufgaben_nachricht_id !== null;
+
+        if (!$stehtWas) {
+            return;
+        }
+
+        if (!$dryRun) {
+            DB::table('rec_persons')->where('id', $personId)->update([
+                'aufgaben_signatur'     => null,
+                'aufgaben_gemeldet_at'  => null,
+                'aufgaben_nachricht_id' => null,
+            ]);
+        }
+
+        $z['geraeumt']++;
     }
 
     /**
@@ -746,9 +988,11 @@ class EinsatzPruefung extends Command
         ));
 
         $this->line(sprintf(
-            'Faellig: %d Mensch(en) fuer eine neue Nachricht, %d Erinnerung(en).',
+            'Faellig: %d Mensch(en) fuer eine neue Nachricht, %d Mensch(en) fuer eine Erinnerung '
+            .'(%d weitere haetten eine Erinnerung, warten aber noch die Pause ab).',
             $z['faellig_neu'],
             $z['faellig_erinn'],
+            $z['erinn_pause'],
         ));
 
         if ($dryRun) {
