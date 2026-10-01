@@ -262,6 +262,33 @@ final class EinsatzPruefungTest extends TestCase
         $this->laufe('2026-10-01');
 
         $this->assertCount(1, $this->sender->versandt);
+        // Und der Bericht zaehlt EINEN Menschen in ZWEI Anstellungen. Ohne
+        // die Buendelung stuenden hier zwei Menschen — die Zahl, an der HR
+        // ablaest, wie viele Leute betroffen sind, waere falsch.
+        $this->assertStringContainsString('1 Mensch(en) in 2 Anstellung(en)', $this->ausgabe);
+    }
+
+    /**
+     * Und die Buendelung ist nicht nur Buchhaltung: nach einem FEHLSCHLAG
+     * steht die Signatur nicht, nur der Stempel. Ohne Buendelung kaeme die
+     * zweite Anstellung derselben Person unmittelbar danach dran, und weil
+     * der Einsatz hier vor dem Ende der Pause liegt, schlaegt ET-15 die
+     * Pause — der Mensch wuerde im SELBEN Lauf ein zweites Mal
+     * angeschrieben. Gemessen: ohne Buendelung zwei Versuche, mit einer.
+     */
+    public function test_eine_person_mit_zwei_anstellungen_wird_auch_nach_einem_fehlschlag_nur_einmal_angesprochen(): void
+    {
+        $person = $this->personAnlegen();
+        $rg = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person]);
+        $mg = $this->mitarbeiterOhneNachweise(['rec_person_id' => $person]);
+        $this->einbuchung($rg, ['datum' => '2026-10-06', 'status_id' => 1]);
+        $this->einbuchung($mg, ['datum' => '2026-10-06', 'status_id' => 1]);
+
+        $this->sender->antwort = AufgabenSender::STATUS_FAILED;
+
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt);
     }
 
     /**
@@ -339,11 +366,29 @@ final class EinsatzPruefungTest extends TestCase
     public function test_eine_verschwundene_einbuchung_erinnert_nicht(): void
     {
         $ma = $this->mitarbeiterOhneNachweise();
-        $this->einbuchung($ma, ['datum' => '2026-10-10', 'status_id' => 1, 'missing_since' => '2026-10-02 08:00:00']);
+        // Ein zweiter, unauffaelliger Auftrag haelt den Menschen im
+        // Zielkreis — sonst faellt er schon durch die Kandidaten-Abfrage
+        // heraus, und der Filter in der Erinnerungs-Abfrage bliebe
+        // ungemessen (Mutationsprobe M18: er liess sich ersatzlos
+        // streichen, ohne dass etwas rot wurde).
+        $this->einbuchung($ma, ['datum' => '2026-11-20', 'status_id' => 1]);
+        $verschwunden = $this->einbuchung($ma, [
+            'datum'         => '2026-10-10',
+            'status_id'     => 1,
+            'missing_since' => '2026-10-02 08:00:00',
+        ]);
 
         $this->laufe('2026-10-08', ['--welle' => 10]);
 
-        $this->assertSame([], $this->sender->versandt);
+        $erinnerungen = array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung');
+        $this->assertSame([], $erinnerungen, 'eine aus der ZAS-Lieferung gefallene Einbuchung ist keine Grundlage');
+        $this->assertNull(
+            DB::table('rec_dispo_assignments')->where('id', $verschwunden)->value('aufgaben_erinnert_at'),
+        );
+
+        // Vorflug: der Lauf hat diesen Menschen sehr wohl bedient.
+        $this->assertCount(1, $this->sender->versandt);
+        $this->assertSame('neu', $this->sender->versandt[0]['anlass']);
     }
 
     // =================================================================
@@ -509,6 +554,17 @@ final class EinsatzPruefungTest extends TestCase
         $this->assertNull($this->person($ma)->aufgaben_signatur, 'ET-23: die Signatur ist geraeumt');
         $this->assertCount(1, $this->sender->versandt, 'der zweite Versuch kommt erst nach der Pause');
 
+        // UND DER STEMPEL STEHT NOCH. Dieser Lauf ist die eigentliche Probe
+        // darauf (Mutationsprobe M9b): raeumte das Nachlesen oben AUCH
+        // `aufgaben_gemeldet_at`, bliebe das im Lauf vom 02.10. unsichtbar
+        // (der Wert wurde dort vorher schon gelesen) und schluege erst hier
+        // durch — mit einer zweiten Nachricht am naechsten Tag statt nach
+        // der Pause. Ein dauerhaft unerreichbarer Anschluss bekaeme dann
+        // taeglich einen Versuch.
+        $this->assertNotNull($this->person($ma)->aufgaben_gemeldet_at);
+        $this->laufe('2026-10-03');
+        $this->assertCount(1, $this->sender->versandt, 'ET-23 raeumt die Signatur, nicht die Pause');
+
         $this->laufe('2026-10-08');
         $this->assertCount(2, $this->sender->versandt);
     }
@@ -651,7 +707,10 @@ final class EinsatzPruefungTest extends TestCase
 
         $this->assertSame(1, RecHrDeskCase::query()->where('rec_employee_id', $ma->id)->count());
         $this->assertSame([], $this->sender->versandt, 'ohne Personen-Zeile gibt es keinen Ort fuer "schon gemeldet"');
-        $this->assertStringContainsString('ohne Personen-Zeile', $this->ausgabe);
+        // Die ZAHL, nicht nur das Wort (Mutationsprobe M20): ohne den
+        // Abbruch nach dem Zaehler liefe derselbe Mensch zweimal durch und
+        // stuende doppelt im Bericht.
+        $this->assertStringContainsString('ohne Personen-Zeile: 1 ', $this->ausgabe);
     }
 
     /**
