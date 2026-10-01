@@ -330,7 +330,7 @@
                                 <div class="panel"><div class="h">{{ $group['dress_group']['heading'] }}</div><div class="b">{{ $group['dress_group']['text'] }}</div></div>
                             @endif
                             @if ($group['dress_hinweis'])
-                                <div class="panel"><div class="h">Hinweise zur Veranstaltung</div><div class="b">{{ $group['dress_hinweis'] }}</div></div>
+                                <div class="panel"><div class="h">Infos zur Veranstaltung</div><div class="b">{{ $group['dress_hinweis'] }}</div></div>
                             @endif
                         </div>
                     @endif
