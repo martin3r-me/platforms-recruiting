@@ -445,6 +445,133 @@ class DispoDressSendFormTest extends DressTestCase
     }
 
     /**
+     * Kunde-Wunsch (Rueckweg aus dem Kleidung-Fenster): "Abbrechen" nach
+     * "aendern" aus dem Sende-Fenster fuehrt dorthin zurueck statt alles
+     * zuzuklappen — und raeumt dressFromSend wieder auf, damit ein spaeteres
+     * Oeffnen ueber die Karte (openDressModal()) nicht versehentlich den
+     * Rueckweg-Zustand erbt.
+     */
+    public function test_close_dress_modal_after_open_from_send_returns_to_send_modal(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+        $c->openDressModalFromSend();
+
+        $c->closeDressModal();
+
+        $this->assertTrue($c->showSendModal);
+        $this->assertFalse($c->showDressModal);
+        $this->assertFalse($c->dressFromSend);
+    }
+
+    /** Ueber die Karte geoeffnet (openDressModal()): "Schliessen" klappt alles zu, kein Rueckweg. */
+    public function test_close_dress_modal_after_open_from_card_closes_everything(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        $c->openDressModal();
+
+        $c->closeDressModal();
+
+        $this->assertFalse($c->showSendModal);
+        $this->assertFalse($c->showDressModal);
+    }
+
+    /** "Speichern und zurueck": speichert wie saveDress() und kehrt danach ins Sende-Fenster zurueck. */
+    public function test_save_dress_and_return_persists_and_returns_to_send_modal(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+        $c->openDressModalFromSend();
+        $c->dressAll = (string) $pkg->id;
+        $c->dressAck = true;
+
+        $c->saveDressAndReturn();
+
+        $this->assertTrue($c->dressSaved);
+        $this->assertTrue($c->showSendModal);
+        $this->assertFalse($c->showDressModal);
+        $this->assertFalse($c->dressFromSend);
+        $rows = RecDispoEventDress::query()->where('rec_dispo_event_id', $event->id)->get()->keyBy('taetigkeit');
+        $this->assertSame((int) $pkg->id, (int) $rows[RecDispoEventDress::ALL]->rec_dispo_dress_package_id);
+    }
+
+    /**
+     * "Speichern und zurueck" bei blockendem Ack-Riegel: bleibt im
+     * Kleidung-Fenster, kein Rueckweg, die Fehlermeldung steht — sonst
+     * verschwindet der ZAS-Text fuer die Empfaenger ungesehen.
+     */
+    public function test_save_dress_and_return_stays_in_dress_modal_when_gate_blocks(): void
+    {
+        $event = $this->event(['dresscode' => 'Ansprechpartner: Tristan anrufen']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+        $c->openDressModalFromSend();
+        $c->dressAll = (string) $pkg->id;
+        $c->dressAck = false;
+
+        $c->saveDressAndReturn();
+
+        $this->assertFalse($c->dressSaved);
+        $this->assertFalse($c->showSendModal, 'Kein Rueckweg, solange der Riegel blockt.');
+        $this->assertTrue($c->showDressModal, 'Bleibt im Kleidung-Fenster.');
+        $this->assertTrue($c->dressFromSend, 'dressFromSend bleibt gesetzt — der naechste Klick auf Schliessen/Speichern soll weiter zurueckfuehren.');
+        $this->assertTrue($c->getErrorBag()->has('dressAck'), 'Die Meldung muss stehen bleiben.');
+        $this->assertCount(0, RecDispoEventDress::query()->where('rec_dispo_event_id', $event->id)->get(),
+            'Nichts darf durchrutschen, solange der Riegel zu ist.');
+    }
+
+    /**
+     * Review-Nachbesserung (Minor): ein FREMDER Fehler im Bag darf den
+     * Rueckweg nicht blockieren. Realer Ablauf: Dispo klickt im Sende-Fenster
+     * "Jetzt senden", die Eskalations-Validierung schlaegt fehl (escPlanDate)
+     * und haengt im Bag; sie wechselt dann ueber "aendern" ins
+     * Kleidung-Fenster und setzt ein Paket. "Speichern und zurueck" darf nur
+     * noch an 'dressAck' scheitern, nicht an diesem alten, hier gar nicht
+     * sichtbaren Fehler — sonst tut der Knopf scheinbar nichts.
+     */
+    public function test_save_dress_and_return_ignores_foreign_errors_from_the_send_modal(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $pkg = $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+        $c->openDressModalFromSend();
+        $c->dressAll = (string) $pkg->id;
+        $c->dressAck = true;
+
+        // Simuliert den liegengebliebenen Fehler aus einem gescheiterten
+        // "Jetzt senden" (Eskalations-Validierung) im selben Request-Zyklus.
+        $c->addError('escPlanDate', 'Bitte ein Datum waehlen.');
+
+        $c->saveDressAndReturn();
+
+        $this->assertTrue($c->dressSaved, 'Der Kleidung-Pfad selbst hat nichts beanstandet.');
+        $this->assertTrue($c->showSendModal, 'Ein fremder Fehler (Eskalation) darf den Rueckweg nicht blockieren.');
+        $this->assertFalse($c->showDressModal);
+        $this->assertTrue($c->getErrorBag()->has('escPlanDate'), 'Der fremde Fehler bleibt unangetastet stehen.');
+    }
+
+    /**
      * Log-Attrappe: der Ablehnungspfad schreibt Log::warning. Facade-Cache
      * mit leeren, sonst greift eine zuvor aufgeloeste Instanz
      * (siehe Memory reference_log_facade_test_stub).
