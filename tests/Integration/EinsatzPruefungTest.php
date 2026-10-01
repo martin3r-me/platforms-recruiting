@@ -407,7 +407,7 @@ final class EinsatzPruefungTest extends TestCase
      * die Pause je Mensch haette dieser Mensch an fuenf Tagen hintereinander
      * eine Erinnerung bekommen.
      */
-    public function test_eine_fuenf_tage_messe_ergibt_eine_erinnerung(): void
+    public function test_eine_fuenf_tage_messe_ergibt_eine_einzige_nachricht(): void
     {
         $ma = $this->mitarbeiterOhneNachweise();
         foreach (['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14'] as $datum) {
@@ -418,8 +418,18 @@ final class EinsatzPruefungTest extends TestCase
             $this->laufe($tag);
         }
 
-        $erinnerungen = array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung');
-        $this->assertCount(1, $erinnerungen);
+        // EINE Nachricht fuer die ganze Messe, nicht fuenf. Sie geht am
+        // 08.10. als "neu" raus (der 12.10. hat genug Vorlauf) und deckt
+        // alle fuenf Tage mit ab — ET-26 unterdrueckt die Erinnerung
+        // desselben Laufs, die Abdeckung stempelt die uebrigen Tage.
+        $this->assertCount(1, $this->sender->versandt);
+        $this->assertSame('neu', $this->sender->versandt[0]['anlass']);
+        $this->assertSame(
+            0,
+            DB::table('rec_dispo_assignments')->whereNull('aufgaben_erinnert_at')->count(),
+            'kein Messetag darf mit leerem Stempel zurueckbleiben — sonst glaubt das System, '
+            .'ihm noch eine Erinnerung zu schulden, und loest sie nie ein',
+        );
     }
 
     /**
@@ -431,16 +441,21 @@ final class EinsatzPruefungTest extends TestCase
     {
         $ma = $this->mitarbeiterOhneNachweise();
         $this->einbuchung($ma, ['datum' => '2026-10-02', 'status_id' => 1]);
-        $this->einbuchung($ma, ['datum' => '2026-10-20', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-25', 'status_id' => 1]);
+
+        // Die neue Nachricht ist hier schon erledigt — sonst unterdrueckte
+        // sie nach ET-26 die erste Erinnerung, und dieser Test maesse die
+        // falsche Regel. Dieselbe Signatur, ein alter Stempel.
+        $this->signaturSetzen($ma, '2026-10-01', '2026-09-01 09:00:00');
 
         $this->laufe('2026-10-01');                  // erinnert an den 02.10.
-        $this->laufe('2026-10-18');                  // sieben Tage spaeter: erinnert an den 20.10.
+        $this->laufe('2026-10-23');                  // lange nach der Pause: erinnert an den 25.10.
 
         $erinnerungen = array_values(array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung'));
 
         $this->assertCount(2, $erinnerungen);
         $this->assertSame('2026-10-02', $erinnerungen[0]['stand']['einsatz']['datum']);
-        $this->assertSame('2026-10-20', $erinnerungen[1]['stand']['einsatz']['datum']);
+        $this->assertSame('2026-10-25', $erinnerungen[1]['stand']['einsatz']['datum']);
     }
 
     /**
@@ -534,8 +549,11 @@ final class EinsatzPruefungTest extends TestCase
      * ET-16/ET-23-Haushalt fuer diesen Menschen leer. Betroffen war genau
      * die Gruppe, auf die es ankommt: die oft im Einsatz ist.
      *
-     * JETZT: eine "neu"-Nachricht (danach haelt die Signatur) und zwei
-     * Erinnerungen (die Pause je Mensch).
+     * JETZT: eine "neu"-Nachricht (danach haelt die Signatur) und EINE
+     * Erinnerung — zwei Nachrichten in vierzehn Tagen statt sechzehn. Die
+     * zweite Erinnerung aus der vorigen Runde ist seit der Abdeckung
+     * (ET-27) weggefallen: die erste Nachricht deckt alles mit ab, was in
+     * ihre Pause faellt.
      */
     public function test_ein_dicht_gebuchter_mensch_wird_erreicht_und_nicht_zugeschuettet(): void
     {
@@ -554,7 +572,127 @@ final class EinsatzPruefungTest extends TestCase
         $anlaesse = array_count_values(array_column($this->sender->versandt, 'anlass'));
 
         $this->assertSame(1, $anlaesse['neu'] ?? 0, 'genau eine fruehe Nachricht, danach haelt die Signatur');
-        $this->assertSame(2, $anlaesse['erinnerung'] ?? 0, 'zwei Erinnerungen in 14 Tagen, nicht sechzehn');
+        $this->assertSame(1, $anlaesse['erinnerung'] ?? 0, 'eine Erinnerung in 14 Tagen, nicht sechzehn');
+    }
+
+    // =================================================================
+    // ET-26 / ET-27 — die Folgen der F2/F3-Reparatur
+    // =================================================================
+
+    /**
+     * ET-26 — KEIN MENSCH BEKOMMT ZWEI NACHRICHTEN IN EINEM LAUF.
+     *
+     * Das ist erst seit F2 ueberhaupt moeglich: vorher sperrte der nahe
+     * Einsatz die neue Nachricht (genau der Fund). Jetzt treffen "neu" fuer
+     * den fernen und "Erinnerung" fuer den nahen Einsatz im selben Durchgang
+     * zusammen. Gemessen wurde `neu@25.10.` UND `erinnerung@03.10.` —
+     * zweimal dieselbe Punktliste, in derselben Minute.
+     */
+    public function test_kein_mensch_bekommt_zwei_nachrichten_in_einem_lauf(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $nah  = $this->einbuchung($ma, ['datum' => '2026-10-03', 'status_id' => 1]);
+        $fern = $this->einbuchung($ma, ['datum' => '2026-10-25', 'status_id' => 1]);
+
+        $this->laufe('2026-10-01');
+
+        $this->assertCount(1, $this->sender->versandt);
+        $this->assertSame('neu', $this->sender->versandt[0]['anlass'], 'die neue Nachricht gewinnt — sie nennt den Einsatz, fuer den die Aufgaben noch zu schaffen sind');
+        $this->assertSame('2026-10-25', $this->sender->versandt[0]['stand']['einsatz']['datum']);
+
+        // Und der nahe Einsatz ist gestempelt: der Mensch ist ueber dieselbe
+        // Punktliste informiert worden. Ohne den Stempel kaeme die
+        // Erinnerung in der naechsten Stunde.
+        $this->assertNotNull(DB::table('rec_dispo_assignments')->where('id', $nah)->value('aufgaben_erinnert_at'));
+        $this->assertNull(
+            DB::table('rec_dispo_assignments')->where('id', $fern)->value('aufgaben_erinnert_at'),
+            'der ferne Einsatz liegt ausserhalb der Pause und behaelt seine eigene Erinnerung',
+        );
+    }
+
+    /**
+     * Die Gegenrichtung, und ohne sie waere ET-26 ein stiller Verlust: ging
+     * die neue Nachricht NICHT raus (Welle voll, Versand gescheitert), darf
+     * auch nicht gestempelt werden — sonst verbrennt der Lauf die Erinnerung
+     * eines Menschen, der gar nichts bekommen hat.
+     */
+    public function test_ohne_versand_wird_die_erinnerung_nicht_verbrannt(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $nah = $this->einbuchung($ma, ['datum' => '2026-10-03', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-25', 'status_id' => 1]);
+
+        $this->sender->antwort = AufgabenSender::STATUS_FAILED;
+        $this->laufe('2026-10-01');
+
+        $this->assertNull(
+            DB::table('rec_dispo_assignments')->where('id', $nah)->value('aufgaben_erinnert_at'),
+            'ein gescheiterter Versand darf keinen Stempel setzen',
+        );
+    }
+
+    /**
+     * ET-27 — DIE PAUSE DARF AUCH HIER KEINE NACHRICHT HINTER IHREN EINSATZ
+     * SCHIEBEN, und die Messung ist die des Pruefers: Einsaetze am 05.10.
+     * und 09.10., elf Laeufe.
+     *
+     * VORHER: Stempel 05.10. gesetzt, **Stempel 09.10. blieb NULL und blieb
+     * es** — der 09.10. wird am 07.10. faellig, ist bis zum 10.10. gesperrt
+     * und danach vorbei. Das System glaubte dauerhaft, ihm eine Erinnerung
+     * zu schulden, und loeste sie nie ein.
+     *
+     * JETZT: eine Nachricht, die BEIDE abdeckt, und kein toter Stempel.
+     * Warum nicht zwei Nachrichten — und was das kostet — steht im Bericht;
+     * die Kurzfassung: die blanke ET-15-Ausnahme ohne Abdeckung ergab
+     * gemessen 13 Erinnerungen in 14 Tagen statt 2 und machte die
+     * F3-Bremse zunichte.
+     */
+    public function test_kein_einsatz_bleibt_mit_totem_stempel_zurueck(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-05', 'status_id' => 1]);
+        $this->einbuchung($ma, ['datum' => '2026-10-09', 'status_id' => 1]);
+        $this->signaturSetzen($ma, '2026-10-01', '2026-09-01 09:00:00');
+
+        for ($tag = 0; $tag <= 10; $tag++) {
+            $this->laufe(date('Y-m-d', strtotime('2026-10-01 +'.$tag.' days')));
+        }
+
+        $erinnerungen = array_values(array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung'));
+
+        $this->assertCount(1, $erinnerungen);
+        $this->assertSame('2026-10-05', $erinnerungen[0]['stand']['einsatz']['datum']);
+        $this->assertSame(
+            0,
+            DB::table('rec_dispo_assignments')->whereNull('aufgaben_erinnert_at')->count(),
+            'ET-27: kein Einsatz darf mit leerem Stempel zurueckbleiben',
+        );
+    }
+
+    /**
+     * Und die Ausnahme selbst, in der Lage, in der sie nicht mit der
+     * F3-Bremse kollidiert: eine Einbuchung, die ERST NACH der letzten
+     * Nachricht geliefert wurde, faellt mitten in die Pause und waere danach
+     * vorbei. Sie war bei der Abdeckung noch nicht da, traegt also keinen
+     * Stempel — und dann gewinnt der Einsatz, genau wie bei ET-15.
+     */
+    public function test_eine_neu_gelieferte_einbuchung_schlaegt_die_pause(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-03', 'status_id' => 1]);
+        $this->signaturSetzen($ma, '2026-10-01', '2026-09-01 09:00:00');
+
+        $this->laufe('2026-10-01');                 // erinnert an den 03.10.
+        $this->assertCount(1, $this->sender->versandt);
+
+        // ZAS liefert nach: ein Einsatz am 06.10., mitten in der Pause.
+        $this->einbuchung($ma, ['datum' => '2026-10-06', 'status_id' => 1]);
+
+        $this->laufe('2026-10-04');
+
+        $erinnerungen = array_values(array_filter($this->sender->versandt, fn ($v) => $v['anlass'] === 'erinnerung'));
+        $this->assertCount(2, $erinnerungen);
+        $this->assertSame('2026-10-06', $erinnerungen[1]['stand']['einsatz']['datum']);
     }
 
     // =================================================================
@@ -1852,6 +1990,22 @@ final class EinsatzPruefungTest extends TestCase
             count((new OffenePunkte())->fuer($employee->fresh(), '2026-10-01')['punkte']),
             'Vorflug: nach diesem Schritt muss wirklich ein Punkt mehr offen sein.',
         );
+    }
+
+    /**
+     * Die Signatur des aktuellen Stands an der Person setzen — damit die
+     * NEUE Nachricht als erledigt gilt und ein Test ausschliesslich die
+     * Erinnerung misst. Query Builder, wie das Kommando selbst.
+     */
+    private function signaturSetzen(RecEmployee $employee, string $heute, string $gemeldetAm): void
+    {
+        $punkte = (new OffenePunkte())->fuer($employee, $heute)['punkte'];
+        $this->assertNotSame([], $punkte, 'Vorflug: es muss ueberhaupt etwas offen sein.');
+
+        DB::table('rec_persons')->where('id', $employee->rec_person_id)->update([
+            'aufgaben_signatur'    => \Platform\Recruiting\Support\TriggerRegeln::signatur($punkte),
+            'aufgaben_gemeldet_at' => $gemeldetAm,
+        ]);
     }
 
     private function nachweisGueltigBis(RecEmployee $employee, string $code, ?string $gueltigBis): void
