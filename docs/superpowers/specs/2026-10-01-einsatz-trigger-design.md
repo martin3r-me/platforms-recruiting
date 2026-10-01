@@ -93,20 +93,36 @@ Auslöser, Bündelung und Nachrichtenregeln noch einmal angefasst werden.
 
 ### 2.5 Gefragt wird der Mensch, nicht die Anstellung
 
-`rec_employee_proofs` traegt `rec_employee_id` **und** `person_key` — die Tabelle wurde
-mit dem Menschen im Sinn gebaut. Gelesen wird sie heute aber nur je Anstellung.
+**Berichtigt am 01.10.2026.** Eine fruehere Fassung dieses Abschnitts behauptete, die
+Nachweise wuerden je Anstellung gelesen. **Das stimmt nicht** — der Fehler stammt aus
+einer gross-/kleinschreibungs-empfindlichen Suche, die `PersonScopeResolver` nicht fand.
 
-Das faellt erst mit dem Konto auf: wer bei RG **und** MA angestellt ist, wuerde seinen
-Ausweis **zweimal** hochladen muessen, obwohl er nur einen hat. Canvas 68 nennt das
-Gegenteil ausdruecklich das Eine-Person-Prinzip.
+Tatsaechlich liest `ProofReader::current()` bereits ueber die ganze Person:
 
-**Festlegung:** Die Pflichten werden ueber **alle aktiven Anstellungen** der Person
-**vereinigt** (eine Anstellung als Student, eine als Aushilfe ergibt beide Pflichten),
-die vorhandenen Nachweise werden ueber die **ganze Person** gelesen. Ein Mensch, eine
-Liste.
+```php
+->whereIn('rec_employee_id', $this->scope->forEmployee($employee)['ids'])
+```
 
-Aufgeloest wird die Person ueber `rec_persons` aus der Personen-Klammer, nicht ueber den
-Marker `person_key` — der ist nur bei gepaarten Datensaetzen gesetzt (Stufe 1, §4.3).
+und sagt es im Kopf auch: „Wer bei RHEINGEDECK und MA arbeitet, hat einen Ausweis, keine
+zwei."
+
+**Die echte Luecke ist kleiner und liegt auf der anderen Seite:** die **Pflichten**
+werden nur aus der **einen** Anstellung bestimmt, mit der jemand gerade zu tun hat —
+
+```php
+$pflicht = ProofTypes::requiredFor([
+    'is_eu_citizen'   => $employee->is_eu_citizen,
+    'employment_type' => $employee->employment_type,
+    'is_first_aider'  => $employee->is_first_aider,
+]);
+```
+
+Wer bei RG als Student und bei MA als Aushilfe gefuehrt wird, sieht je nach Anstellung
+eine andere Pflichtliste — die Immatrikulation taucht mal auf und mal nicht.
+
+**Festlegung:** Die Pflichten werden ueber **alle aktiven Anstellungen der Person
+vereinigt**. Die vorhandenen Nachweise werden bereits richtig gelesen und bleiben, wie
+sie sind.
 
 ### 2.6 Die harte Sperre ist ein Zustand, kein Ereignis
 
@@ -121,16 +137,26 @@ in dem Augenblick, in dem ein Dokument abläuft.
 
 ## 3. Der Motor
 
-### 3.1 Der Prüfer — reine Logik
+### 3.1 Der Prüfer — **gibt es schon**
 
-Nimmt Mitarbeiterdaten und vorhandene Nachweise, gibt eine Liste offener Punkte zurück.
-Je Punkt: **was** fehlt, **wie dringend**, und ob es ein **K.-o.-Punkt** ist
-(Arbeitserlaubnis) oder ein normaler.
+**Berichtigt am 01.10.2026.** Eine fruehere Fassung wollte den reinen Pruefer neu bauen.
+Er existiert: `ProofChecklist::build($pflicht, $vorhanden, $heute)` ist bereits reine
+Logik ohne Datenbank und Uhr und liefert
 
-Keine Datenbank, keine Fassaden, keine Uhr — die Zeit wird hereingereicht. Damit ist er
-ohne Rahmenwerk testbar, und die Regeln sind an einer Stelle lesbar.
+```php
+list<array{code:string, label:string, status:string, valid_until:?string, offen:bool}>
+```
 
-Weitere Prüfer (Vertrag, Stammdaten, Abrechnung) ergänzen die Liste, ohne die
+mit den Zustaenden `fehlt`, `abgelaufen`, `laeuft_ab` und `ok`.
+
+**Zu bauen ist deshalb nur, was ihm fehlt:**
+
+1. die **Vereinigung der Pflichten** ueber alle aktiven Anstellungen (§2.5),
+2. die Unterscheidung **K.-o.-Punkt gegen normalen Punkt** — welche Codes bedeuten „darf
+   nicht arbeiten" statt „fehlt noch",
+3. der **Einsatz-Bezug**: zu welchem Einsatz ein offener Punkt gehoert.
+
+Weitere Prüfer (Vertrag, Stammdaten, Abrechnung) ergänzen die Liste später, ohne die
 Schnittstelle zu ändern.
 
 ### 3.2 Die Aufgabenliste fürs Portal
