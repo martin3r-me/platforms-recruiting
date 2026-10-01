@@ -48,6 +48,19 @@ final class TriggerStateSchemaTest extends TestCase
 
         $this->capsule = new Capsule($container);
         $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        // Zweite Verbindung NUR als Grammatik-Attrappe: sie wird nie
+        // verbunden, sondern ausschliesslich in pretend() benutzt, wo Laravel
+        // die DDL erzeugt und nicht absetzt. Kein MySQL-Server noetig.
+        $this->capsule->addConnection([
+            'driver'    => 'mysql',
+            'host'      => '127.0.0.1',
+            'database'  => 'attrappe',
+            'username'  => 'attrappe',
+            'password'  => '',
+            'charset'   => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix'    => '',
+        ], 'mysql-attrappe');
         $this->capsule->setEventDispatcher(new Dispatcher($container));
         $this->capsule->setAsGlobal();
         $this->capsule->bootEloquent();
@@ -109,9 +122,92 @@ final class TriggerStateSchemaTest extends TestCase
         // Text, die beiden Stempel sind Zeitpunkte. Stuende hier ein
         // Zeitstempel als Text, liefe jeder Vergleich "aelter als" auf einen
         // Zeichenkettenvergleich hinaus.
+        //
+        // DIE LAENGE STEHT HIER NICHT, weil SQLite sie nicht kennt: Laravels
+        // SQLite-Grammatik schreibt fuer string(64) UND fuer string(255)
+        // dasselbe blosse "varchar" in die Tabelle, auch mit
+        // getColumnType(..., true) — gemessen, nicht vermutet. Die 64 haelt
+        // deshalb test_auf_mysql_entsteht_varchar_64_hinter_den_genannten_ankern
+        // fest, auf der Grammatik, auf der sie etwas bedeutet.
         $this->assertSame('varchar', Schema::getColumnType('rec_persons', 'aufgaben_signatur'));
+
+        // GRENZE DIESER ZUSICHERUNG: "datetime" ist die SQLite-Lesart einer
+        // timestamp-Spalte; MySQL meldet dort "timestamp". Geprueft ist hier
+        // also "ein Zeitpunkt-Typ in der Testumgebung", nicht der Typname auf
+        // der Produktion — den haelt
+        // test_auf_mysql_entsteht_varchar_64_hinter_den_genannten_ankern
+        // fest. Wer die Suite einmal gegen MySQL faehrt, muss hier nachziehen.
         $this->assertSame('datetime', Schema::getColumnType('rec_persons', 'aufgaben_gemeldet_at'));
         $this->assertSame('datetime', Schema::getColumnType('rec_dispo_assignments', 'aufgaben_erinnert_at'));
+    }
+
+    /**
+     * DIE LAENGE UND DIE ANKER — auf der Grammatik, auf der sie etwas
+     * bedeuten.
+     *
+     * Beides ist auf SQLite unsichtbar: die SQLite-Grammatik schreibt
+     * "varchar" ohne Laenge, und after() ignoriert SQLite ganz. Eine
+     * Migration mit string(..., 255) statt 64 oder mit einem erfundenen Anker
+     * kaeme hier also durch, ohne dass ein Test etwas merkt.
+     *
+     * Deshalb wird DIESELBE Migration ein zweites Mal gefahren — gegen die
+     * MySQL-Grammatik, in pretend(). Laravel erzeugt die DDL und setzt sie
+     * nicht ab; ein MySQL-Server ist dafuer nicht noetig und wird nicht
+     * kontaktiert.
+     */
+    public function test_auf_mysql_entsteht_varchar_64_hinter_den_genannten_ankern(): void
+    {
+        $ddl = $this->ddlAufMysql(self::MIGRATION);
+
+        $this->assertStringContainsString(
+            'add `aufgaben_signatur` varchar(64) null after `letzte_anmeldung_at`',
+            $ddl,
+            "DDL war:\n".$ddl,
+        );
+        $this->assertStringContainsString(
+            'add `aufgaben_gemeldet_at` timestamp null after `aufgaben_signatur`',
+            $ddl,
+            "DDL war:\n".$ddl,
+        );
+        $this->assertStringContainsString(
+            'add `aufgaben_erinnert_at` timestamp null after `reminder_sent_at`',
+            $ddl,
+            "DDL war:\n".$ddl,
+        );
+
+        // Und die beiden Anker aus FREMDEN Migrationen sind keine toten
+        // Namen: sie stehen wirklich im Schema, das die uebrigen Migrationen
+        // bauen. Ein erfundener Anker braecht die Migration auf MySQL.
+        $this->assertTrue(Schema::hasColumn('rec_persons', 'letzte_anmeldung_at'));
+        $this->assertTrue(Schema::hasColumn('rec_dispo_assignments', 'reminder_sent_at'));
+    }
+
+    /**
+     * Faehrt eine Migration gegen die MySQL-Grammatik und gibt die DDL
+     * zurueck, die dabei entstanden waere. Die Vorgabe-Verbindung wird
+     * danach wiederhergestellt — auch wenn die Migration wirft.
+     */
+    private function ddlAufMysql(string $relativerPfad): string
+    {
+        $verwaltung = $this->capsule->getDatabaseManager();
+        $vorher = $verwaltung->getDefaultConnection();
+        $container = Container::getInstance();
+
+        $verwaltung->setDefaultConnection('mysql-attrappe');
+        $container->instance('db.schema', $verwaltung->connection('mysql-attrappe')->getSchemaBuilder());
+        Facade::clearResolvedInstances();
+
+        try {
+            $abfragen = $verwaltung->connection('mysql-attrappe')->pretend(
+                fn () => (require dirname(__DIR__, 2).'/'.$relativerPfad)->up(),
+            );
+        } finally {
+            $verwaltung->setDefaultConnection($vorher);
+            $container->instance('db.schema', $this->capsule->getConnection()->getSchemaBuilder());
+            Facade::clearResolvedInstances();
+        }
+
+        return implode("\n", array_column($abfragen, 'query'));
     }
 
     /**

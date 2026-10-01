@@ -20,6 +20,14 @@ use Illuminate\Support\Facades\Schema;
  * irgendwo schon gelaufen ist, laeuft dort nie wieder an. Spalten einzeln
  * mit hasColumn-Wache, down() als echte Umkehrung (Muster:
  * 2026_09_29_000001_add_konto_felder_to_rec_persons.php).
+ *
+ * ZU DEN after()-ANKERN: SQLite ignoriert after() stillschweigend, die
+ * Spaltenreihenfolge der Produktion kann die Testumgebung also nicht
+ * herstellen. Was sie haelt, ist der Rest: TriggerStateSchemaTest faehrt
+ * diese Migration ZUSAETZLICH gegen die MySQL-Grammatik (in pretend, ohne
+ * Server) und prueft die erzeugte DDL samt Ankern und Laenge — und dass die
+ * Anker wirklich im Schema stehen, das die uebrigen Migrationen bauen. Ein
+ * toter Anker, der auf MySQL die Migration braeche, faellt damit auf.
  */
 return new class extends Migration
 {

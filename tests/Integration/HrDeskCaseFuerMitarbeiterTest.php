@@ -41,6 +41,18 @@ final class HrDeskCaseFuerMitarbeiterTest extends TestCase
 
         $this->capsule = new Capsule($container);
         $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        // Zweite Verbindung NUR als Grammatik-Attrappe fuer pretend(); sie
+        // wird nie verbunden, ein MySQL-Server ist nicht noetig.
+        $this->capsule->addConnection([
+            'driver'    => 'mysql',
+            'host'      => '127.0.0.1',
+            'database'  => 'attrappe',
+            'username'  => 'attrappe',
+            'password'  => '',
+            'charset'   => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix'    => '',
+        ], 'mysql-attrappe');
         $this->capsule->setEventDispatcher(new Dispatcher($container));
         $this->capsule->setAsGlobal();
         $this->capsule->bootEloquent();
@@ -193,6 +205,67 @@ final class HrDeskCaseFuerMitarbeiterTest extends TestCase
 
         $this->assertTrue($this->istNullable('rec_applicant_id'));
         $this->assertSame(1, Capsule::table('rec_hr_desk_cases')->count(), 'die Zeile ueberlebt den Rueckbau');
+    }
+
+    /**
+     * Der Anker und der Typ auf der Grammatik, auf der sie etwas bedeuten.
+     *
+     * SQLite ignoriert after() stillschweigend und kennt keine
+     * Integer-Breiten; ein erfundener Anker kaeme hier also durch und braeche
+     * erst auf der Produktion. Deshalb laeuft DIESELBE Migration ein zweites
+     * Mal gegen die MySQL-Grammatik, in pretend() — Laravel erzeugt die DDL
+     * und setzt sie nicht ab.
+     *
+     * NICHT ERFASST: das change() auf rec_applicant_id. In pretend liest
+     * istPflichtfeld() eine leere Spaltenliste und ueberspringt den Zweig;
+     * dass die Spalte wirklich nullable wird, haelt
+     * test_ein_fall_kann_an_einem_mitarbeiter_haengen gegen SQLite fest.
+     */
+    public function test_auf_mysql_haengt_die_spalte_hinter_dem_genannten_anker(): void
+    {
+        $ddl = $this->ddlAufMysql();
+
+        $this->assertStringContainsString(
+            'add `rec_employee_id` bigint unsigned null after `rec_applicant_id`',
+            $ddl,
+            "DDL war:\n".$ddl,
+        );
+        $this->assertStringContainsString(
+            'add index `rec_hr_desk_cases_rec_employee_id_index`(`rec_employee_id`)',
+            $ddl,
+            "DDL war:\n".$ddl,
+        );
+
+        // Der Anker ist kein toter Name.
+        $this->assertTrue(Schema::hasColumn('rec_hr_desk_cases', 'rec_applicant_id'));
+    }
+
+    /**
+     * Faehrt die Migration gegen die MySQL-Grammatik und gibt die DDL
+     * zurueck, die dabei entstanden waere. Die Vorgabe-Verbindung wird
+     * danach wiederhergestellt — auch wenn die Migration wirft.
+     */
+    private function ddlAufMysql(): string
+    {
+        $verwaltung = $this->capsule->getDatabaseManager();
+        $vorher = $verwaltung->getDefaultConnection();
+        $container = Container::getInstance();
+
+        $verwaltung->setDefaultConnection('mysql-attrappe');
+        $container->instance('db.schema', $verwaltung->connection('mysql-attrappe')->getSchemaBuilder());
+        Facade::clearResolvedInstances();
+
+        try {
+            $abfragen = $verwaltung->connection('mysql-attrappe')->pretend(
+                fn () => $this->migration()->up(),
+            );
+        } finally {
+            $verwaltung->setDefaultConnection($vorher);
+            $container->instance('db.schema', $this->capsule->getConnection()->getSchemaBuilder());
+            Facade::clearResolvedInstances();
+        }
+
+        return implode("\n", array_column($abfragen, 'query'));
     }
 
     private function migration(): object

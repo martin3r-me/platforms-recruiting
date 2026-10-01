@@ -23,6 +23,18 @@ use Illuminate\Support\Facades\Schema;
  * die irgendwo schon gelaufen ist, laeuft dort nie wieder an. hasColumn-Wache
  * in up() und down() (Muster:
  * 2026_09_29_000001_add_konto_felder_to_rec_persons.php).
+ *
+ * ZU DEN after()-ANKERN: SQLite ignoriert after() stillschweigend. Die
+ * erzeugte MySQL-DDL prueft HrDeskCaseFuerMitarbeiterTest trotzdem, indem es
+ * diese Migration zusaetzlich gegen die MySQL-Grammatik faehrt (pretend, ohne
+ * Server); die Spaltenreihenfolge selbst bleibt ungemessen.
+ *
+ * WAS DIE SUITE NICHT HERSTELLEN KANN: das change() auf rec_applicant_id
+ * unter MySQL. In pretend liest istPflichtfeld() eine leere Spaltenliste und
+ * ueberspringt den Zweig, und SQLite baut die Tabelle auf einem anderen Weg
+ * um als MySQL. Dass das ALTER auf einer Spalte mit FK-Constraint durchlaeuft,
+ * ist zulaessig, aber von dieser Suite nicht belegt — vor dem Deploy auf einer
+ * MySQL-Kopie fahren.
  */
 return new class extends Migration
 {
