@@ -13,7 +13,12 @@ use DateTimeImmutable;
  * eine Mutation der Konstante koennte nicht fallen.
  *
  * Ausgeloest wird nur bei AUFTRAG (status_id 1), nicht bei ANGEBOT (0):
- * angefragt ist nicht gebucht, und wer absagt, soll nichts bekommen.
+ * angefragt ist nicht gebucht, und wer absagt, soll nichts bekommen. Das gilt
+ * fuer alle drei Methoden — auch naechster() filtert seit der ET-13-Korrektur
+ * auf AUFTRAG (vorher lieferte sie auch einen stornierten oder beendeten
+ * Einsatz als "naechsten Bezug" zurueck, siehe BEENDET=2/STORNO=3 in
+ * RecDispoAssignment: ein Storno als Anlass fuer eine Aufgabe waere eine
+ * sichtbare Luege gegenueber dem Mitarbeiter im Portal gewesen).
  *
  * Die Mindest-Vorlaufzeit ist keine Bequemlichkeit: eine Nachricht, die am
  * Vorabend „lade deinen Ausweis hoch" sagt, ist keine Hilfe. Der Fall gehoert
@@ -59,6 +64,11 @@ final class EinsatzBezug
     }
 
     /**
+     * ET-13-Korrektur: filtert jetzt auf STATUS_AUFTRAG, wie Spec und beide
+     * Docblocks es uebereinstimmend "der naechste kommende Auftrag" nennen.
+     * Ohne den Filter kam ein stornierter oder beendeter Einsatz als
+     * "naechster" zurueck und haette eine spaetere echte Buchung verdeckt.
+     *
      * @param list<array{datum?:string, status_id?:int}> $einsaetze
      * @return array{datum?:string, status_id?:int}|null
      */
@@ -66,7 +76,8 @@ final class EinsatzBezug
     {
         $kommende = array_filter(
             $einsaetze,
-            static fn (array $e) => (self::tageBis($e['datum'] ?? '', $heute) ?? -1) >= 0
+            static fn (array $e) => (int) ($e['status_id'] ?? -1) === self::STATUS_AUFTRAG
+                && (self::tageBis($e['datum'] ?? '', $heute) ?? -1) >= 0
         );
 
         if ($kommende === []) {

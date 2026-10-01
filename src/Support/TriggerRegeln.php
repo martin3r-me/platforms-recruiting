@@ -31,10 +31,20 @@ final class TriggerRegeln
      * falsy — nur ein leerer String kommt als Luecke vor (fehlendes `code`).
      * Deshalb ist der einfache `array_filter` hier ungefaehrlich.
      *
-     * Entdoppeln uebernimmt diese Methode bewusst nicht selbst: die Quelle
-     * der offenen Punkte, PersonPflichten::vereinige(), schliesst Dubletten
-     * bereits per `array_unique` aus (Aufgabe 1) — ein doppelter Code kommt
-     * hier also nicht an.
+     * Entdoppeln uebernimmt diese Methode bewusst nicht selbst: der
+     * tatsaechliche Erzeuger der `['code' => ...]`-Felder ist
+     * ProofChecklist::build() (aufgerufen aus ProofReader::checklist()) —
+     * NICHT PersonPflichten::vereinige(), das liefert nur eine
+     * list<string> von Codes, keine Felder mit diesem Schluessel.
+     * ProofChecklist::build() entdoppelt selbst per `array_unique` (Zeile
+     * 44, Stand 01.10.2026) — ein doppelter Code kommt hier also nicht an.
+     * (Korrektur Nachbesserungsrunde 1: die vorige Fassung dieses Kommentars
+     * nannte das falsche Glied der Kette.)
+     *
+     * `implode('|', ...)` statt `implode('', ...)`: der Trenner ist bei den
+     * 13 festen Codes nicht einmal noetig — erschoepfend geprueft (alle 8191
+     * nichtleeren Teilmengen der 13 Codes sortiert-konkateniert, keine
+     * Kollision), aber billig genug, um ihn trotzdem zu behalten.
      *
      * @param list<array{code?:string}> $offenePunkte
      */
@@ -77,9 +87,17 @@ final class TriggerRegeln
             $zuletzt = new DateTimeImmutable($gemeldetAm);
             $heute   = new DateTimeImmutable($jetzt);
         } catch (\Throwable) {
-            // Unlesbarer Zeitstempel: nicht melden. Die sichere Richtung ist
-            // hier das Schweigen, nicht die Nachricht.
-            return false;
+            // ET-14-Entscheidung (Nachbesserungsrunde 1, 01.10.2026): ein
+            // unlesbarer Zeitstempel gilt als "Pause ist um", es wird also
+            // gemeldet — NICHT geschwiegen. Der vorige Kommentar hier
+            // ("die sichere Richtung ist das Schweigen") war falsch:
+            // gemeldetAm wird ausschliesslich bei einem ERFOLGREICHEN
+            // Versand ueberschrieben (Aufgabe 10). Ein Schrottwert waere mit
+            // "return false" ein DAUERHAFTES Schweigen ohne Ausweg gewesen,
+            // weil kein spaeterer Lauf den Wert je repariert. Nach oben ist
+            // das Risiko durch den Signatur-Waechter begrenzt: hoechstens
+            // eine Nachricht je geaenderter Punktmenge.
+            return true;
         }
 
         return $zuletzt->modify('+' . $pauseTage . ' days') <= $heute;
