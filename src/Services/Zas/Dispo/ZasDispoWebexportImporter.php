@@ -27,6 +27,28 @@ class ZasDispoWebexportImporter
         private DispoReconfirmMarker $reconfirmMarker,
     ) {}
 
+    /**
+     * ET-18: die Einbuchungen dieser Lieferung, die GERADE als verschwunden
+     * gelten und trotzdem einen Erinnerungs-Stempel tragen — also genau die,
+     * die mit dieser Lieferung wieder auftauchen.
+     *
+     * Als eigene Abfrage, weil sie zweimal gebraucht wird: im Trockenlauf
+     * zum Zaehlen, im scharfen Lauf zum Raeumen. Die beiden duerfen nicht
+     * auseinanderlaufen, sonst meldet die Vorschau etwas anderes als der
+     * Lauf tut.
+     *
+     * @param  list<string>  $dsRefs
+     */
+    private function toteStempel(array $dsRefs): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('rec_dispo_assignments')
+            // whereIn mit leerem Feld liefert nichts — der leere Fall
+            // braucht deshalb keine eigene Wache.
+            ->whereIn('ds_ref', $dsRefs)
+            ->whereNotNull('missing_since')
+            ->whereNotNull('aufgaben_erinnert_at');
+    }
+
     /** @return array<string, mixed> Summary */
     public function import(RecZasDispoInboundFile $file, bool $dryRun = false): array
     {
@@ -37,6 +59,9 @@ class ZasDispoWebexportImporter
             'matched' => 0, 'unmatched' => 0, 'ambiguous' => 0,
             'missing_marked' => 0, 'rematched_open' => 0,
             'reconfirm_marked' => 0,
+            // ET-18: wieder aufgetauchte Einbuchungen, deren
+            // Erinnerungs-Stempel geraeumt wurde.
+            'erinnerung_entstempelt' => 0,
             'skipped' => [], 'errors' => [],
             'unmatched_pnrs' => [], 'ambiguous_pnrs' => [],
         ];
@@ -113,6 +138,7 @@ class ZasDispoWebexportImporter
                     self::tallyMatch($summary, $m, $attrs['pnr_raw']);
                 }
                 $summary['missing_marked'] = count($plan['missing_ds_refs']);
+                $summary['erinnerung_entstempelt'] = $this->toteStempel(array_keys($plan['assignments']))->count();
 
                 // Rematch-Parity: dieselbe Nachzuegler-Zaehlung wie im Live-Lauf,
                 // aber rein lesend und ohne die in dieser Lieferung bereits
@@ -161,6 +187,25 @@ class ZasDispoWebexportImporter
                 // geplante Umfang: Zeilen, die an Datum/Einsatz-ID scheitern,
                 // werden nie geschrieben und sind damit auch nicht markiert.
                 $reconfirm = $this->reconfirmMarker->plan(self::incomingTimes($plan['assignments']), now()->toDateString());
+
+                // ET-18 — DER TOTE STEMPEL. Verschwindet eine Einbuchung aus
+                // der Lieferung und taucht spaeter wieder auf, setzt die
+                // Schleife unten `missing_since` zurueck. `aufgaben_erinnert_at`
+                // blieb dabei stehen — und die Wiederholungsbremse des
+                // Einsatz-Triggers unterdrueckte damit eine voellig
+                // berechtigte Erinnerung, dauerhaft und ohne Spur.
+                //
+                // NUR BEI WIEDERAUFTAUCHEN, nicht bei jeder Lieferung: die
+                // Bedingung `missing_since IS NOT NULL` ist tragend. Ohne sie
+                // wuerde JEDER stuendliche Import jeden Stempel abraeumen, und
+                // der Mensch bekaeme seine Erinnerung im Stundentakt — aus
+                // einer Bremse wuerde eine Spam-Maschine.
+                //
+                // Query Builder und nicht Eloquent: `aufgaben_erinnert_at`
+                // steht bewusst nicht in $fillable (observer-frei, siehe
+                // RecDispoAssignment).
+                $summary['erinnerung_entstempelt'] = $this->toteStempel(array_keys($plan['assignments']))
+                    ->update(['aufgaben_erinnert_at' => null]);
 
                 foreach ($plan['assignments'] as $dsRef => $attrs) {
                     $einsatzRef = $attrs['einsatz_ref'];
