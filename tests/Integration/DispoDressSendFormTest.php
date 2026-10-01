@@ -411,6 +411,40 @@ class DispoDressSendFormTest extends DressTestCase
     }
 
     /**
+     * Nachbesserung Review: "aendern" im Sende-Fenster darf den bereits beim
+     * Oeffnen des Sende-Fensters (openSendModal() -> loadDressForm()) in den
+     * Speicher gezogenen Formularzustand NICHT durch ein erneutes
+     * loadDressForm() ueberschreiben — sonst geht ein nur im Speicher
+     * stehender, noch nicht per "Nur Kleidung speichern" gesicherter Klick
+     * auf "Text in den Hinweis übernehmen" lautlos verloren.
+     */
+    public function test_open_dress_modal_from_send_keeps_the_already_loaded_form_state(): void
+    {
+        $event = $this->event(['dresscode' => 'Testtext', 'hinweis' => 'Alter Hinweis']);
+        $this->assignment($event, ['taetigkeit' => 'Service', 'rec_employee_id' => null]);
+        $this->package('Weiss', 'Weisses Hemd');
+
+        $c = $this->dispoComponent($event->id);
+        // Formular wie beim Oeffnen des Sende-Fensters laden (openSendModal()).
+        $this->callPrivate($c, 'loadDressForm');
+        $c->showSendModal = true;
+
+        // Simuliert einen Klick auf "Text in den Hinweis übernehmen" —
+        // steht NUR im Speicher, ist noch NICHT gespeichert.
+        $c->eventHinweis = "Alter Hinweis\n\nTesttext";
+
+        $c->openDressModalFromSend();
+
+        $this->assertSame(
+            "Alter Hinweis\n\nTesttext",
+            $c->eventHinweis,
+            'Der Wechsel ins Kleidung-Fenster darf den im Speicher stehenden, noch nicht gespeicherten Hinweis nicht verwerfen.'
+        );
+        $this->assertTrue($c->showDressModal);
+        $this->assertFalse($c->showSendModal);
+    }
+
+    /**
      * Log-Attrappe: der Ablehnungspfad schreibt Log::warning. Facade-Cache
      * mit leeren, sonst greift eine zuvor aufgeloeste Instanz
      * (siehe Memory reference_log_facade_test_stub).

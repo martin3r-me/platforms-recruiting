@@ -929,11 +929,25 @@ class Show extends Component
     /**
      * "aendern" in der Kleidung-Zusammenfassung des Sende-Fensters: wechselt
      * dorthin, OHNE ein zweites Fenster ueber dem ersten zu oeffnen.
+     *
+     * BEWUSST OHNE loadDressForm()/openDressModal(): das Sende-Fenster hat den
+     * Formularzustand (dressAck, dressAll, dressByTaetigkeit, eventHinweis)
+     * schon beim eigenen Oeffnen (openSendModal()) geladen — er steht korrekt
+     * im Speicher, inklusive allem, was die Dispo seitdem getippt oder
+     * angehakt hat (z. B. "Text in den Hinweis übernehmen"). Ein erneutes
+     * loadDressForm() wuerde genau das aus der DB ueberschreiben und damit
+     * wegwerfen, bevor "Nur Kleidung speichern" je lief. NICHT nachruesten,
+     * auch nicht "zur Konsistenz mit openDressModal()" — das bringt den
+     * Datenverlust zurueck (siehe DispoDressSendFormTest::test_open_dress_modal_from_send_keeps_the_already_loaded_form_state).
      */
     public function openDressModalFromSend(): void
     {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->dressSaved = false;
         $this->showSendModal = false;
-        $this->openDressModal();
+        $this->showDressModal = true;
     }
 
     /**
