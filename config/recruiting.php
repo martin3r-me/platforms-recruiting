@@ -345,6 +345,54 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Aufgaben-Nachricht (Spec §2.3, Aufgabe 9)
+    |--------------------------------------------------------------------------
+    |
+    | Der Versand von Platform\Recruiting\Services\Comms\AufgabenSender: der
+    | WhatsApp-Hinweis, dass im MA-Portal etwas fuer den naechsten Einsatz
+    | offen ist. Zwei Anlaesse, weil der Text sich unterscheidet — die erste
+    | Nachricht ("neu") und die Erinnerung, wenn der Einsatz naeher rueckt
+    | ("erinnerung").
+    |
+    | WARUM DAS HIER STEHT UND NICHT IM CODE: dieselbe Begruendung wie bei
+    | 'konto.code_vorlagen' oben — die Meta-Vorlagen sind noch nicht
+    | genehmigt, Name und Platzhalter stehen nicht sicher fest. Ein fest
+    | verdrahteter Name braeuchte nach der Freigabe ein Deploy; so genuegt
+    | ein .env-Eintrag.
+    |
+    | OHNE NAMEN WIRD NICHT VERSCHICKT, und der Sender sagt im Log, welcher
+    | Anlass betroffen ist — kein stiller Fehlschlag. Die Aufgabenliste im
+    | Portal funktioniert davon unabhaengig: sie wird berechnet (OffenePunkte,
+    | Aufgabe 8), nicht durch diese Nachricht getragen.
+    |
+    | - name:        der bei Meta genehmigte Vorlagenname.
+    | - sprache:     der Sprachcode der genehmigten Fassung.
+    | - platzhalter: die Body-Platzhalter der Vorlage, IN IHRER REIHENFOLGE.
+    |                Befuellbar sind 'anzahl' (die Zahl der offenen Punkte)
+    |                und 'datum' (der naechste Einsatz, nur bei 'erinnerung'
+    |                sinnvoll). Ein anderer Name verhindert den Versand —
+    |                DIE NACHRICHT NENNT DIE PUNKTE NICHT EINZELN (Spec §2.1:
+    |                das Portal traegt die Aufgaben), nur ihre Anzahl und den
+    |                Verweis aufs Portal. Waere die Nachricht der Traeger,
+    |                muesste jede Aenderung eine neue erzeugen.
+    */
+    'aufgaben' => [
+        'vorlagen' => [
+            'neu' => [
+                'name'        => env('RECRUITING_AUFGABEN_VORLAGE_NEU', ''),
+                'sprache'     => env('RECRUITING_AUFGABEN_VORLAGE_SPRACHE', 'de'),
+                'platzhalter' => ['anzahl'],
+            ],
+            'erinnerung' => [
+                'name'        => env('RECRUITING_AUFGABEN_VORLAGE_ERINNERUNG', ''),
+                'sprache'     => env('RECRUITING_AUFGABEN_VORLAGE_SPRACHE', 'de'),
+                'platzhalter' => ['anzahl', 'datum'],
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Filialen (zentrale Zuordnung Nummer → Filiale)
     |--------------------------------------------------------------------------
     |
