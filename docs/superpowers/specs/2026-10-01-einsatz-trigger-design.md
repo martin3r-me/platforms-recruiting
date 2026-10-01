@@ -59,6 +59,17 @@ nichts aus. Eine Nachricht, die am Vorabend „bitte lade deinen Ausweis hoch" s
 keine Hilfe, sondern Störung — der Fall gehört auf die HR-Liste, nicht ins Handy des
 Mitarbeiters.
 
+**Und er gilt fuer jeden Eingebuchten, nicht nur fuer Rueckkehrer.** Markus' Folie 6
+beschreibt den abgemeldeten Mitarbeiter, weil das der auffaelligste Fall ist — nicht,
+weil es der einzige waere. Nachgesehen: `ProofReminderSender` arbeitet auf vorhandenen
+Nachweis-Zeilen mit einem `valid_until` und erinnert an deren **Ablauf**. Ein Nachweis,
+der **nie hochgeladen** wurde, hat gar keine Zeile und bekommt deshalb nie eine
+Erinnerung. Fuer den Fall „fehlt" gibt es heute **keinen** Anstoss — der Mensch erfaehrt
+es nur, wenn er von sich aus ins Portal schaut.
+
+Das ist kein Randfall: der Ausweis ist Pflicht fuer jeden, hochgeladen haben ihn laut
+Vorflug **282 von 1603**.
+
 ### 2.3 Zwei Anlässe für eine Nachricht, sonst Ruhe
 
 **Erster Anlass:** es ist etwas offen, über **genau diese** Punkte wurde noch nicht

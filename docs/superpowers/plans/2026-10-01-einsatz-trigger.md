@@ -1402,6 +1402,7 @@ git commit -m "feat(recruiting): die Aufgaben-Nachricht, die aufs Portal verweis
 - **Observer-frei schreiben** — `DB::table(...)->update(...)`, nie ueber Eloquent.
 - **`--dry-run` schreibt nichts und verschickt nichts.**
 - Kennungen in der Ausgabe, **nie Namen**. Nie eine volle Rufnummer.
+- **Ohne `--welle` kein Versand an alle** — die Pruefung laeuft vollstaendig, nur der Versand ist gedeckelt.
 
 **Ablauf je Mensch:**
 1. Offene Punkte holen (Task 8)
@@ -1598,7 +1599,43 @@ Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter EinsatzPrue
 protected $signature = 'recruiting:einsatz-pruefung
     {--team= : Nur dieses Team}
     {--ids= : Bestimmte Mitarbeiter-Kennungen, komma-getrennt}
+    {--welle= : Hoechstens so viele Menschen auf einmal anschreiben}
     {--dry-run : Nur zeigen, was passieren wuerde}';
+```
+
+**Ohne `--welle` geht nichts an alle.** Dieselbe Bremse wie bei
+`recruiting:konto-einladen`, und aus demselben Grund: ein Kommando, das WhatsApp
+verschickt und keine Obergrenze kennt, ist eine Falle. Die Pruefung selbst laeuft
+vollstaendig — gedeckelt wird nur der **Versand**, damit `--dry-run` und die HR-Liste
+trotzdem die ganze Wahrheit zeigen.
+
+**Wie viele es wirklich sind, weiss niemand vorher.** Getroffen wird nicht der Vorrat
+(laut Vorflug haben 1321 von 1603 keinen Ausweis), sondern nur, wer gerade einen festen
+Auftrag mit genug Vorlauf hat. Diese Zahl haengt daran, wie weit im Voraus die Dispo
+bucht — deshalb steht der Probelauf in der Abnahme **vor** dem ersten scharfen Lauf.
+
+Dazu zwei weitere Tests:
+
+```php
+public function test_ohne_welle_wird_niemand_angeschrieben(): void
+{
+    $this->mehrereMitAuftrag(3);
+
+    $this->laufe('2026-10-01');            // ohne --welle
+
+    $this->assertSame([], $this->sender->versandt);
+    // Die Pruefung lief trotzdem: die Ausgabe nennt die drei Faelle.
+    $this->assertStringContainsString('3', $this->ausgabe);
+}
+
+public function test_die_welle_haelt_ihre_grenze(): void
+{
+    $this->mehrereMitAuftrag(5);
+
+    $this->laufe('2026-10-01', ['--welle' => 2]);
+
+    $this->assertCount(2, $this->sender->versandt);
+}
 ```
 
 Im Zeitplan **nach** dem Dispo-Import, stuendlich:
@@ -1749,6 +1786,7 @@ git commit -m "feat(recruiting): das Portal sagt, was fehlt und fuer welchen Ein
 1. Gesamtlauf gruen, Zahl deutlich ueber 3138.
 2. `php artisan migrate` legt die drei Trigger-Spalten und `rec_hr_desk_cases.rec_employee_id` an.
 3. Auf der Demo: eine Einbuchung mit `status_id = 1` und Datum in zehn Tagen anlegen, `recruiting:einsatz-pruefung --dry-run` fahren — der Mensch muss mit seinen offenen Punkten erscheinen, ohne dass etwas geschrieben wird.
+3a. **Den Probelauf ueber den ganzen Bestand fahren und die Zahl notieren.** `recruiting:einsatz-pruefung --dry-run` ohne Einschraenkung zeigt, wie viele Menschen beim ersten scharfen Lauf angeschrieben wuerden. **Erst zaehlen, dann entscheiden, ob es eine Welle braucht, dann senden** — nicht umgekehrt.
 4. Denselben Lauf scharf fahren, dann noch einmal: **beim zweiten Mal passiert nichts** (gleiche Signatur).
 5. Im Portal erscheint die Aufgabenliste mit dem Einsatz als Bezug.
 6. Ein Mensch ohne gueltige Arbeitserlaubnis erzeugt einen HR-Fall — und **nur einen**, auch bei mehrfachem Lauf.
