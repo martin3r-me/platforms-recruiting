@@ -246,6 +246,24 @@ final class AufgabenSenderTest extends TestCase
         $this->assertSame('0', $this->meta->calls[0]['components'][0]['parameters'][0]['text']);
     }
 
+    /**
+     * Ein grossgeschrieben eingetragener Platzhalter ('Anzahl') wird trotzdem
+     * befuellt UND als parameter_name KLEIN verschickt — Meta laesst als
+     * parameter_name nur Kleinbuchstaben zu (gleiche Begruendung wie Fund N4
+     * bei EinmalcodeSender). Eine Konfiguration, die die Grossschreibung
+     * durchreicht, wuerde bei Meta abgelehnt — und der Versand gaelte als
+     * Fehlschlag, obwohl die Konfiguration formal vollstaendig war.
+     */
+    public function testEinGrossGeschriebenerPlatzhalterWirdKleinVerschickt(): void
+    {
+        $this->vorlageSetzen('neu', ['platzhalter' => ['Anzahl']]);
+
+        $status = (new AufgabenSender())->sende($this->ma, $this->stand(anzahl: 3), 'neu');
+
+        $this->assertSame(AufgabenSender::STATUS_SENT, $status);
+        $this->assertSame('anzahl', $this->meta->calls[0]['components'][0]['parameters'][0]['parameter_name']);
+    }
+
     // ------------------------------------------------------------------ Meta
 
     /**
