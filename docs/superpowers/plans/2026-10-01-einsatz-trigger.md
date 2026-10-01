@@ -200,6 +200,34 @@ public function test_die_checkliste_nimmt_die_pflichten_beider_anstellungen(): v
 }
 ```
 
+**Pflichttest aus der Pruefung von Aufgabe 1 — die gefaehrlichere Richtung:**
+
+```php
+public function test_eine_beendete_anstellung_ergibt_nicht_alles_erledigt(): void
+{
+    // vereinige([]) gibt [] — und mit dem is_active-Filter unten kommt bei
+    // einem beendeten Mitarbeiter eine LEERE Pflichtliste heraus. Die Ansicht
+    // liest daraus "alles erledigt" statt "kein Nachweis da".
+    //
+    // Im Portal unmoeglich (verifyPortalAccess verlangt is_active), in der
+    // HR-Mitarbeiterakte sehr wohl: Livewire/Employees/Show.php:247 ruft
+    // checklist() auch fuer beendete Mitarbeiter.
+    $person = $this->personAnlegen();
+    $beendet = $this->mitarbeiter(['rec_person_id' => $person, 'is_active' => false]);
+
+    $checkliste = (new ProofReader())->checklist($beendet);
+
+    // Der Ausweis ist Pflicht fuer JEDEN — er darf nicht verschwinden, nur
+    // weil die Anstellung beendet ist.
+    $this->assertContains('ausweis', array_column($checkliste, 'code'));
+}
+```
+
+**Entscheide beim Bauen und begruende es im Bericht:** faellt der `is_active`-Filter fuer
+den Fall weg, dass **keine** aktive Anstellung uebrig bleibt (dann zaehlen alle), oder
+bleibt er und die leere Liste wird oben abgefangen? Beides ist vertretbar — die leere
+Pflichtliste ist es nicht.
+
 - [ ] **Step 2: Lauf zum Rotsehen**
 
 Run: `../../../meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ProofReaderPersonPflichten`
