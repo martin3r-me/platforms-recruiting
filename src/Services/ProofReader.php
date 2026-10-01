@@ -22,9 +22,23 @@ final class ProofReader
     /** Die jeweils aktuelle Fassung je Nachweisart dieser Person. */
     public function current(RecEmployee $employee): Collection
     {
+        return $this->currentFuerIds($this->scope->forEmployee($employee)['ids']);
+    }
+
+    /**
+     * Dasselbe fuer einen schon aufgeloesten Personen-Umfang.
+     *
+     * checklist() braucht den Umfang zweimal (Bestand und Pflichten) und loest
+     * ihn deshalb einmal selbst auf — forEmployee() ist keine reine Rechnung,
+     * sondern fragt die Datenbank (im Telefon-Zweig sogar zweimal).
+     *
+     * @param list<int> $ids
+     */
+    private function currentFuerIds(array $ids): Collection
+    {
         return RecEmployeeProof::query()
             ->aktuell()
-            ->whereIn('rec_employee_id', $this->scope->forEmployee($employee)['ids'])
+            ->whereIn('rec_employee_id', $ids)
             ->orderBy('proof_type_code')
             ->get();
     }
@@ -36,9 +50,14 @@ final class ProofReader
      */
     public function checklist(RecEmployee $employee, ?string $heute = null): array
     {
-        $pflicht = PersonPflichten::vereinige($this->pflichtQuellen($employee));
+        // Einmal aufloesen, zweimal benutzen: Bestand und Pflichten beziehen
+        // sich auf denselben Menschen, und eine zweite Aufloesung koennte
+        // zwischen beiden sogar abweichen.
+        $ids = $this->scope->forEmployee($employee)['ids'];
 
-        $vorhanden = $this->current($employee)
+        $pflicht = PersonPflichten::vereinige($this->pflichtQuellen($ids));
+
+        $vorhanden = $this->currentFuerIds($ids)
             ->map(fn (RecEmployeeProof $p) => [
                 'proof_type_code' => $p->proof_type_code,
                 'valid_until'     => $p->valid_until?->toDateString(),
@@ -79,12 +98,13 @@ final class ProofReader
      * Testschemata; dort landet der Fall im Rueckfall darunter, und genau das
      * hat in ProofReaderTest den Filter lange still uebersprungen.
      *
+     * @param  list<int> $ids  schon aufgeloester Personen-Umfang
      * @return list<array{is_eu_citizen: ?bool, employment_type: ?string, is_first_aider: ?bool}>
      */
-    private function pflichtQuellen(RecEmployee $employee): array
+    private function pflichtQuellen(array $ids): array
     {
         $anstellungen = RecEmployee::query()
-            ->whereIn('id', $this->scope->forEmployee($employee)['ids'])
+            ->whereIn('id', $ids)
             ->get(['is_active', 'is_eu_citizen', 'employment_type', 'is_first_aider']);
 
         $aktive = $anstellungen->filter(fn (RecEmployee $a) => $a->is_active === true);

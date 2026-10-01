@@ -214,6 +214,20 @@ final class KontoAnlegenTest extends TestCase
             $t->string('code_neue_nummer', 32)->nullable();
             $t->timestamp('letzte_anmeldung_at')->nullable();
 
+            // Deckungsgleich mit 2026_09_29_000003_add_nummernwechsel_zu_rec_persons.php
+            // und 2026_09_29_000004_add_notfall_sperre_zu_rec_persons.php.
+            // Nicht nur der Vollstaendigkeit halber: KontoWriter::
+            // offeneNummernwechsel() steht auf zwei whereNotNull dieser
+            // Spalten, und SQLite faellt bei einer fehlenden Spalte in
+            // doppelten Anfuehrungszeichen auf ein String-Literal zurueck —
+            // whereNotNull traefe dann JEDE Person. Das ist die stillste
+            // Richtung des Fehlers, weil ploetzlich alles passt.
+            $t->string('wechsel_neue_nummer', 32)->nullable();
+            $t->timestamp('wechsel_beantragt_at')->nullable();
+            $t->timestamp('wechsel_wirksam_ab')->nullable();
+            $t->string('wechsel_quelle', 20)->nullable();
+            $t->timestamp('notfall_gesperrt_bis')->nullable();
+
             $t->timestamps();
 
             $t->unique(['team_id', 'phone'], 'rec_persons_team_phone_unique');

@@ -81,6 +81,16 @@ final class PortalShellEmployerTest extends TestCase
             $t->string('first_name')->nullable();
             $t->string('last_name')->nullable();
             $t->boolean('is_active')->default(true);
+            // Die echte Tabelle hat diese Spalten, dieses Schema hatte sie
+            // nicht — und PortalShell ruft ProofReader::checklist(), dessen
+            // Abfrage genau sie waehlt. SQLite wirft bei einer fehlenden
+            // Spalte in doppelten Anfuehrungszeichen keinen Fehler, sondern
+            // liefert ein String-Literal zurueck: die Pflicht-Dimension waere
+            // hier still unbeweglich gewesen.
+            $t->integer('rec_person_id')->nullable();
+            $t->boolean('is_eu_citizen')->nullable();
+            $t->string('employment_type')->nullable();
+            $t->boolean('is_first_aider')->nullable();
             $t->timestamp('portal_locked_at')->nullable();
             $t->timestamp('portal_v2_since')->nullable();
             $t->timestamp('portal_verified_at')->nullable();
@@ -116,6 +126,8 @@ final class PortalShellEmployerTest extends TestCase
             'first_name'      => 'Kevin',
             'last_name'       => 'Muster',
             'is_active'       => true,
+            'employment_type' => 'aushilfe',
+            'is_first_aider'  => false,
             'nationality'     => 'deutsch',
             'portal_v2_since' => '2026-09-24 08:00:00',
         ], $attr));
