@@ -1,0 +1,395 @@
+<?php
+
+namespace Platform\Recruiting\Tests\Integration;
+
+use Illuminate\Container\Container;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Events\Dispatcher;
+use Illuminate\Filesystem\Filesystem;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
+use Illuminate\View\Compilers\BladeCompiler;
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Livewire\Public\PortalShell;
+use Platform\Recruiting\Models\RecEmployee;
+
+/**
+ * Aufgabe 11: das Portal zeigt die offenen Punkte MIT ihrem Einsatz-Bezug —
+ * die Huelle (PortalShell::ansichtsDaten() + portal-shell.blade.php) ist der
+ * einzige Ort, an dem sichtbar wird, was die zehn Aufgaben davor
+ * (OffenePunkte, Aufgabe 8) berechnet haben.
+ *
+ * GERENDERT, NICHT NUR GELESEN: rendereHuelle() kompiliert das GANZE
+ * portal-shell.blade.php mit dem echten BladeCompiler und fuehrt es aus --
+ * eine reine Quelltextsuche (Muster PortalShellProfilBladeTest) haette hier
+ * nichts ueber das tatsaechlich erzeugte Markup ausgesagt, und genau DAS ist
+ * die Zusicherung dieser Klasse (falsche Ebene, siehe Suchraster). Gebunden
+ * wird an eine ECHTE PortalShell-Instanz (Closure::bind), weil das Blatt
+ * $this->lookupOptionen() ruft (Zeile mit $feld['type'] === 'lookup') --
+ * eine Attrappe waere hier die falsche Antwort.
+ *
+ * HANDGEBAUTES SCHEMA (Modul-Konvention: Migrationen laufen hier NICHT).
+ * Nur die Spalten, die OffenePunkte/ProofReader/PersonScopeResolver lesen
+ * sowie die, die PortalShell::berechtigterMitarbeiter()/anstellungen()
+ * braucht -- eine fehlende Spalte macht SQLite stillschweigend zum
+ * String-Literal (reference_pruefmuster_gruenes_nichts, elfte Falle). Alle
+ * Spalten der Profil-Feldgruppen (editableFieldGroups()) fehlen bewusst:
+ * $employee->getAttribute() liest sie aus dem schon geladenen
+ * Attribut-Array, nicht per neuer Abfrage -- eine fehlende Spalte liefert
+ * dort schlicht null, keinen SQL-Fehler.
+ *
+ * ET-12 (Brief-Mangel, vom Auftraggeber selbst geprueft): der vorgegebene
+ * vierte Test `test_der_waechter_kennt_jede_neue_eigenschaft` ruft eine
+ * Hilfsmethode `assertWeltIstGeschlossen()`, die es nirgends im Modul gibt.
+ * Der echte Waechter steht bereits ausgeschrieben in
+ * PortalGleichstandTest::test_alles_was_ueber_identitaet_entscheidet_ist_gesperrt
+ * (geschlossene Welt ueber ReflectionProperty::IS_PUBLIC) und deckt jede neue
+ * oeffentliche Eigenschaft schon ab -- er faellt von selbst, sobald eine
+ * dazukommt. Diese Klasse fuegt KEINE neue oeffentliche Eigenschaft hinzu
+ * (siehe Bericht), braucht also auch keine eigene, schwaechere Kopie dieses
+ * Waechters. Der erfundene Test ist hier bewusst NICHT nachgebaut.
+ */
+final class PortalAufgabenBladeTest extends TestCase
+{
+    private const TEAM = 9111;
+
+    private Capsule $capsule;
+
+    private int $naechsteId = 1;
+
+    private string $tmpDir = '';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $container = Container::getInstance();
+        Container::setInstance($container);
+
+        $this->capsule = new Capsule($container);
+        $this->capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
+        $this->capsule->setEventDispatcher(new Dispatcher($container));
+        $this->capsule->setAsGlobal();
+        $this->capsule->bootEloquent();
+        Model::clearBootedModels();
+
+        $container->instance('db', $this->capsule->getDatabaseManager());
+        $container->instance('db.schema', $this->capsule->getConnection()->getSchemaBuilder());
+        Facade::setFacadeApplication($container);
+        Facade::clearResolvedInstances();
+
+        $this->schemaBauen();
+
+        $this->tmpDir = sys_get_temp_dir() . '/recruiting-aufgaben-blade-' . getmypid() . '-' . uniqid();
+        if (!is_dir($this->tmpDir) && !mkdir($this->tmpDir, 0777, true) && !is_dir($this->tmpDir)) {
+            $this->fail('Temp-Verzeichnis nicht anlegbar: ' . $this->tmpDir);
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        Model::unsetConnectionResolver();
+        Model::clearBootedModels();
+        $container = Container::getInstance();
+        $container->forgetInstance('db');
+        $container->forgetInstance('db.schema');
+        Facade::clearResolvedInstances();
+
+        if ($this->tmpDir !== '' && is_dir($this->tmpDir)) {
+            foreach (glob($this->tmpDir . '/*') ?: [] as $rest) {
+                if (is_file($rest)) {
+                    unlink($rest);
+                }
+            }
+            rmdir($this->tmpDir);
+        }
+        $this->tmpDir = '';
+
+        parent::tearDown();
+    }
+
+    private function schemaBauen(): void
+    {
+        $schema = $this->capsule->schema();
+
+        $schema->create('rec_employees', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64)->nullable();
+            $t->integer('team_id')->nullable();
+            $t->integer('rec_person_id')->nullable();
+            $t->string('person_key', 64)->nullable();
+            $t->string('phone')->nullable();
+            $t->string('first_name')->nullable();
+            $t->string('last_name')->nullable();
+            $t->string('personnel_number')->nullable();
+            $t->string('company')->nullable();
+            $t->boolean('is_active')->nullable();
+            $t->boolean('is_eu_citizen')->nullable();
+            $t->string('employment_type')->nullable();
+            $t->boolean('is_first_aider')->nullable();
+            $t->timestamp('portal_v2_since')->nullable();
+            $t->timestamp('portal_locked_at')->nullable();
+            $t->timestamps();
+        });
+
+        // ProofReader::current() liest hier.
+        $schema->create('rec_employee_proofs', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64)->nullable();
+            $t->integer('team_id')->nullable();
+            $t->integer('rec_employee_id');
+            $t->string('person_key', 64)->nullable();
+            $t->string('proof_type_code', 40);
+            $t->integer('file_id')->nullable();
+            $t->integer('file_back_id')->nullable();
+            $t->date('valid_until')->nullable();
+            $t->integer('version')->default(1);
+            $t->timestamp('superseded_at')->nullable();
+            $t->timestamp('reminded_at')->nullable();
+            $t->integer('confirmed_by_user_id')->nullable();
+            $t->timestamp('confirmed_at')->nullable();
+            $t->string('uploaded_via', 20)->default('employee');
+            $t->integer('uploaded_by_user_id')->nullable();
+            $t->timestamps();
+        });
+
+        $schema->create('rec_dispo_events', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64)->unique();
+            $t->string('einsatz_ref')->unique();
+            $t->string('name')->nullable();
+            $t->timestamps();
+        });
+
+        $schema->create('rec_dispo_assignments', function ($t) {
+            $t->increments('id');
+            $t->string('uuid', 64)->unique();
+            $t->string('ds_ref')->unique();
+            $t->integer('rec_dispo_event_id')->nullable();
+            $t->integer('rec_employee_id')->nullable();
+            $t->date('datum');
+            $t->unsignedTinyInteger('status_id')->default(0);
+            $t->string('taetigkeit')->nullable();
+            $t->timestamp('missing_since')->nullable();
+            $t->timestamps();
+        });
+    }
+
+    // -----------------------------------------------------------------
+    // Fixtures
+    // -----------------------------------------------------------------
+
+    /** Aktiver, umgestellter EU-Buerger-Aushilfe ohne einen einzigen Nachweis. */
+    private function mitarbeiterOhneNachweise(array $attr = []): RecEmployee
+    {
+        $id = (int) DB::table('rec_employees')->insertGetId(array_merge([
+            'uuid'            => 'e-' . $this->naechsteId++,
+            'team_id'         => self::TEAM,
+            'phone'           => '+49151' . str_pad((string) $this->naechsteId++, 8, '0', STR_PAD_LEFT),
+            'first_name'      => 'Kevin',
+            'last_name'       => 'Muster',
+            'is_active'       => true,
+            'is_eu_citizen'   => true,
+            'employment_type' => 'aushilfe',
+            'is_first_aider'  => false,
+            'portal_v2_since' => '2026-09-24 00:00:00',
+            'created_at'      => '2026-09-01 09:00:00',
+            'updated_at'      => '2026-09-01 09:00:00',
+        ], $attr));
+
+        return RecEmployee::find($id);
+    }
+
+    /**
+     * Derselbe Mensch, aber mit einem gueltigen Ausweis -- requiredFor()
+     * verlangt bei EU-Buerger/Aushilfe/kein-Ersthelfer NUR 'ausweis'
+     * (ProofTypes::requiredFor()), eine weitere Nachweisart ist fuer den
+     * leeren Kasten also nicht noetig.
+     */
+    private function mitarbeiterMitAllenNachweisen(array $attr = []): RecEmployee
+    {
+        $ma = $this->mitarbeiterOhneNachweise($attr);
+        $this->nachweis($ma, 'ausweis', '2030-01-01');
+
+        return $ma->fresh();
+    }
+
+    private function nachweis(RecEmployee $employee, string $code, ?string $validUntil = null): void
+    {
+        DB::table('rec_employee_proofs')->insert([
+            'uuid'             => 'pf-' . $this->naechsteId++,
+            'team_id'          => self::TEAM,
+            'rec_employee_id'  => $employee->id,
+            'proof_type_code'  => $code,
+            'valid_until'      => $validUntil,
+            'created_at'       => '2026-09-01 09:00:00',
+            'updated_at'       => '2026-09-01 09:00:00',
+        ]);
+    }
+
+    private function einbuchung(RecEmployee $employee, array $attr = []): void
+    {
+        $eventId = (int) DB::table('rec_dispo_events')->insertGetId([
+            'uuid'        => 'ev-' . $this->naechsteId++,
+            'einsatz_ref' => 'RG-' . $this->naechsteId,
+            'name'        => $attr['event_name'] ?? null,
+            'created_at'  => '2026-09-01 09:00:00',
+            'updated_at'  => '2026-09-01 09:00:00',
+        ]);
+        unset($attr['event_name']);
+
+        DB::table('rec_dispo_assignments')->insert(array_merge([
+            'uuid'               => 'as-' . $this->naechsteId++,
+            'ds_ref'             => 'DS-' . $this->naechsteId,
+            'rec_dispo_event_id' => $eventId,
+            'rec_employee_id'    => $employee->id,
+            'datum'              => '2026-10-20',
+            'status_id'          => 1,
+            'created_at'         => '2026-09-01 09:00:00',
+            'updated_at'         => '2026-09-01 09:00:00',
+        ], $attr));
+    }
+
+    // -----------------------------------------------------------------
+    // Rendern
+    // -----------------------------------------------------------------
+
+    private function bladeQuelle(): string
+    {
+        $pfad = dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php';
+        $this->assertFileExists($pfad);
+
+        return (string) file_get_contents($pfad);
+    }
+
+    private function privat(object $objekt, string $methode, array $args = []): mixed
+    {
+        $ref = new \ReflectionMethod($objekt, $methode);
+        $ref->setAccessible(true);
+
+        return $ref->invoke($objekt, ...$args);
+    }
+
+    /**
+     * Das GANZE Blatt rendern -- nicht nur einen Ausschnitt. Das Portal
+     * mischt im echten Betrieb die oeffentlichen Eigenschaften der
+     * Komponente mit den Werten aus ansichtsDaten() (Livewire tut das bei
+     * jedem render() automatisch); get_object_vars() liefert von AUSSERHALB
+     * der Klasse aufgerufen nur die OEFFENTLICHEN Eigenschaften -- exakt
+     * dieselbe Sicht, die Livewire der View gibt.
+     *
+     * $heute kommt ueber Carbon::setTestNow(), nicht als Parameter an
+     * OffenePunkte::fuer(): PortalShell::ansichtsDaten() ruft die Klasse
+     * ohne zweites Argument auf (Produktionscode), genau wie der Brief es
+     * vorschreibt ("Keine neue oeffentliche Eigenschaft").
+     */
+    private function rendereHuelle(RecEmployee $ma, string $heute): string
+    {
+        Carbon::setTestNow($heute);
+
+        $shell = new PortalShell();
+        $shell->employeeId = $ma->id;
+        $shell->state = 'verified';
+        $shell->duzen = true;
+
+        $ansichtsDaten = $this->privat($shell, 'ansichtsDaten');
+        $variablen = array_merge(get_object_vars($shell), $ansichtsDaten);
+
+        $compiler = new BladeCompiler(new Filesystem(), $this->tmpDir);
+        $datei = $this->tmpDir . '/huelle-' . uniqid('', true) . '.php';
+        file_put_contents($datei, $compiler->compileString($this->bladeQuelle()));
+
+        $variablen['__env'] = new class {
+            use \Illuminate\View\Concerns\ManagesLoops;
+        };
+        $variablen['__datei'] = $datei;
+
+        $lauf = function (array $__v): string {
+            extract($__v);
+            ob_start();
+            include $__datei;
+
+            return (string) ob_get_clean();
+        };
+
+        return \Closure::bind($lauf, $shell, PortalShell::class)($variablen);
+    }
+
+    // -----------------------------------------------------------------
+    // Die drei vorgegebenen Tests (ohne den erfundenen vierten, siehe
+    // Klassen-Docblock ET-12)
+    // -----------------------------------------------------------------
+
+    public function test_der_huelle_nennt_den_einsatz_zum_offenen_punkt(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->einbuchung($ma, ['datum' => '2026-10-12', 'status_id' => 1, 'taetigkeit' => 'Service']);
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        $this->assertStringContainsString('Ausweis', $markup);
+        // Der Bezug macht aus einer Liste eine Aufforderung.
+        $this->assertStringContainsString('12.10.', $markup);
+    }
+
+    public function test_ein_ko_punkt_ist_als_solcher_erkennbar(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        // Ein Arbeitsverbot darf nicht aussehen wie ein fehlendes Passfoto.
+        $this->assertStringContainsString('Aufenthaltstitel', $markup);
+        $this->assertStringContainsString('aufgabe-ko', $markup);
+    }
+
+    public function test_ohne_offene_punkte_steht_kein_kasten_da(): void
+    {
+        $ma = $this->mitarbeiterMitAllenNachweisen();
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        // Wer alles hat, soll nicht jeden Tag einen leeren Kasten sehen.
+        $this->assertStringNotContainsString('aufgaben-kasten', $markup);
+    }
+
+    // -----------------------------------------------------------------
+    // Eigene Ergaenzungen (Mutationsprobe, Step 5 des Briefs + Brief-Hinweis
+    // "die Aufgabenzeile muss ohne Bezug tragen koennen")
+    // -----------------------------------------------------------------
+
+    /**
+     * Gegenprobe zu test_ein_ko_punkt_ist_als_solcher_erkennbar: jener Test
+     * prueft nur, DASS 'aufgabe-ko' vorkommt -- eine Mutation, die die
+     * ko-Klasse IMMER setzt, bliebe dort unentdeckt gruen. Erst dieser Test
+     * (ein Mensch OHNE KO-Punkt) macht die Unterscheidung in BEIDE
+     * Richtungen scharf.
+     */
+    public function test_ein_normaler_punkt_bekommt_keine_ko_klasse(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        $this->assertStringNotContainsString('aufgabe-ko', $markup);
+    }
+
+    /**
+     * Kein Einsatz storniert/fehlt in der ZAS-Lieferung -> OffenePunkte::fuer()
+     * liefert 'einsatz' => null, "und zwar regelmaessig" (Aufgabentext). Der
+     * Kasten mit den offenen Punkten muss trotzdem stehen, nur ohne den
+     * Bezug-Satz -- das ist kein Randfall, siehe Aufgabentext.
+     */
+    public function test_der_kasten_traegt_auch_ohne_einsatz(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        $this->assertStringContainsString('aufgaben-kasten', $markup);
+        $this->assertStringNotContainsString('aufgaben-bezug', $markup);
+    }
+}

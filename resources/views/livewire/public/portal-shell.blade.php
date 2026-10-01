@@ -193,6 +193,43 @@
                     @endif
                 </div>
 
+                {{--
+                    Aufgabe 11: dieselben offenen Punkte wie unten, aber MIT
+                    dem naechsten Einsatz als Bezug -- "Ausweis fehlt" wird
+                    "Ausweis fehlt -- gebraucht fuer deinen Einsatz am 12.10.".
+                    OffenePunkte::fuer() (Aufgabe 8) liefert 'einsatz' REGELMAESSIG
+                    als null (stornierter/aus der ZAS-Lieferung verschwundener
+                    Einsatz) -- der Kasten traegt dann trotzdem, nur ohne den
+                    Bezug-Satz (kein Randfall, siehe Aufgabentext). Wer gar
+                    keinen offenen Punkt hat, soll keinen leeren Kasten sehen,
+                    deshalb das aeussere @if.
+
+                    Blockform + vorberechnete Werte (Hausregel) statt @if im
+                    Attribut oder einer an ein Wortzeichen geklebten Direktive.
+                --}}
+                @if ($offenePunkte['punkte'] !== [])
+                    <div class="aufgaben-kasten">
+                        @if ($offenePunkte['einsatz'] !== null)
+                            @php
+                                $offenePunkteBezug = ($duzen ? 'Für deinen Einsatz am ' : 'Für Ihren Einsatz am ')
+                                    . \Illuminate\Support\Carbon::parse($offenePunkte['einsatz']['datum'])->format('d.m.')
+                                    . ($offenePunkte['einsatz']['event'] ? ' — ' . $offenePunkte['einsatz']['event'] : '');
+                            @endphp
+                            <p class="aufgaben-bezug">{{ $offenePunkteBezug }}</p>
+                        @endif
+
+                        @foreach ($offenePunkte['punkte'] as $offenerPunkt)
+                            @php
+                                // Ein K.-o.-Punkt (Arbeitsverbot) darf nicht
+                                // aussehen wie ein fehlendes Passfoto -- eigene
+                                // Klasse, kein zusaetzliches Zeichen.
+                                $offenerPunktKlasse = $offenerPunkt['ko'] ? 'aufgabe aufgabe-ko' : 'aufgabe';
+                            @endphp
+                            <div class="{{ $offenerPunktKlasse }}">{{ $offenerPunkt['label'] }}</div>
+                        @endforeach
+                    </div>
+                @endif
+
                 <div class="bcols">
                 @if ($offen > 0)
                     <div>

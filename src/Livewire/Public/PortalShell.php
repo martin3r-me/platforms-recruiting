@@ -11,6 +11,7 @@ use Platform\Core\Models\CoreLookup;
 use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
+use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\PortalProfileWriter;
@@ -702,6 +703,20 @@ class PortalShell extends Component
             'profilHinweis'   => $profil['hinweis'],
             'nurLesen'        => $profil['nurLesen'],
             'kacheln'         => $profil['kacheln'],
+            // Aufgabe 11: dieselbe Checkliste wie 'aufgaben' oben, aber MIT
+            // dem naechsten Einsatz als Bezug (OffenePunkte, Aufgabe 8) --
+            // eigener Schluessel, weil 'aufgaben' schon die flache,
+            // dekorierte Nachweisliste belegt und beide Formen im Blade
+            // nebeneinander gebraucht werden (Start-Kasten hier, Dokumente-
+            // Reiter dort). KEINE neue oeffentliche Eigenschaft: die
+            // geschlossene Welt des #[Locked]-Waechters und der Grundsatz,
+            // dass ein Zustand mit Identitaetsbezug nicht in den
+            // Livewire-Schnappschuss gehoert (Befund Aufgabe 9 des
+            // Konto-Zweigs), verlangen den Weg ueber ansichtsDaten() statt
+            // ueber eine weitere Eigenschaft.
+            'offenePunkte'    => $employee
+                ? (new OffenePunkte())->fuer($employee)
+                : ['punkte' => [], 'einsatz' => null, 'gesperrt' => false],
         ];
     }
 

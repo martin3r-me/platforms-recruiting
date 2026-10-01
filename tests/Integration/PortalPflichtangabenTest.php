@@ -85,6 +85,11 @@ final class PortalPflichtangabenTest extends TestCase
             // Der Offen-Zaehler liest auch die Nachweise -- ohne diese
             // Tabelle koennte er gar nicht gebildet werden.
             'database/migrations/2026_09_23_000001_create_rec_employee_proofs_table.php',
+            // Aufgabe 11: ansichtsDaten() ruft jetzt OffenePunkte::fuer(),
+            // und die liest den naechsten Einsatz -- ohne diese beiden
+            // Tabellen bricht jeder Aufruf mit "no such table" ab.
+            'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
+            'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {
