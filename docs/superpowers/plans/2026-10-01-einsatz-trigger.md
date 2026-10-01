@@ -1432,6 +1432,24 @@ git commit -m "feat(recruiting): die Aufgaben-Nachricht, die aufs Portal verweis
 - Kennungen in der Ausgabe, **nie Namen**. Nie eine volle Rufnummer.
 - **Ohne `--welle` kein Versand an alle** — die Pruefung laeuft vollstaendig, nur der Versand ist gedeckelt.
 
+**ACHTUNG — ein HR-Fall ohne Bewerber ist heute UNSICHTBAR (Befund aus Aufgabe 5).**
+`HrDeskCaseVisibility::openCases()` filtert mit `whereHas('applicant', ...)` und
+`reasonCounts()` geht ueber `applicants()`. Beide hangeln sich am **Bewerber** entlang.
+Ein Fall mit `rec_applicant_id = NULL` hat keinen — er faellt aus **beiden** Abfragen
+heraus. Der Trigger legte damit Faelle an, **die niemand je sieht**, und die Sperre waere
+genau so folgenlos wie die fehlende Verbindung zu ZAS.
+
+**Das gehoert in diese Aufgabe:** `HrDeskCaseVisibility` muss Faelle **ohne** Bewerber
+mitnehmen, wenn sie an einem Mitarbeiter haengen. Zwei Pflichttests:
+
+```php
+public function test_ein_fall_ohne_bewerber_steht_im_hr_schreibtisch(): void
+public function test_er_zaehlt_auch_in_den_gruenden_mit(): void
+```
+
+Und eine Mutation: das `whereHas('applicant', ...)` wieder bedingungslos machen — beide
+Tests muessen rot werden.
+
 **Ablauf je Mensch:**
 1. Offene Punkte holen (Task 8)
 2. Ist gesperrt? → HR-Fall `REASON_WORK_PERMIT` anlegen, falls noch keiner offen ist
