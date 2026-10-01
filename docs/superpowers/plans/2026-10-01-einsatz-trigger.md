@@ -1508,6 +1508,27 @@ weil `aufgaben_erinnert_at` an der Einbuchung haengt und nicht an der Signatur.
 gehoert.** Konkret: liegt der ausloesende Einsatz vor dem Ende der Pause, gewinnt der
 Einsatz. Pflichttest: der Ablauf oben, die Nachricht zu E2 muss rausgehen.
 
+**ET-18 — der tote Stempel. Aus der Pruefung zu Aufgabe 8, gemessen.** Verschwindet eine
+Einbuchung aus der ZAS-Lieferung und taucht spaeter wieder auf, setzt
+`ZasDispoWebexportImporter.php:193` beim Wiederauftauchen `missing_since => null`
+zurueck — **`aufgaben_erinnert_at` bleibt aber stehen.** Die Wiederholungsbremse
+unterdrueckt dann eine Erinnerung, die voellig berechtigt waere. **Auflage: beim
+Wiederauftauchen auch den Stempel raeumen, mit Test.** In Aufgabe 8 selbst entsteht
+uebrigens KEIN toter Bezug — sie rechnet jedes Mal neu, und `einsatz` wird dann `null`,
+waehrend die Punkte stehen bleiben. Das ist fachlich richtig, hat aber eine Folge fuer
+Aufgabe 11: **die Aufgabenzeile muss ohne Bezug tragen koennen.**
+
+**ET-17 — den blinden Fleck sichtbar machen.** `OffenePunkte` benutzt bewusst nur
+`['ids']` des `PersonScopeResolver` und verwirft `['abweichend']`, genau wie
+`ProofReader`. Das ist richtig so (sonst waeren Nachweise und Einsaetze darueber uneins,
+WER der Mensch ist), aber es passiert heute wortlos: ohne `rec_person_id` verlangt
+Zweig 2 des Resolvers zusaetzlich dieselbe Handynummer, und weicht sie ab, verschwindet
+der Einsatz der Schwester-Anstellung spurlos. **Auflage: das Kommando zaehlt die
+Menschen mit nichtleerem `abweichend` und nennt die Zahl im Bericht** — eine Zeile, die
+den Fleck sichtbar macht, statt ihn zu heilen. Geheilt wird er ueber `rec_person_id`,
+und neue Anstellungen aus Funnel und ZAS entstehen weiterhin ohne, der Fleck waechst
+also nach.
+
 **Die drei Zahlen 4/2/7 stehen damit zur Frage an den Kunden** (der User hat sie
 ausdruecklich als vorlaeufig markiert). Die Auflage oben ist die Reparatur, die
 unabhaengig von den Zahlen traegt — sie macht die Kollision unmoeglich, statt sie
