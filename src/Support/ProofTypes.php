@@ -122,6 +122,23 @@ final class ProofTypes
      */
     private const HR_BESTAETIGUNG_PFLICHT = ['aufenthaltstitel', 'arbeitsgenehmigung'];
 
+    /**
+     * Die Nachweise, deren Fehlen ein ARBEITSVERBOT bedeutet — nicht bloss eine
+     * unvollstaendige Akte.
+     *
+     * Markus' Canvas-Abgleich, Folie 14, nennt ausdruecklich "Aufenthaltstitel /
+     * Arbeitserlaubnis". Der Nationalpass und das Visumsblatt stehen bewusst
+     * NICHT hier: sie gehoeren zur Gruppe nicht_eu, sind aber Dokumentenmangel
+     * und kein Verbot. Folie 15 dazu: arbeiten trotz unvollstaendiger Akte.
+     *
+     * Inhaltlich gleich mit HR_BESTAETIGUNG_PFLICHT darueber, aber bewusst eine
+     * eigene Liste: die eine beantwortet "wer darf arbeiten", die andere "was
+     * landet in der Kenntnisnahme-Liste". Sie koennen auseinanderlaufen.
+     *
+     * @var list<string>
+     */
+    public const KO_CODES = ['aufenthaltstitel', 'arbeitsgenehmigung'];
+
     /** @return list<string> */
     public static function all(): array
     {
@@ -170,6 +187,12 @@ final class ProofTypes
     public static function needsHrConfirmation(string $code): bool
     {
         return in_array($code, self::HR_BESTAETIGUNG_PFLICHT, true);
+    }
+
+    /** Sperrt das Fehlen dieses Nachweises die Arbeit? Siehe KO_CODES. */
+    public static function istKo(string $code): bool
+    {
+        return in_array($code, self::KO_CODES, true);
     }
 
     /** @return list<string> Altspalten dieser Art — leer bei neuen Arten ohne Altbestand. */
