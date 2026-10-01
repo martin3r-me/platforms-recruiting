@@ -1729,19 +1729,25 @@ Expected: FAIL — die Aufgaben stehen noch nicht in der Huelle
 
 - [ ] **Step 3: Komponente und Blade schreiben**
 
-In `PortalShell` eine **nicht oeffentliche** Methode, die `OffenePunkte::fuer()` ruft und
-das Ergebnis an die Ansicht gibt. **Keine neue oeffentliche Eigenschaft** — der
-`#[Locked]`-Waechter ist eine geschlossene Welt, und ein Zustand, der ueber Identitaet
-entscheidet, gehoert nicht in den Livewire-Schnappschuss (Befund aus Aufgabe 9 des
-Konto-Zweigs: `#[Locked]` verhindert das Setzen, nicht das Ausliefern).
+**Der Weg ist `ansichtsDaten()`, nicht eine Methode am Blade.** `PortalShell::render()`
+reicht der Ansicht bereits ein Feld herein:
+
+```php
+return view('recruiting::livewire.public.portal-shell', $this->ansichtsDaten())
+```
+
+Dort kommt `'aufgaben' => (new OffenePunkte())->fuer($employee)` dazu.
+
+**Keine neue oeffentliche Eigenschaft.** Zwei Gruende: der `#[Locked]`-Waechter ist eine
+geschlossene Welt und verlangt zu jeder eine Entscheidung — und ein Zustand, der ueber
+Identitaet Auskunft gibt, gehoert nicht in den Livewire-Schnappschuss (Befund aus
+Aufgabe 9 des Konto-Zweigs: `#[Locked]` verhindert das Setzen, **nicht das Ausliefern**).
+Eine **nicht oeffentliche** Methode waere ebenfalls falsch: das Blade koennte sie gar
+nicht rufen.
 
 Im Blade, in Blockform und mit vorberechneten Werten:
 
 ```blade
-@php
-    $aufgaben = $this->offeneAufgaben();
-@endphp
-
 @if ($aufgaben['punkte'] !== [])
     <div class="aufgaben-kasten">
         @if ($aufgaben['einsatz'] !== null)
