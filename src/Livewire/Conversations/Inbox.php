@@ -533,6 +533,10 @@ class Inbox extends Component
             ],
         );
 
+        app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
+            ->completeForThreads($this->teamId(), [$threadId], Auth::id() !== null ? (int) Auth::id() : null);
+        unset($this->openForwardCount, $this->forwardCards);
+
         if ($this->selectedThreadId === $threadId) {
             $this->selectedThreadId = null;
         }
@@ -655,6 +659,10 @@ class Inbox extends Component
 
         $handledIds = app(\Platform\Recruiting\Services\Comms\ConversationBulkHandler::class)
             ->markManyHandled($this->teamId(), $ids, Auth::id() !== null ? (int) Auth::id() : null);
+
+        app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
+            ->completeForThreads($this->teamId(), $handledIds, Auth::id() !== null ? (int) Auth::id() : null);
+        unset($this->openForwardCount, $this->forwardCards);
 
         if ($this->selectedThreadId !== null && in_array($this->selectedThreadId, $handledIds, true)) {
             $this->selectedThreadId = null;
