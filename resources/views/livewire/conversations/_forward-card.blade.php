@@ -9,9 +9,15 @@
         @endif
     </div>
     @foreach ($card['messages'] as $fm)
+        @php
+            $fmAt = !empty($fm['received_at']) ? \Illuminate\Support\Carbon::parse($fm['received_at'])->format('d.m. H:i') : '';
+        @endphp
         <div class="mb-1 whitespace-pre-line rounded-lg bg-white px-2.5 py-1.5 text-gray-800 shadow-sm">
+            @if ($fmAt !== '')
+                <div class="text-[10.5px] text-gray-400 tabular-nums">{{ $fmAt }}</div>
+            @endif
             @if (!empty($fm['media_type']))
-                📎 {{ ucfirst($fm['media_type']) }}
+                📎 {{ \Platform\Recruiting\Services\Comms\Forward\ConversationForwarder::mediaLabel($fm['media_type']) }}
             @endif
             {{ $fm['body'] }}
         </div>

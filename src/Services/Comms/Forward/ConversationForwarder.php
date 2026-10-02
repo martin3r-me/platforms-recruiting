@@ -16,6 +16,23 @@ final class ConversationForwarder
 {
     private const COMMENT_MAX = 1000;
 
+    private const MEDIA_LABELS = [
+        'image' => 'Bild',
+        'video' => 'Video',
+        'audio' => 'Audio',
+        'voice' => 'Sprachnachricht',
+        'document' => 'Dokument',
+        'sticker' => 'Sticker',
+    ];
+
+    /** Deutsche Bezeichnung eines WhatsApp-Medientyps (Anzeige an Karte/Liste). */
+    public static function mediaLabel(?string $type): string
+    {
+        $type = (string) $type;
+
+        return self::MEDIA_LABELS[$type] ?? ucfirst($type);
+    }
+
     /**
      * @param array<int, int|string> $messageIds
      * @return array{ok: bool, error: ?string, forward: ?RecConversationForward}

@@ -320,7 +320,7 @@
                                                 <span class="block text-[11px] text-gray-400 tabular-nums">{{ $cand['at'] }}</span>
                                                 <span class="block whitespace-pre-line text-gray-800">
                                                     @if ($cand['media_type'])
-                                                        📎 {{ ucfirst($cand['media_type']) }}
+                                                        📎 {{ \Platform\Recruiting\Services\Comms\Forward\ConversationForwarder::mediaLabel($cand['media_type']) }}
                                                     @endif
                                                     {{ $cand['body'] }}
                                                 </span>

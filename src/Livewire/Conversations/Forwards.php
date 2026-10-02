@@ -8,6 +8,7 @@ use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\Comms\Forward\ConversationForwarder;
 use Platform\Recruiting\Services\Comms\Forward\ForwardFirstContact;
 use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
@@ -49,11 +50,25 @@ class Forwards extends Component
             'name' => (string) $f->display_name,
             'phone' => (string) $f->phone,
             'pnr' => $f->rec_employee_id ? (string) ($pnrs[$f->rec_employee_id] ?? '') : '',
-            'preview' => (string) ($f->messages[count($f->messages) - 1]['body'] ?? ''),
+            'preview' => $this->preview((array) $f->messages),
             'forwarded_at' => $f->forwarded_at->format('d.m. H:i'),
             'by' => (string) ($f->forwarded_by_name ?? ''),
             'first_contact' => $f->first_contact_at !== null,
         ])->all();
+    }
+
+    /** Vorschau der letzten Nachricht; Medien ohne Text bekommen ihre Bezeichnung. */
+    private function preview(array $messages): string
+    {
+        $last = $messages === [] ? [] : (array) $messages[array_key_last($messages)];
+        $body = trim((string) ($last['body'] ?? ''));
+        if ($body !== '') {
+            return $body;
+        }
+
+        return !empty($last['media_type'])
+            ? '📎 ' . ConversationForwarder::mediaLabel((string) $last['media_type'])
+            : '(ohne Text)';
     }
 
     #[Computed]
