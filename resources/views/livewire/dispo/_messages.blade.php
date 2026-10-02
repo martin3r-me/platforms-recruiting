@@ -1,8 +1,12 @@
 {{-- Partial: Nachrichten-Verlauf eines Threads. Erwartet $messages (list) und
-     optional $portalUrl (Link zur Einsatz-Seite an Vorlagen-Karten). Genutzt
-     von der Kommunikation und dem VA-Chat-Panel (Runde 4, #1). --}}
+     optional $portalUrl (Link zur Einsatz-Seite an Vorlagen-Karten) sowie
+     $forwardable (Weiterleiten-Symbol an eingehenden Blasen, nur Dispo-Chat;
+     ruft openForward(id) der einbindenden Komponente). Zeilen mit kind "note"
+     sind interne Vermerke (grau, mittig). Genutzt von der Kommunikation und
+     dem VA-Chat-Panel (Runde 4, #1). --}}
 @php
     $portalUrl = $portalUrl ?? null;
+    $forwardable = $forwardable ?? false;
     $lastDay = null;
 @endphp
 @forelse ($messages as $message)
@@ -10,7 +14,11 @@
         @php $lastDay = $message['day']; @endphp
         <div class="my-1 self-center rounded-full border border-gray-200 bg-white px-3 py-0.5 text-[11px] font-semibold text-gray-400">{{ $message['day_label'] }}</div>
     @endif
-    @if ($message['kind'] === 'template')
+    @if (($message['kind'] ?? '') === 'note')
+        <div class="my-1 self-center rounded-lg bg-gray-100 px-3 py-1 text-center text-[11.5px] text-gray-500">
+            {{ $message['body'] }} · {{ $message['time'] }}
+        </div>
+    @elseif ($message['kind'] === 'template')
         {{-- Kunde 23.09.: der echte Text der Vorlage, nicht der technische Name
              ("t_wo_bist"). Der Vorlagen-Name steht als kleine Zeile darunter. --}}
         @php
@@ -36,7 +44,12 @@
             @endif
         </div>
     @else
-        <div class="flex max-w-[85%] flex-col gap-0.5 lg:max-w-[68%] {{ $message['direction'] === 'outbound' ? 'self-end items-end' : 'self-start' }}">
+        @php
+            $isInbound = $message['direction'] !== 'outbound';
+            $showForward = $forwardable && $isInbound && isset($message['id']);
+        @endphp
+        <div class="group flex max-w-[85%] flex-col gap-0.5 lg:max-w-[68%] {{ $isInbound ? 'self-start' : 'self-end items-end' }}">
+            <div class="flex items-center gap-1.5">
             <div class="whitespace-pre-line rounded-2xl px-3 py-2 text-sm leading-relaxed {{ $message['direction'] === 'outbound' ? 'rounded-br-md bg-blue-600 text-white' : 'rounded-bl-md bg-white text-gray-900 shadow-sm' }}">
                 @if (!empty($message['media_type']))
                     @forelse ($message['attachments'] as $att)
@@ -57,6 +70,14 @@
                     @endforelse
                 @endif
                 {{ $message['body'] }}
+            </div>
+                @if ($showForward)
+                    <button type="button" wire:click="openForward({{ (int) $message['id'] }})"
+                            title="Weiterleiten"
+                            class="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-gray-200 bg-white text-gray-500 hover:border-blue-300 hover:text-blue-700 lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l6 6-6 6"/><path d="M21 11H9a6 6 0 0 0-6 6v2"/></svg>
+                    </button>
+                @endif
             </div>
             <div class="px-1 text-[11px] text-gray-400 tabular-nums">{{ $message['time'] }}@if ($message['direction'] === 'outbound' && $message['status']) · {{ $message['status'] }}@endif</div>
         </div>

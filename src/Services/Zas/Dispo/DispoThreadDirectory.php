@@ -314,6 +314,8 @@ class DispoThreadDirectory
             $hasMedia = method_exists($m, 'hasMedia') && $m->hasMedia();
 
             return [
+                'id'             => (int) $m->id,
+                'ts'             => $at ? $at->getTimestamp() : 0,
                 'direction'      => (string) $m->direction,
                 'kind'           => $isTemplate ? 'template' : 'text',
                 'media_type'     => $hasMedia ? (string) $m->media_display_type : null,

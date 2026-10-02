@@ -312,6 +312,21 @@ class DispoThreadDirectoryTest extends TestCase
         $this->assertSame([$event->id => 1], $result, 'Telefon-Treffer am NICHT gebuchten Gruppenmitglied zaehlt fuer die gebuchte kanonische Person.');
     }
 
+    public function test_messages_liefern_id_und_zeitstempel(): void
+    {
+        $channel = $this->channel();
+        $threadId = $this->thread($channel, '+49 999 000001', null, false, '2026-10-01 10:00:00');
+        $msgId = (int) CommsWhatsAppMessage::create([
+            'comms_whatsapp_thread_id' => $threadId, 'direction' => 'inbound', 'body' => 'Hallo',
+        ])->id;
+        Capsule::table('comms_whatsapp_messages')->where('id', $msgId)->update(['created_at' => '2026-10-01 19:24:00']);
+
+        $rows = $this->directory()->messages(CommsWhatsAppThread::findOrFail($threadId), []);
+
+        $this->assertSame($msgId, $rows[0]['id']);
+        $this->assertSame((new \DateTimeImmutable('2026-10-01 19:24:00'))->getTimestamp(), $rows[0]['ts']);
+    }
+
     public function test_messages_can_be_filtered_by_since(): void
     {
         $channel = $this->channel();
