@@ -76,6 +76,10 @@
                         class="rounded-full border px-3 py-1 text-xs font-semibold {{ $showHandled ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-500' }}">
                     Erledigt {{ $counts['handled'] }}
                 </button>
+                <button type="button" wire:click="toggleForwardsView"
+                        class="rounded-full border px-3 py-1 text-xs font-semibold {{ $showForwards ? 'border-gray-900 bg-gray-900 text-white' : 'border-violet-200 bg-white text-violet-700' }}">
+                    Weitergeleitet {{ $this->openForwardCount }}
+                </button>
 
                 {{-- Abwesenheitsmodus: Zustand IMMER aus OooMode (3 Zustaende), nie aus dem
                      rohen Flag. Auf der alten Seite ein Vollbreiten-Banner, hier ein Panel
@@ -163,6 +167,9 @@
         <div class="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ session('error') }}</div>
     @endif
 
+    @if ($showForwards)
+        <livewire:recruiting.conversations.forwards wire:key="forwards-view" />
+    @else
     <div class="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[360px_1fr]">
 
         {{-- ===== Liste ===== --}}
@@ -432,6 +439,11 @@
                     </div>
                 @endif
 
+                @foreach ($this->forwardCards as $card)
+                    <div class="px-3 pt-3 lg:px-5">
+                        @include('recruiting::livewire.conversations._forward-card', ['card' => $card])
+                    </div>
+                @endforeach
                 {{-- Verlauf: wire:key aus Thread+Anzahl -> bei neuer Nachricht wird der Container neu
                      aufgebaut und x-init scrollt ans Ende. --}}
                 <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-4 lg:px-5"
@@ -490,4 +502,5 @@
             @endif
         </div>
     </div>
+    @endif
 </div>

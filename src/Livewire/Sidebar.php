@@ -72,6 +72,8 @@ class Sidebar extends Component
             'unread_conversations' => $commsCounts['unread'],
             // "Eskalation" ist wie bisher rot + verpasst.
             'escalation_conversations' => $commsCounts['red'] + $commsCounts['missed'],
+            'open_forwards' => \Platform\Recruiting\Models\RecConversationForward::query()
+                ->openForTeam($teamId, \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR)->count(),
             'total_positions' => RecPosition::forTeam($teamId)->count(),
             'active_positions' => RecPosition::forTeam($teamId)->active()->count(),
             'total_postings' => RecPosting::forTeam($teamId)->count(),
