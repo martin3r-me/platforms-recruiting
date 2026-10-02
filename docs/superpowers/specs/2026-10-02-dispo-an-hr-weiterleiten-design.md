@@ -88,6 +88,8 @@ Neue Tabelle `rec_conversation_forwards` (Migration):
 | Spalte | Zweck |
 |---|---|
 | `team_id` | Team |
+| `source` | Quelle, heute nur `dispo` |
+| `target` | Ziel, heute nur `hr` |
 | `source_thread_id` | Dispo-Thread (`comms_whatsapp_threads`) |
 | `rec_employee_id` (nullable) | MA, falls über die Dispo-Zuordnung bekannt |
 | `phone`, `display_name` | Empfänger der Erstnachricht |
@@ -103,6 +105,16 @@ dass die HR-Seite auf die Dispo-Kanäle zugreift. Ausserdem bleibt die
 Weiterleitung so stabil, auch wenn sich am Dispo-Thread später etwas
 ändert. Mehrere Weiterleitungen pro MA sind erlaubt, jede bekommt einen
 eigenen Datensatz.
+
+## Erweiterbarkeit (Entscheidung 02.10.)
+
+Jede Weiterleitung trägt `source` und `target`. Die erlaubten Werte und die
+Texte („An HR weiterleiten", „bei HR", „HR erledigt") stehen an einer Stelle,
+in `ForwardTargets`. Jede Ansicht filtert auf ihr Ziel. Ein neues Ziel
+braucht drei Dinge: einen neuen Eintrag in `ForwardTargets`, eine Ansicht,
+die darauf filtert, und gegebenenfalls eine eigene Erstnachricht-Regel (die
+heutige gilt nur für `hr`). Ein Plugin-System oder eine Registry kommt bewusst
+erst, wenn ein zweites Ziel konkret wird.
 
 ## Entscheidungen aus dem Code-Check (02.10.)
 

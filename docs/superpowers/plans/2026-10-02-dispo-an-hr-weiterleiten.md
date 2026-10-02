@@ -4,7 +4,7 @@
 
 **Goal:** Die Dispo leitet eingehende Nachrichten eines MA (optional mit Kommentar) an HR weiter. HR sieht sie in `/recruiting/conversations` unter „Weitergeleitet" und schickt dem MA von dort die Erstnachricht `t_com_gen` über die HR-Nummer.
 
-**Architecture:** Eine eigene Tabelle `rec_conversation_forwards` hält die Weiterleitung, mit einer Kopie der Texte. Sie zeigt zuerst nur auf den Dispo-Thread, den HR-Thread bekommt sie erst mit der Erstnachricht. Die Logik liegt in drei Services unter `src/Services/Comms/Forward/`: Weiterleiten, HR-Thread finden und Erstnachricht senden. Dazu kommen zwei pure Helfer (Auswahl, Chip-Zustand). Die Oberfläche: ein Fenster in `Dispo\Conversations\Index` und eine neue Livewire-Komponente `Conversations\Forwards`, die `Inbox` als Ansicht einblendet. CRM und Core werden nur **aufgerufen**, nie geändert.
+**Architecture:** Eine eigene Tabelle `rec_conversation_forwards` hält die Weiterleitung, mit einer Kopie der Texte. Sie zeigt zuerst nur auf den Dispo-Thread, den HR-Thread bekommt sie erst mit der Erstnachricht. Die Logik liegt in drei Services unter `src/Services/Comms/Forward/`: Weiterleiten, HR-Thread finden und Erstnachricht senden. Dazu kommen drei pure Helfer (Auswahl, Chip-Zustand, Ziel-Katalog `ForwardTargets`). Jede Weiterleitung trägt `source` (heute nur `dispo`) und `target` (heute nur `hr`). Ein späteres Ziel braucht dann nur einen neuen Wert, eine Ansicht, die darauf filtert, und gegebenenfalls eine eigene Erstnachricht-Regel. Ein Plugin-System oder eine Registry wird bewusst nicht gebaut. Die Oberfläche: ein Fenster in `Dispo\Conversations\Index` und eine neue Livewire-Komponente `Conversations\Forwards`, die `Inbox` als Ansicht einblendet. CRM und Core werden nur **aufgerufen**, nie geändert.
 
 **Tech Stack:** Laravel/Livewire 3, Eloquent, PHPUnit (Unit pur + Integration mit Capsule/SQLite, kein Testbench), Blade + Tailwind.
 
@@ -20,6 +20,7 @@
 - Blade-Fallen: keine inline-`@if` in `x-ui-*`-Attributen, keine an Wortzeichen geklebten Direktiven, `@php … @endphp` nur in Blockform.
 - Vorlage für die Erstnachricht: genau `t_com_gen` („Gespräch starten").
 - Keine E-Mail, kein automatischer Versand an den MA über die Dispo-Nummer.
+- Ziel und Quelle nur über die Konstanten in `ForwardTargets` (`ForwardTargets::HR = 'hr'`, `ForwardTargets::SOURCE_DISPO = 'dispo'`). Texte wie „An HR weiterleiten", „bei HR" und „HR erledigt" kommen aus `ForwardTargets::action()`, `chipOpen()` und `chipDone()` bzw. `label()`, nie hart im Blade oder PHP.
 - Texte der Oberfläche auf Deutsch, Umlaute echt (ä/ö/ü), Kommentare im Stil des Moduls (deutsch, ae/oe/ue erlaubt).
 - Commit-Footer: `Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>`
 
@@ -41,6 +42,7 @@
 | `src/Models/RecConversationForward.php` | Model + Scopes |
 | `src/Services/Comms/Forward/ForwardMessageSelection.php` | pure: welche Nachrichten wählbar sind / Auswahl säubern |
 | `src/Services/Comms/Forward/ForwardStatus.php` | pure: Chip-Zustand eines Dispo-Threads |
+| `src/Services/Comms/Forward/ForwardTargets.php` | pure: bekannte Ziele/Quellen + Texte |
 | `src/Services/Comms/Forward/ConversationForwarder.php` | Weiterleitung anlegen (Kopie) |
 | `src/Services/Comms/Forward/ForwardHrThreadLookup.php` | vorhandenen HR-Thread zur Nummer finden |
 | `src/Services/Comms/Forward/ForwardFirstContact.php` | Erstnachricht senden + Datensatz fortschreiben |
@@ -61,7 +63,7 @@
 - Test: `tests/Integration/ConversationForwardTableTest.php`
 
 **Interfaces:**
-- Produces: `RecConversationForward` mit `$casts` (`messages` → array, `*_at` → datetime), Scopes `openForTeam(int $teamId)`, `forTeam(int $teamId)`, Methode `isOpen(): bool`.
+- Produces: `RecConversationForward` mit `$casts` (`messages` → array, `*_at` → datetime), Scopes `openForTeam(int $teamId, string $target = 'hr')` (offen + Ziel) und `forTeam(int $teamId)`, Methode `isOpen(): bool`. Spalten `source`/`target` mit Default `dispo`/`hr`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -128,6 +130,17 @@ class ConversationForwardTableTest extends TestCase
         $f = $this->forward(self::TEAM)->fresh();
         $this->assertSame('Wann kommt das Gehalt?', $f->messages[0]['body']);
         $this->assertTrue($f->isOpen());
+        $this->assertSame('dispo', $f->source);
+        $this->assertSame('hr', $f->target);
+    }
+
+    public function test_open_for_team_filtert_auf_das_ziel(): void
+    {
+        $hr = $this->forward(self::TEAM);
+        $this->forward(self::TEAM)->update(['target' => 'lohn']);
+
+        $this->assertSame([(int) $hr->id], array_map('intval', RecConversationForward::query()->openForTeam(self::TEAM)->pluck('id')->all()));
+        $this->assertSame(1, RecConversationForward::query()->openForTeam(self::TEAM, 'lohn')->count());
     }
 
     public function test_open_for_team_ignoriert_erledigte_und_fremde(): void
@@ -171,6 +184,10 @@ return new class extends Migration
         Schema::create('rec_conversation_forwards', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('team_id');
+            // Woher/wohin (ForwardTargets). Heute nur dispo -> hr; ein neues Ziel
+            // ist ein neuer Wert, keine neue Tabelle.
+            $table->string('source', 32)->default('dispo');
+            $table->string('target', 32)->default('hr');
             $table->unsignedBigInteger('source_thread_id')->index();
             $table->unsignedBigInteger('rec_employee_id')->nullable();
             $table->string('phone', 32);
@@ -188,7 +205,7 @@ return new class extends Migration
             $table->unsignedBigInteger('done_by_user_id')->nullable();
             $table->timestamps();
 
-            $table->index(['team_id', 'done_at'], 'idx_rec_conv_fwd_team_done');
+            $table->index(['team_id', 'target', 'done_at'], 'idx_rec_conv_fwd_team_target_done');
         });
     }
 
@@ -219,7 +236,7 @@ class RecConversationForward extends Model
     protected $table = 'rec_conversation_forwards';
 
     protected $fillable = [
-        'team_id', 'source_thread_id', 'rec_employee_id', 'phone', 'display_name',
+        'team_id', 'source', 'target', 'source_thread_id', 'rec_employee_id', 'phone', 'display_name',
         'messages', 'comment', 'forwarded_by_user_id', 'forwarded_by_name', 'forwarded_at',
         'target_thread_id', 'first_contact_at', 'first_contact_by_user_id', 'last_error',
         'done_at', 'done_by_user_id',
@@ -237,9 +254,10 @@ class RecConversationForward extends Model
         return $query->where('team_id', $teamId);
     }
 
-    public function scopeOpenForTeam(Builder $query, int $teamId): Builder
+    /** Offene Weiterleitungen EINES Ziels — jede Ansicht filtert auf ihr Ziel. */
+    public function scopeOpenForTeam(Builder $query, int $teamId, string $target = 'hr'): Builder
     {
-        return $query->where('team_id', $teamId)->whereNull('done_at');
+        return $query->where('team_id', $teamId)->where('target', $target)->whereNull('done_at');
     }
 
     public function isOpen(): bool
@@ -252,7 +270,7 @@ class RecConversationForward extends Model
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ConversationForwardTableTest`
-Expected: PASS (2 tests)
+Expected: PASS (3 tests)
 
 - [ ] **Step 6: Commit**
 
@@ -265,18 +283,20 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Pure Helfer — Auswahl + Chip-Zustand
+### Task 2: Pure Helfer — Auswahl, Chip-Zustand, Ziel-Katalog
 
 **Files:**
 - Create: `src/Services/Comms/Forward/ForwardMessageSelection.php`
 - Create: `src/Services/Comms/Forward/ForwardStatus.php`
-- Test: `tests/Unit/ForwardMessageSelectionTest.php`, `tests/Unit/ForwardStatusTest.php`
+- Create: `src/Services/Comms/Forward/ForwardTargets.php`
+- Test: `tests/Unit/ForwardMessageSelectionTest.php`, `tests/Unit/ForwardStatusTest.php`, `tests/Unit/ForwardTargetsTest.php`
 
 **Interfaces:**
 - Produces:
   - `ForwardMessageSelection::candidates(array $messages, int $clickedId, int $now, int $days = 7): list<int>`. `$messages` ist eine `list<array{id:int, direction:string, kind:string, ts:int}>`. Ergebnis: IDs eingehender Nicht-Vorlagen-Nachrichten aus den letzten `$days` Tagen, **plus** die angeklickte (auch wenn älter), neueste zuerst. Ist die angeklickte keine gültige eingehende Nachricht, kommt `[]` zurück.
   - `ForwardMessageSelection::sanitize(array $requested, array $candidateIds): list<int>`. Behält nur IDs, die Kandidaten sind, ohne Dubletten und in der Reihenfolge der Kandidaten.
-  - `ForwardStatus::OPEN = 'open'`, `ForwardStatus::DONE = 'done'`, `ForwardStatus::latest(array $forwards): ?string`. `$forwards` ist eine `list<array{forwarded_at:int, done:bool}>`, die jüngste Weiterleitung gewinnt, leer ergibt `null`.
+  - `ForwardStatus::OPEN = 'open'`, `ForwardStatus::DONE = 'done'`, `ForwardStatus::latest(array $forwards): ?array{state:string, target:string}`. `$forwards` ist eine `list<array{forwarded_at:int, done:bool, target:string}>`, die jüngste Weiterleitung gewinnt, leer ergibt `null`.
+  - `ForwardTargets::HR = 'hr'`, `ForwardTargets::SOURCE_DISPO = 'dispo'`, `isTarget(string): bool`, `isSource(string): bool`, `label(string $target): string` (`'HR'`), `chipOpen(string): string` (`'bei HR'`), `chipDone(string): string` (`'HR erledigt'`), `action(string): string` (`'An HR weiterleiten'`). Bei unbekanntem Ziel liefert `label()` den Rohwert.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -360,21 +380,52 @@ class ForwardStatusTest extends TestCase
 
     public function test_juengste_gewinnt_auch_wenn_aeltere_offen(): void
     {
-        $this->assertSame(ForwardStatus::DONE, ForwardStatus::latest([
-            ['forwarded_at' => 100, 'done' => false],
-            ['forwarded_at' => 200, 'done' => true],
+        $this->assertSame(['state' => ForwardStatus::DONE, 'target' => 'hr'], ForwardStatus::latest([
+            ['forwarded_at' => 100, 'done' => false, 'target' => 'hr'],
+            ['forwarded_at' => 200, 'done' => true, 'target' => 'hr'],
         ]));
-        $this->assertSame(ForwardStatus::OPEN, ForwardStatus::latest([
-            ['forwarded_at' => 300, 'done' => false],
-            ['forwarded_at' => 200, 'done' => true],
+        $this->assertSame(['state' => ForwardStatus::OPEN, 'target' => 'lohn'], ForwardStatus::latest([
+            ['forwarded_at' => 300, 'done' => false, 'target' => 'lohn'],
+            ['forwarded_at' => 200, 'done' => true, 'target' => 'hr'],
         ]));
+    }
+}
+```
+
+`tests/Unit/ForwardTargetsTest.php`:
+
+```php
+<?php
+
+namespace Platform\Recruiting\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
+
+class ForwardTargetsTest extends TestCase
+{
+    public function test_hr_ist_bekannt_mit_texten(): void
+    {
+        $this->assertTrue(ForwardTargets::isTarget('hr'));
+        $this->assertTrue(ForwardTargets::isSource('dispo'));
+        $this->assertSame('HR', ForwardTargets::label('hr'));
+        $this->assertSame('bei HR', ForwardTargets::chipOpen('hr'));
+        $this->assertSame('HR erledigt', ForwardTargets::chipDone('hr'));
+        $this->assertSame('An HR weiterleiten', ForwardTargets::action('hr'));
+    }
+
+    public function test_unbekanntes_ziel(): void
+    {
+        $this->assertFalse(ForwardTargets::isTarget('lohn'));
+        $this->assertFalse(ForwardTargets::isSource('irgendwas'));
+        $this->assertSame('lohn', ForwardTargets::label('lohn'));
     }
 }
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter 'ForwardMessageSelectionTest|ForwardStatusTest'`
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter 'ForwardMessageSelectionTest|ForwardStatusTest|ForwardTargetsTest'`
 Expected: ERROR „Class … not found"
 
 - [ ] **Step 3: Implement**
@@ -458,28 +509,90 @@ final class ForwardStatus
     public const OPEN = 'open';
     public const DONE = 'done';
 
-    /** @param list<array{forwarded_at:int, done:bool}> $forwards */
-    public static function latest(array $forwards): ?string
+    /**
+     * @param list<array{forwarded_at:int, done:bool, target:string}> $forwards
+     * @return array{state:string, target:string}|null
+     */
+    public static function latest(array $forwards): ?array
     {
         if ($forwards === []) {
             return null;
         }
         usort($forwards, static fn (array $a, array $b) => $b['forwarded_at'] <=> $a['forwarded_at']);
 
-        return $forwards[0]['done'] ? self::DONE : self::OPEN;
+        return [
+            'state' => $forwards[0]['done'] ? self::DONE : self::OPEN,
+            'target' => (string) $forwards[0]['target'],
+        ];
+    }
+}
+```
+
+`src/Services/Comms/Forward/ForwardTargets.php`:
+
+```php
+<?php
+
+namespace Platform\Recruiting\Services\Comms\Forward;
+
+/**
+ * Katalog der Weiterleitungs-Ziele und -Quellen (Spec 02.10.2026). Heute nur
+ * dispo -> hr. Ein neues Ziel = neuer Eintrag hier + eine Ansicht, die per
+ * RecConversationForward::openForTeam($team, $ziel) filtert + ggf. eine eigene
+ * Erstnachricht-Regel. Bewusst KEIN Plugin-System, solange es ein Ziel gibt.
+ */
+final class ForwardTargets
+{
+    public const HR = 'hr';
+    public const SOURCE_DISPO = 'dispo';
+
+    /** @var array<string, string> Ziel => Anzeigename */
+    private const TARGETS = [self::HR => 'HR'];
+
+    /** @var list<string> */
+    private const SOURCES = [self::SOURCE_DISPO];
+
+    public static function isTarget(string $target): bool
+    {
+        return isset(self::TARGETS[$target]);
+    }
+
+    public static function isSource(string $source): bool
+    {
+        return in_array($source, self::SOURCES, true);
+    }
+
+    public static function label(string $target): string
+    {
+        return self::TARGETS[$target] ?? $target;
+    }
+
+    public static function chipOpen(string $target): string
+    {
+        return 'bei ' . self::label($target);
+    }
+
+    public static function chipDone(string $target): string
+    {
+        return self::label($target) . ' erledigt';
+    }
+
+    public static function action(string $target): string
+    {
+        return 'An ' . self::label($target) . ' weiterleiten';
     }
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter 'ForwardMessageSelectionTest|ForwardStatusTest'`
-Expected: PASS (7 tests)
+Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter 'ForwardMessageSelectionTest|ForwardStatusTest|ForwardTargetsTest'`
+Expected: PASS (9 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/Services/Comms/Forward/ForwardMessageSelection.php src/Services/Comms/Forward/ForwardStatus.php tests/Unit/ForwardMessageSelectionTest.php tests/Unit/ForwardStatusTest.php
+git add src/Services/Comms/Forward/ForwardMessageSelection.php src/Services/Comms/Forward/ForwardStatus.php src/Services/Comms/Forward/ForwardTargets.php tests/Unit/ForwardMessageSelectionTest.php tests/Unit/ForwardStatusTest.php tests/Unit/ForwardTargetsTest.php
 git commit -m "feat(recruiting): Auswahl und Chip-Zustand fuer HR-Weiterleitung
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
@@ -495,7 +608,9 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `RecConversationForward` (Task 1).
-- Produces: `ConversationForwarder::forward(int $teamId, CommsWhatsAppThread $thread, array $messageIds, ?string $comment, ?int $employeeId, string $displayName, ?object $user): array{ok: bool, error: ?string, forward: ?RecConversationForward}`.
+- Consumes außerdem: `ForwardTargets` (Task 2).
+- Produces: `ConversationForwarder::forward(int $teamId, CommsWhatsAppThread $thread, array $messageIds, ?string $comment, ?int $employeeId, string $displayName, ?object $user, string $target = ForwardTargets::HR, string $source = ForwardTargets::SOURCE_DISPO): array{ok: bool, error: ?string, forward: ?RecConversationForward}`.
+  - Bei unbekanntem `$target`/`$source` kommt `ok=false` mit „Unbekanntes Weiterleitungsziel." zurück, und nichts wird gespeichert.
   - Lädt nur Nachrichten **dieses** Threads mit `direction = 'inbound'` aus `$messageIds`. Gibt es keine, kommt `ok=false` mit dem Fehler „Keine eingehende Nachricht ausgewählt." zurück, und nichts wird gespeichert.
   - Die Kopie ist eine `list<array{message_id:int, body:string, media_type:?string, received_at:string}>` (ISO-8601), chronologisch.
   - Der Kommentar wird getrimmt, ist er leer, wird `null` gespeichert, gekürzt auf 1000 Zeichen.
@@ -617,6 +732,18 @@ class ConversationForwarderTest extends TestCase
         $this->assertSame(0, RecConversationForward::count());
     }
 
+    public function test_unbekanntes_ziel_wird_abgewiesen(): void
+    {
+        $t = $this->thread();
+        $m = $this->message($t->id, 'inbound', 'Hallo', '2026-10-01 10:00:00');
+
+        $r = (new ConversationForwarder())->forward(self::TEAM, $t, [$m], null, null, 'X', null, 'lohn');
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('Unbekanntes Weiterleitungsziel.', $r['error']);
+        $this->assertSame(0, RecConversationForward::count());
+    }
+
     public function test_leerer_kommentar_wird_null(): void
     {
         $t = $this->thread();
@@ -679,7 +806,13 @@ final class ConversationForwarder
         ?int $employeeId,
         string $displayName,
         ?object $user,
+        string $target = ForwardTargets::HR,
+        string $source = ForwardTargets::SOURCE_DISPO,
     ): array {
+        if (!ForwardTargets::isTarget($target) || !ForwardTargets::isSource($source)) {
+            return ['ok' => false, 'error' => 'Unbekanntes Weiterleitungsziel.', 'forward' => null];
+        }
+
         $ids = array_values(array_unique(array_map('intval', $messageIds)));
         $rows = $ids === [] ? collect() : $thread->messages()
             ->whereIn('id', $ids)
@@ -709,6 +842,8 @@ final class ConversationForwarder
 
         $forward = RecConversationForward::create([
             'team_id' => $teamId,
+            'source' => $source,
+            'target' => $target,
             'source_thread_id' => (int) $thread->id,
             'rec_employee_id' => $employeeId,
             'phone' => (string) $thread->remote_phone_number,
@@ -728,7 +863,7 @@ final class ConversationForwarder
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ConversationForwarderTest`
-Expected: PASS (4 tests)
+Expected: PASS (5 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -754,7 +889,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `ForwardHrThreadLookup::find(int $teamId, string $phone): ?CommsWhatsAppThread`. Sucht auf allen Recruiting-Kanälen nach `remote_phone_number IN ['+'.ziffern, ziffern]`, der Thread mit dem jüngsten Eingang gewinnt.
   - `ForwardFirstContact::TEMPLATE_NAME = 't_com_gen'`
   - `ForwardFirstContact::__construct(HoldingTemplateSender $targets, ApplicantTemplateSender $sender, ForwardHrThreadLookup $lookup)`
-  - `ForwardFirstContact::send(RecConversationForward $forward, ?object $user): array{ok: bool, error: ?string}`
+  - `ForwardFirstContact::send(RecConversationForward $forward, ?object $user): array{ok: bool, error: ?string}`. Gilt nur für `target === ForwardTargets::HR`, sonst kommt „Erstnachricht gibt es nur für HR-Weiterleitungen." ohne Versand zurück.
   - `ForwardFirstContact::windowOpen(RecConversationForward $forward, ?\DateTimeInterface $now = null): ?CommsWhatsAppThread`. Liefert den HR-Thread, wenn dort das 24h-Fenster offen ist, sonst `null`.
   - `ForwardFirstContact::firstNameFor(RecConversationForward $forward): string`. Liefert `''`, wenn kein MA zugeordnet ist oder der Vorname leer ist.
 
@@ -990,6 +1125,18 @@ class ForwardFirstContactTest extends TestCase
         $this->assertSame(0, $this->stub->calls);
     }
 
+    public function test_nicht_hr_ziel_sendet_nicht(): void
+    {
+        $f = $this->forward($this->employee());
+        $f->update(['target' => 'lohn']);
+
+        $r = $this->service()->send($f->fresh(), null);
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('Erstnachricht gibt es nur für HR-Weiterleitungen.', $r['error']);
+        $this->assertSame(0, $this->stub->calls);
+    }
+
     public function test_window_open_nur_bei_eingang_der_letzten_24h(): void
     {
         $f = $this->forward($this->employee());
@@ -1096,6 +1243,11 @@ final class ForwardFirstContact
     /** @return array{ok: bool, error: ?string} */
     public function send(RecConversationForward $forward, ?object $user): array
     {
+        // Die Erstnachricht-Regel ist zielgebunden: t_com_gen ueber die HR-Nummer.
+        // Ein kuenftiges Ziel bringt seine eigene Regel mit.
+        if ((string) $forward->target !== ForwardTargets::HR) {
+            return ['ok' => false, 'error' => 'Erstnachricht gibt es nur für HR-Weiterleitungen.'];
+        }
         if (!$forward->isOpen()) {
             return ['ok' => false, 'error' => 'Diese Weiterleitung ist schon erledigt.'];
         }
@@ -1190,7 +1342,7 @@ final class ForwardFirstContact
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `/Users/shaustein/Documents/dev/platforms/meingedeck/vendor/bin/phpunit -c phpunit.xml --filter ForwardFirstContactTest`
-Expected: PASS (8 tests)
+Expected: PASS (9 tests)
 
 - [ ] **Step 6: Commit**
 
@@ -1213,7 +1365,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `tests/Integration/DispoThreadDirectoryTest.php` (`id`/`ts` absichern)
 
 **Interfaces:**
-- Consumes: `ForwardMessageSelection::candidates/sanitize`, `ForwardStatus::latest` (Task 2), `ConversationForwarder::forward` (Task 3).
+- Consumes: `ForwardMessageSelection::candidates/sanitize`, `ForwardStatus::latest`, `ForwardTargets` (Task 2), `ConversationForwarder::forward` (Task 3).
 - Produces: `DispoThreadDirectory::messages()` liefert je Zeile zusätzlich `'id' => int` und `'ts' => int` (Unix). Das Partial akzeptiert optional `$forwardable` (bool, Standard `false`) und Zeilen mit `kind === 'note'` (`body`, `time`, `day`, `day_label`).
 
 - [ ] **Step 1: Failing test für `id`/`ts`**
@@ -1299,7 +1451,7 @@ Den bestehenden Blasen-`<div class="whitespace-pre-line rounded-2xl …">…</di
 ```blade
                 @if ($showForward)
                     <button type="button" wire:click="openForward({{ (int) $message['id'] }})"
-                            title="An HR weiterleiten"
+                            title="Weiterleiten"
                             class="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-gray-200 bg-white text-gray-500 hover:border-blue-300 hover:text-blue-700 lg:opacity-0 lg:group-hover:opacity-100 lg:focus:opacity-100">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 5l6 6-6 6"/><path d="M21 11H9a6 6 0 0 0-6 6v2"/></svg>
                     </button>
@@ -1327,6 +1479,7 @@ use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Services\Comms\Forward\ConversationForwarder;
 use Platform\Recruiting\Services\Comms\Forward\ForwardMessageSelection;
 use Platform\Recruiting\Services\Comms\Forward\ForwardStatus;
+use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 ```
 
 b) Properties nach `$sendError`:
@@ -1359,7 +1512,7 @@ c) `messages()` so ändern, dass die Vermerke einsortiert werden:
             $wer = $f->forwarded_by_name ? ' · ' . $f->forwarded_by_name : '';
             $rows[] = [
                 'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'note', 'direction' => 'note',
-                'body' => ($f->done_at ? 'An HR weitergeleitet (erledigt)' : 'An HR weitergeleitet') . $wer,
+                'body' => 'An ' . ForwardTargets::label((string) $f->target) . ' weitergeleitet' . ($f->done_at ? ' (erledigt)' : '') . $wer,
                 'time' => $at->format('H:i'), 'day' => $at->format('Y-m-d'),
                 'day_label' => DispoThreadDirectory::dayLabel(\Illuminate\Support\Carbon::instance($at)),
                 'status' => null, 'media_type' => null, 'attachments' => [],
@@ -1378,18 +1531,26 @@ d) Chip-Zustand in `threads()`: Vor `return $rows->map(…)` die Zustände laden
         $forwardStates = [];
         $fwdRows = RecConversationForward::query()
             ->whereIn('source_thread_id', $rows->pluck('id')->all())
-            ->get(['source_thread_id', 'forwarded_at', 'done_at']);
+            ->get(['source_thread_id', 'forwarded_at', 'done_at', 'target']);
         foreach ($fwdRows->groupBy('source_thread_id') as $tid => $group) {
-            $forwardStates[(int) $tid] = ForwardStatus::latest($group->map(fn ($f) => [
-                'forwarded_at' => $f->forwarded_at->getTimestamp(), 'done' => $f->done_at !== null,
+            $latest = ForwardStatus::latest($group->map(fn ($f) => [
+                'forwarded_at' => $f->forwarded_at->getTimestamp(), 'done' => $f->done_at !== null, 'target' => (string) $f->target,
             ])->values()->all());
+            if ($latest !== null) {
+                $forwardStates[(int) $tid] = [
+                    'state' => $latest['state'],
+                    'label' => $latest['state'] === ForwardStatus::OPEN
+                        ? ForwardTargets::chipOpen($latest['target'])
+                        : ForwardTargets::chipDone($latest['target']),
+                ];
+            }
         }
 ```
 
 … `$forwardStates` in das `use (…)` der Closure aufnehmen und im Rückgabe-Array ergänzen:
 
 ```php
-                'forward'     => $forwardStates[(int) $t->id] ?? null, // open | done | null
+                'forward'     => $forwardStates[(int) $t->id] ?? null, // null | {state: open|done, label: "bei HR"|"HR erledigt"}
 ```
 
 e) Neue Methoden (nach `markUnreadAndClose`):
@@ -1465,6 +1626,8 @@ e) Neue Methoden (nach `markUnreadAndClose`):
             $info['employee_id'] ?? null,
             (string) ($info['label'] ?? ''),
             auth()->user(),
+            ForwardTargets::HR,
+            ForwardTargets::SOURCE_DISPO,
         );
         if (!$r['ok']) {
             $this->forwardError = $r['error'];
@@ -1492,10 +1655,8 @@ a) Include (Zeile ~232) um `'forwardable' => true` ergänzen:
 b) Chip in der Thread-Liste. Im Chip-Block nach dem `alte Nummer`-`@endif` einfügen:
 
 ```blade
-                                    @if ($thread['forward'] === 'open')
-                                        <span class="rounded bg-violet-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-violet-700">bei HR</span>
-                                    @elseif ($thread['forward'] === 'done')
-                                        <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-gray-500">HR erledigt</span>
+                                    @if ($thread['forward'] !== null)
+                                        <span class="rounded px-1.5 py-0.5 text-[10.5px] font-semibold {{ $thread['forward']['state'] === 'open' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500' }}">{{ $thread['forward']['label'] }}</span>
                                     @endif
 ```
 
@@ -1506,7 +1667,7 @@ c) Das Fenster als Overlay ans Ende des Thread-Bereichs, vor dessen schließende
                         <div class="fixed inset-0 z-40 flex items-end justify-center bg-black/30 p-0 sm:items-center sm:p-4" wire:key="fwd-{{ $forwardMessageId }}">
                             <div class="flex max-h-[90vh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:max-w-lg sm:rounded-2xl">
                                 <div class="border-b border-gray-200 px-4 py-3">
-                                    <div class="text-sm font-semibold text-gray-900">An HR weiterleiten</div>
+                                    <div class="text-sm font-semibold text-gray-900">{{ \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::action(\Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR) }}</div>
                                     <div class="text-xs text-gray-500">Landet in Kommunikation → Weitergeleitet. Der MA bekommt nichts.</div>
                                 </div>
                                 <div class="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
@@ -1567,7 +1728,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `src/Livewire/Sidebar.php` + `resources/views/livewire/sidebar.blade.php` (Zähler)
 
 **Interfaces:**
-- Consumes: `RecConversationForward::openForTeam` (Task 1), `ForwardFirstContact::send/windowOpen/firstNameFor` (Task 4), `DispoThreadDirectory::messages()` (für den HR-Verlauf in der Detailansicht).
+- Consumes: `RecConversationForward::openForTeam` (Task 1), `ForwardTargets` (Task 2), `ForwardFirstContact::send/windowOpen/firstNameFor` (Task 4), `DispoThreadDirectory::messages()` (für den HR-Verlauf in der Detailansicht).
 - Produces: Livewire-Alias `recruiting.conversations.forwards` (Auto-Registrierung über `RecruitingServiceProvider::registerLivewireComponents`). Das Event `forward-open-thread` mit `threadId: int` wird von `Inbox` empfangen.
 
 - [ ] **Step 1: Komponente `Forwards`**
@@ -1584,6 +1745,7 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Comms\Forward\ForwardFirstContact;
+use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
 
 /**
@@ -1605,14 +1767,15 @@ class Forwards extends Component
 
     private function forwardForTeam(int $id): ?RecConversationForward
     {
-        return RecConversationForward::query()->forTeam($this->teamId())->whereKey($id)->first();
+        return RecConversationForward::query()->forTeam($this->teamId())
+            ->where('target', ForwardTargets::HR)->whereKey($id)->first();
     }
 
     /** @return list<array<string, mixed>> */
     #[Computed]
     public function rows(): array
     {
-        $rows = RecConversationForward::query()->openForTeam($this->teamId())
+        $rows = RecConversationForward::query()->openForTeam($this->teamId(), ForwardTargets::HR)
             ->orderByDesc('forwarded_at')->orderByDesc('id')->get();
         $pnrs = RecEmployee::query()->whereIn('id', $rows->pluck('rec_employee_id')->filter()->all())
             ->pluck('personnel_number', 'id');
@@ -1893,7 +2056,7 @@ Methoden (nach `toggleHandledView`):
     #[Computed]
     public function openForwardCount(): int
     {
-        return RecConversationForward::query()->openForTeam($this->teamId())->count();
+        return RecConversationForward::query()->openForTeam($this->teamId(), \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR)->count();
     }
 
     /** @return list<array<string, mixed>> Weiterleitungen, die zu diesem HR-Chat gehoeren (interne Karten). */
@@ -1905,6 +2068,7 @@ Methoden (nach `toggleHandledView`):
         }
 
         return RecConversationForward::query()->forTeam($this->teamId())
+            ->where('target', \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR)
             ->where('target_thread_id', $this->selectedThreadId)
             ->orderBy('forwarded_at')->get()
             ->map(fn (RecConversationForward $f) => [
@@ -1956,7 +2120,8 @@ c) Über dem Verlauf (vor dem `<div … wire:key="msgs-{{ $selectedThreadId }}-�
 In `src/Livewire/Sidebar.php::stats()` im Rückgabe-Array ergänzen:
 
 ```php
-            'open_forwards' => \Platform\Recruiting\Models\RecConversationForward::query()->openForTeam($teamId)->count(),
+            'open_forwards' => \Platform\Recruiting\Models\RecConversationForward::query()
+                ->openForTeam($teamId, \Platform\Recruiting\Services\Comms\Forward\ForwardTargets::HR)->count(),
 ```
 
 In `resources/views/livewire/sidebar.blade.php` gibt es den Eintrag „Kommunikation" zweimal (Zeilen ~65 und ~161). In **beiden** wird der Zähler ergänzt. Das `@php`-Blockpaar erweitern um
