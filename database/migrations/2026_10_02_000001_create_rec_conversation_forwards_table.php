@@ -31,12 +31,15 @@ return new class extends Migration
             $table->text('comment')->nullable();
             $table->unsignedBigInteger('forwarded_by_user_id')->nullable();
             $table->string('forwarded_by_name', 190)->nullable();
-            $table->timestamp('forwarded_at');
+            // dateTime statt timestamp: unter explicit_defaults_for_timestamp=OFF
+            // (MySQL 5.7) bekaeme die erste NOT-NULL-timestamp-Spalte sonst
+            // ON UPDATE CURRENT_TIMESTAMP und wuerde bei jedem Update ueberschrieben.
+            $table->dateTime('forwarded_at');
             $table->unsignedBigInteger('target_thread_id')->nullable()->index();
-            $table->timestamp('first_contact_at')->nullable();
+            $table->dateTime('first_contact_at')->nullable();
             $table->unsignedBigInteger('first_contact_by_user_id')->nullable();
             $table->string('last_error', 500)->nullable();
-            $table->timestamp('done_at')->nullable();
+            $table->dateTime('done_at')->nullable();
             $table->unsignedBigInteger('done_by_user_id')->nullable();
             $table->timestamps();
 
