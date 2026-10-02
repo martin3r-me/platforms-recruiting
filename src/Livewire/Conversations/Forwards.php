@@ -9,6 +9,7 @@ use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Comms\Forward\ConversationForwarder;
+use Platform\Recruiting\Services\Comms\Forward\ForwardAttachments;
 use Platform\Recruiting\Services\Comms\Forward\ForwardFirstContact;
 use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
@@ -89,6 +90,7 @@ class Forwards extends Component
             'name' => (string) $f->display_name,
             'phone' => (string) $f->phone,
             'messages' => (array) $f->messages,
+            'attachments' => app(ForwardAttachments::class)->forMessageIds(array_column((array) $f->messages, 'message_id')),
             'comment' => $f->comment,
             'by' => (string) ($f->forwarded_by_name ?? ''),
             'forwarded_at' => $f->forwarded_at->format('d.m.Y H:i'),
