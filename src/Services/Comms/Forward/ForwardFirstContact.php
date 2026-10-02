@@ -101,12 +101,16 @@ final class ForwardFirstContact
 
         $result = $this->sender->send($thread, (int) $template->id, null, $user, $firstName);
         if (!$result['ok']) {
-            // Claim zuruecknehmen — ein Fehlversand setzt nichts.
-            $forward->update([
+            // Claim zuruecknehmen — ein Fehlversand setzt nichts. Per Query-Builder:
+            // der Claim lief am Model vorbei, dessen Original-Werte sind null —
+            // ein $forward->update(null) liesse Eloquent als "nicht dirty" weg.
+            $rollback = [
                 'first_contact_at' => null,
                 'first_contact_by_user_id' => null,
                 'last_error' => mb_substr((string) $result['error'], 0, 500),
-            ]);
+            ];
+            RecConversationForward::query()->whereKey($forward->id)->update($rollback);
+            $forward->forceFill($rollback)->syncOriginalAttributes(array_keys($rollback));
 
             return ['ok' => false, 'error' => $result['error']];
         }

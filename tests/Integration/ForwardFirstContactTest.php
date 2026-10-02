@@ -336,6 +336,30 @@ class ForwardFirstContactTest extends TestCase
         $this->assertStringContainsString('131026', (string) $f->last_error);
     }
 
+    public function test_abgelehnter_versand_auf_db_geladenem_datensatz_nimmt_claim_zurueck(): void
+    {
+        // Echter Pfad: Forwards::forwardForTeam() laedt aus der DB — dort sind
+        // die Original-Werte null, ein Model-update(null) faellt still weg.
+        $id = (int) $this->forward($this->employee())->id;
+        $this->stub->status = 'failed';
+
+        $r = $this->service()->send(RecConversationForward::query()->findOrFail($id), (object) ['id' => 7]);
+
+        $this->assertFalse($r['ok']);
+        $f = RecConversationForward::query()->findOrFail($id);
+        $this->assertNull($f->first_contact_at);
+        $this->assertNull($f->first_contact_by_user_id);
+        $this->assertStringContainsString('131026', (string) $f->last_error);
+
+        // Nicht dauerhaft blockiert: der naechste Versand geht durch.
+        $this->stub->status = 'sent';
+        $r2 = $this->service()->send(RecConversationForward::query()->findOrFail($id), (object) ['id' => 7]);
+
+        $this->assertTrue($r2['ok'], (string) $r2['error']);
+        $this->assertSame(2, $this->stub->calls);
+        $this->assertNotNull(RecConversationForward::query()->findOrFail($id)->first_contact_at);
+    }
+
     public function test_zweiter_aufruf_sendet_nicht_erneut(): void
     {
         $f = $this->forward($this->employee());
