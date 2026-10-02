@@ -8,6 +8,7 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecConversationForward;
+use Platform\Recruiting\Services\Comms\Forward\ForwardAttachments;
 use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\Comms\InboxFilter;
 use Platform\Recruiting\Services\Comms\InboxQuery;
@@ -178,14 +179,17 @@ class Inbox extends Component
             return [];
         }
 
-        return RecConversationForward::query()->forTeam($this->teamId())
-            ->where('target', ForwardTargets::HR)
+        $forwards = RecConversationForward::query()->openForTeam($this->teamId(), ForwardTargets::HR)
             ->where('target_thread_id', $this->selectedThreadId)
-            ->orderBy('forwarded_at')->get()
-            ->map(fn (RecConversationForward $f) => [
-                'messages' => (array) $f->messages, 'comment' => $f->comment,
-                'by' => (string) ($f->forwarded_by_name ?? ''), 'forwarded_at' => $f->forwarded_at->format('d.m.Y H:i'),
-            ])->all();
+            ->orderBy('forwarded_at')->orderBy('id')->get();
+
+        return $forwards->map(fn (RecConversationForward $f) => [
+            'messages' => (array) $f->messages, 'comment' => $f->comment,
+            'by' => (string) ($f->forwarded_by_name ?? ''), 'forwarded_at' => $f->forwarded_at->format('d.m.Y H:i'),
+            'ts' => $f->forwarded_at->getTimestamp(), 'at' => $f->forwarded_at,
+            'attachments' => app(ForwardAttachments::class)
+                ->forMessageIds(array_column((array) $f->messages, 'message_id')),
+        ])->all();
     }
 
     public function loadMore(): void
@@ -261,6 +265,7 @@ class Inbox extends Component
             $this->fallback,
             $this->selectedRow,
             $this->messages,
+            $this->forwardCards,
             $this->contextChips,
         );
     }
@@ -337,8 +342,24 @@ class Inbox extends Component
             return [];
         }
 
-        return app(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::class)
+        $rows = app(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::class)
             ->messages($thread, []);
+
+        // Spec Runde 2: offene Weiterleitungen stehen IM Verlauf (zum Zeitpunkt
+        // der Weiterleitung) statt fest darueber — sie scrollen mit, und erledigte
+        // verschwinden. Bestandsreihenfolge bleibt (ForwardTimeline).
+        $cards = array_map(static function (array $c) {
+            $at = \Illuminate\Support\Carbon::instance($c['at']);
+            return [
+                'id' => null, 'ts' => $c['ts'], 'kind' => 'forward', 'direction' => 'note', 'card' => $c,
+                'time' => $at->format('H:i'), 'day' => $at->format('Y-m-d'),
+                'day_label' => \Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::dayLabel($at),
+                'status' => null, 'media_type' => null, 'attachments' => [], 'body' => '',
+                'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
+            ];
+        }, $this->forwardCards);
+
+        return \Platform\Recruiting\Services\Comms\Forward\ForwardTimeline::insert($rows, $cards);
     }
 
     /** @return list<array{label: string, value: string, url: ?string}> */

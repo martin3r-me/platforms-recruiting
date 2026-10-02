@@ -439,11 +439,6 @@
                     </div>
                 @endif
 
-                @foreach ($this->forwardCards as $card)
-                    <div class="px-3 pt-3 lg:px-5">
-                        @include('recruiting::livewire.conversations._forward-card', ['card' => $card])
-                    </div>
-                @endforeach
                 {{-- Verlauf: wire:key aus Thread+Anzahl -> bei neuer Nachricht wird der Container neu
                      aufgebaut und x-init scrollt ans Ende. --}}
                 <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-4 lg:px-5"

@@ -49,7 +49,7 @@
                 <button type="button" wire:click="markDone({{ $sel['id'] }})" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">Erledigt</button>
             </div>
 
-            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4" wire:key="fwd-detail-{{ $sel['id'] }}-{{ count($sel['hr_messages']) }}" x-data x-init="$nextTick(() => { $el.scrollTop = $el.scrollHeight })">
                 @include('recruiting::livewire.conversations._forward-card', ['card' => $sel])
 
                 @if ($sel['hr_messages'] !== [])

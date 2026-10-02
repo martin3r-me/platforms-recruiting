@@ -2,7 +2,8 @@
      optional $portalUrl (Link zur Einsatz-Seite an Vorlagen-Karten) sowie
      $forwardable (Weiterleiten-Symbol an eingehenden Blasen, nur Dispo-Chat;
      ruft openForward(id) der einbindenden Komponente). Zeilen mit kind "note"
-     sind interne Vermerke (grau, mittig). Genutzt von der Kommunikation und
+     sind interne Vermerke (grau, mittig); Zeilen mit kind "forward" sind
+     interne Weiterleitungs-Karten (nur HR-Chat). Genutzt von der Kommunikation und
      dem VA-Chat-Panel (Runde 4, #1). --}}
 @php
     $portalUrl = $portalUrl ?? null;
@@ -17,6 +18,10 @@
     @if (($message['kind'] ?? '') === 'note')
         <div class="my-1 self-center rounded-lg bg-gray-100 px-3 py-1 text-center text-[11.5px] text-gray-500">
             {{ $message['body'] }} · {{ $message['time'] }}
+        </div>
+    @elseif (($message['kind'] ?? '') === 'forward')
+        <div class="w-full">
+            @include('recruiting::livewire.conversations._forward-card', ['card' => $message['card']])
         </div>
     @elseif ($message['kind'] === 'template')
         {{-- Kunde 23.09.: der echte Text der Vorlage, nicht der technische Name
