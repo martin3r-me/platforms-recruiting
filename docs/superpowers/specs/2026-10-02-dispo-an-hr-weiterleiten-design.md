@@ -69,8 +69,9 @@ legt ihn an und liefert ihn über `$message->thread` (Muster
    - **Kein HR-Thread oder Fenster zu:** Knopf **„Erstnachricht senden"**.
      Er schickt `t_com_gen` über die HR-Nummer (Vorname wie in
      `Inbox::sendTemplate`), hängt den MA als Kontext an den Thread
-     (`addContext(RecEmployee, …, 'dispo_forward')`), speichert den
-     HR-Thread am Datensatz und öffnet den Chat.
+     (`addContext(RecEmployee, …, 'dispo_forward')`) und speichert den
+     HR-Thread am Datensatz. Die Detailansicht zeigt danach den HR-Verlauf
+     (siehe Entscheidungen).
    - **HR-Fenster offen** (der MA hat der HR-Nummer in den letzten 24 h
      geschrieben, `computeWindowOpen`): Knopf **„Chat öffnen"**. Dann ist
      keine Vorlage nötig, und HR antwortet frei.
@@ -103,20 +104,40 @@ Weiterleitung so stabil, auch wenn sich am Dispo-Thread später etwas
 ändert. Mehrere Weiterleitungen pro MA sind erlaubt, jede bekommt einen
 eigenen Datensatz.
 
-## Zu prüfen in der Umsetzung
+## Entscheidungen aus dem Code-Check (02.10.)
 
-- **Sichtbarkeit des neuen HR-Threads:** Erscheint ein Thread, der nur
-  `RecEmployee`-Kontext hat, in der Inbox-Liste? `InboxQuery` kennt
-  `RecEmployee`, das muss aber gegen den bekannten Kontext-Gate-Fall (2474)
-  getestet werden.
-- **MA nicht zugeordnet** (Dispo-Thread ohne `resolveEmployee`-Treffer,
-  geteilte Nummern): Die Weiterleitung ist trotzdem erlaubt, dann ohne
-  `rec_employee_id` und ohne Kontext-Anhang. Prüfen, ob der Thread dann in
-  der Inbox auftaucht. Falls nicht, wird der Knopf mit Hinweis gesperrt.
+- **Ein neuer HR-Thread steht erst in der Chat-Liste, wenn der MA antwortet.**
+  `InboxQuery::scored()` filtert auf `last_inbound_at IS NOT NULL`. Ein
+  Thread, der nur Claras Vorlage enthält, fehlt dort deshalb, und zwar
+  unabhängig vom Kontext. Das wird bewusst **nicht** geändert, denn es würde
+  die Ampel-Logik der ganzen Seite berühren. Stattdessen zeigt die Detailansicht
+  im Reiter „Weitergeleitet" den HR-Verlauf selbst an (gesendete Vorlage plus
+  Status). Antwortet der MA, erscheint der Chat ganz normal in der Liste, mit
+  der internen Karte.
+- **HR-Thread finden statt doppelt anlegen:**
+  `CommsWhatsAppThread::findOrCreateForPhone(channel, phone)` (CRM, nur
+  aufgerufen, nicht geändert) sucht über Kanal plus Nummer im E.164-Format.
+  Wir suchen vorher über alle Recruiting-Kanäle nach derselben Nummer, nur
+  die Ziffern verglichen. Ein Treffer wird wiederverwendet, sonst wird der
+  Thread mit `'+' . ziffern` auf dem Kanal von
+  `HoldingTemplateSender::resolveTemplate()` angelegt. Gesendet wird über
+  `ApplicantTemplateSender::send()`, so bleiben die Kontoprüfung und das
+  Füllen von `{{name}}` an einer Stelle.
+- **MA nicht zugeordnet:** Weiterleiten ist erlaubt. „Erstnachricht senden"
+  ist dann aber gesperrt mit dem Hinweis *„Kein MA zugeordnet – die Vorlage
+  braucht den Vornamen"*, weil `t_com_gen` `{{name}}` trägt. „Erledigt" geht
+  immer.
 - **Fehler beim Versand** (Meta lehnt ab, 131026): `first_contact_at` bleibt
   leer, der Fehler wird im Eintrag angezeigt, und der Eintrag bleibt offen.
+- **Team:** `team_id` ist das aktuelle Team des Weiterleitenden. Das ist
+  derselbe Wert, den `Inbox::teamId()` liest.
 - **Rechte:** Ohne eigenes Recht. Wer die jeweilige Seite öffnen kann, kann
   dort weiterleiten bzw. bearbeiten.
+- **Vermerk im Dispo-Verlauf:** Er wird als eigene Zeilenart `note` in die
+  Nachrichtenliste einsortiert (nach Zeitpunkt). Das geteilte Partial
+  `dispo/_messages` lernt `note` und ein abschaltbares Weiterleiten-Symbol
+  (`forwardable`, Standard aus). Der VA-Chat und die HR-Seite bleiben dadurch
+  unverändert.
 
 ## Tests
 
