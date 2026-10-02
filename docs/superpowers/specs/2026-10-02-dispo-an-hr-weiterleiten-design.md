@@ -164,3 +164,34 @@ erst, wenn ein zweites Ziel konkret wird.
 
 `migrate` ist Pflicht. `queue:restart` ist nicht nötig, weil kein Job
 beteiligt ist.
+
+## Runde 2 (02.10., nach erstem Live-Test)
+
+Befunde aus dem Live-Test und die Entscheidungen des Users:
+
+1. **Die Karte verschwindet, sobald die Weiterleitung erledigt ist.** Bis dahin
+   steht sie **im Verlauf** des HR-Chats, einsortiert zum Zeitpunkt der
+   Weiterleitung, statt fest über dem Verlauf. Sie scrollt also mit, und der
+   Chat springt wieder ans Ende. Erledigte Weiterleitungen zeigen im HR-Chat
+   gar nichts mehr, auch keine Restzeile.
+2. **„Erledigt" im HR-Chat erledigt auch die Weiterleitung.** Der
+   Abhaken-Knopf (`markHandled`), auch als Sammelaktion
+   (`markSelectedHandled`), schließt alle offenen HR-Weiterleitungen, deren
+   `target_thread_id` auf den abgehakten Chat zeigt. Danach geht der Dispo-Chip
+   auf „HR erledigt". Bewusst **nicht** automatisch: eine Antwort von HR im
+   Chat und „zurückholen" (`unmarkHandled`). Eine einmal erledigte
+   Weiterleitung bleibt erledigt.
+3. **Anhänge sind für HR sichtbar und öffnenbar.** Die Karte (im Reiter und im
+   HR-Chat) zeigt Bilder als Vorschau mit Link und Dokumente/Audio als Link.
+   Die Anhänge werden beim Anzeigen **frisch** über die gespeicherten
+   `message_id`s geholt (`CommsWhatsAppMessage::attachments`) und nie
+   gespeichert, weil die URLs signiert sind und nach 60 Minuten ablaufen
+   (`ContextFile::getUrlAttribute`, Core). Die Route prüft nur die Signatur,
+   kein Team. Das ist derselbe Zugriffsweg wie heute im Dispo-Chat.
+4. **Die Detailansicht im Reiter „Weitergeleitet" springt ans Ende des
+   HR-Verlaufs**, sobald sie geöffnet wird und sobald eine Nachricht
+   dazukommt (Muster `x-init scrollTop = scrollHeight` mit `wire:key` aus ID +
+   Anzahl, wie im HR-Chat).
+
+Die bestehende Reihenfolge der Chat-Nachrichten wird nicht angefasst. Die
+Karten werden nur stabil einsortiert, ohne den Rest neu zu sortieren.
