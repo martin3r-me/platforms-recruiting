@@ -74,6 +74,11 @@
                             <button type="button" wire:click="openChat({{ $sel['id'] }})" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white">Chat öffnen</button>
                         @endif
                     </div>
+                @elseif ($sel['sibling_first_contact_at'])
+                    <div class="flex items-center justify-between gap-2 text-xs text-gray-600">
+                        <span>Diese Person wurde am {{ $sel['sibling_first_contact_at'] }} schon angeschrieben (andere Weiterleitung).</span>
+                        <button type="button" wire:click="sendFirstContact({{ $sel['id'] }})" wire:loading.attr="disabled" class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white">Dem HR-Chat zuordnen</button>
+                    </div>
                 @elseif ($sel['open_thread_id'])
                     <div class="flex items-center justify-between gap-2 text-xs text-gray-600">
                         <span>Der MA hat der HR-Nummer in den letzten 24 h geschrieben – du kannst direkt antworten.</span>

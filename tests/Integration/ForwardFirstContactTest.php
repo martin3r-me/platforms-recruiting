@@ -173,15 +173,141 @@ class ForwardFirstContactTest extends TestCase
         $this->assertStringContainsString('Jonas', json_encode($this->stub->letzteComponents));
     }
 
-    public function test_vorhandener_hr_thread_ohne_plus_wird_wiederverwendet(): void
+    public function test_versand_nutzt_immer_den_plus_thread(): void
     {
-        $existing = $this->hrThread('4917663854907', null);
+        // Vorhandener "+"-Thread wird wiederverwendet.
+        $existing = $this->hrThread(self::PHONE, null);
         $f = $this->forward($this->employee());
 
-        $this->service()->send($f, null);
+        $this->assertTrue($this->service()->send($f, null)['ok']);
 
         $this->assertSame($existing, (int) $f->fresh()->target_thread_id);
         $this->assertSame(1, Capsule::table('comms_whatsapp_threads')->count());
+    }
+
+    public function test_altthread_ohne_plus_wird_nicht_versandziel(): void
+    {
+        // Meta schreibt die Vorlage in den "+"-Thread (findOrCreateForPhone mit
+        // E.164) — ein Altthread "49…" darf nicht als Ziel gemerkt werden.
+        $alt = $this->hrThread('4917663854907', null);
+        $f = $this->forward($this->employee());
+
+        $this->assertTrue($this->service()->send($f, null)['ok']);
+
+        $this->assertSame(2, Capsule::table('comms_whatsapp_threads')->count());
+        $target = CommsWhatsAppThread::findOrFail($f->fresh()->target_thread_id);
+        $this->assertNotSame($alt, (int) $target->id);
+        $this->assertSame(self::PHONE, $target->remote_phone_number);
+    }
+
+    public function test_zweite_weiterleitung_derselben_person_sendet_nicht_und_haengt_sich_an(): void
+    {
+        $emp = $this->employee();
+        $first = $this->forward($emp);
+        $second = $this->forward($emp);
+
+        $this->assertTrue($this->service()->send($first, (object) ['id' => 4])['ok']);
+        $this->assertSame(1, $this->stub->calls);
+        $first->refresh();
+
+        $this->assertSame((int) $first->id, (int) $this->service()->siblingFirstContact($second)?->id);
+        $r = $this->service()->send($second, (object) ['id' => 5]);
+
+        $this->assertTrue($r['ok'], (string) $r['error']);
+        $this->assertNull($r['error']);
+        $this->assertSame(1, $this->stub->calls);
+        $second->refresh();
+        $this->assertSame((int) $first->target_thread_id, (int) $second->target_thread_id);
+        $this->assertNotNull($second->first_contact_at);
+        $this->assertSame($first->first_contact_at->format('Y-m-d H:i:s'), $second->first_contact_at->format('Y-m-d H:i:s'));
+        $this->assertSame(4, (int) $second->first_contact_by_user_id);
+    }
+
+    public function test_geschwister_wird_ueber_beide_schreibweisen_gefunden(): void
+    {
+        $emp = $this->employee();
+        $first = $this->forward($emp);
+        $this->service()->send($first, null);
+        $second = $this->forward($emp);
+        $second->update(['phone' => '4917663854907']);
+
+        $this->assertSame((int) $first->id, (int) $this->service()->siblingFirstContact($second->fresh())?->id);
+    }
+
+    public function test_geschwister_anderer_teams_oder_ziele_zaehlen_nicht(): void
+    {
+        $emp = $this->employee();
+        $thread = $this->hrThread(self::PHONE, null);
+        $fremdesTeam = $this->forward($emp, self::TEAM + 1);
+        $fremdesTeam->update(['first_contact_at' => now(), 'target_thread_id' => $thread]);
+        $fremdesZiel = $this->forward($emp);
+        $fremdesZiel->update(['target' => 'lohn', 'first_contact_at' => now(), 'target_thread_id' => $thread]);
+        // Ohne target_thread_id ist es kein Geschwister (nur geclaimt, nie zugeordnet).
+        $ohneThread = $this->forward($emp);
+        $ohneThread->update(['first_contact_at' => now()]);
+
+        $f = $this->forward($emp);
+        $this->assertNull($this->service()->siblingFirstContact($f));
+
+        $this->assertTrue($this->service()->send($f, null)['ok']);
+        $this->assertSame(1, $this->stub->calls);
+    }
+
+    public function test_claim_verhindert_versand_wenn_parallel_schon_gesetzt(): void
+    {
+        $stale = $this->forward($this->employee());
+        // Zweiter HR-User / Doppelklick: in der DB schon gesetzt, im Speicher noch leer.
+        Capsule::table('rec_conversation_forwards')->where('id', $stale->id)->update(['first_contact_at' => now()]);
+        $this->assertNull($stale->first_contact_at);
+
+        $r = $this->service()->send($stale, null);
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('Die Erstnachricht wurde schon gesendet.', $r['error']);
+        $this->assertSame(0, $this->stub->calls);
+    }
+
+    public function test_ohne_konfiguriertes_konto_wird_nicht_gesendet(): void
+    {
+        $team = self::TEAM + 2;
+        RecApplicantSettings::query()->where('team_id', $team)->delete();
+        RecApplicantSettings::create(['team_id' => $team, 'settings' => ['auto_pilot_wa_account_id' => null]]);
+        $f = $this->forward($this->employee(), $team);
+
+        $r = $this->service()->send($f, null);
+
+        $this->assertFalse($r['ok']);
+        $this->assertSame('Kein WhatsApp-Konto für die HR-Kommunikation eingestellt.', $r['error']);
+        $this->assertSame(0, $this->stub->calls);
+        $this->assertNull($f->fresh()->first_contact_at);
+    }
+
+    public function test_hr_kanal_der_zugleich_dispo_kanal_ist_wird_gesperrt(): void
+    {
+        // Dispo-Bestaetigungsvorlage auf demselben Konto -> DispoChannelResolver
+        // meldet den HR-Kanal als Dispo-Kanal.
+        $config = Container::getInstance()->make('config');
+        $settings = RecApplicantSettings::query()->where('team_id', self::TEAM)->firstOrFail();
+        $original = $settings->settings;
+        $config->set('recruiting.zas.inbound_team_id', self::TEAM);
+        $settings->update(['settings' => array_merge($original, ['dispo_confirmation_template_id' => self::$templateId])]);
+        try {
+            $existing = $this->hrThread(self::PHONE, '2026-10-02 09:00:00');
+            $f = $this->forward($this->employee());
+
+            $r = $this->service()->send($f, null);
+
+            $this->assertFalse($r['ok']);
+            $this->assertSame('Der HR-Kanal ist zugleich ein Dispo-Kanal – Versand gesperrt.', $r['error']);
+            $this->assertSame(0, $this->stub->calls);
+            $this->assertNull($f->fresh()->first_contact_at);
+            // Der Lookup liest keine Dispo-Threads als HR-Threads.
+            $this->assertNull((new ForwardHrThreadLookup())->find(self::TEAM, self::PHONE));
+            $this->assertNotSame(0, $existing);
+        } finally {
+            $config->set('recruiting.zas.inbound_team_id', null);
+            $settings->update(['settings' => $original]);
+        }
     }
 
     public function test_ohne_ma_wird_nicht_gesendet(): void

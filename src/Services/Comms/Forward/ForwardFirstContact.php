@@ -48,12 +48,29 @@ final class ForwardFirstContact
             return ['ok' => false, 'error' => 'Die Erstnachricht wurde schon gesendet.'];
         }
 
+        // Die Person wurde ueber eine andere Weiterleitung schon angeschrieben:
+        // kein zweites "Gespraech starten", diese Weiterleitung haengt sich an
+        // denselben HR-Chat.
+        $sibling = $this->siblingFirstContact($forward);
+        if ($sibling !== null) {
+            $forward->update([
+                'target_thread_id' => (int) $sibling->target_thread_id,
+                'first_contact_at' => $sibling->first_contact_at,
+                'first_contact_by_user_id' => $sibling->first_contact_by_user_id,
+            ]);
+
+            return ['ok' => true, 'error' => null];
+        }
+
         $firstName = $this->firstNameFor($forward);
         if ($firstName === '') {
             return ['ok' => false, 'error' => 'Kein MA zugeordnet – die Vorlage braucht den Vornamen.'];
         }
 
         $teamId = (int) $forward->team_id;
+        if ($this->accountId($teamId) === null) {
+            return ['ok' => false, 'error' => 'Kein WhatsApp-Konto für die HR-Kommunikation eingestellt.'];
+        }
         $template = $this->template($teamId);
         if ($template === null) {
             return ['ok' => false, 'error' => 'Vorlage „Gespräch starten" (t_com_gen) ist nicht freigegeben.'];
@@ -63,14 +80,33 @@ final class ForwardFirstContact
         if ($target['error'] !== null || !$target['channel'] instanceof CommsChannel) {
             return ['ok' => false, 'error' => (string) ($target['error'] ?? 'Kein HR-Kanal gefunden.')];
         }
+        // Harte Sperre: nie ueber die Dispo-Nummer an den MA schreiben.
+        if (in_array((int) $target['channel']->id, ForwardHrThreadLookup::dispoChannelIds(), true)) {
+            return ['ok' => false, 'error' => 'Der HR-Kanal ist zugleich ein Dispo-Kanal – Versand gesperrt.'];
+        }
 
+        // Meta normalisiert "to" auf E.164 und schreibt die Vorlage in den
+        // "+"-Thread — ein Altthread "49…" waere nicht der, in dem sie landet.
         $digits = preg_replace('/\D+/', '', (string) $forward->phone) ?? '';
-        $thread = $this->lookup->find($teamId, (string) $forward->phone)
-            ?? CommsWhatsAppThread::findOrCreateForPhone($target['channel'], '+' . $digits);
+        $thread = CommsWhatsAppThread::findOrCreateForPhone($target['channel'], '+' . $digits);
+
+        // Atomarer Claim gegen Doppelklick / zwei HR-User auf demselben Datensatz.
+        $userId = isset($user->id) ? (int) $user->id : null;
+        $claimedAt = now();
+        $claimed = RecConversationForward::query()->whereKey($forward->id)->whereNull('first_contact_at')
+            ->update(['first_contact_at' => $claimedAt, 'first_contact_by_user_id' => $userId]);
+        if ($claimed === 0) {
+            return ['ok' => false, 'error' => 'Die Erstnachricht wurde schon gesendet.'];
+        }
 
         $result = $this->sender->send($thread, (int) $template->id, null, $user, $firstName);
         if (!$result['ok']) {
-            $forward->update(['last_error' => mb_substr((string) $result['error'], 0, 500)]);
+            // Claim zuruecknehmen — ein Fehlversand setzt nichts.
+            $forward->update([
+                'first_contact_at' => null,
+                'first_contact_by_user_id' => null,
+                'last_error' => mb_substr((string) $result['error'], 0, 500),
+            ]);
 
             return ['ok' => false, 'error' => $result['error']];
         }
@@ -84,14 +120,37 @@ final class ForwardFirstContact
             }
         }
 
+        // first_contact_at steht schon (Claim) — im Speicher nachziehen.
+        $forward->forceFill(['first_contact_at' => $claimedAt, 'first_contact_by_user_id' => $userId])->syncOriginalAttributes(['first_contact_at', 'first_contact_by_user_id']);
         $forward->update([
             'target_thread_id' => (int) $thread->id,
-            'first_contact_at' => now(),
-            'first_contact_by_user_id' => isset($user->id) ? (int) $user->id : null,
             'last_error' => null,
         ]);
 
         return ['ok' => true, 'error' => null];
+    }
+
+    /**
+     * Andere Weiterleitung derselben Person (Team, Ziel, Nummer), die schon
+     * angeschrieben und einem HR-Chat zugeordnet ist — die juengste.
+     */
+    public function siblingFirstContact(RecConversationForward $forward): ?RecConversationForward
+    {
+        $digits = preg_replace('/\D+/', '', (string) $forward->phone) ?? '';
+        if ($digits === '') {
+            return null;
+        }
+
+        return RecConversationForward::query()
+            ->where('team_id', (int) $forward->team_id)
+            ->where('target', (string) $forward->target)
+            ->whereIn('phone', ['+' . $digits, $digits])
+            ->whereKeyNot($forward->id)
+            ->whereNotNull('first_contact_at')
+            ->whereNotNull('target_thread_id')
+            ->orderByDesc('first_contact_at')
+            ->orderByDesc('id')
+            ->first();
     }
 
     /** HR-Thread mit offenem 24h-Fenster — dann braucht es keine Vorlage. */
@@ -114,19 +173,26 @@ final class ForwardFirstContact
         return trim((string) (RecEmployee::query()->whereKey($forward->rec_employee_id)->value('first_name') ?? ''));
     }
 
+    private function accountId(int $teamId): ?int
+    {
+        $accountId = RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting('auto_pilot_wa_account_id');
+
+        return $accountId ? (int) $accountId : null;
+    }
+
+    /** Ohne eingestelltes HR-Konto keine Vorlage — nie t_com_gen irgendeines Kontos. */
     private function template(int $teamId): ?IntegrationsWhatsAppTemplate
     {
-        if (!class_exists(IntegrationsWhatsAppTemplate::class)) {
+        $accountId = $this->accountId($teamId);
+        if ($accountId === null || !class_exists(IntegrationsWhatsAppTemplate::class)) {
             return null;
         }
-        $accountId = RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting('auto_pilot_wa_account_id');
-        $query = IntegrationsWhatsAppTemplate::query()
-            ->where('status', 'APPROVED')
-            ->where('name', self::TEMPLATE_NAME);
-        if ($accountId) {
-            $query->where('whatsapp_account_id', (int) $accountId);
-        }
 
-        return $query->orderByDesc('id')->first();
+        return IntegrationsWhatsAppTemplate::query()
+            ->where('status', 'APPROVED')
+            ->where('name', self::TEMPLATE_NAME)
+            ->where('whatsapp_account_id', $accountId)
+            ->orderByDesc('id')
+            ->first();
     }
 }

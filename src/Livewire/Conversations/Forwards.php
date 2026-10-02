@@ -65,6 +65,8 @@ class Forwards extends Component
         }
         $service = app(ForwardFirstContact::class);
         $openThread = $f->first_contact_at === null ? $service->windowOpen($f) : null;
+        // Andere Weiterleitung derselben Person schon angeschrieben -> Zuordnen statt Senden.
+        $sibling = $f->first_contact_at === null ? $service->siblingFirstContact($f) : null;
         $target = $f->target_thread_id ? CommsWhatsAppThread::find($f->target_thread_id) : null;
 
         return [
@@ -78,6 +80,7 @@ class Forwards extends Component
             'first_contact_at' => $f->first_contact_at?->format('d.m.Y H:i'),
             'last_error' => $f->last_error,
             'can_send' => $service->firstNameFor($f) !== '',
+            'sibling_first_contact_at' => $sibling?->first_contact_at?->format('d.m.Y H:i'),
             'open_thread_id' => $openThread?->id ? (int) $openThread->id : null,
             'hr_messages' => $target ? app(DispoThreadDirectory::class)->messages($target, []) : [],
             'target_listed' => $target !== null && $target->last_inbound_at !== null,
