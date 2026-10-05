@@ -142,10 +142,37 @@
                     @endif
 
                     @if($mode === 'overview')
+                    @php
+                        // Verschieben nur innerhalb der Stelle (BookingMover). Ohne Stelle am
+                        // Termin gibt es keine Haken, sondern einen Hinweis.
+                        $kannVerschieben = (bool) $this->interview->rec_position_id;
+                        $movableIds = $kannVerschieben ? $this->movableVisibleIds() : [];
+                        $auswahl = array_map('strval', $moveSelection);
+                        $alleAusgewaehlt = $movableIds !== [] && array_diff($movableIds, $auswahl) === [];
+                    @endphp
+                    @if($kannVerschieben && count($auswahl) > 0)
+                        <div class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800" wire:key="move-bar">
+                            <span><span class="font-semibold">{{ count($auswahl) }}</span> ausgewählt</span>
+                            <x-ui-button variant="primary" size="xs" wire:click="openMoveModal">
+                                @svg('heroicon-o-arrows-right-left', 'w-3.5 h-3.5')
+                                <span>Verschieben nach…</span>
+                            </x-ui-button>
+                            <button type="button" class="text-xs underline" wire:click="$set('moveSelection', [])">Auswahl aufheben</button>
+                        </div>
+                    @endif
                     <div class="overflow-x-auto">
                         <table class="w-full table-auto border-collapse text-sm">
                             <thead>
                                 <tr class="text-left text-[var(--ui-muted)] border-b border-[var(--ui-border)]/60 text-xs uppercase tracking-wide">
+                                    @if($kannVerschieben)
+                                        <th class="pl-4 pr-1 py-3 w-6">
+                                            <input type="checkbox" class="rounded border-[var(--ui-border)]"
+                                                title="Alle verschiebbaren auswählen"
+                                                wire:click="toggleMoveSelectAll"
+                                                @checked($alleAusgewaehlt)
+                                                @disabled($movableIds === []) />
+                                        </th>
+                                    @endif
                                     <th class="px-4 py-3">Kandidat</th>
                                     <th class="px-4 py-3">Foto</th>
                                     <th class="px-4 py-3">Stelle</th>
@@ -159,6 +186,14 @@
                             <tbody class="divide-y divide-[var(--ui-border)]/60">
                                 @forelse($this->bookings as $booking)
                                     <tr class="hover:bg-gray-50" wire:key="booking-{{ $booking->id }}">
+                                        @if($kannVerschieben)
+                                            <td class="pl-4 pr-1 py-3 w-6">
+                                                @if(in_array((string) $booking->id, $movableIds, true))
+                                                    <input type="checkbox" class="rounded border-[var(--ui-border)]"
+                                                        value="{{ $booking->id }}" wire:model.live="moveSelection" />
+                                                @endif
+                                            </td>
+                                        @endif
                                         <td class="px-4 py-3">
                                             @if($booking->applicant)
                                                 <a href="{{ route('recruiting.applicants.show', $booking->applicant->id) }}" wire:navigate class="text-blue-600 hover:underline">
@@ -166,6 +201,18 @@
                                                 </a>
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
+                                            @endif
+                                            @if($booking->moved_from_interview_id)
+                                                @php
+                                                    $herkunft = $booking->movedFromInterview;
+                                                    $herkunftLabel = $herkunft
+                                                        ? trim(($herkunft->title ?: 'Termin #' . $herkunft->id) . ' ' . ($herkunft->starts_at?->format('d.m. H:i') ?? ''))
+                                                        : 'Termin #' . $booking->moved_from_interview_id;
+                                                    $herkunftTitle = 'Verschoben am ' . ($booking->moved_at?->format('d.m.Y H:i') ?? '?') . ' — Details im Verlauf des Bewerbers';
+                                                @endphp
+                                                <div class="mt-0.5 text-[11px] text-[var(--ui-muted)]" title="{{ $herkunftTitle }}">
+                                                    @svg('heroicon-o-arrows-right-left', 'w-3 h-3 inline -mt-0.5') aus {{ $herkunftLabel }}
+                                                </div>
                                             @endif
                                         </td>
                                         <td class="px-4 py-3">
@@ -231,7 +278,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="8" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                        <td colspan="{{ $kannVerschieben ? 9 : 8 }}" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                             @svg('heroicon-o-clipboard-document-list', 'w-10 h-10 text-[var(--ui-muted)] mx-auto mb-2')
                                             <div class="text-sm">Keine Buchungen vorhanden</div>
                                         </td>
@@ -673,6 +720,52 @@
         <x-slot name="footer">
             <x-ui-button variant="secondary" wire:click="$set('showLateCancelModal', false)">Abbrechen</x-ui-button>
             <x-ui-button variant="danger" wire:click="submitLateCancel">Trotzdem stornieren</x-ui-button>
+        </x-slot>
+    </x-ui-modal>
+
+    {{-- Teilnehmer verschieben: nur Termine derselben Stelle (BookingMover prueft im Lock nochmal). --}}
+    <x-ui-modal wire:model="showMoveModal">
+        <x-slot name="header">Teilnehmer verschieben</x-slot>
+        @php
+            $moveAnzahl = count($moveSelection);
+            $moveZiele = $showMoveModal ? $this->moveTargets : collect();
+        @endphp
+        <div class="space-y-4">
+            <p class="text-sm text-[var(--ui-secondary)]">
+                {{ $moveAnzahl }} {{ $moveAnzahl === 1 ? 'Teilnehmer wird' : 'Teilnehmer werden' }} in einen anderen Termin der Stelle
+                <strong>{{ $this->interview->position?->title ?? '—' }}</strong> verschoben.
+                Status, Bestätigung und Notizen bleiben erhalten. Es geht keine Nachricht raus,
+                nur die reguläre Erinnerung läuft für den neuen Termin noch einmal.
+            </p>
+            @if($moveZiele->isEmpty())
+                <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                    Es gibt keinen anderen kommenden, aktiven Termin für diese Stelle. Bitte zuerst den Zieltermin anlegen.
+                </div>
+            @else
+                <div>
+                    <label for="moveTargetId" class="block text-sm font-medium text-[var(--ui-secondary)] mb-1">Zieltermin *</label>
+                    <select id="moveTargetId" wire:model="moveTargetId" class="w-full text-sm border border-[var(--ui-border)] rounded px-2 py-2">
+                        <option value="">— Bitte wählen —</option>
+                        @foreach($moveZiele as $ziel)
+                            @php
+                                $frei = $ziel->max_participants ? max(0, $ziel->max_participants - $ziel->taken_seats_count) : null;
+                                $zielLabel = ($ziel->title ?: 'Termin #' . $ziel->id)
+                                    . ' — ' . $ziel->starts_at->format('d.m.Y H:i')
+                                    . ($ziel->location ? ' — ' . $ziel->location : '')
+                                    . ' (' . ($frei === null ? 'unbegrenzt' : $frei . ' frei') . ')';
+                            @endphp
+                            <option value="{{ $ziel->id }}">{{ $zielLabel }}</option>
+                        @endforeach
+                    </select>
+                    @error('moveTargetId') <div class="text-xs text-red-600 mt-1">{{ $message }}</div> @enderror
+                </div>
+                <x-ui-input-textarea name="moveComment" label="Kommentar (optional, steht im Verlauf)" wire:model="moveComment" rows="2" />
+                @error('moveComment') <div class="text-xs text-red-600">{{ $message }}</div> @enderror
+            @endif
+        </div>
+        <x-slot name="footer">
+            <x-ui-button variant="secondary" wire:click="$set('showMoveModal', false)">Abbrechen</x-ui-button>
+            <x-ui-button variant="primary" wire:click="moveBookings" wire:loading.attr="disabled">Verschieben</x-ui-button>
         </x-slot>
     </x-ui-modal>
 

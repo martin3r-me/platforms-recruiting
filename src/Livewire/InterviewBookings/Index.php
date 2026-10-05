@@ -16,6 +16,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
+use Platform\Recruiting\Services\BookingMover;
 use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\ContractProposalService;
 use Platform\Recruiting\Services\SendContractsService;
@@ -34,6 +35,18 @@ class Index extends Component
     public $showBookModal = false;
     public $selectedApplicantId = '';
     public $bookingNotes = '';
+
+    /**
+     * Teilnehmer verschieben (05.10.2026): angehakte Buchungen dieses Termins
+     * in einen anderen Termin derselben Stelle. Regeln liegen im BookingMover,
+     * hier nur Auswahl und Modal.
+     *
+     * @var list<int|string>
+     */
+    public array $moveSelection = [];
+    public bool $showMoveModal = false;
+    public $moveTargetId = '';
+    public string $moveComment = '';
 
     /** Modes: 'overview' (default) | 'nachbereitung' (post-Schulung HR/SL flow) */
     public string $mode = 'overview';
@@ -130,6 +143,7 @@ class Index extends Component
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
                 'applicant.employee:id,rec_applicant_id',
                 'applicant.employee.hrData',
+                'movedFromInterview:id,title,starts_at',
             ])
             ->orderBy('booked_at', 'desc');
 
@@ -249,6 +263,95 @@ class Index extends Component
         )
             ->with(['crmContactLinks.contact'])
             ->get();
+    }
+
+    /** Zulaessige Zieltermine: gleiche Stelle, gleiches Team, kuenftig, aktiv. */
+    #[Computed]
+    public function moveTargets()
+    {
+        return app(BookingMover::class)->targetsFor((int) $this->interviewId, (int) auth()->user()->currentTeam->id);
+    }
+
+    /** IDs der aktuell sichtbaren Buchungen, die verschoben werden duerfen. */
+    public function movableVisibleIds(): array
+    {
+        return $this->bookings
+            ->filter(fn ($b) => in_array($b->status, BookingMover::MOVABLE_STATUSES, true))
+            ->pluck('id')
+            ->map(fn ($id) => (string) $id)
+            ->values()
+            ->all();
+    }
+
+    /** Kopf-Haken: alle sichtbaren verschiebbaren an, oder alle ab. */
+    public function toggleMoveSelectAll(): void
+    {
+        $sichtbar = $this->movableVisibleIds();
+        $alleDrin = $sichtbar !== [] && array_diff($sichtbar, array_map('strval', $this->moveSelection)) === [];
+
+        $this->moveSelection = $alleDrin ? [] : $sichtbar;
+    }
+
+    public function openMoveModal(): void
+    {
+        $this->moveSelection = array_values(array_filter($this->moveSelection));
+        if ($this->moveSelection === []) {
+            session()->flash('error', 'Bitte zuerst Teilnehmer auswählen.');
+            return;
+        }
+
+        $this->moveTargetId = '';
+        $this->moveComment = '';
+        $this->resetErrorBag(['moveTargetId', 'moveComment']);
+        unset($this->moveTargets);
+        $this->showMoveModal = true;
+    }
+
+    public function moveBookings(): void
+    {
+        $this->validate([
+            'moveTargetId' => 'required|integer',
+            'moveComment'  => 'nullable|string|max:1000',
+        ], [
+            'moveTargetId.required' => 'Bitte einen Zieltermin wählen.',
+        ]);
+
+        $user = auth()->user();
+        $result = app(BookingMover::class)->move(
+            (int) $this->interviewId,
+            $this->moveSelection,
+            (int) $this->moveTargetId,
+            teamId: (int) $user->currentTeam->id,
+            userId: (int) $user->id,
+            userName: (string) ($user->name ?? ('User #' . $user->id)),
+            comment: $this->moveComment,
+        );
+
+        if ($result->error !== null) {
+            session()->flash('error', $result->error);
+            return;
+        }
+
+        $message = count($result->moved) === 1
+            ? '1 Teilnehmer verschoben.'
+            : count($result->moved) . ' Teilnehmer verschoben.';
+
+        if ($result->skipped !== []) {
+            // Gruende zusammenfassen statt 30 Einzelzeilen: „2× Zieltermin ist voll."
+            $gruende = collect($result->skipped)->countBy()
+                ->map(fn ($n, $grund) => $n . '× ' . $grund)
+                ->join(' ');
+            $message .= ' ' . count($result->skipped) . ' übersprungen: ' . $gruende;
+            session()->flash($result->moved === [] ? 'error' : 'success', $message);
+        } else {
+            session()->flash('success', $message);
+        }
+
+        $this->moveSelection = array_values(array_map('strval', array_keys($result->skipped)));
+        $this->showMoveModal = false;
+        $this->moveTargetId = '';
+        $this->moveComment = '';
+        unset($this->bookings, $this->moveTargets, $this->openNonEuCaseApplicantIds);
     }
 
     public function openBookModal(): void
