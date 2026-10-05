@@ -231,8 +231,20 @@
                                             @include('recruiting::livewire.partials.selfie', ['applicantId' => $booking->applicant?->id])
                                         </td>
                                         <td class="px-4 py-3">
-                                            @php $positions = $booking->applicant?->postings?->map(fn ($p) => $p->position?->title)->filter()->unique(); @endphp
-                                            {{ $positions && $positions->isNotEmpty() ? $positions->implode(', ') : '—' }}
+                                            {{-- Aktuelle Stelle der Bewerbung, nicht die der Anzeige: wer per
+                                                 Buchung die Stelle gewechselt hat, stand hier sonst mit seiner
+                                                 Herkunft (Befund 05.10.2026, Duesseldorf/Koeln im Gladbacher Termin). --}}
+                                            @php
+                                                $stelle = $booking->applicant?->primaryPosition();
+                                                $herkunft = $booking->applicant?->postings
+                                                    ?->map(fn ($p) => $p->position)
+                                                    ->filter(fn ($pos) => $pos && (int) $pos->id !== (int) $stelle?->id)
+                                                    ->pluck('title')->unique();
+                                            @endphp
+                                            {{ $stelle?->title ?? '—' }}
+                                            @if($herkunft && $herkunft->isNotEmpty())
+                                                <div class="text-[11px] text-[var(--ui-muted)]">beworben über: {{ $herkunft->implode(', ') }}</div>
+                                            @endif
                                         </td>
                                         <td class="px-4 py-3">{{ $booking->booked_at?->format('d.m.Y H:i') ?? '—' }}</td>
                                         <td class="px-4 py-2">

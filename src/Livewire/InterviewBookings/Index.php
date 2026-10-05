@@ -138,6 +138,7 @@ class Index extends Component
             ->with([
                 'applicant.crmContactLinks.contact',
                 'applicant.legalStatus',
+                'applicant.position',
                 'applicant.postings.position',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',

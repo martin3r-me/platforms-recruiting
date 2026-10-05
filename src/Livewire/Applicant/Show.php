@@ -103,7 +103,11 @@ class Show extends Component
             'autoPilotState',
             'postings.position',
             'preferredCommsChannel',
-            'phase',
+            // Stelle + Phase mit deren Stelle: der Kasten „Stelle & Phase" zeigt,
+            // wo die Bewerbung wirklich steht — die Anzeigen darunter sind nur
+            // die Herkunft (Befund 05.10.2026, Faelle 1114/1130/4176).
+            'position',
+            'phase.position',
             'contracts.contractTemplate',
         ]);
 

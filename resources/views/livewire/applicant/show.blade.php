@@ -258,8 +258,41 @@
             :model="$applicant"
         />
 
-        <!-- Zugeordnete Stellen -->
-        <x-ui-panel title="Zugeordnete Stellen" subtitle="Ausschreibungen und Stellen, für die sich der Bewerber beworben hat">
+        <!-- Stelle & Phase: wo die Bewerbung wirklich steht -->
+        @php
+            $aktuelleStelle = $applicant->primaryPosition();
+            $aktuellePhase = $applicant->phase;
+            $phasenStelle = $aktuellePhase?->position;
+            $phaseFremd = $aktuelleStelle && $phasenStelle && (int) $phasenStelle->id !== (int) $aktuelleStelle->id;
+            $herkunftAbweichend = $aktuelleStelle && $applicant->postings->isNotEmpty()
+                && $applicant->postings->every(fn ($p) => (int) $p->rec_position_id !== (int) $aktuelleStelle->id);
+        @endphp
+        <x-ui-panel title="Stelle & Phase" subtitle="Wo die Bewerbung gerade steht">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div>
+                    <div class="text-[var(--ui-muted)]">Stelle</div>
+                    <div class="font-medium text-[var(--ui-secondary)]">{{ $aktuelleStelle?->title ?? '—' }}</div>
+                </div>
+                <div>
+                    <div class="text-[var(--ui-muted)]">Phase</div>
+                    <div class="font-medium text-[var(--ui-secondary)]">{{ $aktuellePhase?->name ?? '—' }}</div>
+                </div>
+            </div>
+            @if($phaseFremd)
+                <div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    Die Phase gehört zur Stelle <strong>{{ $phasenStelle->title }}</strong>, nicht zur Stelle der Bewerbung.
+                    Abläufe dieser Phase (z. B. Mitarbeiter-Anlage nach dem Vertragsversand) laufen dann nach den Regeln der anderen Stelle.
+                </div>
+            @endif
+            @if($herkunftAbweichend)
+                <p class="mt-3 text-xs text-[var(--ui-muted)]">
+                    Beworben über eine Anzeige einer anderen Stelle — die Stelle wurde danach gewechselt (z. B. durch die Schulungs-Buchung).
+                </p>
+            @endif
+        </x-ui-panel>
+
+        <!-- Beworben über (Herkunft der Bewerbung) -->
+        <x-ui-panel title="Beworben über" subtitle="Anzeigen, über die die Bewerbung kam — die aktuelle Stelle steht oben unter „Stelle & Phase“">
             @if($applicant->postings->count() > 0)
                 <div class="space-y-4">
                     @foreach($applicant->postings as $posting)
