@@ -2403,13 +2403,21 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
-        $this->save();
+        // Phase und Feldwerte nur GEMEINSAM: bricht die Feldübertragung ab, darf
+        // die neue Phase nicht allein stehen bleiben (Lauf 05.10.2026: Phase war
+        // umgesetzt, die Felder halb — die Bewerbung sah danach wieder „sauber"
+        // aus und kein zweiter Lauf hätte die restlichen Werte nachgezogen).
+        $this->getConnection()->transaction(function () use ($phaseRemapped, $primaryPosition) {
+            $this->save();
 
-        // Feldwerte erst NACH dem Phasen-Wechsel umhängen (gleiche Mechanik wie
-        // switchToPosition) — sonst würden sie unter der alten Stelle verwaisen.
+            // Feldwerte erst NACH dem Phasen-Wechsel umhängen (gleiche Mechanik wie
+            // switchToPosition) — sonst würden sie unter der alten Stelle verwaisen.
+            if ($phaseRemapped) {
+                $this->remapExtraFieldValuesToPosition($primaryPosition);
+            }
+        });
+
         if ($phaseRemapped) {
-            $this->remapExtraFieldValuesToPosition($primaryPosition);
-
             try {
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $this->id,
@@ -2451,6 +2459,20 @@ class RecApplicant extends Model implements InheritsExtraFields
      * neuen Position): alter Wert wird verworfen, neuer Wert behaelt
      * Vorrang (= juengeres Form-Submit gewinnt).
      */
+    /**
+     * Haengt Feldwerte, die noch unter Definitionen einer FRUEHEREN Stelle
+     * liegen, an die gleichnamigen Felder der aktuellen Stelle. Fuer
+     * Bewerbungen, deren Phase schon stimmt, deren Feldwerte aber nicht
+     * mitgekommen sind (Abbruch 05.10.2026 bei 1114/1130). Idempotent.
+     */
+    public function feldwerteAnAktuelleStelleHaengen(): void
+    {
+        $position = $this->primaryPosition();
+        if ($position) {
+            $this->remapExtraFieldValuesToPosition($position);
+        }
+    }
+
     protected function remapExtraFieldValuesToPosition(RecPosition $newPosition): void
     {
         $newPhaseIds = $newPosition->phases()->pluck('id')->all();
@@ -2468,8 +2490,16 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
-        $values = $this->extraFieldValues()->with('definition')->get();
+        // Juengster Wert zuerst: hat jemand denselben Feldnamen aus mehreren
+        // alten Stellen (Altbewerber, die schon einmal umgezogen sind), gewinnt
+        // der zuletzt gepflegte. Vorher wollten beide auf dieselbe neue
+        // Definition und der Unique-Index brach die Uebertragung mittendrin ab
+        // (Befund 05.10.2026, 1114/1130: Duplicate entry '991-rec_applicant-…').
+        $values = $this->extraFieldValues()->with('definition')->get()
+            ->sortByDesc(fn ($v) => [(string) $v->updated_at, (int) $v->id])
+            ->values();
         $valuesByDefId = $values->keyBy('definition_id');
+        $inDiesemLaufBelegt = [];
 
         foreach ($values as $value) {
             $oldDef = $value->definition;
@@ -2489,6 +2519,14 @@ class RecApplicant extends Model implements InheritsExtraFields
                 continue;
             }
 
+            // Ein juengerer gleichnamiger Wert ist in DIESEM Lauf schon auf die
+            // neue Definition gezogen: den aelteren liegen lassen (unsichtbar
+            // unter der alten Definition), nicht loeschen — er ist Altbestand,
+            // kein Konflikt mit einer Eingabe.
+            if (isset($inDiesemLaufBelegt[$newDef->id])) {
+                continue;
+            }
+
             // Konflikt: Bewerber hat schon einen Wert mit der neuen
             // definition_id (z.B. weil er nach Switch was eingegeben hat
             // bevor das Remapping lief). Alten Wert verwerfen.
@@ -2499,6 +2537,7 @@ class RecApplicant extends Model implements InheritsExtraFields
 
             $value->definition_id = $newDef->id;
             $value->save();
+            $inDiesemLaufBelegt[$newDef->id] = true;
         }
 
         $this->clearExtraFieldDefinitionsCache();
