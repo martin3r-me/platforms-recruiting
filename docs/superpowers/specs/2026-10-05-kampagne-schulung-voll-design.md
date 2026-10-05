@@ -33,7 +33,7 @@ hinter sich haben; die Daten-Vervollständigung danach muss wie gehabt greifen.
 | Thema | Entscheidung |
 |---|---|
 | Einstieg | Tabelle 2 der Statistik: Badge „Ausgebucht“ + Pille „N ohne Termin“ an vollen, **künftigen** Terminen mit Ausschreibung. Klick öffnet das bestehende Drill-Modal mit dem Kampagnen-Fuß. |
-| Zielgruppe | Bewerber der Ausschreibung des Termins mit Zeilentyp `ohne_schulung` — **alle**, unabhängig von Ort-/Tätigkeits-/Status-Filter der Seite (termin_rows). |
+| Zielgruppe | Bewerber der Ausschreibung des Termins mit Zeilentyp `ohne_schulung` — unabhängig von Ort-/Tätigkeits-/Status-Filter der Seite (termin_rows). **Die Vorfilter „Einzelne Ausschreibung“ und „Quelle“ greifen vor dem Assigner und damit auch hier**; Pille, Tooltip und Kopfkarte sagen dann „in dieser Auswahl“ (Review 05.10.). |
 | Wählbar | Nur ab dem Buchungsschritt. Template-A-Zeilen (Phase vor dem Buchungsschritt) bleiben sichtbar, sind aber **nicht wählbar**. Phase 3/4 mit Storno wie bisher (3 vorangehakt, 4 abgehakt). |
 | Termin-Abo auf dem vollen Termin | anschreiben; Abo bleibt stehen (Badge „Warteliste seit …“ wie bisher). |
 | Ausschreibungs-Wechsel bei Buchung am selben Ort | **nicht** in diesem Paket. |
@@ -53,20 +53,28 @@ mit Tooltip, oder „keine Ausschreibung“ mit Hinweis zum Nachtragen.
 ### 4.2 Drill-Scope `posting_type` (`CohortViewModel::resolveIds`)
 Trifft Zeilen mit `posting_id === posting` **und** `type === type`; beides Pflicht, `posting = null` trifft
 nichts (fail-closed). `drill()` löst diesen Scope gegen `termin_rows` auf. Token trägt zusätzlich
-`anlass_interview` (int); `drill()` übernimmt ihn nur aus diesem Scope in die gesperrte Property
-`campaignAnlassInterviewId`.
+`anlass_interview` (int); `drill()` übernimmt ihn und `posting` nur aus diesem Scope in die gesperrten
+Properties `campaignAnlassInterviewId` / `campaignAnlassPostingId`. `campaignAnlass()` hält den Termin gegen
+die Ausschreibung: passt sie nicht (gecraftetes Token mit eigenem, aber anderem Termin), gibt es keinen Kopf.
 
 ### 4.3 Freischaltung und Modus (`Statistics\Index`)
 `campaignEnabled()`: Scope `type_all` **oder** `posting_type`, Typ `ohne_schulung`, kein `set`, IDs vorhanden.
 `campaignNurBuchung()`: Scope `posting_type`. Im Modus: `campaignRows` läuft durch
 `CampaignSegment::nurBuchungsphase()` (A-Zeilen `selectable=false, checked=false`), Template B wird aus dem
-neuen Key vorbelegt (Rückfall B), Template-A-Select ausgeblendet.
+neuen Key vorbelegt (Rückfall B), Template-A-Select ausgeblendet. Die Vorbelegung ist modusbewusst
+(`campaignTemplateBFor`, rein): wechselt der Modus Pille ↔ Kachel, wird B neu aus den Settings gelesen; im
+selben Modus bleibt die Auswahl von HR stehen.
 
 ### 4.4 Anlass-Karte (`campaignAnlass()`)
 Team-gescopt, fail-closed (fremd/unbekannt → null): Datum, Terminart, Belegung, Ausschreibung, Stelle und die
 Zahl der **Alternativen** = kommende aktive Termine (`planned`/`confirmed`) derselben **Stelle** mit freiem Platz
 (unbegrenzt zählt mit), ohne den Anlass selbst. Null Alternativen → rote Karte mit Hinweis. „Dieselbe Stelle“
 ist die Näherung an die Buchungsseite; die Wunschorte jedes Empfängers nachzurechnen wäre eine Query je Person.
+Die Kartentexte nennen die Zahl deshalb als Anhalt (Tooltip), nicht als Versprechen: ein nach Phase 3 auf eine
+andere Stelle umgehängter Bewerber sieht nur seine Stelle, ein nicht festgelegter mit mehreren Wunschorten mehr.
+Volle Termine bleiben auf der Buchungsseite mit Wartelisten-Glocke sichtbar — „leer“ ist sie wörtlich nie.
+Bekannt und bewusst (Altverhalten der Kachel): deaktivierte Bewerbungen zählen in Pille und Drill-Liste mit,
+der Empfänger-Lader (`is_active`) lässt sie weg — Kopfkarte und Kampagnenliste zeigen die kleinere Zahl.
 
 ### 4.5 Job und Sender
 `SendNewDatesCampaign` bekommt `nurBuchungsphase`, `anlass`, `anlassInterviewId` (optional, Default wie bisher).
@@ -89,9 +97,11 @@ Schulungstermine an deinem Wunschort“ — kein Tätigkeits-, Orts- oder Datums
 - `tools/blade-check.php` auf `interviews-table.blade.php` und `index.blade.php`.
 
 ## 6. Auslieferung
-1. ff auf main, meingedeck-Bump. Keine Migration. **Kein `queue:restart` zwingend** (Job-Konstruktor erweitert,
-   alte Worker verarbeiten neue Jobs mit Defaults nicht korrekt → Worker trotzdem neu starten, sobald die erste
-   „Schulung voll“-Kampagne gestartet werden soll). `view:clear`.
+1. ff auf main, meingedeck-Bump. Keine Migration. **`queue:restart` ist Pflicht**: `SerializesModels::__unserialize`
+   ignoriert auf einem alten Worker die drei neuen Job-Felder stumm — Template A ginge zwar nie raus
+   (`templateAId` ist im Modus null), aber ein zwischenzeitlich nach Phase 1 zurückgefallener Bewerber erzeugte die
+   Fehlerzeile „kein Template A gewählt“ statt eines stillen Skips, und die Akte nennte „Neue Termine“ ohne Anlass.
+   `view:clear`.
 2. Settings-Key setzen (ggf. per `JSON_SET`, Memory „Settings-Modal: Selects speichern nicht“).
 3. Sichttest Prod: Tabelle 2 mit einem vollen künftigen Termin → Pille → Modal-Kopf → Testversand.
 

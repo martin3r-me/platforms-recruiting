@@ -197,6 +197,7 @@ class StatisticsFullTrainingCampaignTest extends TestCase
         $component->drillScopeName = 'posting_type';
         $component->drillScopeType = 'ohne_schulung';
         $component->campaignAnlassInterviewId = self::IV_VOLL_ZUKUNFT;
+        $component->campaignAnlassPostingId = self::POSTING_SERVICE;
 
         $anlass = $component->campaignAnlass();
 
@@ -219,29 +220,67 @@ class StatisticsFullTrainingCampaignTest extends TestCase
         $component->drillScopeName = 'posting_type';
         $component->drillScopeType = 'ohne_schulung';
 
+        $component->campaignAnlassPostingId = self::POSTING_SERVICE;
+
         $component->campaignAnlassInterviewId = null;
         $this->assertNull($component->campaignAnlass(), 'ohne Anlass kein Kopf');
 
         $component->campaignAnlassInterviewId = 999;
         $this->assertNull($component->campaignAnlass(), 'unbekannter Termin: kein Kopf, keine Exception');
 
+        // Review 05.10.: gecraftetes Token mit eigenem, aber anderem Termin
+        // ueber der Liste einer anderen Ausschreibung → kein Kopf.
+        $component->campaignAnlassInterviewId = self::IV_VOLL_ZUKUNFT;
+        $component->campaignAnlassPostingId = self::POSTING_BANKETT;
+        $this->assertNull($component->campaignAnlass(), 'Termin gehoert zu Service, Liste zu Bankett');
+
+        $component->campaignAnlassInterviewId = self::IV_OHNE_AUSSCHREIBUNG;
+        $component->campaignAnlassPostingId = self::POSTING_SERVICE;
+        $this->assertNull($component->campaignAnlass(), 'Termin ohne Ausschreibung passt zu keiner Liste');
+
         $component->campaignAnlassInterviewId = self::IV_VOLL_ZUKUNFT;
         $component->drillScopeName = 'type_all';
         $this->assertNull($component->campaignAnlass(), 'Kachel-Modus zeigt nie einen Termin-Kopf');
     }
 
+    /**
+     * Review 05.10.: die Vorfilter „Einzelne Ausschreibung" und „Quelle"
+     * greifen VOR dem Assigner — die Pille zeigt dann eine Teilmenge und muss
+     * das sagen. Hier: Filter auf Bankett → der Service-Termin hat „0 ohne
+     * Termin in dieser Auswahl", nicht „alle haben einen Termin".
+     */
+    public function test_vorfilter_schneiden_die_pille_und_werden_benannt(): void
+    {
+        $component = $this->component();
+        $this->assertFalse($component->pillenVorgefiltert());
+
+        $component->postingFilter = self::POSTING_BANKETT;
+        $this->assertTrue($component->pillenVorgefiltert());
+
+        $voll = $this->rowOf($component->probeInterviewTable(), self::IV_VOLL_ZUKUNFT);
+        $this->assertSame(0, $voll['ohne_termin'], 'Teilmenge: Service-Bewerber sind weggefiltert');
+        $this->assertTrue($voll['voll']);
+
+        $component = $this->component();
+        $component->sourcePlatformFilter = 99;
+        $this->assertTrue($component->pillenVorgefiltert());
+    }
+
     public function test_anlass_ohne_alternativen_wird_als_null_gezaehlt(): void
     {
+        // IV_FREI_ZUKUNFT als Anlass gedacht: Service, Essen. Alternativen sind
+        // dann 300 (voll → nein), 304 (unbegrenzt → ja), 302 (vergangen → nein).
         $component = $this->component();
         $component->drillScopeName = 'posting_type';
         $component->drillScopeType = 'ohne_schulung';
-        $component->campaignAnlassInterviewId = self::IV_ANDERE_STELLE;
+        $component->campaignAnlassInterviewId = self::IV_FREI_ZUKUNFT;
+        $component->campaignAnlassPostingId = self::POSTING_SERVICE;
 
         $anlass = $component->campaignAnlass();
 
         $this->assertNotNull($anlass);
-        $this->assertFalse($anlass['voll']);
-        $this->assertSame(0, $anlass['alternativen'], 'Wuppertal hat nur diesen einen Termin');
+        $this->assertFalse($anlass['voll'], 'inzwischen nicht mehr voll → Karte sagt es, statt zu schweigen');
+        $this->assertSame(1, $anlass['alternativen'], 'nur der unbegrenzte Termin; der volle zaehlt nicht');
     }
 
     private static function runRealMigrations(): void

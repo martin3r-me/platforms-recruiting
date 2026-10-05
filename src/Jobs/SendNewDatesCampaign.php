@@ -199,7 +199,7 @@ class SendNewDatesCampaign implements ShouldQueue
                 $log = new RecAutoPilotLog([
                     'rec_applicant_id' => $applicant->id,
                     'type' => 'waitlist_replaced',
-                    'summary' => 'Ort-Warteliste durch Kampagne „Neue Termine“ abgelöst (' . $closed . ' Eintrag/Einträge geschlossen).',
+                    'summary' => 'Ort-Warteliste durch Kampagne „' . ($this->anlass === self::ANLASS_SCHULUNG_VOLL ? 'Schulung voll' : 'Neue Termine') . '“ abgelöst (' . $closed . ' Eintrag/Einträge geschlossen).',
                     'details' => ['campaign' => $this->campaignUuid],
                 ]);
                 $log->created_at = now();

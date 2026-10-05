@@ -316,6 +316,21 @@ class Index extends Component
      */
     #[Locked]
     public ?int $campaignAnlassInterviewId = null;
+    /**
+     * Ausschreibung aus demselben Pillen-Token. campaignAnlass() haelt den
+     * Termin dagegen: passt seine Ausschreibung nicht, gibt es keinen Kopf —
+     * ein gecraftetes Token kann so keinen fremden (wenn auch eigenen)
+     * Termin ueber die Liste einer anderen Ausschreibung setzen (Review 05.10.).
+     */
+    #[Locked]
+    public ?int $campaignAnlassPostingId = null;
+    /**
+     * Modus, fuer den die Template-Vorbelegung zuletzt gesetzt wurde
+     * ('kachel' | 'pille' | ''). Wechselt der Modus, wird Template B neu aus
+     * den Settings gelesen, sonst bleibt die Auswahl von HR stehen (Review
+     * 05.10.: die Pille hinterliess ihr „freie Termine"-Template in der Kachel).
+     */
+    public string $campaignTemplateMode = '';
     /** @var array<int,bool> applicant_id => angehakt */
     public array $campaignSelection = [];
     public ?int $campaignTemplateA = null;
@@ -344,6 +359,7 @@ class Index extends Component
         $this->drillScopeName = '';
         $this->drillHasSet = false;
         $this->campaignAnlassInterviewId = null;
+        $this->campaignAnlassPostingId = null;
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -2533,6 +2549,9 @@ class Index extends Component
         $this->campaignAnlassInterviewId = ($spec['scope'] ?? null) === 'posting_type'
             ? self::intOrNull($spec['anlass_interview'] ?? null)
             : null;
+        $this->campaignAnlassPostingId = ($spec['scope'] ?? null) === 'posting_type'
+            ? self::intOrNull($spec['posting'] ?? null)
+            : null;
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -2549,11 +2568,15 @@ class Index extends Component
             // Der Modus-Wechsel setzt die Vorbelegung NEU (kein ?:-Rueckfall auf
             // den vorigen Wert): wer eben die Kachel offen hatte, soll an der
             // Pille nicht das Kachel-Template vorfinden.
-            $this->campaignTemplateB = $this->campaignNurBuchung()
-                ? ((int) ($settings->getSetting('campaign_full_training_wa_template_id') ?? 0)
-                    ?: (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0)
-                    ?: null)
-                : ($this->campaignTemplateB ?: (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0) ?: null);
+            $modus = $this->campaignNurBuchung() ? 'pille' : 'kachel';
+            $this->campaignTemplateB = self::campaignTemplateBFor(
+                $modus,
+                $this->campaignTemplateMode,
+                $this->campaignTemplateB,
+                (int) ($settings->getSetting('campaign_full_training_wa_template_id') ?? 0) ?: null,
+                (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0) ?: null,
+            );
+            $this->campaignTemplateMode = $modus;
         }
 
         $prefix = (string) ($spec['prefix'] ?? '');
@@ -2615,6 +2638,19 @@ class Index extends Component
     }
 
     /**
+     * Die Pille „N ohne Termin" rechnet ueber termin_rows — unabhaengig von
+     * Ort, Taetigkeit und Status, aber NICHT unabhaengig von den beiden
+     * Vorfiltern der Bewerber-Query (Einzelne Ausschreibung, Quelle), die
+     * schon vor dem Assigner greifen (cohort()). Mit einem davon zeigt die
+     * Pille eine Teilmenge; die View sagt das dazu, statt „alle haben einen
+     * Termin" zu behaupten (Review 05.10.).
+     */
+    public function pillenVorgefiltert(): bool
+    {
+        return ((int) $this->postingFilter) > 0 || (bool) $this->sourcePlatformFilter;
+    }
+
+    /**
      * Zeilen der Kampagne — Loader buendelt die Queries (Query-Budget §2).
      * Schluessel applicant_id, Reihenfolge wie $drillIds.
      *
@@ -2668,7 +2704,11 @@ class Index extends Component
             ])
             ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
             ->find($this->campaignAnlassInterviewId);
-        if ($interview === null) {
+        // Gegenprobe Token ↔ Termin: der Kopf muss zur Liste passen. Ein Token
+        // mit fremder (eigener, aber anderer) Ausschreibung bekommt keinen Kopf.
+        if ($interview === null
+            || $interview->posting === null
+            || (int) $interview->rec_posting_id !== (int) $this->campaignAnlassPostingId) {
             return null;
         }
 
@@ -2767,6 +2807,26 @@ class Index extends Component
      *
      * @param array{A:int,B:int,total:int} $counts
      */
+    /**
+     * Vorbelegung von Template B beim Oeffnen des Modals — rein, damit der
+     * Moduswechsel ohne Livewire-Lebenszyklus pruefbar ist (drill() liest die
+     * Computed `cohort` und ist in den Tests nicht aufrufbar).
+     *
+     *  - gleicher Modus wie beim letzten Oeffnen: die Auswahl von HR bleibt
+     *    (`$current`), fehlt sie, kommt der Default des Modus;
+     *  - anderer Modus (oder erstes Oeffnen): Default des Modus, die alte
+     *    Auswahl wird verworfen — sie gehoerte zur anderen Kampagne.
+     *
+     * Default „pille" = „freie Termine"-Template, Rueckfall Terminauswahl (B);
+     * Default „kachel" = Terminauswahl (B).
+     */
+    public static function campaignTemplateBFor(string $modus, string $vorigerModus, ?int $current, ?int $fullTraining, ?int $booking): ?int
+    {
+        $default = $modus === 'pille' ? ($fullTraining ?: $booking) : $booking;
+
+        return ($modus === $vorigerModus && $current) ? $current : $default;
+    }
+
     public static function campaignStartError(bool $enabled, bool $alreadyStarted, array $counts, ?int $templateA, ?int $templateB): ?string
     {
         if (!$enabled) {

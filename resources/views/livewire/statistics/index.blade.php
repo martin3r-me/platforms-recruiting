@@ -807,13 +807,21 @@
                                 @else
                                     — {{ $campaignAnlass['taken'] }} von {{ $campaignAnlass['max'] ?? '∞' }} belegt, inzwischen nicht mehr voll.
                                 @endif
-                                {{ count($campaignRows) }} Bewerber der Ausschreibung „{{ $campaignAnlass['posting_title'] }}“ {{ count($campaignRows) === 1 ? 'hat' : 'haben' }} noch keinen Termin.
+                                {{ count($campaignRows) }} Bewerber der Ausschreibung „{{ $campaignAnlass['posting_title'] }}“ {{ count($campaignRows) === 1 ? 'hat' : 'haben' }} noch keinen Termin{{ $this->pillenVorgefiltert() ? ' (in der aktuellen Auswahl — Filter „Einzelne Ausschreibung“ bzw. „Quelle“ ist aktiv)' : '' }}.
                             </div>
                             <div class="mt-1 {{ $campaignAnlass['alternativen'] > 0 ? 'text-[color:var(--ui-muted)]' : 'font-medium text-red-800' }}">
+                                {{-- Naeherung (Spec §4.4): gezaehlt wird die STELLE des Termins. Die
+                                     Terminauswahl zeigt jedem Bewerber die Termine seiner Wunschorte
+                                     (nach der Festlegung nur seine Stelle) — die Zahl ist ein Anhalt,
+                                     kein Versprechen; der Tooltip sagt das. --}}
                                 @if ($campaignAnlass['alternativen'] > 0)
-                                    {{ $campaignAnlass['alternativen'] }} {{ $campaignAnlass['alternativen'] === 1 ? 'weiterer kommender Termin' : 'weitere kommende Termine' }} mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }} — die Nachricht führt auf die Terminauswahl.
+                                    <span class="cursor-help" title="Gezählt werden kommende, buchbare Termine mit freien Plätzen an der Stelle dieses Termins. Jeder Bewerber sieht in der Terminauswahl die Termine seiner Wunschorte (nach der Festlegung nur seine Stelle) — die Zahl ist ein Anhalt, kein Versprechen.">
+                                        {{ $campaignAnlass['alternativen'] }} {{ $campaignAnlass['alternativen'] === 1 ? 'weiterer kommender Termin' : 'weitere kommende Termine' }} mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }} — die Nachricht führt auf die Terminauswahl. ⓘ
+                                    </span>
                                 @else
-                                    Kein weiterer kommender Termin mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }}. Die Nachricht würde auf eine Terminauswahl ohne buchbaren Termin führen — erst Termine anlegen, dann senden.
+                                    <span class="cursor-help" title="Gezählt werden kommende, buchbare Termine mit freien Plätzen an der Stelle dieses Termins. Bewerber mit weiteren Wunschorten sehen dort eventuell Termine — für alle anderen steht in der Terminauswahl nur dieser volle Termin (mit Wartelisten-Glocke).">
+                                        Kein weiterer kommender Termin mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }}. Für Bewerber ohne weitere Wunschorte führt die Nachricht nur auf diesen vollen Termin — besser erst Termine anlegen, dann senden. ⓘ
+                                    </span>
                                 @endif
                             </div>
                         </div>

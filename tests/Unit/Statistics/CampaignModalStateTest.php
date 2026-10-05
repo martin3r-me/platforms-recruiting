@@ -95,6 +95,31 @@ final class CampaignModalStateTest extends TestCase
         $this->assertFalse($c->campaignNurBuchung(), 'Kachel „Ohne Termin": beide Templates wie bisher');
     }
 
+    /**
+     * Review 05.10.: die Pille hinterliess ihr „freie Termine"-Template in der
+     * Kachel. Die Vorbelegung ist jetzt modusbewusst: Moduswechsel → Default
+     * des neuen Modus, gleicher Modus → Auswahl von HR bleibt.
+     */
+    public function testTemplateBVorbelegungFolgtDemModus(): void
+    {
+        $full = 11; $booking = 22; $hr = 33;
+
+        // erstes Oeffnen (kein voriger Modus)
+        $this->assertSame($full, Index::campaignTemplateBFor('pille', '', null, $full, $booking));
+        $this->assertSame($booking, Index::campaignTemplateBFor('pille', '', null, null, $booking), 'Rueckfall auf B ohne eigenes Template');
+        $this->assertSame($booking, Index::campaignTemplateBFor('kachel', '', null, $full, $booking), 'Kachel kennt das Pillen-Template nicht');
+
+        // gleicher Modus: HR-Auswahl bleibt
+        $this->assertSame($hr, Index::campaignTemplateBFor('pille', 'pille', $hr, $full, $booking));
+        $this->assertSame($hr, Index::campaignTemplateBFor('kachel', 'kachel', $hr, $full, $booking));
+
+        // Moduswechsel: alte Auswahl wird verworfen
+        $this->assertSame($booking, Index::campaignTemplateBFor('kachel', 'pille', $full, $full, $booking), 'Pille → Kachel: nicht das Pillen-Template behalten');
+        $this->assertSame($full, Index::campaignTemplateBFor('pille', 'kachel', $booking, $full, $booking), 'Kachel → Pille: eigenes Template');
+
+        $this->assertNull(Index::campaignTemplateBFor('kachel', '', null, null, null), 'nichts gesetzt → nichts vorbelegt');
+    }
+
     public function testDefaultsDerProperties(): void
     {
         $c = new Index();
@@ -105,6 +130,8 @@ final class CampaignModalStateTest extends TestCase
         $this->assertNull($c->campaignUuid);
         $this->assertSame('', $c->campaignError);
         $this->assertNull($c->campaignAnlassInterviewId);
+        $this->assertNull($c->campaignAnlassPostingId);
+        $this->assertSame('', $c->campaignTemplateMode);
     }
 
     /**
