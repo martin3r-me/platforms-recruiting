@@ -263,7 +263,10 @@
             $aktuelleStelle = $applicant->primaryPosition();
             $aktuellePhase = $applicant->phase;
             $phasenStelle = $aktuellePhase?->position;
-            $phaseFremd = $aktuelleStelle && $phasenStelle && (int) $phasenStelle->id !== (int) $aktuelleStelle->id;
+            // Nur bei gesetztem Stellenfeld: ohne es raet primaryPosition() aus der
+            // fruehesten Anzeige, und bei mehreren Anzeigen waere die Warnung ein Fehlalarm.
+            $phaseFremd = $applicant->rec_position_id !== null
+                && $aktuelleStelle && $phasenStelle && (int) $phasenStelle->id !== (int) $aktuelleStelle->id;
             $herkunftAbweichend = $aktuelleStelle && $applicant->postings->isNotEmpty()
                 && $applicant->postings->every(fn ($p) => (int) $p->rec_position_id !== (int) $aktuelleStelle->id);
         @endphp
