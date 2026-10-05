@@ -252,11 +252,17 @@
                                 $offenerPunktKlasse = $offenerPunkt['ko'] ? 'aufgabe aufgabe-ko' : 'aufgabe';
                             @endphp
                             {{--
-                                DER EINZIGE UPLOAD-WEG: der Klick oeffnet das Formular
-                                fuer genau diese Nachweisart (oeffneUpload). Farbe
-                                ($offenerPunkt['punkt']) und Satz ($offenerPunkt['text'])
-                                kommen fertig aus PortalShell::dekoriert() -- hier wird
-                                nichts uebersetzt.
+                                Der Klick oeffnet das Formular fuer genau diese
+                                Nachweisart (oeffneUpload). NICHT der einzige
+                                Upload-Weg -- nachgezaehlt am 05.10.2026: es gibt
+                                ihn auch unter "Liegt vor" (Z. 306), im
+                                Dokumente-Reiter (Z. 418) und an den
+                                Profil-Kacheln (Z. 525). Eine fruehere Fassung
+                                dieses Kommentars behauptete das Gegenteil.
+                                Farbe ($offenerPunkt['punkt']) und Satz
+                                ($offenerPunkt['text']) kommen fertig aus
+                                PortalShell::dekoriert() -- hier wird nichts
+                                uebersetzt.
                             --}}
                             <div class="{{ $offenerPunktKlasse }}" wire:click="oeffneUpload('{{ $offenerPunkt['code'] }}')">
                                 <span class="dot {{ $offenerPunkt['punkt'] }}"></span>
