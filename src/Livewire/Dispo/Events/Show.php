@@ -614,10 +614,20 @@ class Show extends Component
     public string $rowFilter = '';
 
     /**
-     * Tagesfilter der Tabelle (Kunde 22.09.): '' = alle Tage, sonst Y-m-d.
-     * Bei Mehrtages-Veranstaltungen will die Dispo nur die Crew EINES Tages sehen.
+     * Spaltenfilter der Tabelle wie in Excel (Kunde 05.10.): leeres Array = keine
+     * Einschraenkung, sonst die angehakten Werte. Gefiltert wird ueber die Werte,
+     * die in DIESER Veranstaltung vorkommen — ein freier Datumswaehler waere
+     * sinnlos, eine VA kennt nur ihre eigenen Einsatztage.
+     *
+     * @var list<string> Y-m-d (loest den frueheren Einzel-Tagesfilter ab)
      */
-    public string $rowDay = '';
+    public array $rowDays = [];
+
+    /** @var list<string> Anfangszeiten (Spalte "von"), z. B. '12:00' */
+    public array $rowTimes = [];
+
+    /** @var list<string> Taetigkeiten — was der Kunde "Qualifikation" nennt */
+    public array $rowTaetigkeiten = [];
 
     /** Spalten-Sortierung wie Excel (Kunde 04.09.): '' = Lieferreihenfolge (Datum/Zeit). */
     public string $rowSort = '';
@@ -626,9 +636,69 @@ class Show extends Component
     /** Namens-/PNr-Suche ueber der Tabelle (Kunde 04.09.). */
     public string $rowSearch = '';
 
+    /**
+     * "Nur diesen Tag" — Klick auf eine Tageszeile der Dispo-Karte. Erneuter
+     * Klick auf denselben Tag hebt die Einschraenkung wieder auf.
+     */
     public function setRowDay(string $day): void
     {
-        $this->rowDay = in_array($day, array_column($this->dispoDays, 'datum'), true) ? $day : '';
+        $known = array_column($this->dispoDays, 'datum');
+        $this->rowDays = (in_array($day, $known, true) && $this->rowDays !== [$day]) ? [$day] : [];
+    }
+
+    /** Alle Spaltenfilter zuruecksetzen (Chip-Zeile "Alle Filter loeschen"). */
+    public function resetRowFilters(): void
+    {
+        $this->rowDays = [];
+        $this->rowTimes = [];
+        $this->rowTaetigkeiten = [];
+        $this->rowSearch = '';
+        $this->rowFilter = '';
+    }
+
+    /**
+     * Auswahlwerte der Spaltenfilter — nur was in DIESER Veranstaltung vorkommt,
+     * mit Anzahl dahinter (Verhalten des Excel-Filters). Verschwundene und zur
+     * Loeschung gemeldete zaehlen wie ueberall nicht mit.
+     *
+     * @return array{days: list<array{value:string,label:string,count:int}>, times: list<array{value:string,label:string,count:int}>, taetigkeiten: list<array{value:string,label:string,count:int}>}
+     */
+    #[Computed]
+    public function rowFilterOptions(): array
+    {
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoRowFilters::options($this->event->assignments);
+    }
+
+    /**
+     * Aktive Spaltenfilter als entfernbare Chips — ohne sie sitzt man irgendwann
+     * vor einer leeren Tabelle und weiss nicht, warum.
+     *
+     * @return list<array{prop:string, value:string, label:string}>
+     */
+    #[Computed]
+    public function activeRowFilters(): array
+    {
+        $out = [];
+        foreach ($this->rowDays as $v) {
+            $out[] = ['prop' => 'rowDays', 'value' => (string) $v, 'label' => 'Datum: ' . \Illuminate\Support\Carbon::parse($v)->format('d.m.Y')];
+        }
+        foreach ($this->rowTimes as $v) {
+            $out[] = ['prop' => 'rowTimes', 'value' => (string) $v, 'label' => 'Zeit ab: ' . $v];
+        }
+        foreach ($this->rowTaetigkeiten as $v) {
+            $out[] = ['prop' => 'rowTaetigkeiten', 'value' => (string) $v, 'label' => 'Tätigkeit: ' . $v];
+        }
+
+        return $out;
+    }
+
+    /** Einen einzelnen Chip entfernen. */
+    public function removeRowFilter(string $prop, string $value): void
+    {
+        if (!in_array($prop, ['rowDays', 'rowTimes', 'rowTaetigkeiten'], true)) {
+            return;
+        }
+        $this->{$prop} = array_values(array_diff($this->{$prop}, [$value]));
     }
 
     /**
@@ -687,11 +757,7 @@ class Show extends Component
     #[Computed]
     public function filteredAssignments()
     {
-        $rows = $this->event->assignments->filter(fn ($a) => $this->rowMatchesFilter($a, $this->rowFilter));
-
-        if ($this->rowDay !== '') {
-            $rows = $rows->filter(fn ($a) => $a->datum->format('Y-m-d') === $this->rowDay);
-        }
+        $rows = $this->columnScope()->filter(fn ($a) => $this->rowMatchesFilter($a, $this->rowFilter));
 
         $q = mb_strtolower(trim($this->rowSearch));
         if ($q !== '') {
@@ -728,11 +794,9 @@ class Show extends Component
     #[Computed]
     public function rowFilterCounts(): array
     {
-        // Zaehlen im aktuellen Tages-Ausschnitt, sonst passen die Pill-Zahlen
+        // Zaehlen im aktuellen Spalten-Ausschnitt, sonst passen die Pill-Zahlen
         // nicht zu dem, was die Tabelle zeigt.
-        $scope = $this->rowDay === ''
-            ? $this->event->assignments
-            : $this->event->assignments->filter(fn ($a) => $a->datum->format('Y-m-d') === $this->rowDay);
+        $scope = $this->columnScope();
 
         $counts = [];
         foreach (['', 'open', 'confirmed', 'declined', 'read', 'failed'] as $key) {
@@ -740,6 +804,21 @@ class Show extends Component
         }
 
         return $counts;
+    }
+
+    /**
+     * Die Zeilen nach den SPALTENfiltern (Datum/Zeit/Taetigkeit) — ohne den
+     * Status-Filter. Tabelle und Pill-Zaehler teilen sich diesen Ausschnitt,
+     * sonst zeigen die Pills Zahlen, die in der Tabelle nicht vorkommen.
+     */
+    private function columnScope(): \Illuminate\Support\Collection
+    {
+        return \Platform\Recruiting\Services\Zas\Dispo\DispoRowFilters::apply(
+            $this->event->assignments,
+            $this->rowDays,
+            $this->rowTimes,
+            $this->rowTaetigkeiten,
+        );
     }
 
     private function rowMatchesFilter(RecDispoAssignment $a, string $filter): bool
