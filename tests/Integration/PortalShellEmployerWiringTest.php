@@ -120,16 +120,27 @@ class PortalShellEmployerWiringTest extends TestCase
         $this->assertStringContainsString('arbeitgeberAufgabe', $src);
     }
 
-    public function test_start_bereich_zeigt_die_arbeitgeber_aufgabe_vor_den_nachweisen(): void
+    /**
+     * GEDREHT bei der Zusammenlegung der Kaesten: die Nachweisliste "Das
+     * fehlt noch" gibt es nicht mehr, ihre Zeilen stehen im Einsatz-Kasten
+     * (ueber den Spalten). Die Pflichtangaben bleiben im Block darunter.
+     * Die alte Zusicherung "Pflichtangaben VOR der Nachweisliste" gilt damit
+     * NICHT mehr -- sie war schon seit Aufgabe 11 nur noch innerhalb des
+     * alten Blocks wahr, der Kasten stand immer davor. Gemessen wird jetzt,
+     * was stimmt: es gibt genau EINE Nachweisliste (der Kasten), der alte
+     * Block traegt keine zweite, und die Pflichtangaben werden weiter gezeigt.
+     */
+    public function test_start_bereich_zeigt_die_pflichtangaben_und_nur_eine_nachweisliste(): void
     {
         $blade = $this->blade();
 
         $pflichtPos = strpos($blade, '@foreach ($pflichtAufgaben as $aufgabe)');
-        $foreachPos = strpos($blade, "@foreach (\$offeneAufgaben as \$aufgabe)");
+        $kastenPos  = strpos($blade, '@foreach ($offenePunkte[\'punkte\'] as $offenerPunkt)');
 
         $this->assertNotFalse($pflichtPos, 'Blade zeigt die Pflichtangaben nicht an');
-        $this->assertNotFalse($foreachPos);
-        $this->assertLessThan($foreachPos, $pflichtPos, 'Die Pflichtangaben muessen VOR der Nachweisliste stehen');
+        $this->assertNotFalse($kastenPos, 'Der Kasten zeigt die offenen Nachweise nicht an');
+        $this->assertStringNotContainsString('@foreach ($offeneAufgaben as $aufgabe)', $blade, 'Der alte Nachweis-Block ist zurueck -- zwei Listen fuer dasselbe Thema.');
+        $this->assertLessThan($pflichtPos, $kastenPos, 'Der Kasten steht ueber den Spalten, die Pflichtangaben darunter.');
     }
 
     public function test_profil_bereich_bietet_die_frage_ueber_den_gemeinsamen_gruppen_mechanismus_an(): void

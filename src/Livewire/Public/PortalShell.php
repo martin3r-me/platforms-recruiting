@@ -681,10 +681,11 @@ class PortalShell extends Component
         // aus derselben Quelle wie der Ring (PortalMandatory), und die
         // offenen Nachweisarten gehen mit, damit nichts doppelt zaehlt.
         $profil = $this->profilDaten($employee, array_column($offeneNachweise, 'code'));
+        $aufgabenDekoriert = self::dekoriert($checklist);
         $pflichtAufgaben = self::pflichtAufgaben($profil['pflicht'], $this->duzen);
 
         return [
-            'aufgaben'          => self::dekoriert($checklist),
+            'aufgaben'          => $aufgabenDekoriert,
             'dokumente'         => $dokumente,
             'offen'             => $offenAusNachweisen + count($pflichtAufgaben),
             'pflichtAufgaben'   => $pflichtAufgaben,
@@ -714,10 +715,21 @@ class PortalShell extends Component
             // Livewire-Schnappschuss gehoert (Befund Aufgabe 9 des
             // Konto-Zweigs), verlangen den Weg ueber ansichtsDaten() statt
             // ueber eine weitere Eigenschaft.
-            'offenePunkte'    => $employee
-                ? (new OffenePunkte())->fuer($employee)
-                : ['punkte' => [], 'einsatz' => null, 'gesperrt' => false],
+            'offenePunkte'    => $this->offenePunkteMitSaetzen($employee, $aufgabenDekoriert),
         ];
+    }
+
+    /** @return array{punkte:list<array>, einsatz:?array, gesperrt:bool} */
+    private function offenePunkteMitSaetzen(?RecEmployee $employee, array $aufgabenDekoriert): array
+    {
+        if ($employee === null) {
+            return ['punkte' => [], 'einsatz' => null, 'gesperrt' => false];
+        }
+
+        $offen = (new OffenePunkte())->fuer($employee);
+        $offen['punkte'] = self::punkteMitSaetzen($offen['punkte'], $aufgabenDekoriert);
+
+        return $offen;
     }
 
     /**
@@ -1115,6 +1127,36 @@ class PortalShell extends Component
 
             return ['code' => $z['code'], 'label' => $z['label'], 'punkt' => $punkt, 'text' => $text, 'offen' => $z['offen']];
         }, $zeilen);
+    }
+
+    /**
+     * Die offenen Punkte des Einsatz-Kastens (OffenePunkte::fuer()) um Farbe
+     * und Satz erweitern -- aus der dekorierten Nachweisliste, NICHT aus
+     * einer zweiten Zuordnung: dekoriert() bleibt die einzige Stelle, die
+     * Status in Farbe und Satz uebersetzt. Verbunden wird ueber den Code.
+     *
+     * Ein Punkt ohne Gegenstueck faellt nicht heraus (ein offener Nachweis
+     * darf nie verschwinden); er bleibt anklickbar, nur ohne Satz.
+     *
+     * @param  list<array{code:string, label:string, status:string, ko:bool}> $punkte
+     * @param  list<array{code:string, label:string, punkt:string, text:string, offen:bool}> $dekoriert
+     * @return list<array{code:string, label:string, status:string, ko:bool, punkt:string, text:string}>
+     */
+    public static function punkteMitSaetzen(array $punkte, array $dekoriert): array
+    {
+        $nachCode = [];
+        foreach ($dekoriert as $zeile) {
+            $nachCode[$zeile['code']] = $zeile;
+        }
+
+        return array_map(static function (array $p) use ($nachCode): array {
+            $deko = $nachCode[$p['code']] ?? null;
+
+            return $p + [
+                'punkt' => $deko['punkt'] ?? 'crit',
+                'text'  => $deko['text'] ?? '',
+            ];
+        }, $punkte);
     }
 
     /**

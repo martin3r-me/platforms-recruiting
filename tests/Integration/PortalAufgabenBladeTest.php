@@ -534,4 +534,117 @@ final class PortalAufgabenBladeTest extends TestCase
             );
         }
     }
+
+    // -----------------------------------------------------------------
+    // Zusammenlegung der beiden Kaesten (Kunde hat den Zuschnitt
+    // freigegeben): der Kasten uebernimmt Satz, Farbe und Klickweg des
+    // alten Blocks "Das fehlt noch".
+    // -----------------------------------------------------------------
+
+    /** Nur der Kasten -- vom Anfang bis zum Beginn der Spalten darunter. */
+    private function kasten(string $markup): string
+    {
+        $start = strpos($markup, 'class="aufgaben-kasten"');
+        $this->assertNotFalse($start, 'Kein Kasten im Markup.');
+        $ende = strpos($markup, 'class="bcols"', $start);
+        $this->assertNotFalse($ende, 'Der Kasten endet nicht vor den Spalten.');
+
+        return substr($markup, $start, $ende - $start);
+    }
+
+    /**
+     * DER EINZIGE UPLOAD-WEG. Der alte Block trug wire:click="oeffneUpload(..)";
+     * faellt er weg, kann niemand mehr einen Nachweis hochladen. Geprueft am
+     * gerenderten Markup und fuer JEDE Zeile, nicht nur fuer die erste.
+     */
+    public function test_jede_zeile_im_kasten_oeffnet_den_upload(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise(['is_eu_citizen' => false]);
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+        $kasten = $this->kasten($markup);
+
+        $this->assertStringContainsString("wire:click=\"oeffneUpload('ausweis')\"", $kasten);
+        $this->assertStringContainsString("wire:click=\"oeffneUpload('aufenthaltstitel')\"", $kasten);
+        // Eine Zeile je offenem Punkt, keine Zeile ohne Klick.
+        $this->assertSame(
+            substr_count($kasten, 'class="aufgabe"') + substr_count($kasten, 'class="aufgabe aufgabe-ko"'),
+            substr_count($kasten, 'wire:click="oeffneUpload('),
+            'Es gibt Zeilen im Kasten, die nicht anklickbar sind.'
+        );
+    }
+
+    /** Der Klickweg liegt im Kasten -- und nicht mehr in einem zweiten Block. */
+    public function test_der_alte_nachweis_block_ist_weg_und_der_kasten_hat_genau_einen_einstieg(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        // Die Nachweis-Schleife des alten Blocks ist aus dem Quelltext
+        // verschwunden; die Pflichtangaben (andere Liste) bleiben dort.
+        $this->assertStringNotContainsString('@foreach ($offeneAufgaben as', $this->bladeQuelle());
+        $this->assertStringContainsString('@foreach ($pflichtAufgaben as', $this->bladeQuelle());
+        // Im Kasten genau EIN Einstieg je Nachweisart. (Die Reiter
+        // "Dokumente" und "Liegt vor" haben eigene, ebenfalls anklickbare
+        // Zeilen -- deshalb wird hier der Kasten gemessen, nicht die Seite.)
+        $this->assertSame(1, substr_count($this->kasten($markup), "oeffneUpload('ausweis')"));
+    }
+
+    public function test_fehlend_zeigt_den_satz_und_rot(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+
+        $kasten = $this->kasten($this->rendereHuelle($ma, '2026-10-01'));
+
+        $this->assertStringContainsString('Fehlt noch', $kasten);
+        $this->assertStringContainsString('dot crit', $kasten);
+        $this->assertStringNotContainsString('dot warn', $kasten);
+    }
+
+    public function test_abgelaufen_zeigt_das_datum_und_rot(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->nachweis($ma, 'ausweis', '2026-03-12');
+
+        $kasten = $this->kasten($this->rendereHuelle($ma, '2026-10-01'));
+
+        $this->assertStringContainsString('Abgelaufen am 12.03.2026', $kasten);
+        $this->assertStringContainsString('dot crit', $kasten);
+        $this->assertStringNotContainsString('dot warn', $kasten);
+    }
+
+    public function test_laeuft_ab_zeigt_das_datum_und_gelb(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->nachweis($ma, 'ausweis', '2026-10-15');
+
+        $kasten = $this->kasten($this->rendereHuelle($ma, '2026-10-01'));
+
+        $this->assertStringContainsString('Läuft ab am 15.10.2026', $kasten);
+        $this->assertStringContainsString('dot warn', $kasten);
+        $this->assertStringNotContainsString('dot crit', $kasten);
+    }
+
+    /** Das Label bleibt neben dem Satz stehen -- der Satz ersetzt es nicht. */
+    public function test_label_und_satz_stehen_beide_in_der_zeile(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+
+        $kasten = $this->kasten($this->rendereHuelle($ma, '2026-10-01'));
+
+        $this->assertMatchesRegularExpression('#class="t">\s*Personalausweis oder Reisepass\s*</div>\s*<div class="s">\s*Fehlt noch\s*</div>#u', $kasten);
+    }
+
+    /** Pflichtangaben sind eine andere Liste und bleiben unberuehrt. */
+    public function test_die_pflichtangaben_stehen_weiter_unter_das_fehlt_noch(): void
+    {
+        $ma = $this->mitarbeiterOhneNachweise();
+        $this->nachweis($ma, 'ausweis', '2030-01-01');
+        $ma = $ma->fresh();
+        $markup = $this->rendereHuelle($ma, '2026-10-01');
+
+        $this->assertStringContainsString('Das fehlt noch', $markup);
+        $this->assertStringContainsString('Hauptarbeitgeber', $markup);
+    }
 }

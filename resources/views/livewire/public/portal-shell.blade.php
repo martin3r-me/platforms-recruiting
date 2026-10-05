@@ -251,15 +251,29 @@
                                 // Klasse, kein zusaetzliches Zeichen.
                                 $offenerPunktKlasse = $offenerPunkt['ko'] ? 'aufgabe aufgabe-ko' : 'aufgabe';
                             @endphp
-                            <div class="{{ $offenerPunktKlasse }}">{{ $offenerPunkt['label'] }}</div>
+                            {{--
+                                DER EINZIGE UPLOAD-WEG: der Klick oeffnet das Formular
+                                fuer genau diese Nachweisart (oeffneUpload). Farbe
+                                ($offenerPunkt['punkt']) und Satz ($offenerPunkt['text'])
+                                kommen fertig aus PortalShell::dekoriert() -- hier wird
+                                nichts uebersetzt.
+                            --}}
+                            <div class="{{ $offenerPunktKlasse }}" wire:click="oeffneUpload('{{ $offenerPunkt['code'] }}')">
+                                <span class="dot {{ $offenerPunkt['punkt'] }}"></span>
+                                <div>
+                                    <div class="t">{{ $offenerPunkt['label'] }}</div>
+                                    <div class="s">{{ $offenerPunkt['text'] }}</div>
+                                </div>
+                                <span class="chev">›</span>
+                            </div>
                         @endforeach
                     </div>
                 @endif
 
                 <div class="bcols">
-                @if ($offen > 0)
+                @if (count($pflichtAufgaben) > 0)
                     <div>
-                        <div class="sec-label">Das fehlt noch <span class="count">{{ $offen }}</span></div>
+                        <div class="sec-label">Das fehlt noch <span class="count">{{ count($pflichtAufgaben) }}</span></div>
                         <div class="card" style="margin-top:11px">
                             {{--
                                 Ganz oben, noch vor jedem Nachweis: die
@@ -272,16 +286,6 @@
                             --}}
                             @foreach ($pflichtAufgaben as $aufgabe)
                                 <div class="task tap" @click="tab = 'me'">
-                                    <span class="dot {{ $aufgabe['punkt'] }}"></span>
-                                    <div>
-                                        <div class="t">{{ $aufgabe['label'] }}</div>
-                                        <div class="s">{{ $aufgabe['text'] }}</div>
-                                    </div>
-                                    <span class="chev">›</span>
-                                </div>
-                            @endforeach
-                            @foreach ($offeneAufgaben as $aufgabe)
-                                <div class="task tap" wire:click="oeffneUpload('{{ $aufgabe['code'] }}')">
                                     <span class="dot {{ $aufgabe['punkt'] }}"></span>
                                     <div>
                                         <div class="t">{{ $aufgabe['label'] }}</div>

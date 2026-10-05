@@ -186,7 +186,9 @@ p{margin:0}
 .aufgaben-sperre{display:flex; gap:10px; align-items:flex-start; padding:12px 13px; background:var(--crit-bg); border-bottom:1px solid var(--line)}
 .aufgaben-sperre .txt{font-size:13px; line-height:1.4; color:var(--crit); font-weight:700}
 .aufgaben-bezug{font-size:12.5px; color:var(--ink-2); padding:12px 13px 0}
-.aufgabe{font-size:14px; font-weight:600; padding:12px 13px; border-bottom:1px solid var(--line)}
+.aufgabe{display:flex; gap:11px; align-items:flex-start; cursor:pointer; padding:12px 13px; border-bottom:1px solid var(--line)}
+.aufgabe .t{font-size:14px; font-weight:600; line-height:1.3}
+.aufgabe .s{font-size:12px; color:var(--ink-2); margin-top:2px}
 .aufgabe:last-child{border-bottom:none}
 .aufgabe-ko{background:var(--crit-bg); color:var(--crit)}
 
