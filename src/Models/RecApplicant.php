@@ -1248,7 +1248,26 @@ class RecApplicant extends Model implements InheritsExtraFields
                 // seat_released_at != null und ist damit NICHT in
                 // takenSeatsCount() enthalten (seatTaking = whereNull) —
                 // bei taken == max-1 gelingt der Re-Claim korrekt.
-                $interview = RecInterview::query()->lockForUpdate()->find($booking->rec_interview_id);
+                // Termin-ID FRISCH lesen und nach dem Lock gegenpruefen: die Buchung
+                // kann zwischen get() oben und hier verschoben worden sein
+                // (BookingMover). Sonst saehe der Re-Claim die Plaetze des ALTEN
+                // Termins und konsumierte einen Platz im neuen ohne dessen Lock.
+                $interview = null;
+                for ($versuch = 0; $versuch < 3; $versuch++) {
+                    $interviewId = RecInterviewBooking::query()->whereKey($booking->id)->value('rec_interview_id');
+                    $interview = $interviewId ? RecInterview::query()->lockForUpdate()->find($interviewId) : null;
+                    $booking->refresh();
+                    if ((int) $booking->rec_interview_id === (int) $interviewId) {
+                        break;
+                    }
+                }
+                if ((int) $booking->rec_interview_id !== (int) $interview?->id) {
+                    return SeatStandbyPolicy::RECLAIM_FAILED;
+                }
+                if ($booking->status !== 'booked' || $booking->seat_released_at === null) {
+                    // Inzwischen kein Standby mehr (z. B. parallel hochgestuft).
+                    return SeatStandbyPolicy::RECLAIM_OK;
+                }
 
                 $result = SeatStandbyPolicy::reclaimOutcome(
                     true,

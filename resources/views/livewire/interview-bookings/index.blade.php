@@ -83,6 +83,18 @@
                             ? $this->bookings->filter(fn ($b) => \Platform\Recruiting\Support\BookingAftercare::needsResolution($b->status))
                             : collect();
                     @endphp
+                    {{-- Rueckmeldungen der Aktionen (Verschieben, Buchen, Status). Die Seite
+                         hatte bisher keine Anzeige — session()->flash lief ins Leere. --}}
+                    @if (session('success'))
+                        <div class="mb-3 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
+                            {{ session('success') }}
+                        </div>
+                    @endif
+                    @if (session('error'))
+                        <div class="mb-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
+                            {{ session('error') }}
+                        </div>
+                    @endif
                     @if($nachzupflegen->isNotEmpty())
                         <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             <span class="font-semibold">{{ $nachzupflegen->count() }}
@@ -760,7 +772,6 @@
                     @error('moveTargetId') <div class="text-xs text-red-600 mt-1">{{ $message }}</div> @enderror
                 </div>
                 <x-ui-input-textarea name="moveComment" label="Kommentar (optional, steht im Verlauf)" wire:model="moveComment" rows="2" />
-                @error('moveComment') <div class="text-xs text-red-600">{{ $message }}</div> @enderror
             @endif
         </div>
         <x-slot name="footer">

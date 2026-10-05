@@ -328,7 +328,8 @@ class Index extends Component
         );
 
         if ($result->error !== null) {
-            session()->flash('error', $result->error);
+            // Im Modal zeigen, das bleibt offen — eine Flash-Meldung laege dahinter.
+            $this->addError('moveTargetId', $result->error);
             return;
         }
 
