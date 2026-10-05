@@ -16,9 +16,18 @@ use Platform\Recruiting\Models\RecInterviewBooking;
  *
  * Die Buchungszeile wandert mit — kein Storno plus Neubuchung. Status,
  * Bestaetigung, Notizen und Einsatz-Klaerung bleiben erhalten. Bewusst still:
- * keine Nachricht an den Teilnehmer. Einzige Ausnahme ist die regulaere
- * Erinnerung, deren Stempel hier zurueckgesetzt wird, damit sie fuer den
- * neuen Termin (mit neuem Datum) erneut laeuft.
+ * keine Nachricht an den Teilnehmer. Der Erinnerungsstempel bleibt stehen
+ * (User-Entscheidung 05.10.): verschoben wird praktisch nur innerhalb einer
+ * Schulung (Aufteilung in Gruppen), wer schon erinnert wurde, bekommt nichts
+ * mehr. Wer noch nicht erinnert wurde, bekommt die regulaere Erinnerung des
+ * neuen Termins.
+ *
+ * Ohne Model-Events gespeichert (saveQuietly), vor allem ohne den
+ * ZAS-Export-Marker (RecApplicantExportObserver reagiert auf
+ * rec_interview_id). SchulungsStandort/-Datum liest der Export live aus der
+ * Buchung — der neue Stand geht also mit, sobald der Bewerber aus anderem
+ * Grund exportiert wird (User-Entscheidung 05.10.). Die uebrigen Observer
+ * reagieren nur auf Statuswechsel, und der Status bleibt hier unveraendert.
  *
  * Regeln (alle im Lock geprueft, die UI-Auswahl ist nur Komfort):
  *  - Quelle und Ziel im eigenen Team, beide mit derselben, gesetzten Stelle.
@@ -146,8 +155,7 @@ class BookingMover
                     'moved_from_interview_id' => $source->id,
                     'moved_at'                => $now,
                     'moved_by_user_id'        => $userId,
-                    'reminder_sent_at'        => null,
-                ])->save();
+                ])->saveQuietly();
 
                 if ($takesSeat) {
                     $taken++;

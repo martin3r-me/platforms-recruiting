@@ -175,11 +175,50 @@ final class BookingMoverTest extends TestCase
         $this->assertSame('confirmed', $row->status);
         $this->assertSame('kommt mit Bus', $row->notes);
         $this->assertSame('2026-10-02 08:00:00', $row->confirmed_at);
-        $this->assertNull($row->reminder_sent_at, 'Erinnerung muss fuer den neuen Termin erneut laufen');
+        $this->assertSame('2026-10-02 07:00:00', $row->reminder_sent_at, 'schon erinnert = keine zweite Erinnerung');
         $this->assertSame($a, (int) $row->moved_from_interview_id);
         $this->assertSame(7, (int) $row->moved_by_user_id);
         $this->assertSame('2026-10-05 10:00:00', $row->moved_at);
         $this->assertSame(1, Capsule::table('rec_interview_bookings')->count(), 'kein Storno plus Neuanlage');
+    }
+
+    public function test_noch_nicht_erinnert_bleibt_offen_fuer_die_erinnerung_des_ziels(): void
+    {
+        $a = $this->termin();
+        $b = $this->termin(['starts_at' => '2026-10-21 09:00:00']);
+        $id = $this->buchung($a, 42);
+
+        $this->move($a, [$id], $b);
+
+        $this->assertNull($this->row($id)->reminder_sent_at);
+    }
+
+    /**
+     * Kein Model-Event beim Umzug: sonst setzt RecApplicantExportObserver
+     * (reagiert auf rec_interview_id) den ZAS-Export-Marker fuer jeden
+     * verschobenen Bewerber.
+     */
+    public function test_umzug_feuert_keine_model_events_also_kein_zas_marker(): void
+    {
+        $a = $this->termin();
+        $b = $this->termin(['starts_at' => '2026-10-21 09:00:00']);
+        $id = $this->buchung($a, 42);
+
+        $gefeuert = [];
+        foreach (['saving', 'saved', 'updating', 'updated'] as $event) {
+            RecInterviewBooking::{$event}(function () use (&$gefeuert, $event) {
+                $gefeuert[] = $event;
+            });
+        }
+
+        try {
+            $result = $this->move($a, [$id], $b);
+        } finally {
+            RecInterviewBooking::flushEventListeners();
+        }
+
+        $this->assertSame([$id], $result->moved);
+        $this->assertSame([], $gefeuert);
     }
 
     public function test_verlaufseintrag_mit_user_und_kommentar(): void

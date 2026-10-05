@@ -746,8 +746,8 @@
             <p class="text-sm text-[var(--ui-secondary)]">
                 {{ $moveAnzahl }} {{ $moveAnzahl === 1 ? 'Teilnehmer wird' : 'Teilnehmer werden' }} in einen anderen Termin der Stelle
                 <strong>{{ $this->interview->position?->title ?? '—' }}</strong> verschoben.
-                Status, Bestätigung und Notizen bleiben erhalten. Es geht keine Nachricht raus,
-                nur die reguläre Erinnerung läuft für den neuen Termin noch einmal.
+                Status, Bestätigung und Notizen bleiben erhalten. Es geht keine Nachricht raus.
+                Wer schon erinnert wurde, wird nicht noch einmal erinnert.
             </p>
             @if($moveZiele->isEmpty())
                 <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
