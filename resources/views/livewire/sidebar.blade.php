@@ -66,9 +66,13 @@
             @php
                 $unreadConv = $this->stats['unread_conversations'] ?? 0;
                 $escalationConv = $this->stats['escalation_conversations'] ?? 0;
+                $openForwards = $this->stats['open_forwards'] ?? 0;
             @endphp
-            @if($escalationConv > 0 || $unreadConv > 0)
+            @if($escalationConv > 0 || $unreadConv > 0 || $openForwards > 0)
                 <span class="ml-auto flex items-center gap-1">
+                    @if($openForwards > 0)
+                        <span class="flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-violet-50 text-violet-600" title="aus der Dispo weitergeleitet">{{ $openForwards }}</span>
+                    @endif
                     @if($escalationConv > 0)
                         <span class="flex-shrink-0 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600" title="dringend / verpasst">{{ $escalationConv }}</span>
                     @endif

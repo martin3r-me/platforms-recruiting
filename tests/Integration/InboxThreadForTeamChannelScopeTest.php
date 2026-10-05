@@ -183,6 +183,7 @@ class InboxThreadForTeamChannelScopeTest extends TestCase
         $files = [
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$own, 'database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php'],
+            [$own, 'database/migrations/2026_10_02_000001_create_rec_conversation_forwards_table.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
             [$crm, 'database/migrations/2026_02_12_100001_create_comms_whatsapp_threads_table.php'],
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],

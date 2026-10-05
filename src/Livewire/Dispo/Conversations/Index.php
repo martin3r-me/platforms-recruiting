@@ -6,7 +6,12 @@ use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
 use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecConversationForward;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
+use Platform\Recruiting\Services\Comms\Forward\ConversationForwarder;
+use Platform\Recruiting\Services\Comms\Forward\ForwardMessageSelection;
+use Platform\Recruiting\Services\Comms\Forward\ForwardStatus;
+use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChannelResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
@@ -44,6 +49,13 @@ class Index extends Component
     /** Suche in Name/Nummer der Thread-Liste (nur Anzeige-Filter, aendert die Kanal-Regel nicht). */
     public string $search = '';
     public ?string $sendError = null;
+
+    /** Weiterleiten-Fenster: angeklickte Nachricht (null = zu). Auswahl wird serverseitig gesaeubert. */
+    public ?int $forwardMessageId = null;
+    /** @var list<int> */
+    public array $forwardSelection = [];
+    public string $forwardComment = '';
+    public ?string $forwardError = null;
 
     /** @var array<int, int|null>|null In-Request-Cache: comms_channel_id -> filial_nr (oder null-Eintrag existiert nicht, nur vorhandene Zuordnungen). */
     private ?array $channelFilialeMapCache = null;
@@ -359,7 +371,26 @@ class Index extends Component
         $map = $this->channelFilialeMap();
         $sharedPhones = $this->sharedPhones;
         $phoneDir = $this->phoneDirectory();
-        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir) {
+        // Chip "bei HR" / "HR erledigt": juengste Weiterleitung je Thread.
+        $forwardStates = [];
+        $fwdRows = RecConversationForward::query()
+            ->whereIn('source_thread_id', $rows->pluck('id')->all())
+            ->get(['source_thread_id', 'forwarded_at', 'done_at', 'target']);
+        foreach ($fwdRows->groupBy('source_thread_id') as $tid => $group) {
+            $latest = ForwardStatus::latest($group->map(fn ($f) => [
+                'forwarded_at' => $f->forwarded_at->getTimestamp(), 'done' => $f->done_at !== null, 'target' => (string) $f->target,
+            ])->values()->all());
+            if ($latest !== null) {
+                $forwardStates[(int) $tid] = [
+                    'state' => $latest['state'],
+                    'label' => $latest['state'] === ForwardStatus::OPEN
+                        ? ForwardTargets::chipOpen($latest['target'])
+                        : ForwardTargets::chipDone($latest['target']),
+                ];
+            }
+        }
+
+        return $rows->map(function ($t) use ($names, $pnrsByEmployee, $map, $sharedPhones, $phoneDir, $forwardStates) {
             $employeeId = $this->resolveEmployee($t);
             // "alte Nummer"-Etikett: Person zugeordnet, aber Thread-Nummer passt
             // zu keiner aktuellen Akten-Nummer der Gruppe (Vorfall Vesa).
@@ -394,6 +425,7 @@ class Index extends Component
                 'filiale'     => $filialNr !== null ? (Filialen::code($filialNr) ?? ('#' . $filialNr)) : 'Sonstige',
                 'filial_nr'   => $filialNr,
                 'window'      => $window, // state: open | closed | none, left: "22 h" | "45 min" | null
+                'forward'     => $forwardStates[(int) $t->id] ?? null, // null | {state: open|done, label}
             ];
         })->values()->all();
     }
@@ -516,6 +548,7 @@ class Index extends Component
         $this->selectedThreadId = null;
         $this->replyText = '';
         $this->sendError = null;
+        $this->closeForward();
         unset($this->selected, $this->messages, $this->employeePanel, $this->selectedInfo);
     }
 
@@ -542,7 +575,24 @@ class Index extends Component
             return [];
         }
 
-        return app(DispoThreadDirectory::class)->messages($thread, $this->templateLabels);
+        $rows = app(DispoThreadDirectory::class)->messages($thread, $this->templateLabels);
+
+        // Vermerke "an HR weitergeleitet" zeitlich einsortieren (Spec 02.10.2026).
+        foreach (RecConversationForward::query()->where('source_thread_id', $thread->id)->get() as $f) {
+            $at = $f->forwarded_at;
+            $wer = $f->forwarded_by_name ? ' · ' . $f->forwarded_by_name : '';
+            $rows[] = [
+                'id' => null, 'ts' => $at->getTimestamp(), 'kind' => 'note', 'direction' => 'note',
+                'body' => 'An ' . ForwardTargets::label((string) $f->target) . ' weitergeleitet' . ($f->done_at ? ' (erledigt)' : '') . $wer,
+                'time' => $at->format('H:i'), 'day' => $at->format('Y-m-d'),
+                'day_label' => DispoThreadDirectory::dayLabel(\Illuminate\Support\Carbon::instance($at)),
+                'status' => null, 'media_type' => null, 'attachments' => [],
+                'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
+            ];
+        }
+        usort($rows, static fn (array $a, array $b) => [$a['ts'], $a['kind'] === 'note' ? 1 : 0] <=> [$b['ts'], $b['kind'] === 'note' ? 1 : 0]);
+
+        return $rows;
     }
 
     /** @return list<array<string, mixed>> kommende Einsaetze des zugeordneten MA (ALLER Datensaetze der Gruppe) */
@@ -581,6 +631,7 @@ class Index extends Component
         $this->selectedThreadId = $threadId;
         $this->replyText = '';
         $this->sendError = null;
+        $this->closeForward();
         $this->selected?->markAsRead();
         unset($this->threads, $this->selected, $this->messages, $this->employeePanel, $this->filialeTabs, $this->selectedInfo);
         $this->dispatch('sidebar-refresh');
@@ -595,6 +646,89 @@ class Index extends Component
         $this->selected?->markAsUnread();
         $this->back();
         unset($this->threads, $this->filialeTabs);
+        $this->dispatch('sidebar-refresh');
+    }
+
+    /** @return list<array{id:int, body:string, media_type:?string, at:string}> Auswahlliste des offenen Fensters */
+    #[Computed]
+    public function forwardCandidates(): array
+    {
+        if ($this->forwardMessageId === null) {
+            return [];
+        }
+        $byId = collect($this->messages)->filter(fn ($m) => $m['id'] !== null)->keyBy('id');
+        $ids = ForwardMessageSelection::candidates(
+            $byId->map(fn ($m) => ['id' => (int) $m['id'], 'direction' => $m['direction'], 'kind' => $m['kind'], 'ts' => (int) $m['ts']])->values()->all(),
+            $this->forwardMessageId,
+            time(),
+        );
+
+        return array_map(fn (int $id) => [
+            'id' => $id,
+            'body' => (string) $byId[$id]['body'],
+            'media_type' => $byId[$id]['media_type'],
+            'at' => (string) $byId[$id]['at'],
+        ], $ids);
+    }
+
+    public function openForward(int $messageId): void
+    {
+        $this->forwardMessageId = $messageId;
+        $this->forwardComment = '';
+        $this->forwardError = null;
+        unset($this->forwardCandidates);
+        if ($this->forwardCandidates === []) {
+            $this->forwardMessageId = null;
+            $this->sendError = 'Diese Nachricht kann nicht weitergeleitet werden.';
+            return;
+        }
+        $this->forwardSelection = [$messageId];
+    }
+
+    public function closeForward(): void
+    {
+        $this->forwardMessageId = null;
+        $this->forwardSelection = [];
+        $this->forwardComment = '';
+        $this->forwardError = null;
+    }
+
+    public function submitForward(): void
+    {
+        $thread = $this->selected;
+        if ($thread === null || $this->forwardMessageId === null) {
+            $this->closeForward();
+            return;
+        }
+
+        $ids = ForwardMessageSelection::sanitize(
+            $this->forwardSelection,
+            array_column($this->forwardCandidates, 'id'),
+        );
+        if ($ids === []) {
+            $this->forwardError = 'Bitte mindestens eine Nachricht auswählen.';
+            return;
+        }
+
+        $info = $this->selectedInfo;
+        $r = app(ConversationForwarder::class)->forward(
+            (int) auth()->user()->currentTeam->id,
+            $thread,
+            $ids,
+            $this->forwardComment,
+            $info['employee_id'] ?? null,
+            (string) ($info['label'] ?? ''),
+            auth()->user(),
+            ForwardTargets::HR,
+            ForwardTargets::SOURCE_DISPO,
+        );
+        if (!$r['ok']) {
+            $this->forwardError = $r['error'];
+            return;
+        }
+
+        $this->closeForward();
+        unset($this->threads, $this->messages);
         $this->dispatch('sidebar-refresh');
     }
 

@@ -4,8 +4,12 @@ namespace Platform\Recruiting\Livewire\Conversations;
 
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Models\RecConversationForward;
+use Platform\Recruiting\Services\Comms\Forward\ForwardAttachments;
+use Platform\Recruiting\Services\Comms\Forward\ForwardTargets;
 use Platform\Recruiting\Services\Comms\InboxFilter;
 use Platform\Recruiting\Services\Comms\InboxQuery;
 
@@ -35,6 +39,9 @@ class Inbox extends Component
     public string $owner = 'all';
     public string $search = '';
     public bool $showHandled = false;
+
+    /** Reiter "Weitergeleitet" (Spec 02.10.2026) statt Chat-Liste. */
+    public bool $showForwards = false;
     public ?int $selectedThreadId = null;
     public int $perPage = 50;
     public bool $selectMode = false;
@@ -120,6 +127,7 @@ class Inbox extends Component
         // Zweiter Klick auf dieselbe Pille loest den Filter wieder.
         $this->level = ($this->level === $level) ? 'all' : $level;
         $this->showHandled = false;
+        $this->showForwards = false;
         $this->discardSelectionOnFilterChange();
         $this->resetPage();
     }
@@ -127,9 +135,61 @@ class Inbox extends Component
     public function toggleHandledView(): void
     {
         $this->showHandled = !$this->showHandled;
+        $this->showForwards = false;
         $this->level = 'all';
         $this->discardSelectionOnFilterChange();
         $this->resetPage();
+    }
+
+    public function toggleForwardsView(): void
+    {
+        $this->showForwards = !$this->showForwards;
+        $this->selectedThreadId = null;
+    }
+
+    #[On('forward-open-thread')]
+    public function openForwardThread(int $threadId): void
+    {
+        if ($this->threadForTeam($threadId) === null) {
+            return;
+        }
+        $this->showForwards = false;
+        $this->level = 'all';
+        $this->showHandled = false;
+        $this->select($threadId);
+    }
+
+    #[On('forwards-changed')]
+    public function refreshForwardCount(): void
+    {
+        unset($this->openForwardCount);
+    }
+
+    #[Computed]
+    public function openForwardCount(): int
+    {
+        return RecConversationForward::query()->openForTeam($this->teamId(), ForwardTargets::HR)->count();
+    }
+
+    /** @return list<array<string, mixed>> Weiterleitungen, die zu diesem HR-Chat gehoeren (interne Karten). */
+    #[Computed]
+    public function forwardCards(): array
+    {
+        if ($this->selectedThreadId === null) {
+            return [];
+        }
+
+        $forwards = RecConversationForward::query()->openForTeam($this->teamId(), ForwardTargets::HR)
+            ->where('target_thread_id', $this->selectedThreadId)
+            ->orderBy('forwarded_at')->orderBy('id')->get();
+
+        return $forwards->map(fn (RecConversationForward $f) => [
+            'messages' => (array) $f->messages, 'comment' => $f->comment,
+            'by' => (string) ($f->forwarded_by_name ?? ''), 'forwarded_at' => $f->forwarded_at->format('d.m.Y H:i'),
+            'ts' => $f->forwarded_at->getTimestamp(), 'at' => $f->forwarded_at,
+            'attachments' => app(ForwardAttachments::class)
+                ->forMessageIds(array_column((array) $f->messages, 'message_id')),
+        ])->all();
     }
 
     public function loadMore(): void
@@ -205,6 +265,7 @@ class Inbox extends Component
             $this->fallback,
             $this->selectedRow,
             $this->messages,
+            $this->forwardCards,
             $this->contextChips,
         );
     }
@@ -281,8 +342,24 @@ class Inbox extends Component
             return [];
         }
 
-        return app(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::class)
+        $rows = app(\Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::class)
             ->messages($thread, []);
+
+        // Spec Runde 2: offene Weiterleitungen stehen IM Verlauf (zum Zeitpunkt
+        // der Weiterleitung) statt fest darueber — sie scrollen mit, und erledigte
+        // verschwinden. Bestandsreihenfolge bleibt (ForwardTimeline).
+        $cards = array_map(static function (array $c) {
+            $at = \Illuminate\Support\Carbon::instance($c['at']);
+            return [
+                'id' => null, 'ts' => $c['ts'], 'kind' => 'forward', 'direction' => 'note', 'card' => $c,
+                'time' => $at->format('H:i'), 'day' => $at->format('Y-m-d'),
+                'day_label' => \Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory::dayLabel($at),
+                'status' => null, 'media_type' => null, 'attachments' => [], 'body' => '',
+                'template_label' => null, 'template_buttons' => [], 'at' => $at->format('d.m.Y H:i'),
+            ];
+        }, $this->forwardCards);
+
+        return \Platform\Recruiting\Services\Comms\Forward\ForwardTimeline::insert($rows, $cards);
     }
 
     /** @return list<array{label: string, value: string, url: ?string}> */
@@ -477,6 +554,10 @@ class Inbox extends Component
             ],
         );
 
+        app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
+            ->completeForThreads($this->teamId(), [$threadId], Auth::id() !== null ? (int) Auth::id() : null);
+        unset($this->openForwardCount, $this->forwardCards);
+
         if ($this->selectedThreadId === $threadId) {
             $this->selectedThreadId = null;
         }
@@ -599,6 +680,10 @@ class Inbox extends Component
 
         $handledIds = app(\Platform\Recruiting\Services\Comms\ConversationBulkHandler::class)
             ->markManyHandled($this->teamId(), $ids, Auth::id() !== null ? (int) Auth::id() : null);
+
+        app(\Platform\Recruiting\Services\Comms\Forward\ForwardCompletion::class)
+            ->completeForThreads($this->teamId(), $handledIds, Auth::id() !== null ? (int) Auth::id() : null);
+        unset($this->openForwardCount, $this->forwardCards);
 
         if ($this->selectedThreadId !== null && in_array($this->selectedThreadId, $handledIds, true)) {
             $this->selectedThreadId = null;

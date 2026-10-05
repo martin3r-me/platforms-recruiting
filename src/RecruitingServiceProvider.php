@@ -71,6 +71,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\BackfillNationality::class,
                 \Platform\Recruiting\Console\Commands\BackfillEmployerDeclaration::class,
                 \Platform\Recruiting\Console\Commands\BackfillShortTermDayBudget::class,
+                \Platform\Recruiting\Console\Commands\DispoRawHistory::class,
                 \Platform\Recruiting\Console\Commands\CleanupInterviewWaitlist::class,
                 \Platform\Recruiting\Console\Commands\MigrateNonEuCases::class,
                 \Platform\Recruiting\Console\Commands\BackfillPhaseTransitions::class,
