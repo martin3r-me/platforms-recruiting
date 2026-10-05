@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPhase;
+use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 
 /**
@@ -61,6 +62,13 @@ class AnzeigeVerknuepfenTest extends TestCase
 
     /** haengt an einer echten Anzeige und bekommt eine zweite echte dazu. */
     private const APPLICANT_ZWEI_ECHTE = 4012;
+
+    /**
+     * Steht in Koeln, hat keine Anzeige mehr und bekommt die Gladbacher. Nachbau
+     * der Faelle 1114/1130 (05.10.2026): die Stelle wurde auf derselben Instanz
+     * VORHER gelesen, der Abgleich glich die Phase danach an die alte Stelle an.
+     */
+    private const APPLICANT_STELLE_VORHER_GELESEN = 4013;
 
     private const HEUTE = '2026-09-22 10:00:00';
 
@@ -204,6 +212,38 @@ class AnzeigeVerknuepfenTest extends TestCase
         );
     }
 
+    public function test_vorher_gelesene_stelle_lenkt_die_phase_nicht_in_die_alte_stelle(): void
+    {
+        $applicant = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+
+        // Vorflug + der Ausloeser: irgendein Code hat die Stelle schon gelesen.
+        $this->assertSame(self::POSITION_KOELN, $applicant->primaryPosition()?->id);
+        $this->assertSame([], $applicant->postings()->pluck('rec_postings.id')->all());
+
+        $applicant->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $frisch = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $this->assertSame(self::POSITION_GLADBACH, (int) $frisch->rec_position_id, 'die Stelle folgt der Anzeige');
+        $this->assertSame(
+            self::PHASE_GLADBACH_1,
+            (int) $frisch->rec_phase_id,
+            'die Phase gehoert zur NEUEN Stelle, nicht zur zuvor gelesenen alten'
+        );
+        $this->assertSame(self::POSITION_GLADBACH, $applicant->primaryPosition()?->id, 'auch die Instanz selbst kennt danach die neue Stelle');
+    }
+
+    public function test_stellenwechsel_laesst_keine_veraltete_stelle_oder_phase_auf_der_instanz(): void
+    {
+        $applicant = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $applicant->primaryPosition();
+        $applicant->phase;
+
+        $applicant->switchToPosition(RecPosition::find(self::POSITION_GLADBACH));
+
+        $this->assertSame(self::POSITION_GLADBACH, $applicant->primaryPosition()?->id);
+        $this->assertSame(self::PHASE_GLADBACH_1, $applicant->phase?->id);
+    }
+
     private static function definitionId(int $phaseId, string $name): int
     {
         return (int) CoreExtraFieldDefinition::query()
@@ -224,6 +264,13 @@ class AnzeigeVerknuepfenTest extends TestCase
         Capsule::table('rec_applicants')->where('id', self::APPLICANT_ZWEI_ECHTE)->update([
             'rec_position_id' => self::POSITION_GLADBACH,
             'rec_phase_id' => self::PHASE_GLADBACH_2,
+            'owned_by_user_id' => null,
+            'is_unrouted' => 0,
+        ]);
+
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'rec_position_id' => self::POSITION_KOELN,
+            'rec_phase_id' => self::PHASE_KOELN_1,
             'owned_by_user_id' => null,
             'is_unrouted' => 0,
         ]);
@@ -352,6 +399,9 @@ class AnzeigeVerknuepfenTest extends TestCase
              'is_test' => 0, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
             ['id' => self::APPLICANT_ZWEI_ECHTE, 'uuid' => 'avk-app-4012', 'team_id' => self::TEAM,
              'applied_at' => '2026-09-01', 'rec_phase_id' => self::PHASE_GLADBACH_2, 'rec_position_id' => self::POSITION_GLADBACH,
+             'is_test' => 0, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::APPLICANT_STELLE_VORHER_GELESEN, 'uuid' => 'avk-app-4013', 'team_id' => self::TEAM,
+             'applied_at' => '2026-04-22', 'rec_phase_id' => self::PHASE_KOELN_1, 'rec_position_id' => self::POSITION_KOELN,
              'is_test' => 0, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
     }

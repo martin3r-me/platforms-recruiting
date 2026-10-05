@@ -296,6 +296,48 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Wer die Stelle oder die Phase per Kennung neu setzt, verwirft die dazu
+     * schon geladene Beziehung. Sonst liefert $this->position bzw. $this->phase
+     * auf derselben Instanz weiter den ALTEN Stand.
+     *
+     * Genau daran sind die Faelle 1114/1130 entstanden (Befund 05.10.2026):
+     * reconcilePositionState() setzte die Stelle auf die neue Anzeige, las sie
+     * danach ueber primaryPosition() aber aus der vorher geladenen Beziehung —
+     * und glich die Phase an die alte Stelle an. Gleiches Muster in
+     * switchToPosition(), das erst die alte Stelle liest und dann umsetzt.
+     *
+     * Als Mutator statt an jeder Schreibstelle: greift fuer jeden heutigen und
+     * kuenftigen Weg (Zuweisung, fill, forceFill, update). Verworfen wird nur,
+     * wenn die geladene Beziehung wirklich auf etwas anderes zeigt — eine
+     * passend gesetzte Beziehung (setRelation in Tests) bleibt stehen.
+     */
+    public function setRecPositionIdAttribute($value): void
+    {
+        $this->forgetStaleRelation('position', $value);
+        $this->attributes['rec_position_id'] = $value;
+    }
+
+    public function setRecPhaseIdAttribute($value): void
+    {
+        $this->forgetStaleRelation('phase', $value);
+        $this->attributes['rec_phase_id'] = $value;
+    }
+
+    private function forgetStaleRelation(string $relation, $newKey): void
+    {
+        if (!$this->relationLoaded($relation)) {
+            return;
+        }
+
+        $loaded = $this->getRelation($relation);
+        $loadedKey = $loaded?->getKey();
+
+        if ($newKey === null ? $loadedKey !== null : (int) $loadedKey !== (int) $newKey) {
+            $this->unsetRelation($relation);
+        }
+    }
+
+    /**
      * DIE Stelle der Bewerbung — wo die Person bearbeitet wird.
      *
      * Nicht verwechseln mit positions(): das liefert die Stellen der verknuepften
