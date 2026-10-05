@@ -179,7 +179,8 @@ final class CohortViewModel
      *                 Termin-Zeile oder die Gesamt-Zeile von Tabelle 2)
      *                 | 'interviews_posting' (eine Herkunfts-Unterzeile: Termin und
      *                 Ausschreibung) | 'type_all' (ein Zeilentyp ueber alle Gruppen)
-     *                 | 'all' (Gesamt)
+     *                 | 'posting_type' (ein Zeilentyp EINER Ausschreibung — die Pille
+     *                 „ohne Termin" an einem ausgebuchten Termin) | 'all' (Gesamt)
      *
      * ENTFALLEN mit Task 10: 'row' (genau eine Zeile), 'type' (Bucket in einer
      * Gruppe) und 'ort' (Ort-Summe). Sie gehoerten zur Kohorten-Tabelle mit ihrem
@@ -267,6 +268,17 @@ final class CohortViewModel
             'interviews_posting' => fn ($row) => $interviewList !== [] && $postingGiven
                 && in_array(self::interviewIdOf($row), $interviewList, true)
                 && ($row['posting_id'] ?? null) === $posting,
+            // EINE Ausschreibung, EIN Zeilentyp — die Pille „N ohne Termin" an
+            // einem ausgebuchten Termin (Kampagne „Schulung voll", 05.10.2026):
+            // die Bewerber der Ausschreibung des Termins, die keinen Termin
+            // haben. Quer zu 'posting' (alle Typen einer Ausschreibung) und
+            // 'type_all' (ein Typ ueber alle Ausschreibungen). Beides Pflicht,
+            // und anders als bei 'posting' ist null hier KEIN gueltiger Wert:
+            // ein Termin ohne Ausschreibung bekommt gar keine Pille, es gibt
+            // also nichts, was ein Token mit posting=null benennen koennte.
+            'posting_type' => fn ($row) => $posting !== null && $type !== null
+                && ($row['posting_id'] ?? null) === $posting
+                && $row['type'] === $type,
             // Ein Zeilentyp ueber ALLE Gruppen hinweg — Grundlage der Kachel
             // „Ohne Termin", die nicht an einem Ort haengt.
             'type_all' => fn ($row) => $row['type'] === $type,

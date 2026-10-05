@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Crm\Models\CrmContact;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
 use Platform\Integrations\Models\IntegrationsWhatsAppTemplate;
+use Platform\Recruiting\Jobs\SendNewDatesCampaign;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Services\Campaign\NewDatesCampaignSender;
@@ -173,6 +174,40 @@ final class NewDatesCampaignSenderTest extends TestCase
         $this->assertSame('B', $log->details['segment']);
         $this->assertSame('neue_termine_b', $log->details['template']);
         $this->assertSame(42, $log->details['sent_by']);
+    }
+
+    /**
+     * Kampagne „Schulung voll" (05.10.2026): gleicher Log-TYP (der 14-Tage-
+     * Schutz der Segmentregel soll ueber beide Kampagnen greifen), aber die
+     * Akte nennt den Anlass im Text und im Detail.
+     */
+    public function testAnlassSchulungVollStehtInDerAkte(): void
+    {
+        $a = $this->applicant();
+        $sender = $this->sender(['components' => [['type' => 'BODY', 'text' => 'Freie Termine!'], self::BUTTON_B]]);
+        $sender->anlass = SendNewDatesCampaign::ANLASS_SCHULUNG_VOLL;
+        $sender->anlassInterviewId = 300;
+
+        $r = $sender->send($a, 77, 'B', 'uuid-3', 42);
+
+        $this->assertSame(NewDatesCampaignSender::STATUS_SENT, $r['status']);
+        $log = RecAutoPilotLog::where('rec_applicant_id', $a->id)->where('type', 'campaign_sent')->first();
+        $this->assertNotNull($log);
+        $this->assertStringContainsString('Kampagne „Schulung voll“ gesendet', $log->summary);
+        $this->assertSame('schulung_voll', $log->details['anlass']);
+        $this->assertSame(300, $log->details['anlass_interview_id']);
+    }
+
+    public function testOhneAnlassHeisstEsWeiterNeueTermine(): void
+    {
+        $a = $this->applicant();
+        $sender = $this->sender(['components' => [['type' => 'BODY', 'text' => 'Neue Termine!'], self::BUTTON_B]]);
+
+        $sender->send($a, 77, 'B', 'uuid-4', 42);
+
+        $log = RecAutoPilotLog::where('rec_applicant_id', $a->id)->where('type', 'campaign_sent')->first();
+        $this->assertStringContainsString('Kampagne „Neue Termine“ gesendet', $log->summary);
+        $this->assertNull($log->details['anlass']);
     }
 
     public function testNameVariableWirdZumVornamen(): void

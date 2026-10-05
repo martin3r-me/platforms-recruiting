@@ -767,6 +767,10 @@
         $campaignTemplates = $campaignEnabled ? $this->campaignTemplates : [];
         $campaignRunning = $campaignProgress !== null && !($campaignProgress['done'] ?? false);
         $pollAttr = $campaignRunning ? 'wire:poll.3s' : '';
+        // Modus „Schulung voll“ (05.10.2026): Einstieg ueber die Pille an einem
+        // ausgebuchten Termin. Nur Terminauswahl-Template, Kopf nennt den Anlass.
+        $campaignNurBuchung = $campaignEnabled && $this->campaignNurBuchung();
+        $campaignAnlass = $campaignNurBuchung ? $this->campaignAnlass : null;
     @endphp
     {{-- SCHULUNGS-DETAILANSICHT (09.09.2026): die Termin-Tabelle traegt nur die
          Einsatz-Quote, hier liegt die Tiefe — Schulungsleiter, Toepfe und die
@@ -790,8 +794,40 @@
         @elseif ($campaignEnabled)
             {{-- Kampagne „Neue Termine“: Auswahl + Badges. Polling nur, solange ein Versand laeuft. --}}
             <div {!! $pollAttr !!}>
+                @if ($campaignNurBuchung)
+                    {{-- ANLASS-KARTE „Schulung voll“: welcher Termin, wie voll, und ob es
+                         ueberhaupt Alternativen gibt — ohne freie Termine an derselben
+                         Stelle fuehrt die Nachricht auf eine leere Terminauswahl. --}}
+                    @if ($campaignAnlass !== null)
+                        <div class="mb-3 rounded-lg border {{ $campaignAnlass['alternativen'] > 0 ? 'border-[var(--ui-border)]/60 bg-[var(--ui-muted-5)]' : 'border-red-200 bg-red-50' }} px-3 py-2 text-xs">
+                            <div class="text-[color:var(--ui-secondary)]">
+                                <strong>{{ $campaignAnlass['typ'] }} am {{ $campaignAnlass['datum'] }}</strong>
+                                @if ($campaignAnlass['voll'])
+                                    ist ausgebucht ({{ $campaignAnlass['taken'] }} von {{ $campaignAnlass['max'] }}).
+                                @else
+                                    — {{ $campaignAnlass['taken'] }} von {{ $campaignAnlass['max'] ?? '∞' }} belegt, inzwischen nicht mehr voll.
+                                @endif
+                                {{ count($campaignRows) }} Bewerber der Ausschreibung „{{ $campaignAnlass['posting_title'] }}“ {{ count($campaignRows) === 1 ? 'hat' : 'haben' }} noch keinen Termin.
+                            </div>
+                            <div class="mt-1 {{ $campaignAnlass['alternativen'] > 0 ? 'text-[color:var(--ui-muted)]' : 'font-medium text-red-800' }}">
+                                @if ($campaignAnlass['alternativen'] > 0)
+                                    {{ $campaignAnlass['alternativen'] }} {{ $campaignAnlass['alternativen'] === 1 ? 'weiterer kommender Termin' : 'weitere kommende Termine' }} mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }} — die Nachricht führt auf die Terminauswahl.
+                                @else
+                                    Kein weiterer kommender Termin mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }}. Die Nachricht würde auf eine Terminauswahl ohne buchbaren Termin führen — erst Termine anlegen, dann senden.
+                                @endif
+                            </div>
+                        </div>
+                    @endif
+                    <div class="mb-2 text-xs text-[color:var(--ui-muted)]">
+                        Nur Bewerber ab dem Buchungsschritt sind wählbar — wer die Bewerbung noch nicht vervollständigt hat, bleibt sichtbar, bekommt aber keine Nachricht. Nach dem Versand folgen keine automatischen Erinnerungen; der Auto-Pilot läuft erst nach einer Buchung weiter.
+                    </div>
+                @endif
                 <div class="mb-2 flex items-center justify-between text-xs text-[color:var(--ui-muted)]">
-                    <span>{{ $campaignCounts['total'] }} von {{ count($campaignRows) }} gewählt — {{ $campaignCounts['A'] }}× Template A (Bewerbung vervollständigen), {{ $campaignCounts['B'] }}× Template B (Terminauswahl)</span>
+                    @if ($campaignNurBuchung)
+                        <span>{{ $campaignCounts['total'] }} von {{ count($campaignRows) }} gewählt — Nachricht „freie Termine“ mit Link zur Terminauswahl</span>
+                    @else
+                        <span>{{ $campaignCounts['total'] }} von {{ count($campaignRows) }} gewählt — {{ $campaignCounts['A'] }}× Template A (Bewerbung vervollständigen), {{ $campaignCounts['B'] }}× Template B (Terminauswahl)</span>
+                    @endif
                     <span class="flex gap-2">
                         <button type="button" class="underline" wire:click="campaignSelectAll(true)">alle</button>
                         <button type="button" class="underline" wire:click="campaignSelectAll(false)">keine</button>
@@ -886,23 +922,32 @@
                             </ul>
                         @endif
                     @else
-                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                            <x-ui-input-select
-                                :value="$this->campaignTemplateA"
-                                name="campaignTemplateA"
-                                label="Template A — Bewerbung vervollständigen"
-                                :options="$campaignTemplates"
-                                optionValue="id"
-                                optionLabel="label"
-                                :nullable="true"
-                                nullLabel="– Template wählen –"
-                                displayMode="dropdown"
-                                wire:model.live="campaignTemplateA"
-                            />
+                        @php
+                            // Modus „Schulung voll“: es gibt nur die Terminauswahl-Nachricht;
+                            // Template A haette keinen Empfaenger (Zeilen gesperrt) und
+                            // wuerde nur verwirren. Label vorberechnet (kein inline @if im
+                            // Komponenten-Attribut — Memory Blade-Pitfalls).
+                            $labelB = $campaignNurBuchung ? 'Nachricht — freie Termine (Link zur Terminauswahl)' : 'Template B — Terminauswahl';
+                        @endphp
+                        <div class="grid grid-cols-1 gap-2 {{ $campaignNurBuchung ? '' : 'md:grid-cols-2' }}">
+                            @if (!$campaignNurBuchung)
+                                <x-ui-input-select
+                                    :value="$this->campaignTemplateA"
+                                    name="campaignTemplateA"
+                                    label="Template A — Bewerbung vervollständigen"
+                                    :options="$campaignTemplates"
+                                    optionValue="id"
+                                    optionLabel="label"
+                                    :nullable="true"
+                                    nullLabel="– Template wählen –"
+                                    displayMode="dropdown"
+                                    wire:model.live="campaignTemplateA"
+                                />
+                            @endif
                             <x-ui-input-select
                                 :value="$this->campaignTemplateB"
                                 name="campaignTemplateB"
-                                label="Template B — Terminauswahl"
+                                :label="$labelB"
                                 :options="$campaignTemplates"
                                 optionValue="id"
                                 optionLabel="label"

@@ -64,6 +64,37 @@ final class CampaignModalStateTest extends TestCase
         $this->assertFalse($c->campaignEnabled());
     }
 
+    /**
+     * Kampagne „Schulung voll" (05.10.2026): zweiter legitimer Einstieg ist
+     * die Pille „N ohne Termin" an einem ausgebuchten Termin in Tabelle 2 —
+     * Scope 'posting_type' mit type 'ohne_schulung', ohne 'set'. Nur dort gilt
+     * der Modus „nur Buchungsphase" (Template-A-Zeilen gesperrt); die Kachel
+     * „Ohne Termin" bleibt, wie sie war.
+     */
+    public function testKampagneAuchUeberDiePilleAmAusgebuchtenTermin(): void
+    {
+        $c = new Index();
+        $c->drillIds = [1, 2];
+        $c->drillScopeName = 'posting_type';
+        $c->drillScopeType = 'ohne_schulung';
+        $c->drillHasSet = false;
+
+        $this->assertTrue($c->campaignEnabled());
+        $this->assertTrue($c->campaignNurBuchung());
+
+        $c->drillScopeType = 'schulung';
+        $this->assertFalse($c->campaignEnabled(), 'posting_type mit anderem Typ: kein Versand an Teilnehmer');
+
+        $c->drillScopeType = 'ohne_schulung';
+        $c->drillHasSet = true;
+        $this->assertFalse($c->campaignEnabled(), "'set' redirigiert die ID-Aufloesung — bleibt gesperrt");
+
+        $c->drillHasSet = false;
+        $c->drillScopeName = 'type_all';
+        $this->assertTrue($c->campaignEnabled());
+        $this->assertFalse($c->campaignNurBuchung(), 'Kachel „Ohne Termin": beide Templates wie bisher');
+    }
+
     public function testDefaultsDerProperties(): void
     {
         $c = new Index();
@@ -73,6 +104,7 @@ final class CampaignModalStateTest extends TestCase
         $this->assertSame([], $c->campaignSelection);
         $this->assertNull($c->campaignUuid);
         $this->assertSame('', $c->campaignError);
+        $this->assertNull($c->campaignAnlassInterviewId);
     }
 
     /**

@@ -227,4 +227,54 @@ final class SendNewDatesCampaignJobTest extends TestCase
         $this->assertSame(1, $p['total']);
         $this->assertSame(['Job abgebrochen: unbekannt'], $p['errors']);
     }
+    /**
+     * Modus „Schulung voll" (05.10.2026): Template-A-Zeilen sind im Modal
+     * nicht waehlbar — und der Job sperrt sie in seinem Re-Check NOCHMAL,
+     * weil sich der Stand seit dem Oeffnen geaendert haben kann (jemand
+     * ist zwischenzeitlich in Phase 1 zurueckgefallen). Uebersprungen, nicht
+     * gesendet, ohne Fehlerzeile: es ist kein Fehler, sondern die Regel.
+     * Der Anlass wandert an den Sender, damit die Akte ihn nennt.
+     */
+    public function testNurBuchungsphaseUeberspringtTemplateAUndReichtDenAnlassDurch(): void
+    {
+        $this->applicant(1); $this->applicant(2);
+        $rows = [1 => $this->row(1, 'A'), 2 => $this->row(2, 'B')];
+
+        $recipients = new class($rows) extends NewDatesCampaignRecipients {
+            public function __construct(private array $rows) {}
+            public function load(int $teamId, array $applicantIds, \DateTimeImmutable $now): array
+            {
+                return array_intersect_key($this->rows, array_flip($applicantIds));
+            }
+        };
+        $sender = new class extends NewDatesCampaignSender {
+            public array $calls = [];
+            public function __construct() {}
+            public function send(RecApplicant $applicant, int $templateId, string $segment, string $campaignUuid, ?int $sentByUserId): array
+            {
+                $this->calls[] = ['id' => $applicant->id, 'template' => $templateId, 'anlass' => $this->anlass, 'interview' => $this->anlassInterviewId];
+                return ['status' => NewDatesCampaignSender::STATUS_SENT, 'error' => null];
+            }
+        };
+
+        $job = new SendNewDatesCampaign('uuid-v', 3, 42, [1, 2], null, 20, true, SendNewDatesCampaign::ANLASS_SCHULUNG_VOLL, 300);
+        $this->cache->put(SendNewDatesCampaign::cacheKey('uuid-v'), SendNewDatesCampaign::initialProgress(2), 86400);
+        $job->handle($this->cache, $recipients, $sender);
+
+        $this->assertSame([['id' => 2, 'template' => 20, 'anlass' => 'schulung_voll', 'interview' => 300]], $sender->calls);
+        $p = $this->cache->get(SendNewDatesCampaign::cacheKey('uuid-v'));
+        $this->assertSame(1, $p['sent']);
+        $this->assertSame(1, $p['skipped']);
+        $this->assertSame([], $p['errors'], 'Die Sperre ist Regel, kein Fehler');
+        $this->assertTrue($p['done']);
+    }
+
+    public function testOhneModusBleibtAllesBeimAlten(): void
+    {
+        $job = new SendNewDatesCampaign('uuid-w', 3, 42, [1], 10, 20);
+
+        $this->assertFalse($job->nurBuchungsphase);
+        $this->assertNull($job->anlass);
+        $this->assertNull($job->anlassInterviewId);
+    }
 }

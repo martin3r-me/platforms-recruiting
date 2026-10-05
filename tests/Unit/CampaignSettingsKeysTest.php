@@ -35,6 +35,28 @@ final class CampaignSettingsKeysTest extends TestCase
         $this->assertStringContainsString('settings.no_assignment_campaign_wa_template_id', $blade);
     }
 
+    /**
+     * Kampagne „Schulung voll" (05.10.2026): eigener Key fuer den anderen
+     * Wortlaut („freie Termine an deinem Wunschort"), Rueckfall auf B im
+     * Statistik-Modal (Statistics\Index::drill).
+     */
+    public function testSchulungVollHatEinenEigenenKeyMitRueckfallAufB(): void
+    {
+        $this->assertArrayHasKey('campaign_full_training_wa_template_id', RecApplicantSettings::DEFAULT_SETTINGS);
+        $this->assertNull(RecApplicantSettings::DEFAULT_SETTINGS['campaign_full_training_wa_template_id']);
+
+        $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');
+        $this->assertStringContainsString('settings.campaign_full_training_wa_template_id', $blade);
+
+        $index = file_get_contents(dirname(__DIR__, 2) . '/src/Livewire/Statistics/Index.php');
+        $this->assertStringContainsString("getSetting('campaign_full_training_wa_template_id')", $index);
+        $this->assertMatchesRegularExpression(
+            "/campaign_full_training_wa_template_id[^;]*campaign_booking_wa_template_id/s",
+            $index,
+            'Rueckfall auf das Terminauswahl-Template, wenn kein eigenes gesetzt ist'
+        );
+    }
+
     public function testModalBietetBeideSelects(): void
     {
         $blade = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/applicant/applicant-settings-modal.blade.php');

@@ -196,6 +196,38 @@ final class CampaignSegment
     }
 
     /**
+     * Kampagne „Schulung voll" (05.10.2026): Anlass ist ein ausgebuchter
+     * Termin, Ziel sind die Bewerber seiner Ausschreibung ohne Termin. Der
+     * Kunde will dort nur Leute erreichen, die Phase 1 hinter sich haben —
+     * eine Terminauswahl-Nachricht an jemanden, dessen Bewerbung noch
+     * unvollstaendig ist, fuehrt auf eine Seite, die er noch gar nicht
+     * nutzen kann. Template-A-Zeilen bleiben deshalb SICHTBAR (HR sieht,
+     * warum jemand fehlt), sind aber nicht waehlbar — gleiche Mechanik wie
+     * „kein Telefon": campaignSelectAll(), selectedIds() und der Job pruefen
+     * gegen `selectable`, ein blosses `checked = false` haette „alle
+     * auswaehlen" wieder mitgenommen. Das Badge „Bewerbung unvollstaendig"
+     * traegt die Zeile schon aus classify().
+     *
+     * Ueberlagerung NACH classify() statt eines weiteren Eingabe-Flags: der
+     * Loader (NewDatesCampaignRecipients::load) und der Job bleiben
+     * unveraendert, beide Aufrufer legen diese Regel bei Bedarf darueber.
+     *
+     * @param array<int, array{template:string, selectable:bool, checked:bool, badges:list<string>}> $rows
+     * @return array<int, array{template:string, selectable:bool, checked:bool, badges:list<string>}>
+     */
+    public static function nurBuchungsphase(array $rows): array
+    {
+        foreach ($rows as $id => $row) {
+            if (($row['template'] ?? '') === self::TEMPLATE_FORM) {
+                $rows[$id]['selectable'] = false;
+                $rows[$id]['checked'] = false;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
      * Schnitt aus Client-Auswahl, Kohorte und waehlbaren Zeilen. Der Client
      * darf nur ankreuzen, was das Modal zeigt UND was waehlbar ist — alles
      * andere wird still verworfen (Muster resolveIdsFromClient: Eingabe von

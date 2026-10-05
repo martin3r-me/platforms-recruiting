@@ -307,6 +307,15 @@ class Index extends Component
      */
     #[Locked]
     public bool $drillHasSet = false;
+    /**
+     * Anlass der Kampagne „Schulung voll" (05.10.2026): der ausgebuchte Termin,
+     * ueber dessen Pille „N ohne Termin" (Tabelle 2) das Modal geoeffnet wurde.
+     * Locked wie die anderen Drill-Felder — nur drill() setzt ihn aus dem
+     * Token, resetDrill() leert ihn. null = Einstieg ueber die Kachel
+     * „Ohne Termin" (Kampagne „Neue Termine", beide Templates).
+     */
+    #[Locked]
+    public ?int $campaignAnlassInterviewId = null;
     /** @var array<int,bool> applicant_id => angehakt */
     public array $campaignSelection = [];
     public ?int $campaignTemplateA = null;
@@ -334,6 +343,7 @@ class Index extends Component
         $this->drillScopeType = '';
         $this->drillScopeName = '';
         $this->drillHasSet = false;
+        $this->campaignAnlassInterviewId = null;
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -1438,6 +1448,21 @@ class Index extends Component
         $vm = $this->viewModel();
         $cohorts = $vm->interviewCohorts($terminRows);
 
+        // Kampagne „Schulung voll" (05.10.2026): je Ausschreibung die Bewerber
+        // OHNE Termin — die Zielgruppe der Pille an einem ausgebuchten Termin.
+        // Aus termin_rows, also vor Ort-/Taetigkeits-/Status-Filter: die Pille
+        // soll alle Bewerber der Ausschreibung nennen, nicht die der Auswahl
+        // (die aelteren sind die eigentliche Zielgruppe). Zeilen ohne
+        // Ausschreibung haben keine Zielgruppe und bleiben draussen.
+        $ohneTerminByPosting = [];
+        foreach ($terminRows as $row) {
+            $postingId = $row['posting_id'] ?? null;
+            if ($row['type'] === 'ohne_schulung' && $postingId !== null) {
+                $ohneTerminByPosting[(int) $postingId] = ($ohneTerminByPosting[(int) $postingId] ?? 0) + count($row['ids']);
+            }
+        }
+        $jetzt = now();
+
         $tableRows = [];
         $shown = [];
         foreach ($interviews as $interview) {
@@ -1453,8 +1478,21 @@ class Index extends Component
                 $postingTitle = (string) ($interview->title ?? '');
             }
 
+            // posting_id nur, wenn die team-gescopte Relation sie auch liefert —
+            // ein Fremdschluessel auf eine fremde Ausschreibung bleibt ohne Pille,
+            // so wie er oben ohne Titel bleibt.
+            $postingId = $interview->posting !== null ? (int) $interview->rec_posting_id : null;
+            $max = (int) ($interview->max_participants ?? 0);
+            $seatTaking = (int) ($interview->seat_taking_count ?? 0);
+
             $tableRows[] = [
                 'interview_id' => $interviewId,
+                'posting_id' => $postingId,
+                // „voll" nach derselben Lesart wie meter.blade.php: null/0 ist
+                // unbegrenzt und damit nie voll. Ueberbuchung (>) ist auch voll.
+                'voll' => $max > 0 && $seatTaking >= $max,
+                'kuenftig' => $interview->starts_at->gt($jetzt),
+                'ohne_termin' => $postingId === null ? 0 : ($ohneTerminByPosting[$postingId] ?? 0),
                 // Carbon (datetime-Cast, Spalte ist NOT NULL) — reine Anzeige,
                 // formatiert wird in der View; deshalb gibt es dort auch keinen
                 // „Termin ohne Datum"-Zweig
@@ -1677,6 +1715,16 @@ class Index extends Component
         return $median !== null
             ? 'Kohorte jünger als der Median-Durchlauf (' . $median . ' Tage) — Conversion noch nicht aussagekräftig'
             : 'Kein Median-Durchlauf vorhanden (noch keine Unterschrift) — Conversion noch nicht aussagekräftig';
+    }
+
+    /** Ganzzahl aus einem Token-Feld; alles andere (fehlend, '', '12a', Array) ist null. */
+    private static function intOrNull(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+
+        return (is_string($value) && $value !== '' && ctype_digit($value) && (int) $value > 0) ? (int) $value : null;
     }
 
     /**
@@ -2460,7 +2508,11 @@ class Index extends Component
             'closed' => $this->cohort['closed_rows'],
             'unreachable' => $this->cohort['unreachable_rows'],
             'unknown_origin' => $this->cohort['unknown_origin_rows'],
-            default => in_array($spec['scope'] ?? null, ['interviews', 'interviews_posting'], true)
+            // 'posting_type' ebenso: die Pille „N ohne Termin" an einem Termin
+            // zaehlt ALLE Bewerber der Ausschreibung ohne Termin, unabhaengig
+            // von Ort-/Taetigkeits-/Status-Filter der Seite (Entscheidung
+            // 05.10.2026: die aelteren sind die eigentliche Zielgruppe).
+            default => in_array($spec['scope'] ?? null, ['interviews', 'interviews_posting', 'posting_type'], true)
                 ? $this->cohort['termin_rows']
                 : $this->cohort['rows'],
         };
@@ -2474,6 +2526,13 @@ class Index extends Component
         $this->drillScopeType = (string) ($spec['type'] ?? '');
         $this->drillScopeName = (string) ($spec['scope'] ?? '');
         $this->drillHasSet = array_key_exists('set', $spec);
+        // Der Anlass-Termin reist nur mit dem Pillen-Token (scope posting_type);
+        // aus jedem anderen Token wird er verworfen, damit ein gecraftetes
+        // Token der Kachel keinen fremden Termin als Kopfzeile unterschieben
+        // kann. Geladen wird er ohnehin team-gescopt (campaignAnlass()).
+        $this->campaignAnlassInterviewId = ($spec['scope'] ?? null) === 'posting_type'
+            ? self::intOrNull($spec['anlass_interview'] ?? null)
+            : null;
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -2484,7 +2543,17 @@ class Index extends Component
             }
             $settings = RecApplicantSettings::getOrCreateForTeam($this->teamId());
             $this->campaignTemplateA = $this->campaignTemplateA ?: (int) ($settings->getSetting('campaign_form_wa_template_id') ?? 0) ?: null;
-            $this->campaignTemplateB = $this->campaignTemplateB ?: (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0) ?: null;
+            // „Schulung voll": eigenes Template „freie Termine" (Kunde 05.10.),
+            // Rueckfall auf das Terminauswahl-Template der Kachel — beide
+            // tragen denselben Buchungslink, nur der Text ist ein anderer.
+            // Der Modus-Wechsel setzt die Vorbelegung NEU (kein ?:-Rueckfall auf
+            // den vorigen Wert): wer eben die Kachel offen hatte, soll an der
+            // Pille nicht das Kachel-Template vorfinden.
+            $this->campaignTemplateB = $this->campaignNurBuchung()
+                ? ((int) ($settings->getSetting('campaign_full_training_wa_template_id') ?? 0)
+                    ?: (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0)
+                    ?: null)
+                : ($this->campaignTemplateB ?: (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0) ?: null);
         }
 
         $prefix = (string) ($spec['prefix'] ?? '');
@@ -2527,9 +2596,22 @@ class Index extends Component
     public function campaignEnabled(): bool
     {
         return !$this->drillHasSet
-            && $this->drillScopeName === 'type_all'
+            && in_array($this->drillScopeName, ['type_all', 'posting_type'], true)
             && $this->drillScopeType === 'ohne_schulung'
             && $this->drillIds !== [];
+    }
+
+    /**
+     * Modus „Schulung voll" (05.10.2026): Einstieg ueber die Pille „N ohne
+     * Termin" an einem ausgebuchten Termin (Scope 'posting_type', der ZWEITE
+     * Token-Erzeuger mit type ohne_schulung — interviews-table.blade.php).
+     * Dort gilt: nur Leute ab dem Buchungsschritt sind waehlbar (Kunde: „nur
+     * an Leute, die Phase 1 durchlaufen haben"), es gibt nur das
+     * Terminauswahl-Template, und der Kopf nennt den Anlass.
+     */
+    public function campaignNurBuchung(): bool
+    {
+        return $this->drillScopeName === 'posting_type';
     }
 
     /**
@@ -2545,7 +2627,83 @@ class Index extends Component
             return [];
         }
 
-        return app(NewDatesCampaignRecipients::class)->load($this->teamId(), $this->drillIds, new \DateTimeImmutable());
+        $rows = app(NewDatesCampaignRecipients::class)->load($this->teamId(), $this->drillIds, new \DateTimeImmutable());
+
+        return $this->campaignNurBuchung() ? CampaignSegment::nurBuchungsphase($rows) : $rows;
+    }
+
+    /**
+     * Kopf des Modals im Modus „Schulung voll": der ausgebuchte Termin, seine
+     * Ausschreibung und — der eigentliche Zweck der Zeile — ob es ueberhaupt
+     * Alternativen gibt. Ohne weitere Termine mit freien Plaetzen an derselben
+     * Stelle fuehrt die Nachricht auf eine Terminauswahl, in der nur der volle
+     * Termin steht; das soll HR VOR dem Klick sehen, nicht der Bewerber danach.
+     *
+     * „An derselben Stelle" ist die Naeherung an das, was die Buchungsseite
+     * zeigt (Public/InterviewBooking::resolvePositionIdsForApplicant: Stellen
+     * der Wunschorte, nach der Festlegung nur die eigene). Die Wunschorte
+     * jedes einzelnen Empfaengers hier nachzurechnen waere eine Query je
+     * Person auf der Seite, deren Query-Budget Abnahmekriterium ist.
+     *
+     * Team-gescopt und fail-closed: ein fremder oder geloeschter Termin
+     * liefert null, die View zeigt dann keinen Kopf — nie einen fremden.
+     *
+     * @return array{
+     *   datum:string, typ:string, taken:int, max:?int, voll:bool,
+     *   posting_title:string, stelle:string, alternativen:int
+     * }|null
+     */
+    #[Computed]
+    public function campaignAnlass(): ?array
+    {
+        if ($this->campaignAnlassInterviewId === null || !$this->campaignNurBuchung()) {
+            return null;
+        }
+
+        $interview = RecInterview::forTeam($this->teamId())
+            ->with([
+                'interviewType' => fn ($q) => $q->forTeam($this->teamId())->select('id', 'name'),
+                'posting' => fn ($q) => $q->forTeam($this->teamId())->select('id', 'title'),
+                'position:id,title,location',
+            ])
+            ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
+            ->find($this->campaignAnlassInterviewId);
+        if ($interview === null) {
+            return null;
+        }
+
+        $taken = (int) ($interview->seat_taking_count ?? 0);
+        $max = $interview->max_participants ? (int) $interview->max_participants : null;
+
+        // Alternativen: kommende, buchbare Termine derselben Stelle mit
+        // mindestens einem freien Platz (max null = unbegrenzt zaehlt mit).
+        // Dieselben Bedingungen wie Public/InterviewBooking::visibleInterviews
+        // (aktiv, Zukunft, planned/confirmed) plus der Kapazitaets-Filter, den
+        // die Buchungsseite erst beim Buchen prueft.
+        $alternativen = 0;
+        if ($interview->rec_position_id !== null) {
+            $alternativen = RecInterview::forTeam($this->teamId())
+                ->active()
+                ->where('id', '!=', $interview->id)
+                ->where('rec_position_id', $interview->rec_position_id)
+                ->where('starts_at', '>', now())
+                ->whereIn('status', ['planned', 'confirmed'])
+                ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
+                ->get()
+                ->filter(fn ($i) => !$i->max_participants || (int) $i->seat_taking_count < (int) $i->max_participants)
+                ->count();
+        }
+
+        return [
+            'datum' => $interview->starts_at->format('d.m.Y H:i'),
+            'typ' => $interview->interviewType?->name ?? 'ohne Terminart',
+            'taken' => $taken,
+            'max' => $max,
+            'voll' => $max !== null && $taken >= $max,
+            'posting_title' => (string) ($interview->posting?->title ?? $interview->title ?? ''),
+            'stelle' => (string) ($interview->position?->location ?: $interview->position?->title ?: ''),
+            'alternativen' => $alternativen,
+        ];
     }
 
     /** @return list<array{id:int,label:string}> approved Templates des Teams (Muster ApplicantSettingsModal) */
@@ -2651,6 +2809,13 @@ class Index extends Component
             $ids,
             $counts['A'] > 0 ? (int) $this->campaignTemplateA : null,
             $counts['B'] > 0 ? (int) $this->campaignTemplateB : null,
+            // Modus „Schulung voll": der Job legt dieselbe Sperre ueber seinen
+            // Re-Check (Template-A-Zeilen werden uebersprungen, nie gesendet)
+            // und das Log nennt den Anlass — die Badge-Zeile „angeschrieben
+            // am …" kann so spaeter beide Kampagnen unterscheiden.
+            $this->campaignNurBuchung(),
+            $this->campaignNurBuchung() ? SendNewDatesCampaign::ANLASS_SCHULUNG_VOLL : null,
+            $this->campaignAnlassInterviewId,
         );
         $this->campaignUuid = $uuid;
     }
