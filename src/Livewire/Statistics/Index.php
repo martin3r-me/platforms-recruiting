@@ -28,6 +28,7 @@ use Platform\Recruiting\Services\Statistics\CohortViewModel;
 use Platform\Recruiting\Services\Statistics\EinsatzLookup;
 use Platform\Recruiting\Services\Statistics\TargetLight;
 use Platform\Recruiting\Support\CampaignSegment;
+use Platform\Recruiting\Support\CampaignTemplatePreview;
 use Platform\Recruiting\Support\EinsatzClarification;
 use Platform\Recruiting\Support\YmdDate;
 
@@ -2580,7 +2581,9 @@ class Index extends Component
         }
 
         $prefix = (string) ($spec['prefix'] ?? '');
-        $this->drillLabel = $columnLabel === '' ? $prefix : trim($prefix . ' — ' . $columnLabel);
+        // Kachel-Tokens tragen den Spaltennamen schon als Praefix („Ohne Termin“
+        // + Spalte „Ohne Termin“) — nicht zweimal dasselbe in die Kopfzeile.
+        $this->drillLabel = ($columnLabel === '' || $columnLabel === $prefix) ? $prefix : trim($prefix . ' — ' . $columnLabel);
         $this->showDrill = true;
     }
 
@@ -2808,6 +2811,64 @@ class Index extends Component
      * @param array{A:int,B:int,total:int} $counts
      */
     /**
+     * Text der Sende-Bestaetigung (wire:confirm) — rein, damit er ohne
+     * Komponente pruefbar ist. Nennt, was jede Gruppe bekommt, und dass
+     * danach nichts von selbst nachkommt (Kundenentscheid 28.08.).
+     *
+     * @param array{A:int,B:int,total:int} $counts
+     */
+    public static function campaignConfirmText(array $counts, bool $nurBuchung): string
+    {
+        $total = (int) ($counts['total'] ?? 0);
+        $a = (int) ($counts['A'] ?? 0);
+        $b = (int) ($counts['B'] ?? 0);
+
+        $teile = [];
+        if (!$nurBuchung && $a > 0) {
+            $teile[] = $a . ' × „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_FORM) . '“ (Link zum Formular)';
+        }
+        if ($b > 0) {
+            $teile[] = $b . ' × „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_BOOKING) . '“ (Link zur Terminauswahl)';
+        }
+
+        return 'WhatsApp jetzt an ' . $total . ' ' . ($total === 1 ? 'Person' : 'Personen') . ' senden?'
+            . ($teile !== [] ? "
+
+" . implode("
+", $teile) : '')
+            . "
+
+Danach folgen keine automatischen Erinnerungen. Der Auto-Pilot läuft erst weiter, wenn die Person reagiert.";
+    }
+
+    /**
+     * Vorschau je waehlbarer Vorlage (UX-Paket 06.10.2026): der Text, den der
+     * Bewerber liest, mit Beispielnamen — statt des technischen Namens.
+     * Keyed by Template-ID; dieselbe Query-Basis wie campaignTemplates().
+     *
+     * @return array<int, array{label:string, text:?string, buttons:list<string>}>
+     */
+    #[Computed]
+    public function campaignTemplatePreviews(): array
+    {
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return [];
+        }
+        $accountId = RecApplicantSettings::getOrCreateForTeam($this->teamId())->getSetting('auto_pilot_wa_account_id');
+
+        $out = [];
+        $templates = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->where('status', 'APPROVED')
+            ->when($accountId, fn ($q) => $q->where('whatsapp_account_id', (int) $accountId))
+            ->get();
+        foreach ($templates as $t) {
+            $out[(int) $t->id] = ['label' => "{$t->name} ({$t->language})"] + CampaignTemplatePreview::render($t->components);
+        }
+
+        return $out;
+    }
+
+    /**
      * Vorbelegung von Template B beim Oeffnen des Modals — rein, damit der
      * Moduswechsel ohne Livewire-Lebenszyklus pruefbar ist (drill() liest die
      * Computed `cohort` und ist in den Tests nicht aufrufbar).
@@ -2839,10 +2900,10 @@ class Index extends Component
             return 'Niemand ausgewählt.';
         }
         if (($counts['A'] ?? 0) > 0 && !$templateA) {
-            return "Für {$counts['A']} Personen fehlt Template A (Bewerbung vervollständigen).";
+            return "Für {$counts['A']} Personen fehlt die Nachricht „Angaben ergänzen“ — Vorlage wählen.";
         }
         if (($counts['B'] ?? 0) > 0 && !$templateB) {
-            return "Für {$counts['B']} Personen fehlt Template B (Terminauswahl).";
+            return "Für {$counts['B']} Personen fehlt die Nachricht „Termine ansehen“ — Vorlage wählen.";
         }
 
         return null;

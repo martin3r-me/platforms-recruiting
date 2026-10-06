@@ -294,4 +294,10 @@ final class CampaignSegmentTest extends TestCase
     {
         $this->assertSame([], CampaignSegment::nurBuchungsphase([]));
     }
+    public function testEmpfaengtLabelInHrSprache(): void
+    {
+        $this->assertSame('Angaben ergänzen', CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_FORM));
+        $this->assertSame('Termine ansehen', CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_BOOKING));
+        $this->assertSame('Termine ansehen', CampaignSegment::empfaengtLabel('x'), 'unbekannt faellt auf die Terminauswahl — das ist die Mehrheit');
+    }
 }

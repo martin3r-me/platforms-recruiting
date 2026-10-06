@@ -120,6 +120,24 @@ final class CampaignModalStateTest extends TestCase
         $this->assertNull(Index::campaignTemplateBFor('kachel', '', null, null, null), 'nichts gesetzt → nichts vorbelegt');
     }
 
+    /**
+     * UX-Paket 06.10.: die Bestaetigung vor dem Senden sagt in HR-Sprache, wer
+     * was bekommt, und dass danach nichts von selbst nachkommt.
+     */
+    public function testBestaetigungstextNenntGruppenUndKeineErinnerungen(): void
+    {
+        $text = Index::campaignConfirmText(['A' => 9, 'B' => 30, 'total' => 39], false);
+
+        $this->assertStringStartsWith('WhatsApp jetzt an 39 Personen senden?', $text);
+        $this->assertStringContainsString('9 × „Angaben ergänzen“ (Link zum Formular)', $text);
+        $this->assertStringContainsString('30 × „Termine ansehen“ (Link zur Terminauswahl)', $text);
+        $this->assertStringContainsString('keine automatischen Erinnerungen', $text);
+
+        $pille = Index::campaignConfirmText(['A' => 0, 'B' => 1, 'total' => 1], true);
+        $this->assertStringStartsWith('WhatsApp jetzt an 1 Person senden?', $pille);
+        $this->assertStringNotContainsString('Angaben ergänzen', $pille, 'im Modus „Schulung voll“ gibt es nur die Terminauswahl');
+    }
+
     public function testDefaultsDerProperties(): void
     {
         $c = new Index();
@@ -164,8 +182,8 @@ final class CampaignModalStateTest extends TestCase
             'Kampagne nicht verfuegbar (nicht enabled)' => [false, false, $counts, 5, 6, 'Kampagne nicht verfügbar.'],
             'Kampagne laeuft bereits' => [true, true, $counts, 5, 6, 'Kampagne läuft bereits.'],
             'Niemand ausgewaehlt' => [true, false, $nullCounts, 5, 6, 'Niemand ausgewählt.'],
-            'Template A fehlt' => [true, false, $counts, null, 6, 'Für 2 Personen fehlt Template A (Bewerbung vervollständigen).'],
-            'Template B fehlt' => [true, false, $counts, 5, null, 'Für 1 Personen fehlt Template B (Terminauswahl).'],
+            'Template A fehlt' => [true, false, $counts, null, 6, 'Für 2 Personen fehlt die Nachricht „Angaben ergänzen“ — Vorlage wählen.'],
+            'Template B fehlt' => [true, false, $counts, 5, null, 'Für 1 Personen fehlt die Nachricht „Termine ansehen“ — Vorlage wählen.'],
             'Happy Path' => [true, false, $counts, 5, 6, null],
         ];
     }

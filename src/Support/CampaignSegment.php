@@ -19,6 +19,17 @@ final class CampaignSegment
     /** Template B: Terminauswahl (URL-Button → /recruiting/interviews/{token}). */
     public const TEMPLATE_BOOKING = 'B';
 
+    /**
+     * Was die Person BEKOMMT, in HR-Sprache (UX-Paket 06.10.2026): die
+     * Buchstaben A/B sagten dem Kunden nichts. Dieselben zwei Worte stehen an
+     * der Zeile, im Zaehler, an der Vorschau und in der Bestaetigung — EINE
+     * Quelle, damit nirgends ein dritter Name auftaucht.
+     */
+    public static function empfaengtLabel(string $template): string
+    {
+        return $template === self::TEMPLATE_FORM ? 'Angaben ergänzen' : 'Termine ansehen';
+    }
+
     /** Wer in diesem Fenster schon eine Kampagne bekam, ist default abgehakt. */
     public const RECENT_CAMPAIGN_DAYS = 14;
 
