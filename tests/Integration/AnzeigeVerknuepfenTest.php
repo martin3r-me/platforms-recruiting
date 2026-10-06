@@ -306,6 +306,250 @@ class AnzeigeVerknuepfenTest extends TestCase
         );
     }
 
+    // -----------------------------------------------------------------
+    // Versand-Riegel: wird nach dem Vertragsversand ein Mitarbeiter angelegt?
+    // -----------------------------------------------------------------
+
+    private function bewerberIn(int $positionId, int $phaseId): RecApplicant
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'rec_position_id' => $positionId,
+            'rec_phase_id' => $phaseId,
+        ]);
+
+        return RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+    }
+
+    public function test_riegel_offen_wenn_eine_spaetere_phase_der_stelle_den_mitarbeiter_anlegt(): void
+    {
+        $this->assertNull($this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1)->mitarbeiterAnlageSperrgrund());
+        $this->assertNull($this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_2)->mitarbeiterAnlageSperrgrund());
+    }
+
+    public function test_riegel_zu_wenn_die_phase_zu_einer_anderen_stelle_gehoert(): void
+    {
+        $grund = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_KOELN_1)->mitarbeiterAnlageSperrgrund();
+
+        $this->assertNotNull($grund);
+        $this->assertStringContainsString('gehört zur Stelle', $grund);
+    }
+
+    public function test_riegel_zu_wenn_die_stelle_nie_einen_mitarbeiter_anlegt(): void
+    {
+        $grund = $this->bewerberIn(self::POSITION_KOELN, self::PHASE_KOELN_1)->mitarbeiterAnlageSperrgrund();
+
+        $this->assertNotNull($grund);
+        $this->assertStringContainsString('keine Phase einen Mitarbeiter an', $grund);
+    }
+
+    public function test_riegel_zu_ohne_phase(): void
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update(['rec_phase_id' => null]);
+
+        $this->assertNotNull(RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)->mitarbeiterAnlageSperrgrund());
+    }
+
+    public function test_riegel_offen_wenn_der_mitarbeiter_schon_existiert(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_KOELN, self::PHASE_KOELN_1);
+        Capsule::table('rec_employees')->insert([
+            'uuid' => 'avk-emp-1', 'team_id' => self::TEAM, 'rec_applicant_id' => $applicant->id,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        try {
+            $this->assertNull($applicant->mitarbeiterAnlageSperrgrund());
+        } finally {
+            Capsule::table('rec_employees')->where('uuid', 'avk-emp-1')->delete();
+        }
+    }
+
+    public function test_riegel_nutzt_vorgeladene_phasen_ohne_eigene_abfrage(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        $applicant->load('phase');
+        $applicant->primaryPosition();
+        $applicant->setRelation('employee', null);
+        $phasen = RecPhase::where('rec_position_id', self::POSITION_GLADBACH)->get();
+
+        $abfragen = 0;
+        Capsule::connection()->listen(function () use (&$abfragen) { $abfragen++; });
+        $this->assertNull($applicant->mitarbeiterAnlageSperrgrund($phasen));
+        $this->assertSame(0, $abfragen);
+    }
+
+    public function test_versanddienst_sperrt_ohne_mitarbeiter_weg(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_KOELN_1);
+        $applicant->contract_template_id = 999;
+
+        try {
+            (new \Platform\Recruiting\Services\SendContractsService())->send($applicant);
+            $this->fail('Versand haette gesperrt sein muessen');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('kein Mitarbeiter angelegt', $e->getMessage());
+        }
+        $this->assertSame(0, Capsule::table('rec_contracts')->where('rec_applicant_id', $applicant->id)->count());
+    }
+
+    public function test_versanddienst_laesst_bewerber_mit_mitarbeiter_weg_durch(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_2);
+        $applicant->contract_template_id = 999;
+        $applicant->zuschlag = null;
+
+        // Der Riegel ist offen — der Dienst laeuft weiter und stoppt erst an der
+        // naechsten, unabhaengigen Pflicht (Zuschlag).
+        $this->expectExceptionMessage('keinen Zuschlag');
+        (new \Platform\Recruiting\Services\SendContractsService())->send($applicant);
+    }
+
+    public function test_riegel_ohne_stellenfeld_sperrt_nicht_wegen_geratener_stelle(): void
+    {
+        // Stellenfeld leer, zwei echte Anzeigen (Koeln frueher, Gladbach spaeter),
+        // Phase korrekt auf Gladbach: primaryPosition() raet Koeln — das darf
+        // den Versand nicht sperren.
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'rec_position_id' => null,
+            'rec_phase_id' => self::PHASE_GLADBACH_1,
+        ]);
+        Capsule::table('rec_applicant_posting')->insert([
+            ['rec_applicant_id' => self::APPLICANT_STELLE_VORHER_GELESEN, 'rec_posting_id' => self::POSTING_KOELN,
+             'applied_at' => '2026-04-01', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+            ['rec_applicant_id' => self::APPLICANT_STELLE_VORHER_GELESEN, 'rec_posting_id' => self::POSTING_GLADBACH,
+             'applied_at' => '2026-09-01', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+
+        $applicant = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $this->assertSame(self::POSITION_KOELN, $applicant->primaryPosition()?->id, 'Vorflug: die geratene Stelle ist Koeln');
+        $this->assertNull($applicant->mitarbeiterAnlageSperrgrund());
+    }
+
+    public function test_umsetzen_hebt_veraltetes_autopilot_abgeschlossen_auf_wenn_noch_phasen_folgen(): void
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'auto_pilot_completed_at' => '2026-09-22 12:01:22',
+            'progress' => 100,
+        ]);
+
+        RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $frisch = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $this->assertSame(self::PHASE_GLADBACH_1, (int) $frisch->rec_phase_id);
+        $this->assertNull($frisch->auto_pilot_completed_at, 'in Gladbach folgt noch eine Phase');
+        $this->assertSame(0, (int) $frisch->progress);
+    }
+
+    public function test_umsetzen_wandelt_text_datum_ins_datumsfeld_um(): void
+    {
+        $morph = (new RecApplicant())->getMorphClass();
+        Capsule::table('core_extra_field_values')->insert([
+            'definition_id' => self::definitionId(self::PHASE_KOELN_1, 'geburtsdatum'),
+            'fieldable_type' => $morph, 'fieldable_id' => self::APPLICANT_STELLE_VORHER_GELESEN,
+            'value' => '1.5.2008', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $wert = Capsule::table('core_extra_field_values')
+            ->where('fieldable_id', self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->where('definition_id', self::definitionId(self::PHASE_GLADBACH_1, 'geburtsdatum'))
+            ->value('value');
+        $this->assertSame('2008-05-01', $wert);
+    }
+
+    public function test_umsetzen_laesst_unlesbares_datum_unter_dem_alten_feld(): void
+    {
+        $morph = (new RecApplicant())->getMorphClass();
+        Capsule::table('core_extra_field_values')->insert([
+            'definition_id' => self::definitionId(self::PHASE_KOELN_1, 'geburtsdatum'),
+            'fieldable_type' => $morph, 'fieldable_id' => self::APPLICANT_STELLE_VORHER_GELESEN,
+            'value' => 'Mai 2008', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $this->assertSame('Mai 2008', Capsule::table('core_extra_field_values')
+            ->where('fieldable_id', self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->where('definition_id', self::definitionId(self::PHASE_KOELN_1, 'geburtsdatum'))
+            ->value('value'), 'bleibt unveraendert unter der alten Definition');
+    }
+
+    // -----------------------------------------------------------------
+    // Versandbereitschaft: bereit / unvollstaendig / gesperrt
+    // -----------------------------------------------------------------
+
+    public function test_fehlende_pflichtfelder_nennt_leere_sichtbare_pflichtfelder_der_phase(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        Capsule::table('core_extra_field_values')->where('fieldable_id', $applicant->id)->delete();
+        Capsule::table('core_extra_field_values')->insert([
+            'definition_id' => self::definitionId(self::PHASE_GLADBACH_1, 'vorname'),
+            'fieldable_type' => (new RecApplicant())->getMorphClass(), 'fieldable_id' => $applicant->id,
+            'value' => 'Soufiane', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        $this->assertSame(['Geburtsdatum'], RecApplicant::find($applicant->id)->fehlendePflichtfelder());
+    }
+
+    public function test_versandbereitschaft_unvollstaendig_in_phase_vor_der_anlage_phase(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        Capsule::table('core_extra_field_values')->where('fieldable_id', $applicant->id)->delete();
+
+        $b = RecApplicant::find($applicant->id)->versandBereitschaft();
+
+        $this->assertSame('unvollstaendig', $b->status);
+        $this->assertSame(['Vorname', 'Geburtsdatum'], $b->fehlendeFelder);
+    }
+
+    public function test_versandbereitschaft_bereit_in_der_anlage_phase(): void
+    {
+        $this->assertTrue($this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_2)->versandBereitschaft()->istBereit());
+    }
+
+    public function test_versandbereitschaft_bereit_wenn_mitarbeiter_existiert_egal_in_welcher_phase(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_KOELN, self::PHASE_KOELN_1);
+        Capsule::table('rec_employees')->insert([
+            'uuid' => 'avk-emp-2', 'team_id' => self::TEAM, 'rec_applicant_id' => $applicant->id,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+        try {
+            $this->assertTrue($applicant->versandBereitschaft()->istBereit());
+        } finally {
+            Capsule::table('rec_employees')->where('uuid', 'avk-emp-2')->delete();
+        }
+    }
+
+    public function test_versandbereitschaft_gesperrt_bei_phase_fremder_stelle(): void
+    {
+        $b = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_KOELN_1)->versandBereitschaft();
+
+        $this->assertSame('gesperrt', $b->status);
+        $this->assertStringContainsString('gehört zur Stelle', $b->grund);
+    }
+
+    public function test_versanddienst_sperrt_bei_unvollstaendig(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        Capsule::table('core_extra_field_values')->where('fieldable_id', $applicant->id)->delete();
+        $applicant = RecApplicant::find($applicant->id);
+        $applicant->contract_template_id = 999;
+        $applicant->zuschlag = 1.1;
+
+        try {
+            (new \Platform\Recruiting\Services\SendContractsService())->send($applicant);
+            $this->fail('Versand haette gesperrt sein muessen');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Onboarding unvollständig', $e->getMessage());
+        }
+        $this->assertSame(0, Capsule::table('rec_contracts')->where('rec_applicant_id', $applicant->id)->count());
+    }
+
     private static function definitionId(int $phaseId, string $name): int
     {
         return (int) CoreExtraFieldDefinition::query()
@@ -335,6 +579,8 @@ class AnzeigeVerknuepfenTest extends TestCase
             'rec_phase_id' => self::PHASE_KOELN_1,
             'owned_by_user_id' => null,
             'is_unrouted' => 0,
+            'auto_pilot_completed_at' => null,
+            'progress' => 0,
         ]);
 
         Capsule::table('rec_applicant_posting')->delete();
@@ -446,6 +692,10 @@ class AnzeigeVerknuepfenTest extends TestCase
              'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
+        // Gladbach: die zweite Phase legt beim Abschluss den Mitarbeiter an (Versand-Riegel).
+        Capsule::table('rec_phases')->where('id', self::PHASE_GLADBACH_2)
+            ->update(['completion_config' => json_encode(['creates_employee_on_completion' => true])]);
+
         // Gleicher Feldname in beiden Stellen — daran haengt der Wertetransport.
         CoreExtraFieldDefinition::query()->insert([
             ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_SAMMEL,
@@ -459,6 +709,15 @@ class AnzeigeVerknuepfenTest extends TestCase
             ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_KOELN_1,
              'name' => 'vorname', 'label' => 'Vorname', 'type' => 'text',
              'is_required' => 1, 'order' => 1, 'options' => null,
+             'created_at' => $now, 'updated_at' => $now],
+            // Altstellen hatten das Geburtsdatum als Text, die neuen als Datum.
+            ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_KOELN_1,
+             'name' => 'geburtsdatum', 'label' => 'Geburtsdatum', 'type' => 'text',
+             'is_required' => 1, 'order' => 2, 'options' => null,
+             'created_at' => $now, 'updated_at' => $now],
+            ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_GLADBACH_1,
+             'name' => 'geburtsdatum', 'label' => 'Geburtsdatum', 'type' => 'date',
+             'is_required' => 1, 'order' => 2, 'options' => null,
              'created_at' => $now, 'updated_at' => $now],
         ]);
 

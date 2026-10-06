@@ -92,6 +92,7 @@ class Index extends Component
                 'applicant.legalStatus.additionalContractTemplate',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
+                'applicant.contractSendReservations',
             ]);
 
         if ($this->reasonFilter !== 'all') {
@@ -556,15 +557,21 @@ class Index extends Component
 
         // Gemeinsames Prädikat (Task 1) — identisch zum Bulk-Gate.
         $fields = $this->deskDatesFor($applicant) ?: null;
+        $sperrgrund = $applicant->mitarbeiterAnlageSperrgrund();
         $state = ContractSendEligibility::state(
             $applicant->hasAnyContractSent(),
             $applicant->isLegalStatusUnchecked(),
             !empty($fields['vertragsbeginn']),
             $applicant->zuschlag !== null,
+            $sperrgrund !== null,
         );
 
         if ($state === 'legal_blocked') {
             session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
+            return;
+        }
+        if ($state === 'no_employee_path') {
+            session()->flash('message', 'Versand gesperrt: ' . $sperrgrund);
             return;
         }
         if ($state === 'missing_beginn') {
@@ -573,6 +580,29 @@ class Index extends Component
         }
         if ($state === 'missing_zuschlag') {
             session()->flash('message', 'Zuschlag fehlt.');
+            return;
+        }
+
+        // Spec Versand vormerken §3: Onboarding offen → vormerken statt senden.
+        $bereitschaft = $applicant->versandBereitschaft();
+        if ($state === 'ready' && $bereitschaft->status === 'unvollstaendig') {
+            $vormerkDienst = app(\Platform\Recruiting\Services\ContractSendReservationService::class);
+            $vormerkDienst->vormerken(
+                $applicant,
+                $this->attendedBookingIdFor($applicant),
+                $fields['vertragsbeginn'] ?? null,
+                $fields['vertragsende'] ?? null,
+                \Platform\Recruiting\Models\RecContractSendReservation::SOURCE_HR_DESK,
+                $userId,
+                (string) (Auth::user()->name ?? 'HR'),
+                $bereitschaft->fehlendeFelder,
+            );
+            // Ehrlich melden: Erinnerung nur behaupten, wenn sie wirklich rausging.
+            // Der Fall bleibt offen — erst die Freigabe stoesst den Versand an.
+            $erinnerung = $vormerkDienst->letzteErinnerungGesendet ? 'Erinnerung geschickt' : 'keine Erinnerung gesendet';
+            session()->flash('message', 'Versand vorgemerkt — ' . $bereitschaft->kurztext() . '. ' . $erinnerung . '; Verträge + Portallink gehen automatisch raus, sobald die Daten vollständig sind und der Fall freigegeben ist. Fall bleibt offen.');
+            unset($this->cases);
+
             return;
         }
 
@@ -585,6 +615,14 @@ class Index extends Component
             if ($result['status'] === 'error') {
                 session()->flash('message', 'Versand fehlgeschlagen: ' . $result['message']);
                 return; // Fall bleibt offen — kein halber Zustand.
+            }
+
+            // Eine offene Vormerkung ist mit dem Direktversand erledigt.
+            if ($result['status'] === 'sent') {
+                $offen = $applicant->contractSendReservations()->offen()->first();
+                if ($offen) {
+                    app(\Platform\Recruiting\Services\ContractSendReservationService::class)->abschliessen($offen, 'Direkt versendet.');
+                }
             }
 
             if (ContractDispatchService::isPortalFailure($result)) {
@@ -609,6 +647,11 @@ class Index extends Component
         }
 
         unset($this->cases, $this->reasonCounts, $this->attendedApplicantIds);
+    }
+
+    private function attendedBookingIdFor(RecApplicant $applicant): ?int
+    {
+        return $applicant->interviewBookings()->where('status', 'attended')->orderByDesc('id')->value('id');
     }
 
     public function render()

@@ -251,12 +251,33 @@
                                     $deskHasSent = $applicant
                                         ? $applicant->contracts->first(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null) !== null
                                         : false;
+                                    // Versand-Riegel: ohne gesicherte Mitarbeiter-Anlage kein Versand
+                                    // (gleiche Regel wie SendContractsService).
+                                    $deskSperrgrund = ($showSendSection && !$deskHasSent && $applicant)
+                                        ? $applicant->mitarbeiterAnlageSperrgrund()
+                                        : null;
+                                    // Offene Versand-Vormerkung (Spec Versand vormerken §3) — aus der
+                                    // eager-geladenen Relation contractSendReservations.
+                                    $deskVormerkung = $applicant?->offeneVersandVormerkung();
+                                    // Text der Vormerkung vorberechnet: sind die Daten schon komplett,
+                                    // wartet der Versand nur noch auf Phasenwechsel/Freigabe des Falls.
+                                    $deskVormerkungText = null;
+                                    if ($deskVormerkung) {
+                                        if ($deskVormerkung->last_attempt_result) {
+                                            $deskVormerkungText = 'wartet: ' . $deskVormerkung->last_attempt_result;
+                                        } elseif ($applicant->fehlendePflichtfelder() === []) {
+                                            $deskVormerkungText = \Platform\Recruiting\Support\VersandBereitschaft::TEXT_DATEN_VOLLSTAENDIG;
+                                        } else {
+                                            $deskVormerkungText = 'geht automatisch raus, sobald die Daten vollständig sind und der Fall freigegeben ist';
+                                        }
+                                    }
                                     $sendState = $showSendSection
                                         ? \Platform\Recruiting\Services\ContractSendEligibility::state(
                                             $deskHasSent,
                                             (bool) $applicant->isLegalStatusUnchecked(),
                                             !empty($deskBeginn),
                                             $applicant->zuschlag !== null,
+                                            $deskSperrgrund !== null,
                                         )
                                         : null;
                                     $sendReady = $sendState === 'ready' || $sendState === 'already_sent';
@@ -384,6 +405,10 @@
                                         </div>
                                         @if($sendState === 'legal_blocked')
                                             <p class="text-[11px] text-amber-800 mt-2">Erst Rechtsstatus prüfen — dann wird der Versand aktiv.</p>
+                                        @elseif($sendState === 'no_employee_path')
+                                            <p class="text-[11px] text-red-700 mt-2">Versand gesperrt: {{ $deskSperrgrund }}</p>
+                                        @elseif($deskVormerkung)
+                                            <p class="text-[11px] text-amber-800 mt-2">Versand vorgemerkt am {{ $deskVormerkung->reserved_at->format('d.m. H:i') }} — {{ $deskVormerkungText }}.</p>
                                         @elseif($sendState === 'missing_beginn')
                                             <p class="text-[11px] text-gray-600 mt-2">Vertragsbeginn setzen (Ende leer = Auto: +1 Jahr, Anfang Monat, −1 Tag).</p>
                                         @elseif($sendState === 'missing_zuschlag')

@@ -268,8 +268,20 @@ class HrDeskRoutingService
         // damit ist er fertig. Ohne diese Wache stuerbe der Knopf an
         // $applicant->hrDeskCases() unten, seit der Schreibtisch diese
         // Faelle anzeigt.
+        //
+        // MUSS VOR der Vormerkungs-Pruefung stehen: alles darunter fasst
+        // $applicant ohne Null-Pruefung an.
         if ($applicant === null) {
             return;
+        }
+
+        // Spec Versand vormerken §4 (b): Freigabe loest den vorgemerkten Versand aus.
+        // Nur bei OFFENER Vormerkung — der automatische Versand schliesst seine
+        // Vormerkung vor dem eigenen approveCase, stoesst sich also nicht neu an.
+        // Das $applicant-&&- entfaellt, weil der Rueckgang darueber den Fall
+        // ohne Bewerber bereits abgefangen hat.
+        if ($applicant->contractSendReservations()->offen()->exists()) {
+            app(\Platform\Recruiting\Services\ReservedSendTrigger::class)->anstossen($applicant->id, 'hr_freigabe');
         }
 
         // Only release from HR desk if no other open cases remain

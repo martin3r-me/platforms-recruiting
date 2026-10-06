@@ -104,8 +104,30 @@
                             {{ $nachzupflegen->map(fn ($b) => $b->candidate_name ?: ('Buchung #' . $b->id))->join(', ') }}
                         </div>
                     @endif
+                    {{-- Versand-Zustaende (Spec Versand vormerken §7): gesperrt = danach
+                         wuerde kein Mitarbeiter angelegt; vorgemerkt/wartet = geht automatisch
+                         raus, sobald die Daten vollstaendig sind. Vorab sichtbar statt erst beim Klick. --}}
+                    @php
+                        $versandZustaende = $this->versandZustaende;
+                        $anzahlGesperrt = count(array_filter($versandZustaende, fn ($z) => $z['code'] === 'gesperrt'));
+                        $anzahlVorgemerkt = count(array_filter($versandZustaende, fn ($z) => in_array($z['code'], ['vorgemerkt', 'wartet'], true)));
+                    @endphp
+                    @if($anzahlGesperrt > 0)
+                        <div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+                            <span class="font-semibold">{{ $anzahlGesperrt }} {{ $anzahlGesperrt === 1 ? 'Teilnehmer ist' : 'Teilnehmer sind' }} für den Vertragsversand gesperrt</span>
+                            — danach würde kein Mitarbeiter angelegt. Den Grund zeigt der rote Hinweis an der Zeile.
+                        </div>
+                    @endif
+                    @if($anzahlVorgemerkt > 0)
+                        <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            <span class="font-semibold">{{ $anzahlVorgemerkt }} Versand{{ $anzahlVorgemerkt === 1 ? '' : 'e' }} vorgemerkt</span>
+                            — gehen automatisch raus, sobald die Daten vollständig sind (Spalte „Versand").
+                        </div>
+                    @endif
                     <div class="flex gap-2 mb-4">
-                        @if($mode === 'overview')
+                        {{-- Status-Filter in beiden Modi (06.10.2026): die Nachbereitung
+                             las den Filter schon immer mit, zeigte ihn aber nicht — ein in
+                             der Übersicht gesetzter Filter blendete dort still Leute aus. --}}
                             <x-ui-input-select
                                 name="filterStatus"
                                 wire:model.live="filterStatus"
@@ -123,7 +145,6 @@
                                 optionValue="value"
                                 optionLabel="label"
                             />
-                        @endif
                         <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.500ms="search" class="flex-1 max-w-xs" />
                         {{-- Zaehler zur AKTUELLEN Auswahl (Filter + Suche), damit
                              niemand Zeilen von Hand zaehlt („wie viele haben
@@ -213,6 +234,11 @@
                                                 </a>
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
+                                            @endif
+                                            @if(($versandZustaende[$booking->applicant?->id]['code'] ?? null) === 'gesperrt')
+                                                <div class="mt-0.5 text-[11px] text-red-700" title="{{ $versandZustaende[$booking->applicant->id]['text'] }}">
+                                                    @svg('heroicon-o-exclamation-triangle', 'w-3 h-3 inline -mt-0.5') Vertragsversand gesperrt
+                                                </div>
                                             @endif
                                             @if($booking->moved_from_interview_id)
                                                 @php
@@ -314,7 +340,11 @@
                     @else
                     {{-- Nachbereitungs-Modus --}}
                     @php
-                        $relevantBookings = $this->bookingsSortedByName()->whereNotIn('status', ['cancelled'])->values();
+                        // Abgesagte blendet die Nachbereitung weiter aus — ausser, man filtert
+                        // ausdruecklich nach Abgesagt/Umgebucht, dann zeigt sie genau diese.
+                        $relevantBookings = in_array($filterStatus, ['cancelled', 'rebooked'], true)
+                            ? $this->bookingsSortedByName()
+                            : $this->bookingsSortedByName()->whereNotIn('status', ['cancelled'])->values();
                         $bulkState = $this->bulkSendState;
                         $defaultTpl = $this->defaultContractTemplate;
                     @endphp
@@ -329,6 +359,7 @@
                                     <th class="px-4 py-3">Vertragsvorlage</th>
                                     <th class="px-4 py-3">Vertragslaufzeit</th>
                                     <th class="px-4 py-3">Vertragsstatus</th>
+                                    <th class="px-4 py-3">Versand</th>
                                     <th class="px-4 py-3">Bewertung</th>
                                 </tr>
                             </thead>
@@ -402,6 +433,9 @@
                                                     <div class="text-[10px] text-red-700 mt-0.5 font-medium">Rechtsstatus ungeprüft</div>
                                                 @elseif($isNonEuChecked)
                                                     <div class="text-[10px] text-emerald-700 mt-0.5">Rechtsstatus geprüft</div>
+                                                @endif
+                                                @if(($versandZustaende[$applicant->id]['code'] ?? null) === 'gesperrt')
+                                                    <div class="text-[10px] text-red-700 mt-0.5 font-medium" title="{{ $versandZustaende[$applicant->id]['text'] }}">Vertragsversand gesperrt — kein Mitarbeiter-Weg</div>
                                                 @endif
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
@@ -566,6 +600,48 @@
                                             @endif
                                         </td>
                                         <td class="px-4 py-3">
+                                            @php $vz = $applicant ? ($versandZustaende[$applicant->id] ?? null) : null; @endphp
+                                            @if(!$vz)
+                                                <span class="text-xs text-[var(--ui-muted)]">—</span>
+                                            @elseif($vz['code'] === 'versendet')
+                                                <div class="text-xs text-emerald-700">{{ $vz['text'] }}</div>
+                                                @if($vz['detail'])
+                                                    <div class="text-[10px] text-[var(--ui-muted)]">{{ $vz['detail'] }}</div>
+                                                @endif
+                                            @elseif($vz['code'] === 'gesperrt')
+                                                <div class="text-xs text-red-700" title="{{ $vz['text'] }}">Gesperrt</div>
+                                                <div class="text-[10px] text-red-700 max-w-[220px] leading-snug">{{ \Illuminate\Support\Str::limit(\Illuminate\Support\Str::after($vz['text'], 'Gesperrt: '), 120) }}</div>
+                                            @elseif($vz['code'] === 'vorgemerkt' || $vz['code'] === 'wartet')
+                                                <div class="text-xs text-amber-800 font-medium">{{ $vz['text'] }}</div>
+                                                <div class="text-[10px] text-amber-800 max-w-[220px] leading-snug">{{ $vz['detail'] }}</div>
+                                                @php
+                                                    // Daten vollstaendig, nur Phasenwechsel/Freigabe fehlt: nichts zu erinnern.
+                                                    $nichtsOffen = str_contains($vz['text'], \Platform\Recruiting\Support\VersandBereitschaft::TEXT_DATEN_VOLLSTAENDIG);
+                                                @endphp
+                                                <div class="mt-1.5 flex gap-1">
+                                                    @if(!$nichtsOffen)
+                                                        <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
+                                                    @endif
+                                                    <x-ui-button variant="danger-outline" size="xs" wire:click="vormerkungZuruecknehmen({{ $applicant->id }})" wire:confirm="Vormerkung zurücknehmen?">Zurücknehmen</x-ui-button>
+                                                </div>
+                                            @elseif($vz['code'] === 'unvollstaendig')
+                                                @php
+                                                    $nichtsOffen = str_contains($vz['text'], \Platform\Recruiting\Support\VersandBereitschaft::TEXT_DATEN_VOLLSTAENDIG);
+                                                @endphp
+                                                <div class="text-xs text-amber-800">{{ $vz['text'] }}</div>
+                                                @if(!$nichtsOffen)
+                                                    <div class="text-[10px] text-[var(--ui-muted)] max-w-[220px] leading-snug">Beim Versand wird vorgemerkt und erinnert.</div>
+                                                    <div class="mt-1.5">
+                                                        <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
+                                                    </div>
+                                                @else
+                                                    <div class="text-[10px] text-[var(--ui-muted)] max-w-[220px] leading-snug">Beim Versand wird vorgemerkt; geht raus, sobald die Phase weiterrückt bzw. der Fall freigegeben ist.</div>
+                                                @endif
+                                            @else
+                                                <span class="text-xs text-emerald-700">Bereit</span>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3">
                                             @php
                                                 // Werte kommen aus der Computed-Leseseite (Task 8) — kein
                                                 // Query und kein Write pro Zeile.
@@ -607,7 +683,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                        <td colspan="8" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                             @svg('heroicon-o-clipboard-document-list', 'w-10 h-10 text-[var(--ui-muted)] mx-auto mb-2')
                                             <div class="text-sm">Keine Buchungen vorhanden</div>
                                         </td>
@@ -642,6 +718,10 @@
                             @elseif($bulkState === 'missing_zuschlag')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Allen anwesenden Bewerbern einen Zuschlag eintragen">
                                     Portallink & Verträge versenden — Zuschlag fehlt
+                                </button>
+                            @elseif($bulkState === 'no_employee_path')
+                                <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Für die offenen Teilnehmer würde nach dem Versand kein Mitarbeiter angelegt — siehe roter Hinweis oben">
+                                    Portallink & Verträge versenden — alle offenen Teilnehmer gesperrt
                                 </button>
                             @elseif($bulkState === 'all_already_sent')
                                 <span class="px-4 py-2 text-sm text-emerald-600 inline-flex items-center gap-2">

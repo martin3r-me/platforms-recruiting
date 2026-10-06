@@ -23,6 +23,18 @@
     </x-slot>
 
     <x-ui-page-container width="full" spacing="space-y-8">
+        {{-- Rueckmeldungen der Aktionen. Die Seite hatte bisher keine Anzeige —
+             session()->flash lief ins Leere (u. a. „Versand gesperrt"). --}}
+        @if (session('message'))
+            <div class="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
+                {{ session('message') }}
+            </div>
+        @endif
+        @if (session('error'))
+            <div class="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
+                {{ session('error') }}
+            </div>
+        @endif
         @if($applicant->duplicate_of_applicant_id)
             <div class="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900 flex items-center gap-2">
                 @svg('heroicon-o-exclamation-triangle', 'w-4 h-4 shrink-0')
@@ -285,6 +297,28 @@
                 <div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                     Die Phase gehört zur Stelle <strong>{{ $phasenStelle->title }}</strong>, nicht zur Stelle der Bewerbung.
                     Abläufe dieser Phase (z. B. Mitarbeiter-Anlage nach dem Vertragsversand) laufen dann nach den Regeln der anderen Stelle.
+                </div>
+            @endif
+            @php
+                $versandSperrgrund = $applicant->contracts->contains(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null)
+                    ? null
+                    : $applicant->mitarbeiterAnlageSperrgrund();
+            @endphp
+            @if($versandSperrgrund && !$phaseFremd)
+                <div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    Vertragsversand gesperrt: {{ $versandSperrgrund }}
+                </div>
+            @endif
+            @php $vormerkung = $applicant->offeneVersandVormerkung(); @endphp
+            @if($vormerkung)
+                <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Vertragsversand vorgemerkt am {{ $vormerkung->reserved_at->format('d.m.Y H:i') }}
+                    (Vertragsbeginn {{ $vormerkung->vertragsbeginn?->format('d.m.Y') ?? '—' }}).
+                    @if($vormerkung->last_attempt_result)
+                        Wartet: {{ $vormerkung->last_attempt_result }}
+                    @else
+                        Geht automatisch raus, sobald die Daten vollständig sind.
+                    @endif
                 </div>
             @endif
             @if($herkunftAbweichend)

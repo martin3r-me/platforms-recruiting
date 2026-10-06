@@ -113,6 +113,12 @@ class RecruitingServiceProvider extends ServiceProvider
                 timeout: (int) config('recruiting.flynk.timeout', 10),
             )
         );
+
+        // Automatischer Versand vorgemerkter Vertraege (Spec Versand vormerken §4).
+        $this->app->bind(
+            \Platform\Recruiting\Services\ReservedSendTrigger::class,
+            \Platform\Recruiting\Services\QueueReservedSendTrigger::class,
+        );
     }
 
     public function boot(): void
@@ -202,6 +208,10 @@ class RecruitingServiceProvider extends ServiceProvider
         // Buchungs-Dialog, damit HR-Dialog, MCP-Tool und CSV-Sammelbuchung
         // gleich behandelt werden (der öffentliche Pfad tut es schon selbst).
         \Platform\Recruiting\Observers\RecInterviewBookingWaitlistObserver::register();
+
+        // Versand vormerken: Phasenwechsel/Rechtsstatus stossen den vorgemerkten
+        // Vertragsversand an; Absage/Parken/Ablehnung nehmen die Vormerkung zurueck.
+        \Platform\Recruiting\Observers\RecContractSendReservationObserver::register();
 
         // Phasen-Statistik: schreibt rec_phase_transitions bei jedem
         // Eloquent-Pfad, der rec_phase_id setzt/aendert (Ausnahmen siehe

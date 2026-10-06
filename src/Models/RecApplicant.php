@@ -457,6 +457,170 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $this->hasMany(RecContract::class, 'rec_applicant_id');
     }
 
+    public function contractSendReservations()
+    {
+        return $this->hasMany(RecContractSendReservation::class, 'rec_applicant_id');
+    }
+
+    /** Die eine offene Vormerkung — aus der geladenen Relation, sonst per Abfrage. */
+    public function offeneVersandVormerkung(): ?RecContractSendReservation
+    {
+        if ($this->relationLoaded('contractSendReservations')) {
+            return $this->contractSendReservations->first(fn ($r) => $r->istOffen());
+        }
+
+        return $this->contractSendReservations()->offen()->first();
+    }
+
+    /**
+     * Warum nach einem Vertragsversand KEIN Mitarbeiter entstuende — oder null,
+     * wenn die Anlage gesichert ist. Der Versand-Riegel (SendContractsService)
+     * und die Hinweise in Teilnehmerliste, HR-Schreibtisch und Bewerberseite
+     * fragen alle hier.
+     *
+     * Anlass (05.10.2026, 1114/1130): Phase aus einer alten Stelle ohne
+     * Mitarbeiter-Anlage. Der Versand haette die Vertraege rausgeschickt, aber
+     * keinen Mitarbeiter und damit kein Portal erzeugt — und ein zweiter
+     * Versand wird uebersprungen, weil ja schon Vertraege raus sind. Der Fehler
+     * heilt also nicht von selbst.
+     *
+     * Gesichert ist die Anlage, wenn es den Mitarbeiter schon gibt, ODER wenn
+     * die aktuelle Phase zur Stelle der Bewerbung gehoert und sie selbst oder
+     * eine spaetere Phase dieser Stelle beim Abschluss einen Mitarbeiter
+     * anlegt (creates_employee_on_completion). Spaeter reicht: wer noch im
+     * Onboarding steht, rueckt nach und die Vertragsphase schliesst dann ab.
+     *
+     * @param \Illuminate\Support\Collection<int, RecPhase>|null $phasenDerStelle siehe stelleLegtMitarbeiterAnAbOrder()
+     */
+    public function mitarbeiterAnlageSperrgrund($phasenDerStelle = null): ?string
+    {
+        $mitarbeiterDa = $this->relationLoaded('employee')
+            ? $this->employee !== null
+            : $this->employee()->exists();
+        if ($mitarbeiterDa) {
+            return null;
+        }
+
+        $phase = $this->phase;
+        if (!$phase) {
+            return 'Keine Phase gesetzt — nach dem Vertragsversand würde kein Mitarbeiter angelegt.';
+        }
+
+        // Nur bei gesetztem Stellenfeld vergleichen: ohne es raet primaryPosition()
+        // aus der fruehesten Anzeige, und bei mehreren Anzeigen waere das eine
+        // falsche Sperre (Review-Fund; gleiche Regel wie die Warnung auf der
+        // Bewerberseite). Die Anlage-Pruefung unten greift trotzdem.
+        $stelle = $this->primaryPosition();
+        if ($this->rec_position_id !== null && $stelle && (int) $phase->rec_position_id !== (int) $stelle->id) {
+            $phasenStelle = $phase->position?->title ?? ('#' . $phase->rec_position_id);
+
+            return "Die Phase „{$phase->name}“ gehört zur Stelle „{$phasenStelle}“, nicht zu „{$stelle->title}“ — "
+                . 'nach dem Vertragsversand würde kein Mitarbeiter angelegt. Phase zuerst richtigstellen.';
+        }
+
+        if (!self::stelleLegtMitarbeiterAnAbOrder($phase, $phasenDerStelle)) {
+            if ($stelle?->is_direct_hire) {
+                return 'Direkteinstellung — den Mitarbeiter über „Als Mitarbeiter anlegen“ in der Direkteinstellung anlegen, nicht über den Vertragsversand.';
+            }
+
+            return 'In dieser Stelle legt ab der aktuellen Phase keine Phase einen Mitarbeiter an — nach dem Vertragsversand würde kein Mitarbeiter angelegt.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Darf JETZT versendet werden? Dreistufig (Spec Versand vormerken §1):
+     * gesperrt (kein Mitarbeiter-Weg) -> unvollstaendig (Weg da, aber noch nicht
+     * in der Anlage-Phase, typisch Onboarding offen) -> bereit.
+     *
+     * @param \Illuminate\Support\Collection<int, RecPhase>|null $phasenDerStelle siehe mitarbeiterAnlageSperrgrund()
+     */
+    public function versandBereitschaft($phasenDerStelle = null): \Platform\Recruiting\Support\VersandBereitschaft
+    {
+        $grund = $this->mitarbeiterAnlageSperrgrund($phasenDerStelle);
+        if ($grund !== null) {
+            return \Platform\Recruiting\Support\VersandBereitschaft::gesperrt($grund);
+        }
+
+        $mitarbeiterDa = $this->relationLoaded('employee')
+            ? $this->employee !== null
+            : $this->employee()->exists();
+        if ($mitarbeiterDa) {
+            return \Platform\Recruiting\Support\VersandBereitschaft::bereit();
+        }
+
+        $phase = $this->phase;
+        $legtAn = (($phase?->completion_config ?? [])['creates_employee_on_completion'] ?? false) === true;
+        if ($legtAn) {
+            return \Platform\Recruiting\Support\VersandBereitschaft::bereit();
+        }
+
+        return \Platform\Recruiting\Support\VersandBereitschaft::unvollstaendig($this->fehlendePflichtfelder());
+    }
+
+    /**
+     * Labels der sichtbaren Pflichtfelder der aktuellen Phase, die noch leer
+     * sind — dieselbe Regel wie calculateProgress(), nur mit Namen statt Prozent.
+     *
+     * @return list<string>
+     */
+    public function fehlendePflichtfelder(): array
+    {
+        $definitions = $this->getExtraFieldDefinitions();
+        $currentPhase = $this->phase;
+        $required = $definitions->filter(fn ($def) => $this->isFieldRequiredInCurrentPhase($def, $currentPhase));
+        if ($required->isEmpty()) {
+            return [];
+        }
+
+        // Vorgeladene Relation nutzen (Teilnehmerliste laedt sie fuer alle
+        // Buchungen vor) — sonst eine Abfrage pro Bewerber.
+        $values = ($this->relationLoaded('extraFieldValues')
+            ? $this->extraFieldValues
+            : $this->extraFieldValues()->get())->keyBy('definition_id');
+        $valuesByName = [];
+        foreach ($definitions as $def) {
+            $valuesByName[$def->name] = $values->get($def->id)?->value;
+        }
+
+        $evaluator = new \Platform\Core\Services\ExtraFieldConditionEvaluator();
+        $fehlend = [];
+        foreach ($required as $def) {
+            $visibility = $def->visibility_config;
+            $sichtbar = !$visibility || !($visibility['enabled'] ?? false) || $evaluator->evaluate($visibility, $valuesByName);
+            if (!$sichtbar) {
+                continue;
+            }
+            $val = $values->get($def->id);
+            $leer = $val === null || $val->value === null || $val->value === '' || $val->value === '[]';
+            if ($leer) {
+                $fehlend[] = (string) ($def->label ?: $def->name);
+            }
+        }
+
+        return $fehlend;
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, RecPhase>|null $phasenDerStelle
+     *        alle Phasen der Stelle der aktuellen Phase (vorgeladen, gegen N+1 in Listen)
+     */
+    private static function stelleLegtMitarbeiterAnAbOrder(RecPhase $aktuell, $phasenDerStelle = null): bool
+    {
+        $phasen = $phasenDerStelle ?? RecPhase::query()
+            ->where('rec_position_id', $aktuell->rec_position_id)
+            ->get(['id', 'rec_position_id', 'order', 'is_active', 'completion_config']);
+
+        return $phasen->contains(function (RecPhase $p) use ($aktuell) {
+            // Die aktuelle Phase zaehlt auch, wenn sie inzwischen deaktiviert ist.
+            $relevant = (int) $p->id === (int) $aktuell->id
+                || ($p->is_active && (int) $p->order >= (int) $aktuell->order);
+
+            return $relevant && ((($p->completion_config ?? [])['creates_employee_on_completion'] ?? false) === true);
+        });
+    }
+
     /**
      * Hat 1:0..1 zum Mitarbeiter — wenn der Applicant via Phase-4-Hook
      * zum RecEmployee konvertiert wurde. Sonst null.
@@ -1595,6 +1759,50 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary, string $contextPurpose = 'interview_booking', array $bodyValues = []): bool
     {
+        // Aufloesung im try wie vor dem Herausloesen: ein Fehler hier (Relation,
+        // Settings) darf den Aufrufer nicht sprengen — Verlauf + false.
+        try {
+            $this->loadMissing(['postings.position']);
+            $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
+            $positionSettings = $position?->auto_pilot_settings ?? [];
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+
+            $templateId = $positionSettings[$templateSettingKey] ?? $teamSettings->getSetting($templateSettingKey);
+        } catch (\Throwable $e) {
+            $this->logWaSetupFehler('Interview-Booking WA-Fehler: ' . $e->getMessage());
+
+            return false;
+        }
+        if (!$templateId) {
+            return false;
+        }
+
+        return $this->sendWhatsAppTemplateById((int) $templateId, $logType, $logSummary, $contextPurpose, $bodyValues)['ok'];
+    }
+
+    /** Fehler-Verlaufseintrag fuer die WA-Aufloesung — darf selbst nie werfen. */
+    private function logWaSetupFehler(string $summary): void
+    {
+        try {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'error',
+                'summary' => $summary,
+            ]);
+        } catch (\Throwable) {}
+    }
+
+    /**
+     * Versendet EINE genehmigte WhatsApp-Vorlage an die primaere Nummer des
+     * Bewerbers — Kanal aus Stelle->Team-Kaskade, Body-Platzhalter aus dem
+     * Bewerberkontext, URL-Knopf mit dem oeffentlichen Formular-Token.
+     * Herausgeloest aus sendBookingLinkWhatsApp (Spec Versand vormerken §3),
+     * damit die Onboarding-Erinnerung denselben Weg nimmt.
+     *
+     * @return array{ok: bool, error: ?string}
+     */
+    private function sendWhatsAppTemplateById(int $templateId, string $logType, string $logSummary, string $contextPurpose = 'interview_booking', array $bodyValues = []): array
+    {
         try {
             $this->loadMissing(['postings.position', 'crmContactLinks.contact.phoneNumbers']);
 
@@ -1603,20 +1811,13 @@ class RecApplicant extends Model implements InheritsExtraFields
             $positionSettings = $position?->auto_pilot_settings ?? [];
             $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
 
-            $templateId = $positionSettings[$templateSettingKey]
-                ?? $teamSettings->getSetting($templateSettingKey);
-
-            if (!$templateId) {
-                return false;
-            }
-
             if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
-                return false;
+                return ['ok' => false, 'error' => 'WhatsApp-Integration nicht verfügbar.'];
             }
 
             $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
             if (!$template || $template->status !== 'APPROVED') {
-                return false;
+                return ['ok' => false, 'error' => 'Vorlage nicht gefunden oder nicht genehmigt.'];
             }
 
             // Resolve WA channel
@@ -1624,12 +1825,12 @@ class RecApplicant extends Model implements InheritsExtraFields
                 ?? $teamSettings->getSetting('auto_pilot_wa_account_id');
 
             if (!$waAccountId || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
-                return false;
+                return ['ok' => false, 'error' => 'Kein WhatsApp-Konto konfiguriert.'];
             }
 
             $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($waAccountId);
             if (!$account || !$account->active) {
-                return false;
+                return ['ok' => false, 'error' => 'WhatsApp-Konto inaktiv.'];
             }
 
             $channel = \Platform\Crm\Models\CommsChannel::where('type', 'whatsapp')
@@ -1638,7 +1839,7 @@ class RecApplicant extends Model implements InheritsExtraFields
                 ->first();
 
             if (!$channel) {
-                return false;
+                return ['ok' => false, 'error' => 'Kein aktiver WhatsApp-Kanal.'];
             }
 
             // Find primary phone number
@@ -1664,7 +1865,7 @@ class RecApplicant extends Model implements InheritsExtraFields
             }
 
             if (!$phoneNumber) {
-                return false;
+                return ['ok' => false, 'error' => 'Keine Telefonnummer.'];
             }
 
             // Build components
@@ -1767,18 +1968,57 @@ class RecApplicant extends Model implements InheritsExtraFields
                 ]);
             }
 
-            return true;
+            return ['ok' => true, 'error' => null];
         } catch (\Throwable $e) {
             try {
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $this->id,
                     'type' => 'error',
-                    'summary' => 'Interview-Booking WA-Fehler: ' . $e->getMessage(),
+                    'summary' => 'WA-Vorlagenversand fehlgeschlagen: ' . $e->getMessage(),
                 ]);
             } catch (\Throwable) {}
 
-            return false;
+            return ['ok' => false, 'error' => $e->getMessage()];
         }
+    }
+
+
+    /**
+     * Onboarding-Erinnerung mit Formular-Link: die Erstkontakt-Vorlage der
+     * AKTUELLEN Phase (Kaskade Phase → Stelle → Team), Log-Typ
+     * contract_send_reminder. Fuer vorgemerkte Versaende (Spec §3).
+     *
+     * @return array{ok: bool, error: ?string}
+     */
+    public function sendPhaseOnboardingReminder(): array
+    {
+        try {
+            $this->loadMissing(['phase', 'postings.position']);
+            $phaseSettings = $this->phase?->auto_pilot_settings ?? [];
+            $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
+            $positionSettings = $position?->auto_pilot_settings ?? [];
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+
+            $templateId = $phaseSettings['auto_pilot_wa_initial_template_id']
+                ?? $positionSettings['auto_pilot_wa_initial_template_id']
+                ?? $teamSettings->getSetting('auto_pilot_wa_initial_template_id');
+        } catch (\Throwable $e) {
+            $this->logWaSetupFehler('Onboarding-Erinnerung WA-Fehler: ' . $e->getMessage());
+
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+        if (!$templateId) {
+            return ['ok' => false, 'error' => 'Keine Onboarding-Vorlage für diese Phase konfiguriert.'];
+        }
+
+        $phasenName = $this->phase?->name ?? 'aktuelle Phase';
+
+        return $this->sendWhatsAppTemplateById(
+            (int) $templateId,
+            'contract_send_reminder',
+            "Erinnerung zur Vervollständigung („{$phasenName}“) per WhatsApp gesendet — Verträge sind vorgemerkt.",
+            'contract_send_reminder',
+        );
     }
 
     /**
@@ -2376,6 +2616,15 @@ class RecApplicant extends Model implements InheritsExtraFields
                 $this->rec_phase_id = $targetPhaseId;
                 $dirty = true;
                 $phaseRemapped = true;
+
+                // „AutoPilot abgeschlossen" aus der alten Stelle darf nicht mitwandern,
+                // wenn in der neuen Stelle noch Phasen folgen — sonst fasst der
+                // AutoPilot die Bewerbung nie wieder an und das Dashboard blendet sie
+                // aus (Befund 05.10.2026, 1114/1130: altes Onboarding war dort die
+                // letzte Phase). Gleiches Zuruecksetzen wie returnToBookingPhase().
+                if ($this->auto_pilot_completed_at !== null && $this->phase?->nextPhase() !== null) {
+                    $this->resetAutoPilotCycle();
+                }
             }
         }
 
@@ -2519,6 +2768,19 @@ class RecApplicant extends Model implements InheritsExtraFields
                 continue;
             }
 
+            // Text → Datum: alte Stellen hatten das Geburtsdatum als Freitext
+            // („01.05.2008"), die neuen ein Datumsfeld, das Y-m-d erwartet und
+            // „TT.MM.JJJJ" leer anzeigt (Befund 06.10.2026, 1114/1130). Was sich
+            // nicht eindeutig umwandeln laesst, bleibt unter der alten
+            // Definition liegen statt kaputt anzukommen.
+            if ($newDef->type === 'date' && $oldDef->type !== 'date') {
+                $datum = self::alsIsoDatum($value->value);
+                if ($datum === null) {
+                    continue;
+                }
+                $value->value = $datum;
+            }
+
             // Ein juengerer gleichnamiger Wert ist in DIESEM Lauf schon auf die
             // neue Definition gezogen: den aelteren liegen lassen (unsichtbar
             // unter der alten Definition), nicht loeschen — er ist Altbestand,
@@ -2541,6 +2803,26 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
 
         $this->clearExtraFieldDefinitionsCache();
+    }
+
+    /**
+     * „TT.MM.JJJJ" / „T.M.JJJJ" oder schon „JJJJ-MM-TT" → „JJJJ-MM-TT"; sonst null.
+     * Nur echte Kalenderdaten (31.02. faellt durch).
+     */
+    public static function alsIsoDatum(mixed $roh): ?string
+    {
+        $text = trim((string) $roh);
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $text, $m)) {
+            return checkdate((int) $m[2], (int) $m[3], (int) $m[1]) ? $text : null;
+        }
+        if (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $text, $m)) {
+            return checkdate((int) $m[2], (int) $m[1], (int) $m[3])
+                ? sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1])
+                : null;
+        }
+
+        return null;
     }
 
     /**

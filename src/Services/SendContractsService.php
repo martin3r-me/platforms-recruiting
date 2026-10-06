@@ -52,6 +52,19 @@ class SendContractsService
             );
         }
 
+        // Versand-Riegel (Spec Versand vormerken §1): nur wer bereit ist, bekommt
+        // Vertraege. gesperrt = kein Mitarbeiter-Weg, unvollstaendig = Onboarding
+        // offen (sonst gingen Vertraege raus, aber kein Mitarbeiter und kein
+        // Portal — und ein zweiter Versand wird uebersprungen). Hier und nicht in
+        // den Aufrufern: Nachbereitung, HR-Schreibtisch, Job und MCP-Werkzeug
+        // laufen alle durch diesen Dienst. Schon Versendete bleiben unberuehrt.
+        if (!$applicant->hasAnyContractSent()) {
+            $bereitschaft = $applicant->versandBereitschaft();
+            if (!$bereitschaft->istBereit()) {
+                throw new \RuntimeException("Bewerber #{$applicant->id}: {$bereitschaft->grund}");
+            }
+        }
+
         if ($applicant->zuschlag === null) {
             throw new \RuntimeException(
                 "Bewerber #{$applicant->id} hat keinen Zuschlag gesetzt — "

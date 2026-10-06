@@ -17,9 +17,7 @@ use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\BookingMover;
-use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\ContractProposalService;
-use Platform\Recruiting\Services\SendContractsService;
 use Platform\Recruiting\Support\ManualBookingCandidates;
 use Platform\Core\Models\CoreLookup;
 
@@ -54,7 +52,7 @@ class Index extends Component
     /**
      * Pro-Bewerber Vertragslaufzeit-Eingaben im Nachbereitungs-Modus.
      * Shape: [applicantId => ['vertragsbeginn' => 'YYYY-MM-DD', 'vertragsende' => 'YYYY-MM-DD']]
-     * Werden bei sendContractsBulk() an SendContractsService übergeben und auf
+     * Werden beim Sammel-Versand an ContractSendRun übergeben und auf
      * die neu erstellten AV+IFSG-Verträge als Extra-Fields geschrieben.
      */
     public array $contractDates = [];
@@ -84,12 +82,21 @@ class Index extends Component
                     $q->whereNotIn('status', ['cancelled'])
                         ->with('contractTemplate', 'extraFieldValues.definition');
                 },
+                'applicant.contractSendReservations',
             ])
             ->get();
 
         foreach ($bookings as $booking) {
             $applicantId = $booking->applicant?->id;
             if (!$applicantId) continue;
+
+            // Vorgemerkte haben noch keinen Vertrag — ihre Daten stehen in der
+            // offenen Vormerkung. Ohne das waeren sie nach dem Neuladen leer und
+            // der Sammelversand stuende auf „Vertragsbeginn fehlt".
+            $vormerkung = $booking->applicant->offeneVersandVormerkung();
+            if ($vormerkung) {
+                $this->contractDates[$applicantId] = self::datenAusVormerkung($this->contractDates[$applicantId] ?? null, $vormerkung);
+            }
 
             $avContract = $booking->applicant->contracts
                 ->filter(fn ($c) => $c->contractTemplate && str_starts_with($c->contractTemplate->code ?? '', 'AV'))
@@ -110,6 +117,33 @@ class Index extends Component
             }
             $this->contractDates[$applicantId] = $current;
         }
+    }
+
+    /**
+     * Fuellt LEERE Vertragsdaten aus einer offenen Vormerkung (Y-m-d).
+     * Getippte Werte haben Vorrang; abgeschlossene/zurueckgenommene
+     * Vormerkungen zaehlen nicht.
+     *
+     * @param array{vertragsbeginn?: ?string, vertragsende?: ?string}|null $aktuell
+     * @return array{vertragsbeginn: ?string, vertragsende: ?string}
+     */
+    public static function datenAusVormerkung(?array $aktuell, ?\Platform\Recruiting\Models\RecContractSendReservation $vormerkung): array
+    {
+        $daten = [
+            'vertragsbeginn' => $aktuell['vertragsbeginn'] ?? null,
+            'vertragsende' => $aktuell['vertragsende'] ?? null,
+        ] + ($aktuell ?? []);
+        if (!$vormerkung || !$vormerkung->istOffen()) {
+            return $daten;
+        }
+        if (empty($daten['vertragsbeginn']) && $vormerkung->vertragsbeginn) {
+            $daten['vertragsbeginn'] = \Illuminate\Support\Carbon::parse($vormerkung->vertragsbeginn)->format('Y-m-d');
+        }
+        if (empty($daten['vertragsende']) && $vormerkung->vertragsende) {
+            $daten['vertragsende'] = \Illuminate\Support\Carbon::parse($vormerkung->vertragsende)->format('Y-m-d');
+        }
+
+        return $daten;
     }
 
     public function render()
@@ -139,9 +173,12 @@ class Index extends Component
                 'applicant.crmContactLinks.contact',
                 'applicant.legalStatus',
                 'applicant.position',
+                'applicant.phase.position',
                 'applicant.postings.position',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
+                'applicant.contractSendReservations',
+                'applicant.extraFieldValues',
                 'applicant.employee:id,rec_applicant_id',
                 'applicant.employee.hrData',
                 'movedFromInterview:id,title,starts_at',
@@ -306,6 +343,47 @@ class Index extends Component
         $this->resetErrorBag(['moveTargetId', 'moveComment']);
         unset($this->moveTargets);
         $this->showMoveModal = true;
+    }
+
+    /** Erinnerung zur Vervollstaendigung von Hand — ohne Drossel (bewusster Klick). */
+    public function erinnernZurVervollstaendigung(int $applicantId): void
+    {
+        // Server-seitig absichern: nur wo die Spalte den Knopf auch zeigt.
+        if (!in_array($this->versandZustaende[$applicantId]['code'] ?? null, ['unvollstaendig', 'vorgemerkt', 'wartet'], true)) {
+            return;
+        }
+        $booking = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId);
+        if (!$booking) {
+            return;
+        }
+        if ($booking->applicant->fehlendePflichtfelder() === []) {
+            session()->flash('success', 'Keine Daten offen — keine Erinnerung nötig.');
+            return;
+        }
+        $vormerkung = $booking->applicant->offeneVersandVormerkung();
+        $dienst = app(\Platform\Recruiting\Services\ContractSendReservationService::class);
+
+        $ok = $vormerkung
+            ? $dienst->erinnern($vormerkung, force: true)
+            : ($booking->applicant->sendPhaseOnboardingReminder()['ok'] ?? false);
+
+        session()->flash($ok ? 'success' : 'error', $ok ? 'Erinnerung gesendet.' : 'Erinnerung konnte nicht gesendet werden — Details im Verlauf des Bewerbers.');
+        unset($this->bookings, $this->versandZustaende);
+    }
+
+    public function vormerkungZuruecknehmen(int $applicantId): void
+    {
+        if (!in_array($this->versandZustaende[$applicantId]['code'] ?? null, ['vorgemerkt', 'wartet'], true)) {
+            return;
+        }
+        $booking = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId);
+        $vormerkung = $booking?->applicant->offeneVersandVormerkung();
+        if (!$vormerkung) {
+            return;
+        }
+        app(\Platform\Recruiting\Services\ContractSendReservationService::class)->zuruecknehmen($vormerkung, 'Von Hand zurückgenommen.', (int) auth()->id());
+        session()->flash('success', 'Vormerkung zurückgenommen.');
+        unset($this->bookings, $this->versandZustaende, $this->bulkSendState);
     }
 
     public function moveBookings(): void
@@ -743,6 +821,10 @@ class Index extends Component
 
     public function sendContractsBulk(): void
     {
+        // Seit „Versand vormerken" (10/2026) laeuft auch dieser (alte, in der
+        // UI nicht mehr verdrahtete) Knopf ueber ContractSendRun — er versendet
+        // damit wie sendPortalLinkBulk() Vertrag UND Portal-WA.
+        //
         // Eligible = anwesend + Template zugewiesen + noch KEIN Vertrag versendet.
         // Schon-versendete (hasAnyContractSent) werden geskippt — verhindert
         // dass leere Vertragsbeginn-Felder den ganzen Run blockieren UND dass
@@ -801,7 +883,7 @@ class Index extends Component
         }
 
         // Vertragsbeginn ist Pflicht — verhindern dass jemand ohne Datum versendet
-        $missingBeginn = $eligible->filter(function ($b) {
+        $missingBeginn = $this->ohneGesperrte($eligible)->filter(function ($b) {
             $applicantId = $b->applicant->id;
             return empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
         });
@@ -811,51 +893,22 @@ class Index extends Component
         }
 
         // Zuschlag ist Pflicht (universeller Cut) — verhindern dass jemand ohne Zuschlag versendet.
-        $missingZuschlag = $eligible->filter(fn ($b) => $b->applicant->zuschlag === null);
+        $missingZuschlag = $this->ohneGesperrte($eligible)->filter(fn ($b) => $b->applicant->zuschlag === null);
         if ($missingZuschlag->isNotEmpty()) {
             session()->flash('error', 'Bei mind. einem zu versendenden Bewerber fehlt der Zuschlag.');
             return;
         }
 
-        $service = app(SendContractsService::class);
-        $sent = 0;
-        $errors = 0;
-
-        foreach ($eligible as $booking) {
-            try {
-                $applicantId = $booking->applicant->id;
-                $fields = $this->contractDates[$applicantId] ?? null;
-                $service->send($booking->applicant, auth()->id(), $fields);
-                $sent++;
-            } catch (\Throwable $e) {
-                $errors++;
-            }
-        }
-
-        unset($this->bookings, $this->openNonEuCaseApplicantIds);
-        $this->hydrateContractDatesFromExistingContracts();
-
-        if ($errors === 0) {
-            $msg = "Verträge versendet für {$sent} Bewerber.";
-            if ($blockedByLegalStatus->isNotEmpty()) {
-                $msg .= sprintf(
-                    ' %d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte auf HR-Schreibtisch pruefen.',
-                    $blockedByLegalStatus->count(),
-                );
-            }
-            session()->flash('success', $msg);
-        } else {
-            session()->flash('error', "Versendet: {$sent}, Fehler: {$errors}. Details siehe Logs.");
-        }
+        $this->versandLaufAusfuehren($eligible, $blockedByLegalStatus);
     }
 
     /**
      * Kombinierter Versand: Verträge + Portal-Link in einem Schritt.
      * Identische Eligibility-Logik wie sendContractsBulk() — anwesend +
      * Vertragsvorlage + noch nicht versendet + Rechtsstatus-OK +
-     * Vertragsbeginn gesetzt. Pro Booking: erst SendContractsService
-     * (legt MA an via creates_employee_on_completion-Hook), danach
-     * RecEmployee::sendPortalNotification() fuer die MA-Portal-WA.
+     * Vertragsbeginn gesetzt. Der Versand selbst laeuft ueber
+     * ContractSendRun (bereit → Vertrag + Portal-WA, unvollstaendig →
+     * vormerken, gesperrt → melden).
      *
      * Aktuell als "NICHT NUTZEN"-Variante in der UI markiert — finaler
      * Workflow soll diesen Button zum Default-Button machen und den
@@ -895,7 +948,7 @@ class Index extends Component
             return;
         }
 
-        $missingBeginn = $eligible->filter(function ($b) {
+        $missingBeginn = $this->ohneGesperrte($eligible)->filter(function ($b) {
             $applicantId = $b->applicant->id;
             return empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
         });
@@ -904,53 +957,7 @@ class Index extends Component
             return;
         }
 
-        $dispatch = app(ContractDispatchService::class);
-        $contractsSent = 0;
-        $portalsSent = 0;
-        $errors = 0;
-
-        foreach ($eligible as $booking) {
-            $applicantId = $booking->applicant->id;
-            $fields = $this->contractDates[$applicantId] ?? null;
-            $result = $dispatch->sendForApplicant($booking->applicant, auth()->id(), $fields, $this->defaultContractTemplate);
-
-            if ($result['status'] === 'sent') {
-                $contractsSent++;
-                if ($result['portal_sent']) {
-                    $portalsSent++;
-                } elseif (ContractDispatchService::isPortalFailure($result)) {
-                    // Portal-Fehler NACH erfolgreichem Vertragsversand —
-                    // contractsSent zählt, errors auch. Die Auswertung liegt
-                    // im Service, damit sie hier nicht wieder von der des
-                    // HR-Schreibtischs abweicht: bis 08/2026 stand hier
-                    // `message !== null`, was den Fall "kein Mitarbeiter-
-                    // Datensatz" (message war null) als Erfolg durchgehen
-                    // liess — grüner Flash, während der Bewerber gar keine
-                    // Nachricht bekam.
-                    $errors++;
-                }
-            } elseif ($result['status'] === 'error') {
-                $errors++;
-            }
-            // 'skipped_already_sent' kann hier nicht auftreten — der
-            // Eligibility-Filter oben schließt hasAnyContractSent() aus.
-        }
-
-        unset($this->bookings, $this->openNonEuCaseApplicantIds);
-        $this->hydrateContractDatesFromExistingContracts();
-
-        if ($errors === 0) {
-            $msg = "Verträge + Portal-Link versendet: {$contractsSent} Verträge, {$portalsSent} Portal-WA.";
-            if ($blockedByLegalStatus->isNotEmpty()) {
-                $msg .= sprintf(
-                    ' %d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte auf HR-Schreibtisch pruefen.',
-                    $blockedByLegalStatus->count(),
-                );
-            }
-            session()->flash('success', $msg);
-        } else {
-            session()->flash('error', "Verträge: {$contractsSent}, Portal: {$portalsSent}, Fehler: {$errors}. Details siehe Logs.");
-        }
+        $this->versandLaufAusfuehren($eligible, $blockedByLegalStatus);
     }
 
     // ------------------------------------------------------------------
@@ -983,6 +990,110 @@ class Index extends Component
     }
 
     /**
+     * Der gemeinsame Versand-Kern beider Sammel-Knoepfe (Spec Versand vormerken §3):
+     * bereit → senden (Vertrag + Portal-WA ueber ContractDispatchService),
+     * unvollstaendig → vormerken + Erinnerung, gesperrt → nur melden.
+     * Die Vorfilter (teilgenommen, Vorlage, nicht versendet, Rechtsstatus,
+     * Vertragsbeginn, Zuschlag) haben die Aufrufer schon erledigt.
+     */
+    private function versandLaufAusfuehren($eligible, $blockedByLegalStatus): void
+    {
+        $daten = [];
+        foreach ($eligible as $b) {
+            $daten[$b->applicant->id] = $this->contractDates[$b->applicant->id] ?? [];
+        }
+        $run = new \Platform\Recruiting\Services\ContractSendRun(
+            app(\Platform\Recruiting\Services\ContractDispatchService::class),
+            app(\Platform\Recruiting\Services\ContractSendReservationService::class),
+        );
+        $ergebnis = $run->ausfuehren($eligible, $daten, $this->defaultContractTemplate, (int) auth()->id(), (string) (auth()->user()->name ?? 'HR'), \Platform\Recruiting\Models\RecContractSendReservation::SOURCE_NACHBEREITUNG);
+
+        unset($this->bookings, $this->openNonEuCaseApplicantIds, $this->versandZustaende, $this->bulkSendState);
+        $this->hydrateContractDatesFromExistingContracts();
+
+        $msg = $ergebnis->meldung();
+        if ($blockedByLegalStatus->isNotEmpty()) {
+            $msg .= sprintf(' %d wegen offener Rechtsstatus-Prüfung übersprungen.', $blockedByLegalStatus->count());
+        }
+        session()->flash($ergebnis->hatFehler() ? 'error' : 'success', $msg);
+    }
+
+    /**
+     * Gesperrte (kein Mitarbeiter-Weg) zaehlen bei den Pflichtpruefungen
+     * Vertragsbeginn/Zuschlag nicht mit — sie werden ohnehin nicht versendet,
+     * nur gemeldet. Gleiche Regel wie bulkSendState(), damit der Knopf nicht
+     * „bereit" zeigt und der Klick dann an einem Gesperrten scheitert.
+     */
+    private function ohneGesperrte($bookings)
+    {
+        $zustaende = $this->versandZustaende;
+
+        return $bookings->filter(fn ($b) => ($zustaende[$b->applicant?->id]['code'] ?? null) !== 'gesperrt');
+    }
+
+    /**
+     * Versand-Zustand je Bewerber dieses Termins (Spec Versand vormerken §7):
+     * [applicantId => ['code' => 'bereit'|'unvollstaendig'|'gesperrt'|'vorgemerkt'|'wartet'|'versendet',
+     *                  'text' => Kurztext, 'detail' => ?string, 'reservation_id' => ?int]].
+     * Nur Buchungen, bei denen ein Versand ueberhaupt ansteht (nicht abgesagt/
+     * nicht erschienen/aussortiert). Phasen je Stelle einmal geladen.
+     *
+     * @return array<int, array{code:string,text:string,detail:?string,reservation_id:?int}>
+     */
+    #[Computed]
+    public function versandZustaende(): array
+    {
+        $relevant = $this->bookings->filter(fn ($b) => $b->applicant && !in_array($b->status, ['cancelled', 'no_show', 'rejected_on_site'], true));
+
+        $stellenIds = $relevant->map(fn ($b) => $b->applicant->phase?->rec_position_id)->filter()->unique()->values();
+        $phasenJeStelle = $stellenIds->isEmpty() ? collect()
+            : \Platform\Recruiting\Models\RecPhase::whereIn('rec_position_id', $stellenIds)
+                ->get(['id', 'rec_position_id', 'order', 'is_active', 'completion_config'])->groupBy('rec_position_id');
+
+        $zustaende = [];
+        foreach ($relevant as $b) {
+            $a = $b->applicant;
+            $versendet = $a->contracts->contains(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null);
+            $vormerkung = $a->offeneVersandVormerkung();
+
+            if ($versendet) {
+                $gesendetAm = $a->contracts->filter(fn ($c) => $c->sent_at !== null)->min('sent_at');
+                // „automatisch" nur, wenn der Versand wirklich aus der Vormerkung kam
+                // (nicht bei Direktversand, der die Vormerkung bloss abschliesst).
+                $abgeschlossen = $a->contractSendReservations
+                    ->filter(fn ($r) => $r->completed_at !== null && str_starts_with((string) $r->last_attempt_result, 'Automatisch versendet'))
+                    ->sortByDesc('completed_at')
+                    ->first();
+                $zustaende[$a->id] = [
+                    'code' => 'versendet',
+                    'text' => 'Versendet ' . ($gesendetAm ? \Illuminate\Support\Carbon::parse($gesendetAm)->format('d.m. H:i') : ''),
+                    'detail' => $abgeschlossen ? 'automatisch (vorgemerkt von ' . ($abgeschlossen->reserved_by_name ?: 'HR') . ' am ' . $abgeschlossen->reserved_at?->format('d.m.') . ')' : null,
+                    'reservation_id' => null,
+                ];
+                continue;
+            }
+
+            $phasen = $a->phase ? ($phasenJeStelle->get($a->phase->rec_position_id) ?? collect()) : null;
+            $bereitschaft = $a->versandBereitschaft($phasen);
+
+            if ($vormerkung) {
+                $wartet = $vormerkung->last_attempt_result;
+                $zustaende[$a->id] = [
+                    'code' => $wartet ? 'wartet' : 'vorgemerkt',
+                    'text' => $wartet ? 'Vorgemerkt · wartet' : 'Vorgemerkt · ' . $bereitschaft->kurztext(),
+                    'detail' => $wartet ?: ($vormerkung->last_reminder_at ? 'erinnert ' . $vormerkung->last_reminder_at->format('d.m. H:i') : 'noch nicht erinnert'),
+                    'reservation_id' => $vormerkung->id,
+                ];
+                continue;
+            }
+
+            $zustaende[$a->id] = ['code' => $bereitschaft->status, 'text' => $bereitschaft->kurztext(), 'detail' => null, 'reservation_id' => null];
+        }
+
+        return $zustaende;
+    }
+
+    /**
      * Computed: returns one of:
      *  - 'no_attended'           → kein Bewerber als anwesend markiert
      *  - 'no_default_template'   → kein aktives AV-default vorhanden
@@ -990,6 +1101,7 @@ class Index extends Component
      *  - 'missing_zuschlag'      → mind. 1 anwesender (noch nicht versendet) ohne Zuschlag
      *  - 'all_already_sent'      → alle anwesenden haben schon Verträge versendet
      *  - 'pending_legal_check'   → die nicht-versendeten warten alle auf HR-Schreibtisch-Pruefung
+     *  - 'no_employee_path'      → bei allen uebrigen wuerde nach dem Versand kein Mitarbeiter angelegt
      *  - 'ready'                 → mind. 1 anwesender hat Zuschlag + Datum + Rechtsstatus-pruefung-ok
      */
     #[Computed]
@@ -1020,6 +1132,15 @@ class Index extends Component
             return 'pending_legal_check';
         }
         $pending = $pendingAfterLegal;
+
+        // Versand-Riegel: wer keinen gesicherten Mitarbeiter-Weg hat, wird beim
+        // Versand uebersprungen. Bleibt danach niemand uebrig, eigener Zustand.
+        $zustaende = $this->versandZustaende;
+        $pendingVersandbar = $pending->filter(fn ($b) => in_array($zustaende[$b->applicant?->id]['code'] ?? 'gesperrt', ['bereit', 'unvollstaendig', 'vorgemerkt', 'wartet'], true));
+        if ($pendingVersandbar->isEmpty()) {
+            return 'no_employee_path';
+        }
+        $pending = $pendingVersandbar;
         $missingBeginn = $pending->filter(function ($b) {
             $applicantId = $b->applicant?->id;
             return $applicantId && empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
