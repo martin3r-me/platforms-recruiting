@@ -1755,6 +1755,30 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary, string $contextPurpose = 'interview_booking', array $bodyValues = []): bool
     {
+        $this->loadMissing(['postings.position']);
+        $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
+        $positionSettings = $position?->auto_pilot_settings ?? [];
+        $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+
+        $templateId = $positionSettings[$templateSettingKey] ?? $teamSettings->getSetting($templateSettingKey);
+        if (!$templateId) {
+            return false;
+        }
+
+        return $this->sendWhatsAppTemplateById((int) $templateId, $logType, $logSummary, $contextPurpose, $bodyValues)['ok'];
+    }
+
+    /**
+     * Versendet EINE genehmigte WhatsApp-Vorlage an die primaere Nummer des
+     * Bewerbers — Kanal aus Stelle->Team-Kaskade, Body-Platzhalter aus dem
+     * Bewerberkontext, URL-Knopf mit dem oeffentlichen Formular-Token.
+     * Herausgeloest aus sendBookingLinkWhatsApp (Spec Versand vormerken §3),
+     * damit die Onboarding-Erinnerung denselben Weg nimmt.
+     *
+     * @return array{ok: bool, error: ?string}
+     */
+    private function sendWhatsAppTemplateById(int $templateId, string $logType, string $logSummary, string $contextPurpose = 'interview_booking', array $bodyValues = []): array
+    {
         try {
             $this->loadMissing(['postings.position', 'crmContactLinks.contact.phoneNumbers']);
 
@@ -1763,20 +1787,13 @@ class RecApplicant extends Model implements InheritsExtraFields
             $positionSettings = $position?->auto_pilot_settings ?? [];
             $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
 
-            $templateId = $positionSettings[$templateSettingKey]
-                ?? $teamSettings->getSetting($templateSettingKey);
-
-            if (!$templateId) {
-                return false;
-            }
-
             if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
-                return false;
+                return ['ok' => false, 'error' => 'WhatsApp-Integration nicht verfügbar.'];
             }
 
             $template = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::find($templateId);
             if (!$template || $template->status !== 'APPROVED') {
-                return false;
+                return ['ok' => false, 'error' => 'Vorlage nicht gefunden oder nicht genehmigt.'];
             }
 
             // Resolve WA channel
@@ -1784,12 +1801,12 @@ class RecApplicant extends Model implements InheritsExtraFields
                 ?? $teamSettings->getSetting('auto_pilot_wa_account_id');
 
             if (!$waAccountId || !class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppAccount::class)) {
-                return false;
+                return ['ok' => false, 'error' => 'Kein WhatsApp-Konto konfiguriert.'];
             }
 
             $account = \Platform\Integrations\Models\IntegrationsWhatsAppAccount::find($waAccountId);
             if (!$account || !$account->active) {
-                return false;
+                return ['ok' => false, 'error' => 'WhatsApp-Konto inaktiv.'];
             }
 
             $channel = \Platform\Crm\Models\CommsChannel::where('type', 'whatsapp')
@@ -1798,7 +1815,7 @@ class RecApplicant extends Model implements InheritsExtraFields
                 ->first();
 
             if (!$channel) {
-                return false;
+                return ['ok' => false, 'error' => 'Kein aktiver WhatsApp-Kanal.'];
             }
 
             // Find primary phone number
@@ -1824,7 +1841,7 @@ class RecApplicant extends Model implements InheritsExtraFields
             }
 
             if (!$phoneNumber) {
-                return false;
+                return ['ok' => false, 'error' => 'Keine Telefonnummer.'];
             }
 
             // Build components
@@ -1927,18 +1944,51 @@ class RecApplicant extends Model implements InheritsExtraFields
                 ]);
             }
 
-            return true;
+            return ['ok' => true, 'error' => null];
         } catch (\Throwable $e) {
             try {
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $this->id,
                     'type' => 'error',
-                    'summary' => 'Interview-Booking WA-Fehler: ' . $e->getMessage(),
+                    'summary' => 'WA-Vorlagenversand fehlgeschlagen: ' . $e->getMessage(),
                 ]);
             } catch (\Throwable) {}
 
-            return false;
+            return ['ok' => false, 'error' => $e->getMessage()];
         }
+    }
+
+
+    /**
+     * Onboarding-Erinnerung mit Formular-Link: die Erstkontakt-Vorlage der
+     * AKTUELLEN Phase (Kaskade Phase → Stelle → Team), Log-Typ
+     * contract_send_reminder. Fuer vorgemerkte Versaende (Spec §3).
+     *
+     * @return array{ok: bool, error: ?string}
+     */
+    public function sendPhaseOnboardingReminder(): array
+    {
+        $this->loadMissing(['phase', 'postings.position']);
+        $phaseSettings = $this->phase?->auto_pilot_settings ?? [];
+        $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
+        $positionSettings = $position?->auto_pilot_settings ?? [];
+        $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+
+        $templateId = $phaseSettings['auto_pilot_wa_initial_template_id']
+            ?? $positionSettings['auto_pilot_wa_initial_template_id']
+            ?? $teamSettings->getSetting('auto_pilot_wa_initial_template_id');
+        if (!$templateId) {
+            return ['ok' => false, 'error' => 'Keine Onboarding-Vorlage für diese Phase konfiguriert.'];
+        }
+
+        $phasenName = $this->phase?->name ?? 'aktuelle Phase';
+
+        return $this->sendWhatsAppTemplateById(
+            (int) $templateId,
+            'contract_send_reminder',
+            "Erinnerung zur Vervollständigung („{$phasenName}“) per WhatsApp gesendet — Verträge sind vorgemerkt.",
+            'contract_send_reminder',
+        );
     }
 
     /**
