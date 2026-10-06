@@ -27,9 +27,15 @@ class RecContractSendReservationObserver
             self::safelyRun(function () use ($applicant): void {
                 // Erst die billige Frage (geaenderte Spalten), dann die Abfrage —
                 // sonst laeuft bei JEDEM Bewerber-Save eine Query mit.
+                // is_active=false zaehlt NUR als Ausstieg, wenn weder Vertrag raus
+                // noch MA angelegt ist: die MA-Anlage (CreateEmployeeFromApplicantService)
+                // deaktiviert die Bewerbung MITTEN im Versand — vor dem Abschliessen
+                // der Vormerkung. Ohne diese Ausnahme nahme jeder erfolgreiche
+                // Versand seine eigene Vormerkung zurueck. Billige Pruefung zuerst.
                 $ausgestiegen = ($applicant->wasChanged('rejected_at') && $applicant->rejected_at)
                     || ($applicant->wasChanged('is_parked') && $applicant->is_parked)
-                    || ($applicant->wasChanged('is_active') && !$applicant->is_active);
+                    || ($applicant->wasChanged('is_active') && !$applicant->is_active
+                        && !$applicant->hasAnyContractSent() && !$applicant->employee()->exists());
                 $phaseGewechselt = $applicant->wasChanged('rec_phase_id') && $applicant->rec_phase_id;
                 if (!$ausgestiegen && !$phaseGewechselt) {
                     return;

@@ -859,4 +859,72 @@ final class VersandVormerkenTest extends TestCase
         $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
         $this->assertStringContainsString('RecContractSendReservationObserver::register()', $quelle);
     }
+
+    /**
+     * Dispatch-Attrappe wie der echte Versand mit Anlage-Phase: Vertrag raus,
+     * MA angelegt, Bewerbung per Eloquent deaktiviert (CreateEmployeeFromApplicantService)
+     * — alles INNERHALB von sendForApplicant, also vor dem Abschliessen der Vormerkung.
+     */
+    private function anlegendeAttrappe(): \Platform\Recruiting\Services\ContractDispatchService
+    {
+        return new class() extends \Platform\Recruiting\Services\ContractDispatchService {
+            public function __construct() {}
+            public function sendForApplicant(RecApplicant $applicant, ?int $userId, ?array $contractFields, ?\Platform\Recruiting\Models\RecContractTemplate $defaultTemplate): array
+            {
+                $jetzt = VersandVormerkenTest::HEUTE_OEFFENTLICH;
+                Capsule::table('rec_contracts')->insert(['uuid' => 'c-anlage-' . $applicant->id, 'team_id' => $applicant->team_id, 'rec_applicant_id' => $applicant->id, 'rec_contract_template_id' => 900, 'status' => 'sent', 'sent_at' => $jetzt, 'created_at' => $jetzt, 'updated_at' => $jetzt]);
+                Capsule::table('rec_employees')->insert(['uuid' => 'e-anlage-' . $applicant->id, 'team_id' => $applicant->team_id, 'rec_applicant_id' => $applicant->id, 'created_at' => $jetzt, 'updated_at' => $jetzt]);
+                $applicant->update(['is_active' => false]);
+                return ['status' => 'sent', 'portal_sent' => true, 'message' => null];
+            }
+        };
+    }
+
+    public function test_automatischer_versand_mit_ma_anlage_schliesst_ab_statt_zurueckzunehmen(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        $this->beobachterAktiv();
+        try {
+            $this->assertSame('versendet', $this->sender($this->anlegendeAttrappe())->versuchen(self::APPLICANT));
+            $this->assertFalse((bool) $this->bewerber()->is_active, 'Attrappe hat deaktiviert');
+            $this->assertNotNull($r->fresh()->completed_at);
+            $this->assertNull($r->fresh()->cancelled_at);
+            $this->assertCount(0, $this->logs('contract_send_cancelled'));
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_klick_versand_mit_ma_anlage_schliesst_ab_statt_zurueckzunehmen(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        $this->beobachterAktiv();
+        try {
+            $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereKey(self::BOOKING)->get();
+            $lauf = new \Platform\Recruiting\Services\ContractSendRun($this->anlegendeAttrappe(), $this->dienst());
+            $ergebnis = $lauf->ausfuehren($bookings, [self::APPLICANT => ['vertragsbeginn' => '2026-11-01']], null, 7, 'Clara', 'nachbereitung');
+            $this->assertSame([self::APPLICANT], $ergebnis->versendet);
+            $this->assertNotNull($r->fresh()->completed_at);
+            $this->assertNull($r->fresh()->cancelled_at);
+            $this->assertCount(0, $this->logs('contract_send_cancelled'));
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_echte_deaktivierung_ohne_vertrag_und_ma_nimmt_zurueck(): void
+    {
+        $r = $this->vormerkung();
+        $this->beobachterAktiv();
+        try {
+            $a = $this->bewerber();
+            $a->is_active = false;
+            $a->save();
+            $this->assertNotNull($r->fresh()->cancelled_at);
+        } finally {
+            $this->beobachterAus();
+        }
+    }
 }
