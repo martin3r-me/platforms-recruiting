@@ -461,6 +461,78 @@ class RecApplicant extends Model implements InheritsExtraFields
      * Hat 1:0..1 zum Mitarbeiter — wenn der Applicant via Phase-4-Hook
      * zum RecEmployee konvertiert wurde. Sonst null.
      */
+    /**
+     * Warum nach einem Vertragsversand KEIN Mitarbeiter entstuende — oder null,
+     * wenn die Anlage gesichert ist. Der Versand-Riegel (SendContractsService)
+     * und die Hinweise in Teilnehmerliste, HR-Schreibtisch und Bewerberseite
+     * fragen alle hier.
+     *
+     * Anlass (05.10.2026, 1114/1130): Phase aus einer alten Stelle ohne
+     * Mitarbeiter-Anlage. Der Versand haette die Vertraege rausgeschickt, aber
+     * keinen Mitarbeiter und damit kein Portal erzeugt — und ein zweiter
+     * Versand wird uebersprungen, weil ja schon Vertraege raus sind. Der Fehler
+     * heilt also nicht von selbst.
+     *
+     * Gesichert ist die Anlage, wenn es den Mitarbeiter schon gibt, ODER wenn
+     * die aktuelle Phase zur Stelle der Bewerbung gehoert und sie selbst oder
+     * eine spaetere Phase dieser Stelle beim Abschluss einen Mitarbeiter
+     * anlegt (creates_employee_on_completion). Spaeter reicht: wer noch im
+     * Onboarding steht, rueckt nach und die Vertragsphase schliesst dann ab.
+     *
+     * @param \Illuminate\Support\Collection<int, RecPhase>|null $phasenDerStelle siehe stelleLegtMitarbeiterAnAbOrder()
+     */
+    public function mitarbeiterAnlageSperrgrund($phasenDerStelle = null): ?string
+    {
+        $mitarbeiterDa = $this->relationLoaded('employee')
+            ? $this->employee !== null
+            : $this->employee()->exists();
+        if ($mitarbeiterDa) {
+            return null;
+        }
+
+        $phase = $this->phase;
+        if (!$phase) {
+            return 'Keine Phase gesetzt — nach dem Vertragsversand würde kein Mitarbeiter angelegt.';
+        }
+
+        $stelle = $this->primaryPosition();
+        if ($stelle && (int) $phase->rec_position_id !== (int) $stelle->id) {
+            $phasenStelle = $phase->position?->title ?? ('#' . $phase->rec_position_id);
+
+            return "Die Phase „{$phase->name}“ gehört zur Stelle „{$phasenStelle}“, nicht zu „{$stelle->title}“ — "
+                . 'nach dem Vertragsversand würde kein Mitarbeiter angelegt. Phase zuerst richtigstellen.';
+        }
+
+        if (!self::stelleLegtMitarbeiterAnAbOrder($phase, $phasenDerStelle)) {
+            if ($stelle?->is_direct_hire) {
+                return 'Direkteinstellung — den Mitarbeiter über „Als Mitarbeiter anlegen“ in der Direkteinstellung anlegen, nicht über den Vertragsversand.';
+            }
+
+            return 'In dieser Stelle legt ab der aktuellen Phase keine Phase einen Mitarbeiter an — nach dem Vertragsversand würde kein Mitarbeiter angelegt.';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, RecPhase>|null $phasenDerStelle
+     *        alle Phasen der Stelle der aktuellen Phase (vorgeladen, gegen N+1 in Listen)
+     */
+    private static function stelleLegtMitarbeiterAnAbOrder(RecPhase $aktuell, $phasenDerStelle = null): bool
+    {
+        $phasen = $phasenDerStelle ?? RecPhase::query()
+            ->where('rec_position_id', $aktuell->rec_position_id)
+            ->get(['id', 'rec_position_id', 'order', 'is_active', 'completion_config']);
+
+        return $phasen->contains(function (RecPhase $p) use ($aktuell) {
+            // Die aktuelle Phase zaehlt auch, wenn sie inzwischen deaktiviert ist.
+            $relevant = (int) $p->id === (int) $aktuell->id
+                || ($p->is_active && (int) $p->order >= (int) $aktuell->order);
+
+            return $relevant && ((($p->completion_config ?? [])['creates_employee_on_completion'] ?? false) === true);
+        });
+    }
+
     public function employee()
     {
         return $this->hasOne(RecEmployee::class, 'rec_applicant_id');

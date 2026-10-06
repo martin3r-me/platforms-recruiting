@@ -31,4 +31,11 @@ class ContractSendEligibilityTest extends TestCase
     {
         $this->assertSame('ready', ContractSendEligibility::state(false, false, true, true));
     }
+
+    public function test_fehlende_mitarbeiter_anlage_blockt_nach_rechtsstatus_und_vor_den_daten(): void
+    {
+        $this->assertSame('no_employee_path', ContractSendEligibility::state(false, false, false, false, true));
+        $this->assertSame('legal_blocked', ContractSendEligibility::state(false, true, true, true, true));
+        $this->assertSame('already_sent', ContractSendEligibility::state(true, false, true, true, true));
+    }
 }

@@ -306,6 +306,104 @@ class AnzeigeVerknuepfenTest extends TestCase
         );
     }
 
+    // -----------------------------------------------------------------
+    // Versand-Riegel: wird nach dem Vertragsversand ein Mitarbeiter angelegt?
+    // -----------------------------------------------------------------
+
+    private function bewerberIn(int $positionId, int $phaseId): RecApplicant
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'rec_position_id' => $positionId,
+            'rec_phase_id' => $phaseId,
+        ]);
+
+        return RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+    }
+
+    public function test_riegel_offen_wenn_eine_spaetere_phase_der_stelle_den_mitarbeiter_anlegt(): void
+    {
+        $this->assertNull($this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1)->mitarbeiterAnlageSperrgrund());
+        $this->assertNull($this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_2)->mitarbeiterAnlageSperrgrund());
+    }
+
+    public function test_riegel_zu_wenn_die_phase_zu_einer_anderen_stelle_gehoert(): void
+    {
+        $grund = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_KOELN_1)->mitarbeiterAnlageSperrgrund();
+
+        $this->assertNotNull($grund);
+        $this->assertStringContainsString('gehört zur Stelle', $grund);
+    }
+
+    public function test_riegel_zu_wenn_die_stelle_nie_einen_mitarbeiter_anlegt(): void
+    {
+        $grund = $this->bewerberIn(self::POSITION_KOELN, self::PHASE_KOELN_1)->mitarbeiterAnlageSperrgrund();
+
+        $this->assertNotNull($grund);
+        $this->assertStringContainsString('keine Phase einen Mitarbeiter an', $grund);
+    }
+
+    public function test_riegel_zu_ohne_phase(): void
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update(['rec_phase_id' => null]);
+
+        $this->assertNotNull(RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)->mitarbeiterAnlageSperrgrund());
+    }
+
+    public function test_riegel_offen_wenn_der_mitarbeiter_schon_existiert(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_KOELN, self::PHASE_KOELN_1);
+        Capsule::table('rec_employees')->insert([
+            'uuid' => 'avk-emp-1', 'team_id' => self::TEAM, 'rec_applicant_id' => $applicant->id,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        try {
+            $this->assertNull($applicant->mitarbeiterAnlageSperrgrund());
+        } finally {
+            Capsule::table('rec_employees')->where('uuid', 'avk-emp-1')->delete();
+        }
+    }
+
+    public function test_riegel_nutzt_vorgeladene_phasen_ohne_eigene_abfrage(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        $applicant->load('phase');
+        $applicant->primaryPosition();
+        $applicant->setRelation('employee', null);
+        $phasen = RecPhase::where('rec_position_id', self::POSITION_GLADBACH)->get();
+
+        $abfragen = 0;
+        Capsule::connection()->listen(function () use (&$abfragen) { $abfragen++; });
+        $this->assertNull($applicant->mitarbeiterAnlageSperrgrund($phasen));
+        $this->assertSame(0, $abfragen);
+    }
+
+    public function test_versanddienst_sperrt_ohne_mitarbeiter_weg(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_KOELN_1);
+        $applicant->contract_template_id = 999;
+
+        try {
+            (new \Platform\Recruiting\Services\SendContractsService())->send($applicant);
+            $this->fail('Versand haette gesperrt sein muessen');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('kein Mitarbeiter angelegt', $e->getMessage());
+        }
+        $this->assertSame(0, Capsule::table('rec_contracts')->where('rec_applicant_id', $applicant->id)->count());
+    }
+
+    public function test_versanddienst_laesst_bewerber_mit_mitarbeiter_weg_durch(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        $applicant->contract_template_id = 999;
+        $applicant->zuschlag = null;
+
+        // Der Riegel ist offen — der Dienst laeuft weiter und stoppt erst an der
+        // naechsten, unabhaengigen Pflicht (Zuschlag).
+        $this->expectExceptionMessage('keinen Zuschlag');
+        (new \Platform\Recruiting\Services\SendContractsService())->send($applicant);
+    }
+
     private static function definitionId(int $phaseId, string $name): int
     {
         return (int) CoreExtraFieldDefinition::query()
@@ -445,6 +543,10 @@ class AnzeigeVerknuepfenTest extends TestCase
              'rec_position_id' => self::POSITION_KOELN, 'name' => 'Bewerbung', 'order' => 1,
              'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
+
+        // Gladbach: die zweite Phase legt beim Abschluss den Mitarbeiter an (Versand-Riegel).
+        Capsule::table('rec_phases')->where('id', self::PHASE_GLADBACH_2)
+            ->update(['completion_config' => json_encode(['creates_employee_on_completion' => true])]);
 
         // Gleicher Feldname in beiden Stellen — daran haengt der Wertetransport.
         CoreExtraFieldDefinition::query()->insert([

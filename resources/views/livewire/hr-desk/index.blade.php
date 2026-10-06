@@ -243,12 +243,18 @@
                                     $deskHasSent = $applicant
                                         ? $applicant->contracts->first(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null) !== null
                                         : false;
+                                    // Versand-Riegel: ohne gesicherte Mitarbeiter-Anlage kein Versand
+                                    // (gleiche Regel wie SendContractsService).
+                                    $deskSperrgrund = ($showSendSection && !$deskHasSent && $applicant)
+                                        ? $applicant->mitarbeiterAnlageSperrgrund()
+                                        : null;
                                     $sendState = $showSendSection
                                         ? \Platform\Recruiting\Services\ContractSendEligibility::state(
                                             $deskHasSent,
                                             (bool) $applicant->isLegalStatusUnchecked(),
                                             !empty($deskBeginn),
                                             $applicant->zuschlag !== null,
+                                            $deskSperrgrund !== null,
                                         )
                                         : null;
                                     $sendReady = $sendState === 'ready' || $sendState === 'already_sent';
@@ -376,6 +382,8 @@
                                         </div>
                                         @if($sendState === 'legal_blocked')
                                             <p class="text-[11px] text-amber-800 mt-2">Erst Rechtsstatus prüfen — dann wird der Versand aktiv.</p>
+                                        @elseif($sendState === 'no_employee_path')
+                                            <p class="text-[11px] text-red-700 mt-2">Versand gesperrt: {{ $deskSperrgrund }}</p>
                                         @elseif($sendState === 'missing_beginn')
                                             <p class="text-[11px] text-gray-600 mt-2">Vertragsbeginn setzen (Ende leer = Auto: +1 Jahr, Anfang Monat, −1 Tag).</p>
                                         @elseif($sendState === 'missing_zuschlag')

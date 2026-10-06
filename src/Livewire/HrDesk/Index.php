@@ -549,15 +549,21 @@ class Index extends Component
 
         // Gemeinsames Prädikat (Task 1) — identisch zum Bulk-Gate.
         $fields = $this->deskDatesFor($applicant) ?: null;
+        $sperrgrund = $applicant->mitarbeiterAnlageSperrgrund();
         $state = ContractSendEligibility::state(
             $applicant->hasAnyContractSent(),
             $applicant->isLegalStatusUnchecked(),
             !empty($fields['vertragsbeginn']),
             $applicant->zuschlag !== null,
+            $sperrgrund !== null,
         );
 
         if ($state === 'legal_blocked') {
             session()->flash('message', 'Rechtsstatus noch nicht geprüft — bitte zuerst als geprüft markieren.');
+            return;
+        }
+        if ($state === 'no_employee_path') {
+            session()->flash('message', 'Versand gesperrt: ' . $sperrgrund);
             return;
         }
         if ($state === 'missing_beginn') {

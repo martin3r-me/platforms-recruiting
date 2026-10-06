@@ -287,6 +287,16 @@
                     Abläufe dieser Phase (z. B. Mitarbeiter-Anlage nach dem Vertragsversand) laufen dann nach den Regeln der anderen Stelle.
                 </div>
             @endif
+            @php
+                $versandSperrgrund = $applicant->contracts->contains(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null)
+                    ? null
+                    : $applicant->mitarbeiterAnlageSperrgrund();
+            @endphp
+            @if($versandSperrgrund && !$phaseFremd)
+                <div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    Vertragsversand gesperrt: {{ $versandSperrgrund }}
+                </div>
+            @endif
             @if($herkunftAbweichend)
                 <p class="mt-3 text-xs text-[var(--ui-muted)]">
                     Beworben über eine Anzeige einer anderen Stelle — die Stelle wurde danach gewechselt (z. B. durch die Schulungs-Buchung).
