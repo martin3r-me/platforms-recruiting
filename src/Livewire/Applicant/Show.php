@@ -92,6 +92,7 @@ class Show extends Component
         $allowedTeamIds = $this->getAllowedTeamIds($applicant->team_id);
 
         $this->applicant = $applicant->load([
+            'contractSendReservations',
             'crmContactLinks' => fn ($q) => $q->whereIn('team_id', $allowedTeamIds),
             'crmContactLinks.contact.emailAddresses' => function ($q) {
                 $q->active()->orderByDesc('is_primary')->orderBy('id');

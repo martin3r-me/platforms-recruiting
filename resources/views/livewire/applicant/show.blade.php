@@ -309,6 +309,18 @@
                     Vertragsversand gesperrt: {{ $versandSperrgrund }}
                 </div>
             @endif
+            @php $vormerkung = $applicant->offeneVersandVormerkung(); @endphp
+            @if($vormerkung)
+                <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Vertragsversand vorgemerkt am {{ $vormerkung->reserved_at->format('d.m.Y H:i') }}
+                    (Vertragsbeginn {{ $vormerkung->vertragsbeginn?->format('d.m.Y') ?? '—' }}).
+                    @if($vormerkung->last_attempt_result)
+                        Wartet: {{ $vormerkung->last_attempt_result }}
+                    @else
+                        Geht automatisch raus, sobald die Daten vollständig sind.
+                    @endif
+                </div>
+            @endif
             @if($herkunftAbweichend)
                 <p class="mt-3 text-xs text-[var(--ui-muted)]">
                     Beworben über eine Anzeige einer anderen Stelle — die Stelle wurde danach gewechselt (z. B. durch die Schulungs-Buchung).

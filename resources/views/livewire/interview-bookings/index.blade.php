@@ -354,6 +354,7 @@
                                     <th class="px-4 py-3">Vertragsvorlage</th>
                                     <th class="px-4 py-3">Vertragslaufzeit</th>
                                     <th class="px-4 py-3">Vertragsstatus</th>
+                                    <th class="px-4 py-3">Versand</th>
                                     <th class="px-4 py-3">Bewertung</th>
                                 </tr>
                             </thead>
@@ -594,6 +595,35 @@
                                             @endif
                                         </td>
                                         <td class="px-4 py-3">
+                                            @php $vz = $applicant ? ($versandZustaende[$applicant->id] ?? null) : null; @endphp
+                                            @if(!$vz)
+                                                <span class="text-xs text-[var(--ui-muted)]">—</span>
+                                            @elseif($vz['code'] === 'versendet')
+                                                <div class="text-xs text-emerald-700">{{ $vz['text'] }}</div>
+                                                @if($vz['detail'])
+                                                    <div class="text-[10px] text-[var(--ui-muted)]">{{ $vz['detail'] }}</div>
+                                                @endif
+                                            @elseif($vz['code'] === 'gesperrt')
+                                                <div class="text-xs text-red-700" title="{{ $vz['text'] }}">Gesperrt</div>
+                                                <div class="text-[10px] text-red-700 max-w-[220px] leading-snug">{{ \Illuminate\Support\Str::limit(\Illuminate\Support\Str::after($vz['text'], 'Gesperrt: '), 120) }}</div>
+                                            @elseif($vz['code'] === 'vorgemerkt' || $vz['code'] === 'wartet')
+                                                <div class="text-xs text-amber-800 font-medium">{{ $vz['text'] }}</div>
+                                                <div class="text-[10px] text-amber-800 max-w-[220px] leading-snug">{{ $vz['detail'] }}</div>
+                                                <div class="mt-1.5 flex gap-1">
+                                                    <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
+                                                    <x-ui-button variant="danger-outline" size="xs" wire:click="vormerkungZuruecknehmen({{ $applicant->id }})" wire:confirm="Vormerkung zurücknehmen?">Zurücknehmen</x-ui-button>
+                                                </div>
+                                            @elseif($vz['code'] === 'unvollstaendig')
+                                                <div class="text-xs text-amber-800">{{ $vz['text'] }}</div>
+                                                <div class="text-[10px] text-[var(--ui-muted)] max-w-[220px] leading-snug">Beim Versand wird vorgemerkt und erinnert.</div>
+                                                <div class="mt-1.5">
+                                                    <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
+                                                </div>
+                                            @else
+                                                <span class="text-xs text-emerald-700">Bereit</span>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3">
                                             @php
                                                 // Werte kommen aus der Computed-Leseseite (Task 8) — kein
                                                 // Query und kein Write pro Zeile.
@@ -635,7 +665,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="7" class="px-4 py-8 text-center text-[var(--ui-muted)]">
+                                        <td colspan="8" class="px-4 py-8 text-center text-[var(--ui-muted)]">
                                             @svg('heroicon-o-clipboard-document-list', 'w-10 h-10 text-[var(--ui-muted)] mx-auto mb-2')
                                             <div class="text-sm">Keine Buchungen vorhanden</div>
                                         </td>

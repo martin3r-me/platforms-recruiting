@@ -309,6 +309,36 @@ class Index extends Component
         $this->showMoveModal = true;
     }
 
+    /** Erinnerung zur Vervollstaendigung von Hand — ohne Drossel (bewusster Klick). */
+    public function erinnernZurVervollstaendigung(int $applicantId): void
+    {
+        $booking = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId);
+        if (!$booking) {
+            return;
+        }
+        $vormerkung = $booking->applicant->offeneVersandVormerkung();
+        $dienst = app(\Platform\Recruiting\Services\ContractSendReservationService::class);
+
+        $ok = $vormerkung
+            ? $dienst->erinnern($vormerkung, force: true)
+            : ($booking->applicant->sendPhaseOnboardingReminder()['ok'] ?? false);
+
+        session()->flash($ok ? 'success' : 'error', $ok ? 'Erinnerung gesendet.' : 'Erinnerung konnte nicht gesendet werden — Details im Verlauf des Bewerbers.');
+        unset($this->bookings, $this->versandZustaende);
+    }
+
+    public function vormerkungZuruecknehmen(int $applicantId): void
+    {
+        $booking = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId);
+        $vormerkung = $booking?->applicant->offeneVersandVormerkung();
+        if (!$vormerkung) {
+            return;
+        }
+        app(\Platform\Recruiting\Services\ContractSendReservationService::class)->zuruecknehmen($vormerkung, 'Von Hand zurückgenommen.', (int) auth()->id());
+        session()->flash('success', 'Vormerkung zurückgenommen.');
+        unset($this->bookings, $this->versandZustaende, $this->bulkSendState);
+    }
+
     public function moveBookings(): void
     {
         $this->validate([
