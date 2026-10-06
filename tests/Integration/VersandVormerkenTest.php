@@ -452,6 +452,40 @@ final class VersandVormerkenTest extends TestCase
         $this->assertNull($this->bewerber()->offeneVersandVormerkung());
     }
 
+    public function test_direktversand_zaehlt_nicht_als_fehler_wenn_nur_das_abschliessen_scheitert(): void
+    {
+        $this->dienst()->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', ['Straße']);
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['rec_phase_id' => self::PHASE_4]);
+        $this->strasseAusfuellen();
+        $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereKey(self::BOOKING)->get();
+
+        $calls = &$this->erinnerungen;
+        $ergebnisRef = &$this->erinnerungsErgebnis;
+        $wirftBeimAbschliessen = new class($calls, $ergebnisRef) extends \Platform\Recruiting\Services\ContractSendReservationService {
+            public function __construct(private array &$calls, private array &$ergebnis) {}
+            public function abschliessen(RecContractSendReservation $reservation, string $ergebnis): void
+            {
+                throw new \RuntimeException('DB weg');
+            }
+        };
+        $gesendet = &$this->gesendet;
+        $dispatch = new class($gesendet) extends \Platform\Recruiting\Services\ContractDispatchService {
+            public function __construct(private array &$gesendet) {}
+            public function sendForApplicant(RecApplicant $applicant, ?int $userId, ?array $contractFields, ?\Platform\Recruiting\Models\RecContractTemplate $defaultTemplate): array
+            {
+                $this->gesendet[] = $applicant->id;
+                return ['status' => 'sent', 'portal_sent' => true, 'message' => null];
+            }
+        };
+
+        $ergebnis = (new \Platform\Recruiting\Services\ContractSendRun($dispatch, $wirftBeimAbschliessen))
+            ->ausfuehren($bookings, [self::APPLICANT => ['vertragsbeginn' => '2026-11-01']], null, 7, 'Clara', 'nachbereitung');
+
+        $this->assertSame([self::APPLICANT], $ergebnis->versendet);
+        $this->assertSame([], $ergebnis->fehler, 'versendet ist versendet — ein Buchhaltungsfehler danach ist kein Versandfehler');
+        $this->assertStringNotContainsString('Fehler', $ergebnis->meldung());
+    }
+
     /**
      * Sender mit Dispatch-Attrappe (protokolliert Aufrufe in $gesendet, legt
      * einen gesendeten Vertrag an). HrDeskRoutingService laeuft ECHT — er

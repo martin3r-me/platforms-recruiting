@@ -66,10 +66,22 @@ final class ContractSendRun
                 $result = $this->dispatch->sendForApplicant($applicant, $userId, ['vertragsbeginn' => $beginn, 'vertragsende' => $ende], $defaultTemplate);
                 if ($result['status'] === 'sent') {
                     $ergebnis->versendet[] = $applicant->id;
-                    // Eine offene Vormerkung ist mit dem Direktversand erledigt.
-                    $offen = $applicant->contractSendReservations()->offen()->first();
-                    if ($offen) {
-                        $this->reservations->abschliessen($offen, 'Direkt versendet.');
+                    // Eine offene Vormerkung ist mit dem Direktversand erledigt. Scheitert
+                    // nur dieses Abschliessen, bleibt die Person „versendet" — die
+                    // Vertraege SIND raus; der naechste Job-Lauf schliesst die
+                    // Vormerkung als „bereits versendet". Kein Eintrag unter fehler,
+                    // sonst zaehlte die Meldung dieselbe Person doppelt.
+                    try {
+                        $offen = $applicant->contractSendReservations()->offen()->first();
+                        if ($offen) {
+                            $this->reservations->abschliessen($offen, 'Direkt versendet.');
+                        }
+                    } catch (\Throwable $e) {
+                        try {
+                            \Illuminate\Support\Facades\Log::warning('[ContractSendRun] Vormerkung nach Direktversand nicht abgeschlossen: ' . $e->getMessage(), ['applicant_id' => $applicant->id]);
+                        } catch (\Throwable) {
+                            // Protokoll darf den erfolgreichen Versand nicht kippen.
+                        }
                     }
                     if (ContractDispatchService::isPortalFailure($result)) {
                         $ergebnis->fehler[$applicant->id] = $result['message'] ?? 'Portal-WA fehlgeschlagen.';

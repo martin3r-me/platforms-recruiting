@@ -609,16 +609,29 @@
                                             @elseif($vz['code'] === 'vorgemerkt' || $vz['code'] === 'wartet')
                                                 <div class="text-xs text-amber-800 font-medium">{{ $vz['text'] }}</div>
                                                 <div class="text-[10px] text-amber-800 max-w-[220px] leading-snug">{{ $vz['detail'] }}</div>
+                                                @php
+                                                    // Daten vollstaendig, nur Phasenwechsel/Freigabe fehlt: nichts zu erinnern.
+                                                    $nichtsOffen = str_contains($vz['text'], \Platform\Recruiting\Support\VersandBereitschaft::TEXT_DATEN_VOLLSTAENDIG);
+                                                @endphp
                                                 <div class="mt-1.5 flex gap-1">
-                                                    <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
+                                                    @if(!$nichtsOffen)
+                                                        <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
+                                                    @endif
                                                     <x-ui-button variant="danger-outline" size="xs" wire:click="vormerkungZuruecknehmen({{ $applicant->id }})" wire:confirm="Vormerkung zurücknehmen?">Zurücknehmen</x-ui-button>
                                                 </div>
                                             @elseif($vz['code'] === 'unvollstaendig')
+                                                @php
+                                                    $nichtsOffen = str_contains($vz['text'], \Platform\Recruiting\Support\VersandBereitschaft::TEXT_DATEN_VOLLSTAENDIG);
+                                                @endphp
                                                 <div class="text-xs text-amber-800">{{ $vz['text'] }}</div>
-                                                <div class="text-[10px] text-[var(--ui-muted)] max-w-[220px] leading-snug">Beim Versand wird vorgemerkt und erinnert.</div>
-                                                <div class="mt-1.5">
-                                                    <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
-                                                </div>
+                                                @if(!$nichtsOffen)
+                                                    <div class="text-[10px] text-[var(--ui-muted)] max-w-[220px] leading-snug">Beim Versand wird vorgemerkt und erinnert.</div>
+                                                    <div class="mt-1.5">
+                                                        <x-ui-button variant="secondary-outline" size="xs" wire:click="erinnernZurVervollstaendigung({{ $applicant->id }})" wire:confirm="Erinnerung jetzt senden?">Erinnern</x-ui-button>
+                                                    </div>
+                                                @else
+                                                    <div class="text-[10px] text-[var(--ui-muted)] max-w-[220px] leading-snug">Beim Versand wird vorgemerkt; geht raus, sobald die Phase weiterrückt bzw. der Fall freigegeben ist.</div>
+                                                @endif
                                             @else
                                                 <span class="text-xs text-emerald-700">Bereit</span>
                                             @endif
