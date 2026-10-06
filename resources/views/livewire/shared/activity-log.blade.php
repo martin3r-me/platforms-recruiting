@@ -31,6 +31,11 @@
                             'error' => 'heroicon-o-exclamation-triangle',
                             'einsatz_klaerung_gesetzt' => 'heroicon-o-check',
                             'einsatz_klaerung_aufgehoben' => 'heroicon-o-arrow-uturn-left',
+                            'contract_send_reserved' => 'heroicon-o-clock',
+                            'contract_send_reminder' => 'heroicon-o-chat-bubble-left',
+                            'contract_send_waiting' => 'heroicon-o-pause-circle',
+                            'contract_send_auto_sent' => 'heroicon-o-paper-airplane',
+                            'contract_send_cancelled' => 'heroicon-o-x-circle',
                             default => 'heroicon-o-document-text',
                         };
                         $iconColor = match($log->type) {
@@ -41,6 +46,11 @@
                             'error' => 'text-red-500',
                             'einsatz_klaerung_gesetzt' => 'text-teal-600',
                             'einsatz_klaerung_aufgehoben' => 'text-orange-500',
+                            'contract_send_reserved' => 'text-amber-500',
+                            'contract_send_reminder' => 'text-blue-500',
+                            'contract_send_waiting' => 'text-amber-600',
+                            'contract_send_auto_sent' => 'text-emerald-600',
+                            'contract_send_cancelled' => 'text-gray-500',
                             default => 'text-gray-400',
                         };
                         // Die Klaerungs-Saetze tragen Notiz UND Wiedervorlage und

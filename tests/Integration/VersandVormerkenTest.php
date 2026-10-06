@@ -236,4 +236,96 @@ final class VersandVormerkenTest extends TestCase
         $this->assertSame('2026-11-01', $offen->vertragsbeginn->format('Y-m-d'));
         $this->assertSame(['vertragsbeginn' => '2026-11-01', 'vertragsende' => null], $offen->contractFields());
     }
+
+    /** Dienst mit Erinnerungs-Attrappe: zaehlt Aufrufe, Ergebnis einstellbar. */
+    private array $erinnerungen = [];
+    private array $erinnerungsErgebnis = ['ok' => true, 'error' => null];
+
+    private function dienst(): \Platform\Recruiting\Services\ContractSendReservationService
+    {
+        $calls = &$this->erinnerungen;
+        $ergebnis = &$this->erinnerungsErgebnis;
+
+        return new class($calls, $ergebnis) extends \Platform\Recruiting\Services\ContractSendReservationService {
+            public function __construct(private array &$calls, private array &$ergebnis) {}
+            protected function erinnerungSenden(RecApplicant $a): array
+            {
+                $this->calls[] = $a->id;
+                return $this->ergebnis;
+            }
+        };
+    }
+
+    public function test_vormerken_legt_an_loggt_und_erinnert(): void
+    {
+        $r = $this->dienst()->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', ['Straße']);
+
+        $this->assertTrue($r->istOffen());
+        $this->assertSame('2026-11-01', $r->vertragsbeginn->format('Y-m-d'));
+        $this->assertSame(7, (int) $r->reserved_by_user_id);
+        $this->assertSame([self::APPLICANT], $this->erinnerungen);
+        $this->assertSame(self::HEUTE, $r->fresh()->last_reminder_at->format('Y-m-d H:i:s'));
+        $this->assertCount(1, $this->logs('contract_send_reserved'));
+        $this->assertStringContainsString('Clara', $this->logs('contract_send_reserved')->first()->summary);
+        $this->assertStringContainsString('Straße', $this->logs('contract_send_reserved')->first()->summary);
+    }
+
+    public function test_zweites_vormerken_aktualisiert_die_offene_und_erinnert_nicht_erneut(): void
+    {
+        $dienst = $this->dienst();
+        $erste = $dienst->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', ['Straße']);
+        Carbon::setTestNow('2026-10-07 11:00:00');
+
+        $zweite = $dienst->vormerken($this->bewerber(), self::BOOKING, '2026-11-15', '2027-11-14', 'hr_desk', 8, 'HR', ['Straße']);
+
+        $this->assertSame($erste->id, $zweite->id, 'hoechstens eine offene Vormerkung');
+        $this->assertSame('2026-11-15', $zweite->vertragsbeginn->format('Y-m-d'));
+        $this->assertSame('hr_desk', $zweite->source);
+        $this->assertSame(1, Capsule::table('rec_contract_send_reservations')->count());
+        $this->assertCount(1, $this->erinnerungen, 'Drossel: keine zweite Erinnerung binnen 24 h');
+        $this->assertCount(2, $this->logs('contract_send_reserved'));
+    }
+
+    public function test_erinnerung_nach_24h_wieder_und_mit_force_sofort(): void
+    {
+        $dienst = $this->dienst();
+        $r = $dienst->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', []);
+
+        Carbon::setTestNow('2026-10-08 09:59:00');
+        $this->assertFalse($dienst->erinnern($r->fresh()));
+        Carbon::setTestNow('2026-10-08 10:01:00');
+        $this->assertTrue($dienst->erinnern($r->fresh()));
+        $this->assertTrue($dienst->erinnern($r->fresh(), force: true));
+        $this->assertCount(3, $this->erinnerungen);
+    }
+
+    public function test_vormerken_gelingt_auch_wenn_die_erinnerung_scheitert(): void
+    {
+        $this->erinnerungsErgebnis = ['ok' => false, 'error' => 'Keine Telefonnummer.'];
+
+        $r = $this->dienst()->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', []);
+
+        $this->assertTrue($r->istOffen());
+        $this->assertNull($r->fresh()->last_reminder_at);
+        $log = $this->logs('contract_send_reminder')->first();
+        $this->assertNotNull($log);
+        $this->assertStringContainsString('Keine Telefonnummer', $log->summary);
+    }
+
+    public function test_zuruecknehmen_und_abschliessen(): void
+    {
+        $dienst = $this->dienst();
+        $r = $dienst->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', []);
+
+        $dienst->zuruecknehmen($r, 'Buchung abgesagt', null);
+        $this->assertFalse($r->fresh()->istOffen());
+        $this->assertSame('Buchung abgesagt', $r->fresh()->cancel_reason);
+        $this->assertCount(1, $this->logs('contract_send_cancelled'));
+        $this->assertNull($this->bewerber()->offeneVersandVormerkung());
+
+        $r2 = $dienst->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', []);
+        $dienst->abschliessen($r2, 'automatisch versendet');
+        $this->assertNotNull($r2->fresh()->completed_at);
+        $this->assertSame(2, Capsule::table('rec_contract_send_reservations')->count(), 'Historie bleibt');
+    }
 }
