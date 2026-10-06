@@ -123,6 +123,7 @@ final class MessageCooldownLookupTest extends TestCase
     {
         $this->log(10, 'waitlist_termin_sent', '2026-10-06 14:14:24');
         $this->log(10, 'autopilot_reacted', '2026-10-06 14:14:42');
+        $this->log(10, 'phase_advanced', '2026-10-06 14:14:43');
 
         $this->assertNull(MessageCooldown::blockingOutboundAt(10));
         // lastOutboundAt bleibt unveraendert — die Ausnahme sitzt nur im Bremsen.
@@ -154,6 +155,7 @@ final class MessageCooldownLookupTest extends TestCase
     {
         $this->log(13, 'campaign_sent', '2026-10-06 10:00:00');
         $this->log(13, 'autopilot_reacted', '2026-10-06 10:05:00');
+        $this->log(13, 'phase_advanced', '2026-10-06 10:05:01');
         $this->log(13, 'waitlist_termin_sent', '2026-10-06 12:00:00');
 
         $this->assertSame('2026-10-06 12:00:00', MessageCooldown::blockingOutboundAt(13));
@@ -164,9 +166,11 @@ final class MessageCooldownLookupTest extends TestCase
     {
         $this->log(14, 'waitlist_termin_sent', '2026-10-06 14:14:24');
         $this->log(14, 'autopilot_reacted', '2026-10-06 14:14:24');
+        $this->log(14, 'phase_advanced', '2026-10-06 14:14:24');
         $this->assertNull(MessageCooldown::blockingOutboundAt(14));
 
         $this->log(15, 'autopilot_reacted', '2026-10-06 14:14:24');
+        $this->log(15, 'phase_advanced', '2026-10-06 14:14:24');
         $this->log(15, 'waitlist_termin_sent', '2026-10-06 14:14:24');
         $this->assertSame('2026-10-06 14:14:24', MessageCooldown::blockingOutboundAt(15));
     }
@@ -176,8 +180,32 @@ final class MessageCooldownLookupTest extends TestCase
     {
         $this->log(16, 'campaign_sent', '2026-10-06 10:00:00');
         $this->log(17, 'autopilot_reacted', '2026-10-06 10:05:00');
+        $this->log(17, 'phase_advanced', '2026-10-06 10:05:01');
 
         $this->assertSame('2026-10-06 10:00:00', MessageCooldown::blockingOutboundAt(16));
         $this->assertNull(MessageCooldown::blockingOutboundAt(18));
+    }
+
+    /**
+     * Buchung ohne Phasen-Aufstieg (Review 06.10.): der Bewerber bliebe in
+     * seiner Phase, und der Erstkontakt dieser Phase — im Zweifel der
+     * Buchungslink — ginge sofort raus. Hier bleibt die Frist stehen.
+     */
+    public function testBuchungOhnePhasenAufstiegHebtNichtsAuf(): void
+    {
+        $this->log(19, 'waitlist_termin_sent', '2026-10-06 14:14:24');
+        $this->log(19, 'autopilot_reacted', '2026-10-06 14:14:42');
+
+        $this->assertSame('2026-10-06 14:14:24', MessageCooldown::blockingOutboundAt(19));
+    }
+
+    /** Aufstieg VOR der Reaktion (z. B. durch HR) zaehlt nicht als Folge der Buchung. */
+    public function testAufstiegVorDerReaktionZaehltNicht(): void
+    {
+        $this->log(20, 'waitlist_termin_sent', '2026-10-06 14:00:00');
+        $this->log(20, 'phase_advanced', '2026-10-06 14:05:00');
+        $this->log(20, 'autopilot_reacted', '2026-10-06 14:10:00');
+
+        $this->assertSame('2026-10-06 14:00:00', MessageCooldown::blockingOutboundAt(20));
     }
 }
