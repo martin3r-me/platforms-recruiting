@@ -425,6 +425,59 @@ class AnzeigeVerknuepfenTest extends TestCase
         $this->assertNull($applicant->mitarbeiterAnlageSperrgrund());
     }
 
+    public function test_umsetzen_hebt_veraltetes_autopilot_abgeschlossen_auf_wenn_noch_phasen_folgen(): void
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'auto_pilot_completed_at' => '2026-09-22 12:01:22',
+            'progress' => 100,
+        ]);
+
+        RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $frisch = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $this->assertSame(self::PHASE_GLADBACH_1, (int) $frisch->rec_phase_id);
+        $this->assertNull($frisch->auto_pilot_completed_at, 'in Gladbach folgt noch eine Phase');
+        $this->assertSame(0, (int) $frisch->progress);
+    }
+
+    public function test_umsetzen_wandelt_text_datum_ins_datumsfeld_um(): void
+    {
+        $morph = (new RecApplicant())->getMorphClass();
+        Capsule::table('core_extra_field_values')->insert([
+            'definition_id' => self::definitionId(self::PHASE_KOELN_1, 'geburtsdatum'),
+            'fieldable_type' => $morph, 'fieldable_id' => self::APPLICANT_STELLE_VORHER_GELESEN,
+            'value' => '1.5.2008', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $wert = Capsule::table('core_extra_field_values')
+            ->where('fieldable_id', self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->where('definition_id', self::definitionId(self::PHASE_GLADBACH_1, 'geburtsdatum'))
+            ->value('value');
+        $this->assertSame('2008-05-01', $wert);
+    }
+
+    public function test_umsetzen_laesst_unlesbares_datum_unter_dem_alten_feld(): void
+    {
+        $morph = (new RecApplicant())->getMorphClass();
+        Capsule::table('core_extra_field_values')->insert([
+            'definition_id' => self::definitionId(self::PHASE_KOELN_1, 'geburtsdatum'),
+            'fieldable_type' => $morph, 'fieldable_id' => self::APPLICANT_STELLE_VORHER_GELESEN,
+            'value' => 'Mai 2008', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $this->assertSame('Mai 2008', Capsule::table('core_extra_field_values')
+            ->where('fieldable_id', self::APPLICANT_STELLE_VORHER_GELESEN)
+            ->where('definition_id', self::definitionId(self::PHASE_KOELN_1, 'geburtsdatum'))
+            ->value('value'), 'bleibt unveraendert unter der alten Definition');
+    }
+
     private static function definitionId(int $phaseId, string $name): int
     {
         return (int) CoreExtraFieldDefinition::query()
@@ -454,6 +507,8 @@ class AnzeigeVerknuepfenTest extends TestCase
             'rec_phase_id' => self::PHASE_KOELN_1,
             'owned_by_user_id' => null,
             'is_unrouted' => 0,
+            'auto_pilot_completed_at' => null,
+            'progress' => 0,
         ]);
 
         Capsule::table('rec_applicant_posting')->delete();
@@ -582,6 +637,15 @@ class AnzeigeVerknuepfenTest extends TestCase
             ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_KOELN_1,
              'name' => 'vorname', 'label' => 'Vorname', 'type' => 'text',
              'is_required' => 1, 'order' => 1, 'options' => null,
+             'created_at' => $now, 'updated_at' => $now],
+            // Altstellen hatten das Geburtsdatum als Text, die neuen als Datum.
+            ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_KOELN_1,
+             'name' => 'geburtsdatum', 'label' => 'Geburtsdatum', 'type' => 'text',
+             'is_required' => 1, 'order' => 2, 'options' => null,
+             'created_at' => $now, 'updated_at' => $now],
+            ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_GLADBACH_1,
+             'name' => 'geburtsdatum', 'label' => 'Geburtsdatum', 'type' => 'date',
+             'is_required' => 1, 'order' => 2, 'options' => null,
              'created_at' => $now, 'updated_at' => $now],
         ]);
 

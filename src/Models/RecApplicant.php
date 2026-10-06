@@ -2452,6 +2452,15 @@ class RecApplicant extends Model implements InheritsExtraFields
                 $this->rec_phase_id = $targetPhaseId;
                 $dirty = true;
                 $phaseRemapped = true;
+
+                // „AutoPilot abgeschlossen" aus der alten Stelle darf nicht mitwandern,
+                // wenn in der neuen Stelle noch Phasen folgen — sonst fasst der
+                // AutoPilot die Bewerbung nie wieder an und das Dashboard blendet sie
+                // aus (Befund 05.10.2026, 1114/1130: altes Onboarding war dort die
+                // letzte Phase). Gleiches Zuruecksetzen wie returnToBookingPhase().
+                if ($this->auto_pilot_completed_at !== null && $this->phase?->nextPhase() !== null) {
+                    $this->resetAutoPilotCycle();
+                }
             }
         }
 
@@ -2595,6 +2604,19 @@ class RecApplicant extends Model implements InheritsExtraFields
                 continue;
             }
 
+            // Text → Datum: alte Stellen hatten das Geburtsdatum als Freitext
+            // („01.05.2008"), die neuen ein Datumsfeld, das Y-m-d erwartet und
+            // „TT.MM.JJJJ" leer anzeigt (Befund 06.10.2026, 1114/1130). Was sich
+            // nicht eindeutig umwandeln laesst, bleibt unter der alten
+            // Definition liegen statt kaputt anzukommen.
+            if ($newDef->type === 'date' && $oldDef->type !== 'date') {
+                $datum = self::alsIsoDatum($value->value);
+                if ($datum === null) {
+                    continue;
+                }
+                $value->value = $datum;
+            }
+
             // Ein juengerer gleichnamiger Wert ist in DIESEM Lauf schon auf die
             // neue Definition gezogen: den aelteren liegen lassen (unsichtbar
             // unter der alten Definition), nicht loeschen — er ist Altbestand,
@@ -2617,6 +2639,26 @@ class RecApplicant extends Model implements InheritsExtraFields
         }
 
         $this->clearExtraFieldDefinitionsCache();
+    }
+
+    /**
+     * „TT.MM.JJJJ" / „T.M.JJJJ" oder schon „JJJJ-MM-TT" → „JJJJ-MM-TT"; sonst null.
+     * Nur echte Kalenderdaten (31.02. faellt durch).
+     */
+    public static function alsIsoDatum(mixed $roh): ?string
+    {
+        $text = trim((string) $roh);
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $text, $m)) {
+            return checkdate((int) $m[2], (int) $m[3], (int) $m[1]) ? $text : null;
+        }
+        if (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $text, $m)) {
+            return checkdate((int) $m[2], (int) $m[1], (int) $m[3])
+                ? sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1])
+                : null;
+        }
+
+        return null;
     }
 
     /**
