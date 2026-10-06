@@ -201,3 +201,16 @@ Neue Typen: `contract_send_reserved`, `contract_send_reminder`, `contract_send_a
 ## Deploy
 
 Migration (`rec_contract_send_reservations`), `queue:restart`, `view:clear`.
+
+## Umsetzung (Nachtrag)
+
+- Regel: `RecApplicant::versandBereitschaft()` / `fehlendePflichtfelder()`; Riegel in `SendContractsService::send`.
+- Vormerkung: `rec_contract_send_reservations`, `RecContractSendReservation`, `ContractSendReservationService`.
+- Klick: `ContractSendRun` (Nachbereitung beide Sammelversände, HR-Schreibtisch).
+- Automatik: `ReservedContractSender` (7 Stufen) ← `SendReservedContractsJob` ← `QueueReservedSendTrigger`.
+- Auslöser/Aufräumen: `RecContractSendReservationObserver`, `HrDeskRoutingService::approveCase`.
+- Deploy: `php artisan migrate`, `php artisan queue:restart`, `php artisan view:clear`.
+- Nach Deploy prüfen: Gladbach 07.10. — Teilnehmer in Phase 3 erscheinen in der Spalte „Versand" als „Daten fehlen: …", nicht als „Bereit".
+- Automatik mit Claim: `claimed_at` an der Vormerkung; Prüfung + Claim in kurzer Transaktion, Versand außerhalb jeder Transaktion; Job ohne Wiederholung (`$tries = 1`), `failed()` vermerkt den Abbruch; Claim jünger als 15 Minuten → `laeuft_bereits`.
+- Nach automatischem Versand wird ein offener Nicht-EU-Fall bei geprüftem Rechtsstatus freigegeben (`approveCase`); ein offener Nicht-EU-Fall blockiert bei geprüftem Rechtsstatus nicht.
+- Direktversand (Klick, HR-Schreibtisch) schließt eine offene Vormerkung ab. Deaktivierung durch die Mitarbeiter-Anlage nimmt die Vormerkung nicht zurück.
