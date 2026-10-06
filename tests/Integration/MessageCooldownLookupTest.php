@@ -113,4 +113,71 @@ final class MessageCooldownLookupTest extends TestCase
 
         $this->assertNull(MessageCooldown::lastOutboundAt(6));
     }
+
+    // -----------------------------------------------------------------
+    // Ausnahme nach Selbstbedienungs-Reaktion (06.10.2026, Fall 4312)
+    // -----------------------------------------------------------------
+
+    /** Der Fall 4312: Warteliste meldet, Bewerberin bucht 18 s spaeter — Onboarding darf raus. */
+    public function testBuchungNachDerFremdenNachrichtHebtDieBremseAuf(): void
+    {
+        $this->log(10, 'waitlist_termin_sent', '2026-10-06 14:14:24');
+        $this->log(10, 'autopilot_reacted', '2026-10-06 14:14:42');
+
+        $this->assertNull(MessageCooldown::blockingOutboundAt(10));
+        // lastOutboundAt bleibt unveraendert — die Ausnahme sitzt nur im Bremsen.
+        $this->assertSame('2026-10-06 14:14:24', MessageCooldown::lastOutboundAt(10));
+    }
+
+    /** Ohne Reaktion bleibt der Schutz vom 15.09. vollstaendig. */
+    public function testOhneReaktionBremstDieFremdeNachrichtWeiter(): void
+    {
+        $this->log(11, 'campaign_sent', '2026-10-06 10:00:00');
+        $this->log(11, 'silent', '2026-10-06 10:01:00');
+        $this->log(11, 'phase_advanced', '2026-10-06 10:02:00');
+        $this->log(11, 'booking_confirmed_by_reply', '2026-10-06 10:03:00');
+
+        $this->assertSame('2026-10-06 10:00:00', MessageCooldown::blockingOutboundAt(11));
+    }
+
+    /** Eine alte Reaktion vor der fremden Nachricht hebt nichts auf. */
+    public function testReaktionVorDerFremdenNachrichtZaehltNicht(): void
+    {
+        $this->log(12, 'autopilot_reacted', '2026-10-05 09:00:00');
+        $this->log(12, 'campaign_sent', '2026-10-06 10:00:00');
+
+        $this->assertSame('2026-10-06 10:00:00', MessageCooldown::blockingOutboundAt(12));
+    }
+
+    /** Neue fremde Nachricht nach der Reaktion: die Frist beginnt von vorn. */
+    public function testNeueFremdeNachrichtNachDerReaktionBremstWieder(): void
+    {
+        $this->log(13, 'campaign_sent', '2026-10-06 10:00:00');
+        $this->log(13, 'autopilot_reacted', '2026-10-06 10:05:00');
+        $this->log(13, 'waitlist_termin_sent', '2026-10-06 12:00:00');
+
+        $this->assertSame('2026-10-06 12:00:00', MessageCooldown::blockingOutboundAt(13));
+    }
+
+    /** Gleiche Sekunde: die Reihenfolge entscheidet die Log-ID, nicht die Uhr. */
+    public function testGleicheSekundeEntscheidetDieReihenfolge(): void
+    {
+        $this->log(14, 'waitlist_termin_sent', '2026-10-06 14:14:24');
+        $this->log(14, 'autopilot_reacted', '2026-10-06 14:14:24');
+        $this->assertNull(MessageCooldown::blockingOutboundAt(14));
+
+        $this->log(15, 'autopilot_reacted', '2026-10-06 14:14:24');
+        $this->log(15, 'waitlist_termin_sent', '2026-10-06 14:14:24');
+        $this->assertSame('2026-10-06 14:14:24', MessageCooldown::blockingOutboundAt(15));
+    }
+
+    /** Die Reaktion eines anderen Bewerbers hebt nichts auf. */
+    public function testReaktionEinesAnderenBewerbersZaehltNicht(): void
+    {
+        $this->log(16, 'campaign_sent', '2026-10-06 10:00:00');
+        $this->log(17, 'autopilot_reacted', '2026-10-06 10:05:00');
+
+        $this->assertSame('2026-10-06 10:00:00', MessageCooldown::blockingOutboundAt(16));
+        $this->assertNull(MessageCooldown::blockingOutboundAt(18));
+    }
 }

@@ -80,6 +80,59 @@ final class MessageCooldown
     }
 
     /**
+     * Log-Typ der Selbstbedienungs-Reaktion (RecApplicant::registerSelfServiceReaction,
+     * z. B. Buchung ueber die oeffentliche Terminseite).
+     */
+    public const REACTION_TYPE = 'autopilot_reacted';
+
+    /**
+     * Die fremde Nachricht, die den Auto-Piloten JETZT noch bremst — 'Y-m-d H:i:s'
+     * oder null.
+     *
+     * Wie lastOutboundAt(), mit einer Ausnahme (06.10.2026, Fall 4312): hat der
+     * Bewerber NACH der fremden Nachricht selbst reagiert (gebucht), bremst sie
+     * nicht mehr. Die Auto-Pilot-Nachricht danach ist die Antwort auf seine
+     * Handlung, nicht eine zweite Nachricht hinter der Kampagne. Vorher hielt
+     * die Ruhefrist z. B. die Onboarding-Vorlage nach einer Wartelisten-Buchung
+     * 24 h zurueck — bei Nachbuchungen kurz vor der Schulung zu spaet.
+     *
+     * Bewusst eng: nur die Selbstbedienungs-Reaktion zaehlt, kein Phasenwechsel
+     * durch HR und keine Reminder-Antwort. Reihenfolge ueber die Log-ID, nicht
+     * die Uhrzeit — beide koennen in derselben Sekunde liegen. Eine neue fremde
+     * Nachricht nach der Reaktion bremst wieder.
+     */
+    public static function blockingOutboundAt(int $applicantId): ?string
+    {
+        try {
+            $fremd = RecAutoPilotLog::query()
+                ->where('rec_applicant_id', $applicantId)
+                ->whereIn('type', self::OUTBOUND_TYPES)
+                ->orderByDesc('id')
+                ->first(['id', 'created_at']);
+
+            if ($fremd === null) {
+                return null;
+            }
+
+            $reagiertDanach = RecAutoPilotLog::query()
+                ->where('rec_applicant_id', $applicantId)
+                ->where('type', self::REACTION_TYPE)
+                ->where('id', '>', $fremd->id)
+                ->exists();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($reagiertDanach) {
+            return null;
+        }
+
+        $at = $fremd->created_at;
+
+        return $at instanceof \DateTimeInterface ? $at->format('Y-m-d H:i:s') : (string) $at;
+    }
+
+    /**
      * Juengster Zeitpunkt, zu dem nachweislich etwas an diesen Bewerber
      * rausging — 'Y-m-d H:i:s' oder null.
      *

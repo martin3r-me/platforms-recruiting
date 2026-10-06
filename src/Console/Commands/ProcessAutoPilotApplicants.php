@@ -207,7 +207,9 @@ class ProcessAutoPilotApplicants extends Command
         // direkt hinter einer Kampagne oder einer Wartelisten-Benachrichtigung
         // ist eine Nachricht zu viel.
         $cooldownHours = (int) $this->getEffectiveSetting($teamSettings, $positionSettings, MessageCooldown::SETTING_KEY, 24, $phaseSettings);
-        $lastOutboundAt = MessageCooldown::lastOutboundAt((int) $applicant->id);
+        // Hat der Bewerber nach der fremden Nachricht selbst gebucht, bremst sie
+        // nicht mehr (06.10.2026, Fall 4312) — siehe blockingOutboundAt().
+        $lastOutboundAt = MessageCooldown::blockingOutboundAt((int) $applicant->id);
 
         if (MessageCooldown::blocks($lastOutboundAt, $cooldownHours, now()->format('Y-m-d H:i:s'))) {
             $this->logAutoPilot($applicant, 'silent', "Ruhefrist: fremde Nachricht am {$lastOutboundAt}, {$cooldownHours} h Abstand — kein Versand.");
