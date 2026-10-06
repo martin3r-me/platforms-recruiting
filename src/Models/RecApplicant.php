@@ -457,6 +457,21 @@ class RecApplicant extends Model implements InheritsExtraFields
         return $this->hasMany(RecContract::class, 'rec_applicant_id');
     }
 
+    public function contractSendReservations()
+    {
+        return $this->hasMany(RecContractSendReservation::class, 'rec_applicant_id');
+    }
+
+    /** Die eine offene Vormerkung — aus der geladenen Relation, sonst per Abfrage. */
+    public function offeneVersandVormerkung(): ?RecContractSendReservation
+    {
+        if ($this->relationLoaded('contractSendReservations')) {
+            return $this->contractSendReservations->first(fn ($r) => $r->istOffen());
+        }
+
+        return $this->contractSendReservations()->offen()->first();
+    }
+
     /**
      * Warum nach einem Vertragsversand KEIN Mitarbeiter entstuende — oder null,
      * wenn die Anlage gesichert ist. Der Versand-Riegel (SendContractsService)
