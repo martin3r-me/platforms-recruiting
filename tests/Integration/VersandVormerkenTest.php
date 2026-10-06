@@ -735,4 +735,128 @@ final class VersandVormerkenTest extends TestCase
         $this->assertSame('2026-10-07 10:00:00', $beobachtet['claimed_at']);
         $this->assertNull($r->fresh()->claimed_at);
     }
+
+    /** @var list<array{0:int,1:string}> */
+    private array $angestossen = [];
+
+    private function beobachterAktiv(): void
+    {
+        $calls = &$this->angestossen;
+        Container::getInstance()->instance(\Platform\Recruiting\Services\ReservedSendTrigger::class, new class($calls) implements \Platform\Recruiting\Services\ReservedSendTrigger {
+            public function __construct(private array &$calls) {}
+            public function anstossen(int $applicantId, string $anlass): void { $this->calls[] = [$applicantId, $anlass]; }
+        });
+        \Platform\Recruiting\Observers\RecContractSendReservationObserver::register();
+    }
+
+    private function beobachterAus(): void
+    {
+        RecApplicant::flushEventListeners();
+        \Platform\Recruiting\Models\RecInterviewBooking::flushEventListeners();
+        \Platform\Recruiting\Models\RecApplicantLegalStatus::flushEventListeners();
+        Container::getInstance()->forgetInstance(\Platform\Recruiting\Services\ReservedSendTrigger::class);
+        Model::clearBootedModels(); // creating-Hooks (uuid) der Models wieder registrieren
+    }
+
+    public function test_phasenwechsel_in_die_anlage_phase_stoesst_den_versand_an(): void
+    {
+        $this->vormerkung();
+        $this->beobachterAktiv();
+        try {
+            $a = $this->bewerber();
+            $a->rec_phase_id = self::PHASE_4;
+            $a->save();
+            $this->assertSame([[self::APPLICANT, 'phase']], $this->angestossen);
+
+            // Wechsel in eine Phase OHNE Anlage: kein Anstoss
+            $a->rec_phase_id = self::PHASE_3;
+            $a->save();
+            $this->assertCount(1, $this->angestossen);
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_ohne_vormerkung_kein_anstoss(): void
+    {
+        $this->beobachterAktiv();
+        try {
+            $a = $this->bewerber();
+            $a->rec_phase_id = self::PHASE_4;
+            $a->save();
+            $this->assertSame([], $this->angestossen);
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_absage_der_buchung_nimmt_die_vormerkung_zurueck(): void
+    {
+        $r = $this->vormerkung();
+        $this->beobachterAktiv();
+        try {
+            $b = \Platform\Recruiting\Models\RecInterviewBooking::find(self::BOOKING);
+            $b->status = 'cancelled';
+            $b->save();
+            $this->assertNotNull($r->fresh()->cancelled_at);
+            $this->assertStringContainsString('Buchung', $r->fresh()->cancel_reason);
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_parken_nimmt_die_vormerkung_zurueck(): void
+    {
+        $r = $this->vormerkung();
+        $this->beobachterAktiv();
+        try {
+            $a = $this->bewerber();
+            $a->is_parked = true;
+            $a->save();
+            $this->assertNotNull($r->fresh()->cancelled_at);
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_nicht_eu_nach_vormerkung_landet_auf_dem_hr_schreibtisch_und_freigabe_stoesst_an(): void
+    {
+        $this->vormerkung();
+        $this->beobachterAktiv();
+        try {
+            $legal = \Platform\Recruiting\Models\RecApplicantLegalStatus::create(['rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'is_eu_citizen' => null]);
+            $legal->setEuCitizen(false, null);
+            $legal->save();
+            $faelle = Capsule::table('rec_hr_desk_cases')->where('rec_applicant_id', self::APPLICANT)->where('reason', 'non_eu_citizen')->get();
+            $this->assertCount(1, $faelle, 'genau ein Nicht-EU-Fall');
+            $fall = $faelle->first();
+            $this->assertStringContainsString('vorgemerkt', (string) $fall->notes);
+
+            $legal->legal_status_checked_at = Carbon::now();
+            $legal->save();
+            $this->assertSame([[self::APPLICANT, 'rechtsstatus']], $this->angestossen);
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_hr_freigabe_stoesst_den_versand_an(): void
+    {
+        $this->vormerkung();
+        Capsule::table('rec_applicant_legal_statuses')->insert(['rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'is_eu_citizen' => 0, 'legal_status_checked_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+        $fall = \Platform\Recruiting\Models\RecHrDeskCase::create(['uuid' => 'vv-case-1', 'rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'reason' => 'non_eu_citizen', 'status' => 'open', 'opened_at' => self::HEUTE]);
+        $this->beobachterAktiv();
+        try {
+            (new \Platform\Recruiting\Services\HrDeskRoutingService())->approveCase($fall, 7, 'geprüft');
+            $this->assertContains([self::APPLICANT, 'hr_freigabe'], $this->angestossen);
+        } finally {
+            $this->beobachterAus();
+        }
+    }
+
+    public function test_beobachter_ist_im_provider_registriert(): void
+    {
+        $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
+        $this->assertStringContainsString('RecContractSendReservationObserver::register()', $quelle);
+    }
 }

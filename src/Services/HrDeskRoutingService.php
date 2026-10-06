@@ -262,6 +262,13 @@ class HrDeskRoutingService
             'resolution_notes' => $notes,
         ]);
 
+        // Spec Versand vormerken §4 (b): Freigabe loest den vorgemerkten Versand aus.
+        // Nur bei OFFENER Vormerkung — der automatische Versand schliesst seine
+        // Vormerkung vor dem eigenen approveCase, stoesst sich also nicht neu an.
+        if ($applicant && $applicant->contractSendReservations()->offen()->exists()) {
+            app(\Platform\Recruiting\Services\ReservedSendTrigger::class)->anstossen($applicant->id, 'hr_freigabe');
+        }
+
         // Only release from HR desk if no other open cases remain
         $hasOtherOpenCases = $applicant->hrDeskCases()
             ->where('id', '!=', $case->id)
