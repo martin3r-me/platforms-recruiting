@@ -131,17 +131,7 @@
                             <x-ui-input-select
                                 name="filterStatus"
                                 wire:model.live="filterStatus"
-                                :options="[
-                                    ['value' => 'all', 'label' => 'Alle Status'],
-                                    ['value' => 'booked', 'label' => 'Gebucht'],
-                                    ['value' => 'registered', 'label' => 'Registriert'],
-                                    ['value' => 'confirmed', 'label' => 'Bestätigt'],
-                                    ['value' => 'attended', 'label' => 'Teilgenommen'],
-                                    ['value' => 'cancelled', 'label' => 'Abgesagt'],
-                                    ['value' => 'rebooked', 'label' => 'Umgebucht'],
-                                    ['value' => 'no_show', 'label' => 'Nicht erschienen'],
-                                    ['value' => 'rejected_on_site', 'label' => 'Vor Ort aussortiert'],
-                                ]"
+                                :options="\Platform\Recruiting\Support\BookingStatusFilter::OPTIONS"
                                 optionValue="value"
                                 optionLabel="label"
                             />
