@@ -92,6 +92,7 @@ class Index extends Component
                 'applicant.legalStatus.additionalContractTemplate',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
+                'applicant.contractSendReservations',
             ]);
 
         if ($this->reasonFilter !== 'all') {
@@ -575,6 +576,25 @@ class Index extends Component
             return;
         }
 
+        // Spec Versand vormerken §3: Onboarding offen → vormerken statt senden.
+        $bereitschaft = $applicant->versandBereitschaft();
+        if ($state === 'ready' && $bereitschaft->status === 'unvollstaendig') {
+            app(\Platform\Recruiting\Services\ContractSendReservationService::class)->vormerken(
+                $applicant,
+                $this->attendedBookingIdFor($applicant),
+                $fields['vertragsbeginn'] ?? null,
+                $fields['vertragsende'] ?? null,
+                \Platform\Recruiting\Models\RecContractSendReservation::SOURCE_HR_DESK,
+                $userId,
+                (string) (Auth::user()->name ?? 'HR'),
+                $bereitschaft->fehlendeFelder,
+            );
+            session()->flash('message', 'Versand vorgemerkt — ' . $bereitschaft->kurztext() . '. Erinnerung geschickt; nach Vervollständigung gehen Verträge + Portallink automatisch raus. Fall bleibt offen.');
+            unset($this->cases);
+
+            return;
+        }
+
         $portalWarning = null;
 
         if ($state === 'ready') {
@@ -608,6 +628,11 @@ class Index extends Component
         }
 
         unset($this->cases, $this->reasonCounts, $this->attendedApplicantIds);
+    }
+
+    private function attendedBookingIdFor(RecApplicant $applicant): ?int
+    {
+        return $applicant->interviewBookings()->where('status', 'attended')->orderByDesc('id')->value('id');
     }
 
     public function render()

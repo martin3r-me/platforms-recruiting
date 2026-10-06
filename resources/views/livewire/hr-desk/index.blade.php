@@ -248,6 +248,9 @@
                                     $deskSperrgrund = ($showSendSection && !$deskHasSent && $applicant)
                                         ? $applicant->mitarbeiterAnlageSperrgrund()
                                         : null;
+                                    // Offene Versand-Vormerkung (Spec Versand vormerken §3) — aus der
+                                    // eager-geladenen Relation contractSendReservations.
+                                    $deskVormerkung = $applicant?->offeneVersandVormerkung();
                                     $sendState = $showSendSection
                                         ? \Platform\Recruiting\Services\ContractSendEligibility::state(
                                             $deskHasSent,
@@ -384,6 +387,8 @@
                                             <p class="text-[11px] text-amber-800 mt-2">Erst Rechtsstatus prüfen — dann wird der Versand aktiv.</p>
                                         @elseif($sendState === 'no_employee_path')
                                             <p class="text-[11px] text-red-700 mt-2">Versand gesperrt: {{ $deskSperrgrund }}</p>
+                                        @elseif($deskVormerkung)
+                                            <p class="text-[11px] text-amber-800 mt-2">Versand vorgemerkt am {{ $deskVormerkung->reserved_at->format('d.m. H:i') }} — {{ $deskVormerkung->last_attempt_result ? 'wartet: ' . $deskVormerkung->last_attempt_result : 'geht automatisch raus, sobald die Daten vollständig sind' }}.</p>
                                         @elseif($sendState === 'missing_beginn')
                                             <p class="text-[11px] text-gray-600 mt-2">Vertragsbeginn setzen (Ende leer = Auto: +1 Jahr, Anfang Monat, −1 Tag).</p>
                                         @elseif($sendState === 'missing_zuschlag')

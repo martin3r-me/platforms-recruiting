@@ -17,9 +17,7 @@ use Platform\Recruiting\Models\RecHrDeskCase;
 use Platform\Recruiting\Models\RecInterview;
 use Platform\Recruiting\Models\RecInterviewBooking;
 use Platform\Recruiting\Services\BookingMover;
-use Platform\Recruiting\Services\ContractDispatchService;
 use Platform\Recruiting\Services\ContractProposalService;
-use Platform\Recruiting\Services\SendContractsService;
 use Platform\Recruiting\Support\ManualBookingCandidates;
 use Platform\Core\Models\CoreLookup;
 
@@ -54,7 +52,7 @@ class Index extends Component
     /**
      * Pro-Bewerber Vertragslaufzeit-Eingaben im Nachbereitungs-Modus.
      * Shape: [applicantId => ['vertragsbeginn' => 'YYYY-MM-DD', 'vertragsende' => 'YYYY-MM-DD']]
-     * Werden bei sendContractsBulk() an SendContractsService übergeben und auf
+     * Werden beim Sammel-Versand an ContractSendRun übergeben und auf
      * die neu erstellten AV+IFSG-Verträge als Extra-Fields geschrieben.
      */
     public array $contractDates = [];
@@ -143,6 +141,7 @@ class Index extends Component
                 'applicant.postings.position',
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
+                'applicant.contractSendReservations',
                 'applicant.employee:id,rec_applicant_id',
                 'applicant.employee.hrData',
                 'movedFromInterview:id,title,starts_at',
@@ -744,6 +743,10 @@ class Index extends Component
 
     public function sendContractsBulk(): void
     {
+        // Seit „Versand vormerken" (10/2026) laeuft auch dieser (alte, in der
+        // UI nicht mehr verdrahtete) Knopf ueber ContractSendRun — er versendet
+        // damit wie sendPortalLinkBulk() Vertrag UND Portal-WA.
+        //
         // Eligible = anwesend + Template zugewiesen + noch KEIN Vertrag versendet.
         // Schon-versendete (hasAnyContractSent) werden geskippt — verhindert
         // dass leere Vertragsbeginn-Felder den ganzen Run blockieren UND dass
@@ -777,18 +780,13 @@ class Index extends Component
         // geschlossen/gesendet hat, darf der Schulungsleiter nicht parallel
         // per Bulk-Versand senden.
         $blockedByLegalStatus = collect();
-        $blockedByEmployeePath = collect();
-        $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus, &$blockedByEmployeePath) {
+        $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus) {
             if ($b->status !== 'attended') return false;
             if (!$b->applicant?->contract_template_id) return false;
             if ($b->applicant->hasAnyContractSent()) return false;
             if ($this->isLegalStatusUnchecked($b->applicant)
                 || isset($this->openNonEuCaseApplicantIds[$b->applicant->id])) {
                 $blockedByLegalStatus->push($b);
-                return false;
-            }
-            if (isset($this->mitarbeiterAnlageSperrgruende[$b->applicant->id])) {
-                $blockedByEmployeePath->push($b);
                 return false;
             }
             return true;
@@ -802,13 +800,12 @@ class Index extends Component
                     $blockedByLegalStatus->count(),
                 );
             }
-            $msg .= $this->versandRiegelHinweis($blockedByEmployeePath);
             session()->flash('error', $msg);
             return;
         }
 
         // Vertragsbeginn ist Pflicht — verhindern dass jemand ohne Datum versendet
-        $missingBeginn = $eligible->filter(function ($b) {
+        $missingBeginn = $this->ohneGesperrte($eligible)->filter(function ($b) {
             $applicantId = $b->applicant->id;
             return empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
         });
@@ -818,52 +815,22 @@ class Index extends Component
         }
 
         // Zuschlag ist Pflicht (universeller Cut) — verhindern dass jemand ohne Zuschlag versendet.
-        $missingZuschlag = $eligible->filter(fn ($b) => $b->applicant->zuschlag === null);
+        $missingZuschlag = $this->ohneGesperrte($eligible)->filter(fn ($b) => $b->applicant->zuschlag === null);
         if ($missingZuschlag->isNotEmpty()) {
             session()->flash('error', 'Bei mind. einem zu versendenden Bewerber fehlt der Zuschlag.');
             return;
         }
 
-        $service = app(SendContractsService::class);
-        $sent = 0;
-        $errors = 0;
-
-        foreach ($eligible as $booking) {
-            try {
-                $applicantId = $booking->applicant->id;
-                $fields = $this->contractDates[$applicantId] ?? null;
-                $service->send($booking->applicant, auth()->id(), $fields);
-                $sent++;
-            } catch (\Throwable $e) {
-                $errors++;
-            }
-        }
-
-        unset($this->bookings, $this->openNonEuCaseApplicantIds, $this->mitarbeiterAnlageSperrgruende, $this->bulkSendState);
-        $this->hydrateContractDatesFromExistingContracts();
-
-        if ($errors === 0) {
-            $msg = "Verträge versendet für {$sent} Bewerber.";
-            if ($blockedByLegalStatus->isNotEmpty()) {
-                $msg .= sprintf(
-                    ' %d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte auf HR-Schreibtisch pruefen.',
-                    $blockedByLegalStatus->count(),
-                );
-            }
-            $msg .= $this->versandRiegelHinweis($blockedByEmployeePath);
-            session()->flash('success', $msg);
-        } else {
-            session()->flash('error', "Versendet: {$sent}, Fehler: {$errors}. Details siehe Logs." . $this->versandRiegelHinweis($blockedByEmployeePath));
-        }
+        $this->versandLaufAusfuehren($eligible, $blockedByLegalStatus);
     }
 
     /**
      * Kombinierter Versand: Verträge + Portal-Link in einem Schritt.
      * Identische Eligibility-Logik wie sendContractsBulk() — anwesend +
      * Vertragsvorlage + noch nicht versendet + Rechtsstatus-OK +
-     * Vertragsbeginn gesetzt. Pro Booking: erst SendContractsService
-     * (legt MA an via creates_employee_on_completion-Hook), danach
-     * RecEmployee::sendPortalNotification() fuer die MA-Portal-WA.
+     * Vertragsbeginn gesetzt. Der Versand selbst laeuft ueber
+     * ContractSendRun (bereit → Vertrag + Portal-WA, unvollstaendig →
+     * vormerken, gesperrt → melden).
      *
      * Aktuell als "NICHT NUTZEN"-Variante in der UI markiert — finaler
      * Workflow soll diesen Button zum Default-Button machen und den
@@ -879,18 +846,13 @@ class Index extends Component
         // geschlossen/gesendet hat, darf der Schulungsleiter nicht parallel
         // per Bulk-Versand senden.
         $blockedByLegalStatus = collect();
-        $blockedByEmployeePath = collect();
-        $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus, &$blockedByEmployeePath) {
+        $eligible = $this->bookings->filter(function ($b) use (&$blockedByLegalStatus) {
             if ($b->status !== 'attended') return false;
             if (!$b->applicant?->contract_template_id) return false;
             if ($b->applicant->hasAnyContractSent()) return false;
             if ($this->isLegalStatusUnchecked($b->applicant)
                 || isset($this->openNonEuCaseApplicantIds[$b->applicant->id])) {
                 $blockedByLegalStatus->push($b);
-                return false;
-            }
-            if (isset($this->mitarbeiterAnlageSperrgruende[$b->applicant->id])) {
-                $blockedByEmployeePath->push($b);
                 return false;
             }
             return true;
@@ -904,12 +866,11 @@ class Index extends Component
                     $blockedByLegalStatus->count(),
                 );
             }
-            $msg .= $this->versandRiegelHinweis($blockedByEmployeePath);
             session()->flash('error', $msg);
             return;
         }
 
-        $missingBeginn = $eligible->filter(function ($b) {
+        $missingBeginn = $this->ohneGesperrte($eligible)->filter(function ($b) {
             $applicantId = $b->applicant->id;
             return empty($this->contractDates[$applicantId]['vertragsbeginn'] ?? null);
         });
@@ -918,54 +879,7 @@ class Index extends Component
             return;
         }
 
-        $dispatch = app(ContractDispatchService::class);
-        $contractsSent = 0;
-        $portalsSent = 0;
-        $errors = 0;
-
-        foreach ($eligible as $booking) {
-            $applicantId = $booking->applicant->id;
-            $fields = $this->contractDates[$applicantId] ?? null;
-            $result = $dispatch->sendForApplicant($booking->applicant, auth()->id(), $fields, $this->defaultContractTemplate);
-
-            if ($result['status'] === 'sent') {
-                $contractsSent++;
-                if ($result['portal_sent']) {
-                    $portalsSent++;
-                } elseif (ContractDispatchService::isPortalFailure($result)) {
-                    // Portal-Fehler NACH erfolgreichem Vertragsversand —
-                    // contractsSent zählt, errors auch. Die Auswertung liegt
-                    // im Service, damit sie hier nicht wieder von der des
-                    // HR-Schreibtischs abweicht: bis 08/2026 stand hier
-                    // `message !== null`, was den Fall "kein Mitarbeiter-
-                    // Datensatz" (message war null) als Erfolg durchgehen
-                    // liess — grüner Flash, während der Bewerber gar keine
-                    // Nachricht bekam.
-                    $errors++;
-                }
-            } elseif ($result['status'] === 'error') {
-                $errors++;
-            }
-            // 'skipped_already_sent' kann hier nicht auftreten — der
-            // Eligibility-Filter oben schließt hasAnyContractSent() aus.
-        }
-
-        unset($this->bookings, $this->openNonEuCaseApplicantIds, $this->mitarbeiterAnlageSperrgruende, $this->bulkSendState);
-        $this->hydrateContractDatesFromExistingContracts();
-
-        if ($errors === 0) {
-            $msg = "Verträge + Portal-Link versendet: {$contractsSent} Verträge, {$portalsSent} Portal-WA.";
-            if ($blockedByLegalStatus->isNotEmpty()) {
-                $msg .= sprintf(
-                    ' %d Bewerber wegen offener Rechtsstatus-Pruefung uebersprungen — bitte auf HR-Schreibtisch pruefen.',
-                    $blockedByLegalStatus->count(),
-                );
-            }
-            $msg .= $this->versandRiegelHinweis($blockedByEmployeePath);
-            session()->flash('success', $msg);
-        } else {
-            session()->flash('error', "Verträge: {$contractsSent}, Portal: {$portalsSent}, Fehler: {$errors}. Details siehe Logs." . $this->versandRiegelHinweis($blockedByEmployeePath));
-        }
+        $this->versandLaufAusfuehren($eligible, $blockedByLegalStatus);
     }
 
     // ------------------------------------------------------------------
@@ -997,65 +911,103 @@ class Index extends Component
         return (bool) $applicant?->isLegalStatusUnchecked();
     }
 
-    /** Satz fuer Flash-Meldungen: wer wegen fehlender Mitarbeiter-Anlage uebersprungen wurde. */
-    private function versandRiegelHinweis($blocked): string
+    /**
+     * Der gemeinsame Versand-Kern beider Sammel-Knoepfe (Spec Versand vormerken §3):
+     * bereit → senden (Vertrag + Portal-WA ueber ContractDispatchService),
+     * unvollstaendig → vormerken + Erinnerung, gesperrt → nur melden.
+     * Die Vorfilter (teilgenommen, Vorlage, nicht versendet, Rechtsstatus,
+     * Vertragsbeginn, Zuschlag) haben die Aufrufer schon erledigt.
+     */
+    private function versandLaufAusfuehren($eligible, $blockedByLegalStatus): void
     {
-        if ($blocked->isEmpty()) {
-            return '';
+        $daten = [];
+        foreach ($eligible as $b) {
+            $daten[$b->applicant->id] = $this->contractDates[$b->applicant->id] ?? [];
         }
-
-        $namen = $blocked->map(fn ($b) => \Platform\Recruiting\Support\ApplicantContactName::display(
-            $this->contactCandidatesFor($b->applicant),
-        ) ?: ('#' . $b->applicant->id))->join(', ');
-
-        return sprintf(
-            ' %d übersprungen, weil danach kein Mitarbeiter angelegt würde: %s — Details in der Teilnehmerliste.',
-            $blocked->count(),
-            $namen,
+        $run = new \Platform\Recruiting\Services\ContractSendRun(
+            app(\Platform\Recruiting\Services\ContractDispatchService::class),
+            app(\Platform\Recruiting\Services\ContractSendReservationService::class),
         );
+        $ergebnis = $run->ausfuehren($eligible, $daten, $this->defaultContractTemplate, (int) auth()->id(), (string) (auth()->user()->name ?? 'HR'), \Platform\Recruiting\Models\RecContractSendReservation::SOURCE_NACHBEREITUNG);
+
+        unset($this->bookings, $this->openNonEuCaseApplicantIds, $this->versandZustaende, $this->bulkSendState);
+        $this->hydrateContractDatesFromExistingContracts();
+
+        $msg = $ergebnis->meldung();
+        if ($blockedByLegalStatus->isNotEmpty()) {
+            $msg .= sprintf(' %d wegen offener Rechtsstatus-Prüfung übersprungen.', $blockedByLegalStatus->count());
+        }
+        session()->flash($ergebnis->hatFehler() ? 'error' : 'success', $msg);
     }
 
     /**
-     * Versand-Riegel je Bewerber dieses Termins: [applicantId => Grund], nur fuer
-     * Buchungen, bei denen ein Vertragsversand noch ansteht (nicht abgesagt/
-     * aussortiert/nicht erschienen, noch kein Vertrag raus). Gleiche Regel wie
-     * SendContractsService — hier vorab sichtbar, Tage vor der Schulung.
+     * Gesperrte (kein Mitarbeiter-Weg) zaehlen bei den Pflichtpruefungen
+     * Vertragsbeginn/Zuschlag nicht mit — sie werden ohnehin nicht versendet,
+     * nur gemeldet. Gleiche Regel wie bulkSendState(), damit der Knopf nicht
+     * „bereit" zeigt und der Klick dann an einem Gesperrten scheitert.
+     */
+    private function ohneGesperrte($bookings)
+    {
+        $zustaende = $this->versandZustaende;
+
+        return $bookings->filter(fn ($b) => ($zustaende[$b->applicant?->id]['code'] ?? null) !== 'gesperrt');
+    }
+
+    /**
+     * Versand-Zustand je Bewerber dieses Termins (Spec Versand vormerken §7):
+     * [applicantId => ['code' => 'bereit'|'unvollstaendig'|'gesperrt'|'vorgemerkt'|'wartet'|'versendet',
+     *                  'text' => Kurztext, 'detail' => ?string, 'reservation_id' => ?int]].
+     * Nur Buchungen, bei denen ein Versand ueberhaupt ansteht (nicht abgesagt/
+     * nicht erschienen/aussortiert). Phasen je Stelle einmal geladen.
      *
-     * Phasen werden je Stelle EINMAL geladen und durchgereicht (sonst eine
-     * Abfrage pro Teilnehmer).
-     *
-     * @return array<int, string>
+     * @return array<int, array{code:string,text:string,detail:?string,reservation_id:?int}>
      */
     #[Computed]
-    public function mitarbeiterAnlageSperrgruende(): array
+    public function versandZustaende(): array
     {
-        $offen = $this->bookings->filter(function ($b) {
-            if (!$b->applicant || in_array($b->status, ['cancelled', 'no_show', 'rejected_on_site'], true)) {
-                return false;
-            }
+        $relevant = $this->bookings->filter(fn ($b) => $b->applicant && !in_array($b->status, ['cancelled', 'no_show', 'rejected_on_site'], true));
 
-            return !$b->applicant->contracts->contains(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null);
-        });
-
-        $stellenIds = $offen->map(fn ($b) => $b->applicant->phase?->rec_position_id)->filter()->unique()->values();
-        $phasenJeStelle = $stellenIds->isEmpty()
-            ? collect()
+        $stellenIds = $relevant->map(fn ($b) => $b->applicant->phase?->rec_position_id)->filter()->unique()->values();
+        $phasenJeStelle = $stellenIds->isEmpty() ? collect()
             : \Platform\Recruiting\Models\RecPhase::whereIn('rec_position_id', $stellenIds)
-                ->get(['id', 'rec_position_id', 'order', 'is_active', 'completion_config'])
-                ->groupBy('rec_position_id');
+                ->get(['id', 'rec_position_id', 'order', 'is_active', 'completion_config'])->groupBy('rec_position_id');
 
-        $gruende = [];
-        foreach ($offen as $b) {
-            $phasen = $b->applicant->phase
-                ? ($phasenJeStelle->get($b->applicant->phase->rec_position_id) ?? collect())
-                : null;
-            $grund = $b->applicant->mitarbeiterAnlageSperrgrund($phasen);
-            if ($grund !== null) {
-                $gruende[(int) $b->applicant->id] = $grund;
+        $zustaende = [];
+        foreach ($relevant as $b) {
+            $a = $b->applicant;
+            $versendet = $a->contracts->contains(fn ($c) => $c->status !== 'cancelled' && $c->sent_at !== null);
+            $vormerkung = $a->offeneVersandVormerkung();
+
+            if ($versendet) {
+                $gesendetAm = $a->contracts->filter(fn ($c) => $c->sent_at !== null)->min('sent_at');
+                $abgeschlossen = $a->contractSendReservations->first(fn ($r) => $r->completed_at !== null);
+                $zustaende[$a->id] = [
+                    'code' => 'versendet',
+                    'text' => 'Versendet ' . ($gesendetAm ? \Illuminate\Support\Carbon::parse($gesendetAm)->format('d.m. H:i') : ''),
+                    'detail' => $abgeschlossen ? 'automatisch (vorgemerkt am ' . $abgeschlossen->reserved_at?->format('d.m.') . ')' : null,
+                    'reservation_id' => null,
+                ];
+                continue;
             }
+
+            $phasen = $a->phase ? ($phasenJeStelle->get($a->phase->rec_position_id) ?? collect()) : null;
+            $bereitschaft = $a->versandBereitschaft($phasen);
+
+            if ($vormerkung) {
+                $wartet = $vormerkung->last_attempt_result;
+                $zustaende[$a->id] = [
+                    'code' => $wartet ? 'wartet' : 'vorgemerkt',
+                    'text' => $wartet ? 'Vorgemerkt · wartet' : 'Vorgemerkt · ' . $bereitschaft->kurztext(),
+                    'detail' => $wartet ?: ($vormerkung->last_reminder_at ? 'erinnert ' . $vormerkung->last_reminder_at->format('d.m. H:i') : 'noch nicht erinnert'),
+                    'reservation_id' => $vormerkung->id,
+                ];
+                continue;
+            }
+
+            $zustaende[$a->id] = ['code' => $bereitschaft->status, 'text' => $bereitschaft->kurztext(), 'detail' => null, 'reservation_id' => null];
         }
 
-        return $gruende;
+        return $zustaende;
     }
 
     /**
@@ -1100,7 +1052,8 @@ class Index extends Component
 
         // Versand-Riegel: wer keinen gesicherten Mitarbeiter-Weg hat, wird beim
         // Versand uebersprungen. Bleibt danach niemand uebrig, eigener Zustand.
-        $pendingVersandbar = $pending->filter(fn ($b) => !isset($this->mitarbeiterAnlageSperrgruende[$b->applicant?->id]));
+        $zustaende = $this->versandZustaende;
+        $pendingVersandbar = $pending->filter(fn ($b) => in_array($zustaende[$b->applicant?->id]['code'] ?? 'gesperrt', ['bereit', 'unvollstaendig', 'vorgemerkt', 'wartet'], true));
         if ($pendingVersandbar->isEmpty()) {
             return 'no_employee_path';
         }

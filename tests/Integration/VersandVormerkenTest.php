@@ -32,6 +32,8 @@ final class VersandVormerkenTest extends TestCase
     private const APPLICANT = 5001;
     private const BOOKING = 7001;
     private const HEUTE = '2026-10-07 10:00:00';
+    /** Fuer die anonyme Dispatch-Attrappe (self:: zeigt dort auf die anonyme Klasse). */
+    public const HEUTE_OEFFENTLICH = self::HEUTE;
 
     public static function setUpBeforeClass(): void
     {
@@ -327,5 +329,81 @@ final class VersandVormerkenTest extends TestCase
         $dienst->abschliessen($r2, 'automatisch versendet');
         $this->assertNotNull($r2->fresh()->completed_at);
         $this->assertSame(2, Capsule::table('rec_contract_send_reservations')->count(), 'Historie bleibt');
+    }
+
+    private array $gesendet = [];
+
+    private function klickLauf(): \Platform\Recruiting\Services\ContractSendRun
+    {
+        $gesendet = &$this->gesendet;
+        $dispatch = new class($gesendet) extends \Platform\Recruiting\Services\ContractDispatchService {
+            public function __construct(private array &$gesendet) {}
+            public function sendForApplicant(RecApplicant $applicant, ?int $userId, ?array $contractFields, ?\Platform\Recruiting\Models\RecContractTemplate $defaultTemplate): array
+            {
+                $this->gesendet[] = [$applicant->id, $contractFields];
+                Capsule::table('rec_contracts')->insert(['uuid' => 'c-' . $applicant->id . '-' . count($this->gesendet), 'team_id' => $applicant->team_id, 'rec_applicant_id' => $applicant->id, 'rec_contract_template_id' => 900, 'status' => 'sent', 'sent_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH, 'created_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH, 'updated_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH]);
+                return ['status' => 'sent', 'portal_sent' => true, 'message' => null];
+            }
+        };
+
+        return new \Platform\Recruiting\Services\ContractSendRun($dispatch, $this->dienst());
+    }
+
+    public function test_klick_sendet_bereite_merkt_unvollstaendige_vor_und_sperrt_fremde(): void
+    {
+        // 5001: Phase 3, Strasse leer → unvollstaendig
+        // 5002: Phase 4 → bereit
+        // 5003: Phase fremder Stelle → gesperrt
+        Capsule::table('rec_applicants')->insert([
+            ['id' => 5002, 'uuid' => 'vv-app-5002', 'team_id' => self::TEAM, 'rec_position_id' => self::POSITION, 'rec_phase_id' => self::PHASE_4, 'contract_template_id' => 900, 'zuschlag' => 1.1, 'is_test' => 0, 'is_active' => 1, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+            ['id' => 5003, 'uuid' => 'vv-app-5003', 'team_id' => self::TEAM, 'rec_position_id' => self::POSITION, 'rec_phase_id' => self::PHASE_FREMD, 'contract_template_id' => 900, 'zuschlag' => 1.1, 'is_test' => 0, 'is_active' => 1, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+        Capsule::table('rec_interview_bookings')->insert([
+            ['id' => 7002, 'uuid' => 'vv-bk-7002', 'team_id' => self::TEAM, 'rec_interview_id' => 8001, 'rec_applicant_id' => 5002, 'status' => 'attended', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+            ['id' => 7003, 'uuid' => 'vv-bk-7003', 'team_id' => self::TEAM, 'rec_interview_id' => 8001, 'rec_applicant_id' => 5003, 'status' => 'attended', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+        try {
+            $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereIn('id', [self::BOOKING, 7002, 7003])->get();
+            $daten = [self::APPLICANT => ['vertragsbeginn' => '2026-11-01'], 5002 => ['vertragsbeginn' => '2026-11-01'], 5003 => ['vertragsbeginn' => '2026-11-01']];
+
+            $ergebnis = $this->klickLauf()->ausfuehren($bookings, $daten, null, 7, 'Clara', 'nachbereitung');
+
+            $this->assertSame([5002], $ergebnis->versendet);
+            $this->assertSame([self::APPLICANT], $ergebnis->vorgemerkt);
+            $this->assertArrayHasKey(5003, $ergebnis->gesperrt);
+            $this->assertSame([], $ergebnis->fehler);
+            $this->assertNotNull($this->bewerber()->offeneVersandVormerkung());
+            $this->assertSame('2026-11-01', $this->bewerber()->offeneVersandVormerkung()->vertragsbeginn->format('Y-m-d'));
+            $this->assertStringContainsString('1 versendet', $ergebnis->meldung());
+            $this->assertStringContainsString('1 vorgemerkt', $ergebnis->meldung());
+            $this->assertStringContainsString('1 gesperrt', $ergebnis->meldung());
+        } finally {
+            Capsule::table('rec_interview_bookings')->whereIn('id', [7002, 7003])->delete();
+            Capsule::table('rec_applicants')->whereIn('id', [5002, 5003])->delete();
+        }
+    }
+
+    public function test_klick_ohne_vertragsbeginn_merkt_nicht_vor(): void
+    {
+        $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereKey(self::BOOKING)->get();
+
+        $ergebnis = $this->klickLauf()->ausfuehren($bookings, [self::APPLICANT => ['vertragsbeginn' => null]], null, 7, 'Clara', 'nachbereitung');
+
+        $this->assertSame([], $ergebnis->vorgemerkt);
+        $this->assertArrayHasKey(self::APPLICANT, $ergebnis->fehler);
+        $this->assertStringContainsString('Vertragsbeginn', $ergebnis->fehler[self::APPLICANT]);
+        $this->assertNull($this->bewerber()->offeneVersandVormerkung());
+    }
+
+    public function test_klick_meldet_gesperrte_auch_ohne_vertragsbeginn_als_gesperrt(): void
+    {
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['rec_phase_id' => self::PHASE_FREMD]);
+        $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereKey(self::BOOKING)->get();
+
+        $ergebnis = $this->klickLauf()->ausfuehren($bookings, [self::APPLICANT => ['vertragsbeginn' => null]], null, 7, 'Clara', 'nachbereitung');
+
+        $this->assertArrayHasKey(self::APPLICANT, $ergebnis->gesperrt);
+        $this->assertSame([], $ergebnis->fehler);
+        $this->assertFalse($ergebnis->hatFehler());
     }
 }

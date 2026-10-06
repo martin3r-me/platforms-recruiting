@@ -104,15 +104,24 @@
                             {{ $nachzupflegen->map(fn ($b) => $b->candidate_name ?: ('Buchung #' . $b->id))->join(', ') }}
                         </div>
                     @endif
-                    {{-- Versand-Riegel (05.10.2026): fuer diese Teilnehmer wuerde der
-                         Vertragsversand keinen Mitarbeiter anlegen — sie werden beim
-                         Versand uebersprungen. Vorab sichtbar statt erst beim Klick. --}}
-                    @php $versandGesperrt = $this->mitarbeiterAnlageSperrgruende; @endphp
-                    @if(count($versandGesperrt) > 0)
+                    {{-- Versand-Zustaende (Spec Versand vormerken §7): gesperrt = danach
+                         wuerde kein Mitarbeiter angelegt; vorgemerkt/wartet = geht automatisch
+                         raus, sobald die Daten vollstaendig sind. Vorab sichtbar statt erst beim Klick. --}}
+                    @php
+                        $versandZustaende = $this->versandZustaende;
+                        $anzahlGesperrt = count(array_filter($versandZustaende, fn ($z) => $z['code'] === 'gesperrt'));
+                        $anzahlVorgemerkt = count(array_filter($versandZustaende, fn ($z) => in_array($z['code'], ['vorgemerkt', 'wartet'], true)));
+                    @endphp
+                    @if($anzahlGesperrt > 0)
                         <div class="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
-                            <span class="font-semibold">{{ count($versandGesperrt) }}
-                            {{ count($versandGesperrt) === 1 ? 'Teilnehmer wird' : 'Teilnehmer werden' }} beim Vertragsversand übersprungen</span>
-                            — danach würde kein Mitarbeiter angelegt. Den Grund zeigt der rote Hinweis an der Zeile; meist steht die Phase auf einer anderen Stelle.
+                            <span class="font-semibold">{{ $anzahlGesperrt }} {{ $anzahlGesperrt === 1 ? 'Teilnehmer ist' : 'Teilnehmer sind' }} für den Vertragsversand gesperrt</span>
+                            — danach würde kein Mitarbeiter angelegt. Den Grund zeigt der rote Hinweis an der Zeile.
+                        </div>
+                    @endif
+                    @if($anzahlVorgemerkt > 0)
+                        <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            <span class="font-semibold">{{ $anzahlVorgemerkt }} Versand{{ $anzahlVorgemerkt === 1 ? '' : 'e' }} vorgemerkt</span>
+                            — gehen automatisch raus, sobald die Daten vollständig sind (Spalte „Versand").
                         </div>
                     @endif
                     <div class="flex gap-2 mb-4">
@@ -225,8 +234,8 @@
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
                                             @endif
-                                            @if(isset($versandGesperrt[$booking->applicant?->id]))
-                                                <div class="mt-0.5 text-[11px] text-red-700" title="{{ $versandGesperrt[$booking->applicant->id] }}">
+                                            @if(($versandZustaende[$booking->applicant?->id]['code'] ?? null) === 'gesperrt')
+                                                <div class="mt-0.5 text-[11px] text-red-700" title="{{ $versandZustaende[$booking->applicant->id]['text'] }}">
                                                     @svg('heroicon-o-exclamation-triangle', 'w-3 h-3 inline -mt-0.5') Vertragsversand gesperrt
                                                 </div>
                                             @endif
@@ -419,8 +428,8 @@
                                                 @elseif($isNonEuChecked)
                                                     <div class="text-[10px] text-emerald-700 mt-0.5">Rechtsstatus geprüft</div>
                                                 @endif
-                                                @if(isset($versandGesperrt[$applicant->id]))
-                                                    <div class="text-[10px] text-red-700 mt-0.5 font-medium" title="{{ $versandGesperrt[$applicant->id] }}">Vertragsversand gesperrt — kein Mitarbeiter-Weg</div>
+                                                @if(($versandZustaende[$applicant->id]['code'] ?? null) === 'gesperrt')
+                                                    <div class="text-[10px] text-red-700 mt-0.5 font-medium" title="{{ $versandZustaende[$applicant->id]['text'] }}">Vertragsversand gesperrt — kein Mitarbeiter-Weg</div>
                                                 @endif
                                             @else
                                                 <span class="text-[var(--ui-muted)]">Gelöscht</span>
@@ -664,7 +673,7 @@
                                 </button>
                             @elseif($bulkState === 'no_employee_path')
                                 <button disabled class="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Für die offenen Teilnehmer würde nach dem Versand kein Mitarbeiter angelegt — siehe roter Hinweis oben">
-                                    Portallink & Verträge versenden — Mitarbeiter-Anlage nicht gesichert
+                                    Portallink & Verträge versenden — alle offenen Teilnehmer gesperrt
                                 </button>
                             @elseif($bulkState === 'all_already_sent')
                                 <span class="px-4 py-2 text-sm text-emerald-600 inline-flex items-center gap-2">
