@@ -104,6 +104,12 @@ class RecruitingServiceProvider extends ServiceProvider
                 timeout: (int) config('recruiting.flynk.timeout', 10),
             )
         );
+
+        // Automatischer Versand vorgemerkter Vertraege (Spec Versand vormerken §4).
+        $this->app->bind(
+            \Platform\Recruiting\Services\ReservedSendTrigger::class,
+            \Platform\Recruiting\Services\QueueReservedSendTrigger::class,
+        );
     }
 
     public function boot(): void

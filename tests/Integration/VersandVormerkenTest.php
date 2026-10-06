@@ -451,4 +451,182 @@ final class VersandVormerkenTest extends TestCase
         $this->assertNotNull($r->fresh()->completed_at);
         $this->assertNull($this->bewerber()->offeneVersandVormerkung());
     }
+
+    /**
+     * Sender mit Dispatch-Attrappe (protokolliert Aufrufe in $gesendet, legt
+     * einen gesendeten Vertrag an). HrDeskRoutingService laeuft ECHT — er
+     * braucht im Capsule-Aufbau weder auth() noch app(), nur Eloquent + now().
+     */
+    private function sender(): \Platform\Recruiting\Services\ReservedContractSender
+    {
+        $gesendet = &$this->gesendet;
+        $dispatch = new class($gesendet) extends \Platform\Recruiting\Services\ContractDispatchService {
+            public function __construct(private array &$gesendet) {}
+            public function sendForApplicant(RecApplicant $applicant, ?int $userId, ?array $contractFields, ?\Platform\Recruiting\Models\RecContractTemplate $defaultTemplate): array
+            {
+                $this->gesendet[] = [$applicant->id, $userId, $contractFields];
+                Capsule::table('rec_contracts')->insert(['uuid' => 'c-' . $applicant->id . '-' . count($this->gesendet), 'team_id' => $applicant->team_id, 'rec_applicant_id' => $applicant->id, 'rec_contract_template_id' => 900, 'status' => 'sent', 'sent_at' => Carbon::now()->format('Y-m-d H:i:s'), 'created_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH, 'updated_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH]);
+                return ['status' => 'sent', 'portal_sent' => true, 'message' => null];
+            }
+        };
+
+        return new \Platform\Recruiting\Services\ReservedContractSender($dispatch, $this->dienst(), new \Platform\Recruiting\Services\HrDeskRoutingService());
+    }
+
+    private function vormerkung(string $beginn = '2026-11-01'): RecContractSendReservation
+    {
+        return $this->dienst()->vormerken($this->bewerber(), self::BOOKING, $beginn, null, 'nachbereitung', 7, 'Clara', ['Straße']);
+    }
+
+    private function inVertragsphase(): void
+    {
+        $this->strasseAusfuellen();
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['rec_phase_id' => self::PHASE_4]);
+    }
+
+    public function test_job_ohne_vormerkung_tut_nichts(): void
+    {
+        $this->assertSame('keine_vormerkung', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertSame([], $this->gesendet);
+    }
+
+    public function test_job_versendet_mit_den_vorgemerkten_daten_und_schliesst_ab(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+
+        $this->assertSame('versendet', $this->sender()->versuchen(self::APPLICANT));
+
+        $this->assertSame([[self::APPLICANT, 7, ['vertragsbeginn' => '2026-11-01', 'vertragsende' => null]]], $this->gesendet);
+        $this->assertNotNull($r->fresh()->completed_at);
+        $this->assertCount(1, $this->logs('contract_send_auto_sent'));
+        $this->assertStringContainsString('Clara', $this->logs('contract_send_auto_sent')->first()->summary);
+    }
+
+    public function test_job_zweiter_lauf_versendet_nicht_noch_einmal(): void
+    {
+        $this->vormerkung();
+        $this->inVertragsphase();
+        $sender = $this->sender();
+        $sender->versuchen(self::APPLICANT);
+
+        $this->assertSame('keine_vormerkung', $sender->versuchen(self::APPLICANT));
+        $this->assertCount(1, $this->gesendet);
+    }
+
+    public function test_job_schliesst_ab_wenn_vertrag_auf_anderem_weg_raus_ist(): void
+    {
+        $r = $this->vormerkung();
+        Capsule::table('rec_contracts')->insert(['uuid' => 'c-fremd', 'team_id' => self::TEAM, 'rec_applicant_id' => self::APPLICANT, 'rec_contract_template_id' => 900, 'status' => 'sent', 'sent_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+
+        $this->assertSame('bereits_versendet', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertNotNull($r->fresh()->completed_at);
+        $this->assertSame([], $this->gesendet);
+    }
+
+    public function test_job_wartet_bei_unvollstaendig(): void
+    {
+        $r = $this->vormerkung();
+
+        $this->assertSame('wartet_unvollstaendig', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertTrue($r->fresh()->istOffen());
+        $this->assertStringContainsString('Straße', $r->fresh()->last_attempt_result);
+        $this->assertCount(1, $this->logs('contract_send_waiting'));
+    }
+
+    public function test_job_wartet_bei_gesperrt_nach_umsetzen_auf_fremde_phase(): void
+    {
+        $r = $this->vormerkung();
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['rec_phase_id' => self::PHASE_FREMD]);
+
+        $this->assertSame('wartet_gesperrt', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertTrue($r->fresh()->istOffen());
+        $this->assertSame([], $this->gesendet);
+    }
+
+    public function test_job_wartet_bei_vergangenem_vertragsbeginn(): void
+    {
+        $r = $this->vormerkung('2026-10-01');
+        $this->inVertragsphase();
+
+        $this->assertSame('wartet_vertragsbeginn', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertStringContainsString('Vergangenheit', $r->fresh()->last_attempt_result);
+        $this->assertSame([], $this->gesendet);
+    }
+
+    public function test_job_wartet_bei_fehlendem_zuschlag(): void
+    {
+        $this->vormerkung();
+        $this->inVertragsphase();
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['zuschlag' => null]);
+
+        $this->assertSame('wartet_zuschlag', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertSame([], $this->gesendet);
+    }
+
+    public function test_job_nicht_eu_ungeprueft_routet_auf_hr_schreibtisch_und_wartet(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        Capsule::table('rec_applicant_legal_statuses')->insert(['rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'is_eu_citizen' => 0, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+
+        $this->assertSame('wartet_hr', $this->sender()->versuchen(self::APPLICANT));
+
+        $fall = Capsule::table('rec_hr_desk_cases')->where('rec_applicant_id', self::APPLICANT)->where('reason', 'non_eu_citizen')->first();
+        $this->assertNotNull($fall, 'HR-Fall angelegt');
+        $this->assertStringContainsString('vorgemerkt', (string) $fall->notes);
+        $this->assertTrue($r->fresh()->istOffen());
+        $this->assertSame([], $this->gesendet);
+    }
+
+    /** Controller-Entscheid 6: geprueft + offener Nicht-EU-Fall blockt nicht; der Fall wird nach dem Versand freigegeben. */
+    public function test_job_nicht_eu_geprueft_mit_offenem_fall_versendet_und_gibt_fall_frei(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        Capsule::table('rec_applicant_legal_statuses')->insert(['rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'is_eu_citizen' => 0, 'legal_status_checked_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+        Capsule::table('rec_hr_desk_cases')->insert(['uuid' => 'vv-case-1', 'rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'reason' => 'non_eu_citizen', 'status' => 'open', 'notes' => null, 'opened_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+
+        $this->assertSame('versendet', $this->sender()->versuchen(self::APPLICANT));
+
+        $this->assertCount(1, $this->gesendet);
+        $this->assertNotNull($r->fresh()->completed_at);
+        $fall = Capsule::table('rec_hr_desk_cases')->where('uuid', 'vv-case-1')->first();
+        $this->assertSame('approved', $fall->status);
+        $this->assertStringContainsString('Vormerkung', (string) $fall->resolution_notes);
+        $this->assertSame(7, (int) $fall->resolved_by_user_id);
+        $this->assertCount(0, $this->logs('contract_send_approve_failed'));
+        $this->assertCount(1, $this->logs('hr_desk_approved'));
+    }
+
+    public function test_job_anderer_blockierender_fall_wartet_auch_bei_geprueftem_status(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        Capsule::table('rec_hr_desk_cases')->insert(['uuid' => 'vv-case-2', 'rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'reason' => \Platform\Recruiting\Models\RecHrDeskCase::REASON_MINOR, 'status' => 'open', 'notes' => null, 'opened_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+
+        $this->assertSame('wartet_hr', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertTrue($r->fresh()->istOffen());
+        $this->assertSame([], $this->gesendet);
+        $this->assertSame(0, Capsule::table('rec_hr_desk_cases')->where('reason', 'non_eu_citizen')->count(), 'kein zusaetzlicher Nicht-EU-Fall');
+    }
+
+    public function test_job_bricht_ab_wenn_bewerber_geparkt(): void
+    {
+        $r = $this->vormerkung();
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['is_parked' => 1]);
+
+        $this->assertSame('abgebrochen', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertNotNull($r->fresh()->cancelled_at);
+    }
+
+    public function test_trigger_ist_im_provider_gebunden(): void
+    {
+        $quelle = file_get_contents(dirname(__DIR__, 2) . '/src/RecruitingServiceProvider.php');
+        $this->assertStringContainsString('ReservedSendTrigger::class', $quelle);
+        $this->assertTrue(is_subclass_of(\Platform\Recruiting\Services\QueueReservedSendTrigger::class, \Platform\Recruiting\Services\ReservedSendTrigger::class));
+        $job = new \Platform\Recruiting\Jobs\SendReservedContractsJob(self::APPLICANT, 'test');
+        $this->assertInstanceOf(\Illuminate\Contracts\Queue\ShouldQueue::class, $job);
+        $this->assertSame(3, $job->tries);
+    }
 }
