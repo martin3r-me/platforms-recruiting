@@ -16,6 +16,8 @@ namespace Platform\Recruiting\Support;
  */
 final class VersandBereitschaft
 {
+    public const TEXT_DATEN_VOLLSTAENDIG = 'Daten vollständig — wartet auf Phasenwechsel bzw. Freigabe';
+
     /** @param list<string> $fehlendeFelder */
     private function __construct(
         public readonly string $status,
@@ -51,7 +53,11 @@ final class VersandBereitschaft
     {
         return match ($this->status) {
             'bereit' => 'Bereit',
-            'unvollstaendig' => 'Daten fehlen: ' . ($this->fehlendeFelder === [] ? 'Pflichtfelder' : implode(', ', $this->fehlendeFelder)),
+            // Keine Felder offen, aber noch nicht in der Anlage-Phase: der Versand
+            // wartet nur noch auf Phasenwechsel bzw. HR-Freigabe (AutoPilot aus).
+            'unvollstaendig' => $this->fehlendeFelder === []
+                ? self::TEXT_DATEN_VOLLSTAENDIG
+                : 'Daten fehlen: ' . implode(', ', $this->fehlendeFelder),
             default => 'Gesperrt: ' . $this->grund,
         };
     }

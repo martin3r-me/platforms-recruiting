@@ -1759,17 +1759,37 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     private function sendBookingLinkWhatsApp(string $templateSettingKey, string $logType, string $logSummary, string $contextPurpose = 'interview_booking', array $bodyValues = []): bool
     {
-        $this->loadMissing(['postings.position']);
-        $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
-        $positionSettings = $position?->auto_pilot_settings ?? [];
-        $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+        // Aufloesung im try wie vor dem Herausloesen: ein Fehler hier (Relation,
+        // Settings) darf den Aufrufer nicht sprengen — Verlauf + false.
+        try {
+            $this->loadMissing(['postings.position']);
+            $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
+            $positionSettings = $position?->auto_pilot_settings ?? [];
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
 
-        $templateId = $positionSettings[$templateSettingKey] ?? $teamSettings->getSetting($templateSettingKey);
+            $templateId = $positionSettings[$templateSettingKey] ?? $teamSettings->getSetting($templateSettingKey);
+        } catch (\Throwable $e) {
+            $this->logWaSetupFehler('Interview-Booking WA-Fehler: ' . $e->getMessage());
+
+            return false;
+        }
         if (!$templateId) {
             return false;
         }
 
         return $this->sendWhatsAppTemplateById((int) $templateId, $logType, $logSummary, $contextPurpose, $bodyValues)['ok'];
+    }
+
+    /** Fehler-Verlaufseintrag fuer die WA-Aufloesung — darf selbst nie werfen. */
+    private function logWaSetupFehler(string $summary): void
+    {
+        try {
+            RecAutoPilotLog::create([
+                'rec_applicant_id' => $this->id,
+                'type' => 'error',
+                'summary' => $summary,
+            ]);
+        } catch (\Throwable) {}
     }
 
     /**
@@ -1972,15 +1992,21 @@ class RecApplicant extends Model implements InheritsExtraFields
      */
     public function sendPhaseOnboardingReminder(): array
     {
-        $this->loadMissing(['phase', 'postings.position']);
-        $phaseSettings = $this->phase?->auto_pilot_settings ?? [];
-        $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
-        $positionSettings = $position?->auto_pilot_settings ?? [];
-        $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
+        try {
+            $this->loadMissing(['phase', 'postings.position']);
+            $phaseSettings = $this->phase?->auto_pilot_settings ?? [];
+            $position = $this->postings->sortBy('pivot.applied_at')->first()?->position;
+            $positionSettings = $position?->auto_pilot_settings ?? [];
+            $teamSettings = RecApplicantSettings::getOrCreateForTeam($this->team_id);
 
-        $templateId = $phaseSettings['auto_pilot_wa_initial_template_id']
-            ?? $positionSettings['auto_pilot_wa_initial_template_id']
-            ?? $teamSettings->getSetting('auto_pilot_wa_initial_template_id');
+            $templateId = $phaseSettings['auto_pilot_wa_initial_template_id']
+                ?? $positionSettings['auto_pilot_wa_initial_template_id']
+                ?? $teamSettings->getSetting('auto_pilot_wa_initial_template_id');
+        } catch (\Throwable $e) {
+            $this->logWaSetupFehler('Onboarding-Erinnerung WA-Fehler: ' . $e->getMessage());
+
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
         if (!$templateId) {
             return ['ok' => false, 'error' => 'Keine Onboarding-Vorlage für diese Phase konfiguriert.'];
         }

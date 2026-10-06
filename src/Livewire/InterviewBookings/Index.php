@@ -82,12 +82,21 @@ class Index extends Component
                     $q->whereNotIn('status', ['cancelled'])
                         ->with('contractTemplate', 'extraFieldValues.definition');
                 },
+                'applicant.contractSendReservations',
             ])
             ->get();
 
         foreach ($bookings as $booking) {
             $applicantId = $booking->applicant?->id;
             if (!$applicantId) continue;
+
+            // Vorgemerkte haben noch keinen Vertrag — ihre Daten stehen in der
+            // offenen Vormerkung. Ohne das waeren sie nach dem Neuladen leer und
+            // der Sammelversand stuende auf „Vertragsbeginn fehlt".
+            $vormerkung = $booking->applicant->offeneVersandVormerkung();
+            if ($vormerkung) {
+                $this->contractDates[$applicantId] = self::datenAusVormerkung($this->contractDates[$applicantId] ?? null, $vormerkung);
+            }
 
             $avContract = $booking->applicant->contracts
                 ->filter(fn ($c) => $c->contractTemplate && str_starts_with($c->contractTemplate->code ?? '', 'AV'))
@@ -108,6 +117,33 @@ class Index extends Component
             }
             $this->contractDates[$applicantId] = $current;
         }
+    }
+
+    /**
+     * Fuellt LEERE Vertragsdaten aus einer offenen Vormerkung (Y-m-d).
+     * Getippte Werte haben Vorrang; abgeschlossene/zurueckgenommene
+     * Vormerkungen zaehlen nicht.
+     *
+     * @param array{vertragsbeginn?: ?string, vertragsende?: ?string}|null $aktuell
+     * @return array{vertragsbeginn: ?string, vertragsende: ?string}
+     */
+    public static function datenAusVormerkung(?array $aktuell, ?\Platform\Recruiting\Models\RecContractSendReservation $vormerkung): array
+    {
+        $daten = [
+            'vertragsbeginn' => $aktuell['vertragsbeginn'] ?? null,
+            'vertragsende' => $aktuell['vertragsende'] ?? null,
+        ] + ($aktuell ?? []);
+        if (!$vormerkung || !$vormerkung->istOffen()) {
+            return $daten;
+        }
+        if (empty($daten['vertragsbeginn']) && $vormerkung->vertragsbeginn) {
+            $daten['vertragsbeginn'] = \Illuminate\Support\Carbon::parse($vormerkung->vertragsbeginn)->format('Y-m-d');
+        }
+        if (empty($daten['vertragsende']) && $vormerkung->vertragsende) {
+            $daten['vertragsende'] = \Illuminate\Support\Carbon::parse($vormerkung->vertragsende)->format('Y-m-d');
+        }
+
+        return $daten;
     }
 
     public function render()
@@ -312,8 +348,16 @@ class Index extends Component
     /** Erinnerung zur Vervollstaendigung von Hand — ohne Drossel (bewusster Klick). */
     public function erinnernZurVervollstaendigung(int $applicantId): void
     {
+        // Server-seitig absichern: nur wo die Spalte den Knopf auch zeigt.
+        if (!in_array($this->versandZustaende[$applicantId]['code'] ?? null, ['unvollstaendig', 'vorgemerkt', 'wartet'], true)) {
+            return;
+        }
         $booking = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId);
         if (!$booking) {
+            return;
+        }
+        if ($booking->applicant->fehlendePflichtfelder() === []) {
+            session()->flash('success', 'Keine Daten offen — keine Erinnerung nötig.');
             return;
         }
         $vormerkung = $booking->applicant->offeneVersandVormerkung();
@@ -329,6 +373,9 @@ class Index extends Component
 
     public function vormerkungZuruecknehmen(int $applicantId): void
     {
+        if (!in_array($this->versandZustaende[$applicantId]['code'] ?? null, ['vorgemerkt', 'wartet'], true)) {
+            return;
+        }
         $booking = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId);
         $vormerkung = $booking?->applicant->offeneVersandVormerkung();
         if (!$vormerkung) {
@@ -1011,11 +1058,16 @@ class Index extends Component
 
             if ($versendet) {
                 $gesendetAm = $a->contracts->filter(fn ($c) => $c->sent_at !== null)->min('sent_at');
-                $abgeschlossen = $a->contractSendReservations->first(fn ($r) => $r->completed_at !== null);
+                // „automatisch" nur, wenn der Versand wirklich aus der Vormerkung kam
+                // (nicht bei Direktversand, der die Vormerkung bloss abschliesst).
+                $abgeschlossen = $a->contractSendReservations
+                    ->filter(fn ($r) => $r->completed_at !== null && str_starts_with((string) $r->last_attempt_result, 'Automatisch versendet'))
+                    ->sortByDesc('completed_at')
+                    ->first();
                 $zustaende[$a->id] = [
                     'code' => 'versendet',
                     'text' => 'Versendet ' . ($gesendetAm ? \Illuminate\Support\Carbon::parse($gesendetAm)->format('d.m. H:i') : ''),
-                    'detail' => $abgeschlossen ? 'automatisch (vorgemerkt am ' . $abgeschlossen->reserved_at?->format('d.m.') . ')' : null,
+                    'detail' => $abgeschlossen ? 'automatisch (vorgemerkt von ' . ($abgeschlossen->reserved_by_name ?: 'HR') . ' am ' . $abgeschlossen->reserved_at?->format('d.m.') . ')' : null,
                     'reservation_id' => null,
                 ];
                 continue;

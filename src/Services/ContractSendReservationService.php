@@ -17,6 +17,9 @@ class ContractSendReservationService
 {
     public const REMINDER_THROTTLE_HOURS = 24;
 
+    /** Ging beim letzten vormerken() die Erinnerung wirklich raus? (ehrliche Meldung) */
+    public bool $letzteErinnerungGesendet = false;
+
     /** @param list<string> $fehlendeFelder */
     public function vormerken(
         RecApplicant $applicant,
@@ -47,7 +50,7 @@ class ContractSendReservationService
             $offen->fill($daten)->save();
         }
 
-        $felder = $fehlendeFelder === [] ? 'Pflichtfelder der aktuellen Phase' : implode(', ', $fehlendeFelder);
+        $felder = $fehlendeFelder === [] ? 'keine Pflichtfelder offen, wartet auf Phasenwechsel bzw. Freigabe' : implode(', ', $fehlendeFelder);
         $this->log($applicant, 'contract_send_reserved', sprintf(
             'Versand %s von %s — Onboarding unvollständig: %s. Vertragsbeginn %s. Geht automatisch raus, sobald die Daten vollständig sind.',
             $neu ? 'vorgemerkt' : 'erneut vorgemerkt (Daten aktualisiert)',
@@ -56,7 +59,7 @@ class ContractSendReservationService
             $vertragsbeginn ?: '—',
         ), ['reservation_id' => $offen->id, 'user_id' => $userId, 'fehlende_felder' => $fehlendeFelder, 'source' => $source]);
 
-        $this->erinnern($offen);
+        $this->letzteErinnerungGesendet = $this->erinnern($offen);
 
         return $offen;
     }
@@ -74,8 +77,18 @@ class ContractSendReservationService
             return false;
         }
 
-        $ergebnis = $this->erinnerungSenden($applicant);
-        if ($ergebnis['ok']) {
+        // Nichts offen (typisch AutoPilot aus, Fall wartet auf Freigabe): keine
+        // Erinnerung — der Bewerber kann nichts mehr ausfuellen.
+        if ($applicant->fehlendePflichtfelder() === []) {
+            return false;
+        }
+
+        try {
+            $ergebnis = $this->erinnerungSenden($applicant);
+        } catch (\Throwable $e) {
+            $ergebnis = ['ok' => false, 'error' => $e->getMessage()];
+        }
+        if ($ergebnis['ok'] ?? false) {
             $reservation->forceFill(['last_reminder_at' => Carbon::now()])->save();
 
             return true;

@@ -33,43 +33,52 @@ final class ContractSendRun
             if (!$applicant) {
                 continue;
             }
-            $daten = $datenJeBewerber[$applicant->id] ?? [];
-            $beginn = $daten['vertragsbeginn'] ?? null;
-            $ende = $daten['vertragsende'] ?? null;
+            // Ein Fehler bei einer Person darf den halb gelaufenen Sammelversand
+            // nicht abbrechen — sie landet unter fehler, die anderen laufen weiter.
+            try {
+                $daten = $datenJeBewerber[$applicant->id] ?? [];
+                $beginn = $daten['vertragsbeginn'] ?? null;
+                $ende = $daten['vertragsende'] ?? null;
 
-            // Gesperrt zuerst: wer ohnehin nicht versendet wird, braucht kein
-            // Datum — sonst stuende ein Gesperrter ohne Beginn als Fehler da.
-            $bereitschaft = $applicant->versandBereitschaft();
+                // Gesperrt zuerst: wer ohnehin nicht versendet wird, braucht kein
+                // Datum — sonst stuende ein Gesperrter ohne Beginn als Fehler da.
+                $bereitschaft = $applicant->versandBereitschaft();
 
-            if ($bereitschaft->status === 'gesperrt') {
-                $ergebnis->gesperrt[$applicant->id] = $bereitschaft->grund;
-                continue;
-            }
-
-            if (empty($beginn)) {
-                $ergebnis->fehler[$applicant->id] = 'Vertragsbeginn fehlt.';
-                continue;
-            }
-
-            if ($bereitschaft->status === 'unvollstaendig') {
-                $this->reservations->vormerken($applicant, $booking->id, $beginn, $ende, $source, $userId, $userName, $bereitschaft->fehlendeFelder);
-                $ergebnis->vorgemerkt[] = $applicant->id;
-                continue;
-            }
-
-            $result = $this->dispatch->sendForApplicant($applicant, $userId, ['vertragsbeginn' => $beginn, 'vertragsende' => $ende], $defaultTemplate);
-            if ($result['status'] === 'sent') {
-                $ergebnis->versendet[] = $applicant->id;
-                // Eine offene Vormerkung ist mit dem Direktversand erledigt.
-                $offen = $applicant->contractSendReservations()->offen()->first();
-                if ($offen) {
-                    $this->reservations->abschliessen($offen, 'Direkt versendet.');
+                if ($bereitschaft->status === 'gesperrt') {
+                    $ergebnis->gesperrt[$applicant->id] = $bereitschaft->grund;
+                    continue;
                 }
-                if (ContractDispatchService::isPortalFailure($result)) {
-                    $ergebnis->fehler[$applicant->id] = $result['message'] ?? 'Portal-WA fehlgeschlagen.';
+
+                if (empty($beginn)) {
+                    $ergebnis->fehler[$applicant->id] = 'Vertragsbeginn fehlt.';
+                    continue;
                 }
-            } elseif ($result['status'] === 'error') {
-                $ergebnis->fehler[$applicant->id] = $result['message'] ?? 'Versand fehlgeschlagen.';
+
+                if ($bereitschaft->status === 'unvollstaendig') {
+                    $this->reservations->vormerken($applicant, $booking->id, $beginn, $ende, $source, $userId, $userName, $bereitschaft->fehlendeFelder);
+                    $ergebnis->vorgemerkt[] = $applicant->id;
+                    if ($this->reservations->letzteErinnerungGesendet) {
+                        $ergebnis->erinnert[] = $applicant->id;
+                    }
+                    continue;
+                }
+
+                $result = $this->dispatch->sendForApplicant($applicant, $userId, ['vertragsbeginn' => $beginn, 'vertragsende' => $ende], $defaultTemplate);
+                if ($result['status'] === 'sent') {
+                    $ergebnis->versendet[] = $applicant->id;
+                    // Eine offene Vormerkung ist mit dem Direktversand erledigt.
+                    $offen = $applicant->contractSendReservations()->offen()->first();
+                    if ($offen) {
+                        $this->reservations->abschliessen($offen, 'Direkt versendet.');
+                    }
+                    if (ContractDispatchService::isPortalFailure($result)) {
+                        $ergebnis->fehler[$applicant->id] = $result['message'] ?? 'Portal-WA fehlgeschlagen.';
+                    }
+                } elseif ($result['status'] === 'error') {
+                    $ergebnis->fehler[$applicant->id] = $result['message'] ?? 'Versand fehlgeschlagen.';
+                }
+            } catch (\Throwable $e) {
+                $ergebnis->fehler[$applicant->id] = 'Fehler: ' . $e->getMessage();
             }
         }
 

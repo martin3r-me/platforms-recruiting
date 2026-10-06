@@ -927,4 +927,145 @@ final class VersandVormerkenTest extends TestCase
             $this->beobachterAus();
         }
     }
+
+    // --- Abschluss-Review: Fixes ---
+
+    /** Alle Pflichtfelder bis Phase 3 gefuellt (Vorname aus Phase 1 + Strasse). */
+    private function allePflichtfelderAusfuellen(): void
+    {
+        $this->strasseAusfuellen();
+        Capsule::table('core_extra_field_values')->insert([
+            'definition_id' => self::definitionId(self::PHASE_1, 'vorname'),
+            'fieldable_type' => (new RecApplicant())->getMorphClass(), 'fieldable_id' => self::APPLICANT,
+            'value' => 'Clara', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+    }
+
+    public function test_hydrate_fuellt_leere_daten_aus_offener_vormerkung(): void
+    {
+        $r = $this->vormerkung('2026-11-01');
+        $r->forceFill(['vertragsende' => '2027-10-31'])->save();
+        $Index = \Platform\Recruiting\Livewire\InterviewBookings\Index::class;
+
+        $this->assertSame(
+            ['vertragsbeginn' => '2026-11-01', 'vertragsende' => '2027-10-31'],
+            $Index::datenAusVormerkung(null, $r->fresh()),
+        );
+        $this->assertSame(
+            ['vertragsbeginn' => '2026-12-01', 'vertragsende' => '2027-10-31'],
+            $Index::datenAusVormerkung(['vertragsbeginn' => '2026-12-01', 'vertragsende' => ''], $r->fresh()),
+            'getippter Wert gewinnt, leerer wird gefuellt',
+        );
+
+        $r->forceFill(['completed_at' => self::HEUTE])->save();
+        $this->assertSame(['vertragsbeginn' => null, 'vertragsende' => null], $Index::datenAusVormerkung(null, $r->fresh()), 'abgeschlossene zaehlt nicht');
+        $r->forceFill(['completed_at' => null, 'cancelled_at' => self::HEUTE])->save();
+        $this->assertSame(['vertragsbeginn' => null, 'vertragsende' => null], $Index::datenAusVormerkung(null, $r->fresh()), 'zurueckgenommene zaehlt nicht');
+        $this->assertSame(['vertragsbeginn' => null, 'vertragsende' => null], $Index::datenAusVormerkung(null, null));
+    }
+
+    public function test_erinnern_entfaellt_wenn_keine_pflichtfelder_offen(): void
+    {
+        $r = $this->vormerkung();
+        $this->assertCount(1, $this->erinnerungen);
+        $this->allePflichtfelderAusfuellen();
+        $this->assertSame([], $this->bewerber()->fehlendePflichtfelder());
+
+        $dienst = $this->dienst();
+        $this->assertFalse($dienst->erinnern($r->fresh(), force: true));
+        $this->assertCount(1, $this->erinnerungen, 'keine weitere Erinnerung');
+
+        // Neu vormerken ohne offene Felder: Vormerkung ja, Erinnerung nein, ehrlich gemeldet.
+        Carbon::setTestNow('2026-10-09 10:00:00');
+        $dienst->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'hr_desk', 7, 'Clara', []);
+        $this->assertFalse($dienst->letzteErinnerungGesendet);
+        $this->assertCount(1, $this->erinnerungen);
+    }
+
+    public function test_kurztext_ohne_offene_felder_wartet_auf_freigabe(): void
+    {
+        $this->allePflichtfelderAusfuellen();
+        $b = $this->bewerber()->versandBereitschaft();
+
+        $this->assertSame('unvollstaendig', $b->status);
+        $this->assertSame('Daten vollständig — wartet auf Phasenwechsel bzw. Freigabe', $b->kurztext());
+    }
+
+    public function test_erinnern_mit_wurf_gilt_als_gescheitert(): void
+    {
+        $r = $this->vormerkung();
+        $dienst = new class extends \Platform\Recruiting\Services\ContractSendReservationService {
+            protected function erinnerungSenden(RecApplicant $a): array
+            {
+                throw new \RuntimeException('Meta down');
+            }
+        };
+
+        $this->assertFalse($dienst->erinnern($r->fresh(), force: true));
+        $this->assertTrue($r->fresh()->istOffen());
+        $this->assertTrue($this->logs('contract_send_reminder')->contains(fn ($l) => str_contains($l->summary, 'Meta down')));
+    }
+
+    public function test_klick_lauf_faengt_wurf_je_person_und_macht_weiter(): void
+    {
+        Capsule::table('rec_applicants')->insert([
+            ['id' => 5002, 'uuid' => 'vv-app-5002', 'team_id' => self::TEAM, 'rec_position_id' => self::POSITION, 'rec_phase_id' => self::PHASE_4, 'contract_template_id' => 900, 'zuschlag' => 1.1, 'is_test' => 0, 'is_active' => 1, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+        Capsule::table('rec_interview_bookings')->insert([
+            ['id' => 7002, 'uuid' => 'vv-bk-7002', 'team_id' => self::TEAM, 'rec_interview_id' => 8001, 'rec_applicant_id' => 5002, 'status' => 'attended', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+        try {
+            $werfend = new class extends \Platform\Recruiting\Services\ContractSendReservationService {
+                public function vormerken(RecApplicant $applicant, ?int $bookingId, ?string $vertragsbeginn, ?string $vertragsende, string $source, ?int $userId, string $userName, array $fehlendeFelder): RecContractSendReservation
+                {
+                    throw new \RuntimeException('DB weg');
+                }
+            };
+            $gesendet = [];
+            $dispatch = new class($gesendet) extends \Platform\Recruiting\Services\ContractDispatchService {
+                public function __construct(private array &$gesendet) {}
+                public function sendForApplicant(RecApplicant $applicant, ?int $userId, ?array $contractFields, ?\Platform\Recruiting\Models\RecContractTemplate $defaultTemplate): array
+                {
+                    $this->gesendet[] = $applicant->id;
+                    return ['status' => 'sent', 'portal_sent' => true, 'message' => null];
+                }
+            };
+            // 5001 (unvollstaendig → vormerken wirft) zuerst, 5002 (bereit) danach.
+            $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereIn('id', [self::BOOKING, 7002])->orderBy('id')->get();
+            $daten = [self::APPLICANT => ['vertragsbeginn' => '2026-11-01'], 5002 => ['vertragsbeginn' => '2026-11-01']];
+
+            $ergebnis = (new \Platform\Recruiting\Services\ContractSendRun($dispatch, $werfend))->ausfuehren($bookings, $daten, null, 7, 'Clara', 'nachbereitung');
+
+            $this->assertSame([5002], $ergebnis->versendet, 'die anderen laufen weiter');
+            $this->assertSame([5002], $gesendet);
+            $this->assertArrayHasKey(self::APPLICANT, $ergebnis->fehler);
+            $this->assertStringContainsString('DB weg', $ergebnis->fehler[self::APPLICANT]);
+        } finally {
+            Capsule::table('rec_interview_bookings')->whereIn('id', [7002])->delete();
+            Capsule::table('rec_applicants')->whereIn('id', [5002])->delete();
+        }
+    }
+
+    public function test_klick_meldung_zaehlt_nur_echte_erinnerungen(): void
+    {
+        $this->erinnerungsErgebnis = ['ok' => false, 'error' => 'Keine Telefonnummer.'];
+        $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereKey(self::BOOKING)->get();
+
+        $ergebnis = $this->klickLauf()->ausfuehren($bookings, [self::APPLICANT => ['vertragsbeginn' => '2026-11-01']], null, 7, 'Clara', 'nachbereitung');
+
+        $this->assertSame([self::APPLICANT], $ergebnis->vorgemerkt);
+        $this->assertSame([], $ergebnis->erinnert);
+        $this->assertStringContainsString('1 vorgemerkt (0 erinnert', $ergebnis->meldung());
+        $this->assertStringNotContainsString('Erinnerung geschickt', $ergebnis->meldung());
+    }
+
+    public function test_klick_meldung_zaehlt_gesendete_erinnerung(): void
+    {
+        $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereKey(self::BOOKING)->get();
+
+        $ergebnis = $this->klickLauf()->ausfuehren($bookings, [self::APPLICANT => ['vertragsbeginn' => '2026-11-01']], null, 7, 'Clara', 'nachbereitung');
+
+        $this->assertSame([self::APPLICANT], $ergebnis->erinnert);
+        $this->assertStringContainsString('1 vorgemerkt (1 erinnert', $ergebnis->meldung());
+    }
 }

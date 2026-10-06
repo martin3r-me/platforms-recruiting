@@ -579,7 +579,8 @@ class Index extends Component
         // Spec Versand vormerken §3: Onboarding offen → vormerken statt senden.
         $bereitschaft = $applicant->versandBereitschaft();
         if ($state === 'ready' && $bereitschaft->status === 'unvollstaendig') {
-            app(\Platform\Recruiting\Services\ContractSendReservationService::class)->vormerken(
+            $vormerkDienst = app(\Platform\Recruiting\Services\ContractSendReservationService::class);
+            $vormerkDienst->vormerken(
                 $applicant,
                 $this->attendedBookingIdFor($applicant),
                 $fields['vertragsbeginn'] ?? null,
@@ -589,7 +590,10 @@ class Index extends Component
                 (string) (Auth::user()->name ?? 'HR'),
                 $bereitschaft->fehlendeFelder,
             );
-            session()->flash('message', 'Versand vorgemerkt — ' . $bereitschaft->kurztext() . '. Erinnerung geschickt; nach Vervollständigung gehen Verträge + Portallink automatisch raus. Fall bleibt offen.');
+            // Ehrlich melden: Erinnerung nur behaupten, wenn sie wirklich rausging.
+            // Der Fall bleibt offen — erst die Freigabe stoesst den Versand an.
+            $erinnerung = $vormerkDienst->letzteErinnerungGesendet ? 'Erinnerung geschickt' : 'keine Erinnerung gesendet';
+            session()->flash('message', 'Versand vorgemerkt — ' . $bereitschaft->kurztext() . '. ' . $erinnerung . '; Verträge + Portallink gehen automatisch raus, sobald die Daten vollständig sind und der Fall freigegeben ist. Fall bleibt offen.');
             unset($this->cases);
 
             return;

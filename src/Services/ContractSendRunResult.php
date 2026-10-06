@@ -6,6 +6,7 @@ final class ContractSendRunResult
 {
     /** @var list<int> */ public array $versendet = [];
     /** @var list<int> */ public array $vorgemerkt = [];
+    /** @var list<int> Vorgemerkte, bei denen die Erinnerung wirklich rausging */ public array $erinnert = [];
     /** @var array<int, string> */ public array $gesperrt = [];
     /** @var array<int, string> */ public array $fehler = [];
 
@@ -13,7 +14,7 @@ final class ContractSendRunResult
     {
         $teile = [count($this->versendet) . ' versendet'];
         if ($this->vorgemerkt !== []) {
-            $teile[] = count($this->vorgemerkt) . ' vorgemerkt (Daten fehlen — Erinnerung geschickt, Versand folgt automatisch)';
+            $teile[] = count($this->vorgemerkt) . ' vorgemerkt (' . count($this->erinnert) . ' erinnert; Versand folgt automatisch, sobald die Daten vollständig sind)';
         }
         if ($this->gesperrt !== []) {
             $teile[] = count($this->gesperrt) . ' gesperrt (siehe Teilnehmerliste)';
