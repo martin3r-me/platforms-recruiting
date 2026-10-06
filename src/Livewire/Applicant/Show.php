@@ -957,6 +957,29 @@ class Show extends Component
     }
 
     /**
+     * Versand-Riegel auch fuer die Handgriffe auf der Bewerberseite (Portal
+     * senden, Portal-Link, Einzel-Signaturlink): sie setzen Vertraege auf
+     * "versendet", ohne durch SendContractsService zu laufen. Gleiche Regel
+     * (RecApplicant::mitarbeiterAnlageSperrgrund). Ist schon ein Vertrag raus,
+     * bleibt alles wie bisher — nachsenden muss moeglich bleiben.
+     */
+    private function versandRiegelErlaubt(): bool
+    {
+        if ($this->applicant->hasAnyContractSent()) {
+            return true;
+        }
+
+        $grund = $this->applicant->mitarbeiterAnlageSperrgrund();
+        if ($grund !== null) {
+            session()->flash('error', 'Versand gesperrt: ' . $grund);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Ensures every active contract has a public form link and is in status 'sent'
      * so that the portal page can render per-contract sign buttons immediately.
      * Returns false (and flashes an error) when the applicant has no assignable contracts.
@@ -964,6 +987,10 @@ class Show extends Component
     private function activatePendingContractsForPortal(): bool
     {
         $this->applicant->load('contracts.contractTemplate');
+
+        if (!$this->versandRiegelErlaubt()) {
+            return false;
+        }
 
         $activeContracts = $this->applicant->contracts
             ->filter(fn ($c) => in_array($c->status, ['pending', 'sent', 'in_progress']));
@@ -1072,6 +1099,10 @@ class Show extends Component
 
     public function generateContractLink(int $contractId): void
     {
+        if (!$this->versandRiegelErlaubt()) {
+            return;
+        }
+
         $contract = RecContract::where('id', $contractId)
             ->where('rec_applicant_id', $this->applicant->id)
             ->firstOrFail();

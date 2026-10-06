@@ -458,10 +458,6 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
-     * Hat 1:0..1 zum Mitarbeiter — wenn der Applicant via Phase-4-Hook
-     * zum RecEmployee konvertiert wurde. Sonst null.
-     */
-    /**
      * Warum nach einem Vertragsversand KEIN Mitarbeiter entstuende — oder null,
      * wenn die Anlage gesichert ist. Der Versand-Riegel (SendContractsService)
      * und die Hinweise in Teilnehmerliste, HR-Schreibtisch und Bewerberseite
@@ -495,8 +491,12 @@ class RecApplicant extends Model implements InheritsExtraFields
             return 'Keine Phase gesetzt — nach dem Vertragsversand würde kein Mitarbeiter angelegt.';
         }
 
+        // Nur bei gesetztem Stellenfeld vergleichen: ohne es raet primaryPosition()
+        // aus der fruehesten Anzeige, und bei mehreren Anzeigen waere das eine
+        // falsche Sperre (Review-Fund; gleiche Regel wie die Warnung auf der
+        // Bewerberseite). Die Anlage-Pruefung unten greift trotzdem.
         $stelle = $this->primaryPosition();
-        if ($stelle && (int) $phase->rec_position_id !== (int) $stelle->id) {
+        if ($this->rec_position_id !== null && $stelle && (int) $phase->rec_position_id !== (int) $stelle->id) {
             $phasenStelle = $phase->position?->title ?? ('#' . $phase->rec_position_id);
 
             return "Die Phase „{$phase->name}“ gehört zur Stelle „{$phasenStelle}“, nicht zu „{$stelle->title}“ — "
@@ -533,6 +533,10 @@ class RecApplicant extends Model implements InheritsExtraFields
         });
     }
 
+    /**
+     * Hat 1:0..1 zum Mitarbeiter — wenn der Applicant via Phase-4-Hook
+     * zum RecEmployee konvertiert wurde. Sonst null.
+     */
     public function employee()
     {
         return $this->hasOne(RecEmployee::class, 'rec_applicant_id');

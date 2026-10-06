@@ -404,6 +404,27 @@ class AnzeigeVerknuepfenTest extends TestCase
         (new \Platform\Recruiting\Services\SendContractsService())->send($applicant);
     }
 
+    public function test_riegel_ohne_stellenfeld_sperrt_nicht_wegen_geratener_stelle(): void
+    {
+        // Stellenfeld leer, zwei echte Anzeigen (Koeln frueher, Gladbach spaeter),
+        // Phase korrekt auf Gladbach: primaryPosition() raet Koeln — das darf
+        // den Versand nicht sperren.
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'rec_position_id' => null,
+            'rec_phase_id' => self::PHASE_GLADBACH_1,
+        ]);
+        Capsule::table('rec_applicant_posting')->insert([
+            ['rec_applicant_id' => self::APPLICANT_STELLE_VORHER_GELESEN, 'rec_posting_id' => self::POSTING_KOELN,
+             'applied_at' => '2026-04-01', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+            ['rec_applicant_id' => self::APPLICANT_STELLE_VORHER_GELESEN, 'rec_posting_id' => self::POSTING_GLADBACH,
+             'applied_at' => '2026-09-01', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE],
+        ]);
+
+        $applicant = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $this->assertSame(self::POSITION_KOELN, $applicant->primaryPosition()?->id, 'Vorflug: die geratene Stelle ist Koeln');
+        $this->assertNull($applicant->mitarbeiterAnlageSperrgrund());
+    }
+
     private static function definitionId(int $phaseId, string $name): int
     {
         return (int) CoreExtraFieldDefinition::query()

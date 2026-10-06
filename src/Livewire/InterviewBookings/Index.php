@@ -997,27 +997,6 @@ class Index extends Component
         return (bool) $applicant?->isLegalStatusUnchecked();
     }
 
-    /**
-     * Computed: returns one of:
-     *  - 'no_attended'           → kein Bewerber als anwesend markiert
-     *  - 'no_default_template'   → kein aktives AV-default vorhanden
-     *  - 'missing_dates'         → mind. 1 anwesender (noch nicht versendet) ohne Vertragsbeginn
-     *  - 'missing_zuschlag'      → mind. 1 anwesender (noch nicht versendet) ohne Zuschlag
-     *  - 'all_already_sent'      → alle anwesenden haben schon Verträge versendet
-     *  - 'pending_legal_check'   → die nicht-versendeten warten alle auf HR-Schreibtisch-Pruefung
-     *  - 'ready'                 → mind. 1 anwesender hat Zuschlag + Datum + Rechtsstatus-pruefung-ok
-     */
-    /**
-     * Versand-Riegel je Bewerber dieses Termins: [applicantId => Grund], nur fuer
-     * Buchungen, bei denen ein Vertragsversand noch ansteht (nicht abgesagt/
-     * aussortiert/nicht erschienen, noch kein Vertrag raus). Gleiche Regel wie
-     * SendContractsService — hier vorab sichtbar, Tage vor der Schulung.
-     *
-     * Phasen werden je Stelle EINMAL geladen und durchgereicht (sonst eine
-     * Abfrage pro Teilnehmer).
-     *
-     * @return array<int, string>
-     */
     /** Satz fuer Flash-Meldungen: wer wegen fehlender Mitarbeiter-Anlage uebersprungen wurde. */
     private function versandRiegelHinweis($blocked): string
     {
@@ -1036,6 +1015,17 @@ class Index extends Component
         );
     }
 
+    /**
+     * Versand-Riegel je Bewerber dieses Termins: [applicantId => Grund], nur fuer
+     * Buchungen, bei denen ein Vertragsversand noch ansteht (nicht abgesagt/
+     * aussortiert/nicht erschienen, noch kein Vertrag raus). Gleiche Regel wie
+     * SendContractsService — hier vorab sichtbar, Tage vor der Schulung.
+     *
+     * Phasen werden je Stelle EINMAL geladen und durchgereicht (sonst eine
+     * Abfrage pro Teilnehmer).
+     *
+     * @return array<int, string>
+     */
     #[Computed]
     public function mitarbeiterAnlageSperrgruende(): array
     {
@@ -1068,6 +1058,17 @@ class Index extends Component
         return $gruende;
     }
 
+    /**
+     * Computed: returns one of:
+     *  - 'no_attended'           → kein Bewerber als anwesend markiert
+     *  - 'no_default_template'   → kein aktives AV-default vorhanden
+     *  - 'missing_dates'         → mind. 1 anwesender (noch nicht versendet) ohne Vertragsbeginn
+     *  - 'missing_zuschlag'      → mind. 1 anwesender (noch nicht versendet) ohne Zuschlag
+     *  - 'all_already_sent'      → alle anwesenden haben schon Verträge versendet
+     *  - 'pending_legal_check'   → die nicht-versendeten warten alle auf HR-Schreibtisch-Pruefung
+     *  - 'no_employee_path'      → bei allen uebrigen wuerde nach dem Versand kein Mitarbeiter angelegt
+     *  - 'ready'                 → mind. 1 anwesender hat Zuschlag + Datum + Rechtsstatus-pruefung-ok
+     */
     #[Computed]
     public function bulkSendState(): string
     {

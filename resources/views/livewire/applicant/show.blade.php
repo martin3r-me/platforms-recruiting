@@ -23,6 +23,18 @@
     </x-slot>
 
     <x-ui-page-container width="full" spacing="space-y-8">
+        {{-- Rueckmeldungen der Aktionen. Die Seite hatte bisher keine Anzeige —
+             session()->flash lief ins Leere (u. a. „Versand gesperrt"). --}}
+        @if (session('message'))
+            <div class="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-800">
+                {{ session('message') }}
+            </div>
+        @endif
+        @if (session('error'))
+            <div class="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
+                {{ session('error') }}
+            </div>
+        @endif
         @if($applicant->duplicate_of_applicant_id)
             <div class="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900 flex items-center gap-2">
                 @svg('heroicon-o-exclamation-triangle', 'w-4 h-4 shrink-0')
