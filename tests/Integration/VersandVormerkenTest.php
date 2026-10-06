@@ -406,4 +406,49 @@ final class VersandVormerkenTest extends TestCase
         $this->assertSame([], $ergebnis->fehler);
         $this->assertFalse($ergebnis->hatFehler());
     }
+
+    public function test_fehlende_pflichtfelder_nutzt_vorgeladene_werte_ohne_eigene_abfrage(): void
+    {
+        $ohneVorladen = $this->bewerber()->fehlendePflichtfelder();
+        $this->assertContains('Straße', $ohneVorladen);
+
+        $applicant = $this->bewerber();
+        $applicant->load('extraFieldValues');
+
+        $werteAbfragen = 0;
+        $zaehlen = true;
+        Capsule::connection()->listen(function ($q) use (&$werteAbfragen, &$zaehlen) {
+            if ($zaehlen && str_contains($q->sql, 'core_extra_field_values')) {
+                $werteAbfragen++;
+            }
+        });
+        try {
+            $this->assertSame($ohneVorladen, $applicant->fehlendePflichtfelder());
+            $this->assertSame(0, $werteAbfragen, 'Werte-Abfrage trotz vorgeladener Relation');
+        } finally {
+            $zaehlen = false;
+        }
+
+        // Gefuellte Strasse: vorgeladen und frisch gleich, Strasse fehlt nicht mehr.
+        $this->strasseAusfuellen();
+        $frisch = $this->bewerber()->fehlendePflichtfelder();
+        $this->assertNotContains('Straße', $frisch);
+        $applicant = $this->bewerber();
+        $applicant->load('extraFieldValues');
+        $this->assertSame($frisch, $applicant->fehlendePflichtfelder());
+    }
+
+    public function test_direktversand_schliesst_offene_vormerkung(): void
+    {
+        $r = $this->dienst()->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', 7, 'Clara', ['Straße']);
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT)->update(['rec_phase_id' => self::PHASE_4]);
+        $this->strasseAusfuellen();
+        $bookings = \Platform\Recruiting\Models\RecInterviewBooking::with('applicant')->whereKey(self::BOOKING)->get();
+
+        $ergebnis = $this->klickLauf()->ausfuehren($bookings, [self::APPLICANT => ['vertragsbeginn' => '2026-11-01']], null, 7, 'Clara', 'nachbereitung');
+
+        $this->assertSame([self::APPLICANT], $ergebnis->versendet);
+        $this->assertNotNull($r->fresh()->completed_at);
+        $this->assertNull($this->bewerber()->offeneVersandVormerkung());
+    }
 }

@@ -142,6 +142,7 @@ class Index extends Component
                 'applicant.contractTemplate',
                 'applicant.contracts:id,rec_applicant_id,rec_contract_template_id,status,sent_at',
                 'applicant.contractSendReservations',
+                'applicant.extraFieldValues',
                 'applicant.employee:id,rec_applicant_id',
                 'applicant.employee.hrData',
                 'movedFromInterview:id,title,starts_at',

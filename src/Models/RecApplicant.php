@@ -574,7 +574,11 @@ class RecApplicant extends Model implements InheritsExtraFields
             return [];
         }
 
-        $values = $this->extraFieldValues()->get()->keyBy('definition_id');
+        // Vorgeladene Relation nutzen (Teilnehmerliste laedt sie fuer alle
+        // Buchungen vor) — sonst eine Abfrage pro Bewerber.
+        $values = ($this->relationLoaded('extraFieldValues')
+            ? $this->extraFieldValues
+            : $this->extraFieldValues()->get())->keyBy('definition_id');
         $valuesByName = [];
         foreach ($definitions as $def) {
             $valuesByName[$def->name] = $values->get($def->id)?->value;

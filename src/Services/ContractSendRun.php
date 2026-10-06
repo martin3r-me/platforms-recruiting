@@ -60,6 +60,11 @@ final class ContractSendRun
             $result = $this->dispatch->sendForApplicant($applicant, $userId, ['vertragsbeginn' => $beginn, 'vertragsende' => $ende], $defaultTemplate);
             if ($result['status'] === 'sent') {
                 $ergebnis->versendet[] = $applicant->id;
+                // Eine offene Vormerkung ist mit dem Direktversand erledigt.
+                $offen = $applicant->contractSendReservations()->offen()->first();
+                if ($offen) {
+                    $this->reservations->abschliessen($offen, 'Direkt versendet.');
+                }
                 if (ContractDispatchService::isPortalFailure($result)) {
                     $ergebnis->fehler[$applicant->id] = $result['message'] ?? 'Portal-WA fehlgeschlagen.';
                 }

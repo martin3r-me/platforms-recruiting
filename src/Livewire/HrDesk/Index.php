@@ -606,6 +606,14 @@ class Index extends Component
                 return; // Fall bleibt offen — kein halber Zustand.
             }
 
+            // Eine offene Vormerkung ist mit dem Direktversand erledigt.
+            if ($result['status'] === 'sent') {
+                $offen = $applicant->contractSendReservations()->offen()->first();
+                if ($offen) {
+                    app(\Platform\Recruiting\Services\ContractSendReservationService::class)->abschliessen($offen, 'Direkt versendet.');
+                }
+            }
+
             if (ContractDispatchService::isPortalFailure($result)) {
                 // Vertragsversand ok, Portal-Benachrichtigung fehlgeschlagen ODER
                 // kein RecEmployee gefunden (F1-Edge) — Fall trotzdem schliessen,
