@@ -457,8 +457,11 @@ final class VersandVormerkenTest extends TestCase
      * einen gesendeten Vertrag an). HrDeskRoutingService laeuft ECHT — er
      * braucht im Capsule-Aufbau weder auth() noch app(), nur Eloquent + now().
      */
-    private function sender(): \Platform\Recruiting\Services\ReservedContractSender
+    private function sender(?\Platform\Recruiting\Services\ContractDispatchService $andereAttrappe = null): \Platform\Recruiting\Services\ReservedContractSender
     {
+        if ($andereAttrappe !== null) {
+            return new \Platform\Recruiting\Services\ReservedContractSender($andereAttrappe, $this->dienst(), new \Platform\Recruiting\Services\HrDeskRoutingService());
+        }
         $gesendet = &$this->gesendet;
         $dispatch = new class($gesendet) extends \Platform\Recruiting\Services\ContractDispatchService {
             public function __construct(private array &$gesendet) {}
@@ -499,6 +502,7 @@ final class VersandVormerkenTest extends TestCase
 
         $this->assertSame([[self::APPLICANT, 7, ['vertragsbeginn' => '2026-11-01', 'vertragsende' => null]]], $this->gesendet);
         $this->assertNotNull($r->fresh()->completed_at);
+        $this->assertNull($r->fresh()->claimed_at, 'Beleg nach dem Versand geloest');
         $this->assertCount(1, $this->logs('contract_send_auto_sent'));
         $this->assertStringContainsString('Clara', $this->logs('contract_send_auto_sent')->first()->summary);
     }
@@ -627,6 +631,108 @@ final class VersandVormerkenTest extends TestCase
         $this->assertTrue(is_subclass_of(\Platform\Recruiting\Services\QueueReservedSendTrigger::class, \Platform\Recruiting\Services\ReservedSendTrigger::class));
         $job = new \Platform\Recruiting\Jobs\SendReservedContractsJob(self::APPLICANT, 'test');
         $this->assertInstanceOf(\Illuminate\Contracts\Queue\ShouldQueue::class, $job);
-        $this->assertSame(3, $job->tries);
+        $this->assertSame(1, $job->tries, 'kein automatischer Neuversuch (Doppelversand)');
+    }
+
+    /** Entscheid 9: Exception nach dem Senden — Vormerkung bleibt offen, Beleg geloest, Grund vermerkt; kein Doppelversand. */
+    public function test_job_exception_nach_dem_senden_loest_beleg_und_vermerkt_grund(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        $werfend = new class extends \Platform\Recruiting\Services\ContractDispatchService {
+            public function __construct() {}
+            public function sendForApplicant(RecApplicant $applicant, ?int $userId, ?array $contractFields, ?\Platform\Recruiting\Models\RecContractTemplate $defaultTemplate): array
+            {
+                Capsule::table('rec_contracts')->insert(['uuid' => 'c-wurf', 'team_id' => $applicant->team_id, 'rec_applicant_id' => $applicant->id, 'rec_contract_template_id' => 900, 'status' => 'sent', 'sent_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH, 'created_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH, 'updated_at' => VersandVormerkenTest::HEUTE_OEFFENTLICH]);
+                throw new \RuntimeException('Verbindung weg');
+            }
+        };
+
+        try {
+            $this->sender($werfend)->versuchen(self::APPLICANT);
+            $this->fail('Exception muss weitergeworfen werden');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Verbindung weg', $e->getMessage());
+        }
+
+        $frisch = $r->fresh();
+        $this->assertTrue($frisch->istOffen());
+        $this->assertNull($frisch->claimed_at);
+        $this->assertStringContainsString('Verbindung weg', $frisch->last_attempt_result);
+        $this->assertSame(1, Capsule::table('rec_contracts')->where('rec_applicant_id', self::APPLICANT)->count(), 'Vertrag bleibt (kein Rollback)');
+
+        // Naechster Ausloeser: Vertrag ist da → abschliessen, nicht noch einmal senden.
+        $this->assertSame('bereits_versendet', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertSame([], $this->gesendet);
+    }
+
+    public function test_job_frischer_beleg_laeuft_bereits_alter_beleg_sendet(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        Capsule::table('rec_contract_send_reservations')->where('id', $r->id)->update(['claimed_at' => '2026-10-07 09:55:00']);
+        $logsVorher = Capsule::table('rec_auto_pilot_logs')->count();
+
+        $this->assertSame('laeuft_bereits', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertSame([], $this->gesendet);
+        $this->assertSame($logsVorher, Capsule::table('rec_auto_pilot_logs')->count(), 'kein Verlaufs-Spam');
+
+        Capsule::table('rec_contract_send_reservations')->where('id', $r->id)->update(['claimed_at' => '2026-10-07 09:40:00']);
+        $this->assertSame('versendet', $this->sender()->versuchen(self::APPLICANT));
+        $this->assertCount(1, $this->gesendet);
+        $this->assertNull($r->fresh()->claimed_at);
+    }
+
+    /** Entscheid 10: ohne Benutzer an der Vormerkung keine Freigabe (FK resolved_by_user_id). */
+    public function test_job_ohne_benutzer_an_der_vormerkung_gibt_fall_nicht_frei(): void
+    {
+        $r = $this->dienst()->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', null, 'nachbereitung', null, 'System', ['Straße']);
+        $this->inVertragsphase();
+        Capsule::table('rec_applicant_legal_statuses')->insert(['rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'is_eu_citizen' => 0, 'legal_status_checked_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+        Capsule::table('rec_hr_desk_cases')->insert(['uuid' => 'vv-case-3', 'rec_applicant_id' => self::APPLICANT, 'team_id' => self::TEAM, 'reason' => 'non_eu_citizen', 'status' => 'open', 'notes' => null, 'opened_at' => self::HEUTE, 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE]);
+
+        $this->assertSame('versendet', $this->sender()->versuchen(self::APPLICANT));
+
+        $this->assertNotNull($r->fresh()->completed_at);
+        $this->assertSame('open', Capsule::table('rec_hr_desk_cases')->where('uuid', 'vv-case-3')->value('status'));
+        $this->assertCount(0, $this->logs('hr_desk_approved'));
+        $log = $this->logs('contract_send_approve_failed')->first();
+        $this->assertNotNull($log);
+        $this->assertStringContainsString('kein Benutzer an der Vormerkung', $log->summary);
+    }
+
+    public function test_job_failed_vermerkt_grund_an_der_offenen_vormerkung(): void
+    {
+        $r = $this->vormerkung();
+
+        (new \Platform\Recruiting\Jobs\SendReservedContractsJob(self::APPLICANT, 'test'))->failed(new \RuntimeException('Worker-Timeout'));
+
+        $this->assertTrue($r->fresh()->istOffen());
+        $this->assertStringContainsString('Worker-Timeout', (string) $r->fresh()->last_attempt_result);
+    }
+
+    /** Entscheid 9 a/b: waehrend des Sendens ist der Beleg festgeschrieben und KEINE Transaktion offen. */
+    public function test_job_sendet_ausserhalb_der_transaktion_mit_festgeschriebenem_beleg(): void
+    {
+        $r = $this->vormerkung();
+        $this->inVertragsphase();
+        $beobachtet = [];
+        $sonde = new class($beobachtet, $r->id) extends \Platform\Recruiting\Services\ContractDispatchService {
+            public function __construct(private array &$beobachtet, private int $reservationId) {}
+            public function sendForApplicant(RecApplicant $applicant, ?int $userId, ?array $contractFields, ?\Platform\Recruiting\Models\RecContractTemplate $defaultTemplate): array
+            {
+                $this->beobachtet = [
+                    'transaktionsebene' => Capsule::connection()->transactionLevel(),
+                    'claimed_at' => Capsule::table('rec_contract_send_reservations')->where('id', $this->reservationId)->value('claimed_at'),
+                ];
+                return ['status' => 'sent', 'portal_sent' => true, 'message' => null];
+            }
+        };
+
+        $this->assertSame('versendet', $this->sender($sonde)->versuchen(self::APPLICANT));
+
+        $this->assertSame(0, $beobachtet['transaktionsebene']);
+        $this->assertSame('2026-10-07 10:00:00', $beobachtet['claimed_at']);
+        $this->assertNull($r->fresh()->claimed_at);
     }
 }

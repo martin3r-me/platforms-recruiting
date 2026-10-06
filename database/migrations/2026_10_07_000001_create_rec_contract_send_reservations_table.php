@@ -36,6 +36,9 @@ return new class extends Migration
             $table->dateTime('last_reminder_at')->nullable();
             $table->dateTime('last_attempt_at')->nullable();
             $table->string('last_attempt_result', 500)->nullable();
+            // Belegt waehrend des automatischen Versands (ausserhalb jeder Transaktion):
+            // ein zweiter Lauf binnen 15 min sendet nicht noch einmal.
+            $table->dateTime('claimed_at')->nullable();
             $table->dateTime('completed_at')->nullable();
             $table->dateTime('cancelled_at')->nullable();
             $table->string('cancel_reason', 255)->nullable();

@@ -22,7 +22,7 @@ class RecContractSendReservation extends Model
         'vertragsbeginn', 'vertragsende', 'source',
         'reserved_by_user_id', 'reserved_by_name', 'reserved_at',
         'last_reminder_at', 'last_attempt_at', 'last_attempt_result',
-        'completed_at', 'cancelled_at', 'cancel_reason',
+        'completed_at', 'cancelled_at', 'cancel_reason', 'claimed_at',
     ];
 
     protected $casts = [
@@ -33,6 +33,7 @@ class RecContractSendReservation extends Model
         'last_attempt_at' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'claimed_at' => 'datetime',
     ];
 
     public function scopeOffen($query)

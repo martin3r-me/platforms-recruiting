@@ -13,7 +13,7 @@ use Platform\Recruiting\Models\RecHrDeskCase;
  * Der automatische Versand einer Vormerkung (Spec Versand vormerken §4).
  * Prueft ALLES frisch, in fester Reihenfolge, und schreibt jedes Ergebnis an
  * die Vormerkung + in den Verlauf. Idempotent: Zeilensperre auf der
- * Vormerkung, „schon versendet" schliesst ab statt zu senden.
+ * Vormerkung + Beleg (claimed_at), „schon versendet" schliesst ab statt zu senden.
  */
 class ReservedContractSender
 {
@@ -23,23 +23,33 @@ class ReservedContractSender
         private HrDeskRoutingService $hrDesk,
     ) {}
 
+    /** Ein Beleg juenger als das gilt als laufender Versand (kein zweiter Lauf). */
+    public const CLAIM_MINUTEN = 15;
+
+    /**
+     * Ablauf als Beleg-Muster (Controller-Entscheid 9):
+     *  a) kurze Transaktion: Zeilensperre, Stufen 1–6, bei Erfolg claimed_at setzen;
+     *  b) sendForApplicant AUSSERHALB jeder Transaktion — die Portal-WA geht sofort
+     *     an Meta, ein Rollback darf die Vertraege nicht zuruecknehmen (sonst
+     *     sieht ein Neuversuch „nichts versendet" und sendet doppelt);
+     *  c) Ergebnis kurz nachtragen, Beleg loesen;
+     *  d) Exception nach dem Beleg: Beleg loesen, Grund vermerken, weiterwerfen.
+     */
     public function versuchen(int $applicantId): string
     {
         $connection = (new RecContractSendReservation())->getConnection();
 
-        // Freigabe eines offenen Nicht-EU-Falls laeuft NACH dem Commit: approveCase
-        // stoesst checkAutoPilotCompletion an (Phasenwechsel, Hooks). Ein Fehler
-        // darin darf die Transaktion mit Versand-Abschluss nicht vergiften
-        // (Postgres bricht nach einer gescheiterten Anweisung die ganze
-        // Transaktion ab).
-        $freigabe = null;
-
-        $ergebnis = $connection->transaction(function () use ($applicantId, &$freigabe) {
+        $pruefung = $connection->transaction(function () use ($applicantId) {
             $reservation = RecContractSendReservation::query()
                 ->where('rec_applicant_id', $applicantId)->offen()
                 ->lockForUpdate()->first();
             if (!$reservation) {
                 return 'keine_vormerkung';
+            }
+
+            // Laeuft schon ein Versand? Still ueberspringen (kein Verlaufs-Spam).
+            if ($reservation->claimed_at !== null && $reservation->claimed_at->gt(Carbon::now()->subMinutes(self::CLAIM_MINUTEN))) {
+                return 'laeuft_bereits';
             }
 
             $applicant = RecApplicant::with(['phase.position', 'position', 'legalStatus', 'employee'])->find($applicantId);
@@ -103,9 +113,25 @@ class ReservedContractSender
                 return 'wartet_zuschlag';
             }
 
-            // 7) Senden — gleiche Sequenz wie der Klick (Vertraege → Mitarbeiter → Portal).
+            // Alle Stufen bestanden → belegen; gesendet wird nach dem Commit.
+            $reservation->forceFill(['claimed_at' => Carbon::now()])->save();
+
+            return [$reservation, $applicant, in_array(RecHrDeskCase::REASON_NON_EU_CITIZEN, $offeneGruende, true)];
+        });
+
+        if (is_string($pruefung)) {
+            return $pruefung;
+        }
+
+        [$reservation, $applicant, $nichtEuFallOffen] = $pruefung;
+
+        try {
+            // 7) Senden — gleiche Sequenz wie der Klick (Vertraege → Mitarbeiter → Portal),
+            //    bewusst ohne umschliessende Transaktion.
             $defaultTemplate = RecContractTemplate::where('team_id', $applicant->team_id)->where('code', 'AV-default')->where('is_active', true)->first();
             $result = $this->dispatch->sendForApplicant($applicant, $reservation->reserved_by_user_id ? (int) $reservation->reserved_by_user_id : null, $reservation->contractFields(), $defaultTemplate);
+
+            $reservation->claimed_at = null;
 
             if ($result['status'] === 'sent') {
                 $portal = ContractDispatchService::isPortalFailure($result) ? ' Portal-WA fehlgeschlagen: ' . ($result['message'] ?? '') : '';
@@ -118,8 +144,8 @@ class ReservedContractSender
                     $portal,
                 ), ['reservation_id' => $reservation->id]);
 
-                if (in_array(RecHrDeskCase::REASON_NON_EU_CITIZEN, $offeneGruende, true)) {
-                    $freigabe = [$applicant->id, (int) ($reservation->reserved_by_user_id ?? 0)];
+                if ($nichtEuFallOffen) {
+                    $this->nichtEuFallFreigeben($applicant, $reservation->reserved_by_user_id !== null ? (int) $reservation->reserved_by_user_id : null);
                 }
                 return 'versendet';
             }
@@ -131,35 +157,38 @@ class ReservedContractSender
 
             $this->reservations->vermerkeVersuch($reservation, 'Versand fehlgeschlagen: ' . ($result['message'] ?? 'unbekannt'));
             return 'fehler';
-        });
-
-        if ($freigabe !== null) {
-            $this->nichtEuFallFreigeben(...$freigabe);
+        } catch (\Throwable $e) {
+            try {
+                $reservation->claimed_at = null;
+                $this->reservations->vermerkeVersuch($reservation, 'Versand abgebrochen: ' . $e->getMessage());
+            } catch (\Throwable) {}
+            throw $e;
         }
-
-        return $ergebnis;
     }
 
     /**
      * Gibt den offenen Nicht-EU-Fall nach dem automatischen Versand frei
-     * (Spiegel von HrDesk\Index::sendContractsFromDesk). Ein Fehler hier macht
-     * aus „versendet" keinen Fehler — er landet nur im Verlauf.
+     * (Spiegel von HrDesk\Index::sendContractsFromDesk). Laeuft nach dem Versand,
+     * ausserhalb jeder Transaktion. Ein Fehler hier macht aus „versendet" keinen
+     * Fehler — er landet nur im Verlauf. Ohne Benutzer an der Vormerkung keine
+     * Freigabe (resolved_by_user_id = 0 verletzt den Fremdschluessel).
      */
-    private function nichtEuFallFreigeben(int $applicantId, int $userId): void
+    private function nichtEuFallFreigeben(RecApplicant $applicant, ?int $userId): void
     {
+        if ($userId === null) {
+            $this->log($applicant, 'contract_send_approve_failed', 'HR-Fall nach automatischem Versand NICHT freigegeben: kein Benutzer an der Vormerkung.');
+            return;
+        }
         try {
             $case = RecHrDeskCase::query()
-                ->where('rec_applicant_id', $applicantId)
+                ->where('rec_applicant_id', $applicant->id)
                 ->where('reason', RecHrDeskCase::REASON_NON_EU_CITIZEN)
                 ->open()->first();
             if ($case) {
                 $this->hrDesk->approveCase($case, $userId, 'Verträge + Portallink automatisch versendet (Vormerkung).');
             }
         } catch (\Throwable $e) {
-            $applicant = RecApplicant::find($applicantId);
-            if ($applicant) {
-                $this->log($applicant, 'contract_send_approve_failed', 'HR-Fall nach automatischem Versand NICHT freigegeben: ' . $e->getMessage());
-            }
+            $this->log($applicant, 'contract_send_approve_failed', 'HR-Fall nach automatischem Versand NICHT freigegeben: ' . $e->getMessage());
         }
     }
 
