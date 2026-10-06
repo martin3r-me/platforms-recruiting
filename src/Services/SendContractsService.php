@@ -52,14 +52,17 @@ class SendContractsService
             );
         }
 
-        // Versand-Riegel: ohne gesicherte Mitarbeiter-Anlage gingen die Vertraege
-        // raus, aber kein Mitarbeiter und kein Portal — und ein zweiter Versand
-        // wird uebersprungen, weil schon Vertraege raus sind (Befund 05.10.2026,
-        // 1114/1130). Hier und nicht in den Aufrufern: Nachbereitung, HR-
-        // Schreibtisch und MCP-Werkzeug laufen alle durch diesen Dienst.
-        // Wiederholte Laeufe fuer schon Versendete bleiben unberuehrt.
-        if (!$applicant->hasAnyContractSent() && ($grund = $applicant->mitarbeiterAnlageSperrgrund()) !== null) {
-            throw new \RuntimeException("Bewerber #{$applicant->id}: {$grund}");
+        // Versand-Riegel (Spec Versand vormerken §1): nur wer bereit ist, bekommt
+        // Vertraege. gesperrt = kein Mitarbeiter-Weg, unvollstaendig = Onboarding
+        // offen (sonst gingen Vertraege raus, aber kein Mitarbeiter und kein
+        // Portal — und ein zweiter Versand wird uebersprungen). Hier und nicht in
+        // den Aufrufern: Nachbereitung, HR-Schreibtisch, Job und MCP-Werkzeug
+        // laufen alle durch diesen Dienst. Schon Versendete bleiben unberuehrt.
+        if (!$applicant->hasAnyContractSent()) {
+            $bereitschaft = $applicant->versandBereitschaft();
+            if (!$bereitschaft->istBereit()) {
+                throw new \RuntimeException("Bewerber #{$applicant->id}: {$bereitschaft->grund}");
+            }
         }
 
         if ($applicant->zuschlag === null) {

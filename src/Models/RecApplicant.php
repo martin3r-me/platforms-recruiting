@@ -515,6 +515,75 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Darf JETZT versendet werden? Dreistufig (Spec Versand vormerken §1):
+     * gesperrt (kein Mitarbeiter-Weg) -> unvollstaendig (Weg da, aber noch nicht
+     * in der Anlage-Phase, typisch Onboarding offen) -> bereit.
+     *
+     * @param \Illuminate\Support\Collection<int, RecPhase>|null $phasenDerStelle siehe mitarbeiterAnlageSperrgrund()
+     */
+    public function versandBereitschaft($phasenDerStelle = null): \Platform\Recruiting\Support\VersandBereitschaft
+    {
+        $grund = $this->mitarbeiterAnlageSperrgrund($phasenDerStelle);
+        if ($grund !== null) {
+            return \Platform\Recruiting\Support\VersandBereitschaft::gesperrt($grund);
+        }
+
+        $mitarbeiterDa = $this->relationLoaded('employee')
+            ? $this->employee !== null
+            : $this->employee()->exists();
+        if ($mitarbeiterDa) {
+            return \Platform\Recruiting\Support\VersandBereitschaft::bereit();
+        }
+
+        $phase = $this->phase;
+        $legtAn = (($phase?->completion_config ?? [])['creates_employee_on_completion'] ?? false) === true;
+        if ($legtAn) {
+            return \Platform\Recruiting\Support\VersandBereitschaft::bereit();
+        }
+
+        return \Platform\Recruiting\Support\VersandBereitschaft::unvollstaendig($this->fehlendePflichtfelder());
+    }
+
+    /**
+     * Labels der sichtbaren Pflichtfelder der aktuellen Phase, die noch leer
+     * sind — dieselbe Regel wie calculateProgress(), nur mit Namen statt Prozent.
+     *
+     * @return list<string>
+     */
+    public function fehlendePflichtfelder(): array
+    {
+        $definitions = $this->getExtraFieldDefinitions();
+        $currentPhase = $this->phase;
+        $required = $definitions->filter(fn ($def) => $this->isFieldRequiredInCurrentPhase($def, $currentPhase));
+        if ($required->isEmpty()) {
+            return [];
+        }
+
+        $values = $this->extraFieldValues()->get()->keyBy('definition_id');
+        $valuesByName = [];
+        foreach ($definitions as $def) {
+            $valuesByName[$def->name] = $values->get($def->id)?->value;
+        }
+
+        $evaluator = new \Platform\Core\Services\ExtraFieldConditionEvaluator();
+        $fehlend = [];
+        foreach ($required as $def) {
+            $visibility = $def->visibility_config;
+            $sichtbar = !$visibility || !($visibility['enabled'] ?? false) || $evaluator->evaluate($visibility, $valuesByName);
+            if (!$sichtbar) {
+                continue;
+            }
+            $val = $values->get($def->id);
+            $leer = $val === null || $val->value === null || $val->value === '' || $val->value === '[]';
+            if ($leer) {
+                $fehlend[] = (string) ($def->label ?: $def->name);
+            }
+        }
+
+        return $fehlend;
+    }
+
+    /**
      * @param \Illuminate\Support\Collection<int, RecPhase>|null $phasenDerStelle
      *        alle Phasen der Stelle der aktuellen Phase (vorgeladen, gegen N+1 in Listen)
      */

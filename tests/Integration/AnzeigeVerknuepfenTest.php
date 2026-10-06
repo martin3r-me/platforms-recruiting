@@ -394,7 +394,7 @@ class AnzeigeVerknuepfenTest extends TestCase
 
     public function test_versanddienst_laesst_bewerber_mit_mitarbeiter_weg_durch(): void
     {
-        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_2);
         $applicant->contract_template_id = 999;
         $applicant->zuschlag = null;
 
@@ -476,6 +476,78 @@ class AnzeigeVerknuepfenTest extends TestCase
             ->where('fieldable_id', self::APPLICANT_STELLE_VORHER_GELESEN)
             ->where('definition_id', self::definitionId(self::PHASE_KOELN_1, 'geburtsdatum'))
             ->value('value'), 'bleibt unveraendert unter der alten Definition');
+    }
+
+    // -----------------------------------------------------------------
+    // Versandbereitschaft: bereit / unvollstaendig / gesperrt
+    // -----------------------------------------------------------------
+
+    public function test_fehlende_pflichtfelder_nennt_leere_sichtbare_pflichtfelder_der_phase(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        Capsule::table('core_extra_field_values')->where('fieldable_id', $applicant->id)->delete();
+        Capsule::table('core_extra_field_values')->insert([
+            'definition_id' => self::definitionId(self::PHASE_GLADBACH_1, 'vorname'),
+            'fieldable_type' => (new RecApplicant())->getMorphClass(), 'fieldable_id' => $applicant->id,
+            'value' => 'Soufiane', 'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        $this->assertSame(['Geburtsdatum'], RecApplicant::find($applicant->id)->fehlendePflichtfelder());
+    }
+
+    public function test_versandbereitschaft_unvollstaendig_in_phase_vor_der_anlage_phase(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        Capsule::table('core_extra_field_values')->where('fieldable_id', $applicant->id)->delete();
+
+        $b = RecApplicant::find($applicant->id)->versandBereitschaft();
+
+        $this->assertSame('unvollstaendig', $b->status);
+        $this->assertSame(['Vorname', 'Geburtsdatum'], $b->fehlendeFelder);
+    }
+
+    public function test_versandbereitschaft_bereit_in_der_anlage_phase(): void
+    {
+        $this->assertTrue($this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_2)->versandBereitschaft()->istBereit());
+    }
+
+    public function test_versandbereitschaft_bereit_wenn_mitarbeiter_existiert_egal_in_welcher_phase(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_KOELN, self::PHASE_KOELN_1);
+        Capsule::table('rec_employees')->insert([
+            'uuid' => 'avk-emp-2', 'team_id' => self::TEAM, 'rec_applicant_id' => $applicant->id,
+            'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+        try {
+            $this->assertTrue($applicant->versandBereitschaft()->istBereit());
+        } finally {
+            Capsule::table('rec_employees')->where('uuid', 'avk-emp-2')->delete();
+        }
+    }
+
+    public function test_versandbereitschaft_gesperrt_bei_phase_fremder_stelle(): void
+    {
+        $b = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_KOELN_1)->versandBereitschaft();
+
+        $this->assertSame('gesperrt', $b->status);
+        $this->assertStringContainsString('gehört zur Stelle', $b->grund);
+    }
+
+    public function test_versanddienst_sperrt_bei_unvollstaendig(): void
+    {
+        $applicant = $this->bewerberIn(self::POSITION_GLADBACH, self::PHASE_GLADBACH_1);
+        Capsule::table('core_extra_field_values')->where('fieldable_id', $applicant->id)->delete();
+        $applicant = RecApplicant::find($applicant->id);
+        $applicant->contract_template_id = 999;
+        $applicant->zuschlag = 1.1;
+
+        try {
+            (new \Platform\Recruiting\Services\SendContractsService())->send($applicant);
+            $this->fail('Versand haette gesperrt sein muessen');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Onboarding unvollständig', $e->getMessage());
+        }
+        $this->assertSame(0, Capsule::table('rec_contracts')->where('rec_applicant_id', $applicant->id)->count());
     }
 
     private static function definitionId(int $phaseId, string $name): int
