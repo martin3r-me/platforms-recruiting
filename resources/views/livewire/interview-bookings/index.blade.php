@@ -125,7 +125,9 @@
                         </div>
                     @endif
                     <div class="flex gap-2 mb-4">
-                        @if($mode === 'overview')
+                        {{-- Status-Filter in beiden Modi (06.10.2026): die Nachbereitung
+                             las den Filter schon immer mit, zeigte ihn aber nicht — ein in
+                             der Übersicht gesetzter Filter blendete dort still Leute aus. --}}
                             <x-ui-input-select
                                 name="filterStatus"
                                 wire:model.live="filterStatus"
@@ -143,7 +145,6 @@
                                 optionValue="value"
                                 optionLabel="label"
                             />
-                        @endif
                         <x-ui-input-text name="search" placeholder="Suchen…" wire:model.live.debounce.500ms="search" class="flex-1 max-w-xs" />
                         {{-- Zaehler zur AKTUELLEN Auswahl (Filter + Suche), damit
                              niemand Zeilen von Hand zaehlt („wie viele haben
@@ -339,7 +340,11 @@
                     @else
                     {{-- Nachbereitungs-Modus --}}
                     @php
-                        $relevantBookings = $this->bookingsSortedByName()->whereNotIn('status', ['cancelled'])->values();
+                        // Abgesagte blendet die Nachbereitung weiter aus — ausser, man filtert
+                        // ausdruecklich nach Abgesagt/Umgebucht, dann zeigt sie genau diese.
+                        $relevantBookings = in_array($filterStatus, ['cancelled', 'rebooked'], true)
+                            ? $this->bookingsSortedByName()
+                            : $this->bookingsSortedByName()->whereNotIn('status', ['cancelled'])->values();
                         $bulkState = $this->bulkSendState;
                         $defaultTpl = $this->defaultContractTemplate;
                     @endphp
