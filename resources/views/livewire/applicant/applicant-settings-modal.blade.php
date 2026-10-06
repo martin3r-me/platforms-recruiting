@@ -570,6 +570,22 @@
                         <p class="text-xs text-[var(--ui-muted)] -mt-2">Geht aus der Statistik („Ohne Termin") an Bewerber, die nur noch einen Termin brauchen. URL-Button muss auf <code>/recruiting/interviews/@verbatim{{1}}@endverbatim</code> zeigen.</p>
                     @endif
 
+                    {{-- Kampagne „Schulung voll" — freie Termine an Bewerber der Ausschreibung eines ausgebuchten Termins --}}
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['campaign_full_training_wa_template_id'] ?? null"
+                            name="settings.campaign_full_training_wa_template_id"
+                            label="WhatsApp Template — Schulung voll, freie Termine"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model.live="settings.campaign_full_training_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] -mt-2">Geht aus der Statistik (Schulungstermine, Pille „ohne Termin" an einem ausgebuchten Termin) an Bewerber der Ausschreibung, die noch keinen Termin haben — nur ab dem Buchungsschritt. URL-Button muss auf <code>/recruiting/interviews/@verbatim{{1}}@endverbatim</code> zeigen. Ohne Auswahl greift das Template „Terminauswahl (Kampagne B)".</p>
+                    @endif
+
                     {{-- Sammelversand „ohne Einsatz" — Nachfrage an Schulungsteilnehmer ohne Zuweisung --}}
                     @if(!empty($this->availableWhatsAppTemplates))
                         <x-ui-input-select

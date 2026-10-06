@@ -767,6 +767,17 @@
         $campaignTemplates = $campaignEnabled ? $this->campaignTemplates : [];
         $campaignRunning = $campaignProgress !== null && !($campaignProgress['done'] ?? false);
         $pollAttr = $campaignRunning ? 'wire:poll.3s' : '';
+        // Modus „Schulung voll“ (05.10.2026): Einstieg ueber die Pille an einem
+        // ausgebuchten Termin. Nur Terminauswahl-Template, Kopf nennt den Anlass.
+        $campaignNurBuchung = $campaignEnabled && $this->campaignNurBuchung();
+        $campaignAnlass = $campaignNurBuchung ? $this->campaignAnlass : null;
+        // UX-Paket 06.10.2026: HR liest den Text der Nachricht, nicht den
+        // Vorlagen-Namen. Beide Gruppen tragen ueberall dieselben zwei Worte
+        // (CampaignSegment::empfaengtLabel) — Zeile, Zaehler, Karte, Bestaetigung.
+        $campaignPreviews = ($campaignEnabled && $campaignProgress === null) ? $this->campaignTemplatePreviews : [];
+        $labelAngaben = \Platform\Recruiting\Support\CampaignSegment::empfaengtLabel(\Platform\Recruiting\Support\CampaignSegment::TEMPLATE_FORM);
+        $labelTermine = \Platform\Recruiting\Support\CampaignSegment::empfaengtLabel(\Platform\Recruiting\Support\CampaignSegment::TEMPLATE_BOOKING);
+        $campaignConfirm = $campaignEnabled ? \Platform\Recruiting\Livewire\Statistics\Index::campaignConfirmText($campaignCounts, $campaignNurBuchung) : '';
     @endphp
     {{-- SCHULUNGS-DETAILANSICHT (09.09.2026): die Termin-Tabelle traegt nur die
          Einsatz-Quote, hier liegt die Tiefe — Schulungsleiter, Toepfe und die
@@ -788,10 +799,69 @@
         @if (count($this->drillIds) === 0)
             <div class="py-6 text-center text-sm text-[color:var(--ui-muted)]">Keine Personen in dieser Auswahl.</div>
         @elseif ($campaignEnabled)
-            {{-- Kampagne „Neue Termine“: Auswahl + Badges. Polling nur, solange ein Versand laeuft. --}}
+            {{-- KAMPAGNEN-MODAL (UX-Paket 06.10.2026): oben steht, was passiert; an
+                 jeder Zeile, was die Person bekommt; unten der Text der Nachricht
+                 statt des Vorlagen-Namens. Polling nur, solange ein Versand laeuft. --}}
             <div {!! $pollAttr !!}>
+                @if ($campaignNurBuchung && $campaignAnlass !== null)
+                    {{-- ANLASS-KARTE „Schulung voll“: welcher Termin, wie voll, und ob es
+                         ueberhaupt Alternativen gibt — ohne freie Termine an derselben
+                         Stelle fuehrt die Nachricht auf eine leere Terminauswahl. --}}
+                    <div class="mb-3 rounded-lg border {{ $campaignAnlass['alternativen'] > 0 ? 'border-[var(--ui-border)]/60 bg-[var(--ui-muted-5)]' : 'border-red-200 bg-red-50' }} px-3 py-2 text-xs">
+                        <div class="text-[color:var(--ui-secondary)]">
+                            <strong>{{ $campaignAnlass['typ'] }} am {{ $campaignAnlass['datum'] }}</strong>
+                            @if ($campaignAnlass['voll'])
+                                ist ausgebucht ({{ $campaignAnlass['taken'] }} von {{ $campaignAnlass['max'] }}).
+                            @else
+                                — {{ $campaignAnlass['taken'] }} von {{ $campaignAnlass['max'] ?? '∞' }} belegt, inzwischen nicht mehr voll.
+                            @endif
+                            {{ count($campaignRows) }} Bewerber der Ausschreibung „{{ $campaignAnlass['posting_title'] }}“ {{ count($campaignRows) === 1 ? 'hat' : 'haben' }} noch keinen Termin{{ $this->pillenVorgefiltert() ? ' (in der aktuellen Auswahl — Filter „Einzelne Ausschreibung“ bzw. „Quelle“ ist aktiv)' : '' }}.
+                        </div>
+                        <div class="mt-1 {{ $campaignAnlass['alternativen'] > 0 ? 'text-[color:var(--ui-muted)]' : 'font-medium text-red-800' }}">
+                            {{-- Naeherung (Spec §4.4): gezaehlt wird die STELLE des Termins. Die
+                                 Terminauswahl zeigt jedem Bewerber die Termine seiner Wunschorte
+                                 (nach der Festlegung nur seine Stelle) — die Zahl ist ein Anhalt,
+                                 kein Versprechen; der Tooltip sagt das. --}}
+                            @if ($campaignAnlass['alternativen'] > 0)
+                                <span class="cursor-help" title="Gezählt werden kommende, buchbare Termine mit freien Plätzen an der Stelle dieses Termins. Jeder Bewerber sieht in der Terminauswahl die Termine seiner Wunschorte (nach der Festlegung nur seine Stelle) — die Zahl ist ein Anhalt, kein Versprechen.">
+                                    {{ $campaignAnlass['alternativen'] }} {{ $campaignAnlass['alternativen'] === 1 ? 'weiterer kommender Termin' : 'weitere kommende Termine' }} mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }} — die Nachricht führt auf die Terminauswahl. ⓘ
+                                </span>
+                            @else
+                                <span class="cursor-help" title="Gezählt werden kommende, buchbare Termine mit freien Plätzen an der Stelle dieses Termins. Bewerber mit weiteren Wunschorten sehen dort eventuell Termine — für alle anderen steht in der Terminauswahl nur dieser volle Termin (mit Wartelisten-Glocke).">
+                                    Kein weiterer kommender Termin mit freien Plätzen{{ $campaignAnlass['stelle'] !== '' ? ' in ' . $campaignAnlass['stelle'] : '' }}. Für Bewerber ohne weitere Wunschorte führt die Nachricht nur auf diesen vollen Termin — besser erst Termine anlegen, dann senden. ⓘ
+                                </span>
+                            @endif
+                        </div>
+                    </div>
+                @endif
+
+                {{-- WAS PASSIERT: ein Absatz in HR-Sprache, vor der Liste. --}}
+                <div class="mb-3 rounded-lg border border-[var(--ui-border)]/60 px-3 py-2 text-xs text-[color:var(--ui-secondary)]">
+                    @if ($campaignNurBuchung)
+                        Jede angehakte Person bekommt <strong>eine WhatsApp mit dem Link zur Terminauswahl</strong> („{{ $labelTermine }}“).
+                        Wählbar sind nur Bewerber ab dem Buchungsschritt — wer die Bewerbung noch nicht vervollständigt hat, bleibt sichtbar, bekommt aber nichts.
+                    @else
+                        Jede angehakte Person bekommt <strong>eine WhatsApp mit einem Link</strong>:
+                        wer die Bewerbung noch nicht vervollständigt hat, den Link zum Formular („{{ $labelAngaben }}“) —
+                        wer in der Terminauswahl steht, den Link zu den Terminen („{{ $labelTermine }}“).
+                        Welche Nachricht jemand bekommt, steht an der Zeile.
+                    @endif
+                    <span class="text-[color:var(--ui-muted)]">Danach folgen keine automatischen Erinnerungen; der Auto-Pilot läuft erst weiter, wenn die Person reagiert.</span>
+                </div>
+
                 <div class="mb-2 flex items-center justify-between text-xs text-[color:var(--ui-muted)]">
-                    <span>{{ $campaignCounts['total'] }} von {{ count($campaignRows) }} gewählt — {{ $campaignCounts['A'] }}× Template A (Bewerbung vervollständigen), {{ $campaignCounts['B'] }}× Template B (Terminauswahl)</span>
+                    <span>
+                        <strong class="text-[color:var(--ui-secondary)]">{{ $campaignCounts['total'] }} von {{ count($campaignRows) }}</strong> gewählt
+                        @if ($campaignCounts['total'] > 0)
+                            —
+                            @if (!$campaignNurBuchung && $campaignCounts['A'] > 0)
+                                {{ $campaignCounts['A'] }} × „{{ $labelAngaben }}“{{ $campaignCounts['B'] > 0 ? ',' : '' }}
+                            @endif
+                            @if ($campaignCounts['B'] > 0)
+                                {{ $campaignCounts['B'] }} × „{{ $labelTermine }}“
+                            @endif
+                        @endif
+                    </span>
                     <span class="flex gap-2">
                         <button type="button" class="underline" wire:click="campaignSelectAll(true)">alle</button>
                         <button type="button" class="underline" wire:click="campaignSelectAll(false)">keine</button>
@@ -802,13 +872,34 @@
                         @php
                             $rowDate = $row['applied_at'] ? \Illuminate\Support\Carbon::parse($row['applied_at'])->format('d.m.Y') : 'ohne Datum';
                             $rowDisabled = !$row['selectable'] || $campaignRunning;
+                            $rowIstFormular = $row['template'] === \Platform\Recruiting\Support\CampaignSegment::TEMPLATE_FORM;
+                            $rowEmpfaengt = \Platform\Recruiting\Support\CampaignSegment::empfaengtLabel($row['template']);
+                            // Der Chip folgt der AUSWAHL (Review 06.10.): „bekommt“ nur mit
+                            // Haken. Gesperrte Zeilen bekommen nie etwas; abgehakte Zeilen
+                            // bekaemen es, sobald jemand den Haken setzt.
+                            $rowAngehakt = $row['selectable'] && (($this->campaignSelection[$id] ?? $row['checked']) === true);
+                            $rowChipTitle = !$row['selectable']
+                                ? 'Bekommt keine Nachricht — Grund steht daneben.'
+                                : (!$rowAngehakt
+                                    ? 'Nicht angehakt — bekommt nichts. Mit Haken: ' . ($rowIstFormular ? 'Link zum Bewerbungsformular.' : 'Link zur Terminauswahl.')
+                                    : ($rowIstFormular ? 'Bekommt den Link zum Bewerbungsformular (Bewerbung vervollständigen).' : 'Bekommt den Link zur Terminauswahl.'));
                         @endphp
                         <li class="py-2 flex items-center gap-3 {{ $row['selectable'] ? '' : 'opacity-60' }}">
                             <input type="checkbox" class="h-4 w-4 rounded border-[var(--ui-border)]"
                                    wire:model.live="campaignSelection.{{ $id }}" @disabled($rowDisabled) />
                             <div class="flex-1 min-w-0">
                                 <a href="{{ route('recruiting.applicants.show', $id) }}" class="text-[color:var(--ui-primary)] hover:underline text-sm">{{ $row['name'] }}</a>
-                                <span class="ml-2 text-xs text-[color:var(--ui-muted)]">{{ $row['phase'] }} · {{ $row['template'] }}</span>
+                                <span class="ml-2 text-xs text-[color:var(--ui-muted)]">{{ $row['phase'] }}</span>
+                                @if ($rowAngehakt)
+                                    <span class="ml-1 inline-block cursor-help rounded px-1.5 py-0.5 text-[11px] font-medium {{ $rowIstFormular ? 'bg-sky-100 text-sky-900' : 'bg-emerald-100 text-emerald-900' }}"
+                                          title="{{ $rowChipTitle }}">bekommt: {{ $rowEmpfaengt }}</span>
+                                @elseif ($row['selectable'])
+                                    <span class="ml-1 inline-block cursor-help rounded border border-dashed border-[var(--ui-border)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]"
+                                          title="{{ $rowChipTitle }}">nicht angehakt · {{ $rowEmpfaengt }}</span>
+                                @else
+                                    <span class="ml-1 inline-block cursor-help rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)] line-through"
+                                          title="{{ $rowChipTitle }}">keine Nachricht</span>
+                                @endif
                                 @foreach ($row['badges'] as $badge)
                                     <span class="ml-1 inline-block rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]">{{ $badge }}</span>
                                 @endforeach
@@ -886,38 +977,88 @@
                             </ul>
                         @endif
                     @else
-                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                            <x-ui-input-select
-                                :value="$this->campaignTemplateA"
-                                name="campaignTemplateA"
-                                label="Template A — Bewerbung vervollständigen"
-                                :options="$campaignTemplates"
-                                optionValue="id"
-                                optionLabel="label"
-                                :nullable="true"
-                                nullLabel="– Template wählen –"
-                                displayMode="dropdown"
-                                wire:model.live="campaignTemplateA"
-                            />
-                            <x-ui-input-select
-                                :value="$this->campaignTemplateB"
-                                name="campaignTemplateB"
-                                label="Template B — Terminauswahl"
-                                :options="$campaignTemplates"
-                                optionValue="id"
-                                optionLabel="label"
-                                :nullable="true"
-                                nullLabel="– Template wählen –"
-                                displayMode="dropdown"
-                                wire:model.live="campaignTemplateB"
-                            />
+                        @php
+                            // NACHRICHT-KARTEN statt Dropdowns: je Gruppe der Text, den der
+                            // Bewerber liest (Vorschau mit Beispielnamen), der Button-Text und
+                            // klein der Vorlagen-Name. Das Dropdown liegt hinter „Vorlage
+                            // ändern“ — offen nur, wenn noch keine Vorlage gewählt ist.
+                            // Modus „Schulung voll“: nur die Terminauswahl-Karte; die
+                            // Formular-Karte haette keinen Empfaenger (Zeilen gesperrt).
+                            $karten = [];
+                            if (!$campaignNurBuchung) {
+                                $karten[] = ['key' => 'A', 'prop' => 'campaignTemplateA', 'id' => $this->campaignTemplateA, 'label' => $labelAngaben,
+                                    'wer' => 'an ' . $campaignCounts['A'] . ' ' . ($campaignCounts['A'] === 1 ? 'Person' : 'Personen') . ', deren Bewerbung noch unvollständig ist',
+                                    'link' => 'Link zum Bewerbungsformular', 'farbe' => 'sky'];
+                            }
+                            $karten[] = ['key' => 'B', 'prop' => 'campaignTemplateB', 'id' => $this->campaignTemplateB, 'label' => $labelTermine,
+                                'wer' => 'an ' . $campaignCounts['B'] . ' ' . ($campaignCounts['B'] === 1 ? 'Person' : 'Personen') . ($campaignNurBuchung ? '' : ' in der Terminauswahl'),
+                                'link' => 'Link zur Terminauswahl', 'farbe' => 'emerald'];
+                        @endphp
+                        <div class="grid grid-cols-1 gap-2 {{ count($karten) > 1 ? 'md:grid-cols-2' : '' }}">
+                            @foreach ($karten as $karte)
+                                @php
+                                    $vorschau = $karte['id'] !== null ? ($campaignPreviews[(int) $karte['id']] ?? null) : null;
+                                    // Drei Gruende, warum keine Sprechblase kommt — dieselbe
+                                    // Quelle wie die Start-Sperre (campaignTemplateProblem).
+                                    $problem = $this->campaignTemplateProblem($karte['id']);
+                                    $kartenLabel = 'Nachricht „' . $karte['label'] . '“';
+                                    $kartenOffen = $problem !== null ? 'true' : 'false';
+                                    $chipKlasse = $karte['farbe'] === 'sky' ? 'bg-sky-100 text-sky-900' : 'bg-emerald-100 text-emerald-900';
+                                @endphp
+                                {{-- wire:key: beim Wechsel Kachel ↔ Pille faellt die Formular-Karte
+                                     weg; ohne Schluessel morpht Livewire die Termin-Karte in das
+                                     DOM der alten Formular-Karte und erbt deren Alpine-Zustand. --}}
+                                <div wire:key="kampagne-karte-{{ $karte['key'] }}" class="rounded-lg border border-[var(--ui-border)]/60 p-3 text-xs" x-data="{ aendern: {{ $kartenOffen }} }">
+                                    <div class="mb-1 flex items-center justify-between gap-2">
+                                        <span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium {{ $chipKlasse }}">{{ $kartenLabel }}</span>
+                                        <span class="text-[color:var(--ui-muted)]">{{ $karte['wer'] }}</span>
+                                    </div>
+                                    @if ($problem === null && $vorschau !== null)
+                                        {{-- Sprechblase: der Text mit Beispielnamen, dann der Button --}}
+                                        <div class="rounded-lg bg-[var(--ui-muted-5)] px-3 py-2 text-[color:var(--ui-secondary)] whitespace-pre-line">{{ $vorschau['text'] }}</div>
+                                        @foreach ($vorschau['buttons'] as $buttonText)
+                                            <div class="mt-1 rounded-lg border border-[var(--ui-border)]/60 px-3 py-1 text-center font-medium text-[color:var(--ui-primary)]">{{ $buttonText }}</div>
+                                        @endforeach
+                                        <div class="mt-1 flex items-center justify-between text-[11px] text-[color:var(--ui-muted)]">
+                                            <span title="Beispielname — beim Versand steht der Vorname der Person (ohne Vornamen am Kontakt: „Bewerber/in“). Bild- oder Dokument-Kopfzeilen der Vorlage sind hier nicht abgebildet. Technischer Name der Vorlage bei Meta: {{ $vorschau['label'] }}">Beispiel mit „{{ \Platform\Recruiting\Support\CampaignTemplatePreview::BEISPIEL_VORNAME }}“ · {{ $karte['link'] }}</span>
+                                            <button type="button" class="underline" x-on:click="aendern = !aendern" x-text="aendern ? 'Auswahl schließen' : 'Vorlage ändern'">Vorlage ändern</button>
+                                        </div>
+                                    @else
+                                        {{-- nicht gewaehlt (rot) / nicht mehr verfuegbar oder vom Sender
+                                             abgelehnt (amber, mit Vorlagen-Name) — der Start ist in
+                                             beiden Faellen gesperrt (campaignStartError). --}}
+                                        <div class="rounded-lg border {{ $karte['id'] ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800' }} px-3 py-2">
+                                            @if ($vorschau !== null)
+                                                <span class="font-medium">Vorlage „{{ $vorschau['label'] }}“:</span>
+                                            @endif
+                                            {{ $problem }}
+                                        </div>
+                                    @endif
+                                    <div x-show="aendern" style="display: none;" class="mt-2">
+                                        <x-ui-input-select
+                                            :value="$karte['id']"
+                                            :name="$karte['prop']"
+                                            label="Vorlage (Meta-Name)"
+                                            :options="$campaignTemplates"
+                                            optionValue="id"
+                                            optionLabel="label"
+                                            :nullable="true"
+                                            nullLabel="– Vorlage wählen –"
+                                            displayMode="dropdown"
+                                            wire:model.live="{{ $karte['prop'] }}"
+                                        />
+                                    </div>
+                                </div>
+                            @endforeach
                         </div>
                         @if ($this->campaignError !== '')
                             <div class="text-xs text-red-700">{{ $this->campaignError }}</div>
                         @endif
                         <div class="flex justify-end">
-                            <x-ui-button variant="primary" wire:click="startCampaign" wire:loading.attr="disabled" wire:target="startCampaign" :disabled="$campaignCounts['total'] === 0">
-                                Kampagne an {{ $campaignCounts['total'] }} Personen senden
+                            {{-- Bestaetigung VOR dem Versand: 39 Nachrichten sind kein Klick, den
+                                 man zurueckholt. Text aus campaignConfirmText (rein, getestet). --}}
+                            <x-ui-button variant="primary" wire:click="startCampaign" wire:confirm="{{ $campaignConfirm }}" wire:loading.attr="disabled" wire:target="startCampaign" :disabled="$campaignCounts['total'] === 0">
+                                WhatsApp an {{ $campaignCounts['total'] }} {{ $campaignCounts['total'] === 1 ? 'Person' : 'Personen' }} senden
                             </x-ui-button>
                         </div>
                     @endif

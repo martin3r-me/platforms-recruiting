@@ -296,6 +296,48 @@ class RecApplicant extends Model implements InheritsExtraFields
     }
 
     /**
+     * Wer die Stelle oder die Phase per Kennung neu setzt, verwirft die dazu
+     * schon geladene Beziehung. Sonst liefert $this->position bzw. $this->phase
+     * auf derselben Instanz weiter den ALTEN Stand.
+     *
+     * Genau daran sind die Faelle 1114/1130 entstanden (Befund 05.10.2026):
+     * reconcilePositionState() setzte die Stelle auf die neue Anzeige, las sie
+     * danach ueber primaryPosition() aber aus der vorher geladenen Beziehung —
+     * und glich die Phase an die alte Stelle an. Gleiches Muster in
+     * switchToPosition(), das erst die alte Stelle liest und dann umsetzt.
+     *
+     * Als Mutator statt an jeder Schreibstelle: greift fuer jeden heutigen und
+     * kuenftigen Weg (Zuweisung, fill, forceFill, update). Verworfen wird nur,
+     * wenn die geladene Beziehung wirklich auf etwas anderes zeigt — eine
+     * passend gesetzte Beziehung (setRelation in Tests) bleibt stehen.
+     */
+    public function setRecPositionIdAttribute($value): void
+    {
+        $this->forgetStaleRelation('position', $value);
+        $this->attributes['rec_position_id'] = $value;
+    }
+
+    public function setRecPhaseIdAttribute($value): void
+    {
+        $this->forgetStaleRelation('phase', $value);
+        $this->attributes['rec_phase_id'] = $value;
+    }
+
+    private function forgetStaleRelation(string $relation, $newKey): void
+    {
+        if (!$this->relationLoaded($relation)) {
+            return;
+        }
+
+        $loaded = $this->getRelation($relation);
+        $loadedKey = $loaded?->getKey();
+
+        if ($newKey === null ? $loadedKey !== null : (int) $loadedKey !== (int) $newKey) {
+            $this->unsetRelation($relation);
+        }
+    }
+
+    /**
      * DIE Stelle der Bewerbung — wo die Person bearbeitet wird.
      *
      * Nicht verwechseln mit positions(): das liefert die Stellen der verknuepften
@@ -1248,7 +1290,26 @@ class RecApplicant extends Model implements InheritsExtraFields
                 // seat_released_at != null und ist damit NICHT in
                 // takenSeatsCount() enthalten (seatTaking = whereNull) —
                 // bei taken == max-1 gelingt der Re-Claim korrekt.
-                $interview = RecInterview::query()->lockForUpdate()->find($booking->rec_interview_id);
+                // Termin-ID FRISCH lesen und nach dem Lock gegenpruefen: die Buchung
+                // kann zwischen get() oben und hier verschoben worden sein
+                // (BookingMover). Sonst saehe der Re-Claim die Plaetze des ALTEN
+                // Termins und konsumierte einen Platz im neuen ohne dessen Lock.
+                $interview = null;
+                for ($versuch = 0; $versuch < 3; $versuch++) {
+                    $interviewId = RecInterviewBooking::query()->whereKey($booking->id)->value('rec_interview_id');
+                    $interview = $interviewId ? RecInterview::query()->lockForUpdate()->find($interviewId) : null;
+                    $booking->refresh();
+                    if ((int) $booking->rec_interview_id === (int) $interviewId) {
+                        break;
+                    }
+                }
+                if ((int) $booking->rec_interview_id !== (int) $interview?->id) {
+                    return SeatStandbyPolicy::RECLAIM_FAILED;
+                }
+                if ($booking->status !== 'booked' || $booking->seat_released_at === null) {
+                    // Inzwischen kein Standby mehr (z. B. parallel hochgestuft).
+                    return SeatStandbyPolicy::RECLAIM_OK;
+                }
 
                 $result = SeatStandbyPolicy::reclaimOutcome(
                     true,
@@ -2342,13 +2403,21 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
-        $this->save();
+        // Phase und Feldwerte nur GEMEINSAM: bricht die Feldübertragung ab, darf
+        // die neue Phase nicht allein stehen bleiben (Lauf 05.10.2026: Phase war
+        // umgesetzt, die Felder halb — die Bewerbung sah danach wieder „sauber"
+        // aus und kein zweiter Lauf hätte die restlichen Werte nachgezogen).
+        $this->getConnection()->transaction(function () use ($phaseRemapped, $primaryPosition) {
+            $this->save();
 
-        // Feldwerte erst NACH dem Phasen-Wechsel umhängen (gleiche Mechanik wie
-        // switchToPosition) — sonst würden sie unter der alten Stelle verwaisen.
+            // Feldwerte erst NACH dem Phasen-Wechsel umhängen (gleiche Mechanik wie
+            // switchToPosition) — sonst würden sie unter der alten Stelle verwaisen.
+            if ($phaseRemapped) {
+                $this->remapExtraFieldValuesToPosition($primaryPosition);
+            }
+        });
+
         if ($phaseRemapped) {
-            $this->remapExtraFieldValuesToPosition($primaryPosition);
-
             try {
                 RecAutoPilotLog::create([
                     'rec_applicant_id' => $this->id,
@@ -2390,6 +2459,20 @@ class RecApplicant extends Model implements InheritsExtraFields
      * neuen Position): alter Wert wird verworfen, neuer Wert behaelt
      * Vorrang (= juengeres Form-Submit gewinnt).
      */
+    /**
+     * Haengt Feldwerte, die noch unter Definitionen einer FRUEHEREN Stelle
+     * liegen, an die gleichnamigen Felder der aktuellen Stelle. Fuer
+     * Bewerbungen, deren Phase schon stimmt, deren Feldwerte aber nicht
+     * mitgekommen sind (Abbruch 05.10.2026 bei 1114/1130). Idempotent.
+     */
+    public function feldwerteAnAktuelleStelleHaengen(): void
+    {
+        $position = $this->primaryPosition();
+        if ($position) {
+            $this->remapExtraFieldValuesToPosition($position);
+        }
+    }
+
     protected function remapExtraFieldValuesToPosition(RecPosition $newPosition): void
     {
         $newPhaseIds = $newPosition->phases()->pluck('id')->all();
@@ -2407,8 +2490,16 @@ class RecApplicant extends Model implements InheritsExtraFields
             return;
         }
 
-        $values = $this->extraFieldValues()->with('definition')->get();
+        // Juengster Wert zuerst: hat jemand denselben Feldnamen aus mehreren
+        // alten Stellen (Altbewerber, die schon einmal umgezogen sind), gewinnt
+        // der zuletzt gepflegte. Vorher wollten beide auf dieselbe neue
+        // Definition und der Unique-Index brach die Uebertragung mittendrin ab
+        // (Befund 05.10.2026, 1114/1130: Duplicate entry '991-rec_applicant-…').
+        $values = $this->extraFieldValues()->with('definition')->get()
+            ->sortByDesc(fn ($v) => [(string) $v->updated_at, (int) $v->id])
+            ->values();
         $valuesByDefId = $values->keyBy('definition_id');
+        $inDiesemLaufBelegt = [];
 
         foreach ($values as $value) {
             $oldDef = $value->definition;
@@ -2428,6 +2519,14 @@ class RecApplicant extends Model implements InheritsExtraFields
                 continue;
             }
 
+            // Ein juengerer gleichnamiger Wert ist in DIESEM Lauf schon auf die
+            // neue Definition gezogen: den aelteren liegen lassen (unsichtbar
+            // unter der alten Definition), nicht loeschen — er ist Altbestand,
+            // kein Konflikt mit einer Eingabe.
+            if (isset($inDiesemLaufBelegt[$newDef->id])) {
+                continue;
+            }
+
             // Konflikt: Bewerber hat schon einen Wert mit der neuen
             // definition_id (z.B. weil er nach Switch was eingegeben hat
             // bevor das Remapping lief). Alten Wert verwerfen.
@@ -2438,6 +2537,7 @@ class RecApplicant extends Model implements InheritsExtraFields
 
             $value->definition_id = $newDef->id;
             $value->save();
+            $inDiesemLaufBelegt[$newDef->id] = true;
         }
 
         $this->clearExtraFieldDefinitionsCache();

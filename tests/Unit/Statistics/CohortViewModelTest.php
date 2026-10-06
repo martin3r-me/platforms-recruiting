@@ -193,6 +193,33 @@ final class CohortViewModelTest extends TestCase
         $this->assertSame(0, $vm->countIn($rows, 'unterschrieben'));
     }
 
+    /**
+     * Kampagne „Schulung voll" (05.10.2026): die Pille „N ohne Termin" an einem
+     * ausgebuchten Termin benennt die Bewerber SEINER Ausschreibung, die keinen
+     * Termin haben — ein Schnitt quer zu 'posting' (alle Zeilentypen einer
+     * Ausschreibung) und 'type_all' (ein Zeilentyp ueber alle Ausschreibungen).
+     * Beide Angaben sind Pflicht, fail-closed wie bei den anderen Scopes.
+     */
+    public function test_scope_posting_type_schneidet_ausschreibung_und_zeilentyp(): void
+    {
+        $rows = [
+            $this->row('ohne_schulung', 'ohne_schulung:2|Buchen', 'Essen', 'Service', [1, 2], [], [], [], 20),
+            $this->row('ohne_schulung', 'ohne_schulung:1|Eingang', 'Essen', 'Service', [3], [], [], [], 20),
+            $this->row('ohne_schulung', 'ohne_schulung:2|Buchen', 'Essen', 'Bankett', [4], [], [], [], 22),
+            $this->row('schulung', 'schulung:300', 'Essen', 'Service', [5], ['gebucht' => [5]], [], [], 20),
+            $this->row('ohne_schulung', 'ohne_schulung:2|Buchen', 'Essen', 'Service', [6], [], [], [], null),
+        ];
+        $vm = $this->vm();
+
+        $this->assertSame([1, 2, 3], $vm->resolveIds($rows, ['scope' => 'posting_type', 'posting' => 20, 'type' => 'ohne_schulung'], 'ids'));
+        $this->assertSame([4], $vm->resolveIds($rows, ['scope' => 'posting_type', 'posting' => 22, 'type' => 'ohne_schulung'], 'ids'));
+        $this->assertSame([5], $vm->resolveIds($rows, ['scope' => 'posting_type', 'posting' => 20, 'type' => 'schulung'], 'ids'));
+
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'posting_type', 'type' => 'ohne_schulung'], 'ids'), 'ohne Ausschreibung: nichts (fail-closed)');
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'posting_type', 'posting' => 20], 'ids'), 'ohne Zeilentyp: nichts (fail-closed)');
+        $this->assertSame([], $vm->resolveIds($rows, ['scope' => 'posting_type', 'posting' => null, 'type' => 'ohne_schulung'], 'ids'), 'posting null benennt keine Ausschreibung — ein ausgebuchter Termin hat immer eine');
+    }
+
     public function test_summe_dedupliziert_nicht_damit_eine_invariantverletzung_sichtbar_bleibt(): void
     {
         // Zwei Zeilen mit derselben ID waeren ein Bruch der Rekonziliations-

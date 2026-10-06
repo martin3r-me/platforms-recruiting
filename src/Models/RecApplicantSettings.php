@@ -61,6 +61,11 @@ class RecApplicantSettings extends Model
         // Modal ein beliebiges approved Template waehlen.
         'campaign_form_wa_template_id' => null,
         'campaign_booking_wa_template_id' => null,
+        // Kampagne „Schulung voll" (05.10.2026): Pille „N ohne Termin" an einem
+        // ausgebuchten Termin in Tabelle 2 der Statistik. Gleicher Buchungslink
+        // wie Kampagne B, anderer Text („freie Termine an deinem Wunschort").
+        // Ohne Wert faellt das Modal auf campaign_booking_wa_template_id zurueck.
+        'campaign_full_training_wa_template_id' => null,
         'no_assignment_campaign_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
         // Grenze der kurzfristigen Beschaeftigung in Arbeitstagen je

@@ -28,6 +28,7 @@ use Platform\Recruiting\Services\Statistics\CohortViewModel;
 use Platform\Recruiting\Services\Statistics\EinsatzLookup;
 use Platform\Recruiting\Services\Statistics\TargetLight;
 use Platform\Recruiting\Support\CampaignSegment;
+use Platform\Recruiting\Support\CampaignTemplatePreview;
 use Platform\Recruiting\Support\EinsatzClarification;
 use Platform\Recruiting\Support\YmdDate;
 
@@ -307,6 +308,30 @@ class Index extends Component
      */
     #[Locked]
     public bool $drillHasSet = false;
+    /**
+     * Anlass der Kampagne „Schulung voll" (05.10.2026): der ausgebuchte Termin,
+     * ueber dessen Pille „N ohne Termin" (Tabelle 2) das Modal geoeffnet wurde.
+     * Locked wie die anderen Drill-Felder — nur drill() setzt ihn aus dem
+     * Token, resetDrill() leert ihn. null = Einstieg ueber die Kachel
+     * „Ohne Termin" (Kampagne „Neue Termine", beide Templates).
+     */
+    #[Locked]
+    public ?int $campaignAnlassInterviewId = null;
+    /**
+     * Ausschreibung aus demselben Pillen-Token. campaignAnlass() haelt den
+     * Termin dagegen: passt seine Ausschreibung nicht, gibt es keinen Kopf —
+     * ein gecraftetes Token kann so keinen fremden (wenn auch eigenen)
+     * Termin ueber die Liste einer anderen Ausschreibung setzen (Review 05.10.).
+     */
+    #[Locked]
+    public ?int $campaignAnlassPostingId = null;
+    /**
+     * Modus, fuer den die Template-Vorbelegung zuletzt gesetzt wurde
+     * ('kachel' | 'pille' | ''). Wechselt der Modus, wird Template B neu aus
+     * den Settings gelesen, sonst bleibt die Auswahl von HR stehen (Review
+     * 05.10.: die Pille hinterliess ihr „freie Termine"-Template in der Kachel).
+     */
+    public string $campaignTemplateMode = '';
     /** @var array<int,bool> applicant_id => angehakt */
     public array $campaignSelection = [];
     public ?int $campaignTemplateA = null;
@@ -334,6 +359,8 @@ class Index extends Component
         $this->drillScopeType = '';
         $this->drillScopeName = '';
         $this->drillHasSet = false;
+        $this->campaignAnlassInterviewId = null;
+        $this->campaignAnlassPostingId = null;
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -1438,6 +1465,21 @@ class Index extends Component
         $vm = $this->viewModel();
         $cohorts = $vm->interviewCohorts($terminRows);
 
+        // Kampagne „Schulung voll" (05.10.2026): je Ausschreibung die Bewerber
+        // OHNE Termin — die Zielgruppe der Pille an einem ausgebuchten Termin.
+        // Aus termin_rows, also vor Ort-/Taetigkeits-/Status-Filter: die Pille
+        // soll alle Bewerber der Ausschreibung nennen, nicht die der Auswahl
+        // (die aelteren sind die eigentliche Zielgruppe). Zeilen ohne
+        // Ausschreibung haben keine Zielgruppe und bleiben draussen.
+        $ohneTerminByPosting = [];
+        foreach ($terminRows as $row) {
+            $postingId = $row['posting_id'] ?? null;
+            if ($row['type'] === 'ohne_schulung' && $postingId !== null) {
+                $ohneTerminByPosting[(int) $postingId] = ($ohneTerminByPosting[(int) $postingId] ?? 0) + count($row['ids']);
+            }
+        }
+        $jetzt = now();
+
         $tableRows = [];
         $shown = [];
         foreach ($interviews as $interview) {
@@ -1453,8 +1495,21 @@ class Index extends Component
                 $postingTitle = (string) ($interview->title ?? '');
             }
 
+            // posting_id nur, wenn die team-gescopte Relation sie auch liefert —
+            // ein Fremdschluessel auf eine fremde Ausschreibung bleibt ohne Pille,
+            // so wie er oben ohne Titel bleibt.
+            $postingId = $interview->posting !== null ? (int) $interview->rec_posting_id : null;
+            $max = (int) ($interview->max_participants ?? 0);
+            $seatTaking = (int) ($interview->seat_taking_count ?? 0);
+
             $tableRows[] = [
                 'interview_id' => $interviewId,
+                'posting_id' => $postingId,
+                // „voll" nach derselben Lesart wie meter.blade.php: null/0 ist
+                // unbegrenzt und damit nie voll. Ueberbuchung (>) ist auch voll.
+                'voll' => $max > 0 && $seatTaking >= $max,
+                'kuenftig' => $interview->starts_at->gt($jetzt),
+                'ohne_termin' => $postingId === null ? 0 : ($ohneTerminByPosting[$postingId] ?? 0),
                 // Carbon (datetime-Cast, Spalte ist NOT NULL) — reine Anzeige,
                 // formatiert wird in der View; deshalb gibt es dort auch keinen
                 // „Termin ohne Datum"-Zweig
@@ -1677,6 +1732,16 @@ class Index extends Component
         return $median !== null
             ? 'Kohorte jünger als der Median-Durchlauf (' . $median . ' Tage) — Conversion noch nicht aussagekräftig'
             : 'Kein Median-Durchlauf vorhanden (noch keine Unterschrift) — Conversion noch nicht aussagekräftig';
+    }
+
+    /** Ganzzahl aus einem Token-Feld; alles andere (fehlend, '', '12a', Array) ist null. */
+    private static function intOrNull(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+
+        return (is_string($value) && $value !== '' && ctype_digit($value) && (int) $value > 0) ? (int) $value : null;
     }
 
     /**
@@ -2460,7 +2525,11 @@ class Index extends Component
             'closed' => $this->cohort['closed_rows'],
             'unreachable' => $this->cohort['unreachable_rows'],
             'unknown_origin' => $this->cohort['unknown_origin_rows'],
-            default => in_array($spec['scope'] ?? null, ['interviews', 'interviews_posting'], true)
+            // 'posting_type' ebenso: die Pille „N ohne Termin" an einem Termin
+            // zaehlt ALLE Bewerber der Ausschreibung ohne Termin, unabhaengig
+            // von Ort-/Taetigkeits-/Status-Filter der Seite (Entscheidung
+            // 05.10.2026: die aelteren sind die eigentliche Zielgruppe).
+            default => in_array($spec['scope'] ?? null, ['interviews', 'interviews_posting', 'posting_type'], true)
                 ? $this->cohort['termin_rows']
                 : $this->cohort['rows'],
         };
@@ -2474,6 +2543,16 @@ class Index extends Component
         $this->drillScopeType = (string) ($spec['type'] ?? '');
         $this->drillScopeName = (string) ($spec['scope'] ?? '');
         $this->drillHasSet = array_key_exists('set', $spec);
+        // Der Anlass-Termin reist nur mit dem Pillen-Token (scope posting_type);
+        // aus jedem anderen Token wird er verworfen, damit ein gecraftetes
+        // Token der Kachel keinen fremden Termin als Kopfzeile unterschieben
+        // kann. Geladen wird er ohnehin team-gescopt (campaignAnlass()).
+        $this->campaignAnlassInterviewId = ($spec['scope'] ?? null) === 'posting_type'
+            ? self::intOrNull($spec['anlass_interview'] ?? null)
+            : null;
+        $this->campaignAnlassPostingId = ($spec['scope'] ?? null) === 'posting_type'
+            ? self::intOrNull($spec['posting'] ?? null)
+            : null;
         $this->campaignSelection = [];
         $this->campaignUuid = null;
         $this->campaignError = '';
@@ -2484,11 +2563,31 @@ class Index extends Component
             }
             $settings = RecApplicantSettings::getOrCreateForTeam($this->teamId());
             $this->campaignTemplateA = $this->campaignTemplateA ?: (int) ($settings->getSetting('campaign_form_wa_template_id') ?? 0) ?: null;
-            $this->campaignTemplateB = $this->campaignTemplateB ?: (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0) ?: null;
+            // „Schulung voll": eigenes Template „freie Termine" (Kunde 05.10.),
+            // Rueckfall auf das Terminauswahl-Template der Kachel — beide
+            // tragen denselben Buchungslink, nur der Text ist ein anderer.
+            // Der Modus-Wechsel setzt die Vorbelegung NEU (kein ?:-Rueckfall auf
+            // den vorigen Wert): wer eben die Kachel offen hatte, soll an der
+            // Pille nicht das Kachel-Template vorfinden.
+            $modus = $this->campaignNurBuchung() ? 'pille' : 'kachel';
+            $this->campaignTemplateB = self::campaignTemplateBFor(
+                $modus,
+                $this->campaignTemplateMode,
+                $this->campaignTemplateB,
+                (int) ($settings->getSetting('campaign_full_training_wa_template_id') ?? 0) ?: null,
+                (int) ($settings->getSetting('campaign_booking_wa_template_id') ?? 0) ?: null,
+            );
+            $this->campaignTemplateMode = $modus;
         }
 
         $prefix = (string) ($spec['prefix'] ?? '');
-        $this->drillLabel = $columnLabel === '' ? $prefix : trim($prefix . ' — ' . $columnLabel);
+        // Kachel-Tokens tragen den Spaltennamen schon als Praefix („Ohne Termin“
+        // + Spalte „Ohne Termin“) — nicht zweimal dasselbe in die Kopfzeile.
+        // NUR dort (Review 06.10.): Ausschreibungs-Titel und Phasen-Spalten sind
+        // freier Nutzertext und koennen zufaellig gleich heissen — dann traegt
+        // „Schulung buchen — Schulung buchen" echte Information.
+        $kachel = ($spec['scope'] ?? null) === 'type_all' && $column === 'ids';
+        $this->drillLabel = ($columnLabel === '' || ($kachel && $columnLabel === $prefix)) ? $prefix : trim($prefix . ' — ' . $columnLabel);
         $this->showDrill = true;
     }
 
@@ -2527,9 +2626,35 @@ class Index extends Component
     public function campaignEnabled(): bool
     {
         return !$this->drillHasSet
-            && $this->drillScopeName === 'type_all'
+            && in_array($this->drillScopeName, ['type_all', 'posting_type'], true)
             && $this->drillScopeType === 'ohne_schulung'
             && $this->drillIds !== [];
+    }
+
+    /**
+     * Modus „Schulung voll" (05.10.2026): Einstieg ueber die Pille „N ohne
+     * Termin" an einem ausgebuchten Termin (Scope 'posting_type', der ZWEITE
+     * Token-Erzeuger mit type ohne_schulung — interviews-table.blade.php).
+     * Dort gilt: nur Leute ab dem Buchungsschritt sind waehlbar (Kunde: „nur
+     * an Leute, die Phase 1 durchlaufen haben"), es gibt nur das
+     * Terminauswahl-Template, und der Kopf nennt den Anlass.
+     */
+    public function campaignNurBuchung(): bool
+    {
+        return $this->drillScopeName === 'posting_type';
+    }
+
+    /**
+     * Die Pille „N ohne Termin" rechnet ueber termin_rows — unabhaengig von
+     * Ort, Taetigkeit und Status, aber NICHT unabhaengig von den beiden
+     * Vorfiltern der Bewerber-Query (Einzelne Ausschreibung, Quelle), die
+     * schon vor dem Assigner greifen (cohort()). Mit einem davon zeigt die
+     * Pille eine Teilmenge; die View sagt das dazu, statt „alle haben einen
+     * Termin" zu behaupten (Review 05.10.).
+     */
+    public function pillenVorgefiltert(): bool
+    {
+        return ((int) $this->postingFilter) > 0 || (bool) $this->sourcePlatformFilter;
     }
 
     /**
@@ -2545,26 +2670,154 @@ class Index extends Component
             return [];
         }
 
-        return app(NewDatesCampaignRecipients::class)->load($this->teamId(), $this->drillIds, new \DateTimeImmutable());
+        $rows = app(NewDatesCampaignRecipients::class)->load($this->teamId(), $this->drillIds, new \DateTimeImmutable());
+
+        return $this->campaignNurBuchung() ? CampaignSegment::nurBuchungsphase($rows) : $rows;
     }
+
+    /**
+     * Kopf des Modals im Modus „Schulung voll": der ausgebuchte Termin, seine
+     * Ausschreibung und — der eigentliche Zweck der Zeile — ob es ueberhaupt
+     * Alternativen gibt. Ohne weitere Termine mit freien Plaetzen an derselben
+     * Stelle fuehrt die Nachricht auf eine Terminauswahl, in der nur der volle
+     * Termin steht; das soll HR VOR dem Klick sehen, nicht der Bewerber danach.
+     *
+     * „An derselben Stelle" ist die Naeherung an das, was die Buchungsseite
+     * zeigt (Public/InterviewBooking::resolvePositionIdsForApplicant: Stellen
+     * der Wunschorte, nach der Festlegung nur die eigene). Die Wunschorte
+     * jedes einzelnen Empfaengers hier nachzurechnen waere eine Query je
+     * Person auf der Seite, deren Query-Budget Abnahmekriterium ist.
+     *
+     * Team-gescopt und fail-closed: ein fremder oder geloeschter Termin
+     * liefert null, die View zeigt dann keinen Kopf — nie einen fremden.
+     *
+     * @return array{
+     *   datum:string, typ:string, taken:int, max:?int, voll:bool,
+     *   posting_title:string, stelle:string, alternativen:int
+     * }|null
+     */
+    #[Computed]
+    public function campaignAnlass(): ?array
+    {
+        if ($this->campaignAnlassInterviewId === null || !$this->campaignNurBuchung()) {
+            return null;
+        }
+
+        $interview = RecInterview::forTeam($this->teamId())
+            ->with([
+                'interviewType' => fn ($q) => $q->forTeam($this->teamId())->select('id', 'name'),
+                'posting' => fn ($q) => $q->forTeam($this->teamId())->select('id', 'title'),
+                'position:id,title,location',
+            ])
+            ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
+            ->find($this->campaignAnlassInterviewId);
+        // Gegenprobe Token ↔ Termin: der Kopf muss zur Liste passen. Ein Token
+        // mit fremder (eigener, aber anderer) Ausschreibung bekommt keinen Kopf.
+        if ($interview === null
+            || $interview->posting === null
+            || (int) $interview->rec_posting_id !== (int) $this->campaignAnlassPostingId) {
+            return null;
+        }
+
+        $taken = (int) ($interview->seat_taking_count ?? 0);
+        $max = $interview->max_participants ? (int) $interview->max_participants : null;
+
+        // Alternativen: kommende, buchbare Termine derselben Stelle mit
+        // mindestens einem freien Platz (max null = unbegrenzt zaehlt mit).
+        // Dieselben Bedingungen wie Public/InterviewBooking::visibleInterviews
+        // (aktiv, Zukunft, planned/confirmed) plus der Kapazitaets-Filter, den
+        // die Buchungsseite erst beim Buchen prueft.
+        $alternativen = 0;
+        if ($interview->rec_position_id !== null) {
+            $alternativen = RecInterview::forTeam($this->teamId())
+                ->active()
+                ->where('id', '!=', $interview->id)
+                ->where('rec_position_id', $interview->rec_position_id)
+                ->where('starts_at', '>', now())
+                ->whereIn('status', ['planned', 'confirmed'])
+                ->withCount(['bookings as seat_taking_count' => fn ($q) => $q->seatTaking()])
+                ->get()
+                ->filter(fn ($i) => !$i->max_participants || (int) $i->seat_taking_count < (int) $i->max_participants)
+                ->count();
+        }
+
+        return [
+            'datum' => $interview->starts_at->format('d.m.Y H:i'),
+            'typ' => $interview->interviewType?->name ?? 'ohne Terminart',
+            'taken' => $taken,
+            'max' => $max,
+            'voll' => $max !== null && $taken >= $max,
+            'posting_title' => (string) ($interview->posting?->title ?? $interview->title ?? ''),
+            'stelle' => (string) ($interview->position?->location ?: $interview->position?->title ?: ''),
+            'alternativen' => $alternativen,
+        ];
+    }
+
+    /**
+     * Approved Vorlagen des Teams, EINMAL pro Request geladen — Liste und
+     * Vorschau lesen dieselbe Sammlung (Review 06.10.: vorher zwei Queries).
+     * Keyed by ID, sortiert nach Name.
+     *
+     * @return array<int, object>
+     */
+    private function campaignTemplateModels(): array
+    {
+        if ($this->campaignTemplateModelsCache !== null) {
+            return $this->campaignTemplateModelsCache;
+        }
+        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
+            return $this->campaignTemplateModelsCache = [];
+        }
+        $accountId = RecApplicantSettings::getOrCreateForTeam($this->teamId())->getSetting('auto_pilot_wa_account_id');
+
+        return $this->campaignTemplateModelsCache = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+            ->where('status', 'APPROVED')
+            ->when($accountId, fn ($q) => $q->where('whatsapp_account_id', (int) $accountId))
+            ->orderBy('name')
+            ->get()
+            ->keyBy(fn ($t) => (int) $t->id)
+            ->all();
+    }
+
+    private ?array $campaignTemplateModelsCache = null;
 
     /** @return list<array{id:int,label:string}> approved Templates des Teams (Muster ApplicantSettingsModal) */
     #[Computed]
     public function campaignTemplates(): array
     {
-        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
-            return [];
+        $out = [];
+        foreach ($this->campaignTemplateModels() as $id => $t) {
+            $out[] = ['id' => (int) $id, 'label' => "{$t->name} ({$t->language})"];
         }
-        $accountId = RecApplicantSettings::getOrCreateForTeam($this->teamId())->getSetting('auto_pilot_wa_account_id');
 
-        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
-            ->where('status', 'APPROVED')
-            ->when($accountId, fn ($q) => $q->where('whatsapp_account_id', (int) $accountId))
-            ->orderBy('name')
-            ->get()
-            ->map(fn ($t) => ['id' => (int) $t->id, 'label' => "{$t->name} ({$t->language})"])
-            ->values()
-            ->all();
+        return $out;
+    }
+
+    /**
+     * Zustand einer gewaehlten Vorlage fuer Karte und Start-Sperre
+     * (Review 06.10.): null = verwendbar. Drei Gruende, drei Texte —
+     * nicht gewaehlt / nicht (mehr) in der Liste (bei Meta pausiert, anderer
+     * Account) / vom Sender abgelehnt (Guards in CampaignTemplatePreview).
+     * Vorher hiess alles „noch keine Vorlage gewaehlt", und der Start war
+     * trotzdem moeglich — jede Zeile waere im Job gescheitert.
+     */
+    public function campaignTemplateProblem(?int $templateId): ?string
+    {
+        if (!$templateId) {
+            return 'Noch keine Vorlage gewählt — ohne sie geht an diese Gruppe nichts raus.';
+        }
+        $preview = $this->campaignTemplatePreviews[$templateId] ?? null;
+        if ($preview === null) {
+            return 'Die hinterlegte Vorlage ist nicht mehr verfügbar — bei Meta nicht (mehr) genehmigt oder von einem anderen WhatsApp-Konto. Bitte eine andere wählen.';
+        }
+        if ($preview['warnung'] !== null) {
+            return $preview['warnung'];
+        }
+        if ($preview['text'] === null) {
+            return 'Die Vorlage „' . $preview['label'] . '“ hat keinen lesbaren Text — bitte eine andere wählen.';
+        }
+
+        return null;
     }
 
     #[Computed]
@@ -2609,7 +2862,82 @@ class Index extends Component
      *
      * @param array{A:int,B:int,total:int} $counts
      */
-    public static function campaignStartError(bool $enabled, bool $alreadyStarted, array $counts, ?int $templateA, ?int $templateB): ?string
+    /**
+     * Text der Sende-Bestaetigung (wire:confirm) — rein, damit er ohne
+     * Komponente pruefbar ist. Nennt, was jede Gruppe bekommt, und dass
+     * danach nichts von selbst nachkommt (Kundenentscheid 28.08.).
+     *
+     * @param array{A:int,B:int,total:int} $counts
+     */
+    public static function campaignConfirmText(array $counts, bool $nurBuchung): string
+    {
+        $total = (int) ($counts['total'] ?? 0);
+        $a = (int) ($counts['A'] ?? 0);
+        $b = (int) ($counts['B'] ?? 0);
+
+        $teile = [];
+        if (!$nurBuchung && $a > 0) {
+            $teile[] = $a . ' × „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_FORM) . '“ (Link zum Formular)';
+        }
+        if ($b > 0) {
+            $teile[] = $b . ' × „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_BOOKING) . '“ (Link zur Terminauswahl)';
+        }
+
+        return 'WhatsApp jetzt an ' . $total . ' ' . ($total === 1 ? 'Person' : 'Personen') . ' senden?'
+            . ($teile !== [] ? "
+
+" . implode("
+", $teile) : '')
+            . "
+
+Danach folgen keine automatischen Erinnerungen. Der Auto-Pilot läuft erst weiter, wenn die Person reagiert.";
+    }
+
+    /**
+     * Vorschau je waehlbarer Vorlage (UX-Paket 06.10.2026): der Text, den der
+     * Bewerber liest, mit Beispielnamen — statt des technischen Namens.
+     * Keyed by Template-ID; dieselbe Query-Basis wie campaignTemplates().
+     *
+     * @return array<int, array{label:string, text:?string, buttons:list<string>}>
+     */
+    #[Computed]
+    public function campaignTemplatePreviews(): array
+    {
+        // Nur die ein bis zwei gewaehlten Vorlagen rendern, nicht alle des
+        // Kontos (Review 06.10.) — dieselbe Sammlung wie die Liste.
+        $models = $this->campaignTemplateModels();
+        $out = [];
+        foreach (array_unique(array_filter([(int) $this->campaignTemplateA, (int) $this->campaignTemplateB])) as $id) {
+            $t = $models[$id] ?? null;
+            if ($t !== null) {
+                $out[$id] = ['label' => "{$t->name} ({$t->language})"] + CampaignTemplatePreview::render($t->components);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Vorbelegung von Template B beim Oeffnen des Modals — rein, damit der
+     * Moduswechsel ohne Livewire-Lebenszyklus pruefbar ist (drill() liest die
+     * Computed `cohort` und ist in den Tests nicht aufrufbar).
+     *
+     *  - gleicher Modus wie beim letzten Oeffnen: die Auswahl von HR bleibt
+     *    (`$current`), fehlt sie, kommt der Default des Modus;
+     *  - anderer Modus (oder erstes Oeffnen): Default des Modus, die alte
+     *    Auswahl wird verworfen — sie gehoerte zur anderen Kampagne.
+     *
+     * Default „pille" = „freie Termine"-Template, Rueckfall Terminauswahl (B);
+     * Default „kachel" = Terminauswahl (B).
+     */
+    public static function campaignTemplateBFor(string $modus, string $vorigerModus, ?int $current, ?int $fullTraining, ?int $booking): ?int
+    {
+        $default = $modus === 'pille' ? ($fullTraining ?: $booking) : $booking;
+
+        return ($modus === $vorigerModus && $current) ? $current : $default;
+    }
+
+    public static function campaignStartError(bool $enabled, bool $alreadyStarted, array $counts, ?int $templateA, ?int $templateB, ?string $problemA = null, ?string $problemB = null): ?string
     {
         if (!$enabled) {
             return 'Kampagne nicht verfügbar.';
@@ -2621,10 +2949,18 @@ class Index extends Component
             return 'Niemand ausgewählt.';
         }
         if (($counts['A'] ?? 0) > 0 && !$templateA) {
-            return "Für {$counts['A']} Personen fehlt Template A (Bewerbung vervollständigen).";
+            return "Für {$counts['A']} Personen fehlt die Nachricht „Angaben ergänzen“ — Vorlage wählen.";
         }
         if (($counts['B'] ?? 0) > 0 && !$templateB) {
-            return "Für {$counts['B']} Personen fehlt Template B (Terminauswahl).";
+            return "Für {$counts['B']} Personen fehlt die Nachricht „Termine ansehen“ — Vorlage wählen.";
+        }
+        // Gewaehlt, aber unbrauchbar (Review 06.10.): nicht mehr genehmigt, ohne
+        // Link-Button, mit Fremdvariablen — der Sender lehnt jede Zeile ab.
+        if (($counts['A'] ?? 0) > 0 && $problemA !== null) {
+            return 'Nachricht „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_FORM) . '“: ' . $problemA;
+        }
+        if (($counts['B'] ?? 0) > 0 && $problemB !== null) {
+            return 'Nachricht „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_BOOKING) . '“: ' . $problemB;
         }
 
         return null;
@@ -2636,7 +2972,15 @@ class Index extends Component
         $ids = $this->campaignSelectedIds();
         $counts = $this->campaignCounts();
 
-        $error = self::campaignStartError($this->campaignEnabled(), $this->campaignUuid !== null, $counts, $this->campaignTemplateA, $this->campaignTemplateB);
+        $error = self::campaignStartError(
+            $this->campaignEnabled(),
+            $this->campaignUuid !== null,
+            $counts,
+            $this->campaignTemplateA,
+            $this->campaignTemplateB,
+            $counts['A'] > 0 ? $this->campaignTemplateProblem($this->campaignTemplateA) : null,
+            $counts['B'] > 0 ? $this->campaignTemplateProblem($this->campaignTemplateB) : null,
+        );
         if ($error !== null) {
             $this->campaignError = $error;
             return;
@@ -2651,6 +2995,13 @@ class Index extends Component
             $ids,
             $counts['A'] > 0 ? (int) $this->campaignTemplateA : null,
             $counts['B'] > 0 ? (int) $this->campaignTemplateB : null,
+            // Modus „Schulung voll": der Job legt dieselbe Sperre ueber seinen
+            // Re-Check (Template-A-Zeilen werden uebersprungen, nie gesendet)
+            // und das Log nennt den Anlass — die Badge-Zeile „angeschrieben
+            // am …" kann so spaeter beide Kampagnen unterscheiden.
+            $this->campaignNurBuchung(),
+            $this->campaignNurBuchung() ? SendNewDatesCampaign::ANLASS_SCHULUNG_VOLL : null,
+            $this->campaignAnlassInterviewId,
         );
         $this->campaignUuid = $uuid;
     }

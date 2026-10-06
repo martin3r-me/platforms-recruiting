@@ -346,6 +346,57 @@
                                     <span class="cursor-help text-xs text-[color:var(--ui-muted)]"
                                           title="Am Termin ist weder eine Ausschreibung hinterlegt noch ein Titel gepflegt.">–</span>
                                 @endif
+                                {{-- KAMPAGNE „SCHULUNG VOLL“ (05.10.2026): nur an ausgebuchten,
+                                     KUENFTIGEN Terminen — ein vergangener voller Termin ist
+                                     ein Erfolg, kein Anlass. Die Pille nennt die Bewerber der
+                                     Ausschreibung ohne Termin und oeffnet das Drill-Modal mit
+                                     dem Kampagnen-Fuss (Scope posting_type). Ohne
+                                     Ausschreibung gibt es keine Zielgruppe: nur das Badge. --}}
+                                @if (($interviewRow['voll'] ?? false) && ($interviewRow['kuenftig'] ?? false))
+                                    @php
+                                        // Mit Ausschreibungs- oder Quellen-Filter ist die Zahl eine
+                                        // TEILMENGE (die Vorfilter greifen vor dem Assigner) — das
+                                        // steht dann dran, statt „alle haben einen Termin“.
+                                        $pillenTeilmenge = $this->pillenVorgefiltert();
+                                        $pillenZusatz = $pillenTeilmenge ? ' in dieser Auswahl' : '';
+                                        $pillenPrefix = 'Ohne Termin · ' . ($interviewRow['posting_id'] !== null ? $postingTitle : 'ohne Ausschreibung');
+                                        $pillenToken = $interviewRow['posting_id'] === null ? null : $this->drillToken('posting_type', $pillenPrefix, [
+                                            'posting' => $interviewRow['posting_id'],
+                                            'type' => 'ohne_schulung',
+                                            'anlass_interview' => $interviewId,
+                                        ]);
+                                    @endphp
+                                    <div class="mt-1 flex items-center gap-1.5 whitespace-nowrap">
+                                        <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-amber-200"
+                                              title="Alle Plätze belegt ({{ $interviewRow['seat_taking'] }} von {{ $interviewRow['max'] }}). Bewerber der Ausschreibung ohne Termin können per WhatsApp auf freie Termine an ihrem Wunschort hingewiesen werden.">
+                                            Ausgebucht
+                                        </span>
+                                        @if ($pillenToken === null)
+                                            <span class="cursor-help text-[11px] text-[color:var(--ui-muted)]"
+                                                  title="Am Termin ist keine Ausschreibung hinterlegt — ohne sie gibt es keine Zielgruppe für die Kampagne. Ausschreibung am Termin nachtragen (Schulungstermine → bearbeiten).">
+                                                keine Ausschreibung ⓘ
+                                            </span>
+                                        @elseif ($interviewRow['ohne_termin'] > 0)
+                                            <button
+                                                type="button"
+                                                wire:click="drill(@js($pillenToken), @js('ids'))"
+                                                wire:loading.attr="disabled"
+                                                title="{{ $interviewRow['ohne_termin'] }} Bewerber der Ausschreibung „{{ $postingTitle }}“ ohne Termin{{ $pillenZusatz }}{{ $pillenTeilmenge ? ' (Filter „Einzelne Ausschreibung“ bzw. „Quelle“ ist aktiv — ohne ihn können es mehr sein)' : '' }} — anzeigen und per WhatsApp auf freie Termine hinweisen."
+                                                class="inline-flex items-center gap-1 rounded-full bg-[var(--ui-muted-5)] px-2 py-0.5 text-[11px] font-medium tabular-nums text-[color:var(--ui-secondary)] ring-1 ring-[var(--ui-border)]/60 hover:ring-[var(--ui-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-primary)] transition-all cursor-pointer"
+                                            >{{ $interviewRow['ohne_termin'] }} ohne Termin{{ $pillenZusatz }}</button>
+                                        @elseif ($pillenTeilmenge)
+                                            <span class="cursor-help text-[11px] text-[color:var(--ui-muted)]"
+                                                  title="In dieser Auswahl niemand ohne Termin. Der Filter „Einzelne Ausschreibung“ bzw. „Quelle“ ist aktiv — ohne ihn können es mehr sein.">
+                                                0 ohne Termin in dieser Auswahl
+                                            </span>
+                                        @else
+                                            <span class="cursor-help text-[11px] text-[color:var(--ui-muted)]"
+                                                  title="Alle Bewerber dieser Ausschreibung haben einen Termin — niemand anzuschreiben.">
+                                                0 ohne Termin
+                                            </span>
+                                        @endif
+                                    </div>
+                                @endif
                             </td>
                             @include('recruiting::livewire.statistics.meter', [
                                 'taken' => $interviewRow['seat_taking'], 'max' => $interviewRow['max'],

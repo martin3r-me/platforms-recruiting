@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Services\Campaign;
 
 use Illuminate\Support\Facades\Log;
 use Platform\Crm\Services\Comms\WhatsAppMetaService;
+use Platform\Recruiting\Jobs\SendNewDatesCampaign;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecAutoPilotLog;
 use Platform\Recruiting\Services\Comms\HoldingTemplateComponents;
@@ -43,6 +44,16 @@ class NewDatesCampaignSender
     public const LOG_TYPE = 'campaign_sent';
 
     private \Closure $tokenResolver;
+
+    /**
+     * Anlass des Versands (SendNewDatesCampaign::ANLASS_*), null = Kachel
+     * „Ohne Termin". Oeffentliche Felder statt Konstruktor-/send()-Parameter:
+     * der Job bekommt den Sender injiziert und die Testdoppel ueberschreiben
+     * send() mit der bestehenden Signatur — ein weiterer Parameter dort waere
+     * eine Signatur-Aenderung fuer alle, fuer eine reine Log-Beigabe.
+     */
+    public ?string $anlass = null;
+    public ?int $anlassInterviewId = null;
 
     /**
      * @param \Closure(RecApplicant):string|null $tokenResolver Default: kanonischer
@@ -122,8 +133,9 @@ class NewDatesCampaignSender
                 languageCode: (string) ($template->language ?? 'de'),
             );
         } catch (\Throwable $e) {
-            $this->log($applicant, 'error', 'Kampagne „Neue Termine“: Versand fehlgeschlagen — ' . $e->getMessage(), [
+            $this->log($applicant, 'error', 'Kampagne „' . $this->kampagnenName() . '“: Versand fehlgeschlagen — ' . $e->getMessage(), [
                 'campaign' => $campaignUuid, 'template' => (string) $template->name, 'segment' => $segment,
+                'anlass' => $this->anlass, 'anlass_interview_id' => $this->anlassInterviewId,
             ]);
 
             return ['status' => self::STATUS_FAILED, 'error' => $e->getMessage()];
@@ -139,15 +151,23 @@ class NewDatesCampaignSender
             Log::warning('[NewDatesCampaign] Thread-Kontext fehlgeschlagen (WhatsApp ist raus): ' . $e->getMessage(), ['applicant_id' => $applicant->id]);
         }
 
-        $this->log($applicant, self::LOG_TYPE, 'Kampagne „Neue Termine“ gesendet (Template ' . $segment . ': ' . $template->name . ').', [
+        $this->log($applicant, self::LOG_TYPE, 'Kampagne „' . $this->kampagnenName() . '“ gesendet (Template ' . $segment . ': ' . $template->name . ').', [
             'campaign' => $campaignUuid,
             'template' => (string) $template->name,
             'segment' => $segment,
             'phase_id' => $applicant->rec_phase_id,
             'sent_by' => $sentByUserId,
+            'anlass' => $this->anlass,
+            'anlass_interview_id' => $this->anlassInterviewId,
         ]);
 
         return ['status' => self::STATUS_SENT, 'error' => null];
+    }
+
+    /** Lesbarer Name fuer die Akte — der Log-TYP bleibt fuer beide Anlaesse campaign_sent (14-Tage-Schutz greift ueber beide). */
+    private function kampagnenName(): string
+    {
+        return $this->anlass === SendNewDatesCampaign::ANLASS_SCHULUNG_VOLL ? 'Schulung voll' : 'Neue Termine';
     }
 
     private function firstName(RecApplicant $applicant): string

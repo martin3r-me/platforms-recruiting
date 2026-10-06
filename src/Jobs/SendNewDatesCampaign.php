@@ -41,6 +41,14 @@ class SendNewDatesCampaign implements ShouldQueue
     public int $timeout = 1800;
 
     public const CACHE_TTL_SECONDS = 86400;
+
+    /**
+     * Anlass „Schulung voll" (05.10.2026): die Kampagne wurde ueber die Pille
+     * „N ohne Termin" an einem ausgebuchten Termin gestartet, nicht ueber die
+     * Kachel. Steht im Log-Detail jeder gesendeten Zeile, damit die Akte und
+     * die Badge „angeschrieben am …" beide Kampagnen unterscheiden koennen.
+     */
+    public const ANLASS_SCHULUNG_VOLL = 'schulung_voll';
     public const MAX_ERRORS_KEPT = 20;
 
     /**
@@ -53,6 +61,16 @@ class SendNewDatesCampaign implements ShouldQueue
         public readonly array $applicantIds,
         public readonly ?int $templateAId,
         public readonly ?int $templateBId,
+        /**
+         * Modus „Schulung voll": Template-A-Zeilen (vor dem Buchungsschritt)
+         * werden im Re-Check gesperrt und uebersprungen — dieselbe Regel wie
+         * im Modal (CampaignSegment::nurBuchungsphase), damit der Job nicht
+         * mehr verschickt als das Modal angeboten hat, auch wenn sich der
+         * Stand seit dem Oeffnen geaendert hat.
+         */
+        public readonly bool $nurBuchungsphase = false,
+        public readonly ?string $anlass = null,
+        public readonly ?int $anlassInterviewId = null,
     ) {
     }
 
@@ -106,6 +124,11 @@ class SendNewDatesCampaign implements ShouldQueue
         $now = new \DateTimeImmutable();
 
         $rows = $recipients->load($this->teamId, $this->applicantIds, $now);
+        if ($this->nurBuchungsphase) {
+            $rows = CampaignSegment::nurBuchungsphase($rows);
+        }
+        $sender->anlass = $this->anlass;
+        $sender->anlassInterviewId = $this->anlassInterviewId;
 
         foreach ($this->applicantIds as $id) {
             $row = $rows[(int) $id] ?? null;
@@ -119,7 +142,7 @@ class SendNewDatesCampaign implements ShouldQueue
             $templateId = $row['template'] === CampaignSegment::TEMPLATE_FORM ? $this->templateAId : $this->templateBId;
             if (!$templateId) {
                 $progress['skipped']++;
-                $this->keepError($progress, $row['name'] . ': kein Template ' . $row['template'] . ' gewählt');
+                $this->keepError($progress, $row['name'] . ': keine Vorlage für „' . CampaignSegment::empfaengtLabel($row['template']) . '“ gewählt');
                 $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
                 continue;
             }
@@ -176,7 +199,7 @@ class SendNewDatesCampaign implements ShouldQueue
                 $log = new RecAutoPilotLog([
                     'rec_applicant_id' => $applicant->id,
                     'type' => 'waitlist_replaced',
-                    'summary' => 'Ort-Warteliste durch Kampagne „Neue Termine“ abgelöst (' . $closed . ' Eintrag/Einträge geschlossen).',
+                    'summary' => 'Ort-Warteliste durch Kampagne „' . ($this->anlass === self::ANLASS_SCHULUNG_VOLL ? 'Schulung voll' : 'Neue Termine') . '“ abgelöst (' . $closed . ' Eintrag/Einträge geschlossen).',
                     'details' => ['campaign' => $this->campaignUuid],
                 ]);
                 $log->created_at = now();

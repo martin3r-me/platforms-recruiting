@@ -70,6 +70,19 @@ class SendInterviewReminders extends Command
             }
 
             foreach ($bookings as $booking) {
+                // Die Schleife sendet ueber Sekunden bis Minuten. Wurde die Buchung
+                // inzwischen in einen anderen Termin verschoben (BookingMover), ginge
+                // sonst das ALTE Datum raus und der Stempel verhinderte die richtige
+                // Erinnerung fuer den neuen Termin.
+                $current = \Platform\Recruiting\Models\RecInterviewBooking::query()
+                    ->whereKey($booking->id)
+                    ->first(['id', 'rec_interview_id', 'reminder_sent_at']);
+                if (!$current || (int) $current->rec_interview_id !== (int) $interview->id || $current->reminder_sent_at !== null) {
+                    $this->line("  Buchung #{$booking->id}: inzwischen verschoben oder schon erinnert, übersprungen.");
+                    $skipped++;
+                    continue;
+                }
+
                 $phoneNumber = $this->findPhoneNumber($booking);
                 if (!$phoneNumber) {
                     $this->line("  Buchung #{$booking->id}: Keine Telefonnummer gefunden, übersprungen.");

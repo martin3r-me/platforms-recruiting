@@ -19,6 +19,17 @@ final class CampaignSegment
     /** Template B: Terminauswahl (URL-Button → /recruiting/interviews/{token}). */
     public const TEMPLATE_BOOKING = 'B';
 
+    /**
+     * Was die Person BEKOMMT, in HR-Sprache (UX-Paket 06.10.2026): die
+     * Buchstaben A/B sagten dem Kunden nichts. Dieselben zwei Worte stehen an
+     * der Zeile, im Zaehler, an der Vorschau und in der Bestaetigung — EINE
+     * Quelle, damit nirgends ein dritter Name auftaucht.
+     */
+    public static function empfaengtLabel(string $template): string
+    {
+        return $template === self::TEMPLATE_FORM ? 'Angaben ergänzen' : 'Termine ansehen';
+    }
+
     /** Wer in diesem Fenster schon eine Kampagne bekam, ist default abgehakt. */
     public const RECENT_CAMPAIGN_DAYS = 14;
 
@@ -193,6 +204,38 @@ final class CampaignSegment
             'checked' => $checked,
             'badges' => $badges,
         ];
+    }
+
+    /**
+     * Kampagne „Schulung voll" (05.10.2026): Anlass ist ein ausgebuchter
+     * Termin, Ziel sind die Bewerber seiner Ausschreibung ohne Termin. Der
+     * Kunde will dort nur Leute erreichen, die Phase 1 hinter sich haben —
+     * eine Terminauswahl-Nachricht an jemanden, dessen Bewerbung noch
+     * unvollstaendig ist, fuehrt auf eine Seite, die er noch gar nicht
+     * nutzen kann. Template-A-Zeilen bleiben deshalb SICHTBAR (HR sieht,
+     * warum jemand fehlt), sind aber nicht waehlbar — gleiche Mechanik wie
+     * „kein Telefon": campaignSelectAll(), selectedIds() und der Job pruefen
+     * gegen `selectable`, ein blosses `checked = false` haette „alle
+     * auswaehlen" wieder mitgenommen. Das Badge „Bewerbung unvollstaendig"
+     * traegt die Zeile schon aus classify().
+     *
+     * Ueberlagerung NACH classify() statt eines weiteren Eingabe-Flags: der
+     * Loader (NewDatesCampaignRecipients::load) und der Job bleiben
+     * unveraendert, beide Aufrufer legen diese Regel bei Bedarf darueber.
+     *
+     * @param array<int, array{template:string, selectable:bool, checked:bool, badges:list<string>}> $rows
+     * @return array<int, array{template:string, selectable:bool, checked:bool, badges:list<string>}>
+     */
+    public static function nurBuchungsphase(array $rows): array
+    {
+        foreach ($rows as $id => $row) {
+            if (($row['template'] ?? '') === self::TEMPLATE_FORM) {
+                $rows[$id]['selectable'] = false;
+                $rows[$id]['checked'] = false;
+            }
+        }
+
+        return $rows;
     }
 
     /**

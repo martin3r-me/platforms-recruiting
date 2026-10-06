@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use Platform\Core\Models\CoreExtraFieldDefinition;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecPhase;
+use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Models\RecPosting;
 
 /**
@@ -61,6 +62,20 @@ class AnzeigeVerknuepfenTest extends TestCase
 
     /** haengt an einer echten Anzeige und bekommt eine zweite echte dazu. */
     private const APPLICANT_ZWEI_ECHTE = 4012;
+
+    /**
+     * Steht in Koeln, hat keine Anzeige mehr und bekommt die Gladbacher. Nachbau
+     * der Faelle 1114/1130 (05.10.2026): die Stelle wurde auf derselben Instanz
+     * VORHER gelesen, der Abgleich glich die Phase danach an die alte Stelle an.
+     */
+    private const APPLICANT_STELLE_VORHER_GELESEN = 4013;
+
+    /**
+     * Hat denselben Feldnamen unter ZWEI alten Stellen (Nachbau 1114/1130,
+     * Lauf 05.10.2026: Duplicate entry '991-rec_applicant-1114' — beide alten
+     * Werte wollten auf dieselbe neue Definition).
+     */
+    private const APPLICANT_FELD_DOPPELT = 4014;
 
     private const HEUTE = '2026-09-22 10:00:00';
 
@@ -204,6 +219,93 @@ class AnzeigeVerknuepfenTest extends TestCase
         );
     }
 
+    public function test_vorher_gelesene_stelle_lenkt_die_phase_nicht_in_die_alte_stelle(): void
+    {
+        $applicant = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+
+        // Vorflug + der Ausloeser: irgendein Code hat die Stelle schon gelesen.
+        $this->assertSame(self::POSITION_KOELN, $applicant->primaryPosition()?->id);
+        $this->assertSame([], $applicant->postings()->pluck('rec_postings.id')->all());
+
+        $applicant->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $frisch = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $this->assertSame(self::POSITION_GLADBACH, (int) $frisch->rec_position_id, 'die Stelle folgt der Anzeige');
+        $this->assertSame(
+            self::PHASE_GLADBACH_1,
+            (int) $frisch->rec_phase_id,
+            'die Phase gehoert zur NEUEN Stelle, nicht zur zuvor gelesenen alten'
+        );
+        $this->assertSame(self::POSITION_GLADBACH, $applicant->primaryPosition()?->id, 'auch die Instanz selbst kennt danach die neue Stelle');
+    }
+
+    public function test_stellenwechsel_laesst_keine_veraltete_stelle_oder_phase_auf_der_instanz(): void
+    {
+        $applicant = RecApplicant::find(self::APPLICANT_STELLE_VORHER_GELESEN);
+        $applicant->primaryPosition();
+        $applicant->phase;
+
+        $applicant->switchToPosition(RecPosition::find(self::POSITION_GLADBACH));
+
+        $this->assertSame(self::POSITION_GLADBACH, $applicant->primaryPosition()?->id);
+        $this->assertSame(self::PHASE_GLADBACH_1, $applicant->phase?->id);
+    }
+
+    public function test_gleicher_feldname_aus_zwei_alten_stellen_bricht_die_uebertragung_nicht_ab(): void
+    {
+        $applicant = RecApplicant::find(self::APPLICANT_FELD_DOPPELT);
+
+        $applicant->anzeigeVerknuepfen(RecPosting::find(self::POSTING_GLADBACH));
+
+        $frisch = RecApplicant::find(self::APPLICANT_FELD_DOPPELT);
+        $this->assertSame(self::PHASE_GLADBACH_1, (int) $frisch->rec_phase_id);
+
+        $werte = Capsule::table('core_extra_field_values')
+            ->where('fieldable_id', self::APPLICANT_FELD_DOPPELT)
+            ->get()->keyBy('definition_id');
+
+        $this->assertSame(
+            'Neu',
+            $werte->get(self::definitionId(self::PHASE_GLADBACH_1, 'vorname'))?->value,
+            'der JUENGERE Wert landet im neuen Feld'
+        );
+        $this->assertCount(2, $werte, 'der aeltere Doppelgaenger bleibt liegen statt geloescht zu werden');
+    }
+
+    public function test_feldwerte_nachziehen_trockenlauf_zeigt_und_echter_lauf_schreibt(): void
+    {
+        // Zustand nach dem Abbruch: Phase + Stelle schon Gladbach, Wert noch unter Koeln.
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_FELD_DOPPELT)->update([
+            'rec_position_id' => self::POSITION_GLADBACH,
+            'rec_phase_id' => self::PHASE_GLADBACH_1,
+        ]);
+        Capsule::table('core_extra_field_values')
+            ->where('fieldable_id', self::APPLICANT_FELD_DOPPELT)
+            ->where('value', 'Alt')
+            ->delete();
+
+        $zeilen = [];
+        $trocken = \Platform\Recruiting\Console\Commands\FeldwerteNachziehen::nachziehen(
+            [self::APPLICANT_FELD_DOPPELT], true, function ($z) use (&$zeilen) { $zeilen[] = $z; },
+        );
+        $this->assertSame(1, $trocken['verschoben']);
+        $this->assertStringContainsString('vorname', implode("\n", $zeilen));
+        $this->assertSame(
+            self::definitionId(self::PHASE_KOELN_1, 'vorname'),
+            (int) Capsule::table('core_extra_field_values')->where('fieldable_id', self::APPLICANT_FELD_DOPPELT)->value('definition_id'),
+            'Trockenlauf schreibt nichts'
+        );
+
+        $echt = \Platform\Recruiting\Console\Commands\FeldwerteNachziehen::nachziehen(
+            [self::APPLICANT_FELD_DOPPELT], false, fn () => null,
+        );
+        $this->assertSame(1, $echt['verschoben']);
+        $this->assertSame(
+            self::definitionId(self::PHASE_GLADBACH_1, 'vorname'),
+            (int) Capsule::table('core_extra_field_values')->where('fieldable_id', self::APPLICANT_FELD_DOPPELT)->value('definition_id'),
+        );
+    }
+
     private static function definitionId(int $phaseId, string $name): int
     {
         return (int) CoreExtraFieldDefinition::query()
@@ -228,6 +330,13 @@ class AnzeigeVerknuepfenTest extends TestCase
             'is_unrouted' => 0,
         ]);
 
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_STELLE_VORHER_GELESEN)->update([
+            'rec_position_id' => self::POSITION_KOELN,
+            'rec_phase_id' => self::PHASE_KOELN_1,
+            'owned_by_user_id' => null,
+            'is_unrouted' => 0,
+        ]);
+
         Capsule::table('rec_applicant_posting')->delete();
         Capsule::table('rec_applicant_posting')->insert([
             ['rec_applicant_id' => self::APPLICANT_AUS_SAMMELSTELLE, 'rec_posting_id' => self::POSTING_SAMMEL,
@@ -243,6 +352,21 @@ class AnzeigeVerknuepfenTest extends TestCase
             'fieldable_id' => self::APPLICANT_AUS_SAMMELSTELLE,
             'value' => 'Ali',
             'created_at' => self::HEUTE, 'updated_at' => self::HEUTE,
+        ]);
+
+        Capsule::table('rec_applicants')->where('id', self::APPLICANT_FELD_DOPPELT)->update([
+            'rec_position_id' => self::POSITION_KOELN,
+            'rec_phase_id' => self::PHASE_KOELN_1,
+            'owned_by_user_id' => null,
+            'is_unrouted' => 0,
+        ]);
+        Capsule::table('core_extra_field_values')->insert([
+            ['definition_id' => self::definitionId(self::PHASE_SAMMEL, 'vorname'),
+             'fieldable_type' => (new RecApplicant())->getMorphClass(), 'fieldable_id' => self::APPLICANT_FELD_DOPPELT,
+             'value' => 'Alt', 'created_at' => '2026-04-22 10:00:00', 'updated_at' => '2026-04-22 10:00:00'],
+            ['definition_id' => self::definitionId(self::PHASE_KOELN_1, 'vorname'),
+             'fieldable_type' => (new RecApplicant())->getMorphClass(), 'fieldable_id' => self::APPLICANT_FELD_DOPPELT,
+             'value' => 'Neu', 'created_at' => '2026-09-21 10:00:00', 'updated_at' => '2026-09-21 10:00:00'],
         ]);
 
         Capsule::table('rec_auto_pilot_logs')->delete();
@@ -332,6 +456,10 @@ class AnzeigeVerknuepfenTest extends TestCase
              'name' => 'vorname', 'label' => 'Vorname', 'type' => 'text',
              'is_required' => 1, 'order' => 1, 'options' => null,
              'created_at' => $now, 'updated_at' => $now],
+            ['team_id' => self::TEAM, 'context_type' => RecPhase::class, 'context_id' => self::PHASE_KOELN_1,
+             'name' => 'vorname', 'label' => 'Vorname', 'type' => 'text',
+             'is_required' => 1, 'order' => 1, 'options' => null,
+             'created_at' => $now, 'updated_at' => $now],
         ]);
 
         Capsule::table('rec_postings')->insert([
@@ -352,6 +480,12 @@ class AnzeigeVerknuepfenTest extends TestCase
              'is_test' => 0, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
             ['id' => self::APPLICANT_ZWEI_ECHTE, 'uuid' => 'avk-app-4012', 'team_id' => self::TEAM,
              'applied_at' => '2026-09-01', 'rec_phase_id' => self::PHASE_GLADBACH_2, 'rec_position_id' => self::POSITION_GLADBACH,
+             'is_test' => 0, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::APPLICANT_STELLE_VORHER_GELESEN, 'uuid' => 'avk-app-4013', 'team_id' => self::TEAM,
+             'applied_at' => '2026-04-22', 'rec_phase_id' => self::PHASE_KOELN_1, 'rec_position_id' => self::POSITION_KOELN,
+             'is_test' => 0, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => self::APPLICANT_FELD_DOPPELT, 'uuid' => 'avk-app-4014', 'team_id' => self::TEAM,
+             'applied_at' => '2026-04-22', 'rec_phase_id' => self::PHASE_KOELN_1, 'rec_position_id' => self::POSITION_KOELN,
              'is_test' => 0, 'is_active' => 1, 'created_at' => $now, 'updated_at' => $now],
         ]);
     }

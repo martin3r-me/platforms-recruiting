@@ -64,6 +64,102 @@ final class CampaignModalStateTest extends TestCase
         $this->assertFalse($c->campaignEnabled());
     }
 
+    /**
+     * Kampagne „Schulung voll" (05.10.2026): zweiter legitimer Einstieg ist
+     * die Pille „N ohne Termin" an einem ausgebuchten Termin in Tabelle 2 —
+     * Scope 'posting_type' mit type 'ohne_schulung', ohne 'set'. Nur dort gilt
+     * der Modus „nur Buchungsphase" (Template-A-Zeilen gesperrt); die Kachel
+     * „Ohne Termin" bleibt, wie sie war.
+     */
+    public function testKampagneAuchUeberDiePilleAmAusgebuchtenTermin(): void
+    {
+        $c = new Index();
+        $c->drillIds = [1, 2];
+        $c->drillScopeName = 'posting_type';
+        $c->drillScopeType = 'ohne_schulung';
+        $c->drillHasSet = false;
+
+        $this->assertTrue($c->campaignEnabled());
+        $this->assertTrue($c->campaignNurBuchung());
+
+        $c->drillScopeType = 'schulung';
+        $this->assertFalse($c->campaignEnabled(), 'posting_type mit anderem Typ: kein Versand an Teilnehmer');
+
+        $c->drillScopeType = 'ohne_schulung';
+        $c->drillHasSet = true;
+        $this->assertFalse($c->campaignEnabled(), "'set' redirigiert die ID-Aufloesung — bleibt gesperrt");
+
+        $c->drillHasSet = false;
+        $c->drillScopeName = 'type_all';
+        $this->assertTrue($c->campaignEnabled());
+        $this->assertFalse($c->campaignNurBuchung(), 'Kachel „Ohne Termin": beide Templates wie bisher');
+    }
+
+    /**
+     * Review 05.10.: die Pille hinterliess ihr „freie Termine"-Template in der
+     * Kachel. Die Vorbelegung ist jetzt modusbewusst: Moduswechsel → Default
+     * des neuen Modus, gleicher Modus → Auswahl von HR bleibt.
+     */
+    public function testTemplateBVorbelegungFolgtDemModus(): void
+    {
+        $full = 11; $booking = 22; $hr = 33;
+
+        // erstes Oeffnen (kein voriger Modus)
+        $this->assertSame($full, Index::campaignTemplateBFor('pille', '', null, $full, $booking));
+        $this->assertSame($booking, Index::campaignTemplateBFor('pille', '', null, null, $booking), 'Rueckfall auf B ohne eigenes Template');
+        $this->assertSame($booking, Index::campaignTemplateBFor('kachel', '', null, $full, $booking), 'Kachel kennt das Pillen-Template nicht');
+
+        // gleicher Modus: HR-Auswahl bleibt
+        $this->assertSame($hr, Index::campaignTemplateBFor('pille', 'pille', $hr, $full, $booking));
+        $this->assertSame($hr, Index::campaignTemplateBFor('kachel', 'kachel', $hr, $full, $booking));
+
+        // Moduswechsel: alte Auswahl wird verworfen
+        $this->assertSame($booking, Index::campaignTemplateBFor('kachel', 'pille', $full, $full, $booking), 'Pille → Kachel: nicht das Pillen-Template behalten');
+        $this->assertSame($full, Index::campaignTemplateBFor('pille', 'kachel', $booking, $full, $booking), 'Kachel → Pille: eigenes Template');
+
+        $this->assertNull(Index::campaignTemplateBFor('kachel', '', null, null, null), 'nichts gesetzt → nichts vorbelegt');
+    }
+
+    /**
+     * UX-Paket 06.10.: die Bestaetigung vor dem Senden sagt in HR-Sprache, wer
+     * was bekommt, und dass danach nichts von selbst nachkommt.
+     */
+    public function testBestaetigungstextNenntGruppenUndKeineErinnerungen(): void
+    {
+        $text = Index::campaignConfirmText(['A' => 9, 'B' => 30, 'total' => 39], false);
+
+        $this->assertStringStartsWith('WhatsApp jetzt an 39 Personen senden?', $text);
+        $this->assertStringContainsString('9 × „Angaben ergänzen“ (Link zum Formular)', $text);
+        $this->assertStringContainsString('30 × „Termine ansehen“ (Link zur Terminauswahl)', $text);
+        $this->assertStringContainsString('keine automatischen Erinnerungen', $text);
+
+        $pille = Index::campaignConfirmText(['A' => 0, 'B' => 1, 'total' => 1], true);
+        $this->assertStringStartsWith('WhatsApp jetzt an 1 Person senden?', $pille);
+        $this->assertStringNotContainsString('Angaben ergänzen', $pille, 'im Modus „Schulung voll“ gibt es nur die Terminauswahl');
+    }
+
+    /**
+     * Review 06.10.: eine GEWAEHLTE, aber unbrauchbare Vorlage (bei Meta
+     * pausiert, ohne Link-Button, mit Fremdvariablen) sperrt den Start —
+     * vorher lief der Job an und scheiterte an jeder Zeile.
+     */
+    public function testUnbrauchbareVorlageSperrtDenStart(): void
+    {
+        $counts = ['A' => 2, 'B' => 1, 'total' => 3];
+
+        $this->assertNull(Index::campaignStartError(true, false, $counts, 5, 6, null, null));
+        $this->assertSame(
+            'Nachricht „Angaben ergänzen“: nicht mehr genehmigt',
+            Index::campaignStartError(true, false, $counts, 5, 6, 'nicht mehr genehmigt', null)
+        );
+        $this->assertSame(
+            'Nachricht „Termine ansehen“: ohne Link-Button',
+            Index::campaignStartError(true, false, $counts, 5, 6, null, 'ohne Link-Button')
+        );
+        // Problem an einer Gruppe OHNE Empfaenger ist egal
+        $this->assertNull(Index::campaignStartError(true, false, ['A' => 0, 'B' => 1, 'total' => 1], null, 6, 'egal', null));
+    }
+
     public function testDefaultsDerProperties(): void
     {
         $c = new Index();
@@ -73,6 +169,9 @@ final class CampaignModalStateTest extends TestCase
         $this->assertSame([], $c->campaignSelection);
         $this->assertNull($c->campaignUuid);
         $this->assertSame('', $c->campaignError);
+        $this->assertNull($c->campaignAnlassInterviewId);
+        $this->assertNull($c->campaignAnlassPostingId);
+        $this->assertSame('', $c->campaignTemplateMode);
     }
 
     /**
@@ -105,8 +204,8 @@ final class CampaignModalStateTest extends TestCase
             'Kampagne nicht verfuegbar (nicht enabled)' => [false, false, $counts, 5, 6, 'Kampagne nicht verfügbar.'],
             'Kampagne laeuft bereits' => [true, true, $counts, 5, 6, 'Kampagne läuft bereits.'],
             'Niemand ausgewaehlt' => [true, false, $nullCounts, 5, 6, 'Niemand ausgewählt.'],
-            'Template A fehlt' => [true, false, $counts, null, 6, 'Für 2 Personen fehlt Template A (Bewerbung vervollständigen).'],
-            'Template B fehlt' => [true, false, $counts, 5, null, 'Für 1 Personen fehlt Template B (Terminauswahl).'],
+            'Template A fehlt' => [true, false, $counts, null, 6, 'Für 2 Personen fehlt die Nachricht „Angaben ergänzen“ — Vorlage wählen.'],
+            'Template B fehlt' => [true, false, $counts, 5, null, 'Für 1 Personen fehlt die Nachricht „Termine ansehen“ — Vorlage wählen.'],
             'Happy Path' => [true, false, $counts, 5, 6, null],
         ];
     }

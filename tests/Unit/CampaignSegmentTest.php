@@ -263,4 +263,41 @@ final class CampaignSegmentTest extends TestCase
         $this->assertFalse($segment['checked']);
         $this->assertContains('abgeschlossen am 19.08.2026', $segment['badges']);
     }
+    /**
+     * Kampagne „Schulung voll" (05.10.2026): Anlass ist ein ausgebuchter
+     * Termin, Ziel sind die Bewerber seiner Ausschreibung OHNE Termin. Der
+     * Kunde will nur Leute erreichen, die Phase 1 schon hinter sich haben —
+     * wer noch vor dem Buchungsschritt steht (Template A), bleibt sichtbar,
+     * ist aber NICHT waehlbar: campaignSelectAll(), selectedIds() und der Job
+     * pruefen gegen `selectable`, ein blosses `checked = false` haette „alle
+     * auswaehlen" wieder mitgenommen.
+     */
+    public function testNurBuchungsphaseSperrtTemplateAZeilen(): void
+    {
+        $rows = [
+            1 => ['template' => 'A', 'selectable' => true, 'checked' => true, 'badges' => ['Bewerbung unvollständig']],
+            2 => ['template' => 'B', 'selectable' => true, 'checked' => true, 'badges' => []],
+            3 => ['template' => 'B', 'selectable' => false, 'checked' => false, 'badges' => ['kein Telefon']],
+        ];
+
+        $out = CampaignSegment::nurBuchungsphase($rows);
+
+        $this->assertFalse($out[1]['selectable']);
+        $this->assertFalse($out[1]['checked']);
+        $this->assertSame(['Bewerbung unvollständig'], $out[1]['badges'], 'Badge nicht verdoppeln — die Zeile traegt den Grund schon');
+        $this->assertSame($rows[2], $out[2], 'B-Zeilen unveraendert');
+        $this->assertSame($rows[3], $out[3], 'Bereits gesperrte Zeilen unveraendert');
+        $this->assertSame([1, 2, 3], array_keys($out), 'Reihenfolge und Schluessel bleiben');
+    }
+
+    public function testNurBuchungsphaseLeereEingabe(): void
+    {
+        $this->assertSame([], CampaignSegment::nurBuchungsphase([]));
+    }
+    public function testEmpfaengtLabelInHrSprache(): void
+    {
+        $this->assertSame('Angaben ergänzen', CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_FORM));
+        $this->assertSame('Termine ansehen', CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_BOOKING));
+        $this->assertSame('Termine ansehen', CampaignSegment::empfaengtLabel('x'), 'unbekannt faellt auf die Terminauswahl — das ist die Mehrheit');
+    }
 }

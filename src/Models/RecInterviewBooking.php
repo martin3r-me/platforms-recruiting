@@ -25,6 +25,9 @@ class RecInterviewBooking extends Model
     protected $fillable = [
         'uuid',
         'rec_interview_id',
+        'moved_from_interview_id',
+        'moved_at',
+        'moved_by_user_id',
         'rec_applicant_id',
         'status',
         'notes',
@@ -50,6 +53,7 @@ class RecInterviewBooking extends Model
         'seat_released_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'confirmed_at' => 'datetime',
+        'moved_at' => 'datetime',
         'einsatz_geklaert_at' => 'datetime',
         // date, nicht datetime: „wieder anzeigen ab" ist eine Tagesaussage.
         'einsatz_wiedervorlage_am' => 'date',
@@ -104,6 +108,12 @@ class RecInterviewBooking extends Model
     public function interview(): BelongsTo
     {
         return $this->belongsTo(RecInterview::class, 'rec_interview_id');
+    }
+
+    /** Termin, aus dem diese Buchung zuletzt hierher verschoben wurde. */
+    public function movedFromInterview(): BelongsTo
+    {
+        return $this->belongsTo(RecInterview::class, 'moved_from_interview_id');
     }
 
     public function applicant(): BelongsTo
