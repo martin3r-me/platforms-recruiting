@@ -35,6 +35,21 @@ Schulungs-Detail (eigene Karte, bei Bedarf gleiches Muster), der Speicher-Bug de
 - `statistics/index.blade.php`: Erklärblock, Zähler in Worten, Zeilen-Chips, Nachricht-Karten, Button mit
   Bestätigung. `tools/blade-check.php` grün, Anführungszeichen-Hygiene (StatisticsPageStructureTest) grün.
 
+## 3a. Review-Nachtrag (06.10.)
+
+- Die Vorschau trägt dieselben zwei Sende-Guards wie der Sender (`warnung`: kein dynamischer Link-Button an
+  Position 0 / Body-Variablen außer dem Vornamen). Die Karte wird dann zur Warnung statt zur Sprechblase.
+- Drei Kartenzustände aus einer Quelle (`campaignTemplateProblem`): nicht gewählt (rot) / nicht mehr verfügbar
+  oder vom Sender abgelehnt (amber, mit Vorlagen-Name) / verwendbar. `campaignStartError` sperrt den Start bei
+  jedem Problem einer Gruppe mit Empfängern.
+- Eine Vorlagen-Query je Request für Liste und Vorschau; Vorschau nur für die gewählten ein bis zwei Vorlagen;
+  während eines laufenden Versands gar nicht.
+- Karten mit `wire:key`, damit beim Wechsel Kachel ↔ Pille kein Alpine-Zustand wandert. Bekannt: der
+  Aufklapp-Zustand „Vorlage ändern" wird beim Rerender nicht neu ausgewertet (Morph behält Alpine-State).
+- Zeilen-Chip folgt der Auswahl: „bekommt: …" nur mit Haken, sonst „nicht angehakt · …", gesperrt „keine Nachricht".
+- Kopfzeilen-Dedupe nur für Kachel-Tokens (`type_all`, Spalte `ids`).
+- Job-Fehlerzeile in HR-Sprache; Tooltip nennt den Rückfall „Bewerber/in" und fehlende Bild-Kopfzeilen.
+
 ## 4. Auslieferung
 
 ff auf main, meingedeck-Bump, `view:clear`. Keine Migration, kein `queue:restart` (nur View + Komponente).

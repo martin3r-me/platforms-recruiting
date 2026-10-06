@@ -142,7 +142,7 @@ class SendNewDatesCampaign implements ShouldQueue
             $templateId = $row['template'] === CampaignSegment::TEMPLATE_FORM ? $this->templateAId : $this->templateBId;
             if (!$templateId) {
                 $progress['skipped']++;
-                $this->keepError($progress, $row['name'] . ': kein Template ' . $row['template'] . ' gewählt');
+                $this->keepError($progress, $row['name'] . ': keine Vorlage für „' . CampaignSegment::empfaengtLabel($row['template']) . '“ gewählt');
                 $cache->put($key, $progress, self::CACHE_TTL_SECONDS);
                 continue;
             }

@@ -774,7 +774,7 @@
         // UX-Paket 06.10.2026: HR liest den Text der Nachricht, nicht den
         // Vorlagen-Namen. Beide Gruppen tragen ueberall dieselben zwei Worte
         // (CampaignSegment::empfaengtLabel) — Zeile, Zaehler, Karte, Bestaetigung.
-        $campaignPreviews = $campaignEnabled ? $this->campaignTemplatePreviews : [];
+        $campaignPreviews = ($campaignEnabled && $campaignProgress === null) ? $this->campaignTemplatePreviews : [];
         $labelAngaben = \Platform\Recruiting\Support\CampaignSegment::empfaengtLabel(\Platform\Recruiting\Support\CampaignSegment::TEMPLATE_FORM);
         $labelTermine = \Platform\Recruiting\Support\CampaignSegment::empfaengtLabel(\Platform\Recruiting\Support\CampaignSegment::TEMPLATE_BOOKING);
         $campaignConfirm = $campaignEnabled ? \Platform\Recruiting\Livewire\Statistics\Index::campaignConfirmText($campaignCounts, $campaignNurBuchung) : '';
@@ -874,11 +874,15 @@
                             $rowDisabled = !$row['selectable'] || $campaignRunning;
                             $rowIstFormular = $row['template'] === \Platform\Recruiting\Support\CampaignSegment::TEMPLATE_FORM;
                             $rowEmpfaengt = \Platform\Recruiting\Support\CampaignSegment::empfaengtLabel($row['template']);
-                            // Gesperrte Zeilen bekommen nichts — der Chip sagt das, statt
-                            // eine Nachricht zu versprechen, die nie rausgeht.
+                            // Der Chip folgt der AUSWAHL (Review 06.10.): „bekommt“ nur mit
+                            // Haken. Gesperrte Zeilen bekommen nie etwas; abgehakte Zeilen
+                            // bekaemen es, sobald jemand den Haken setzt.
+                            $rowAngehakt = $row['selectable'] && (($this->campaignSelection[$id] ?? $row['checked']) === true);
                             $rowChipTitle = !$row['selectable']
                                 ? 'Bekommt keine Nachricht — Grund steht daneben.'
-                                : ($rowIstFormular ? 'Bekommt den Link zum Bewerbungsformular (Bewerbung vervollständigen).' : 'Bekommt den Link zur Terminauswahl.');
+                                : (!$rowAngehakt
+                                    ? 'Nicht angehakt — bekommt nichts. Mit Haken: ' . ($rowIstFormular ? 'Link zum Bewerbungsformular.' : 'Link zur Terminauswahl.')
+                                    : ($rowIstFormular ? 'Bekommt den Link zum Bewerbungsformular (Bewerbung vervollständigen).' : 'Bekommt den Link zur Terminauswahl.'));
                         @endphp
                         <li class="py-2 flex items-center gap-3 {{ $row['selectable'] ? '' : 'opacity-60' }}">
                             <input type="checkbox" class="h-4 w-4 rounded border-[var(--ui-border)]"
@@ -886,9 +890,12 @@
                             <div class="flex-1 min-w-0">
                                 <a href="{{ route('recruiting.applicants.show', $id) }}" class="text-[color:var(--ui-primary)] hover:underline text-sm">{{ $row['name'] }}</a>
                                 <span class="ml-2 text-xs text-[color:var(--ui-muted)]">{{ $row['phase'] }}</span>
-                                @if ($row['selectable'])
+                                @if ($rowAngehakt)
                                     <span class="ml-1 inline-block cursor-help rounded px-1.5 py-0.5 text-[11px] font-medium {{ $rowIstFormular ? 'bg-sky-100 text-sky-900' : 'bg-emerald-100 text-emerald-900' }}"
                                           title="{{ $rowChipTitle }}">bekommt: {{ $rowEmpfaengt }}</span>
+                                @elseif ($row['selectable'])
+                                    <span class="ml-1 inline-block cursor-help rounded border border-dashed border-[var(--ui-border)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)]"
+                                          title="{{ $rowChipTitle }}">nicht angehakt · {{ $rowEmpfaengt }}</span>
                                 @else
                                     <span class="ml-1 inline-block cursor-help rounded bg-[var(--ui-muted-5)] px-1.5 py-0.5 text-[11px] text-[color:var(--ui-muted)] line-through"
                                           title="{{ $rowChipTitle }}">keine Nachricht</span>
@@ -991,29 +998,41 @@
                             @foreach ($karten as $karte)
                                 @php
                                     $vorschau = $karte['id'] !== null ? ($campaignPreviews[(int) $karte['id']] ?? null) : null;
+                                    // Drei Gruende, warum keine Sprechblase kommt — dieselbe
+                                    // Quelle wie die Start-Sperre (campaignTemplateProblem).
+                                    $problem = $this->campaignTemplateProblem($karte['id']);
                                     $kartenLabel = 'Nachricht „' . $karte['label'] . '“';
-                                    $kartenOffen = $vorschau === null ? 'true' : 'false';
+                                    $kartenOffen = $problem !== null ? 'true' : 'false';
                                     $chipKlasse = $karte['farbe'] === 'sky' ? 'bg-sky-100 text-sky-900' : 'bg-emerald-100 text-emerald-900';
                                 @endphp
-                                <div class="rounded-lg border border-[var(--ui-border)]/60 p-3 text-xs" x-data="{ aendern: {{ $kartenOffen }} }">
+                                {{-- wire:key: beim Wechsel Kachel ↔ Pille faellt die Formular-Karte
+                                     weg; ohne Schluessel morpht Livewire die Termin-Karte in das
+                                     DOM der alten Formular-Karte und erbt deren Alpine-Zustand. --}}
+                                <div wire:key="kampagne-karte-{{ $karte['key'] }}" class="rounded-lg border border-[var(--ui-border)]/60 p-3 text-xs" x-data="{ aendern: {{ $kartenOffen }} }">
                                     <div class="mb-1 flex items-center justify-between gap-2">
                                         <span class="inline-block rounded px-1.5 py-0.5 text-[11px] font-medium {{ $chipKlasse }}">{{ $kartenLabel }}</span>
                                         <span class="text-[color:var(--ui-muted)]">{{ $karte['wer'] }}</span>
                                     </div>
-                                    @if ($vorschau !== null && $vorschau['text'] !== null)
+                                    @if ($problem === null && $vorschau !== null)
                                         {{-- Sprechblase: der Text mit Beispielnamen, dann der Button --}}
                                         <div class="rounded-lg bg-[var(--ui-muted-5)] px-3 py-2 text-[color:var(--ui-secondary)] whitespace-pre-line">{{ $vorschau['text'] }}</div>
                                         @foreach ($vorschau['buttons'] as $buttonText)
                                             <div class="mt-1 rounded-lg border border-[var(--ui-border)]/60 px-3 py-1 text-center font-medium text-[color:var(--ui-primary)]">{{ $buttonText }}</div>
                                         @endforeach
                                         <div class="mt-1 flex items-center justify-between text-[11px] text-[color:var(--ui-muted)]">
-                                            <span title="Beispielname — beim Versand steht der Vorname der Person. Technischer Name der Vorlage bei Meta: {{ $vorschau['label'] }}">Beispiel mit „{{ \Platform\Recruiting\Support\CampaignTemplatePreview::BEISPIEL_VORNAME }}“ · {{ $karte['link'] }}</span>
+                                            <span title="Beispielname — beim Versand steht der Vorname der Person (ohne Vornamen am Kontakt: „Bewerber/in“). Bild- oder Dokument-Kopfzeilen der Vorlage sind hier nicht abgebildet. Technischer Name der Vorlage bei Meta: {{ $vorschau['label'] }}">Beispiel mit „{{ \Platform\Recruiting\Support\CampaignTemplatePreview::BEISPIEL_VORNAME }}“ · {{ $karte['link'] }}</span>
                                             <button type="button" class="underline" x-on:click="aendern = !aendern" x-text="aendern ? 'Auswahl schließen' : 'Vorlage ändern'">Vorlage ändern</button>
                                         </div>
-                                    @elseif ($vorschau !== null)
-                                        <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">Die Vorlage „{{ $vorschau['label'] }}“ hat keinen lesbaren Text — bitte eine andere wählen.</div>
                                     @else
-                                        <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">Noch keine Vorlage gewählt — ohne sie geht an diese Gruppe nichts raus.</div>
+                                        {{-- nicht gewaehlt (rot) / nicht mehr verfuegbar oder vom Sender
+                                             abgelehnt (amber, mit Vorlagen-Name) — der Start ist in
+                                             beiden Faellen gesperrt (campaignStartError). --}}
+                                        <div class="rounded-lg border {{ $karte['id'] ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-800' }} px-3 py-2">
+                                            @if ($vorschau !== null)
+                                                <span class="font-medium">Vorlage „{{ $vorschau['label'] }}“:</span>
+                                            @endif
+                                            {{ $problem }}
+                                        </div>
                                     @endif
                                     <div x-show="aendern" style="display: none;" class="mt-2">
                                         <x-ui-input-select

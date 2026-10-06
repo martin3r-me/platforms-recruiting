@@ -138,6 +138,28 @@ final class CampaignModalStateTest extends TestCase
         $this->assertStringNotContainsString('Angaben ergänzen', $pille, 'im Modus „Schulung voll“ gibt es nur die Terminauswahl');
     }
 
+    /**
+     * Review 06.10.: eine GEWAEHLTE, aber unbrauchbare Vorlage (bei Meta
+     * pausiert, ohne Link-Button, mit Fremdvariablen) sperrt den Start —
+     * vorher lief der Job an und scheiterte an jeder Zeile.
+     */
+    public function testUnbrauchbareVorlageSperrtDenStart(): void
+    {
+        $counts = ['A' => 2, 'B' => 1, 'total' => 3];
+
+        $this->assertNull(Index::campaignStartError(true, false, $counts, 5, 6, null, null));
+        $this->assertSame(
+            'Nachricht „Angaben ergänzen“: nicht mehr genehmigt',
+            Index::campaignStartError(true, false, $counts, 5, 6, 'nicht mehr genehmigt', null)
+        );
+        $this->assertSame(
+            'Nachricht „Termine ansehen“: ohne Link-Button',
+            Index::campaignStartError(true, false, $counts, 5, 6, null, 'ohne Link-Button')
+        );
+        // Problem an einer Gruppe OHNE Empfaenger ist egal
+        $this->assertNull(Index::campaignStartError(true, false, ['A' => 0, 'B' => 1, 'total' => 1], null, 6, 'egal', null));
+    }
+
     public function testDefaultsDerProperties(): void
     {
         $c = new Index();

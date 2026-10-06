@@ -2583,7 +2583,11 @@ class Index extends Component
         $prefix = (string) ($spec['prefix'] ?? '');
         // Kachel-Tokens tragen den Spaltennamen schon als Praefix („Ohne Termin“
         // + Spalte „Ohne Termin“) — nicht zweimal dasselbe in die Kopfzeile.
-        $this->drillLabel = ($columnLabel === '' || $columnLabel === $prefix) ? $prefix : trim($prefix . ' — ' . $columnLabel);
+        // NUR dort (Review 06.10.): Ausschreibungs-Titel und Phasen-Spalten sind
+        // freier Nutzertext und koennen zufaellig gleich heissen — dann traegt
+        // „Schulung buchen — Schulung buchen" echte Information.
+        $kachel = ($spec['scope'] ?? null) === 'type_all' && $column === 'ids';
+        $this->drillLabel = ($columnLabel === '' || ($kachel && $columnLabel === $prefix)) ? $prefix : trim($prefix . ' — ' . $columnLabel);
         $this->showDrill = true;
     }
 
@@ -2749,23 +2753,71 @@ class Index extends Component
         ];
     }
 
-    /** @return list<array{id:int,label:string}> approved Templates des Teams (Muster ApplicantSettingsModal) */
-    #[Computed]
-    public function campaignTemplates(): array
+    /**
+     * Approved Vorlagen des Teams, EINMAL pro Request geladen — Liste und
+     * Vorschau lesen dieselbe Sammlung (Review 06.10.: vorher zwei Queries).
+     * Keyed by ID, sortiert nach Name.
+     *
+     * @return array<int, object>
+     */
+    private function campaignTemplateModels(): array
     {
+        if ($this->campaignTemplateModelsCache !== null) {
+            return $this->campaignTemplateModelsCache;
+        }
         if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
-            return [];
+            return $this->campaignTemplateModelsCache = [];
         }
         $accountId = RecApplicantSettings::getOrCreateForTeam($this->teamId())->getSetting('auto_pilot_wa_account_id');
 
-        return \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
+        return $this->campaignTemplateModelsCache = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
             ->where('status', 'APPROVED')
             ->when($accountId, fn ($q) => $q->where('whatsapp_account_id', (int) $accountId))
             ->orderBy('name')
             ->get()
-            ->map(fn ($t) => ['id' => (int) $t->id, 'label' => "{$t->name} ({$t->language})"])
-            ->values()
+            ->keyBy(fn ($t) => (int) $t->id)
             ->all();
+    }
+
+    private ?array $campaignTemplateModelsCache = null;
+
+    /** @return list<array{id:int,label:string}> approved Templates des Teams (Muster ApplicantSettingsModal) */
+    #[Computed]
+    public function campaignTemplates(): array
+    {
+        $out = [];
+        foreach ($this->campaignTemplateModels() as $id => $t) {
+            $out[] = ['id' => (int) $id, 'label' => "{$t->name} ({$t->language})"];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Zustand einer gewaehlten Vorlage fuer Karte und Start-Sperre
+     * (Review 06.10.): null = verwendbar. Drei Gruende, drei Texte —
+     * nicht gewaehlt / nicht (mehr) in der Liste (bei Meta pausiert, anderer
+     * Account) / vom Sender abgelehnt (Guards in CampaignTemplatePreview).
+     * Vorher hiess alles „noch keine Vorlage gewaehlt", und der Start war
+     * trotzdem moeglich — jede Zeile waere im Job gescheitert.
+     */
+    public function campaignTemplateProblem(?int $templateId): ?string
+    {
+        if (!$templateId) {
+            return 'Noch keine Vorlage gewählt — ohne sie geht an diese Gruppe nichts raus.';
+        }
+        $preview = $this->campaignTemplatePreviews[$templateId] ?? null;
+        if ($preview === null) {
+            return 'Die hinterlegte Vorlage ist nicht mehr verfügbar — bei Meta nicht (mehr) genehmigt oder von einem anderen WhatsApp-Konto. Bitte eine andere wählen.';
+        }
+        if ($preview['warnung'] !== null) {
+            return $preview['warnung'];
+        }
+        if ($preview['text'] === null) {
+            return 'Die Vorlage „' . $preview['label'] . '“ hat keinen lesbaren Text — bitte eine andere wählen.';
+        }
+
+        return null;
     }
 
     #[Computed]
@@ -2851,18 +2903,15 @@ Danach folgen keine automatischen Erinnerungen. Der Auto-Pilot läuft erst weite
     #[Computed]
     public function campaignTemplatePreviews(): array
     {
-        if (!class_exists(\Platform\Integrations\Models\IntegrationsWhatsAppTemplate::class)) {
-            return [];
-        }
-        $accountId = RecApplicantSettings::getOrCreateForTeam($this->teamId())->getSetting('auto_pilot_wa_account_id');
-
+        // Nur die ein bis zwei gewaehlten Vorlagen rendern, nicht alle des
+        // Kontos (Review 06.10.) — dieselbe Sammlung wie die Liste.
+        $models = $this->campaignTemplateModels();
         $out = [];
-        $templates = \Platform\Integrations\Models\IntegrationsWhatsAppTemplate::query()
-            ->where('status', 'APPROVED')
-            ->when($accountId, fn ($q) => $q->where('whatsapp_account_id', (int) $accountId))
-            ->get();
-        foreach ($templates as $t) {
-            $out[(int) $t->id] = ['label' => "{$t->name} ({$t->language})"] + CampaignTemplatePreview::render($t->components);
+        foreach (array_unique(array_filter([(int) $this->campaignTemplateA, (int) $this->campaignTemplateB])) as $id) {
+            $t = $models[$id] ?? null;
+            if ($t !== null) {
+                $out[$id] = ['label' => "{$t->name} ({$t->language})"] + CampaignTemplatePreview::render($t->components);
+            }
         }
 
         return $out;
@@ -2888,7 +2937,7 @@ Danach folgen keine automatischen Erinnerungen. Der Auto-Pilot läuft erst weite
         return ($modus === $vorigerModus && $current) ? $current : $default;
     }
 
-    public static function campaignStartError(bool $enabled, bool $alreadyStarted, array $counts, ?int $templateA, ?int $templateB): ?string
+    public static function campaignStartError(bool $enabled, bool $alreadyStarted, array $counts, ?int $templateA, ?int $templateB, ?string $problemA = null, ?string $problemB = null): ?string
     {
         if (!$enabled) {
             return 'Kampagne nicht verfügbar.';
@@ -2905,6 +2954,14 @@ Danach folgen keine automatischen Erinnerungen. Der Auto-Pilot läuft erst weite
         if (($counts['B'] ?? 0) > 0 && !$templateB) {
             return "Für {$counts['B']} Personen fehlt die Nachricht „Termine ansehen“ — Vorlage wählen.";
         }
+        // Gewaehlt, aber unbrauchbar (Review 06.10.): nicht mehr genehmigt, ohne
+        // Link-Button, mit Fremdvariablen — der Sender lehnt jede Zeile ab.
+        if (($counts['A'] ?? 0) > 0 && $problemA !== null) {
+            return 'Nachricht „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_FORM) . '“: ' . $problemA;
+        }
+        if (($counts['B'] ?? 0) > 0 && $problemB !== null) {
+            return 'Nachricht „' . CampaignSegment::empfaengtLabel(CampaignSegment::TEMPLATE_BOOKING) . '“: ' . $problemB;
+        }
 
         return null;
     }
@@ -2915,7 +2972,15 @@ Danach folgen keine automatischen Erinnerungen. Der Auto-Pilot läuft erst weite
         $ids = $this->campaignSelectedIds();
         $counts = $this->campaignCounts();
 
-        $error = self::campaignStartError($this->campaignEnabled(), $this->campaignUuid !== null, $counts, $this->campaignTemplateA, $this->campaignTemplateB);
+        $error = self::campaignStartError(
+            $this->campaignEnabled(),
+            $this->campaignUuid !== null,
+            $counts,
+            $this->campaignTemplateA,
+            $this->campaignTemplateB,
+            $counts['A'] > 0 ? $this->campaignTemplateProblem($this->campaignTemplateA) : null,
+            $counts['B'] > 0 ? $this->campaignTemplateProblem($this->campaignTemplateB) : null,
+        );
         if ($error !== null) {
             $this->campaignError = $error;
             return;
