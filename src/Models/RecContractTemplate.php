@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Recruiting\Services\Zas\ZasLookupResolver;
+use Platform\Recruiting\Support\AnstellungsZuordnung;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -170,6 +171,36 @@ class RecContractTemplate extends Model
     public function scopeForTeam($query, $teamId)
     {
         return $query->where('team_id', $teamId);
+    }
+
+    /**
+     * DAS Firmen-Praedikat — die einzige Stelle, an der „Vorlage gehoert zu
+     * Anstellung" entschieden wird (Spec §3.3 d, §3.5: derselbe Code). Eine
+     * Anstellung ohne Firma (Altbestand, ZAS-Zeile ohne Praefix) ist nie ein
+     * Treffer: NULL == NULL waere einer.
+     */
+    public function giltFuerAnstellung(RecEmployee $anstellung): bool
+    {
+        $firma = (string) $anstellung->company;
+
+        return $firma !== '' && $firma === (string) $this->company;
+    }
+
+    /**
+     * Welche Anstellung des Bewerbers bekommt einen Vertrag aus dieser Vorlage?
+     * Kandidaten aufsteigend nach id; was der Aufrufer mit `mehrdeutig` macht,
+     * entscheidet er (Live-Pfad: erster + Log, Backfill: NULL + Bericht).
+     * Nicht $applicant->employee (hasOne, bei zwei Anstellungen beliebig).
+     */
+    public function anstellungFuer(RecApplicant $applicant): AnstellungsZuordnung
+    {
+        $alle = $applicant->employees()->orderBy('id')->get(['id', 'company']);
+        $passende = $alle->filter(fn (RecEmployee $e) => $this->giltFuerAnstellung($e));
+
+        return AnstellungsZuordnung::aus(
+            $passende->pluck('id')->all(),
+            $alle->count() > $passende->count(),
+        );
     }
 
     public function personalizeContent(RecApplicant $applicant, ?RecContract $contract = null): string
