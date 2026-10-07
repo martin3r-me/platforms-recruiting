@@ -421,7 +421,9 @@ class Index extends Component
 
             // 2) Personalisierten Vertrag anlegen — lean, OHNE Zuschlag-Zwang.
             //    status='sent' + sent_at gesetzt = signierbar (MA-Portal listet
-            //    Vertraege ueber employee->applicant->contracts; Signatur-Flow
+            //    Vertraege ueber employee->contracts (Anker rec_employee_id, gesetzt vom
+            //    Hook in CreateEmployeeFromApplicantService — darum entsteht der
+            //    Vertrag VOR createOrUpdate()); Signatur-Flow
             //    erwartet einen gesendeten Vertrag — analog SendContractsService).
             //    Guard: nur anlegen wenn noch nicht gesendet.
             if (!$applicant->hasAnyContractSent()) {
@@ -437,7 +439,8 @@ class Index extends Component
             }
 
             // 3) Mitarbeiter anlegen (idempotent). Vertrag existiert bereits am
-            //    Bewerber → surfaced via employee->applicant->contracts im Portal.
+            //    Bewerber → der Hook in CreateEmployeeFromApplicantService setzt den
+            //    Anker rec_employee_id, das Portal listet ihn via employee->contracts.
             return app(CreateEmployeeFromApplicantService::class)
                 ->createOrUpdate($applicant, Auth::id());
         });

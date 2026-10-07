@@ -297,8 +297,9 @@ class VertragAnDerAnstellungTest extends TestCase
     {
         $a = $this->bewerber('Doppelt');
         $av = $this->vertrag($a, $this->vorlage('AV-default', 'RG', 'eventmitarbeiter'));
-        $this->vertrag($a, $this->vorlage('AV-alt'), ['status' => 'cancelled']);   // Review-Focus 5: storniert bleibt unsichtbar
+        $storniert = $this->vertrag($a, $this->vorlage('AV-alt'), ['status' => 'cancelled']);   // Review-Focus 5: storniert bleibt unsichtbar
         $rg = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+        $this->assertSame($rg->id, (int) $storniert->fresh()->rec_employee_id, 'Vorflug: auch der stornierte Vertrag haengt an RG — sonst waere "storniert bleibt unsichtbar" nichts wert');
         $ma = $this->zasAnstellung('MA18232');
         $this->verknuepfen($ma, $a);
         $this->assertSame($rg->id, (int) $av->fresh()->rec_employee_id, 'Vorflug: AV haengt an RG');
@@ -347,6 +348,25 @@ class VertragAnDerAnstellungTest extends TestCase
         $akteMa = $this->akte($ma);
         $akteMa->openReissueModal($offen->id);
         $this->assertSame('Vertrag nicht gefunden.', $akteMa->flashError, 'Die MA-Akte darf einen RG-Vertrag nicht ersetzen koennen.');
+    }
+
+    /** Auch der Absende-Weg: reissueContract() der MA-Akte findet den RG-Vertrag nicht. Mutation: Show.php reissueContract() Lookup zurueck auf $emp?->applicant?->contracts → rot. */
+    public function test_ma_akte_kann_rg_vertrag_nicht_neu_ausstellen(): void
+    {
+        [$a, $rg, $ma] = $this->zweiAnstellungenMitRgVertrag();
+        $offen = $this->vertrag($a, $this->vorlage('AT-140'), ['status' => 'sent', 'signed_at' => null, 'completed_at' => null, 'rec_employee_id' => $rg->id]);
+        $anzahl = RecContract::where('rec_applicant_id', $a->id)->count();
+
+        $akteMa = $this->akte($ma);
+        $akteMa->reissueContractId = $offen->id;
+        $akteMa->reissueZuschlag = '1,60';
+        $akteMa->reissueContract();
+
+        $this->assertSame('Vertrag nicht gefunden.', $akteMa->flashError);
+        $offen = $offen->fresh();
+        $this->assertSame('sent', $offen->status, 'Der RG-Vertrag bleibt offen');
+        $this->assertNull($offen->superseded_by_contract_id);
+        $this->assertSame($anzahl, RecContract::where('rec_applicant_id', $a->id)->count(), 'Kein neuer Vertrag entstanden');
     }
 
     /** §3.7 Test 8 — Mutation: EmployeePortal::contracts() zurueck auf $employee->applicant->contracts → rot. */

@@ -646,7 +646,7 @@ class EmployeePortal extends Component
         // Vertraege DIESER Anstellung (Spec Vertrag an der Anstellung §3.4) —
         // der Token gehoert dem Menschen, die Menge der Anstellung. Kein
         // Rueckfall auf den Bewerber: der zeigte bei zwei Anstellungen den
-        // RG-Vertrag in der MA-Akte.
+        // RG-Vertrag im Portal der MA-Anstellung.
         // Applicant-Form-Link einmal pro Aufruf holen — wird fuer PDF-Download
         // benoetigt (ContractPdfController validiert via CorePublicFormLink-Token
         // des verlinkten Bewerbers, nicht ueber den MA-portal_token).
