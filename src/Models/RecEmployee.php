@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Platform\Crm\Models\CrmContactLink;
@@ -191,6 +192,15 @@ class RecEmployee extends Model
     public function applicant(): BelongsTo
     {
         return $this->belongsTo(RecApplicant::class, 'rec_applicant_id');
+    }
+
+    /**
+     * Vertraege DIESER Anstellung — nicht des Bewerbers. Ein Mensch kann zwei
+     * Anstellungen haben (RG und MA); die Akte und das Portal lesen hier.
+     */
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(RecContract::class, 'rec_employee_id');
     }
 
     public function position(): BelongsTo

@@ -658,6 +658,7 @@ class ReissueContractTest extends TestCase
             [$own, 'database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php'],
             // Die Spalte, um die es hier geht.
             [$own, 'database/migrations/2026_08_21_000002_add_superseded_by_to_rec_contracts.php'],
+            [$own, 'database/migrations/2026_10_07_000002_add_employee_anchor_to_contracts.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

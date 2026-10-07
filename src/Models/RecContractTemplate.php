@@ -81,6 +81,8 @@ class RecContractTemplate extends Model
         'name',
         'code',
         'type',
+        'company',
+        'taetigkeit',
         'description',
         'content',
         'field_mappings',
@@ -106,6 +108,16 @@ class RecContractTemplate extends Model
                     $uuid = UuidV7::generate();
                 } while (self::where('uuid', $uuid)->exists());
                 $model->uuid = $uuid;
+            }
+
+            // Firma: dieselbe Quelle wie die MA-Anlage
+            // (CreateEmployeeFromApplicantService) — eine Vorlage ohne Firma
+            // passt zu keiner Anstellung, also bekommt sie die eigene.
+            if ($model->company === null || $model->company === '') {
+                $model->company = (string) config(
+                    'recruiting.zas.company_prefix',
+                    \Platform\Recruiting\Support\ZasPersonnelNumber::DEFAULT_PREFIX
+                );
             }
         });
 

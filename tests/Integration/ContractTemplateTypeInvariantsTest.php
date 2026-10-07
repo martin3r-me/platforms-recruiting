@@ -56,7 +56,7 @@ class ContractTemplateTypeInvariantsTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         $container = Container::getInstance();
-        $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []]]));
+        $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []], 'recruiting' => ['zas' => ['company_prefix' => 'RG']]]));
 
         $capsule = new Capsule();
         $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
@@ -117,6 +117,34 @@ class ContractTemplateTypeInvariantsTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->make(['code' => null, 'type' => 'certificate']);
+    }
+
+    /**
+     * Review-Focus 1: eine ueber Eloquent angelegte Vorlage ohne company
+     * traegt am OBJEKT schon die konfigurierte Firma — nicht erst nach einem
+     * refresh() ueber den Spalten-Default. Sonst sieht die Zuordnungsregel
+     * NULL und passt zu keiner Anstellung.
+     */
+    public function testNeueVorlageBekommtDieFirmaAusDerKonfiguration(): void
+    {
+        $t = $this->make(['code' => 'AV-default']);
+
+        $this->assertSame('RG', $t->company, 'Firma muss am Objekt stehen, nicht nur in der Spalte.');
+        $this->assertSame('RG', $t->fresh()->company);
+        $this->assertNull($t->taetigkeit, 'Taetigkeit wird nicht geraten.');
+
+        config()->set('recruiting.zas.company_prefix', 'MA');
+        try {
+            $this->assertSame('MA', $this->make(['code' => 'AV-MA-LOG'])->company,
+                'Falsifikator gegen ein fest verdrahtetes RG.');
+        } finally {
+            config()->set('recruiting.zas.company_prefix', 'RG');
+        }
+    }
+
+    public function testGesetzteFirmaBleibtBeimAnlegenStehen(): void
+    {
+        $this->assertSame('MA', $this->make(['code' => 'AV-MA-LOG', 'company' => 'MA'])->fresh()->company);
     }
 
     public function testNachtraeglicherTypwechselGreiftEbenfalls(): void

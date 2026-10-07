@@ -22,6 +22,7 @@ class RecContract extends Model implements InheritsExtraFields
     protected $fillable = [
         'uuid',
         'rec_applicant_id',
+        'rec_employee_id',
         'rec_contract_template_id',
         'team_id',
         'status',
@@ -102,6 +103,16 @@ class RecContract extends Model implements InheritsExtraFields
     public function applicant(): BelongsTo
     {
         return $this->belongsTo(RecApplicant::class, 'rec_applicant_id');
+    }
+
+    /**
+     * Die Anstellung, zu der dieser Vertrag gehoert (Spec Vertrag an der
+     * Anstellung §3.2). NULL im Bewerberstadium — gesetzt bei der MA-Anlage,
+     * kopiert bei der Neuausstellung, gefuellt vom Backfill.
+     */
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(RecEmployee::class, 'rec_employee_id');
     }
 
     public function contractTemplate(): BelongsTo
