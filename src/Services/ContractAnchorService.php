@@ -27,7 +27,9 @@ class ContractAnchorService
         $ids = RecContract::query()
             ->where('rec_applicant_id', $anstellung->rec_applicant_id)
             ->whereNull('rec_employee_id')
-            ->with('contractTemplate')
+            // Auch zurueckgezogene Vorlagen: der Vertrag gehoert trotzdem zur
+            // Anstellung — wie im Backfill (RecContractTemplate::withTrashed()).
+            ->with(['contractTemplate' => fn ($q) => $q->withTrashed()])
             ->get(['id', 'rec_contract_template_id'])
             ->filter(fn (RecContract $c) => $c->contractTemplate?->giltFuerAnstellung($anstellung) === true)
             ->pluck('id')

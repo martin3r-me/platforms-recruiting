@@ -273,6 +273,25 @@ class VertragAnDerAnstellungTest extends TestCase
         $this->assertSame(1, $rg->contracts()->count());
     }
 
+    /**
+     * Task-3-Review: zurueckgezogene (soft-geloeschte) Vorlage. Der Vertrag
+     * gehoert trotzdem zur Anstellung — gleiches Verhalten wie das Backfill
+     * (RecContractTemplate::withTrashed()->find()).
+     * Mutation: withTrashed() im Eager-Load von ContractAnchorService raus → rot.
+     */
+    public function test_ma_anlage_haengt_auch_vertraege_mit_zurueckgezogener_vorlage_an(): void
+    {
+        $a = $this->bewerber('Zurueckgezogen');
+        $vorlage = $this->vorlage('AV-default');
+        $c = $this->vertrag($a, $vorlage);
+        $vorlage->delete();
+        $this->assertNull(RecContractTemplate::find($vorlage->id), 'Vorflug: Vorlage ist soft-geloescht');
+
+        $employee = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+
+        $this->assertSame($employee->id, (int) $c->fresh()->rec_employee_id);
+    }
+
     /** @return array{0: RecApplicant, 1: RecEmployee, 2: RecEmployee, 3: RecContract} RG-Anstellung mit AV, MA-Anstellung ohne */
     private function zweiAnstellungenMitRgVertrag(): array
     {
