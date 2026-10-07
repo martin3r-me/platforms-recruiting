@@ -104,7 +104,7 @@ class VertragAnDerAnstellungTest extends TestCase
             'recruiting'   => ['zas' => [
                 'company_prefix'  => 'RG',
                 'inbound_team_id' => self::TEAM,
-                'company_labels'  => ['RG' => 'RheinGedeck'],
+                'company_labels'  => ['RG' => 'RheinGedeck GmbH', 'MA' => 'MA Dienstleistung für die Gastronomie UG'],
             ]],
         ]));
 
@@ -329,7 +329,7 @@ class VertragAnDerAnstellungTest extends TestCase
         $rgZeilen = $this->akte($rg)->signedContracts();
         $this->assertCount(1, $rgZeilen, 'RG sieht ihren Vertrag');
         $this->assertSame($av->id, $rgZeilen[0]['id']);
-        $this->assertSame('RheinGedeck · Eventmitarbeiter', $rgZeilen[0]['merkmale']);
+        $this->assertSame('RheinGedeck GmbH · Eventmitarbeiter', $rgZeilen[0]['merkmale']);
         $this->assertStringContainsString('recruiting.public.contract-pdf', $rgZeilen[0]['pdf_url'], 'Link weiter ueber den Bewerber-Token');
 
         $this->assertSame([], $this->akte($ma)->signedContracts(), 'MA sieht den RG-Vertrag NICHT — der Fund aus §1');

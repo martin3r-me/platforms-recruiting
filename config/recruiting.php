@@ -181,7 +181,7 @@ return [
         // Anzeige-Beschriftung der Firmen in der MA-Akte (Vertrag an der
         // Anstellung §3.4). Nur Labels — die Zuordnung laeuft ueber den Code.
         // Unbekannter Code zeigt sich selbst. Name der zweiten GmbH nachtragen.
-        'company_labels'         => ['RG' => 'RheinGedeck'],
+        'company_labels'         => ['RG' => 'RheinGedeck GmbH', 'MA' => 'MA Dienstleistung für die Gastronomie UG'],
     ],
 
     /*
