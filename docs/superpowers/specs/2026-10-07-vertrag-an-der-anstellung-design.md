@@ -329,7 +329,11 @@ nicht loeschen**. Zusicherungen vorher/nachher zaehlen.
   noetig und ein eigenes Thema (Vertragsbedarf, B2).
 - Die **Vormerkung** umhaengen (§6).
 - Das Verknuepfungs-Backfill selbst — es existiert und ist geprueft; es wird hier nur
-  in die richtige Reihenfolge gebracht.
+  in die richtige Reihenfolge gebracht und ruft nach dem Setzen des Links den Anker
+  nach (Nachtrag 07.10.2026).
+- Der **ZAS-Export** liest Arbeitsvertrag und IFSG weiter ueber den Bewerber
+  (`ZasEmployeeFieldResolver`, `ZasEmployeeFileController`, `rec_applicant_id`).
+  Entschieden 07.10.2026: bleibt bewusst so, kein Paket.
 
 ## 5. Ausblick Stufe 2 — Typisierung (nicht bauen, nur festhalten)
 
