@@ -99,6 +99,7 @@ class ReissueContractService
             $new = $this->createSuccessor(
                 $applicant, $template, $newZuschlag, $dates, $zuschlagSource, $userId,
                 $this->successorNote($old, $oldZuschlag, $newZuschlag, $reason, $hrNote),
+                $old->rec_employee_id !== null ? (int) $old->rec_employee_id : null,
             );
 
             // 4) Vorgaenger markieren. NUR notes + superseded_by — Unterschrift,
@@ -198,6 +199,7 @@ class ReissueContractService
                     $oldZuschlag !== null ? number_format($oldZuschlag, 2, ',', '.') : '—',
                     number_format($newZuschlag, 2, ',', '.'),
                 ), $hrNote),
+                $open->rec_employee_id !== null ? (int) $open->rec_employee_id : null,
             );
 
             // Vorgaenger stornieren — damit stirbt sein Signaturlink.
@@ -226,7 +228,9 @@ class ReissueContractService
     /**
      * Zuschlag am Bewerber setzen und den Nachfolge-Vertrag ausstellen.
      * Gemeinsamer Kern beider Wege — was sie unterscheidet, ist allein der
-     * Umgang mit dem Vorgaenger.
+     * Umgang mit dem Vorgaenger. Kopiert die Anstellung des Vorgaengers
+     * (Spec Vertrag an der Anstellung §3.3 c) — der Nachfolger gehoert zu
+     * derselben GmbH.
      */
     private function createSuccessor(
         RecApplicant $applicant,
@@ -236,6 +240,7 @@ class ReissueContractService
         string $zuschlagSource,
         ?int $userId,
         string $notes,
+        ?int $recEmployeeId = null,
     ): RecContract {
         // 1) Zuschlag am Bewerber — die eine Quelle. Vertragstext UND
         //    ZAS-Export lesen von hier (ZasEmployeeFieldResolver).
@@ -248,6 +253,7 @@ class ReissueContractService
         //    kopiert den Signaturlink im Anschluss oder schickt das Portal.
         $new = RecContract::create([
             'rec_applicant_id'         => $applicant->id,
+            'rec_employee_id'          => $recEmployeeId,
             'rec_contract_template_id' => $template->id,
             'team_id'                  => $applicant->team_id,
             'personalized_content'     => $template->personalizeContent($applicant),
