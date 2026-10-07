@@ -18,6 +18,7 @@ use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\CreateEmployeeFromApplicantService;
 use Platform\Recruiting\Support\AnstellungsZuordnung;
 use Platform\Recruiting\Support\ZasPersonnelNumber;
 
@@ -137,6 +138,76 @@ class VertragAnDerAnstellungTest extends TestCase
         $this->assertSame(AnstellungsZuordnung::FIRMA_FEHLT, $ohneFirma->anstellungFuer($a)->befund);
 
         $this->assertSame(AnstellungsZuordnung::OHNE_ANSTELLUNG, $this->vorlage('AV-D')->anstellungFuer($this->bewerber('Leer'))->befund);
+    }
+
+    /** §3.7 Test 1 — Mutation: Hook-Aufruf in CreateEmployeeFromApplicantService entfernen → rot. */
+    public function test_ma_anlage_zieht_alle_vertraege_nach(): void
+    {
+        $a = $this->bewerber('Anlage');
+        $av   = $this->vertrag($a, $this->vorlage('AV-default'));
+        $ifsg = $this->vertrag($a, $this->vorlage('IFSG'));
+        $at   = $this->vertrag($a, $this->vorlage('AT-140'), ['status' => 'sent', 'signed_at' => null, 'completed_at' => null]);
+
+        $employee = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+
+        foreach ([$av, $ifsg, $at] as $c) {
+            $this->assertSame($employee->id, (int) $c->fresh()->rec_employee_id, "Vertrag #{$c->id} haengt nicht an der neuen Anstellung");
+        }
+        $this->assertSame(3, $employee->contracts()->count());
+    }
+
+    /** §3.7 Test 10 — Mutation: Firmenfilter (giltFuerAnstellung) im Hook entfernen → rot. */
+    public function test_ma_anlage_haengt_nur_firmengleiche_vertraege_an(): void
+    {
+        $a = $this->bewerber('Firma');
+        $rgVertrag = $this->vertrag($a, $this->vorlage('AV-default', 'RG'));
+        $maVertrag = $this->vertrag($a, $this->vorlage('AV-MA-LOG', 'MA', 'logistiker'));
+
+        $employee = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+
+        $this->assertSame('RG', $employee->fresh()->company, 'Vorflug: die Anlage ist eine RG-Anstellung');
+        $this->assertSame($employee->id, (int) $rgVertrag->fresh()->rec_employee_id);
+        $this->assertNull($maVertrag->fresh()->rec_employee_id, 'Ein MA-Vertrag darf nicht an eine RG-Anstellung rutschen.');
+    }
+
+    /**
+     * §3.7 Test 3 — die ZAS-Anstellung bekommt nichts. Reihenfolge wie im
+     * Bestand: der MA-Datensatz kommt zuerst aus ZAS (kleinere id), wird VOR der
+     * Phase-4-Anlage an den Bewerber verknuepft (--link), dann laeuft die Anlage.
+     * Die Anlage ist idempotent und liefert die MA-Anstellung zurueck — der
+     * RG-Vertrag muss trotzdem NULL bleiben.
+     * Mutation: Hook „am Bewerber" — in createOrUpdate VOR die Idempotenz-
+     * Rueckgabe ziehen und als
+     *   DB::table('rec_contracts')->where('rec_applicant_id', $applicant->id)->whereNull('rec_employee_id')
+     *       ->update(['rec_employee_id' => $applicant->employee?->id])
+     * schreiben → rot (der RG-Vertrag landet an MA).
+     */
+    public function test_zas_anstellung_bekommt_nichts(): void
+    {
+        $a = $this->bewerber('Zas');
+        $av = $this->vertrag($a, $this->vorlage('AV-default'));
+        $ma = $this->zasAnstellung('MA353');
+        $this->verknuepfen($ma, $a);
+
+        $zurueck = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+
+        $this->assertSame($ma->id, $zurueck->id, 'Vorflug: die Anlage ist idempotent und liefert die verknuepfte MA-Anstellung');
+        $this->assertNull($av->fresh()->rec_employee_id, 'RG-Vertrag in der MA-Akte — genau der Fund aus §1');
+        $this->assertSame(0, $ma->contracts()->count());
+    }
+
+    /** Review-Focus 3 — Mutation: Hook vor die Idempotenz-Rueckgabe → rot (und QUERIES_ZWEITER_AUFRUF kippt). */
+    public function test_zweiter_aufruf_haengt_nichts_um(): void
+    {
+        $a = $this->bewerber('Zweimal');
+        $this->vertrag($a, $this->vorlage('AV-default'));
+        $rg = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+        $spaeter = $this->vertrag($a, $this->vorlage('AT-140'));   // nach der Anlage, ohne Anker (Pfad d ist hier nicht beteiligt)
+
+        (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+
+        $this->assertNull($spaeter->fresh()->rec_employee_id, 'Der idempotente Pfad haengt nichts um.');
+        $this->assertSame(1, $rg->contracts()->count());
     }
 
     private function bewerber(string $nachname): RecApplicant

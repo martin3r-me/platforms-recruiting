@@ -25,6 +25,7 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  *  - Setzt applicant.auto_pilot = false (kein weiterer Reminder am Bewerber)
  *  - Dupliziert den CRM-Contact-Link mit linkable_type='rec_employee'
  *  - Schreibt RecAutoPilotLog Type 'employee_created'
+ *  - Haengt die Vertraege des Bewerbers an die neue Anstellung (ContractAnchorService)
  *  - Stellt das Schulungszertifikat aus (Weg b), HINTER dem Commit und nur
  *    wenn der Team-Schalter an ist und eine attended-Buchung existiert. Kein
  *    Versand. Scheitert das, bleibt der Mitarbeiter — siehe
@@ -109,6 +110,12 @@ class CreateEmployeeFromApplicantService
 
             // CRM-Link duplizieren: gleicher Contact, neuer linkable_type
             $this->mirrorCrmContactLinks($applicant, $employee, $createdByUserId);
+
+            // Vertraege an die neue Anstellung haengen (Spec Vertrag an der
+            // Anstellung §3.3 a). HINTER der Idempotenz-Rueckgabe oben: der
+            // zweite Aufruf (ZasReExportByBookingDate ueber Listen) darf weder
+            // kosten noch umhaengen. Alle Arten, nur firmengleiche Vorlagen.
+            (new \Platform\Recruiting\Services\ContractAnchorService())->anAnstellungHaengen($employee);
 
             // MA-Kontaktbuch: Link-Anlage feuert keinen Observer (Regel aus der
             // Spec, Benannte Luecken) — nach dem Spiegeln explizit syncen.

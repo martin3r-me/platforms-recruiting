@@ -129,8 +129,20 @@ class EmployeeCreationCertificateTest extends TestCase
      * Idempotenz-Pfad (QUERIES_ZWEITER_AUFRUF) ist unberuehrt — dort steigt
      * createOrUpdate() vor diesem Query aus.
      */
-    private const QUERIES_VOR_DEM_HOOK = 23;
-    private const QUERIES_SCHALTER_AUS = 24;
+    /**
+     * 07.10.2026: beide Zahlen um eins erhoeht (23->24, 24->25).
+     *
+     * Dazugekommen ist der Anker-Hook (ContractAnchorService, Vertrag an der
+     * Anstellung §3.3 a): ein Select auf rec_contracts, ob der Bewerber
+     * Vertraege ohne Anstellung hat. In dieser Fixture gibt es keine
+     * Vertraege, also kein Select auf die Vorlagen und kein Update; mit
+     * Treffern kaemen genau diese zwei dazu. Gemessen, nicht geschaetzt.
+     *
+     * QUERIES_ZWEITER_AUFRUF bleibt 1: der Hook liegt HINTER der
+     * Idempotenz-Rueckgabe.
+     */
+    private const QUERIES_VOR_DEM_HOOK = 24;
+    private const QUERIES_SCHALTER_AUS = 25;
 
     /**
      * Der Idempotenz-Pfad: existiert der Mitarbeiter schon, steigt
