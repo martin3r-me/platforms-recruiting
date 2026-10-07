@@ -86,6 +86,14 @@ final class EmployeeActivityLogTest extends TestCase
             $t->integer('team_id');
             $t->timestamps();
         });
+        // Vertrag an der Anstellung (07.10.2026): employee() laedt
+        // contracts.contractTemplate eager. Leer — hier geht es um das Protokoll.
+        $this->capsule->schema()->create('rec_contracts', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_applicant_id');
+            $t->integer('rec_employee_id')->nullable();
+            $t->integer('rec_contract_template_id');
+        });
         $this->capsule->schema()->create('rec_auto_pilot_logs', function ($t) {
             $t->increments('id');
             $t->integer('rec_applicant_id');

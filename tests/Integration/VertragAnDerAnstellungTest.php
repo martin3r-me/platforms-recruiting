@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Core\Models\User;
 use Platform\Crm\Models\CrmContact;
+use Platform\Recruiting\Livewire\Employees\Show;
+use Platform\Recruiting\Livewire\Public\EmployeePortal;
 use Platform\Recruiting\Models\RecApplicant;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
@@ -269,6 +271,73 @@ class VertragAnDerAnstellungTest extends TestCase
 
         $this->assertNull($spaeter->fresh()->rec_employee_id, 'Der idempotente Pfad haengt nichts um.');
         $this->assertSame(1, $rg->contracts()->count());
+    }
+
+    /** @return array{0: RecApplicant, 1: RecEmployee, 2: RecEmployee, 3: RecContract} RG-Anstellung mit AV, MA-Anstellung ohne */
+    private function zweiAnstellungenMitRgVertrag(): array
+    {
+        $a = $this->bewerber('Doppelt');
+        $av = $this->vertrag($a, $this->vorlage('AV-default', 'RG', 'eventmitarbeiter'));
+        $this->vertrag($a, $this->vorlage('AV-alt'), ['status' => 'cancelled']);   // Review-Focus 5: storniert bleibt unsichtbar
+        $rg = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+        $ma = $this->zasAnstellung('MA18232');
+        $this->verknuepfen($ma, $a);
+        $this->assertSame($rg->id, (int) $av->fresh()->rec_employee_id, 'Vorflug: AV haengt an RG');
+        return [$a, $rg, $ma, $av];
+    }
+
+    private function akte(RecEmployee $e): Show
+    {
+        $show = new Show();
+        $show->employeeId = $e->id;
+        return $show;
+    }
+
+    private function portal(RecEmployee $e): EmployeePortal
+    {
+        $portal = new EmployeePortal();
+        $portal->state = 'verified';
+        $portal->employeeId = $e->id;
+        return $portal;
+    }
+
+    /** §3.7 Test 2 — Mutation: Show::signedContracts() zurueck auf $emp->applicant->contracts → rot (MA-Richtung). */
+    public function test_ma_akte_zeigt_nur_die_vertraege_der_eigenen_anstellung(): void
+    {
+        [, $rg, $ma, $av] = $this->zweiAnstellungenMitRgVertrag();
+
+        $rgZeilen = $this->akte($rg)->signedContracts();
+        $this->assertCount(1, $rgZeilen, 'RG sieht ihren Vertrag');
+        $this->assertSame($av->id, $rgZeilen[0]['id']);
+        $this->assertSame('RheinGedeck · Eventmitarbeiter', $rgZeilen[0]['merkmale']);
+        $this->assertStringContainsString('recruiting.public.contract-pdf', $rgZeilen[0]['pdf_url'], 'Link weiter ueber den Bewerber-Token');
+
+        $this->assertSame([], $this->akte($ma)->signedContracts(), 'MA sieht den RG-Vertrag NICHT — der Fund aus §1');
+        $this->assertSame([], $this->akte($ma)->openContracts());
+    }
+
+    /** Offene Vertraege und der Ersetzen-Dialog lesen dieselbe Menge. Mutation: openContracts() zurueck auf applicant → rot. */
+    public function test_offene_vertraege_der_ma_akte_gehoeren_zur_anstellung(): void
+    {
+        [$a, $rg, $ma] = $this->zweiAnstellungenMitRgVertrag();
+        $offen = $this->vertrag($a, $this->vorlage('AT-140'), ['status' => 'sent', 'signed_at' => null, 'completed_at' => null, 'rec_employee_id' => $rg->id]);
+
+        $this->assertSame([$offen->id], array_column($this->akte($rg)->openContracts(), 'id'));
+        $this->assertSame([], $this->akte($ma)->openContracts());
+
+        $akteMa = $this->akte($ma);
+        $akteMa->openReissueModal($offen->id);
+        $this->assertSame('Vertrag nicht gefunden.', $akteMa->flashError, 'Die MA-Akte darf einen RG-Vertrag nicht ersetzen koennen.');
+    }
+
+    /** §3.7 Test 8 — Mutation: EmployeePortal::contracts() zurueck auf $employee->applicant->contracts → rot. */
+    public function test_portal_zeigt_nur_eigene_vertraege(): void
+    {
+        [, $rg, $ma, $av] = $this->zweiAnstellungenMitRgVertrag();
+
+        $rgZeilen = $this->portal($rg)->contracts();
+        $this->assertSame([$av->id], array_column($rgZeilen, 'id'), 'RG sieht ihren Vertrag (storniert bleibt weg)');
+        $this->assertSame([], $this->portal($ma)->contracts(), 'MA sieht ihn nicht');
     }
 
     private function bewerber(string $nachname): RecApplicant

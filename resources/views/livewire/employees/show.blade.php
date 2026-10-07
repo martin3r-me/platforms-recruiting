@@ -433,6 +433,9 @@
                                 <div class="flex items-center gap-2 text-sm flex-wrap">
                                     @svg('heroicon-o-document-check', 'w-4 h-4 text-emerald-600')
                                     <span class="font-medium">{{ $c['display_name'] }}</span>
+                                    @if($c['merkmale'] !== '')
+                                        <span class="text-xs text-[var(--ui-muted)]">{{ $c['merkmale'] }}</span>
+                                    @endif
                                     <span class="text-xs text-[var(--ui-muted)]">am {{ \Carbon\Carbon::parse($c['signed_at'])->format('d.m.Y') }}</span>
                                     @if($c['superseded_by'])
                                         <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
@@ -471,6 +474,9 @@
                                 <div class="flex items-center gap-2 text-sm flex-wrap">
                                     @svg('heroicon-o-clock', 'w-4 h-4 text-blue-600')
                                     <span class="font-medium">{{ $oc['display_name'] }}</span>
+                                    @if($oc['merkmale'] !== '')
+                                        <span class="text-xs text-[var(--ui-muted)]">{{ $oc['merkmale'] }}</span>
+                                    @endif
                                     @if($oc['code'])
                                         <span class="text-xs text-[var(--ui-muted)]">({{ $oc['code'] }})</span>
                                     @endif

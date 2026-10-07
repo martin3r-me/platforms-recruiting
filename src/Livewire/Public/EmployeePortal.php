@@ -631,7 +631,7 @@ class EmployeePortal extends Component
         if (!$this->employeeId) {
             return null;
         }
-        return RecEmployee::with(['applicant.contracts.contractTemplate'])
+        return RecEmployee::with(['applicant', 'contracts.contractTemplate'])
             ->find($this->employeeId);
     }
 
@@ -643,12 +643,16 @@ class EmployeePortal extends Component
             return [];
         }
 
+        // Vertraege DIESER Anstellung (Spec Vertrag an der Anstellung §3.4) —
+        // der Token gehoert dem Menschen, die Menge der Anstellung. Kein
+        // Rueckfall auf den Bewerber: der zeigte bei zwei Anstellungen den
+        // RG-Vertrag in der MA-Akte.
         // Applicant-Form-Link einmal pro Aufruf holen — wird fuer PDF-Download
         // benoetigt (ContractPdfController validiert via CorePublicFormLink-Token
         // des verlinkten Bewerbers, nicht ueber den MA-portal_token).
         $applicantToken = $employee->applicant->getOrCreatePublicFormLink()->token;
 
-        $contractRows = $employee->applicant->contracts
+        $contractRows = $employee->contracts
             ->filter(fn ($c) => $c->status !== 'cancelled')
             ->map(function ($c) use ($applicantToken) {
                 $contractLink = $c->getOrCreatePublicFormLink();
