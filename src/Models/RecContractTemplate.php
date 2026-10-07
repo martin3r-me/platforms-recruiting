@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Log;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Recruiting\Services\Zas\ZasLookupResolver;
 use Platform\Recruiting\Support\AnstellungsZuordnung;
@@ -201,6 +202,28 @@ class RecContractTemplate extends Model
             $passende->pluck('id')->all(),
             $alle->count() > $passende->count(),
         );
+    }
+
+    /**
+     * Anker fuer einen Vertrag, der JETZT fuer diesen Bewerber entsteht (Spec
+     * §3.3 d): die firmengleiche Anstellung; keine → NULL; mehrere → die mit
+     * der kleinsten Kennung und ein Log-Eintrag. Alle Anlagepfade rufen das
+     * hier — nicht viermal ausgeschrieben.
+     */
+    public function ankerFuerNeuenVertrag(RecApplicant $applicant): ?int
+    {
+        $zuordnung = $this->anstellungFuer($applicant);
+
+        if ($zuordnung->befund === AnstellungsZuordnung::MEHRDEUTIG) {
+            Log::warning('[Vertrag an der Anstellung] Bewerber hat mehrere Anstellungen der Firma der Vorlage — kleinste Kennung genommen', [
+                'applicant_id' => $applicant->id,
+                'template_id'  => $this->id,
+                'company'      => $this->company,
+                'employee_ids' => $zuordnung->kandidatenIds,
+            ]);
+        }
+
+        return $zuordnung->ersterKandidatId();
     }
 
     public function personalizeContent(RecApplicant $applicant, ?RecContract $contract = null): string

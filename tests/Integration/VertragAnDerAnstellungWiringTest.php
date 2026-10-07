@@ -24,6 +24,21 @@ class VertragAnDerAnstellungWiringTest extends TestCase
         $this->assertLessThan($anlage, $vertrag, 'Der Vertrag muss VOR createOrUpdate() entstehen.');
     }
 
+    /** Spec §3.3 d: alle Anlagepfade rufen die eine Regel. Mutation: Aufruf an einer Stelle entfernen → rot. */
+    public function test_alle_anlagepfade_setzen_den_anker_ueber_die_regel(): void
+    {
+        $erwartet = [
+            [\Platform\Recruiting\Livewire\Applicant\Show::class, 'createSingleContract', 1],
+            [\Platform\Recruiting\Tools\CreateContractTool::class, 'execute', 1],
+            [\Platform\Recruiting\Services\SendContractsService::class, 'send', 3],
+        ];
+        foreach ($erwartet as [$class, $method, $anzahl]) {
+            $src = $this->methodSource($class, $method);
+            $this->assertSame($anzahl, substr_count($src, '->ankerFuerNeuenVertrag('), "{$class}::{$method}");
+            $this->assertSame($anzahl, substr_count($src, "'rec_employee_id'"), "{$class}::{$method} schreibt den Anker nicht an jeder create()-Stelle");
+        }
+    }
+
     private function methodSource(string $class, string $method): string
     {
         $r = new ReflectionMethod($class, $method);

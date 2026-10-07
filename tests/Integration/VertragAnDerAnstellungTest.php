@@ -19,6 +19,7 @@ use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecContractTemplate;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\CreateEmployeeFromApplicantService;
+use Platform\Recruiting\Services\SendContractsService;
 use Platform\Recruiting\Support\AnstellungsZuordnung;
 use Platform\Recruiting\Support\ZasPersonnelNumber;
 
@@ -30,6 +31,66 @@ use Platform\Recruiting\Support\ZasPersonnelNumber;
  */
 class VertragAnDerAnstellungTest extends TestCase
 {
+    /**
+     * §3.7 Test 9 — Pfad d) ueber SendContractsService.
+     * Mutation: 'rec_employee_id' aus dem AV-create() in SendContractsService:111 entfernen → rot.
+     */
+    public function test_vertrag_fuer_bestandsmitarbeiter_traegt_dessen_anstellung(): void
+    {
+        $av   = $this->vorlage('AV-default');
+        $ifsg = $this->vorlage('IFSG');
+
+        $a = $this->bewerber('Bestand');
+        $this->vertrag($a, $ifsg, ['status' => 'sent', 'signed_at' => null, 'completed_at' => null]);   // oeffnet den Riegel
+        $rg = (new CreateEmployeeFromApplicantService())->createOrUpdate($a);
+        $a = $a->fresh();
+        $a->contract_template_id = $av->id;
+        $a->zuschlag = 1.0;
+        $a->save();
+
+        $result = (new SendContractsService())->send($a, null, null, true);
+
+        $this->assertSame(1, $result['created'], 'Vorflug: der AV ist in diesem Lauf neu entstanden');
+        $this->assertSame($rg->id, (int) $result['av_contract']->rec_employee_id);
+    }
+
+    public function test_vertrag_fuer_bewerber_ohne_anstellung_bleibt_ohne_anker(): void
+    {
+        $av   = $this->vorlage('AV-default');
+        $this->vorlage('IFSG');
+        $a = $this->bewerber('Niemand');
+        $this->vertrag($a, $this->vorlage('AT-140'), ['status' => 'sent', 'signed_at' => null, 'completed_at' => null]);
+        $a->contract_template_id = $av->id;
+        $a->zuschlag = 1.0;
+        $a->save();
+
+        $result = (new SendContractsService())->send($a, null, null, true);
+
+        $this->assertNull($result['av_contract']->rec_employee_id);
+        $this->assertNull($result['ifsg_contract']->rec_employee_id);
+    }
+
+    /**
+     * Zwei Anstellungen, der Vertrag geht an die firmengleiche — und nicht an
+     * $applicant->employee (hasOne = kleinste rowid, hier die MA-Zeile).
+     * Mutation: ankerFuerNeuenVertrag() auf `$applicant->employee?->id` → rot.
+     */
+    public function test_neuer_vertrag_waehlt_die_firmengleiche_anstellung(): void
+    {
+        $av = $this->vorlage('AV-default');
+        $this->vorlage('IFSG');
+        $a = $this->bewerber('Zwei');
+        $ma = $this->zasAnstellung('MA777'); $this->verknuepfen($ma, $a);          // kleinere id
+        $rg = $this->zasAnstellung('RG777'); $this->verknuepfen($rg, $a);
+        $this->vertrag($a, $this->vorlage('AT-140'), ['status' => 'sent', 'signed_at' => null, 'completed_at' => null]);
+        $a->contract_template_id = $av->id; $a->zuschlag = 1.0; $a->save();
+
+        $result = (new SendContractsService())->send($a, null, null, true);
+
+        $this->assertSame($rg->id, (int) $result['av_contract']->rec_employee_id, 'RG-Vorlage → RG-Anstellung');
+        $this->assertSame(0, $ma->contracts()->count(), 'MA bekommt nichts');
+    }
+
     private const TEAM = 7;
 
     public static function setUpBeforeClass(): void

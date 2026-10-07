@@ -803,6 +803,7 @@ class Show extends Component
 
         RecContract::create([
             'rec_applicant_id' => $this->applicant->id,
+            'rec_employee_id' => $template->ankerFuerNeuenVertrag($this->applicant),
             'rec_contract_template_id' => $template->id,
             'team_id' => $this->applicant->team_id,
             'personalized_content' => $personalized,

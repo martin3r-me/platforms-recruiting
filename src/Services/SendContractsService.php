@@ -110,6 +110,7 @@ class SendContractsService
             } else {
                 $avContract = RecContract::create([
                     'rec_applicant_id' => $applicant->id,
+                    'rec_employee_id' => $avTemplate->ankerFuerNeuenVertrag($applicant),
                     'rec_contract_template_id' => $avTemplate->id,
                     'team_id' => $applicant->team_id,
                     'personalized_content' => $avTemplate->personalizeContent($applicant),
@@ -132,6 +133,7 @@ class SendContractsService
                 } else {
                     $ifsgContract = RecContract::create([
                         'rec_applicant_id' => $applicant->id,
+                        'rec_employee_id' => $ifsgTemplate->ankerFuerNeuenVertrag($applicant),
                         'rec_contract_template_id' => $ifsgTemplate->id,
                         'team_id' => $applicant->team_id,
                         'personalized_content' => $ifsgTemplate->personalizeContent($applicant),
@@ -166,6 +168,7 @@ class SendContractsService
                 } else {
                     $additionalContract = RecContract::create([
                         'rec_applicant_id'         => $applicant->id,
+                        'rec_employee_id'         => $additionalTemplate->ankerFuerNeuenVertrag($applicant),
                         'rec_contract_template_id' => $additionalTemplate->id,
                         'team_id'                  => $applicant->team_id,
                         'personalized_content'     => $additionalTemplate->personalizeContent($applicant),

@@ -99,6 +99,7 @@ class CreateContractTool implements ToolContract, ToolMetadataContract
 
             $contract = RecContract::create([
                 'rec_applicant_id' => $applicantId,
+                'rec_employee_id' => $template->ankerFuerNeuenVertrag($applicant),
                 'rec_contract_template_id' => $templateId,
                 'team_id' => $teamId,
                 'status' => $status,
