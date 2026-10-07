@@ -28,7 +28,9 @@
                         <tbody class="divide-y divide-[var(--ui-border)]/60">
                             @forelse($items as $item)
                                 <tr class="hover:bg-gray-50">
-                                    <td class="px-4 py-2 font-medium text-[var(--ui-secondary)]">{{ $item->code ?? '—' }}</td>
+                                    <td class="px-4 py-2 font-medium text-[var(--ui-secondary)]">{{ $item->code ?? '—' }}
+                                        <div class="text-xs font-normal text-[var(--ui-muted)]">{{ $item->company }}@if($item->taetigkeit) · {{ $item->taetigkeit }}@endif</div>
+                                    </td>
                                     <td class="px-4 py-2">
                                         <div>
                                             <div class="font-medium">{{ $item->name }}</div>
@@ -162,6 +164,11 @@
             <div class="space-y-4">
                 <x-ui-input-text name="name" label="Name *" wire:model="name" required />
                 <x-ui-input-text name="code" label="Code" wire:model="code" />
+                <x-ui-input-text name="company" label="Firma (RG/MA) *" wire:model="company" :disabled="$this->companyLocked" />
+                @if($this->companyLocked)
+                    <p class="text-xs text-[var(--ui-muted)] -mt-2">Gesperrt: aus dieser Vorlage wurden bereits Vertraege erzeugt.</p>
+                @endif
+                <x-ui-input-text name="taetigkeit" label="Taetigkeit (bei AV- Pflicht, z. B. eventmitarbeiter)" wire:model="taetigkeit" />
                 <x-ui-input-textarea name="description" label="Beschreibung" wire:model="description" />
                 <x-ui-input-textarea name="content" label="Vertragstext" wire:model="content" rows="6" />
 

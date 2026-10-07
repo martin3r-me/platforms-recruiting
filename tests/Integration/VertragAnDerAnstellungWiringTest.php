@@ -45,4 +45,16 @@ class VertragAnDerAnstellungWiringTest extends TestCase
         $lines = file($r->getFileName());
         return implode('', array_slice($lines, $r->getStartLine() - 1, $r->getEndLine() - $r->getStartLine() + 1));
     }
+
+    public function test_vorlagen_formular_und_tools_kennen_firma_und_taetigkeit(): void
+    {
+        $view = file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/contract-templates/index.blade.php');
+        $this->assertStringContainsString('wire:model="company"', $view);
+        $this->assertStringContainsString('wire:model="taetigkeit"', $view);
+        foreach ([\Platform\Recruiting\Tools\CreateContractTemplateTool::class, \Platform\Recruiting\Tools\UpdateContractTemplateTool::class] as $tool) {
+            $src = file_get_contents((new \ReflectionClass($tool))->getFileName());
+            $this->assertStringContainsString("'company'", $src, $tool);
+            $this->assertStringContainsString("'taetigkeit'", $src, $tool);
+        }
+    }
 }

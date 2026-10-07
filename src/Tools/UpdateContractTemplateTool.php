@@ -49,6 +49,14 @@ class UpdateContractTemplateTool implements ToolContract, ToolMetadataContract
                     'type' => 'string',
                     'description' => 'Optional: Beschreibung.',
                 ],
+                'company' => [
+                    'type' => 'string',
+                    'description' => 'Optional: Firma RG/MA. Gesperrt, sobald aus der Vorlage Vertraege erzeugt wurden.',
+                ],
+                'taetigkeit' => [
+                    'type' => 'string',
+                    'description' => 'Optional: Taetigkeit (Pflicht bei AV-), z. B. eventmitarbeiter.',
+                ],
                 'content' => [
                     'type' => 'string',
                     'description' => 'Optional: Vertragstext.',
@@ -93,14 +101,33 @@ class UpdateContractTemplateTool implements ToolContract, ToolMetadataContract
                 return ToolResult::error('ACCESS_DENIED', 'Kein Zugriff auf diese Vertragsvorlage.');
             }
 
-            $fields = ['name', 'code', 'description', 'content', 'field_mappings', 'requires_signature', 'sort_order', 'is_active'];
+            $fields = ['name', 'code', 'description', 'content', 'field_mappings', 'requires_signature', 'sort_order', 'is_active', 'company', 'taetigkeit'];
             foreach ($fields as $field) {
                 if (array_key_exists($field, $arguments)) {
-                    $template->{$field} = $arguments[$field] === '' ? null : $arguments[$field];
+                    $value = $arguments[$field] === '' ? null : $arguments[$field];
+                    if ($field === 'company') {
+                        if ($value === null) {
+                            return ToolResult::error('VALIDATION_ERROR', 'company darf nicht leer sein.');
+                        }
+                        $value = strtoupper(trim((string)$value));
+                    } elseif ($field === 'taetigkeit' && $value !== null) {
+                        $value = strtolower(trim((string)$value));
+                    }
+                    $template->{$field} = $value;
                 }
             }
 
-            $template->save();
+            if ((array_key_exists('code', $arguments) || array_key_exists('taetigkeit', $arguments))
+                && str_starts_with(trim((string)$template->code), 'AV-')
+                && trim((string)$template->taetigkeit) === '') {
+                return ToolResult::error('VALIDATION_ERROR', 'Arbeitsvertrags-Vorlagen (AV-) brauchen eine taetigkeit, z. B. eventmitarbeiter.');
+            }
+
+            try {
+                $template->save();
+            } catch (\LogicException $e) {
+                return ToolResult::error('VALIDATION_ERROR', $e->getMessage());
+            }
 
             return ToolResult::success([
                 'id' => $template->id,

@@ -142,6 +142,20 @@ class RecContractTemplate extends Model
                 );
             }
         });
+
+        // Firma ist nach dem ersten Vertrag aus dieser Vorlage unveraenderlich
+        // (Spec Vertrag an der Anstellung §3.1): die Vertraege haengen ueber
+        // die Vorlage an ihrer GmbH. Wer eine andere Firma will, legt eine
+        // neue Vorlage an. Exception statt stiller Korrektur — auch die
+        // MCP-Tools schreiben hier durch.
+        static::updating(function (self $model) {
+            if ($model->isDirty('company') && $model->contracts()->exists()) {
+                throw new \LogicException(
+                    "Vorlage #{$model->id} ({$model->code}) hat bereits Vertraege erzeugt — "
+                    . 'die Firma ist gesperrt. Fuer eine andere Firma eine neue Vorlage anlegen.'
+                );
+            }
+        });
     }
 
     public function team(): BelongsTo

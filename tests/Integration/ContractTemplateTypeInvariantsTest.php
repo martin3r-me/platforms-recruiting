@@ -73,11 +73,13 @@ class ContractTemplateTypeInvariantsTest extends TestCase
         Model::clearBootedModels();
 
         TestSchema::contractTemplates($capsule->schema());
+        TestSchema::contracts($capsule->schema());
     }
 
     protected function setUp(): void
     {
         Capsule::table('rec_contract_templates')->delete();
+        Capsule::table('rec_contracts')->delete();
     }
 
     private function make(array $attrs): RecContractTemplate
@@ -180,5 +182,26 @@ class ContractTemplateTypeInvariantsTest extends TestCase
         $t = new RecContractTemplate(['code' => 'AV-010']);
 
         $this->assertSame('contract', $t->type);
+    }
+
+    /**
+     * §3.7 Test 11 — Model-Hook, nicht nur Formular: UpdateContractTemplateTool
+     * schreibt am Formular vorbei. Mutation: updating-Hook entfernen → rot.
+     */
+    public function testFirmaIstNachDemErstenVertragGesperrt(): void
+    {
+        $t = $this->make(['code' => 'AV-default', 'company' => 'RG']);
+        $t->update(['company' => 'MA']);
+        $this->assertSame('MA', $t->fresh()->company, 'Ohne Vertrag ist die Firma aenderbar.');
+
+        \Platform\Recruiting\Models\RecContract::create([
+            'rec_applicant_id' => 1, 'rec_contract_template_id' => $t->id, 'team_id' => self::TEAM, 'status' => 'pending',
+        ]);
+
+        $t->update(['taetigkeit' => 'servicekraft']);
+        $this->assertSame('servicekraft', $t->fresh()->taetigkeit, 'Die Taetigkeit bleibt frei.');
+
+        $this->expectException(\LogicException::class);
+        $t->update(['company' => 'RG']);
     }
 }
