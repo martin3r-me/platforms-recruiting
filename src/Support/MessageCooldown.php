@@ -80,6 +80,74 @@ final class MessageCooldown
     }
 
     /**
+     * Log-Typ der Selbstbedienungs-Reaktion (RecApplicant::registerSelfServiceReaction,
+     * z. B. Buchung ueber die oeffentliche Terminseite).
+     */
+    public const REACTION_TYPE = 'autopilot_reacted';
+
+    /** Phasen-Aufstieg (RecApplicant::checkAutoPilotCompletion). */
+    public const ADVANCE_TYPE = 'phase_advanced';
+
+    /**
+     * Die fremde Nachricht, die den Auto-Piloten JETZT noch bremst — 'Y-m-d H:i:s'
+     * oder null.
+     *
+     * Wie lastOutboundAt(), mit einer Ausnahme (06.10.2026, Fall 4312): hat der
+     * Bewerber NACH der fremden Nachricht selbst reagiert (gebucht), bremst sie
+     * nicht mehr. Die Auto-Pilot-Nachricht danach ist die Antwort auf seine
+     * Handlung, nicht eine zweite Nachricht hinter der Kampagne. Vorher hielt
+     * die Ruhefrist z. B. die Onboarding-Vorlage nach einer Wartelisten-Buchung
+     * 24 h zurueck — bei Nachbuchungen kurz vor der Schulung zu spaet.
+     *
+     * Bewusst eng: nur die Selbstbedienungs-Reaktion MIT anschliessendem
+     * Phasen-Aufstieg zaehlt — kein Phasenwechsel ohne Buchung, keine
+     * Reminder-Antwort, keine Buchung ohne Aufstieg (die bekaeme sonst sofort
+     * den Erstkontakt der alten Phase). Reihenfolge ueber die Log-ID, nicht
+     * die Uhrzeit — beide koennen in derselben Sekunde liegen. Eine neue fremde
+     * Nachricht nach der Reaktion bremst wieder.
+     */
+    public static function blockingOutboundAt(int $applicantId): ?string
+    {
+        try {
+            $fremd = RecAutoPilotLog::query()
+                ->where('rec_applicant_id', $applicantId)
+                ->whereIn('type', self::OUTBOUND_TYPES)
+                ->orderByDesc('id')
+                ->first(['id', 'created_at']);
+
+            if ($fremd === null) {
+                return null;
+            }
+
+            $reaktion = RecAutoPilotLog::query()
+                ->where('rec_applicant_id', $applicantId)
+                ->where('type', self::REACTION_TYPE)
+                ->where('id', '>', $fremd->id)
+                ->orderBy('id')
+                ->value('id');
+
+            // Nur wenn die Buchung die Phase auch weitergeschoben hat. Sonst
+            // ginge der Erstkontakt der ALTEN Phase raus — im Zweifel der
+            // Buchungslink direkt nach der Buchung (Review 06.10.).
+            $reagiertDanach = $reaktion !== null && RecAutoPilotLog::query()
+                ->where('rec_applicant_id', $applicantId)
+                ->where('type', self::ADVANCE_TYPE)
+                ->where('id', '>', $reaktion)
+                ->exists();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($reagiertDanach) {
+            return null;
+        }
+
+        $at = $fremd->created_at;
+
+        return $at instanceof \DateTimeInterface ? $at->format('Y-m-d H:i:s') : (string) $at;
+    }
+
+    /**
      * Juengster Zeitpunkt, zu dem nachweislich etwas an diesen Bewerber
      * rausging — 'Y-m-d H:i:s' oder null.
      *

@@ -15,6 +15,8 @@ class Index extends Component
     public $name = '';
     public $code = '';
     public $description = '';
+    public $company = '';
+    public $taetigkeit = '';
     public $content = '';
     public $requires_signature = true;
     public $sort_order = 0;
@@ -25,6 +27,8 @@ class Index extends Component
         'name' => 'required|string|max:255',
         'code' => 'nullable|string|max:20',
         'description' => 'nullable|string',
+        'company' => 'required|string|max:10',
+        'taetigkeit' => 'nullable|string|max:50',
         'content' => 'nullable|string',
         'requires_signature' => 'boolean',
         'sort_order' => 'integer|min:0',
@@ -63,6 +67,8 @@ class Index extends Component
         $this->name = $m->name;
         $this->code = $m->code;
         $this->description = $m->description;
+        $this->company = (string) $m->company;
+        $this->taetigkeit = (string) ($m->taetigkeit ?? '');
         $this->content = $m->content;
         $this->requires_signature = $m->requires_signature;
         $this->sort_order = $m->sort_order;
@@ -74,8 +80,21 @@ class Index extends Component
         $this->showEditModal = true;
     }
 
+    #[Computed]
+    public function companyLocked(): bool
+    {
+        return $this->editingId
+            ? RecContractTemplate::findOrFail($this->editingId)->contracts()->exists()
+            : false;
+    }
+
     public function save(): void
     {
+        if (str_starts_with(trim((string) $this->code), 'AV-') && trim((string) $this->taetigkeit) === '') {
+            $this->addError('taetigkeit', 'Arbeitsvertrags-Vorlagen (AV-) brauchen eine Taetigkeit, z. B. eventmitarbeiter.');
+            return;
+        }
+
         $this->validate();
 
         $mappings = collect($this->field_mappings)
@@ -87,6 +106,8 @@ class Index extends Component
             'name' => $this->name,
             'code' => $this->code,
             'description' => $this->description,
+            'company' => strtoupper(trim((string) $this->company)),
+            'taetigkeit' => trim((string) $this->taetigkeit) !== '' ? strtolower(trim((string) $this->taetigkeit)) : null,
             'content' => $this->content,
             'field_mappings' => $mappings ?: null,
             'requires_signature' => $this->requires_signature,
@@ -97,7 +118,15 @@ class Index extends Component
 
         if ($this->editingId) {
             $m = RecContractTemplate::findOrFail($this->editingId);
-            $m->update($data);
+            if ($this->companyLocked) {
+                unset($data['company']);
+            }
+            try {
+                $m->update($data);
+            } catch (\LogicException $e) {
+                $this->addError('company', $e->getMessage());
+                return;
+            }
             session()->flash('success', 'Vertragsvorlage erfolgreich aktualisiert!');
         } else {
             $data['created_by_user_id'] = auth()->id();
@@ -146,6 +175,8 @@ class Index extends Component
         $this->name = '';
         $this->code = '';
         $this->description = '';
+        $this->company = (string) config('recruiting.zas.company_prefix', \Platform\Recruiting\Support\ZasPersonnelNumber::DEFAULT_PREFIX);
+        $this->taetigkeit = '';
         $this->content = '';
         $this->requires_signature = true;
         $this->sort_order = 0;

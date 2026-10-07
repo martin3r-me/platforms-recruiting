@@ -279,6 +279,11 @@ class PortalFirstAiderFieldsTest extends TestCase
             'database/migrations/2026_09_23_000001_add_nationality_to_rec_employees.php',
             // Pflichtfeld seit 25.09.2026 — der Arbeitgeber-Guard laeuft in saveAll().
             'database/migrations/2026_09_23_000002_add_employer_fields_to_rec_employees.php',
+            // Vertrag an der Anstellung (07.10.2026): employee() laedt
+            // contracts.contractTemplate eager — die Tabellen muessen existieren,
+            // bleiben hier aber leer.
+            'database/migrations/2026_04_15_100000_create_rec_contract_tables.php',
+            'database/migrations/2026_10_07_000002_add_employee_anchor_to_contracts.php',
         ];
 
         foreach ($files as $relative) {

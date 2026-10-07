@@ -962,6 +962,7 @@ class PlaceholderResolutionPinTest extends TestCase
             [$own, 'database/migrations/2026_04_30_000001_add_import_source_to_rec_applicants.php'],
             [$own, 'database/migrations/2026_06_09_000010_add_zuschlag_to_rec_applicants.php'],
             [$own, 'database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php'],
+            [$own, 'database/migrations/2026_10_07_000002_add_employee_anchor_to_contracts.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

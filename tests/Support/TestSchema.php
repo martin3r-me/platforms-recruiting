@@ -21,6 +21,7 @@ use Illuminate\Database\Schema\Builder;
  * ACHTUNG: Diese Klasse ist die Testabbildung der Migrationen
  *   2026_08_12_000001_add_type_to_rec_contract_templates.php
  *   2026_08_12_000002_create_rec_training_certificates_table.php
+ *   2026_10_07_000002_add_employee_anchor_to_contracts.php
  * und der Basis-Migration 2026_04_15_100000_create_rec_contract_tables.php.
  * Aendert sich dort etwas, gehoert es hier mit hinein. Sonst faellt es
  * niemandem auf.
@@ -45,6 +46,34 @@ use Illuminate\Database\Schema\Builder;
  */
 final class TestSchema
 {
+    /** rec_contracts wie die Basis-Migration plus superseded_by_contract_id und rec_employee_id. */
+    public static function contracts(Builder $schema): void
+    {
+        if ($schema->hasTable('rec_contracts')) {
+            return;
+        }
+
+        $schema->create('rec_contracts', function ($t) {
+            $t->id();
+            $t->string('uuid', 36)->unique();
+            $t->unsignedBigInteger('rec_applicant_id');
+            $t->unsignedBigInteger('rec_employee_id')->nullable();
+            $t->unsignedBigInteger('rec_contract_template_id');
+            $t->unsignedBigInteger('team_id');
+            $t->string('status', 30)->default('pending');
+            $t->longText('personalized_content')->nullable();
+            $t->text('signature_data')->nullable();
+            $t->json('pre_signing_data')->nullable();
+            $t->timestamp('signed_at')->nullable();
+            $t->timestamp('sent_at')->nullable();
+            $t->timestamp('completed_at')->nullable();
+            $t->text('notes')->nullable();
+            $t->unsignedBigInteger('superseded_by_contract_id')->nullable();
+            $t->unsignedBigInteger('created_by_user_id')->nullable();
+            $t->timestamps();
+        });
+    }
+
     /** Vollstaendig wie die Basis-Migration plus die type-Spalte aus Task 1. */
     public static function contractTemplates(Builder $schema): void
     {
@@ -60,6 +89,8 @@ final class TestSchema
             // NOT NULL mit Default — wie die Migration. Nicht nullable machen:
             // ein dritter Zustand "unbekannt" wuerde die type-Filter aushebeln.
             $t->string('type', 20)->default('contract');
+            $t->string('company', 10)->default('RG');
+            $t->string('taetigkeit', 50)->nullable();
             $t->text('description')->nullable();
             $t->longText('content')->nullable();
             $t->json('field_mappings')->nullable();

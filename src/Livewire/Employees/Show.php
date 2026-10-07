@@ -324,7 +324,7 @@ class Show extends Component
     #[Computed]
     public function employee(): ?RecEmployee
     {
-        return RecEmployee::with(['position', 'applicant'])
+        return RecEmployee::with(['position', 'applicant', 'contracts.contractTemplate'])
             ->where('team_id', auth()->user()->currentTeam->id)
             ->find($this->employeeId);
     }
@@ -356,10 +356,13 @@ class Show extends Component
     }
 
     /**
-     * Signed contracts of the linked applicant (PDF-Download fuer HR im
-     * Backend). Identische Logik wie EmployeePortal::contracts() — wir
-     * nutzen den Applicant-Token, weil der ContractPdfController via
-     * CorePublicFormLink validiert.
+     * Unterschriebene Vertraege DIESER Anstellung (Spec Vertrag an der
+     * Anstellung §3.4) — der Token gehoert dem Menschen, die Menge der
+     * Anstellung. Kein Rueckfall auf den Bewerber: der zeigte bei zwei
+     * Anstellungen den RG-Vertrag in der MA-Akte.
+     *
+     * PDF-Download fuer HR im Backend. Wir nutzen den Applicant-Token, weil
+     * der ContractPdfController via CorePublicFormLink validiert.
      */
     #[Computed]
     public function signedContracts(): array
@@ -369,7 +372,7 @@ class Show extends Component
             return [];
         }
         $applicantToken = $emp->applicant->getOrCreatePublicFormLink()->token;
-        return $emp->applicant->contracts
+        return $emp->contracts
             ->filter(fn ($c) => $c->status === 'completed' && $c->signed_at)
             ->map(function ($c) use ($applicantToken) {
                 $code = $c->contractTemplate?->code;
@@ -383,6 +386,7 @@ class Show extends Component
                 return [
                     'id'            => $c->id,
                     'display_name'  => $displayName,
+                    'merkmale'      => \Platform\Recruiting\Support\VorlagenMerkmale::zeile($c->contractTemplate?->company, $c->contractTemplate?->taetigkeit),
                     'signed_at'     => $c->signed_at,
                     'pdf_url'       => route('recruiting.public.contract-pdf', ['token' => $applicantToken, 'contractId' => $c->id]),
                     'superseded_by' => $c->superseded_by_contract_id,
@@ -396,10 +400,11 @@ class Show extends Component
     }
 
     /**
-     * Noch nicht unterschriebene Vertraege des verknuepften Bewerbers, mit
-     * Signaturlink. Ohne diese Liste waere der Link aus dem Ersetzen-Dialog
-     * nach dem naechsten Seitenaufbau verloren, und HR muesste in die
-     * Bewerber-Akte wechseln, um ihn erneut zu erzeugen.
+     * Noch nicht unterschriebene Vertraege DIESER Anstellung (Spec Vertrag an
+     * der Anstellung §3.4 — kein Rueckfall auf den Bewerber, siehe
+     * signedContracts()), mit Signaturlink. Ohne diese Liste waere der
+     * Link aus dem Ersetzen-Dialog nach dem naechsten Seitenaufbau verloren,
+     * und HR muesste in die Bewerber-Akte wechseln, um ihn erneut zu erzeugen.
      *
      * Liest den Token NUR, wenn es schon einen gibt — getOrCreatePublicFormLink()
      * gehoert nicht in einen Lesepfad, der bei jedem Seitenaufbau laeuft.
@@ -414,13 +419,14 @@ class Show extends Component
             return [];
         }
 
-        return $emp->applicant->contracts
+        return $emp->contracts
             ->filter(fn ($c) => !in_array($c->status, ['completed', 'cancelled'], true))
             ->map(function ($c) {
                 $code = $c->contractTemplate?->code;
                 return [
                     'id'           => $c->id,
                     'display_name' => $c->contractTemplate?->name ?? 'Vertrag',
+                    'merkmale'     => \Platform\Recruiting\Support\VorlagenMerkmale::zeile($c->contractTemplate?->company, $c->contractTemplate?->taetigkeit),
                     'code'         => $code,
                     'status'       => $c->status,
                     'sent_at'      => $c->sent_at,
@@ -469,7 +475,7 @@ class Show extends Component
     public function openReissueModal(int $contractId): void
     {
         $emp = $this->employee();
-        $contract = $emp?->applicant?->contracts->firstWhere('id', $contractId);
+        $contract = $emp?->contracts->firstWhere('id', $contractId);
         if (!$contract) {
             $this->flashError = 'Vertrag nicht gefunden.';
             return;
@@ -528,7 +534,7 @@ class Show extends Component
         $this->flashError = null;
 
         $emp = $this->employee();
-        $contract = $emp?->applicant?->contracts->firstWhere('id', $this->reissueContractId);
+        $contract = $emp?->contracts->firstWhere('id', $this->reissueContractId);
         if (!$contract) {
             $this->flashError = 'Vertrag nicht gefunden.';
             return;

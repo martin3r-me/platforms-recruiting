@@ -87,6 +87,14 @@ final class EmployeeNachweisUebersichtTest extends TestCase
             $t->timestamps();
         });
 
+        // Vertrag an der Anstellung (07.10.2026, main): Employees/Show laedt
+        // contracts.contractTemplate eager. Leer — hier geht es um Nachweise.
+        $this->capsule->schema()->create('rec_contracts', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_applicant_id');
+            $t->integer('rec_employee_id')->nullable();
+            $t->integer('rec_contract_template_id');
+        });
         $this->capsule->schema()->create('rec_employee_proofs', function ($t) {
             $t->increments('id');
             $t->uuid('uuid');

@@ -56,7 +56,7 @@ class ContractTemplateTypeInvariantsTest extends TestCase
     public static function setUpBeforeClass(): void
     {
         $container = Container::getInstance();
-        $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []]]));
+        $container->instance('config', new ConfigRepository(['activity-log' => ['events' => []], 'recruiting' => ['zas' => ['company_prefix' => 'RG']]]));
 
         $capsule = new Capsule();
         $capsule->addConnection(['driver' => 'sqlite', 'database' => ':memory:']);
@@ -73,11 +73,13 @@ class ContractTemplateTypeInvariantsTest extends TestCase
         Model::clearBootedModels();
 
         TestSchema::contractTemplates($capsule->schema());
+        TestSchema::contracts($capsule->schema());
     }
 
     protected function setUp(): void
     {
         Capsule::table('rec_contract_templates')->delete();
+        Capsule::table('rec_contracts')->delete();
     }
 
     private function make(array $attrs): RecContractTemplate
@@ -119,6 +121,34 @@ class ContractTemplateTypeInvariantsTest extends TestCase
         $this->make(['code' => null, 'type' => 'certificate']);
     }
 
+    /**
+     * Review-Focus 1: eine ueber Eloquent angelegte Vorlage ohne company
+     * traegt am OBJEKT schon die konfigurierte Firma — nicht erst nach einem
+     * refresh() ueber den Spalten-Default. Sonst sieht die Zuordnungsregel
+     * NULL und passt zu keiner Anstellung.
+     */
+    public function testNeueVorlageBekommtDieFirmaAusDerKonfiguration(): void
+    {
+        $t = $this->make(['code' => 'AV-default']);
+
+        $this->assertSame('RG', $t->company, 'Firma muss am Objekt stehen, nicht nur in der Spalte.');
+        $this->assertSame('RG', $t->fresh()->company);
+        $this->assertNull($t->taetigkeit, 'Taetigkeit wird nicht geraten.');
+
+        config()->set('recruiting.zas.company_prefix', 'MA');
+        try {
+            $this->assertSame('MA', $this->make(['code' => 'AV-MA-LOG'])->company,
+                'Falsifikator gegen ein fest verdrahtetes RG.');
+        } finally {
+            config()->set('recruiting.zas.company_prefix', 'RG');
+        }
+    }
+
+    public function testGesetzteFirmaBleibtBeimAnlegenStehen(): void
+    {
+        $this->assertSame('MA', $this->make(['code' => 'AV-MA-LOG', 'company' => 'MA'])->fresh()->company);
+    }
+
     public function testNachtraeglicherTypwechselGreiftEbenfalls(): void
     {
         $t = $this->make(['code' => 'ZERT-UMBAU', 'requires_signature' => true]);
@@ -152,5 +182,26 @@ class ContractTemplateTypeInvariantsTest extends TestCase
         $t = new RecContractTemplate(['code' => 'AV-010']);
 
         $this->assertSame('contract', $t->type);
+    }
+
+    /**
+     * §3.7 Test 11 — Model-Hook, nicht nur Formular: UpdateContractTemplateTool
+     * schreibt am Formular vorbei. Mutation: updating-Hook entfernen → rot.
+     */
+    public function testFirmaIstNachDemErstenVertragGesperrt(): void
+    {
+        $t = $this->make(['code' => 'AV-default', 'company' => 'RG']);
+        $t->update(['company' => 'MA']);
+        $this->assertSame('MA', $t->fresh()->company, 'Ohne Vertrag ist die Firma aenderbar.');
+
+        \Platform\Recruiting\Models\RecContract::create([
+            'rec_applicant_id' => 1, 'rec_contract_template_id' => $t->id, 'team_id' => self::TEAM, 'status' => 'pending',
+        ]);
+
+        $t->update(['taetigkeit' => 'servicekraft']);
+        $this->assertSame('servicekraft', $t->fresh()->taetigkeit, 'Die Taetigkeit bleibt frei.');
+
+        $this->expectException(\LogicException::class);
+        $t->update(['company' => 'RG']);
     }
 }

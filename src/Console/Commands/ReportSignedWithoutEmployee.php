@@ -39,6 +39,12 @@ use Platform\Recruiting\Support\EmployeeMatchResolver;
  * rec_employees.rec_applicant_id, aber nur bei Voll-Namens-Treffern MIT
  * passendem Geburtsdatum, nur wenn der MA noch keinen Link hat und nur wenn
  * kein zweiter Bewerber denselben MA beansprucht.
+ *
+ * Nach dem Setzen des Links (--link wie --backfill-links) haengt der Command die
+ * Vertraege des Bewerbers per ContractAnchorService an die Anstellung: Akte und
+ * Portal lesen rec_contracts.rec_employee_id, ohne Anker zeigte ein frisch
+ * verknuepfter RG-Datensatz keinen Vertrag. Die Firmenregel des Dienstes haelt
+ * MA-Datensaetze sauber (RG-Vertrag bleibt beim Bewerber). Probelaeufe ankern nie.
  */
 class ReportSignedWithoutEmployee extends Command
 {
@@ -464,9 +470,13 @@ class ReportSignedWithoutEmployee extends Command
 
             if ($affected === 1) {
                 $written++;
+                $anstellung = \Platform\Recruiting\Models\RecEmployee::find($employeeId);
+                $verankert = $anstellung !== null ? (new \Platform\Recruiting\Services\ContractAnchorService())->anAnstellungHaengen($anstellung) : 0;
+                $this->line(sprintf('    %d Vertraege angehaengt', $verankert));
                 Log::info('[recruiting:report-signed-without-employee] Link nachgetragen', [
                     'employee_id' => $employeeId,
                     'rec_applicant_id' => $applicantId,
+                    'vertraege_angehaengt' => $verankert,
                 ]);
             } else {
                 $skipped++;
@@ -571,9 +581,13 @@ class ReportSignedWithoutEmployee extends Command
 
             if ($affected === 1) {
                 $written++;
+                $anstellung = \Platform\Recruiting\Models\RecEmployee::find((int) $employee->id);
+                $verankert = $anstellung !== null ? (new \Platform\Recruiting\Services\ContractAnchorService())->anAnstellungHaengen($anstellung) : 0;
+                $angehaengt = sprintf(', %d Vertraege angehaengt', $verankert);
                 Log::info('[recruiting:report-signed-without-employee] Paar von Hand verknuepft', [
                     'employee_id' => (int) $employee->id,
                     'rec_applicant_id' => $applicantId,
+                    'vertraege_angehaengt' => $verankert,
                 ]);
                 // Haengen jetzt ZWEI Anstellungen an der Bewerbung (RG + MA),
                 // stempelt der gemeinsame person_key sie als eine Person —
@@ -598,10 +612,10 @@ class ReportSignedWithoutEmployee extends Command
                         $errors++;
                         continue;
                     }
-                    $rows[] = [$applicantId, $key, $employee->id, 'verknuepft + als Person gestempelt (' . count($anstellungen) . ' Anstellungen)'];
+                    $rows[] = [$applicantId, $key, $employee->id, 'verknuepft + als Person gestempelt (' . count($anstellungen) . ' Anstellungen)' . $angehaengt];
                     continue;
                 }
-                $rows[] = [$applicantId, $key, $employee->id, 'verknuepft'];
+                $rows[] = [$applicantId, $key, $employee->id, 'verknuepft' . $angehaengt];
             } else {
                 $rows[] = [$applicantId, $key, $employee->id, 'zwischenzeitlich gesetzt — uebersprungen'];
                 $errors++;

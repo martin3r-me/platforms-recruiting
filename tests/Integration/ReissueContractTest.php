@@ -503,6 +503,46 @@ class ReissueContractTest extends TestCase
         $this->assertSame('2026-12-31', $new->getExtraField('vertragsende'));
     }
 
+    /**
+     * FALL 22 — der Nachfolger bleibt an derselben Anstellung (Spec Vertrag an
+     * der Anstellung §3.3 c). Ohne die Kopie verloere jeder neu ausgestellte
+     * Vertrag seine Anstellung und verschwaende aus der MA-Akte.
+     * Mutation: 'rec_employee_id' aus dem create()-Array in createSuccessor()
+     * entfernen → rot.
+     */
+    public function test_neuausstellung_kopiert_die_anstellung(): void
+    {
+        [$applicant, , $old] = $this->signedAvFixture(0.60);
+        $employeeId = $this->makeEmployee($applicant);
+        DB::table('rec_contracts')->where('id', $old->id)->update(['rec_employee_id' => $employeeId]);
+
+        $new = (new ReissueContractService())->reissue(
+            RecContract::find($old->id), 1.60, ReissueContractService::REASON_CORRECTION
+        )['contract'];
+
+        $this->assertSame($employeeId, (int) $new->fresh()->rec_employee_id);
+    }
+
+    /** FALL 23 — gilt vor der Unterschrift genauso. */
+    public function test_neuausstellung_vor_unterschrift_kopiert_die_anstellung(): void
+    {
+        [$applicant, , $open] = $this->openAvFixture(0.60);
+        $employeeId = $this->makeEmployee($applicant);
+        DB::table('rec_contracts')->where('id', $open->id)->update(['rec_employee_id' => $employeeId]);
+
+        $new = (new ReissueContractService())->reissueOpen(RecContract::find($open->id), 1.60)['contract'];
+
+        $this->assertSame($employeeId, (int) $new->fresh()->rec_employee_id);
+    }
+
+    /** FALL 24 — ein Vorgaenger ohne Anstellung ergibt einen Nachfolger ohne Anstellung, kein Raten. */
+    public function test_neuausstellung_ohne_anstellung_bleibt_ohne(): void
+    {
+        [, , $old] = $this->signedAvFixture(0.60);
+        $new = (new ReissueContractService())->reissue($old, 1.60, ReissueContractService::REASON_CORRECTION)['contract'];
+        $this->assertNull($new->fresh()->rec_employee_id);
+    }
+
     // -----------------------------------------------------------------
     // Fixtures — legen pro Test neue Zeilen an, loeschen nichts (HasExtraFields
     // cacht Definitionen statisch unter "Klasse:id"; wiederverwendete IDs nach
@@ -658,6 +698,7 @@ class ReissueContractTest extends TestCase
             [$own, 'database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php'],
             // Die Spalte, um die es hier geht.
             [$own, 'database/migrations/2026_08_21_000002_add_superseded_by_to_rec_contracts.php'],
+            [$own, 'database/migrations/2026_10_07_000002_add_employee_anchor_to_contracts.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

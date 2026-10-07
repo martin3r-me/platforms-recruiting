@@ -35,7 +35,7 @@ final class AutoPilotCooldownWiringTest extends TestCase
     {
         $src = $this->command();
 
-        $this->assertStringContainsString('MessageCooldown::lastOutboundAt', $src, 'Command liest die letzte ausgehende Nachricht nicht');
+        $this->assertStringContainsString('MessageCooldown::blockingOutboundAt', $src, 'Command liest die bremsende fremde Nachricht nicht');
         $this->assertStringContainsString('MessageCooldown::blocks', $src, 'Command fragt den Cooldown nicht');
     }
 

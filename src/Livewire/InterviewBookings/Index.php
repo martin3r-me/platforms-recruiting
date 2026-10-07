@@ -185,31 +185,7 @@ class Index extends Component
             ])
             ->orderBy('booked_at', 'desc');
 
-        // Filter-Logik:
-        //  - 'cancelled' = echte Stornierung (keine spaetere aktive Buchung beim Bewerber)
-        //  - 'rebooked'  = umgebucht (cancelled + spaetere aktive Buchung)
-        //  - sonst       = direkter status-Match
-        if ($this->filterStatus === 'cancelled') {
-            $query->where('status', 'cancelled')
-                ->whereNotExists(function ($sub) {
-                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
-                        ->from('rec_interview_bookings as later')
-                        ->whereColumn('later.rec_applicant_id', 'rec_interview_bookings.rec_applicant_id')
-                        ->whereColumn('later.id', '>', 'rec_interview_bookings.id')
-                        ->whereNotIn('later.status', ['cancelled']);
-                });
-        } elseif ($this->filterStatus === 'rebooked') {
-            $query->where('status', 'cancelled')
-                ->whereExists(function ($sub) {
-                    $sub->select(\Illuminate\Support\Facades\DB::raw(1))
-                        ->from('rec_interview_bookings as later')
-                        ->whereColumn('later.rec_applicant_id', 'rec_interview_bookings.rec_applicant_id')
-                        ->whereColumn('later.id', '>', 'rec_interview_bookings.id')
-                        ->whereNotIn('later.status', ['cancelled']);
-                });
-        } elseif ($this->filterStatus !== 'all') {
-            $query->where('status', $this->filterStatus);
-        }
+        \Platform\Recruiting\Support\BookingStatusFilter::apply($query, $this->filterStatus);
 
         return $query->get();
     }

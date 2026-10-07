@@ -142,8 +142,21 @@ class EmployeeCreationCertificateTest extends TestCase
      * laufen deshalb in BEIDEN Konstanten gleich mit dazu, nicht nur in der
      * SCHALTER_AUS-Zahl.
      */
-    private const QUERIES_VOR_DEM_ZERTIFIKAT_HOOK = 26;
-    private const QUERIES_SCHALTER_AUS = 27;
+    /**
+     * 07.10.2026 (main): beide Zahlen um eins erhoeht (23->24, 24->25);
+     * zusammengefuehrt mit dem Personen-Link von feat/ma-konto: 26->27, 27->28.
+     *
+     * Dazugekommen ist der Anker-Hook (ContractAnchorService, Vertrag an der
+     * Anstellung §3.3 a): ein Select auf rec_contracts, ob der Bewerber
+     * Vertraege ohne Anstellung hat. In dieser Fixture gibt es keine
+     * Vertraege, also kein Select auf die Vorlagen und kein Update; mit
+     * Treffern kaemen genau diese zwei dazu. Gemessen, nicht geschaetzt.
+     *
+     * QUERIES_ZWEITER_AUFRUF bleibt 1: der Hook liegt HINTER der
+     * Idempotenz-Rueckgabe.
+     */
+    private const QUERIES_VOR_DEM_ZERTIFIKAT_HOOK = 27;
+    private const QUERIES_SCHALTER_AUS = 28;
 
     /**
      * Der Idempotenz-Pfad: existiert der Mitarbeiter schon, steigt

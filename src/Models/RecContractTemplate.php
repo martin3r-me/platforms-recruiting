@@ -7,8 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Log;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Recruiting\Services\Zas\ZasLookupResolver;
+use Platform\Recruiting\Support\AnstellungsZuordnung;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -81,6 +83,8 @@ class RecContractTemplate extends Model
         'name',
         'code',
         'type',
+        'company',
+        'taetigkeit',
         'description',
         'content',
         'field_mappings',
@@ -107,6 +111,16 @@ class RecContractTemplate extends Model
                 } while (self::where('uuid', $uuid)->exists());
                 $model->uuid = $uuid;
             }
+
+            // Firma: dieselbe Quelle wie die MA-Anlage
+            // (CreateEmployeeFromApplicantService) — eine Vorlage ohne Firma
+            // passt zu keiner Anstellung, also bekommt sie die eigene.
+            if ($model->company === null || $model->company === '') {
+                $model->company = (string) config(
+                    'recruiting.zas.company_prefix',
+                    \Platform\Recruiting\Support\ZasPersonnelNumber::DEFAULT_PREFIX
+                );
+            }
         });
 
         static::saving(function (self $model) {
@@ -125,6 +139,20 @@ class RecContractTemplate extends Model
                 throw new \InvalidArgumentException(
                     'Zertifikat-Vorlagen brauchen einen code mit Praefix "'
                     . self::CERTIFICATE_CODE_PREFIX . '" (bekommen: "' . $code . '").'
+                );
+            }
+        });
+
+        // Firma ist nach dem ersten Vertrag aus dieser Vorlage unveraenderlich
+        // (Spec Vertrag an der Anstellung §3.1): die Vertraege haengen ueber
+        // die Vorlage an ihrer GmbH. Wer eine andere Firma will, legt eine
+        // neue Vorlage an. Exception statt stiller Korrektur — auch die
+        // MCP-Tools schreiben hier durch.
+        static::updating(function (self $model) {
+            if ($model->isDirty('company') && $model->contracts()->exists()) {
+                throw new \LogicException(
+                    "Vorlage #{$model->id} ({$model->code}) hat bereits Vertraege erzeugt — "
+                    . 'die Firma ist gesperrt. Fuer eine andere Firma eine neue Vorlage anlegen.'
                 );
             }
         });
@@ -158,6 +186,58 @@ class RecContractTemplate extends Model
     public function scopeForTeam($query, $teamId)
     {
         return $query->where('team_id', $teamId);
+    }
+
+    /**
+     * DAS Firmen-Praedikat — die einzige Stelle, an der „Vorlage gehoert zu
+     * Anstellung" entschieden wird (Spec §3.3 d, §3.5: derselbe Code). Eine
+     * Anstellung ohne Firma (Altbestand, ZAS-Zeile ohne Praefix) ist nie ein
+     * Treffer: NULL == NULL waere einer.
+     */
+    public function giltFuerAnstellung(RecEmployee $anstellung): bool
+    {
+        $firma = (string) $anstellung->company;
+
+        return $firma !== '' && $firma === (string) $this->company;
+    }
+
+    /**
+     * Welche Anstellung des Bewerbers bekommt einen Vertrag aus dieser Vorlage?
+     * Kandidaten aufsteigend nach id; was der Aufrufer mit `mehrdeutig` macht,
+     * entscheidet er (Live-Pfad: erster + Log, Backfill: NULL + Bericht).
+     * Nicht $applicant->employee (hasOne, bei zwei Anstellungen beliebig).
+     */
+    public function anstellungFuer(RecApplicant $applicant): AnstellungsZuordnung
+    {
+        $alle = $applicant->employees()->orderBy('id')->get(['id', 'company']);
+        $passende = $alle->filter(fn (RecEmployee $e) => $this->giltFuerAnstellung($e));
+
+        return AnstellungsZuordnung::aus(
+            $passende->pluck('id')->all(),
+            $alle->count() > $passende->count(),
+        );
+    }
+
+    /**
+     * Anker fuer einen Vertrag, der JETZT fuer diesen Bewerber entsteht (Spec
+     * §3.3 d): die firmengleiche Anstellung; keine → NULL; mehrere → die mit
+     * der kleinsten Kennung und ein Log-Eintrag. Alle Anlagepfade rufen das
+     * hier — nicht viermal ausgeschrieben.
+     */
+    public function ankerFuerNeuenVertrag(RecApplicant $applicant): ?int
+    {
+        $zuordnung = $this->anstellungFuer($applicant);
+
+        if ($zuordnung->befund === AnstellungsZuordnung::MEHRDEUTIG) {
+            Log::warning('[Vertrag an der Anstellung] Bewerber hat mehrere Anstellungen der Firma der Vorlage — kleinste Kennung genommen', [
+                'applicant_id' => $applicant->id,
+                'template_id'  => $this->id,
+                'company'      => $this->company,
+                'employee_ids' => $zuordnung->kandidatenIds,
+            ]);
+        }
+
+        return $zuordnung->ersterKandidatId();
     }
 
     public function personalizeContent(RecApplicant $applicant, ?RecContract $contract = null): string

@@ -45,6 +45,14 @@ class CreateContractTemplateTool implements ToolContract, ToolMetadataContract
                     'type' => 'string',
                     'description' => 'Optional: Beschreibung.',
                 ],
+                'company' => [
+                    'type' => 'string',
+                    'description' => 'Optional: Firma RG/MA. Default: eigene Firma.',
+                ],
+                'taetigkeit' => [
+                    'type' => 'string',
+                    'description' => 'Pflicht bei AV-: z. B. eventmitarbeiter',
+                ],
                 'content' => [
                     'type' => 'string',
                     'description' => 'Optional: Vertragstext (HTML/Markdown mit Platzhaltern wie {{vorname}}, {{nachname}}).',
@@ -84,9 +92,17 @@ class CreateContractTemplateTool implements ToolContract, ToolMetadataContract
                 return ToolResult::error('VALIDATION_ERROR', 'name ist erforderlich.');
             }
 
+            $code = isset($arguments['code']) ? trim((string)$arguments['code']) : null;
+            $taetigkeit = isset($arguments['taetigkeit']) ? strtolower(trim((string)$arguments['taetigkeit'])) : null;
+            if (str_starts_with((string)$code, 'AV-') && ($taetigkeit === null || $taetigkeit === '')) {
+                return ToolResult::error('VALIDATION_ERROR', 'Arbeitsvertrags-Vorlagen (AV-) brauchen eine taetigkeit, z. B. eventmitarbeiter.');
+            }
+
             $template = RecContractTemplate::create([
                 'name' => $name,
-                'code' => isset($arguments['code']) ? trim((string)$arguments['code']) : null,
+                'code' => $code,
+                'company' => isset($arguments['company']) ? strtoupper(trim((string)$arguments['company'])) : null,
+                'taetigkeit' => $taetigkeit === '' ? null : $taetigkeit,
                 'description' => $arguments['description'] ?? null,
                 'content' => $arguments['content'] ?? null,
                 'field_mappings' => $arguments['field_mappings'] ?? null,

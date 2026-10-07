@@ -92,6 +92,7 @@ class RecruitingServiceProvider extends ServiceProvider
                 \Platform\Recruiting\Console\Commands\DispoSeedDressPackages::class,
                 \Platform\Recruiting\Console\Commands\DispoUnfreezeDress::class,
                 \Platform\Recruiting\Console\Commands\EinsatzPruefung::class,
+                \Platform\Recruiting\Console\Commands\VertraegeAnAnstellung::class,
             ]);
         }
 
