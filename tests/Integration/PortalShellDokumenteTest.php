@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Tests\Integration;
 
+use Illuminate\Config\Repository as ConfigRepository;
 use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
@@ -69,6 +70,12 @@ final class PortalShellDokumenteTest extends TestCase
 
         $container->instance('db', $capsule->getDatabaseManager());
         $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
+        // RecContractTemplate::saving() liest den Firmen-Default aus der
+        // Konfiguration (Vertrag an der Anstellung, Stufe 1) — ohne Binding
+        // "Target class [config] does not exist".
+        $container->instance('config', new ConfigRepository([
+            'recruiting' => ['zas' => ['company_prefix' => 'RG']],
+        ]));
         Facade::setFacadeApplication($container);
         Facade::clearResolvedInstances();
 
@@ -160,6 +167,27 @@ final class PortalShellDokumenteTest extends TestCase
         $this->assertNotSame($ersterVertrag->id, $dokumente[0]['id']);
     }
 
+    /**
+     * Spec Vertrag an der Anstellung §6a — der stille Nachzug fuer das neue
+     * Portal. Ein Mensch mit RG- und MA-Anstellung an EINER Bewerbung, der
+     * RG-Vertrag haengt an der RG-Anstellung: das RG-Portal zeigt ihn, das
+     * MA-Portal zeigt NICHTS. Beide Richtungen, sonst prueft der Test nur
+     * den Ist-Zustand. Mutation: dokumente() zurueck auf
+     * $employee->applicant->contracts → MA-Richtung rot.
+     */
+    public function test_portal_zeigt_nur_die_vertraege_der_eigenen_anstellung(): void
+    {
+        $rg = $this->mitarbeiterMitVertraegen(['completed']);
+        $ma = $this->mitarbeiter(['rec_applicant_id' => $rg->rec_applicant_id, 'company' => 'MA']);
+        $vertrag = $rg->contracts()->first();
+
+        $rgDokumente = $this->dokumenteFuer($rg);
+        $this->assertSame([$vertrag->id], array_column($rgDokumente, 'id'), 'RG sieht ihren Vertrag');
+        $this->assertStringContainsString('/contract/' . $vertrag->id . '/pdf', (string) $rgDokumente[0]['pdf_url'], 'PDF-Link weiter ueber den Bewerber-Token');
+
+        $this->assertSame([], $this->dokumenteFuer($ma->fresh()), 'MA sieht den RG-Vertrag NICHT');
+    }
+
     /** Zertifikate laufen in derselben Liste mit — kein zweiter Aufruf noetig. */
     public function test_zertifikat_erscheint_in_der_liste_mit_ausstellungsdatum(): void
     {
@@ -227,6 +255,7 @@ final class PortalShellDokumenteTest extends TestCase
         foreach ($statuses as $status) {
             $attributes = [
                 'rec_applicant_id'         => $applicant->id,
+                'rec_employee_id'          => $employee->id,
                 'rec_contract_template_id' => $template->id,
                 'team_id'                  => self::TEAM,
                 'status'                   => $status,
@@ -294,6 +323,10 @@ final class PortalShellDokumenteTest extends TestCase
             [$own, 'database/migrations/2026_04_15_100000_create_rec_contract_tables.php'],
             [$own, 'database/migrations/2026_08_12_000001_add_type_to_rec_contract_templates.php'],
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
+            // Firma an der Anstellung (RG/MA) — der Doppelfall-Test braucht sie
+            [$own, 'database/migrations/2026_08_26_000002_add_company_to_rec_employees.php'],
+            // Anker rec_employee_id + Vorlagen-Firma (Vertrag an der Anstellung, Stufe 1)
+            [$own, 'database/migrations/2026_10_07_000002_add_employee_anchor_to_contracts.php'],
             // rec_employee_hr_data — RecContract::booted() schreibt bei
             // signed_at auf ensureHrData(), sobald der Bewerber einen
             // RecEmployee hat und alle AV-Vertraege signiert sind.

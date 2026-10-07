@@ -569,8 +569,14 @@ class PortalShell extends Component
      * (render()) uebergibt bereits den durch berechtigterMitarbeiter()
      * geprueften Mitarbeiter (dasselbe Muster wie profilDaten()). Ein
      * fremder Vertrag ist darueber hinaus strukturell nicht erreichbar —
-     * die Liste kommt ausschliesslich ueber $employee->applicant->contracts,
-     * nie ueber eine ID aus der Anfrage.
+     * die Liste kommt ausschliesslich ueber $employee->contracts, nie ueber
+     * eine ID aus der Anfrage.
+     *
+     * Vertraege DIESER Anstellung (Spec Vertrag an der Anstellung §3.4/§6a):
+     * der Token gehoert dem Menschen (Bewerber), die MENGE der Anstellung.
+     * Kein Rueckfall auf $employee->applicant->contracts — der zeigte bei
+     * zwei Anstellungen (RG+MA) den RG-Vertrag im Portal der MA-Anstellung.
+     * Spiegel von EmployeePortal::contracts() auf main.
      *
      * @return list<array{id:int|string, display_name:string, status:string, signed_at:mixed, completed_at:mixed, sign_url:?string, pdf_url:?string}>
      */
@@ -582,7 +588,7 @@ class PortalShell extends Component
 
         $applicantToken = $employee->applicant->getOrCreatePublicFormLink()->token;
 
-        $contractRows = $employee->applicant->contracts
+        $contractRows = $employee->contracts()->with('contractTemplate')->get()
             ->filter(fn ($c) => $c->status !== 'cancelled')
             ->map(function ($c) use ($applicantToken) {
                 $contractLink = $c->getOrCreatePublicFormLink();
