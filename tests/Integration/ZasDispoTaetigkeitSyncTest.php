@@ -145,6 +145,86 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
         }
     }
 
+    public function test_sync_many_writes_only_changed_employees(): void
+    {
+        $a = $this->employee('RG100');
+        $b = $this->employee('RG200');
+        $sync = new ZasDispoTaetigkeitSync();
+        $sync->syncMany([$a->id => ['Servicekräfte'], $b->id => ['Logistiker']], ['Servicekräfte', 'Logistiker']);
+
+        $r = $sync->syncMany([$a->id => ['Servicekräfte'], $b->id => ['Logistiker', 'Kasse']], ['Servicekräfte', 'Logistiker', 'Kasse']);
+
+        $this->assertSame(1, $r['updated'], 'Nur B hat sich geaendert.');
+        $this->assertSame(1, $r['unchanged']);
+        $this->assertSame(['Logistiker', 'Kasse'], (array) $b->fresh()->hrData->dispo_taetigkeiten);
+    }
+
+    public function test_sync_many_ignores_order_jitter(): void
+    {
+        $a = $this->employee('RG100');
+        $sync = new ZasDispoTaetigkeitSync();
+        $sync->syncMany([$a->id => ['Servicekräfte', 'Logistiker']], ['Servicekräfte', 'Logistiker']);
+
+        $r = $sync->syncMany([$a->id => ['Logistiker', 'Servicekräfte']], ['Servicekräfte', 'Logistiker']);
+
+        $this->assertSame(0, $r['updated'], 'Andere Reihenfolge ist keine Aenderung.');
+        $this->assertSame(1, $r['unchanged']);
+    }
+
+    public function test_sync_many_refreshes_the_timestamp_even_without_a_change(): void
+    {
+        $a = $this->employee('RG100');
+        $sync = new ZasDispoTaetigkeitSync();
+        $sync->syncMany([$a->id => ['Servicekräfte']], ['Servicekräfte']);
+        Capsule::table('rec_employee_hr_data')
+            ->where('rec_employee_id', $a->id)
+            ->update(['dispo_taetigkeiten_synced_at' => '2020-01-01 00:00:00']);
+
+        $sync->syncMany([$a->id => ['Servicekräfte']], ['Servicekräfte']);
+
+        $this->assertNotSame(
+            '2020-01-01 00:00:00',
+            (string) Capsule::table('rec_employee_hr_data')->where('rec_employee_id', $a->id)->value('dispo_taetigkeiten_synced_at'),
+            'Sonst zeigt die MA-Akte einen alten Stand, obwohl ZAS den Wert heute bestaetigt hat.'
+        );
+    }
+
+    public function test_sync_many_puts_the_whole_catalogue_into_the_lookup(): void
+    {
+        $a = $this->employee('RG100');
+
+        $r = (new ZasDispoTaetigkeitSync())->syncMany(
+            [$a->id => ['Servicekräfte']],
+            ['Servicekräfte', 'Logistiker', 'Kasse']
+        );
+
+        $this->assertSame(3, $r['created_values'],
+            'Auch nicht zugewiesene Taetigkeiten gehoeren in die Liste — sonst kann die MA-Akte nicht zeigen, was jemand NICHT kann.');
+        $lookupId = Capsule::table('core_lookups')->where('name', 'dispo_taetigkeit')->value('id');
+        $this->assertSame(3, Capsule::table('core_lookup_values')->where('lookup_id', $lookupId)->count());
+    }
+
+    public function test_sync_many_counts_unknown_employee_ids(): void
+    {
+        $r = (new ZasDispoTaetigkeitSync())->syncMany([999999 => ['Servicekräfte']], ['Servicekräfte']);
+
+        $this->assertSame(1, $r['missing_employees']);
+        $this->assertSame(0, $r['updated']);
+    }
+
+    public function test_sync_many_does_not_set_the_zas_export_marker(): void
+    {
+        $a = $this->employee('RG100');
+        Capsule::table('rec_employees')->where('id', $a->id)->update(['zas_changed_at' => null]);
+
+        (new ZasDispoTaetigkeitSync())->syncMany([$a->id => ['Servicekräfte']], ['Servicekräfte']);
+
+        $this->assertNull(
+            Capsule::table('rec_employees')->where('id', $a->id)->value('zas_changed_at'),
+            'Sonst schickten wir ZAS seine eigenen Daten als Aenderung zurueck.'
+        );
+    }
+
     private static function packageRootOf(string $class): string
     {
         $file = (new \ReflectionClass($class))->getFileName();

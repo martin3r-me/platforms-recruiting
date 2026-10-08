@@ -30,9 +30,20 @@ class ZasDispoTaetigkeitSync
      */
     public function sync(RecEmployee $employee, ?string $rawList): array
     {
-        $labels = self::parse($rawList);
-        $created = 0;
+        return $this->syncLabels($employee, self::parse($rawList));
+    }
 
+    /**
+     * Wie sync(), aber mit fertiger Namensliste. Der Dispo-Webexport liefert
+     * keine Komma-Liste, sondern uebersetzte Katalognamen — ein Name mit Komma
+     * wuerde beim Umweg ueber parse() zu zwei Phantom-Qualifikationen.
+     *
+     * @param list<string> $labels
+     * @return array{values: list<string>, created_values: int}
+     */
+    public function syncLabels(RecEmployee $employee, array $labels): array
+    {
+        $created = 0;
         if ($labels !== []) {
             $created = $this->ensureLookupValues((int) $employee->team_id, $labels);
         }
@@ -46,6 +57,82 @@ class ZasDispoTaetigkeitSync
             ]);
 
         return ['values' => $labels, 'created_values' => $created];
+    }
+
+    /**
+     * Stapel-Eingang fuer den Dispo-Webexport: 1.442 Mitarbeiter pro Lieferung.
+     * Die Auswahlliste wird EINMAL je Team gepflegt (nicht je Mitarbeiter), und
+     * geschrieben wird nur, wo sich die Liste wirklich geaendert hat. Der
+     * Zeitstempel wandert trotzdem bei allen mit — sonst zeigt die MA-Akte
+     * einen alten Stand, obwohl ZAS den Wert heute bestaetigt hat.
+     *
+     * @param array<int, list<string>> $labelsByEmployeeId
+     * @param list<string>             $katalogNamen alle Katalognamen, auch unzugewiesene
+     * @return array{updated:int, unchanged:int, created_values:int, missing_employees:int}
+     */
+    public function syncMany(array $labelsByEmployeeId, array $katalogNamen): array
+    {
+        $out = ['updated' => 0, 'unchanged' => 0, 'created_values' => 0, 'missing_employees' => 0];
+        if ($labelsByEmployeeId === []) {
+            return $out;
+        }
+
+        $employees = RecEmployee::query()
+            ->whereIn('id', array_keys($labelsByEmployeeId))
+            ->with('hrData')
+            ->get()
+            ->keyBy('id');
+
+        $out['missing_employees'] = count($labelsByEmployeeId) - $employees->count();
+
+        // Auswahlliste je Team einmal pflegen: der ganze Katalog plus alles,
+        // was tatsaechlich zugewiesen ist (falls ZAS eine ID zuweist, deren
+        // Katalogzeile in derselben Lieferung fehlt).
+        $byTeam = [];
+        foreach ($employees as $employee) {
+            $teamId = (int) $employee->team_id;
+            $byTeam[$teamId] ??= $katalogNamen;
+            foreach ($labelsByEmployeeId[$employee->id] as $label) {
+                $byTeam[$teamId][] = $label;
+            }
+        }
+        foreach ($byTeam as $teamId => $labels) {
+            $out['created_values'] += $this->ensureLookupValues($teamId, array_values(array_unique($labels)));
+        }
+
+        $unveraendert = [];
+        foreach ($employees as $employee) {
+            $labels = $labelsByEmployeeId[$employee->id];
+            $hr = $employee->ensureHrData();
+
+            $alt = (array) ($hr->dispo_taetigkeiten ?? []);
+            $a = array_map('strval', $alt);
+            $b = $labels;
+            sort($a, SORT_STRING);
+            sort($b, SORT_STRING);
+
+            if ($a === $b) {
+                $unveraendert[] = $hr->id;
+                $out['unchanged']++;
+                continue;
+            }
+
+            DB::table('rec_employee_hr_data')
+                ->where('id', $hr->id)
+                ->update([
+                    'dispo_taetigkeiten'           => json_encode($labels, JSON_UNESCAPED_UNICODE),
+                    'dispo_taetigkeiten_synced_at' => now(),
+                ]);
+            $out['updated']++;
+        }
+
+        foreach (array_chunk($unveraendert, 500) as $chunk) {
+            DB::table('rec_employee_hr_data')
+                ->whereIn('id', $chunk)
+                ->update(['dispo_taetigkeiten_synced_at' => now()]);
+        }
+
+        return $out;
     }
 
     /**
