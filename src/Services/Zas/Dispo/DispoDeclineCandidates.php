@@ -37,6 +37,8 @@ class DispoDeclineCandidates
      */
     public function forMessage(CommsWhatsAppThread $thread, CommsWhatsAppMessage $message, array $channelIds): ?array
     {
+        // Abkuerzung, kein Schutz: allThreadsFor() findet ohnehin nur Gespraeche
+        // im Kanal-Set. Spart bei Bewerber-Nachrichten die Kandidaten-Query.
         if (!in_array((int) $thread->comms_channel_id, array_map('intval', $channelIds), true)) {
             return null;
         }
