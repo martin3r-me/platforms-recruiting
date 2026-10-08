@@ -46,11 +46,30 @@ class ZasDispoBlockSplitterTest extends TestCase
         $this->assertSame('1. FC Köln GmbH & Co. KGaA', $row2['einsatzfirma']);
     }
 
-    public function test_unknown_blocks_kept_raw(): void
+    public function test_dispo4_is_mapped_to_assoc_rows(): void
     {
         $result = $this->splitter->split($this->fixture());
-        $this->assertSame([['1', 'Küchenchef', 'RG1', '']], $result['unknown']['Dispo4']);
-        $this->assertArrayNotHasKey('Dispo4', $result['known']);
+
+        $this->assertArrayNotHasKey('Dispo4', $result['unknown'], 'Dispo4 ist jetzt ein bekannter Block.');
+        $this->assertCount(1, $result['known']['Dispo4']);
+        $row = $result['known']['Dispo4'][0];
+        $this->assertSame('1', $row['nr']);
+        $this->assertSame('Küchenchef', $row['name']);
+        $this->assertSame('RG1', $row['code']);
+        $this->assertSame('', $row['col_3'], 'Die vierte Zelle der echten Dateien ist leer.');
+    }
+
+    public function test_dispo5_is_mapped_to_assoc_rows(): void
+    {
+        $content = "{Dispo5}\r\nRG1464;RG8;17;\r\nRG14;RG8;782;\r\n";
+
+        $result = $this->splitter->split($content);
+
+        $this->assertArrayNotHasKey('Dispo5', $result['unknown']);
+        $this->assertCount(2, $result['known']['Dispo5']);
+        $this->assertSame('RG1464', $result['known']['Dispo5'][0]['pnr']);
+        $this->assertSame('RG8', $result['known']['Dispo5'][0]['taetigkeit_id']);
+        $this->assertSame('17', $result['known']['Dispo5'][0]['anzahl']);
     }
 
     public function test_lines_before_first_marker_are_ignored(): void

@@ -26,6 +26,19 @@ class ZasDispoBlockSplitter
             'taetigk_id', 'von', 'bis', 'ort', 'einsatzfirma', 'mitarbeiter_info',
             'status_id', 'taetigkeit', 'interne_bem', 'id_firma',
         ],
+        // Taetigkeiten-Katalog (Mail Olaf Michel 06.10.2026). Zeilenform
+        // "1;Kuechenchef;RG1;" — die vierte Zelle ist immer leer. Schluessel
+        // ist 'code', NICHT die letzte Spalte.
+        'Dispo4' => [
+            'nr', 'name', 'code',
+        ],
+        // Taetigkeiten je Mitarbeiter, dieselbe Mail. Zeilenform
+        // "RG1464;RG8;17;" = PNr, Taetigkeits-ID, Anzahl Einsaetze.
+        // Anzahl 0 kommt vor und beweist, dass dies eine gepflegte
+        // Zuordnungsliste ist und keine abgeleitete Statistik.
+        'Dispo5' => [
+            'pnr', 'taetigkeit_id', 'anzahl',
+        ],
     ];
 
     /** Zeilen mit weniger Zellen gelten in bekannten Bloecken als Muell. */
