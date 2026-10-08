@@ -154,7 +154,7 @@ def bauen(ordner: Path, ziel: Path):
         "1. **Schulungstermine** öffnen und den Termin anklicken, aus dem ihr verschieben wollt (Schulung A).",
         "2. In der Teilnehmerliste die Personen **anhaken**. Das Kästchen oben in der Kopfzeile wählt alle verschiebbaren auf einmal.",
         "3. Oben erscheint der blaue Balken „N ausgewählt“. Dort auf **„Verschieben nach…“** klicken.",
-    ], "Geht vorher und auch während der Schulung.", "A_liste_angehakt.png")
+    ], "Geht vor, während und nach der Schulung.", "A_liste_angehakt.png")
 
     s = folie("Teilnehmer verschieben · Schritt 2", "Zieltermin wählen und verschieben")
     schrittfolie(s, ordner, [
@@ -164,10 +164,10 @@ def bauen(ordner: Path, ziel: Path):
     ], "Status, Bestätigung und Notizen bleiben. Wer schon erinnert wurde, bekommt keine zweite Erinnerung. Es geht keine Nachricht raus.",
         "B_fenster_verschieben.png")
 
-    s = folie("Teilnehmer verschieben · Während der Schulung", "Erst „Teilgenommen“, dann in Gruppen aufteilen")
-    text(s, 0.75, 1.91, 11.8, 0.8, "Verschieben geht auch, solange der Termin läuft, und auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. In der großen Gruppe alle Anwesenden auf Teilgenommen setzen, danach in die Gruppen verschieben. Der Status wandert mit.", 18)
+    s = folie("Teilnehmer verschieben · Während und nach der Schulung", "Erst „Teilgenommen“, dann in Gruppen aufteilen")
+    text(s, 0.75, 1.91, 11.8, 0.8, "Zwischen Terminen am selben Tag könnt ihr jederzeit verschieben, auch während der Schulung und nachträglich, und auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. Am besten in der großen Gruppe alle Anwesenden auf Teilgenommen setzen, danach in die Gruppen verschieben. Der Status wandert mit.", 18)
     bild(s, ordner, "C_status_teilgenommen.png", 0.75, 2.95, 7.97, 3.85)
-    hinweis(s, 9.18, 3.0, 3.4, ["Ziel: gleiche Stelle", "Bis der Zieltermin zu Ende ist", "Teilgenommen nur am selben Tag"])
+    hinweis(s, 9.18, 3.0, 3.4, ["Ziel: gleiche Stelle", "Am selben Tag jederzeit, auch nachträglich", "Teilgenommen nur am selben Tag"])
     text(s, 9.18, 5.75, 3.4, 1.0, "Im Zieltermin steht an der Person „aus …“ mit dem alten Termin.", 15)
 
     # --- Kampagne „Schulung voll“ ---------------------------------------------
@@ -190,7 +190,7 @@ def bauen(ordner: Path, ziel: Path):
     # --- Gut zu wissen ---------------------------------------------------------
     s = folie("Gut zu wissen · Teilnehmer verschieben", "Regeln auf einen Blick")
     tabelle(s, [
-        ("Verschieben: welche Termine", "Nur aktive Termine derselben Stelle (gleicher Ort), die noch nicht zu Ende sind. Ein laufender Termin geht also noch. Wer in eine andere Filiale soll, bucht über die Terminauswahl neu."),
+        ("Verschieben: welche Termine", "Nur aktive Termine derselben Stelle (gleicher Ort). Termine am selben Tag jederzeit, auch nachträglich. Termine an anderen Tagen nur, solange sie noch nicht zu Ende sind. Wer in eine andere Filiale soll, bucht über die Terminauswahl neu."),
         ("Verschieben: wer", "Gebucht, registriert und bestätigt immer. Teilgenommen nur in einen Termin am selben Tag. Stornierte, nicht erschienene und vor Ort aussortierte bleiben, wo sie sind."),
         ("Verschieben: Plätze", "Hat der Zieltermin eine Platzzahl, werden nur so viele verschoben, wie Plätze frei sind. Wer nicht mehr passt, bleibt in Schulung A."),
         ("Verschieben: Nachricht", "Keine. Wenn die Person Bescheid wissen soll, bitte selbst anschreiben."),

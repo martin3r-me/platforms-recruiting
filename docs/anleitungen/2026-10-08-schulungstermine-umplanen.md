@@ -4,7 +4,7 @@ Stand: 08.10.2026
 
 ## Teilnehmer von Schulung A nach Schulung B verschieben
 
-Ihr könnt Teilnehmer direkt aus der Teilnehmerliste in einen anderen Termin derselben Stelle schieben. Die Buchung wandert mit, der Bewerber bekommt keine Nachricht. Das geht vorher und auch **während der Schulung**, zum Beispiel um am Abend in Gruppen aufzuteilen.
+Ihr könnt Teilnehmer direkt aus der Teilnehmerliste in einen anderen Termin derselben Stelle schieben. Die Buchung wandert mit, der Bewerber bekommt keine Nachricht. Das geht vor, **während und nach der Schulung**, zum Beispiel um am Abend in Gruppen aufzuteilen.
 
 1. **Schulungstermine** öffnen und den Termin anklicken, aus dem ihr verschieben wollt (Schulung A).
 2. In der Teilnehmerliste die Personen **anhaken**. Das Kästchen oben in der Kopfzeile wählt alle verschiebbaren auf einmal.
@@ -15,9 +15,9 @@ Ihr könnt Teilnehmer direkt aus der Teilnehmerliste in einen anderen Termin der
 
 Was dabei passiert: Status, Bestätigung und Notizen bleiben erhalten. Wer für Schulung A schon eine Erinnerung bekommen hat, bekommt für Schulung B keine zweite.
 
-### Während der Schulung aufteilen
+### Während und nach der Schulung aufteilen
 
-Verschieben geht auch, solange der Termin läuft, und auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. Sie behalten ihren Status, wandern aber nur in einen Termin am selben Tag. Im Zieltermin steht an der Person „aus …“ mit dem alten Termin.
+Zwischen Terminen am selben Tag könnt ihr jederzeit verschieben, auch während der Schulung und nachträglich, zum Beispiel am nächsten Morgen zum Nachtragen der Gruppen. Das geht auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. Sie behalten ihren Status, wandern aber nur in einen Termin am selben Tag. Im Zieltermin steht an der Person „aus …“ mit dem alten Termin.
 
 **Tipp für den Schulungsabend:** Erst in der großen Gruppe alle Anwesenden auf **Teilgenommen** setzen, dann die Gruppen aufteilen. So muss niemand zwischen den Terminseiten wechseln.
 
@@ -38,7 +38,7 @@ Ist eine Schulung ausgebucht, könnt ihr alle Bewerber, die noch keinen Termin h
 
 | Thema | So ist es |
 | --- | --- |
-| Verschieben: welche Termine | Nur aktive Termine **derselben Stelle** (gleicher Ort), die **noch nicht zu Ende** sind. Ein Termin, der gerade läuft, geht also noch. Wer in eine andere Filiale soll, bucht über die Terminauswahl neu. |
+| Verschieben: welche Termine | Nur aktive Termine **derselben Stelle** (gleicher Ort). Termine **am selben Tag** jederzeit, auch nachträglich. Termine an anderen Tagen nur, solange sie **noch nicht zu Ende** sind. Wer in eine andere Filiale soll, bucht über die Terminauswahl neu. |
 | Verschieben: wer | Gebucht, registriert und bestätigt immer. **Teilgenommen** nur in einen Termin am **selben Tag**. Stornierte, nicht erschienene und vor Ort aussortierte bleiben, wo sie sind. |
 | Verschieben: Plätze | Hat der Zieltermin eine Platzzahl, werden nur so viele verschoben, wie Plätze frei sind. Wer nicht mehr passt, bleibt in Schulung A, das Fenster sagt es euch. |
 | Verschieben: Nachricht | Keine. Wenn die Person Bescheid wissen soll, bitte selbst anschreiben. |
