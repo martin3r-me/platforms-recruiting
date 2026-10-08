@@ -131,8 +131,15 @@ Auf der Seite erscheint danach eine Zeile „Dokumente dieser Veranstaltung" mit
 
 Die lange Form und der Überblick (§8). Formular oben: Datei, Titel, Kategorie, Aktion.
 Empfängerwähler darunter: Suchfeld (Name/Personalnummer), Filter Firma, aktiv/inaktiv,
-Tätigkeit (`rec_employee_hr_data.dispo_taetigkeiten` enthält Wert), Veranstaltung
-(Dropdown kommender Veranstaltungen). Treffer als Liste mit Haken, alle vorgehakt,
+Tätigkeit, Veranstaltung (Dropdown kommender Veranstaltungen).
+
+Der Tätigkeit-Filter liest `rec_employee_hr_data.dispo_taetigkeiten` (JSON-Liste von
+Katalognamen, ZAS führend, Quelle `{Dispo5}` des Webexports seit main 08.10.2026). Die
+Auswahlwerte kommen aus der Lookup-Liste `ZasDispoTaetigkeitSync::LOOKUP`, nicht aus
+den Mitarbeiterzeilen, damit auch Tätigkeiten ohne aktuellen Träger wählbar sind. Der
+Vergleich läuft über den Namen in Kleinschreibung (so entdoppelt ZAS seine Doppel-IDs).
+Grenze: der MA-Mandant liefert keine `{Dispo5}`-Zuordnung, der Filter findet also nur
+RG-Anstellungen; das steht als Hinweis neben dem Filter. Treffer als Liste mit Haken, alle vorgehakt,
 einzelne abwählbar. Zähler „N ausgewählt". Dann Bereitstellen.
 
 Der Wähler existiert nur hier. Die Mitarbeiterliste bekommt keinen Haken-Modus und

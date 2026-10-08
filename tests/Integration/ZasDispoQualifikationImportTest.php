@@ -91,7 +91,7 @@ class ZasDispoQualifikationImportTest extends TestCase
         FakeDispoDisk::$dateien = [];
         foreach ([
             'rec_employees', 'rec_employee_hr_data', 'core_lookups', 'core_lookup_values',
-            'rec_zas_dispo_inbound_files', 'rec_dispo_events', 'rec_dispo_assignments',
+            'rec_zas_dispo_inbound_files', 'rec_dispo_events', 'rec_dispo_assignments', 'rec_persons',
         ] as $t) {
             Capsule::table($t)->delete();
         }
@@ -135,6 +135,12 @@ class ZasDispoQualifikationImportTest extends TestCase
             [$own,  'database/migrations/2026_09_04_000003_add_reminder_sent_to_to_rec_dispo_assignments.php'],
             [$own,  'database/migrations/2026_09_04_000004_add_manual_confirm_to_rec_dispo_assignments.php'],
             [$own,  'database/migrations/2026_09_08_000001_add_late_marker_to_rec_dispo_assignments.php'],
+            // Branch feat/ma-konto: der Importer raeumt beim Wiederauftauchen den
+            // Erinnerungs-Stempel (ET-18). Ohne die Spalte bricht der Live-Lauf
+            // vor dem Qualifikations-Sync ab — die Welt kommt aus den Migrationen.
+            [$own,  'database/migrations/2026_09_28_000001_create_rec_persons_table.php'],
+            [$own,  'database/migrations/2026_09_29_000001_add_konto_felder_to_rec_persons.php'],
+            [$own,  'database/migrations/2026_10_01_000001_add_trigger_state.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
         ];
 
