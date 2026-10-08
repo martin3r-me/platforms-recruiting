@@ -103,7 +103,7 @@ class ZasDispoTaetigkeitSync
         $unveraendert = [];
         foreach ($employees as $employee) {
             $labels = $labelsByEmployeeId[$employee->id];
-            $hr = $employee->ensureHrData();
+            $hr = $employee->hrData ?? $employee->ensureHrData();
 
             $alt = (array) ($hr->dispo_taetigkeiten ?? []);
             $a = array_map('strval', $alt);

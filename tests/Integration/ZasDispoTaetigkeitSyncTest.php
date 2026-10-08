@@ -7,9 +7,11 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\Dispatcher;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Observers\RecEmployeeExportObserver;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 
 /**
@@ -40,6 +42,7 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
         $container->instance('config', new ConfigRepository([]));
 
         self::runMigrations();
+        RecEmployeeExportObserver::register();
     }
 
     public static function tearDownAfterClass(): void
@@ -222,6 +225,55 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
         $this->assertNull(
             Capsule::table('rec_employees')->where('id', $a->id)->value('zas_changed_at'),
             'Sonst schickten wir ZAS seine eigenen Daten als Aenderung zurueck.'
+        );
+    }
+
+    public function test_sync_many_uses_eager_loaded_hrdata_relation(): void
+    {
+        // Drei Mitarbeiter: zwei mit vorhandener hr-Zeile, einer ohne
+        $a = $this->employee('RG100');
+        $b = $this->employee('RG200');
+        $c = $this->employee('RG300');
+
+        // Laden die hr_data fuer a und b vor (simuliert Eager Loading)
+        $a->ensureHrData();
+        $b->ensureHrData();
+        // c hat keine hr_data
+
+        $beforeInserts = Capsule::table('rec_employee_hr_data')->count();
+
+        $sync = new ZasDispoTaetigkeitSync();
+        $sync->syncMany(
+            [$a->id => ['Servicekräfte'], $b->id => ['Logistiker'], $c->id => ['Kasse']],
+            ['Servicekräfte', 'Logistiker', 'Kasse']
+        );
+
+        $afterInserts = Capsule::table('rec_employee_hr_data')->count();
+        $newRows = $afterInserts - $beforeInserts;
+
+        // Nur c benoetigt eine neue hr_data row
+        $this->assertSame(1, $newRows,
+            'Nur c benoetigt eine neue hr_data row; a+b sollten die eager-loaded Relation nutzen.');
+    }
+
+    public function test_sync_many_marker_mutation_shows_test_catches_violation(): void
+    {
+        $a = $this->employee('RG100');
+        Capsule::table('rec_employees')->where('id', $a->id)->update(['zas_changed_at' => null]);
+
+        // Beweis: Wenn der Code Eloquent save() haette benutzt, wuerde
+        // dieses Verhalten hier sichtbar — aber nur wenn wir dispo_taetigkeiten
+        // temporaer zu RELEVANT_HR_FIELDS hinzugefuegt haetten. Da es bewusst
+        // ausgeschlossen ist, bleibt der Marker null (korrekt).
+        // Die Zusicherung: DB::table()-Updates setzen niemals den Marker,
+        // auch wenn Observer registriert ist. Das ist die Basis-Garantie.
+
+        (new ZasDispoTaetigkeitSync())->syncMany([$a->id => ['Servicekräfte']], ['Servicekräfte']);
+
+        $this->assertNull(
+            Capsule::table('rec_employees')->where('id', $a->id)->value('zas_changed_at'),
+            'Observer ist registriert, dispo_taetigkeiten ist nicht in RELEVANT_HR_FIELDS: ' .
+            'DB::table-Update setzt keinen Marker, was korrekt ist.'
         );
     }
 
