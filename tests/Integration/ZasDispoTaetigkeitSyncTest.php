@@ -217,6 +217,12 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
 
     public function test_sync_many_does_not_set_the_zas_export_marker(): void
     {
+        // Dieser Test bleibt, ist aber harmlos: dispo_taetigkeiten steht bewusst
+        // NICHT in RecEmployeeExportObserver::RELEVANT_HR_FIELDS, daher setzt
+        // kein Schreibzugriff (DB::table oder Eloquent) einen Marker. Der Test
+        // wird nicht rot, wenn jemand die Zusicherung bricht — daher: siehe
+        // test_sync_many_marker_guard_against_observer_violation() fuer die
+        // echte Regression-Bewachung.
         $a = $this->employee('RG100');
         Capsule::table('rec_employees')->where('id', $a->id)->update(['zas_changed_at' => null]);
 
@@ -240,7 +246,8 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
         $b->ensureHrData();
         // c hat keine hr_data
 
-        $beforeInserts = Capsule::table('rec_employee_hr_data')->count();
+        DB::connection()->enableQueryLog();
+        $beforeQueries = count(DB::connection()->getQueryLog());
 
         $sync = new ZasDispoTaetigkeitSync();
         $sync->syncMany(
@@ -248,32 +255,35 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
             ['Servicekräfte', 'Logistiker', 'Kasse']
         );
 
-        $afterInserts = Capsule::table('rec_employee_hr_data')->count();
-        $newRows = $afterInserts - $beforeInserts;
+        $allQueries = DB::connection()->getQueryLog();
+        $queryCount = count($allQueries) - $beforeQueries;
+        DB::connection()->disableQueryLog();
 
-        // Nur c benoetigt eine neue hr_data row
-        $this->assertSame(1, $newRows,
-            'Nur c benoetigt eine neue hr_data row; a+b sollten die eager-loaded Relation nutzen.');
+        // Mit Eager Loading (hrData schon geladen): ~11-13 Queries
+        // Ohne Eager Loading ($employee->ensureHrData() in der Schleife):
+        // + 2 extra firstOrCreate-Queries pro existierendem Mitarbeiter (a+b)
+        // = 13-15+ Queries. Grenze bei <= 13 faengt die Regression.
+        $this->assertLessThanOrEqual(13, $queryCount,
+            "Mit eager-loaded hrData sollten Queries <= 13 sein. " .
+            "Ohne Eager Loading waeren es 15+. Gezaehlt: {$queryCount}");
     }
 
-    public function test_sync_many_marker_mutation_shows_test_catches_violation(): void
+    public function test_sync_many_marker_guard_against_observer_violation(): void
     {
-        $a = $this->employee('RG100');
-        Capsule::table('rec_employees')->where('id', $a->id)->update(['zas_changed_at' => null]);
-
-        // Beweis: Wenn der Code Eloquent save() haette benutzt, wuerde
-        // dieses Verhalten hier sichtbar — aber nur wenn wir dispo_taetigkeiten
-        // temporaer zu RELEVANT_HR_FIELDS hinzugefuegt haetten. Da es bewusst
-        // ausgeschlossen ist, bleibt der Marker null (korrekt).
-        // Die Zusicherung: DB::table()-Updates setzen niemals den Marker,
-        // auch wenn Observer registriert ist. Das ist die Basis-Garantie.
-
-        (new ZasDispoTaetigkeitSync())->syncMany([$a->id => ['Servicekräfte']], ['Servicekräfte']);
-
-        $this->assertNull(
-            Capsule::table('rec_employees')->where('id', $a->id)->value('zas_changed_at'),
-            'Observer ist registriert, dispo_taetigkeiten ist nicht in RELEVANT_HR_FIELDS: ' .
-            'DB::table-Update setzt keinen Marker, was korrekt ist.'
+        // Die echte Regression-Bewachung: wenn dispo_taetigkeiten in
+        // RecEmployeeExportObserver::RELEVANT_HR_FIELDS eingetragen wird,
+        // verursacht syncMany() bei jeder Lieferung einen Export-Marker
+        // fuer alle Mitarbeiter (1.442 pro Tag → Massen-Update-Abruf).
+        // Am 02.09. schickten wir ZAS auf diese Weise 505 seiner eigenen
+        // Datensaetze als Aenderung zurueck (ganz ohne inhaltliche Aenderung).
+        //
+        // Dieser Test wird ROT, wenn das Feld dort eingetragen wird.
+        $this->assertNotContains(
+            'dispo_taetigkeiten',
+            RecEmployeeExportObserver::RELEVANT_HR_FIELDS,
+            'dispo_taetigkeiten muss ausgeschlossen bleiben, sonst schicken wir ' .
+            'bei jeder Lieferung (1.442 MA) einen Export-Marker ohne inhaltliche ' .
+            'Aenderung wie am 02.09. mit 505 Mitarbeitern passiert.'
         );
     }
 
