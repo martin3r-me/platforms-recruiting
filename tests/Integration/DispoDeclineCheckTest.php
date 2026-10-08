@@ -23,6 +23,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineAlarm;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineCandidates;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineCheckRunner;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineClassifier;
+use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineReview;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoIdentityResolver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoThreadDirectory;
@@ -467,6 +468,83 @@ class DispoDeclineCheckTest extends TestCase
         $this->assertSame(['Wir: Bitte bestaetige deinen Einsatz am Samstag'], $payload['verlauf']);
         $this->assertSame($a, $payload['einbuchungen'][0]['id']);
         $this->assertTrue($payload['einbuchungen'][0]['bestaetigt']);
+    }
+
+    // ---- Pruefen in der VA (DispoDeclineReview) ----
+
+    /** Meldet eine Absage fuer $ids und liefert die Meldung. */
+    private function reported(int $threadId, array $ids): RecDispoDeclineCheck
+    {
+        self::$llmAnswer = json_encode(['absage' => true, 'sicherheit' => 'high', 'einbuchungen' => $ids]);
+        $this->check($this->message($threadId, 'ich kann nicht'));
+
+        return RecDispoDeclineCheck::query()->where('review_status', 'open')->latest('id')->firstOrFail();
+    }
+
+    public function test_reported_decline_is_open_in_the_event_with_its_days(): void
+    {
+        [$e, $event, $a, $t] = $this->scenario();
+        $check = $this->reported($t, [$a]);
+
+        $review = new DispoDeclineReview();
+        $open = $review->openByEvent($event);
+
+        $this->assertSame([$e], array_keys($open));
+        $this->assertSame($check->id, $open[$e][0]['id']);
+        $this->assertSame([$a], $open[$e][0]['assignment_ids']);
+        $this->assertSame('ich kann nicht', $open[$e][0]['excerpt']);
+        $this->assertSame([$event => 1], $review->openCountsByEvent([$event]));
+    }
+
+    public function test_confirmation_after_the_report_clears_it_one_before_does_not(): void
+    {
+        [$e, $event, $a, $t] = $this->scenario(); // bestaetigt eine Stunde VOR der Meldung
+        $b = $this->assignment($event, $e, now()->addDays(4)->toDateString());
+        $this->reported($t, [$a, $b]);
+        $review = new DispoDeclineReview();
+
+        $this->assertSame([$a, $b], $review->openByEvent($event)[$e][0]['assignment_ids'], 'Alte Bestaetigung hebt die Meldung nicht auf.');
+
+        RecDispoAssignment::query()->whereKey($b)->update(['confirmed_at' => now()->addMinute()]);
+        $this->assertSame([$a], $review->openByEvent($event)[$e][0]['assignment_ids'], 'Nur der spaeter bestaetigte Tag faellt raus.');
+
+        RecDispoAssignment::query()->whereKey($a)->update(['confirmed_at' => now()->addMinute()]);
+        $this->assertSame([], $review->openByEvent($event));
+        $this->assertSame([], $review->openCountsByEvent([$event]));
+    }
+
+    public function test_declined_missing_or_deletion_marked_days_close_the_report(): void
+    {
+        foreach (['declined_at', 'missing_since', 'deletion_marked_at'] as $column) {
+            $this->setUp();
+            [, $event, $a, $t] = $this->scenario();
+            $this->reported($t, [$a]);
+            RecDispoAssignment::query()->whereKey($a)->update([$column => now()]);
+
+            $this->assertSame([], (new DispoDeclineReview())->openByEvent($event), $column);
+        }
+    }
+
+    public function test_dismiss_and_accept_only_touch_the_reports_of_that_person_and_event(): void
+    {
+        [$e, $event, $a, $t] = $this->scenario();
+        $other = $this->employee('RG2', '+49 171 7654321');
+        $o = $this->assignment($event, $other, now()->addDays(2)->toDateString());
+        $mine = $this->reported($t, [$a]);
+        $theirs = $this->reported($this->thread('491717654321'), [$o]);
+        $review = new DispoDeclineReview();
+
+        $this->assertSame(1, $review->dismissForPerson($event, $e, 42));
+        $mine->refresh();
+        $this->assertSame(RecDispoDeclineCheck::REVIEW_DISMISSED, $mine->review_status);
+        $this->assertSame(42, $mine->reviewed_by_user_id);
+        $this->assertNotNull($mine->reviewed_at);
+        $this->assertSame(RecDispoDeclineCheck::REVIEW_OPEN, $theirs->fresh()->review_status);
+
+        $this->assertSame(1, $review->acceptForPerson($event, $other, 7));
+        $this->assertSame(RecDispoDeclineCheck::REVIEW_ACCEPTED, $theirs->fresh()->review_status);
+        $this->assertSame([], $review->openByEvent($event));
+        $this->assertNull(RecDispoAssignment::find($a)->declined_at, 'Verwerfen/Annehmen sagt nie selbst ab.');
     }
 
     private static function runMigrations(): void
