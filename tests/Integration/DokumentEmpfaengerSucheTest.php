@@ -78,4 +78,21 @@ final class DokumentEmpfaengerSucheTest extends TestCase
 
         $this->assertSame(['Anna A'], array_column(DokumentEmpfaengerSuche::finde(3, $this->filter(['event_id' => $eventId])), 'name'));
     }
+
+    public function test_grenze_meldet_abgeschnittene_liste(): void
+    {
+        foreach (['A', 'B', 'C'] as $n) {
+            $this->anstellung(['first_name' => 'X', 'last_name' => $n]);
+        }
+        $r = DokumentEmpfaengerSuche::findeMitGrenze(3, $this->filter(), 2);
+        $this->assertCount(2, $r['treffer']);
+        $this->assertTrue($r['abgeschnitten']);
+        $this->assertSame(['X A', 'X B'], array_column($r['treffer'], 'name'));
+
+        $r = DokumentEmpfaengerSuche::findeMitGrenze(3, $this->filter(['suche' => 'A']), 2);
+        $this->assertFalse($r['abgeschnitten']);
+        $r = DokumentEmpfaengerSuche::findeMitGrenze(3, $this->filter(), 3);
+        $this->assertCount(3, $r['treffer']);
+        $this->assertFalse($r['abgeschnitten'], 'genau am Limit ist nicht abgeschnitten');
+    }
 }

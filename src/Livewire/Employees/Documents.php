@@ -45,6 +45,8 @@ class Documents extends Component
     public ?string $flash = null;
     public ?string $flashError = null;
 
+    private ?array $grenzeCache = null;
+
     private function teamId(): int
     {
         return (int) auth()->user()->currentTeam->id;
@@ -67,7 +69,8 @@ class Documents extends Component
     {
         if (in_array($name, ['suche', 'firma', 'aktiv', 'taetigkeit', 'eventId'], true)) {
             $this->abgewaehlt = [];
-            unset($this->kandidaten);
+            unset($this->kandidaten, $this->abgeschnitten);
+            $this->grenzeCache = null;
         }
     }
 
@@ -82,7 +85,19 @@ class Documents extends Component
     #[Computed]
     public function kandidaten(): array
     {
-        return DokumentEmpfaengerSuche::finde($this->teamId(), [
+        return $this->kandidatenMitGrenze()['treffer'];
+    }
+
+    #[Computed]
+    public function abgeschnitten(): bool
+    {
+        return $this->kandidatenMitGrenze()['abgeschnitten'];
+    }
+
+    /** @return array{treffer: list<array>, abgeschnitten: bool} pro Request nur einmal gerechnet */
+    private function kandidatenMitGrenze(): array
+    {
+        return $this->grenzeCache ??= DokumentEmpfaengerSuche::findeMitGrenze($this->teamId(), [
             'suche' => $this->suche, 'firma' => $this->firma, 'aktiv' => $this->aktiv,
             'taetigkeit' => $this->taetigkeit, 'event_id' => $this->eventId,
         ]);
@@ -129,6 +144,11 @@ class Documents extends Component
 
             return;
         }
+        if ($this->abgeschnitten) {
+            $this->flashError = 'Mehr als ' . DokumentEmpfaengerSuche::LIMIT . ' Treffer — bitte Filter eingrenzen (z. B. Firma, Tätigkeit oder Veranstaltung).';
+
+            return;
+        }
         $ids = $this->gewaehlteIds();
 
         try {
@@ -156,7 +176,8 @@ class Documents extends Component
         $this->abgewaehlt = [];
         $this->waehlerOffen = false;
         $this->aufgeklappt = (int) $e['dokument']->id;
-        unset($this->dokumente, $this->kandidaten);
+        unset($this->dokumente, $this->kandidaten, $this->abgeschnitten);
+        $this->grenzeCache = null;
         $this->flash = $e['versand_noetig']
             ? "An {$e['empfaenger']} Personen bereitgestellt, Versand läuft im Hintergrund."
             : "An {$e['empfaenger']} Personen abgelegt.";

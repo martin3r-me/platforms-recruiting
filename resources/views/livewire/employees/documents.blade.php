@@ -2,6 +2,7 @@
     $kategorien = \Platform\Recruiting\Support\DokumentKategorie::labels();
     $aktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
     $kandidaten = $this->kandidaten;
+    $abgeschnitten = $this->abgeschnitten;
     $gewaehlt = count($kandidaten) - count(array_intersect($abgewaehlt, array_column($kandidaten, 'id')));
     $ohnePortal = count(array_filter($kandidaten, fn ($k) => !$k['hat_portal'] && !in_array($k['id'], $abgewaehlt, true)));
     $dokumente = $this->dokumente;
@@ -108,6 +109,9 @@
             <div class="mt-3 flex items-center justify-between">
                 <div class="text-sm">
                     <span class="font-medium">{{ $gewaehlt }}</span> von {{ count($kandidaten) }} ausgewählt
+                    @if ($abgeschnitten)
+                        <span class="text-xs font-medium text-red-700">· Mehr als {{ \Platform\Recruiting\Services\DokumentEmpfaengerSuche::LIMIT }} Treffer — bitte Filter eingrenzen (z. B. Firma, Tätigkeit oder Veranstaltung).</span>
+                    @endif
                     @if ($ohnePortal > 0)
                         <span class="text-xs text-amber-700">· {{ $ohnePortal }} noch im alten Portal, bekommen keine WhatsApp</span>
                     @endif
@@ -134,7 +138,7 @@
             @endif
 
             <div class="mt-4 flex justify-end">
-                <button type="button" wire:click="bereitstellen" wire:loading.attr="disabled" wire:target="bereitstellen,datei"
+                <button type="button" wire:click="bereitstellen" wire:loading.attr="disabled" wire:target="bereitstellen,datei" @disabled($abgeschnitten)
                         class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-60">
                     An {{ $gewaehlt }} Personen bereitstellen
                 </button>

@@ -18,11 +18,25 @@ use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
  */
 final class DokumentEmpfaengerSuche
 {
+    public const LIMIT = 500;
+
     /**
      * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
      * @return list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>
      */
-    public static function finde(int $teamId, array $filter, int $limit = 500): array
+    public static function finde(int $teamId, array $filter, int $limit = self::LIMIT): array
+    {
+        return self::findeMitGrenze($teamId, $filter, $limit)['treffer'];
+    }
+
+    /**
+     * Wie finde(), meldet aber, ob es mehr Treffer gab als $limit — die Seite
+     * darf eine Liste nie stillschweigend abschneiden und dann "an alle" senden.
+     *
+     * @param  array{suche:string, firma:string, aktiv:string, taetigkeit:string, event_id:?int} $filter
+     * @return array{treffer: list<array{id:int, name:string, personnel_number:?string, company:?string, person_key:?string, hat_portal:bool}>, abgeschnitten: bool}
+     */
+    public static function findeMitGrenze(int $teamId, array $filter, int $limit = self::LIMIT): array
     {
         $q = DB::table('rec_employees')->where('team_id', $teamId);
 
@@ -62,7 +76,7 @@ final class DokumentEmpfaengerSuche
             $q->whereIn('id', EingebuchteFuerDokument::ids((int) $eventId));
         }
 
-        return $q->orderBy('last_name')->orderBy('first_name')->limit($limit)
+        $zeilen = $q->orderBy('last_name')->orderBy('first_name')->limit($limit + 1)
             ->get(['id', 'first_name', 'last_name', 'personnel_number', 'company', 'person_key', 'portal_v2_since'])
             ->map(fn ($r) => [
                 'id'               => (int) $r->id,
@@ -73,6 +87,10 @@ final class DokumentEmpfaengerSuche
                 'hat_portal'       => $r->portal_v2_since !== null,
             ])
             ->all();
+
+        $abgeschnitten = count($zeilen) > $limit;
+
+        return ['treffer' => array_slice($zeilen, 0, $limit), 'abgeschnitten' => $abgeschnitten];
     }
 
     /** @return list<string> der ganze ZAS-Katalog, natuerlich sortiert */
