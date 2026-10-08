@@ -1253,7 +1253,7 @@
 
             {{-- Vollbild-Zoom des Selfies (Alpine, kein Server-Roundtrip). --}}
             @if ($crew !== null && $crew['selfie_full_url'])
-                <div x-cloak x-show="zoom" x-on:click="zoom = false"
+                <div x-show="zoom" x-on:click="zoom = false" style="display: none;"
                      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
                     <img src="{{ $crew['selfie_full_url'] }}" alt="Foto von {{ $crew['name'] }}"
                          class="max-h-[90vh] max-w-full rounded-xl object-contain">

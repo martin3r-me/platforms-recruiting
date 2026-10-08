@@ -34,25 +34,26 @@ class CrewKarteQualifikationenMergeTest extends TestCase
         $this->assertSame(['Logistiker', 'Thekenmitarbeiter'], $r['values']);
     }
 
-    public function test_primary_record_comes_first(): void
+    public function test_values_are_sorted_naturally_and_case_insensitively(): void
     {
         $r = Show::mergeQualifications($this->karten([
-            9 => [['Thekenmitarbeiter'], null],
-            7 => [['Logistiker'], null],
+            9 => [['barkeeper', 'Service 10', 'Kasse'], null],
+            7 => [['Logistiker', 'Service 2', 'Aushilfe'], null],
         ]), 7);
 
-        $this->assertSame(['Logistiker', 'Thekenmitarbeiter'], $r['values'],
-            'Der kanonische Datensatz steht vorn, egal in welcher Reihenfolge die Karten kommen.');
+        $this->assertSame(['Aushilfe', 'barkeeper', 'Kasse', 'Logistiker', 'Service 2', 'Service 10'], $r['values'],
+            'Wie die MA-Akte: alphabetisch, natuerlich, ohne Gross-/Kleinschreibung — unabhaengig von Primary und Exportreihenfolge.');
     }
 
     public function test_deduplicates_case_insensitively_first_spelling_wins(): void
     {
         $r = Show::mergeQualifications($this->karten([
             7 => [['Logistiker', 'Kasse'], null],
-            9 => [['logistiker'], null],
+            9 => [['logistiker', 'KASSE', 'Aushilfe'], null],
         ]), 7);
 
-        $this->assertSame(['Logistiker', 'Kasse'], $r['values']);
+        $this->assertSame(['Aushilfe', 'Kasse', 'Logistiker'], $r['values'],
+            'Die Schreibweise des kanonischen Datensatzes bleibt; die Sortierung aendert nur die Position.');
     }
 
     public function test_takes_the_newest_timestamp(): void
@@ -103,5 +104,21 @@ class CrewKarteQualifikationenMergeTest extends TestCase
 
         $this->assertSame(['Kasse'], $r['values'],
             'Fehlt der kanonische Datensatz in den Karten, darf nichts verloren gehen.');
+    }
+
+    public function test_empty_or_blank_timestamp_is_not_a_sync_state(): void
+    {
+        foreach (['', '   '] as $leer) {
+            $r = Show::mergeQualifications($this->karten([
+                7 => [['Logistiker'], $leer],
+            ]), 7);
+            $this->assertNull($r['synced_at'], 'Leerstring ist kein Stand — Carbon::parse("") waere "jetzt".');
+        }
+
+        $r = Show::mergeQualifications($this->karten([
+            7 => [['Logistiker'], ''],
+            9 => [['Kasse'], '2026-10-08 14:12:00'],
+        ]), 7);
+        $this->assertSame('2026-10-08 14:12:00', $r['synced_at']);
     }
 }

@@ -10,6 +10,7 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
+use Platform\Crm\Models\CrmContactLink;
 use Platform\Recruiting\Livewire\Dispo\Events\Show;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoEvent;
@@ -40,7 +41,12 @@ class DispoCrewKarteQualifikationenTest extends TestCase
         $container->instance('db', $capsule->getDatabaseManager());
         $container->instance('db.schema', $capsule->getConnection()->getSchemaBuilder());
         Facade::setFacadeApplication($container);
-        $container->instance('config', new ConfigRepository([]));
+        // Die #[Computed]-Getter haengen an Livewires EventBus; ohne Singleton bekommt jeder
+        // on()/trigger()-Aufruf eine neue Instanz und crewCard() sieht identity/event nie.
+        $container->singleton(\Livewire\EventBus::class);
+        $container->instance('config', new ConfigRepository([
+            'recruiting' => ['zas' => ['inbound_team_id' => self::TEAM]],
+        ]));
 
         self::runMigrations();
         RecEmployeeExportObserver::register();
@@ -54,7 +60,7 @@ class DispoCrewKarteQualifikationenTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['rec_employees', 'rec_employee_hr_data', 'core_lookups', 'core_lookup_values', 'rec_dispo_events', 'rec_dispo_assignments'] as $t) {
+        foreach (['crm_contact_links', 'rec_employees', 'rec_employee_hr_data', 'core_lookups', 'core_lookup_values', 'rec_dispo_events', 'rec_dispo_assignments', 'rec_dispo_attachments'] as $t) {
             Capsule::table($t)->delete();
         }
     }
@@ -171,7 +177,7 @@ class DispoCrewKarteQualifikationenTest extends TestCase
             'qualifications() speist den Filter im Info-Versand und bleibt auf dem alten Feld.');
     }
 
-    public function test_crew_card_actually_uses_the_merge_and_formats_the_date(): void
+    public function test_crew_card_sorts_and_formats_the_date_of_a_single_record(): void
     {
         $e = $this->employee('RG500', [
             'dispo_taetigkeiten'           => json_encode(['Logistiker', 'Kasse'], JSON_UNESCAPED_UNICODE),
@@ -184,9 +190,42 @@ class DispoCrewKarteQualifikationenTest extends TestCase
         $c->crewEmployeeId = $e->id;
         $karte = $c->crewCard();
 
-        $this->assertSame(['Logistiker', 'Kasse'], $karte['qualifications']);
+        $this->assertSame(['Kasse', 'Logistiker'], $karte['qualifications'],
+            'Alphabetisch wie die MA-Akte.');
         $this->assertSame('08.10. 14:12', $karte['qualifications_synced_at'],
             'Die Anzeigeform entsteht erst hier, nicht im Gateway.');
+    }
+
+    public function test_crew_card_unites_the_taetigkeiten_of_rg_and_ma_record_of_one_person(): void
+    {
+        $rg = $this->employee('RG500', [
+            'dispo_taetigkeiten'           => json_encode(['Logistiker'], JSON_UNESCAPED_UNICODE),
+            'dispo_taetigkeiten_synced_at' => '2026-10-01 09:00:00',
+        ]);
+        $ma = $this->employee('MA18232', [
+            'dispo_taetigkeiten'           => json_encode(['Barkeeper'], JSON_UNESCAPED_UNICODE),
+            'dispo_taetigkeiten_synced_at' => '2026-10-08 14:12:00',
+        ]);
+        foreach ([$rg, $ma] as $e) {
+            Capsule::table('crm_contact_links')->insert([
+                'uuid' => 'lnk-' . $e->id, 'contact_id' => 777, 'team_id' => self::TEAM,
+                'created_by_user_id' => 1, 'linkable_id' => $e->id,
+                'linkable_type' => (new RecEmployee())->getMorphClass(),
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        $event = $this->event();
+        $this->assignment($event, ['rec_employee_id' => $rg->id]);
+        $this->assignment($event, ['rec_employee_id' => $ma->id]);
+
+        $c = $this->dispoComponent($event->id);
+        $c->crewEmployeeId = $rg->id;
+        $karte = $c->crewCard();
+
+        $this->assertEqualsCanonicalizing(['Logistiker', 'Barkeeper'], $karte['qualifications'],
+            'Beide Haelften der Person muessen auf der Karte stehen.');
+        $this->assertSame('08.10. 14:12', $karte['qualifications_synced_at'],
+            'Der juengere Stand der Gruppe gilt.');
     }
 
     public function test_crew_card_of_an_employee_with_null_taetigkeiten_is_empty_not_broken(): void
@@ -250,6 +289,7 @@ class DispoCrewKarteQualifikationenTest extends TestCase
     {
         $own = dirname(__DIR__, 2);
         $core = self::packageRootOf(\Platform\Core\Models\CoreLookup::class);
+        $crm = self::packageRootOf(CrmContactLink::class);
 
         $files = [
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
@@ -262,8 +302,10 @@ class DispoCrewKarteQualifikationenTest extends TestCase
             [$own, 'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php'],
             [$own, 'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php'],
             [$own, 'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php'],
+            [$own, 'database/migrations/2026_08_27_000001_create_rec_dispo_attachments_table.php'],
             [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
+            [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
         ];
 
         foreach ($files as [$root, $relative]) {

@@ -2290,10 +2290,17 @@ class Show extends Component
                 $values[mb_strtolower((string) $q)] ??= (string) $q;
             }
             $stand = $card['qualifications_synced_at'] ?? null;
-            if ($stand !== null && ($syncedAt === null || $stand > $syncedAt)) {
+            // Leerstring/Blanks zaehlen als "nie synchronisiert" (Carbon::parse('') = jetzt).
+            if ($stand !== null && trim((string) $stand) !== '' && ($syncedAt === null || $stand > $syncedAt)) {
                 $syncedAt = $stand;
             }
         }
+
+        // Gleiche Reihenfolge wie die MA-Akte (Employees\Show): der Deckel der Karte
+        // schneidet sonst eine Zufallsreihenfolge des ZAS-Exports ab. Die Regel
+        // "erste Schreibweise gewinnt" haengt an der Einfuegereihenfolge oben.
+        $values = array_values($values);
+        sort($values, SORT_NATURAL | SORT_FLAG_CASE);
 
         return ['values' => array_values($values), 'synced_at' => $syncedAt];
     }
