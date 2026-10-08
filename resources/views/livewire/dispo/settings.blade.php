@@ -85,6 +85,17 @@
                 </select>
                 <span class="mt-1 block text-xs text-gray-400">Für „Info an Crew" auf der VA-Seite: kündigt neue Anhänge/Hinweise an, Button führt auf die Einsatz-Seite.</span>
             </label>
+
+            <label class="block text-sm">
+                <span class="mb-1 block text-gray-600">Alarm-Template „Mögliche Absage" (WhatsApp, freigegeben)</span>
+                <select wire:model="declineAlarmTemplateId" class="w-full rounded-lg border border-gray-300 px-3 py-2">
+                    <option value="">— kein Template gewählt —</option>
+                    @foreach ($this->templates as $template)
+                        <option value="{{ $template['id'] }}">{{ $template['name'] }} (#{{ $template['id'] }})</option>
+                    @endforeach
+                </select>
+                <span class="mt-1 block text-xs text-gray-400">Geht ans Diensthandy der Filiale, wenn die Absage-Erkennung eine Nachricht als mögliche Absage meldet. Platzhalter im Text der Reihe nach: Name, Veranstaltung, Datum. Ein URL-Knopf mit Platzhalter bekommt die Veranstaltung (Sprung in die VA).</span>
+            </label>
         </div>
 
         <div class="flex items-center gap-3">
@@ -99,6 +110,7 @@
         <div>
             <h2 class="text-base font-semibold">Filial-Konfiguration</h2>
             <p class="text-sm text-gray-500">Versand-Kanal und Diensthandy je Filiale — überschreibt den Default-Kanal aus dem Bestätigungs-Template. Jede Zeile wird einzeln gespeichert.</p>
+            <p class="text-sm text-gray-500">Absage-Erkennung: eingehende Nachrichten von angeschriebenen Mitarbeitern werden von der KI geprüft. Eine mögliche Absage wird in der Veranstaltung markiert und ans Diensthandy gemeldet — abgesagt wird erst, wenn jemand das bestätigt. Geprüft wird nur, was nach dem Einschalten eingeht.</p>
         </div>
 
         <div class="overflow-x-auto">
@@ -108,6 +120,7 @@
                         <th class="pb-2 pr-4">Filiale</th>
                         <th class="pb-2 pr-4">Kanal (WhatsApp)</th>
                         <th class="pb-2 pr-4">Diensthandy</th>
+                        <th class="pb-2 pr-4">Absage-Erkennung</th>
                         <th class="pb-2"></th>
                     </tr>
                 </thead>
@@ -125,6 +138,22 @@
                             </td>
                             <td class="py-2 pr-4">
                                 <input type="text" wire:model="filialeDutyPhone.{{ $nr }}" placeholder="z. B. 0170 1234567" class="w-full rounded-lg border border-gray-300 px-3 py-2">
+                            </td>
+                            <td class="py-2 pr-4 whitespace-nowrap">
+                                @php
+                                    $dcSince = $this->filialeSettings->get($nr)?->decline_check_enabled_at;
+                                    $dcCounts = $this->declineCheckCounts[$nr] ?? ['checked' => 0, 'reported' => 0];
+                                @endphp
+                                <label class="flex items-center gap-2">
+                                    <input type="checkbox" wire:model="filialeDeclineCheck.{{ $nr }}" class="rounded border-gray-300">
+                                    <span>prüfen</span>
+                                    @if ($dcSince)
+                                        <span class="text-xs text-gray-400">seit {{ $dcSince->format('d.m.Y') }}</span>
+                                    @endif
+                                </label>
+                                <div class="mt-0.5 text-xs text-gray-500 tabular-nums" title="Laufender Monat: vom Sprachmodell geprüfte Nachrichten / davon als mögliche Absage gemeldet">
+                                    diesen Monat: {{ $dcCounts['checked'] }} geprüft · {{ $dcCounts['reported'] }} gemeldet
+                                </div>
                             </td>
                             <td class="py-2">
                                 <button wire:click="saveFiliale({{ $nr }})" class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">Speichern</button>

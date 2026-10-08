@@ -5,7 +5,9 @@ namespace Platform\Recruiting\Livewire\Dispo;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Platform\Recruiting\Models\RecApplicantSettings;
+use Platform\Recruiting\Models\RecDispoDeclineCheck;
 use Platform\Recruiting\Models\RecDispoFilialeSettings;
+use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineAlarm;
 use Platform\Recruiting\Services\Zas\ZasContactLinkReport;
 use Platform\Recruiting\Support\Filialen;
 
@@ -35,6 +37,8 @@ class Settings extends Component
     public string $escalationTemplate2Id = '';
     public string $alarmTemplateId = '';
     public string $infoTemplateId = '';
+    /** Alarm ans Diensthandy bei moeglicher Absage (Spec 2026-10-08). */
+    public string $declineAlarmTemplateId = '';
 
     // Kill-Switch fuer den stuendlichen CRM-Abgleich (Runde 4 Final-Review).
     // Fehlende Einstellung = AN, deshalb Default '1'.
@@ -50,6 +54,8 @@ class Settings extends Component
     public array $filialeChannelId = [];
     /** @var array<int, string> */
     public array $filialeDutyPhone = [];
+    /** Absage-Erkennung je Filiale (Checkbox, Livewire liefert bool). @var array<int, bool|string> */
+    public array $filialeDeclineCheck = [];
     public ?int $savedFilialNr = null;
 
     public function mount(): void
@@ -71,6 +77,7 @@ class Settings extends Component
         $this->escalationTemplate2Id = (string) ($settings->getSetting('dispo_escalation_template_2_id') ?? '');
         $this->alarmTemplateId       = (string) ($settings->getSetting('dispo_alarm_template_id') ?? '');
         $this->infoTemplateId        = (string) ($settings->getSetting('dispo_info_template_id') ?? '');
+        $this->declineAlarmTemplateId = (string) ($settings->getSetting(DispoDeclineAlarm::SETTINGS_KEY) ?? '');
 
         // Nur ein ausdrueckliches false schaltet ab — fehlender/null-Wert = AN.
         $this->contactBackfillEnabled = $settings->getSetting('dispo_contact_backfill_enabled') === false ? '' : '1';
@@ -79,6 +86,7 @@ class Settings extends Component
             $row = $this->filialeSettings->get($nr);
             $this->filialeChannelId[$nr] = $row ? (string) $row->comms_channel_id : '';
             $this->filialeDutyPhone[$nr] = $row ? (string) $row->duty_phone : '';
+            $this->filialeDeclineCheck[$nr] = $row?->decline_check_enabled_at !== null;
         }
     }
 
@@ -151,6 +159,7 @@ class Settings extends Component
             'escalationTemplate2Id' => 'nullable|string|max:20',
             'alarmTemplateId'       => 'nullable|string|max:20',
             'infoTemplateId'        => 'nullable|string|max:20',
+            'declineAlarmTemplateId' => 'nullable|string|max:20',
         ]);
 
         // dispo_*-Settings haengen am ZAS-Anker-Team, damit Public-Seite/Scheduler
@@ -188,6 +197,7 @@ class Settings extends Component
         $settings->setSetting('dispo_escalation_template_2_id', $this->toNullableId($this->escalationTemplate2Id));
         $settings->setSetting('dispo_alarm_template_id', $this->toNullableId($this->alarmTemplateId));
         $settings->setSetting('dispo_info_template_id', $this->toNullableId($this->infoTemplateId));
+        $settings->setSetting(DispoDeclineAlarm::SETTINGS_KEY, $this->toNullableId($this->declineAlarmTemplateId));
         $settings->setSetting('dispo_contact_backfill_enabled', $this->contactBackfillEnabled !== '');
 
         $settings->save();
@@ -207,12 +217,51 @@ class Settings extends Component
         $channelId  = ($channelRaw !== '' && ctype_digit($channelRaw)) ? (int) $channelRaw : null;
         $dutyPhone  = trim((string) ($this->filialeDutyPhone[$filialNr] ?? ''));
 
+        // Absage-Erkennung: der Einschalt-Zeitpunkt ist die Untergrenze der
+        // Pruefung — erneutes Speichern bei "an" darf ihn NICHT nach vorne schieben.
+        $existing = RecDispoFilialeSettings::where('team_id', $this->teamId())->where('filial_nr', $filialNr)->first();
+        $declineCheckAt = !empty($this->filialeDeclineCheck[$filialNr])
+            ? ($existing?->decline_check_enabled_at ?? now())
+            : null;
+
         RecDispoFilialeSettings::updateOrCreate(
             ['team_id' => $this->teamId(), 'filial_nr' => $filialNr],
-            ['comms_channel_id' => $channelId, 'duty_phone' => $dutyPhone !== '' ? $dutyPhone : null]
+            [
+                'comms_channel_id'         => $channelId,
+                'duty_phone'               => $dutyPhone !== '' ? $dutyPhone : null,
+                'decline_check_enabled_at' => $declineCheckAt,
+            ]
         );
+        unset($this->filialeSettings, $this->declineCheckCounts);
 
         $this->savedFilialNr = $filialNr;
+    }
+
+    /**
+     * Zaehler je Filiale fuer den laufenden Monat (Spec 2026-10-08,
+     * Entscheidung 8): vom Sprachmodell gepruefte Nachrichten und daraus
+     * entstandene Meldungen. Gezaehlt werden Nachrichten, nicht Zeilen — eine
+     * Nachricht kann mehrere VAs betreffen.
+     *
+     * @return array<int, array{checked:int, reported:int}>
+     */
+    #[Computed]
+    public function declineCheckCounts(): array
+    {
+        $rows = RecDispoDeclineCheck::query()
+            ->where('team_id', $this->teamId())
+            ->where('created_at', '>=', now()->startOfMonth())
+            ->get(['filial_nr', 'comms_whatsapp_message_id', 'used_llm', 'review_status']);
+
+        $out = [];
+        foreach ($rows->groupBy('filial_nr') as $nr => $group) {
+            $out[(int) $nr] = [
+                'checked'  => $group->where('used_llm', true)->pluck('comms_whatsapp_message_id')->unique()->count(),
+                'reported' => $group->whereNotNull('review_status')->pluck('comms_whatsapp_message_id')->unique()->count(),
+            ];
+        }
+
+        return $out;
     }
 
     public function render()
