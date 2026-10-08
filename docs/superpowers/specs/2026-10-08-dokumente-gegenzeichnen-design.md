@@ -67,6 +67,7 @@ lebt in EINER reinen Klasse `DokumentKategorie` (Codes, Labels, Default-Aktion).
 | `id`, `team_id` | | |
 | `rec_document_id` | FK | |
 | `rec_employee_id` | FK (ohne DB-FK, Muster `rec_contracts.rec_employee_id`) | die Anstellung, an der HR es abgelegt hat |
+| `uuid` | uuid unique | öffentliche Kennung des Portal-Downloads (eine Zustellung, ein Mensch) |
 | `person_key` | string nullable, index | Kopie von `rec_employees.person_key` zum Entdoppeln und für die Portal-Sicht |
 | `notified_at` | datetime nullable | nur bei Erfolg (`STATUS_SENT` nach Statusprüfung, Muster `AufgabenSender`) |
 | `notify_error` | string(120) nullable | letzter Fehlerstatus (`no_phone`, `failed`, `nicht_konfiguriert`, …); bei Erfolg NULL |
@@ -105,9 +106,11 @@ gibt es nur `abgelegt`/`gesehen`. Benachrichtigungsstand ist eine zweite Achse
    Anstellung mit der kleineren id gewinnt. Ohne `person_key` bleibt jede Anstellung
    ein Empfänger (Muster `SendProofReminders`: lieber eine Nachricht zu viel).
 4. In einer Transaktion: Dokument + Empfängerzeilen.
-5. AUSSERHALB der Transaktion, nur bei `action ≠ none`: je Empfänger
-   `DokumentHinweisSender::sende()` (§4). Ergebnis in `notified_at`/`notify_error`.
-   Eine Meta-Störung kostet einen Empfänger, nicht den Lauf (try/catch je Person).
+5. NACH der Transaktion stellt die Oberfläche den Job `DokumentHinweiseVersenden` ein
+   (nur bei `action ≠ none`). Der Job ruft `DokumentService::hinweiseVersenden()`: je
+   Zustellung ohne Versuch die WhatsApp, Ergebnis in `notified_at`/`notify_error`.
+   Idempotent, ein Fehlschlag wird nicht von selbst wiederholt. HR sieht den Stand
+   („37 von 200 benachrichtigt, läuft …") auf der Seite Dokumente und in der Akte.
 
 Rückgabe das Dokument; der Aufrufer zeigt „14 bereitgestellt, 13 benachrichtigt, 1 ohne Nummer".
 
@@ -140,7 +143,9 @@ den Mitarbeiterzeilen, damit auch Tätigkeiten ohne aktuellen Träger wählbar s
 Vergleich läuft über den Namen in Kleinschreibung (so entdoppelt ZAS seine Doppel-IDs).
 Grenze: der MA-Mandant liefert keine `{Dispo5}`-Zuordnung, der Filter findet also nur
 RG-Anstellungen; das steht als Hinweis neben dem Filter. Treffer als Liste mit Haken, alle vorgehakt,
-einzelne abwählbar. Zähler „N ausgewählt". Dann Bereitstellen.
+einzelne abwählbar. Zähler „N ausgewählt". Dann Bereitstellen. Bei mehr als `DokumentEmpfaengerSuche::LIMIT`
+(500) Treffern verweigert der Wähler das Bereitstellen („Mehr als 500 Treffer — bitte
+Filter eingrenzen").
 
 Der Wähler existiert nur hier. Die Mitarbeiterliste bekommt keinen Haken-Modus und
 keinen Knopf.
@@ -153,9 +158,11 @@ Kein Haken, kein Empfänger → kein Bereitstellen (Fehlertext).
 
 `DokumentHinweisSender` nach dem Muster `AufgabenSender`:
 
-- Meta-Vorlage über Team-Einstellung `document_wa_template_id`, Platzhalter nur
-  `vorname` plus URL-Knopf mit dem Portal-Token (`WhatsAppTemplateUrlButtons`). Kein
-  Dokumenttitel in der Nachricht: universeller Text „im Portal liegt etwas für dich".
+- Meta-Vorlage aus der Team-Einstellung `document_wa_template_id` (Einstellungs-Fenster →
+  Kommunikation, Liste der genehmigten Vorlagen), aufgelöst über dieselbe Kette wie
+  Zertifikat und Fristenlauf (`HoldingTemplateSender::resolveTarget`). Platzhalter nur
+  `vorname` plus URL-Knopf mit dem Portal-Token. Kein Dokumenttitel in der Nachricht:
+  universeller Text „im Portal liegt etwas für dich“.
 - Unbekannter Platzhalter in der Vorlage → kein Versand, Status `vorlage_untauglich`
   (nie stiller Vorname wie in `HoldingTemplateComponents`).
 - Keine lesbare Nummer (`PhoneE164::normalize() === null`) → `no_phone`, kein Versand.
@@ -213,7 +220,8 @@ Neuer Block über den Verträgen: Titel, Kategorie-Label, Status, Datum. Aktione
   Entscheidung in reiner Klasse `DokumentZugriff::entscheide()` (Muster
   `DispoAttachmentAccess`). Antwort `Storage::disk()->response()` mit
   `Cache-Control: private, no-store`.
-- **Bestätigen** (`bestaetigeDokument`): Haken „gelesen und verstanden" Pflicht,
+- **Bestätigen** (`bestaetigeDokument`): nur bei Aktion `acknowledge` (`unterschreiben` nur
+  bei Aktion `sign`; `DokumentUnterschrift` verweigert sonst und schreibt nichts). Haken „gelesen und verstanden" Pflicht,
   setzt `acknowledged_at` falls leer. Vorher muss `first_viewed_at` gesetzt sein,
   sonst Fehlertext „Bitte zuerst öffnen".
 - **Unterschreiben** (`unterschreibeDokument`): Haken + `x-ui-input-signature`
@@ -244,6 +252,11 @@ sich die Aufgaben-Signatur an der Person, und `recruiting:einsatz-pruefung` schi
 beim nächsten gebuchten Einsatz die Sammelnachricht (mit Pause-Regeln ET-15/ET-23).
 Test: ein offenes Dokument ohne Nachweislücke erzeugt genau einen Punkt, mit
 `ko = false`, `gesperrt = false`.
+
+Damit niemand zweimal zum selben Dokument angeschrieben wird, lässt die Einsatz-Prüfung
+Dokumente aus, die in den letzten `EinsatzBezug::PAUSE_TAGE` (7) Tagen ihre eigene WhatsApp
+bekommen haben (`OffenePunkte::fuerTrigger()`); Fehlversuche ohne `notified_at` bleiben drin,
+dort ist die Einsatz-Prüfung der zweite Fang. Das Portal zeigt alle offenen Dokumente.
 
 ---
 
@@ -337,8 +350,12 @@ in `setUp()`, `config`-Binding wo Modelle es lesen.
 ## 12. Deploy
 
 - Zwei Migrationen (`rec_documents`, `rec_document_recipients`), kein Backfill.
-- Team-Einstellung `document_wa_template_id` mit genehmigter Meta-Vorlage (Vorname + URL-Knopf).
+- Einstellungs-Fenster → Kommunikation: „Dokumente — WhatsApp-Template mit Portal-Link“
+  auf die genehmigte Meta-Vorlage setzen. Ohne Wert liegt jedes Dokument bereit, aber
+  niemand bekommt eine WhatsApp (Status `nicht_konfiguriert`, Erneut-senden holt es nach).
 - Speicherpfad auf dem Disk der Dispo-Anhänge; nichts in `.env`.
-- `view:clear`. Kein `queue:restart` (kein Job).
+- `view:clear`.
+- `queue:restart` nach dem Deploy: die Hinweise verschickt der Job `DokumentHinweiseVersenden`
+  auf dem Worker, nie der Klick.
 - Sichttest: Akte → PDF ablegen → WhatsApp kommt → Portal zeigt Punkt → unterschreiben →
   Nachweisblatt öffnet.
