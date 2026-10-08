@@ -190,7 +190,17 @@ class Index extends Component
             ]);
         }
 
-        return view('recruiting::livewire.dispo.events.index', ['events' => $events, 'unreadByEvent' => $unreadByEvent])
+        // Absage-Erkennung (Spec 2026-10-08): offene Meldungen je VA (Personen).
+        // Gleiche Regel wie oben — eine Nebeninformation schiesst die Liste nicht ab.
+        try {
+            $declineByEvent = app(\Platform\Recruiting\Services\Zas\Dispo\DispoDeclineReview::class)
+                ->openCountsByEvent($events->pluck('id')->map(fn ($v) => (int) $v)->all());
+        } catch (\Throwable $e) {
+            $declineByEvent = [];
+            \Illuminate\Support\Facades\Log::warning('dispo_decline_by_event_failed', ['error' => $e->getMessage()]);
+        }
+
+        return view('recruiting::livewire.dispo.events.index', ['events' => $events, 'unreadByEvent' => $unreadByEvent, 'declineByEvent' => $declineByEvent])
             ->layout('platform::layouts.app');
     }
 }

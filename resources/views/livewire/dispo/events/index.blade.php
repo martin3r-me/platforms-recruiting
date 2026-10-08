@@ -69,6 +69,9 @@
                     @if ($unread > 0)
                         <span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">💬 {{ $unread }}</span>
                     @endif
+                    @if (($declineByEvent[$event->id] ?? 0) > 0)
+                        <span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white" title="Mögliche Absagen, die noch geprüft werden müssen">⚠ {{ $declineByEvent[$event->id] }}</span>
+                    @endif
                 </div>
                 <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
                     <span class="tabular-nums">{{ $event->assignments_count }} gesamt · {{ $event->confirmed_count }} bestätigt</span>
@@ -124,6 +127,9 @@
                             @endif
                             @if (($unreadByEvent[$event->id] ?? 0) > 0)
                                 <a href="{{ route('recruiting.dispo.events.show', ['eventId' => $event->id]) }}" class="ml-1 inline-flex items-center gap-1 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white" title="Ungelesene Nachrichten von disponierten Mitarbeitern">💬 {{ $unreadByEvent[$event->id] }}</a>
+                            @endif
+                            @if (($declineByEvent[$event->id] ?? 0) > 0)
+                                <a href="{{ route('recruiting.dispo.events.show', ['eventId' => $event->id, 'filter' => 'suspected']) }}" class="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white" title="Mögliche Absagen, die noch geprüft werden müssen">⚠ {{ $declineByEvent[$event->id] }}</a>
                             @endif
                         </td>
                         <td class="px-4 py-2">{{ $event->filiale_label ?? '—' }}</td>

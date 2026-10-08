@@ -228,6 +228,12 @@
             $rfOptions = $this->rowFilterOptions;
             $rfAktiv = $this->activeRowFilters;
             $rfLabels = ['' => 'Alle', 'open' => 'Offen', 'confirmed' => '✓ Bestätigt', 'declined' => '✕ Abgesagt', 'read' => 'Gelesen', 'failed' => '⚠ Zustellprobleme'];
+            // Absage-Erkennung: Filter nur zeigen, wenn es etwas zu pruefen gibt
+            // (oder er gerade aktiv ist) — sonst wird die Leiste wieder zu breit.
+            if ($rfCounts['suspected'] > 0 || $rowFilter === 'suspected') {
+                $rfLabels['suspected'] = '⚠ Mögliche Absage';
+            }
+            $suspectedIds = $this->suspectedAssignmentIds;
         @endphp
         <div class="border-b border-gray-100 px-4 py-2.5">
             <div class="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-1.5">
@@ -317,7 +323,7 @@
                             @if ($assignment->missing_since)
                                 <span class="rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-600">verschwunden</span>
                             @endif
-                            @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment])
+                            @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment, 'suspected' => isset($suspectedIds[$assignment->id])])
                         </div>
                         @if ($noteM !== '' || $attListM !== [])
                             <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
@@ -421,7 +427,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-2">
-                            @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment])
+                            @include('recruiting::livewire.dispo.events._confirmation-chips', ['assignment' => $assignment, 'suspected' => isset($suspectedIds[$assignment->id])])
                             @if (!$eventOnly && $assignment->declined_at)
                                 <button type="button" wire:click="undoDecline({{ $assignment->id }})"
                                         wire:confirm="Absage zurücknehmen? Der Tag ist danach wieder offen und läuft normal in Versand und Eskalation."
@@ -1326,6 +1332,37 @@
                         <button type="button" wire:click="markChatUnread" class="rounded px-2 py-1 text-blue-700 hover:bg-blue-50" title="Chat schließen und wieder blau markieren — z. B. um später zu antworten">als ungelesen schließen</button>
                     </span>
                 </div>
+                @php
+                    $dcReports = $this->declineReports[$chatEmployeeId] ?? [];
+                    $dcDays = [];
+                    if ($dcReports !== []) {
+                        $dcIds = array_merge(...array_column($dcReports, 'assignment_ids'));
+                        foreach ($this->event->assignments->whereIn('id', $dcIds)->sortBy(fn ($a) => $a->datum->format('Y-m-d')) as $dcRow) {
+                            $dcDays[$dcRow->datum->format('Y-m-d')] = $dcRow->datum->format('d.m.');
+                        }
+                    }
+                @endphp
+                @if ($dcReports !== [])
+                    {{-- Absage-Erkennung (Spec 2026-10-08): die KI meldet nur — abgesagt
+                         wird erst ueber das Absage-Fenster, vorbelegt mit dieser Meldung. --}}
+                    <div class="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <div class="font-semibold">⚠ Mögliche Absage{{ $dcDays !== [] ? ' für ' . implode(', ', $dcDays) : '' }}</div>
+                        @foreach ($dcReports as $dcReport)
+                            <div class="mt-1">„{{ \Illuminate\Support\Str::limit($dcReport['excerpt'], 300) }}“ <span class="text-xs text-amber-700 tabular-nums">· {{ $dcReport['at'] }}</span></div>
+                            @if ($dcReport['reason'] !== '')
+                                <div class="text-xs text-amber-700">Einschätzung der KI: {{ $dcReport['reason'] }}</div>
+                            @endif
+                        @endforeach
+                        @if (!$eventOnly)
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                <button type="button" wire:click="openDeclineFromReport" class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">Absage erfassen …</button>
+                                <button type="button" wire:click="dismissDeclineReport" class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100">Keine Absage</button>
+                            </div>
+                        @else
+                            <div class="mt-1 text-xs text-amber-700">Die Dispo entscheidet darüber.</div>
+                        @endif
+                    </div>
+                @endif
                 @if (!empty($chat['stale_number']))
                     <div class="border-b border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700">⚠ Dieses Gespräch läuft auf einer alten Nummer ({{ $chat['phone'] }}) — die Akte hat inzwischen eine andere. Nur-Lesen; der aktuelle Chat öffnet sich beim nächsten Öffnen der Person.</div>
                 @endif
