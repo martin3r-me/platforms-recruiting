@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecDocumentRecipient;
+use Platform\Recruiting\Support\DokumentKategorie;
 
 /**
  * Die drei Handlungen des Mitarbeiters (Spec §5.3): oeffnen, bestaetigen,
@@ -39,7 +40,7 @@ class DokumentUnterschrift
     public function bestaetigen(RecDocumentRecipient $z, bool $gelesen, bool $duzen): ?string
     {
         $z = $z->fresh();
-        if ($fehler = $this->vorbedingungen($z, $gelesen, $duzen)) {
+        if ($fehler = $this->vorbedingungen($z, $gelesen, $duzen, DokumentKategorie::AKTION_ACKNOWLEDGE)) {
             return $fehler;
         }
         DB::table('rec_document_recipients')
@@ -53,7 +54,7 @@ class DokumentUnterschrift
     public function unterschreiben(RecDocumentRecipient $z, bool $gelesen, string $signatureData, bool $duzen): ?string
     {
         $z = $z->fresh();
-        if ($fehler = $this->vorbedingungen($z, $gelesen, $duzen)) {
+        if ($fehler = $this->vorbedingungen($z, $gelesen, $duzen, DokumentKategorie::AKTION_SIGN)) {
             return $fehler;
         }
         if (!self::istUnterschriftsbild($signatureData)) {
@@ -98,10 +99,18 @@ class DokumentUnterschrift
         return $bytes !== false && str_starts_with($bytes, "\x89PNG");
     }
 
-    private function vorbedingungen(?RecDocumentRecipient $z, bool $gelesen, bool $duzen): ?string
+    private function vorbedingungen(?RecDocumentRecipient $z, bool $gelesen, bool $duzen, string $erwarteteAktion): ?string
     {
         if ($z === null || $z->withdrawn_at !== null || $z->document === null) {
             return 'Dieses Dokument wurde zurückgezogen.';
+        }
+        // Die Aktion gehoert dem Dokument, nicht dem Aufrufer: wer ein 'none'- oder
+        // 'acknowledge'-Dokument unterschriebe, haette signed_at gesetzt und HR
+        // koennte es nicht mehr zurueckziehen.
+        if ((string) $z->document->action !== $erwarteteAktion) {
+            return $erwarteteAktion === DokumentKategorie::AKTION_SIGN
+                ? 'Dieses Dokument braucht keine Unterschrift.'
+                : 'Dieses Dokument braucht keine Bestätigung.';
         }
         if ($z->first_viewed_at === null) {
             return 'Bitte zuerst das Dokument öffnen.';

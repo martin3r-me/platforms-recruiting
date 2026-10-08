@@ -96,6 +96,32 @@ final class DokumentUnterschriftTest extends TestCase
         $this->assertSame(self::SIG, $z->signature_data);
     }
 
+    public function test_unterschreiben_wird_bei_acknowledge_und_none_abgewiesen(): void
+    {
+        foreach (['acknowledge', 'none'] as $aktion) {
+            $z = $this->zustellung($aktion);
+            $this->dienst()->oeffnen($z);
+
+            $this->assertSame('Dieses Dokument braucht keine Unterschrift.', $this->dienst()->unterschreiben($z->fresh(), true, self::SIG, true), $aktion);
+
+            $z = $z->fresh();
+            $this->assertNull($z->signed_at, $aktion);
+            $this->assertNull($z->signature_data, $aktion);
+            $this->assertNull($z->acknowledged_at, $aktion);
+        }
+    }
+
+    public function test_bestaetigen_wird_bei_none_und_sign_abgewiesen(): void
+    {
+        foreach (['none', 'sign'] as $aktion) {
+            $z = $this->zustellung($aktion);
+            $this->dienst()->oeffnen($z);
+
+            $this->assertSame('Dieses Dokument braucht keine Bestätigung.', $this->dienst()->bestaetigen($z->fresh(), true, true), $aktion);
+            $this->assertNull($z->fresh()->acknowledged_at, $aktion);
+        }
+    }
+
     public function test_leere_unterschrift_wird_abgelehnt(): void
     {
         $z = $this->zustellung();

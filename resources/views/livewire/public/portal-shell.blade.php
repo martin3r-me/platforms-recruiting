@@ -908,7 +908,7 @@
                 @php
                     $blattIstUnterschrift = $dokumentBlatt['action'] === 'sign';
                     $blattEinleitung = $dokumentBlatt['erledigt']
-                        ? 'Dieses Dokument ist erledigt. Du kannst es jederzeit erneut öffnen.'
+                        ? ($duzen ? 'Dieses Dokument ist erledigt. Du kannst es jederzeit erneut öffnen.' : 'Dieses Dokument ist erledigt. Sie können es jederzeit erneut öffnen.')
                         : ($blattIstUnterschrift
                             ? ($duzen ? 'Bitte lies das Dokument und unterschreibe unten.' : 'Bitte lesen Sie das Dokument und unterschreiben Sie unten.')
                             : ($duzen ? 'Bitte lies das Dokument und bestätige unten.' : 'Bitte lesen Sie das Dokument und bestätigen Sie unten.'));
