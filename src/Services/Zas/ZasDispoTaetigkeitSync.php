@@ -151,7 +151,7 @@ class ZasDispoTaetigkeitSync
             }
             // insertOrIgnore, NICHT insert: die Spalte traegt UNIQUE (lookup_id, value)
             // unter utf8mb4_unicode_ci, das ist umlaut- und ss-unempfindlich
-            // ('Abraeumer' = 'Abräumer'). Unser PHP-Vergleich ist binaer. Ein harter
+            // ('Abraeumer' = 'Abr-ae-umer', ebenso ss/Eszett). Unser PHP-Vergleich ist binaer. Ein harter
             // INSERT wuerfe 1062, der try/catch des Aufrufers schluckte es und KEIN
             // Mitarbeiter bekaeme je Qualifikationen. So fehlt im Zweifel nur ein Name.
             $created += DB::table('core_lookup_values')->insertOrIgnore([
