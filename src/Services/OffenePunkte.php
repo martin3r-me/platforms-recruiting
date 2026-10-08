@@ -66,6 +66,7 @@ class OffenePunkte
     public function __construct(
         private readonly ProofReader $nachweise = new ProofReader(),
         private readonly PersonScopeResolver $scope = new PersonScopeResolver(),
+        private readonly DokumentLeser $dokumente = new DokumentLeser(),
     ) {
     }
 
@@ -73,6 +74,21 @@ class OffenePunkte
      * @return array{punkte: list<array{code:string, label:string, status:string, ko:bool}>, einsatz: ?array{datum:string, taetigkeit:?string, event:?string}, gesperrt: bool}
      */
     public function fuer(RecEmployee $employee, ?string $heute = null): array
+    {
+        return $this->stand($employee, $heute, null);
+    }
+
+    /**
+     * Dieselbe Form fuer die Einsatz-Pruefung — ohne Dokumente, die in den
+     * letzten PAUSE_TAGE ihre eigene WhatsApp bekommen haben (Spec Dokumente,
+     * Nachtrag 09.10.2026). Nachweise und Pflichtangaben unveraendert.
+     */
+    public function fuerTrigger(RecEmployee $employee, ?string $heute = null): array
+    {
+        return $this->stand($employee, $heute, EinsatzBezug::PAUSE_TAGE);
+    }
+
+    private function stand(RecEmployee $employee, ?string $heute, ?int $ohneFrischGemeldeteTage): array
     {
         $heute = $heute ?? now()->toDateString();
         $checkliste = $this->nachweise->checklist($employee, $heute);
@@ -89,6 +105,12 @@ class OffenePunkte
                 'ko'     => ProofTypes::istKo($zeile['code']),
             ];
         }
+
+        // Zweite Quelle (Spec Dokumente 2026-10-08, §5.2): offene Dokumente
+        // sind Punkte mit Code 'dokument:<id>', ko=false, Label und Satz
+        // bringen sie selbst mit — ProofTypes kennt sie nicht und wird fuer
+        // sie nicht gefragt. gesperrt bleibt allein Sache der Arbeitserlaubnis.
+        $punkte = array_merge($punkte, $this->dokumente->offenePunkte($employee, $ohneFrischGemeldeteTage, $heute));
 
         return [
             'punkte'   => $punkte,

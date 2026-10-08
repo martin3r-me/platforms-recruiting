@@ -115,6 +115,11 @@ final class PortalAufgabenBladeTest extends TestCase
     {
         $schema = $this->capsule->schema();
 
+        // Dokumente (Task 1): OffenePunkte liest jetzt auch rec_document_recipients — die Tabellen kommen aus den Migrationen.
+        foreach (['2026_10_09_000001_create_rec_documents_table', '2026_10_09_000002_create_rec_document_recipients_table'] as $m) {
+            (require dirname(__DIR__, 2) . '/database/migrations/' . $m . '.php')->up();
+        }
+
         $schema->create('rec_employees', function ($t) {
             $t->increments('id');
             $t->string('uuid', 64)->nullable();

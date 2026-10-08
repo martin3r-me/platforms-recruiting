@@ -352,7 +352,8 @@ class EinsatzPruefung extends Command
             // den Lauf — und er faerbt den Rueckgabewert, damit er nicht
             // still im Protokoll versickert.
             try {
-                $stand   = $punkteLeser->fuer($rep, $heute);
+                // fuerTrigger: frisch per WhatsApp gemeldete Dokumente bleiben PAUSE_TAGE still (Spec Dokumente §6).
+                $stand   = $punkteLeser->fuerTrigger($rep, $heute);
                 $punkte  = $stand['punkte'];
                 $umfang  = $scope->forEmployee($rep);
                 $personId = $rep->rec_person_id !== null ? (int) $rep->rec_person_id : null;

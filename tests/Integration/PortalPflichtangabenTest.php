@@ -90,6 +90,9 @@ final class PortalPflichtangabenTest extends TestCase
             // Tabellen bricht jeder Aufruf mit "no such table" ab.
             'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php',
             'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php',
+            // Dokumente: OffenePunkte::fuer() liest auch die Zustellungen.
+            'database/migrations/2026_10_09_000001_create_rec_documents_table.php',
+            'database/migrations/2026_10_09_000002_create_rec_document_recipients_table.php',
         ] as $relative) {
             $path = $own . '/' . $relative;
             if (!file_exists($path)) {
