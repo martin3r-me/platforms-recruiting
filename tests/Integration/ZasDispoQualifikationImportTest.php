@@ -220,7 +220,7 @@ class ZasDispoQualifikationImportTest extends TestCase
         $this->importiere($this->dispoZeile());
 
         $this->assertSame(['Servicekräfte'], (array) $mitarbeiter->fresh()->hrData->dispo_taetigkeiten,
-            'Eine Teillieferung ohne {Dispo5} darf 1.409 Mitarbeitern nicht die Qualifikationen leeren.');
+            'Ende-zu-Ende: eine Teillieferung ohne {Dispo5} laesst gespeicherte Qualifikationen stehen (der Frueh-Ausstieg selbst wird in test_delivery_with_dispo4_only_does_not_run_the_qualification_sync geprueft).');
     }
 
     public function test_delivery_with_dispo4_only_does_not_run_the_qualification_sync(): void

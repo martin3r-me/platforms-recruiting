@@ -77,19 +77,15 @@ class ZasDispoTaetigkeitSync
 
         $out['missing_employees'] = count($labelsByEmployeeId) - $employees->count();
 
-        // Auswahlliste je Team einmal pflegen: der ganze Katalog plus alles,
-        // was tatsaechlich zugewiesen ist (falls ZAS eine ID zuweist, deren
-        // Katalogzeile in derselben Lieferung fehlt).
-        $byTeam = [];
+        // Auswahlliste je Team einmal pflegen: der ganze Katalog. Zugewiesene
+        // Labels sind zwingend Katalognamen (der Extractor verwirft Zeilen ohne
+        // Katalogeintrag als ohne_katalog), eine eigene Ergaenzung braucht es nicht.
+        $teamIds = [];
         foreach ($employees as $employee) {
-            $teamId = (int) $employee->team_id;
-            $byTeam[$teamId] ??= $katalogNamen;
-            foreach ($labelsByEmployeeId[$employee->id] as $label) {
-                $byTeam[$teamId][] = $label;
-            }
+            $teamIds[(int) $employee->team_id] = true;
         }
-        foreach ($byTeam as $teamId => $labels) {
-            $out['created_values'] += $this->ensureLookupValues($teamId, array_values(array_unique($labels)));
+        foreach (array_keys($teamIds) as $teamId) {
+            $out['created_values'] += $this->ensureLookupValues($teamId, array_values(array_unique($katalogNamen)));
         }
 
         $unveraendert = [];
@@ -153,7 +149,12 @@ class ZasDispoTaetigkeitSync
             if (isset($known[mb_strtolower($label)])) {
                 continue;
             }
-            DB::table('core_lookup_values')->insert([
+            // insertOrIgnore, NICHT insert: die Spalte traegt UNIQUE (lookup_id, value)
+            // unter utf8mb4_unicode_ci, das ist umlaut- und ss-unempfindlich
+            // ('Abraeumer' = 'Abräumer'). Unser PHP-Vergleich ist binaer. Ein harter
+            // INSERT wuerfe 1062, der try/catch des Aufrufers schluckte es und KEIN
+            // Mitarbeiter bekaeme je Qualifikationen. So fehlt im Zweifel nur ein Name.
+            $created += DB::table('core_lookup_values')->insertOrIgnore([
                 'lookup_id'  => $lookupId,
                 'value'      => $label,
                 'label'      => $label,
@@ -163,7 +164,6 @@ class ZasDispoTaetigkeitSync
                 'updated_at' => now(),
             ]);
             $known[mb_strtolower($label)] = true;
-            $created++;
         }
 
         return $created;

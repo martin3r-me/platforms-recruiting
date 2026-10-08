@@ -23,7 +23,12 @@ final class DispoQualifikationExtractor
      * 'RG999999') treffen auf niemanden und laufen ohnehin als unmatched ins
      * Protokoll; sie gehoeren nicht in diese Liste.
      */
-    public const PLATZHALTER_PNR = ['RG0', 'RG14'];
+    public const PLATZHALTER_PNR = [
+        'RG0', 'RG14',
+        // Dieselben Platzhalter in blanker Notation: der Matcher behandelt eine
+        // praefixlose Nummer als eigene Firma, '14' traefe also ebenfalls RG14 = MA 126.
+        '0', '14',
+    ];
 
     /**
      * @param list<array<string,string>> $dispo4
@@ -45,6 +50,8 @@ final class DispoQualifikationExtractor
             $namen[mb_strtolower($name)] ??= $name;
         }
 
+        $platzhalter = array_map('mb_strtoupper', self::PLATZHALTER_PNR);
+
         $byPnr = [];
         $stats = [
             'katalog'      => count($katalog),
@@ -63,7 +70,7 @@ final class DispoQualifikationExtractor
                 continue;
             }
             // Platzhalter-Abgleich schreibungsunabhaengig machen.
-            if (in_array(mb_strtoupper($pnr), array_map('mb_strtoupper', self::PLATZHALTER_PNR), true)) {
+            if (in_array(mb_strtoupper($pnr), $platzhalter, true)) {
                 $stats['platzhalter']++;
                 continue;
             }

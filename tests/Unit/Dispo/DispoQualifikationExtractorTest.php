@@ -155,8 +155,21 @@ class DispoQualifikationExtractorTest extends TestCase
         $this->assertSame(1, $r['stats']['ohne_katalog']);
         $this->assertSame(['RG1465'], array_keys($r['byPnr']),
             'Nur die akzeptierte Zeile landet in byPnr.');
-        $this->assertSame(1 + 1 + 1 + 1, $r['stats']['zeilen'],
-            'ohne_pnr + platzhalter + ohne_katalog + 1 accepted = 4 gesamt.');
+        $s = $r['stats'];
+        $this->assertSame($s['zeilen'], $s['ohne_pnr'] + $s['platzhalter'] + $s['ohne_katalog'] + count($r['byPnr']),
+            'ohne_pnr + platzhalter + ohne_katalog + akzeptierte PNr muessen die Zeilenzahl ergeben.');
+    }
+
+    public function test_blank_placeholder_numbers_are_filtered_too(): void
+    {
+        $r = DispoQualifikationExtractor::extract($this->katalog(), [
+            $this->row('14', 'RG8', '782'),
+            $this->row('0', 'RG8', '1'),
+            $this->row('RG8', 'RG8', '1'),
+        ]);
+
+        $this->assertSame(2, $r['stats']['platzhalter']);
+        $this->assertSame(['RG8'], array_keys($r['byPnr']));
     }
 
     public function test_case_insensitive_deduplication_uses_canonical_spelling(): void
