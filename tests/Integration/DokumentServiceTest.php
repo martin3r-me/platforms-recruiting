@@ -277,4 +277,108 @@ final class DokumentServiceTest extends TestCase
         $this->assertSame($vorher, DB::table('rec_employees')->where('id', $a->id)->value('updated_at'));
         $this->assertSame($marker, DB::table('rec_employees')->where('id', $a->id)->value('zas_changed_at'));
     }
+
+    private function bereit(array $datenSet = [], ?RecEmployee $ma = null): array
+    {
+        $ma ??= $this->ma();
+        $r = $this->service()->bereitstellen(self::TEAM, $this->daten($datenSet), self::PDF, 'x.pdf', [$ma->id], null, null);
+        $this->service()->hinweiseVersenden($r['dokument']);
+        $this->sender->angeschrieben = [];
+
+        return [$r['dokument'], RecDocumentRecipient::where('rec_document_id', $r['dokument']->id)->first(), $ma];
+    }
+
+    public function test_erneut_senden_schreibt_erfolg_und_loescht_fehler(): void
+    {
+        [$dok, $zeile, $ma] = $this->bereit();
+        DB::table('rec_document_recipients')->where('id', $zeile->id)->update(['notified_at' => null, 'notify_error' => 'no_phone']);
+
+        $status = $this->service()->erneutSenden($zeile->fresh());
+
+        $this->assertSame('sent', $status);
+        $this->assertSame([$ma->id], $this->sender->angeschrieben);
+        $zeile = $zeile->fresh();
+        $this->assertNotNull($zeile->notified_at);
+        $this->assertNull($zeile->notify_error);
+    }
+
+    public function test_erneut_senden_nach_umstellung(): void
+    {
+        $ma = $this->ma(['portal_v2_since' => null]);
+        $this->sender->antworten[$ma->id] = DokumentHinweisSender::STATUS_ALTES_PORTAL;
+        [$dok, $zeile] = $this->bereit([], $ma);
+        $this->assertSame('altes_portal', $zeile->notify_error, 'Testannahme');
+
+        unset($this->sender->antworten[$ma->id]);   // umgestellt: der Sender wuerde jetzt senden
+        $this->assertSame('sent', $this->service()->erneutSenden($zeile->fresh()));
+        $this->assertNull($zeile->fresh()->notify_error);
+    }
+
+    public function test_erneut_senden_auf_zurueckgezogen_bricht_ab(): void
+    {
+        [$dok, $zeile] = $this->bereit();
+        $this->assertNull($this->service()->zurueckziehen($zeile->fresh()));
+
+        $this->assertSame('zurueckgezogen', $this->service()->erneutSenden($zeile->fresh()));
+        $this->assertSame([], $this->sender->angeschrieben);
+    }
+
+    public function test_erneut_senden_bei_nur_ablegen_sendet_nicht(): void
+    {
+        [$dok, $zeile] = $this->bereit(['category' => 'payslip', 'action' => 'none']);
+        $this->assertSame('nur_ablegen', $this->service()->erneutSenden($zeile->fresh()));
+        $this->assertSame([], $this->sender->angeschrieben);
+    }
+
+    public function test_zurueckziehen_nach_unterschrift_verweigert(): void
+    {
+        [$dok, $zeile] = $this->bereit();
+        DB::table('rec_document_recipients')->where('id', $zeile->id)->update(['signed_at' => '2026-10-09 12:00:00']);
+
+        $fehler = $this->service()->zurueckziehen($zeile->fresh());
+
+        $this->assertSame('Unterschrieben, kann nicht zurückgezogen werden.', $fehler);
+        $this->assertNull($zeile->fresh()->withdrawn_at);
+    }
+
+    public function test_zurueckziehen_ist_idempotent(): void
+    {
+        [$dok, $zeile] = $this->bereit();
+        $this->service()->zurueckziehen($zeile->fresh());
+        $erstes = $zeile->fresh()->withdrawn_at;
+        $this->assertNotNull($erstes);
+
+        $this->assertNull($this->service()->zurueckziehen($zeile->fresh()));
+        $this->assertEquals($erstes, $zeile->fresh()->withdrawn_at);
+    }
+
+    public function test_dokument_zurueckziehen_loescht_nur_ohne_unterschriften(): void
+    {
+        $a = $this->ma();
+        $b = $this->ma(['first_name' => 'Ben']);
+        $r = $this->service()->bereitstellen(self::TEAM, $this->daten(), self::PDF, 'x.pdf', [$a->id, $b->id], null, null);
+        $dok = $r['dokument'];
+
+        $e = $this->service()->dokumentZurueckziehen($dok);
+        $this->assertSame(['zurueckgezogen' => 2, 'geloescht' => true], $e);
+        $this->assertNotNull(RecDocument::withTrashed()->find($dok->id)->deleted_at);
+        $this->assertSame(2, RecDocumentRecipient::where('rec_document_id', $dok->id)->whereNotNull('withdrawn_at')->count());
+    }
+
+    public function test_dokument_zurueckziehen_mit_unterschrift_bleibt_bestehen(): void
+    {
+        $a = $this->ma();
+        $b = $this->ma(['first_name' => 'Ben']);
+        $r = $this->service()->bereitstellen(self::TEAM, $this->daten(), self::PDF, 'x.pdf', [$a->id, $b->id], null, null);
+        $dok = $r['dokument'];
+        DB::table('rec_document_recipients')->where('rec_document_id', $dok->id)->where('rec_employee_id', $a->id)
+            ->update(['signed_at' => '2026-10-09 12:00:00']);
+
+        $e = $this->service()->dokumentZurueckziehen($dok);
+
+        $this->assertSame(['zurueckgezogen' => 1, 'geloescht' => false], $e);
+        $this->assertNull(RecDocument::find($dok->id)->deleted_at);
+        $this->assertNull(RecDocumentRecipient::where('rec_employee_id', $a->id)->first()->withdrawn_at);
+        $this->assertNotNull(RecDocumentRecipient::where('rec_employee_id', $b->id)->first()->withdrawn_at);
+    }
 }

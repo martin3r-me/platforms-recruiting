@@ -162,6 +162,71 @@ class DokumentService
         return $e;
     }
 
+    /**
+     * HR-Knopf "Erneut senden" (Spec §4): derselbe Sender, dasselbe Ergebnis
+     * an der Zustellung. Kein Versand an Zurueckgezogene, keiner bei "nur
+     * ablegen" — beides Zustaende, nicht Fehler.
+     */
+    public function erneutSenden(RecDocumentRecipient $empfaenger): string
+    {
+        if ($empfaenger->withdrawn_at !== null) {
+            return 'zurueckgezogen';
+        }
+        $aktion = (string) DB::table('rec_documents')->where('id', $empfaenger->rec_document_id)->value('action');
+        if (!DokumentKategorie::brauchtHandlung($aktion)) {
+            return 'nur_ablegen';
+        }
+
+        return $this->hinweisSenden($empfaenger);
+    }
+
+    /**
+     * Zurueckziehen je Empfaenger (Spec §7): Zeitstempel, kein Loeschen.
+     * Gesperrt sobald unterschrieben — eine Unterschrift ist ein Nachweis.
+     *
+     * @return ?string null = zurueckgezogen (oder schon gewesen), sonst Fehlertext
+     */
+    public function zurueckziehen(RecDocumentRecipient $empfaenger): ?string
+    {
+        if ($empfaenger->signed_at !== null) {
+            return 'Unterschrieben, kann nicht zurückgezogen werden.';
+        }
+        DB::table('rec_document_recipients')
+            ->where('id', $empfaenger->id)
+            ->whereNull('signed_at')
+            ->whereNull('withdrawn_at')
+            ->update(['withdrawn_at' => now(), 'updated_at' => now()]);
+
+        return null;
+    }
+
+    /**
+     * Ganzes Dokument zurueckziehen (Spec §7): alle offenen Zustellungen, dann
+     * SoftDelete nur, wenn NIEMAND unterschrieben hat. Mit Unterschriften bleibt
+     * das Dokument als Nachweis stehen ("teilweise zurueckgezogen").
+     *
+     * @return array{zurueckgezogen:int, geloescht:bool}
+     */
+    public function dokumentZurueckziehen(RecDocument $dokument): array
+    {
+        $zurueck = DB::table('rec_document_recipients')
+            ->where('rec_document_id', $dokument->id)
+            ->whereNull('signed_at')
+            ->whereNull('withdrawn_at')
+            ->update(['withdrawn_at' => now(), 'updated_at' => now()]);
+
+        $unterschrieben = DB::table('rec_document_recipients')
+            ->where('rec_document_id', $dokument->id)
+            ->whereNotNull('signed_at')
+            ->exists();
+
+        if (!$unterschrieben) {
+            $dokument->delete();
+        }
+
+        return ['zurueckgezogen' => (int) $zurueck, 'geloescht' => !$unterschrieben];
+    }
+
     /** Schickt den Hinweis und schreibt das Ergebnis an die Zustellung (Query Builder). */
     private function hinweisSenden(RecDocumentRecipient $empfaenger): string
     {
