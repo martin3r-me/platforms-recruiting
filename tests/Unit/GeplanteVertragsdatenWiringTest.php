@@ -25,6 +25,20 @@ final class GeplanteVertragsdatenWiringTest extends TestCase
     public function test_eingabe_wird_sofort_gespeichert(): void
     {
         $this->assertStringContainsString('GeplanteVertragsdaten::speichern', $this->methode('setContractDate'));
+        $this->assertStringContainsString('GeplanteVertragsdaten::vormerkungNachziehen', $this->methode('setContractDate'));
+    }
+
+    /**
+     * Review 08.10.: hydrate() laeuft VOR der Aktion. Liest es $this->bookings,
+     * ist die gecachte Liste danach veraltet (Suche, Filter, Buchen, Loeschen,
+     * Zuschlag hinken hinterher). Deshalb eigene Abfrage.
+     */
+    public function test_nachladen_fasst_die_gecachte_liste_nicht_an(): void
+    {
+        $code = $this->methode('geplanteVertragsdatenUebernehmen') . $this->methode('hydrate');
+
+        $this->assertStringNotContainsString('$this->bookings', $code);
+        $this->assertStringContainsString('GeplanteVertragsdaten::fuerTermin', $code);
     }
 
     public function test_vor_jeder_aktion_und_beim_laden_wird_nachgeladen(): void

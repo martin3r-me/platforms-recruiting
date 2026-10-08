@@ -26,13 +26,18 @@ return new class extends Migration
             if (!Schema::hasColumn('rec_applicants', 'vertragsende_geplant')) {
                 $table->date('vertragsende_geplant')->nullable();
             }
+            // Marker „wurde in der Nachbereitung gesetzt" — unterscheidet
+            // „geleert" (beide NULL, Marker gesetzt) von „nie geplant".
+            if (!Schema::hasColumn('rec_applicants', 'vertragsdaten_geplant_at')) {
+                $table->dateTime('vertragsdaten_geplant_at')->nullable();
+            }
         });
     }
 
     public function down(): void
     {
         Schema::table('rec_applicants', function (Blueprint $table) {
-            $table->dropColumn(['vertragsbeginn_geplant', 'vertragsende_geplant']);
+            $table->dropColumn(['vertragsbeginn_geplant', 'vertragsende_geplant', 'vertragsdaten_geplant_at']);
         });
     }
 };

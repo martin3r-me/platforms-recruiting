@@ -484,8 +484,9 @@ final class BookingMoverTest extends TestCase
 
         $result = $this->move($haupt, [$teilgenommen, $bestaetigt, $nichtDa, $aussortiert, $storniert], $logistik);
 
-        $this->assertEqualsCanonicalizing([$teilgenommen, $bestaetigt, $nichtDa, $aussortiert], $result->moved);
-        $this->assertSame([$storniert], array_keys($result->skipped));
+        $this->assertEqualsCanonicalizing([$teilgenommen, $bestaetigt], $result->moved);
+        // Nicht erschienen / aussortiert belegen Plaetze im Ziel und bleiben (Review 08.10.).
+        $this->assertEqualsCanonicalizing([$nichtDa, $aussortiert, $storniert], array_keys($result->skipped));
         $this->assertSame('attended', $this->row($teilgenommen)->status);
         $this->assertSame($logistik, (int) $this->row($teilgenommen)->rec_interview_id);
     }
@@ -510,16 +511,39 @@ final class BookingMoverTest extends TestCase
         $ohneEndeGestartet = $this->termin(['starts_at' => '2026-10-07 18:00:00', 'ends_at' => null]);
         $id = $this->buchung($haupt, 42, ['status' => 'confirmed']);
 
-        $this->assertNotNull($this->move($haupt, [$id], $schonZuEnde)->error);
-        $this->assertNotNull($this->move($haupt, [$id], $ohneEndeGestartet)->error);
+        $this->assertStringContainsString('schon zu Ende', (string) $this->move($haupt, [$id], $schonZuEnde)->error);
+        $this->assertStringContainsString('schon zu Ende', (string) $this->move($haupt, [$id], $ohneEndeGestartet)->error);
         $this->assertSame([], $this->mover()->targetsFor($haupt, 1)->whereIn('id', [$schonZuEnde, $ohneEndeGestartet])->all());
     }
 
     public function test_regel_fuer_die_haken_in_der_liste(): void
     {
-        foreach (['booked', 'registered', 'confirmed', 'attended', 'no_show', 'rejected_on_site'] as $status) {
+        foreach (['booked', 'registered', 'confirmed', 'attended'] as $status) {
             $this->assertTrue(BookingMover::statusMoeglich($status), $status);
         }
-        $this->assertFalse(BookingMover::statusMoeglich('cancelled'));
+        foreach (['cancelled', 'no_show', 'rejected_on_site'] as $status) {
+            $this->assertFalse(BookingMover::statusMoeglich($status), $status);
+        }
+    }
+
+    public function test_ohne_ende_mit_beginn_in_der_zukunft_ist_ziel(): void
+    {
+        [$haupt] = $this->laufenderSchulungsabend();
+        $spaeter = $this->termin(['starts_at' => '2026-10-07 20:00:00', 'ends_at' => null]);
+
+        $this->assertContains($spaeter, $this->mover()->targetsFor($haupt, 1)->pluck('id')->all());
+    }
+
+    public function test_volle_parallelgruppe_nimmt_teilgenommene_nur_bis_zur_grenze(): void
+    {
+        [$haupt] = $this->laufenderSchulungsabend();
+        $klein = $this->termin(['max_participants' => 1, 'starts_at' => '2026-10-07 18:00:00', 'ends_at' => '2026-10-07 21:00:00']);
+        $a = $this->buchung($haupt, 42, ['status' => 'attended']);
+        $b = $this->buchung($haupt, 43, ['status' => 'attended']);
+
+        $result = $this->move($haupt, [$a, $b], $klein);
+
+        $this->assertSame([$a], $result->moved);
+        $this->assertStringContainsString('voll', $result->skipped[$b]);
     }
 }

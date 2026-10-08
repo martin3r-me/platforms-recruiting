@@ -34,7 +34,30 @@ final class GeplanteVertragsdatenTest extends TestCase
             $t->integer('team_id');
             $t->date('vertragsbeginn_geplant')->nullable();
             $t->date('vertragsende_geplant')->nullable();
+            $t->dateTime('vertragsdaten_geplant_at')->nullable();
             $t->timestamp('updated_at')->nullable();
+        });
+        $capsule->schema()->create('rec_interview_bookings', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_interview_id');
+            $t->integer('rec_applicant_id');
+            $t->timestamp('deleted_at')->nullable();
+        });
+        $capsule->schema()->create('rec_contracts', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_applicant_id');
+            $t->string('status');
+            $t->dateTime('sent_at')->nullable();
+            $t->timestamp('deleted_at')->nullable();
+        });
+        $capsule->schema()->create('rec_contract_send_reservations', function ($t) {
+            $t->increments('id');
+            $t->integer('rec_applicant_id');
+            $t->date('vertragsbeginn')->nullable();
+            $t->date('vertragsende')->nullable();
+            $t->dateTime('claimed_at')->nullable();
+            $t->dateTime('completed_at')->nullable();
+            $t->dateTime('cancelled_at')->nullable();
         });
         Capsule::table('rec_applicants')->insert([
             ['id' => 1, 'team_id' => 3, 'updated_at' => '2026-10-01 00:00:00'],
@@ -44,7 +67,9 @@ final class GeplanteVertragsdatenTest extends TestCase
 
     protected function tearDown(): void
     {
-        Capsule::schema()->drop('rec_applicants');
+        foreach (['rec_applicants', 'rec_interview_bookings', 'rec_contracts', 'rec_contract_send_reservations'] as $t) {
+            Capsule::schema()->drop($t);
+        }
         Container::getInstance()->forgetInstance('db');
         Container::getInstance()->forgetInstance('db.schema');
         Model::unsetEventDispatcher();
@@ -62,6 +87,7 @@ final class GeplanteVertragsdatenTest extends TestCase
 
         $this->assertSame('2026-10-08', $this->zeile(1)->vertragsbeginn_geplant);
         $this->assertSame('2027-09-30', $this->zeile(1)->vertragsende_geplant);
+        $this->assertNotNull($this->zeile(1)->vertragsdaten_geplant_at);
     }
 
     public function test_speichern_fasst_fremdes_team_nicht_an(): void
@@ -96,10 +122,10 @@ final class GeplanteVertragsdatenTest extends TestCase
         $this->assertSame('2026-10-08', GeplanteVertragsdaten::normalisieren(' 2026-10-08 '));
     }
 
-    private function bewerber(int $id, ?string $beginn, ?string $ende, array $vertraege = []): RecApplicant
+    private function bewerber(int $id, ?string $beginn, ?string $ende, array $vertraege = [], bool $marker = true): RecApplicant
     {
         $a = new RecApplicant();
-        $a->forceFill(['id' => $id, 'vertragsbeginn_geplant' => $beginn, 'vertragsende_geplant' => $ende]);
+        $a->forceFill(['id' => $id, 'vertragsbeginn_geplant' => $beginn, 'vertragsende_geplant' => $ende, 'vertragsdaten_geplant_at' => $marker ? '2026-10-07 19:00:00' : null]);
         $a->setRelation('contracts', new Collection(array_map(
             fn (array $v) => (new RecContract())->forceFill($v),
             $vertraege,
@@ -123,7 +149,7 @@ final class GeplanteVertragsdatenTest extends TestCase
     {
         $alt = [7 => ['vertragsbeginn' => '2026-10-01', 'vertragsende' => null]];
 
-        $this->assertSame($alt, GeplanteVertragsdaten::uebernehmen($alt, [$this->bewerber(7, null, null), null]));
+        $this->assertSame($alt, GeplanteVertragsdaten::uebernehmen($alt, [$this->bewerber(7, null, null, [], false), null]));
     }
 
     /** Nach dem Versand ist der Vertrag die Wahrheit. */
@@ -141,8 +167,64 @@ final class GeplanteVertragsdatenTest extends TestCase
     public function test_uebernehmen_mit_datumsobjekt_aus_dem_cast(): void
     {
         $a = $this->bewerber(7, null, null);
-        $a->setRawAttributes(['id' => 7, 'vertragsbeginn_geplant' => '2026-10-08 00:00:00', 'vertragsende_geplant' => null]);
+        $a->setRawAttributes(['id' => 7, 'vertragsbeginn_geplant' => '2026-10-08 00:00:00', 'vertragsende_geplant' => null, 'vertragsdaten_geplant_at' => '2026-10-07 19:00:00']);
 
         $this->assertSame('2026-10-08', GeplanteVertragsdaten::uebernehmen([], [$a])[7]['vertragsbeginn']);
+    }
+
+    /** Laptop A leert beide Felder — Laptop B darf die alten Werte nicht behalten. */
+    public function test_geleerte_felder_kommen_auf_dem_anderen_fenster_an(): void
+    {
+        $alt = [7 => ['vertragsbeginn' => '2026-10-01', 'vertragsende' => '2027-09-30']];
+
+        $neu = GeplanteVertragsdaten::uebernehmen($alt, [$this->bewerber(7, null, null)]);
+
+        $this->assertNull($neu[7]['vertragsbeginn']);
+        $this->assertNull($neu[7]['vertragsende']);
+    }
+
+    public function test_fuer_termin_liefert_nur_geplante_bewerber_dieses_termins_mit_vertraegen(): void
+    {
+        Capsule::table('rec_applicants')->insert([
+            ['id' => 3, 'team_id' => 3, 'vertragsbeginn_geplant' => '2026-10-08', 'vertragsdaten_geplant_at' => '2026-10-07 19:00:00'],
+            ['id' => 4, 'team_id' => 3, 'vertragsbeginn_geplant' => null, 'vertragsdaten_geplant_at' => null],
+            ['id' => 5, 'team_id' => 3, 'vertragsbeginn_geplant' => '2026-10-09', 'vertragsdaten_geplant_at' => '2026-10-07 19:00:00'],
+        ]);
+        Capsule::table('rec_interview_bookings')->insert([
+            ['rec_interview_id' => 85, 'rec_applicant_id' => 3],
+            ['rec_interview_id' => 85, 'rec_applicant_id' => 4],
+            ['rec_interview_id' => 99, 'rec_applicant_id' => 5],
+        ]);
+        Capsule::table('rec_contracts')->insert(['rec_applicant_id' => 3, 'status' => 'sent', 'sent_at' => '2026-10-07 20:00:00']);
+
+        $liste = GeplanteVertragsdaten::fuerTermin(85);
+
+        $this->assertSame([3], $liste->pluck('id')->all());
+        $this->assertTrue($liste->first()->relationLoaded('contracts'));
+        $this->assertCount(1, $liste->first()->contracts);
+    }
+
+    public function test_vormerkung_wird_mitgezogen_nur_wenn_offen_und_unberuehrt(): void
+    {
+        Capsule::table('rec_contract_send_reservations')->insert([
+            ['id' => 1, 'rec_applicant_id' => 1, 'vertragsbeginn' => '2026-10-01', 'claimed_at' => null, 'completed_at' => null],
+            ['id' => 2, 'rec_applicant_id' => 1, 'vertragsbeginn' => '2026-10-01', 'claimed_at' => '2026-10-08 09:00:00', 'completed_at' => null],
+            ['id' => 3, 'rec_applicant_id' => 1, 'vertragsbeginn' => '2026-10-01', 'claimed_at' => null, 'completed_at' => '2026-10-08 09:00:00'],
+            ['id' => 4, 'rec_applicant_id' => 2, 'vertragsbeginn' => '2026-10-01', 'claimed_at' => null, 'completed_at' => null],
+        ]);
+
+        GeplanteVertragsdaten::vormerkungNachziehen(1, '2026-10-15', '2027-09-30');
+
+        $beginn = Capsule::table('rec_contract_send_reservations')->orderBy('id')->pluck('vertragsbeginn')->all();
+        $this->assertSame(['2026-10-15', '2026-10-01', '2026-10-01', '2026-10-01'], $beginn);
+    }
+
+    public function test_vormerkung_bleibt_ohne_vertragsbeginn_stehen(): void
+    {
+        Capsule::table('rec_contract_send_reservations')->insert(['id' => 1, 'rec_applicant_id' => 1, 'vertragsbeginn' => '2026-10-01']);
+
+        GeplanteVertragsdaten::vormerkungNachziehen(1, null, '2027-09-30');
+
+        $this->assertSame('2026-10-01', Capsule::table('rec_contract_send_reservations')->value('vertragsbeginn'));
     }
 }

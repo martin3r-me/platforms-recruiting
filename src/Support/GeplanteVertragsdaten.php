@@ -2,7 +2,10 @@
 
 namespace Platform\Recruiting\Support;
 
+use Illuminate\Database\Eloquent\Collection;
 use Platform\Recruiting\Models\RecApplicant;
+use Platform\Recruiting\Models\RecContractSendReservation;
+use Platform\Recruiting\Models\RecInterviewBooking;
 
 /**
  * Vertragsbeginn/-ende aus der Schulungsnachbereitung, gespeichert sobald
@@ -38,7 +41,52 @@ final class GeplanteVertragsdaten
             ->update([
                 'vertragsbeginn_geplant' => self::normalisieren($beginn),
                 'vertragsende_geplant'   => self::normalisieren($ende),
+                'vertragsdaten_geplant_at' => date('Y-m-d H:i:s'),
             ]);
+    }
+
+    /**
+     * Offene, noch nicht angefasste Vormerkung auf die neuen Daten ziehen —
+     * sonst zeigte die Seite das neue Datum, der automatische Versand naehme
+     * aber das alte aus der Vormerkung (Review 08.10.). Ohne Vertragsbeginn
+     * bleibt die Vormerkung unveraendert: sie haengt am Beginn.
+     */
+    public static function vormerkungNachziehen(int $applicantId, ?string $beginn, ?string $ende): void
+    {
+        $beginn = self::normalisieren($beginn);
+        if ($beginn === null) {
+            return;
+        }
+
+        RecContractSendReservation::query()
+            ->where('rec_applicant_id', $applicantId)
+            ->whereNull('completed_at')
+            ->whereNull('cancelled_at')
+            ->whereNull('claimed_at')
+            ->toBase()
+            ->update([
+                'vertragsbeginn' => $beginn,
+                'vertragsende'   => self::normalisieren($ende),
+            ]);
+    }
+
+    /**
+     * Die gespeicherte Planung aller Bewerber eines Termins — eine schlanke
+     * eigene Abfrage, bewusst NICHT ueber $this->bookings der Seite: im
+     * hydrate()-Hook wuerde das die gecachte Liste vor der Aktion fuellen, und
+     * Suche, Filter, Buchen, Loeschen zeigten danach einen alten Stand
+     * (Review 08.10.).
+     */
+    public static function fuerTermin(int $interviewId): Collection
+    {
+        return RecApplicant::query()
+            ->select(['id', 'vertragsbeginn_geplant', 'vertragsende_geplant', 'vertragsdaten_geplant_at'])
+            ->whereIn('id', RecInterviewBooking::query()
+                ->where('rec_interview_id', $interviewId)
+                ->select('rec_applicant_id'))
+            ->whereNotNull('vertragsdaten_geplant_at')
+            ->with('contracts:id,rec_applicant_id,status,sent_at')
+            ->get();
     }
 
     /**
@@ -56,11 +104,15 @@ final class GeplanteVertragsdaten
             if (!$applicant || self::vertragVersendet($applicant)) {
                 continue;
             }
-            $beginn = self::alsDatum($applicant->getAttribute('vertragsbeginn_geplant'));
-            $ende = self::alsDatum($applicant->getAttribute('vertragsende_geplant'));
-            if ($beginn === null && $ende === null) {
+            // Ohne Marker nie in der Nachbereitung gesetzt → Fensterstand bleibt.
+            // MIT Marker gilt die Datenbank auch dann, wenn beide Felder geleert
+            // wurden — sonst behielte der andere Laptop die alten Werte und
+            // versendete mit ihnen (Review 08.10.).
+            if ($applicant->getAttribute('vertragsdaten_geplant_at') === null) {
                 continue;
             }
+            $beginn = self::alsDatum($applicant->getAttribute('vertragsbeginn_geplant'));
+            $ende = self::alsDatum($applicant->getAttribute('vertragsende_geplant'));
             $contractDates[(int) $applicant->id] = [
                 'vertragsbeginn' => $beginn,
                 'vertragsende'   => $ende,

@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\InterviewBookings;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Illuminate\Support\Facades\DB;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmPhoneNumber;
@@ -26,6 +27,8 @@ class Index extends Component
     use \Platform\Recruiting\Livewire\Concerns\HandlesEvaluationModal;
     use \Platform\Recruiting\Livewire\Concerns\LoadsApplicantSelfies;
 
+    /** Gesperrt (08.10.2026): Speichern und Verschieben haengen an diesem Termin. */
+    #[Locked]
     public $interviewId;
     public $search = '';
     public $filterStatus = 'all';
@@ -68,7 +71,8 @@ class Index extends Component
     /**
      * Livewire-Hook vor jeder Aktion: die gespeicherte Planung (jedes Laptops)
      * gewinnt gegen den Stand dieses Fensters (08.10.2026, Feedback 07.10.).
-     * Kostet keinen Extra-Query — die Bewerber haengen schon an $this->bookings.
+     * Eigene schlanke Abfrage (zwei kleine Queries), NICHT $this->bookings —
+     * siehe GeplanteVertragsdaten::fuerTermin().
      */
     public function hydrate(): void
     {
@@ -79,7 +83,7 @@ class Index extends Component
     {
         $this->contractDates = \Platform\Recruiting\Support\GeplanteVertragsdaten::uebernehmen(
             $this->contractDates,
-            $this->bookings->pluck('applicant'),
+            \Platform\Recruiting\Support\GeplanteVertragsdaten::fuerTermin((int) $this->interviewId),
         );
     }
 
@@ -819,6 +823,11 @@ class Index extends Component
         if ($applicant && !$applicant->hasAnyContractSent()) {
             \Platform\Recruiting\Support\GeplanteVertragsdaten::speichern(
                 (int) $applicant->team_id,
+                $applicantId,
+                $current['vertragsbeginn'] ?? null,
+                $current['vertragsende'] ?? null,
+            );
+            \Platform\Recruiting\Support\GeplanteVertragsdaten::vormerkungNachziehen(
                 $applicantId,
                 $current['vertragsbeginn'] ?? null,
                 $current['vertragsende'] ?? null,

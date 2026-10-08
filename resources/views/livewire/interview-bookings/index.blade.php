@@ -830,7 +830,7 @@
                 <strong>{{ $this->interview->position?->title ?? '—' }}</strong> verschoben.
                 Status, Bestätigung und Notizen bleiben erhalten. Es geht keine Nachricht raus.
                 Wer schon erinnert wurde, wird nicht noch einmal erinnert.
-                Teilgenommen, Nicht erschienen und Vor Ort aussortiert wandern nur in einen Termin am selben Tag.
+                Teilgenommene wandern nur in einen Termin am selben Tag.
             </p>
             @if($moveZiele->isEmpty())
                 <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">

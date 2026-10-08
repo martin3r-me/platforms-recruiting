@@ -32,9 +32,8 @@ use Platform\Recruiting\Models\RecInterviewBooking;
  * Regeln (alle im Lock geprueft, die UI-Auswahl ist nur Komfort):
  *  - Quelle und Ziel im eigenen Team, beide mit derselben, gesetzten Stelle.
  *  - Ziel: aktiv, nicht abgesagt, noch nicht zu Ende, nicht die Quelle.
- *  - Buchungen vor der Schulung (MOVABLE_STATUSES) immer; Endstatus aus der
- *    Schulung (SAME_DAY_STATUSES) nur in einen Termin am selben Tag. Nur aus
- *    der Quelle.
+ *  - Buchungen vor der Schulung (MOVABLE_STATUSES) immer; Teilgenommene
+ *    (SAME_DAY_STATUSES) nur in einen Termin am selben Tag. Nur aus der Quelle.
  *  - Platzbelegende Buchungen brauchen einen freien Platz im Ziel; Standby
  *    belegt keinen und wandert immer mit.
  *  - Der Unique-Index (rec_interview_id, rec_applicant_id) gilt auch fuer
@@ -54,8 +53,11 @@ class BookingMover
      * wer schon auf Teilgenommen steht, soll waehrend der Schulung noch in eine
      * Gruppe desselben Tages wandern koennen — mit seinem Status. In einen
      * Termin an einem anderen Tag nie: dort hat er nicht teilgenommen.
+     * Nicht erschienen / Vor Ort aussortiert bewusst NICHT: sie belegen im Ziel
+     * einen Platz und wuerden in einer knappen Gruppe Teilgenommenen den Platz
+     * nehmen (Review 08.10.) — und es gibt keinen Grund, sie aufzuteilen.
      */
-    public const SAME_DAY_STATUSES = ['attended', 'no_show', 'rejected_on_site'];
+    public const SAME_DAY_STATUSES = ['attended'];
 
     /** Darf diese Buchung von $source nach $target? (Status-Teil der Regeln) */
     public static function statusErlaubt(string $status, ?RecInterview $source, ?RecInterview $target): bool
