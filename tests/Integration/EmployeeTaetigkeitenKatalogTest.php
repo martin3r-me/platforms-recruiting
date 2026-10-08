@@ -211,4 +211,29 @@ class EmployeeTaetigkeitenKatalogTest extends TestCase
             'Was der Mitarbeiter hat, verschwindet nie — auch wenn die Liste hinterherhinkt.'
         );
     }
+
+    public function test_total_stays_unfiltered_while_searching(): void
+    {
+        $c = $this->komponente(
+            ['Logistiker', 'Servicekräfte', 'Kasse'],
+            ['Servicekräfte', 'Logistiker', 'Kasse', 'Bar'],
+            suche: 'kas'
+        );
+
+        $this->assertCount(1, $c->dispoTaetigkeitenKatalog(), 'Die Liste ist gefiltert.');
+        $this->assertSame(4, $c->dispoTaetigkeitenGesamt(),
+            'Der Nenner der Ueberschrift ist die ungefilterte Kataloggroesse, nicht die Trefferzahl.');
+    }
+
+    public function test_closing_the_modal_resets_the_search(): void
+    {
+        $c = $this->komponente([], ['Kasse'], suche: 'kas');
+        $c->openTaetigkeiten();
+        $this->assertTrue($c->showTaetigkeitenModal);
+        $c->taetigkeitenSuche = 'kas';
+        $c->closeTaetigkeiten();
+
+        $this->assertFalse($c->showTaetigkeitenModal);
+        $this->assertSame('', $c->taetigkeitenSuche);
+    }
 }

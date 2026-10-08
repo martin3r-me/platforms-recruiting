@@ -215,18 +215,12 @@ class Show extends Component
     }
 
     /**
-     * Der ganze ZAS-Katalog mit Haken — damit die Frage "kann der Logistik?"
-     * beantwortbar ist und nicht nur "was macht er ueblicherweise". Die Liste
-     * kommt aus der Auswahlliste `dispo_taetigkeit`, die der Webexport bei
-     * jeder Lieferung mit dem vollen Katalog fuettert.
+     * Zugewiesenes (`$hat`) und der ungefilterte Katalog (`$alle`), beide mit
+     * kleingeschriebenem Schluessel. Die Suche greift hier bewusst NICHT.
      *
-     * Zugewiesenes steht vorn und verschwindet nie, auch wenn die Auswahlliste
-     * den Wert (noch) nicht kennt.
-     *
-     * @return list<array{label:string, hat:bool}>
+     * @return array{0: array<string,string>, 1: array<string,string>}
      */
-    #[Computed]
-    public function dispoTaetigkeitenKatalog(): array
+    private function dispoTaetigkeitenBasis(): array
     {
         $hat = [];
         foreach ((array) ($this->employee?->hrData?->dispo_taetigkeiten ?? []) as $label) {
@@ -243,6 +237,44 @@ class Show extends Component
                 $alle[mb_strtolower((string) $value)] ??= (string) $value;
             }
         }
+
+        return [$hat, $alle];
+    }
+
+    /** Wie viele Taetigkeiten ZAS insgesamt kennt — unabhaengig vom Suchtext. */
+    #[Computed]
+    public function dispoTaetigkeitenGesamt(): int
+    {
+        return count($this->dispoTaetigkeitenBasis()[1]);
+    }
+
+    public function openTaetigkeiten(): void
+    {
+        $this->taetigkeitenSuche = '';
+        $this->showTaetigkeitenModal = true;
+    }
+
+    public function closeTaetigkeiten(): void
+    {
+        $this->showTaetigkeitenModal = false;
+        $this->taetigkeitenSuche = '';
+    }
+
+    /**
+     * Der ganze ZAS-Katalog mit Haken — damit die Frage "kann der Logistik?"
+     * beantwortbar ist und nicht nur "was macht er ueblicherweise". Die Liste
+     * kommt aus der Auswahlliste `dispo_taetigkeit`, die der Webexport bei
+     * jeder Lieferung mit dem vollen Katalog fuettert.
+     *
+     * Zugewiesenes steht vorn und verschwindet nie, auch wenn die Auswahlliste
+     * den Wert (noch) nicht kennt.
+     *
+     * @return list<array{label:string, hat:bool}>
+     */
+    #[Computed]
+    public function dispoTaetigkeitenKatalog(): array
+    {
+        [$hat, $alle] = $this->dispoTaetigkeitenBasis();
 
         $suche = mb_strtolower(trim($this->taetigkeitenSuche));
 
