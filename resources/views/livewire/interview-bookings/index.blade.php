@@ -830,10 +830,11 @@
                 <strong>{{ $this->interview->position?->title ?? '—' }}</strong> verschoben.
                 Status, Bestätigung und Notizen bleiben erhalten. Es geht keine Nachricht raus.
                 Wer schon erinnert wurde, wird nicht noch einmal erinnert.
+                Teilgenommen, Nicht erschienen und Vor Ort aussortiert wandern nur in einen Termin am selben Tag.
             </p>
             @if($moveZiele->isEmpty())
                 <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                    Es gibt keinen anderen kommenden, aktiven Termin für diese Stelle. Bitte zuerst den Zieltermin anlegen.
+                    Es gibt keinen anderen aktiven Termin dieser Stelle, der noch nicht zu Ende ist. Bitte zuerst den Zieltermin anlegen.
                 </div>
             @else
                 <div>

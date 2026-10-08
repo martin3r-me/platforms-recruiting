@@ -451,4 +451,75 @@ final class BookingMoverTest extends TestCase
         $this->assertSame($b, (int) $row->moved_from_interview_id);
         $this->assertSame(2, Capsule::table('rec_auto_pilot_logs')->count());
     }
+
+    // -----------------------------------------------------------------
+    // Aufteilen waehrend der laufenden Schulung (08.10.2026, Feedback 07.10.)
+    // -----------------------------------------------------------------
+
+    /** Der Abend vom 07.10.: alle Gruppen 18-21 Uhr, es ist 19:30. */
+    private function laufenderSchulungsabend(): array
+    {
+        Carbon::setTestNow('2026-10-07 19:30:00');
+        $haupt = $this->termin(['title' => 'Service', 'starts_at' => '2026-10-07 18:00:00', 'ends_at' => '2026-10-07 21:00:00']);
+        $logistik = $this->termin(['title' => 'Logistik', 'starts_at' => '2026-10-07 18:00:00', 'ends_at' => '2026-10-07 21:00:00']);
+
+        return [$haupt, $logistik];
+    }
+
+    public function test_waehrend_der_schulung_ist_die_parallele_gruppe_ein_ziel(): void
+    {
+        [$haupt, $logistik] = $this->laufenderSchulungsabend();
+
+        $this->assertSame([$logistik], $this->mover()->targetsFor($haupt, 1)->pluck('id')->all());
+    }
+
+    public function test_teilgenommene_wandern_am_selben_tag_mit_status(): void
+    {
+        [$haupt, $logistik] = $this->laufenderSchulungsabend();
+        $teilgenommen = $this->buchung($haupt, 42, ['status' => 'attended']);
+        $bestaetigt = $this->buchung($haupt, 43, ['status' => 'confirmed']);
+        $nichtDa = $this->buchung($haupt, 44, ['status' => 'no_show']);
+        $aussortiert = $this->buchung($haupt, 45, ['status' => 'rejected_on_site']);
+        $storniert = $this->buchung($haupt, 46, ['status' => 'cancelled']);
+
+        $result = $this->move($haupt, [$teilgenommen, $bestaetigt, $nichtDa, $aussortiert, $storniert], $logistik);
+
+        $this->assertEqualsCanonicalizing([$teilgenommen, $bestaetigt, $nichtDa, $aussortiert], $result->moved);
+        $this->assertSame([$storniert], array_keys($result->skipped));
+        $this->assertSame('attended', $this->row($teilgenommen)->status);
+        $this->assertSame($logistik, (int) $this->row($teilgenommen)->rec_interview_id);
+    }
+
+    public function test_teilgenommene_wandern_nie_an_einen_anderen_tag(): void
+    {
+        [$haupt] = $this->laufenderSchulungsabend();
+        $morgen = $this->termin(['starts_at' => '2026-10-08 18:00:00', 'ends_at' => '2026-10-08 21:00:00']);
+        $id = $this->buchung($haupt, 42, ['status' => 'attended']);
+
+        $result = $this->move($haupt, [$id], $morgen);
+
+        $this->assertSame([], $result->moved);
+        $this->assertStringContainsString('selben Tag', $result->skipped[$id]);
+        $this->assertSame($haupt, (int) $this->row($id)->rec_interview_id);
+    }
+
+    public function test_beendeter_termin_ist_kein_ziel_mehr(): void
+    {
+        [$haupt] = $this->laufenderSchulungsabend();
+        $schonZuEnde = $this->termin(['starts_at' => '2026-10-07 17:00:00', 'ends_at' => '2026-10-07 19:00:00']);
+        $ohneEndeGestartet = $this->termin(['starts_at' => '2026-10-07 18:00:00', 'ends_at' => null]);
+        $id = $this->buchung($haupt, 42, ['status' => 'confirmed']);
+
+        $this->assertNotNull($this->move($haupt, [$id], $schonZuEnde)->error);
+        $this->assertNotNull($this->move($haupt, [$id], $ohneEndeGestartet)->error);
+        $this->assertSame([], $this->mover()->targetsFor($haupt, 1)->whereIn('id', [$schonZuEnde, $ohneEndeGestartet])->all());
+    }
+
+    public function test_regel_fuer_die_haken_in_der_liste(): void
+    {
+        foreach (['booked', 'registered', 'confirmed', 'attended', 'no_show', 'rejected_on_site'] as $status) {
+            $this->assertTrue(BookingMover::statusMoeglich($status), $status);
+        }
+        $this->assertFalse(BookingMover::statusMoeglich('cancelled'));
+    }
 }

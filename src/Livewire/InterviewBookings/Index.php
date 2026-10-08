@@ -62,6 +62,25 @@ class Index extends Component
     {
         $this->interviewId = $interview;
         $this->hydrateContractDatesFromExistingContracts();
+        $this->geplanteVertragsdatenUebernehmen();
+    }
+
+    /**
+     * Livewire-Hook vor jeder Aktion: die gespeicherte Planung (jedes Laptops)
+     * gewinnt gegen den Stand dieses Fensters (08.10.2026, Feedback 07.10.).
+     * Kostet keinen Extra-Query — die Bewerber haengen schon an $this->bookings.
+     */
+    public function hydrate(): void
+    {
+        $this->geplanteVertragsdatenUebernehmen();
+    }
+
+    private function geplanteVertragsdatenUebernehmen(): void
+    {
+        $this->contractDates = \Platform\Recruiting\Support\GeplanteVertragsdaten::uebernehmen(
+            $this->contractDates,
+            $this->bookings->pluck('applicant'),
+        );
     }
 
     /**
@@ -290,7 +309,7 @@ class Index extends Component
     public function movableVisibleIds(): array
     {
         return $this->bookings
-            ->filter(fn ($b) => in_array($b->status, BookingMover::MOVABLE_STATUSES, true))
+            ->filter(fn ($b) => BookingMover::statusMoeglich((string) $b->status))
             ->pluck('id')
             ->map(fn ($id) => (string) $id)
             ->values()
@@ -793,6 +812,18 @@ class Index extends Component
         }
 
         $this->contractDates[$applicantId] = $current;
+
+        // Sofort speichern (08.10.2026) — nur fuer Bewerber dieses Termins und
+        // nur solange noch kein Vertrag raus ist.
+        $applicant = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId)?->applicant;
+        if ($applicant && !$applicant->hasAnyContractSent()) {
+            \Platform\Recruiting\Support\GeplanteVertragsdaten::speichern(
+                (int) $applicant->team_id,
+                $applicantId,
+                $current['vertragsbeginn'] ?? null,
+                $current['vertragsende'] ?? null,
+            );
+        }
     }
 
     public function sendContractsBulk(): void
