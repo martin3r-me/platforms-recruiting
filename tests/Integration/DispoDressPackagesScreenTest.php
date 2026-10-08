@@ -49,11 +49,7 @@ class DispoDressPackagesScreenTest extends DressTestCase
     private function component(): DressPackages
     {
         $c = new DressPackages();
-        $c->getAttributes()->each(function ($attribute) {
-            if (method_exists($attribute, 'boot')) {
-                $attribute->boot();
-            }
-        });
+        ComputedWiring::wire($c);
 
         return $c;
     }

@@ -149,11 +149,7 @@ class EmployeeTaetigkeitenKatalogTest extends TestCase
         $c = new Show();
         $c->employeeId = $employee->id;
         $c->taetigkeitenSuche = $suche;
-        $c->getAttributes()->each(function ($attribute) {
-            if (method_exists($attribute, 'boot')) {
-                $attribute->boot();
-            }
-        });
+        ComputedWiring::wire($c);
 
         return $c;
     }
