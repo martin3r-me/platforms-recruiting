@@ -172,19 +172,19 @@ def bauen(ordner: Path, ziel: Path):
 
     # --- Kampagne „Schulung voll“ ---------------------------------------------
     s = folie("Wenn eine Schulung voll ist · Schritt 1", "Bewerber ohne Termin finden")
-    text(s, 0.75, 1.75, 11.8, 0.8, "Ist ein kommender Termin ausgebucht, schreibt ihr mit einem Klick alle Bewerber dieser Ausschreibung ohne Termin an. Sie bekommen eine WhatsApp mit dem Link zur Terminauswahl und buchen sich selbst in einen anderen Termin.", 16, farbe=GRAU)
+    text(s, 0.75, 1.75, 11.8, 0.8, "Ist eine Schulung ausgebucht, könnt ihr alle Bewerber, die noch keinen Termin haben, per WhatsApp auf die freien Termine hinweisen. Sie suchen sich dann selbst einen neuen Termin aus.", 16, farbe=GRAU)
     schrittfolie(s, ordner, [
-        "1. **Statistik** öffnen, Filiale wählen, nach unten zur Tabelle **„Schulungstermine“** scrollen.",
-        "2. Am vollen Termin steht in der Spalte Ausschreibung das Badge **„Ausgebucht“** und daneben die Pille **„N ohne Termin“**. Auf die Pille klicken.",
-        "3. Oben im Fenster steht der Anlass: welcher Termin voll ist und wie viele weitere Termine mit freien Plätzen es an dieser Stelle gibt. **Ist die Karte rot, gibt es keine Alternative.** Dann erst einen neuen Termin anlegen.",
-    ], "Die Pille erscheint nur bei Platzzahl, voll belegt, künftigem Termin und hinterlegter Ausschreibung. Fehlt die Ausschreibung, steht nur das Badge mit „keine Ausschreibung“.",
+        "1. Links auf **Statistik** gehen, eure Filiale auswählen und nach unten zu **„Schulungstermine“** scrollen.",
+        "2. Bei der vollen Schulung steht **„Ausgebucht“**. Daneben seht ihr, wie viele Bewerber noch keinen Termin haben, zum Beispiel **„12 ohne Termin“**. Darauf klicken.",
+        "3. Es öffnet sich ein Fenster. Oben steht, welche Schulung voll ist und ob es noch andere Termine mit freien Plätzen gibt. **Ist der Kasten rot, gibt es keinen freien Termin.** Dann bitte zuerst einen neuen Termin anlegen.",
+    ], "„… ohne Termin“ erscheint nur, wenn die Schulung eine Platzzahl hat, komplett voll ist, noch bevorsteht und eine Ausschreibung hinterlegt ist.",
         "F_statistik_pille.png", merksatz_farbe=GRAU, oben=2.75)
 
-    s = folie("Wenn eine Schulung voll ist · Schritt 2", "Empfänger prüfen und senden")
+    s = folie("Wenn eine Schulung voll ist · Schritt 2", "Empfänger prüfen und WhatsApp senden")
     schrittfolie(s, ordner, [
-        "4. Die Liste zeigt die Bewerber. Jede angehakte Zeile trägt den Chip **„bekommt: Termine ansehen“**. Wer nicht angeschrieben werden soll: Haken raus. Graue Zeilen sind gesperrt, der Grund steht daneben.",
-        "5. Unten steht die Nachricht so, wie der Bewerber sie liest, mit „Anna“ als Beispielname. Beim Versand steht dort der echte Vorname. Über **„Vorlage ändern“** wählt ihr eine andere Vorlage.",
-        "6. Auf **„WhatsApp an N Personen senden“** klicken und die Nachfrage bestätigen. Der Fortschritt läuft im Fenster mit.",
+        "4. Im Fenster seht ihr alle Bewerber, die die Nachricht bekommen. Wer keine bekommen soll: einfach den **Haken entfernen**. Grau hinterlegte Personen können nicht angeschrieben werden, der Grund steht dabei.",
+        "5. Ganz unten seht ihr die Nachricht so, wie der Bewerber sie bekommt. Statt „Anna“ steht dort später der richtige Vorname. Über **„Vorlage ändern“** könnt ihr einen anderen Text wählen.",
+        "6. Auf **„WhatsApp an … Personen senden“** klicken und bestätigen. Im Fenster seht ihr, wie die Nachrichten rausgehen.",
     ], "Die Bewerber buchen sich danach selbst in einen freien Termin.", "G_kampagne_fenster.png")
 
     # --- Gut zu wissen ---------------------------------------------------------
