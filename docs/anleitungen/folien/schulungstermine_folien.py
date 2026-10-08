@@ -1,5 +1,6 @@
 """
-Kundenfolien "Schulungstermine umplanen und nachbereiten" im Stil der
+Kundenfolien "Anleitung: Schulungstermine umplanen" (Folienfassung des
+Bausteins docs/anleitungen/2026-10-08-schulungstermine-umplanen.md) im Stil der
 RheinGedeck-HCM-Folien (blauer Rand links, Kicker, Titel, Schritte links,
 Screenshot rechts, Fusszeile "RheinGedeck · Intern").
 
@@ -32,8 +33,6 @@ SCREENSHOTS = {
     "A_liste_angehakt.png": "Teilnehmerliste (Übersicht) mit angehakten Personen und blauem Balken „N ausgewählt · Verschieben nach…“",
     "B_fenster_verschieben.png": "Fenster „Teilnehmer verschieben“ mit Zieltermin-Auswahl und Kommentarfeld",
     "C_status_teilgenommen.png": "Eine Zeile der Teilnehmerliste mit Status-Auswahl „Teilgenommen“",
-    "D_nach_der_schulung.png": "Reiter „Nach der Schulung“: Spalten Zuschlag, Vertragslaufzeit, Versand",
-    "E_statusfilter.png": "Statusfilter aufgeklappt, Eintrag „Keine Reaktion“ sichtbar",
     "F_statistik_pille.png": "Statistik → Schulungstermine: Badge „Ausgebucht“ und Pille „N ohne Termin“",
     "G_kampagne_fenster.png": "Kampagnen-Fenster: Anlass-Karte, Empfängerliste, Nachricht, Senden-Knopf",
 }
@@ -165,17 +164,11 @@ def bauen(ordner: Path, ziel: Path):
     ], "Status, Bestätigung und Notizen bleiben. Wer schon erinnert wurde, bekommt keine zweite Erinnerung. Es geht keine Nachricht raus.",
         "B_fenster_verschieben.png")
 
-    s = folie("Neu · Während der Schulung", "Erst „Teilgenommen“, dann in Gruppen aufteilen")
-    text(s, 0.75, 1.91, 11.8, 0.8, "Verschieben geht jetzt auch, während der Termin läuft, und auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. In der großen Gruppe alle Anwesenden auf Teilgenommen setzen, danach in die Gruppen verschieben. Der Status wandert mit.", 18)
+    s = folie("Teilnehmer verschieben · Während der Schulung", "Erst „Teilgenommen“, dann in Gruppen aufteilen")
+    text(s, 0.75, 1.91, 11.8, 0.8, "Verschieben geht auch, solange der Termin läuft, und auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. In der großen Gruppe alle Anwesenden auf Teilgenommen setzen, danach in die Gruppen verschieben. Der Status wandert mit.", 18)
     bild(s, ordner, "C_status_teilgenommen.png", 0.75, 2.95, 7.97, 3.85)
     hinweis(s, 9.18, 3.0, 3.4, ["Ziel: gleiche Stelle", "Bis der Zieltermin zu Ende ist", "Teilgenommen nur am selben Tag"])
     text(s, 9.18, 5.75, 3.4, 1.0, "Im Zieltermin steht an der Person „aus …“ mit dem alten Termin.", 15)
-
-    s = folie("Vor der Schulung", "Nach Status filtern, auch „Keine Reaktion“")
-    schrittfolie(s, ordner, [
-        "Oben in der Liste das Feld **Status** öffnen. Der Filter gilt in der Übersicht und im Reiter „Nach der Schulung“.",
-        "**Keine Reaktion** zeigt Gebuchte, die auf die Erinnerungen nicht reagiert haben. Ihr Platz ist wieder frei.",
-    ], "Praktisch zum Nachtelefonieren vor der Schulung.", "E_statusfilter.png")
 
     # --- Kampagne „Schulung voll“ ---------------------------------------------
     s = folie("Wenn eine Schulung voll ist · Schritt 1", "Bewerber ohne Termin finden")
@@ -194,23 +187,13 @@ def bauen(ordner: Path, ziel: Path):
         "6. Auf **„WhatsApp an N Personen senden“** klicken und die Nachfrage bestätigen. Der Fortschritt läuft im Fenster mit.",
     ], "Die Bewerber buchen sich danach selbst in einen freien Termin.", "G_kampagne_fenster.png")
 
-    # --- Nach der Schulung ---------------------------------------------------
-    s = folie("Neu · Nach der Schulung", "Vertragsdaten eintragen, auch zu zweit")
-    schrittfolie(s, ordner, [
-        "1. Den Termin öffnen, Reiter **„Nach der Schulung“**.",
-        "2. **Zuschlag**, **Vertragsbeginn** und bei Bedarf **Vertragsende** eintragen. Ohne Ende rechnet das System es aus.",
-        "3. Zum Schluss die Verträge über den **Sammelversand** schicken.",
-    ], "Jede Eingabe ist sofort gespeichert. Zwei Laptops sehen denselben Stand.", "D_nach_der_schulung.png")
-
     # --- Gut zu wissen ---------------------------------------------------------
-    s = folie("Gut zu wissen · Verschieben und Nachbereitung", "Regeln auf einen Blick")
+    s = folie("Gut zu wissen · Teilnehmer verschieben", "Regeln auf einen Blick")
     tabelle(s, [
         ("Verschieben: welche Termine", "Nur aktive Termine derselben Stelle (gleicher Ort), die noch nicht zu Ende sind. Ein laufender Termin geht also noch. Wer in eine andere Filiale soll, bucht über die Terminauswahl neu."),
         ("Verschieben: wer", "Gebucht, registriert und bestätigt immer. Teilgenommen nur in einen Termin am selben Tag. Stornierte, nicht erschienene und vor Ort aussortierte bleiben, wo sie sind."),
         ("Verschieben: Plätze", "Hat der Zieltermin eine Platzzahl, werden nur so viele verschoben, wie Plätze frei sind. Wer nicht mehr passt, bleibt in Schulung A."),
         ("Verschieben: Nachricht", "Keine. Wenn die Person Bescheid wissen soll, bitte selbst anschreiben."),
-        ("Gruppengröße", "Für kleinere Gruppen beim Termin eine kleinere Platzzahl eintragen. Ist der Termin voll, landet niemand mehr darin."),
-        ("Vertragsdaten", "Leert ihr den Vertragsbeginn bei jemandem, der für den Versand vorgemerkt ist, wird die Vormerkung zurückgenommen. Nach dem Versand gelten die Daten im Vertrag."),
     ])
 
     s = folie("Gut zu wissen · Kampagne „Schulung voll“", "Regeln auf einen Blick")

@@ -12,7 +12,8 @@ Regeln:
 
 | Datum | Thema | Datei |
 | --- | --- | --- |
-| 08.10.2026 | Teilnehmer verschieben (auch während der Schulung) · Vertragsdaten nach der Schulung · Kampagne „Schulung voll“ | [2026-10-08-schulungstermine-umplanen.md](2026-10-08-schulungstermine-umplanen.md) |
+| 08.10.2026 | Teilnehmer verschieben (auch während der Schulung) · Kampagne „Schulung voll“ | [2026-10-08-schulungstermine-umplanen.md](2026-10-08-schulungstermine-umplanen.md) |
+| 08.10.2026 | Vertragsdaten nach der Schulung · Statusfilter „Keine Reaktion“ | [2026-10-08-schulungsnachbereitung-vertragsdaten.md](2026-10-08-schulungsnachbereitung-vertragsdaten.md) |
 
 ## Folien für den Kunden
 

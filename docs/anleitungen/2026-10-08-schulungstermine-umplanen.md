@@ -1,4 +1,4 @@
-# Anleitung: Schulungstermine umplanen und nachbereiten
+# Anleitung: Schulungstermine umplanen
 
 Stand: 08.10.2026
 
@@ -13,22 +13,13 @@ Ihr könnt Teilnehmer direkt aus der Teilnehmerliste in einen anderen Termin der
 5. Optional einen **Kommentar** eintragen, zum Beispiel „Logistik-Gruppe“. Er steht später im Verlauf des Bewerbers.
 6. Auf **„Verschieben“** klicken. Fertig.
 
-Was dabei passiert: Status, Bestätigung und Notizen bleiben erhalten. Wer schon auf **Teilgenommen** steht, bleibt auch in Schulung B auf Teilgenommen. Wer für Schulung A schon eine Erinnerung bekommen hat, bekommt für Schulung B keine zweite.
+Was dabei passiert: Status, Bestätigung und Notizen bleiben erhalten. Wer für Schulung A schon eine Erinnerung bekommen hat, bekommt für Schulung B keine zweite.
 
-**Tipp für den Schulungsabend:** Erst in der großen Gruppe alle Anwesenden auf **Teilgenommen** setzen, dann die Gruppen aufteilen. So muss niemand zwischen den Terminseiten hin und her wechseln.
+### Während der Schulung aufteilen
 
-## Nach der Schulung: Vertragsdaten eintragen, auch zu zweit
+Verschieben geht auch, solange der Termin läuft, und auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. Sie behalten ihren Status, wandern aber nur in einen Termin am selben Tag. Im Zieltermin steht an der Person „aus …“ mit dem alten Termin.
 
-Im Reiter **„Nach der Schulung“** tragt ihr für jeden Teilnehmer Zuschlag, Vertragsbeginn und Vertragsende ein.
-
-1. Den Termin öffnen und auf **„Nach der Schulung“** wechseln.
-2. In der Zeile des Teilnehmers **Zuschlag**, **Vertragsbeginn** und bei Bedarf **Vertragsende** eintragen. Ohne Vertragsende rechnet das System es selbst aus.
-3. Jede Eingabe ist **sofort gespeichert**. Ihr müsst dafür nichts weiter drücken.
-4. Wenn alles passt, die Verträge über den Sammelversand verschicken.
-
-Arbeiten zwei Personen auf zwei Laptops an derselben Liste, sieht jeder die Eingaben des anderen, sobald er auf der Seite etwas anklickt oder sie neu lädt.
-
-Mit dem Feld **Status** oben in der Liste filtert ihr auch hier, zum Beispiel nur „Teilgenommen“.
+**Tipp für den Schulungsabend:** Erst in der großen Gruppe alle Anwesenden auf **Teilgenommen** setzen, dann die Gruppen aufteilen. So muss niemand zwischen den Terminseiten wechseln.
 
 ## Wenn eine Schulung voll ist: Bewerber auf freie Termine hinweisen
 
@@ -51,10 +42,6 @@ Die Pille erscheint nur, wenn der Termin eine **Platzzahl** hat, alle Plätze be
 | Verschieben: wer | Gebucht, registriert und bestätigt immer. **Teilgenommen** nur in einen Termin am **selben Tag**. Stornierte, nicht erschienene und vor Ort aussortierte bleiben, wo sie sind. |
 | Verschieben: Plätze | Hat der Zieltermin eine Platzzahl, werden nur so viele verschoben, wie Plätze frei sind. Wer nicht mehr passt, bleibt in Schulung A, das Fenster sagt es euch. |
 | Verschieben: Nachricht | Keine. Wenn die Person Bescheid wissen soll, bitte selbst anschreiben. |
-| Gruppengröße | Wollt ihr kleinere Gruppen, beim Anlegen des Termins eine kleinere **Platzzahl** eintragen. Ist der Termin voll, landet niemand mehr darin. |
-| „Keine Reaktion“ | So heißen Gebuchte, die auf die Erinnerungen nicht reagiert haben. Ihr Platz ist wieder frei. Im Statusfilter gibt es dafür einen eigenen Eintrag, praktisch zum Nachtelefonieren. |
-| Vertragsdaten: geleert | Leert ihr den Vertragsbeginn bei jemandem, der schon für den Versand vorgemerkt ist, wird die Vormerkung zurückgenommen. Es geht dann nichts automatisch raus. |
-| Vertragsdaten: nach dem Versand | Ist der Vertrag raus, gelten die Daten im Vertrag. Änderungen dann über „Vertrag neu ausstellen“ auf der Bewerberseite. |
 | Kampagne: wer bekommt sie | Nur Bewerber, die Phase 1 abgeschlossen haben und in der Terminauswahl stehen. Wer die Bewerbung noch nicht vervollständigt hat, bleibt in der Liste sichtbar, ist aber gesperrt. |
 | Kampagne: danach | Keine automatischen Erinnerungen. Bucht die Person einen Termin, läuft alles wie gewohnt weiter: Daten vervollständigen, Bestätigung, Vertrag. |
 | Kampagne: doppelt | Wer in den letzten 14 Tagen schon eine Kampagne bekam, ist vorsichtshalber abgehakt (Badge „angeschrieben am …“). Haken setzen geht trotzdem. |
