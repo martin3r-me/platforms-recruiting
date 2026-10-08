@@ -12,6 +12,7 @@ use Platform\Recruiting\Models\RecDocument;
 use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Services\DokumentEmpfaengerSuche;
 use Platform\Recruiting\Services\DokumentService;
+use Platform\Recruiting\Services\DokumentZaehler;
 use Platform\Recruiting\Support\DokumentAkteZeilen;
 use Platform\Recruiting\Support\DokumentFortschritt;
 use Platform\Recruiting\Support\DokumentKategorie;
@@ -200,6 +201,23 @@ class Documents extends Component
         unset($this->dokumente);
     }
 
+    /**
+     * "Versand erneut anstossen" (Final-Review Fund 1): stellt den Job noch
+     * einmal ein. Idempotent — er versucht nur unversuchte Zeilen, schon
+     * Benachrichtigte und Fehlversuche bleiben unberuehrt.
+     */
+    public function versandAnstossen(int $documentId): void
+    {
+        $d = RecDocument::query()->where('team_id', $this->teamId())->find($documentId);
+        if ($d === null) {
+            return;
+        }
+        DokumentHinweiseVersenden::starten($d);
+        $this->flash = 'Versand neu angestoßen, läuft im Hintergrund.';
+        $this->flashError = null;
+        unset($this->dokumente);
+    }
+
     public function zurueckziehen(int $recipientId): void
     {
         $z = RecDocumentRecipient::query()->where('team_id', $this->teamId())->find($recipientId);
@@ -223,7 +241,11 @@ class Documents extends Component
     }
 
     /**
-     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, benachrichtigt:int, ausstehend:int, empfaenger:list<array>}>
+     * Ueberblick: Dokumente ohne Zustellungen laden, die Zahlen kommen aus
+     * EINER gruppierten Abfrage (DokumentZaehler). Volle Zeilen — ohne
+     * signature_data — nur fuer das aufgeklappte Dokument.
+     *
+     * @return list<array{id:int, uuid:string, title:string, category_label:string, action:string, action_label:string, event:?string, erstellt:string, geloescht:bool, fortschritt:array, erledigt:bool, benachrichtigt:int, ausstehend:int, versand_laeuft:bool, empfaenger:list<array>}>
      */
     #[Computed]
     public function dokumente(): array
@@ -231,34 +253,39 @@ class Documents extends Component
         $teamId = $this->teamId();
         $docs = RecDocument::query()->withTrashed()
             ->where('team_id', $teamId)
-            ->with(['recipients', 'event'])
+            ->with('event')
             ->orderByDesc('id')
             ->limit(200)
             ->get();
+        $zahlen = DokumentZaehler::fuer($docs->pluck('id')->all());
 
         $out = [];
         foreach ($docs as $d) {
-            $zeiten = $d->recipients->map(fn (RecDocumentRecipient $z) => $z->zeitstempel())->all();
-            $f = DokumentFortschritt::fuer($zeiten, (string) $d->action);
+            $n = $zahlen[(int) $d->id] ?? DokumentZaehler::leer();
+            $f = DokumentFortschritt::ausZaehlern($n, (string) $d->action);
             $brauchtVersand = DokumentKategorie::brauchtHandlung((string) $d->action);
-            $benachrichtigt = $d->recipients->whereNotNull('notified_at')->count();
-            $ausstehend = $brauchtVersand
-                ? $d->recipients->filter(fn ($z) => $z->withdrawn_at === null && $z->notified_at === null && $z->notify_error === null)->count()
-                : 0;
+            $ausstehend = $brauchtVersand ? $n['ausstehend'] : 0;
+            // "laeuft" nur fuer unversuchte Zeilen innerhalb der Versandfrist;
+            // aeltere sind liegengeblieben und stoppen das Pollen.
+            $versandLaeuft = $brauchtVersand && $n['ausstehend'] - $n['ausstehend_alt'] > 0;
             $erledigt = $f['gesamt'] === 0 || $f['erledigt'] === $f['gesamt'];
             if ($this->zeige === 'offen' && $erledigt) {
                 continue;
             }
-            // $ausstehend wird oben berechnet und unten mitgegeben; die Zeile bleibt
-            // auch bei "nur offene" sichtbar, solange der Versand laeuft.
             $empfaenger = [];
             if ($this->aufgeklappt === (int) $d->id) {
-                $zeilen = $d->recipients->each(fn ($z) => $z->setRelation('document', $d))->sortBy('id')->values()->all();
+                $zeilen = RecDocumentRecipient::query()
+                    ->ohneUnterschriftsbild()
+                    ->where('rec_document_id', $d->id)
+                    ->orderBy('id')
+                    ->get()
+                    ->each(fn ($z) => $z->setRelation('document', $d))
+                    ->all();
                 $namen = DB::table('rec_employees')->whereIn('id', array_map(fn ($z) => $z->rec_employee_id, $zeilen))
                     ->get(['id', 'first_name', 'last_name'])->keyBy('id');
                 foreach (DokumentAkteZeilen::fuer($zeilen) as $zeile) {
-                    $n = $namen->get($zeile['employee_id']);
-                    $zeile['name'] = $n ? trim($n->first_name . ' ' . $n->last_name) : ('Mitarbeiter #' . $zeile['employee_id']);
+                    $nm = $namen->get($zeile['employee_id']);
+                    $zeile['name'] = $nm ? trim($nm->first_name . ' ' . $nm->last_name) : ('Mitarbeiter #' . $zeile['employee_id']);
                     $empfaenger[] = $zeile;
                 }
             }
@@ -274,8 +301,9 @@ class Documents extends Component
                 'geloescht'      => $d->deleted_at !== null,
                 'fortschritt'    => $f,
                 'erledigt'       => $erledigt,
-                'benachrichtigt' => $benachrichtigt,
+                'benachrichtigt' => $n['benachrichtigt'],
                 'ausstehend'     => $ausstehend,
+                'versand_laeuft' => $versandLaeuft,
                 'empfaenger'     => $empfaenger,
             ];
         }

@@ -78,6 +78,7 @@ class DokumentLeser
         $ids = $this->scope->forEmployee($employee)['ids'];
 
         return RecDocumentRecipient::query()
+            ->ohneUnterschriftsbild()           // Listen tragen nie das Unterschriftsbild
             ->whereIn('rec_employee_id', $ids)
             ->whereNull('withdrawn_at')
             ->whereHas('document')            // SoftDeletes: geloeschte Dokumente fallen hier raus

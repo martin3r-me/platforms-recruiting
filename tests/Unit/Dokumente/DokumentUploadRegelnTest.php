@@ -31,7 +31,8 @@ final class DokumentUploadRegelnTest extends TestCase
     public function test_zu_gross_wird_abgelehnt(): void
     {
         $inhalt = '%PDF-' . str_repeat('x', DokumentUploadRegeln::MAX_BYTES);
-        $this->assertSame('Die Datei ist größer als 20 MB.', DokumentUploadRegeln::pruefe($inhalt, 'gross.pdf'));
+        $this->assertSame(12 * 1024 * 1024, DokumentUploadRegeln::MAX_BYTES, 'reale Host-Grenze: Livewire-Temp-Upload max:12288');
+        $this->assertSame('Die Datei ist größer als 12 MB.', DokumentUploadRegeln::pruefe($inhalt, 'gross.pdf'));
     }
 
     public function test_endung_ist_nicht_case_sensitiv(): void

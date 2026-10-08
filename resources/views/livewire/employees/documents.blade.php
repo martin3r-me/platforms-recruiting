@@ -6,7 +6,8 @@
     $gewaehlt = count($kandidaten) - count(array_intersect($abgewaehlt, array_column($kandidaten, 'id')));
     $ohnePortal = count(array_filter($kandidaten, fn ($k) => !$k['hat_portal'] && !in_array($k['id'], $abgewaehlt, true)));
     $dokumente = $this->dokumente;
-    $versandLaeuft = count(array_filter($dokumente, fn ($d) => $d['ausstehend'] > 0)) > 0;
+    // Pollt nur, solange ein Versand juenger als die Versandfrist (30 min) unversucht ist.
+    $versandLaeuft = count(array_filter($dokumente, fn ($d) => $d['versand_laeuft'])) > 0;
 @endphp
 <x-ui-page>
     <x-slot name="navbar">
@@ -35,9 +36,12 @@
             <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-3">1 · Dokument</h3>
             <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                 <div class="md:col-span-4">
-                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">PDF</label>
+                    <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">PDF bis 12 MB</label>
                     <input type="file" accept=".pdf" wire:model="datei" class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
                     <div wire:loading wire:target="datei" class="text-xs text-[var(--ui-muted)] mt-1">Wird hochgeladen …</div>
+                    @error('datei')
+                        <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                    @enderror
                 </div>
                 <div class="md:col-span-4">
                     <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Titel</label>
@@ -154,11 +158,14 @@
                     <option value="alle">Alle</option>
                 </select>
             </div>
-            <div class="bg-white border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)]/60" @if ($versandLaeuft) wire:poll.5s @endif>
+            <div class="bg-white border border-[var(--ui-border)] rounded-lg divide-y divide-[var(--ui-border)]/60" @if ($versandLaeuft) wire:poll.10s @endif>
                 @forelse ($dokumente as $dok)
                     @php
                         $dokOffen = $aufgeklappt === $dok['id'];
                         $dokBalken = $dok['fortschritt']['gesamt'] > 0 ? (int) round(100 * $dok['fortschritt']['erledigt'] / $dok['fortschritt']['gesamt']) : 0;
+                        $dokVersandZeile = $dok['benachrichtigt'] . ' von ' . ($dok['benachrichtigt'] + $dok['ausstehend']) . ' benachrichtigt, '
+                            . ($dok['versand_laeuft'] ? 'läuft …' : 'Rest nicht gesendet');
+                        $dokZeigtAnstossen = $dok['ausstehend'] > 0 && !$dok['geloescht'];
                     @endphp
                     <div class="p-3">
                         <div class="flex items-center gap-3">
@@ -169,12 +176,15 @@
                             <div class="w-44">
                                 <div class="text-xs text-right mb-1">{{ $dok['fortschritt']['text'] }}</div>
                                 @if ($dok['ausstehend'] > 0)
-                                    <div class="text-[10px] text-right text-amber-700">{{ $dok['benachrichtigt'] }} von {{ $dok['benachrichtigt'] + $dok['ausstehend'] }} benachrichtigt, läuft …</div>
+                                    <div class="text-[10px] text-right text-amber-700">{{ $dokVersandZeile }}</div>
                                 @elseif ($dok['action'] !== 'none')
                                     <div class="text-[10px] text-right text-[var(--ui-muted)]">{{ $dok['benachrichtigt'] }} benachrichtigt</div>
                                 @endif
                                 <div class="h-1.5 bg-[var(--ui-muted-5)] rounded-full overflow-hidden"><div class="h-full bg-emerald-500" style="width: {{ $dokBalken }}%"></div></div>
                             </div>
+                            @if ($dokZeigtAnstossen)
+                                <button type="button" wire:click="versandAnstossen({{ $dok['id'] }})" class="px-3 py-1.5 border border-blue-300 text-xs rounded-md text-blue-800 bg-blue-50 hover:bg-blue-100">Versand erneut anstoßen</button>
+                            @endif
                             <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dok['uuid']]) }}" target="_blank" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md bg-white hover:bg-[var(--ui-muted-5)]">PDF</a>
                             @if (!$dok['geloescht'] && !$dok['erledigt'])
                                 <button type="button" wire:click="dokumentZurueckziehen({{ $dok['id'] }})" wire:confirm="„{{ $dok['title'] }}“ für alle Offenen zurückziehen?" class="px-3 py-1.5 border border-[var(--ui-border)] text-xs rounded-md text-[var(--ui-muted)] hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
@@ -185,7 +195,7 @@
                                 @foreach ($dok['empfaenger'] as $em)
                                     @php
                                         $emVersand = $em['versand_text'];
-                                        $emZeigtErneut = $em['action'] !== 'none' && $em['status'] !== 'zurueckgezogen' && !$em['benachrichtigt'] && !$em['versand_laeuft'];
+                                        $emZeigtErneut = $em['kann_erneut_senden'];
                                     @endphp
                                     <div class="flex items-center gap-3 text-sm">
                                         <a href="{{ route('recruiting.employees.show', $em['employee_id']) }}" wire:navigate class="flex-1 hover:underline">{{ $em['name'] }}</a>

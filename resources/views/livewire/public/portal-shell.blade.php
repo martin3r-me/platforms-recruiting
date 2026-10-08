@@ -168,6 +168,18 @@
                     <p>{{ $untertitel }}</p>
                 </div>
 
+                {{-- Dieselbe Dokument-Meldung wie im Dokumente-Reiter: das Blatt oeffnet sich auch von hier (offene Punkte). --}}
+                @if ($dokumentMeldung !== '')
+                    @php
+                        // Zurueckgezogen ist kein Erfolg: gelb statt gruen (Hausregel: Klasse vorberechnen).
+                        $dokStartMeldungArt = $dokumentMeldung === \Platform\Recruiting\Livewire\Public\PortalShell::MELDUNG_ZURUECKGEZOGEN ? 'warn' : 'ok';
+                    @endphp
+                    <div class="alert {{ $dokStartMeldungArt }}">
+                        <span class="dot {{ $dokStartMeldungArt }}" style="margin-top:6px"></span>
+                        <div class="txt">{{ $dokumentMeldung }}</div>
+                    </div>
+                @endif
+
                 {{--
                     Der dunkle Block ist im Entwurf „Dein naechster Einsatz".
                     Den gibt es noch nicht (Schritt 4). Statt ihn leer zu lassen
@@ -372,8 +384,12 @@
                     PortalCertificateBadgeTest).
                 --}}
                 @if ($dokumentMeldung !== '')
-                    <div class="alert ok">
-                        <span class="dot ok" style="margin-top:6px"></span>
+                    @php
+                        // Zurueckgezogen ist kein Erfolg: gelb statt gruen (Hausregel: Klasse vorberechnen).
+                        $dokMeldungArt = $dokumentMeldung === \Platform\Recruiting\Livewire\Public\PortalShell::MELDUNG_ZURUECKGEZOGEN ? 'warn' : 'ok';
+                    @endphp
+                    <div class="alert {{ $dokMeldungArt }}">
+                        <span class="dot {{ $dokMeldungArt }}" style="margin-top:6px"></span>
                         <div class="txt">{{ $dokumentMeldung }}</div>
                     </div>
                 @endif

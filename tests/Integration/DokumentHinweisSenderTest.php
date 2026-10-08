@@ -115,6 +115,16 @@ final class DokumentHinweisSenderTest extends TestCase
         $this->assertCount(0, $this->meta->calls);
     }
 
+    public function test_deaktivierte_anstellung_bekommt_keine_nachricht(): void
+    {
+        // Spec §10: inaktiv geht vor allem anderen, auch vor "altes Portal".
+        $ma = $this->mitarbeiter(['is_active' => false, 'portal_v2_since' => null]);
+
+        $this->assertSame(DokumentHinweisSender::STATUS_INAKTIV, (new DokumentHinweisSender())->sende($ma));
+        $this->assertFalse(DokumentHinweisSender::istErfolg(DokumentHinweisSender::STATUS_INAKTIV));
+        $this->assertCount(0, $this->meta->calls);
+    }
+
     public function test_ohne_nummer_kein_versand(): void
     {
         $ma = $this->mitarbeiter(['phone' => 'keine']);

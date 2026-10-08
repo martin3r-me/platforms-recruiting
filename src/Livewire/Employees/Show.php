@@ -778,6 +778,7 @@ class Show extends Component
 
         return DokumentAkteZeilen::fuer(
             RecDocumentRecipient::query()
+                ->ohneUnterschriftsbild()
                 ->whereIn('rec_employee_id', $ids)
                 ->with(['document' => fn ($q) => $q->withTrashed()])
                 ->orderByDesc('id')

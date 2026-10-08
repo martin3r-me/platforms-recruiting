@@ -8,8 +8,8 @@ use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
 use Platform\Recruiting\Models\RecDocument;
-use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Services\DokumentService;
+use Platform\Recruiting\Services\DokumentZaehler;
 use Platform\Recruiting\Services\EingebuchteFuerDokument;
 use Platform\Recruiting\Support\DokumentFortschritt;
 use Platform\Recruiting\Support\DokumentKategorie;
@@ -566,16 +566,20 @@ class Show extends Component
     #[Computed]
     public function eventDokumente(): array
     {
-        return RecDocument::query()
+        // Zahlen aus einer gruppierten Abfrage — keine Zustellungszeilen (und
+        // kein signature_data) fuer einen Fortschrittstext laden.
+        $docs = RecDocument::query()
             ->where('rec_dispo_event_id', $this->eventId)
-            ->with('recipients')
             ->orderByDesc('id')
-            ->get()
+            ->get(['id', 'title', 'action']);
+        $zahlen = DokumentZaehler::fuer($docs->pluck('id')->all());
+
+        return $docs
             ->map(fn (RecDocument $d) => [
                 'id'           => (int) $d->id,
                 'title'        => (string) $d->title,
                 'action_label' => DokumentKategorie::aktionLabel((string) $d->action),
-                'fortschritt'  => DokumentFortschritt::fuer($d->recipients->map(fn (RecDocumentRecipient $z) => $z->zeitstempel())->all(), (string) $d->action),
+                'fortschritt'  => DokumentFortschritt::ausZaehlern($zahlen[(int) $d->id] ?? DokumentZaehler::leer(), (string) $d->action),
             ])
             ->all();
     }

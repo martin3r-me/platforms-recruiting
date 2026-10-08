@@ -33,6 +33,7 @@ class DokumentDownloadController extends Controller
         $sitzungGueltig = self::sitzungDeckt($scopeIds, fn (string $key) => $request->session()->has($key));
         $gesperrt = $scopeIds !== []
             && RecEmployee::query()->whereIn('id', $scopeIds)->whereNotNull('portal_locked_at')->exists();
+        $gesperrt = self::gesperrt($gesperrt, $employee);
 
         $code = DokumentZugriff::entscheide(
             $zustellung !== null && $dokument !== null && $employee !== null,
@@ -41,12 +42,23 @@ class DokumentDownloadController extends Controller
             $zustellung?->withdrawn_at !== null,
         );
         abort_if($code !== 200, $code);
+        // Datei auf dem Speicher weg: 404 statt 500 (Spec §10).
+        abort_unless(Storage::disk($dokument->disk)->exists($dokument->stored_path), 404);
 
         return Storage::disk($dokument->disk)->response(
             $dokument->stored_path,
             $dokument->original_filename,
             ['Cache-Control' => 'private, no-store']
         );
+    }
+
+    /**
+     * Gesperrt ist, wessen Portal gesperrt ist ODER wessen Anstellung (die der
+     * Zustellung) deaktiviert ist (Spec §10, Final-Review Fund 9).
+     */
+    public static function gesperrt(bool $portalGesperrt, ?RecEmployee $employee): bool
+    {
+        return $portalGesperrt || ($employee !== null && !$employee->is_active);
     }
 
     /**

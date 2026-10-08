@@ -32,6 +32,33 @@ final class DokumentFortschritt
             }
         }
 
+        return self::text($erledigt, $gesamt, $zurueck, $aktion);
+    }
+
+    /**
+     * Dasselbe aus den Zaehlern von DokumentZaehler::fuer() (eine gruppierte
+     * Abfrage statt geladener Zeilen). "Erledigt" je Aktion wie oben: none =
+     * gesehen, acknowledge = bestaetigt, sign = unterschrieben.
+     *
+     * @param  array{gesamt:int, zurueckgezogen:int, unterschrieben:int, bestaetigt:int, gesehen:int} $z
+     * @return array{erledigt:int, gesamt:int, zurueckgezogen:int, text:string}
+     */
+    public static function ausZaehlern(array $z, string $aktion): array
+    {
+        $erledigt = match ($aktion) {
+            DokumentKategorie::AKTION_SIGN        => (int) ($z['unterschrieben'] ?? 0),
+            DokumentKategorie::AKTION_ACKNOWLEDGE => (int) ($z['bestaetigt'] ?? 0),
+            DokumentKategorie::AKTION_NONE        => (int) ($z['gesehen'] ?? 0),
+            default                               => (int) ($z['gesamt'] ?? 0) - (int) ($z['zurueckgezogen'] ?? 0),
+        };
+        $zurueck = (int) ($z['zurueckgezogen'] ?? 0);
+
+        return self::text($erledigt, (int) ($z['gesamt'] ?? 0) - $zurueck, $zurueck, $aktion);
+    }
+
+    /** @return array{erledigt:int, gesamt:int, zurueckgezogen:int, text:string} */
+    private static function text(int $erledigt, int $gesamt, int $zurueck, string $aktion): array
+    {
         $wort = match ($aktion) {
             DokumentKategorie::AKTION_SIGN        => 'unterschrieben',
             DokumentKategorie::AKTION_ACKNOWLEDGE => 'bestätigt',

@@ -323,6 +323,33 @@ final class DokumentServiceTest extends TestCase
         $this->assertSame([], $this->sender->angeschrieben);
     }
 
+    public function test_erneut_senden_bei_erledigter_zustellung_sendet_nicht(): void
+    {
+        [$dok, $zeile] = $this->bereit();
+        DB::table('rec_document_recipients')->where('id', $zeile->id)->update([
+            'notified_at' => null, 'notify_error' => 'failed',
+            'first_viewed_at' => '2026-10-09 09:00:00', 'acknowledged_at' => '2026-10-09 09:01:00', 'signed_at' => '2026-10-09 09:02:00',
+        ]);
+
+        $this->assertSame('erledigt', $this->service()->erneutSenden($zeile->fresh()));
+        $this->assertSame([], $this->sender->angeschrieben);
+        $this->assertSame('failed', $zeile->fresh()->notify_error, 'nichts gestempelt');
+    }
+
+    public function test_versand_liest_zurueckziehen_frisch_nach_und_stempelt_nicht(): void
+    {
+        [$dok, $zeile] = $this->bereit();
+        DB::table('rec_document_recipients')->where('id', $zeile->id)->update(['notified_at' => null, 'notify_error' => 'no_phone']);
+        $veraltet = $zeile->fresh();               // noch ohne withdrawn_at im Speicher
+        DB::table('rec_document_recipients')->where('id', $zeile->id)->update(['withdrawn_at' => '2026-10-09 10:00:00']);
+
+        $this->assertSame('zurueckgezogen', $this->service()->erneutSenden($veraltet));
+        $this->assertSame([], $this->sender->angeschrieben, 'zwischen Laden und Senden zurueckgezogen: keine WhatsApp');
+        $frisch = $zeile->fresh();
+        $this->assertNull($frisch->notified_at);
+        $this->assertSame('no_phone', $frisch->notify_error);
+    }
+
     public function test_erneut_senden_bei_nur_ablegen_sendet_nicht(): void
     {
         [$dok, $zeile] = $this->bereit(['category' => 'payslip', 'action' => 'none']);

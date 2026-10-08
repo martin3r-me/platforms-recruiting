@@ -10,6 +10,7 @@ use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Http\Controllers\DokumentDownloadController;
+use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\PortalAuth;
 
 final class DokumentDownloadControllerTest extends TestCase
@@ -23,6 +24,19 @@ final class DokumentDownloadControllerTest extends TestCase
         $this->assertTrue(DokumentDownloadController::sitzungDeckt([223, 160], $hat));
         $this->assertFalse(DokumentDownloadController::sitzungDeckt([223], $hat));
         $this->assertFalse(DokumentDownloadController::sitzungDeckt([], $hat));
+    }
+
+    public function test_deaktivierte_anstellung_gilt_als_gesperrt(): void
+    {
+        $aktiv = new RecEmployee();
+        $aktiv->is_active = true;
+        $inaktiv = new RecEmployee();
+        $inaktiv->is_active = false;
+
+        $this->assertFalse(DokumentDownloadController::gesperrt(false, $aktiv));
+        $this->assertTrue(DokumentDownloadController::gesperrt(false, $inaktiv));
+        $this->assertTrue(DokumentDownloadController::gesperrt(true, $aktiv));
+        $this->assertFalse(DokumentDownloadController::gesperrt(false, null), 'ohne Anstellung entscheidet DokumentZugriff (404)');
     }
 
     public function test_route_ist_registriert_und_traegt_die_uuid_am_ende(): void

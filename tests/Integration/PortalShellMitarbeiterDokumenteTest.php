@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Routing\UrlGenerator;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Livewire\Public\PortalShell;
 use Platform\Recruiting\Models\RecDocument;
@@ -166,6 +167,47 @@ final class PortalShellMitarbeiterDokumenteTest extends TestCase
         $this->assertNull($fremde->fresh()->signed_at);
         $this->assertNull($eigene->fresh()->signed_at);
         $this->assertNull($shell->dokumentId);
+    }
+
+    public function test_zurueckgezogen_waehrend_das_blatt_offen_ist_meldet_es(): void
+    {
+        $ma = $this->anstellung();
+        $z = $this->zustellung($ma, 'acknowledge');
+        $shell = $this->shell($ma);
+        $shell->oeffneDokument($z->id);
+        DB::table('rec_document_recipients')->where('id', $z->id)->update(['withdrawn_at' => '2026-10-09 10:00:00']);   // HR zieht zurueck
+        $shell->dokumentGelesen = true;
+
+        $shell->bestaetigeDokument();
+
+        $this->assertNull($z->fresh()->acknowledged_at);
+        $this->assertNull($shell->dokumentId, 'Blatt geschlossen');
+        $this->assertSame(PortalShell::MELDUNG_ZURUECKGEZOGEN, $shell->dokumentMeldung);
+        $this->assertSame('Dieses Dokument wurde zurückgezogen.', $shell->dokumentMeldung);
+    }
+
+    public function test_ohne_offenes_blatt_gibt_es_keine_zurueckgezogen_meldung(): void
+    {
+        $ma = $this->anstellung();
+        $shell = $this->shell($ma);
+
+        $shell->unterschreibeDokument();
+
+        $this->assertSame('', $shell->dokumentMeldung);
+    }
+
+    public function test_die_dokument_meldung_steht_auch_auf_dem_start_reiter(): void
+    {
+        // Das Blatt oeffnet sich auch vom Start-Reiter (offene Punkte) -- die Meldung muss dort sichtbar sein.
+        $blade = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/public/portal-shell.blade.php');
+        $start = strpos($blade, "<div class=\"pane\" :class=\"tab === 'start' && 'on'\">");
+        $jobs = strpos($blade, "<div class=\"pane\" :class=\"tab === 'jobs' && 'on'\">");
+        $docs = strpos($blade, "<div class=\"pane\" :class=\"tab === 'docs' && 'on'\">");
+        $me = strpos($blade, "<div class=\"pane\" :class=\"tab === 'me' && 'on'\">");
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($jobs);
+        $this->assertStringContainsString('{{ $dokumentMeldung }}', substr($blade, $start, $jobs - $start), 'Start-Reiter');
+        $this->assertStringContainsString('{{ $dokumentMeldung }}', substr($blade, $docs, $me - $docs), 'Dokumente-Reiter');
     }
 
     public function test_mitarbeiter_dokumente_liste_und_offen_zaehler(): void

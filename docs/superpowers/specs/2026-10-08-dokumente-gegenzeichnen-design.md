@@ -97,8 +97,12 @@ gibt es nur `abgelegt`/`gesehen`. Benachrichtigungsstand ist eine zweite Achse
 
 ### 3.1 `DokumentService::bereitstellen(array $daten, UploadedFile $datei, list<int> $employeeIds, ?int $eventId, ?int $userId): RecDocument`
 
-1. Validierung: PDF (MIME `application/pdf` UND Endung), ≤ 20 MB, Titel nicht leer,
+1. Validierung: PDF (MIME `application/pdf` UND Endung), ≤ 12 MB, Titel nicht leer,
    `category`/`action` aus der Liste, mindestens ein Empfänger.
+   Die 12 MB sind die tatsächliche Grenze des Hosts: Livewire lädt temporär hoch mit
+   `max:12288` (Default von `livewire.temporary_file_upload.rules`). Wer die Grenze
+   anheben will, muss diese Host-Einstellung in meingedeck mit anheben, sonst scheitert
+   der Upload vorher (`DokumentUploadRegeln::MAX_BYTES`).
 2. Datei speichern (Disk wie Dispo-Anhänge, Pfad `recruiting/dokumente/{team}/{uuid}.pdf`),
    `file_sha256` aus den gespeicherten Bytes berechnen.
 3. Empfänger entdoppeln auf Personen: `EmpfaengerEntdoppler::aufPersonen(list<RecEmployee>)`
@@ -283,6 +287,18 @@ HR-Schreibtisch (bleibt Bewerber-Thema bis zum Paket „HR-Bereich Mitarbeiter")
 
 Die Akte zeigt dieselben Zeilen gefiltert auf die Person.
 
+Nachtrag Final-Review (08.10.2026):
+- Versandfrist 30 Minuten (`DokumentAkteZeilen::VERSAND_FRIST_MINUTEN`): eine unversuchte
+  Zustellung gilt nur so lange als „wird verschickt …"; danach heißt sie „nicht gesendet"
+  und trägt „Erneut senden". Gepollt wird (10 s) nur, solange eine Zeile innerhalb der
+  Frist unversucht ist — ein toter Job lässt die Seiten nicht ewig pollen.
+- „Erneut senden" steht auch während „läuft", nie bei zurückgezogen/unterschrieben/bestätigt
+  (`DokumentService::erneutSenden` liefert dann `erledigt`, ohne zu senden).
+- Seite Dokumente: „Versand erneut anstoßen" je Dokument, solange Zustellungen unversucht
+  sind; stellt `DokumentHinweiseVersenden` erneut ein (idempotent).
+- Die Zahlen des Überblicks kommen aus einer gruppierten Abfrage (`DokumentZaehler`); volle
+  Zeilen nur für das aufgeklappte Dokument. Listen laden nie `signature_data`.
+
 ---
 
 ## 9. Was sich NICHT ändert
@@ -305,7 +321,7 @@ Die Akte zeigt dieselben Zeilen gefiltert auf die Person.
 | Meta-Vorlage fehlt | alle Empfänger `nicht_konfiguriert`, Dokument liegt bereit |
 | Empfänger im alten Portal | `altes_portal`, kein Versand, sichtbar nach Umstellung |
 | Person zweimal in der Auswahl (RG+MA) | ein Empfänger (Entdoppler) |
-| Mitarbeiter deaktiviert | Portal-Login scheitert ohnehin; Zeile bleibt, kein Versand |
+| Mitarbeiter deaktiviert | Portal-Login scheitert ohnehin; Zeile bleibt, kein Versand (`notify_error = inaktiv`); Download 403 |
 | Datei auf dem Speicher weg | Öffnen 404, Unterschreiben bricht ab (Prüfsumme nicht berechenbar), `Log::error` |
 | Doppelklick Bestätigen/Unterschreiben | erster Zeitpunkt gilt |
 | Zurückgezogen während Ansicht | freundliche Meldung, keine Änderung |

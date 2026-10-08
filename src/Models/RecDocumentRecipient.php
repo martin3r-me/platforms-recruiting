@@ -31,6 +31,24 @@ class RecDocumentRecipient extends Model
         'withdrawn_at'    => 'datetime',
     ];
 
+    /**
+     * Alle Spalten AUSSER signature_data (10–60 KB je Zeile). Listen, Akte,
+     * Portal und Zaehler laden nur diese; das Unterschriftsbild liest allein
+     * das Nachweisblatt (DokumentHrController::nachweis), geschrieben wird es
+     * ueber DB::table in DokumentUnterschrift.
+     */
+    public const LISTEN_SPALTEN = [
+        'id', 'team_id', 'uuid', 'rec_document_id', 'rec_employee_id', 'person_key',
+        'notified_at', 'notify_error', 'first_viewed_at', 'acknowledged_at', 'signed_at',
+        'withdrawn_at', 'created_at', 'updated_at',
+    ];
+
+    /** Scope: Zeilen ohne das Unterschriftsbild — fuer jede Liste. */
+    public function scopeOhneUnterschriftsbild($query)
+    {
+        return $query->select(array_map(static fn (string $c) => 'rec_document_recipients.' . $c, self::LISTEN_SPALTEN));
+    }
+
     protected static function booted(): void
     {
         static::creating(function (self $model) {

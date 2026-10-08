@@ -8,6 +8,7 @@ use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\Comms\DokumentHinweisSender;
 use Platform\Recruiting\Support\DokumentKategorie;
+use Platform\Recruiting\Support\DokumentStatus;
 use Platform\Recruiting\Support\DokumentUploadRegeln;
 use Platform\Recruiting\Support\EmpfaengerEntdoppler;
 use Symfony\Component\Uid\UuidV7;
@@ -17,9 +18,10 @@ use Symfony\Component\Uid\UuidV7;
  * EIN Service fuer alle drei Einstiege (Akte, Veranstaltung, Seite Dokumente).
  *
  * Reihenfolge beim Bereitstellen: pruefen → Datei ablegen → Empfaenger
- * entdoppeln → Transaktion (Dokument + Zustellungen) → AUSSERHALB der
- * Transaktion je Empfaenger die WhatsApp. Ein Meta-Fehler kostet einen
- * Empfaenger, nie das Dokument. Nie eine Schreibung auf rec_employees.
+ * entdoppeln → Transaktion (Dokument + Zustellungen). Bereitstellen legt NUR
+ * Zeilen an; die WhatsApps verschickt der Job DokumentHinweiseVersenden
+ * (Queue) ueber hinweiseVersenden(), nie der Klick. Ein Meta-Fehler kostet
+ * einen Empfaenger, nie das Dokument. Nie eine Schreibung auf rec_employees.
  */
 class DokumentService
 {
@@ -176,6 +178,10 @@ class DokumentService
         if (!DokumentKategorie::brauchtHandlung($aktion)) {
             return 'nur_ablegen';
         }
+        // Schon unterschrieben/bestaetigt: keine Erinnerung mehr an Erledigtes.
+        if (DokumentStatus::istErledigt($empfaenger->zeitstempel(), $aktion)) {
+            return 'erledigt';
+        }
 
         return $this->hinweisSenden($empfaenger);
     }
@@ -227,13 +233,22 @@ class DokumentService
         return ['zurueckgezogen' => (int) $zurueck, 'geloescht' => !$unterschrieben];
     }
 
-    /** Schickt den Hinweis und schreibt das Ergebnis an die Zustellung (Query Builder). */
+    /**
+     * Schickt den Hinweis und schreibt das Ergebnis an die Zustellung (Query
+     * Builder). Die Zeile wird VOR dem Senden frisch gelesen: zwischen dem
+     * Laden der Liste im Job und dieser Zeile kann HR zurueckgezogen haben
+     * (Final-Review Fund 10). Der Stempel traegt dieselbe Bedingung.
+     */
     private function hinweisSenden(RecDocumentRecipient $empfaenger): string
     {
+        $frisch = DB::table('rec_document_recipients')->where('id', $empfaenger->id)->first(['withdrawn_at']);
+        if ($frisch === null || $frisch->withdrawn_at !== null) {
+            return 'zurueckgezogen';
+        }
         $employee = RecEmployee::find($empfaenger->rec_employee_id);
         $status = $employee === null ? DokumentHinweisSender::STATUS_FAILED : $this->sender()->sende($employee);
 
-        DB::table('rec_document_recipients')->where('id', $empfaenger->id)->update(
+        DB::table('rec_document_recipients')->where('id', $empfaenger->id)->whereNull('withdrawn_at')->update(
             DokumentHinweisSender::istErfolg($status)
                 ? ['notified_at' => now(), 'notify_error' => null, 'updated_at' => now()]
                 : ['notify_error' => mb_substr($status, 0, 120), 'updated_at' => now()]

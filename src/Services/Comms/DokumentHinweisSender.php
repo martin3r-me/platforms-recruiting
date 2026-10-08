@@ -24,6 +24,9 @@ use Platform\Recruiting\Support\WhatsAppTemplateUrlButtons;
  *  2. Ein Platzhalter, den wir nicht befuellen koennen, verhindert den Versand.
  *  3. sendTemplate() im try/catch — ein Meta-Ausfall kostet einen Empfaenger.
  *
+ * Deaktivierte Anstellungen (`is_active` false) bekommen NICHTS (Spec §10,
+ * Status `inaktiv`), geprueft vor allem anderen.
+ *
  * Wer `portal_v2_since` nicht hat, bekommt NICHTS: der Knopf fuehrte ins alte
  * Portal, das keine Dokumente kennt (Ruling C2 des Fristenlaufs).
  *
@@ -40,6 +43,7 @@ class DokumentHinweisSender
     public const STATUS_NICHT_KONFIGURIERT = 'nicht_konfiguriert';
     public const STATUS_VORLAGE_UNTAUGLICH = 'vorlage_untauglich';
     public const STATUS_ALTES_PORTAL = 'altes_portal';
+    public const STATUS_INAKTIV = 'inaktiv';
 
     /** Was HoldingTemplateComponents als Vorname erkennt — dieselbe Liste, damit beide Wege dasselbe meinen. */
     private const NAME_PLATZHALTER = ['name', 'vorname', '1'];
@@ -51,6 +55,10 @@ class DokumentHinweisSender
 
     public function sende(RecEmployee $employee): string
     {
+        // Deaktivierte bekommen keine Nachricht (Spec §10) — vor allem anderen.
+        if (!$employee->is_active) {
+            return self::STATUS_INAKTIV;
+        }
         if ($employee->portal_v2_since === null) {
             return self::STATUS_ALTES_PORTAL;
         }

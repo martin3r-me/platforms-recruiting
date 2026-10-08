@@ -9,7 +9,7 @@ namespace Platform\Recruiting\Support;
  */
 final class DokumentUploadRegeln
 {
-    public const MAX_BYTES = 20 * 1024 * 1024;
+    public const MAX_BYTES = 12 * 1024 * 1024;
 
     /** @return ?string null = in Ordnung, sonst Fehlertext fuer HR */
     public static function pruefe(string $inhalt, string $originalName): ?string
@@ -22,7 +22,7 @@ final class DokumentUploadRegeln
             return 'Die Datei ist leer.';
         }
         if (strlen($inhalt) > self::MAX_BYTES) {
-            return 'Die Datei ist größer als 20 MB.';
+            return 'Die Datei ist größer als 12 MB.';
         }
         if (!str_starts_with($inhalt, '%PDF-')) {
             return 'Die Datei ist keine PDF.';

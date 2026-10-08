@@ -27,6 +27,8 @@ class DokumentHrController extends Controller
             ->where('uuid', $uuid)
             ->where('team_id', auth()->user()->currentTeam->id)
             ->firstOrFail();
+        // Datei auf dem Speicher weg: 404 statt 500 (Spec §10).
+        abort_unless(Storage::disk($dokument->disk)->exists($dokument->stored_path), 404);
 
         return Storage::disk($dokument->disk)->response(
             $dokument->stored_path,

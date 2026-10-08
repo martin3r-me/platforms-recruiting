@@ -978,7 +978,7 @@
                 <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
                     <p class="text-sm text-gray-500">Geht an alle, die laut Dispo im Status Auftrag sind — einmalig jetzt. Nachrücker legst du über die Akte oder die Dokumente-Seite nach. Wer noch im alten Portal ist, bekommt keine WhatsApp, sieht das Dokument aber nach der Umstellung.</p>
                     <label class="block text-sm">
-                        <span class="text-xs font-medium text-gray-500">PDF</span>
+                        <span class="text-xs font-medium text-gray-500">PDF bis 12 MB</span>
                         <input type="file" accept=".pdf" wire:model="dokDatei" class="mt-1 block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
                     </label>
                     <div wire:loading wire:target="dokDatei" class="text-xs text-gray-500">Wird hochgeladen …</div>

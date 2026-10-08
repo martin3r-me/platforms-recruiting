@@ -113,6 +113,9 @@ class PortalShell extends Component
     public string $profilFehler = '';
     public string $profilMeldung = '';
 
+    /** Meldung, wenn das offene Blatt beim naechsten Klick nicht mehr sichtbar ist. Fuer jede unsichtbare ID gleich -- kein Existenz-Orakel. */
+    public const MELDUNG_ZURUECKGEZOGEN = 'Dieses Dokument wurde zurückgezogen.';
+
     /**
      * Das offene Dokument-Blatt (Spec Dokumente §5.3). dokumentId ist die
      * Empfaenger-ID und bewusst NICHT #[Locked]: jede Aktion prueft sie bei
@@ -458,15 +461,25 @@ class PortalShell extends Component
         $this->dokumentAbschliessen($fehler, $this->duzen ? 'Danke, deine Unterschrift ist gespeichert.' : 'Danke, Ihre Unterschrift ist gespeichert.');
     }
 
-    /** Die Zustellung zur dokumentId -- nur wenn sie dem angemeldeten Menschen gehoert; sonst schliesst sich das Blatt stumm. */
+    /**
+     * Die Zustellung zur dokumentId -- nur wenn sie dem angemeldeten Menschen
+     * gehoert; sonst schliesst sich das Blatt. War ein Blatt offen und die
+     * Zeile ist nicht mehr sichtbar (HR hat zurueckgezogen, waehrend es offen
+     * war), sagt eine Meldung das an der Stelle, wo das Blatt war (Spec §10
+     * "Zurueckgezogen waehrend Ansicht", Final-Review Fund 6).
+     */
     private function eigeneZustellung(): ?\Platform\Recruiting\Models\RecDocumentRecipient
     {
         $employee = $this->berechtigterMitarbeiter();
-        $z = ($employee !== null && $this->dokumentId !== null)
+        $warOffen = $this->dokumentId !== null;
+        $z = ($employee !== null && $warOffen)
             ? app(DokumentLeser::class)->empfaenger($employee, (int) $this->dokumentId)
             : null;
         if ($z === null) {
             $this->schliesseDokument();
+            if ($warOffen && $employee !== null) {
+                $this->dokumentMeldung = self::MELDUNG_ZURUECKGEZOGEN;
+            }
         }
 
         return $z;

@@ -608,9 +608,12 @@
 
                 <form wire:submit="dokumentBereitstellen" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end p-3 bg-white border border-[var(--ui-border)]/60 rounded-md">
                     <div class="md:col-span-4">
-                        <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">PDF</label>
+                        <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">PDF bis 12 MB</label>
                         <input type="file" accept=".pdf" wire:model="dokumentDatei" class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
                         <div wire:loading wire:target="dokumentDatei" class="text-xs text-[var(--ui-muted)] mt-1">Wird hochgeladen …</div>
+                        @error('dokumentDatei')
+                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
+                        @enderror
                     </div>
                     <div class="md:col-span-3">
                         <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Titel</label>
@@ -640,8 +643,11 @@
                     </div>
                 </form>
 
-                @php $dokVersandLaeuft = count(array_filter($dokZeilen, fn ($z) => $z['versand_laeuft'])) > 0; @endphp
-                <div class="mt-3 space-y-2" @if ($dokVersandLaeuft) wire:poll.5s @endif>
+                @php
+                    // Pollt nur, solange eine Zeile juenger als die Versandfrist (30 min) unversucht ist.
+                    $dokVersandLaeuft = count(array_filter($dokZeilen, fn ($z) => $z['versand_laeuft'])) > 0;
+                @endphp
+                <div class="mt-3 space-y-2" @if ($dokVersandLaeuft) wire:poll.10s @endif>
                     @forelse ($dokZeilen as $dz)
                         @php
                             if ($dz['status'] === 'unterschrieben' || $dz['status'] === 'bestaetigt') {
@@ -654,7 +660,7 @@
                                 $dzBadge = 'border-amber-200 bg-amber-50 text-amber-800';
                             }
                             $dzVersand = $dz['versand_text'];
-                            $dzZeigtErneut = $dz['action'] !== 'none' && $dz['status'] !== 'zurueckgezogen' && !$dz['benachrichtigt'] && !$dz['versand_laeuft'];
+                            $dzZeigtErneut = $dz['kann_erneut_senden'];
                         @endphp
                         <div class="flex items-center justify-between gap-3 p-2 bg-white border border-[var(--ui-border)]/60 rounded-md">
                             <div class="flex items-center gap-2 text-sm flex-wrap">
