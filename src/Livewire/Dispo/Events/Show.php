@@ -6,6 +6,13 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
+use Platform\Recruiting\Models\RecDocument;
+use Platform\Recruiting\Models\RecDocumentRecipient;
+use Platform\Recruiting\Services\DokumentService;
+use Platform\Recruiting\Services\EingebuchteFuerDokument;
+use Platform\Recruiting\Support\DokumentFortschritt;
+use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Models\RecApplicantSettings;
 use Platform\Recruiting\Models\RecDispoAssignment;
 use Platform\Recruiting\Models\RecDispoAttachment;
@@ -151,6 +158,15 @@ class Show extends Component
     public ?int $noteEmployeeId = null;
     public string $noteEmployeeName = '';
     public string $noteDraft = '';
+
+    /** Dokument an alle Eingebuchten (Spec Dokumente §3.3). */
+    public bool $showDokumentModal = false;
+    public $dokDatei = null;
+    public string $dokTitel = '';
+    public string $dokKategorie = 'instruction';
+    public string $dokAktion = 'acknowledge';
+    /** Bestaetigung nach dem Bereitstellen (Property statt Session-Flash: die Komponente rendert ohne Redirect neu). */
+    public string $dokumentFlash = '';
 
     // Aufraeum-Fenster fuer die Hinweise (Kunde 25.09., Fall VA 1352): gruppiert
     // nach Wortlaut, damit eine Sammelaktion keinen individuellen Hinweis frisst.
@@ -472,6 +488,96 @@ class Show extends Component
             DispoAttachmentStore::default()->remove($attachment);
         }
         unset($this->event, $this->attachmentsByEmployee);
+    }
+
+    public function openDokumentModal(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        $this->dokDatei = null;
+        $this->dokTitel = '';
+        $this->dokKategorie = 'instruction';
+        $this->dokAktion = 'acknowledge';
+        $this->dokumentFlash = '';
+        $this->resetErrorBag('dokDatei');
+        $this->showDokumentModal = true;
+    }
+
+    public function closeDokumentModal(): void
+    {
+        $this->showDokumentModal = false;
+    }
+
+    public function updatedDokKategorie(): void
+    {
+        $this->dokAktion = DokumentKategorie::exists($this->dokKategorie) ? DokumentKategorie::defaultAktion($this->dokKategorie) : 'none';
+    }
+
+    public function updatedDokDatei(): void
+    {
+        if ($this->dokTitel === '' && $this->dokDatei) {
+            $this->dokTitel = (string) pathinfo($this->dokDatei->getClientOriginalName(), PATHINFO_FILENAME);
+        }
+    }
+
+    /** @return list<int> */
+    #[Computed]
+    public function eingebuchteIds(): array
+    {
+        return EingebuchteFuerDokument::ids($this->eventId);
+    }
+
+    public function dokumentBereitstellen(): void
+    {
+        if ($this->blockedForEventOnly()) {
+            return;
+        }
+        if (!$this->dokDatei) {
+            $this->addError('dokDatei', 'Bitte eine PDF auswählen.');
+
+            return;
+        }
+        try {
+            $e = app(DokumentService::class)->bereitstellen(
+                (int) auth()->user()->currentTeam->id,
+                ['title' => $this->dokTitel, 'category' => $this->dokKategorie, 'action' => $this->dokAktion],
+                (string) file_get_contents($this->dokDatei->getRealPath()),
+                (string) $this->dokDatei->getClientOriginalName(),
+                $this->eingebuchteIds,
+                $this->eventId,
+                auth()->id(),
+            );
+        } catch (\InvalidArgumentException $ex) {
+            $this->addError('dokDatei', $ex->getMessage());
+
+            return;
+        }
+        DokumentHinweiseVersenden::starten($e['dokument']);
+        $this->showDokumentModal = false;
+        $this->dokDatei = null;
+        unset($this->eventDokumente);
+        $this->dokumentFlash = $e['versand_noetig']
+            ? "An {$e['empfaenger']} Eingebuchte bereitgestellt, WhatsApp läuft im Hintergrund — Stand auf der Dokumente-Seite."
+            : "An {$e['empfaenger']} Eingebuchte abgelegt.";
+    }
+
+    /** @return list<array{id:int, title:string, action_label:string, fortschritt:array}> */
+    #[Computed]
+    public function eventDokumente(): array
+    {
+        return RecDocument::query()
+            ->where('rec_dispo_event_id', $this->eventId)
+            ->with('recipients')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (RecDocument $d) => [
+                'id'           => (int) $d->id,
+                'title'        => (string) $d->title,
+                'action_label' => DokumentKategorie::aktionLabel((string) $d->action),
+                'fortschritt'  => DokumentFortschritt::fuer($d->recipients->map(fn (RecDocumentRecipient $z) => $z->zeitstempel())->all(), (string) $d->action),
+            ])
+            ->all();
     }
 
     public function closeAttachmentModal(): void

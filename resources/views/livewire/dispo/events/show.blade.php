@@ -3,7 +3,7 @@
     // wer geschrieben oder bestaetigt hat. Waehrend ein Fenster offen ist wird
     // NICHT gepollt — ein Render mitten im Tippen kann den Entwurf kosten.
     $pollBlocked = $showSendModal || $showInfoModal || $showNoteModal || $showNotesModal || $showAttachmentModal
-        || $showDeclineModal || $crewEmployeeId !== null || $showDressModal;
+        || $showDeclineModal || $crewEmployeeId !== null || $showDressModal || $showDokumentModal;
 @endphp
 <div class="p-4 lg:p-6 space-y-6" @if (!$pollBlocked) wire:poll.visible.30s @endif>
     @php
@@ -186,6 +186,26 @@
             </div>
         </div>
     </div>
+    @if ($dokumentFlash !== '')
+        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{{ $dokumentFlash }}</div>
+    @endif
+    @php $evDoks = $this->eventDokumente; @endphp
+    @if ($evDoks !== [])
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+            <div class="flex items-center justify-between">
+                <div class="text-sm font-medium text-gray-500">Dokumente dieser Veranstaltung</div>
+                <a href="{{ route('recruiting.employees.documents') }}" wire:navigate class="text-xs text-blue-600 hover:underline">Zur Dokumente-Seite</a>
+            </div>
+            <div class="mt-2 space-y-1">
+                @foreach ($evDoks as $evd)
+                    <div class="flex items-center justify-between text-sm">
+                        <span>{{ $evd['title'] }} <span class="text-xs text-gray-400">· {{ $evd['action_label'] }}</span></span>
+                        <span class="text-xs tabular-nums text-gray-600">{{ $evd['fortschritt']['text'] }}</span>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
 
     <div class="rounded-lg border border-gray-200 bg-white">
         <div class="border-b border-gray-100 px-4 py-3 font-medium">
@@ -208,6 +228,17 @@
                     Hinweise aufräumen <span class="tabular-nums opacity-60">{{ $noteVariantCount }}</span>
                 </button>
             @endif
+            @php
+                $dokEingebuchte = count($this->eingebuchteIds);
+                $dokKnopfKlasse = $dokEingebuchte > 0 ? 'text-gray-700 ring-gray-200 hover:bg-gray-50' : 'text-gray-400 ring-gray-100 cursor-not-allowed';
+                $dokKnopfTitel = $dokEingebuchte > 0 ? 'PDF an alle Eingebuchten dieser Veranstaltung' : 'Niemand eingebucht (Status Auftrag)';
+            @endphp
+            <button wire:click="openDokumentModal"
+                    @disabled($dokEingebuchte === 0)
+                    class="rounded bg-white px-3 py-1.5 text-sm font-medium ring-1 {{ $dokKnopfKlasse }}"
+                    title="{{ $dokKnopfTitel }}">
+                Dokument an Eingebuchte <span class="tabular-nums opacity-60">{{ $dokEingebuchte }}</span>
+            </button>
             <button wire:click="openInfoModal"
                     class="rounded bg-white px-3 py-1.5 text-sm font-medium text-blue-700 ring-1 ring-blue-200 hover:bg-blue-50">
                 Info an Crew
@@ -929,6 +960,57 @@
                     <button wire:click="closeAttachmentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
                     <button wire:click="saveAttachment" wire:loading.attr="disabled" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">Hinzufügen</button>
                 </div>
+                </div>
+            </div>
+        </div>
+    @endif
+    @if ($showDokumentModal)
+        @php
+            $dokKategorien = \Platform\Recruiting\Support\DokumentKategorie::labels();
+            $dokAktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
+            $dokAnzahl = count($this->eingebuchteIds);
+        @endphp
+        <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center" wire:click.self="closeDokumentModal">
+            <div class="w-full max-w-lg my-auto flex max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white">
+                <div class="shrink-0 px-6 pt-6 pb-3">
+                    <h2 class="text-lg font-semibold">Dokument an {{ $dokAnzahl }} Eingebuchte</h2>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-2 space-y-4">
+                    <p class="text-sm text-gray-500">Geht an alle, die laut Dispo im Status Auftrag sind — einmalig jetzt. Nachrücker legst du über die Akte oder die Dokumente-Seite nach. Wer noch im alten Portal ist, bekommt keine WhatsApp, sieht das Dokument aber nach der Umstellung.</p>
+                    <label class="block text-sm">
+                        <span class="text-xs font-medium text-gray-500">PDF</span>
+                        <input type="file" accept=".pdf" wire:model="dokDatei" class="mt-1 block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
+                    </label>
+                    <div wire:loading wire:target="dokDatei" class="text-xs text-gray-500">Wird hochgeladen …</div>
+                    @error('dokDatei') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
+                    <label class="block text-sm">
+                        <span class="text-xs font-medium text-gray-500">Titel</span>
+                        <input type="text" wire:model="dokTitel" class="mt-1 w-full rounded border border-gray-300 px-3 py-1.5 text-sm">
+                    </label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="block text-sm">
+                            <span class="text-xs font-medium text-gray-500">Kategorie</span>
+                            <select wire:model.live="dokKategorie" class="mt-1 w-full rounded border border-gray-300 px-3 py-1.5 text-sm bg-white">
+                                @foreach ($dokKategorien as $code => $label)
+                                    <option value="{{ $code }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        <label class="block text-sm">
+                            <span class="text-xs font-medium text-gray-500">Der Mitarbeiter soll</span>
+                            <select wire:model="dokAktion" class="mt-1 w-full rounded border border-gray-300 px-3 py-1.5 text-sm bg-white">
+                                @foreach ($dokAktionen as $code => $label)
+                                    <option value="{{ $code }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                    </div>
+                </div>
+                <div class="shrink-0 border-t border-gray-100 px-6 py-4">
+                    <div class="flex justify-end gap-3">
+                        <button wire:click="closeDokumentModal" class="rounded px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">Abbrechen</button>
+                        <button wire:click="dokumentBereitstellen" wire:loading.attr="disabled" wire:target="dokumentBereitstellen,dokDatei" class="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">An {{ $dokAnzahl }} Personen bereitstellen</button>
+                    </div>
                 </div>
             </div>
         </div>
