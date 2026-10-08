@@ -104,6 +104,38 @@ def hinweis(slide, x, y, w, zeilen):
     text(slide, x, y, w, 4, zeilen, 19, fett=True, farbe=BLAU)
 
 
+def schrittfolie(s, ordner, schritte, merksatz=None, datei=None, merksatz_farbe=BLAU, oben=1.94):
+    """Schritte links, Screenshot rechts. Ohne Screenshot laufen die Schritte
+    zweispaltig ueber die ganze Breite (kein leerer Platzhalter)."""
+    mit_bild = datei is not None and (ordner / datei).exists()
+    if mit_bild:
+        text(s, 0.75, oben, 3.6, 4.0, schritte, 17)
+        if merksatz:
+            text(s, 0.75, 5.75, 3.6, 1.1, merksatz, 16, fett=merksatz_farbe == BLAU, farbe=merksatz_farbe)
+        bild(s, ordner, datei, 4.55, oben - 0.06, 8.05, 6.88 - oben)
+        return
+    mitte = (len(schritte) + 1) // 2
+    text(s, 0.75, oben, 5.7, 5.9 - oben, schritte[:mitte], 18)
+    text(s, 6.85, oben, 5.7, 5.9 - oben, schritte[mitte:], 18)
+    if merksatz:
+        text(s, 0.75, 6.0, 11.8, 0.8, merksatz, 16, fett=merksatz_farbe == BLAU, farbe=merksatz_farbe)
+
+
+def tabelle(s, zeilen):
+    tab = s.shapes.add_table(len(zeilen), 2, Inches(0.75), Inches(1.9), Inches(11.8), Inches(0.6 * len(zeilen))).table
+    tab.columns[0].width = Inches(3.3); tab.columns[1].width = Inches(8.5)
+    tab.first_row = False
+    for i, (a, b) in enumerate(zeilen):
+        for j, wert in enumerate((a, b)):
+            zelle = tab.cell(i, j)
+            zelle.fill.solid(); zelle.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF) if i % 2 else PLATZHALTER
+            zelle.margin_left = Inches(0.12); zelle.margin_top = zelle.margin_bottom = Inches(0.05)
+            p = zelle.text_frame.paragraphs[0]
+            r = p.add_run(); r.text = wert
+            r.font.name = FONT; r.font.size = Pt(14); r.font.bold = j == 0
+            r.font.color.rgb = BLAU if j == 0 else SCHWARZ
+
+
 def bauen(ordner: Path, ziel: Path):
     prs = Presentation()
     prs.slide_width, prs.slide_height = Emu(12192000), Emu(6858000)
@@ -117,116 +149,84 @@ def bauen(ordner: Path, ziel: Path):
         rahmen(s, nr, kicker, titel)
         return s
 
-    # 1 — verschieben: auswaehlen
-    s = folie("Schritt 1 · Teilnehmer verschieben", "Teilnehmer auswählen")
-    text(s, 0.75, 1.94, 3.6, 4.2, [
-        "1. **Schulungstermine** öffnen und den Termin anklicken, aus dem ihr verschieben wollt.",
-        "2. In der Teilnehmerliste die Personen **anhaken**. Das Kästchen in der Kopfzeile wählt alle auf einmal.",
-        "3. Im blauen Balken auf **„Verschieben nach…“** klicken.",
-    ], 17)
-    text(s, 0.75, 5.9, 3.6, 0.9, "Geht vorher und während der Schulung.", 17, fett=True, farbe=BLAU)
-    bild(s, ordner, "A_liste_angehakt.png", 4.55, 1.88, 8.05, 5.0)
+    # --- Teilnehmer verschieben ------------------------------------------------
+    s = folie("Teilnehmer verschieben · Schritt 1", "Teilnehmer auswählen")
+    schrittfolie(s, ordner, [
+        "1. **Schulungstermine** öffnen und den Termin anklicken, aus dem ihr verschieben wollt (Schulung A).",
+        "2. In der Teilnehmerliste die Personen **anhaken**. Das Kästchen oben in der Kopfzeile wählt alle verschiebbaren auf einmal.",
+        "3. Oben erscheint der blaue Balken „N ausgewählt“. Dort auf **„Verschieben nach…“** klicken.",
+    ], "Geht vorher und auch während der Schulung.", "A_liste_angehakt.png")
 
-    # 2 — verschieben: Ziel
-    s = folie("Schritt 2 · Teilnehmer verschieben", "Zieltermin wählen")
-    text(s, 0.75, 1.94, 3.6, 4.2, [
-        "4. Den **Zieltermin** wählen. Hinter jedem Termin steht, wie viele Plätze frei sind.",
-        "5. Optional einen **Kommentar** eintragen, z. B. „Logistik-Gruppe“. Er steht im Verlauf.",
-        "6. Auf **„Verschieben“** klicken.",
-    ], 17)
-    text(s, 0.75, 5.7, 3.6, 1.1, "Status, Bestätigung und Notizen bleiben. Es geht keine Nachricht raus.", 17, fett=True, farbe=BLAU)
-    bild(s, ordner, "B_fenster_verschieben.png", 4.55, 1.88, 8.05, 5.0)
+    s = folie("Teilnehmer verschieben · Schritt 2", "Zieltermin wählen und verschieben")
+    schrittfolie(s, ordner, [
+        "4. Im Fenster den **Zieltermin** wählen (Schulung B). Hinter jedem Termin steht, wie viele Plätze noch frei sind.",
+        "5. Optional einen **Kommentar** eintragen, z. B. „Logistik-Gruppe“. Er steht später im Verlauf des Bewerbers.",
+        "6. Auf **„Verschieben“** klicken. Fertig.",
+    ], "Status, Bestätigung und Notizen bleiben. Wer schon erinnert wurde, bekommt keine zweite Erinnerung. Es geht keine Nachricht raus.",
+        "B_fenster_verschieben.png")
 
-    # 3 — Schulungsabend
-    s = folie("Am Schulungsabend", "Erst „Teilgenommen“, dann aufteilen")
-    text(s, 0.75, 1.91, 11.8, 0.8, "In der großen Gruppe alle Anwesenden auf **Teilgenommen** setzen. Danach in die Gruppen verschieben. Der Status wandert mit.", 20)
-    bild(s, ordner, "C_status_teilgenommen.png", 0.75, 2.86, 7.97, 3.9)
+    s = folie("Neu · Während der Schulung", "Erst „Teilgenommen“, dann in Gruppen aufteilen")
+    text(s, 0.75, 1.91, 11.8, 0.8, "Verschieben geht jetzt auch, während der Termin läuft, und auch mit Teilnehmern, die schon auf **Teilgenommen** stehen. In der großen Gruppe alle Anwesenden auf Teilgenommen setzen, danach in die Gruppen verschieben. Der Status wandert mit.", 18)
+    bild(s, ordner, "C_status_teilgenommen.png", 0.75, 2.95, 7.97, 3.85)
     hinweis(s, 9.18, 3.0, 3.4, ["Ziel: gleiche Stelle", "Bis der Zieltermin zu Ende ist", "Teilgenommen nur am selben Tag"])
-    text(s, 9.18, 5.75, 3.4, 1.0, "Volle Gruppe: Wer nicht mehr passt, bleibt im alten Termin.", 16)
+    text(s, 9.18, 5.75, 3.4, 1.0, "Im Zieltermin steht an der Person „aus …“ mit dem alten Termin.", 15)
 
-    # 4 — Nachbereitung
-    s = folie("Nach der Schulung", "Vertragsdaten eintragen, auch zu zweit")
-    text(s, 0.75, 1.94, 3.6, 4.2, [
+    s = folie("Vor der Schulung", "Nach Status filtern, auch „Keine Reaktion“")
+    schrittfolie(s, ordner, [
+        "Oben in der Liste das Feld **Status** öffnen. Der Filter gilt in der Übersicht und im Reiter „Nach der Schulung“.",
+        "**Keine Reaktion** zeigt Gebuchte, die auf die Erinnerungen nicht reagiert haben. Ihr Platz ist wieder frei.",
+    ], "Praktisch zum Nachtelefonieren vor der Schulung.", "E_statusfilter.png")
+
+    # --- Kampagne „Schulung voll“ ---------------------------------------------
+    s = folie("Wenn eine Schulung voll ist · Schritt 1", "Bewerber ohne Termin finden")
+    text(s, 0.75, 1.75, 11.8, 0.8, "Ist ein kommender Termin ausgebucht, schreibt ihr mit einem Klick alle Bewerber dieser Ausschreibung ohne Termin an. Sie bekommen eine WhatsApp mit dem Link zur Terminauswahl und buchen sich selbst in einen anderen Termin.", 16, farbe=GRAU)
+    schrittfolie(s, ordner, [
+        "1. **Statistik** öffnen, Filiale wählen, nach unten zur Tabelle **„Schulungstermine“** scrollen.",
+        "2. Am vollen Termin steht in der Spalte Ausschreibung das Badge **„Ausgebucht“** und daneben die Pille **„N ohne Termin“**. Auf die Pille klicken.",
+        "3. Oben im Fenster steht der Anlass: welcher Termin voll ist und wie viele weitere Termine mit freien Plätzen es an dieser Stelle gibt. **Ist die Karte rot, gibt es keine Alternative.** Dann erst einen neuen Termin anlegen.",
+    ], "Die Pille erscheint nur bei Platzzahl, voll belegt, künftigem Termin und hinterlegter Ausschreibung. Fehlt die Ausschreibung, steht nur das Badge mit „keine Ausschreibung“.",
+        "F_statistik_pille.png", merksatz_farbe=GRAU, oben=2.75)
+
+    s = folie("Wenn eine Schulung voll ist · Schritt 2", "Empfänger prüfen und senden")
+    schrittfolie(s, ordner, [
+        "4. Die Liste zeigt die Bewerber. Jede angehakte Zeile trägt den Chip **„bekommt: Termine ansehen“**. Wer nicht angeschrieben werden soll: Haken raus. Graue Zeilen sind gesperrt, der Grund steht daneben.",
+        "5. Unten steht die Nachricht so, wie der Bewerber sie liest, mit „Anna“ als Beispielname. Beim Versand steht dort der echte Vorname. Über **„Vorlage ändern“** wählt ihr eine andere Vorlage.",
+        "6. Auf **„WhatsApp an N Personen senden“** klicken und die Nachfrage bestätigen. Der Fortschritt läuft im Fenster mit.",
+    ], "Die Bewerber buchen sich danach selbst in einen freien Termin.", "G_kampagne_fenster.png")
+
+    # --- Nach der Schulung ---------------------------------------------------
+    s = folie("Neu · Nach der Schulung", "Vertragsdaten eintragen, auch zu zweit")
+    schrittfolie(s, ordner, [
         "1. Den Termin öffnen, Reiter **„Nach der Schulung“**.",
         "2. **Zuschlag**, **Vertragsbeginn** und bei Bedarf **Vertragsende** eintragen. Ohne Ende rechnet das System es aus.",
         "3. Zum Schluss die Verträge über den **Sammelversand** schicken.",
-    ], 17)
-    text(s, 0.75, 5.6, 3.6, 1.2, "Jede Eingabe ist sofort gespeichert. Zwei Laptops sehen denselben Stand.", 17, fett=True, farbe=BLAU)
-    bild(s, ordner, "D_nach_der_schulung.png", 4.55, 1.88, 8.05, 5.0)
+    ], "Jede Eingabe ist sofort gespeichert. Zwei Laptops sehen denselben Stand.", "D_nach_der_schulung.png")
 
-    # 5 — Filter
-    s = folie("Überblick behalten", "Nach Status filtern, auch „Keine Reaktion“")
-    text(s, 0.75, 1.94, 3.6, 4.2, [
-        "Oben in der Liste das Feld **Status** öffnen. Der Filter gilt in der Übersicht und nach der Schulung.",
-        "**Keine Reaktion** zeigt Gebuchte, die auf die Erinnerungen nicht reagiert haben. Ihr Platz ist wieder frei.",
-    ], 17)
-    text(s, 0.75, 5.9, 3.6, 0.9, "Praktisch zum Nachtelefonieren vor der Schulung.", 17, fett=True, farbe=BLAU)
-    bild(s, ordner, "E_statusfilter.png", 4.55, 1.88, 8.05, 5.0)
+    # --- Gut zu wissen ---------------------------------------------------------
+    s = folie("Gut zu wissen · Verschieben und Nachbereitung", "Regeln auf einen Blick")
+    tabelle(s, [
+        ("Verschieben: welche Termine", "Nur aktive Termine derselben Stelle (gleicher Ort), die noch nicht zu Ende sind. Ein laufender Termin geht also noch. Wer in eine andere Filiale soll, bucht über die Terminauswahl neu."),
+        ("Verschieben: wer", "Gebucht, registriert und bestätigt immer. Teilgenommen nur in einen Termin am selben Tag. Stornierte, nicht erschienene und vor Ort aussortierte bleiben, wo sie sind."),
+        ("Verschieben: Plätze", "Hat der Zieltermin eine Platzzahl, werden nur so viele verschoben, wie Plätze frei sind. Wer nicht mehr passt, bleibt in Schulung A."),
+        ("Verschieben: Nachricht", "Keine. Wenn die Person Bescheid wissen soll, bitte selbst anschreiben."),
+        ("Gruppengröße", "Für kleinere Gruppen beim Termin eine kleinere Platzzahl eintragen. Ist der Termin voll, landet niemand mehr darin."),
+        ("Vertragsdaten", "Leert ihr den Vertragsbeginn bei jemandem, der für den Versand vorgemerkt ist, wird die Vormerkung zurückgenommen. Nach dem Versand gelten die Daten im Vertrag."),
+    ])
 
-    # 6/7 — Kampagne. Ohne beide Bilder eine Textfolie in zwei Spalten statt
-    # zweier Folien mit Platzhaltern (Bilder gibt es nur, wenn gerade ein
-    # kommender Termin voll ist).
-    kampagne_bilder = (ordner / "F_statistik_pille.png").exists() or (ordner / "G_kampagne_fenster.png").exists()
-    if kampagne_bilder:
-        s = folie("Schulung voll · Schritt 1", "Bewerber ohne Termin finden")
-        text(s, 0.75, 1.94, 3.6, 4.2, [
-            "1. **Statistik** öffnen, Filiale wählen, zu **„Schulungstermine“** scrollen.",
-            "2. Am vollen Termin auf die Pille **„N ohne Termin“** klicken.",
-        ], 17)
-        text(s, 0.75, 5.6, 3.6, 1.2, "Die Pille erscheint nur bei voller Platzzahl, künftigem Termin und hinterlegter Ausschreibung.", 16, farbe=GRAU)
-        bild(s, ordner, "F_statistik_pille.png", 4.55, 1.88, 8.05, 5.0)
-
-        s = folie("Schulung voll · Schritt 2", "Auf freie Termine hinweisen")
-        text(s, 0.75, 1.94, 3.6, 4.4, [
-            "3. Oben die **Anlass-Karte** lesen. Ist sie rot, gibt es keinen freien Termin: erst einen anlegen.",
-            "4. Empfänger prüfen, wer nicht soll: Haken raus.",
-            "5. Auf **„WhatsApp an N Personen senden“** klicken und bestätigen.",
-        ], 17)
-        bild(s, ordner, "G_kampagne_fenster.png", 4.55, 1.88, 8.05, 5.0)
-    else:
-        s = folie("Wenn eine Schulung voll ist", "Bewerber ohne Termin auf freie Termine hinweisen")
-        text(s, 0.75, 1.94, 5.6, 4.4, [
-            "1. **Statistik** öffnen, Filiale wählen, zu **„Schulungstermine“** scrollen.",
-            "2. Am vollen Termin auf die Pille **„N ohne Termin“** klicken.",
-            "3. Oben die **Anlass-Karte** lesen. Ist sie rot, gibt es keinen freien Termin: erst einen anlegen.",
-        ], 19.5)
-        text(s, 6.9, 1.94, 5.6, 3.2, [
-            "4. Empfänger prüfen, wer nicht soll: Haken raus.",
-            "5. Auf **„WhatsApp an N Personen senden“** klicken und bestätigen.",
-        ], 19.5)
-        hinweis(s, 6.9, 4.6, 5.6, ["Die Bewerber buchen sich selbst in einen freien Termin."])
-        text(s, 0.75, 6.1, 11.8, 0.7, "Die Pille erscheint nur bei voller Platzzahl, künftigem Termin und hinterlegter Ausschreibung.", 16, farbe=GRAU)
-
-    # 8 — Gut zu wissen
-    s = folie("Gut zu wissen", "Regeln auf einen Blick")
-    zeilen = [
-        ("Verschieben: Termine", "Nur aktive Termine derselben Stelle, die noch nicht zu Ende sind."),
-        ("Verschieben: wer", "Gebucht, registriert, bestätigt immer. Teilgenommen nur am selben Tag."),
-        ("Verschieben: Nachricht", "Keine. Soll die Person Bescheid wissen, bitte selbst anschreiben."),
-        ("Gruppengröße", "Für kleinere Gruppen beim Termin eine kleinere Platzzahl eintragen."),
-        ("Vertragsbeginn geleert", "Eine offene Versand-Vormerkung wird zurückgenommen."),
-        ("Nach dem Versand", "Es gelten die Daten im Vertrag. Änderung über „Vertrag neu ausstellen“."),
-        ("Kampagne: doppelt", "Wer in 14 Tagen schon eine Kampagne bekam, ist vorsichtshalber abgehakt."),
-    ]
-    tab = s.shapes.add_table(len(zeilen), 2, Inches(0.75), Inches(1.95), Inches(11.8), Inches(4.8)).table
-    tab.columns[0].width = Inches(3.4); tab.columns[1].width = Inches(8.4)
-    tab.first_row = False
-    for i, (a, b) in enumerate(zeilen):
-        for j, wert in enumerate((a, b)):
-            zelle = tab.cell(i, j)
-            zelle.fill.solid(); zelle.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF) if i % 2 else PLATZHALTER
-            zelle.margin_left = Inches(0.12)
-            p = zelle.text_frame.paragraphs[0]
-            r = p.add_run(); r.text = wert
-            r.font.name = FONT; r.font.size = Pt(16); r.font.bold = j == 0
-            r.font.color.rgb = BLAU if j == 0 else SCHWARZ
+    s = folie("Gut zu wissen · Kampagne „Schulung voll“", "Regeln auf einen Blick")
+    tabelle(s, [
+        ("Kampagne: wer bekommt sie", "Nur Bewerber, die Phase 1 abgeschlossen haben und in der Terminauswahl stehen. Wer die Bewerbung noch nicht vervollständigt hat, bleibt sichtbar, ist aber gesperrt."),
+        ("Kampagne: danach", "Keine automatischen Erinnerungen. Bucht die Person einen Termin, läuft alles wie gewohnt weiter: Daten vervollständigen, Bestätigung, Vertrag."),
+        ("Kampagne: doppelt", "Wer in den letzten 14 Tagen schon eine Kampagne bekam, ist vorsichtshalber abgehakt (Badge „angeschrieben am …“). Haken setzen geht trotzdem."),
+        ("Kampagne: Ausschreibungswechsel", "Bucht jemand am selben Ort eine Schulung einer anderen Ausschreibung, bleibt er in seiner Ausschreibung. In der Statistik seht ihr ihn beim neuen Termin unter „Herkunft“."),
+        ("Vorlage pflegen", "Bewerberliste → Einstellungen → „WhatsApp Template — Schulung voll, freie Termine“. Ohne Auswahl greift die normale Terminauswahl-Vorlage."),
+    ])
 
     prs.save(ziel)
-    fehlend = [d for d in SCREENSHOTS if not (ordner / d).exists()
-               and (kampagne_bilder or not d.startswith(("F_", "G_")))]
+    fehlend = [d for d in SCREENSHOTS if not (ordner / d).exists()]
     print(f"{ziel} gespeichert, {nr} Folien.")
     if fehlend:
-        print("Platzhalter für:", ", ".join(fehlend))
+        print("Ohne Screenshot (Textfolie):", ", ".join(fehlend))
 
 
 if __name__ == "__main__":
