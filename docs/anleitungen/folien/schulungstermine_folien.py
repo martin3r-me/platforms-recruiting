@@ -119,23 +119,23 @@ def bauen(ordner: Path, ziel: Path):
 
     # 1 — verschieben: auswaehlen
     s = folie("Schritt 1 · Teilnehmer verschieben", "Teilnehmer auswählen")
-    text(s, 0.75, 1.94, 4.6, 4.2, [
+    text(s, 0.75, 1.94, 3.6, 4.2, [
         "1. **Schulungstermine** öffnen und den Termin anklicken, aus dem ihr verschieben wollt.",
         "2. In der Teilnehmerliste die Personen **anhaken**. Das Kästchen in der Kopfzeile wählt alle auf einmal.",
         "3. Im blauen Balken auf **„Verschieben nach…“** klicken.",
-    ], 19.5)
-    text(s, 0.75, 6.1, 4.6, 0.6, "Geht vorher und während der Schulung.", 18.75, fett=True, farbe=BLAU)
-    bild(s, ordner, "A_liste_angehakt.png", 5.69, 1.88, 6.9, 5.0)
+    ], 17)
+    text(s, 0.75, 5.9, 3.6, 0.9, "Geht vorher und während der Schulung.", 17, fett=True, farbe=BLAU)
+    bild(s, ordner, "A_liste_angehakt.png", 4.55, 1.88, 8.05, 5.0)
 
     # 2 — verschieben: Ziel
     s = folie("Schritt 2 · Teilnehmer verschieben", "Zieltermin wählen")
-    text(s, 0.75, 1.94, 4.6, 4.2, [
+    text(s, 0.75, 1.94, 3.6, 4.2, [
         "4. Den **Zieltermin** wählen. Hinter jedem Termin steht, wie viele Plätze frei sind.",
         "5. Optional einen **Kommentar** eintragen, z. B. „Logistik-Gruppe“. Er steht im Verlauf.",
         "6. Auf **„Verschieben“** klicken.",
-    ], 19.5)
-    text(s, 0.75, 5.9, 4.6, 0.9, "Status, Bestätigung und Notizen bleiben. Es geht keine Nachricht raus.", 17, fett=True, farbe=BLAU)
-    bild(s, ordner, "B_fenster_verschieben.png", 5.69, 1.88, 6.9, 5.0)
+    ], 17)
+    text(s, 0.75, 5.7, 3.6, 1.1, "Status, Bestätigung und Notizen bleiben. Es geht keine Nachricht raus.", 17, fett=True, farbe=BLAU)
+    bild(s, ordner, "B_fenster_verschieben.png", 4.55, 1.88, 8.05, 5.0)
 
     # 3 — Schulungsabend
     s = folie("Am Schulungsabend", "Erst „Teilgenommen“, dann aufteilen")
@@ -146,40 +146,56 @@ def bauen(ordner: Path, ziel: Path):
 
     # 4 — Nachbereitung
     s = folie("Nach der Schulung", "Vertragsdaten eintragen, auch zu zweit")
-    text(s, 0.75, 1.94, 4.6, 4.2, [
+    text(s, 0.75, 1.94, 3.6, 4.2, [
         "1. Den Termin öffnen, Reiter **„Nach der Schulung“**.",
         "2. **Zuschlag**, **Vertragsbeginn** und bei Bedarf **Vertragsende** eintragen. Ohne Ende rechnet das System es aus.",
         "3. Zum Schluss die Verträge über den **Sammelversand** schicken.",
-    ], 19.5)
-    text(s, 0.75, 5.75, 4.6, 1.1, "Jede Eingabe ist sofort gespeichert. Zwei Laptops sehen denselben Stand.", 17, fett=True, farbe=BLAU)
-    bild(s, ordner, "D_nach_der_schulung.png", 5.69, 1.88, 6.9, 5.0)
+    ], 17)
+    text(s, 0.75, 5.6, 3.6, 1.2, "Jede Eingabe ist sofort gespeichert. Zwei Laptops sehen denselben Stand.", 17, fett=True, farbe=BLAU)
+    bild(s, ordner, "D_nach_der_schulung.png", 4.55, 1.88, 8.05, 5.0)
 
     # 5 — Filter
     s = folie("Überblick behalten", "Nach Status filtern, auch „Keine Reaktion“")
-    text(s, 0.75, 1.94, 4.6, 4.2, [
+    text(s, 0.75, 1.94, 3.6, 4.2, [
         "Oben in der Liste das Feld **Status** öffnen. Der Filter gilt in der Übersicht und nach der Schulung.",
         "**Keine Reaktion** zeigt Gebuchte, die auf die Erinnerungen nicht reagiert haben. Ihr Platz ist wieder frei.",
-    ], 19.5)
-    text(s, 0.75, 6.0, 4.6, 0.8, "Praktisch zum Nachtelefonieren vor der Schulung.", 17, fett=True, farbe=BLAU)
-    bild(s, ordner, "E_statusfilter.png", 5.69, 1.88, 6.9, 5.0)
+    ], 17)
+    text(s, 0.75, 5.9, 3.6, 0.9, "Praktisch zum Nachtelefonieren vor der Schulung.", 17, fett=True, farbe=BLAU)
+    bild(s, ordner, "E_statusfilter.png", 4.55, 1.88, 8.05, 5.0)
 
-    # 6 — Kampagne: finden
-    s = folie("Schulung voll · Schritt 1", "Bewerber ohne Termin finden")
-    text(s, 0.75, 1.94, 4.6, 4.2, [
-        "1. **Statistik** öffnen, Filiale wählen, zu **„Schulungstermine“** scrollen.",
-        "2. Am vollen Termin auf die Pille **„N ohne Termin“** klicken.",
-    ], 19.5)
-    text(s, 0.75, 5.6, 4.6, 1.2, "Die Pille erscheint nur bei voller Platzzahl, künftigem Termin und hinterlegter Ausschreibung.", 16, farbe=GRAU)
-    bild(s, ordner, "F_statistik_pille.png", 5.69, 1.88, 6.9, 5.0)
+    # 6/7 — Kampagne. Ohne beide Bilder eine Textfolie in zwei Spalten statt
+    # zweier Folien mit Platzhaltern (Bilder gibt es nur, wenn gerade ein
+    # kommender Termin voll ist).
+    kampagne_bilder = (ordner / "F_statistik_pille.png").exists() or (ordner / "G_kampagne_fenster.png").exists()
+    if kampagne_bilder:
+        s = folie("Schulung voll · Schritt 1", "Bewerber ohne Termin finden")
+        text(s, 0.75, 1.94, 3.6, 4.2, [
+            "1. **Statistik** öffnen, Filiale wählen, zu **„Schulungstermine“** scrollen.",
+            "2. Am vollen Termin auf die Pille **„N ohne Termin“** klicken.",
+        ], 17)
+        text(s, 0.75, 5.6, 3.6, 1.2, "Die Pille erscheint nur bei voller Platzzahl, künftigem Termin und hinterlegter Ausschreibung.", 16, farbe=GRAU)
+        bild(s, ordner, "F_statistik_pille.png", 4.55, 1.88, 8.05, 5.0)
 
-    # 7 — Kampagne: senden
-    s = folie("Schulung voll · Schritt 2", "Auf freie Termine hinweisen")
-    text(s, 0.75, 1.94, 4.6, 4.4, [
-        "3. Oben die **Anlass-Karte** lesen. Ist sie rot, gibt es keinen freien Termin: erst einen anlegen.",
-        "4. Empfänger prüfen, wer nicht soll: Haken raus.",
-        "5. Auf **„WhatsApp an N Personen senden“** klicken und bestätigen.",
-    ], 19.5)
-    bild(s, ordner, "G_kampagne_fenster.png", 5.69, 1.88, 6.9, 5.0)
+        s = folie("Schulung voll · Schritt 2", "Auf freie Termine hinweisen")
+        text(s, 0.75, 1.94, 3.6, 4.4, [
+            "3. Oben die **Anlass-Karte** lesen. Ist sie rot, gibt es keinen freien Termin: erst einen anlegen.",
+            "4. Empfänger prüfen, wer nicht soll: Haken raus.",
+            "5. Auf **„WhatsApp an N Personen senden“** klicken und bestätigen.",
+        ], 17)
+        bild(s, ordner, "G_kampagne_fenster.png", 4.55, 1.88, 8.05, 5.0)
+    else:
+        s = folie("Wenn eine Schulung voll ist", "Bewerber ohne Termin auf freie Termine hinweisen")
+        text(s, 0.75, 1.94, 5.6, 4.4, [
+            "1. **Statistik** öffnen, Filiale wählen, zu **„Schulungstermine“** scrollen.",
+            "2. Am vollen Termin auf die Pille **„N ohne Termin“** klicken.",
+            "3. Oben die **Anlass-Karte** lesen. Ist sie rot, gibt es keinen freien Termin: erst einen anlegen.",
+        ], 19.5)
+        text(s, 6.9, 1.94, 5.6, 3.2, [
+            "4. Empfänger prüfen, wer nicht soll: Haken raus.",
+            "5. Auf **„WhatsApp an N Personen senden“** klicken und bestätigen.",
+        ], 19.5)
+        hinweis(s, 6.9, 4.6, 5.6, ["Die Bewerber buchen sich selbst in einen freien Termin."])
+        text(s, 0.75, 6.1, 11.8, 0.7, "Die Pille erscheint nur bei voller Platzzahl, künftigem Termin und hinterlegter Ausschreibung.", 16, farbe=GRAU)
 
     # 8 — Gut zu wissen
     s = folie("Gut zu wissen", "Regeln auf einen Blick")
@@ -206,7 +222,8 @@ def bauen(ordner: Path, ziel: Path):
             r.font.color.rgb = BLAU if j == 0 else SCHWARZ
 
     prs.save(ziel)
-    fehlend = [d for d in SCREENSHOTS if not (ordner / d).exists()]
+    fehlend = [d for d in SCREENSHOTS if not (ordner / d).exists()
+               and (kampagne_bilder or not d.startswith(("F_", "G_")))]
     print(f"{ziel} gespeichert, {nr} Folien.")
     if fehlend:
         print("Platzhalter für:", ", ".join(fehlend))
