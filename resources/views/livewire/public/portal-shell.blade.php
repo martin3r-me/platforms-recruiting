@@ -250,6 +250,12 @@
                                 // aussehen wie ein fehlendes Passfoto -- eigene
                                 // Klasse, kein zusaetzliches Zeichen.
                                 $offenerPunktKlasse = $offenerPunkt['ko'] ? 'aufgabe aufgabe-ko' : 'aufgabe';
+                                // Dokument-Punkte oeffnen das Dokument-Blatt, Nachweise das Upload-Blatt.
+                                // Vorberechnet, kein @if im Attribut (Hausregel). Ungeescaped ausgegeben:
+                                // nur Katalog-Codes bzw. eine Ganzzahl, kein Nutzertext.
+                                $offenerPunktKlick = str_starts_with($offenerPunkt['code'], 'dokument:')
+                                    ? 'oeffneDokument(' . (int) substr($offenerPunkt['code'], 9) . ')'
+                                    : "oeffneUpload('" . $offenerPunkt['code'] . "')";
                             @endphp
                             {{--
                                 Der Klick oeffnet das Formular fuer genau diese
@@ -264,7 +270,7 @@
                                 PortalShell::dekoriert() -- hier wird nichts
                                 uebersetzt.
                             --}}
-                            <div class="{{ $offenerPunktKlasse }}" wire:click="oeffneUpload('{{ $offenerPunkt['code'] }}')">
+                            <div class="{{ $offenerPunktKlasse }}" wire:click="{!! $offenerPunktKlick !!}">
                                 <span class="dot {{ $offenerPunkt['punkt'] }}"></span>
                                 <div>
                                     <div class="t">{{ $offenerPunkt['label'] }}</div>
@@ -365,6 +371,53 @@
                     unterschrieben hat (E17, gemessen in
                     PortalCertificateBadgeTest).
                 --}}
+                @if ($dokumentMeldung !== '')
+                    <div class="alert ok">
+                        <span class="dot ok" style="margin-top:6px"></span>
+                        <div class="txt">{{ $dokumentMeldung }}</div>
+                    </div>
+                @endif
+
+                <div>
+                    <div class="sec-label">{{ $duzen ? 'Deine Dokumente' : 'Ihre Dokumente' }} <span class="count">{{ count($mitarbeiterDokumente) }}</span></div>
+                    <div class="card" style="margin-top:11px">
+                        @forelse ($mitarbeiterDokumente as $mdok)
+                            @php
+                                // Vorberechnet statt @if im Attribut -- Hausregel.
+                                if ($mdok['status'] === 'unterschrieben') {
+                                    $mdokChip = 'chip ok';
+                                } elseif ($mdok['status'] === 'bestaetigt' || $mdok['status'] === 'abgelegt') {
+                                    $mdokChip = 'chip info';
+                                } elseif ($mdok['offen']) {
+                                    $mdokChip = 'chip crit';
+                                } else {
+                                    $mdokChip = 'chip info';
+                                }
+                                $mdokDatum = $mdok['signed_at'] ?? $mdok['acknowledged_at'] ?? null;
+                                $mdokSub = $mdokDatum
+                                    ? $mdok['status_label'] . ' am ' . \Carbon\Carbon::parse($mdokDatum)->format('d.m.Y')
+                                    : $mdok['category_label'];
+                                $mdokKnopf = $mdok['offen']
+                                    ? ($mdok['action'] === 'sign' ? 'Lesen und unterschreiben' : 'Lesen und bestätigen')
+                                    : 'Öffnen';
+                            @endphp
+                            <div class="doc">
+                                <div class="docicon"><span>PDF</span></div>
+                                <div class="body">
+                                    <div class="title">{{ $mdok['title'] }}</div>
+                                    <div class="sub">{{ $mdokSub }}</div>
+                                    <div class="row">
+                                        <span class="{{ $mdokChip }}">{{ $mdok['status_label'] }}</span>
+                                        <button type="button" class="mini {{ $mdok['offen'] ? 'primary' : '' }}" wire:click="oeffneDokument({{ $mdok['recipient_id'] }})">{{ $mdokKnopf }}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="leer">Hier liegen noch keine Dokumente.</div>
+                        @endforelse
+                    </div>
+                </div>
+
                 <div>
                     <div class="sec-label">{{ $duzen ? 'Deine Verträge' : 'Ihre Verträge' }} <span class="count">{{ count($dokumente) }}</span></div>
                     <div class="card" style="margin-top:11px">
@@ -842,6 +895,65 @@
 
                         <button type="submit" class="btn primary" wire:loading.attr="disabled" wire:target="speichereGruppe">Speichern</button>
                         <button type="button" class="btn" wire:click="schliesseGruppe">Abbrechen</button>
+                    </form>
+                </div>
+            @endif
+
+            {{--
+                Dokument-Blatt (Spec Dokumente §5.3): oeffnen setzt "gesehen",
+                der PDF-Knopf ist die Download-Route, Bestaetigen/Unterschreiben
+                laufen ueber DokumentUnterschrift. Zweige vorberechnet.
+            --}}
+            @if ($dokumentBlatt !== null)
+                @php
+                    $blattIstUnterschrift = $dokumentBlatt['action'] === 'sign';
+                    $blattEinleitung = $dokumentBlatt['erledigt']
+                        ? 'Dieses Dokument ist erledigt. Du kannst es jederzeit erneut öffnen.'
+                        : ($blattIstUnterschrift
+                            ? ($duzen ? 'Bitte lies das Dokument und unterschreibe unten.' : 'Bitte lesen Sie das Dokument und unterschreiben Sie unten.')
+                            : ($duzen ? 'Bitte lies das Dokument und bestätige unten.' : 'Bitte lesen Sie das Dokument und bestätigen Sie unten.'));
+                    $blattHaken = $duzen ? 'Ich habe das Dokument gelesen und verstanden.' : 'Ich habe das Dokument gelesen und verstanden.';
+                    $blattKnopf = $blattIstUnterschrift ? 'Unterschreiben' : 'Bestätigen';
+                    $blattAktion = $blattIstUnterschrift ? 'unterschreibeDokument' : 'bestaetigeDokument';
+                    $blattSignaturLabel = $duzen ? 'Deine Unterschrift' : 'Ihre Unterschrift';
+                @endphp
+                <div class="upload-overlay" wire:click.self="schliesseDokument">
+                    <form class="upload-sheet" wire:submit="{{ $blattAktion }}">
+                        <div class="upload-head">
+                            <h3>{{ $dokumentBlatt['title'] }}</h3>
+                            <button type="button" class="upload-close" wire:click="schliesseDokument" aria-label="Schließen">&times;</button>
+                        </div>
+                        <p class="upload-sub">{{ $blattEinleitung }}</p>
+
+                        <a href="{{ $dokumentBlatt['download_url'] }}" target="_blank" rel="noopener" class="btn">PDF öffnen</a>
+
+                        @if (!$dokumentBlatt['erledigt'])
+                            <label class="feld">
+                                <input type="checkbox" wire:model="dokumentGelesen"> <span class="n">{{ $blattHaken }}</span>
+                            </label>
+
+                            @if ($blattIstUnterschrift)
+                                <x-ui-input-signature
+                                    name="dokumentUnterschrift"
+                                    :label="$blattSignaturLabel"
+                                    wire:model="dokumentUnterschrift"
+                                    :required="true"
+                                    :height="200"
+                                />
+                            @endif
+
+                            @if ($dokumentFehler !== '')
+                                <div class="alert crit">
+                                    <span class="dot crit" style="margin-top:6px"></span>
+                                    <div class="txt">{{ $dokumentFehler }}</div>
+                                </div>
+                            @endif
+
+                            <button type="submit" class="btn primary" wire:loading.attr="disabled" wire:target="{{ $blattAktion }}">
+                                {{ $blattKnopf }}
+                            </button>
+                        @endif
+                        <button type="button" class="btn" wire:click="schliesseDokument">Schließen</button>
                     </form>
                 </div>
             @endif

@@ -12,6 +12,10 @@ use Platform\Core\Services\ContextFileService;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecTrainingCertificate;
 use Platform\Recruiting\Services\OffenePunkte;
+use Platform\Recruiting\Services\DokumentLeser;
+use Platform\Recruiting\Services\DokumentUnterschrift;
+use Platform\Recruiting\Support\DokumentKategorie;
+use Platform\Recruiting\Support\DokumentStatus;
 use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\PortalProfileWriter;
@@ -108,6 +112,19 @@ class PortalShell extends Component
     public array $profilWerte = [];
     public string $profilFehler = '';
     public string $profilMeldung = '';
+
+    /**
+     * Das offene Dokument-Blatt (Spec Dokumente §5.3). dokumentId ist die
+     * Empfaenger-ID und bewusst NICHT #[Locked]: jede Aktion prueft sie bei
+     * JEDEM Aufruf ueber DokumentLeser::empfaenger() gegen den Scope des
+     * angemeldeten Menschen. Ein fremder Wert fuehrt zu nichts -- nicht zu
+     * einem Fehler, sondern zu keiner Schreibung (Lehre aus dem Auth-Bypass).
+     */
+    public ?int $dokumentId = null;
+    public bool $dokumentGelesen = false;
+    public string $dokumentUnterschrift = '';
+    public string $dokumentFehler = '';
+    public string $dokumentMeldung = '';
 
     /** Request-Cache fuer lookupOptionen() -- ein Lookup wird pro Aufruf hoechstens einmal gelesen. */
     private array $lookupCache = [];
@@ -395,6 +412,106 @@ class PortalShell extends Component
         $this->profilMeldung = '';
     }
 
+    public function oeffneDokument(int $recipientId): void
+    {
+        $this->dokumentFehler = '';
+        $this->dokumentMeldung = '';
+        $this->dokumentGelesen = false;
+        $this->dokumentUnterschrift = '';
+        $this->dokumentId = null;
+
+        $employee = $this->berechtigterMitarbeiter();
+        $z = $employee ? app(DokumentLeser::class)->empfaenger($employee, $recipientId) : null;
+        if ($z === null) {
+            return;
+        }
+
+        app(DokumentUnterschrift::class)->oeffnen($z);
+        $this->dokumentId = (int) $z->id;
+    }
+
+    public function schliesseDokument(): void
+    {
+        $this->dokumentId = null;
+        $this->dokumentGelesen = false;
+        $this->dokumentUnterschrift = '';
+        $this->dokumentFehler = '';
+    }
+
+    public function bestaetigeDokument(): void
+    {
+        $z = $this->eigeneZustellung();
+        if ($z === null) {
+            return;
+        }
+        $fehler = app(DokumentUnterschrift::class)->bestaetigen($z, $this->dokumentGelesen, $this->duzen);
+        $this->dokumentAbschliessen($fehler, $this->duzen ? 'Danke, wir haben deine Bestätigung.' : 'Danke, wir haben Ihre Bestätigung.');
+    }
+
+    public function unterschreibeDokument(): void
+    {
+        $z = $this->eigeneZustellung();
+        if ($z === null) {
+            return;
+        }
+        $fehler = app(DokumentUnterschrift::class)->unterschreiben($z, $this->dokumentGelesen, (string) $this->dokumentUnterschrift, $this->duzen);
+        $this->dokumentAbschliessen($fehler, $this->duzen ? 'Danke, deine Unterschrift ist gespeichert.' : 'Danke, Ihre Unterschrift ist gespeichert.');
+    }
+
+    /** Die Zustellung zur dokumentId -- nur wenn sie dem angemeldeten Menschen gehoert; sonst schliesst sich das Blatt stumm. */
+    private function eigeneZustellung(): ?\Platform\Recruiting\Models\RecDocumentRecipient
+    {
+        $employee = $this->berechtigterMitarbeiter();
+        $z = ($employee !== null && $this->dokumentId !== null)
+            ? app(DokumentLeser::class)->empfaenger($employee, (int) $this->dokumentId)
+            : null;
+        if ($z === null) {
+            $this->schliesseDokument();
+        }
+
+        return $z;
+    }
+
+    private function dokumentAbschliessen(?string $fehler, string $meldung): void
+    {
+        if ($fehler !== null) {
+            $this->dokumentFehler = $fehler;
+
+            return;
+        }
+        $this->schliesseDokument();
+        $this->dokumentMeldung = $meldung;
+    }
+
+    /** @return list<array> Form von DokumentLeser::fuerMitarbeiter() */
+    private function mitarbeiterDokumente(RecEmployee $employee): array
+    {
+        return app(DokumentLeser::class)->fuerMitarbeiter($employee);
+    }
+
+    /** @return ?array{recipient_id:int, title:string, action:string, status:string, download_url:string, gesehen:bool, erledigt:bool} */
+    private function dokumentBlatt(RecEmployee $employee): ?array
+    {
+        if ($this->dokumentId === null) {
+            return null;
+        }
+        $z = app(DokumentLeser::class)->empfaenger($employee, (int) $this->dokumentId);
+        if ($z === null) {
+            return null;
+        }
+        $aktion = (string) $z->document->action;
+
+        return [
+            'recipient_id' => (int) $z->id,
+            'title'        => (string) $z->document->title,
+            'action'       => $aktion,
+            'status'       => DokumentStatus::fuer($z->zeitstempel(), $aktion),
+            'download_url' => route('recruiting.public.dokument', ['uuid' => $z->uuid]),
+            'gesehen'      => $z->first_viewed_at !== null,
+            'erledigt'     => DokumentStatus::istErledigt($z->zeitstempel(), $aktion),
+        ];
+    }
+
     /**
      * Die offene Gruppe speichern -- UEBER DEN GEMEINSAMEN SCHREIBWEG
      * (PortalProfileWriter, also ueber Eloquent), NICHT ueber den Query
@@ -668,6 +785,8 @@ class PortalShell extends Component
         $employee = $this->berechtigterMitarbeiter();
 
         $dokumente = $employee ? $this->dokumente($employee) : [];
+        $mitarbeiterDokumente = $employee ? $this->mitarbeiterDokumente($employee) : [];
+        $offeneDokumente = count(array_filter($mitarbeiterDokumente, static fn (array $d) => $d['offen']));
 
         $checklist = $employee ? app(ProofReader::class)->checklist($employee) : [];
         $offeneNachweise = array_values(array_filter($checklist, fn ($z) => $z['offen']));
@@ -693,7 +812,7 @@ class PortalShell extends Component
         return [
             'aufgaben'          => $aufgabenDekoriert,
             'dokumente'         => $dokumente,
-            'offen'             => $offenAusNachweisen + count($pflichtAufgaben),
+            'offen'             => $offenAusNachweisen + count($pflichtAufgaben) + $offeneDokumente,
             'pflichtAufgaben'   => $pflichtAufgaben,
             'anstellungen'      => $employee ? $this->anstellungen($employee) : collect(),
             'uploadLabel'       => $this->uploadCode !== null ? ProofTypes::label($this->uploadCode) : '',
@@ -722,6 +841,8 @@ class PortalShell extends Component
             // Konto-Zweigs), verlangen den Weg ueber ansichtsDaten() statt
             // ueber eine weitere Eigenschaft.
             'offenePunkte'    => $this->offenePunkteMitSaetzen($employee, $aufgabenDekoriert),
+            'mitarbeiterDokumente' => $mitarbeiterDokumente,
+            'dokumentBlatt'        => $employee ? $this->dokumentBlatt($employee) : null,
         ];
     }
 

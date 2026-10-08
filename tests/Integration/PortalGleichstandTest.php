@@ -1516,6 +1516,11 @@ final class PortalGleichstandTest extends TestCase
             'profilWerte'           => 'die Eingaben des offenen Gruppen-Blatts',
             'profilFehler'          => 'nur eine Anzeige',
             'profilMeldung'         => 'nur eine Anzeige',
+            'dokumentId'            => 'Empfaenger-ID des offenen Dokument-Blatts; jede Aktion prueft sie ueber DokumentLeser::empfaenger() gegen den Scope',
+            'dokumentGelesen'       => 'der Haken des Menschen',
+            'dokumentUnterschrift'  => 'die Unterschrift des Menschen',
+            'dokumentFehler'        => 'nur eine Anzeige',
+            'dokumentMeldung'       => 'nur eine Anzeige',
         ];
 
         foreach ($offen as $name => $warum) {

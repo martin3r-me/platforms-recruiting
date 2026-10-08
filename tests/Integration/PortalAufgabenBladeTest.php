@@ -308,7 +308,12 @@ final class PortalAufgabenBladeTest extends TestCase
 
         $compiler = new BladeCompiler(new Filesystem(), $this->tmpDir);
         $datei = $this->tmpDir . '/huelle-' . uniqid('', true) . '.php';
-        file_put_contents($datei, $compiler->compileString($this->bladeQuelle()));
+        // Das Dokument-Blatt (Task 11) bindet <x-ui-input-signature> ein -- eine Core-
+        // Komponente, deren Aufloesung den View-Factory des Hosts braucht, den dieser
+        // Container-Aufbau nicht hat. Das Blatt rendert hier nie (dokumentBlatt === null),
+        // also faellt nur die Tag-Aufloesung beim Kompilieren weg, kein Verhalten.
+        $quelle = (string) preg_replace('/<x-ui-input-signature\b[^>]*\/>/s', '', $this->bladeQuelle());
+        file_put_contents($datei, $compiler->compileString($quelle));
 
         $variablen['__env'] = new class {
             use \Illuminate\View\Concerns\ManagesLoops;
