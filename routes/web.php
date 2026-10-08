@@ -69,6 +69,8 @@ Route::get('/employees/proof-inbox', \Platform\Recruiting\Livewire\Employees\Pro
     ->name('recruiting.employees.proof-inbox');
 // Dokumente (Spec 2026-10-08): Datei-Download und Nachweisblatt fuer HR.
 // VOR der {employee}-Wildcard. (Die Seite /employees/documents kommt in Task 14.)
+Route::get('/employees/documents', \Platform\Recruiting\Livewire\Employees\Documents::class)
+    ->name('recruiting.employees.documents');
 Route::get('/employees/dokumente/{uuid}/datei', [\Platform\Recruiting\Http\Controllers\DokumentHrController::class, 'datei'])
     ->name('recruiting.employees.dokument.datei');
 Route::get('/employees/dokumente/{uuid}/nachweis', [\Platform\Recruiting\Http\Controllers\DokumentHrController::class, 'nachweis'])

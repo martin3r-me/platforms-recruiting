@@ -109,6 +109,7 @@ final class DokumentAkteTest extends TestCase
 
         $this->assertSame('https://meingedeck.de/recruiting/employees/dokumente/abc/datei', $url->route('recruiting.employees.dokument.datei', ['uuid' => 'abc']));
         $this->assertSame('https://meingedeck.de/recruiting/employees/dokumente/abc/nachweis', $url->route('recruiting.employees.dokument.nachweis', ['uuid' => 'abc']));
+        $this->assertSame('https://meingedeck.de/recruiting/employees/documents', $url->route('recruiting.employees.documents'));
         $container->forgetInstance('router');
         Facade::clearResolvedInstances();
     }

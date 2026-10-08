@@ -601,7 +601,10 @@
                 $dokAktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
             @endphp
             <div class="mt-6 p-4 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg">
-                <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-3">Dokumente</h3>
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-[var(--ui-secondary)]">Dokumente</h3>
+                    <a href="{{ route('recruiting.employees.documents') }}" wire:navigate class="text-xs text-[var(--ui-muted)] hover:underline">Alle Dokumente</a>
+                </div>
 
                 <form wire:submit="dokumentBereitstellen" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end p-3 bg-white border border-[var(--ui-border)]/60 rounded-md">
                     <div class="md:col-span-4">
