@@ -67,6 +67,11 @@ class RecApplicantSettings extends Model
         // Ohne Wert faellt das Modal auf campaign_booking_wa_template_id zurueck.
         'campaign_full_training_wa_template_id' => null,
         'no_assignment_campaign_wa_template_id' => null,
+        // Dokumente (Spec 2026-10-08, §4): "im Portal liegt etwas fuer dich".
+        // Genehmigte Vorlage mit Platzhalter {{vorname}} und einem URL-Knopf,
+        // der das Portal-Token als Suffix traegt. Ohne Wert liegt jedes
+        // Dokument bereit, aber niemand bekommt eine WhatsApp.
+        'document_wa_template_id' => null,
         'minimum_wage_hourly' => 13.90,
         // Grenze der kurzfristigen Beschaeftigung in Arbeitstagen je
         // Kalenderjahr (§8 Abs. 1 Nr. 2 SGB IV). Als Einstellung, weil es

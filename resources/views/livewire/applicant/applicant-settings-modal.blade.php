@@ -179,6 +179,23 @@
                             wire:model.live="settings.training_certificate_wa_template_id"
                         />
                     @endif
+                    @if(!empty($this->availableWhatsAppTemplates))
+                        <x-ui-input-select
+                            :value="$settings['document_wa_template_id'] ?? null"
+                            name="settings.document_wa_template_id"
+                            label="Dokumente — WhatsApp-Template mit Portal-Link"
+                            :options="$this->availableWhatsAppTemplates"
+                            optionValue="id"
+                            optionLabel="label"
+                            :nullable="true"
+                            nullLabel="– Template wählen –"
+                            wire:model.live="settings.document_wa_template_id"
+                        />
+                        <p class="text-xs text-[var(--ui-muted)] mt-0.5">
+                            Geht raus, wenn HR ein Dokument zur Kenntnisnahme oder Unterschrift bereitstellt.
+                            Vorlage mit &#123;&#123;vorname&#125;&#125; und einem URL-Knopf, dessen Variable am Ende steht.
+                        </p>
+                    @endif
                     {{-- Die Form der Button-URL wird aus der Route abgeleitet, nicht als getippter
                          String gepflegt: Host, Praefix und Pfad stehen damit nur an einer Stelle.
                          Der Ausdruck steht bewusst EINMAL in dieser Datei — er ist der Anker, mit
