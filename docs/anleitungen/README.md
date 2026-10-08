@@ -12,4 +12,4 @@ Regeln:
 
 | Datum | Thema | Datei |
 | --- | --- | --- |
-| 06.10.2026 | Teilnehmer zwischen Schulungen verschieben · Kampagne „Schulung voll“ | [2026-10-06-schulungstermine-umplanen.md](2026-10-06-schulungstermine-umplanen.md) |
+| 08.10.2026 | Teilnehmer verschieben (auch während der Schulung) · Vertragsdaten nach der Schulung · Kampagne „Schulung voll“ | [2026-10-08-schulungstermine-umplanen.md](2026-10-08-schulungstermine-umplanen.md) |
