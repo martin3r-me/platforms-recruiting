@@ -7,6 +7,7 @@ use Platform\Crm\Events\CommsWhatsAppInboundReceived;
 use Platform\Crm\Models\CommsLog;
 use Platform\Crm\Models\CommsWhatsAppMessage;
 use Platform\Crm\Models\CommsWhatsAppThread;
+use Platform\Recruiting\Jobs\CheckDispoDeclineJob;
 use Platform\Recruiting\Models\RecSourcePlatform;
 use Platform\Recruiting\Services\ApplicationMatchingService;
 use Platform\Recruiting\Services\Comms\ApplicantThreadLinker;
@@ -15,6 +16,7 @@ use Platform\Recruiting\Services\Comms\ThreadContextGate;
 use Platform\Recruiting\Services\Comms\VoiceNoteAutoReplyHandler;
 use Platform\Recruiting\Services\IncomingApplicationService;
 use Platform\Recruiting\Services\ReminderResponseHandler;
+use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineCheckGate;
 
 class HandleWhatsAppInboundForRecruiting
 {
@@ -56,6 +58,20 @@ class HandleWhatsAppInboundForRecruiting
         } catch (\Throwable $e) {
             Log::warning('[Recruiting] OOO-Auto-Reply fehlgeschlagen', [
                 'thread_id' => $thread->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Absage-Erkennung (Spec 2026-10-08): VOR dem Kontext-Gate, weil
+        // Dispo-Threads Kontexte tragen. Hier wird nur eingereiht — der Webhook
+        // wartet nie auf das Sprachmodell, Fehler stoppen nie den Inbound-Flow.
+        try {
+            if (DispoDeclineCheckGate::shouldQueue($message)) {
+                CheckDispoDeclineJob::dispatch((int) $message->id);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[Recruiting] Absage-Erkennung nicht eingereiht', [
+                'message_id' => $message->id,
                 'error' => $e->getMessage(),
             ]);
         }
