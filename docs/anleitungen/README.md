@@ -12,4 +12,29 @@ Regeln:
 
 | Datum | Thema | Datei |
 | --- | --- | --- |
-| 06.10.2026 | Teilnehmer zwischen Schulungen verschieben · Kampagne „Schulung voll“ | [2026-10-06-schulungstermine-umplanen.md](2026-10-06-schulungstermine-umplanen.md) |
+| 08.10.2026 | Teilnehmer verschieben (auch während der Schulung) · Kampagne „Schulung voll“ | [2026-10-08-schulungstermine-umplanen.md](2026-10-08-schulungstermine-umplanen.md) |
+| 08.10.2026 | Vertragsdaten nach der Schulung · Statusfilter „Keine Reaktion“ | [2026-10-08-schulungsnachbereitung-vertragsdaten.md](2026-10-08-schulungsnachbereitung-vertragsdaten.md) |
+
+## Folien für den Kunden
+
+Die Anleitungen gibt es auch als PowerPoint im Stil der RheinGedeck-HCM-Folien (blauer Rand, Kicker, Titel,
+Schritte links, Screenshot rechts, Fußzeile „RheinGedeck · Intern“). Das ist die Mustervorlage für weitere
+Kundenfolien.
+
+| Datei | Inhalt |
+| --- | --- |
+| `folien/2026-10-08-schulungstermine-umplanen.pptx` | Fertige Folien zum Baustein vom 08.10.2026 |
+| `folien/schulungstermine_folien.py` | Generator dieser Folien; die Stilfunktionen (`rahmen`, `text`, `bild`, `hinweis`) sind die Vorlage für neue Decks |
+| `folien/screenshots/` | Screenshots zum Generator, Dateinamen siehe `SCREENSHOTS` im Skript |
+
+Neu bauen:
+
+```
+python docs/anleitungen/folien/schulungstermine_folien.py docs/anleitungen/folien/screenshots docs/anleitungen/folien/2026-10-08-schulungstermine-umplanen.pptx
+```
+
+Braucht `python-pptx` und `Pillow`. Fehlt ein Screenshot, steht ein beschrifteter Platzhalter da.
+
+**Screenshots nur anonymisiert ablegen.** Die vorhandenen stammen von der Live-Seite; Namen wurden nur im
+Browserfenster durch Beispielnamen ersetzt und Fotos unscharf gestellt, bevor das Bild entstand. Keine echten
+Bewerbernamen, Fotos oder Telefonnummern ins Repo.

@@ -31,8 +31,10 @@ use Platform\Recruiting\Models\RecInterviewBooking;
  *
  * Regeln (alle im Lock geprueft, die UI-Auswahl ist nur Komfort):
  *  - Quelle und Ziel im eigenen Team, beide mit derselben, gesetzten Stelle.
- *  - Ziel: aktiv, nicht abgesagt, beginnt in der Zukunft, nicht die Quelle.
- *  - Nur Buchungen vor der Schulung (MOVABLE_STATUSES), nur aus der Quelle.
+ *  - Ziel: aktiv, nicht abgesagt, nicht die Quelle; am selben Tag wie die
+ *    Quelle immer, sonst nur, solange es noch nicht zu Ende ist.
+ *  - Buchungen vor der Schulung (MOVABLE_STATUSES) immer; Teilgenommene
+ *    (SAME_DAY_STATUSES) nur in einen Termin am selben Tag. Nur aus der Quelle.
  *  - Platzbelegende Buchungen brauchen einen freien Platz im Ziel; Standby
  *    belegt keinen und wandert immer mit.
  *  - Der Unique-Index (rec_interview_id, rec_applicant_id) gilt auch fuer
@@ -46,6 +48,38 @@ use Platform\Recruiting\Models\RecInterviewBooking;
 class BookingMover
 {
     public const MOVABLE_STATUSES = ['booked', 'registered', 'confirmed'];
+
+    /**
+     * Endstatus aus der Schulung selbst (08.10.2026, Feedback MGL-Runde 07.10.):
+     * wer schon auf Teilgenommen steht, soll waehrend der Schulung noch in eine
+     * Gruppe desselben Tages wandern koennen — mit seinem Status. In einen
+     * Termin an einem anderen Tag nie: dort hat er nicht teilgenommen.
+     * Nicht erschienen / Vor Ort aussortiert bewusst NICHT: sie belegen im Ziel
+     * einen Platz und wuerden in einer knappen Gruppe Teilgenommenen den Platz
+     * nehmen (Review 08.10.) — und es gibt keinen Grund, sie aufzuteilen.
+     */
+    public const SAME_DAY_STATUSES = ['attended'];
+
+    /** Darf diese Buchung von $source nach $target? (Status-Teil der Regeln) */
+    public static function statusErlaubt(string $status, ?RecInterview $source, ?RecInterview $target): bool
+    {
+        if (in_array($status, self::MOVABLE_STATUSES, true)) {
+            return true;
+        }
+        if (!in_array($status, self::SAME_DAY_STATUSES, true) || !$source || !$target) {
+            return false;
+        }
+
+        return $source->starts_at && $target->starts_at
+            && $source->starts_at->isSameDay($target->starts_at);
+    }
+
+    /** Status, die ueberhaupt in Frage kommen — fuer die Haken in der UI. */
+    public static function statusMoeglich(string $status): bool
+    {
+        return in_array($status, self::MOVABLE_STATUSES, true)
+            || in_array($status, self::SAME_DAY_STATUSES, true);
+    }
 
     /** Zieltermine, die fuer die Quelle zulaessig sind (Komfort fuer die UI). */
     public function targetsFor(int $sourceInterviewId, int $teamId): Collection
@@ -134,8 +168,10 @@ class BookingMover
                     continue;
                 }
 
-                if (!in_array($booking->status, self::MOVABLE_STATUSES, true)) {
-                    $skipped[$id] = 'Status „' . $booking->status_label . '" wird nicht verschoben.';
+                if (!self::statusErlaubt($booking->status, $source, $target)) {
+                    $skipped[$id] = in_array($booking->status, self::SAME_DAY_STATUSES, true)
+                        ? 'Status „' . $booking->status_label . '" wandert nur in einen Termin am selben Tag.'
+                        : 'Status „' . $booking->status_label . '" wird nicht verschoben.';
                     continue;
                 }
 
@@ -184,7 +220,28 @@ class BookingMover
             ->where('id', '!=', $source->id)
             ->where('is_active', true)
             ->where('status', '!=', 'cancelled')
-            ->where('starts_at', '>', Carbon::now());
+            // Bis zum ENDE des Ziels, nicht bis zum Beginn (08.10.2026): am 07.10.
+            // starteten alle Gruppen um 18 Uhr — ab da liess sich waehrend der
+            // Schulung niemand mehr aufteilen. Ohne Ende zaehlt der Beginn
+            // (wie der Nachpflege-Hinweis: ends_at ?? starts_at).
+            //
+            // Nachtrag 08.10.2026: Termine am SELBEN Tag wie die Quelle sind immer
+            // Ziel, auch wenn sie schon vorbei sind — damit sich die Gruppen eines
+            // Schulungsabends auch am naechsten Tag noch richtig zuordnen lassen
+            // (Zertifikat-Schulungsleiter, Statistik je Termin). Andere Tage nur,
+            // solange sie nicht zu Ende sind: niemand soll in eine Schulung von
+            // letzter Woche rutschen.
+            ->where(function ($q) use ($source) {
+                $now = Carbon::now();
+                $q->where('ends_at', '>', $now)
+                    ->orWhere(fn ($q) => $q->whereNull('ends_at')->where('starts_at', '>', $now));
+                if ($source->starts_at) {
+                    $q->orWhereBetween('starts_at', [
+                        $source->starts_at->copy()->startOfDay(),
+                        $source->starts_at->copy()->endOfDay(),
+                    ]);
+                }
+            });
     }
 
     private function targetError(?RecInterview $source, ?RecInterview $target, int $teamId): ?string
@@ -196,7 +253,7 @@ class BookingMover
             return 'Der Termin hat keine Stelle — Verschieben geht nur innerhalb einer Stelle.';
         }
         if (!$target || !$this->eligibleTargets($source)->whereKey($target->id)->exists()) {
-            return 'Zieltermin ist nicht zulässig (andere Stelle, vorbei, abgesagt oder inaktiv).';
+            return 'Zieltermin ist nicht zulässig (andere Stelle, schon zu Ende, abgesagt oder inaktiv).';
         }
 
         return null;

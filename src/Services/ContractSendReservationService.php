@@ -50,6 +50,17 @@ class ContractSendReservationService
             $offen->fill($daten)->save();
         }
 
+        // Die Planung der Nachbereitung auf denselben Stand ziehen — sonst gewaenne
+        // dort ein aelterer Plan gegen eine neuere Vormerkung (z. B. vom
+        // HR-Schreibtisch) und der naechste Sammelversand merkte die alten Daten
+        // erneut vor (Review 08.10.).
+        \Platform\Recruiting\Support\GeplanteVertragsdaten::speichern(
+            (int) $applicant->team_id,
+            (int) $applicant->id,
+            $vertragsbeginn,
+            $vertragsende,
+        );
+
         $felder = $fehlendeFelder === [] ? 'keine Pflichtfelder offen, wartet auf Phasenwechsel bzw. Freigabe' : implode(', ', $fehlendeFelder);
         $this->log($applicant, 'contract_send_reserved', sprintf(
             'Versand %s von %s — Onboarding unvollständig: %s. Vertragsbeginn %s. Geht automatisch raus, sobald die Daten vollständig sind.',

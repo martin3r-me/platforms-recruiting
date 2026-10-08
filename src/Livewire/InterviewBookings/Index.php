@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\InterviewBookings;
 
 use Livewire\Component;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Locked;
 use Illuminate\Support\Facades\DB;
 use Platform\Crm\Models\CommsChannel;
 use Platform\Crm\Models\CrmPhoneNumber;
@@ -26,6 +27,8 @@ class Index extends Component
     use \Platform\Recruiting\Livewire\Concerns\HandlesEvaluationModal;
     use \Platform\Recruiting\Livewire\Concerns\LoadsApplicantSelfies;
 
+    /** Gesperrt (08.10.2026): Speichern und Verschieben haengen an diesem Termin. */
+    #[Locked]
     public $interviewId;
     public $search = '';
     public $filterStatus = 'all';
@@ -62,6 +65,26 @@ class Index extends Component
     {
         $this->interviewId = $interview;
         $this->hydrateContractDatesFromExistingContracts();
+        $this->geplanteVertragsdatenUebernehmen();
+    }
+
+    /**
+     * Livewire-Hook vor jeder Aktion: die gespeicherte Planung (jedes Laptops)
+     * gewinnt gegen den Stand dieses Fensters (08.10.2026, Feedback 07.10.).
+     * Eigene schlanke Abfrage (zwei kleine Queries), NICHT $this->bookings —
+     * siehe GeplanteVertragsdaten::fuerTermin().
+     */
+    public function hydrate(): void
+    {
+        $this->geplanteVertragsdatenUebernehmen();
+    }
+
+    private function geplanteVertragsdatenUebernehmen(): void
+    {
+        $this->contractDates = \Platform\Recruiting\Support\GeplanteVertragsdaten::uebernehmen(
+            $this->contractDates,
+            \Platform\Recruiting\Support\GeplanteVertragsdaten::fuerTermin((int) $this->interviewId),
+        );
     }
 
     /**
@@ -290,7 +313,7 @@ class Index extends Component
     public function movableVisibleIds(): array
     {
         return $this->bookings
-            ->filter(fn ($b) => in_array($b->status, BookingMover::MOVABLE_STATUSES, true))
+            ->filter(fn ($b) => BookingMover::statusMoeglich((string) $b->status))
             ->pluck('id')
             ->map(fn ($id) => (string) $id)
             ->values()
@@ -793,6 +816,36 @@ class Index extends Component
         }
 
         $this->contractDates[$applicantId] = $current;
+
+        // Sofort speichern (08.10.2026) — nur fuer Bewerber dieses Termins und
+        // nur solange noch kein Vertrag raus ist.
+        $applicant = $this->bookings->first(fn ($b) => (int) $b->applicant?->id === $applicantId)?->applicant;
+        if ($applicant && !$applicant->hasAnyContractSent()) {
+            \Platform\Recruiting\Support\GeplanteVertragsdaten::speichern(
+                (int) $applicant->team_id,
+                $applicantId,
+                $current['vertragsbeginn'] ?? null,
+                $current['vertragsende'] ?? null,
+            );
+            \Platform\Recruiting\Support\GeplanteVertragsdaten::vormerkungNachziehen(
+                $applicantId,
+                $current['vertragsbeginn'] ?? null,
+                $current['vertragsende'] ?? null,
+            );
+
+            // Vertragsbeginn geleert: eine offene Vormerkung wuerde sonst mit dem
+            // alten Beginn automatisch versenden, obwohl die Seite ein leeres Feld
+            // zeigt (Review 08.10.). Zuruecknehmen, solange sie nicht schon laeuft.
+            $vormerkung = empty($current['vertragsbeginn']) ? $applicant->offeneVersandVormerkung() : null;
+            if ($vormerkung && $vormerkung->claimed_at === null) {
+                app(\Platform\Recruiting\Services\ContractSendReservationService::class)->zuruecknehmen(
+                    $vormerkung,
+                    'Vertragsbeginn in der Nachbereitung geleert durch ' . (auth()->user()->name ?? 'HR'),
+                    (int) auth()->id(),
+                );
+                unset($this->versandZustaende);
+            }
+        }
     }
 
     public function sendContractsBulk(): void
