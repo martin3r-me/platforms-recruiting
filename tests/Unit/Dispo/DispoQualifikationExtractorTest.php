@@ -137,4 +137,64 @@ class DispoQualifikationExtractorTest extends TestCase
         $this->assertSame([], $r['byPnr']);
         $this->assertSame(0, $r['stats']['zeilen']);
     }
+
+    public function test_line_count_includes_all_rows_from_dispo5(): void
+    {
+        $r = DispoQualifikationExtractor::extract($this->katalog(), [
+            $this->row('', 'RG8', '1'),                    // ohne_pnr
+            $this->row('RG14', 'RG8', '5'),                // platzhalter
+            $this->row('RG1464', 'RG9999', '1'),           // ohne_katalog
+            $this->row('RG1465', 'RG8', '17'),             // accepted
+        ]);
+
+        // Alle vier Zeilen werden gezaehlt, unabhaengig vom Filterausgang.
+        $this->assertSame(4, $r['stats']['zeilen']);
+        // Die Filterung in Zahlen: ohne_pnr + platzhalter + ohne_katalog + accepted.
+        $this->assertSame(1, $r['stats']['ohne_pnr']);
+        $this->assertSame(1, $r['stats']['platzhalter']);
+        $this->assertSame(1, $r['stats']['ohne_katalog']);
+        $this->assertSame(['RG1465'], array_keys($r['byPnr']),
+            'Nur die akzeptierte Zeile landet in byPnr.');
+        $this->assertSame(1 + 1 + 1 + 1, $r['stats']['zeilen'],
+            'ohne_pnr + platzhalter + ohne_katalog + 1 accepted = 4 gesamt.');
+    }
+
+    public function test_case_insensitive_deduplication_uses_canonical_spelling(): void
+    {
+        $r = DispoQualifikationExtractor::extract([
+            ['nr' => '13',  'name' => 'Logistiker',  'code' => 'RG13',  'col_3' => ''],
+            ['nr' => '271', 'name' => 'logistiker',  'code' => 'RG271', 'col_3' => ''],
+            ['nr' => '8',   'name' => 'Servicekräfte', 'code' => 'RG8',  'col_3' => ''],
+        ], [
+            $this->row('RG1464', 'RG13', '5'),       // erste Schreibweise
+            $this->row('RG1464', 'RG271', '2'),      // zweite Schreibweise
+            $this->row('RG1465', 'RG271', '3'),      // nur zweite Schreibweise
+        ]);
+
+        // Namen hat die kanonische Schreibweise (erste gelieferte) genau einmal.
+        $this->assertSame(['Logistiker', 'Servicekräfte'], $r['namen']);
+        // RG1464 bekommt beide IDs, aber den Namen nur einmal mit kanonischer Schreibweise.
+        $this->assertSame(['Logistiker'], $r['byPnr']['RG1464']);
+        // RG1465 hat nur RG271, bekommt aber ebenfalls kanonische Schreibweise.
+        $this->assertSame(['Logistiker'], $r['byPnr']['RG1465'],
+            'Schreibweise immer kanonisch aus namen, nicht aus dem Katalog.');
+    }
+
+    public function test_placeholder_personnel_numbers_are_case_insensitive(): void
+    {
+        $r = DispoQualifikationExtractor::extract($this->katalog(), [
+            $this->row('rg14', 'RG8', '5'),          // lowercase variant
+            $this->row('RG14', 'RG8', '3'),          // original case
+            $this->row('rg0', 'RG8', '2'),           // lowercase variant
+            $this->row('RG1464', 'RG8', '17'),       // valid employee
+        ]);
+
+        $this->assertArrayNotHasKey('rg14', $r['byPnr'],
+            'Auch lowercase rg14 ist ein Platzhalter und muss gefiltert werden.');
+        $this->assertArrayNotHasKey('RG14', $r['byPnr']);
+        $this->assertArrayNotHasKey('rg0', $r['byPnr']);
+        $this->assertSame(['RG1464'], array_keys($r['byPnr']));
+        $this->assertSame(3, $r['stats']['platzhalter'],
+            'Alle drei Platzhalter-Varianten werden gezaehlt, unabhaengig von Gross-/Kleinschreibung.');
+    }
 }

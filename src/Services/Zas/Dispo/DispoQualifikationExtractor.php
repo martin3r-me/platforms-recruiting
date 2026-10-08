@@ -62,7 +62,8 @@ final class DispoQualifikationExtractor
                 $stats['ohne_pnr']++;
                 continue;
             }
-            if (in_array($pnr, self::PLATZHALTER_PNR, true)) {
+            // Platzhalter-Abgleich schreibungsunabhaengig machen.
+            if (in_array(mb_strtoupper($pnr), array_map('mb_strtoupper', self::PLATZHALTER_PNR), true)) {
                 $stats['platzhalter']++;
                 continue;
             }
@@ -73,10 +74,12 @@ final class DispoQualifikationExtractor
                 continue;
             }
 
-            // Namen entdoppeln, erste Schreibweise gewinnt — dieselbe Regel wie
-            // in ZasDispoTaetigkeitSync::parse().
-            $name = $katalog[$id];
-            $byPnr[$pnr][mb_strtolower($name)] ??= $name;
+            // Namen entdoppeln — kanonische Schreibweise aus `namen` nehmen, nicht
+            // den Katalognamen direkt. Dieselbe Regel wie in ZasDispoTaetigkeitSync::parse().
+            $key = mb_strtolower($katalog[$id]);
+            if (isset($namen[$key])) {
+                $byPnr[$pnr][$key] ??= $namen[$key];
+            }
         }
 
         foreach ($byPnr as $pnr => $liste) {
