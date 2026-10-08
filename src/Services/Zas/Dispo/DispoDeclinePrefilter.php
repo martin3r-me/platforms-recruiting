@@ -21,7 +21,8 @@ final class DispoDeclinePrefilter
         'passt', 'super', 'top', 'perfekt', 'prima', 'klasse', 'cool', 'gut', 'alles', 'klar',
         'danke', 'dankeschön', 'dankeschoen', 'vielen', 'dank', 'lieben', 'dir', 'euch', 'ihnen', 'schön', 'schoen', 'sehr',
         'gerne', 'gern', 'bin', 'ich', 'dabei', 'geht', 'bestätigt', 'bestaetigt', 'erledigt',
-        'mach', 'wird', 'gemacht', 'und', 'auch', 'ebenso', 'gleichfalls', 'lg', 'vg', 'mfg', 'gruß', 'gruss', 'grüße', 'gruesse',
+        'mach', 'wird', 'gemacht', 'komme', 'komm', 'bestätige', 'bestaetige', 'bestätigen', 'bestaetigen', 'zugesagt',
+        'bis', 'dann', 'wir', 'sehen', 'uns', 'und', 'auch', 'ebenso', 'gleichfalls', 'lg', 'vg', 'mfg', 'gruß', 'gruss', 'grüße', 'gruesse',
     ];
 
     /** Zeichen, die als positive Quittung zaehlen (Daumen, Haken, Herzen, Haende). */

@@ -1356,7 +1356,7 @@
                         @if (!$eventOnly)
                             <div class="mt-2 flex flex-wrap gap-2">
                                 <button type="button" wire:click="openDeclineFromReport" class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700">Absage erfassen …</button>
-                                <button type="button" wire:click="dismissDeclineReport" class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100">Keine Absage</button>
+                                <button type="button" wire:click="dismissDeclineReport({{ json_encode(array_column($dcReports, 'id')) }})" class="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100">Keine Absage</button>
                             </div>
                         @else
                             <div class="mt-1 text-xs text-amber-700">Die Dispo entscheidet darüber.</div>

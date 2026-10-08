@@ -243,7 +243,7 @@ class Settings extends Component
      * entstandene Meldungen. Gezaehlt werden Nachrichten, nicht Zeilen — eine
      * Nachricht kann mehrere VAs betreffen.
      *
-     * @return array<int, array{checked:int, reported:int}>
+     * @return array<int, array{checked:int, failed:int, reported:int}>
      */
     #[Computed]
     public function declineCheckCounts(): array
@@ -251,12 +251,15 @@ class Settings extends Component
         $rows = RecDispoDeclineCheck::query()
             ->where('team_id', $this->teamId())
             ->where('created_at', '>=', now()->startOfMonth())
-            ->get(['filial_nr', 'comms_whatsapp_message_id', 'used_llm', 'review_status']);
+            ->get(['filial_nr', 'comms_whatsapp_message_id', 'used_llm', 'outcome', 'review_status']);
 
         $out = [];
         foreach ($rows->groupBy('filial_nr') as $nr => $group) {
             $out[(int) $nr] = [
-                'checked'  => $group->where('used_llm', true)->pluck('comms_whatsapp_message_id')->unique()->count(),
+                // "failed" zaehlt nicht als geprueft — sonst zeigt der Zaehler
+                // Arbeit an, wo das Modell gar nicht geantwortet hat.
+                'checked'  => $group->where('used_llm', true)->where('outcome', '!=', RecDispoDeclineCheck::OUTCOME_FAILED)->pluck('comms_whatsapp_message_id')->unique()->count(),
+                'failed'   => $group->where('outcome', RecDispoDeclineCheck::OUTCOME_FAILED)->pluck('comms_whatsapp_message_id')->unique()->count(),
                 'reported' => $group->whereNotNull('review_status')->pluck('comms_whatsapp_message_id')->unique()->count(),
             ];
         }

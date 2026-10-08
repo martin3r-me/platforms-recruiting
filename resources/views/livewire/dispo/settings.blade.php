@@ -142,7 +142,7 @@
                             <td class="py-2 pr-4 whitespace-nowrap">
                                 @php
                                     $dcSince = $this->filialeSettings->get($nr)?->decline_check_enabled_at;
-                                    $dcCounts = $this->declineCheckCounts[$nr] ?? ['checked' => 0, 'reported' => 0];
+                                    $dcCounts = $this->declineCheckCounts[$nr] ?? ['checked' => 0, 'failed' => 0, 'reported' => 0];
                                 @endphp
                                 <label class="flex items-center gap-2">
                                     <input type="checkbox" wire:model="filialeDeclineCheck.{{ $nr }}" class="rounded border-gray-300">
@@ -154,6 +154,9 @@
                                 <div class="mt-0.5 text-xs text-gray-500 tabular-nums" title="Laufender Monat: vom Sprachmodell geprüfte Nachrichten / davon als mögliche Absage gemeldet">
                                     diesen Monat: {{ $dcCounts['checked'] }} geprüft · {{ $dcCounts['reported'] }} gemeldet
                                 </div>
+                                @if ($dcCounts['failed'] > 0)
+                                    <div class="text-xs text-red-600 tabular-nums" title="Das Sprachmodell hat auch nach Wiederholung nicht lesbar geantwortet — diese Nachrichten wurden nicht geprüft.">{{ $dcCounts['failed'] }} nicht prüfbar (KI antwortete nicht)</div>
+                                @endif
                             </td>
                             <td class="py-2">
                                 <button wire:click="saveFiliale({{ $nr }})" class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">Speichern</button>

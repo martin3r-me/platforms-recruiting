@@ -75,10 +75,20 @@ class DispoDeclineReview
         return array_map('count', $persons);
     }
 
-    /** "Keine Absage": alle offenen Meldungen der Person in dieser VA verwerfen. */
-    public function dismissForPerson(int $eventId, int $employeeId, ?int $userId): int
+    /**
+     * "Keine Absage": die GEZEIGTEN Meldungen der Person in dieser VA verwerfen.
+     * Eine Meldung, die zwischen Anzeige und Klick eingeht, bleibt offen — sie
+     * hat noch niemand gesehen.
+     *
+     * @param list<int> $checkIds die angezeigten Meldungen
+     */
+    public function dismissForPerson(int $eventId, int $employeeId, ?int $userId, array $checkIds): int
     {
-        return $this->resolve($eventId, $employeeId, RecDispoDeclineCheck::REVIEW_DISMISSED, $userId);
+        if ($checkIds === []) {
+            return 0;
+        }
+
+        return $this->resolve($eventId, $employeeId, RecDispoDeclineCheck::REVIEW_DISMISSED, $userId, array_map('intval', $checkIds));
     }
 
     /** Nach gespeicherter Absage: offene Meldungen der Person gelten als uebernommen. */
@@ -87,12 +97,14 @@ class DispoDeclineReview
         return $this->resolve($eventId, $employeeId, RecDispoDeclineCheck::REVIEW_ACCEPTED, $userId);
     }
 
-    private function resolve(int $eventId, int $employeeId, string $status, ?int $userId): int
+    /** @param list<int>|null $checkIds null = alle offenen */
+    private function resolve(int $eventId, int $employeeId, string $status, ?int $userId, ?array $checkIds = null): int
     {
         return RecDispoDeclineCheck::query()
             ->where('rec_dispo_event_id', $eventId)
             ->where('rec_employee_id', $employeeId)
             ->where('review_status', RecDispoDeclineCheck::REVIEW_OPEN)
+            ->when($checkIds !== null, fn ($q) => $q->whereIn('id', $checkIds))
             ->update(['review_status' => $status, 'reviewed_by_user_id' => $userId, 'reviewed_at' => now()]);
     }
 

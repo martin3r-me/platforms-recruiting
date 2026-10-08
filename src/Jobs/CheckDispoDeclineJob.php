@@ -3,6 +3,7 @@
 namespace Platform\Recruiting\Jobs;
 
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -15,15 +16,23 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineCheckRunner;
  * auf das Sprachmodell wartet. Transportfehler -> Wiederholung; beim letzten
  * Versuch wird "failed" protokolliert und nichts gemeldet.
  */
-class CheckDispoDeclineJob implements ShouldQueue
+class CheckDispoDeclineJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /** Doppelt zugestellter Webhook: dieselbe Nachricht nur einmal in der Schlange (spart den zweiten Modell-Aufruf). */
+    public int $uniqueFor = 600;
 
     public int $tries = 3;
 
     public int $backoff = 60;
 
     public function __construct(public int $messageId) {}
+
+    public function uniqueId(): string
+    {
+        return (string) $this->messageId;
+    }
 
     public function handle(DispoDeclineCheckRunner $runner): void
     {

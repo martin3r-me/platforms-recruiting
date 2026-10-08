@@ -16,7 +16,8 @@ class DispoDeclinePrefilterTest extends TestCase
     public static function acks(): array
     {
         return [['ja'], ['Ja!'], ['OK'], ['Okay, danke'], ['Passt 👍'], ['👍'], ['👍🏼'], ['✅'], ['Bin dabei'],
-            ['Ich bin dabei!'], ['Alles klar, danke dir'], ['Super, vielen Dank'], ['geht klar'], ['Ja passt. LG']];
+            ['Ich bin dabei!'], ['Alles klar, danke dir'], ['Super, vielen Dank'], ['geht klar'], ['Ja passt. LG'],
+            ['Bestätigen'], ['Komme 👍'], ['Wir sehen uns'], ['Ok bis dann']];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('acks')]
@@ -32,7 +33,7 @@ class DispoDeclinePrefilterTest extends TestCase
             ['ich bin nicht dabei'], ['geht nicht'], ['nein'], ['Ja, aber ich kann erst ab 18 Uhr'],
             ['ok ich bin krank'], ['leider nicht'], ['😢'], ['👎'], [''], ['   '],
             ['ja ' . str_repeat('danke ', 15)], // zu lang fuer "offensichtlich"
-            ['Ja nein'],
+            ['Ja nein'], ['ich komme nicht'], ['komme später'], ['bis dann leider nicht'],
         ];
     }
 

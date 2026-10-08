@@ -613,8 +613,9 @@ class Show extends Component
      * 'read' | 'failed'. Reine Ansicht — die mobile Kartenliste bleibt bewusst
      * ungefiltert (Kunde: nur Desktop).
      *
-     * In der Adresse (?filter=…), damit das Abzeichen der Uebersicht und der
-     * Knopf im Absage-Alarm direkt auf die gemeldeten Zeilen springen koennen.
+     * In der Adresse (?filter=…), damit das Abzeichen der Uebersicht direkt auf
+     * die gemeldeten Zeilen springt. (Der Knopf im Absage-Alarm oeffnet nur die
+     * VA — Meta erlaubt den Platzhalter allein am Ende der URL.)
      */
     #[Url(as: 'filter', except: '')]
     public string $rowFilter = '';
@@ -901,13 +902,18 @@ class Show extends Component
         $this->declineNote = mb_substr('Per Nachricht (' . $reports[0]['at'] . '): „' . $reports[0]['excerpt'] . '“', 0, 1000);
     }
 
-    /** "Keine Absage": Meldung verwerfen, sonst nichts. */
-    public function dismissDeclineReport(): void
+    /**
+     * "Keine Absage": die angezeigten Meldungen verwerfen, sonst nichts. Die ids
+     * kommen vom Client — der Dienst schraenkt auf Person + VA ein.
+     *
+     * @param list<int> $checkIds
+     */
+    public function dismissDeclineReport(array $checkIds = []): void
     {
         if ($this->blockedForEventOnly() || $this->chatEmployeeId === null) {
             return;
         }
-        app(DispoDeclineReview::class)->dismissForPerson($this->eventId, $this->chatEmployeeId, auth()->id());
+        app(DispoDeclineReview::class)->dismissForPerson($this->eventId, $this->chatEmployeeId, auth()->id(), $checkIds);
         unset($this->declineReports, $this->suspectedAssignmentIds);
     }
 

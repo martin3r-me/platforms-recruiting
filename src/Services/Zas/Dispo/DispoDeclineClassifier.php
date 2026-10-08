@@ -28,14 +28,24 @@ class DispoDeclineClassifier
      */
     public function classify(CommsWhatsAppThread $thread, CommsWhatsAppMessage $message, array $candidates): ?array
     {
+        // tools/with_context aus: sonst haengt OpenAiService alle Plattform-
+        // Werkzeuge und einen eigenen Assistenten-Systemtext an — das Modell kann
+        // dann mit einem Werkzeug-Aufruf statt mit Text antworten. Das Budget
+        // deckt bei Denk-Modellen auch die Denk-Tokens; die Antwort selbst ist kurz.
         $result = app(OpenAiService::class)->chat($this->prompt($thread, $message, $candidates), $this->determineModel(), [
-            'max_tokens' => 200,
+            'max_tokens'   => 1000,
+            'tools'        => false,
+            'with_context' => false,
         ]);
 
-        return DispoDeclineVerdict::parse(
-            trim((string) ($result['content'] ?? '')),
-            array_map(fn ($c) => (int) $c['id'], $candidates),
-        );
+        $content = trim((string) ($result['content'] ?? ''));
+        if ($content === '') {
+            // Leere Antwort = Kontingent, Abbruch oder Werkzeug-Aufruf — ein
+            // Fall fuer die Wiederholung, nicht fuer "nicht lesbar".
+            throw new \RuntimeException('Leere Antwort des Sprachmodells');
+        }
+
+        return DispoDeclineVerdict::parse($content, array_map(fn ($c) => (int) $c['id'], $candidates));
     }
 
     /**

@@ -127,10 +127,20 @@ class DispoDeclineCheckRunner
                 'review_status'  => $reported ? RecDispoDeclineCheck::REVIEW_OPEN : null,
             ]);
 
-            if ($reported && $check !== null && isset($events[$eventId])) {
-                $alarmId = $this->alarm->send($events[$eventId], $this->name($found['employee_id']), self::dates($rows, $affected));
-                if ($alarmId !== null) {
-                    $check->forceFill(['alarm_message_id' => $alarmId])->save();
+            // Alarm nur fuer die Zeile, die DIESER Lauf angelegt hat: ein
+            // paralleler Lauf derselben Nachricht (doppelter Webhook) findet sie
+            // per firstOrCreate vor und darf nicht ein zweites Mal alarmieren.
+            if ($reported && $check !== null && $check->wasRecentlyCreated && isset($events[$eventId])) {
+                try {
+                    $alarmId = $this->alarm->send($events[$eventId], $this->name($found['employee_id']), self::dates($rows, $affected));
+                    if ($alarmId !== null) {
+                        $check->forceFill(['alarm_message_id' => $alarmId])->save();
+                    }
+                } catch (\Throwable $e) {
+                    // Die Markierung steht schon; ein Wurf hier darf weder die
+                    // uebrigen VAs dieser Nachricht noch den Job abbrechen (ein
+                    // Retry wuerde an der Dublettensperre ohnehin enden).
+                    Log::warning('[DispoDeclineCheck] Alarm fehlgeschlagen', ['message_id' => $messageId, 'event_id' => $eventId, 'error' => $e->getMessage()]);
                 }
             }
         }
@@ -158,7 +168,7 @@ class DispoDeclineCheckRunner
         return $e ? trim($e->first_name . ' ' . $e->last_name) : 'MA #' . $employeeId;
     }
 
-    /** firstOrCreate statt create: zwei parallele Laeufe derselben Nachricht schreiben nicht doppelt. */
+    /** firstOrCreate statt create: zwei parallele Laeufe derselben Nachricht schreiben nicht doppelt (Alarm: siehe wasRecentlyCreated). */
     private function record(array $attributes): ?RecDispoDeclineCheck
     {
         try {

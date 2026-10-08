@@ -15,7 +15,7 @@ final class DispoDeclineAlarmComponents
 {
     /**
      * @param mixed $definition components der Vorlage (Array oder JSON)
-     * @return list<array<string,mixed>>|null null = Vorlage verlangt mehr als drei Werte
+     * @return list<array<string,mixed>>|null null = Vorlage passt nicht (mehr als drei Werte oder Platzhalter im Kopf)
      */
     public static function build(string $name, string $eventName, string $dates, int $eventId, mixed $definition): ?array
     {
@@ -24,6 +24,11 @@ final class DispoDeclineAlarmComponents
 
         $placeholders = [];
         foreach ($components as $component) {
+            // Platzhalter in der Kopfzeile bedienen wir nicht — Meta wuerde den
+            // Versand ohne Kopf-Parameter ablehnen; lieber gar kein Alarm (geloggt).
+            if (strtoupper((string) ($component['type'] ?? '')) === 'HEADER' && str_contains((string) ($component['text'] ?? ''), '{{')) {
+                return null;
+            }
             if (strtoupper((string) ($component['type'] ?? '')) === 'BODY') {
                 preg_match_all('/\{\{\s*([^}\s]+)\s*\}\}/', (string) ($component['text'] ?? ''), $m);
                 $placeholders = array_values(array_unique($m[1]));

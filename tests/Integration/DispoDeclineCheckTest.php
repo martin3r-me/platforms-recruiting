@@ -41,6 +41,12 @@ class DispoDeclineCheckTest extends TestCase
 
     /** @var list<array> an das Modell gesendete Prompts */
     private static array $llmCalls = [];
+    /** @var list<array> Optionen der Modell-Aufrufe */
+    private static array $llmOptions = [];
+    /** @var callable|null laeuft waehrend des Modell-Aufrufs (simuliert einen parallelen Job) */
+    private static $duringLlm = null;
+    /** @var \Throwable|null wirft der Alarm */
+    private ?\Throwable $alarmThrows = null;
     /** @var string|\Throwable naechste Antwort des Modells */
     private static mixed $llmAnswer = '';
     /** @var list<array{event:int, name:string, dates:string}> */
@@ -86,14 +92,17 @@ class DispoDeclineCheckTest extends TestCase
         }
 
         self::$llmCalls = [];
+        self::$llmOptions = [];
+        self::$duringLlm = null;
         self::$llmAnswer = '';
+        $this->alarmThrows = null;
         $this->alarms = [];
 
         // Attrappe fuer OpenAiService::chat — app() liefert die gebundene Instanz.
         Container::getInstance()->instance(\Platform\Core\Services\OpenAiService::class, new class {
             public function chat(array $messages, string $model, array $options = []): array
             {
-                DispoDeclineCheckTest::recordLlmCall($messages);
+                DispoDeclineCheckTest::recordLlmCall($messages, $options);
                 $answer = DispoDeclineCheckTest::llmAnswer();
                 if ($answer instanceof \Throwable) {
                     throw $answer;
@@ -115,9 +124,13 @@ class DispoDeclineCheckTest extends TestCase
         ])->id;
     }
 
-    public static function recordLlmCall(array $messages): void
+    public static function recordLlmCall(array $messages, array $options = []): void
     {
         self::$llmCalls[] = $messages;
+        self::$llmOptions[] = $options;
+        if (self::$duringLlm !== null) {
+            (self::$duringLlm)();
+        }
     }
 
     public static function llmAnswer(): mixed
@@ -199,6 +212,9 @@ class DispoDeclineCheckTest extends TestCase
 
     public function recordAlarm(int $eventId, string $name, string $dates): int
     {
+        if ($this->alarmThrows !== null) {
+            throw $this->alarmThrows;
+        }
         $this->alarms[] = ['event' => $eventId, 'name' => $name, 'dates' => $dates];
 
         return 9000 + count($this->alarms);
@@ -534,7 +550,9 @@ class DispoDeclineCheckTest extends TestCase
         $theirs = $this->reported($this->thread('491717654321'), [$o]);
         $review = new DispoDeclineReview();
 
-        $this->assertSame(1, $review->dismissForPerson($event, $e, 42));
+        $this->assertSame(0, $review->dismissForPerson($event, $e, 42, []), 'Ohne gezeigte Meldung wird nichts verworfen.');
+        $this->assertSame(0, $review->dismissForPerson($event, $e, 42, [$theirs->id]), 'Fremde Meldung ueber eigene Person: nichts.');
+        $this->assertSame(1, $review->dismissForPerson($event, $e, 42, [$mine->id]));
         $mine->refresh();
         $this->assertSame(RecDispoDeclineCheck::REVIEW_DISMISSED, $mine->review_status);
         $this->assertSame(42, $mine->reviewed_by_user_id);
@@ -545,6 +563,82 @@ class DispoDeclineCheckTest extends TestCase
         $this->assertSame(RecDispoDeclineCheck::REVIEW_ACCEPTED, $theirs->fresh()->review_status);
         $this->assertSame([], $review->openByEvent($event));
         $this->assertNull(RecDispoAssignment::find($a)->declined_at, 'Verwerfen/Annehmen sagt nie selbst ab.');
+    }
+
+    // ---- Nachtraege aus dem Review ----
+
+    public function test_model_is_called_without_platform_tools_and_without_assistant_context(): void
+    {
+        [, , , $t] = $this->scenario();
+        self::$llmAnswer = '{"absage": false}';
+
+        $this->check($this->message($t, 'ich kann nicht'));
+
+        $this->assertFalse(self::$llmOptions[0]['tools']);
+        $this->assertFalse(self::$llmOptions[0]['with_context']);
+    }
+
+    public function test_empty_model_answer_is_retried_and_only_failed_on_the_last_attempt(): void
+    {
+        [, , , $t] = $this->scenario();
+        $m = $this->message($t, 'ich kann nicht');
+        self::$llmAnswer = '';
+
+        try {
+            $this->check($m, false);
+            $this->fail('Leere Antwort muss vor dem letzten Versuch in die Wiederholung.');
+        } catch (\RuntimeException) {
+        }
+        $this->assertSame(0, RecDispoDeclineCheck::count());
+
+        $this->check($m, true);
+        $this->assertSame(RecDispoDeclineCheck::OUTCOME_FAILED, RecDispoDeclineCheck::sole()->outcome);
+    }
+
+    public function test_parallel_run_of_the_same_message_does_not_alarm_twice(): void
+    {
+        [$e, $event, $a, $t] = $this->scenario();
+        $m = $this->message($t, 'ich kann nicht');
+        self::$llmAnswer = json_encode(['absage' => true, 'sicherheit' => 'high', 'einbuchungen' => [$a]]);
+        // Der "andere" Job schreibt seine Zeile, waehrend dieser noch auf das Modell wartet.
+        self::$duringLlm = function () use ($e, $event, $a, $m) {
+            RecDispoDeclineCheck::create([
+                'team_id' => self::TEAM, 'filial_nr' => self::FILIALE, 'rec_dispo_event_id' => $event,
+                'rec_employee_id' => $e, 'comms_whatsapp_message_id' => $m, 'outcome' => 'decline',
+                'used_llm' => true, 'assignment_ids' => [$a], 'review_status' => 'open', 'alarm_message_id' => 1,
+            ]);
+        };
+
+        $this->check($m);
+
+        $this->assertSame([], $this->alarms, 'Der andere Lauf hat schon alarmiert.');
+        $this->assertSame(1, RecDispoDeclineCheck::count());
+    }
+
+    public function test_failing_alarm_keeps_the_report_and_the_other_events(): void
+    {
+        [$e, $eventA, $a, $t] = $this->scenario();
+        $eventB = $this->event('VA2');
+        $b = $this->assignment($eventB, $e, now()->addDays(5)->toDateString());
+        self::$llmAnswer = json_encode(['absage' => true, 'sicherheit' => 'high', 'einbuchungen' => [$a, $b]]);
+        $this->alarmThrows = new \RuntimeException('Einstellungen nicht lesbar');
+
+        $this->check($this->message($t, 'ich bin die ganze Woche krank'));
+
+        $this->assertSame(2, RecDispoDeclineCheck::where('review_status', 'open')->count());
+        $this->assertSame(0, RecDispoDeclineCheck::whereNotNull('alarm_message_id')->count());
+    }
+
+    public function test_report_arriving_after_the_banner_was_shown_survives_keine_absage(): void
+    {
+        [$e, $event, $a, $t] = $this->scenario();
+        $shown = $this->reported($t, [$a]);
+        $later = $this->reported($t, [$a]);
+
+        (new DispoDeclineReview())->dismissForPerson($event, $e, 1, [$shown->id]);
+
+        $this->assertSame(RecDispoDeclineCheck::REVIEW_DISMISSED, $shown->fresh()->review_status);
+        $this->assertSame(RecDispoDeclineCheck::REVIEW_OPEN, $later->fresh()->review_status);
     }
 
     private static function runMigrations(): void

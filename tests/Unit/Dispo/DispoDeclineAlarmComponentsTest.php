@@ -57,6 +57,14 @@ class DispoDeclineAlarmComponentsTest extends TestCase
         $this->assertNull(DispoDeclineAlarmComponents::build('a', 'b', 'c', 1, [$this->body('{{a}} {{b}} {{c}} {{d}}')]));
     }
 
+    public function test_placeholder_in_the_header_is_rejected(): void
+    {
+        $def = [['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Absage {{1}}'], $this->body('{{1}}')];
+
+        $this->assertNull(DispoDeclineAlarmComponents::build('a', 'b', 'c', 1, $def));
+        $this->assertNotNull(DispoDeclineAlarmComponents::build('a', 'b', 'c', 1, [['type' => 'HEADER', 'format' => 'TEXT', 'text' => 'Absage'], $this->body('{{1}}')]));
+    }
+
     public function test_empty_value_is_never_sent_blank(): void
     {
         $out = DispoDeclineAlarmComponents::build('Max', '', '12.10.', 1, [$this->body('{{1}} {{2}}')]);

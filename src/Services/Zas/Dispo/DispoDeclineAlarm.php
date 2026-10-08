@@ -51,7 +51,7 @@ class DispoDeclineAlarm
             $template->components,
         );
         if ($components === null) {
-            Log::warning('[DispoDeclineAlarm] Vorlage verlangt mehr als drei Werte', ['template' => $template->name]);
+            Log::warning('[DispoDeclineAlarm] Vorlage passt nicht (mehr als drei Werte oder Platzhalter im Kopf)', ['template' => $template->name]);
 
             return null;
         }

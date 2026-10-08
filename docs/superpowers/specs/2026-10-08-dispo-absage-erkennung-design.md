@@ -59,8 +59,10 @@ nimmt:
   zaehlen ausdruecklich mit — der Kernfall ist „erst zugesagt, dann
   abgesagt".
 - Die Nachricht ist keine offensichtliche Zusage. Kurze Muster wie „ja",
-  „ok", „passt", „bin dabei", „danke", ein einzelnes Emoji sowie
-  Knopf-Antworten werden ohne Modell als „keine Absage" verbucht.
+  „ok", „passt", „bin dabei", „danke" oder ein positives Emoji werden ohne
+  Modell als „keine Absage" verbucht. Knopf-Antworten laufen ueber dieselbe
+  Wortpruefung (das CRM legt ihren Text in body); ein einziges fremdes Wort
+  schickt die Nachricht ans Modell.
 
 **6. Das Modell waehlt nur aus einer vorgegebenen Liste.**
 Eingabe: der Nachrichtentext, die letzten Nachrichten des Gespraechs als
