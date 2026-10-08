@@ -66,21 +66,11 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
         ]);
     }
 
-    public function test_parse_trims_deduplicates_and_drops_empty(): void
-    {
-        $this->assertSame(
-            ['Teamleitung', 'Supervisor', 'Barkraft'],
-            ZasDispoTaetigkeitSync::parse(' Teamleitung , Supervisor,,Barkraft , teamleitung ')
-        );
-        $this->assertSame([], ZasDispoTaetigkeitSync::parse(null));
-        $this->assertSame([], ZasDispoTaetigkeitSync::parse('   '));
-    }
-
     public function test_sync_creates_missing_lookup_values_and_stores_the_list(): void
     {
         $employee = $this->employee();
 
-        $r = (new ZasDispoTaetigkeitSync())->sync($employee, 'Teamleitung,Supervisor,Borussia Thekenleiter');
+        $r = (new ZasDispoTaetigkeitSync())->syncLabels($employee, ['Teamleitung', 'Supervisor', 'Borussia Thekenleiter']);
 
         $this->assertSame(3, $r['created_values'], 'Unbekannte Taetigkeiten legen die Auswahlliste an.');
         $this->assertSame(['Teamleitung', 'Supervisor', 'Borussia Thekenleiter'], $r['values']);
@@ -99,9 +89,9 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
     {
         $employee = $this->employee();
         $sync = new ZasDispoTaetigkeitSync();
-        $sync->sync($employee, 'Teamleitung,Supervisor');
+        $sync->syncLabels($employee, ['Teamleitung', 'Supervisor']);
 
-        $r = $sync->sync($employee, 'Supervisor,Kasse');
+        $r = $sync->syncLabels($employee, ['Supervisor', 'Kasse']);
 
         $this->assertSame(1, $r['created_values'], 'Nur "Kasse" ist neu.');
         $this->assertSame(['Supervisor', 'Kasse'], (array) $employee->fresh()->hrData->dispo_taetigkeiten,
@@ -116,7 +106,7 @@ class ZasDispoTaetigkeitSyncTest extends TestCase
         $employee = $this->employee();
         Capsule::table('rec_employees')->where('id', $employee->id)->update(['zas_changed_at' => null]);
 
-        (new ZasDispoTaetigkeitSync())->sync($employee, 'Teamleitung');
+        (new ZasDispoTaetigkeitSync())->syncLabels($employee, ['Teamleitung']);
 
         $this->assertNull(
             Capsule::table('rec_employees')->where('id', $employee->id)->value('zas_changed_at'),

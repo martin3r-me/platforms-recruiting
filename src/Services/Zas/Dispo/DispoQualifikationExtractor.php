@@ -75,7 +75,7 @@ final class DispoQualifikationExtractor
             }
 
             // Namen entdoppeln — kanonische Schreibweise aus `namen` nehmen, nicht
-            // den Katalognamen direkt. Dieselbe Regel wie in ZasDispoTaetigkeitSync::parse().
+            // den Katalognamen direkt. Erste Schreibweise gewinnt.
             $key = mb_strtolower($katalog[$id]);
             if (isset($namen[$key])) {
                 $byPnr[$pnr][$key] ??= $namen[$key];

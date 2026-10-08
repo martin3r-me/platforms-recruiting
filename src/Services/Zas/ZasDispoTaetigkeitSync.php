@@ -6,8 +6,8 @@ use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecEmployee;
 
 /**
- * Uebernimmt die Spalte `DispoTaetigkeiten` aus dem ZAS-MA-Export (Kunde 15.09.):
- * komma-getrennte Liste der dem MA fuer die Dispo zugewiesenen Taetigkeiten.
+ * Uebernimmt die dem MA in ZAS fuer die Dispo zugewiesenen Taetigkeiten aus dem
+ * Dispo-Webexport (Bloecke {Dispo4} Katalog und {Dispo5} Zuordnung).
  *
  * Zwei Dinge passieren:
  *   1. Unbekannte Werte werden in der Auswahlliste `dispo_taetigkeit`
@@ -26,17 +26,9 @@ class ZasDispoTaetigkeitSync
     public const LOOKUP = 'dispo_taetigkeit';
 
     /**
-     * @return array{values: list<string>, created_values: int} gespeicherte Werte + neu angelegte Listen-Eintraege
-     */
-    public function sync(RecEmployee $employee, ?string $rawList): array
-    {
-        return $this->syncLabels($employee, self::parse($rawList));
-    }
-
-    /**
-     * Wie sync(), aber mit fertiger Namensliste. Der Dispo-Webexport liefert
-     * keine Komma-Liste, sondern uebersetzte Katalognamen — ein Name mit Komma
-     * wuerde beim Umweg ueber parse() zu zwei Phantom-Qualifikationen.
+     * Schreibt die fertige Namensliste eines Mitarbeiters. Der Dispo-Webexport
+     * liefert uebersetzte Katalognamen, keine Komma-Liste — ein Name mit Komma
+     * bleibt deshalb ein Name.
      *
      * @param list<string> $labels
      * @return array{values: list<string>, created_values: int}
@@ -133,27 +125,6 @@ class ZasDispoTaetigkeitSync
         }
 
         return $out;
-    }
-
-    /**
-     * Komma-Liste -> saubere Werte. Leerzeichen weg, Leeres raus, Dubletten
-     * (auch durch Schreibweise) zusammengefasst — erste Schreibweise gewinnt.
-     *
-     * @return list<string>
-     */
-    public static function parse(?string $rawList): array
-    {
-        $out = [];
-        foreach (explode(',', (string) $rawList) as $part) {
-            $label = trim(preg_replace('/\s+/u', ' ', $part) ?? '');
-            if ($label === '') {
-                continue;
-            }
-            $key = mb_strtolower($label);
-            $out[$key] ??= $label;
-        }
-
-        return array_values($out);
     }
 
     /** Legt fehlende Listen-Eintraege an und liefert deren Anzahl. */
