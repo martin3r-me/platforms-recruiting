@@ -109,11 +109,14 @@ class DispoEmployeeGateway
      * Personal-Kaertchen fuer das Crew-Modal der VA-Seite (Kunde 02.09.):
      * abgespeckte Sicht statt Link in die volle MA-Akte. Liefert je id Name,
      * PNr, die fuenf Termin-Bewertungen EINZELN (Fallback: star_rating-Zeile),
-     * Qualifikations-LABELS (Lookup 'qualifikation') und die Selfie-URL
+     * die Taetigkeiten aus ZAS (`dispo_taetigkeiten`, Klarnamen) plus deren
+     * Stand und die Selfie-URL
      * (Thumbnail-Variante bevorzugt, Muster InterviewBookings::selfies()).
      *
      * @param list<int> $employeeIds
-     * @return array<int, array{name:string, personnel_number:string, ratings:array<string,int>, qualifications:list<string>, selfie_url:?string, selfie_full_url:?string}>
+     * qualifications_synced_at ist ROH ('Y-m-d H:i:s', sortierbar), nicht in Anzeigeform.
+     *
+     * @return array<int, array{name:string, personnel_number:string, ratings:array<string,int>, qualifications:list<string>, qualifications_synced_at:?string, selfie_url:?string, selfie_full_url:?string}>
      */
     public function profileCards(array $employeeIds): array
     {
@@ -122,12 +125,6 @@ class DispoEmployeeGateway
         }
 
         $employees = RecEmployee::query()->with('hrData')->whereIn('id', $employeeIds)->get();
-
-        // Lookup-Map einmal laden (value => label).
-        $lookupId = \Illuminate\Support\Facades\DB::table('core_lookups')->where('name', 'qualifikation')->value('id');
-        $lookupMap = $lookupId
-            ? \Illuminate\Support\Facades\DB::table('core_lookup_values')->where('lookup_id', $lookupId)->pluck('label', 'value')->all()
-            : [];
 
         // Selfies: ContextFiles + Thumbnail-Variante in zwei Queries fuer alle ids.
         $fileIds = $employees->pluck('selfie_file_id')->filter()->map(fn ($v) => (int) $v)->unique()->values()->all();
@@ -164,12 +161,17 @@ class DispoEmployeeGateway
                 }
             }
 
-            $quals = $hr?->qualifications;
+            // Taetigkeiten aus ZAS ({Dispo5}), NICHT das handgepflegte Feld
+            // 'qualifications' — jenes ist praktisch leer und speist nur noch
+            // den Filter im Info-Versand (siehe qualifications() darueber).
+            // Hier stehen Klarnamen, keine Lookup-Werte: die Uebersetzung ueber
+            // core_lookup_values entfaellt ersatzlos.
+            $quals = $hr?->dispo_taetigkeiten;
             if (is_string($quals)) {
                 $decoded = json_decode($quals, true);
                 $quals = is_array($decoded) ? $decoded : [];
             }
-            $qualLabels = array_values(array_map(fn ($v) => (string) ($lookupMap[$v] ?? $v), is_array($quals) ? $quals : []));
+            $qualLabels = array_values(array_map('strval', is_array($quals) ? $quals : []));
 
             $selfieUrl = null;
             $selfieFullUrl = null;
@@ -187,6 +189,10 @@ class DispoEmployeeGateway
                 'personnel_number' => (string) ($e->personnel_number ?? ''),
                 'ratings'          => $ratings,
                 'qualifications'   => $qualLabels,
+                // Roh und sortierbar. crewCard() muss ueber die Gruppe den
+                // juengsten Stand bestimmen; 'd.m. H:i' sortiert sich als
+                // String falsch (09.11. < 10.10.).
+                'qualifications_synced_at' => $hr?->dispo_taetigkeiten_synced_at?->format('Y-m-d H:i:s'),
                 'selfie_url'       => $selfieUrl,
                 'selfie_full_url'  => $selfieFullUrl,
             ];
