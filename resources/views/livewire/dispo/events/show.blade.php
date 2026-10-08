@@ -1295,16 +1295,38 @@
                         @endif
                     </div>
 
-                    <div class="mt-4">
-                        <div class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Qualifikationen</div>
-                        @if ($crew['qualifications'] !== [])
+                    @php
+                        $quals = $crew['qualifications'];
+                        $qualsSichtbar = array_slice($quals, 0, 10);
+                        $qualsRest = array_slice($quals, 10);
+                    @endphp
+                    <div class="mt-4" x-data="{ alleQuals: false }">
+                        <div class="flex flex-wrap items-baseline gap-x-2">
+                            <span class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Qualifikationen</span>
+                            @if ($crew['qualifications_synced_at'])
+                                <span class="text-[10.5px] text-gray-400">aus ZAS · Stand {{ $crew['qualifications_synced_at'] }}</span>
+                            @endif
+                        </div>
+                        @if ($quals !== [])
                             <div class="mt-1.5 flex flex-wrap gap-1.5">
-                                @foreach ($crew['qualifications'] as $qual)
+                                @foreach ($qualsSichtbar as $qual)
                                     <span class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
                                 @endforeach
+                                @if ($qualsRest !== [])
+                                    {{-- style statt x-cloak: im Projekt ist keine [x-cloak]-CSS-Regel
+                                         definiert (vgl. interview-schedule/index.blade.php) — sonst blitzen alle Chips beim Oeffnen auf --}}
+                                    @foreach ($qualsRest as $qual)
+                                        <span x-show="alleQuals" style="display: none;" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
+                                    @endforeach
+                                    <button type="button" x-on:click="alleQuals = !alleQuals"
+                                            class="rounded-lg bg-gray-100 px-2.5 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-200">
+                                        <span x-show="!alleQuals">+{{ count($qualsRest) }} weitere</span>
+                                        <span x-show="alleQuals" style="display: none;">weniger anzeigen</span>
+                                    </button>
+                                @endif
                             </div>
                         @else
-                            <div class="mt-1 text-sm text-gray-400">keine hinterlegt</div>
+                            <div class="mt-1 text-sm text-gray-400">Noch keine aus ZAS — bei neu angelegten Mitarbeitern ist das normal.</div>
                         @endif
                     </div>
                 @endif
@@ -1313,7 +1335,7 @@
 
             {{-- Vollbild-Zoom des Selfies (Alpine, kein Server-Roundtrip). --}}
             @if ($crew !== null && $crew['selfie_full_url'])
-                <div x-cloak x-show="zoom" x-on:click="zoom = false"
+                <div x-show="zoom" x-on:click="zoom = false" style="display: none;"
                      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
                     <img src="{{ $crew['selfie_full_url'] }}" alt="Foto von {{ $crew['name'] }}"
                          class="max-h-[90vh] max-w-full rounded-xl object-contain">
