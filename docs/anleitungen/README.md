@@ -13,3 +13,16 @@ Regeln:
 | Datum | Thema | Datei |
 | --- | --- | --- |
 | 08.10.2026 | Teilnehmer verschieben (auch während der Schulung) · Vertragsdaten nach der Schulung · Kampagne „Schulung voll“ | [2026-10-08-schulungstermine-umplanen.md](2026-10-08-schulungstermine-umplanen.md) |
+
+## Folien für den Kunden
+
+`folien/schulungstermine_folien.py` baut die Anleitung als PowerPoint im Stil der RheinGedeck-HCM-Folien
+(blauer Rand, Schritte links, Screenshot rechts). Screenshots liegen bewusst nicht im Repo (echte
+Bewerberdaten). Fehlt ein Bild, steht ein beschrifteter Platzhalter da; die erwarteten Dateinamen stehen
+oben im Skript.
+
+```
+python docs/anleitungen/folien/schulungstermine_folien.py <screenshot-ordner> <ziel.pptx>
+```
+
+Braucht `python-pptx` und `Pillow`.
