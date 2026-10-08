@@ -26,6 +26,7 @@ final class GeplanteVertragsdatenWiringTest extends TestCase
     {
         $this->assertStringContainsString('GeplanteVertragsdaten::speichern', $this->methode('setContractDate'));
         $this->assertStringContainsString('GeplanteVertragsdaten::vormerkungNachziehen', $this->methode('setContractDate'));
+        $this->assertStringContainsString('->zuruecknehmen(', $this->methode('setContractDate'), 'Geleerter Beginn muss die Vormerkung zuruecknehmen');
     }
 
     /**

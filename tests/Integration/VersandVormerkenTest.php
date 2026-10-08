@@ -272,6 +272,20 @@ final class VersandVormerkenTest extends TestCase
         $this->assertStringContainsString('Straße', $this->logs('contract_send_reserved')->first()->summary);
     }
 
+    /**
+     * Review 08.10.: Vormerken (auch vom HR-Schreibtisch) zieht die Planung der
+     * Nachbereitung mit, sonst gewaenne dort ein aelterer Plan.
+     */
+    public function test_vormerken_zieht_die_planung_der_nachbereitung_mit(): void
+    {
+        $this->dienst()->vormerken($this->bewerber(), self::BOOKING, '2026-11-01', '2027-10-31', 'hr_desk', 7, 'Clara', []);
+
+        $zeile = Capsule::table('rec_applicants')->find(self::APPLICANT);
+        $this->assertSame('2026-11-01', substr((string) $zeile->vertragsbeginn_geplant, 0, 10));
+        $this->assertSame('2027-10-31', substr((string) $zeile->vertragsende_geplant, 0, 10));
+        $this->assertNotNull($zeile->vertragsdaten_geplant_at);
+    }
+
     public function test_zweites_vormerken_aktualisiert_die_offene_und_erinnert_nicht_erneut(): void
     {
         $dienst = $this->dienst();

@@ -832,6 +832,19 @@ class Index extends Component
                 $current['vertragsbeginn'] ?? null,
                 $current['vertragsende'] ?? null,
             );
+
+            // Vertragsbeginn geleert: eine offene Vormerkung wuerde sonst mit dem
+            // alten Beginn automatisch versenden, obwohl die Seite ein leeres Feld
+            // zeigt (Review 08.10.). Zuruecknehmen, solange sie nicht schon laeuft.
+            $vormerkung = empty($current['vertragsbeginn']) ? $applicant->offeneVersandVormerkung() : null;
+            if ($vormerkung && $vormerkung->claimed_at === null) {
+                app(\Platform\Recruiting\Services\ContractSendReservationService::class)->zuruecknehmen(
+                    $vormerkung,
+                    'Vertragsbeginn in der Nachbereitung geleert durch ' . (auth()->user()->name ?? 'HR'),
+                    (int) auth()->id(),
+                );
+                unset($this->versandZustaende);
+            }
         }
     }
 
