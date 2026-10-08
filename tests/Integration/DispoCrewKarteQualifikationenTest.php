@@ -88,6 +88,15 @@ class DispoCrewKarteQualifikationenTest extends TestCase
     {
         // Reale Katalognamen aus Lieferung #258 — Schraegstriche, Punkte,
         // Umlaute. Frueher lief das durch core_lookup_values; jetzt nicht mehr.
+        // Koeder: Laeuft die Uebersetzung wieder, kommt das Label heraus.
+        $lookupId = Capsule::table('core_lookups')->insertGetId([
+            'team_id' => self::TEAM, 'name' => 'qualifikation', 'label' => 'Qualifikation',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        Capsule::table('core_lookup_values')->insert([
+            'lookup_id' => $lookupId, 'value' => '1. FC Köln / Service', 'label' => 'FALSCH ÜBERSETZT',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
         $e = $this->employee('RG1', [
             'dispo_taetigkeiten' => json_encode(['1. FC Köln / Service', 'Barista / Kaffee'], JSON_UNESCAPED_UNICODE),
         ]);
@@ -133,6 +142,17 @@ class DispoCrewKarteQualifikationenTest extends TestCase
 
         $this->assertCount(87, $card['qualifications'],
             'Die Deckelung gehoert in die Anzeige, nicht in die Datenschicht — der Aufklapper braucht alle.');
+    }
+
+    public function test_employee_without_any_hr_row_does_not_throw(): void
+    {
+        $e = $this->employee('RG1');
+        Capsule::table('rec_employee_hr_data')->where('rec_employee_id', $e->id)->delete();
+
+        $card = (new DispoEmployeeGateway())->profileCards([$e->id])[$e->id];
+
+        $this->assertSame([], $card['qualifications']);
+        $this->assertNull($card['qualifications_synced_at']);
     }
 
     public function test_the_info_versand_source_is_untouched(): void
