@@ -83,6 +83,7 @@ class TrainingCertificatePublicRouteTest extends TestCase
      * GET-Adresse gar nicht wieder an.
      */
     private const SPAETER = [
+        'recruiting.public.dokument',
         'recruiting.public.employee-assignments',
         'recruiting.public.employee-assignments.attachment',
         'recruiting.public.konto',

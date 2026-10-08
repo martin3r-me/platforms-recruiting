@@ -59,6 +59,13 @@ Route::get('/mitarbeiter/{token}', \Platform\Recruiting\Livewire\Public\Employee
 Route::get('/mitarbeiter/neu/{token}', \Platform\Recruiting\Livewire\Public\PortalShell::class)
     ->name('recruiting.public.portal-shell');
 
+// Dokument-Download aus dem neuen Portal (Spec Dokumente 2026-10-08, §5.3):
+// keine Token-URL, sondern die verifizierte Portal-Sitzung — fuer die
+// Anstellung der Zustellung oder eine ihrer Schwester-Anstellungen.
+Route::get('/mitarbeiter/dokument/{uuid}', \Platform\Recruiting\Http\Controllers\DokumentDownloadController::class)
+    ->name('recruiting.public.dokument')
+    ->where('uuid', '[0-9a-fA-F-]{36}');
+
 // Mitarbeiterkonto, Registrierung (Canvas 68, Spec 3). Die Einladung von HR
 // fuehrt hierher: Token aus der Adresse, dazu Geburtsdatum und Passwort.
 //
