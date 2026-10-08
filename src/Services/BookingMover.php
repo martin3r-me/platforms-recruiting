@@ -31,7 +31,8 @@ use Platform\Recruiting\Models\RecInterviewBooking;
  *
  * Regeln (alle im Lock geprueft, die UI-Auswahl ist nur Komfort):
  *  - Quelle und Ziel im eigenen Team, beide mit derselben, gesetzten Stelle.
- *  - Ziel: aktiv, nicht abgesagt, noch nicht zu Ende, nicht die Quelle.
+ *  - Ziel: aktiv, nicht abgesagt, nicht die Quelle; am selben Tag wie die
+ *    Quelle immer, sonst nur, solange es noch nicht zu Ende ist.
  *  - Buchungen vor der Schulung (MOVABLE_STATUSES) immer; Teilgenommene
  *    (SAME_DAY_STATUSES) nur in einen Termin am selben Tag. Nur aus der Quelle.
  *  - Platzbelegende Buchungen brauchen einen freien Platz im Ziel; Standby
@@ -223,10 +224,23 @@ class BookingMover
             // starteten alle Gruppen um 18 Uhr — ab da liess sich waehrend der
             // Schulung niemand mehr aufteilen. Ohne Ende zaehlt der Beginn
             // (wie der Nachpflege-Hinweis: ends_at ?? starts_at).
-            ->where(function ($q) {
+            //
+            // Nachtrag 08.10.2026: Termine am SELBEN Tag wie die Quelle sind immer
+            // Ziel, auch wenn sie schon vorbei sind — damit sich die Gruppen eines
+            // Schulungsabends auch am naechsten Tag noch richtig zuordnen lassen
+            // (Zertifikat-Schulungsleiter, Statistik je Termin). Andere Tage nur,
+            // solange sie nicht zu Ende sind: niemand soll in eine Schulung von
+            // letzter Woche rutschen.
+            ->where(function ($q) use ($source) {
                 $now = Carbon::now();
                 $q->where('ends_at', '>', $now)
                     ->orWhere(fn ($q) => $q->whereNull('ends_at')->where('starts_at', '>', $now));
+                if ($source->starts_at) {
+                    $q->orWhereBetween('starts_at', [
+                        $source->starts_at->copy()->startOfDay(),
+                        $source->starts_at->copy()->endOfDay(),
+                    ]);
+                }
             });
     }
 

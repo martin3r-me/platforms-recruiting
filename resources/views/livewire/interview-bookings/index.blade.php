@@ -834,7 +834,7 @@
             </p>
             @if($moveZiele->isEmpty())
                 <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                    Es gibt keinen anderen aktiven Termin dieser Stelle, der noch nicht zu Ende ist. Bitte zuerst den Zieltermin anlegen.
+                    Es gibt keinen passenden anderen Termin dieser Stelle (am selben Tag oder noch nicht zu Ende). Bitte zuerst den Zieltermin anlegen.
                 </div>
             @else
                 <div>

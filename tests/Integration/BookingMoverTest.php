@@ -504,16 +504,43 @@ final class BookingMoverTest extends TestCase
         $this->assertSame($haupt, (int) $this->row($id)->rec_interview_id);
     }
 
-    public function test_beendeter_termin_ist_kein_ziel_mehr(): void
+    public function test_beendeter_termin_eines_anderen_tages_ist_kein_ziel(): void
     {
         [$haupt] = $this->laufenderSchulungsabend();
-        $schonZuEnde = $this->termin(['starts_at' => '2026-10-07 17:00:00', 'ends_at' => '2026-10-07 19:00:00']);
-        $ohneEndeGestartet = $this->termin(['starts_at' => '2026-10-07 18:00:00', 'ends_at' => null]);
+        $gestern = $this->termin(['starts_at' => '2026-10-06 18:00:00', 'ends_at' => '2026-10-06 21:00:00']);
+        $gesternOhneEnde = $this->termin(['starts_at' => '2026-10-06 18:00:00', 'ends_at' => null]);
         $id = $this->buchung($haupt, 42, ['status' => 'confirmed']);
 
-        $this->assertStringContainsString('schon zu Ende', (string) $this->move($haupt, [$id], $schonZuEnde)->error);
-        $this->assertStringContainsString('schon zu Ende', (string) $this->move($haupt, [$id], $ohneEndeGestartet)->error);
-        $this->assertSame([], $this->mover()->targetsFor($haupt, 1)->whereIn('id', [$schonZuEnde, $ohneEndeGestartet])->all());
+        $this->assertStringContainsString('schon zu Ende', (string) $this->move($haupt, [$id], $gestern)->error);
+        $this->assertStringContainsString('schon zu Ende', (string) $this->move($haupt, [$id], $gesternOhneEnde)->error);
+        $this->assertSame([], $this->mover()->targetsFor($haupt, 1)->whereIn('id', [$gestern, $gesternOhneEnde])->all());
+    }
+
+    /** Nachtrag 08.10.: Gruppen eines Abends lassen sich am naechsten Tag noch zuordnen. */
+    public function test_am_naechsten_tag_noch_zwischen_den_gruppen_desselben_abends_verschiebbar(): void
+    {
+        Carbon::setTestNow('2026-10-08 09:30:00');
+        $haupt = $this->termin(['starts_at' => '2026-10-07 18:00:00', 'ends_at' => '2026-10-07 21:00:00']);
+        $logistik = $this->termin(['starts_at' => '2026-10-07 18:00:00', 'ends_at' => '2026-10-07 21:00:00']);
+        $ohneEnde = $this->termin(['starts_at' => '2026-10-07 18:00:00', 'ends_at' => null]);
+        $vorwoche = $this->termin(['starts_at' => '2026-09-30 18:00:00', 'ends_at' => '2026-09-30 21:00:00']);
+        $id = $this->buchung($haupt, 42, ['status' => 'attended']);
+
+        $this->assertEqualsCanonicalizing([$logistik, $ohneEnde], $this->mover()->targetsFor($haupt, 1)->pluck('id')->all());
+
+        $result = $this->move($haupt, [$id], $logistik);
+        $this->assertSame([$id], $result->moved);
+        $this->assertSame('attended', $this->row($id)->status);
+        $this->assertNotNull($this->move($logistik, [$id], $vorwoche)->error);
+    }
+
+    public function test_schon_beendeter_termin_am_selben_tag_ist_ziel(): void
+    {
+        [$haupt] = $this->laufenderSchulungsabend();
+        $nachmittag = $this->termin(['starts_at' => '2026-10-07 14:00:00', 'ends_at' => '2026-10-07 17:00:00']);
+        $id = $this->buchung($haupt, 42, ['status' => 'attended']);
+
+        $this->assertSame([$id], $this->move($haupt, [$id], $nachmittag)->moved);
     }
 
     public function test_regel_fuer_die_haken_in_der_liste(): void
