@@ -673,7 +673,7 @@
                                             class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-800 bg-blue-50 text-xs font-medium rounded-md hover:bg-blue-100">Erneut senden</button>
                                 @endif
                                 @if ($dz['kann_zurueckziehen'])
-                                    <button type="button" wire:click="dokumentZurueckziehen({{ $dz['recipient_id'] }})" wire:confirm="Dokument „{{ $dz['title'] }}" für diese Person zurückziehen?"
+                                    <button type="button" wire:click="dokumentZurueckziehen({{ $dz['recipient_id'] }})" wire:confirm="Dokument „{{ $dz['title'] }}“ für diese Person zurückziehen?"
                                             class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-muted)] bg-white text-xs font-medium rounded-md hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
                                 @endif
                             </div>
