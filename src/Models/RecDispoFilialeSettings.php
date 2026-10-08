@@ -8,11 +8,12 @@ class RecDispoFilialeSettings extends Model
 {
     protected $table = 'rec_dispo_filiale_settings';
 
-    protected $fillable = ['team_id', 'filial_nr', 'comms_channel_id', 'duty_phone'];
+    protected $fillable = ['team_id', 'filial_nr', 'comms_channel_id', 'duty_phone', 'decline_check_enabled_at'];
 
     protected $casts = [
         'team_id'          => 'integer',
         'filial_nr'        => 'integer',
         'comms_channel_id' => 'integer',
+        'decline_check_enabled_at' => 'datetime',
     ];
 }

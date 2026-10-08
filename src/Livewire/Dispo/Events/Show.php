@@ -4,6 +4,7 @@ namespace Platform\Recruiting\Livewire\Dispo\Events;
 
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
@@ -22,6 +23,7 @@ use Platform\Recruiting\Services\Zas\Dispo\DispoChatTemplateSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoConfirmationSender;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
 use Platform\Recruiting\Services\Zas\Dispo\DispoDecline;
+use Platform\Recruiting\Services\Zas\Dispo\DispoDeclineReview;
 use Platform\Recruiting\Services\Zas\Dispo\DispoNoteCleanup;
 use Platform\Recruiting\Services\Zas\Dispo\DispoManualConfirm;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEscalationConfig;
@@ -720,7 +722,12 @@ class Show extends Component
      * Zeilenfilter der Desktop-Tabelle (Kunde 03.09.): '' (alle) | 'confirmed' |
      * 'read' | 'failed'. Reine Ansicht — die mobile Kartenliste bleibt bewusst
      * ungefiltert (Kunde: nur Desktop).
+     *
+     * In der Adresse (?filter=…), damit das Abzeichen der Uebersicht direkt auf
+     * die gemeldeten Zeilen springt. (Der Knopf im Absage-Alarm oeffnet nur die
+     * VA — Meta erlaubt den Platzhalter allein am Ende der URL.)
      */
+    #[Url(as: 'filter', except: '')]
     public string $rowFilter = '';
 
     /**
@@ -900,7 +907,7 @@ class Show extends Component
         return $rows->values();
     }
 
-    /** @return array{'':int, open:int, confirmed:int, declined:int, read:int, failed:int} */
+    /** @return array{'':int, open:int, confirmed:int, declined:int, read:int, failed:int, suspected:int} */
     #[Computed]
     public function rowFilterCounts(): array
     {
@@ -909,7 +916,7 @@ class Show extends Component
         $scope = $this->columnScope();
 
         $counts = [];
-        foreach (['', 'open', 'confirmed', 'declined', 'read', 'failed'] as $key) {
+        foreach (['', 'open', 'confirmed', 'declined', 'read', 'failed', 'suspected'] as $key) {
             $counts[$key] = $scope->filter(fn ($a) => $this->rowMatchesFilter($a, $key))->count();
         }
 
@@ -952,8 +959,72 @@ class Show extends Component
             'read'      => $a->confirmed_at === null && $a->declined_at === null && $a->reminder_sent_at !== null && $a->reminderMessage?->status === 'read',
             // Gleiches Praedikat wie die rote Zeile der Dispo-Karte — nur AKTIVE Fehler.
             'failed'    => $a->hasActiveDeliveryFailure(),
+            // Absage-Erkennung (Spec 2026-10-08): Tage mit offener Meldung.
+            'suspected' => isset($this->suspectedAssignmentIds[(int) $a->id]),
             default     => true,
         };
+    }
+
+    // ---- Absage-Erkennung (Spec 2026-10-08): die KI meldet, der Disponent
+    // entscheidet. Abgesagt wird nur ueber das bestehende Absage-Fenster.
+
+    /** kanonische id => offene Meldungen (juengste zuerst) */
+    #[Computed]
+    public function declineReports(): array
+    {
+        return app(DispoDeclineReview::class)->openByEvent($this->eventId);
+    }
+
+    /** @return array<int,true> assignment_id => offen gemeldet */
+    #[Computed]
+    public function suspectedAssignmentIds(): array
+    {
+        $ids = [];
+        foreach ($this->declineReports as $reports) {
+            foreach ($reports as $report) {
+                foreach ($report['assignment_ids'] as $id) {
+                    $ids[(int) $id] = true;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * "Absage erfassen" aus der Meldung: oeffnet das bestehende Fenster,
+     * vorbelegt mit den gemeldeten Tagen und dem Nachrichtentext. Portalsperre
+     * und HR-Uebergabe bleiben Entscheidung des Disponenten.
+     */
+    public function openDeclineFromReport(): void
+    {
+        $reports = $this->declineReports[$this->chatEmployeeId] ?? [];
+        $this->openDeclineModal();
+        if (!$this->showDeclineModal || $reports === []) {
+            return;
+        }
+
+        $reported = array_merge(...array_column($reports, 'assignment_ids'));
+        $days = array_values(array_intersect(array_column($this->declineDayOptions, 'id'), $reported));
+        if ($days !== []) {
+            $this->declineDays = $days;
+        }
+        $this->declineNote = mb_substr('Per Nachricht (' . $reports[0]['at'] . '): „' . $reports[0]['excerpt'] . '“', 0, 1000);
+    }
+
+    /**
+     * "Keine Absage": die angezeigten Meldungen verwerfen, sonst nichts. Die ids
+     * kommen vom Client — der Dienst schraenkt auf Person + VA ein.
+     *
+     * @param list<int> $checkIds
+     */
+    public function dismissDeclineReport(array $checkIds = []): void
+    {
+        if ($this->blockedForEventOnly() || $this->chatEmployeeId === null) {
+            return;
+        }
+        app(DispoDeclineReview::class)->dismissForPerson($this->eventId, $this->chatEmployeeId, auth()->id(), $checkIds);
+        unset($this->declineReports, $this->suspectedAssignmentIds);
     }
 
     #[Computed]
@@ -1445,8 +1516,12 @@ class Show extends Component
             return;
         }
 
+        // Offene Meldungen der Person gelten damit als uebernommen — auch wenn
+        // der Disponent nur einen Teil der Tage abgesagt hat: entschieden ist.
+        app(DispoDeclineReview::class)->acceptForPerson($this->eventId, $this->chatEmployeeId, auth()->id());
+
         $this->showDeclineModal = false;
-        unset($this->event, $this->sendPreview, $this->declineDayOptions);
+        unset($this->event, $this->sendPreview, $this->declineDayOptions, $this->declineReports, $this->suspectedAssignmentIds);
     }
 
     /**

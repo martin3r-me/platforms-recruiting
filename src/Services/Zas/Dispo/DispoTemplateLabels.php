@@ -29,6 +29,7 @@ final class DispoTemplateLabels
             'dispo_escalation_template_2_id'  => 'Letzte Erinnerung',
             'dispo_alarm_template_id'         => 'Dispo-Alarm',
             'dispo_info_template_id'          => 'Neue Infos zum Einsatz',
+            'dispo_decline_alarm_template_id' => 'Absage-Alarm',
         ];
         $byId = [];
         foreach ($roles as $key => $label) {

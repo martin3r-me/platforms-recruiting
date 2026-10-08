@@ -1,4 +1,4 @@
-{{-- Bestätigungs-Chips einer Einbuchung (Tabelle Desktop + Karten mobil nutzen dieselbe Logik). Erwartet $assignment. --}}
+{{-- Bestätigungs-Chips einer Einbuchung (Tabelle Desktop + Karten mobil nutzen dieselbe Logik). Erwartet $assignment und $suspected (bool, offene Absage-Meldung). --}}
 @php
     $msgStatus = $assignment->reminderMessage?->status;
     $escalation1Status = $assignment->escalation1Message?->status;
@@ -43,4 +43,10 @@
 @endif
 @if ($esc2FailedActive)
     <span class="ml-1 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-800">Letzte Erinnerung{{ $assignment->escalation_2_at ? ' ' . $assignment->escalation_2_at->format('H:i') : '' }} nicht zugestellt</span>
+@endif
+@if (!empty($suspected) && $assignment->rec_employee_id)
+    {{-- Bernstein statt Rot: es ist noch keine Absage, nur eine Meldung der KI. --}}
+    <button type="button" wire:click="openChat({{ $assignment->rec_employee_id }})"
+            class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200"
+            title="Die KI hält eine Nachricht für eine Absage — klicken, um den Chat zu prüfen und zu entscheiden">⚠ mögliche Absage</button>
 @endif
