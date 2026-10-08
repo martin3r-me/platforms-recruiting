@@ -189,7 +189,7 @@ class DispoCrewKarteQualifikationenTest extends TestCase
             'Die Anzeigeform entsteht erst hier, nicht im Gateway.');
     }
 
-    public function test_crew_card_of_an_employee_without_assignment_is_empty_not_broken(): void
+    public function test_crew_card_of_an_employee_with_null_taetigkeiten_is_empty_not_broken(): void
     {
         $e = $this->employee('RG500');
         $event = $this->event();

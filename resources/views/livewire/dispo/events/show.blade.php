@@ -1231,13 +1231,15 @@
                                     <span class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
                                 @endforeach
                                 @if ($qualsRest !== [])
+                                    {{-- style statt x-cloak: im Projekt ist keine [x-cloak]-CSS-Regel
+                                         definiert (vgl. interview-schedule/index.blade.php) — sonst blitzen alle Chips beim Oeffnen auf --}}
                                     @foreach ($qualsRest as $qual)
-                                        <span x-cloak x-show="alleQuals" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
+                                        <span x-show="alleQuals" style="display: none;" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
                                     @endforeach
                                     <button type="button" x-on:click="alleQuals = !alleQuals"
                                             class="rounded-lg bg-gray-100 px-2.5 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-200">
                                         <span x-show="!alleQuals">+{{ count($qualsRest) }} weitere</span>
-                                        <span x-cloak x-show="alleQuals">weniger anzeigen</span>
+                                        <span x-show="alleQuals" style="display: none;">weniger anzeigen</span>
                                     </button>
                                 @endif
                             </div>
