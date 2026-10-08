@@ -238,6 +238,39 @@ class ZasDispoQualifikationImportTest extends TestCase
         $this->assertSame(0, Capsule::table('core_lookup_values')->count());
     }
 
+    public function test_two_personnel_number_forms_of_one_employee_are_merged(): void
+    {
+        // Lange Form im Stamm, gekuerzte Dispo-Form (ZasPersonnelNumber::shortenedForm)
+        // in {Dispo5}: beide Zeilen matchen auf denselben Mitarbeiter.
+        $mitarbeiter = $this->employee('RG1000000878');
+
+        $summary = $this->importiere(
+            "{Dispo4}\r\n8;Servicekräfte;RG8;\r\n13;Logistiker;RG13;\r\n"
+            . "{Dispo5}\r\nRG1000000878;RG8;3;\r\nRG878;RG13;5;\r\n"
+        );
+
+        $this->assertSame(2, $summary['qualifikationen']['pnr_gesamt']);
+        $this->assertSame(2, $summary['qualifikationen']['matched']);
+        $this->assertSame(1, $summary['qualifikationen']['employees_updated']);
+        $liste = (array) $mitarbeiter->fresh()->hrData->dispo_taetigkeiten;
+        sort($liste);
+        $this->assertSame(['Logistiker', 'Servicekräfte'], $liste,
+            'Die Vereinigung muss beide Taetigkeiten tragen, nicht nur die der letzten Zeile.');
+    }
+
+    public function test_qualification_counters_are_written_to_the_file_notes(): void
+    {
+        $this->employee('RG1464');
+        $this->importiere("{Dispo4}\r\n8;Servicekräfte;RG8;\r\n{Dispo5}\r\nRG1464;RG8;17;\r\n");
+
+        $notes = RecZasDispoInboundFile::query()->orderByDesc('id')->first()->notes;
+        $notes = is_array($notes) ? $notes : json_decode((string) $notes, true);
+
+        $this->assertIsArray($notes);
+        $this->assertSame(1, $notes['qualifikationen']['matched'] ?? null);
+        $this->assertSame(1, $notes['qualifikationen']['employees_updated'] ?? null);
+    }
+
     public function test_unknown_personnel_numbers_are_counted_not_written(): void
     {
         $summary = $this->importiere("{Dispo4}\r\n8;Servicekräfte;RG8;\r\n{Dispo5}\r\nRG999999;RG8;1;\r\n");
@@ -287,6 +320,8 @@ class ZasDispoQualifikationImportTest extends TestCase
             $this->assertSame(1, Capsule::table('rec_dispo_assignments')->count(),
                 'Die Einbuchung muss stehen bleiben — Qualifikationen sind Sekundaerdaten.');
             $this->assertNotSame([], $summary['qualifikationen']['fehler']);
+            $this->assertStringContainsString('core_lookup_values', implode(' ', $summary['qualifikationen']['fehler']),
+                'Der Fehler muss von der absichtlich geloeschten Tabelle kommen, nicht von etwas anderem.');
             $this->assertArrayNotHasKey('rolled_back', $summary);
         } finally {
             self::runMigrationFor('core_lookup_values');
