@@ -594,6 +594,96 @@
                 </div>
             @endif
 
+            {{-- Dokumente bereitstellen und Stand (Spec Dokumente 2026-10-08, §3.2) --}}
+            @php
+                $dokZeilen = $this->personDokumente;
+                $dokKategorien = \Platform\Recruiting\Support\DokumentKategorie::labels();
+                $dokAktionen = \Platform\Recruiting\Support\DokumentKategorie::aktionen();
+            @endphp
+            <div class="mt-6 p-4 bg-[var(--ui-muted-5)] border border-[var(--ui-border)] rounded-lg">
+                <h3 class="text-sm font-semibold text-[var(--ui-secondary)] mb-3">Dokumente</h3>
+
+                <form wire:submit="dokumentBereitstellen" class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end p-3 bg-white border border-[var(--ui-border)]/60 rounded-md">
+                    <div class="md:col-span-4">
+                        <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">PDF</label>
+                        <input type="file" accept=".pdf" wire:model="dokumentDatei" class="block w-full text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100">
+                        <div wire:loading wire:target="dokumentDatei" class="text-xs text-[var(--ui-muted)] mt-1">Wird hochgeladen …</div>
+                    </div>
+                    <div class="md:col-span-3">
+                        <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Titel</label>
+                        <input type="text" wire:model="dokumentTitel" placeholder="z. B. Verschwiegenheitserklärung" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Kategorie</label>
+                        <select wire:model.live="dokumentKategorie" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
+                            @foreach ($dokKategorien as $dokCode => $dokLabel)
+                                <option value="{{ $dokCode }}">{{ $dokLabel }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-[var(--ui-muted)] mb-1">Der Mitarbeiter soll</label>
+                        <select wire:model="dokumentAktion" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
+                            @foreach ($dokAktionen as $dokCode => $dokLabel)
+                                <option value="{{ $dokCode }}">{{ $dokLabel }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="md:col-span-1">
+                        <button type="submit" wire:loading.attr="disabled" wire:target="dokumentBereitstellen,dokumentDatei"
+                                class="w-full inline-flex items-center justify-center px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 disabled:opacity-60">
+                            Bereitstellen
+                        </button>
+                    </div>
+                </form>
+
+                @php $dokVersandLaeuft = count(array_filter($dokZeilen, fn ($z) => $z['versand_laeuft'])) > 0; @endphp
+                <div class="mt-3 space-y-2" @if ($dokVersandLaeuft) wire:poll.5s @endif>
+                    @forelse ($dokZeilen as $dz)
+                        @php
+                            if ($dz['status'] === 'unterschrieben' || $dz['status'] === 'bestaetigt') {
+                                $dzBadge = 'border-emerald-200 bg-emerald-50 text-emerald-800';
+                            } elseif ($dz['status'] === 'zurueckgezogen') {
+                                $dzBadge = 'border-gray-200 bg-gray-100 text-gray-600';
+                            } elseif ($dz['status'] === 'offen') {
+                                $dzBadge = 'border-red-200 bg-red-50 text-red-800';
+                            } else {
+                                $dzBadge = 'border-amber-200 bg-amber-50 text-amber-800';
+                            }
+                            $dzVersand = $dz['versand_text'];
+                            $dzZeigtErneut = $dz['action'] !== 'none' && $dz['status'] !== 'zurueckgezogen' && !$dz['benachrichtigt'] && !$dz['versand_laeuft'];
+                        @endphp
+                        <div class="flex items-center justify-between gap-3 p-2 bg-white border border-[var(--ui-border)]/60 rounded-md">
+                            <div class="flex items-center gap-2 text-sm flex-wrap">
+                                @svg('heroicon-o-document-text', 'w-4 h-4 text-[var(--ui-secondary)]')
+                                <span class="font-medium">{{ $dz['title'] }}</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $dz['category_label'] }} · {{ $dz['action_label'] }}</span>
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border {{ $dzBadge }}">{{ $dz['status_label'] }}</span>
+                                <span class="text-xs text-[var(--ui-muted)]">{{ $dzVersand }}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <a href="{{ route('recruiting.employees.dokument.datei', ['uuid' => $dz['document_uuid']]) }}" target="_blank"
+                                   class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-secondary)] bg-white text-xs font-medium rounded-md hover:bg-[var(--ui-muted-5)]">PDF</a>
+                                @if ($dz['hat_nachweis'])
+                                    <a href="{{ route('recruiting.employees.dokument.nachweis', ['uuid' => $dz['recipient_uuid']]) }}" target="_blank"
+                                       class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-emerald-300 text-emerald-800 bg-emerald-50 text-xs font-medium rounded-md hover:bg-emerald-100">Nachweis</a>
+                                @endif
+                                @if ($dzZeigtErneut)
+                                    <button type="button" wire:click="dokumentErneutSenden({{ $dz['recipient_id'] }})"
+                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 text-blue-800 bg-blue-50 text-xs font-medium rounded-md hover:bg-blue-100">Erneut senden</button>
+                                @endif
+                                @if ($dz['kann_zurueckziehen'])
+                                    <button type="button" wire:click="dokumentZurueckziehen({{ $dz['recipient_id'] }})" wire:confirm="Dokument „{{ $dz['title'] }}" für diese Person zurückziehen?"
+                                            class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-[var(--ui-border)] text-[var(--ui-muted)] bg-white text-xs font-medium rounded-md hover:bg-red-50 hover:text-red-700">Zurückziehen</button>
+                                @endif
+                            </div>
+                        </div>
+                    @empty
+                        <p class="text-xs text-[var(--ui-muted)]">Noch kein Dokument bereitgestellt.</p>
+                    @endforelse
+                </div>
+            </div>
+
             {{-- Vertrag neu ausstellen --}}
             <x-ui-modal size="sm" model="reissueModalShow">
                 <x-slot name="header">Vertrag neu ausstellen</x-slot>

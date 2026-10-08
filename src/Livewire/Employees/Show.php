@@ -9,13 +9,19 @@ use Livewire\WithFileUploads;
 use Platform\Core\Models\CoreLookup;
 use Platform\Core\Models\ContextFile;
 use Platform\Core\Services\ContextFileService;
+use Platform\Recruiting\Jobs\DokumentHinweiseVersenden;
 use Platform\Recruiting\Models\RecContract;
+use Platform\Recruiting\Models\RecDocumentRecipient;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
+use Platform\Recruiting\Services\DokumentService;
+use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ReissueContractService;
 use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
+use Platform\Recruiting\Support\DokumentAkteZeilen;
+use Platform\Recruiting\Support\DokumentKategorie;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\ProofTypes;
 
@@ -36,6 +42,12 @@ class Show extends Component
     public array $hrFieldValues = [];
     public ?string $flash = null;
     public ?string $flashError = null;
+
+    /** Kurzform "Dokument bereitstellen" in der Akte (Spec Dokumente §3.2). */
+    public $dokumentDatei = null;
+    public string $dokumentTitel = '';
+    public string $dokumentKategorie = 'other';
+    public string $dokumentAktion = 'none';
 
     // Vertrag neu ausstellen (siehe reissueContract())
     public bool $reissueModalShow = false;
@@ -671,6 +683,118 @@ class Show extends Component
             . ($result['payroll_reported']
                 ? ' Die Zuschlagsaenderung steht in den Lohnaenderungen.'
                 : '');
+    }
+
+    public function updatedDokumentKategorie(): void
+    {
+        $this->dokumentAktion = DokumentKategorie::exists($this->dokumentKategorie)
+            ? DokumentKategorie::defaultAktion($this->dokumentKategorie)
+            : DokumentKategorie::AKTION_NONE;
+    }
+
+    /** Titel aus dem Dateinamen vorbelegen, solange HR nichts getippt hat. */
+    public function updatedDokumentDatei(): void
+    {
+        if ($this->dokumentTitel === '' && $this->dokumentDatei) {
+            $this->dokumentTitel = (string) pathinfo($this->dokumentDatei->getClientOriginalName(), PATHINFO_FILENAME);
+        }
+    }
+
+    public function dokumentBereitstellen(): void
+    {
+        $this->flash = null;
+        $this->flashError = null;
+        $emp = $this->employee();
+        if (!$emp) {
+            return;
+        }
+        if (!$this->dokumentDatei) {
+            $this->flashError = 'Bitte eine PDF auswählen.';
+
+            return;
+        }
+
+        try {
+            $ergebnis = app(DokumentService::class)->bereitstellen(
+                (int) $emp->team_id,
+                ['title' => $this->dokumentTitel, 'category' => $this->dokumentKategorie, 'action' => $this->dokumentAktion],
+                (string) file_get_contents($this->dokumentDatei->getRealPath()),
+                (string) $this->dokumentDatei->getClientOriginalName(),
+                [(int) $emp->id],
+                null,
+                auth()->id(),
+            );
+        } catch (\InvalidArgumentException $e) {
+            $this->flashError = $e->getMessage();
+
+            return;
+        }
+
+        DokumentHinweiseVersenden::starten($ergebnis['dokument']);
+
+        $this->dokumentDatei = null;
+        $this->dokumentTitel = '';
+        $this->dokumentKategorie = 'other';
+        $this->dokumentAktion = 'none';
+        unset($this->personDokumente);
+        $this->flash = $ergebnis['versand_noetig']
+            ? 'Dokument bereitgestellt, WhatsApp wird verschickt.'
+            : 'Dokument bereitgestellt.';
+    }
+
+    public function dokumentErneutSenden(int $recipientId): void
+    {
+        $z = $this->zustellungDieserPerson($recipientId);
+        if ($z === null) {
+            return;
+        }
+        $status = app(DokumentService::class)->erneutSenden($z);
+        unset($this->personDokumente);
+        $this->flash = $status === 'sent' ? 'WhatsApp erneut gesendet.' : null;
+        $this->flashError = $status === 'sent' ? null : 'Nicht gesendet: ' . $status;
+    }
+
+    public function dokumentZurueckziehen(int $recipientId): void
+    {
+        $z = $this->zustellungDieserPerson($recipientId);
+        if ($z === null) {
+            return;
+        }
+        $fehler = app(DokumentService::class)->zurueckziehen($z);
+        unset($this->personDokumente);
+        $this->flash = $fehler === null ? 'Dokument zurückgezogen.' : null;
+        $this->flashError = $fehler;
+    }
+
+    /** Alle Zustellungen der Person (beide Anstellungen), neueste zuerst — auch zurueckgezogene, HR sieht Historie. */
+    #[Computed]
+    public function personDokumente(): array
+    {
+        $emp = $this->employee();
+        if (!$emp) {
+            return [];
+        }
+        $ids = app(PersonScopeResolver::class)->forEmployee($emp)['ids'];
+
+        return DokumentAkteZeilen::fuer(
+            RecDocumentRecipient::query()
+                ->whereIn('rec_employee_id', $ids)
+                ->with(['document' => fn ($q) => $q->withTrashed()])
+                ->orderByDesc('id')
+                ->get()
+                ->all()
+        );
+    }
+
+    private function zustellungDieserPerson(int $recipientId): ?RecDocumentRecipient
+    {
+        $emp = $this->employee();
+        if (!$emp) {
+            return null;
+        }
+        $ids = app(PersonScopeResolver::class)->forEmployee($emp)['ids'];
+
+        return RecDocumentRecipient::query()->whereIn('rec_employee_id', $ids)->find($recipientId);
     }
 
     private function isSigned(RecContract $contract): bool

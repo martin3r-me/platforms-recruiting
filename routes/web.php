@@ -67,6 +67,12 @@ Route::get('/employees/contact-book', \Platform\Recruiting\Livewire\Employees\Co
 // employee-Parameter verschluckt.
 Route::get('/employees/proof-inbox', \Platform\Recruiting\Livewire\Employees\ProofInbox::class)
     ->name('recruiting.employees.proof-inbox');
+// Dokumente (Spec 2026-10-08): Datei-Download und Nachweisblatt fuer HR.
+// VOR der {employee}-Wildcard. (Die Seite /employees/documents kommt in Task 14.)
+Route::get('/employees/dokumente/{uuid}/datei', [\Platform\Recruiting\Http\Controllers\DokumentHrController::class, 'datei'])
+    ->name('recruiting.employees.dokument.datei');
+Route::get('/employees/dokumente/{uuid}/nachweis', [\Platform\Recruiting\Http\Controllers\DokumentHrController::class, 'nachweis'])
+    ->name('recruiting.employees.dokument.nachweis');
 Route::get('/employees/{employee}', \Platform\Recruiting\Livewire\Employees\Show::class)
     ->name('recruiting.employees.show');
 Route::get('/employees/{employee}/files/{slot}', \Platform\Recruiting\Http\Controllers\EmployeeFileController::class)
