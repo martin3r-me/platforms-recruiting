@@ -2256,6 +2256,49 @@ class Show extends Component
     }
 
     /**
+     * Vereinigt die ZAS-Taetigkeiten ueber die Identitaetsgruppe. Dieselbe
+     * Person kann einen RG- und einen MA-Datensatz haben, und ZAS liefert fuer
+     * beide Qualifikationen — "erster nicht leerer" zeigte nur eine Haelfte.
+     *
+     * Entdoppelt schreibungsunabhaengig, erste Schreibweise gewinnt; der
+     * kanonische Datensatz steht vorn. Der Zeitstempel ist der juengste der
+     * Gruppe und bleibt ROH (Y-m-d H:i:s) — die Anzeigeform d.m. H:i sortiert
+     * sich als String falsch (09.11. < 10.10.).
+     *
+     * Pur und statisch, damit die Regel ohne Event, Einbuchungen und
+     * Identitaetsaufloesung pruefbar ist.
+     *
+     * @param array<int, array{qualifications: list<string>, qualifications_synced_at: ?string}> $cards
+     * @return array{values: list<string>, synced_at: ?string}
+     */
+    public static function mergeQualifications(array $cards, int $primaryId): array
+    {
+        $reihenfolge = [];
+        if (isset($cards[$primaryId])) {
+            $reihenfolge[] = $cards[$primaryId];
+        }
+        foreach ($cards as $id => $card) {
+            if ($id !== $primaryId) {
+                $reihenfolge[] = $card;
+            }
+        }
+
+        $values = [];
+        $syncedAt = null;
+        foreach ($reihenfolge as $card) {
+            foreach ($card['qualifications'] as $q) {
+                $values[mb_strtolower((string) $q)] ??= (string) $q;
+            }
+            $stand = $card['qualifications_synced_at'] ?? null;
+            if ($stand !== null && ($syncedAt === null || $stand > $syncedAt)) {
+                $syncedAt = $stand;
+            }
+        }
+
+        return ['values' => array_values($values), 'synced_at' => $syncedAt];
+    }
+
+    /**
      * Kaertchen-Daten der Person: Selfie, Sterne, Qualifikationen (aus dem
      * Gateway) + Anzahl bestaetigter Einsaetze bisher (vergangene Auftrags-
      * Einsatztage mit Bestaetigung, ueber ALLE Datensaetze der Gruppe).
@@ -2277,7 +2320,6 @@ class Show extends Component
         $ratings = $primary['ratings'];
         $selfie = $primary['selfie_url'];
         $selfieFull = $primary['selfie_full_url'];
-        $quals = $primary['qualifications'];
         $pnrs = [];
         foreach ($cards as $card) {
             if ($card['personnel_number'] !== '') {
@@ -2290,10 +2332,9 @@ class Show extends Component
                 $selfie = $card['selfie_url'];
                 $selfieFull = $card['selfie_full_url'];
             }
-            if ($quals === []) {
-                $quals = $card['qualifications'];
-            }
         }
+
+        $merged = self::mergeQualifications($cards, (int) $this->crewEmployeeId);
 
         $confirmedPast = RecDispoAssignment::query()
             ->whereIn('rec_employee_id', $groupIds)
@@ -2308,7 +2349,10 @@ class Show extends Component
             'ratings'        => $ratings,
             'selfie_url'     => $selfie,
             'selfie_full_url' => $selfieFull,
-            'qualifications' => array_values(array_unique($quals)),
+            'qualifications' => $merged['values'],
+            'qualifications_synced_at' => $merged['synced_at'] === null
+                ? null
+                : \Illuminate\Support\Carbon::parse($merged['synced_at'])->format('d.m. H:i'),
             'confirmed_past' => $confirmedPast,
         ];
     }

@@ -1213,16 +1213,36 @@
                         @endif
                     </div>
 
-                    <div class="mt-4">
-                        <div class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Qualifikationen</div>
-                        @if ($crew['qualifications'] !== [])
+                    @php
+                        $quals = $crew['qualifications'];
+                        $qualsSichtbar = array_slice($quals, 0, 10);
+                        $qualsRest = array_slice($quals, 10);
+                    @endphp
+                    <div class="mt-4" x-data="{ alleQuals: false }">
+                        <div class="flex flex-wrap items-baseline gap-x-2">
+                            <span class="text-[10.5px] font-bold uppercase tracking-wider text-gray-400">Qualifikationen</span>
+                            @if ($crew['qualifications_synced_at'])
+                                <span class="text-[10.5px] text-gray-400">aus ZAS · Stand {{ $crew['qualifications_synced_at'] }}</span>
+                            @endif
+                        </div>
+                        @if ($quals !== [])
                             <div class="mt-1.5 flex flex-wrap gap-1.5">
-                                @foreach ($crew['qualifications'] as $qual)
+                                @foreach ($qualsSichtbar as $qual)
                                     <span class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
                                 @endforeach
+                                @if ($qualsRest !== [])
+                                    @foreach ($qualsRest as $qual)
+                                        <span x-cloak x-show="alleQuals" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm font-medium text-gray-700">{{ $qual }}</span>
+                                    @endforeach
+                                    <button type="button" x-on:click="alleQuals = !alleQuals"
+                                            class="rounded-lg bg-gray-100 px-2.5 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-200">
+                                        <span x-show="!alleQuals">+{{ count($qualsRest) }} weitere</span>
+                                        <span x-cloak x-show="alleQuals">weniger anzeigen</span>
+                                    </button>
+                                @endif
                             </div>
                         @else
-                            <div class="mt-1 text-sm text-gray-400">keine hinterlegt</div>
+                            <div class="mt-1 text-sm text-gray-400">Noch keine aus ZAS — bei neu angelegten Mitarbeitern ist das normal.</div>
                         @endif
                     </div>
                 @endif

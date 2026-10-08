@@ -10,6 +10,9 @@ use Illuminate\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use PHPUnit\Framework\TestCase;
+use Platform\Recruiting\Livewire\Dispo\Events\Show;
+use Platform\Recruiting\Models\RecDispoAssignment;
+use Platform\Recruiting\Models\RecDispoEvent;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Observers\RecEmployeeExportObserver;
 use Platform\Recruiting\Services\Zas\Dispo\DispoEmployeeGateway;
@@ -51,7 +54,7 @@ class DispoCrewKarteQualifikationenTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['rec_employees', 'rec_employee_hr_data', 'core_lookups', 'core_lookup_values'] as $t) {
+        foreach (['rec_employees', 'rec_employee_hr_data', 'core_lookups', 'core_lookup_values', 'rec_dispo_events', 'rec_dispo_assignments'] as $t) {
             Capsule::table($t)->delete();
         }
     }
@@ -168,6 +171,81 @@ class DispoCrewKarteQualifikationenTest extends TestCase
             'qualifications() speist den Filter im Info-Versand und bleibt auf dem alten Feld.');
     }
 
+    public function test_crew_card_actually_uses_the_merge_and_formats_the_date(): void
+    {
+        $e = $this->employee('RG500', [
+            'dispo_taetigkeiten'           => json_encode(['Logistiker', 'Kasse'], JSON_UNESCAPED_UNICODE),
+            'dispo_taetigkeiten_synced_at' => '2026-10-08 14:12:00',
+        ]);
+        $event = $this->event();
+        $this->assignment($event, ['rec_employee_id' => $e->id]);
+
+        $c = $this->dispoComponent($event->id);
+        $c->crewEmployeeId = $e->id;
+        $karte = $c->crewCard();
+
+        $this->assertSame(['Logistiker', 'Kasse'], $karte['qualifications']);
+        $this->assertSame('08.10. 14:12', $karte['qualifications_synced_at'],
+            'Die Anzeigeform entsteht erst hier, nicht im Gateway.');
+    }
+
+    public function test_crew_card_of_an_employee_without_assignment_is_empty_not_broken(): void
+    {
+        $e = $this->employee('RG500');
+        $event = $this->event();
+        $this->assignment($event, ['rec_employee_id' => $e->id]);
+
+        $c = $this->dispoComponent($event->id);
+        $c->crewEmployeeId = $e->id;
+        $karte = $c->crewCard();
+
+        $this->assertSame([], $karte['qualifications'],
+            '266 aktive Neuzugaenge haben noch nichts — das darf nicht knallen.');
+        $this->assertNull($karte['qualifications_synced_at']);
+    }
+
+    private function event(): RecDispoEvent
+    {
+        static $n = 0;
+        $n++;
+
+        return RecDispoEvent::create([
+            'einsatz_ref' => 'VA-' . $n,
+            'name'        => 'Testveranstaltung ' . $n,
+        ]);
+    }
+
+    private function assignment(RecDispoEvent $event, array $attrs): RecDispoAssignment
+    {
+        static $n = 0;
+        $n++;
+
+        return RecDispoAssignment::create(array_merge([
+            'ds_ref'             => 'DS-' . $n,
+            'rec_dispo_event_id' => $event->id,
+            'pnr_raw'            => 'RG' . $n,
+            'datum'              => '2026-10-01',
+            'von'                => '08:00',
+            'bis'                => '16:00',
+            'status_id'          => RecDispoAssignment::STATUS_AUFTRAG,
+            'taetigkeit'         => 'Service',
+        ], $attrs));
+    }
+
+    /** Baut Show ohne Livewire-Mount; die #[Computed]-Getter verdrahtet der Test von Hand. */
+    private function dispoComponent(int $eventId): Show
+    {
+        $c = new Show();
+        $c->eventId = $eventId;
+        $c->getAttributes()->each(function ($attribute) {
+            if (method_exists($attribute, 'boot')) {
+                $attribute->boot();
+            }
+        });
+
+        return $c;
+    }
+
     private static function runMigrations(): void
     {
         $own = dirname(__DIR__, 2);
@@ -180,6 +258,11 @@ class DispoCrewKarteQualifikationenTest extends TestCase
             [$own, 'database/migrations/2026_05_21_000002_create_rec_employee_hr_data_table.php'],
             [$own, 'database/migrations/2026_05_21_000004_add_linen_package_to_hr_data.php'],
             [$own, 'database/migrations/2026_09_15_000001_add_dispo_taetigkeiten_to_hr_data.php'],
+            [$own, 'database/migrations/2026_08_12_000001_create_rec_dispo_events_table.php'],
+            [$own, 'database/migrations/2026_08_12_000002_create_rec_dispo_assignments_table.php'],
+            [$own, 'database/migrations/2026_08_14_000001_add_confirmation_fields_to_rec_dispo_assignments.php'],
+            [$own, 'database/migrations/2026_08_20_000001_add_filiale_to_rec_dispo_events.php'],
+            [$own, 'database/migrations/2026_09_04_000001_add_decline_fields_to_rec_dispo_assignments.php'],
             [$core, 'database/migrations/2026_02_12_000003_create_core_lookups_tables.php'],
         ];
 
