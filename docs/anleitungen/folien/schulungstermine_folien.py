@@ -183,7 +183,7 @@ def bauen(ordner: Path, ziel: Path):
     s = folie("Wenn eine Schulung voll ist · Schritt 2", "Empfänger prüfen und WhatsApp senden")
     schrittfolie(s, ordner, [
         "4. Im Fenster seht ihr alle Bewerber, die die Nachricht bekommen. Wer keine bekommen soll: einfach den **Haken entfernen**. Grau hinterlegte Personen können nicht angeschrieben werden, der Grund steht dabei.",
-        "5. Ganz unten seht ihr die Nachricht so, wie der Bewerber sie bekommt. Statt „Anna“ steht dort später der richtige Vorname. Über **„Vorlage ändern“** könnt ihr einen anderen Text wählen.",
+        "5. Ganz unten seht ihr die Nachricht so, wie der Bewerber sie bekommt. Statt „Anna“ steht dort später der richtige Vorname.",
         "6. Auf **„WhatsApp an … Personen senden“** klicken und bestätigen. Im Fenster seht ihr, wie die Nachrichten rausgehen.",
     ], "Die Bewerber buchen sich danach selbst in einen freien Termin.", "G_kampagne_fenster.png")
 

@@ -29,7 +29,7 @@ Ist eine Schulung ausgebucht, könnt ihr alle Bewerber, die noch keinen Termin h
 2. Bei der vollen Schulung steht **„Ausgebucht“**. Daneben seht ihr, wie viele Bewerber noch keinen Termin haben, zum Beispiel **„12 ohne Termin“**. Darauf klicken.
 3. Es öffnet sich ein Fenster. Oben steht, welche Schulung voll ist und ob es noch andere Termine mit freien Plätzen gibt. **Ist der Kasten rot, gibt es keinen freien Termin.** Dann bitte zuerst einen neuen Termin anlegen.
 4. Darunter seht ihr alle Bewerber, die die Nachricht bekommen. Wer keine bekommen soll: einfach den **Haken entfernen**. Grau hinterlegte Personen können nicht angeschrieben werden, der Grund steht dabei.
-5. Ganz unten seht ihr die Nachricht so, wie der Bewerber sie bekommt. Statt „Anna“ steht dort später der richtige Vorname. Über **„Vorlage ändern“** könnt ihr einen anderen Text wählen.
+5. Ganz unten seht ihr die Nachricht so, wie der Bewerber sie bekommt. Statt „Anna“ steht dort später der richtige Vorname.
 6. Auf **„WhatsApp an … Personen senden“** klicken und bestätigen. Im Fenster seht ihr, wie die Nachrichten rausgehen.
 
 „… ohne Termin“ erscheint nur, wenn die Schulung eine **Platzzahl** hat, komplett voll ist, noch bevorsteht und eine **Ausschreibung** hinterlegt ist.
