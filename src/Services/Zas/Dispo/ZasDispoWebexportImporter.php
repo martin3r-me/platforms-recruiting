@@ -25,6 +25,8 @@ class ZasDispoWebexportImporter
         private ZasDispoImportPlanner $planner,
         private DispoEmployeeDirectory $directory,
         private DispoReconfirmMarker $reconfirmMarker,
+        // Qualifikationen aus {Dispo4}/{Dispo5} (Mail Olaf 06.10.2026).
+        private \Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync $taetigkeiten = new \Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync(),
     ) {}
 
     /**
@@ -64,6 +66,13 @@ class ZasDispoWebexportImporter
             'erinnerung_entstempelt' => 0,
             'skipped' => [], 'errors' => [],
             'unmatched_pnrs' => [], 'ambiguous_pnrs' => [],
+            'qualifikationen' => [
+                'katalog' => 0, 'zeilen' => 0, 'platzhalter' => 0,
+                'ohne_katalog' => 0, 'ohne_pnr' => 0,
+                'pnr_gesamt' => 0, 'matched' => 0, 'unmatched' => 0,
+                'employees_updated' => 0, 'employees_unchanged' => 0,
+                'lookup_values_created' => 0, 'fehler' => [],
+            ],
         ];
 
         try {
@@ -75,8 +84,10 @@ class ZasDispoWebexportImporter
 
             $dispoRows  = $split['known']['Dispo'] ?? [];
             $dispo2Rows = $split['known']['Dispo2'] ?? [];
+            $dispo4Rows = $split['known']['Dispo4'] ?? [];
+            $dispo5Rows = $split['known']['Dispo5'] ?? [];
 
-            if ($dispoRows === [] && $dispo2Rows === []) {
+            if ($dispoRows === [] && $dispo2Rows === [] && $dispo5Rows === []) {
                 // Kein bekannter Block — Datei gilt als verarbeitet (0-Zaehler).
                 if (!$dryRun) {
                     $file->update([
@@ -155,6 +166,8 @@ class ZasDispoWebexportImporter
                             }
                         }
                     });
+
+                $this->syncQualifikationen($dispo4Rows, $dispo5Rows, $matcher, $dryRun, $summary);
 
                 return $summary;
             }
@@ -263,6 +276,8 @@ class ZasDispoWebexportImporter
                     });
             });
 
+            $this->syncQualifikationen($dispo4Rows, $dispo5Rows, $matcher, $dryRun, $summary);
+
             if ($summary['reconfirm_marked'] > 0) {
                 Log::info('ZAS dispo import: Rebestaetigung markiert', ['file_id' => $file->id, 'count' => $summary['reconfirm_marked']]);
             }
@@ -310,6 +325,63 @@ class ZasDispoWebexportImporter
         }
 
         return $summary;
+    }
+
+    /**
+     * Qualifikationen aus {Dispo4}/{Dispo5}. Bewusst AUSSERHALB der
+     * Haupttransaktion und in eigenem try/catch: das sind Sekundaerdaten, ein
+     * Fehler hier darf keine Einbuchung zurueckrollen.
+     *
+     * Eine Lieferung ohne {Dispo5} fasst bestehende Zuordnungen NICHT an —
+     * sonst verlieren bei einer Teillieferung 1.409 Mitarbeiter ihre
+     * Qualifikationen.
+     *
+     * @param list<array<string,string>> $dispo4
+     * @param list<array<string,string>> $dispo5
+     * @param array<string,mixed>        $summary
+     */
+    private function syncQualifikationen(array $dispo4, array $dispo5, ZasDispoMatcher $matcher, bool $dryRun, array &$summary): void
+    {
+        if ($dispo5 === []) {
+            return;
+        }
+
+        try {
+            $extract = DispoQualifikationExtractor::extract($dispo4, $dispo5);
+            $q = &$summary['qualifikationen'];
+            $q = array_merge($q, $extract['stats']);
+            $q['pnr_gesamt'] = count($extract['byPnr']);
+
+            $byEmployeeId = [];
+            foreach ($extract['byPnr'] as $pnr => $labels) {
+                $employeeId = $matcher->match((string) $pnr)['employee_id'];
+                if ($employeeId === null) {
+                    $q['unmatched']++;
+                    continue;
+                }
+                $q['matched']++;
+                // Zwei Personalnummern koennen auf denselben Mitarbeiter
+                // zeigen (gekuerzte Form). Dann gewinnt die Vereinigung.
+                foreach ($labels as $label) {
+                    $byEmployeeId[$employeeId][mb_strtolower($label)] ??= $label;
+                }
+            }
+            foreach ($byEmployeeId as $id => $liste) {
+                $byEmployeeId[$id] = array_values($liste);
+            }
+
+            if ($dryRun) {
+                return;
+            }
+
+            $r = $this->taetigkeiten->syncMany($byEmployeeId, $extract['namen']);
+            $q['employees_updated']     = $r['updated'];
+            $q['employees_unchanged']   = $r['unchanged'];
+            $q['lookup_values_created'] = $r['created_values'];
+        } catch (\Throwable $e) {
+            $summary['qualifikationen']['fehler'][] = $e->getMessage();
+            Log::error('ZAS dispo import: Qualifikations-Sync fehlgeschlagen', ['error' => $e->getMessage()]);
+        }
     }
 
     /** @param array{employee_id: ?int, reason: string} $match */

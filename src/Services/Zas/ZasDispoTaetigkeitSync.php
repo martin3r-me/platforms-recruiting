@@ -6,8 +6,8 @@ use Illuminate\Support\Facades\DB;
 use Platform\Recruiting\Models\RecEmployee;
 
 /**
- * Uebernimmt die Spalte `DispoTaetigkeiten` aus dem ZAS-MA-Export (Kunde 15.09.):
- * komma-getrennte Liste der dem MA fuer die Dispo zugewiesenen Taetigkeiten.
+ * Uebernimmt die dem MA in ZAS fuer die Dispo zugewiesenen Taetigkeiten aus dem
+ * Dispo-Webexport (Bloecke {Dispo4} Katalog und {Dispo5} Zuordnung).
  *
  * Zwei Dinge passieren:
  *   1. Unbekannte Werte werden in der Auswahlliste `dispo_taetigkeit`
@@ -26,13 +26,16 @@ class ZasDispoTaetigkeitSync
     public const LOOKUP = 'dispo_taetigkeit';
 
     /**
-     * @return array{values: list<string>, created_values: int} gespeicherte Werte + neu angelegte Listen-Eintraege
+     * Schreibt die fertige Namensliste eines Mitarbeiters. Der Dispo-Webexport
+     * liefert uebersetzte Katalognamen, keine Komma-Liste — ein Name mit Komma
+     * bleibt deshalb ein Name.
+     *
+     * @param list<string> $labels
+     * @return array{values: list<string>, created_values: int}
      */
-    public function sync(RecEmployee $employee, ?string $rawList): array
+    public function syncLabels(RecEmployee $employee, array $labels): array
     {
-        $labels = self::parse($rawList);
         $created = 0;
-
         if ($labels !== []) {
             $created = $this->ensureLookupValues((int) $employee->team_id, $labels);
         }
@@ -49,24 +52,75 @@ class ZasDispoTaetigkeitSync
     }
 
     /**
-     * Komma-Liste -> saubere Werte. Leerzeichen weg, Leeres raus, Dubletten
-     * (auch durch Schreibweise) zusammengefasst — erste Schreibweise gewinnt.
+     * Stapel-Eingang fuer den Dispo-Webexport: 1.442 Mitarbeiter pro Lieferung.
+     * Die Auswahlliste wird EINMAL je Team gepflegt (nicht je Mitarbeiter), und
+     * geschrieben wird nur, wo sich die Liste wirklich geaendert hat. Der
+     * Zeitstempel wandert trotzdem bei allen mit — sonst zeigt die MA-Akte
+     * einen alten Stand, obwohl ZAS den Wert heute bestaetigt hat.
      *
-     * @return list<string>
+     * @param array<int, list<string>> $labelsByEmployeeId
+     * @param list<string>             $katalogNamen alle Katalognamen, auch unzugewiesene
+     * @return array{updated:int, unchanged:int, created_values:int, missing_employees:int}
      */
-    public static function parse(?string $rawList): array
+    public function syncMany(array $labelsByEmployeeId, array $katalogNamen): array
     {
-        $out = [];
-        foreach (explode(',', (string) $rawList) as $part) {
-            $label = trim(preg_replace('/\s+/u', ' ', $part) ?? '');
-            if ($label === '') {
-                continue;
-            }
-            $key = mb_strtolower($label);
-            $out[$key] ??= $label;
+        $out = ['updated' => 0, 'unchanged' => 0, 'created_values' => 0, 'missing_employees' => 0];
+        if ($labelsByEmployeeId === []) {
+            return $out;
         }
 
-        return array_values($out);
+        $employees = RecEmployee::query()
+            ->whereIn('id', array_keys($labelsByEmployeeId))
+            ->with('hrData')
+            ->get()
+            ->keyBy('id');
+
+        $out['missing_employees'] = count($labelsByEmployeeId) - $employees->count();
+
+        // Auswahlliste je Team einmal pflegen: der ganze Katalog. Zugewiesene
+        // Labels sind zwingend Katalognamen (der Extractor verwirft Zeilen ohne
+        // Katalogeintrag als ohne_katalog), eine eigene Ergaenzung braucht es nicht.
+        $teamIds = [];
+        foreach ($employees as $employee) {
+            $teamIds[(int) $employee->team_id] = true;
+        }
+        foreach (array_keys($teamIds) as $teamId) {
+            $out['created_values'] += $this->ensureLookupValues($teamId, array_values(array_unique($katalogNamen)));
+        }
+
+        $unveraendert = [];
+        foreach ($employees as $employee) {
+            $labels = $labelsByEmployeeId[$employee->id];
+            $hr = $employee->hrData ?? $employee->ensureHrData();
+
+            $alt = (array) ($hr->dispo_taetigkeiten ?? []);
+            $a = array_map('strval', $alt);
+            $b = $labels;
+            sort($a, SORT_STRING);
+            sort($b, SORT_STRING);
+
+            if ($a === $b) {
+                $unveraendert[] = $hr->id;
+                $out['unchanged']++;
+                continue;
+            }
+
+            DB::table('rec_employee_hr_data')
+                ->where('id', $hr->id)
+                ->update([
+                    'dispo_taetigkeiten'           => json_encode($labels, JSON_UNESCAPED_UNICODE),
+                    'dispo_taetigkeiten_synced_at' => now(),
+                ]);
+            $out['updated']++;
+        }
+
+        foreach (array_chunk($unveraendert, 500) as $chunk) {
+            DB::table('rec_employee_hr_data')
+                ->whereIn('id', $chunk)
+                ->update(['dispo_taetigkeiten_synced_at' => now()]);
+        }
+
+        return $out;
     }
 
     /** Legt fehlende Listen-Eintraege an und liefert deren Anzahl. */
@@ -95,7 +149,12 @@ class ZasDispoTaetigkeitSync
             if (isset($known[mb_strtolower($label)])) {
                 continue;
             }
-            DB::table('core_lookup_values')->insert([
+            // insertOrIgnore, NICHT insert: die Spalte traegt UNIQUE (lookup_id, value)
+            // unter utf8mb4_unicode_ci, das ist umlaut- und ss-unempfindlich
+            // ('Abraeumer' = 'Abr-ae-umer', ebenso ss/Eszett). Unser PHP-Vergleich ist binaer. Ein harter
+            // INSERT wuerfe 1062, der try/catch des Aufrufers schluckte es und KEIN
+            // Mitarbeiter bekaeme je Qualifikationen. So fehlt im Zweifel nur ein Name.
+            $created += DB::table('core_lookup_values')->insertOrIgnore([
                 'lookup_id'  => $lookupId,
                 'value'      => $label,
                 'label'      => $label,
@@ -105,7 +164,6 @@ class ZasDispoTaetigkeitSync
                 'updated_at' => now(),
             ]);
             $known[mb_strtolower($label)] = true;
-            $created++;
         }
 
         return $created;

@@ -58,6 +58,25 @@ class DispoReprocessCommand extends Command
                 ));
             }
 
+            $q = $summary['qualifikationen'] ?? [];
+            if ($q !== []) {
+                $this->line(sprintf(
+                    '    Qualifikationen: katalog %d, zeilen %d, pnr_gesamt %d, matched %d, unmatched %d, platzhalter %d, ohne_katalog %d, ohne_pnr %d, MA aktualisiert %d, unveraendert %d, Listenwerte neu %d',
+                    $q['katalog'] ?? 0, $q['zeilen'] ?? 0, $q['pnr_gesamt'] ?? 0,
+                    $q['matched'] ?? 0, $q['unmatched'] ?? 0, $q['platzhalter'] ?? 0,
+                    $q['ohne_katalog'] ?? 0, $q['ohne_pnr'] ?? 0,
+                    $q['employees_updated'] ?? 0, $q['employees_unchanged'] ?? 0,
+                    $q['lookup_values_created'] ?? 0
+                ));
+                $fehler = $q['fehler'] ?? [];
+                if ($fehler !== []) {
+                    $this->error(sprintf(
+                        '    QUALIFIKATIONEN-FEHLER (%d): %s',
+                        count($fehler), implode(' | ', array_slice($fehler, 0, 5))
+                    ));
+                }
+            }
+
             foreach (['unmatched_pnrs' => 'unbekannte PNr', 'ambiguous_pnrs' => 'mehrdeutige PNr'] as $key => $label) {
                 $list = $summary[$key] ?? [];
                 if ($list !== []) {

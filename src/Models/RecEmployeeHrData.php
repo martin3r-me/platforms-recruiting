@@ -33,7 +33,6 @@ class RecEmployeeHrData extends Model
         'star_rating',
         'qualifications',
         'dispo_taetigkeiten', 'dispo_taetigkeiten_synced_at',
-        'dispo_taetigkeiten', 'dispo_taetigkeiten_synced_at',
         // Iteration 5 — fuenf Kriterien + Freitext (Spec §1/N1)
         'rating_erscheinungsbild',
         'rating_fachkompetenz',
@@ -56,8 +55,6 @@ class RecEmployeeHrData extends Model
         'status_ma_since'     => 'date',
         'linen_package_items' => 'array',
         'qualifications'      => 'array',
-        'dispo_taetigkeiten'  => 'array',
-        'dispo_taetigkeiten_synced_at' => 'datetime',
         'dispo_taetigkeiten'  => 'array',
         'dispo_taetigkeiten_synced_at' => 'datetime',
         'star_rating'         => 'integer',

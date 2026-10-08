@@ -2,6 +2,7 @@
 
 namespace Platform\Recruiting\Livewire\Employees;
 
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -13,6 +14,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Models\RecPosition;
 use Platform\Recruiting\Services\ProofReader;
 use Platform\Recruiting\Services\ReissueContractService;
+use Platform\Recruiting\Services\Zas\ZasDispoTaetigkeitSync;
 use Platform\Recruiting\Services\Zas\ZasEmployeeContactLinker;
 use Platform\Recruiting\Support\FirstAiderDateGuard;
 use Platform\Recruiting\Support\ProofTypes;
@@ -95,6 +97,8 @@ class Show extends Component
 
     /** Dispo-Taetigkeiten (aus ZAS, Kunde 15.09.) — nur Anzeige, gepflegt wird in ZAS. */
     public bool $showTaetigkeitenModal = false;
+
+    public string $taetigkeitenSuche = '';
 
     /**
      * Reiter der Akte (Kunde 26.09.): 'stammdaten' | 'dispo'. In der URL, damit
@@ -245,6 +249,88 @@ class Show extends Component
             $zeile['confirmed_by'] = $proof?->confirmedByUser?->name;
             return $zeile;
         }, $reader->checklist($emp));
+    }
+
+    /**
+     * Zugewiesenes (`$hat`) und der ungefilterte Katalog (`$alle`), beide mit
+     * kleingeschriebenem Schluessel. Die Suche greift hier bewusst NICHT.
+     *
+     * @return array{0: array<string,string>, 1: array<string,string>}
+     */
+    private function dispoTaetigkeitenBasis(): array
+    {
+        $hat = [];
+        foreach ((array) ($this->employee?->hrData?->dispo_taetigkeiten ?? []) as $label) {
+            $hat[mb_strtolower((string) $label)] = (string) $label;
+        }
+
+        $alle = $hat;
+        $lookupId = DB::table('core_lookups')
+            ->where('team_id', (int) $this->employee?->team_id)
+            ->where('name', ZasDispoTaetigkeitSync::LOOKUP)
+            ->value('id');
+        if ($lookupId !== null) {
+            foreach (DB::table('core_lookup_values')->where('lookup_id', $lookupId)->pluck('value') as $value) {
+                $alle[mb_strtolower((string) $value)] ??= (string) $value;
+            }
+        }
+
+        return [$hat, $alle];
+    }
+
+    /** Wie viele Taetigkeiten ZAS insgesamt kennt — unabhaengig vom Suchtext. */
+    #[Computed]
+    public function dispoTaetigkeitenGesamt(): int
+    {
+        return count($this->dispoTaetigkeitenBasis()[1]);
+    }
+
+    public function openTaetigkeiten(): void
+    {
+        $this->taetigkeitenSuche = '';
+        $this->showTaetigkeitenModal = true;
+    }
+
+    public function closeTaetigkeiten(): void
+    {
+        $this->showTaetigkeitenModal = false;
+        $this->taetigkeitenSuche = '';
+    }
+
+    /**
+     * Der ganze ZAS-Katalog mit Haken — damit die Frage "kann der Logistik?"
+     * beantwortbar ist und nicht nur "was macht er ueblicherweise". Die Liste
+     * kommt aus der Auswahlliste `dispo_taetigkeit`, die der Webexport bei
+     * jeder Lieferung mit dem vollen Katalog fuettert.
+     *
+     * Zugewiesenes steht vorn und verschwindet nie, auch wenn die Auswahlliste
+     * den Wert (noch) nicht kennt.
+     *
+     * @return list<array{label:string, hat:bool}>
+     */
+    #[Computed]
+    public function dispoTaetigkeitenKatalog(): array
+    {
+        [$hat, $alle] = $this->dispoTaetigkeitenBasis();
+
+        $suche = mb_strtolower(trim($this->taetigkeitenSuche));
+
+        $out = [];
+        foreach ($alle as $key => $label) {
+            if ($suche !== '' && !str_contains($key, $suche)) {
+                continue;
+            }
+            $out[] = ['label' => $label, 'hat' => isset($hat[$key])];
+        }
+
+        usort($out, function (array $a, array $b) {
+            if ($a['hat'] !== $b['hat']) {
+                return $a['hat'] ? -1 : 1;
+            }
+            return strnatcasecmp($a['label'], $b['label']);
+        });
+
+        return $out;
     }
 
     #[Computed]
