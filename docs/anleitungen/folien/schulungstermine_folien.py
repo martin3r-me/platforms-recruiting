@@ -6,7 +6,7 @@ Screenshot rechts, Fusszeile "RheinGedeck · Intern").
 Aufruf:
     python schulungstermine_folien.py <screenshot-ordner> <ziel.pptx>
 
-Screenshots liegen NICHT im Repo (echte Bewerberdaten). Erwartete Dateinamen
+Screenshots liegen anonymisiert in folien/screenshots/ (nie echte Namen/Fotos). Erwartete Dateinamen
 siehe SCREENSHOTS unten; fehlt eine Datei, steht dort ein beschrifteter
 Platzhalter. Braucht python-pptx und Pillow.
 """

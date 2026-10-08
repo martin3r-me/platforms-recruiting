@@ -16,13 +16,24 @@ Regeln:
 
 ## Folien für den Kunden
 
-`folien/schulungstermine_folien.py` baut die Anleitung als PowerPoint im Stil der RheinGedeck-HCM-Folien
-(blauer Rand, Schritte links, Screenshot rechts). Screenshots liegen bewusst nicht im Repo (echte
-Bewerberdaten). Fehlt ein Bild, steht ein beschrifteter Platzhalter da; die erwarteten Dateinamen stehen
-oben im Skript.
+Die Anleitungen gibt es auch als PowerPoint im Stil der RheinGedeck-HCM-Folien (blauer Rand, Kicker, Titel,
+Schritte links, Screenshot rechts, Fußzeile „RheinGedeck · Intern“). Das ist die Mustervorlage für weitere
+Kundenfolien.
+
+| Datei | Inhalt |
+| --- | --- |
+| `folien/2026-10-08-schulungstermine-umplanen.pptx` | Fertige Folien zum Baustein vom 08.10.2026 |
+| `folien/schulungstermine_folien.py` | Generator dieser Folien; die Stilfunktionen (`rahmen`, `text`, `bild`, `hinweis`) sind die Vorlage für neue Decks |
+| `folien/screenshots/` | Screenshots zum Generator, Dateinamen siehe `SCREENSHOTS` im Skript |
+
+Neu bauen:
 
 ```
-python docs/anleitungen/folien/schulungstermine_folien.py <screenshot-ordner> <ziel.pptx>
+python docs/anleitungen/folien/schulungstermine_folien.py docs/anleitungen/folien/screenshots docs/anleitungen/folien/2026-10-08-schulungstermine-umplanen.pptx
 ```
 
-Braucht `python-pptx` und `Pillow`.
+Braucht `python-pptx` und `Pillow`. Fehlt ein Screenshot, steht ein beschrifteter Platzhalter da.
+
+**Screenshots nur anonymisiert ablegen.** Die vorhandenen stammen von der Live-Seite; Namen wurden nur im
+Browserfenster durch Beispielnamen ersetzt und Fotos unscharf gestellt, bevor das Bild entstand. Keine echten
+Bewerbernamen, Fotos oder Telefonnummern ins Repo.
