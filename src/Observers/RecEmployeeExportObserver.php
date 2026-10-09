@@ -144,6 +144,15 @@ class RecEmployeeExportObserver
             self::safelyRun(function () use ($employee): void {
                 self::trackPayrollChanges($employee);
             }, 'rec_employee.updated.payroll', $employee->id);
+
+            // Personendaten spiegeln (Spec 2026-10-09 §5.1): Geschwister-Akten
+            // derselben Person bekommen geaenderte Personenfelder, per
+            // Query-Builder (keine Rueckkopplung), Marker + Lohn ausdruecklich.
+            self::safelyRun(function () use ($employee): void {
+                $geaendert = array_intersect_key($employee->getAttributes(), $employee->getChanges());
+                app(\Platform\Recruiting\Services\PersonenSpiegel::class)
+                    ->spiegele($employee, $geaendert, markerSetzen: true, lohnVerfolgen: true);
+            }, 'rec_employee.updated.spiegel', $employee->id);
         });
 
         RecEmployeeHrData::saved(static function (RecEmployeeHrData $hr): void {

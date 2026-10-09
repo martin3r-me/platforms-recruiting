@@ -13,7 +13,7 @@ use Platform\Recruiting\Support\PersonenFelder;
  * updated-Ereignis, keine Rueckkopplung. Marker und Lohn-Eintrag setzt der
  * Spiegel deshalb ausdruecklich, nicht als Nebenwirkung.
  */
-final class PersonenSpiegel
+class PersonenSpiegel
 {
     private static bool $laeuft = false;
 
