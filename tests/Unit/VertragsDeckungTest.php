@@ -73,6 +73,22 @@ final class VertragsDeckungTest extends TestCase
         $this->assertNull(VertragsDeckung::ueberschneidung([self::av(5, 'completed', null, null, false, 'IFSG')], '2026-10-15'));
     }
 
+    /** Ruling Task 4 F1: Zeitraum [von, bis] gegen jede Laufzeit; leeres Ende eines Bestandsvertrags = offen. */
+    public function test_ueberschneidung_mit_zeitraum(): void
+    {
+        $oktober = self::av(1, 'sent', '2026-10-01', '2026-10-31');
+        $this->assertSame(['id' => 1, 'ende' => '2026-10-31'], VertragsDeckung::ueberschneidung([$oktober], '2026-09-15', '2026-10-31'), 'Ende ragt hinein');
+        $this->assertSame(['id' => 1, 'ende' => '2026-10-31'], VertragsDeckung::ueberschneidung([$oktober], '2026-09-01', '2026-12-31'), 'umschliesst');
+        $this->assertNull(VertragsDeckung::ueberschneidung([$oktober], '2026-09-01', '2026-09-30'), 'angrenzend davor');
+        $this->assertNull(VertragsDeckung::ueberschneidung([$oktober], '2026-11-01', '2027-10-31'), 'angrenzend danach');
+
+        $offen = self::av(2, 'completed', '2026-12-01', null);
+        $this->assertSame(['id' => 2, 'ende' => null], VertragsDeckung::ueberschneidung([$offen], '2026-10-01', '2027-09-30'), 'leeres Ende = offen');
+        $this->assertNull(VertragsDeckung::ueberschneidung([$offen], '2026-10-01', '2026-11-30'));
+
+        $this->assertSame(['id' => 2, 'ende' => null], VertragsDeckung::ueberschneidung([$oktober, $offen], '2026-10-15', '2027-01-31'), 'bei mehreren der juengste');
+    }
+
     public function test_datum_normalisiert(): void
     {
         $this->assertSame('2026-10-01', VertragsDeckung::datum('2026-10-01'));

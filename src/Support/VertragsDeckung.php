@@ -50,21 +50,31 @@ final class VertragsDeckung
 
     /**
      * Der Waechter gegen Doppelabdeckung bei der Neuanlage (Spec §2.1): jeder
-     * nicht stornierte, nicht ersetzte AV, dessen Laufzeit den Tag abdeckt —
-     * egal in welchem Status. Bei mehreren der juengste.
+     * nicht stornierte, nicht ersetzte AV, dessen Laufzeit den Zeitraum
+     * [$von, $bis] beruehrt — egal in welchem Status. Bei mehreren der
+     * juengste. $bis = null prueft nur den Tag $von.
+     *
+     * Ganzer Zeitraum statt nur Beginn (Ruling Task 4 F1): ein leeres Ende
+     * wird beim Anlegen Beginn + 1 Jahr — ohne Zeitraum-Pruefung laege ein
+     * Oktober-Vertrag still ueber einem schon ausgestellten November.
+     * Leeres Ende eines BESTEHENDEN Vertrags = offen (Altbestand).
      *
      * @param  list<array{id:int, code:string, status:string, signed_at:?string, superseded:bool, beginn:?string, ende:?string}>  $vertraege
      * @return array{id:int, ende:?string}|null
      */
-    public static function ueberschneidung(array $vertraege, string $tag): ?array
+    public static function ueberschneidung(array $vertraege, string $von, ?string $bis = null): ?array
     {
+        $bis ??= $von;
+
         $treffer = null;
 
         foreach ($vertraege as $v) {
             if (!self::istAv($v['code']) || $v['superseded'] || $v['status'] === 'cancelled') {
                 continue;
             }
-            if (!self::laufzeitDeckt($v['beginn'], $v['ende'], $tag)) {
+            $b = self::datum($v['beginn']);
+            $e = self::datum($v['ende']);
+            if (($b !== null && $b > $bis) || ($e !== null && $e < $von)) {
                 continue;
             }
             if ($treffer === null || (int) $v['id'] > $treffer['id']) {

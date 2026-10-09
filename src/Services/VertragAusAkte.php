@@ -20,9 +20,9 @@ use Platform\Recruiting\Support\ZuschlagWert;
  * EIN Vertrag, kein Massenlauf — Eloquent ist hier richtig. Der ZAS-Marker
  * auf contract_signed_at kommt erst beim Unterschreiben (RecContract::saved).
  *
- * Transaktion fuer Anlage, Felder, Inhalt, Link und Status; der WhatsApp-
- * Hinweis laeuft DANACH und darf scheitern — der Vertrag liegt im Portal,
- * der Status steht in notes ("Hinweis: …", keine neue Spalte).
+ * Transaktion fuer Doppel-Waechter (unter Sperre), Anlage, Felder, Inhalt,
+ * Link und Status; der WhatsApp-Hinweis laeuft DANACH und darf scheitern —
+ * der Vertrag liegt im Portal, der Status steht in notes ("Hinweis: …", keine neue Spalte).
  *
  * Nur Arbeitsvertraege (AV-*), kein IFSG/AT-* (Spec §1 "nicht drin").
  */
@@ -41,6 +41,12 @@ final class VertragAusAkte
         $daten = RecContract::resolveContractDates($angaben->beginn, $angaben->ende);
 
         $vertrag = DB::transaction(function () use ($anstellung, $vorlage, $angaben, $userId, $daten) {
+            // Sperre auf die Anstellung, DANN der Doppel-Waechter: zwei schnelle
+            // Klicks warten aufeinander, der zweite sieht den ersten Vertrag.
+            // (SQLite ignoriert lockForUpdate harmlos.)
+            RecEmployee::query()->whereKey($anstellung->id)->lockForUpdate()->first();
+            $this->doppelabdeckungPruefen($anstellung, (string) $daten['vertragsbeginn'], $daten['vertragsende']);
+
             $vertrag = RecContract::create([
                 'rec_applicant_id'         => $anstellung->rec_applicant_id,
                 'rec_employee_id'          => $anstellung->id,
@@ -56,13 +62,10 @@ final class VertragAusAkte
             $vertrag->setExtraField('vertragsende', $daten['vertragsende']);
             $vertrag->setExtraField('zuschlag', $this->zuschlagFuerFeld($vertrag, $angaben->zuschlag));
 
-            // Wie ReissueContractService: Lohn-Export und Altpfade lesen den
-            // Zuschlag am Bewerber.
-            $bewerbung = $anstellung->applicant;
-            if ($bewerbung !== null) {
-                $bewerbung->zuschlag = $angaben->zuschlag;
-                $bewerbung->save();
-            }
+            // rec_applicants.zuschlag bleibt BEWUSST unberuehrt (Ruling Task 4):
+            // Quelle ist das Vertrags-Extrafeld. Sonst aenderte sich der
+            // ZAS-Exportwert vor der Unterschrift ohne Marker/Lohn-Eintrag, und
+            // eine RG-Bewerbung bekaeme den MA-Zuschlag.
 
             $vertrag->personalized_content = $vorlage->personalizeFuerAnstellung($anstellung->fresh() ?? $anstellung, $vertrag);
             $vertrag->getOrCreatePublicFormLink();
@@ -111,11 +114,15 @@ final class VertragAusAkte
         if ($angaben->ende !== null && (!YmdDate::isValid($angaben->ende) || $angaben->ende < $angaben->beginn)) {
             throw new \DomainException('Das Vertragsende muss ein Datum am oder nach dem Beginn sein.');
         }
-        if ($angaben->zuschlag < 0 || $angaben->zuschlag >= 1000) {
+        if (!is_finite($angaben->zuschlag) || $angaben->zuschlag < 0 || $angaben->zuschlag >= 1000) {
             throw new \DomainException('Der Zuschlag muss zwischen 0 und 999,99 liegen.');
         }
+    }
 
-        $konflikt = VertragsDeckung::ueberschneidung(VertragsZeilen::fuerAnstellung((int) $anstellung->id), $angaben->beginn);
+    /** Laeuft in der Transaktion nach der Sperre — siehe erstellen(). */
+    private function doppelabdeckungPruefen(RecEmployee $anstellung, string $beginn, ?string $ende): void
+    {
+        $konflikt = VertragsDeckung::ueberschneidung(VertragsZeilen::fuerAnstellung((int) $anstellung->id), $beginn, $ende);
         if ($konflikt !== null) {
             throw new \DomainException(sprintf(
                 'Für diesen Zeitraum gibt es bereits einen Arbeitsvertrag (#%d, %s) — erst stornieren oder neu ausstellen.',
