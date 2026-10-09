@@ -11,7 +11,7 @@ class SeedRecContractExtraFields extends Command
     protected $signature = 'recruiting:seed-rec-contract-extra-fields
         {--dry-run : Nur anzeigen was passieren würde, keine Writes}';
 
-    protected $description = 'Legt die Extra-Field-Definitions vertragsbeginn + vertragsende auf rec_contract-Kontext an (für jedes Team das bereits rec_contract_templates hat). Idempotent via Unique-Key (team_id, context_type, context_id, name).';
+    protected $description = 'Legt die Extra-Field-Definitions vertragsbeginn, vertragsende und zuschlag auf rec_contract-Kontext an (für jedes Team das bereits rec_contract_templates hat). Idempotent via Unique-Key (team_id, context_type, context_id, name).';
 
     private const CONTEXT_TYPE = 'Platform\\Recruiting\\Models\\RecContract';
 
@@ -29,6 +29,16 @@ class SeedRecContractExtraFields extends Command
             'type'        => 'date',
             'is_required' => true,
             'order'       => 20,
+        ],
+        // Vertrag aus der Akte (Spec 2026-10-09 §2.2): Text, deutsches Format
+        // "0,60" — wie ReissueContractService es schreibt und HR es tippt.
+        // NICHT 'number': setTypedValue() verwirft "0,60" dort still.
+        [
+            'name'        => 'zuschlag',
+            'label'       => 'Zuschlag (€/Std)',
+            'type'        => 'text',
+            'is_required' => false,
+            'order'       => 30,
         ],
     ];
 
