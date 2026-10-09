@@ -4,6 +4,8 @@ namespace Platform\Recruiting\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\PersonScopeResolver;
 use Platform\Recruiting\Support\ProofMigrationPlanner;
 use Platform\Recruiting\Support\ProofTypes;
 
@@ -100,6 +102,21 @@ final class SwitchPortalVersion extends Command
             ->when($alle, fn ($q) => $q->where('is_active', true))
             ->when($this->option('team') !== null, fn ($q) => $q->where('team_id', (int) $this->option('team')));
 
+        // GANZE MENSCHEN (09.10.2026). portal_v2_since steht an der
+        // Anstellung; wer RG UND MA ist, hat zwei Zeilen. Wuerde nur die
+        // genannte umgestellt, haette derselbe Mensch ein neues und ein altes
+        // Portal nebeneinander -- und alte WhatsApp-Links fuehrten ihn zurueck
+        // ins alte, wo er Daten eintraegt, die im neuen nie ankommen. Deshalb
+        // ziehen die uebrigen Anstellungen derselben Person mit, aufgeloest
+        // ueber DENSELBEN PersonScopeResolver, mit dem das Portal selbst
+        // entscheidet, wessen Daten es zeigt. Nur bei --ids und --team: ohne
+        // Eingrenzung sind ohnehin alle aktiven Zeilen dabei. --team grenzt
+        // den Kreis ein, nicht den Menschen.
+        if ($ids !== [] || $this->option('team') !== null) {
+            $query = DB::table('rec_employees')
+                ->whereIn('id', $this->mitPersonenUmfang((clone $query)->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all()));
+        }
+
         // Nur die, bei denen sich wirklich etwas aendert — sonst meldet der
         // Lauf Zahlen, die nichts bewegt haben.
         $betroffen = (clone $query)
@@ -156,6 +173,42 @@ final class SwitchPortalVersion extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Die genannten Kennungen plus alle Anstellungen derselben Menschen.
+     * Meldet jede Mitnahme und jeden Zweifelsfall (gleicher Marker, andere
+     * Nummer) -- der Zweifelsfall wird NICHT mitgenommen: eine falsch
+     * geklammerte Zeile zeigte einem Menschen die Daten eines anderen.
+     *
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    private function mitPersonenUmfang(array $ids): array
+    {
+        $alle = array_fill_keys($ids, true);
+        $resolver = new PersonScopeResolver();
+
+        foreach (RecEmployee::query()->whereIn('id', $ids)->orderBy('id')->get() as $employee) {
+            $umfang = $resolver->forEmployee($employee);
+
+            foreach ($umfang['ids'] as $id) {
+                if (!isset($alle[$id])) {
+                    $alle[$id] = true;
+                    $this->line("Mitgenommen (gleiche Person): {$id} (zu {$employee->id})");
+                }
+            }
+            foreach ($umfang['abweichend'] as $id) {
+                if (!isset($alle[$id])) {
+                    $this->warn("NICHT mitgenommen, bitte pruefen (gleicher Marker, andere Nummer): {$id} (zu {$employee->id})");
+                }
+            }
+        }
+
+        $ergebnis = array_keys($alle);
+        sort($ergebnis);
+
+        return $ergebnis;
     }
 
     /**

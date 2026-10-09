@@ -58,6 +58,8 @@ final class SwitchPortalVersionTest extends TestCase
             $t->increments('id');
             $t->integer('team_id')->nullable();
             $t->string('person_key', 64)->nullable();
+            $t->integer('rec_person_id')->nullable();
+            $t->string('phone', 40)->nullable();
             $t->boolean('is_active')->default(true);
             $t->timestamp('portal_v2_since')->nullable();
             // Die Altspalten kommen aus dem Katalog, nicht aus einer
@@ -364,6 +366,111 @@ final class SwitchPortalVersionTest extends TestCase
         $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
         // Trockenlauf: unveraendert, aber NICHT weil die Bremse griff.
         $this->assertNotNull(DB::table('rec_employees')->find($id)->portal_v2_since);
+    }
+
+    // -----------------------------------------------------------------
+    // Ganze Menschen umstellen (09.10.2026): wer RG UND MA ist, hat zwei
+    // Zeilen. Wird nur eine genannt, zieht die andere mit -- sonst haette
+    // derselbe Mensch ein neues und ein altes Portal nebeneinander.
+    // -----------------------------------------------------------------
+
+    public function test_umstellen_zieht_die_zweite_anstellung_derselben_person_mit(): void
+    {
+        $rg    = $this->mitarbeiter(['rec_person_id' => 50]);
+        $ma    = $this->mitarbeiter(['rec_person_id' => 50, 'team_id' => 7]);
+        $fremd = $this->mitarbeiter(['rec_person_id' => 51]);
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $rg,
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertNotNull(DB::table('rec_employees')->find($rg)->portal_v2_since);
+        $this->assertNotNull(DB::table('rec_employees')->find($ma)->portal_v2_since);
+        $this->assertNull(DB::table('rec_employees')->find($fremd)->portal_v2_since);
+        $this->assertStringContainsString("{$ma} (zu {$rg})", $ausgabe);
+        $this->assertStringContainsString('2 Mitarbeiter auf das NEUE', $ausgabe);
+    }
+
+    public function test_zurueck_zieht_die_zweite_anstellung_ebenfalls_mit(): void
+    {
+        $rg = $this->mitarbeiter(['rec_person_id' => 50, 'portal_v2_since' => now()]);
+        $ma = $this->mitarbeiter(['rec_person_id' => 50, 'portal_v2_since' => now()]);
+
+        [$exitCode] = $this->runCommand(['--ids' => (string) $ma, '--zurueck' => true]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertNull(DB::table('rec_employees')->find($rg)->portal_v2_since);
+        $this->assertNull(DB::table('rec_employees')->find($ma)->portal_v2_since);
+    }
+
+    public function test_trockenlauf_nennt_die_mitnahme_und_aendert_nichts(): void
+    {
+        $rg = $this->mitarbeiter(['rec_person_id' => 50]);
+        $ma = $this->mitarbeiter(['rec_person_id' => 50]);
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $rg,
+            '--dry-run' => true,
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertStringContainsString("{$ma} (zu {$rg})", $ausgabe);
+        $this->assertStringContainsString('Trockenlauf: 2 Mitarbeiter', $ausgabe);
+        $this->assertNull(DB::table('rec_employees')->find($ma)->portal_v2_since);
+    }
+
+    public function test_ohne_personen_zeile_gilt_marker_plus_gleiche_nummer(): void
+    {
+        $a       = $this->mitarbeiter(['person_key' => 'k-1', 'phone' => '+491701234567']);
+        $b       = $this->mitarbeiter(['person_key' => 'k-1', 'phone' => '01701234567']);
+        $andere  = $this->mitarbeiter(['person_key' => 'k-1', 'phone' => '+491709999999']);
+
+        [$exitCode, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $a,
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertNotNull(DB::table('rec_employees')->find($b)->portal_v2_since);
+        // Gleicher Marker, andere Nummer: ein Rateversuch -- nicht
+        // mitnehmen, aber sagen.
+        $this->assertNull(DB::table('rec_employees')->find($andere)->portal_v2_since);
+        $this->assertStringContainsString("{$andere} (zu {$a})", $ausgabe);
+        $this->assertStringContainsString('NICHT mitgenommen', $ausgabe);
+    }
+
+    public function test_team_grenzt_den_kreis_ein_aber_nicht_den_menschen(): void
+    {
+        $rg = $this->mitarbeiter(['rec_person_id' => 50, 'team_id' => 3]);
+        $ma = $this->mitarbeiter(['rec_person_id' => 50, 'team_id' => 7]);
+        $nurTeam7 = $this->mitarbeiter(['rec_person_id' => 52, 'team_id' => 7]);
+
+        [$exitCode] = $this->runCommand([
+            '--alle' => true,
+            '--team' => '3',
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertSame(SwitchPortalVersion::SUCCESS, $exitCode);
+        $this->assertNotNull(DB::table('rec_employees')->find($rg)->portal_v2_since);
+        $this->assertNotNull(DB::table('rec_employees')->find($ma)->portal_v2_since);
+        $this->assertNull(DB::table('rec_employees')->find($nurTeam7)->portal_v2_since);
+    }
+
+    public function test_schon_umgestellte_zweite_anstellung_wird_nicht_doppelt_gezaehlt(): void
+    {
+        $rg = $this->mitarbeiter(['rec_person_id' => 50]);
+        $this->mitarbeiter(['rec_person_id' => 50, 'portal_v2_since' => now()]);
+
+        [, $ausgabe] = $this->runCommand([
+            '--ids' => (string) $rg,
+            '--ich-habe-den-sichttest-gemacht' => true,
+        ]);
+
+        $this->assertStringContainsString('1 Mitarbeiter auf das NEUE', $ausgabe);
     }
 }
 
