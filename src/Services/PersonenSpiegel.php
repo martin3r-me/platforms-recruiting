@@ -55,6 +55,50 @@ class PersonenSpiegel
     }
 
     /**
+     * ZAS hat fuer einen bekannten Menschen eine neue Akte angelegt (Spec §5.2,
+     * Paarung). Datenhoheit liegt bei uns: nicht-leere Werte der bestehenden
+     * Akte gehen in die neue; ist bei uns ein Feld leer und ZAS hat einen Wert,
+     * wird er bei uns nachgetragen. Nie wird ein nicht-leerer Wert der
+     * bestehenden Akte ueberschrieben. Marker auf beiden, wenn geschrieben;
+     * kein Lohn-Eintrag.
+     */
+    public function uebernimmBeiPaarung(int $bestehendeId, int $neueId): void
+    {
+        $teamId = DB::table('rec_employees')->where('id', $bestehendeId)->value('team_id');
+        $felder = PersonenFelder::fuerTeam($teamId !== null ? (int) $teamId : null);
+        $alt = DB::table('rec_employees')->where('id', $bestehendeId)->first($felder);
+        $neu = DB::table('rec_employees')->where('id', $neueId)->first($felder);
+        if ($alt === null || $neu === null) {
+            return;
+        }
+
+        $fuerNeu = [];
+        $fuerAlt = [];
+        foreach ($felder as $feld) {
+            $a = PersonenFelder::normalisiere($feld, $alt->{$feld});
+            $n = PersonenFelder::normalisiere($feld, $neu->{$feld});
+            if ($a !== null && $a !== $n) {
+                $fuerNeu[$feld] = $alt->{$feld};
+            } elseif ($a === null && $n !== null) {
+                $fuerAlt[$feld] = $neu->{$feld};
+            }
+        }
+
+        DB::transaction(function () use ($bestehendeId, $neueId, $fuerNeu, $fuerAlt) {
+            foreach ([[$neueId, $fuerNeu], [$bestehendeId, $fuerAlt]] as [$id, $update]) {
+                if ($update === []) {
+                    continue;
+                }
+                $update['updated_at'] = now();
+                if (array_intersect(array_keys($update), RecEmployeeExportObserver::RELEVANT_EMPLOYEE_FIELDS) !== []) {
+                    $update['zas_changed_at'] = now();
+                }
+                DB::table('rec_employees')->where('id', $id)->update($update);
+            }
+        });
+    }
+
+    /**
      * @param list<int> $ids
      * @param array<string,mixed> $werte
      * @return list<int>

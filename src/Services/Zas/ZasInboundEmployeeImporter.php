@@ -5,6 +5,7 @@ namespace Platform\Recruiting\Services\Zas;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Platform\Recruiting\Models\RecEmployee;
+use Platform\Recruiting\Services\PersonenSpiegel;
 use Platform\Recruiting\Support\EuMemberStates;
 use Platform\Recruiting\Support\ZasPersonnelNumber;
 
@@ -206,6 +207,18 @@ class ZasInboundEmployeeImporter
                         'sibling_ids' => $paarung['sibling_ids'],
                         'person_key' => $paarung['person_key'],
                     ]);
+
+                    // Datenhoheit liegt bei uns (Spec 2026-10-09 §5.2): die
+                    // neue ZAS-Akte uebernimmt die Personenfelder der
+                    // bestehenden. Laeuft bewusst NACH createEmployee, das
+                    // zas_changed_at auf null zuruecksetzt — sonst ginge der
+                    // Marker der Uebernahme verloren. Ein Fehler hier kostet
+                    // nur den Abgleich (Pruefkommando findet ihn), nie die Zeile.
+                    try {
+                        app(PersonenSpiegel::class)->uebernimmBeiPaarung((int) $paarung['sibling_ids'][0], (int) $employee->id);
+                    } catch (\Throwable $e) {
+                        Log::warning('[zas-inbound] Datenuebernahme bei Paarung fehlgeschlagen', ['employee_id' => (int) $employee->id, 'error' => $e->getMessage()]);
+                    }
                 }
             } catch (\Throwable $e) {
                 $failed[] = $this->failure($row['ZasPersonalNr'] ?? null, $e->getMessage(), $inbound, $dryRun);
@@ -366,6 +379,28 @@ class ZasInboundEmployeeImporter
                 ->where('id', $existing->id)
                 ->update($employeeUpdate);
         });
+
+        // Spiegel (Spec 2026-10-09 §5.2): ZAS hat den Wert fuer DIESE Akte
+        // geliefert; die Geschwister-Akte derselben Person bekommt ihn auch,
+        // mit Marker (ZAS kennt sie unter der anderen Gesellschaft), ohne
+        // Lohn-Eintrag (Werte aus ZAS loesen keinen aus). Werte aus der
+        // gespeicherten Zeile, nicht aus der Eingabe. Ein Fehler hier kostet
+        // nur den Abgleich, nie die Import-Zeile.
+        if ($employeeFields !== []) {
+            try {
+                $frisch = RecEmployee::find($existing->id);
+                if ($frisch !== null) {
+                    app(PersonenSpiegel::class)->spiegele(
+                        $frisch,
+                        array_intersect_key($frisch->getAttributes(), $employeeFields),
+                        markerSetzen: true,
+                        lohnVerfolgen: false,
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[zas-inbound] Spiegel fehlgeschlagen', ['employee_id' => (int) $existing->id, 'error' => $e->getMessage()]);
+            }
+        }
     }
 
     /**

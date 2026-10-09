@@ -16,7 +16,13 @@ use Platform\Recruiting\Observers\RecEmployeeExportObserver;
  */
 trait SpiegelHarness
 {
-    protected static function baueWelt(bool $mitObserver): void
+    /**
+     * @param list<string> $zusatzMigrationen weitere echte Migrationen (Name
+     *        ohne .php), die eine Testklasse braucht — z. B. die
+     *        HR-Daten-Spalten fuer den ZAS-Import. Laufen nach Datum sortiert
+     *        zusammen mit der Grundliste.
+     */
+    protected static function baueWelt(bool $mitObserver, array $zusatzMigrationen = []): void
     {
         if (!class_exists('Log', false)) {
             class_alias(\Illuminate\Support\Facades\Log::class, 'Log');
@@ -45,7 +51,7 @@ trait SpiegelHarness
         Model::clearBootedModels();
 
         $own = dirname(__DIR__, 2);
-        foreach ([
+        $migrationen = [
             '2026_05_20_000001_create_rec_employees_table',
             '2026_05_21_000001_add_full_field_set_to_rec_employees',
             '2026_05_21_000002_create_rec_employee_hr_data_table',
@@ -58,7 +64,12 @@ trait SpiegelHarness
             '2026_09_23_000002_add_employer_fields_to_rec_employees',
             '2026_09_28_000001_create_rec_persons_table',
             '2026_09_28_000002_add_rec_person_id_to_rec_employees',
-        ] as $name) {
+        ];
+        if ($zusatzMigrationen !== []) {
+            $migrationen = array_values(array_unique(array_merge($migrationen, $zusatzMigrationen)));
+            sort($migrationen);
+        }
+        foreach ($migrationen as $name) {
             (require $own . '/database/migrations/' . $name . '.php')->up();
         }
 
