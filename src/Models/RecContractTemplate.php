@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Platform\Core\Traits\HasExtraFields;
 use Platform\Recruiting\Services\Zas\ZasLookupResolver;
 use Platform\Recruiting\Support\AnstellungsZuordnung;
+use Platform\Recruiting\Support\ZuschlagWert;
 use Symfony\Component\Uid\UuidV7;
 
 /**
@@ -63,6 +64,22 @@ class RecContractTemplate extends Model
      * Guard-Landkarte, die sonst nur auf eine Konvention vertrauen.
      */
     public const CERTIFICATE_CODE_PREFIX = 'ZERT-';
+
+    /**
+     * contact.<feld> → Spalte der Anstellung, wo die Namen abweichen
+     * (Spec Vertrag aus der Akte §2.3). Die Live-Vorlagen mappen
+     * contact.address.postal_code; die Anstellung heisst zip.
+     */
+    private const KONTAKT_AUF_ANSTELLUNG = [
+        'address.street'       => 'street',
+        'address.house_number' => 'house_number',
+        'address.postal_code'  => 'zip',
+        'address.zip'          => 'zip',
+        'address.city'         => 'city',
+    ];
+
+    /** Spalten, die in keinem Vertrag stehen duerfen — ein Portal-Token im PDF waere ein Schluessel zum Konto. */
+    private const NIE_IM_VERTRAG = ['portal_token', 'uuid', 'person_key', 'rec_person_id', 'portal_locked_reason'];
 
     /**
      * Spalten-Default 'contract' auch am frischen, noch nicht gespeicherten
@@ -242,6 +259,29 @@ class RecContractTemplate extends Model
 
     public function personalizeContent(RecApplicant $applicant, ?RecContract $contract = null): string
     {
+        return $this->personalize($applicant, null, $contract);
+    }
+
+    /**
+     * Personalisierung fuer einen Vertrag aus der Mitarbeiterakte (Spec
+     * §2.3): dieselbe Vorlagensprache, die Anstellung als zweite Quelle.
+     * Ohne Bewerbung ist sie die einzige Quelle fuer contact.* und
+     * applicant.<spalte>; mit Bewerbung fuellt sie nur leere Werte. Neu:
+     * employee.<spalte>. applicant.zuschlag liest zuerst das Vertragsfeld.
+     */
+    public function personalizeFuerAnstellung(RecEmployee $anstellung, RecContract $vertrag): string
+    {
+        return $this->personalize($anstellung->applicant, $anstellung, $vertrag);
+    }
+
+    /**
+     * Der gemeinsame Auflöser. Ohne Anstellung ($anstellung === null) ist das
+     * exakt der alte personalizeContent()-Weg — gepinnt in
+     * PersonalisierungAnstellungTest::test_bewerbungsweg_rendert_byteidentisch
+     * und PlaceholderResolutionPinTest.
+     */
+    private function personalize(?RecApplicant $applicant, ?RecEmployee $anstellung, ?RecContract $contract): string
+    {
         $content = $this->content ?? '';
         $mappings = $this->field_mappings ?? [];
 
@@ -249,12 +289,15 @@ class RecContractTemplate extends Model
             return $content;
         }
 
-        $applicant->load([
-            'crmContactLinks.contact.emailAddresses',
-            'crmContactLinks.contact.phoneNumbers',
-            'crmContactLinks.contact.postalAddresses',
-        ]);
-        $contactModel = $applicant->crmContactLinks->first()?->contact;
+        $contactModel = null;
+        if ($applicant !== null) {
+            $applicant->load([
+                'crmContactLinks.contact.emailAddresses',
+                'crmContactLinks.contact.phoneNumbers',
+                'crmContactLinks.contact.postalAddresses',
+            ]);
+            $contactModel = $applicant->crmContactLinks->first()?->contact;
+        }
 
         // Eine Resolver-Instanz pro Dokument: der Label-Cache lebt genau so
         // lange wie dieser Render-Vorgang. Bewusst kein Singleton — ein
@@ -263,7 +306,11 @@ class RecContractTemplate extends Model
 
         $replacements = [];
         foreach ($mappings as $placeholder => $source) {
-            $replacements['{{' . $placeholder . '}}'] = $this->resolveSource($source, $applicant, $contactModel, $contract, $lookups);
+            $wert = $this->resolveSource($source, $applicant, $contactModel, $contract, $lookups);
+            if ($anstellung !== null) {
+                $wert = $this->mitAnstellung((string) $source, $wert, $anstellung, $contract);
+            }
+            $replacements['{{' . $placeholder . '}}'] = $wert;
         }
 
         $content = str_replace(array_keys($replacements), array_values($replacements), $content);
@@ -274,7 +321,62 @@ class RecContractTemplate extends Model
         return $content;
     }
 
-    private function resolveSource(string $source, RecApplicant $applicant, $contact, ?RecContract $contract, ?ZasLookupResolver $lookups = null): string
+    /** Vorrang-Kette der Anstellung (Spec §2.3, Tabelle). */
+    private function mitAnstellung(string $source, string $wert, RecEmployee $anstellung, ?RecContract $contract): string
+    {
+        if (str_starts_with($source, 'employee.')) {
+            return $this->anstellungsWert($anstellung, substr($source, strlen('employee.')));
+        }
+
+        if ($source === 'applicant.zuschlag') {
+            $feld = ZuschlagWert::lesen($contract?->getExtraField('zuschlag'));
+
+            return $feld !== null ? ZuschlagWert::format($feld) : $wert;
+        }
+
+        if ($wert !== '') {
+            return $wert;
+        }
+
+        if (str_starts_with($source, 'contact.')) {
+            $feld = substr($source, strlen('contact.'));
+
+            return $this->anstellungsWert($anstellung, self::KONTAKT_AUF_ANSTELLUNG[$feld] ?? $feld);
+        }
+
+        if (str_starts_with($source, 'applicant.') && !str_starts_with($source, 'applicant.extra_field.')) {
+            return $this->anstellungsWert($anstellung, substr($source, strlen('applicant.')));
+        }
+
+        return $wert;
+    }
+
+    /**
+     * Nur echte Spalten der geladenen Zeile — getAttribute() wuerde sonst
+     * Relationen nachladen (employee.applicant). Datum wie im CRM-Zweig d.m.Y.
+     */
+    private function anstellungsWert(RecEmployee $anstellung, string $spalte): string
+    {
+        if ($spalte === '' || in_array($spalte, self::NIE_IM_VERTRAG, true)
+            || !array_key_exists($spalte, $anstellung->getAttributes())) {
+            return '';
+        }
+
+        $wert = $anstellung->getAttribute($spalte);
+        if ($wert instanceof \DateTimeInterface) {
+            return Carbon::instance($wert)->format('d.m.Y');
+        }
+        if (is_bool($wert)) {
+            return $wert ? 'ja' : 'nein';
+        }
+        if (is_array($wert)) {
+            return implode(', ', array_map('strval', $wert));
+        }
+
+        return trim((string) ($wert ?? ''));
+    }
+
+    private function resolveSource(string $source, ?RecApplicant $applicant, $contact, ?RecContract $contract, ?ZasLookupResolver $lookups = null): string
     {
         if (str_starts_with($source, 'contact.')) {
             if (!$contact) {
@@ -306,6 +408,9 @@ class RecContractTemplate extends Model
         }
 
         if (str_starts_with($source, 'applicant.')) {
+            if ($applicant === null) {
+                return '';
+            }
             $field = substr($source, strlen('applicant.'));
 
             if (str_starts_with($field, 'extra_field.')) {
@@ -357,7 +462,7 @@ class RecContractTemplate extends Model
 
         if (str_starts_with($source, 'settings.')) {
             $key = substr($source, strlen('settings.'));
-            $settings = RecApplicantSettings::getOrCreateForTeam($applicant->team_id);
+            $settings = RecApplicantSettings::getOrCreateForTeam($applicant?->team_id ?? $this->team_id);
             $value = $settings->settings[$key] ?? (RecApplicantSettings::DEFAULT_SETTINGS[$key] ?? null);
             if ($value === null) {
                 return '';
