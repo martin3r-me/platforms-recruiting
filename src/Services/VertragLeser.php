@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Platform\Recruiting\Models\RecContract;
 use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Support\VertragsAnzeige;
+use Platform\Recruiting\Support\VertragsHerkunft;
 
 /**
  * Die Vertraege EINES Menschen im Portal (Spec Vertrag aus der Akte §2.5):
@@ -38,7 +39,8 @@ class VertragLeser
     }
 
     /**
-     * Versendete Vertraege als offene Punkte. Mit $ohneFrischVersandteTage
+     * Versendete Vertraege AUS DER AKTE (VertragsHerkunft::ausAkte) als
+     * offene Punkte. Mit $ohneFrischVersandteTage
      * (Einsatz-Pruefung) fallen Vertraege weg, die in den letzten N Tagen
      * versandt wurden — sie hatten ihren eigenen Hinweis (Muster
      * DokumentLeser::offenePunkte, gemessen an sent_at).
@@ -53,7 +55,11 @@ class VertragLeser
 
         $punkte = [];
         foreach ($this->vertraege($employee) as $v) {
-            if ($v->status !== 'sent') {
+            // Nur Vertraege aus der Akte (Schlussreview I3). Alte offene
+            // Bewerbungs-Vertraege bleiben, wie vor dem Paket, nur in der
+            // Liste mit Unterschreiben-Link — sonst aenderten sie Portal-
+            // Zaehler und Trigger-Signatur Hunderter Menschen auf einen Schlag.
+            if ($v->status !== 'sent' || !VertragsHerkunft::ausAkte($v)) {
                 continue;
             }
             if ($grenze !== null && $v->sent_at !== null && $v->sent_at->greaterThan($grenze)) {

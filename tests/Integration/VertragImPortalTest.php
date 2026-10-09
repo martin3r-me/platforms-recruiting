@@ -18,6 +18,7 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\VertragLeser;
+use Platform\Recruiting\Support\TriggerRegeln;
 use Illuminate\Http\Response;
 use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
@@ -131,12 +132,46 @@ final class VertragImPortalTest extends TestCase
     public function test_offener_punkt_in_fuer_und_trigger_mit_pause_ab_sent_at(): void
     {
         $ma = $this->anstellung();
-        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-10-05 10:00:00']);
+        $v = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-10-05 10:00:00'], ['zuschlag' => '0,60']);
         $punkt = ['code' => 'vertrag:' . $v->id, 'label' => 'Arbeitsvertrag · MA', 'status' => 'offen', 'ko' => false, 'punkt' => 'crit', 'text' => 'Lesen und unterschreiben'];
 
         $this->assertContains($punkt, (new OffenePunkte())->fuer($ma, '2026-10-09')['punkte']);
         $this->assertNotContains($punkt, (new OffenePunkte())->fuerTrigger($ma, '2026-10-09')['punkte'], 'vor 4 Tagen versandt: Trigger schweigt');
         $this->assertContains($punkt, (new OffenePunkte())->fuerTrigger($ma, '2026-10-13')['punkte'], 'nach der Pause wieder dabei');
+    }
+
+    /**
+     * Schlussreview I3: alte offene Vertraege aus dem Bewerbungsweg, die
+     * vertraege-an-anstellung an die Anstellung gehaengt hat (IFSG, AV ohne
+     * Zuschlagsfeld, versandt vor Monaten), werden KEIN offener Punkt — sonst
+     * stiege der Portal-Zaehler und die Trigger-Signatur aenderte sich fuer
+     * alle diese Menschen (naechste Welle schriebe sie an). In der Liste mit
+     * Unterschreiben-Link bleiben sie wie bisher.
+     * Probe: VertragsHerkunft-Filter in VertragLeser::offenePunkte() entfernen → rot.
+     */
+    public function test_alter_bewerbungsvertrag_ist_kein_offener_punkt_und_aendert_den_trigger_nicht(): void
+    {
+        $b = $this->bewerberMitKontakt('Max', 'Muster', 0.3);
+        $ma = $this->verknuepfen($this->anstellung(), $b);
+        $vorher = TriggerRegeln::signatur((new OffenePunkte())->fuerTrigger($ma, '2026-10-09')['punkte']);
+        $vorherZahl = count((new OffenePunkte())->fuer($ma, '2026-10-09')['punkte']);
+
+        // Wie nach recruiting:vertraege-an-anstellung: Bewerbung + Anker, kein Zuschlagsfeld.
+        $ifsg = $this->vertragAn($ma, $this->vorlage('IFSG'), ['sent_at' => '2026-05-02 10:00:00']);
+        $av = $this->vertragAn($ma, $this->vorlage('AV-default'), ['sent_at' => '2026-05-02 10:00:00'], ['vertragsbeginn' => '2026-05-01']);
+        $this->assertSame($b->id, (int) $av->rec_applicant_id, 'Vorflug: Bewerbungsvertrag');
+
+        $this->assertSame([], app(VertragLeser::class)->offenePunkte($ma->fresh()));
+        $this->assertSame($vorherZahl, count((new OffenePunkte())->fuer($ma->fresh(), '2026-10-09')['punkte']), 'Portal-Zaehler unveraendert');
+        $this->assertSame($vorher, TriggerRegeln::signatur((new OffenePunkte())->fuerTrigger($ma->fresh(), '2026-10-09')['punkte']), 'Trigger-Signatur unveraendert');
+
+        $zeilen = $this->dokumente($ma->fresh());
+        $this->assertSame([$ifsg->id, $av->id], array_column($zeilen, 'id'), 'in der Liste bleiben sie');
+        $this->assertStringContainsString('recruiting.public.contract-signing', (string) $zeilen[1]['sign_url']);
+
+        // Derselbe Mensch bekommt einen Vertrag aus der Akte: der IST ein Punkt.
+        $akte = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'), ['sent_at' => '2026-09-20 10:00:00'], ['zuschlag' => '0,60']);
+        $this->assertSame(['vertrag:' . $akte->id], array_column(app(VertragLeser::class)->offenePunkte($ma->fresh()), 'code'));
     }
 
     public function test_unterschriebener_vertrag_ist_kein_offener_punkt(): void
