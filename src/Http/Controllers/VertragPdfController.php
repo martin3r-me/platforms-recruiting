@@ -27,7 +27,9 @@ class VertragPdfController extends Controller
         $code = self::zugriff($vertrag, fn (string $key) => $request->session()->has($key));
         abort_if($code !== 200, $code);
 
-        return $this->pdfAntwort($vertrag);
+        // Persoenliches Dokument: nicht im Browser-/Proxy-Cache liegen lassen
+        // (wie der Dokument-Download im selben Portal).
+        return $this->pdfAntwort($vertrag)->header('Cache-Control', 'private, no-store');
     }
 
     public static function vertragZumToken(string $token): ?RecContract
@@ -42,33 +44,44 @@ class VertragPdfController extends Controller
     }
 
     /**
-     * 404: kein Vertrag, nicht unterschrieben, keine Anstellung (kein
-     * Existenz-Orakel). 403: keine Sitzung der Person oder Sperre. Sonst 200.
+     * 404: kein Vertrag, nicht unterschrieben, keine Anstellung. 403: keine
+     * Sitzung einer AKTIVEN Anstellung der Person, oder Portalsperre im
+     * Umfang. Sonst 200.
+     *
+     * Aktivitaet (Ruling Task 6, Fix-Runde 1): gefragt ist nicht die
+     * Vertrags-Anstellung, sondern die der Sitzung — die Sitzung muss zu
+     * einer aktiven Anstellung im Personen-Umfang gehoeren. Nach einem
+     * Wechsel RG -> MA mit deaktivierter RG-Anstellung bleibt der
+     * RG-Vertrag fuer dieselbe Person abrufbar (gleiche Person, kein Leck);
+     * die Liste zeigt ihn ja auch. Eine Sitzung, die nur an inaktiven
+     * Anstellungen haengt, oeffnet nichts — das Portal selbst laesst sie
+     * auch nicht mehr hinein (PortalShell::berechtigterMitarbeiter()).
      */
     public static function zugriff(?RecContract $vertrag, callable $hatSitzung): int
     {
         $anstellung = $vertrag?->anstellung();
         $scopeIds = $anstellung ? app(PersonScopeResolver::class)->forEmployee($anstellung)['ids'] : [];
+        $aktiveIds = $scopeIds === []
+            ? []
+            : RecEmployee::query()->whereIn('id', $scopeIds)->where('is_active', true)->pluck('id')->all();
         $gesperrt = $scopeIds !== []
             && RecEmployee::query()->whereIn('id', $scopeIds)->whereNotNull('portal_locked_at')->exists();
 
         return DokumentZugriff::entscheide(
             $vertrag !== null && $anstellung !== null && $vertrag->status === 'completed' && $vertrag->signed_at !== null,
-            DokumentDownloadController::sitzungDeckt($scopeIds, $hatSitzung),
-            DokumentDownloadController::gesperrt($gesperrt, $anstellung),
+            DokumentDownloadController::sitzungDeckt($aktiveIds, $hatSitzung),
+            $gesperrt,
             false,
         );
     }
 
-    private function pdfAntwort(RecContract $vertrag)
+    /** Ueberschreibbar fuer den Durchstich-Test (__invoke ohne DomPDF). */
+    protected function pdfAntwort(RecContract $vertrag)
     {
         $vertrag->loadMissing('contractTemplate');
         $anstellung = $vertrag->anstellung();
         $name = trim(($anstellung?->first_name ?? '') . ' ' . ($anstellung?->last_name ?? ''));
 
-        // Persoenliches Dokument: nicht im Browser-/Proxy-Cache liegen lassen
-        // (wie der Dokument-Download im selben Portal).
-        return $this->contractPdfDownload($vertrag, $name !== '' ? $name : null)
-            ->header('Cache-Control', 'private, no-store');
+        return $this->contractPdfDownload($vertrag, $name !== '' ? $name : null);
     }
 }

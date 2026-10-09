@@ -18,7 +18,11 @@ use Platform\Recruiting\Models\RecEmployee;
 use Platform\Recruiting\Services\OffenePunkte;
 use Platform\Recruiting\Services\PortalAuth;
 use Platform\Recruiting\Services\VertragLeser;
+use Illuminate\Http\Response;
+use Illuminate\Session\ArraySessionHandler;
+use Illuminate\Session\Store;
 use ReflectionMethod;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /** Spec Vertrag aus der Akte §2.5, Tests 5 und 6; Review-Focus 5. */
 final class VertragImPortalTest extends TestCase
@@ -169,5 +173,132 @@ final class VertragImPortalTest extends TestCase
             $url->route('recruiting.public.contract-pdf-anstellung', ['token' => 'abc123'])
         );
         Facade::setFacadeApplication(Container::getInstance());
+    }
+
+    /**
+     * Fix-Runde 1, Ruling Task 6: Aktivitaet zaehlt an der Anstellung der
+     * Sitzung, nicht an der des Vertrags. Probe: zugriff() zurueck auf
+     * gesperrt(..., $anstellung) → erste Zusicherung rot.
+     */
+    public function test_pdf_der_inaktiven_schwester_mit_sitzung_der_aktiven_anstellung(): void
+    {
+        $rg = $this->anstellung(['company' => 'RG', 'personnel_number' => 'RG4711']);
+        $ma = $this->anstellung();
+        $this->personVerbinden($ma, $rg);
+        $v = $this->unterschrieben($rg, 'AV-RG-LOG');
+        DB::table('rec_employees')->where('id', $rg->id)->update(['is_active' => false]);
+        $sitzung = fn (int $id) => fn (string $key) => $key === PortalAuth::sessionKey($id);
+
+        $vertrag = VertragPdfController::vertragZumToken($v->getOrCreatePublicFormLink()->token);
+        $this->assertSame(200, VertragPdfController::zugriff($vertrag, $sitzung($ma->id)), 'RG->MA-Wechsel: RG-Vertrag bleibt abrufbar');
+        $this->assertSame(403, VertragPdfController::zugriff($vertrag, $sitzung($rg->id)), 'Sitzung nur an der inaktiven Anstellung: nichts');
+
+        DB::table('rec_employees')->where('id', $ma->id)->update(['is_active' => false]);
+        $this->assertSame(403, VertragPdfController::zugriff($vertrag->fresh(), $sitzung($ma->id)), 'ganze Person inaktiv');
+    }
+
+    /** Review Minor 2: der Livewire-Weg selbst, nicht nur signierLink(). */
+    public function test_oeffne_vertrag_leitet_nur_zum_eigenen_versendeten_vertrag(): void
+    {
+        $ma = $this->anstellung(['portal_v2_since' => '2026-10-01 10:00:00']);
+        $eigener = $this->vertragAn($ma, $this->vorlage('AV-MA-LOG'));
+        $fremd = $this->anstellung(['personnel_number' => 'MA9999', 'portal_v2_since' => '2026-10-01 10:00:00']);
+        $fremder = $this->vertragAn($fremd, $this->vorlage('AV-MA-ZAP'));
+
+        $shell = new class extends PortalShell {
+            public ?string $ziel = null;
+
+            public function redirect($url, $navigate = false)
+            {
+                $this->ziel = $url;
+            }
+        };
+
+        $shell->oeffneVertrag($eigener->id);
+        $this->assertNull($shell->ziel, 'unverified: kein Sprung');
+
+        $shell->employeeId = $ma->id;
+        $shell->state = 'verified';
+        $shell->oeffneVertrag($fremder->id);
+        $this->assertNull($shell->ziel, 'fremde ID aus dem Browser: kein Sprung');
+
+        $shell->oeffneVertrag($eigener->id);
+        $this->assertStringContainsString('recruiting.public.contract-signing', (string) $shell->ziel, 'Gegenprobe: eigener Vertrag');
+    }
+
+    /**
+     * Review Minor 3: Durchstich durch __invoke — Sitzung aus der Anfrage,
+     * abort_if, Cache-Header. DomPDF bleibt draussen (pdfAntwort ersetzt).
+     */
+    public function test_invoke_verdrahtet_sitzung_abbruch_und_cache_header(): void
+    {
+        $ma = $this->anstellung();
+        $token = $this->unterschrieben($ma)->getOrCreatePublicFormLink()->token;
+        $controller = new class extends VertragPdfController {
+            protected function pdfAntwort(RecContract $vertrag)
+            {
+                return new Response('pdf-' . $vertrag->id);
+            }
+        };
+        $anfrage = function (array $sitzung): Request {
+            $store = new Store('t', new ArraySessionHandler(10));
+            foreach ($sitzung as $k => $v) {
+                $store->put($k, $v);
+            }
+            $r = Request::create('/recruiting/mitarbeiter/vertrag/x');
+            $r->setLaravelSession($store);
+
+            return $r;
+        };
+
+        $this->mitAbort(function () use ($controller, $anfrage, $token, $ma) {
+            $antwort = $controller($anfrage([PortalAuth::sessionKey($ma->id) => true]), $token);
+            $this->assertSame(200, $antwort->getStatusCode());
+            $this->assertStringContainsString('no-store', (string) $antwort->headers->get('Cache-Control'));
+            $this->assertStringContainsString('private', (string) $antwort->headers->get('Cache-Control'));
+
+            foreach ([[[], $token, 403], [[PortalAuth::sessionKey($ma->id) => true], 'gibt-es-nicht', 404]] as [$sitzung, $t, $erwartet]) {
+                try {
+                    $controller($anfrage($sitzung), $t);
+                    $this->fail("erwartet {$erwartet}");
+                } catch (HttpException $e) {
+                    $this->assertSame($erwartet, $e->getStatusCode());
+                }
+            }
+        });
+    }
+
+    /**
+     * abort() ruft app()->abort(); der blanke Container kennt das nicht.
+     * Fuer die Dauer des Tests ein Container mit abort() (wortgleich zu
+     * Foundation\Application, Muster KontoAnlegenTest), Bindungen uebernommen.
+     */
+    private function mitAbort(callable $fn): void
+    {
+        $alt = Container::getInstance();
+        $neu = new class extends Container {
+            public function abort($code, $message = '', array $headers = [])
+            {
+                if ($code == 404) {
+                    throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException($message);
+                }
+                throw new HttpException($code, $message, null, $headers);
+            }
+        };
+        foreach (['config', 'events', 'log', 'url', 'db', 'db.schema'] as $n) {
+            if ($alt->bound($n)) {
+                $neu->instance($n, $alt->make($n));
+            }
+        }
+        Container::setInstance($neu);
+        Facade::setFacadeApplication($neu);
+        Facade::clearResolvedInstances();
+        try {
+            $fn();
+        } finally {
+            Container::setInstance($alt);
+            Facade::setFacadeApplication($alt);
+            Facade::clearResolvedInstances();
+        }
     }
 }

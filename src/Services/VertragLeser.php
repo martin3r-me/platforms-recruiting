@@ -25,7 +25,9 @@ class VertragLeser
         return RecContract::query()
             ->whereIn('rec_employee_id', $this->scope->forEmployee($employee)['ids'])
             ->where('status', '!=', 'cancelled')
-            ->with('contractTemplate')
+            // publicFormLink vorab: dokumente() und signierLink() fragen je
+            // Zeile nach dem Link — sonst eine Abfrage pro Vertrag (N+1).
+            ->with(['contractTemplate', 'publicFormLink'])
             ->orderBy('id')
             ->get();
     }

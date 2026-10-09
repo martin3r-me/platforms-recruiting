@@ -15,7 +15,7 @@ use Platform\Recruiting\Models\RecContract;
  *   - ZasFileController         (ZAS-Export Signed-URL-Pfad)
  *   - ZasEmployeeFileController (ZAS-Export ueber die Anstellung)
  *
- * Beide muessen exakt dasselbe PDF erzeugen — sonst sieht der Bewerber
+ * Alle vier muessen exakt dasselbe PDF erzeugen — sonst sieht der Bewerber
  * einen Vertrag und ZAS / IBEI einen anderen. Insbesondere muss der
  * Firmenstempel bei Arbeitsvertraegen (`AV-*`) konsistent injiziert
  * werden.
