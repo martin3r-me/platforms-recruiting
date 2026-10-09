@@ -21,6 +21,7 @@ use Platform\Recruiting\Services\Comms\EmployeeSenderResolver;
 use Platform\Recruiting\Services\Comms\EmployeeThreadLinker;
 use Platform\Recruiting\Services\Comms\InboxFilter;
 use Platform\Recruiting\Services\Comms\InboxQuery;
+use Platform\Recruiting\Services\IncomingApplicationService;
 
 /**
  * Mitarbeiter schreiben an die HR-Nummer (Kundenwunsch 09.10.2026):
@@ -82,6 +83,10 @@ class MitarbeiterAufHrNummerTest extends TestCase
             'team_id' => self::TEAM,
             'settings' => ['auto_pilot_wa_account_id' => $accountId],
         ]);
+        Capsule::table('rec_intake_channels')->insert([
+            'uuid' => 'uuid-intake-ma-hr', 'team_id' => self::TEAM, 'comms_channel_id' => self::$channelId, 'is_active' => true,
+            'created_at' => date('Y-m-d H:i:s', self::JETZT), 'updated_at' => date('Y-m-d H:i:s', self::JETZT),
+        ]);
     }
 
     public static function tearDownAfterClass(): void
@@ -95,9 +100,65 @@ class MitarbeiterAufHrNummerTest extends TestCase
 
     protected function setUp(): void
     {
-        foreach (['comms_thread_contexts', 'comms_whatsapp_threads', 'rec_employees', 'rec_applicants'] as $table) {
+        foreach (['comms_thread_contexts', 'comms_whatsapp_threads', 'rec_employees', 'rec_applicants',
+                  'crm_phone_numbers', 'crm_contact_links', 'crm_contacts'] as $table) {
             Capsule::table($table)->delete();
         }
+
+        // Log-Facade: Attrappe binden UND den Facade-Cache leeren, sonst
+        // greift eine Instanz aus einer frueheren Testklasse.
+        Container::getInstance()->instance('log', new \Psr\Log\NullLogger());
+        Facade::clearResolvedInstance('log');
+    }
+
+    // ---- Eingang (Service) ---------------------------------------------
+
+    public function test_eingang_legt_fuer_mitarbeiter_keinen_bewerber_an(): void
+    {
+        $this->employee(712, '0151 2345 6789');
+
+        $result = (new IncomingApplicationService())->handleInboundMessage(
+            channel: CommsChannel::findOrFail(self::$channelId),
+            senderIdentifier: '4915123456789',
+            messageBody: 'Hallo, ich habe eine Frage zu meinem Einsatz',
+        );
+
+        $this->assertSame(EmployeeSenderResolver::EMPLOYEE, $result['employee_match']['status'] ?? null);
+        $this->assertSame(712, $result['employee_match']['employee_id']);
+        $this->assertSame(0, Capsule::table('rec_applicants')->count(), 'Fuer einen Mitarbeiter darf kein Bewerber entstehen.');
+    }
+
+    public function test_eingang_vorhandene_bewerbung_hat_vorrang_vor_mitarbeiter(): void
+    {
+        // Aus einer Bewerbung zum Mitarbeiter geworden: die Nachricht bleibt
+        // an der Bewerbung (Reminder-/Kampagnen-Antworten laufen dort).
+        $this->applicant(804);
+        $this->employee(713, '0151 2345 6789', ['rec_applicant_id' => 804]);
+        Capsule::table('crm_contacts')->insert([
+            'id' => 8040, 'uuid' => 'uuid-contact-8040', 'first_name' => 'Lea', 'last_name' => 'Ott',
+            'team_id' => self::TEAM, 'is_active' => true,
+            'created_at' => date('Y-m-d H:i:s', self::JETZT), 'updated_at' => date('Y-m-d H:i:s', self::JETZT),
+        ]);
+        Capsule::table('crm_contact_links')->insert([
+            'uuid' => 'uuid-link-8040', 'contact_id' => 8040, 'team_id' => self::TEAM,
+            'created_by_user_id' => 1, 'linkable_id' => 804, 'linkable_type' => 'rec_applicant',
+            'created_at' => date('Y-m-d H:i:s', self::JETZT), 'updated_at' => date('Y-m-d H:i:s', self::JETZT),
+        ]);
+        \Platform\Crm\Models\CrmContact::findOrFail(8040)->phoneNumbers()->create([
+            'raw_input' => '0151 2345 6789', 'international' => '+4915123456789',
+            'is_primary' => true, 'is_active' => true,
+            'phone_type_id' => 1, // NOT NULL im echten Schema
+        ]);
+
+        $result = (new IncomingApplicationService())->handleInboundMessage(
+            channel: CommsChannel::findOrFail(self::$channelId),
+            senderIdentifier: '4915123456789',
+            messageBody: 'Hallo',
+        );
+
+        $this->assertArrayNotHasKey('employee_match', $result ?? []);
+        $this->assertSame(804, (int) $result['applicant']->id);
+        $this->assertFalse($result['is_new']);
     }
 
     // ---- Erkennung -----------------------------------------------------
@@ -265,6 +326,12 @@ class MitarbeiterAufHrNummerTest extends TestCase
             [$own, 'database/migrations/2026_02_09_000008_create_rec_applicant_settings_table.php'],
             [$own, 'database/migrations/2026_09_15_000002_create_rec_conversation_handled_table.php'],
             [$own, 'database/migrations/2026_02_09_000005_create_rec_applicants_table.php'],
+            // rejected_at: ohne die Spalte liest SQLite "rejected_at" als
+            // String-Literal, der Bestandscheck faende still nie etwas.
+            [$own, 'database/migrations/2026_04_24_000001_add_hr_desk_to_rec_applicants.php'],
+            [$own, 'database/migrations/2026_02_09_000006_create_rec_applicant_posting_table.php'],
+            [$own, 'database/migrations/2026_04_29_000001_create_rec_source_platforms_table.php'],
+            [$own, 'database/migrations/2026_06_12_000003_add_matching_columns.php'],
             [$own, 'database/migrations/2026_05_20_000001_create_rec_employees_table.php'],
             [$own, 'database/migrations/2026_09_10_000001_add_person_key_to_rec_employees.php'],
             [$crm, 'database/migrations/2026_01_14_000003_create_comms_channels_table.php'],
@@ -274,6 +341,9 @@ class MitarbeiterAufHrNummerTest extends TestCase
             [$integrations, 'database/migrations/2026_01_17_150000_create_integrations_whatsapp_accounts_table.php'],
             [$crm, 'database/migrations/2024_01_01_000016_create_crm_contacts_table.php'],
             [$crm, 'database/migrations/2024_01_01_000020_create_crm_contact_links_table.php'],
+            [$crm, 'database/migrations/2024_01_01_000014_create_crm_phone_numbers_table.php'],
+            [$crm, 'database/migrations/2024_01_01_000015_create_crm_email_addresses_table.php'],
+            [$own, 'database/migrations/2026_06_12_000001_create_rec_intake_channels_table.php'],
         ];
 
         foreach ($files as [$root, $relative]) {
@@ -296,6 +366,22 @@ class MitarbeiterAufHrNummerTest extends TestCase
             $table->string('source')->nullable();
             $table->timestamp('created_at')->useCurrent();
         });
+
+        // HCM-Check des Eingangs (senderHasActiveHcmRecord) fragt diese
+        // Tabellen, sobald ein CRM-Kontakt zur Nummer existiert.
+        // Rueckgabe des Bestandschecks liest postings()->first() — leer reicht.
+        Capsule::schema()->create('rec_postings', function (Blueprint $table) {
+            $table->id();
+        });
+
+        foreach (['hcm_onboardings', 'hcm_employees'] as $hcmTable) {
+            Capsule::schema()->create($hcmTable, function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('team_id');
+                $table->boolean('is_active')->default(true);
+                $table->timestamps();
+            });
+        }
     }
 
     private static function packageRootOf(string $class): string
