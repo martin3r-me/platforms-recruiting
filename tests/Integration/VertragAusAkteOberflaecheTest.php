@@ -3,6 +3,14 @@
 namespace Platform\Recruiting\Tests\Integration;
 
 use Illuminate\Container\Container;
+use Illuminate\Events\Dispatcher;
+use Illuminate\Filesystem\Filesystem;
+use Illuminate\Http\Request;
+use Illuminate\View\Compilers\BladeCompiler;
+use Illuminate\View\Engines\CompilerEngine;
+use Illuminate\View\Engines\EngineResolver;
+use Illuminate\View\Factory as ViewFactory;
+use Illuminate\View\FileViewFinder;
 use PHPUnit\Framework\TestCase;
 use Platform\Recruiting\Http\Controllers\VertragPdfController;
 use Platform\Recruiting\Livewire\Employees\Show;
@@ -28,6 +36,7 @@ final class VertragAusAkteOberflaecheTest extends TestCase
     protected function tearDown(): void
     {
         Container::getInstance()->forgetInstance(VertragHinweisSender::class);
+        Container::getInstance()->forgetInstance('request');
         $this->weltAbbauen();
         parent::tearDown();
     }
@@ -197,5 +206,106 @@ final class VertragAusAkteOberflaecheTest extends TestCase
         $this->assertSame($v->id, VertragPdfController::hrVertrag($this->team, $v->id)?->id);
         $this->assertNull(VertragPdfController::hrVertrag($this->team + 1, $v->id));
         $this->assertNull(VertragPdfController::hrVertrag($this->team, $offen->id));
+    }
+
+    /** Review Fix 3: der Aufruf vom HR-Schreibtisch (Task 8) oeffnet das Fenster ueber mount(). */
+    public function test_mount_mit_vertrag_neu_oeffnet_vorbelegt(): void
+    {
+        $this->maVorlage();
+        $ma = $this->anstellung();
+
+        Container::getInstance()->instance('request', Request::create('/x', 'GET', ['vertrag' => 'neu', 'einsatz' => '2026-11-14']));
+        $akte = new Show();
+        $akte->mount($ma->id);
+        $this->assertTrue($akte->vertragModalShow);
+        $this->assertSame('2026-11-01', $akte->vertragBeginn);
+        $this->assertSame('2026-11-30', $akte->vertragEnde);
+
+        Container::getInstance()->instance('request', Request::create('/x', 'GET', ['vertrag' => 'neu', 'einsatz' => '14.11.2026']));
+        $kaputt = new Show();
+        $kaputt->mount($ma->id);
+        $this->assertTrue($kaputt->vertragModalShow, 'ungueltiger Einsatztag: Fenster offen, nur ohne Vorbelegung');
+        $this->assertSame('', $kaputt->vertragBeginn);
+        $this->assertSame('', $kaputt->vertragEnde);
+
+        Container::getInstance()->instance('request', Request::create('/x', 'GET'));
+        $ohne = new Show();
+        $ohne->mount($ma->id);
+        $this->assertFalse($ohne->vertragModalShow);
+    }
+
+    /** Review Fix 1: die Meldung steht IM Fenster — die Kopfzeile liegt hinter dem Overlay. */
+    public function test_fehlermeldung_steht_im_gerenderten_fenster(): void
+    {
+        $vorlage = $this->maVorlage();
+        $ma = $this->anstellung();
+        $this->vertragAn($ma, $vorlage, [], ['vertragsbeginn' => '2026-10-01', 'vertragsende' => '2026-10-31']);
+        $akte = $this->akte($ma);
+        $akte->openVertragModal('2026-10-20');
+        $akte->vertragVorlageId = (string) $vorlage->id;
+        $akte->vertragZuschlag = '0,60';
+        $akte->vertragErstellen();
+        $this->assertNotNull($akte->flashError);
+
+        $html = $this->renderPartial('_vertrag-erstellen', [
+            'vertragVorlagen' => $akte->vertragsVorlagen(),
+            'vertragFirma'    => 'MA',
+            'fehler'          => $akte->flashError,
+        ]);
+
+        $this->assertStringContainsString(e($akte->flashError), $html);
+        $this->assertStringContainsString('bereits einen Arbeitsvertrag', $html);
+        $this->assertStringContainsString('wire:model="vertragZuschlag"', $html, 'Formular bleibt sichtbar');
+
+        $ohneFehler = $this->renderPartial('_vertrag-erstellen', ['vertragVorlagen' => [], 'vertragFirma' => 'MA', 'fehler' => null]);
+        $this->assertStringNotContainsString('bg-red-50', $ohneFehler);
+        $this->assertStringContainsString('keine Arbeitsvertrags-Vorlage', $ohneFehler);
+    }
+
+    /** Beide Fenster binden die Fehlerzeile ein, das Vertragsfenster seinen Rumpf (Quelle, nicht Laufzeit). */
+    public function test_beide_fenster_binden_die_fehlerzeile_ein(): void
+    {
+        $quelle = (string) file_get_contents(dirname(__DIR__, 2) . '/resources/views/livewire/employees/show.blade.php');
+        $reissue = substr($quelle, strpos($quelle, 'model="reissueModalShow"'));
+        $reissue = substr($reissue, 0, strpos($reissue, '</x-ui-modal>'));
+        $vertrag = substr($quelle, strpos($quelle, 'model="vertragModalShow"'));
+        $vertrag = substr($vertrag, 0, strpos($vertrag, '</x-ui-modal>'));
+
+        $this->assertStringContainsString("employees._modal-fehler", $reissue);
+        $this->assertStringContainsString("employees._vertrag-erstellen", $vertrag);
+    }
+
+    public function test_unterschriebene_zeile_traegt_den_code(): void
+    {
+        $ma = $this->anstellung();
+        $v = $this->vertragAn($ma, $this->vorlage('AV-060', 'MA'), ['status' => 'completed', 'signed_at' => '2025-01-02 12:00:00', 'completed_at' => '2025-01-02 12:00:00']);
+
+        $zeile = $this->akte($ma)->signedContracts()[0];
+        $this->assertSame($v->id, $zeile['id']);
+        $this->assertSame('Arbeitsvertrag', $zeile['display_name']);
+        $this->assertSame('AV-060', $zeile['code']);
+    }
+
+    private function renderPartial(string $name, array $daten): string
+    {
+        $cache = sys_get_temp_dir() . '/vertrag-akte-render-' . getmypid() . '-' . uniqid();
+        @mkdir($cache, 0777, true);
+        $viewsRoot = dirname(__DIR__, 2) . '/resources/views';
+        $files = new Filesystem();
+        $compiler = new BladeCompiler($files, $cache);
+        $resolver = new EngineResolver();
+        $resolver->register('blade', fn () => new CompilerEngine($compiler, $files));
+        $finder = new FileViewFinder($files, [$viewsRoot]);
+        $finder->addNamespace('recruiting', $viewsRoot);
+        $factory = new ViewFactory($resolver, $finder, new Dispatcher(new Container()));
+
+        try {
+            return $factory->make('recruiting::livewire.employees.' . $name, $daten)->render();
+        } finally {
+            foreach (glob($cache . '/*') ?: [] as $f) {
+                @unlink($f);
+            }
+            @rmdir($cache);
+        }
     }
 }

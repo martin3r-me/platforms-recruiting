@@ -466,6 +466,9 @@
                                     @if($c['merkmale'] !== '')
                                         <span class="text-xs text-[var(--ui-muted)]">{{ $c['merkmale'] }}</span>
                                     @endif
+                                    @if($c['code'])
+                                        <span class="text-xs text-[var(--ui-muted)]">({{ $c['code'] }})</span>
+                                    @endif
                                     <span class="text-xs text-[var(--ui-muted)]">am {{ \Carbon\Carbon::parse($c['signed_at'])->format('d.m.Y') }}</span>
                                     @if($c['superseded_by'])
                                         <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
@@ -738,6 +741,7 @@
             <x-ui-modal size="sm" model="reissueModalShow">
                 <x-slot name="header">Vertrag neu ausstellen</x-slot>
                 <div class="p-4 space-y-4">
+                    @include('recruiting::livewire.employees._modal-fehler', ['fehler' => $flashError])
                     @if($reissueOpenMode)
                         <p class="text-xs text-[var(--ui-muted)]">
                             Der noch nicht unterschriebene Vertrag wird storniert — sein Signaturlink funktioniert
@@ -821,46 +825,14 @@
             {{-- Vertrag erstellen (Spec 2026-10-09 §2.1) --}}
             <x-ui-modal size="sm" model="vertragModalShow">
                 <x-slot name="header">Vertrag erstellen</x-slot>
+                {{-- Vorlagen nur bei offenem Fenster laden, nicht bei jedem Seitenaufbau. --}}
                 @php
-                    $vertragVorlagen = $this->vertragsVorlagen;
+                    $vertragVorlagen = $vertragModalShow ? $this->vertragsVorlagen : [];
                     $vertragFirma = trim((string) ($employee?->company ?? ''));
                 @endphp
-                <div class="p-4 space-y-4">
-                    @if(empty($vertragVorlagen))
-                        <p class="text-sm text-amber-700">
-                            Für die Gesellschaft {{ $vertragFirma !== '' ? $vertragFirma : '—' }} ist keine Arbeitsvertrags-Vorlage angelegt.
-                        </p>
-                    @else
-                        <div>
-                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Vertragsart</label>
-                            <select wire:model="vertragVorlageId" class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm bg-white">
-                                <option value="">– Vertragsart wählen –</option>
-                                @foreach($vertragVorlagen as $vv)
-                                    <option value="{{ $vv['id'] }}">{{ $vv['label'] }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Beginn</label>
-                            <input type="date" wire:model="vertragBeginn"
-                                   class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Ende</label>
-                            <input type="date" wire:model="vertragEnde"
-                                   class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
-                            <p class="text-xs text-[var(--ui-muted)] mt-1">
-                                Leer = ein Jahr ab Beginn, zum Monatsende. Für MA-Monatsverträge den Monatsletzten eintragen.
-                            </p>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-[var(--ui-secondary)] mb-1">Zuschlag (€/Std)</label>
-                            <input type="text" wire:model="vertragZuschlag" placeholder="0,60"
-                                   class="w-full border border-[var(--ui-border)] rounded-md px-3 py-1.5 text-sm" />
-                            <p class="text-xs text-[var(--ui-muted)] mt-1">0 ist erlaubt.</p>
-                        </div>
-                    @endif
-                </div>
+                @if($vertragModalShow)
+                    @include('recruiting::livewire.employees._vertrag-erstellen', ['vertragVorlagen' => $vertragVorlagen, 'vertragFirma' => $vertragFirma, 'fehler' => $flashError])
+                @endif
                 <x-slot name="footer">
                     <div class="flex items-center justify-end gap-2">
                         <x-ui-button variant="secondary" wire:click="closeVertragModal">Abbrechen</x-ui-button>

@@ -517,6 +517,7 @@ class Show extends Component
                 return [
                     'id'            => $c->id,
                     'display_name'  => $displayName,
+                    'code'          => $code,
                     'merkmale'      => VorlagenMerkmale::zeile($c->contractTemplate?->company, $c->contractTemplate?->taetigkeit),
                     'signed_at'     => $c->signed_at,
                     'pdf_url'       => $pdfUrl,
@@ -804,6 +805,8 @@ class Show extends Component
 
     public function closeVertragModal(): void
     {
+        // Die Meldung gehoerte zum Fenster — beim Schliessen mit weg.
+        $this->flashError = null;
         $this->vertragModalShow = false;
         $this->vertragVorlageId = '';
         $this->vertragBeginn = '';
