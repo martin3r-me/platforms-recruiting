@@ -139,6 +139,8 @@ class RecApplicantSettings extends Model
         // null = Fallback Europe/Berlin (aufgeloest NUR in TeamClock, nie an
         // Call-Sites). Bewusst noch nicht im Einstellungen-Modal editierbar.
         'comms_timezone' => null,
+        // Steuerklasse gilt je Gesellschaft (RG/MA) statt je Person: dann spiegelt PersonenSpiegel sie nicht
+        'tax_class_per_company' => false,
         // Payroll-Tracking: welche Felder als lohnrelevant gelten
         'employee_payroll_tracked_fields' => [
             'iban', 'bic', 'bank_institute', 'account_holder',

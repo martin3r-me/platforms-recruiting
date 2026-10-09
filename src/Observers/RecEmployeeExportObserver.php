@@ -227,15 +227,27 @@ class RecEmployeeExportObserver
      */
     protected static function trackPayrollChanges(RecEmployee $employee): void
     {
-        $changes = array_keys($employee->getChanges());
+        $aenderungen = [];
+        foreach (array_keys($employee->getChanges()) as $feld) {
+            $aenderungen[$feld] = ['old' => $employee->getOriginal($feld), 'new' => $employee->getAttribute($feld)];
+        }
 
-        $settings = RecApplicantSettings::getOrCreateForTeam($employee->team_id);
-        $trackedFields = $settings->getSetting(
-            'employee_payroll_tracked_fields',
-            RecApplicantSettings::DEFAULT_SETTINGS['employee_payroll_tracked_fields'] ?? []
-        );
+        self::verfolgeLohn((int) $employee->id, $employee->team_id !== null ? (int) $employee->team_id : null, $aenderungen);
+    }
 
-        $candidates = array_intersect($changes, $trackedFields);
+    /**
+     * Gemeinsamer Lohn-Helfer: Quelle (Observer) und PersonenSpiegel (Geschwister).
+     *
+     * @param array<string,array{old:mixed,new:mixed}> $aenderungen
+     */
+    public static function verfolgeLohn(int $employeeId, ?int $teamId, array $aenderungen): void
+    {
+        $defaults = RecApplicantSettings::DEFAULT_SETTINGS['employee_payroll_tracked_fields'] ?? [];
+        $trackedFields = $teamId === null
+            ? $defaults
+            : RecApplicantSettings::getOrCreateForTeam($teamId)->getSetting('employee_payroll_tracked_fields', $defaults);
+
+        $candidates = array_intersect(array_keys($aenderungen), $trackedFields);
         if (empty($candidates)) {
             return;
         }
@@ -243,8 +255,8 @@ class RecEmployeeExportObserver
         // Echte Aenderungen filtern (Initial-Setzungen ignorieren)
         $realChanges = [];
         foreach ($candidates as $field) {
-            $old = self::normalizePayrollValue($employee->getOriginal($field));
-            $new = self::normalizePayrollValue($employee->getAttribute($field));
+            $old = self::normalizePayrollValue($aenderungen[$field]['old'] ?? null);
+            $new = self::normalizePayrollValue($aenderungen[$field]['new'] ?? null);
 
             if ($old === null) {
                 // Erstbefuellung — kein Tracking
@@ -261,7 +273,7 @@ class RecEmployeeExportObserver
         }
 
         $existing = DB::table('rec_employees')
-            ->where('id', $employee->id)
+            ->where('id', $employeeId)
             ->value('payroll_data_changed_fields');
         $entries = $existing ? json_decode($existing, true) : [];
         if (!is_array($entries)) {
@@ -279,7 +291,7 @@ class RecEmployeeExportObserver
         }
 
         DB::table('rec_employees')
-            ->where('id', $employee->id)
+            ->where('id', $employeeId)
             ->update([
                 'payroll_data_changed_at'     => now(),
                 'payroll_data_changed_fields' => json_encode($entries),
