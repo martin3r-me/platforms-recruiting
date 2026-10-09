@@ -332,6 +332,19 @@ class DispoDeclineCheckTest extends TestCase
         $this->assertFalse(RecDispoFilialeSettings::isDeclineCheckActive(null, new \DateTimeImmutable('2026-10-09 12:00:00')));
     }
 
+    public function test_saving_the_row_keeps_the_start_today_and_never_revives_a_stale_tick(): void
+    {
+        $now = new \DateTimeImmutable('2026-10-10 09:00:00');
+        $today = new \DateTimeImmutable('2026-10-10 07:30:00');
+        $yesterday = new \DateTimeImmutable('2026-10-09 10:00:00');
+
+        $this->assertNull(RecDispoFilialeSettings::declineCheckStampOnSave(false, true, $today, $now), 'Haken raus = aus');
+        $this->assertSame($today, RecDispoFilialeSettings::declineCheckStampOnSave(true, true, $today, $now), 'erneutes Speichern verschiebt den Start nicht');
+        $this->assertNull(RecDispoFilialeSettings::declineCheckStampOnSave(true, true, $yesterday, $now), 'Seite ueber Nacht offen: Haken von gestern schaltet nicht wieder ein');
+        $this->assertSame($now, RecDispoFilialeSettings::declineCheckStampOnSave(true, false, $yesterday, $now), 'frischer Klick schaltet ein');
+        $this->assertSame($now, RecDispoFilialeSettings::declineCheckStampOnSave(true, false, null, $now));
+    }
+
     public function test_person_not_yet_asked_for_confirmation_is_not_checked(): void
     {
         [, , $a, $t] = $this->scenario();

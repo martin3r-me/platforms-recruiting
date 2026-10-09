@@ -30,6 +30,25 @@ class RecDispoFilialeSettings extends Model
             && $enabledAt->format('Y-m-d') === $at->format('Y-m-d');
     }
 
+    /**
+     * Neuer Stempel beim Speichern der Filial-Zeile. Am selben Tag bleibt der
+     * Start erhalten. Ist der Stempel abgelaufen und war die Checkbox schon
+     * beim Laden gesetzt, ist das ein Haken von gestern auf einer ueber Nacht
+     * offenen Seite — kein neues Einschalten, also aus. Nur ein frischer Klick
+     * (beim Laden leer, jetzt gesetzt) schaltet neu ein.
+     */
+    public static function declineCheckStampOnSave(bool $checked, bool $checkedOnLoad, ?\DateTimeInterface $previous, \DateTimeInterface $now): ?\DateTimeInterface
+    {
+        if (!$checked) {
+            return null;
+        }
+        if (self::isDeclineCheckActive($previous, $now)) {
+            return $previous;
+        }
+
+        return $checkedOnLoad ? null : $now;
+    }
+
     /** Filialen, deren Absage-Erkennung zum Zeitpunkt $at aktiv ist (Regel siehe isDeclineCheckActive). */
     public function scopeDeclineCheckActiveAt(Builder $query, \DateTimeInterface $at): Builder
     {
